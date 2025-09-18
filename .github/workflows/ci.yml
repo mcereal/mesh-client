@@ -24,9 +24,14 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config libdbus-1-dev protobuf-compiler python3 git zip
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config libdbus-1-dev protobuf-compiler python3 python3-pip git zip
           if [ "${{ matrix.compiler }}" = "clang" ]; then sudo apt-get install -y clang lldb lld; fi
           if [ "${{ matrix.compiler }}" = "gcc" ]; then sudo apt-get install -y gcc g++; fi
+
+      - name: Install Python packages for nanopb generator
+        run: |
+          python3 -m pip install --user --upgrade pip setuptools wheel
+          python3 -m pip install --user protobuf grpcio-tools
 
       - name: Select compiler
         run: |

@@ -19,7 +19,9 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config libdbus-1-dev protobuf-compiler python3 zip
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config libdbus-1-dev protobuf-compiler python3 python3-pip zip
+          python3 -m pip install --user --upgrade pip setuptools wheel
+          python3 -m pip install --user protobuf grpcio-tools
 
       - name: Build (Release)
         run: make release
