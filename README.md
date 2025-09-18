@@ -23,6 +23,9 @@ make test
 
 # List nearby Meshtastic BLE nodes and exit
 ./build/debug/meshclient --list-devices
+
+# Print cached handshake / node summary (use --json for machine-readable output)
+./build/debug/meshclient --status --json
 ```
 
 If CMake is not installed, install it with your package manager first (e.g. `sudo apt install cmake`).
