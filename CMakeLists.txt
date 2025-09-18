@@ -54,6 +54,14 @@ endif()
 
 find_package(Threads REQUIRED)
 find_package(PkgConfig)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+find_program(NANOPB_GENERATOR_EXECUTABLE nanopb_generator)
+
+if(NANOPB_GENERATOR_EXECUTABLE)
+    set(NANOPB_GENERATOR_COMMAND ${NANOPB_GENERATOR_EXECUTABLE})
+else()
+    set(NANOPB_GENERATOR_COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/third_party/nanopb/generator/nanopb_generator.py)
+endif()
 
 if(PkgConfig_FOUND)
     pkg_check_modules(DBUS dbus-1)
@@ -74,8 +82,60 @@ add_executable(meshclient src/main.c)
 
 target_link_libraries(meshclient PRIVATE meshclient_core)
 
+set(nanopb_BUILD_GENERATOR OFF CACHE BOOL "Disable nanopb generator build" FORCE)
+set(nanopb_BUILD_RUNTIME ON CACHE BOOL "Enable nanopb runtime" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "Use static nanopb" FORCE)
+set(BUILD_STATIC_LIBS ON CACHE BOOL "Build static nanopb" FORCE)
+
 add_subdirectory(third_party/nanopb)
-target_link_libraries(meshclient_core PUBLIC nanopb_stub)
+target_link_libraries(meshclient_core PUBLIC protobuf-nanopb-static)
+
+set(NANOPB_GENERATED_DIR ${CMAKE_BINARY_DIR}/generated/nanopb)
+file(MAKE_DIRECTORY ${NANOPB_GENERATED_DIR})
+
+set(MESH_PROTO_FILES
+    ${PROJECT_SOURCE_DIR}/proto/meshtastic/mesh.proto
+)
+
+set(NANOPB_GENERATED_SOURCES)
+set(NANOPB_GENERATED_HEADERS)
+
+foreach(PROTO_FILE ${MESH_PROTO_FILES})
+    get_filename_component(PROTO_BASENAME ${PROTO_FILE} NAME_WE)
+    get_filename_component(PROTO_DIR ${PROTO_FILE} DIRECTORY)
+    file(RELATIVE_PATH PROTO_SUBDIR ${PROJECT_SOURCE_DIR}/proto ${PROTO_DIR})
+    if(PROTO_SUBDIR STREQUAL "")
+        set(OUTPUT_SUBDIR "")
+    else()
+        set(OUTPUT_SUBDIR ${PROTO_SUBDIR})
+    endif()
+
+    set(GENERATED_DIR ${NANOPB_GENERATED_DIR}/${OUTPUT_SUBDIR})
+    set(GENERATED_C ${GENERATED_DIR}/${PROTO_BASENAME}.pb.c)
+    set(GENERATED_H ${GENERATED_DIR}/${PROTO_BASENAME}.pb.h)
+
+    add_custom_command(
+        OUTPUT ${GENERATED_C} ${GENERATED_H}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${GENERATED_DIR}
+        COMMAND ${NANOPB_GENERATOR_COMMAND}
+            -D ${NANOPB_GENERATED_DIR}
+            -I ${PROJECT_SOURCE_DIR}/proto
+            ${PROTO_FILE}
+        DEPENDS ${PROTO_FILE}
+        COMMENT "Generating nanopb sources for ${PROTO_FILE}"
+        VERBATIM
+    )
+
+    list(APPEND NANOPB_GENERATED_SOURCES ${GENERATED_C})
+    list(APPEND NANOPB_GENERATED_HEADERS ${GENERATED_H})
+endforeach()
+
+set_source_files_properties(${NANOPB_GENERATED_SOURCES} ${NANOPB_GENERATED_HEADERS} PROPERTIES GENERATED TRUE)
+
+add_custom_target(nanopb_codegen DEPENDS ${NANOPB_GENERATED_SOURCES} ${NANOPB_GENERATED_HEADERS})
+add_dependencies(meshclient_core nanopb_codegen)
+target_sources(meshclient_core PRIVATE ${NANOPB_GENERATED_SOURCES})
+target_include_directories(meshclient_core PUBLIC ${NANOPB_GENERATED_DIR})
 
 target_compile_options(meshclient PRIVATE ${MESHCLIENT_COMPILE_OPTIONS})
 if(MESHCLIENT_LINK_OPTIONS)

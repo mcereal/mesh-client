@@ -39,6 +39,7 @@ Copy the resulting `dist/MeshClient.pak.zip` (or the extracted `MeshClient.pak/`
 - **Runtime env vars:** `MESHCLIENT_RUN_MODE`, `MESHCLIENT_IDLE_TIMEOUT_MS`, `MESHCLIENT_DISABLE_BLE`, `MESHCLIENT_PREFERRED_BLE_DEVICE`.
 - **BlueZ:** At runtime the BLE transport connects to system D-Bus, locates the first adapter, and begins discovery. If BlueZ or an adapter is missing, the transport reports `waiting-for-bluez` / `waiting-for-adapter` and stays idle without failing the app.
 - **Protobuf scaffolding:** `third_party/nanopb` currently ships a stub; replace with upstream nanopb before shipping and add generated Meshtastic protobufs.
+- **Protogen:** Use `make proto` to regenerate nanopb sources from files in `proto/` (requires `protoc` plus the `nanopb_generator` script; install via `pip install nanopb` or ensure `nanopb_generator` is on PATH).
 
 ## Repository Layout
 

@@ -3,7 +3,7 @@ SHELL := /bin/bash
 
 CMAKE_ARGS ?=
 
-.PHONY: help debug release relwithdebinfo build test package clean distclean run
+.PHONY: help debug release relwithdebinfo build test package proto clean distclean run
 
 help:
 	@echo "Common targets:"
@@ -30,6 +30,9 @@ test: debug
 
 package: release
 	./scripts/package.sh release
+
+proto: debug
+	cmake --build build/debug --target nanopb_codegen
 
 run: debug
 	./build/debug/meshclient --foreground --log-level debug

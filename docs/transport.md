@@ -19,6 +19,7 @@ Serial, and HTTP transports.
 - Adapter discovery, scanning, and Meshtastic GATT service discovery.
 - Protobuf framing via nanopb with MTU-aware chunking.
 - Event-loop integration for watch descriptors and notifications.
+- Automate protobuf regeneration (`make proto`) once Meshtastic schemas are updated.
 
 ### Next
 
