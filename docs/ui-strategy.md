@@ -20,7 +20,7 @@
 - [done] BLE discovery and handshake data feed directly into the UI store; store/controller unit coverage lives in `tests/test_main.c`.
 - [done] CLI backend implemented for host development; backend selection driven by `MESHCLIENT_UI_BACKEND` (defaults to CLI unless MinUI helpers are present).
 - [done] Preferences persist the last connected device under `~/.meshclient/ui_prefs` (auto-created via the launch `HOME`).
-- [todo] Implement the TrimUI MinUI backend end-to-end and package helper binaries.
+- [in-progress] Extract the TrimUI MinUI helper binaries from `third_party/nextui/` so the device backend can render real screens (see `docs/ui-nextui-integration.md`).
 - [in-progress] Persist additional UI preferences (channel selection, display options) alongside the stored device.
 
 ## Architectural Principles
@@ -57,7 +57,7 @@
    - [done] BLE discovery and handshake updates publish into the store from `mesh_app`.
    - [todo] Provide serialization helpers so the store can persist minimal UI preferences (`preferred_device`, last channel) alongside existing config.
 3. **NextUI backend**
-   - Vendor MinUI helper binaries under `bin/shared/` and ship a wrapper that spawns them with well-defined JSON contracts.
+   - Vendor MinUI helper binaries under `bin/shared/` (built from `third_party/nextui/`; see `docs/ui-nextui-integration.md`) and ship a wrapper that spawns them with well-defined JSON contracts.
    - Flesh out screen flows: home/status, device picker, node list, compose message, settings dialog.
    - Replace the placeholder presenter callouts with real MinUI invocations once helpers land.
 4. **Testing** *(ongoing)*
@@ -69,6 +69,7 @@
 - `auto` prefers the MinUI backend when helpers (`minui-presenter`, `minui-list`, `minui-keyboard`) are on `PATH`, otherwise falls back to the CLI view.
 - TrimUI builds should package MinUI helpers and set `MESHCLIENT_UI_BACKEND=minui` in the launch script once the backend is fully wired.
 - Override helper binaries via `MESHCLIENT_MINUI_PRESENTER_CMD` / `MESHCLIENT_MINUI_LIST_CMD` to point at bundled scripts when packaging.
+- Placeholder shell scripts live under `Tools/tg5040/MeshClient.pak/bin/shared/` so desktop builds keep functioning until the real helpers are compiled from the NextUI submodule.
 
 ## Performance Considerations
 

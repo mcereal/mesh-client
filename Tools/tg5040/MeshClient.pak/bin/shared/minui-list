@@ -1,0 +1,15 @@
+#!/bin/sh
+# Placeholder helper for MinUI list rendering. During development on host systems
+# we simply echo the incoming snapshot to stderr so state is visible when the
+# MinUI binaries are not available.
+
+set -eu
+TMP_FILE=$(mktemp)
+trap 'rm -f "$TMP_FILE"' EXIT
+cat > "$TMP_FILE"
+COUNTER=1
+while IFS= read -r line; do
+    printf '[minui-list placeholder] %02d: %s\n' "$COUNTER" "$line" >&2
+    COUNTER=$((COUNTER + 1))
+done < "$TMP_FILE"
+exit 0

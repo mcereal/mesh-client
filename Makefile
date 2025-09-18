@@ -3,7 +3,7 @@ SHELL := /bin/bash
 
 CMAKE_ARGS ?=
 
-.PHONY: help debug release relwithdebinfo build test package proto clean distclean run
+.PHONY: help debug release relwithdebinfo build test package proto clean distclean run minui
 
 help:
 	@echo "Common targets:"
@@ -30,6 +30,9 @@ test: debug
 
 package: release
 	./scripts/package.sh release
+
+minui:
+	./scripts/build_minui_helpers.sh
 
 proto: debug
 	cmake --build build/debug --target nanopb_codegen
