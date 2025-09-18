@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 #define MESHTASTIC_SERVICE_UUID "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
 
@@ -418,13 +419,220 @@ int mesh_bluez_client_write(struct mesh_bluez_client *client, const char *device
     }
 
 #ifdef MESH_HAVE_DBUS
+    DBusConnection *connection = (DBusConnection *)client->connection;
+    DBusMessage *message = dbus_message_new_method_call("org.bluez", device_path,
+                                                       "org.bluez.GattCharacteristic1", "WriteValue");
+    if (message == NULL) {
+        return -ENOMEM;
+    }
+
+    DBusMessageIter iter;
+    dbus_message_iter_init_append(message, &iter);
+
+    DBusMessageIter array_iter;
+    dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY, "y", &array_iter);
+    for (size_t i = 0; i < len; ++i) {
+        uint8_t byte = data[i];
+        if (!dbus_message_iter_append_basic(&array_iter, DBUS_TYPE_BYTE, &byte)) {
+            dbus_message_iter_close_container(&iter, &array_iter);
+            dbus_message_unref(message);
+            return -ENOMEM;
+        }
+    }
+    dbus_message_iter_close_container(&iter, &array_iter);
+
+    DBusMessageIter options_iter;
+    dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY, "{sv}", &options_iter);
+    dbus_message_iter_close_container(&iter, &options_iter);
+
+    DBusError error;
+    dbus_error_init(&error);
+    DBusMessage *reply = dbus_connection_send_with_reply_and_block(connection, message, DBUS_TIMEOUT_USE_DEFAULT,
+                                                                   &error);
+    dbus_message_unref(message);
+
+    if (reply == NULL) {
+        if (dbus_error_is_set(&error)) {
+            mesh_log_warn("bluez", "WriteValue failed: %s", error.message);
+            dbus_error_free(&error);
+        }
+        return -EIO;
+    }
+
+    dbus_message_unref(reply);
+    return 0;
+#else
+    return -ENOSYS;
+#endif
+}
+
+#ifdef MESH_HAVE_DBUS
+static int mesh_bluez_find_characteristics(DBusConnection *connection, const char *device_path, const char *uuid,
+                                           char *out_path, size_t out_len) {
+    DBusMessage *message = dbus_message_new_method_call("org.bluez", "/",
+                                                       "org.freedesktop.DBus.ObjectManager",
+                                                       "GetManagedObjects");
+    if (message == NULL) {
+        return -ENOMEM;
+    }
+
+    DBusError error;
+    dbus_error_init(&error);
+    DBusMessage *reply = dbus_connection_send_with_reply_and_block(connection, message, 1000, &error);
+    dbus_message_unref(message);
+
+    if (reply == NULL) {
+        if (dbus_error_is_set(&error)) {
+            mesh_log_warn("bluez", "GetManagedObjects failed: %s", error.message);
+            dbus_error_free(&error);
+        }
+        return -EIO;
+    }
+
+    DBusMessageIter iter;
+    if (!dbus_message_iter_init(reply, &iter) || dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_ARRAY) {
+        dbus_message_unref(reply);
+        return -EIO;
+    }
+
+    DBusMessageIter array_iter;
+    dbus_message_iter_recurse(&iter, &array_iter);
+    bool found = false;
+
+    while (dbus_message_iter_get_arg_type(&array_iter) == DBUS_TYPE_DICT_ENTRY) {
+        DBusMessageIter dict_entry;
+        dbus_message_iter_recurse(&array_iter, &dict_entry);
+        if (dbus_message_iter_get_arg_type(&dict_entry) != DBUS_TYPE_OBJECT_PATH) {
+            dbus_message_iter_next(&array_iter);
+            continue;
+        }
+
+        const char *object_path = NULL;
+        dbus_message_iter_get_basic(&dict_entry, &object_path);
+        dbus_message_iter_next(&dict_entry);
+
+        if (object_path == NULL || strncmp(object_path, device_path, strlen(device_path)) != 0) {
+            dbus_message_iter_next(&array_iter);
+            continue;
+        }
+
+        if (dbus_message_iter_get_arg_type(&dict_entry) != DBUS_TYPE_ARRAY) {
+            dbus_message_iter_next(&array_iter);
+            continue;
+        }
+
+        DBusMessageIter iface_iter;
+        dbus_message_iter_recurse(&dict_entry, &iface_iter);
+        while (dbus_message_iter_get_arg_type(&iface_iter) == DBUS_TYPE_DICT_ENTRY) {
+            DBusMessageIter iface_entry;
+            dbus_message_iter_recurse(&iface_iter, &iface_entry);
+            if (dbus_message_iter_get_arg_type(&iface_entry) != DBUS_TYPE_STRING) {
+                dbus_message_iter_next(&iface_iter);
+                continue;
+            }
+
+            const char *interface_name = NULL;
+            dbus_message_iter_get_basic(&iface_entry, &interface_name);
+            dbus_message_iter_next(&iface_entry);
+
+            if (interface_name == NULL || strcmp(interface_name, "org.bluez.GattCharacteristic1") != 0) {
+                dbus_message_iter_next(&iface_iter);
+                continue;
+            }
+
+            if (dbus_message_iter_get_arg_type(&iface_entry) != DBUS_TYPE_ARRAY) {
+                dbus_message_iter_next(&iface_iter);
+                continue;
+            }
+
+            DBusMessageIter props_iter;
+            dbus_message_iter_recurse(&iface_entry, &props_iter);
+            while (dbus_message_iter_get_arg_type(&props_iter) == DBUS_TYPE_DICT_ENTRY) {
+                DBusMessageIter prop_entry;
+                dbus_message_iter_recurse(&props_iter, &prop_entry);
+                if (dbus_message_iter_get_arg_type(&prop_entry) != DBUS_TYPE_STRING) {
+                    dbus_message_iter_next(&props_iter);
+                    continue;
+                }
+
+                const char *property_name = NULL;
+                dbus_message_iter_get_basic(&prop_entry, &property_name);
+                dbus_message_iter_next(&prop_entry);
+
+                if (strcmp(property_name, "UUID") == 0) {
+                    DBusMessageIter variant_iter;
+                    dbus_message_iter_recurse(&prop_entry, &variant_iter);
+                    if (dbus_message_iter_get_arg_type(&variant_iter) == DBUS_TYPE_STRING) {
+                        const char *value = NULL;
+                        dbus_message_iter_get_basic(&variant_iter, &value);
+                        if (value != NULL && strcasecmp(value, uuid) == 0) {
+                            snprintf(out_path, out_len, "%s", object_path);
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+
+                dbus_message_iter_next(&props_iter);
+            }
+
+            if (found) {
+                break;
+            }
+
+            dbus_message_iter_next(&iface_iter);
+        }
+
+        if (found) {
+            break;
+        }
+
+        dbus_message_iter_next(&array_iter);
+    }
+
+    dbus_message_unref(reply);
+    return found ? 0 : -ENOENT;
+}
+#endif
+
+int mesh_bluez_client_find_nus_characteristics(struct mesh_bluez_client *client, const char *device_path,
+                                               char *rx_path, size_t rx_len, char *tx_path, size_t tx_len) {
+    if (client == NULL || device_path == NULL || rx_path == NULL || tx_path == NULL) {
+        return -EINVAL;
+    }
+
+    if (g_mock_state.enabled) {
+        if (g_mock_state.config.rx_char_path != NULL) {
+            snprintf(rx_path, rx_len, "%s", g_mock_state.config.rx_char_path);
+        } else {
+            snprintf(rx_path, rx_len, "%s/nus_rx", device_path);
+        }
+        if (g_mock_state.config.tx_char_path != NULL) {
+            snprintf(tx_path, tx_len, "%s", g_mock_state.config.tx_char_path);
+        } else {
+            snprintf(tx_path, tx_len, "%s/nus_tx", device_path);
+        }
+        return 0;
+    }
+
+#ifdef MESH_HAVE_DBUS
+    DBusConnection *connection = (DBusConnection *)client->connection;
+    int rx_result = mesh_bluez_find_characteristics(connection, device_path, MESH_BLE_NUS_RX_UUID, rx_path, rx_len);
+    if (rx_result < 0) {
+        return rx_result;
+    }
+    int tx_result = mesh_bluez_find_characteristics(connection, device_path, MESH_BLE_NUS_TX_UUID, tx_path, tx_len);
+    if (tx_result < 0) {
+        return tx_result;
+    }
+    return 0;
+#else
     (void)client;
     (void)device_path;
-    (void)char_uuid;
-    (void)data;
-    (void)len;
-    return -ENOSYS;
-#else
+    (void)rx_path;
+    (void)rx_len;
+    (void)tx_path;
+    (void)tx_len;
     return -ENOSYS;
 #endif
 }

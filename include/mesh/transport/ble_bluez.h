@@ -30,6 +30,8 @@ struct mesh_bluez_mock_config {
     int disconnect_result;
     int write_result;
     int subscribe_result;
+    const char *rx_char_path;
+    const char *tx_char_path;
     const struct mesh_bluez_device_info *devices;
     size_t device_count;
     int list_result;
@@ -48,6 +50,8 @@ int mesh_bluez_client_disconnect(struct mesh_bluez_client *client, const char *d
 int mesh_bluez_client_subscribe(struct mesh_bluez_client *client, const char *device_path, const char *char_uuid);
 int mesh_bluez_client_write(struct mesh_bluez_client *client, const char *device_path, const char *char_uuid,
                             const uint8_t *data, size_t len);
+int mesh_bluez_client_find_nus_characteristics(struct mesh_bluez_client *client, const char *device_path,
+                                               char *rx_path, size_t rx_len, char *tx_path, size_t tx_len);
 
 void mesh_bluez_client_mock_enable(const struct mesh_bluez_mock_config *config);
 void mesh_bluez_client_mock_disable(void);
@@ -55,3 +59,6 @@ void mesh_bluez_client_mock_disable(void);
 #ifdef __cplusplus
 }
 #endif
+#define MESH_BLE_NUS_SERVICE_UUID "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
+#define MESH_BLE_NUS_RX_UUID "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
+#define MESH_BLE_NUS_TX_UUID "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"

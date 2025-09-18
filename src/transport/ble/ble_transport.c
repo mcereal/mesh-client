@@ -45,10 +45,12 @@ struct mesh_ble_transport_state {
     char connected_address[32];
     char connected_device_path[128];
     bool notifications_enabled;
+    char rx_char_path[128];
+    char tx_char_path[128];
 };
 
-static const char *k_mesh_ble_nus_rx_uuid __attribute__((unused)) = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E";
-static const char *k_mesh_ble_nus_tx_uuid = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E";
+static const char *k_mesh_ble_nus_rx_uuid __attribute__((unused)) = MESH_BLE_NUS_RX_UUID;
+static const char *k_mesh_ble_nus_tx_uuid = MESH_BLE_NUS_TX_UUID;
 
 static const char *mesh_ble_state_to_string(enum mesh_ble_state state) {
     switch (state) {
@@ -153,6 +155,8 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     state->connected_address[0] = '\0';
     state->connected_device_path[0] = '\0';
     state->notifications_enabled = false;
+    state->rx_char_path[0] = '\0';
+    state->tx_char_path[0] = '\0';
 
     if (!config->enable_ble) {
         mesh_log_info("ble", "BLE transport disabled by configuration");
@@ -266,6 +270,8 @@ static void mesh_ble_stop(struct mesh_transport *transport) {
     state->connected_address[0] = '\0';
     state->connected_device_path[0] = '\0';
     state->notifications_enabled = false;
+    state->rx_char_path[0] = '\0';
+    state->tx_char_path[0] = '\0';
     mesh_log_info("ble", "BLE transport stopped");
 }
 
@@ -404,7 +410,17 @@ int mesh_ble_transport_connect(struct mesh_transport *transport, const char *add
         return result;
     }
 
-    result = mesh_bluez_client_subscribe(&state->bluez, device_path, k_mesh_ble_nus_tx_uuid);
+    char rx_path[sizeof(state->rx_char_path)];
+    char tx_path[sizeof(state->tx_char_path)];
+    result = mesh_bluez_client_find_nus_characteristics(&state->bluez, device_path, rx_path, sizeof(rx_path), tx_path,
+                                                        sizeof(tx_path));
+    if (result < 0) {
+        mesh_bluez_client_disconnect(&state->bluez, device_path);
+        state->link_state = MESH_BLE_LINK_DISCONNECTED;
+        return result;
+    }
+
+    result = mesh_bluez_client_subscribe(&state->bluez, tx_path, k_mesh_ble_nus_tx_uuid);
     if (result < 0) {
         mesh_bluez_client_disconnect(&state->bluez, device_path);
         state->link_state = MESH_BLE_LINK_DISCONNECTED;
@@ -415,6 +431,8 @@ int mesh_ble_transport_connect(struct mesh_transport *transport, const char *add
     state->notifications_enabled = true;
     snprintf(state->connected_address, sizeof(state->connected_address), "%s", address);
     snprintf(state->connected_device_path, sizeof(state->connected_device_path), "%s", device_path);
+    snprintf(state->rx_char_path, sizeof(state->rx_char_path), "%s", rx_path);
+    snprintf(state->tx_char_path, sizeof(state->tx_char_path), "%s", tx_path);
     mesh_log_info("ble", "Connected to %s", address);
     return 0;
 }
@@ -438,6 +456,8 @@ int mesh_ble_transport_disconnect(struct mesh_transport *transport) {
     state->notifications_enabled = false;
     state->connected_address[0] = '\0';
     state->connected_device_path[0] = '\0';
+    state->rx_char_path[0] = '\0';
+    state->tx_char_path[0] = '\0';
     mesh_log_info("ble", "Disconnected from Meshtastic node");
     return 0;
 }

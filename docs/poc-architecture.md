@@ -228,7 +228,7 @@ NodeDB push behavior and single‑consumer caveats on HTTP are documented in ups
 ### BLE scan/connect
 
 - [x] Device discovery via BlueZ `GetManagedObjects` with Meshtastic UUID filtering, address/name/RSSI cache, and periodic refresh.
-- [ ] NUS discovery, subscribe to notify, MTU negotiation (connection stubs exist but behavior is not implemented).
+- [ ] NUS discovery, subscribe to notify, MTU negotiation (Connect/StartNotify/Write stubs wired via BlueZ D-Bus; full data path pending).
 - [ ] Basic status screen with device name/RSSI.
 - [ ] Wire CLI/MinUI flows to reuse the discovery cache (CLI `--list-devices` provided for diagnostics).
 

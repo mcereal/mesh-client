@@ -226,6 +226,8 @@ static void test_ble_transport_connect_mock(void) {
         .disconnect_result = 0,
         .subscribe_result = 0,
         .write_result = 0,
+        .rx_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_03/service0017/char0025",
+        .tx_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_03/service0017/char0026",
         .devices = mock_devices,
         .device_count = sizeof(mock_devices) / sizeof(mock_devices[0]),
         .list_result = 0,

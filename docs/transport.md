@@ -20,7 +20,8 @@ Serial, and HTTP transports.
 ### In Progress
 
 - Connection flow: determine characteristic handles, subscribe to notifications, and maintain a write queue (currently stubbed in `bluez_client.c`).
-- CLI surface for discovery (`meshclient --list-devices`) implemented; actual connect/disconnect operations are mock-backed only until BlueZ GATT calls land.
+- CLI surface for discovery (`meshclient --list-devices`) implemented.
+- Connection scaffolding in place (`Connect`, `StartNotify`, `WriteValue`, `Disconnect` via BlueZ D-Bus). Mock paths succeed in tests; real GATT plumbing still returns `-ENOSYS` until BlueZ support lands.
 - MTU negotiation and NUS data path wiring (pending BlueZ write/notify plumbing).
 - UI integration for the discovery cache (planned via MinUI resources).
 - Automate protobuf regeneration (`make proto`) after updating the Meshtastic protobuf submodule; currently we build `mesh.proto`, `portnums.proto`, `interdevice.proto`, `module_config.proto`, `telemetry.proto`.
