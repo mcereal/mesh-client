@@ -227,6 +227,7 @@ NodeDB push behavior and single‑consumer caveats on HTTP are documented in ups
 
 ### BLE scan/connect
 
+- [x] Device discovery via BlueZ `GetManagedObjects` with Meshtastic UUID filtering and cached address/name/RSSI list.
 - [ ] NUS discovery, subscribe to notify, MTU negotiation.
 - [ ] Basic status screen with device name/RSSI.
 

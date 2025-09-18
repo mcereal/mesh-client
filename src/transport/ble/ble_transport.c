@@ -23,6 +23,8 @@ struct mesh_ble_transport_state {
     bool discovery_active;
     char adapter_path[128];
     struct mesh_bluez_client bluez;
+    struct mesh_bluez_device_info devices[16];
+    size_t device_count;
 };
 
 static const char *mesh_ble_state_to_string(enum mesh_ble_state state) {
@@ -54,6 +56,7 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     state->client_initialised = false;
     state->discovery_active = false;
     state->adapter_path[0] = '\0';
+    state->device_count = 0;
 
     if (!config->enable_ble) {
         mesh_log_info("ble", "BLE transport disabled by configuration");
@@ -121,6 +124,21 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     }
 
     state->discovery_active = true;
+    size_t device_count = 0;
+    int list_result = mesh_bluez_client_list_meshtastic(&state->bluez, state->devices,
+                                                        sizeof(state->devices) / sizeof(state->devices[0]),
+                                                        &device_count);
+    if (list_result < 0) {
+        mesh_log_debug("ble", "Device enumeration failed: %s", strerror(-list_result));
+        state->device_count = 0;
+    } else {
+        state->device_count = device_count;
+        for (size_t i = 0; i < state->device_count; ++i) {
+            mesh_log_info("ble", "Found meshtastic device %s (%s) RSSI=%d", state->devices[i].name,
+                          state->devices[i].address, (int)state->devices[i].rssi);
+        }
+    }
+
     state->state = MESH_BLE_STATE_READY;
     if (config->preferred_ble_device[0] != '\0') {
         mesh_log_info("ble", "Attempting to connect to preferred device '%s'", config->preferred_ble_device);
@@ -154,6 +172,7 @@ static void mesh_ble_stop(struct mesh_transport *transport) {
     state->state = MESH_BLE_STATE_IDLE;
     state->discovery_active = false;
     state->adapter_path[0] = '\0';
+    state->device_count = 0;
     mesh_log_info("ble", "BLE transport stopped");
 }
 
@@ -171,6 +190,23 @@ static const struct mesh_transport_ops k_ble_ops = {
     .stop = mesh_ble_stop,
     .status = mesh_ble_status,
 };
+
+size_t mesh_ble_transport_get_devices(struct mesh_transport *transport, struct mesh_bluez_device_info *out,
+                                      size_t capacity) {
+    if (transport == NULL || out == NULL || capacity == 0U) {
+        return 0U;
+    }
+
+    struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
+    size_t to_copy = state->device_count;
+    if (to_copy > capacity) {
+        to_copy = capacity;
+    }
+    for (size_t i = 0; i < to_copy; ++i) {
+        out[i] = state->devices[i];
+    }
+    return to_copy;
+}
 
 struct mesh_transport *mesh_ble_transport(void) {
     static struct mesh_ble_transport_state state;

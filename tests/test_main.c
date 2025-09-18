@@ -2,6 +2,7 @@
 #include "mesh/event_loop.h"
 #include "mesh/proto/framing.h"
 #include "mesh/transport/ble.h"
+#include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/transport.h"
 
 #include <errno.h>
@@ -132,6 +133,62 @@ static void test_ble_transport_status_transitions(void) {
     record_success(test_name);
 }
 
+static void test_ble_transport_discovery_mock(void) {
+    const char *test_name = "ble_transport_discovery_mock";
+
+    struct mesh_transport *ble = mesh_ble_transport();
+
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:01", .name = "NodeOne", .rssi = -45},
+        {.address = "AA:BB:CC:DD:EE:02", .name = "NodeTwo", .rssi = -60},
+    };
+
+    struct mesh_bluez_mock_config mock_config = {
+        .init_result = 0,
+        .check_ready_result = 0,
+        .find_adapter_result = 0,
+        .adapter_path = "/org/bluez/hci0",
+        .start_discovery_result = 0,
+        .stop_discovery_result = 0,
+        .devices = mock_devices,
+        .device_count = sizeof(mock_devices) / sizeof(mock_devices[0]),
+        .list_result = 0,
+    };
+
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    struct mesh_app_config config = mesh_app_config_default();
+    struct mesh_event_loop loop;
+    memset(&loop, 0, sizeof(loop));
+
+    int result = ble->ops->start(ble, &config, &loop);
+    if (result != 0) {
+        mesh_bluez_client_mock_disable();
+        record_failure(test_name, "ble start should succeed with mock");
+        return;
+    }
+
+    struct mesh_bluez_device_info discovered[4];
+    size_t count = mesh_ble_transport_get_devices(ble, discovered, sizeof(discovered) / sizeof(discovered[0]));
+    if (count != mock_config.device_count) {
+        ble->ops->stop(ble);
+        mesh_bluez_client_mock_disable();
+        record_failure(test_name, "unexpected discovered device count");
+        return;
+    }
+
+    if (strcmp(discovered[0].name, "NodeOne") != 0 || strcmp(discovered[1].address, "AA:BB:CC:DD:EE:02") != 0) {
+        ble->ops->stop(ble);
+        mesh_bluez_client_mock_disable();
+        record_failure(test_name, "device details mismatch");
+        return;
+    }
+
+    ble->ops->stop(ble);
+    mesh_bluez_client_mock_disable();
+    record_success(test_name);
+}
+
 static void test_proto_varint_roundtrip(void) {
     const char *test_name = "proto_varint_roundtrip";
     struct {
@@ -211,6 +268,7 @@ int main(void) {
     test_transport_registry_registration();
     test_event_loop_init_shutdown();
     test_ble_transport_status_transitions();
+    test_ble_transport_discovery_mock();
     test_proto_varint_roundtrip();
     test_proto_frame_encode_decode();
 
