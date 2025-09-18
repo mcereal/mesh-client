@@ -30,6 +30,7 @@ Serial, and HTTP transports.
 
 - Persist preferred device selection in pak userdata.
 - User-visible UI surfaces (scan list, connection feedback, retry loop).
+- Wire notification callbacks into the event loop and start parsing protobuf frames.
 
 ## Serial Transport
 
