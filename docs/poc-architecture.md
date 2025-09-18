@@ -230,6 +230,7 @@ NodeDB push behavior and single‑consumer caveats on HTTP are documented in ups
 - [x] Device discovery via BlueZ `GetManagedObjects` with Meshtastic UUID filtering, address/name/RSSI cache, and periodic refresh.
 - [ ] NUS discovery, subscribe to notify, MTU negotiation (connection stubs exist but behavior is not implemented).
 - [ ] Basic status screen with device name/RSSI.
+- [ ] Wire CLI/MinUI flows to reuse the discovery cache (CLI `--list-devices` provided for diagnostics).
 
 ### Protobuf handshake
 

@@ -206,6 +206,84 @@ static void test_ble_transport_discovery_mock(void) {
     record_success(test_name);
 }
 
+static void test_ble_transport_connect_mock(void) {
+    const char *test_name = "ble_transport_connect_mock";
+
+    struct mesh_transport *ble = mesh_ble_transport();
+
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:03", .name = "NodeThree", .rssi = -40},
+    };
+
+    struct mesh_bluez_mock_config mock_config = {
+        .init_result = 0,
+        .check_ready_result = 0,
+        .find_adapter_result = 0,
+        .adapter_path = "/org/bluez/hci0",
+        .start_discovery_result = 0,
+        .stop_discovery_result = 0,
+        .connect_result = 0,
+        .disconnect_result = 0,
+        .subscribe_result = 0,
+        .write_result = 0,
+        .devices = mock_devices,
+        .device_count = sizeof(mock_devices) / sizeof(mock_devices[0]),
+        .list_result = 0,
+    };
+
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    struct mesh_app_config config = mesh_app_config_default();
+    struct mesh_event_loop loop;
+    mesh_event_loop_init(&loop);
+
+    if (ble->ops->start(ble, &config, &loop) != 0) {
+        mesh_bluez_client_mock_disable();
+        mesh_event_loop_shutdown(&loop);
+        record_failure(test_name, "ble start failed");
+        return;
+    }
+
+    mesh_ble_transport_refresh_devices(ble);
+
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+        ble->ops->stop(ble);
+        mesh_event_loop_shutdown(&loop);
+        mesh_bluez_client_mock_disable();
+        record_failure(test_name, "connect should succeed");
+        return;
+    }
+
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != -EALREADY) {
+        ble->ops->stop(ble);
+        mesh_event_loop_shutdown(&loop);
+        mesh_bluez_client_mock_disable();
+        record_failure(test_name, "duplicate connect should return -EALREADY");
+        return;
+    }
+
+    if (mesh_ble_transport_disconnect(ble) != 0) {
+        ble->ops->stop(ble);
+        mesh_event_loop_shutdown(&loop);
+        mesh_bluez_client_mock_disable();
+        record_failure(test_name, "disconnect should succeed");
+        return;
+    }
+
+    if (mesh_ble_transport_disconnect(ble) != -ENOTCONN) {
+        ble->ops->stop(ble);
+        mesh_event_loop_shutdown(&loop);
+        mesh_bluez_client_mock_disable();
+        record_failure(test_name, "second disconnect should return -ENOTCONN");
+        return;
+    }
+
+    ble->ops->stop(ble);
+    mesh_event_loop_shutdown(&loop);
+    mesh_bluez_client_mock_disable();
+    record_success(test_name);
+}
+
 static void test_proto_varint_roundtrip(void) {
     const char *test_name = "proto_varint_roundtrip";
     struct {
@@ -286,6 +364,7 @@ int main(void) {
     test_event_loop_init_shutdown();
     test_ble_transport_status_transitions();
     test_ble_transport_discovery_mock();
+    test_ble_transport_connect_mock();
     test_proto_varint_roundtrip();
     test_proto_frame_encode_decode();
 

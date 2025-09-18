@@ -12,6 +12,8 @@ const struct mesh_bluez_device_info *mesh_ble_transport_devices(struct mesh_tran
 size_t mesh_ble_transport_get_devices(struct mesh_transport *transport, struct mesh_bluez_device_info *out,
                                       size_t capacity);
 size_t mesh_ble_transport_refresh_devices(struct mesh_transport *transport);
+int mesh_ble_transport_connect(struct mesh_transport *transport, const char *address);
+int mesh_ble_transport_disconnect(struct mesh_transport *transport);
 
 #ifdef __cplusplus
 }
