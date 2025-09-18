@@ -4,11 +4,11 @@
 Keep platform-agnostic client code in `src/` (subfolders such as `transport/ble`, `transport/serial`, `ui/`) with shared headers under `include/`. Device-facing assets live in `Tools/tg5040/MeshClient.pak/`; use `bin/shared/` for utilities bundled across platforms and `bin/tg5040/` for Brick-specific binaries. Place reusable scripts (`build.sh`, `package.sh`, future `format.sh`) under `scripts/`, and capture protocol or UX references in `docs/`. Mirror the `src/` layout in `tests/` so each module has a matching test target.
 
 ## Build, Test, and Development Commands
-- `scripts/build.sh debug` – configure + build a debug tree (defaults to `build/debug`).
-- `scripts/build.sh release` – build the optimized pak binary set.
+- `make debug` – configure + build a debug tree (defaults to `build/debug`).
+- `make release` – build the optimized pak binary set; pass `CMAKE_ARGS="-- -DMESHCLIENT_ENABLE_ASAN=ON"` to toggle sanitizers.
 - `cmake --build build/debug --target meshclient` – rebuild a single target after edits.
-- `ctest --test-dir build/debug --output-on-failure` – run unit tests locally.
-- `scripts/package.sh` – assemble `MeshClient.pak` for sideloading; inspect the output zip before publishing.
+- `make test` – run unit tests locally.
+- `make package` – assemble `MeshClient.pak` for sideloading; inspect the output zip before publishing.
 
 ## Coding Style & Naming Conventions
 Run `clang-format -i $(rg --files -g"*.[ch]")` before pushing; the repo ships `.clang-format` to keep 4-space indents, LLVM brace style, and 100-character lines. Use `snake_case` for functions and locals, `PascalCase` for structs/enums, and `kCamelCase` for file-scope constants. Keep platform conditionals isolated in per-transport files, and favor small static helpers over macros.

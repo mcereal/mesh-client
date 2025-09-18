@@ -23,16 +23,46 @@ void mesh_log_message(enum mesh_log_level level, const char *component, const ch
     __attribute__((format(printf, 3, 4)));
 void mesh_log_message_v(enum mesh_log_level level, const char *component, const char *fmt, va_list args);
 
-#define mesh_log_trace(component, fmt, ...) \
-    mesh_log_message(MESH_LOG_LEVEL_TRACE, component, fmt, ##__VA_ARGS__)
-#define mesh_log_debug(component, fmt, ...) \
-    mesh_log_message(MESH_LOG_LEVEL_DEBUG, component, fmt, ##__VA_ARGS__)
-#define mesh_log_info(component, fmt, ...) \
-    mesh_log_message(MESH_LOG_LEVEL_INFO, component, fmt, ##__VA_ARGS__)
-#define mesh_log_warn(component, fmt, ...) \
-    mesh_log_message(MESH_LOG_LEVEL_WARN, component, fmt, ##__VA_ARGS__)
-#define mesh_log_error(component, fmt, ...) \
-    mesh_log_message(MESH_LOG_LEVEL_ERROR, component, fmt, ##__VA_ARGS__)
+static inline void mesh_log_trace(const char *component, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+static inline void mesh_log_debug(const char *component, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+static inline void mesh_log_info(const char *component, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+static inline void mesh_log_warn(const char *component, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+static inline void mesh_log_error(const char *component, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+
+static inline void mesh_log_trace(const char *component, const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    mesh_log_message_v(MESH_LOG_LEVEL_TRACE, component, fmt, args);
+    va_end(args);
+}
+
+static inline void mesh_log_debug(const char *component, const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    mesh_log_message_v(MESH_LOG_LEVEL_DEBUG, component, fmt, args);
+    va_end(args);
+}
+
+static inline void mesh_log_info(const char *component, const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    mesh_log_message_v(MESH_LOG_LEVEL_INFO, component, fmt, args);
+    va_end(args);
+}
+
+static inline void mesh_log_warn(const char *component, const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    mesh_log_message_v(MESH_LOG_LEVEL_WARN, component, fmt, args);
+    va_end(args);
+}
+
+static inline void mesh_log_error(const char *component, const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    mesh_log_message_v(MESH_LOG_LEVEL_ERROR, component, fmt, args);
+    va_end(args);
+}
 
 #ifdef __cplusplus
 }
