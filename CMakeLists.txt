@@ -40,6 +40,9 @@ add_library(meshclient_core
     src/transport/ble/bluez_client.c
     src/proto/framing.c
     src/utils/log.c
+    src/ui/store.c
+    src/ui/controller.c
+    src/ui/backends/stub.c
 )
 
 target_include_directories(meshclient_core

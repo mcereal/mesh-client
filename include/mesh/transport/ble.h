@@ -23,6 +23,7 @@ struct mesh_ble_transport_stats {
 
 struct mesh_ble_transport_stats mesh_ble_transport_stats(struct mesh_transport *transport);
 int mesh_ble_transport_send_frame(struct mesh_transport *transport, const uint8_t *frame, size_t len);
+const char *mesh_ble_transport_connected_address(struct mesh_transport *transport);
 
 #define MESH_BLE_MAX_NODE_SUMMARY 16U
 

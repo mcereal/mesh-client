@@ -4,6 +4,9 @@
 #include "mesh/transport/ble.h"
 #include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/transport.h"
+#include "mesh/ui/backends/stub.h"
+#include "mesh/ui/controller.h"
+#include "mesh/ui/store.h"
 
 #include <pb_decode.h>
 #include <pb_encode.h>
@@ -540,6 +543,168 @@ static void test_ble_transport_connect_mock(void) {
     record_success(test_name);
 }
 
+static void test_ui_store_basic(void) {
+    const char *test_name = "ui_store_basic";
+
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        record_failure(test_name, "store init failed");
+        return;
+    }
+
+    struct mesh_ui_device devices[2] = {
+        {.identifier = "AA:BB:CC:DD:EE:01", .name = "NodeOne", .rssi = -45, .connected = false},
+        {.identifier = "AA:BB:CC:DD:EE:02", .name = "NodeTwo", .rssi = -60, .connected = true},
+    };
+
+    mesh_ui_store_set_discovery(&store, devices, 2U);
+
+    struct mesh_ui_snapshot snapshot;
+    if (!mesh_ui_store_consume_updates(&store, &snapshot)) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "expected discovery update");
+        return;
+    }
+
+    if ((snapshot.update_flags & MESH_UI_UPDATE_DISCOVERY) == 0U || snapshot.device_count != 2U) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "discovery data not reflected in snapshot");
+        return;
+    }
+
+    mesh_ui_store_set_discovery(&store, devices, 2U);
+    if (mesh_ui_store_consume_updates(&store, &snapshot)) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "duplicate discovery should not trigger update");
+        return;
+    }
+
+    struct mesh_ui_handshake_state handshake = {
+        .request_in_flight = true,
+        .config_complete = false,
+        .node_count = 5U,
+    };
+    snprintf(handshake.primary_channel, sizeof(handshake.primary_channel), "%s", "LongRange");
+    snprintf(handshake.my_short_name, sizeof(handshake.my_short_name), "%s", "ME");
+    mesh_ui_store_set_handshake(&store, &handshake);
+
+    if (!mesh_ui_store_consume_updates(&store, &snapshot)) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "expected handshake update");
+        return;
+    }
+
+    if ((snapshot.update_flags & MESH_UI_UPDATE_HANDSHAKE) == 0U || !snapshot.handshake_valid) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "handshake data missing from snapshot");
+        return;
+    }
+
+    mesh_ui_store_set_handshake(&store, &handshake);
+    if (mesh_ui_store_consume_updates(&store, &snapshot)) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "duplicate handshake should not trigger update");
+        return;
+    }
+
+    mesh_ui_store_set_handshake(&store, NULL);
+    if (!mesh_ui_store_consume_updates(&store, &snapshot)) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "expected handshake reset update");
+        return;
+    }
+
+    if (snapshot.handshake_valid) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "handshake state did not clear");
+        return;
+    }
+
+    mesh_ui_store_set_handshake(&store, NULL);
+    if (mesh_ui_store_consume_updates(&store, &snapshot)) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "duplicate handshake reset should not trigger update");
+        return;
+    }
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+static void test_ui_controller_dispatch(void) {
+    const char *test_name = "ui_controller_dispatch";
+
+    struct mesh_event_loop loop;
+    if (mesh_event_loop_init(&loop) != 0) {
+        record_failure(test_name, "event loop init failed");
+        return;
+    }
+
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        mesh_event_loop_shutdown(&loop);
+        record_failure(test_name, "store init failed");
+        return;
+    }
+
+    struct mesh_ui_backend_stub_context context;
+    memset(&context, 0, sizeof context);
+
+    struct mesh_ui_controller controller;
+    if (mesh_ui_controller_init(&controller, &store, mesh_ui_backend_stub(), &context, &loop) != 0) {
+        mesh_ui_store_shutdown(&store);
+        mesh_event_loop_shutdown(&loop);
+        record_failure(test_name, "controller init failed");
+        return;
+    }
+
+    struct mesh_ui_device devices[1] = {
+        {.identifier = "AA:BB:CC:DD:EE:01", .name = "NodeOne", .rssi = -50, .connected = false},
+    };
+    mesh_ui_store_set_discovery(&store, devices, 1U);
+    mesh_event_loop_run(&loop, 0);
+
+    if (!context.has_snapshot || context.present_calls == 0U) {
+        mesh_ui_controller_shutdown(&controller);
+        mesh_ui_store_shutdown(&store);
+        mesh_event_loop_shutdown(&loop);
+        record_failure(test_name, "backend did not receive discovery update");
+        return;
+    }
+
+    if (context.last_snapshot.device_count != 1U ||
+        (context.last_snapshot.update_flags & MESH_UI_UPDATE_DISCOVERY) == 0U) {
+        mesh_ui_controller_shutdown(&controller);
+        mesh_ui_store_shutdown(&store);
+        mesh_event_loop_shutdown(&loop);
+        record_failure(test_name, "snapshot content mismatch");
+        return;
+    }
+
+    struct mesh_ui_handshake_state handshake = {
+        .config_complete = true,
+        .request_in_flight = false,
+        .node_count = 2U,
+    };
+    mesh_ui_store_set_handshake(&store, &handshake);
+    mesh_event_loop_run(&loop, 0);
+
+    if (!context.has_snapshot ||
+        (context.last_snapshot.update_flags & MESH_UI_UPDATE_HANDSHAKE) == 0U ||
+        !context.last_snapshot.handshake_valid) {
+        mesh_ui_controller_shutdown(&controller);
+        mesh_ui_store_shutdown(&store);
+        mesh_event_loop_shutdown(&loop);
+        record_failure(test_name, "backend did not receive handshake update");
+        return;
+    }
+
+    mesh_ui_controller_shutdown(&controller);
+    mesh_ui_store_shutdown(&store);
+    mesh_event_loop_shutdown(&loop);
+    record_success(test_name);
+}
+
 static void test_proto_varint_roundtrip(void) {
     const char *test_name = "proto_varint_roundtrip";
     struct {
@@ -621,6 +786,8 @@ int main(void) {
     test_ble_transport_status_transitions();
     test_ble_transport_discovery_mock();
     test_ble_transport_connect_mock();
+    test_ui_store_basic();
+    test_ui_controller_dispatch();
     test_proto_varint_roundtrip();
     test_proto_frame_encode_decode();
 

@@ -900,6 +900,18 @@ struct mesh_ble_transport_stats mesh_ble_transport_stats(struct mesh_transport *
     return stats;
 }
 
+const char *mesh_ble_transport_connected_address(struct mesh_transport *transport) {
+    if (transport == NULL || transport->state == NULL) {
+        return NULL;
+    }
+
+    const struct mesh_ble_transport_state *state = (const struct mesh_ble_transport_state *)transport->state;
+    if (state->link_state != MESH_BLE_LINK_CONNECTED || state->connected_address[0] == '\0') {
+        return NULL;
+    }
+    return state->connected_address;
+}
+
 int mesh_ble_transport_send_frame(struct mesh_transport *transport, const uint8_t *frame, size_t len) {
     if (transport == NULL || transport->state == NULL) {
         return -EINVAL;

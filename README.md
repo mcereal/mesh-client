@@ -2,7 +2,7 @@
 
 A lightweight Meshtastic client targeting the TrimUI Brick and other NextUI/MinUI devices. The project focuses on a small C core with pluggable transports, starting with Bluetooth LE, and ships as a TrimUI pak for sideloading.
 
-> Looking for the full architecture notes and roadmap? See [`docs/poc-architecture.md`](docs/poc-architecture.md) and the transport breakdown in [`docs/transport.md`](docs/transport.md).
+> Looking for the full architecture notes and roadmap? See [`docs/poc-architecture.md`](docs/poc-architecture.md), the transport breakdown in [`docs/transport.md`](docs/transport.md), and the UI strategy in [`docs/ui-strategy.md`](docs/ui-strategy.md).
 
 ## Quick Start
 
@@ -58,7 +58,7 @@ Copy the resulting `dist/MeshClient.pak.zip` (or the extracted `MeshClient.pak/`
 
 ## Repository Layout
 
-- `src/` — application core, event loop, transports, utilities.
+- `src/` — application core, event loop, transports, UI scaffolding, utilities.
 - `include/` — public headers consumed by transports and tests.
 - `scripts/` — build/package automation.
 - `tests/` — lightweight unit tests (run via CTest).
