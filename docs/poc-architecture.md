@@ -218,7 +218,7 @@ NodeDB push behavior and single‑consumer caveats on HTTP are documented in ups
 ### Repo bootstrap
 
 - [x] CMake-based build system with `scripts/build.sh` and Makefile wrappers for common tasks.
-- [x] Ship `.clang-format` for consistent formatting; still need `third_party/nanopb/` and generated protobuf sources.
+- [x] Ship `.clang-format` for consistent formatting; nanopb stub added under `third_party/` (replace with upstream before release) and generated protobuf sources still pending.
 
 ### Pak scaffold
 
@@ -258,7 +258,7 @@ NodeDB push behavior and single‑consumer caveats on HTTP are documented in ups
 - `/docs/transport.md` — planned BLE/NUS + protobuf framing details (TODO).
 - `/Tools/tg5040/MeshClient.pak/` — TrimUI pak scaffold (launch script + bins).
 - `Makefile` plus `scripts/build.sh`, `scripts/package.sh` — build/package automation.
-- `third_party/` — to host nanopb and MinUI helpers (TODO, pending vendoring).
+- `third_party/` — hosts nanopb stub today; TODO to replace with upstream sources and vendor MinUI helpers.
 - `LICENSE` (BSD‑3 or MIT).
 
 ## 15) References

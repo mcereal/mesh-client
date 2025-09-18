@@ -12,6 +12,7 @@ Serial, and HTTP transports.
 - BLE transport startup gracefully downgrades when BlueZ is missing or D-Bus support is disabled.
 - Status reporting distinguishes between `disabled`, `waiting-for-bluez`, `waiting-for-adapter`, and `running` states.
 - Adapter discovery via `GetManagedObjects`, plus automatic `StartDiscovery` / `StopDiscovery` orchestration for the first available adapter.
+- Varint-based framing helpers for BLE packets, plus nanopb stubs to unblock future protobuf integration.
 
 ### In Progress
 

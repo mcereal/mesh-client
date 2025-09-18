@@ -1,5 +1,6 @@
 #include "mesh/config.h"
 #include "mesh/event_loop.h"
+#include "mesh/proto/framing.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/transport.h"
 
@@ -131,11 +132,87 @@ static void test_ble_transport_status_transitions(void) {
     record_success(test_name);
 }
 
+static void test_proto_varint_roundtrip(void) {
+    const char *test_name = "proto_varint_roundtrip";
+    struct {
+        uint32_t value;
+        size_t expected_len;
+    } cases[] = {
+        {0U, 1U},
+        {1U, 1U},
+        {127U, 1U},
+        {128U, 2U},
+        {16384U, 3U},
+        {268435455U, 4U},
+    };
+
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+        uint8_t buffer[8];
+        size_t written = 0;
+        if (mesh_proto_varint_encode(cases[i].value, buffer, sizeof buffer, &written) != 0) {
+            record_failure(test_name, "varint encode failed");
+            return;
+        }
+        if (written != cases[i].expected_len) {
+            record_failure(test_name, "unexpected encoded length");
+            return;
+        }
+
+        uint32_t decoded = 0;
+        size_t consumed = 0;
+        if (mesh_proto_varint_decode(buffer, written, &decoded, &consumed) != 0) {
+            record_failure(test_name, "varint decode failed");
+            return;
+        }
+        if (decoded != cases[i].value || consumed != written) {
+            record_failure(test_name, "varint roundtrip mismatch");
+            return;
+        }
+    }
+
+    record_success(test_name);
+}
+
+static void test_proto_frame_encode_decode(void) {
+    const char *test_name = "proto_frame_encode_decode";
+    const uint8_t payload[] = {0x08U, 0x96U, 0x01U};
+    uint8_t frame[16];
+    size_t written = 0;
+
+    if (mesh_proto_frame_encode(payload, sizeof payload, frame, sizeof frame, &written) != 0) {
+        record_failure(test_name, "frame encode failed");
+        return;
+    }
+
+    size_t header_len = 0;
+    size_t payload_len = 0;
+    if (mesh_proto_frame_decode(frame, written, &header_len, &payload_len) != 0) {
+        record_failure(test_name, "frame decode failed");
+        return;
+    }
+
+    if (payload_len != sizeof payload) {
+        record_failure(test_name, "decoded payload length mismatch");
+        return;
+    }
+
+    for (size_t i = 0; i < payload_len; ++i) {
+        if (frame[header_len + i] != payload[i]) {
+            record_failure(test_name, "payload content mismatch");
+            return;
+        }
+    }
+
+    record_success(test_name);
+}
+
 int main(void) {
     test_config_defaults();
     test_transport_registry_registration();
     test_event_loop_init_shutdown();
     test_ble_transport_status_transitions();
+    test_proto_varint_roundtrip();
+    test_proto_frame_encode_decode();
 
     if (g_failures > 0) {
         fprintf(stderr, "Tests failed: %d\n", g_failures);

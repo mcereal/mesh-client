@@ -38,6 +38,7 @@ add_library(meshclient_core
     src/transport/transport_registry.c
     src/transport/ble/ble_transport.c
     src/transport/ble/bluez_client.c
+    src/proto/framing.c
     src/utils/log.c
 )
 
@@ -72,6 +73,9 @@ target_link_libraries(meshclient_core
 add_executable(meshclient src/main.c)
 
 target_link_libraries(meshclient PRIVATE meshclient_core)
+
+add_subdirectory(third_party/nanopb)
+target_link_libraries(meshclient_core PUBLIC nanopb_stub)
 
 target_compile_options(meshclient PRIVATE ${MESHCLIENT_COMPILE_OPTIONS})
 if(MESHCLIENT_LINK_OPTIONS)
