@@ -13,13 +13,15 @@ Serial, and HTTP transports.
 - Status reporting distinguishes between `disabled`, `waiting-for-bluez`, `waiting-for-adapter`, and `running` states.
 - Adapter discovery via `GetManagedObjects`, plus automatic `StartDiscovery` / `StopDiscovery` orchestration for the first available adapter.
 - Meshtastic node discovery: iterates `org.bluez.Device1` entries, filters on the NUS UUID, and caches address/name/RSSI for downstream UI use (mockable for tests).
+- Periodic refresh loop (timerfd) keeps the discovery cache up to date while the app is running.
+- CLI support: `meshclient --list-devices` prints the cached nodes and exits—useful for diagnostics.
 - Varint-based framing helpers for BLE packets, plus nanopb runtime linked against Meshtastic upstream schemas (tracked via git submodule).
 
 ### In Progress
 
-- Adapter discovery, scanning, and Meshtastic GATT service discovery.
-- Protobuf framing via nanopb with MTU-aware chunking.
-- Event-loop integration for watch descriptors and notifications.
+- Connection flow: determine characteristic handles, subscribe to notifications, and maintain a write queue (currently stubbed in `bluez_client.c`).
+- MTU negotiation and NUS data path wiring (pending BlueZ write/notify plumbing).
+- UI integration for the discovery cache (planned via MinUI resources).
 - Automate protobuf regeneration (`make proto`) after updating the Meshtastic protobuf submodule; currently we build `mesh.proto`, `portnums.proto`, `interdevice.proto`, `module_config.proto`, `telemetry.proto`.
 
 ### Next

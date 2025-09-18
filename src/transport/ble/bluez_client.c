@@ -352,6 +352,83 @@ int mesh_bluez_client_stop_discovery(struct mesh_bluez_client *client, const cha
     return call_adapter_method(client, adapter_path, "StopDiscovery");
 }
 
+int mesh_bluez_client_connect(struct mesh_bluez_client *client, const char *device_path) {
+    if (client == NULL || device_path == NULL) {
+        return -EINVAL;
+    }
+
+    if (g_mock_state.enabled) {
+        return g_mock_state.config.connect_result;
+    }
+
+#ifdef MESH_HAVE_DBUS
+    (void)client;
+    (void)device_path;
+    return -ENOSYS;
+#else
+    return -ENOSYS;
+#endif
+}
+
+int mesh_bluez_client_disconnect(struct mesh_bluez_client *client, const char *device_path) {
+    if (client == NULL || device_path == NULL) {
+        return -EINVAL;
+    }
+
+    if (g_mock_state.enabled) {
+        return g_mock_state.config.disconnect_result;
+    }
+
+#ifdef MESH_HAVE_DBUS
+    (void)client;
+    (void)device_path;
+    return -ENOSYS;
+#else
+    return -ENOSYS;
+#endif
+}
+
+int mesh_bluez_client_subscribe(struct mesh_bluez_client *client, const char *device_path, const char *char_uuid) {
+    if (client == NULL || device_path == NULL || char_uuid == NULL) {
+        return -EINVAL;
+    }
+
+    if (g_mock_state.enabled) {
+        return g_mock_state.config.subscribe_result;
+    }
+
+#ifdef MESH_HAVE_DBUS
+    (void)client;
+    (void)device_path;
+    (void)char_uuid;
+    return -ENOSYS;
+#else
+    return -ENOSYS;
+#endif
+}
+
+int mesh_bluez_client_write(struct mesh_bluez_client *client, const char *device_path, const char *char_uuid,
+                            const uint8_t *data, size_t len) {
+    if (client == NULL || device_path == NULL || char_uuid == NULL || data == NULL) {
+        return -EINVAL;
+    }
+
+    if (g_mock_state.enabled) {
+        return g_mock_state.config.write_result;
+    }
+
+#ifdef MESH_HAVE_DBUS
+    (void)client;
+    (void)device_path;
+    (void)char_uuid;
+    (void)data;
+    (void)len;
+    return -ENOSYS;
+#else
+    return -ENOSYS;
+#endif
+}
+
 #ifdef MESH_HAVE_DBUS
 static bool uuid_equals_meshtastic(const char *uuid) {
     if (uuid == NULL) {

@@ -54,6 +54,9 @@ static const char *mesh_ble_state_to_string(enum mesh_ble_state state) {
 }
 
 static size_t mesh_ble_refresh_devices_internal(struct mesh_transport *transport);
+static void mesh_ble_tick(struct mesh_transport *transport) {
+    mesh_ble_refresh_devices_internal(transport);
+}
 
 static int mesh_ble_refresh_timer_callback(int fd, uint32_t events, void *userdata) {
     (void)events;
@@ -258,6 +261,7 @@ static const struct mesh_transport_ops k_ble_ops = {
     .start = mesh_ble_start,
     .stop = mesh_ble_stop,
     .status = mesh_ble_status,
+    .tick = mesh_ble_tick,
 };
 
 size_t mesh_ble_transport_get_devices(struct mesh_transport *transport, struct mesh_bluez_device_info *out,

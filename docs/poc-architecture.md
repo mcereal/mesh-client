@@ -227,8 +227,8 @@ NodeDB push behavior and single‑consumer caveats on HTTP are documented in ups
 
 ### BLE scan/connect
 
-- [x] Device discovery via BlueZ `GetManagedObjects` with Meshtastic UUID filtering and cached address/name/RSSI list.
-- [ ] NUS discovery, subscribe to notify, MTU negotiation.
+- [x] Device discovery via BlueZ `GetManagedObjects` with Meshtastic UUID filtering, address/name/RSSI cache, and periodic refresh.
+- [ ] NUS discovery, subscribe to notify, MTU negotiation (connection stubs exist but behavior is not implemented).
 - [ ] Basic status screen with device name/RSSI.
 
 ### Protobuf handshake
@@ -256,7 +256,7 @@ NodeDB push behavior and single‑consumer caveats on HTTP are documented in ups
 
 - `README.md` — contributor/user guide with installation, usage, and development workflow.
 - `docs/poc-architecture.md` — this architecture & roadmap reference.
-- `/docs/transport.md` — planned BLE/NUS + protobuf framing details (TODO).
+- `/docs/transport.md` — transport capability overview (shipped vs in-progress details).
 - `/Tools/tg5040/MeshClient.pak/` — TrimUI pak scaffold (launch script + bins).
 - `Makefile` plus `scripts/build.sh`, `scripts/package.sh` — build/package automation.
 - `third_party/` — hosts nanopb stub today; TODO to replace with upstream sources and vendor MinUI helpers.
