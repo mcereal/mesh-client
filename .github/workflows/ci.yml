@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    name: Build and test (${{ matrix.os }}, ${{ matrix.compiler }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+        compiler: [gcc, clang]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config libdbus-1-dev protobuf-compiler python3 git zip
+          if [ "${{ matrix.compiler }}" = "clang" ]; then sudo apt-get install -y clang lldb lld; fi
+          if [ "${{ matrix.compiler }}" = "gcc" ]; then sudo apt-get install -y gcc g++; fi
+
+      - name: Select compiler
+        run: |
+          if [ "${{ matrix.compiler }}" = "clang" ]; then echo "CC=clang" >> $GITHUB_ENV; echo "CXX=clang++" >> $GITHUB_ENV; fi
+          if [ "${{ matrix.compiler }}" = "gcc" ]; then echo "CC=gcc" >> $GITHUB_ENV; echo "CXX=g++" >> $GITHUB_ENV; fi
+
+      - name: Build (Debug)
+        run: make debug
+
+      - name: Run tests
+        run: make test
+
+      - name: Package (Release)
+        run: |
+          make release
+          make package
+
+      - name: Compute version
+        id: ver
+        run: |
+          ver=$(grep -E "^project\(meshclient VERSION" CMakeLists.txt | sed -E 's/.*VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          if [ -z "$ver" ]; then ver="0.0.0"; fi
+          echo "version=$ver" >> $GITHUB_OUTPUT
+
+      - name: Upload binary artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: meshclient-${{ steps.ver.outputs.version }}-${{ matrix.os }}-${{ matrix.compiler }}-debug
+          path: build/debug/meshclient
+          if-no-files-found: ignore
+
+      - name: Upload pak artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MeshClient.pak-${{ steps.ver.outputs.version }}-${{ matrix.os }}-${{ matrix.compiler }}
+          path: |
+            dist/MeshClient.pak.zip
+            dist/MeshClient.pak/**
+          if-no-files-found: ignore

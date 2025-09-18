@@ -1,0 +1,131 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "make: debug",
+            "type": "shell",
+            {
+                "version": "2.0.0",
+                "tasks": [
+                    {
+                        "label": "make: debug",
+                        "type": "shell",
+                        "command": "make",
+                        "args": [
+                            "debug"
+                        ],
+                        "options": {
+                            "cwd": "${workspaceFolder}"
+                        },
+                        "args": [
+                            "-lc",
+                            "clang-format -i $(git ls-files '*.[ch]')"
+                        ],
+                        "kind": "build",
+                        "isDefault": true
+                    },
+                    "problemMatcher": []
+                },
+                {
+                    "label": "make: release",
+                    "type": "shell",
+                    "command": "make",
+                    "args": [
+                        "release"
+                    ],
+                    "options": {
+                        "cwd": "${workspaceFolder}"
+                    },
+                    "group": "build",
+                    "problemMatcher": []
+                },
+                {
+                    "label": "make: relwithdebinfo",
+                    "type": "shell",
+                    "command": "make",
+                    "args": [
+                        "relwithdebinfo"
+                    ],
+                    "options": {
+                        "cwd": "${workspaceFolder}"
+                    },
+                    "group": "build",
+                    "problemMatcher": []
+                },
+                {
+                    "label": "make: test",
+                    "type": "shell",
+                    "command": "make",
+                    "args": [
+                        "test"
+                    ],
+                    "options": {
+                        "cwd": "${workspaceFolder}"
+                    },
+                    "group": "test",
+                    "problemMatcher": []
+                },
+                {
+                    "label": "make: package",
+                    "type": "shell",
+                    "command": "make",
+                    "args": [
+                        "package"
+                    ],
+                    "options": {
+                        "cwd": "${workspaceFolder}"
+                    },
+                    "problemMatcher": []
+                },
+                {
+                    "label": "make: proto",
+                    "type": "shell",
+                    "command": "make",
+                    "args": [
+                        "proto"
+                    ],
+                    "options": {
+                        "cwd": "${workspaceFolder}"
+                    },
+                    "problemMatcher": []
+                },
+                {
+                    "label": "format: clang-format",
+                    "type": "shell",
+                    "command": "bash",
+                    "args": [
+                        "-lc",
+                        "clang-format -i $(rg --files -g'*.[ch]')"
+                    ],
+                    "options": {
+                        "cwd": "${workspaceFolder}"
+                    },
+                    "problemMatcher": []
+                },
+                {
+                    "label": "clean: build",
+                    "type": "shell",
+                    "command": "make",
+                    "args": [
+                        "distclean"
+                    ],
+                    "options": {
+                        "cwd": "${workspaceFolder}"
+                    },
+                    "problemMatcher": []
+                },
+                {
+                    "label": "run: meshclient (debug)",
+                    "type": "shell",
+                    "command": "./build/debug/meshclient",
+                    "args": [
+                        "--foreground",
+                        "--log-level",
+                        "debug"
+                    ],
+                    "options": {
+                        "cwd": "${workspaceFolder}"
+                    }
+                }
+            ]
+        }

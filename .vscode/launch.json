@@ -1,0 +1,29 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "meshclient (Debug)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/debug/meshclient",
+            "args": [
+                "--foreground",
+                "--log-level",
+                "debug"
+            ],
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "make: debug",
+            "MIMode": "gdb"
+        },
+        {
+            "name": "meshclient (Release)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/release/meshclient",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "make: release",
+            "MIMode": "gdb"
+        }
+    ]
+}

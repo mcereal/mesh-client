@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build-and-package:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config libdbus-1-dev protobuf-compiler python3 zip
+
+      - name: Build (Release)
+        run: make release
+
+      - name: Package Pak
+        run: make package
+
+      - name: Compute version
+        id: ver
+        run: |
+          ver=$(grep -E "^project\(meshclient VERSION" CMakeLists.txt | sed -E 's/.*VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          if [ -z "$ver" ]; then ver="0.0.0"; fi
+          echo "version=$ver" >> $GITHUB_OUTPUT
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: MeshClient-pak-${{ steps.ver.outputs.version }}
+          path: |
+            dist/MeshClient.pak.zip
+            dist/MeshClient.pak/**/*
+
+  github-release:
+    needs: build-and-package
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: MeshClient-pak-${{ needs.build-and-package.outputs.version }}
+          path: dist
+
+      - name: Compute checksums
+        run: |
+          (cd dist && sha256sum MeshClient.pak.zip > MeshClient.pak.zip.sha256)
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/MeshClient.pak.zip
+            dist/MeshClient.pak.zip.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
