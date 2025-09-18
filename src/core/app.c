@@ -5,6 +5,7 @@
 #include "mesh/ui/backends/cli.h"
 #include "mesh/ui/backends/minui.h"
 #include "mesh/ui/backends/stub.h"
+#include "mesh/ui/preferences.h"
 
 #include <errno.h>
 #include <limits.h>
@@ -149,6 +150,15 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
 
     mesh_ui_store_set_discovery(&app->ui_store, ui_devices, device_count);
 
+    bool preferences_modified = false;
+    if (connected_address != NULL && connected_address[0] != '\0') {
+        if (strcmp(app->ui_preferences.preferred_device, connected_address) != 0) {
+            snprintf(app->ui_preferences.preferred_device, sizeof app->ui_preferences.preferred_device, "%s",
+                     connected_address);
+            preferences_modified = true;
+        }
+    }
+
     struct mesh_ble_handshake_status status = mesh_ble_transport_handshake_status(ble);
     const bool handshake_active =
         status.request_in_flight || status.config_complete || status.has_my_info || status.has_config ||
@@ -173,8 +183,27 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
         }
 
         mesh_ui_store_set_handshake(&app->ui_store, &ui_handshake);
+
+        if (ui_handshake.primary_channel[0] != '\0' &&
+            strcmp(app->ui_preferences.preferred_channel, ui_handshake.primary_channel) != 0) {
+            snprintf(app->ui_preferences.preferred_channel, sizeof app->ui_preferences.preferred_channel, "%s",
+                     ui_handshake.primary_channel);
+            preferences_modified = true;
+        }
     } else {
         mesh_ui_store_set_handshake(&app->ui_store, NULL);
+    }
+
+    if (preferences_modified && app->ui_preferences_path[0] != '\0') {
+        if (mesh_ui_preferences_save(&app->ui_preferences, app->ui_preferences_path) == 0) {
+            app->ui_preferences_dirty = false;
+        } else {
+            app->ui_preferences_dirty = true;
+        }
+    } else if (app->ui_preferences_dirty && app->ui_preferences_path[0] != '\0') {
+        if (mesh_ui_preferences_save(&app->ui_preferences, app->ui_preferences_path) == 0) {
+            app->ui_preferences_dirty = false;
+        }
     }
 }
 
@@ -194,6 +223,21 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     if (result < 0) {
         mesh_log_error("app", "Event loop init failed: %d", result);
         return result;
+    }
+
+    memset(&app->ui_preferences, 0, sizeof(app->ui_preferences));
+    app->ui_preferences_path[0] = '\0';
+    app->ui_preferences_dirty = false;
+
+    if (mesh_ui_preferences_default_path(app->ui_preferences_path, sizeof(app->ui_preferences_path)) == 0) {
+        int load_result = mesh_ui_preferences_load(&app->ui_preferences, app->ui_preferences_path);
+        if (load_result == 0) {
+            if (app->config.preferred_ble_device[0] == '\0' &&
+                app->ui_preferences.preferred_device[0] != '\0') {
+                snprintf(app->config.preferred_ble_device, sizeof app->config.preferred_ble_device, "%s",
+                         app->ui_preferences.preferred_device);
+            }
+        }
     }
 
     result = mesh_ui_store_init(&app->ui_store);
@@ -240,6 +284,10 @@ void mesh_app_shutdown(struct mesh_app *app) {
     mesh_transport_registry_stop_all(&app->transport_registry);
     mesh_ui_controller_shutdown(&app->ui_controller);
     mesh_ui_store_shutdown(&app->ui_store);
+    if (app->ui_preferences_dirty && app->ui_preferences_path[0] != '\0') {
+        mesh_ui_preferences_save(&app->ui_preferences, app->ui_preferences_path);
+        app->ui_preferences_dirty = false;
+    }
     mesh_event_loop_shutdown(&app->loop);
 }
 

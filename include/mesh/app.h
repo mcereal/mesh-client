@@ -7,6 +7,7 @@
 #include "mesh/ui/store.h"
 #include "mesh/ui/backends/cli.h"
 #include "mesh/ui/backends/minui.h"
+#include "mesh/ui/preferences.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,6 +21,9 @@ struct mesh_app {
     struct mesh_ui_controller ui_controller;
     struct mesh_ui_backend_cli_context ui_cli_context;
     struct mesh_ui_backend_minui_context ui_minui_context;
+    struct mesh_ui_preferences ui_preferences;
+    char ui_preferences_path[256];
+    bool ui_preferences_dirty;
 };
 
 int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config);

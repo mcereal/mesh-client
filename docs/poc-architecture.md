@@ -143,7 +143,7 @@ The Meshtastic HTTP API serves protobufs under `/api/v1`—great when the node h
 - Message: opens on‑screen keyboard, sends text → toast for send/ack (use `minui-presenter`).
 - Settings: transport (BLE/Serial/HTTP), autoconnect toggle, clear NodeDB, logging level.
 
-See [`docs/ui-strategy.md`](ui-strategy.md) for the detailed UI plan covering the shared state store, backend interface, and TrimUI/desktop front-ends. The scaffolding in `src/ui/` (`mesh_ui_store` + `mesh_ui_controller`) is live: the app loop now pushes BLE discovery/handshake snapshots into the store, with a CLI backend available during development and the MinUI backend queued once helpers are packaged.
+See [`docs/ui-strategy.md`](ui-strategy.md) for the detailed UI plan covering the shared state store, backend interface, and TrimUI/desktop front-ends. The scaffolding in `src/ui/` (`mesh_ui_store` + `mesh_ui_controller`) is live: the app loop now pushes BLE discovery/handshake snapshots into the store, a CLI backend renders updates on host builds, and MinUI hooks will take over once helper binaries ship. UI preferences (last connected device) persist under the pak `HOME` via `~/.meshclient/ui_prefs` for autoconnect support.
 
 ## 6) Logging & Diagnostics
 

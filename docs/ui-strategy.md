@@ -19,8 +19,9 @@
 - [done] Core scaffolding (`mesh_ui_store`, `mesh_ui_controller`, and the stub backend) now lives under `src/ui/` and is wired into the app lifecycle.
 - [done] BLE discovery and handshake data feed directly into the UI store; store/controller unit coverage lives in `tests/test_main.c`.
 - [done] CLI backend implemented for host development; backend selection driven by `MESHCLIENT_UI_BACKEND` (defaults to CLI unless MinUI helpers are present).
+- [done] Preferences persist the last connected device under `~/.meshclient/ui_prefs` (auto-created via the launch `HOME`).
 - [todo] Implement the TrimUI MinUI backend end-to-end and package helper binaries.
-- [todo] Persist UI preferences (preferred device/channel) alongside the app config.
+- [in-progress] Persist additional UI preferences (channel selection, display options) alongside the stored device.
 
 ## Architectural Principles
 
@@ -67,6 +68,7 @@
 - Use `MESHCLIENT_UI_BACKEND=cli|minui|stub|auto` to force a specific renderer (defaults to auto).
 - `auto` prefers the MinUI backend when helpers (`minui-presenter`, `minui-list`, `minui-keyboard`) are on `PATH`, otherwise falls back to the CLI view.
 - TrimUI builds should package MinUI helpers and set `MESHCLIENT_UI_BACKEND=minui` in the launch script once the backend is fully wired.
+- Override helper binaries via `MESHCLIENT_MINUI_PRESENTER_CMD` / `MESHCLIENT_MINUI_LIST_CMD` to point at bundled scripts when packaging.
 
 ## Performance Considerations
 

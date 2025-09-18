@@ -7,6 +7,7 @@
 #include "mesh/ui/backends/stub.h"
 #include "mesh/ui/controller.h"
 #include "mesh/ui/store.h"
+#include "mesh/ui/preferences.h"
 
 #include <pb_decode.h>
 #include <pb_encode.h>
@@ -17,6 +18,8 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 static int g_failures = 0;
 
@@ -705,6 +708,47 @@ static void test_ui_controller_dispatch(void) {
     record_success(test_name);
 }
 
+static void test_ui_preferences_roundtrip(void) {
+    const char *test_name = "ui_preferences_roundtrip";
+
+    char prefab_path[128];
+    snprintf(prefab_path, sizeof prefab_path, "/tmp/meshclient_prefs_%ld", (long)getpid());
+    FILE *temp = fopen(prefab_path, "w");
+    if (temp == NULL) {
+        record_failure(test_name, "failed to create temp file");
+        return;
+    }
+    fclose(temp);
+
+    struct mesh_ui_preferences prefs;
+    memset(&prefs, 0, sizeof prefs);
+    snprintf(prefs.preferred_device, sizeof prefs.preferred_device, "%s", "AA:BB:CC:DD:EE:01");
+    snprintf(prefs.preferred_channel, sizeof prefs.preferred_channel, "%s", "LongRange");
+
+    if (mesh_ui_preferences_save(&prefs, prefab_path) != 0) {
+        unlink(prefab_path);
+        record_failure(test_name, "save failed");
+        return;
+    }
+
+    struct mesh_ui_preferences loaded;
+    if (mesh_ui_preferences_load(&loaded, prefab_path) != 0) {
+        unlink(prefab_path);
+        record_failure(test_name, "load failed");
+        return;
+    }
+
+    if (strcmp(loaded.preferred_device, prefs.preferred_device) != 0 ||
+        strcmp(loaded.preferred_channel, prefs.preferred_channel) != 0) {
+        unlink(prefab_path);
+        record_failure(test_name, "roundtrip mismatch");
+        return;
+    }
+
+    unlink(prefab_path);
+    record_success(test_name);
+}
+
 static void test_proto_varint_roundtrip(void) {
     const char *test_name = "proto_varint_roundtrip";
     struct {
@@ -788,6 +832,7 @@ int main(void) {
     test_ble_transport_connect_mock();
     test_ui_store_basic();
     test_ui_controller_dispatch();
+    test_ui_preferences_roundtrip();
     test_proto_varint_roundtrip();
     test_proto_frame_encode_decode();
 

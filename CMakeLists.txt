@@ -45,6 +45,7 @@ add_library(meshclient_core
     src/ui/backends/stub.c
     src/ui/backends/cli.c
     src/ui/backends/minui.c
+    src/ui/preferences.c
 )
 
 target_include_directories(meshclient_core
