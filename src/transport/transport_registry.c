@@ -81,3 +81,16 @@ void mesh_transport_registry_stop_all(struct mesh_transport_registry *registry) 
 
     registry->started = false;
 }
+
+void mesh_transport_registry_tick(struct mesh_transport_registry *registry) {
+    if (registry == NULL || !registry->started) {
+        return;
+    }
+
+    for (size_t i = 0; i < registry->count; ++i) {
+        struct mesh_transport *transport = registry->transports[i];
+        if (transport != NULL && transport->ops != NULL && transport->ops->tick != NULL) {
+            transport->ops->tick(transport);
+        }
+    }
+}

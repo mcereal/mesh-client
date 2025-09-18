@@ -277,6 +277,19 @@ size_t mesh_ble_transport_get_devices(struct mesh_transport *transport, struct m
     return to_copy;
 }
 
+const struct mesh_bluez_device_info *mesh_ble_transport_devices(struct mesh_transport *transport, size_t *count) {
+    if (transport == NULL || count == NULL) {
+        if (count != NULL) {
+            *count = 0U;
+        }
+        return NULL;
+    }
+
+    struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
+    *count = state->device_count;
+    return state->devices;
+}
+
 static size_t mesh_ble_refresh_devices_internal(struct mesh_transport *transport) {
     if (transport == NULL) {
         return 0U;

@@ -1,6 +1,7 @@
 #include "mesh/app.h"
 #include "mesh/config.h"
 #include "mesh/log.h"
+#include "mesh/transport/ble.h"
 
 #include <getopt.h>
 #include <stdbool.h>
@@ -52,6 +53,7 @@ static enum mesh_log_level parse_log_level(const char *value, enum mesh_log_leve
 int main(int argc, char **argv) {
     struct mesh_app_config config = mesh_app_config_default();
     mesh_app_config_apply_env_overrides(&config);
+    bool list_devices = false;
 
     static const struct option long_options[] = {
         {"foreground", no_argument, NULL, 'f'},
@@ -59,6 +61,7 @@ int main(int argc, char **argv) {
         {"preferred-device", required_argument, NULL, 'p'},
         {"timeout", required_argument, NULL, 't'},
         {"log-level", required_argument, NULL, 'l'},
+        {"list-devices", no_argument, NULL, 1},
         {"help", no_argument, NULL, 'h'},
         {0, 0, 0, 0},
     };
@@ -87,6 +90,9 @@ int main(int argc, char **argv) {
             case 'l':
                 mesh_log_set_level(parse_log_level(optarg, mesh_log_get_level()));
                 break;
+            case 1:
+                list_devices = true;
+                break;
             case 'h':
                 print_usage(argv[0]);
                 return EXIT_SUCCESS;
@@ -103,9 +109,26 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
-    result = mesh_app_run(&app);
-    if (result < 0) {
-        mesh_log_error("main", "mesh_app_run failed: %d", result);
+    if (list_devices) {
+        result = mesh_transport_registry_start_all(&app.transport_registry, &app.config, &app.loop);
+        if (result < 0) {
+            mesh_log_error("main", "Failed to start transports: %d", result);
+        } else {
+            struct mesh_transport *ble = mesh_ble_transport();
+            mesh_ble_transport_refresh_devices(ble);
+            size_t count = 0;
+            const struct mesh_bluez_device_info *devices = mesh_ble_transport_devices(ble, &count);
+            printf("Meshtastic BLE devices (%zu)\n", count);
+            for (size_t i = 0; i < count; ++i) {
+                printf("- %s (%s) RSSI=%d\n", devices[i].name, devices[i].address, (int)devices[i].rssi);
+            }
+            mesh_transport_registry_stop_all(&app.transport_registry);
+        }
+    } else {
+        result = mesh_app_run(&app);
+        if (result < 0) {
+            mesh_log_error("main", "mesh_app_run failed: %d", result);
+        }
     }
 
     mesh_app_shutdown(&app);

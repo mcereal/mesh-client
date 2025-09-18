@@ -63,6 +63,7 @@ int mesh_app_run(struct mesh_app *app) {
         case MESH_APP_RUN_FOREGROUND:
             mesh_log_info("app", "Starting foreground event loop (timeout %d ms)", app->config.idle_timeout_ms);
             while (true) {
+                mesh_transport_registry_tick(&app->transport_registry);
                 result = mesh_event_loop_run(&app->loop, app->config.idle_timeout_ms);
                 if (result < 0) {
                     break;
@@ -75,6 +76,7 @@ int mesh_app_run(struct mesh_app *app) {
             break;
         default:
             mesh_log_warn("app", "Unknown run mode %d, performing single poll", app->config.run_mode);
+            mesh_transport_registry_tick(&app->transport_registry);
             result = mesh_event_loop_run(&app->loop, app->config.idle_timeout_ms);
             break;
     }
