@@ -4,3 +4,6 @@
 [submodule "proto/meshtastic"]
 	path = proto/meshtastic
 	url = https://github.com/meshtastic/protobufs
+[submodule "nextui"]
+	path = third_party/nextui
+	url = https://github.com/LoveRetro/NextUI
