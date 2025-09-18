@@ -1,13 +1,21 @@
+#define _GNU_SOURCE
+#define _POSIX_C_SOURCE 200809L
+
 #include "mesh/transport/ble.h"
 
 #include "mesh/config.h"
 #include "mesh/log.h"
+
 #include "mesh/transport/ble_bluez.h"
 
 #include <errno.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/epoll.h>
+#include <sys/timerfd.h>
+#include <time.h>
+#include <unistd.h>
 
 enum mesh_ble_state {
     MESH_BLE_STATE_DISABLED = 0,
@@ -25,6 +33,8 @@ struct mesh_ble_transport_state {
     struct mesh_bluez_client bluez;
     struct mesh_bluez_device_info devices[16];
     size_t device_count;
+    int refresh_timer_fd;
+    struct mesh_event_loop *loop;
 };
 
 static const char *mesh_ble_state_to_string(enum mesh_ble_state state) {
@@ -43,6 +53,70 @@ static const char *mesh_ble_state_to_string(enum mesh_ble_state state) {
     return "unknown";
 }
 
+static size_t mesh_ble_refresh_devices_internal(struct mesh_transport *transport);
+
+static int mesh_ble_refresh_timer_callback(int fd, uint32_t events, void *userdata) {
+    (void)events;
+    struct mesh_transport *transport = (struct mesh_transport *)userdata;
+    if (transport == NULL) {
+        return 0;
+    }
+    uint64_t expirations = 0;
+    ssize_t read_result = read(fd, &expirations, sizeof(expirations));
+    if (read_result < 0 && errno != EAGAIN) {
+        mesh_log_warn("ble", "refresh timer read failed: %s", strerror(errno));
+    }
+    mesh_ble_refresh_devices_internal(transport);
+    return 0;
+}
+
+static int mesh_ble_setup_refresh_timer(struct mesh_transport *transport, struct mesh_ble_transport_state *state,
+                                        struct mesh_event_loop *loop) {
+    if (loop == NULL) {
+        return 0;
+    }
+
+    state->refresh_timer_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+    if (state->refresh_timer_fd < 0) {
+        mesh_log_warn("ble", "timerfd_create failed: %s", strerror(errno));
+        return -errno;
+    }
+
+    struct itimerspec spec;
+    memset(&spec, 0, sizeof(spec));
+    spec.it_value.tv_sec = 5;
+    spec.it_interval.tv_sec = 5;
+    if (timerfd_settime(state->refresh_timer_fd, 0, &spec, NULL) < 0) {
+        mesh_log_warn("ble", "timerfd_settime failed: %s", strerror(errno));
+        close(state->refresh_timer_fd);
+        state->refresh_timer_fd = -1;
+        return -errno;
+    }
+
+    int add_result = mesh_event_loop_add_fd(loop, state->refresh_timer_fd, EPOLLIN, mesh_ble_refresh_timer_callback,
+                                            transport);
+    if (add_result < 0) {
+        mesh_log_warn("ble", "Failed to add refresh timer fd: %d", add_result);
+        close(state->refresh_timer_fd);
+        state->refresh_timer_fd = -1;
+        return add_result;
+    }
+
+    state->loop = loop;
+    return 0;
+}
+
+static void mesh_ble_teardown_refresh_timer(struct mesh_ble_transport_state *state) {
+    if (state->refresh_timer_fd >= 0) {
+        if (state->loop != NULL) {
+            mesh_event_loop_remove_fd(state->loop, state->refresh_timer_fd);
+        }
+        close(state->refresh_timer_fd);
+        state->refresh_timer_fd = -1;
+    }
+    state->loop = NULL;
+}
+
 static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_app_config *config,
                           struct mesh_event_loop *loop) {
     (void)loop;
@@ -57,6 +131,8 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     state->discovery_active = false;
     state->adapter_path[0] = '\0';
     state->device_count = 0;
+    state->refresh_timer_fd = -1;
+    state->loop = NULL;
 
     if (!config->enable_ble) {
         mesh_log_info("ble", "BLE transport disabled by configuration");
@@ -124,19 +200,10 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     }
 
     state->discovery_active = true;
-    size_t device_count = 0;
-    int list_result = mesh_bluez_client_list_meshtastic(&state->bluez, state->devices,
-                                                        sizeof(state->devices) / sizeof(state->devices[0]),
-                                                        &device_count);
-    if (list_result < 0) {
-        mesh_log_debug("ble", "Device enumeration failed: %s", strerror(-list_result));
-        state->device_count = 0;
-    } else {
-        state->device_count = device_count;
-        for (size_t i = 0; i < state->device_count; ++i) {
-            mesh_log_info("ble", "Found meshtastic device %s (%s) RSSI=%d", state->devices[i].name,
-                          state->devices[i].address, (int)state->devices[i].rssi);
-        }
+    mesh_ble_refresh_devices_internal(transport);
+
+    if (mesh_ble_setup_refresh_timer(transport, state, loop) < 0) {
+        mesh_log_debug("ble", "Refresh timer unavailable; continuing without periodic updates");
     }
 
     state->state = MESH_BLE_STATE_READY;
@@ -163,6 +230,8 @@ static void mesh_ble_stop(struct mesh_transport *transport) {
                           strerror(-stop_result));
         }
     }
+
+    mesh_ble_teardown_refresh_timer(state);
 
     if (state->client_initialised) {
         mesh_bluez_client_shutdown(&state->bluez);
@@ -206,6 +275,37 @@ size_t mesh_ble_transport_get_devices(struct mesh_transport *transport, struct m
         out[i] = state->devices[i];
     }
     return to_copy;
+}
+
+static size_t mesh_ble_refresh_devices_internal(struct mesh_transport *transport) {
+    if (transport == NULL) {
+        return 0U;
+    }
+
+    struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
+    size_t device_count = 0;
+    int list_result = mesh_bluez_client_list_meshtastic(&state->bluez, state->devices,
+                                                        sizeof(state->devices) / sizeof(state->devices[0]),
+                                                        &device_count);
+    if (list_result < 0) {
+        mesh_log_debug("ble", "Device enumeration failed: %s", strerror(-list_result));
+        state->device_count = 0;
+        return 0U;
+    }
+
+    if (device_count != state->device_count) {
+        mesh_log_info("ble", "Discovered %zu meshtastic device(s)", device_count);
+    }
+    state->device_count = device_count;
+    for (size_t i = 0; i < state->device_count; ++i) {
+        mesh_log_debug("ble", "  %s (%s) RSSI=%d", state->devices[i].name, state->devices[i].address,
+                       (int)state->devices[i].rssi);
+    }
+    return state->device_count;
+}
+
+size_t mesh_ble_transport_refresh_devices(struct mesh_transport *transport) {
+    return mesh_ble_refresh_devices_internal(transport);
 }
 
 struct mesh_transport *mesh_ble_transport(void) {

@@ -108,10 +108,10 @@ static void test_ble_transport_status_transitions(void) {
     struct mesh_app_config config = mesh_app_config_default();
     config.enable_ble = false;
 
-    struct mesh_event_loop dummy_loop;
-    memset(&dummy_loop, 0, sizeof dummy_loop);
+    struct mesh_event_loop loop;
+    mesh_event_loop_init(&loop);
 
-    ble->ops->start(ble, &config, &dummy_loop);
+    ble->ops->start(ble, &config, &loop);
     const char *disabled_status = ble->ops->status(ble);
     if (strcmp(disabled_status, "disabled") != 0) {
         record_failure(test_name, "status should report disabled when transport is off");
@@ -120,7 +120,7 @@ static void test_ble_transport_status_transitions(void) {
     }
 
     config.enable_ble = true;
-    ble->ops->start(ble, &config, &dummy_loop);
+    ble->ops->start(ble, &config, &loop);
     const char *running_status = ble->ops->status(ble);
     const char *expected_states[] = {"running", "waiting-for-bluez", "waiting-for-adapter", "inactive"};
     if (!string_matches_any(running_status, expected_states, sizeof(expected_states) / sizeof(expected_states[0]))) {
@@ -130,6 +130,7 @@ static void test_ble_transport_status_transitions(void) {
     }
 
     ble->ops->stop(ble);
+    mesh_event_loop_shutdown(&loop);
     record_success(test_name);
 }
 
@@ -159,7 +160,7 @@ static void test_ble_transport_discovery_mock(void) {
 
     struct mesh_app_config config = mesh_app_config_default();
     struct mesh_event_loop loop;
-    memset(&loop, 0, sizeof(loop));
+    mesh_event_loop_init(&loop);
 
     int result = ble->ops->start(ble, &config, &loop);
     if (result != 0) {
@@ -172,6 +173,7 @@ static void test_ble_transport_discovery_mock(void) {
     size_t count = mesh_ble_transport_get_devices(ble, discovered, sizeof(discovered) / sizeof(discovered[0]));
     if (count != mock_config.device_count) {
         ble->ops->stop(ble);
+        mesh_event_loop_shutdown(&loop);
         mesh_bluez_client_mock_disable();
         record_failure(test_name, "unexpected discovered device count");
         return;
@@ -179,12 +181,27 @@ static void test_ble_transport_discovery_mock(void) {
 
     if (strcmp(discovered[0].name, "NodeOne") != 0 || strcmp(discovered[1].address, "AA:BB:CC:DD:EE:02") != 0) {
         ble->ops->stop(ble);
+        mesh_event_loop_shutdown(&loop);
         mesh_bluez_client_mock_disable();
         record_failure(test_name, "device details mismatch");
         return;
     }
 
+    mock_devices[0].rssi = -35;
+    mock_config.device_count = 1;
+    mock_config.devices = mock_devices;
+    mesh_bluez_client_mock_enable(&mock_config);
+    size_t refreshed = mesh_ble_transport_refresh_devices(ble);
+    if (refreshed != 1U) {
+        ble->ops->stop(ble);
+        mesh_event_loop_shutdown(&loop);
+        mesh_bluez_client_mock_disable();
+        record_failure(test_name, "refresh should update device list");
+        return;
+    }
+
     ble->ops->stop(ble);
+    mesh_event_loop_shutdown(&loop);
     mesh_bluez_client_mock_disable();
     record_success(test_name);
 }
