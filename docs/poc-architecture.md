@@ -259,7 +259,7 @@ NodeDB push behavior and single‑consumer caveats on HTTP are documented in ups
 - `/Tools/tg5040/MeshClient.pak/` — TrimUI pak scaffold (launch script + bins).
 - `Makefile` plus `scripts/build.sh`, `scripts/package.sh` — build/package automation.
 - `third_party/` — hosts nanopb stub today; TODO to replace with upstream sources and vendor MinUI helpers.
-- `proto/` — protobuf definitions for Meshtastic messages; regenerate via `make proto`.
+- `proto/meshtastic/` — Meshtastic protobuf submodule (currently v2.7.9); regenerate selected nanopb sources via `make proto` after syncing upstream.
 - `LICENSE` (BSD‑3 or MIT).
 
 ## 15) References

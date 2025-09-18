@@ -9,7 +9,8 @@ Keep platform-agnostic client code in `src/` (subfolders such as `transport/ble`
 - `cmake --build build/debug --target meshclient` – rebuild a single target after edits.
 - `make test` – run unit tests locally.
 - `make package` – assemble `MeshClient.pak` for sideloading; inspect the output zip before publishing.
-- `make proto` – regenerate nanopb sources after editing files under `proto/` (requires protoc + nanopb).
+- `make proto` – regenerate nanopb sources after editing files under `proto/meshtastic/meshtastic/` (requires `protoc` and the `nanopb_generator` script on PATH).
+- Always sync submodules (`git submodule update --init --recursive`) after pulling to pick up upstream protobuf changes.
 
 ## Coding Style & Naming Conventions
 Run `clang-format -i $(rg --files -g"*.[ch]")` before pushing; the repo ships `.clang-format` to keep 4-space indents, LLVM brace style, and 100-character lines. Use `snake_case` for functions and locals, `PascalCase` for structs/enums, and `kCamelCase` for file-scope constants. Keep platform conditionals isolated in per-transport files, and favor small static helpers over macros.

@@ -93,9 +93,31 @@ target_link_libraries(meshclient_core PUBLIC protobuf-nanopb-static)
 set(NANOPB_GENERATED_DIR ${CMAKE_BINARY_DIR}/generated/nanopb)
 file(MAKE_DIRECTORY ${NANOPB_GENERATED_DIR})
 
-set(MESH_PROTO_FILES
-    ${PROJECT_SOURCE_DIR}/proto/meshtastic/mesh.proto
+set(MESH_PROTO_ROOT ${PROJECT_SOURCE_DIR}/proto/meshtastic)
+if(NOT EXISTS ${MESH_PROTO_ROOT}/meshtastic)
+    message(FATAL_ERROR "Meshtastic protobuf submodule missing. Run 'git submodule update --init --recursive'.")
+endif()
+
+set(MESH_PROTO_NAMES
+    mesh
+    portnums
+    interdevice
+    config
+    module_config
+    telemetry
+    channel
+    device_ui
+    xmodem
 )
+
+set(MESH_PROTO_FILES)
+foreach(PROTO_NAME ${MESH_PROTO_NAMES})
+    set(PROTO_PATH ${MESH_PROTO_ROOT}/meshtastic/${PROTO_NAME}.proto)
+    if(NOT EXISTS ${PROTO_PATH})
+        message(FATAL_ERROR "Expected proto not found: ${PROTO_PATH}")
+    endif()
+    list(APPEND MESH_PROTO_FILES ${PROTO_PATH})
+endforeach()
 
 set(NANOPB_GENERATED_SOURCES)
 set(NANOPB_GENERATED_HEADERS)
@@ -103,7 +125,7 @@ set(NANOPB_GENERATED_HEADERS)
 foreach(PROTO_FILE ${MESH_PROTO_FILES})
     get_filename_component(PROTO_BASENAME ${PROTO_FILE} NAME_WE)
     get_filename_component(PROTO_DIR ${PROTO_FILE} DIRECTORY)
-    file(RELATIVE_PATH PROTO_SUBDIR ${PROJECT_SOURCE_DIR}/proto ${PROTO_DIR})
+    file(RELATIVE_PATH PROTO_SUBDIR ${MESH_PROTO_ROOT} ${PROTO_DIR})
     if(PROTO_SUBDIR STREQUAL "")
         set(OUTPUT_SUBDIR "")
     else()
@@ -119,7 +141,8 @@ foreach(PROTO_FILE ${MESH_PROTO_FILES})
         COMMAND ${CMAKE_COMMAND} -E make_directory ${GENERATED_DIR}
         COMMAND ${NANOPB_GENERATOR_COMMAND}
             -D ${NANOPB_GENERATED_DIR}
-            -I ${PROJECT_SOURCE_DIR}/proto
+            -I ${MESH_PROTO_ROOT}
+            -I ${MESH_PROTO_ROOT}/meshtastic
             ${PROTO_FILE}
         DEPENDS ${PROTO_FILE}
         COMMENT "Generating nanopb sources for ${PROTO_FILE}"

@@ -12,14 +12,14 @@ Serial, and HTTP transports.
 - BLE transport startup gracefully downgrades when BlueZ is missing or D-Bus support is disabled.
 - Status reporting distinguishes between `disabled`, `waiting-for-bluez`, `waiting-for-adapter`, and `running` states.
 - Adapter discovery via `GetManagedObjects`, plus automatic `StartDiscovery` / `StopDiscovery` orchestration for the first available adapter.
-- Varint-based framing helpers for BLE packets, plus nanopb stubs to unblock future protobuf integration.
+- Varint-based framing helpers for BLE packets, plus nanopb runtime linked against Meshtastic upstream schemas (tracked via git submodule).
 
 ### In Progress
 
 - Adapter discovery, scanning, and Meshtastic GATT service discovery.
 - Protobuf framing via nanopb with MTU-aware chunking.
 - Event-loop integration for watch descriptors and notifications.
-- Automate protobuf regeneration (`make proto`) once Meshtastic schemas are updated.
+- Automate protobuf regeneration (`make proto`) after updating the Meshtastic protobuf submodule; currently we build `mesh.proto`, `portnums.proto`, `interdevice.proto`, `module_config.proto`, `telemetry.proto`.
 
 ### Next
 
