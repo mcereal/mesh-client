@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+
+PAK_DIR="$(dirname "$0")"
+PAK_NAME="$(basename "$PAK_DIR")"
+PAK_NAME="${PAK_NAME%.*}"
+PLATFORM="${PLATFORM:-tg5040}"
+SDCARD_PATH="${SDCARD_PATH:-/mnt/SDCARD}"
+
+LOGS_PATH="$SDCARD_PATH/.userdata/$PLATFORM/logs"
+USERDATA_PATH="$SDCARD_PATH/.userdata/$PLATFORM/$PAK_NAME"
+mkdir -p "$LOGS_PATH" "$USERDATA_PATH"
+
+LOG_FILE="$LOGS_PATH/$PAK_NAME.txt"
+exec >>"$LOG_FILE" 2>&1
+
+printf '[%s] Launching %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$PAK_NAME"
+
+export HOME="$USERDATA_PATH"
+export PATH="$PAK_DIR/bin/$PLATFORM:$PAK_DIR/bin/shared:$PATH"
+
+if ! command -v meshclient >/dev/null 2>&1; then
+    echo "meshclient binary not found in PATH" >&2
+    exit 1
+fi
+
+exec meshclient "$@"
