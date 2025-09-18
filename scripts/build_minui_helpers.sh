@@ -41,41 +41,71 @@ mkdir -p "${OUTPUT_DIR}"
 info() { printf '[minui-build] %s\n' "$*"; }
 warn() { printf '[minui-build][warn] %s\n' "$*" >&2; }
 
+if ! command -v "${CROSS_COMPILE}gcc" >/dev/null 2>&1; then
+    warn "${CROSS_COMPILE}gcc not found, falling back to host gcc"
+    CROSS_COMPILE=""
+fi
+
 info "Using PLATFORM=${PLATFORM} CROSS_COMPILE=${CROSS_COMPILE} PREFIX=${PREFIX}"
 
 # Build shared dependencies (libmsettings, etc.)
-info "Building NextUI platform prerequisites"
-make -C "${WORKSPACE_DIR}/tg5040/libmsettings" \
-    CROSS_COMPILE="${CROSS_COMPILE}" \
-    PREFIX="${PREFIX}" \
-    PREFIX_LOCAL="${PREFIX_LOCAL}" \
-    build || warn "libmsettings build failed (dependency may need toolchain setup)"
+if [[ -n "${CROSS_COMPILE}" ]]; then
+    info "Building NextUI platform prerequisites"
+    make -C "${WORKSPACE_DIR}/tg5040/libmsettings" \
+        CROSS_COMPILE="${CROSS_COMPILE}" \
+        PREFIX="${PREFIX}" \
+        PREFIX_LOCAL="${PREFIX_LOCAL}" \
+        build || warn "libmsettings build failed (dependency may need toolchain setup)"
 
-# Build the Settings UI helper (provides keyboard + menus)
-info "Building settings helper"
-make -C "${WORKSPACE_DIR}/all/settings" \
-    PLATFORM="${PLATFORM}" \
-    CROSS_COMPILE="${CROSS_COMPILE}" \
-    PREFIX="${PREFIX}" \
-    PREFIX_LOCAL="${PREFIX_LOCAL}" || warn "Settings helper build failed"
+    info "Building settings helper"
+    make -C "${WORKSPACE_DIR}/all/settings" \
+        PLATFORM="${PLATFORM}" \
+        CROSS_COMPILE="${CROSS_COMPILE}" \
+        PREFIX="${PREFIX}" \
+        PREFIX_LOCAL="${PREFIX_LOCAL}" || warn "Settings helper build failed"
 
-SETTINGS_BIN="${WORKSPACE_DIR}/all/settings/build/${PLATFORM}/settings.elf"
-if [[ -f "${SETTINGS_BIN}" ]]; then
-    cp "${SETTINGS_BIN}" "${OUTPUT_DIR}/minui-settings"
-    chmod +x "${OUTPUT_DIR}/minui-settings"
-    info "Copied settings helper to ${OUTPUT_DIR}/minui-settings"
+    SETTINGS_BIN="${WORKSPACE_DIR}/all/settings/build/${PLATFORM}/settings.elf"
+    if [[ -f "${SETTINGS_BIN}" ]]; then
+        cp "${SETTINGS_BIN}" "${OUTPUT_DIR}/minui-settings"
+        chmod +x "${OUTPUT_DIR}/minui-settings"
+        info "Copied settings helper to ${OUTPUT_DIR}/minui-settings"
+    else
+        warn "settings.elf not produced; skipping copy"
+    fi
+
+    found_lib=false
+    for lib in "${WORKSPACE_DIR}/tg5040/libmsettings/libmsettings.so" \
+               "${PREFIX}/lib/libmsettings.so"; do
+        if [[ -f "${lib}" ]]; then
+            cp "${lib}" "${OUTPUT_DIR}/libmsettings.so"
+            info "Copied $(basename "${lib}") to ${OUTPUT_DIR}"
+            found_lib=true
+            break
+        fi
+    done
+    if [[ "${found_lib}" == false ]]; then
+        warn "libmsettings.so not found"
+    fi
 else
-    warn "settings.elf not produced; skipping copy"
+    warn "Skipping NextUI builds; CROSS_COMPILE not set"
 fi
 
-# Attempt to copy libmsettings if present
-for lib in "${WORKSPACE_DIR}/tg5040/libmsettings/libmsettings.so" \
-           "${PREFIX}/lib/libmsettings.so"; do
-    if [[ -f "${lib}" ]]; then
-        cp "${lib}" "${OUTPUT_DIR}/libmsettings.so"
-        info "Copied $(basename "${lib}") to ${OUTPUT_DIR}"
-        break
-    fi
-done
+# Build meshclient-specific helpers (minimal CLI fallbacks compiled for device)
+HELPER_SRC_DIR="${REPO_ROOT}/src/minui_helpers"
+if [[ -d "${HELPER_SRC_DIR}" ]]; then
+    for helper in list presenter; do
+        src="${HELPER_SRC_DIR}/${helper}_helper.c"
+        out="${OUTPUT_DIR}/minui-${helper}"
+        if [[ -f "${src}" ]]; then
+            info "Compiling minui-${helper} helper"
+            if ! "${CROSS_COMPILE}gcc" -O2 -o "${out}" "${src}"; then
+                warn "Failed to compile ${helper} helper with ${CROSS_COMPILE}gcc"
+                rm -f "${out}"
+            fi
+        fi
+    done
+else
+    warn "MinUI helper sources missing at ${HELPER_SRC_DIR}"
+fi
 
-info "Done. Ensure additional helper binaries (list/presenter) are implemented before packaging."
+info "MinUI helper staging complete."

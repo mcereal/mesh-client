@@ -31,11 +31,12 @@ support binaries that ship on TrimUI/NextUI devices.
      simple status and toast output.
    - `minui-list` – repackages `MenuList` (from `settings/menu.cpp`) to present
      device lists and respond to d-pad selection.
-2. **Cross-compile for tg5040**: invoke `scripts/build_minui_helpers.sh` to
-   bootstrap the NextUI toolchain (`make PLATFORM=tg5040`) and drop helper
-   binaries under `Tools/tg5040/MeshClient.pak/bin/tg5040/`. During host development we
-   keep using the CLI backend; on device the MinUI backend will launch these
-   helpers.
+2. **Cross-compile for tg5040**: invoke `scripts/build_minui_helpers.sh` (run
+   automatically by `make package`) to bootstrap the NextUI toolchain
+   (`make PLATFORM=tg5040`) and drop helper binaries under
+   `Tools/tg5040/MeshClient.pak/bin/tg5040/`. When the cross toolchain is not
+   available the script still builds lightweight native fallbacks from
+   `src/minui_helpers/` so packaging succeeds during host development.
 3. **Package assets**: update `scripts/package.sh` so the release pak includes
    the helper binaries and any required shared objects (`libmsettings`, fonts,
    etc.) from the NextUI tree.
@@ -50,8 +51,10 @@ support binaries that ship on TrimUI/NextUI devices.
 - CLI backend remains the default during development until the helper binaries
   are compiled and packaged.
 - `scripts/build_minui_helpers.sh` scaffolds the NextUI build and copies the
-  resulting helpers into the pak tree. Packaging hooks are tracked in
-  [`docs/ui-strategy.md`](ui-strategy.md).
+  resulting helpers into the pak tree. The Makefile’s `package` target invokes
+  this script automatically so CI releases include the helpers, while host
+  builds fall back to the native helpers in `src/minui_helpers/` when no cross
+  compiler is present.
 
 ## Next Actions
 

@@ -69,7 +69,8 @@
 - `auto` prefers the MinUI backend when helpers (`minui-presenter`, `minui-list`, `minui-keyboard`) are on `PATH`, otherwise falls back to the CLI view.
 - TrimUI builds should package MinUI helpers and set `MESHCLIENT_UI_BACKEND=minui` in the launch script once the backend is fully wired.
 - Override helper binaries via `MESHCLIENT_MINUI_PRESENTER_CMD` / `MESHCLIENT_MINUI_LIST_CMD` to point at bundled scripts when packaging.
-- Placeholder shell scripts live under `Tools/tg5040/MeshClient.pak/bin/shared/` so desktop builds keep functioning until the real helpers are compiled from the NextUI submodule.
+- Placeholder shell scripts live under `Tools/tg5040/MeshClient.pak/bin/shared/` for host development; device builds receive compiled helpers under `bin/tg5040/` from `scripts/build_minui_helpers.sh`.
+- `make package` orchestrates helper builds via `scripts/build_minui_helpers.sh`; set `CROSS_COMPILE`/`PLATFORM` as needed in CI before calling it.
 
 ## Performance Considerations
 

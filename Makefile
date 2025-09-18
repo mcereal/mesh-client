@@ -28,7 +28,7 @@ relwithdebinfo:
 test: debug
 	ctest --test-dir build/debug --output-on-failure
 
-package: release
+package: release minui
 	./scripts/package.sh release
 
 minui:
