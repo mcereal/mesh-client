@@ -80,10 +80,62 @@ static void test_event_loop_init_shutdown(void) {
     record_success(test_name);
 }
 
+static bool string_matches_any(const char *value, const char *const options[], size_t option_count) {
+    if (value == NULL) {
+        return false;
+    }
+    for (size_t i = 0; i < option_count; ++i) {
+        if (strcmp(value, options[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void test_ble_transport_status_transitions(void) {
+    const char *test_name = "ble_transport_status_transitions";
+
+    struct mesh_transport *ble = mesh_ble_transport();
+
+    const char *initial = ble->ops->status(ble);
+    if (strcmp(initial, "disabled") != 0 && strcmp(initial, "inactive") != 0) {
+        record_failure(test_name, "unexpected initial status");
+        return;
+    }
+
+    struct mesh_app_config config = mesh_app_config_default();
+    config.enable_ble = false;
+
+    struct mesh_event_loop dummy_loop;
+    memset(&dummy_loop, 0, sizeof dummy_loop);
+
+    ble->ops->start(ble, &config, &dummy_loop);
+    const char *disabled_status = ble->ops->status(ble);
+    if (strcmp(disabled_status, "disabled") != 0) {
+        record_failure(test_name, "status should report disabled when transport is off");
+        ble->ops->stop(ble);
+        return;
+    }
+
+    config.enable_ble = true;
+    ble->ops->start(ble, &config, &dummy_loop);
+    const char *running_status = ble->ops->status(ble);
+    const char *expected_states[] = {"running", "waiting-for-bluez", "inactive"};
+    if (!string_matches_any(running_status, expected_states, sizeof(expected_states) / sizeof(expected_states[0]))) {
+        record_failure(test_name, "unexpected status after enabling BLE");
+        ble->ops->stop(ble);
+        return;
+    }
+
+    ble->ops->stop(ble);
+    record_success(test_name);
+}
+
 int main(void) {
     test_config_defaults();
     test_transport_registry_registration();
     test_event_loop_init_shutdown();
+    test_ble_transport_status_transitions();
 
     if (g_failures > 0) {
         fprintf(stderr, "Tests failed: %d\n", g_failures);

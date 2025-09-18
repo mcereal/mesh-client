@@ -37,6 +37,7 @@ add_library(meshclient_core
     src/core/event_loop.c
     src/transport/transport_registry.c
     src/transport/ble/ble_transport.c
+    src/transport/ble/bluez_client.c
     src/utils/log.c
 )
 
@@ -51,6 +52,17 @@ if(MESHCLIENT_LINK_OPTIONS)
 endif()
 
 find_package(Threads REQUIRED)
+find_package(PkgConfig)
+
+if(PkgConfig_FOUND)
+    pkg_check_modules(DBUS dbus-1)
+endif()
+
+if(DBUS_FOUND)
+    target_compile_definitions(meshclient_core PRIVATE MESH_HAVE_DBUS)
+    target_include_directories(meshclient_core PRIVATE ${DBUS_INCLUDE_DIRS})
+    target_link_libraries(meshclient_core PUBLIC ${DBUS_LIBRARIES})
+endif()
 
 target_link_libraries(meshclient_core
     PUBLIC

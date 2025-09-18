@@ -8,7 +8,8 @@ A native NextUI/MinUI Pak that turns the TrimUI Brick into a lightweight Meshtas
 
 - Repository bootstrapped with C17 core, epoll event loop, and logging utilities.
 - BLE transport stub registered; honours config flags and ready for BlueZ wiring.
-- Build/test harness in place (`cmake`, `CTest`, packaging scripts, TrimUI `launch.sh`).
+- Build/test harness in place (`cmake`, `CTest`, Makefile wrappers, packaging scripts, TrimUI `launch.sh`).
+- BlueZ presence detection via D-Bus with graceful fallback when not available.
 
 **In Progress / Next Up**
 
@@ -217,7 +218,7 @@ NodeDB push behavior and single‑consumer caveats on HTTP are documented in ups
 ### Repo bootstrap
 
 - [x] CMake-based build system with `scripts/build.sh` and Makefile wrappers for common tasks.
-- [ ] Add `.clang-format`, `third_party/nanopb/`, and generated protobuf sources.
+- [x] Ship `.clang-format` for consistent formatting; still need `third_party/nanopb/` and generated protobuf sources.
 
 ### Pak scaffold
 

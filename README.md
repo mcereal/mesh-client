@@ -2,7 +2,7 @@
 
 A lightweight Meshtastic client targeting the TrimUI Brick and other NextUI/MinUI devices. The project focuses on a small C core with pluggable transports, starting with Bluetooth LE, and ships as a TrimUI pak for sideloading.
 
-> Looking for the full architecture notes and roadmap? See [`docs/poc-architecture.md`](docs/poc-architecture.md).
+> Looking for the full architecture notes and roadmap? See [`docs/poc-architecture.md`](docs/poc-architecture.md) and the transport breakdown in [`docs/transport.md`](docs/transport.md).
 
 ## Quick Start
 
@@ -37,6 +37,7 @@ Copy the resulting `dist/MeshClient.pak.zip` (or the extracted `MeshClient.pak/`
 - **Logging:** Adjust verbosity using the `--log-level` flag. Logs stream to `stderr` locally and to the pak log on device.
 - **CLI options:** `meshclient --help` lists foreground mode, BLE toggles, preferred device, timeout, and log-level flags.
 - **Runtime env vars:** `MESHCLIENT_RUN_MODE`, `MESHCLIENT_IDLE_TIMEOUT_MS`, `MESHCLIENT_DISABLE_BLE`, `MESHCLIENT_PREFERRED_BLE_DEVICE`.
+- **BlueZ:** At runtime the BLE transport connects to system D-Bus and checks for the `org.bluez` service. If it is missing, the transport reports `waiting-for-bluez` and remains idle without failing the app.
 
 ## Repository Layout
 
@@ -45,6 +46,7 @@ Copy the resulting `dist/MeshClient.pak.zip` (or the extracted `MeshClient.pak/`
 - `scripts/` — build/package automation.
 - `tests/` — lightweight unit tests (run via CTest).
 - `Tools/tg5040/MeshClient.pak/` — TrimUI pak scaffold including `launch.sh` and platform bins.
+- `docs/` — architecture roadmap and transport-specific progress notes.
 - `AGENTS.md` — contributor guide with coding and review expectations.
 
 ## Contributing
