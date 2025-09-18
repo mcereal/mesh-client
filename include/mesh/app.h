@@ -5,6 +5,8 @@
 #include "mesh/transport/transport.h"
 #include "mesh/ui/controller.h"
 #include "mesh/ui/store.h"
+#include "mesh/ui/backends/cli.h"
+#include "mesh/ui/backends/minui.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -16,6 +18,8 @@ struct mesh_app {
     struct mesh_transport_registry transport_registry;
     struct mesh_ui_store ui_store;
     struct mesh_ui_controller ui_controller;
+    struct mesh_ui_backend_cli_context ui_cli_context;
+    struct mesh_ui_backend_minui_context ui_minui_context;
 };
 
 int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config);

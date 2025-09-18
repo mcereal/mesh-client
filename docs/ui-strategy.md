@@ -5,6 +5,7 @@
 - The project currently exposes functionality through the CLI entrypoint in `src/main.c`.
 - Core scaffolding under `src/ui/` exposes `mesh_ui_store`/`mesh_ui_controller`; a stub backend is still the default.
 - BLE discovery and handshake state are now synced into the UI store from the app loop, ready for future backends.
+- A lightweight CLI backend renders discovery/handshake summaries on development hosts (`MESHCLIENT_UI_BACKEND=cli`).
 
 ## Goals
 
@@ -17,7 +18,8 @@
 
 - [done] Core scaffolding (`mesh_ui_store`, `mesh_ui_controller`, and the stub backend) now lives under `src/ui/` and is wired into the app lifecycle.
 - [done] BLE discovery and handshake data feed directly into the UI store; store/controller unit coverage lives in `tests/test_main.c`.
-- [todo] Implement TrimUI MinUI and development CLI backends, then package helper binaries.
+- [done] CLI backend implemented for host development; backend selection driven by `MESHCLIENT_UI_BACKEND` (defaults to CLI unless MinUI helpers are present).
+- [todo] Implement the TrimUI MinUI backend end-to-end and package helper binaries.
 - [todo] Persist UI preferences (preferred device/channel) alongside the app config.
 
 ## Architectural Principles
@@ -55,11 +57,16 @@
    - [todo] Provide serialization helpers so the store can persist minimal UI preferences (`preferred_device`, last channel) alongside existing config.
 3. **NextUI backend**
    - Vendor MinUI helper binaries under `bin/shared/` and ship a wrapper that spawns them with well-defined JSON contracts.
-   - Implement screen flows: home/status, device picker, node list, compose message, settings dialog.
-4. **Fallback CLI backend**
-   - Provide an interactive curses-free CLI backend for development hosts; reuse the same controller/store to maintain parity in behaviour.
-5. **Testing** *(ongoing)*
+   - Flesh out screen flows: home/status, device picker, node list, compose message, settings dialog.
+   - Replace the placeholder presenter callouts with real MinUI invocations once helpers land.
+4. **Testing** *(ongoing)*
    - Extend unit tests with transport-driven scenarios and backend contract checks as new pieces land.
+
+## Backend Selection
+
+- Use `MESHCLIENT_UI_BACKEND=cli|minui|stub|auto` to force a specific renderer (defaults to auto).
+- `auto` prefers the MinUI backend when helpers (`minui-presenter`, `minui-list`, `minui-keyboard`) are on `PATH`, otherwise falls back to the CLI view.
+- TrimUI builds should package MinUI helpers and set `MESHCLIENT_UI_BACKEND=minui` in the launch script once the backend is fully wired.
 
 ## Performance Considerations
 

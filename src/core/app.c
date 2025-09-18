@@ -2,6 +2,8 @@
 
 #include "mesh/log.h"
 #include "mesh/transport/ble.h"
+#include "mesh/ui/backends/cli.h"
+#include "mesh/ui/backends/minui.h"
 #include "mesh/ui/backends/stub.h"
 
 #include <errno.h>
@@ -9,6 +11,95 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
+#include <stdlib.h>
+
+static bool mesh_app_select_minui(struct mesh_app *app, const struct mesh_ui_backend **backend, void **userdata,
+                                  bool log_on_missing) {
+    if (!mesh_ui_backend_minui_is_available()) {
+        if (log_on_missing) {
+            mesh_log_warn("ui", "MinUI helpers not found; falling back to CLI backend");
+        }
+        return false;
+    }
+
+    if (backend != NULL) {
+        *backend = mesh_ui_backend_minui();
+    }
+    if (userdata != NULL) {
+        *userdata = &app->ui_minui_context;
+    }
+    return true;
+}
+
+static void mesh_app_select_cli(struct mesh_app *app, const struct mesh_ui_backend **backend, void **userdata) {
+    if (backend != NULL) {
+        *backend = mesh_ui_backend_cli();
+    }
+    if (userdata != NULL) {
+        *userdata = &app->ui_cli_context;
+    }
+}
+
+static void mesh_app_select_stub(const struct mesh_ui_backend **backend, void **userdata) {
+    if (backend != NULL) {
+        *backend = mesh_ui_backend_stub();
+    }
+    if (userdata != NULL) {
+        *userdata = NULL;
+    }
+}
+
+static const struct mesh_ui_backend *mesh_app_select_backend(struct mesh_app *app, void **userdata) {
+    if (userdata != NULL) {
+        *userdata = NULL;
+    }
+
+    const char *requested = getenv("MESHCLIENT_UI_BACKEND");
+    if (requested != NULL && requested[0] == '\0') {
+        requested = NULL;
+    }
+
+    const struct mesh_ui_backend *backend = NULL;
+    void *backend_userdata = NULL;
+
+    if (requested != NULL) {
+        if (strcasecmp(requested, "minui") == 0) {
+            if (!mesh_app_select_minui(app, &backend, &backend_userdata, true)) {
+                mesh_app_select_cli(app, &backend, &backend_userdata);
+            }
+        } else if (strcasecmp(requested, "cli") == 0) {
+            mesh_app_select_cli(app, &backend, &backend_userdata);
+        } else if (strcasecmp(requested, "stub") == 0) {
+            mesh_app_select_stub(&backend, &backend_userdata);
+        } else if (strcasecmp(requested, "auto") == 0) {
+            if (!mesh_app_select_minui(app, &backend, &backend_userdata, false)) {
+                mesh_app_select_cli(app, &backend, &backend_userdata);
+            }
+        } else {
+            mesh_log_warn("ui", "Unknown UI backend '%s'; defaulting to CLI", requested);
+            mesh_app_select_cli(app, &backend, &backend_userdata);
+        }
+    } else {
+        const char *platform = getenv("PLATFORM");
+        bool prefer_minui = (platform != NULL && strcasecmp(platform, "tg5040") == 0);
+        if (!prefer_minui || !mesh_app_select_minui(app, &backend, &backend_userdata, false)) {
+            if (!mesh_app_select_minui(app, &backend, &backend_userdata, false)) {
+                mesh_app_select_cli(app, &backend, &backend_userdata);
+            }
+        }
+    }
+
+    if (backend == NULL) {
+        mesh_app_select_cli(app, &backend, &backend_userdata);
+    }
+
+    if (userdata != NULL) {
+        *userdata = backend_userdata;
+    }
+
+    return backend;
+}
 
 static void mesh_app_publish_ui_state(struct mesh_app *app) {
     if (app == NULL) {
@@ -112,7 +203,14 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
         return result;
     }
 
-    result = mesh_ui_controller_init(&app->ui_controller, &app->ui_store, mesh_ui_backend_stub(), NULL, &app->loop);
+    void *backend_userdata = NULL;
+    const struct mesh_ui_backend *ui_backend = mesh_app_select_backend(app, &backend_userdata);
+    result = mesh_ui_controller_init(&app->ui_controller, &app->ui_store, ui_backend, backend_userdata, &app->loop);
+    if (result < 0) {
+        mesh_log_warn("app", "UI backend init failed (%d); falling back to stub", result);
+        result = mesh_ui_controller_init(&app->ui_controller, &app->ui_store, mesh_ui_backend_stub(), NULL,
+                                         &app->loop);
+    }
     if (result < 0) {
         mesh_log_error("app", "UI controller init failed: %d", result);
         mesh_ui_store_shutdown(&app->ui_store);
