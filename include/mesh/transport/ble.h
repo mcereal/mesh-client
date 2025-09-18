@@ -15,6 +15,13 @@ size_t mesh_ble_transport_refresh_devices(struct mesh_transport *transport);
 int mesh_ble_transport_connect(struct mesh_transport *transport, const char *address);
 int mesh_ble_transport_disconnect(struct mesh_transport *transport);
 
+struct mesh_ble_transport_stats {
+    size_t frames_received;
+    size_t bytes_received;
+};
+
+struct mesh_ble_transport_stats mesh_ble_transport_stats(struct mesh_transport *transport);
+
 #ifdef __cplusplus
 }
 #endif

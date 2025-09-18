@@ -8,9 +8,33 @@
 extern "C" {
 #endif
 
+struct mesh_event_loop;
+struct mesh_bluez_client;
+
+#ifdef MESH_HAVE_DBUS
+struct DBusWatch;
+
+struct mesh_bluez_watch_entry {
+    struct DBusWatch *watch;
+    int fd;
+    uint32_t events;
+    bool registered;
+    struct mesh_bluez_client *client;
+};
+#endif
+
+typedef void (*mesh_bluez_notification_callback)(const uint8_t *data, size_t len, void *userdata);
+
 struct mesh_bluez_client {
     void *connection;
     bool connected;
+    struct mesh_event_loop *loop;
+    mesh_bluez_notification_callback notification_callback;
+    void *notification_userdata;
+    char notify_characteristic_path[128];
+#ifdef MESH_HAVE_DBUS
+    struct mesh_bluez_watch_entry watches[8];
+#endif
 };
 
 struct mesh_bluez_device_info {
@@ -52,9 +76,15 @@ int mesh_bluez_client_write(struct mesh_bluez_client *client, const char *device
                             const uint8_t *data, size_t len);
 int mesh_bluez_client_find_nus_characteristics(struct mesh_bluez_client *client, const char *device_path,
                                                char *rx_path, size_t rx_len, char *tx_path, size_t tx_len);
+int mesh_bluez_client_attach_loop(struct mesh_bluez_client *client, struct mesh_event_loop *loop);
+void mesh_bluez_client_detach_loop(struct mesh_bluez_client *client);
+int mesh_bluez_client_process(struct mesh_bluez_client *client);
+void mesh_bluez_client_set_notification_handler(struct mesh_bluez_client *client,
+                                                mesh_bluez_notification_callback callback, void *userdata);
 
 void mesh_bluez_client_mock_enable(const struct mesh_bluez_mock_config *config);
 void mesh_bluez_client_mock_disable(void);
+void mesh_bluez_client_mock_emit_notification(const char *char_path, const uint8_t *data, size_t len);
 
 #ifdef __cplusplus
 }

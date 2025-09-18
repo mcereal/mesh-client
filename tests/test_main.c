@@ -264,6 +264,29 @@ static void test_ble_transport_connect_mock(void) {
         return;
     }
 
+    uint8_t payload[] = {0x08U, 0x01U};
+    uint8_t frame[16];
+    size_t frame_len = 0;
+    if (mesh_proto_frame_encode(payload, sizeof payload, frame, sizeof frame, &frame_len) != 0) {
+        ble->ops->stop(ble);
+        mesh_event_loop_shutdown(&loop);
+        mesh_bluez_client_mock_disable();
+        record_failure(test_name, "failed to encode frame");
+        return;
+    }
+
+    mesh_bluez_client_mock_emit_notification(mock_config.tx_char_path, frame, 1U);
+    mesh_bluez_client_mock_emit_notification(mock_config.tx_char_path, frame + 1U, frame_len - 1U);
+
+    struct mesh_ble_transport_stats stats = mesh_ble_transport_stats(ble);
+    if (stats.frames_received != 1U || stats.bytes_received != sizeof payload) {
+        ble->ops->stop(ble);
+        mesh_event_loop_shutdown(&loop);
+        mesh_bluez_client_mock_disable();
+        record_failure(test_name, "notification handling did not update stats");
+        return;
+    }
+
     if (mesh_ble_transport_disconnect(ble) != 0) {
         ble->ops->stop(ble);
         mesh_event_loop_shutdown(&loop);

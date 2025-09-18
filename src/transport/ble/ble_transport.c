@@ -7,6 +7,7 @@
 #include "mesh/log.h"
 
 #include "mesh/transport/ble_bluez.h"
+#include "mesh/proto/framing.h"
 
 #include <errno.h>
 #include <stdbool.h>
@@ -47,6 +48,10 @@ struct mesh_ble_transport_state {
     bool notifications_enabled;
     char rx_char_path[128];
     char tx_char_path[128];
+    uint8_t rx_buffer[1024];
+    size_t rx_buffer_len;
+    size_t frames_received;
+    size_t bytes_received;
 };
 
 static const char *k_mesh_ble_nus_rx_uuid __attribute__((unused)) = MESH_BLE_NUS_RX_UUID;
@@ -69,7 +74,18 @@ static const char *mesh_ble_state_to_string(enum mesh_ble_state state) {
 }
 
 static size_t mesh_ble_refresh_devices_internal(struct mesh_transport *transport);
+static void mesh_ble_process_rx_buffer(struct mesh_ble_transport_state *state);
+static void mesh_ble_notification_handler(const uint8_t *data, size_t len, void *userdata);
 static void mesh_ble_tick(struct mesh_transport *transport) {
+    if (transport == NULL) {
+        return;
+    }
+
+    struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
+    if (state != NULL && state->client_initialised) {
+        mesh_bluez_client_process(&state->bluez);
+    }
+
     mesh_ble_refresh_devices_internal(transport);
 }
 
@@ -132,13 +148,10 @@ static void mesh_ble_teardown_refresh_timer(struct mesh_ble_transport_state *sta
         close(state->refresh_timer_fd);
         state->refresh_timer_fd = -1;
     }
-    state->loop = NULL;
 }
 
 static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_app_config *config,
                           struct mesh_event_loop *loop) {
-    (void)loop;
-
     if (transport == NULL || config == NULL) {
         return -EINVAL;
     }
@@ -150,13 +163,16 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     state->adapter_path[0] = '\0';
     state->device_count = 0;
     state->refresh_timer_fd = -1;
-    state->loop = NULL;
+    state->loop = loop;
     state->link_state = MESH_BLE_LINK_DISCONNECTED;
     state->connected_address[0] = '\0';
     state->connected_device_path[0] = '\0';
     state->notifications_enabled = false;
     state->rx_char_path[0] = '\0';
     state->tx_char_path[0] = '\0';
+    state->rx_buffer_len = 0U;
+    state->frames_received = 0U;
+    state->bytes_received = 0U;
 
     if (!config->enable_ble) {
         mesh_log_info("ble", "BLE transport disabled by configuration");
@@ -179,6 +195,15 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
 
     state->client_initialised = true;
     state->state = MESH_BLE_STATE_WAITING_FOR_BLUEZ;
+
+    if (loop != NULL) {
+        int attach_result = mesh_bluez_client_attach_loop(&state->bluez, loop);
+        if (attach_result < 0) {
+            mesh_log_warn("ble", "Failed to attach BlueZ client to event loop: %d", attach_result);
+        }
+    }
+
+    mesh_bluez_client_set_notification_handler(&state->bluez, mesh_ble_notification_handler, state);
 
     const int ready_result = mesh_bluez_client_check_ready(&state->bluez);
     if (ready_result < 0) {
@@ -258,6 +283,11 @@ static void mesh_ble_stop(struct mesh_transport *transport) {
     mesh_ble_teardown_refresh_timer(state);
 
     if (state->client_initialised) {
+        if (state->link_state == MESH_BLE_LINK_CONNECTED) {
+            mesh_bluez_client_disconnect(&state->bluez, state->connected_device_path);
+        }
+        mesh_bluez_client_set_notification_handler(&state->bluez, NULL, NULL);
+        mesh_bluez_client_detach_loop(&state->bluez);
         mesh_bluez_client_shutdown(&state->bluez);
         state->client_initialised = false;
     }
@@ -272,6 +302,8 @@ static void mesh_ble_stop(struct mesh_transport *transport) {
     state->notifications_enabled = false;
     state->rx_char_path[0] = '\0';
     state->tx_char_path[0] = '\0';
+    state->rx_buffer_len = 0U;
+    state->loop = NULL;
     mesh_log_info("ble", "BLE transport stopped");
 }
 
@@ -364,6 +396,71 @@ static size_t mesh_ble_refresh_devices_internal(struct mesh_transport *transport
     return state->device_count;
 }
 
+static void mesh_ble_process_rx_buffer(struct mesh_ble_transport_state *state) {
+    if (state == NULL) {
+        return;
+    }
+
+    size_t offset = 0U;
+    while (offset < state->rx_buffer_len) {
+        size_t available = state->rx_buffer_len - offset;
+        uint32_t payload_len = 0U;
+        size_t header_len = 0U;
+        int result = mesh_proto_varint_decode(state->rx_buffer + offset, available, &payload_len, &header_len);
+        if (result < 0) {
+            if (available >= 5U) {
+                mesh_log_warn("ble", "Dropping invalid BLE frame header");
+                state->rx_buffer_len = 0U;
+            }
+            break;
+        }
+
+        size_t total_len = header_len + (size_t)payload_len;
+        if (total_len > available) {
+            if (total_len > sizeof(state->rx_buffer)) {
+                mesh_log_warn("ble", "Frame length %zu exceeds buffer capacity", total_len);
+                state->rx_buffer_len = 0U;
+            }
+            break;
+        }
+
+        state->frames_received += 1U;
+        state->bytes_received += payload_len;
+        mesh_log_debug("ble", "Received protobuf frame (%u bytes)", (unsigned)payload_len);
+
+        offset += total_len;
+    }
+
+    if (offset > 0U && offset <= state->rx_buffer_len) {
+        size_t remaining = state->rx_buffer_len - offset;
+        if (remaining > 0U) {
+            memmove(state->rx_buffer, state->rx_buffer + offset, remaining);
+        }
+        state->rx_buffer_len = remaining;
+    }
+}
+
+static void mesh_ble_notification_handler(const uint8_t *data, size_t len, void *userdata) {
+    struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)userdata;
+    if (state == NULL || data == NULL || len == 0U) {
+        return;
+    }
+
+    if (state->link_state != MESH_BLE_LINK_CONNECTED) {
+        return;
+    }
+
+    if (len > sizeof(state->rx_buffer) - state->rx_buffer_len) {
+        mesh_log_warn("ble", "RX buffer overflow, dropping %zu byte notification", len);
+        state->rx_buffer_len = 0U;
+        return;
+    }
+
+    memcpy(state->rx_buffer + state->rx_buffer_len, data, len);
+    state->rx_buffer_len += len;
+    mesh_ble_process_rx_buffer(state);
+}
+
 size_t mesh_ble_transport_refresh_devices(struct mesh_transport *transport) {
     return mesh_ble_refresh_devices_internal(transport);
 }
@@ -433,6 +530,10 @@ int mesh_ble_transport_connect(struct mesh_transport *transport, const char *add
     snprintf(state->connected_device_path, sizeof(state->connected_device_path), "%s", device_path);
     snprintf(state->rx_char_path, sizeof(state->rx_char_path), "%s", rx_path);
     snprintf(state->tx_char_path, sizeof(state->tx_char_path), "%s", tx_path);
+    state->rx_buffer_len = 0U;
+    state->frames_received = 0U;
+    state->bytes_received = 0U;
+    mesh_bluez_client_process(&state->bluez);
     mesh_log_info("ble", "Connected to %s", address);
     return 0;
 }
@@ -458,8 +559,21 @@ int mesh_ble_transport_disconnect(struct mesh_transport *transport) {
     state->connected_device_path[0] = '\0';
     state->rx_char_path[0] = '\0';
     state->tx_char_path[0] = '\0';
+    state->rx_buffer_len = 0U;
     mesh_log_info("ble", "Disconnected from Meshtastic node");
     return 0;
+}
+
+struct mesh_ble_transport_stats mesh_ble_transport_stats(struct mesh_transport *transport) {
+    struct mesh_ble_transport_stats stats = {0U, 0U};
+    if (transport == NULL || transport->state == NULL) {
+        return stats;
+    }
+
+    const struct mesh_ble_transport_state *state = (const struct mesh_ble_transport_state *)transport->state;
+    stats.frames_received = state->frames_received;
+    stats.bytes_received = state->bytes_received;
+    return stats;
 }
 
 struct mesh_transport *mesh_ble_transport(void) {
