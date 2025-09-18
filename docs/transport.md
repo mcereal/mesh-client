@@ -19,6 +19,7 @@ Serial, and HTTP transports.
 - GATT data path: device `Connect`/`Disconnect`, `StartNotify`, and notification handling wired into the event loop with frame buffering and basic stats.
 - Initial config handshake: queues `want_config_id`, tracks `MyNodeInfo` / `NodeInfo` summaries, and marks completion via `config_complete_id`.
 - Outbound write queue with MTU-aware chunking ensures large protobuf frames are split across BLE packets.
+- CLI `--status` surface handshake data (text/JSON) and `--status-output` writes a JSON cache for MinUI scripts.
 
 ### In Progress
 

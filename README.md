@@ -26,6 +26,9 @@ make test
 
 # Print cached handshake / node summary (use --json for machine-readable output)
 ./build/debug/meshclient --status --json
+
+# Update a JSON cache for MinUI/automation
+./build/debug/meshclient --status --status-output "$HOME/.userdata/meshclient/status.json"
 ```
 
 If CMake is not installed, install it with your package manager first (e.g. `sudo apt install cmake`).
