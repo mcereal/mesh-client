@@ -6,18 +6,22 @@
 
 #include <errno.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <string.h>
 
 enum mesh_ble_state {
     MESH_BLE_STATE_DISABLED = 0,
     MESH_BLE_STATE_IDLE,
     MESH_BLE_STATE_WAITING_FOR_BLUEZ,
+    MESH_BLE_STATE_WAITING_FOR_ADAPTER,
     MESH_BLE_STATE_READY,
 };
 
 struct mesh_ble_transport_state {
     enum mesh_ble_state state;
     bool client_initialised;
+    bool discovery_active;
+    char adapter_path[128];
     struct mesh_bluez_client bluez;
 };
 
@@ -29,6 +33,8 @@ static const char *mesh_ble_state_to_string(enum mesh_ble_state state) {
             return "inactive";
         case MESH_BLE_STATE_WAITING_FOR_BLUEZ:
             return "waiting-for-bluez";
+        case MESH_BLE_STATE_WAITING_FOR_ADAPTER:
+            return "waiting-for-adapter";
         case MESH_BLE_STATE_READY:
             return "running";
     }
@@ -46,6 +52,8 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
     state->state = MESH_BLE_STATE_IDLE;
     state->client_initialised = false;
+    state->discovery_active = false;
+    state->adapter_path[0] = '\0';
 
     if (!config->enable_ble) {
         mesh_log_info("ble", "BLE transport disabled by configuration");
@@ -84,11 +92,40 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
         return 0;
     }
 
+    char adapter_path[sizeof(state->adapter_path)];
+    int adapter_result = mesh_bluez_client_find_adapter(&state->bluez, adapter_path, sizeof(adapter_path));
+    if (adapter_result < 0) {
+        if (adapter_result == -ENODEV) {
+            mesh_log_warn("ble", "No BlueZ adapters available; waiting for device");
+            state->state = MESH_BLE_STATE_WAITING_FOR_ADAPTER;
+        } else if (adapter_result == -ENOTCONN) {
+            mesh_log_warn("ble", "BlueZ client disconnected before adapter search");
+            state->state = MESH_BLE_STATE_WAITING_FOR_BLUEZ;
+        } else if (adapter_result == -ENOSYS) {
+            mesh_log_warn("ble", "Adapter search unsupported on this build");
+            state->state = MESH_BLE_STATE_WAITING_FOR_BLUEZ;
+        } else {
+            mesh_log_warn("ble", "Adapter search failed: %s", strerror(-adapter_result));
+            state->state = MESH_BLE_STATE_WAITING_FOR_ADAPTER;
+        }
+        return 0;
+    }
+
+    snprintf(state->adapter_path, sizeof(state->adapter_path), "%s", adapter_path);
+    int discovery_result = mesh_bluez_client_start_discovery(&state->bluez, state->adapter_path);
+    if (discovery_result < 0) {
+        mesh_log_warn("ble", "StartDiscovery failed on %s: %s", state->adapter_path,
+                      strerror(-discovery_result));
+        state->state = MESH_BLE_STATE_WAITING_FOR_ADAPTER;
+        return 0;
+    }
+
+    state->discovery_active = true;
     state->state = MESH_BLE_STATE_READY;
     if (config->preferred_ble_device[0] != '\0') {
         mesh_log_info("ble", "Attempting to connect to preferred device '%s'", config->preferred_ble_device);
     } else {
-        mesh_log_info("ble", "BlueZ detected; ready to scan for Meshtastic nodes (stub)");
+        mesh_log_info("ble", "Scanning for Meshtastic nodes via %s", state->adapter_path);
     }
 
     // TODO: hook into BlueZ via D-Bus and register descriptors with the event loop.
@@ -101,12 +138,22 @@ static void mesh_ble_stop(struct mesh_transport *transport) {
     }
 
     struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
+    if (state->discovery_active && state->adapter_path[0] != '\0') {
+        int stop_result = mesh_bluez_client_stop_discovery(&state->bluez, state->adapter_path);
+        if (stop_result < 0) {
+            mesh_log_warn("ble", "StopDiscovery failed on %s: %s", state->adapter_path,
+                          strerror(-stop_result));
+        }
+    }
+
     if (state->client_initialised) {
         mesh_bluez_client_shutdown(&state->bluez);
         state->client_initialised = false;
     }
 
     state->state = MESH_BLE_STATE_IDLE;
+    state->discovery_active = false;
+    state->adapter_path[0] = '\0';
     mesh_log_info("ble", "BLE transport stopped");
 }
 

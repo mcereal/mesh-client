@@ -9,7 +9,7 @@ A native NextUI/MinUI Pak that turns the TrimUI Brick into a lightweight Meshtas
 - Repository bootstrapped with C17 core, epoll event loop, and logging utilities.
 - BLE transport stub registered; honours config flags and ready for BlueZ wiring.
 - Build/test harness in place (`cmake`, `CTest`, Makefile wrappers, packaging scripts, TrimUI `launch.sh`).
-- BlueZ presence detection via D-Bus with graceful fallback when not available.
+- BlueZ presence detection via D-Bus with graceful fallback and adapter discovery / discovery start.
 
 **In Progress / Next Up**
 

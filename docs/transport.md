@@ -10,7 +10,8 @@ Serial, and HTTP transports.
 
 - D-Bus client wrapper that connects to the system bus and verifies the `org.bluez` service.
 - BLE transport startup gracefully downgrades when BlueZ is missing or D-Bus support is disabled.
-- Status reporting distinguishes between `disabled`, `waiting-for-bluez`, and `running` states.
+- Status reporting distinguishes between `disabled`, `waiting-for-bluez`, `waiting-for-adapter`, and `running` states.
+- Adapter discovery via `GetManagedObjects`, plus automatic `StartDiscovery` / `StopDiscovery` orchestration for the first available adapter.
 
 ### In Progress
 

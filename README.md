@@ -37,7 +37,7 @@ Copy the resulting `dist/MeshClient.pak.zip` (or the extracted `MeshClient.pak/`
 - **Logging:** Adjust verbosity using the `--log-level` flag. Logs stream to `stderr` locally and to the pak log on device.
 - **CLI options:** `meshclient --help` lists foreground mode, BLE toggles, preferred device, timeout, and log-level flags.
 - **Runtime env vars:** `MESHCLIENT_RUN_MODE`, `MESHCLIENT_IDLE_TIMEOUT_MS`, `MESHCLIENT_DISABLE_BLE`, `MESHCLIENT_PREFERRED_BLE_DEVICE`.
-- **BlueZ:** At runtime the BLE transport connects to system D-Bus and checks for the `org.bluez` service. If it is missing, the transport reports `waiting-for-bluez` and remains idle without failing the app.
+- **BlueZ:** At runtime the BLE transport connects to system D-Bus, locates the first adapter, and begins discovery. If BlueZ or an adapter is missing, the transport reports `waiting-for-bluez` / `waiting-for-adapter` and stays idle without failing the app.
 
 ## Repository Layout
 

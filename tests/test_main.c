@@ -120,7 +120,7 @@ static void test_ble_transport_status_transitions(void) {
     config.enable_ble = true;
     ble->ops->start(ble, &config, &dummy_loop);
     const char *running_status = ble->ops->status(ble);
-    const char *expected_states[] = {"running", "waiting-for-bluez", "inactive"};
+    const char *expected_states[] = {"running", "waiting-for-bluez", "waiting-for-adapter", "inactive"};
     if (!string_matches_any(running_status, expected_states, sizeof(expected_states) / sizeof(expected_states[0]))) {
         record_failure(test_name, "unexpected status after enabling BLE");
         ble->ops->stop(ble);

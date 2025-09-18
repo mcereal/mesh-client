@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -14,6 +15,9 @@ struct mesh_bluez_client {
 int mesh_bluez_client_init(struct mesh_bluez_client *client);
 void mesh_bluez_client_shutdown(struct mesh_bluez_client *client);
 int mesh_bluez_client_check_ready(struct mesh_bluez_client *client);
+int mesh_bluez_client_find_adapter(struct mesh_bluez_client *client, char *path, size_t path_len);
+int mesh_bluez_client_start_discovery(struct mesh_bluez_client *client, const char *adapter_path);
+int mesh_bluez_client_stop_discovery(struct mesh_bluez_client *client, const char *adapter_path);
 
 #ifdef __cplusplus
 }
