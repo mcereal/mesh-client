@@ -59,6 +59,14 @@ struct mesh_bluez_mock_config {
     const struct mesh_bluez_device_info *devices;
     size_t device_count;
     int list_result;
+    uint8_t *write_capture_buffer;
+    size_t write_capture_capacity;
+    size_t *write_capture_length;
+    char *write_capture_path;
+    size_t write_capture_path_capacity;
+    size_t *write_call_count;
+    size_t *write_lengths;
+    size_t write_lengths_capacity;
 };
 
 int mesh_bluez_client_init(struct mesh_bluez_client *client);

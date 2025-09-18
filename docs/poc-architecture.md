@@ -11,10 +11,12 @@ A native NextUI/MinUI Pak that turns the TrimUI Brick into a lightweight Meshtas
 - Build/test harness in place (`cmake`, `CTest`, Makefile wrappers, packaging scripts, TrimUI `launch.sh`).
 - BlueZ presence detection via D-Bus with graceful fallback and adapter discovery / discovery start.
 - BlueZ GATT data path with event-loop integration, notification buffering, and basic frame stats.
+- Initial config handshake via `want_config_id`, with cached `MyNodeInfo`/`NodeInfo` summaries and completion tracking.
+- Outbound BLE write queue with MTU-aware chunking ready for future ToRadio messaging.
 
 **In Progress / Next Up**
 
-- Decode protobuf frames into the client cache and drive initial handshake (`want_config_id`).
+- Promote cached config/node data into the client core for UI consumption and ToRadio follow-ups.
 - Flesh out UI flows (node list, messaging) with packaged MinUI helpers.
 - Add Serial/HTTP transports and end-to-end protocol validation tests.
 

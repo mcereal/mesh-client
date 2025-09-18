@@ -979,6 +979,33 @@ int mesh_bluez_client_write(struct mesh_bluez_client *client, const char *device
     }
 
     if (g_mock_state.enabled) {
+        size_t call_index = 0U;
+        if (g_mock_state.config.write_call_count != NULL) {
+            (*g_mock_state.config.write_call_count)++;
+            call_index = *g_mock_state.config.write_call_count;
+        }
+
+        if (g_mock_state.config.write_lengths != NULL && call_index > 0U &&
+            (call_index - 1U) < g_mock_state.config.write_lengths_capacity) {
+            g_mock_state.config.write_lengths[call_index - 1U] = len;
+        }
+
+        if (g_mock_state.config.write_capture_buffer != NULL && g_mock_state.config.write_capture_length != NULL) {
+            size_t to_copy = len;
+            if (to_copy > g_mock_state.config.write_capture_capacity) {
+                to_copy = g_mock_state.config.write_capture_capacity;
+            }
+            if (to_copy > 0U) {
+                memcpy(g_mock_state.config.write_capture_buffer, data, to_copy);
+            }
+            *g_mock_state.config.write_capture_length = to_copy;
+        }
+
+        if (g_mock_state.config.write_capture_path != NULL && g_mock_state.config.write_capture_path_capacity > 0U) {
+            snprintf(g_mock_state.config.write_capture_path, g_mock_state.config.write_capture_path_capacity, "%s",
+                     device_path != NULL ? device_path : "");
+        }
+
         return g_mock_state.config.write_result;
     }
 

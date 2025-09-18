@@ -17,10 +17,11 @@ Serial, and HTTP transports.
 - CLI support: `meshclient --list-devices` prints the cached nodes and exits—useful for diagnostics.
 - Varint-based framing helpers for BLE packets, plus nanopb runtime linked against Meshtastic upstream schemas (tracked via git submodule).
 - GATT data path: device `Connect`/`Disconnect`, `StartNotify`, and notification handling wired into the event loop with frame buffering and basic stats.
+- Initial config handshake: queues `want_config_id`, tracks `MyNodeInfo` / `NodeInfo` summaries, and marks completion via `config_complete_id`.
+- Outbound write queue with MTU-aware chunking ensures large protobuf frames are split across BLE packets.
 
 ### In Progress
 
-- Write queue batching and MTU-aware chunking for outbound protobuf frames.
 - UI integration for the discovery cache (planned via MinUI resources).
 - Automate protobuf regeneration (`make proto`) after updating the Meshtastic protobuf submodule; currently we build `mesh.proto`, `portnums.proto`, `interdevice.proto`, `module_config.proto`, `telemetry.proto`.
 
@@ -28,7 +29,7 @@ Serial, and HTTP transports.
 
 - Persist preferred device selection in pak userdata.
 - User-visible UI surfaces (scan list, connection feedback, retry loop).
-- Decode `FromRadio` protobufs into a cache and surface send/ack flows.
+- Promote cached config/node data to UI and drive follow-on ToRadio commands (message send, settings writes).
 
 ## Serial Transport
 
