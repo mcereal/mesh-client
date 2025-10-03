@@ -12,32 +12,22 @@ USERDATA_PATH="$SDCARD_PATH/.userdata/$PLATFORM/$PAK_NAME"
 mkdir -p "$LOGS_PATH" "$USERDATA_PATH"
 
 LOG_FILE="$LOGS_PATH/$PAK_NAME.txt"
-LOG_PIPE="$(mktemp -u "${USERDATA_PATH}/logpipe.XXXX")"
-mkfifo "$LOG_PIPE"
-tee -a "$LOG_FILE" < "$LOG_PIPE" &
-TEE_PID=$!
-exec > "$LOG_PIPE"
-exec 2>&1
 
-printf '[%s] Launching %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$PAK_NAME"
+printf '[%s] Launching %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$PAK_NAME" >>"$LOG_FILE"
 
 export HOME="$USERDATA_PATH"
 export PATH="$PATH:$PAK_DIR/bin/$PLATFORM:$PAK_DIR/bin/shared"
-# Default to CLI backend until MinUI helpers are packaged for tg5040 builds
-export MESHCLIENT_UI_BACKEND="${MESHCLIENT_UI_BACKEND:-cli}"
+export MESHCLIENT_UI_BACKEND="${MESHCLIENT_UI_BACKEND:-minui}"
 export DBUS_SYSTEM_BUS_ADDRESS="unix:path=/var/run/dbus/system_bus_socket"
 unset DBUS_SESSION_BUS_ADDRESS || true
 
 if ! command -v meshclient >/dev/null 2>&1; then
     echo "meshclient binary not found in PATH" >&2
+    printf '[%s] meshclient binary not found in PATH\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >>"$LOG_FILE"
     exit 1
 fi
 
 meshclient --foreground --log-level debug "$@"
 STATUS=$?
-printf '[%s] MeshClient exited with status %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$STATUS"
-
-kill "$TEE_PID" 2>/dev/null
-wait "$TEE_PID" 2>/dev/null
-rm -f "$LOG_PIPE"
+printf '[%s] MeshClient exited with status %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$STATUS" >>"$LOG_FILE"
 exit "$STATUS"
