@@ -22,12 +22,11 @@ export DBUS_SYSTEM_BUS_ADDRESS="unix:path=/var/run/dbus/system_bus_socket"
 unset DBUS_SESSION_BUS_ADDRESS || true
 
 if ! command -v meshclient >/dev/null 2>&1; then
-    echo "meshclient binary not found in PATH" >&2
-    printf '[%s] meshclient binary not found in PATH\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >>"$LOG_FILE"
+    echo "meshclient binary not found in PATH" >&2 | tee -a "$LOG_FILE"
     exit 1
 fi
 
-meshclient --foreground --log-level debug "$@"
+meshclient --foreground --log-level debug "$@" 2>&1 | tee -a "$LOG_FILE"
 STATUS=$?
-printf '[%s] MeshClient exited with status %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$STATUS" >>"$LOG_FILE"
+printf '[%s] MeshClient exited with status %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$STATUS"
 exit "$STATUS"
