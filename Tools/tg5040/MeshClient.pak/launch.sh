@@ -17,7 +17,7 @@ printf '[%s] Launching %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$PAK_NAME" >>"$
 
 export HOME="$USERDATA_PATH"
 export PATH="$PATH:$PAK_DIR/bin/$PLATFORM:$PAK_DIR/bin/shared"
-export MESHCLIENT_UI_BACKEND="${MESHCLIENT_UI_BACKEND:-minui}"
+export MESHCLIENT_UI_BACKEND="${MESHCLIENT_UI_BACKEND:-cli}"
 export DBUS_SYSTEM_BUS_ADDRESS="unix:path=/var/run/dbus/system_bus_socket"
 unset DBUS_SESSION_BUS_ADDRESS || true
 

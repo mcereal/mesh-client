@@ -90,11 +90,19 @@ static int mesh_ui_backend_cli_init(void **state, void *userdata) {
         memset(context, 0, sizeof *context);
     }
     if (context != NULL) {
-        context->tty_stream = fopen("/dev/tty0", "w");
+        const char *console_candidates[] = {"/dev/tty0", "/dev/tty1", "/dev/tty", "/dev/console"};
+        for (size_t i = 0; i < sizeof(console_candidates) / sizeof(console_candidates[0]); ++i) {
+            const char *path = console_candidates[i];
+            FILE *stream = fopen(path, "w");
+            if (stream != NULL) {
+                setvbuf(stream, NULL, _IONBF, 0);
+                context->tty_stream = stream;
+                mesh_log_info("ui", "CLI backend writing to %s", path);
+                break;
+            }
+        }
         if (context->tty_stream == NULL) {
-            mesh_log_warn("ui", "CLI backend failed to open /dev/tty0: %s", strerror(errno));
-        } else {
-            setvbuf(context->tty_stream, NULL, _IONBF, 0);
+            mesh_log_warn("ui", "CLI backend could not open a console for output");
         }
     }
     if (state != NULL) {
