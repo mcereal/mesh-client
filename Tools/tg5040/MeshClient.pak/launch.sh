@@ -17,7 +17,12 @@ printf '[%s] Launching %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$PAK_NAME" >>"$
 
 export HOME="$USERDATA_PATH"
 export PATH="$PATH:$PAK_DIR/bin/$PLATFORM:$PAK_DIR/bin/shared"
-export MESHCLIENT_UI_BACKEND="${MESHCLIENT_UI_BACKEND:-cli}"
+export LD_LIBRARY_PATH="/usr/trimui/lib:$PAK_DIR/bin/$PLATFORM:$PAK_DIR/bin/shared:${LD_LIBRARY_PATH:-}"
+export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-fbcon}"
+export SDL_FBDEV="${SDL_FBDEV:-/dev/fb0}"
+export SDL_RENDER_DRIVER="${SDL_RENDER_DRIVER:-software}"
+export SDL_NOMOUSE=1
+export MESHCLIENT_UI_BACKEND="${MESHCLIENT_UI_BACKEND:-sdl}"
 export DBUS_SYSTEM_BUS_ADDRESS="unix:path=/var/run/dbus/system_bus_socket"
 unset DBUS_SESSION_BUS_ADDRESS || true
 

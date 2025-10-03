@@ -45,6 +45,7 @@ add_library(meshclient_core
     src/ui/backends/stub.c
     src/ui/backends/cli.c
     src/ui/backends/minui.c
+    src/ui/backends/sdl.c
     src/ui/preferences.c
 )
 
@@ -62,6 +63,7 @@ find_package(Threads REQUIRED)
 find_package(PkgConfig)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 find_program(NANOPB_GENERATOR_EXECUTABLE nanopb_generator)
+find_package(SDL2 QUIET)
 
 if(NANOPB_GENERATOR_EXECUTABLE)
     set(NANOPB_GENERATOR_COMMAND ${NANOPB_GENERATOR_EXECUTABLE})
@@ -77,6 +79,12 @@ if(DBUS_FOUND)
     target_compile_definitions(meshclient_core PRIVATE MESH_HAVE_DBUS)
     target_include_directories(meshclient_core PRIVATE ${DBUS_INCLUDE_DIRS})
     target_link_libraries(meshclient_core PUBLIC ${DBUS_LIBRARIES})
+endif()
+
+if(SDL2_FOUND)
+    target_compile_definitions(meshclient_core PRIVATE MESH_HAVE_SDL)
+    target_include_directories(meshclient_core PRIVATE ${SDL2_INCLUDE_DIRS})
+    target_link_libraries(meshclient_core PUBLIC ${SDL2_LIBRARIES})
 endif()
 
 target_link_libraries(meshclient_core

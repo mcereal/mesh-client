@@ -20,7 +20,8 @@
 - [done] BLE discovery and handshake data (MyNode metadata plus node summaries) feed directly into the UI store; store/controller unit coverage lives in `tests/test_main.c`.
 - [done] Handshake snapshots persist to `~/.meshclient/ui_prefs.handshake` so backends can show cached status on launch.
 - [done] CLI `--status` surfaces the cached roster (pretty + JSON) when no live node is detected, keeping host flows aligned with MinUI behaviour.
-- [done] CLI backend implemented for host development; backend selection driven by `MESHCLIENT_UI_BACKEND` (defaults to CLI unless MinUI helpers are present).
+- [done] CLI backend implemented for host development; backend selection driven by `MESHCLIENT_UI_BACKEND` (defaults to CLI unless MinUI/SDL backends are present).
+- [done] SDL fallback backend renders a framebuffer HUD directly via SDL2 (trimmed bitmap font) so TrimUI builds show status even without MinUI helpers.
 - [done] Preferences persist the last connected device under `~/.meshclient/ui_prefs` (auto-created via the launch `HOME`).
 - [done] MinUI backend emits JSON menus to `minui-list`, captures selections asynchronously, and requests BLE connects via callbacks without blocking the core event loop.
 - [in-progress] Extract the TrimUI MinUI helper binaries from `third_party/nextui/` so the device backend can render real screens (see `docs/ui-nextui-integration.md`).
