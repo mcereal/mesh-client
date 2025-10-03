@@ -77,17 +77,17 @@ static void mesh_app_select_stub(const struct mesh_ui_backend **backend, void **
     }
 }
 
-static bool mesh_app_select_sdl(struct mesh_app *app, const struct mesh_ui_backend **backend, void **userdata) {
-    if (!mesh_ui_backend_sdl_is_available()) {
+static bool mesh_app_select_fb(struct mesh_app *app, const struct mesh_ui_backend **backend, void **userdata) {
+    if (!mesh_ui_backend_fb_is_available()) {
         return false;
     }
 
     if (backend != NULL) {
-        *backend = mesh_ui_backend_sdl();
+        *backend = mesh_ui_backend_fb();
     }
     if (userdata != NULL) {
-        app->ui_sdl_context.loop = &app->loop;
-        *userdata = &app->ui_sdl_context;
+        app->ui_fb_context.loop = &app->loop;
+        *userdata = &app->ui_fb_context;
     }
     return true;
 }
@@ -107,11 +107,12 @@ static const struct mesh_ui_backend *mesh_app_select_backend(struct mesh_app *ap
 
     if (requested != NULL) {
         if (strcasecmp(requested, "minui") == 0) {
-            if (!mesh_app_select_minui(app, &backend, &backend_userdata, true)) {
+            if (!mesh_app_select_minui(app, &backend, &backend_userdata, true) &&
+                !mesh_app_select_fb(app, &backend, &backend_userdata)) {
                 mesh_app_select_cli(app, &backend, &backend_userdata);
             }
-        } else if (strcasecmp(requested, "sdl") == 0) {
-            if (!mesh_app_select_sdl(app, &backend, &backend_userdata)) {
+        } else if (strcasecmp(requested, "fb") == 0) {
+            if (!mesh_app_select_fb(app, &backend, &backend_userdata)) {
                 mesh_app_select_cli(app, &backend, &backend_userdata);
             }
         } else if (strcasecmp(requested, "cli") == 0) {
@@ -120,7 +121,7 @@ static const struct mesh_ui_backend *mesh_app_select_backend(struct mesh_app *ap
             mesh_app_select_stub(&backend, &backend_userdata);
         } else if (strcasecmp(requested, "auto") == 0) {
             if (!mesh_app_select_minui(app, &backend, &backend_userdata, false) &&
-                !mesh_app_select_sdl(app, &backend, &backend_userdata)) {
+                !mesh_app_select_fb(app, &backend, &backend_userdata)) {
                 mesh_app_select_cli(app, &backend, &backend_userdata);
             }
         } else {
@@ -130,9 +131,14 @@ static const struct mesh_ui_backend *mesh_app_select_backend(struct mesh_app *ap
     } else {
         const char *platform = getenv("PLATFORM");
         bool prefer_minui = (platform != NULL && strcasecmp(platform, "tg5040") == 0);
-        if (!prefer_minui || !mesh_app_select_minui(app, &backend, &backend_userdata, false)) {
+
+        if (prefer_minui) {
             if (!mesh_app_select_minui(app, &backend, &backend_userdata, false) &&
-                !mesh_app_select_sdl(app, &backend, &backend_userdata)) {
+                !mesh_app_select_fb(app, &backend, &backend_userdata)) {
+                mesh_app_select_cli(app, &backend, &backend_userdata);
+            }
+        } else {
+            if (!mesh_app_select_fb(app, &backend, &backend_userdata)) {
                 mesh_app_select_cli(app, &backend, &backend_userdata);
             }
         }
@@ -318,7 +324,7 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     }
 
     memset(&app->ui_minui_context, 0, sizeof app->ui_minui_context);
-    memset(&app->ui_sdl_context, 0, sizeof app->ui_sdl_context);
+    memset(&app->ui_fb_context, 0, sizeof app->ui_fb_context);
     memset(&app->ui_preferences, 0, sizeof(app->ui_preferences));
     app->ui_preferences_path[0] = '\0';
     app->ui_preferences_dirty = false;
