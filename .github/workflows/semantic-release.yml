@@ -54,6 +54,8 @@ jobs:
           PKG_CONFIG: /bin/false
         run: |
           export CROSS_COMPILE=aarch64-buildroot-linux-musl-
+          # Use system Python3 (not toolchain's) for nanopb code generation
+          SYSTEM_PYTHON=$(which -a python3 | grep -v aarch64 | head -n1)
           cmake -S . -B build/release \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=aarch64-buildroot-linux-musl-gcc \
@@ -61,7 +63,8 @@ jobs:
             -DCMAKE_SYSTEM_NAME=Linux \
             -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
             -DCMAKE_EXE_LINKER_FLAGS="-static" \
-            -DCMAKE_C_FLAGS="-Os"
+            -DCMAKE_C_FLAGS="-Os" \
+            -DPython3_EXECUTABLE="$SYSTEM_PYTHON"
           cmake --build build/release
 
       - name: Package Pak
