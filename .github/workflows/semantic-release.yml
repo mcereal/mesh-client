@@ -39,6 +39,22 @@ jobs:
           wget https://toolchains.bootlin.com/downloads/releases/toolchains/aarch64/tarballs/aarch64--musl--stable-2024.02-1.tar.bz2
           tar -xf aarch64--musl--stable-2024.02-1.tar.bz2
           echo "$PWD/aarch64--musl--stable-2024.02-1/bin" >> $GITHUB_PATH
+          # Build libdbus from source for static linking
+          wget https://dbus.freedesktop.org/releases/dbus/dbus-1.14.10.tar.xz
+          tar -xf dbus-1.14.10.tar.xz
+          cd dbus-1.14.10
+          ./configure --host=aarch64-buildroot-linux-musl \
+            --prefix=$PWD/../dbus-install \
+            --disable-shared --enable-static \
+            --disable-tests --disable-doxygen-docs \
+            --disable-xml-docs --disable-selinux \
+            --disable-systemd --disable-traditional-activation \
+            --without-x
+          make -j$(nproc)
+          make install
+          cd ..
+          export PKG_CONFIG_PATH="$PWD/dbus-install/lib/pkgconfig:$PKG_CONFIG_PATH"
+          echo "PKG_CONFIG_PATH=$PWD/dbus-install/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
 
       - name: Install semantic-release
         run: |
@@ -50,8 +66,6 @@ jobs:
             conventional-changelog-conventionalcommits@^7.0.2
 
       - name: Build (Release)
-        env:
-          PKG_CONFIG: /bin/false
         run: |
           export CROSS_COMPILE=aarch64-buildroot-linux-musl-
           # Use system Python3 (not toolchain's) for nanopb code generation
