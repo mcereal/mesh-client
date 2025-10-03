@@ -1,7 +1,4 @@
-name: Semanticjobs:
-  release:
-    runs-on: ubuntu-20.04
-    steps:ease
+name: Semantic Release
 
 on:
   push:
@@ -17,7 +14,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-20.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
