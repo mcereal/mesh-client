@@ -33,9 +33,11 @@ if ! command -v meshclient >/dev/null 2>&1; then
     exit 1
 fi
 
-meshclient --foreground --log-level debug "$@" &
-CLIENT_PID=$!
+meshclient --foreground --log-level debug "$@"
+STATUS=$?
+printf '[%s] MeshClient exited with status %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$STATUS"
 
-trap 'STATUS=$?; kill "$CLIENT_PID" 2>/dev/null; kill "$TEE_PID" 2>/dev/null; wait "$CLIENT_PID" 2>/dev/null; wait "$TEE_PID" 2>/dev/null; rm -f "$LOG_PIPE"; exit "$STATUS"' INT TERM EXIT
-
-wait "$CLIENT_PID"
+kill "$TEE_PID" 2>/dev/null
+wait "$TEE_PID" 2>/dev/null
+rm -f "$LOG_PIPE"
+exit "$STATUS"
