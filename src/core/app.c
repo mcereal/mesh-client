@@ -231,7 +231,13 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
         }
         ui_handshake.node_count = (uint32_t)copy_count;
 
+        mesh_ui_update_flags prev_flags = app->ui_store.pending_flags;
         mesh_ui_store_set_handshake(&app->ui_store, &ui_handshake);
+        if (app->ui_handshake_cache_path[0] != '\0' &&
+            (app->ui_store.pending_flags & MESH_UI_UPDATE_HANDSHAKE) != 0U &&
+            (prev_flags & MESH_UI_UPDATE_HANDSHAKE) == 0U) {
+            app->ui_handshake_cache_dirty = true;
+        }
 
         if (ui_handshake.primary_channel[0] != '\0' &&
             strcmp(app->ui_preferences.preferred_channel, ui_handshake.primary_channel) != 0) {
@@ -240,7 +246,13 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
             preferences_modified = true;
         }
     } else {
+        mesh_ui_update_flags prev_flags = app->ui_store.pending_flags;
         mesh_ui_store_set_handshake(&app->ui_store, NULL);
+        if (app->ui_handshake_cache_path[0] != '\0' &&
+            (app->ui_store.pending_flags & MESH_UI_UPDATE_HANDSHAKE) != 0U &&
+            (prev_flags & MESH_UI_UPDATE_HANDSHAKE) == 0U) {
+            app->ui_handshake_cache_dirty = true;
+        }
     }
 
     if (preferences_modified && app->ui_preferences_path[0] != '\0') {
@@ -252,6 +264,15 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
     } else if (app->ui_preferences_dirty && app->ui_preferences_path[0] != '\0') {
         if (mesh_ui_preferences_save(&app->ui_preferences, app->ui_preferences_path) == 0) {
             app->ui_preferences_dirty = false;
+        }
+    }
+
+    if (app->ui_handshake_cache_dirty && app->ui_handshake_cache_path[0] != '\0') {
+        int save_handshake = mesh_ui_store_save(&app->ui_store, app->ui_handshake_cache_path);
+        if (save_handshake == 0) {
+            app->ui_handshake_cache_dirty = false;
+        } else {
+            mesh_log_debug("app", "Failed to persist handshake cache: %d", save_handshake);
         }
     }
 }
@@ -278,6 +299,8 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     memset(&app->ui_preferences, 0, sizeof(app->ui_preferences));
     app->ui_preferences_path[0] = '\0';
     app->ui_preferences_dirty = false;
+    app->ui_handshake_cache_path[0] = '\0';
+    app->ui_handshake_cache_dirty = false;
 
     if (mesh_ui_preferences_default_path(app->ui_preferences_path, sizeof(app->ui_preferences_path)) == 0) {
         int load_result = mesh_ui_preferences_load(&app->ui_preferences, app->ui_preferences_path);
@@ -288,6 +311,12 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
                          app->ui_preferences.preferred_device);
             }
         }
+        int handshake_written = snprintf(app->ui_handshake_cache_path, sizeof(app->ui_handshake_cache_path),
+                                         "%s.handshake", app->ui_preferences_path);
+        if (handshake_written < 0 || handshake_written >= (int)sizeof(app->ui_handshake_cache_path)) {
+            mesh_log_warn("app", "Handshake cache path truncated; disabling cache");
+            app->ui_handshake_cache_path[0] = '\0';
+        }
     }
 
     result = mesh_ui_store_init(&app->ui_store);
@@ -295,6 +324,13 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
         mesh_log_error("app", "UI store init failed: %d", result);
         mesh_event_loop_shutdown(&app->loop);
         return result;
+    }
+
+    if (app->ui_handshake_cache_path[0] != '\0') {
+        int handshake_load = mesh_ui_store_load(&app->ui_store, app->ui_handshake_cache_path);
+        if (handshake_load < 0 && handshake_load != -ENOENT) {
+            mesh_log_debug("app", "Failed to load handshake cache: %d", handshake_load);
+        }
     }
 
     void *backend_userdata = NULL;
@@ -333,6 +369,10 @@ void mesh_app_shutdown(struct mesh_app *app) {
 
     mesh_transport_registry_stop_all(&app->transport_registry);
     mesh_ui_controller_shutdown(&app->ui_controller);
+    if (app->ui_handshake_cache_path[0] != '\0') {
+        mesh_ui_store_save(&app->ui_store, app->ui_handshake_cache_path);
+        app->ui_handshake_cache_dirty = false;
+    }
     mesh_ui_store_shutdown(&app->ui_store);
     if (app->ui_preferences_dirty && app->ui_preferences_path[0] != '\0') {
         mesh_ui_preferences_save(&app->ui_preferences, app->ui_preferences_path);

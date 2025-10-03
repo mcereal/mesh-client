@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include "mesh/config.h"
 #include "mesh/event_loop.h"
 #include "mesh/proto/framing.h"
@@ -659,6 +661,81 @@ static void test_ui_store_basic(void) {
     record_success(test_name);
 }
 
+static void test_ui_store_persistence(void) {
+    const char *test_name = "ui_store_persistence";
+
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        record_failure(test_name, "store init failed");
+        return;
+    }
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof(handshake));
+    handshake.request_in_flight = true;
+    handshake.request_id = 11U;
+    handshake.config_complete = true;
+    handshake.config_complete_id = 77U;
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 4242U;
+    handshake.my_info.nodedb_entries = 3U;
+    handshake.my_info.reboot_count = 1U;
+    snprintf(handshake.primary_channel, sizeof(handshake.primary_channel), "%s", "LongRange");
+    snprintf(handshake.my_short_name, sizeof(handshake.my_short_name), "%s", "NODE");
+    handshake.node_count = 1U;
+    handshake.nodes[0].node_id = 4242U;
+    snprintf(handshake.nodes[0].long_name, sizeof(handshake.nodes[0].long_name), "%s", "Primary");
+    snprintf(handshake.nodes[0].short_name, sizeof(handshake.nodes[0].short_name), "%s", "PRIM");
+    handshake.nodes[0].snr = 9.5f;
+    handshake.nodes[0].last_heard = 123U;
+    mesh_ui_store_set_handshake(&store, &handshake);
+
+    char cache_path[] = "/tmp/mesh_ui_storeXXXXXX";
+    int fd = mkstemp(cache_path);
+    if (fd < 0) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "mkstemp failed");
+        return;
+    }
+    close(fd);
+
+    if (mesh_ui_store_save(&store, cache_path) != 0) {
+        unlink(cache_path);
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "save failed");
+        return;
+    }
+
+    mesh_ui_store_shutdown(&store);
+
+    if (mesh_ui_store_init(&store) != 0) {
+        unlink(cache_path);
+        record_failure(test_name, "store reinit failed");
+        return;
+    }
+
+    if (mesh_ui_store_load(&store, cache_path) != 0) {
+        unlink(cache_path);
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "load failed");
+        return;
+    }
+
+    unlink(cache_path);
+
+    if (!store.handshake_valid || store.handshake.request_id != handshake.request_id ||
+        store.handshake.config_complete_id != handshake.config_complete_id ||
+        store.handshake.node_count != handshake.node_count ||
+        store.handshake.nodes[0].node_id != handshake.nodes[0].node_id) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "handshake mismatch after load");
+        return;
+    }
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
 static void test_ui_controller_dispatch(void) {
     const char *test_name = "ui_controller_dispatch";
 
@@ -932,6 +1009,7 @@ static const struct test_case k_test_cases[] = {
     {"ble_transport_discovery_mock", "unit", test_ble_transport_discovery_mock},
     {"ble_transport_connect_mock", "unit", test_ble_transport_connect_mock},
     {"ui_store_basic", "unit", test_ui_store_basic},
+    {"ui_store_persistence", "unit", test_ui_store_persistence},
     {"ui_controller_dispatch", "unit", test_ui_controller_dispatch},
     {"ui_preferences_roundtrip", "unit", test_ui_preferences_roundtrip},
     {"minui_format_menu", "unit", test_minui_format_menu},

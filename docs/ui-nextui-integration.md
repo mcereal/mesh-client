@@ -64,6 +64,8 @@ support binaries that ship on TrimUI/NextUI devices.
 - The `minui-list` menu now shows a third “Nodes” section populated from the
   cached handshake summaries (node id, names, SNR) so users can inspect the mesh
   roster before deeper UI flows arrive.
+- Handshake cache now persists between runs (`~/.meshclient/ui_prefs.handshake`),
+  allowing TrimUI builds to render stale-but-useful status immediately after launch.
 
 ## Next Actions
 

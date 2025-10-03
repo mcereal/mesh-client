@@ -84,6 +84,9 @@ void mesh_ui_store_set_handshake(struct mesh_ui_store *store, const struct mesh_
 
 bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_snapshot *snapshot);
 
+int mesh_ui_store_save(const struct mesh_ui_store *store, const char *path);
+int mesh_ui_store_load(struct mesh_ui_store *store, const char *path);
+
 #ifdef __cplusplus
 }
 #endif

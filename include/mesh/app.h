@@ -23,7 +23,9 @@ struct mesh_app {
     struct mesh_ui_backend_minui_context ui_minui_context;
     struct mesh_ui_preferences ui_preferences;
     char ui_preferences_path[256];
+    char ui_handshake_cache_path[256];
     bool ui_preferences_dirty;
+    bool ui_handshake_cache_dirty;
 };
 
 int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config);
