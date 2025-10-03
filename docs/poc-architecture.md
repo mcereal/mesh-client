@@ -14,7 +14,7 @@ A native NextUI/MinUI Pak that turns the TrimUI Brick into a lightweight Meshtas
 - Initial config handshake via `want_config_id`, with cached `MyNodeInfo`/`NodeInfo` summaries and completion tracking.
 - Outbound BLE write queue with MTU-aware chunking ready for future ToRadio messaging.
 - MinUI backend produces JSON device/status menus, launches `minui-list` asynchronously, and funnels the selected row back to the BLE transport for non-blocking connects.
-- UI store snapshot (discovery + handshake roster) now persists to disk so CLI/MinUI backends can show cached status before BLE reconnects. *(Apr 2025)*
+- UI store snapshot (discovery + handshake roster) now persists to disk so CLI/MinUI backends can show cached status before BLE reconnects; CLI JSON includes `cached` metadata for automation. *(Apr 2025)*
 - UI store and CLI backend now surface BLE handshake metadata (MyNode details and node summaries) for downstream UI flows, keeping cached discovery state in sync with BLE updates. *(Apr 2025)*
 
 **In Progress / Next Up**

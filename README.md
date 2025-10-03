@@ -49,7 +49,7 @@ Copy the resulting `dist/MeshClient.pak.zip` (or the extracted `MeshClient.pak/`
 - **Make targets:** `make debug`, `make release`, `make test`, `make package`, and `make run` cover the common workflows (see `make help`).
 - **Sanitizers:** Enable with `make debug CMAKE_ARGS="-- -DMESHCLIENT_ENABLE_ASAN=ON"` (or swap for `UBSAN`).
 - **Logging:** Adjust verbosity using the `--log-level` flag. Logs stream to `stderr` locally and to the pak log on device.
-- **CLI options:** `meshclient --help` lists foreground mode, BLE toggles, preferred device, timeout, and log-level flags.
+- **CLI options:** `meshclient --help` lists foreground mode, BLE toggles, preferred device, timeout, and log-level flags. `--status --json` now emits a `cached` flag (and `cached_handshake` object when offline) so automation can detect stale snapshots.
 - **Runtime env vars:** `MESHCLIENT_RUN_MODE`, `MESHCLIENT_IDLE_TIMEOUT_MS`, `MESHCLIENT_DISABLE_BLE`, `MESHCLIENT_PREFERRED_BLE_DEVICE`.
 - **Testing strategy:** see [`docs/testing.md`](docs/testing.md) for the test categories, filtering options, and future coverage plan (`ctest -L unit` mirrors `make test`).
 - **UI backend:** Set `MESHCLIENT_UI_BACKEND=auto|minui|cli|stub` to pick the renderer (defaults to CLI unless MinUI helpers are present). The MinUI backend now emits JSON menus for `minui-list` and handles selections to request BLE connects without blocking. When running with the placeholder helpers on a desktop, the first device is selected automatically; export `MESHCLIENT_MINUI_SELECTION=<index>` to pick a different row.

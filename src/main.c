@@ -13,10 +13,11 @@
 #include <strings.h>
 
 static void print_handshake_json(FILE *out, const struct mesh_bluez_device_info *device,
-                                 const struct mesh_ble_handshake_status *status);
+                                 const struct mesh_ble_handshake_status *status, bool cached);
 static void print_handshake_pretty(FILE *out, const struct mesh_bluez_device_info *device,
                                    const struct mesh_ble_handshake_status *status);
 static void print_cached_handshake(FILE *out, const struct mesh_ui_handshake_state *state);
+static void print_cached_handshake_json(FILE *out, const struct mesh_ui_handshake_state *state);
 static int print_status(struct mesh_app *app, bool output_json, const char *output_path);
 static const struct mesh_bluez_device_info *select_preferred_device(const struct mesh_transport *ble,
                                                                     const struct mesh_app_config *config,
@@ -234,7 +235,14 @@ static int print_status(struct mesh_app *app, bool output_json, const char *outp
     const struct mesh_bluez_device_info *target = select_preferred_device(ble, &app->config, devices, &device_count);
     if (target == NULL) {
         printf("No Meshtastic devices discovered.\n");
-        if (!output_json && app->ui_store.handshake_valid && app->ui_store.handshake.cached) {
+        if (output_json) {
+            fprintf(stdout, "{\"device\":null,\"handshake\":null");
+            if (app->ui_store.handshake_valid && app->ui_store.handshake.cached) {
+                fprintf(stdout, ",\"cached_handshake\":");
+                print_cached_handshake_json(stdout, &app->ui_store.handshake);
+            }
+            fprintf(stdout, "}\n");
+        } else if (app->ui_store.handshake_valid && app->ui_store.handshake.cached) {
             printf("\nCached mesh status:\n");
             print_cached_handshake(stdout, &app->ui_store.handshake);
         }
@@ -273,12 +281,12 @@ static int print_status(struct mesh_app *app, bool output_json, const char *outp
             mesh_ble_transport_disconnect(ble);
             return -errno;
         }
-        print_handshake_json(output_file, target, &status);
+        print_handshake_json(output_file, target, &status, false);
         fflush(output_file);
     }
 
     if (output_json) {
-        print_handshake_json(file, target, &status);
+        print_handshake_json(file, target, &status, false);
     } else {
         print_handshake_pretty(file, target, &status);
     }
@@ -388,6 +396,52 @@ static void print_cached_handshake(FILE *out, const struct mesh_ui_handshake_sta
     }
 }
 
+static void print_cached_handshake_json(FILE *out, const struct mesh_ui_handshake_state *state) {
+    if (out == NULL || state == NULL) {
+        fputs("null", out);
+        return;
+    }
+
+    fprintf(out, "{\"request_id\":%u,\"request_in_flight\":%s,\"config_complete\":%s",
+            state->request_id, state->request_in_flight ? "true" : "false",
+            state->config_complete ? "true" : "false");
+    if (state->config_complete) {
+        fprintf(out, ",\"config_complete_id\":%u", state->config_complete_id);
+    }
+    fprintf(out, ",\"cached\":true");
+
+    if (state->has_my_info) {
+        fprintf(out, ",\"my_node\":{\"id\":%u,\"nodedb_count\":%u,\"reboot_count\":%u}",
+                state->my_info.node_num, state->my_info.nodedb_entries, state->my_info.reboot_count);
+    } else {
+        fprintf(out, ",\"my_node\":null");
+    }
+
+    if (state->primary_channel[0] != '\0') {
+        fprintf(out, ",\"primary_channel\":");
+        json_print_string(out, state->primary_channel);
+    }
+
+    fprintf(out, ",\"nodes\":[");
+    for (uint32_t i = 0; i < state->node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+        const struct mesh_ui_node_summary *node = &state->nodes[i];
+        if (i > 0U) {
+            fputc(',', out);
+        }
+        fprintf(out, "{\"id\":%u,\"long_name\":", node->node_id);
+        json_print_string(out, node->long_name);
+        fprintf(out, ",\"short_name\":");
+        json_print_string(out, node->short_name);
+        fprintf(out, ",\"snr\":%.2f,\"last_heard\":%u,\"via_mqtt\":%s", (double)node->snr, node->last_heard,
+                node->via_mqtt ? "true" : "false");
+        if (node->has_hops_away) {
+            fprintf(out, ",\"hops_away\":%u", node->hops_away);
+        }
+        fputc('}', out);
+    }
+    fprintf(out, "]}");
+}
+
 static void json_print_string(FILE *out, const char *value) {
     if (value == NULL) {
         fprintf(out, "null");
@@ -430,7 +484,7 @@ static void json_print_string(FILE *out, const char *value) {
 }
 
 static void print_handshake_json(FILE *out, const struct mesh_bluez_device_info *device,
-                                 const struct mesh_ble_handshake_status *status) {
+                                 const struct mesh_ble_handshake_status *status, bool cached) {
     fprintf(out, "{");
     fprintf(out, "\"device\":{");
     fprintf(out, "\"address\":");
@@ -440,8 +494,7 @@ static void print_handshake_json(FILE *out, const struct mesh_bluez_device_info 
     fprintf(out, ",\"rssi\":%d},", (int)device->rssi);
 
     if (status == NULL) {
-        fprintf(out, "\"handshake\":null}");
-        fprintf(out, "\n");
+        fprintf(out, "\"handshake\":null,\"cached\":%s}\n", cached ? "true" : "false");
         return;
     }
 
@@ -479,5 +532,5 @@ static void print_handshake_json(FILE *out, const struct mesh_bluez_device_info 
         fputc('}', out);
     }
     fprintf(out, "]}");
-    fprintf(out, "}\n");
+    fprintf(out, ",\"cached\":%s}\n", cached ? "true" : "false");
 }

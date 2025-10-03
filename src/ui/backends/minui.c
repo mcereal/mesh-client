@@ -736,6 +736,13 @@ static void mesh_ui_backend_minui_present(void *state, const struct mesh_ui_snap
     context->last_snapshot = *snapshot;
     context->has_snapshot = true;
 
+    if ((!had_previous || !previous.handshake_valid || !previous.handshake.cached) && snapshot->handshake_valid &&
+        snapshot->handshake.cached) {
+        char message[128];
+        snprintf(message, sizeof message, "Cached nodes available (%" PRIu32 ")", snapshot->handshake.node_count);
+        minui_present_toast(context, message);
+    }
+
     minui_handle_snapshot(context);
 
     if (had_previous) {
