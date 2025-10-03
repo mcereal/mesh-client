@@ -38,12 +38,17 @@ jobs:
           # Download and extract Bootlin musl toolchain for ARM cross-compilation
           wget https://toolchains.bootlin.com/downloads/releases/toolchains/aarch64/tarballs/aarch64--musl--stable-2024.02-1.tar.bz2
           tar -xf aarch64--musl--stable-2024.02-1.tar.bz2
+          # Add toolchain to PATH immediately for libdbus build
+          export PATH="$PWD/aarch64--musl--stable-2024.02-1/bin:$PATH"
           echo "$PWD/aarch64--musl--stable-2024.02-1/bin" >> $GITHUB_PATH
           # Build libdbus from source for static linking
           wget https://dbus.freedesktop.org/releases/dbus/dbus-1.14.10.tar.xz
           tar -xf dbus-1.14.10.tar.xz
           cd dbus-1.14.10
           ./configure --host=aarch64-buildroot-linux-musl \
+            CC=aarch64-buildroot-linux-musl-gcc \
+            AR=aarch64-buildroot-linux-musl-ar \
+            RANLIB=aarch64-buildroot-linux-musl-ranlib \
             --prefix=$PWD/../dbus-install \
             --disable-shared --enable-static \
             --disable-tests --disable-doxygen-docs \
