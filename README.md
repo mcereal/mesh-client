@@ -59,6 +59,7 @@ Copy the resulting `dist/MeshClient.pak.zip` (or the extracted `MeshClient.pak/`
 - **Protobuf scaffolding:** `third_party/nanopb` currently ships a stub; replace with upstream nanopb before shipping and add generated Meshtastic protobufs.
 - **Protogen:** Use `make proto` to regenerate nanopb sources from files in `proto/meshtastic/meshtastic/` (requires `protoc` plus the `nanopb_generator` script; install via `pip install nanopb` or ensure `nanopb_generator` is on PATH).
 - **Discovery cache:** BLE transport keeps a mockable in-memory list of nearby Meshtastic nodes (address/name/RSSI) filtered on the Nordic UART UUID for downstream UI components.
+- **Semantic Release:** This project uses [semantic-release](https://github.com/semantic-release/semantic-release) to automate versioning and releases based on [Conventional Commits](https://www.conventionalcommits.org/). See [`docs/semantic-release.md`](docs/semantic-release.md) for usage details and commit message conventions.
 
 ## Repository Layout
 

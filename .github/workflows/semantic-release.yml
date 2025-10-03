@@ -1,0 +1,64 @@
+name: Semantic Release
+
+on:
+  push:
+    branches:
+      - main
+      - beta
+      - rc
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config libdbus-1-dev protobuf-compiler python3 python3-pip zip
+          python3 -m pip install --user --upgrade pip setuptools wheel
+          python3 -m pip install --user protobuf grpcio-tools
+
+      - name: Install semantic-release
+        run: |
+          npm install -g \
+            semantic-release@^23.0.0 \
+            @semantic-release/changelog@^6.0.3 \
+            @semantic-release/git@^10.0.1 \
+            @semantic-release/exec@^6.0.3 \
+            conventional-changelog-conventionalcommits@^7.0.2
+
+      - name: Build (Release)
+        run: make release
+
+      - name: Package Pak
+        run: make package
+
+      - name: Compute checksums
+        run: |
+          (cd dist && sha256sum MeshClient.pak.zip > MeshClient.pak.zip.sha256)
+
+      - name: Run semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GIT_AUTHOR_NAME: semantic-release-bot
+          GIT_AUTHOR_EMAIL: semantic-release-bot@users.noreply.github.com
+          GIT_COMMITTER_NAME: semantic-release-bot
+          GIT_COMMITTER_EMAIL: semantic-release-bot@users.noreply.github.com
+        run: npx semantic-release

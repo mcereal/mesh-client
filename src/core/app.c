@@ -194,11 +194,16 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
         struct mesh_ui_handshake_state ui_handshake;
         memset(&ui_handshake, 0, sizeof(ui_handshake));
         ui_handshake.request_in_flight = status.request_in_flight;
+        ui_handshake.request_id = status.request_id;
         ui_handshake.config_complete = status.config_complete;
-        ui_handshake.node_count = (uint32_t)status.node_count;
-
+        ui_handshake.config_complete_id = status.config_complete_id;
+        ui_handshake.has_my_info = status.has_my_info;
+        ui_handshake.has_config = status.has_config;
         if (status.has_my_info) {
             const uint32_t my_node = status.my_info.my_node_num;
+            ui_handshake.my_info.node_num = status.my_info.my_node_num;
+            ui_handshake.my_info.nodedb_entries = status.my_info.nodedb_count;
+            ui_handshake.my_info.reboot_count = status.my_info.reboot_count;
             for (size_t i = 0; i < status.node_count && i < MESH_BLE_MAX_NODE_SUMMARY; ++i) {
                 if (status.nodes[i].node_id == my_node && status.nodes[i].short_name[0] != '\0') {
                     snprintf(ui_handshake.my_short_name, sizeof(ui_handshake.my_short_name), "%s",
@@ -207,6 +212,24 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
                 }
             }
         }
+
+        size_t copy_count = status.node_count;
+        if (copy_count > MESH_UI_MAX_HANDSHAKE_NODES) {
+            copy_count = MESH_UI_MAX_HANDSHAKE_NODES;
+        }
+        for (size_t i = 0; i < copy_count; ++i) {
+            const struct mesh_ble_node_summary *src = &status.nodes[i];
+            struct mesh_ui_node_summary *dst = &ui_handshake.nodes[i];
+            dst->node_id = src->node_id;
+            snprintf(dst->long_name, sizeof(dst->long_name), "%s", src->long_name);
+            snprintf(dst->short_name, sizeof(dst->short_name), "%s", src->short_name);
+            dst->last_heard = src->last_heard;
+            dst->snr = src->snr;
+            dst->via_mqtt = src->via_mqtt;
+            dst->has_hops_away = src->has_hops_away;
+            dst->hops_away = src->hops_away;
+        }
+        ui_handshake.node_count = (uint32_t)copy_count;
 
         mesh_ui_store_set_handshake(&app->ui_store, &ui_handshake);
 

@@ -17,7 +17,7 @@
 ## Implementation Status (Mar 2025)
 
 - [done] Core scaffolding (`mesh_ui_store`, `mesh_ui_controller`, and the stub backend) now lives under `src/ui/` and is wired into the app lifecycle.
-- [done] BLE discovery and handshake data feed directly into the UI store; store/controller unit coverage lives in `tests/test_main.c`.
+- [done] BLE discovery and handshake data (MyNode metadata plus node summaries) feed directly into the UI store; store/controller unit coverage lives in `tests/test_main.c`.
 - [done] CLI backend implemented for host development; backend selection driven by `MESHCLIENT_UI_BACKEND` (defaults to CLI unless MinUI helpers are present).
 - [done] Preferences persist the last connected device under `~/.meshclient/ui_prefs` (auto-created via the launch `HOME`).
 - [done] MinUI backend emits JSON menus to `minui-list`, captures selections asynchronously, and requests BLE connects via callbacks without blocking the core event loop.

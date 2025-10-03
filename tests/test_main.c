@@ -587,13 +587,25 @@ static void test_ui_store_basic(void) {
         return;
     }
 
-    struct mesh_ui_handshake_state handshake = {
-        .request_in_flight = true,
-        .config_complete = false,
-        .node_count = 5U,
-    };
-    snprintf(handshake.primary_channel, sizeof(handshake.primary_channel), "%s", "LongRange");
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof(handshake));
+    handshake.request_in_flight = true;
+    handshake.request_id = 42U;
+    handshake.config_complete = false;
+    handshake.config_complete_id = 0U;
+    handshake.node_count = 5U;
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 1234U;
+    handshake.my_info.nodedb_entries = 5U;
+    handshake.my_info.reboot_count = 2U;
     snprintf(handshake.my_short_name, sizeof(handshake.my_short_name), "%s", "ME");
+    handshake.has_config = false;
+    snprintf(handshake.primary_channel, sizeof(handshake.primary_channel), "%s", "LongRange");
+    handshake.nodes[0].node_id = 1234U;
+    snprintf(handshake.nodes[0].long_name, sizeof(handshake.nodes[0].long_name), "%s", "LocalNode");
+    snprintf(handshake.nodes[0].short_name, sizeof(handshake.nodes[0].short_name), "%s", "ME");
+    handshake.nodes[0].snr = 12.5f;
+    handshake.nodes[0].last_heard = 99U;
     mesh_ui_store_set_handshake(&store, &handshake);
 
     if (!mesh_ui_store_consume_updates(&store, &snapshot)) {
@@ -605,6 +617,14 @@ static void test_ui_store_basic(void) {
     if ((snapshot.update_flags & MESH_UI_UPDATE_HANDSHAKE) == 0U || !snapshot.handshake_valid) {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "handshake data missing from snapshot");
+        return;
+    }
+
+    if (snapshot.handshake.nodes[0].node_id != handshake.nodes[0].node_id ||
+        snapshot.handshake.nodes[0].last_heard != handshake.nodes[0].last_heard ||
+        snapshot.handshake.nodes[0].snr != handshake.nodes[0].snr) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "handshake node summary not propagated");
         return;
     }
 
@@ -689,11 +709,14 @@ static void test_ui_controller_dispatch(void) {
         return;
     }
 
-    struct mesh_ui_handshake_state handshake = {
-        .config_complete = true,
-        .request_in_flight = false,
-        .node_count = 2U,
-    };
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof(handshake));
+    handshake.config_complete = true;
+    handshake.config_complete_id = 7U;
+    handshake.request_in_flight = false;
+    handshake.request_id = 7U;
+    handshake.node_count = 2U;
+    handshake.has_my_info = false;
     mesh_ui_store_set_handshake(&store, &handshake);
     mesh_event_loop_run(&loop, 0);
 
@@ -772,8 +795,11 @@ static void test_minui_format_menu(void) {
     snapshot.devices[1].connected = false;
 
     snapshot.handshake_valid = true;
+    snapshot.handshake.request_in_flight = false;
+    snapshot.handshake.request_id = 5U;
     snapshot.handshake.node_count = 5U;
     snapshot.handshake.config_complete = true;
+    snapshot.handshake.config_complete_id = 5U;
     snprintf(snapshot.handshake.my_short_name, sizeof snapshot.handshake.my_short_name, "%s", "ABCD");
 
     char buffer[1024];

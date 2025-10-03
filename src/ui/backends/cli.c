@@ -22,16 +22,46 @@ static void mesh_ui_backend_cli_print_handshake(const struct mesh_ui_snapshot *s
         return;
     }
 
-    fprintf(stderr, "[cli-ui] Handshake: nodes=%" PRIu32 ", request_in_flight=%s, config_complete=%s",
-            snapshot->handshake.node_count, snapshot->handshake.request_in_flight ? "yes" : "no",
-            snapshot->handshake.config_complete ? "yes" : "no");
-    if (snapshot->handshake.my_short_name[0] != '\0') {
-        fprintf(stderr, ", me=%s", snapshot->handshake.my_short_name);
+    const struct mesh_ui_handshake_state *handshake = &snapshot->handshake;
+
+    fprintf(stderr,
+            "[cli-ui] Handshake: nodes=%" PRIu32 ", request=%s(%u) config=%s" "(%u)\n",
+            handshake->node_count, handshake->request_in_flight ? "pending" : "idle", handshake->request_id,
+            handshake->config_complete ? "done" : "pending", handshake->config_complete_id);
+
+    if (handshake->has_my_info) {
+        fprintf(stderr,
+                "[cli-ui]   my_node=%u short=%s nodedb=%u reboots=%u\n",
+                handshake->my_info.node_num,
+                handshake->my_short_name[0] != '\0' ? handshake->my_short_name : "<unset>",
+                handshake->my_info.nodedb_entries, handshake->my_info.reboot_count);
     }
-    if (snapshot->handshake.primary_channel[0] != '\0') {
-        fprintf(stderr, ", channel=%s", snapshot->handshake.primary_channel);
+
+    if (handshake->primary_channel[0] != '\0') {
+        fprintf(stderr, "[cli-ui]   channel=%s\n", handshake->primary_channel);
     }
-    fputc('\n', stderr);
+
+    const uint32_t to_print = (handshake->node_count > MESH_UI_MAX_HANDSHAKE_NODES)
+                                  ? MESH_UI_MAX_HANDSHAKE_NODES
+                                  : handshake->node_count;
+    for (uint32_t i = 0; i < to_print; ++i) {
+        const struct mesh_ui_node_summary *node = &handshake->nodes[i];
+        if (node->node_id == 0U && node->long_name[0] == '\0' && node->short_name[0] == '\0') {
+            continue;
+        }
+        fprintf(stderr, "[cli-ui]   node %u: %s (%s) last=%u snr=%.2f",
+                node->node_id,
+                node->long_name[0] != '\0' ? node->long_name : "<long?>",
+                node->short_name[0] != '\0' ? node->short_name : "<short?>",
+                node->last_heard, (double)node->snr);
+        if (node->has_hops_away) {
+            fprintf(stderr, " hops=%u", node->hops_away);
+        }
+        if (node->via_mqtt) {
+            fprintf(stderr, " via_mqtt");
+        }
+        fputc('\n', stderr);
+    }
 }
 
 static int mesh_ui_backend_cli_init(void **state, void *userdata) {

@@ -9,6 +9,7 @@ extern "C" {
 #endif
 
 #define MESH_UI_MAX_DEVICES 16U
+#define MESH_UI_MAX_HANDSHAKE_NODES 16U
 
 enum mesh_ui_update_flag {
     MESH_UI_UPDATE_NONE = 0U,
@@ -24,12 +25,35 @@ struct mesh_ui_device {
     bool connected;
 };
 
+struct mesh_ui_node_summary {
+    uint32_t node_id;
+    char long_name[40];
+    char short_name[5];
+    uint32_t last_heard;
+    float snr;
+    bool via_mqtt;
+    bool has_hops_away;
+    uint8_t hops_away;
+};
+
+struct mesh_ui_my_info {
+    uint32_t node_num;
+    uint32_t nodedb_entries;
+    uint32_t reboot_count;
+};
+
 struct mesh_ui_handshake_state {
     bool request_in_flight;
+    uint32_t request_id;
     bool config_complete;
+    uint32_t config_complete_id;
+    bool has_my_info;
+    struct mesh_ui_my_info my_info;
+    bool has_config;
     uint32_t node_count;
     char primary_channel[33];
     char my_short_name[6];
+    struct mesh_ui_node_summary nodes[MESH_UI_MAX_HANDSHAKE_NODES];
 };
 
 struct mesh_ui_snapshot {
