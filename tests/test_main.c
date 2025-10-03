@@ -4,6 +4,7 @@
 #include "mesh/transport/ble.h"
 #include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/transport.h"
+#include "mesh/ui/backends/minui.h"
 #include "mesh/ui/backends/stub.h"
 #include "mesh/ui/controller.h"
 #include "mesh/ui/store.h"
@@ -21,7 +22,10 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+struct test_case;
+
 static int g_failures = 0;
+static size_t g_successes = 0U;
 
 static void record_failure(const char *test_name, const char *message) {
     fprintf(stderr, "[FAIL] %s: %s\n", test_name, message);
@@ -30,6 +34,7 @@ static void record_failure(const char *test_name, const char *message) {
 
 static void record_success(const char *test_name) {
     (void)test_name;
+    ++g_successes;
 }
 
 static void test_config_defaults(void) {
@@ -749,6 +754,53 @@ static void test_ui_preferences_roundtrip(void) {
     record_success(test_name);
 }
 
+static void test_minui_format_menu(void) {
+    const char *test_name = "minui_format_menu";
+
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+
+    snapshot.device_count = 2U;
+    snprintf(snapshot.devices[0].identifier, sizeof snapshot.devices[0].identifier, "%s", "AA:BB:CC:DD:EE:01");
+    snprintf(snapshot.devices[0].name, sizeof snapshot.devices[0].name, "%s", "NodeOne");
+    snapshot.devices[0].rssi = -42;
+    snapshot.devices[0].connected = true;
+
+    snprintf(snapshot.devices[1].identifier, sizeof snapshot.devices[1].identifier, "%s", "AA:BB:CC:DD:EE:02");
+    snprintf(snapshot.devices[1].name, sizeof snapshot.devices[1].name, "%s", "NodeTwo");
+    snapshot.devices[1].rssi = -60;
+    snapshot.devices[1].connected = false;
+
+    snapshot.handshake_valid = true;
+    snapshot.handshake.node_count = 5U;
+    snapshot.handshake.config_complete = true;
+    snprintf(snapshot.handshake.my_short_name, sizeof snapshot.handshake.my_short_name, "%s", "ABCD");
+
+    char buffer[1024];
+    int result = mesh_ui_backend_minui_format_menu(&snapshot, buffer, sizeof buffer);
+    if (result != 0) {
+        record_failure(test_name, "formatting returned error");
+        return;
+    }
+
+    if (strstr(buffer, "NodeOne") == NULL || strstr(buffer, "NodeTwo") == NULL) {
+        record_failure(test_name, "device names missing from JSON");
+        return;
+    }
+
+    if (strstr(buffer, "\"Status\"") == NULL) {
+        record_failure(test_name, "status block missing expected fields");
+        return;
+    }
+
+    if (strstr(buffer, "\"selected\":0") == NULL) {
+        record_failure(test_name, "expected connected device to be selected");
+        return;
+    }
+
+    record_success(test_name);
+}
+
 static void test_proto_varint_roundtrip(void) {
     const char *test_name = "proto_varint_roundtrip";
     struct {
@@ -823,24 +875,166 @@ static void test_proto_frame_encode_decode(void) {
     record_success(test_name);
 }
 
-int main(void) {
-    test_config_defaults();
-    test_transport_registry_registration();
-    test_event_loop_init_shutdown();
-    test_ble_transport_status_transitions();
-    test_ble_transport_discovery_mock();
-    test_ble_transport_connect_mock();
-    test_ui_store_basic();
-    test_ui_controller_dispatch();
-    test_ui_preferences_roundtrip();
-    test_proto_varint_roundtrip();
-    test_proto_frame_encode_decode();
+struct test_case {
+    const char *name;
+    const char *category;
+    void (*fn)(void);
+};
+
+static const struct test_case k_test_cases[] = {
+    {"config_defaults", "unit", test_config_defaults},
+    {"transport_registry_registration", "unit", test_transport_registry_registration},
+    {"event_loop_init_shutdown", "unit", test_event_loop_init_shutdown},
+    {"ble_transport_status_transitions", "unit", test_ble_transport_status_transitions},
+    {"ble_transport_discovery_mock", "unit", test_ble_transport_discovery_mock},
+    {"ble_transport_connect_mock", "unit", test_ble_transport_connect_mock},
+    {"ui_store_basic", "unit", test_ui_store_basic},
+    {"ui_controller_dispatch", "unit", test_ui_controller_dispatch},
+    {"ui_preferences_roundtrip", "unit", test_ui_preferences_roundtrip},
+    {"minui_format_menu", "unit", test_minui_format_menu},
+    {"proto_varint_roundtrip", "unit", test_proto_varint_roundtrip},
+    {"proto_frame_encode_decode", "unit", test_proto_frame_encode_decode},
+};
+
+struct test_options {
+    const char *category;
+    const char *name_filter;
+    bool list_only;
+};
+
+static bool string_matches_filter(const char *value, const char *filter) {
+    if (filter == NULL || filter[0] == '\0') {
+        return true;
+    }
+    if (value == NULL) {
+        return false;
+    }
+    return strstr(value, filter) != NULL;
+}
+
+static void print_available_tests(void) {
+    const size_t count = sizeof(k_test_cases) / sizeof(k_test_cases[0]);
+    printf("Available tests (%zu):\n", count);
+    for (size_t i = 0; i < count; ++i) {
+        printf("  - %-32s [%s]\n", k_test_cases[i].name, k_test_cases[i].category);
+    }
+}
+
+static void select_tests(const struct test_options *options, size_t *selected, bool *ran_any) {
+    const size_t count = sizeof(k_test_cases) / sizeof(k_test_cases[0]);
+    size_t executed = 0U;
+    size_t registered = 0U;
+
+    for (size_t i = 0; i < count; ++i) {
+        const struct test_case *test = &k_test_cases[i];
+        if (options->category != NULL && options->category[0] != '\0' &&
+            strcmp(options->category, test->category) != 0) {
+            continue;
+        }
+        if (!string_matches_filter(test->name, options->name_filter)) {
+            continue;
+        }
+
+        ++registered;
+        if (options->list_only) {
+            printf("%-32s [%s]\n", test->name, test->category);
+            continue;
+        }
+
+        fprintf(stderr, "[RUN] %s (%s)\n", test->name, test->category);
+        test->fn();
+        ++executed;
+    }
+
+    if (selected != NULL) {
+        *selected = registered;
+    }
+    if (ran_any != NULL) {
+        *ran_any = (executed > 0U);
+    }
+}
+
+static void print_summary(size_t selected, bool ran_any) {
+    if (selected == 0U) {
+        printf("No tests matched the provided filters.\n");
+        return;
+    }
+
+    if (!ran_any) {
+        return;
+    }
+
+    const size_t passed = g_successes;
+    const size_t failed = (size_t)g_failures;
+    const size_t total = passed + failed;
+
+    printf("Summary: %zu executed (%zu passed, %zu failed)\n", total, passed, failed);
+}
+
+static void print_usage(void) {
+    printf("Usage: meshclient_core_tests [options]\n");
+    printf("Options:\n");
+    printf("  --category NAME   Run only tests in category NAME (e.g. unit, integration).\n");
+    printf("  --filter SUBSTR   Run tests whose name contains SUBSTR.\n");
+    printf("  --list            List matching tests without executing them.\n");
+    printf("  --help            Show this help message.\n");
+}
+
+int main(int argc, char **argv) {
+    struct test_options options = {
+        .category = NULL,
+        .name_filter = NULL,
+        .list_only = false,
+    };
+
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--category") == 0) {
+            if (i + 1 < argc) {
+                options.category = argv[++i];
+            } else {
+                fprintf(stderr, "--category requires an argument\n");
+                return 1;
+            }
+        } else if (strcmp(argv[i], "--filter") == 0) {
+            if (i + 1 < argc) {
+                options.name_filter = argv[++i];
+            } else {
+                fprintf(stderr, "--filter requires an argument\n");
+                return 1;
+            }
+        } else if (strcmp(argv[i], "--list") == 0) {
+            options.list_only = true;
+        } else if (strcmp(argv[i], "--help") == 0) {
+            print_usage();
+            print_available_tests();
+            return 0;
+        } else if (strcmp(argv[i], "--all") == 0) {
+            options.category = NULL;
+        } else {
+            fprintf(stderr, "Unknown option: %s\n", argv[i]);
+            print_usage();
+            return 1;
+        }
+    }
+
+    if (options.list_only) {
+        select_tests(&options, NULL, NULL);
+        return 0;
+    }
+
+    size_t selected = 0U;
+    bool ran_any = false;
+    select_tests(&options, &selected, &ran_any);
+    print_summary(selected, ran_any);
 
     if (g_failures > 0) {
         fprintf(stderr, "Tests failed: %d\n", g_failures);
         return 1;
     }
 
-    printf("All tests passed\n");
+    if (!ran_any) {
+        printf("No tests were executed.\n");
+    }
+
     return 0;
 }

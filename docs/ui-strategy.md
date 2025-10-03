@@ -20,6 +20,7 @@
 - [done] BLE discovery and handshake data feed directly into the UI store; store/controller unit coverage lives in `tests/test_main.c`.
 - [done] CLI backend implemented for host development; backend selection driven by `MESHCLIENT_UI_BACKEND` (defaults to CLI unless MinUI helpers are present).
 - [done] Preferences persist the last connected device under `~/.meshclient/ui_prefs` (auto-created via the launch `HOME`).
+- [done] MinUI backend emits JSON menus to `minui-list`, captures selections asynchronously, and requests BLE connects via callbacks without blocking the core event loop.
 - [in-progress] Extract the TrimUI MinUI helper binaries from `third_party/nextui/` so the device backend can render real screens (see `docs/ui-nextui-integration.md`).
 - [in-progress] Persist additional UI preferences (channel selection, display options) alongside the stored device.
 
@@ -42,6 +43,7 @@
 - For the TrimUI/NextUI target, shell out to bundled MinUI helpers (`minui-list`, `minui-presenter`, `minui-keyboard`) via a thin C shim.
 - Limit each screen to short-lived helper invocations; cache expensive data (node list, status) in the store to avoid recompute on every redraw.
 - Provide a non-blocking command runner that feeds helper output back into the controller without stalling the BLE writer.
+- Current implementation spawns `minui-list` with a JSON menu model, watches its stdout via the main event loop, and funnels the selected device back to the BLE transport callback.
 
 ### Keep Layout and Input Logic Data-Driven
 
@@ -57,9 +59,10 @@
    - [done] BLE discovery and handshake updates publish into the store from `mesh_app`.
    - [todo] Provide serialization helpers so the store can persist minimal UI preferences (`preferred_device`, last channel) alongside existing config.
 3. **NextUI backend**
-   - Vendor MinUI helper binaries under `bin/shared/` (built from `third_party/nextui/`; see `docs/ui-nextui-integration.md`) and ship a wrapper that spawns them with well-defined JSON contracts.
-   - Flesh out screen flows: home/status, device picker, node list, compose message, settings dialog.
-   - Replace the placeholder presenter callouts with real MinUI invocations once helpers land.
+  - Vendor MinUI helper binaries under `bin/shared/` (built from `third_party/nextui/`; see `docs/ui-nextui-integration.md`) and ship a wrapper that spawns them with well-defined JSON contracts.
+  - ✅ JSON contract is now live: the backend writes discovery/handshake state to a temp file, launches `minui-list`, and handles the selected row through the controller callback.
+  - Flesh out screen flows: home/status, device picker, node list, compose message, settings dialog.
+  - Replace the placeholder presenter callouts with real MinUI invocations once helpers land.
 4. **Testing** *(ongoing)*
    - Extend unit tests with transport-driven scenarios and backend contract checks as new pieces land.
 

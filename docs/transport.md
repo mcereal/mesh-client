@@ -20,17 +20,18 @@ Serial, and HTTP transports.
 - Initial config handshake: queues `want_config_id`, tracks `MyNodeInfo` / `NodeInfo` summaries, and marks completion via `config_complete_id`.
 - Outbound write queue with MTU-aware chunking ensures large protobuf frames are split across BLE packets.
 - CLI `--status` surface handshake data (text/JSON) and `--status-output` writes a JSON cache for MinUI scripts.
+- MinUI backend consumes the discovery snapshot via JSON, renders it with `minui-list`, and feeds selections back into the BLE transport to trigger connects without blocking the loop.
 
 ### In Progress
 
-- UI integration for the discovery cache (planned via MinUI resources).
 - Automate protobuf regeneration (`make proto`) after updating the Meshtastic protobuf submodule; currently we build `mesh.proto`, `portnums.proto`, `interdevice.proto`, `module_config.proto`, `telemetry.proto`.
+- Persist richer UI preferences (channel selection, display options) alongside the discovery cache so reconnect flows remain sticky across sessions.
 
 ### Next
 
-- Persist preferred device selection in pak userdata.
-- User-visible UI surfaces (scan list, connection feedback, retry loop).
+- Expand MinUI flows beyond device selection (node list, message compose, status toasts) using the same JSON contract.
 - Promote cached config/node data to UI and drive follow-on ToRadio commands (message send, settings writes).
+- Harden reconnect logic (automatic retries, failure toasts) now that the UI can initiate connects.
 
 ## Serial Transport
 

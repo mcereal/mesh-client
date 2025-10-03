@@ -3,31 +3,54 @@
 #include <stdlib.h>
 #include <string.h>
 
-int main(void) {
-    char *line = NULL;
-    size_t capacity = 0;
-    size_t index = 0;
+static const char *consume_option(int *index, int argc, char **argv) {
+    if (*index + 1 >= argc) {
+        return NULL;
+    }
+    (*index)++;
+    return argv[*index];
+}
 
-    while (1) {
-        ssize_t len = getline(&line, &capacity, stdin);
-        if (len < 0) {
-            if (errno != 0 && errno != EINTR) {
-                fprintf(stderr, "[minui-list] read error: %s\n", strerror(errno));
-            }
-            break;
-        }
-        if (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
-            line[len - 1] = '\0';
-            --len;
-        }
-        if (len > 0 && line[len - 1] == '\r') {
-            line[len - 1] = '\0';
-        }
+int main(int argc, char **argv) {
+    const char *file_path = NULL;
 
-        fprintf(stderr, "[minui-list] %02zu: %s\n", index + 1, line);
-        ++index;
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--file") == 0) {
+            file_path = consume_option(&i, argc, argv);
+        } else if (strcmp(argv[i], "--format") == 0 || strcmp(argv[i], "--title") == 0 ||
+                   strcmp(argv[i], "--confirm-text") == 0 || strcmp(argv[i], "--item-key") == 0 ||
+                   strcmp(argv[i], "--write-value") == 0) {
+            (void)consume_option(&i, argc, argv);
+        } else if (strcmp(argv[i], "--disable-auto-sleep") == 0) {
+            continue;
+        }
     }
 
-    free(line);
+    FILE *input = stdin;
+    if (file_path != NULL) {
+        input = fopen(file_path, "r");
+        if (input == NULL) {
+            fprintf(stderr, "[minui-list placeholder] failed to open %s: %s\n", file_path, strerror(errno));
+            return 1;
+        }
+    }
+
+    fprintf(stderr, "[minui-list placeholder] rendering menu from %s\n",
+            file_path != NULL ? file_path : "stdin");
+
+    char buffer[512];
+    while (fgets(buffer, sizeof buffer, input) != NULL) {
+        fputs(buffer, stdout);
+    }
+
+    if (ferror(input) != 0) {
+        fprintf(stderr, "[minui-list placeholder] read error: %s\n", strerror(errno));
+    }
+
+    if (input != stdin) {
+        fclose(input);
+    }
+
+    fflush(stdout);
     return 0;
 }

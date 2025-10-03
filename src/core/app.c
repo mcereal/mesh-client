@@ -15,6 +15,29 @@
 #include <strings.h>
 #include <stdlib.h>
 
+static void mesh_app_minui_on_device_selected(void *userdata, const char *identifier) {
+    if (userdata == NULL || identifier == NULL || identifier[0] == '\0') {
+        return;
+    }
+
+    struct mesh_app *app = (struct mesh_app *)userdata;
+    struct mesh_transport *ble = mesh_ble_transport();
+    if (ble == NULL) {
+        mesh_log_warn("ui", "BLE transport unavailable for MinUI selection");
+        return;
+    }
+
+    mesh_log_info("ui", "MinUI selection requested connect to %s", identifier);
+    snprintf(app->config.preferred_ble_device, sizeof app->config.preferred_ble_device, "%s", identifier);
+    snprintf(app->ui_preferences.preferred_device, sizeof app->ui_preferences.preferred_device, "%s", identifier);
+    app->ui_preferences_dirty = true;
+
+    int connect_result = mesh_ble_transport_connect(ble, identifier);
+    if (connect_result < 0 && connect_result != -EALREADY) {
+        mesh_log_warn("ui", "Failed to connect to %s via MinUI (%d)", identifier, connect_result);
+    }
+}
+
 static bool mesh_app_select_minui(struct mesh_app *app, const struct mesh_ui_backend **backend, void **userdata,
                                   bool log_on_missing) {
     if (!mesh_ui_backend_minui_is_available()) {
@@ -30,6 +53,9 @@ static bool mesh_app_select_minui(struct mesh_app *app, const struct mesh_ui_bac
     if (userdata != NULL) {
         *userdata = &app->ui_minui_context;
     }
+    app->ui_minui_context.loop = &app->loop;
+    app->ui_minui_context.on_device_selected = mesh_app_minui_on_device_selected;
+    app->ui_minui_context.callback_userdata = app;
     return true;
 }
 
@@ -225,6 +251,7 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
         return result;
     }
 
+    memset(&app->ui_minui_context, 0, sizeof app->ui_minui_context);
     memset(&app->ui_preferences, 0, sizeof(app->ui_preferences));
     app->ui_preferences_path[0] = '\0';
     app->ui_preferences_dirty = false;

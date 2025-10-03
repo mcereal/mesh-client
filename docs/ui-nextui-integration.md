@@ -55,6 +55,11 @@ support binaries that ship on TrimUI/NextUI devices.
   this script automatically so CI releases include the helpers, while host
   builds fall back to the native helpers in `src/minui_helpers/` when no cross
   compiler is present.
+- MinUI backend now serialises discovery/handshake state to JSON, launches the
+  helpers asynchronously, and consumes the selected row to trigger BLE
+  connections without blocking the event loop. The placeholder helpers in
+  `src/minui_helpers/` understand the `--file/--format` contract used by the
+  upstream binaries.
 
 ## Next Actions
 

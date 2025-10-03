@@ -13,11 +13,12 @@ A native NextUI/MinUI Pak that turns the TrimUI Brick into a lightweight Meshtas
 - BlueZ GATT data path with event-loop integration, notification buffering, and basic frame stats.
 - Initial config handshake via `want_config_id`, with cached `MyNodeInfo`/`NodeInfo` summaries and completion tracking.
 - Outbound BLE write queue with MTU-aware chunking ready for future ToRadio messaging.
+- MinUI backend produces JSON device/status menus, launches `minui-list` asynchronously, and funnels the selected row back to the BLE transport for non-blocking connects.
 
 **In Progress / Next Up**
 
 - Promote cached config/node data into the client core for UI consumption and ToRadio follow-ups.
-- Flesh out UI flows (node list, messaging) with packaged MinUI helpers.
+- Flesh out additional UI flows (node list, message compose, settings) atop the new JSON contract.
 - Add Serial/HTTP transports and end-to-end protocol validation tests.
 
 ## Table of Contents
@@ -143,7 +144,7 @@ The Meshtastic HTTP API serves protobufs under `/api/v1`—great when the node h
 - Message: opens on‑screen keyboard, sends text → toast for send/ack (use `minui-presenter`).
 - Settings: transport (BLE/Serial/HTTP), autoconnect toggle, clear NodeDB, logging level.
 
-See [`docs/ui-strategy.md`](ui-strategy.md) for the detailed UI plan covering the shared state store, backend interface, and TrimUI/desktop front-ends. The scaffolding in `src/ui/` (`mesh_ui_store` + `mesh_ui_controller`) is live: the app loop now pushes BLE discovery/handshake snapshots into the store, a CLI backend renders updates on host builds, and MinUI hooks will take over once helper binaries ship. UI preferences (last connected device) persist under the pak `HOME` via `~/.meshclient/ui_prefs` for autoconnect support.
+See [`docs/ui-strategy.md`](ui-strategy.md) for the detailed UI plan covering the shared state store, backend interface, and TrimUI/desktop front-ends. The scaffolding in `src/ui/` (`mesh_ui_store` + `mesh_ui_controller`) is live: the app loop now pushes BLE discovery/handshake snapshots into the store, the CLI backend renders updates on host builds, and the MinUI backend now streams JSON snapshots to the packaged helpers and reacts to user selections in real time. UI preferences (last connected device) persist under the pak `HOME` via `~/.meshclient/ui_prefs` for autoconnect support.
 
 ## 6) Logging & Diagnostics
 
