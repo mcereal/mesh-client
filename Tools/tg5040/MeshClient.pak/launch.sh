@@ -24,4 +24,4 @@ if ! command -v meshclient >/dev/null 2>&1; then
     exit 1
 fi
 
-exec meshclient "$@"
+exec meshclient --foreground --log-level debug "$@"
