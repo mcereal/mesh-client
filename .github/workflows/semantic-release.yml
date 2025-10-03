@@ -31,10 +31,10 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config protobuf-compiler python3 python3-pip zip musl-tools
-          wget https://musl.cc/aarch64-linux-musl-cross.tgz
-          tar -xf aarch64-linux-musl-cross.tgz
-          echo "$PWD/aarch64-linux-musl-cross/bin" >> $GITHUB_PATH
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config protobuf-compiler python3 python3-pip zip
+          wget https://toolchains.bootlin.com/downloads/releases/toolchains/aarch64/tarballs/aarch64--musl--stable-2024.02-1.tar.bz2
+          tar -xf aarch64--musl--stable-2024.02-1.tar.bz2
+          echo "$PWD/aarch64--musl--stable-2024.02-1/bin" >> $GITHUB_PATH
           python3 -m pip install --user --upgrade pip setuptools wheel
           python3 -m pip install --user protobuf grpcio-tools
 
@@ -51,11 +51,11 @@ jobs:
         env:
           PKG_CONFIG: /bin/false
         run: |
-          export CROSS_COMPILE=aarch64-linux-musl-
+          export CROSS_COMPILE=aarch64-buildroot-linux-musl-
           cmake -S . -B build/release \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER=aarch64-linux-musl-gcc \
-            -DCMAKE_CXX_COMPILER=aarch64-linux-musl-g++ \
+            -DCMAKE_C_COMPILER=aarch64-buildroot-linux-musl-gcc \
+            -DCMAKE_CXX_COMPILER=aarch64-buildroot-linux-musl-g++ \
             -DCMAKE_SYSTEM_NAME=Linux \
             -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
             -DCMAKE_EXE_LINKER_FLAGS="-static" \
@@ -64,7 +64,7 @@ jobs:
 
       - name: Package Pak
         run: |
-          export CROSS_COMPILE=aarch64-linux-musl-
+          export CROSS_COMPILE=aarch64-buildroot-linux-musl-
           export PLATFORM=tg5040
           make package
 
