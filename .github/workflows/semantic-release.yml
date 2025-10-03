@@ -31,7 +31,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config libdbus-1-dev protobuf-compiler python3 python3-pip zip
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config libdbus-1-dev protobuf-compiler python3 python3-pip zip gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
           python3 -m pip install --user --upgrade pip setuptools wheel
           python3 -m pip install --user protobuf grpcio-tools
 
@@ -45,10 +45,16 @@ jobs:
             conventional-changelog-conventionalcommits@^7.0.2
 
       - name: Build (Release)
-        run: make release
+        run: |
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          cmake -S . -B build/release -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64
+          cmake --build build/release
 
       - name: Package Pak
-        run: make package
+        run: |
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export PLATFORM=tg5040
+          make package
 
       - name: Compute checksums
         run: |
