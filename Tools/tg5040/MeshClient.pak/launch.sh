@@ -18,6 +18,8 @@ printf '[%s] Launching %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$PAK_NAME"
 
 export HOME="$USERDATA_PATH"
 export PATH="$PAK_DIR/bin/$PLATFORM:$PAK_DIR/bin/shared:$PATH"
+export DBUS_SYSTEM_BUS_ADDRESS="unix:path=/var/run/dbus/system_bus_socket"
+unset DBUS_SESSION_BUS_ADDRESS || true
 
 if ! command -v meshclient >/dev/null 2>&1; then
     echo "meshclient binary not found in PATH" >&2
