@@ -688,6 +688,7 @@ static void test_ui_store_persistence(void) {
     snprintf(handshake.nodes[0].short_name, sizeof(handshake.nodes[0].short_name), "%s", "PRIM");
     handshake.nodes[0].snr = 9.5f;
     handshake.nodes[0].last_heard = 123U;
+    handshake.cached = true;
     mesh_ui_store_set_handshake(&store, &handshake);
 
     char cache_path[] = "/tmp/mesh_ui_storeXXXXXX";
@@ -703,6 +704,24 @@ static void test_ui_store_persistence(void) {
         unlink(cache_path);
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "save failed");
+        return;
+    }
+
+    FILE *saved = fopen(cache_path, "r");
+    bool cached_marker_found = false;
+    if (saved != NULL) {
+        char line[256];
+        while (fgets(line, sizeof line, saved) != NULL) {
+            if (strncmp(line, "handshake_cached=", (int)(sizeof "handshake_cached=") - 1) == 0) {
+                cached_marker_found = (strstr(line, "=1") != NULL);
+            }
+        }
+        fclose(saved);
+    }
+    if (!cached_marker_found) {
+        unlink(cache_path);
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "handshake cache marker missing");
         return;
     }
 

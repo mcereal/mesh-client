@@ -741,6 +741,15 @@ static void mesh_ui_backend_minui_present(void *state, const struct mesh_ui_snap
         char message[128];
         snprintf(message, sizeof message, "Cached nodes available (%" PRIu32 ")", snapshot->handshake.node_count);
         minui_present_toast(context, message);
+        if (snapshot->handshake.node_count > 0U) {
+            const struct mesh_ui_node_summary *node = &snapshot->handshake.nodes[0];
+            char node_msg[128];
+            snprintf(node_msg, sizeof node_msg, "Last node: %s (%s) SNR %.1f",
+                     node->long_name[0] != '\0' ? node->long_name : "<unknown>",
+                     node->short_name[0] != '\0' ? node->short_name : "----",
+                     (double)node->snr);
+            minui_present_toast(context, node_msg);
+        }
     }
 
     minui_handle_snapshot(context);
