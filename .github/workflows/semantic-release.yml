@@ -1,4 +1,7 @@
-name: Semantic Release
+name: Semanticjobs:
+  release:
+    runs-on: ubuntu-20.04
+    steps:ease
 
 on:
   push:
