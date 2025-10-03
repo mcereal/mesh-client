@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -31,7 +31,10 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config protobuf-compiler python3 python3-pip zip gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config protobuf-compiler python3 python3-pip zip musl-tools
+          wget https://musl.cc/aarch64-linux-musl-cross.tgz
+          tar -xf aarch64-linux-musl-cross.tgz
+          echo "$PWD/aarch64-linux-musl-cross/bin" >> $GITHUB_PATH
           python3 -m pip install --user --upgrade pip setuptools wheel
           python3 -m pip install --user protobuf grpcio-tools
 
@@ -48,20 +51,20 @@ jobs:
         env:
           PKG_CONFIG: /bin/false
         run: |
-          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-musl-
           cmake -S . -B build/release \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+            -DCMAKE_C_COMPILER=aarch64-linux-musl-gcc \
+            -DCMAKE_CXX_COMPILER=aarch64-linux-musl-g++ \
             -DCMAKE_SYSTEM_NAME=Linux \
             -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
-            -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
+            -DCMAKE_EXE_LINKER_FLAGS="-static" \
             -DCMAKE_C_FLAGS="-Os"
           cmake --build build/release
 
       - name: Package Pak
         run: |
-          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-musl-
           export PLATFORM=tg5040
           make package
 
