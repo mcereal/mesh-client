@@ -198,6 +198,7 @@ static int mesh_ui_store_save_handshake(FILE *file, const struct mesh_ui_handsha
             handshake->my_info.node_num, handshake->my_info.nodedb_entries, handshake->my_info.reboot_count);
     mesh_ui_store_escape_and_write(file, "handshake_channel", handshake->primary_channel);
     mesh_ui_store_escape_and_write(file, "handshake_my_short", handshake->my_short_name);
+    fprintf(file, "handshake_cached=%u\n", handshake->cached ? 1U : 0U);
     fprintf(file, "handshake_nodes=%u\n", handshake->node_count);
     for (uint32_t i = 0; i < handshake->node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
         const struct mesh_ui_node_summary *node = &handshake->nodes[i];
@@ -323,6 +324,8 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
         } else if (strcmp(key, "handshake_nodes") == 0) {
             nodes_expected = (uint32_t)strtoul(value, NULL, 10);
             nodes_expected_set = true;
+        } else if (strcmp(key, "handshake_cached") == 0) {
+            handshake.cached = (strtoul(value, NULL, 10) != 0U);
         } else if (strncmp(key, "node[", 5) == 0) {
             unsigned int index = 0U;
             if (sscanf(key, "node[%u]", &index) == 1) {
@@ -369,6 +372,9 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
     handshake.node_count = final_count;
 
     if (handshake_valid) {
+        if (!handshake.cached) {
+            handshake.cached = true;
+        }
         store->handshake = handshake;
         store->handshake_valid = true;
     } else {

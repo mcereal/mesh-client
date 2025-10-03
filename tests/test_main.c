@@ -732,6 +732,12 @@ static void test_ui_store_persistence(void) {
         return;
     }
 
+    if (!store.handshake.cached) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "handshake cache flag not set after load");
+        return;
+    }
+
     mesh_ui_store_shutdown(&store);
     record_success(test_name);
 }

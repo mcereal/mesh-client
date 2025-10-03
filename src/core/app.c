@@ -199,6 +199,7 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
         ui_handshake.config_complete_id = status.config_complete_id;
         ui_handshake.has_my_info = status.has_my_info;
         ui_handshake.has_config = status.has_config;
+        ui_handshake.cached = false;
         if (status.has_my_info) {
             const uint32_t my_node = status.my_info.my_node_num;
             ui_handshake.my_info.node_num = status.my_info.my_node_num;

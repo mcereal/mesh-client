@@ -54,6 +54,7 @@ struct mesh_ui_handshake_state {
     char primary_channel[33];
     char my_short_name[6];
     struct mesh_ui_node_summary nodes[MESH_UI_MAX_HANDSHAKE_NODES];
+    bool cached;
 };
 
 struct mesh_ui_snapshot {

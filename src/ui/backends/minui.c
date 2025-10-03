@@ -290,6 +290,14 @@ int mesh_ui_backend_minui_format_menu(const struct mesh_ui_snapshot *snapshot, c
                 return -ENOSPC;
             }
         }
+        if (snapshot->handshake.cached) {
+            if (!minui_buffer_append_literal(&builder, ",")) {
+                return -ENOSPC;
+            }
+            if (!minui_buffer_append_string(&builder, "Cached snapshot")) {
+                return -ENOSPC;
+            }
+        }
         if (snapshot->handshake.my_short_name[0] != '\0') {
             if (!minui_buffer_append_literal(&builder, ",")) {
                 return -ENOSPC;

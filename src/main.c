@@ -16,6 +16,7 @@ static void print_handshake_json(FILE *out, const struct mesh_bluez_device_info 
                                  const struct mesh_ble_handshake_status *status);
 static void print_handshake_pretty(FILE *out, const struct mesh_bluez_device_info *device,
                                    const struct mesh_ble_handshake_status *status);
+static void print_cached_handshake(FILE *out, const struct mesh_ui_handshake_state *state);
 static int print_status(struct mesh_app *app, bool output_json, const char *output_path);
 static const struct mesh_bluez_device_info *select_preferred_device(const struct mesh_transport *ble,
                                                                     const struct mesh_app_config *config,
@@ -233,6 +234,10 @@ static int print_status(struct mesh_app *app, bool output_json, const char *outp
     const struct mesh_bluez_device_info *target = select_preferred_device(ble, &app->config, devices, &device_count);
     if (target == NULL) {
         printf("No Meshtastic devices discovered.\n");
+        if (!output_json && app->ui_store.handshake_valid && app->ui_store.handshake.cached) {
+            printf("\nCached mesh status:\n");
+            print_cached_handshake(stdout, &app->ui_store.handshake);
+        }
         return 0;
     }
 
@@ -330,6 +335,56 @@ static void print_handshake_pretty(FILE *out, const struct mesh_bluez_device_inf
             }
             fprintf(out, "\n");
         }
+    }
+}
+
+static void print_cached_handshake(FILE *out, const struct mesh_ui_handshake_state *state) {
+    if (out == NULL || state == NULL) {
+        return;
+    }
+
+    fprintf(out, "Handshake: request=%u pending=%s complete=%s", state->request_id,
+            state->request_in_flight ? "yes" : "no", state->config_complete ? "yes" : "no");
+    if (state->config_complete) {
+        fprintf(out, " (id=%u)", state->config_complete_id);
+    }
+    fprintf(out, "\n");
+
+    if (state->has_my_info) {
+        fprintf(out, "MyNode: id=%u, nodedb=%u, reboot_count=%u\n", state->my_info.node_num,
+                state->my_info.nodedb_entries, state->my_info.reboot_count);
+    }
+
+    if (state->primary_channel[0] != '\0') {
+        fprintf(out, "Primary channel: %s\n", state->primary_channel);
+    }
+
+    if (state->node_count == 0U) {
+        fprintf(out, "Nodes: none cached\n");
+        return;
+    }
+
+    fprintf(out, "Nodes (%u):\n", state->node_count);
+    for (uint32_t i = 0; i < state->node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+        const struct mesh_ui_node_summary *node = &state->nodes[i];
+        if (node->node_id == 0U && node->long_name[0] == '\0' && node->short_name[0] == '\0') {
+            continue;
+        }
+        fprintf(out, "  - id=%u", node->node_id);
+        if (node->long_name[0] != '\0') {
+            fprintf(out, " name=%s", node->long_name);
+        }
+        if (node->short_name[0] != '\0') {
+            fprintf(out, " (short=%s)", node->short_name);
+        }
+        fprintf(out, " snr=%.2f last_heard=%u", (double)node->snr, node->last_heard);
+        if (node->has_hops_away) {
+            fprintf(out, " hops=%u", node->hops_away);
+        }
+        if (node->via_mqtt) {
+            fprintf(out, " via_mqtt");
+        }
+        fprintf(out, "\n");
     }
 }
 
