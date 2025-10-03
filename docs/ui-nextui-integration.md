@@ -58,8 +58,9 @@ support binaries that ship on TrimUI/NextUI devices.
 - MinUI backend now serialises discovery/handshake state to JSON, launches the
   helpers asynchronously, and consumes the selected row to trigger BLE
   connections without blocking the event loop. The placeholder helpers in
-  `src/minui_helpers/` understand the `--file/--format` contract used by the
-  upstream binaries.
+  `src/minui_helpers/` now emit a compatible selection payload—defaulting to the
+  first entry and honouring `MESHCLIENT_MINUI_SELECTION`—so the CLI fallback can
+  still request connections when the real MinUI binaries are unavailable.
 
 ## Next Actions
 
