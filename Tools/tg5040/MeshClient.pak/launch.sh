@@ -12,7 +12,12 @@ USERDATA_PATH="$SDCARD_PATH/.userdata/$PLATFORM/$PAK_NAME"
 mkdir -p "$LOGS_PATH" "$USERDATA_PATH"
 
 LOG_FILE="$LOGS_PATH/$PAK_NAME.txt"
-exec >>"$LOG_FILE" 2>&1
+LOG_PIPE="$(mktemp -u "${USERDATA_PATH}/logpipe.XXXX")"
+mkfifo "$LOG_PIPE"
+tee -a "$LOG_FILE" < "$LOG_PIPE" &
+TEE_PID=$!
+exec > "$LOG_PIPE"
+exec 2>&1
 
 printf '[%s] Launching %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$PAK_NAME"
 
@@ -28,4 +33,9 @@ if ! command -v meshclient >/dev/null 2>&1; then
     exit 1
 fi
 
-exec meshclient --foreground --log-level debug "$@"
+meshclient --foreground --log-level debug "$@" &
+CLIENT_PID=$!
+
+trap 'STATUS=$?; kill "$CLIENT_PID" 2>/dev/null; kill "$TEE_PID" 2>/dev/null; wait "$CLIENT_PID" 2>/dev/null; wait "$TEE_PID" 2>/dev/null; rm -f "$LOG_PIPE"; exit "$STATUS"' INT TERM EXIT
+
+wait "$CLIENT_PID"
