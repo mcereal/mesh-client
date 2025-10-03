@@ -61,6 +61,9 @@ support binaries that ship on TrimUI/NextUI devices.
   `src/minui_helpers/` now emit a compatible selection payload—defaulting to the
   first entry and honouring `MESHCLIENT_MINUI_SELECTION`—so the CLI fallback can
   still request connections when the real MinUI binaries are unavailable.
+- The `minui-list` menu now shows a third “Nodes” section populated from the
+  cached handshake summaries (node id, names, SNR) so users can inspect the mesh
+  roster before deeper UI flows arrive.
 
 ## Next Actions
 

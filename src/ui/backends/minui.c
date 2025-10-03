@@ -313,6 +313,42 @@ int mesh_ui_backend_minui_format_menu(const struct mesh_ui_snapshot *snapshot, c
         return -ENOSPC;
     }
 
+    if (snapshot->handshake_valid && snapshot->handshake.node_count > 0U) {
+        if (!minui_buffer_append_literal(&builder, ",{\"name\":\"Nodes\",\"options\":[")) {
+            return -ENOSPC;
+        }
+
+        uint32_t node_count = snapshot->handshake.node_count;
+        if (node_count > MESH_UI_MAX_HANDSHAKE_NODES) {
+            node_count = MESH_UI_MAX_HANDSHAKE_NODES;
+        }
+
+        for (uint32_t i = 0; i < node_count; ++i) {
+            const struct mesh_ui_node_summary *node = &snapshot->handshake.nodes[i];
+            if (i > 0U) {
+                if (!minui_buffer_append_literal(&builder, ",")) {
+                    return -ENOSPC;
+                }
+            }
+
+            char line[192];
+            const char *long_name = (node->long_name[0] != '\0') ? node->long_name : "<unknown>";
+            const char *short_name = (node->short_name[0] != '\0') ? node->short_name : "----";
+            int written = snprintf(line, sizeof line, "#%u %s (%s) SNR=%.1f", node->node_id, long_name, short_name,
+                                   (double)node->snr);
+            if (written < 0 || (size_t)written >= sizeof line) {
+                return -ENOSPC;
+            }
+            if (!minui_buffer_append_string(&builder, line)) {
+                return -ENOSPC;
+            }
+        }
+
+        if (!minui_buffer_append_literal(&builder, "],\"selected\":0,\"features\":{\"unselectable\":true}}")) {
+            return -ENOSPC;
+        }
+    }
+
     if (!minui_buffer_append_literal(&builder, "]}")) {
         return -ENOSPC;
     }

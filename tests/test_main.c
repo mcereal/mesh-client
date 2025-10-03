@@ -593,7 +593,7 @@ static void test_ui_store_basic(void) {
     handshake.request_id = 42U;
     handshake.config_complete = false;
     handshake.config_complete_id = 0U;
-    handshake.node_count = 5U;
+    handshake.node_count = 1U;
     handshake.has_my_info = true;
     handshake.my_info.node_num = 1234U;
     handshake.my_info.nodedb_entries = 5U;
@@ -797,10 +797,22 @@ static void test_minui_format_menu(void) {
     snapshot.handshake_valid = true;
     snapshot.handshake.request_in_flight = false;
     snapshot.handshake.request_id = 5U;
-    snapshot.handshake.node_count = 5U;
     snapshot.handshake.config_complete = true;
     snapshot.handshake.config_complete_id = 5U;
+    snapshot.handshake.node_count = 2U;
     snprintf(snapshot.handshake.my_short_name, sizeof snapshot.handshake.my_short_name, "%s", "ABCD");
+    snapshot.handshake.nodes[0].node_id = 101U;
+    snprintf(snapshot.handshake.nodes[0].long_name, sizeof snapshot.handshake.nodes[0].long_name, "%s",
+             "BaseStation");
+    snprintf(snapshot.handshake.nodes[0].short_name, sizeof snapshot.handshake.nodes[0].short_name, "%s",
+             "BASE");
+    snapshot.handshake.nodes[0].snr = 8.5f;
+    snapshot.handshake.nodes[1].node_id = 202U;
+    snprintf(snapshot.handshake.nodes[1].long_name, sizeof snapshot.handshake.nodes[1].long_name, "%s",
+             "FieldUnit");
+    snprintf(snapshot.handshake.nodes[1].short_name, sizeof snapshot.handshake.nodes[1].short_name, "%s",
+             "FILD");
+    snapshot.handshake.nodes[1].snr = 4.0f;
 
     char buffer[1024];
     int result = mesh_ui_backend_minui_format_menu(&snapshot, buffer, sizeof buffer);
@@ -821,6 +833,11 @@ static void test_minui_format_menu(void) {
 
     if (strstr(buffer, "\"selected\":0") == NULL) {
         record_failure(test_name, "expected connected device to be selected");
+        return;
+    }
+
+    if (strstr(buffer, "\"Nodes\"") == NULL || strstr(buffer, "BaseStation") == NULL) {
+        record_failure(test_name, "nodes section missing from JSON");
         return;
     }
 
