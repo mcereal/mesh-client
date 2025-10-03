@@ -41,7 +41,22 @@ jobs:
           # Add toolchain to PATH immediately for libdbus build
           export PATH="$PWD/aarch64--musl--stable-2024.02-1/bin:$PATH"
           echo "$PWD/aarch64--musl--stable-2024.02-1/bin" >> $GITHUB_PATH
+          # Build expat (required by libdbus) from source
+          wget https://github.com/libexpat/libexpat/releases/download/R_2_5_0/expat-2.5.0.tar.xz
+          tar -xf expat-2.5.0.tar.xz
+          cd expat-2.5.0
+          ./configure --host=aarch64-buildroot-linux-musl \
+            CC=aarch64-buildroot-linux-musl-gcc \
+            AR=aarch64-buildroot-linux-musl-ar \
+            RANLIB=aarch64-buildroot-linux-musl-ranlib \
+            --prefix=$PWD/../expat-install \
+            --disable-shared --enable-static \
+            --without-docbook
+          make -j$(nproc)
+          make install
+          cd ..
           # Build libdbus from source for static linking
+          export PKG_CONFIG_PATH="$PWD/expat-install/lib/pkgconfig:$PKG_CONFIG_PATH"
           wget https://dbus.freedesktop.org/releases/dbus/dbus-1.14.10.tar.xz
           tar -xf dbus-1.14.10.tar.xz
           cd dbus-1.14.10
@@ -54,7 +69,9 @@ jobs:
             --disable-tests --disable-doxygen-docs \
             --disable-xml-docs --disable-selinux \
             --disable-systemd --disable-traditional-activation \
-            --without-x
+            --without-x \
+            EXPAT_CFLAGS="-I$PWD/../expat-install/include" \
+            EXPAT_LIBS="-L$PWD/../expat-install/lib -lexpat"
           make -j$(nproc)
           make install
           cd ..
