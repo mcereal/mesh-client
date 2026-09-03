@@ -71,9 +71,9 @@
 
 ## Backend Selection
 
-- Use `MESHCLIENT_UI_BACKEND=cli|minui|stub|auto` to force a specific renderer (defaults to auto).
-- `auto` prefers the MinUI backend when helpers (`minui-presenter`, `minui-list`, `minui-keyboard`) are on `PATH`, otherwise falls back to the CLI view.
-- TrimUI builds should package MinUI helpers and set `MESHCLIENT_UI_BACKEND=minui` in the launch script once the backend is fully wired.
+- Use `MESHCLIENT_UI_BACKEND=cli|minui|fb|stub|auto` to force a specific renderer (defaults to auto).
+- `auto` prefers the MinUI backend when helpers (`minui-presenter`, `minui-list`, `minui-keyboard`) are on `PATH`, then the framebuffer backend when `/dev/fb0` is writable, otherwise falls back to the CLI view. Selection lives in `mesh_app_select_backend()` in `src/core/app.c`.
+- The TrimUI `launch.sh` currently forces `MESHCLIENT_UI_BACKEND=fb`; switch it to `minui` once the NextUI helper binaries ship in the pak.
 - Override helper binaries via `MESHCLIENT_MINUI_PRESENTER_CMD` / `MESHCLIENT_MINUI_LIST_CMD` to point at bundled scripts when packaging.
 - Placeholder shell scripts live under `Tools/tg5040/MeshClient.pak/bin/shared/` for host development; device builds receive compiled helpers under `bin/tg5040/` from `scripts/build_minui_helpers.sh`.
 - `make package` orchestrates helper builds via `scripts/build_minui_helpers.sh`; set `CROSS_COMPILE`/`PLATFORM` as needed in CI before calling it.
@@ -86,7 +86,7 @@
 
 ## Platform Agnosticism
 
-- Backends implement `struct mesh_ui_backend` with function pointers for `show_screen`, `prompt_text`, `show_toast`, and `handle_input`.
+- Backends implement `struct mesh_ui_backend` (`include/mesh/ui/backend.h`) with three function pointers: `init`, `shutdown`, and `present(snapshot)`. Input handling and prompts are backend-internal for now (e.g. the MinUI backend reads `minui-list` output through the event loop).
 - TrimUI builds select the MinUI backend at runtime using an environment flag or build flag; desktop builds default to the CLI backend.
 - New platforms (e.g., SDL mock, web UI) only implement the backend interface, leaving controller and store untouched.
 

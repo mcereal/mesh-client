@@ -11,6 +11,17 @@ A lightweight Meshtastic client targeting the TrimUI Brick and other NextUI/MinU
 git submodule update --init --recursive
 ```
 
+The core is Linux-only (`epoll`/`timerfd`/`eventfd`). On macOS, or any host with Docker, use the
+container targets — they bind-mount the repo and build into `build/linux/`:
+
+```bash
+make docker-test     # Debug build + unit tests in the dev container (image built on first use)
+make docker-shell    # bash inside the container for ad-hoc cmake/ctest work
+make docker-pak      # static aarch64 build → dist/MeshClient.pak.zip for the TrimUI Brick
+```
+
+On a Linux host you can build natively:
+
 ```bash
 # Debug build (requires CMake ≥3.18 and a C17 toolchain)
 make debug
@@ -41,12 +52,15 @@ make release
 make package
 ```
 
+From macOS, `make docker-pak` does the same via the cross container (static aarch64 binary, static libdbus) and also writes `dist/MeshClient.pak.zip.sha256`.
+
 Copy the resulting `dist/MeshClient.pak.zip` (or the extracted `MeshClient.pak/` folder) to `Tools/tg5040/` on the TrimUI SD card. From NextUI Launcher, the app will appear under Tools. Logs are written to `/.userdata/tg5040/logs/MeshClient.txt` on the device.
 
 ## Development Environment
 
-- **Toolchain:** GCC or Clang with C17 support, `cmake`, `ninja` or Make (CMake will pick the default generator).
-- **Make targets:** `make debug`, `make release`, `make test`, `make package`, and `make run` cover the common workflows (see `make help`).
+- **Toolchain:** GCC or Clang with C17 support, `cmake`, `ninja` or Make (CMake will pick the default generator). The core is Linux-only (`epoll`, `timerfd`, `eventfd`); on macOS use the `make docker-*` targets, which wrap `scripts/docker.sh` and the images in `docker/Dockerfile` (`dev` mirrors `ci.yml`, `cross` mirrors the release workflow's static aarch64 musl build).
+- **Build tree:** `BUILD_ROOT` (default `build`) selects the build tree root; container builds use `build/linux` so they never share a CMake cache with a host configure.
+- **Make targets:** `make debug`, `make release`, `make test`, `make package`, `make run`, and `make format` cover the common workflows; the `docker-*` variants run them in the container (see `make help`).
 - **Sanitizers:** Enable with `make debug CMAKE_ARGS="-- -DMESHCLIENT_ENABLE_ASAN=ON"` (or swap for `UBSAN`).
 - **Logging:** Adjust verbosity using the `--log-level` flag. Logs stream to `stderr` locally and to the pak log on device.
 - **CLI options:** `meshclient --help` lists foreground mode, BLE toggles, preferred device, timeout, and log-level flags. `--status --json` now emits a `cached` flag (and `cached_handshake` object when offline) so automation can detect stale snapshots.
@@ -56,7 +70,7 @@ Copy the resulting `dist/MeshClient.pak.zip` (or the extracted `MeshClient.pak/`
 - **UI prefs:** Last-connected device is cached under `$HOME/.meshclient/ui_prefs` to seed future sessions.
 - **MinUI helpers:** `make package` automatically runs `scripts/build_minui_helpers.sh` (see `MESHCLIENT_MINUI_*` variables) to compile and stage the NextUI-based list/keyboard helpers when preparing device builds.
 - **BlueZ:** At runtime the BLE transport connects to system D-Bus, locates the first adapter, and begins discovery. If BlueZ or an adapter is missing, the transport reports `waiting-for-bluez` / `waiting-for-adapter` and stays idle without failing the app.
-- **Protobuf scaffolding:** `third_party/nanopb` currently ships a stub; replace with upstream nanopb before shipping and add generated Meshtastic protobufs.
+- **Protobufs:** `third_party/nanopb` (runtime) and `proto/meshtastic` (schemas) are git submodules. Generated `.pb.c/.pb.h` land in `build/<type>/generated/nanopb/` at build time; the set of compiled `.proto` files is the `MESH_PROTO_NAMES` list in `CMakeLists.txt`.
 - **Protogen:** Use `make proto` to regenerate nanopb sources from files in `proto/meshtastic/meshtastic/` (requires `protoc` plus the `nanopb_generator` script; install via `pip install nanopb` or ensure `nanopb_generator` is on PATH).
 - **Discovery cache:** BLE transport keeps a mockable in-memory list of nearby Meshtastic nodes (address/name/RSSI) filtered on the Nordic UART UUID for downstream UI components.
 - **Semantic Release:** This project uses [semantic-release](https://github.com/semantic-release/semantic-release) to automate versioning and releases based on [Conventional Commits](https://www.conventionalcommits.org/). See [`docs/semantic-release.md`](docs/semantic-release.md) for usage details and commit message conventions.
@@ -65,7 +79,8 @@ Copy the resulting `dist/MeshClient.pak.zip` (or the extracted `MeshClient.pak/`
 
 - `src/` — application core, event loop, transports, UI scaffolding, utilities.
 - `include/` — public headers consumed by transports and tests.
-- `scripts/` — build/package automation.
+- `scripts/` — build/package automation, plus `docker.sh` (container wrapper) and `cross-build.sh` (static aarch64 pak build).
+- `docker/` — `Dockerfile` (`dev` and `cross` stages) and the cross toolchain bootstrap.
 - `tests/` — lightweight unit tests (run via CTest).
 - `Tools/tg5040/MeshClient.pak/` — TrimUI pak scaffold including `launch.sh` and platform bins.
 - `docs/` — architecture roadmap and transport-specific progress notes.
