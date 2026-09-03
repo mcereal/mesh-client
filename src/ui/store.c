@@ -59,6 +59,7 @@ void mesh_ui_store_shutdown(struct mesh_ui_store *store) {
     store->pending_flags = MESH_UI_UPDATE_NONE;
     store->device_count = 0U;
     store->handshake_valid = false;
+    memset(&store->messages, 0, sizeof store->messages);
 }
 
 void mesh_ui_store_reset(struct mesh_ui_store *store) {
@@ -156,9 +157,36 @@ void mesh_ui_store_set_transport_status(struct mesh_ui_store *store, const char 
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_TRANSPORT);
 }
 
+void mesh_ui_store_set_messages(struct mesh_ui_store *store,
+                                const struct mesh_ui_message_list *messages) {
+    if (store == NULL) {
+        return;
+    }
+
+    struct mesh_ui_message_list next;
+    memset(&next, 0, sizeof(next));
+    if (messages != NULL) {
+        next = *messages;
+        if (next.count > MESH_UI_MAX_MESSAGES) {
+            next.count = MESH_UI_MAX_MESSAGES;
+        }
+        /* Zero the unused tail so the memcmp below compares like with like. */
+        for (uint32_t i = next.count; i < MESH_UI_MAX_MESSAGES; ++i) {
+            memset(&next.entries[i], 0, sizeof(next.entries[i]));
+        }
+    }
+
+    if (memcmp(&store->messages, &next, sizeof(next)) == 0) {
+        return;
+    }
+
+    store->messages = next;
+    mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_MESSAGES);
+}
+
 void mesh_ui_store_request_refresh(struct mesh_ui_store *store) {
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_DISCOVERY | MESH_UI_UPDATE_HANDSHAKE |
-                                        MESH_UI_UPDATE_TRANSPORT);
+                                        MESH_UI_UPDATE_TRANSPORT | MESH_UI_UPDATE_MESSAGES);
 }
 
 bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_snapshot *snapshot) {
@@ -195,6 +223,8 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
     } else {
         memset(&snapshot->handshake, 0, sizeof snapshot->handshake);
     }
+
+    snapshot->messages = store->messages;
 
     memcpy(snapshot->transport_status, store->transport_status, sizeof snapshot->transport_status);
 
@@ -269,6 +299,27 @@ static void mesh_ui_store_unescape_value(char *value) {
     *write_ptr = '\0';
 }
 
+static void mesh_ui_store_save_messages(FILE *file, const struct mesh_ui_message_list *messages) {
+    if (file == NULL || messages == NULL) {
+        return;
+    }
+
+    fprintf(file, "messages=%u,%u\n", messages->count, messages->dropped);
+    for (uint32_t i = 0; i < messages->count && i < MESH_UI_MAX_MESSAGES; ++i) {
+        const struct mesh_ui_message *message = &messages->entries[i];
+        fprintf(file, "msg[%u]=%u,%u,%u,%u,%u,%u,%u\n", i, message->packet_id, message->peer,
+                message->rx_time, (unsigned)message->channel, (unsigned)message->direction,
+                (unsigned)message->ack, message->broadcast ? 1U : 0U);
+
+        char key_name[32];
+        char key_text[32];
+        snprintf(key_name, sizeof key_name, "msg_name[%u]", i);
+        snprintf(key_text, sizeof key_text, "msg_text[%u]", i);
+        mesh_ui_store_escape_and_write(file, key_name, message->peer_name);
+        mesh_ui_store_escape_and_write(file, key_text, message->text);
+    }
+}
+
 int mesh_ui_store_save(const struct mesh_ui_store *store, const char *path) {
     if (store == NULL || path == NULL || path[0] == '\0') {
         return -EINVAL;
@@ -283,6 +334,7 @@ int mesh_ui_store_save(const struct mesh_ui_store *store, const char *path) {
     if (store->handshake_valid) {
         mesh_ui_store_save_handshake(file, &store->handshake);
     }
+    mesh_ui_store_save_messages(file, &store->messages);
 
     fclose(file);
     return 0;
@@ -305,7 +357,13 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
     bool nodes_expected_set = false;
     uint32_t nodes_loaded = 0U;
 
-    char line[512];
+    struct mesh_ui_message_list messages;
+    memset(&messages, 0, sizeof(messages));
+    uint32_t messages_expected = 0U;
+    bool messages_expected_set = false;
+    uint32_t messages_loaded = 0U;
+
+    char line[1280];
     while (fgets(line, sizeof line, file) != NULL) {
         line[strcspn(line, "\r\n")] = '\0';
         if (line[0] == '\0' || line[0] == '#') {
@@ -398,6 +456,51 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                 snprintf(handshake.nodes[index].short_name,
                          sizeof(handshake.nodes[index].short_name), "%s", value);
             }
+        } else if (strcmp(key, "messages") == 0) {
+            unsigned int count = 0U;
+            unsigned int dropped = 0U;
+            if (sscanf(value, "%u,%u", &count, &dropped) == 2) {
+                messages_expected = count;
+                messages_expected_set = true;
+                messages.dropped = dropped;
+            }
+        } else if (strncmp(key, "msg[", 4) == 0) {
+            unsigned int index = 0U;
+            if (sscanf(key, "msg[%u]", &index) == 1 && index < MESH_UI_MAX_MESSAGES) {
+                unsigned int packet_id = 0U;
+                unsigned int peer = 0U;
+                unsigned int rx_time = 0U;
+                unsigned int channel = 0U;
+                unsigned int direction = 0U;
+                unsigned int ack = 0U;
+                unsigned int broadcast = 0U;
+                if (sscanf(value, "%u,%u,%u,%u,%u,%u,%u", &packet_id, &peer, &rx_time, &channel,
+                           &direction, &ack, &broadcast) == 7) {
+                    struct mesh_ui_message *message = &messages.entries[index];
+                    message->packet_id = packet_id;
+                    message->peer = peer;
+                    message->rx_time = rx_time;
+                    message->channel = (uint8_t)channel;
+                    message->direction = (uint8_t)direction;
+                    message->ack = (uint8_t)ack;
+                    message->broadcast = (broadcast != 0U);
+                    if ((uint32_t)(index + 1U) > messages_loaded) {
+                        messages_loaded = index + 1U;
+                    }
+                }
+            }
+        } else if (strncmp(key, "msg_name[", 9) == 0) {
+            unsigned int index = 0U;
+            if (sscanf(key, "msg_name[%u]", &index) == 1 && index < MESH_UI_MAX_MESSAGES) {
+                snprintf(messages.entries[index].peer_name,
+                         sizeof(messages.entries[index].peer_name), "%s", value);
+            }
+        } else if (strncmp(key, "msg_text[", 9) == 0) {
+            unsigned int index = 0U;
+            if (sscanf(key, "msg_text[%u]", &index) == 1 && index < MESH_UI_MAX_MESSAGES) {
+                snprintf(messages.entries[index].text, sizeof(messages.entries[index].text), "%s",
+                         value);
+            }
         }
     }
 
@@ -420,6 +523,13 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
         store->handshake_valid = false;
     }
 
-    mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_HANDSHAKE);
+    uint32_t message_count = messages_expected_set ? messages_expected : messages_loaded;
+    if (message_count > MESH_UI_MAX_MESSAGES) {
+        message_count = MESH_UI_MAX_MESSAGES;
+    }
+    messages.count = message_count;
+    store->messages = messages;
+
+    mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_HANDSHAKE | MESH_UI_UPDATE_MESSAGES);
     return 0;
 }

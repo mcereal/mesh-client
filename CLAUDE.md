@@ -72,6 +72,10 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
   node-summary cache decoded from `FromRadio`. BLE is **not** Nordic UART and has no length
   framing: one bare protobuf per GATT write/read. `src/proto/framing.c` is for serial/TCP only.
   Nodes in PIN mode must be paired with BlueZ out of band (`bluetoothctl pair`) before connect.
+- `src/core/message.c` — transport-agnostic messaging: builds `TEXT_MESSAGE_APP` packets into a
+  `ToRadio`, folds inbound `MeshPacket`s into a fixed ring (`mesh_message_log`), and correlates
+  `ROUTING_APP` replies with the outbound message they ack. Message text is untrusted radio
+  input: `mesh_message_ingest` sanitises control bytes so backends can draw it directly.
 - `src/core/app.c` — `mesh_app_publish_ui_state()` copies BLE discovery/handshake state into the
   UI store every loop iteration, persists the handshake cache and preferences under `$HOME`
   (`~/.meshclient/ui_prefs`, `ui_prefs.handshake`), and picks the UI backend.
@@ -132,8 +136,10 @@ via Python3 (needs `pip install protobuf grpcio-tools`).
 One harness, `tests/test_main.c`, with a `k_test_cases` table tagged by category (`unit` today;
 `integration`/`hardware` reserved). Register new cases in that table; use
 `record_failure`/`record_success`. Tests must not touch real BlueZ — use the bluez mock. New
-CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-03: 16 unit tests, all passing in
-the dev container with zero compiler warnings.
+CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-03: 26 unit tests, all passing in
+the dev container with zero compiler warnings. `message_encode_text_golden` pins the
+`TEXT_MESSAGE_APP` wire format against a hand-derived byte vector (not against our own encoder),
+so a protobuf regeneration that changes field numbers or wire types fails loudly.
 
 `make format` rewrites every tracked `.c`/`.h` using `.clang-format`, and the tree is kept
 normalised against it - on a clean tree the command is a no-op. It is normalised with

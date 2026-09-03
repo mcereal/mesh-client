@@ -16,11 +16,13 @@ A native NextUI/MinUI Pak that turns the TrimUI Brick into a lightweight Meshtas
 - MinUI backend produces JSON device/status menus, launches `minui-list` asynchronously, and funnels the selected row back to the BLE transport for non-blocking connects.
 - UI store snapshot (discovery + handshake roster) now persists to disk so framebuffer/CLI backends can show cached status before BLE reconnects; CLI JSON includes `cached` metadata for automation. *(Apr 2025)*
 - UI store and CLI backend now surface BLE handshake metadata (MyNode details and node summaries) for downstream UI flows, keeping cached discovery state in sync with BLE updates. *(Apr 2025)*
+- Text messaging end to end: `FromRadio.packet` is decoded, `TEXT_MESSAGE_APP` payloads land in a fixed-size message ring, and `Routing` replies settle the delivery state of outbound messages. Sending goes out as a single unframed `ToRadio` GATT write via `--send-text`. Messages reach the UI store (peer names resolved from the NodeDB), render in the framebuffer and CLI backends, and persist alongside the handshake cache so the inbox survives a restart. *(Sep 2026)*
 
 **In Progress / Next Up**
 
-- Flesh out additional UI flows (node list, message compose, settings) atop the richer handshake/discovery snapshot and persisted cache.
-- Add Serial/HTTP transports and end-to-end protocol validation tests.
+- On-device input: `mesh_ui_input` currently only detects a quit key, so the framebuffer UI is read-only. Promote it to a d-pad/button event source with a selection model so nodes can be picked and messages composed without the CLI.
+- Package a `minui-keyboard` helper so text can be entered on the device.
+- Add Serial/HTTP transports and end-to-end protocol validation tests. Note that `src/proto/framing.c` is a homegrown varint length prefix, **not** Meshtastic's serial framing (`0x94 0xc3` + 16-bit big-endian length); a serial transport needs the real thing.
 
 ## Table of Contents
 

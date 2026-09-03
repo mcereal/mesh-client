@@ -44,6 +44,12 @@ make test
 
 # Update a JSON cache for MinUI/automation
 ./build/debug/meshclient --status --status-output "$HOME/.userdata/meshclient/status.json"
+
+# Send a text message (broadcast on the primary channel) and exit
+./build/debug/meshclient --send-text "hello mesh"
+
+# Direct message a node, waiting for delivery confirmation
+./build/debug/meshclient --send-text "on my way" --dest '!433d1a2c' --ack
 ```
 
 If CMake is not installed, install it with your package manager first (e.g. `sudo apt install cmake`).
@@ -69,7 +75,8 @@ Once the Brick is on WiFi with the SSH Server pak installed, skip the SD card: s
 - **Make targets:** `make debug`, `make release`, `make test`, `make package`, `make run`, and `make format` cover the common workflows; the `docker-*` variants run them in the container (see `make help`).
 - **Sanitizers:** Enable with `make debug CMAKE_ARGS="-- -DMESHCLIENT_ENABLE_ASAN=ON"` (or swap for `UBSAN`).
 - **Logging:** Adjust verbosity using the `--log-level` flag. Logs stream to `stderr` locally and to the pak log on device.
-- **CLI options:** `meshclient --help` lists foreground mode, BLE toggles, preferred device, timeout, and log-level flags. `--status --json` now emits a `cached` flag (and `cached_handshake` object when offline) so automation can detect stale snapshots.
+- **CLI options:** `meshclient --help` lists foreground mode, BLE toggles, preferred device, timeout, and log-level flags. `--status --json` now emits a `cached` flag (and `cached_handshake` / `cached_messages` when offline) so automation can detect stale snapshots.
+- **Messaging:** `--send-text TEXT` connects, sends a `TEXT_MESSAGE_APP` packet and exits. `--dest` takes `!hex`, `0xhex`, decimal, or `all` (the default broadcast); `--channel N` selects the channel index; `--ack` requests delivery confirmation and waits for the `Routing` reply. Broadcasts are never acked by the mesh, so `--ack` is ignored for them. Received messages appear in `--status`, in the on-device HUD, and in the persisted cache, so the last conversation is readable with the radio out of range.
 - **Runtime env vars:** `MESHCLIENT_RUN_MODE`, `MESHCLIENT_IDLE_TIMEOUT_MS`, `MESHCLIENT_DISABLE_BLE`, `MESHCLIENT_PREFERRED_BLE_DEVICE`.
 - **Testing strategy:** see [`docs/testing.md`](docs/testing.md) for the test categories, filtering options, and future coverage plan (`ctest -L unit` mirrors `make test`).
 - **UI backend:** Set `MESHCLIENT_UI_BACKEND=auto|minui|fb|cli|stub` to pick the renderer. The TrimUI pak defaults to the `fb` backend which paints a simple framebuffer HUD (with controller exit handling) and falls back to CLI when the framebuffer is unavailable. The MinUI backend still emits JSON menus for `minui-list` and handles selections to request BLE connects without blocking. On desktop the placeholder helpers select the first device automatically; export `MESHCLIENT_MINUI_SELECTION=<index>` to pick a different row.

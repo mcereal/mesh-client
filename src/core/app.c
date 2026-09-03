@@ -160,6 +160,83 @@ static const struct mesh_ui_backend *mesh_app_select_backend(struct mesh_app *ap
     return backend;
 }
 
+/* Resolves a node number to something a human can read, preferring the short name the NodeDB
+   gave us and falling back to the Meshtastic-style "!hex" id. */
+static void mesh_app_format_peer_name(const struct mesh_ble_handshake_status *status,
+                                      uint32_t node_id, char *out, size_t out_len) {
+    if (out == NULL || out_len == 0U) {
+        return;
+    }
+
+    if (node_id == MESH_MESSAGE_BROADCAST_ADDR) {
+        snprintf(out, out_len, "all");
+        return;
+    }
+
+    if (status != NULL) {
+        for (size_t i = 0; i < status->node_count && i < MESH_BLE_MAX_NODE_SUMMARY; ++i) {
+            if (status->nodes[i].node_id != node_id) {
+                continue;
+            }
+            if (status->nodes[i].short_name[0] != '\0') {
+                snprintf(out, out_len, "%s", status->nodes[i].short_name);
+                return;
+            }
+            if (status->nodes[i].long_name[0] != '\0') {
+                snprintf(out, out_len, "%s", status->nodes[i].long_name);
+                return;
+            }
+            break;
+        }
+    }
+
+    snprintf(out, out_len, "!%08x", node_id);
+}
+
+/* Copies the newest MESH_UI_MAX_MESSAGES entries out of the transport ring into the store. */
+static void mesh_app_publish_messages(struct mesh_app *app, struct mesh_transport *ble,
+                                      const struct mesh_ble_handshake_status *status) {
+    const struct mesh_message_log *log = mesh_ble_transport_messages(ble);
+    if (log == NULL) {
+        return;
+    }
+
+    struct mesh_ui_message_list list;
+    memset(&list, 0, sizeof(list));
+    list.dropped = log->dropped;
+
+    /* The ring holds more than the UI carries; take the newest tail of it. */
+    size_t first = (log->count > MESH_UI_MAX_MESSAGES) ? log->count - MESH_UI_MAX_MESSAGES : 0U;
+    for (size_t i = first; i < log->count; ++i) {
+        const struct mesh_message *source = mesh_message_log_at(log, i);
+        if (source == NULL) {
+            continue;
+        }
+
+        struct mesh_ui_message *target = &list.entries[list.count];
+        const bool outbound = (source->direction == MESH_MESSAGE_OUTBOUND);
+        target->packet_id = source->packet_id;
+        target->peer = outbound ? source->to : source->from;
+        target->rx_time = source->rx_time;
+        target->channel = source->channel;
+        target->direction = source->direction;
+        target->ack = source->ack;
+        target->broadcast = (source->to == MESH_MESSAGE_BROADCAST_ADDR);
+        mesh_app_format_peer_name(status, target->peer, target->peer_name,
+                                  sizeof(target->peer_name));
+        snprintf(target->text, sizeof(target->text), "%s", source->text);
+        list.count++;
+    }
+
+    mesh_ui_update_flags prev_flags = app->ui_store.pending_flags;
+    mesh_ui_store_set_messages(&app->ui_store, &list);
+    if (app->ui_handshake_cache_path[0] != '\0' &&
+        (app->ui_store.pending_flags & MESH_UI_UPDATE_MESSAGES) != 0U &&
+        (prev_flags & MESH_UI_UPDATE_MESSAGES) == 0U) {
+        app->ui_handshake_cache_dirty = true;
+    }
+}
+
 static void mesh_app_publish_ui_state(struct mesh_app *app) {
     if (app == NULL) {
         return;
@@ -296,6 +373,8 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
             app->ui_handshake_cache_dirty = true;
         }
     }
+
+    mesh_app_publish_messages(app, ble, &status);
 
     if (preferences_modified && app->ui_preferences_path[0] != '\0') {
         if (mesh_ui_preferences_save(&app->ui_preferences, app->ui_preferences_path) == 0) {
