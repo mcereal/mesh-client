@@ -242,6 +242,12 @@ static void test_ble_transport_connect_mock(void) {
     size_t write_lengths[8];
     memset(write_lengths, 0, sizeof(write_lengths));
 
+    /* Scripted FromRadio reads; the transport drains until it sees an empty read. */
+    uint8_t read_buffers[3][256];
+    const uint8_t *read_payloads[3] = {read_buffers[0], read_buffers[1], read_buffers[2]};
+    size_t read_payload_lengths[3] = {0U, 0U, 0U};
+    size_t read_index = 0U;
+
     struct mesh_bluez_mock_config mock_config = {
         .init_result = 0,
         .check_ready_result = 0,
@@ -253,8 +259,13 @@ static void test_ble_transport_connect_mock(void) {
         .disconnect_result = 0,
         .subscribe_result = 0,
         .write_result = 0,
-        .rx_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_03/service0017/char0025",
-        .tx_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_03/service0017/char0026",
+        .toradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_03/service000a/char000b",
+        .fromradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_03/service000a/char000d",
+        .fromnum_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_03/service000a/char000f",
+        .read_payloads = read_payloads,
+        .read_payload_lengths = read_payload_lengths,
+        .read_payload_count = 3U, /* lengths stay 0 (empty FIFO) until scripted below */
+        .read_index = &read_index,
         .devices = mock_devices,
         .device_count = sizeof(mock_devices) / sizeof(mock_devices[0]),
         .list_result = 0,
@@ -299,7 +310,7 @@ static void test_ble_transport_connect_mock(void) {
         return;
     }
 
-    if (strcmp(write_path, mock_config.rx_char_path) != 0) {
+    if (strcmp(write_path, mock_config.toradio_char_path) != 0) {
         ble->ops->stop(ble);
         mesh_event_loop_shutdown(&loop);
         mesh_bluez_client_mock_disable();
@@ -307,19 +318,9 @@ static void test_ble_transport_connect_mock(void) {
         return;
     }
 
-    size_t header_len = 0;
-    size_t payload_len = 0;
-    if (mesh_proto_frame_decode(write_capture, write_len, &header_len, &payload_len) != 0) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "failed to decode want_config frame");
-        return;
-    }
-
-    const uint8_t *to_radio_payload = write_capture + header_len;
+    /* BLE ToRadio writes carry the bare protobuf: no varint length prefix. */
     meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_default;
-    pb_istream_t to_radio_stream = pb_istream_from_buffer(to_radio_payload, payload_len);
+    pb_istream_t to_radio_stream = pb_istream_from_buffer(write_capture, write_len);
     if (!pb_decode(&to_radio_stream, meshtastic_ToRadio_fields, &to_radio)) {
         ble->ops->stop(ble);
         mesh_event_loop_shutdown(&loop);
@@ -345,15 +346,13 @@ static void test_ble_transport_connect_mock(void) {
         return;
     }
 
-    uint8_t from_payload[256];
-    uint8_t from_frame[320];
-
+    /* Script the node's FromRadio FIFO: my_info, node_info, config_complete, then empty. */
     meshtastic_FromRadio from_radio = meshtastic_FromRadio_init_default;
     from_radio.which_payload_variant = meshtastic_FromRadio_my_info_tag;
     from_radio.my_info.my_node_num = 0x01020304U;
     from_radio.my_info.nodedb_count = 2U;
 
-    pb_ostream_t encode_stream = pb_ostream_from_buffer(from_payload, sizeof(from_payload));
+    pb_ostream_t encode_stream = pb_ostream_from_buffer(read_buffers[0], sizeof(read_buffers[0]));
     if (!pb_encode(&encode_stream, meshtastic_FromRadio_fields, &from_radio)) {
         ble->ops->stop(ble);
         mesh_event_loop_shutdown(&loop);
@@ -361,28 +360,8 @@ static void test_ble_transport_connect_mock(void) {
         record_failure(test_name, "failed to encode my_info");
         return;
     }
-
-    size_t from_payload_len = encode_stream.bytes_written;
-    size_t from_frame_len = 0U;
-    if (mesh_proto_frame_encode(from_payload, from_payload_len, from_frame, sizeof(from_frame), &from_frame_len) != 0) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "failed to frame my_info");
-        return;
-    }
-
-    mesh_bluez_client_mock_emit_notification(mock_config.tx_char_path, from_frame, 2U);
-    mesh_bluez_client_mock_emit_notification(mock_config.tx_char_path, from_frame + 2U, from_frame_len - 2U);
-
-    handshake = mesh_ble_transport_handshake_status(ble);
-    if (!handshake.has_my_info || handshake.my_info.my_node_num != from_radio.my_info.my_node_num) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "my_info not cached");
-        return;
-    }
+    read_payload_lengths[0] = encode_stream.bytes_written;
+    const uint32_t expected_node_num = from_radio.my_info.my_node_num;
 
     from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
     from_radio.which_payload_variant = meshtastic_FromRadio_node_info_tag;
@@ -396,7 +375,7 @@ static void test_ble_transport_connect_mock(void) {
     from_radio.node_info.has_hops_away = true;
     from_radio.node_info.hops_away = 2U;
 
-    encode_stream = pb_ostream_from_buffer(from_payload, sizeof(from_payload));
+    encode_stream = pb_ostream_from_buffer(read_buffers[1], sizeof(read_buffers[1]));
     if (!pb_encode(&encode_stream, meshtastic_FromRadio_fields, &from_radio)) {
         ble->ops->stop(ble);
         mesh_event_loop_shutdown(&loop);
@@ -404,32 +383,14 @@ static void test_ble_transport_connect_mock(void) {
         record_failure(test_name, "failed to encode node_info");
         return;
     }
-
-    from_payload_len = encode_stream.bytes_written;
-    if (mesh_proto_frame_encode(from_payload, from_payload_len, from_frame, sizeof(from_frame), &from_frame_len) != 0) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "failed to frame node_info");
-        return;
-    }
-
-    mesh_bluez_client_mock_emit_notification(mock_config.tx_char_path, from_frame, from_frame_len);
-
-    handshake = mesh_ble_transport_handshake_status(ble);
-    if (handshake.node_count != 1U || handshake.nodes[0].node_id != from_radio.node_info.num) {
-        ble->ops->stop(ble);
-        mesh_event_loop_shutdown(&loop);
-        mesh_bluez_client_mock_disable();
-        record_failure(test_name, "node info cache incorrect");
-        return;
-    }
+    read_payload_lengths[1] = encode_stream.bytes_written;
+    const uint32_t expected_peer_num = from_radio.node_info.num;
 
     from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
     from_radio.which_payload_variant = meshtastic_FromRadio_config_complete_id_tag;
     from_radio.config_complete_id = to_radio.want_config_id;
 
-    encode_stream = pb_ostream_from_buffer(from_payload, sizeof(from_payload));
+    encode_stream = pb_ostream_from_buffer(read_buffers[2], sizeof(read_buffers[2]));
     if (!pb_encode(&encode_stream, meshtastic_FromRadio_fields, &from_radio)) {
         ble->ops->stop(ble);
         mesh_event_loop_shutdown(&loop);
@@ -437,25 +398,45 @@ static void test_ble_transport_connect_mock(void) {
         record_failure(test_name, "failed to encode config_complete");
         return;
     }
+    read_payload_lengths[2] = encode_stream.bytes_written;
 
-    from_payload_len = encode_stream.bytes_written;
-    if (mesh_proto_frame_encode(from_payload, from_payload_len, from_frame, sizeof(from_frame), &from_frame_len) != 0) {
+    /* Rewind the scripted FIFO and poke FromNum; the transport must drain all three reads. */
+    read_index = 0U;
+    const uint8_t from_num[4] = {3U, 0U, 0U, 0U};
+    mesh_bluez_client_mock_emit_notification(mock_config.fromnum_char_path, from_num, sizeof(from_num));
+
+    handshake = mesh_ble_transport_handshake_status(ble);
+    if (!handshake.has_my_info || handshake.my_info.my_node_num != expected_node_num) {
         ble->ops->stop(ble);
         mesh_event_loop_shutdown(&loop);
         mesh_bluez_client_mock_disable();
-        record_failure(test_name, "failed to frame config_complete");
+        record_failure(test_name, "my_info not cached");
         return;
     }
 
-    mesh_bluez_client_mock_emit_notification(mock_config.tx_char_path, from_frame, from_frame_len);
+    if (handshake.node_count != 1U || handshake.nodes[0].node_id != expected_peer_num) {
+        ble->ops->stop(ble);
+        mesh_event_loop_shutdown(&loop);
+        mesh_bluez_client_mock_disable();
+        record_failure(test_name, "node info cache incorrect");
+        return;
+    }
 
-    handshake = mesh_ble_transport_handshake_status(ble);
     if (handshake.request_in_flight || !handshake.config_complete ||
         handshake.config_complete_id != to_radio.want_config_id) {
         ble->ops->stop(ble);
         mesh_event_loop_shutdown(&loop);
         mesh_bluez_client_mock_disable();
         record_failure(test_name, "config handshake did not complete");
+        return;
+    }
+
+    /* Three payloads plus the terminating empty read. */
+    if (read_index != 4U) {
+        ble->ops->stop(ble);
+        mesh_event_loop_shutdown(&loop);
+        mesh_bluez_client_mock_disable();
+        record_failure(test_name, "FromRadio drain did not read until empty");
         return;
     }
 
@@ -468,48 +449,37 @@ static void test_ble_transport_connect_mock(void) {
         return;
     }
 
+    /* Outbound packets go out as exactly one write each, unchunked. */
     size_t handshake_write_calls = write_call_count;
-    uint8_t outbound_frame[64];
-    for (size_t i = 0; i < sizeof(outbound_frame); ++i) {
-        outbound_frame[i] = (uint8_t)i;
+    uint8_t outbound_packet[300];
+    for (size_t i = 0; i < sizeof(outbound_packet); ++i) {
+        outbound_packet[i] = (uint8_t)i;
     }
 
-    if (mesh_ble_transport_send_frame(ble, outbound_frame, sizeof(outbound_frame)) != 0) {
+    if (mesh_ble_transport_send_packet(ble, outbound_packet, sizeof(outbound_packet)) != 0) {
         ble->ops->stop(ble);
         mesh_event_loop_shutdown(&loop);
         mesh_bluez_client_mock_disable();
-        record_failure(test_name, "failed to queue outbound frame");
+        record_failure(test_name, "failed to queue outbound packet");
         return;
     }
 
-    const size_t expected_segments = (sizeof(outbound_frame) + 19U) / 20U;
-    size_t produced_segments = write_call_count - handshake_write_calls;
-    if (produced_segments != expected_segments) {
+    if (write_call_count - handshake_write_calls != 1U ||
+        write_lengths[handshake_write_calls] != sizeof(outbound_packet)) {
         ble->ops->stop(ble);
         mesh_event_loop_shutdown(&loop);
         mesh_bluez_client_mock_disable();
-        record_failure(test_name, "unexpected segment count");
+        record_failure(test_name, "outbound packet was not written as a single ToRadio write");
         return;
     }
 
-    size_t segment_sum = 0U;
-    for (size_t i = 0; i < expected_segments; ++i) {
-        size_t length = write_lengths[handshake_write_calls + i];
-        if (length == 0U || length > 20U) {
-            ble->ops->stop(ble);
-            mesh_event_loop_shutdown(&loop);
-            mesh_bluez_client_mock_disable();
-            record_failure(test_name, "segment size invalid");
-            return;
-        }
-        segment_sum += length;
-    }
-
-    if (segment_sum != sizeof(outbound_frame)) {
+    uint8_t oversized[MESH_BLE_MAX_PACKET_SIZE + 1U];
+    memset(oversized, 0xAB, sizeof(oversized));
+    if (mesh_ble_transport_send_packet(ble, oversized, sizeof(oversized)) != -EMSGSIZE) {
         ble->ops->stop(ble);
         mesh_event_loop_shutdown(&loop);
         mesh_bluez_client_mock_disable();
-        record_failure(test_name, "segment sizes do not sum to payload length");
+        record_failure(test_name, "oversized packet should be rejected");
         return;
     }
 
