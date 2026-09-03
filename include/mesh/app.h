@@ -26,6 +26,10 @@ struct mesh_app {
     struct mesh_ui_backend_minui_context ui_minui_context;
     struct mesh_ui_backend_fb_context ui_fb_context;
     struct mesh_ui_preferences ui_preferences;
+    /* Conversation loaded from the cache at startup. The transport's log starts empty every
+       run, so this is merged back in on publish; without it the first publish would erase the
+       persisted history. */
+    struct mesh_ui_message_list ui_messages_cached;
     struct mesh_ui_input ui_input;
     struct mesh_signals signals;
     char ui_preferences_path[256];

@@ -91,10 +91,81 @@ const char *mesh_message_ack_to_string(enum mesh_message_ack ack) {
 }
 
 /*
+ * Length of the well-formed UTF-8 sequence starting at `bytes`, or 0 when the bytes there are
+ * not one. Rejects overlong forms, UTF-16 surrogates and anything above U+10FFFF, per RFC 3629.
+ *
+ * A lenient decoder is not good enough here: JSON text must be valid UTF-8, so a malformed byte
+ * copied through to --status --json would produce a document that standards-compliant parsers
+ * reject - and the bytes come from the radio, where any node can choose them.
+ */
+static size_t mesh_message_utf8_sequence_len(const uint8_t *bytes, size_t available) {
+    if (available == 0U) {
+        return 0U;
+    }
+
+    const uint8_t lead = bytes[0];
+    if (lead < 0x80U) {
+        return 1U;
+    }
+
+    size_t length;
+    uint8_t second_min;
+    uint8_t second_max;
+
+    if (lead >= 0xC2U && lead <= 0xDFU) {
+        length = 2U;
+        second_min = 0x80U;
+        second_max = 0xBFU;
+    } else if (lead == 0xE0U) {
+        length = 3U; /* E0 80..9F would be an overlong two-byte form */
+        second_min = 0xA0U;
+        second_max = 0xBFU;
+    } else if (lead == 0xEDU) {
+        length = 3U; /* ED A0..BF encodes a UTF-16 surrogate, which is not a character */
+        second_min = 0x80U;
+        second_max = 0x9FU;
+    } else if ((lead >= 0xE1U && lead <= 0xECU) || lead == 0xEEU || lead == 0xEFU) {
+        length = 3U;
+        second_min = 0x80U;
+        second_max = 0xBFU;
+    } else if (lead == 0xF0U) {
+        length = 4U; /* F0 80..8F would be an overlong three-byte form */
+        second_min = 0x90U;
+        second_max = 0xBFU;
+    } else if (lead >= 0xF1U && lead <= 0xF3U) {
+        length = 4U;
+        second_min = 0x80U;
+        second_max = 0xBFU;
+    } else if (lead == 0xF4U) {
+        length = 4U; /* F4 90.. would be above U+10FFFF */
+        second_min = 0x80U;
+        second_max = 0x8FU;
+    } else {
+        /* 0x80-0xBF is a stray continuation; 0xC0/0xC1 are overlong; 0xF5-0xFF are out of range. */
+        return 0U;
+    }
+
+    if (available < length) {
+        return 0U;
+    }
+    if (bytes[1] < second_min || bytes[1] > second_max) {
+        return 0U;
+    }
+    for (size_t i = 2; i < length; ++i) {
+        if (bytes[i] < 0x80U || bytes[i] > 0xBFU) {
+            return 0U;
+        }
+    }
+
+    return length;
+}
+
+/*
  * Message text arrives from the mesh: any node can put arbitrary bytes here, and it lands in a
- * framebuffer, a log line and a JSON document. Fold C0 controls and DEL away so no downstream
- * consumer has to. UTF-8 continuation bytes are left intact - the CLI and JSON paths handle
- * them, and the framebuffer font already maps anything unprintable to '?'.
+ * framebuffer, a log line and a JSON document. Fold C0 controls and DEL away, and replace any
+ * byte that is not part of a well-formed UTF-8 sequence with '?', so no downstream consumer has
+ * to re-check it. Well-formed multi-byte characters are copied through whole - the CLI and JSON
+ * paths handle them, and the framebuffer font maps anything it cannot draw to '?'.
  */
 static void mesh_message_sanitise_text(const uint8_t *payload, size_t len, char *out,
                                        size_t out_len) {
@@ -102,26 +173,48 @@ static void mesh_message_sanitise_text(const uint8_t *payload, size_t len, char 
         return;
     }
 
-    size_t limit = len;
-    if (limit > out_len - 1U) {
-        limit = out_len - 1U;
-    }
-
     size_t written = 0;
-    for (size_t i = 0; i < limit; ++i) {
-        uint8_t byte = payload[i];
+    size_t i = 0;
+    while (i < len) {
+        const uint8_t byte = payload[i];
         if (byte == '\0') {
             /* Embedded NUL: treat it as the end of the text rather than truncating silently
                later in a str* call. */
             break;
         }
-        if (byte == '\t' || byte == '\n' || byte == '\r') {
-            out[written++] = ' ';
-        } else if (byte < 0x20U || byte == 0x7FU) {
-            out[written++] = '?';
-        } else {
-            out[written++] = (char)byte;
+
+        if (byte < 0x80U) {
+            if (written + 1U > out_len - 1U) {
+                break;
+            }
+            if (byte == '\t' || byte == '\n' || byte == '\r') {
+                out[written++] = ' ';
+            } else if (byte < 0x20U || byte == 0x7FU) {
+                out[written++] = '?';
+            } else {
+                out[written++] = (char)byte;
+            }
+            i += 1U;
+            continue;
         }
+
+        const size_t sequence = mesh_message_utf8_sequence_len(&payload[i], len - i);
+        if (sequence == 0U) {
+            if (written + 1U > out_len - 1U) {
+                break;
+            }
+            out[written++] = '?';
+            i += 1U;
+            continue;
+        }
+
+        /* Never split a character across the truncation boundary. */
+        if (written + sequence > out_len - 1U) {
+            break;
+        }
+        memcpy(&out[written], &payload[i], sequence);
+        written += sequence;
+        i += sequence;
     }
 
     out[written] = '\0';

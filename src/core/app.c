@@ -193,7 +193,8 @@ static void mesh_app_format_peer_name(const struct mesh_ble_handshake_status *st
     snprintf(out, out_len, "!%08x", node_id);
 }
 
-/* Copies the newest MESH_UI_MAX_MESSAGES entries out of the transport ring into the store. */
+/* Copies the newest MESH_UI_MAX_MESSAGES entries out of the transport ring into the store,
+   merged with whatever history was restored from the cache at startup. */
 static void mesh_app_publish_messages(struct mesh_app *app, struct mesh_transport *ble,
                                       const struct mesh_ble_handshake_status *status) {
     const struct mesh_message_log *log = mesh_ble_transport_messages(ble);
@@ -201,9 +202,9 @@ static void mesh_app_publish_messages(struct mesh_app *app, struct mesh_transpor
         return;
     }
 
-    struct mesh_ui_message_list list;
-    memset(&list, 0, sizeof(list));
-    list.dropped = log->dropped;
+    struct mesh_ui_message_list live;
+    memset(&live, 0, sizeof(live));
+    live.dropped = log->dropped;
 
     /* The ring holds more than the UI carries; take the newest tail of it. */
     size_t first = (log->count > MESH_UI_MAX_MESSAGES) ? log->count - MESH_UI_MAX_MESSAGES : 0U;
@@ -213,7 +214,7 @@ static void mesh_app_publish_messages(struct mesh_app *app, struct mesh_transpor
             continue;
         }
 
-        struct mesh_ui_message *target = &list.entries[list.count];
+        struct mesh_ui_message *target = &live.entries[live.count];
         const bool outbound = (source->direction == MESH_MESSAGE_OUTBOUND);
         target->packet_id = source->packet_id;
         target->peer = outbound ? source->to : source->from;
@@ -225,8 +226,11 @@ static void mesh_app_publish_messages(struct mesh_app *app, struct mesh_transpor
         mesh_app_format_peer_name(status, target->peer, target->peer_name,
                                   sizeof(target->peer_name));
         snprintf(target->text, sizeof(target->text), "%s", source->text);
-        list.count++;
+        live.count++;
     }
+
+    struct mesh_ui_message_list list;
+    mesh_ui_message_list_merge(&app->ui_messages_cached, &live, &list);
 
     mesh_ui_update_flags prev_flags = app->ui_store.pending_flags;
     mesh_ui_store_set_messages(&app->ui_store, &list);
@@ -460,6 +464,10 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
             mesh_log_debug("app", "Failed to load handshake cache: %d", handshake_load);
         }
     }
+
+    /* Keep the restored conversation aside: every publish merges it back in, so an empty
+       transport log at startup never overwrites it. */
+    app->ui_messages_cached = app->ui_store.messages;
 
     void *backend_userdata = NULL;
     const struct mesh_ui_backend *ui_backend = mesh_app_select_backend(app, &backend_userdata);

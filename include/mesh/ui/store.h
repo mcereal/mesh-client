@@ -121,6 +121,17 @@ void mesh_ui_store_set_transport_status(struct mesh_ui_store *store, const char 
 void mesh_ui_store_set_messages(struct mesh_ui_store *store,
                                 const struct mesh_ui_message_list *messages);
 
+/* Combines persisted history with this session's live messages into the newest
+   MESH_UI_MAX_MESSAGES, cached entries first. A cached entry whose packet id also appears in
+   `live` is dropped, so a message re-received after a restart is not shown twice.
+
+   This exists because the transport's message log starts empty on every run: without merging,
+   the first publish would push an empty list over the cache loaded at startup and the next
+   save would erase the conversation for good. */
+void mesh_ui_message_list_merge(const struct mesh_ui_message_list *cached,
+                                const struct mesh_ui_message_list *live,
+                                struct mesh_ui_message_list *out);
+
 /* Force the next consume_updates() to yield a snapshot even when nothing changed.
    The setters above deliberately stay quiet when state is unchanged, so without this a
    client that starts with no devices and no handshake would never paint a first frame. */

@@ -1973,6 +1973,148 @@ cleanup:
     record_success(test_name);
 }
 
+/* Regression for the cache-erasure bug: the transport's log starts empty on every run, so a
+   publish that ignored the restored history would blank the store and the next save would
+   erase the conversation permanently. */
+static void test_ui_message_list_merge(void) {
+    const char *test_name = "ui_message_list_merge";
+
+    struct mesh_ui_message_list cached;
+    memset(&cached, 0, sizeof(cached));
+    cached.count = 2U;
+    cached.dropped = 1U;
+    cached.entries[0].packet_id = 100U;
+    snprintf(cached.entries[0].text, sizeof(cached.entries[0].text), "older");
+    cached.entries[1].packet_id = 101U;
+    snprintf(cached.entries[1].text, sizeof(cached.entries[1].text), "newer");
+
+    struct mesh_ui_message_list live;
+    memset(&live, 0, sizeof(live));
+
+    /* An empty live list must leave the history intact - this is the actual bug. */
+    struct mesh_ui_message_list merged;
+    mesh_ui_message_list_merge(&cached, &live, &merged);
+    if (merged.count != 2U || strcmp(merged.entries[0].text, "older") != 0 ||
+        strcmp(merged.entries[1].text, "newer") != 0) {
+        record_failure(test_name, "an empty live list should preserve cached history");
+        return;
+    }
+    if (merged.dropped != 1U) {
+        record_failure(test_name, "the cached dropped count should carry through");
+        return;
+    }
+
+    /* Live messages append after the history, newest last. */
+    live.count = 1U;
+    live.entries[0].packet_id = 200U;
+    snprintf(live.entries[0].text, sizeof(live.entries[0].text), "live");
+    mesh_ui_message_list_merge(&cached, &live, &merged);
+    if (merged.count != 3U || strcmp(merged.entries[0].text, "older") != 0 ||
+        strcmp(merged.entries[2].text, "live") != 0) {
+        record_failure(test_name, "live messages should append after cached history");
+        return;
+    }
+
+    /* A message re-received after a restart must not appear twice. */
+    live.entries[0].packet_id = 101U;
+    snprintf(live.entries[0].text, sizeof(live.entries[0].text), "newer");
+    mesh_ui_message_list_merge(&cached, &live, &merged);
+    if (merged.count != 2U || strcmp(merged.entries[0].text, "older") != 0 ||
+        merged.entries[1].packet_id != 101U) {
+        record_failure(test_name, "a cached entry re-received live should not be duplicated");
+        return;
+    }
+
+    /* Packet id 0 means "no id", so it must never be treated as a duplicate key. */
+    struct mesh_ui_message_list unidentified;
+    memset(&unidentified, 0, sizeof(unidentified));
+    unidentified.count = 1U;
+    snprintf(unidentified.entries[0].text, sizeof(unidentified.entries[0].text), "no id");
+    struct mesh_ui_message_list zero_live;
+    memset(&zero_live, 0, sizeof(zero_live));
+    zero_live.count = 1U;
+    snprintf(zero_live.entries[0].text, sizeof(zero_live.entries[0].text), "also no id");
+    mesh_ui_message_list_merge(&unidentified, &zero_live, &merged);
+    if (merged.count != 2U) {
+        record_failure(test_name, "packet id 0 should not collapse distinct messages");
+        return;
+    }
+
+    /* When live traffic fills every slot, the oldest history is dropped and counted. */
+    struct mesh_ui_message_list full_live;
+    memset(&full_live, 0, sizeof(full_live));
+    full_live.count = MESH_UI_MAX_MESSAGES;
+    for (uint32_t i = 0; i < MESH_UI_MAX_MESSAGES; ++i) {
+        full_live.entries[i].packet_id = 1000U + i;
+    }
+    mesh_ui_message_list_merge(&cached, &full_live, &merged);
+    if (merged.count != MESH_UI_MAX_MESSAGES || merged.entries[0].packet_id != 1000U) {
+        record_failure(test_name, "live messages should win every slot when the list is full");
+        return;
+    }
+    if (merged.dropped != 1U + 2U) {
+        record_failure(test_name, "squeezed-out history should be added to the dropped count");
+        return;
+    }
+
+    record_success(test_name);
+}
+
+/* Message text reaches --status --json, and JSON must be valid UTF-8, so malformed sequences
+   from the radio have to be replaced rather than copied through. */
+static void test_message_ingest_invalid_utf8(void) {
+    const char *test_name = "message_ingest_invalid_utf8";
+
+    struct {
+        const char *label;
+        const char *payload;
+        size_t payload_len;
+        const char *expected;
+    } cases[] = {
+        /* Well-formed multi-byte characters survive intact. */
+        {"two-byte", "caf\xC3\xA9", 5U, "caf\xC3\xA9"},
+        {"three-byte", "\xE2\x82\xAC", 3U, "\xE2\x82\xAC"},
+        {"four-byte", "\xF0\x9F\x93\xA1", 4U, "\xF0\x9F\x93\xA1"},
+        /* Bytes that can never lead a sequence. */
+        /* Split so the hex escape does not swallow the trailing 'b' as another hex digit. */
+        {"invalid-lead",
+         "a\xFF"
+         "b",
+         3U, "a?b"},
+        {"stray-continuation", "a\x80\x62", 3U, "a?b"},
+        /* Truncated: a valid lead with the continuation bytes missing. */
+        {"truncated", "a\xE2\x82", 3U, "a??"},
+        /* Overlong encoding of '/' - the classic path-traversal smuggling trick. */
+        {"overlong", "\xC0\xAF", 2U, "??"},
+        /* UTF-16 surrogate half, not a valid character in UTF-8. */
+        {"surrogate", "\xED\xA0\x80", 3U, "???"},
+        /* Above U+10FFFF. */
+        {"out-of-range", "\xF4\x90\x80\x80", 4U, "????"},
+    };
+
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+        struct mesh_message_log log;
+        mesh_message_log_reset(&log);
+
+        meshtastic_MeshPacket packet =
+            make_decoded_packet(1U, 2U, 0U, (uint32_t)(i + 1U), meshtastic_PortNum_TEXT_MESSAGE_APP,
+                                cases[i].payload, cases[i].payload_len);
+
+        if (mesh_message_ingest(&log, &packet, 2U) != 1) {
+            record_failure(test_name, cases[i].label);
+            return;
+        }
+
+        const struct mesh_message *message = mesh_message_log_at(&log, 0U);
+        if (message == NULL || strcmp(message->text, cases[i].expected) != 0) {
+            record_failure(test_name, cases[i].label);
+            return;
+        }
+    }
+
+    record_success(test_name);
+}
+
 static const struct test_case k_test_cases[] = {
     {"config_defaults", "unit", test_config_defaults},
     {"transport_registry_registration", "unit", test_transport_registry_registration},
@@ -2000,6 +2142,8 @@ static const struct test_case k_test_cases[] = {
     {"message_routing_ack", "unit", test_message_routing_ack},
     {"ui_store_messages", "unit", test_ui_store_messages},
     {"ble_transport_messaging_mock", "unit", test_ble_transport_messaging_mock},
+    {"ui_message_list_merge", "unit", test_ui_message_list_merge},
+    {"message_ingest_invalid_utf8", "unit", test_message_ingest_invalid_utf8},
 };
 
 struct test_options {

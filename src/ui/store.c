@@ -184,6 +184,60 @@ void mesh_ui_store_set_messages(struct mesh_ui_store *store,
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_MESSAGES);
 }
 
+static bool mesh_ui_message_list_contains(const struct mesh_ui_message_list *list,
+                                          uint32_t packet_id) {
+    /* Packet id 0 means "no id" in the Meshtastic protocol, so it never identifies anything. */
+    if (list == NULL || packet_id == 0U) {
+        return false;
+    }
+    for (uint32_t i = 0; i < list->count && i < MESH_UI_MAX_MESSAGES; ++i) {
+        if (list->entries[i].packet_id == packet_id) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void mesh_ui_message_list_merge(const struct mesh_ui_message_list *cached,
+                                const struct mesh_ui_message_list *live,
+                                struct mesh_ui_message_list *out) {
+    if (out == NULL) {
+        return;
+    }
+
+    memset(out, 0, sizeof(*out));
+
+    const uint32_t live_count =
+        (live == NULL) ? 0U
+                       : (live->count > MESH_UI_MAX_MESSAGES ? MESH_UI_MAX_MESSAGES : live->count);
+
+    /* Live messages are the newest and always keep their slots; history fills what is left. */
+    const uint32_t room = MESH_UI_MAX_MESSAGES - live_count;
+
+    uint32_t eligible[MESH_UI_MAX_MESSAGES];
+    uint32_t eligible_count = 0U;
+    if (cached != NULL) {
+        for (uint32_t i = 0; i < cached->count && i < MESH_UI_MAX_MESSAGES; ++i) {
+            if (!mesh_ui_message_list_contains(live, cached->entries[i].packet_id)) {
+                eligible[eligible_count++] = i;
+            }
+        }
+    }
+
+    /* Too much history for the room left: drop the oldest of it. */
+    const uint32_t skipped = (eligible_count > room) ? eligible_count - room : 0U;
+
+    for (uint32_t i = skipped; i < eligible_count; ++i) {
+        out->entries[out->count++] = cached->entries[eligible[i]];
+    }
+    for (uint32_t i = 0; i < live_count; ++i) {
+        out->entries[out->count++] = live->entries[i];
+    }
+
+    out->dropped =
+        ((cached != NULL) ? cached->dropped : 0U) + ((live != NULL) ? live->dropped : 0U) + skipped;
+}
+
 void mesh_ui_store_request_refresh(struct mesh_ui_store *store) {
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_DISCOVERY | MESH_UI_UPDATE_HANDSHAKE |
                                         MESH_UI_UPDATE_TRANSPORT | MESH_UI_UPDATE_MESSAGES);
