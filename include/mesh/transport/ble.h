@@ -1,5 +1,6 @@
 #pragma once
 
+#include "mesh/mesh_message.h"
 #include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/transport.h"
 #include "meshtastic/mesh.pb.h"
@@ -27,6 +28,17 @@ struct mesh_ble_transport_stats mesh_ble_transport_stats(struct mesh_transport *
 int mesh_ble_transport_send_packet(struct mesh_transport *transport, const uint8_t *packet,
                                    size_t len);
 const char *mesh_ble_transport_connected_address(struct mesh_transport *transport);
+
+/* Encode and queue a TEXT_MESSAGE_APP packet for the connected node, and record it in the
+   message log as outbound. Pass MESH_MESSAGE_BROADCAST_ADDR to broadcast on `channel`.
+   want_ack is ignored for broadcasts, which the mesh never acks directly. On success the
+   assigned packet id is stored in *out_packet_id (may be NULL) so the caller can watch for
+   the delivery result. Returns -ENOTCONN when no node is connected. */
+int mesh_ble_transport_send_text(struct mesh_transport *transport, uint32_t dest, uint8_t channel,
+                                 const char *text, bool want_ack, uint32_t *out_packet_id);
+
+/* Borrowed view of the inbox/outbox ring. Valid until the next transport tick. */
+const struct mesh_message_log *mesh_ble_transport_messages(struct mesh_transport *transport);
 
 /* Real meshes run past 100 nodes; keep the summary cache large enough for a full NodeDB sync. */
 #define MESH_BLE_MAX_NODE_SUMMARY 128U

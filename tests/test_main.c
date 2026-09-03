@@ -2,6 +2,7 @@
 
 #include "mesh/config.h"
 #include "mesh/event_loop.h"
+#include "mesh/mesh_message.h"
 #include "mesh/proto/framing.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/ble_bluez.h"
@@ -1211,6 +1212,909 @@ struct test_case {
     void (*fn)(void);
 };
 
+/* Builds a decoded MeshPacket carrying `payload` on `portnum`, as the radio would hand it to
+   us inside a FromRadio. */
+static meshtastic_MeshPacket make_decoded_packet(uint32_t from, uint32_t to, uint8_t channel,
+                                                 uint32_t id, meshtastic_PortNum portnum,
+                                                 const void *payload, size_t payload_len) {
+    meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_default;
+    packet.from = from;
+    packet.to = to;
+    packet.channel = channel;
+    packet.id = id;
+    packet.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    packet.decoded.portnum = portnum;
+    if (payload_len > sizeof(packet.decoded.payload.bytes)) {
+        payload_len = sizeof(packet.decoded.payload.bytes);
+    }
+    memcpy(packet.decoded.payload.bytes, payload, payload_len);
+    packet.decoded.payload.size = (pb_size_t)payload_len;
+    return packet;
+}
+
+/*
+ * Golden frame for the wire format, derived by hand from the .proto field numbers rather than
+ * from our own encoder - the point is to notice if the encoding ever drifts.
+ *
+ * ToRadio.packet          field 1, LEN      -> 0x0A, len 0x12
+ *   MeshPacket.to         field 2, FIXED32  -> 0x15, FF FF FF FF (broadcast)
+ *   MeshPacket.decoded    field 4, LEN      -> 0x22, len 0x06
+ *     Data.portnum        field 1, varint   -> 0x08, 0x01 (TEXT_MESSAGE_APP)
+ *     Data.payload        field 2, LEN      -> 0x12, len 0x02, "hi"
+ *   MeshPacket.id         field 6, FIXED32  -> 0x35, 2A 00 00 00
+ * channel 0 and want_ack false are singular defaults and are omitted by nanopb.
+ */
+static void test_message_encode_text_golden(void) {
+    const char *test_name = "message_encode_text_golden";
+    static const uint8_t k_expected[] = {0x0A, 0x12, 0x15, 0xFF, 0xFF, 0xFF, 0xFF,
+                                         0x22, 0x06, 0x08, 0x01, 0x12, 0x02, 0x68,
+                                         0x69, 0x35, 0x2A, 0x00, 0x00, 0x00};
+
+    struct mesh_message_text_request request = {
+        .dest = MESH_MESSAGE_BROADCAST_ADDR,
+        .packet_id = 42U,
+        .text = "hi",
+        .channel = 0U,
+        .hop_limit = 0U,
+        .want_ack = false,
+    };
+
+    uint8_t buffer[64];
+    size_t written = 0U;
+    if (mesh_message_encode_text(&request, buffer, sizeof buffer, &written) != 0) {
+        record_failure(test_name, "encode failed");
+        return;
+    }
+
+    if (written != sizeof k_expected) {
+        record_failure(test_name, "encoded length does not match the golden frame");
+        return;
+    }
+
+    if (memcmp(buffer, k_expected, sizeof k_expected) != 0) {
+        record_failure(test_name, "encoded bytes do not match the golden frame");
+        return;
+    }
+
+    record_success(test_name);
+}
+
+static void test_message_encode_text_roundtrip(void) {
+    const char *test_name = "message_encode_text_roundtrip";
+    struct mesh_message_text_request request = {
+        .dest = 0x433D1A2CU,
+        .packet_id = 0x1234U,
+        .text = "hello mesh",
+        .channel = 2U,
+        .hop_limit = 3U,
+        .want_ack = true,
+    };
+
+    uint8_t buffer[256];
+    size_t written = 0U;
+    if (mesh_message_encode_text(&request, buffer, sizeof buffer, &written) != 0) {
+        record_failure(test_name, "encode failed");
+        return;
+    }
+
+    meshtastic_ToRadio decoded = meshtastic_ToRadio_init_default;
+    pb_istream_t stream = pb_istream_from_buffer(buffer, written);
+    if (!pb_decode(&stream, meshtastic_ToRadio_fields, &decoded)) {
+        record_failure(test_name, "decode failed");
+        return;
+    }
+
+    if (decoded.which_payload_variant != meshtastic_ToRadio_packet_tag) {
+        record_failure(test_name, "expected a packet variant");
+        return;
+    }
+
+    const meshtastic_MeshPacket *packet = &decoded.packet;
+    if (packet->to != request.dest || packet->id != request.packet_id ||
+        packet->channel != request.channel || packet->hop_limit != request.hop_limit ||
+        !packet->want_ack) {
+        record_failure(test_name, "packet header fields did not survive the roundtrip");
+        return;
+    }
+
+    /* The firmware stamps `from` itself; a client must not claim a node number. */
+    if (packet->from != 0U) {
+        record_failure(test_name, "from should be left for the firmware to fill in");
+        return;
+    }
+
+    if (packet->which_payload_variant != meshtastic_MeshPacket_decoded_tag ||
+        packet->decoded.portnum != meshtastic_PortNum_TEXT_MESSAGE_APP) {
+        record_failure(test_name, "expected a decoded TEXT_MESSAGE_APP payload");
+        return;
+    }
+
+    if (packet->decoded.payload.size != strlen(request.text) ||
+        memcmp(packet->decoded.payload.bytes, request.text, strlen(request.text)) != 0) {
+        record_failure(test_name, "payload text mismatch");
+        return;
+    }
+
+    record_success(test_name);
+}
+
+static void test_message_encode_text_limits(void) {
+    const char *test_name = "message_encode_text_limits";
+    uint8_t buffer[512];
+    size_t written = 0U;
+
+    struct mesh_message_text_request request = {
+        .dest = MESH_MESSAGE_BROADCAST_ADDR,
+        .packet_id = 1U,
+        .text = "",
+        .channel = 0U,
+        .hop_limit = 0U,
+        .want_ack = false,
+    };
+
+    if (mesh_message_encode_text(&request, buffer, sizeof buffer, &written) != -EINVAL) {
+        record_failure(test_name, "empty text should be rejected");
+        return;
+    }
+
+    char oversized[MESH_MESSAGE_TEXT_MAX + 8U];
+    memset(oversized, 'a', sizeof oversized - 1U);
+    oversized[sizeof oversized - 1U] = '\0';
+    request.text = oversized;
+    if (mesh_message_encode_text(&request, buffer, sizeof buffer, &written) != -EMSGSIZE) {
+        record_failure(test_name, "oversized text should be rejected with -EMSGSIZE");
+        return;
+    }
+
+    record_success(test_name);
+}
+
+static void test_message_log_ring(void) {
+    const char *test_name = "message_log_ring";
+    struct mesh_message_log log;
+    mesh_message_log_reset(&log);
+
+    /* Overfill by four so eviction, ordering and the dropped counter all get exercised. */
+    const size_t total = MESH_MESSAGE_LOG_CAPACITY + 4U;
+    for (size_t i = 0; i < total; ++i) {
+        struct mesh_message message;
+        memset(&message, 0, sizeof(message));
+        message.packet_id = (uint32_t)(i + 1U);
+        snprintf(message.text, sizeof(message.text), "message %zu", i);
+        if (mesh_message_log_append(&log, &message) == NULL) {
+            record_failure(test_name, "append failed");
+            return;
+        }
+    }
+
+    if (log.count != MESH_MESSAGE_LOG_CAPACITY) {
+        record_failure(test_name, "log should saturate at capacity");
+        return;
+    }
+
+    if (log.dropped != 4U) {
+        record_failure(test_name, "dropped counter should report the evicted entries");
+        return;
+    }
+
+    /* Index 0 is the oldest surviving entry, which is the fifth one we appended. */
+    const struct mesh_message *oldest = mesh_message_log_at(&log, 0U);
+    if (oldest == NULL || oldest->packet_id != 5U) {
+        record_failure(test_name, "oldest surviving entry is wrong");
+        return;
+    }
+
+    const struct mesh_message *newest = mesh_message_log_at(&log, log.count - 1U);
+    if (newest == NULL || newest->packet_id != (uint32_t)total) {
+        record_failure(test_name, "newest entry is wrong");
+        return;
+    }
+
+    if (mesh_message_log_at(&log, log.count) != NULL) {
+        record_failure(test_name, "out-of-range index should return NULL");
+        return;
+    }
+
+    if (mesh_message_log_find(&log, 1U) != NULL) {
+        record_failure(test_name, "an evicted packet id should not be found");
+        return;
+    }
+
+    record_success(test_name);
+}
+
+static void test_message_ingest_text(void) {
+    const char *test_name = "message_ingest_text";
+    struct mesh_message_log log;
+    mesh_message_log_reset(&log);
+
+    /* Control bytes are what a hostile or buggy node can put on the wire; they must not reach
+       a framebuffer or a log line intact. */
+    const char payload[] = "hi\nthere\x01!";
+    meshtastic_MeshPacket packet =
+        make_decoded_packet(0x11111111U, 0x22222222U, 3U, 77U, meshtastic_PortNum_TEXT_MESSAGE_APP,
+                            payload, sizeof(payload) - 1U);
+    packet.has_rx_time = true;
+    packet.rx_time = 1234U;
+    packet.rx_snr = 5.5F;
+
+    if (mesh_message_ingest(&log, &packet, 0x22222222U) != 1) {
+        record_failure(test_name, "a text packet should be appended");
+        return;
+    }
+
+    const struct mesh_message *message = mesh_message_log_at(&log, 0U);
+    if (message == NULL) {
+        record_failure(test_name, "appended message not readable");
+        return;
+    }
+
+    if (message->direction != MESH_MESSAGE_INBOUND) {
+        record_failure(test_name, "a packet from another node is inbound");
+        return;
+    }
+
+    if (message->from != 0x11111111U || message->to != 0x22222222U || message->channel != 3U ||
+        message->packet_id != 77U || message->rx_time != 1234U) {
+        record_failure(test_name, "packet metadata did not survive ingest");
+        return;
+    }
+
+    if (strcmp(message->text, "hi there?!") != 0) {
+        record_failure(test_name, "control bytes should be folded to space and '?'");
+        return;
+    }
+
+    record_success(test_name);
+}
+
+static void test_message_ingest_ignores_other_payloads(void) {
+    const char *test_name = "message_ingest_ignores_other_payloads";
+    struct mesh_message_log log;
+    mesh_message_log_reset(&log);
+
+    meshtastic_MeshPacket position =
+        make_decoded_packet(1U, 2U, 0U, 5U, meshtastic_PortNum_POSITION_APP, "\x01\x02", 2U);
+    if (mesh_message_ingest(&log, &position, 2U) != 0 || log.count != 0U) {
+        record_failure(test_name, "a non-text portnum should add nothing");
+        return;
+    }
+
+    /* We hold no channel keys, so an encrypted packet is opaque and must be skipped rather
+       than parsed as though its bytes were a Data message. */
+    meshtastic_MeshPacket encrypted = meshtastic_MeshPacket_init_default;
+    encrypted.which_payload_variant = meshtastic_MeshPacket_encrypted_tag;
+    encrypted.encrypted.size = 4U;
+    memcpy(encrypted.encrypted.bytes, "\xDE\xAD\xBE\xEF", 4U);
+    if (mesh_message_ingest(&log, &encrypted, 2U) != 0 || log.count != 0U) {
+        record_failure(test_name, "an encrypted packet should add nothing");
+        return;
+    }
+
+    if (mesh_message_ingest(NULL, &position, 2U) != -EINVAL ||
+        mesh_message_ingest(&log, NULL, 2U) != -EINVAL) {
+        record_failure(test_name, "NULL arguments should be rejected");
+        return;
+    }
+
+    record_success(test_name);
+}
+
+static void test_message_ingest_echo_is_not_duplicated(void) {
+    const char *test_name = "message_ingest_echo_is_not_duplicated";
+    struct mesh_message_log log;
+    mesh_message_log_reset(&log);
+
+    const uint32_t my_node = 0xAABBCCDDU;
+
+    /* What the transport records locally when it queues a send. */
+    struct mesh_message sent;
+    memset(&sent, 0, sizeof(sent));
+    sent.packet_id = 99U;
+    sent.from = my_node;
+    sent.to = 0x1234U;
+    sent.direction = MESH_MESSAGE_OUTBOUND;
+    sent.ack = MESH_MESSAGE_ACK_PENDING;
+    snprintf(sent.text, sizeof(sent.text), "ping");
+    mesh_message_log_append(&log, &sent);
+
+    /* The radio echoes the same packet back to us over FromRadio. */
+    meshtastic_MeshPacket echo = make_decoded_packet(
+        my_node, 0x1234U, 0U, 99U, meshtastic_PortNum_TEXT_MESSAGE_APP, "ping", 4U);
+    echo.has_rx_time = true;
+    echo.rx_time = 4242U;
+
+    if (mesh_message_ingest(&log, &echo, my_node) != 0) {
+        record_failure(test_name, "an echo should not be reported as a new message");
+        return;
+    }
+
+    if (log.count != 1U) {
+        record_failure(test_name, "the echo should not create a second entry");
+        return;
+    }
+
+    const struct mesh_message *message = mesh_message_log_at(&log, 0U);
+    if (message == NULL || message->rx_time != 4242U) {
+        record_failure(test_name, "the echo should refresh the existing entry");
+        return;
+    }
+
+    if (message->ack != MESH_MESSAGE_ACK_PENDING) {
+        record_failure(test_name, "an echo is not a delivery confirmation");
+        return;
+    }
+
+    record_success(test_name);
+}
+
+/* Wraps a Routing reply the way the firmware does: a ROUTING_APP Data whose request_id names
+   the message being answered. */
+static meshtastic_MeshPacket make_routing_reply(uint32_t request_id,
+                                                meshtastic_Routing_Error error) {
+    meshtastic_Routing routing = meshtastic_Routing_init_default;
+    routing.which_variant = meshtastic_Routing_error_reason_tag;
+    routing.error_reason = error;
+
+    uint8_t payload[64];
+    pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof payload);
+    (void)pb_encode(&stream, meshtastic_Routing_fields, &routing);
+
+    meshtastic_MeshPacket packet = make_decoded_packet(
+        1U, 2U, 0U, 500U, meshtastic_PortNum_ROUTING_APP, payload, stream.bytes_written);
+    packet.decoded.request_id = request_id;
+    return packet;
+}
+
+static void test_message_routing_ack(void) {
+    const char *test_name = "message_routing_ack";
+    struct mesh_message_log log;
+    mesh_message_log_reset(&log);
+
+    struct mesh_message sent;
+    memset(&sent, 0, sizeof(sent));
+    sent.packet_id = 321U;
+    sent.direction = MESH_MESSAGE_OUTBOUND;
+    sent.ack = MESH_MESSAGE_ACK_PENDING;
+    snprintf(sent.text, sizeof(sent.text), "are you there");
+    mesh_message_log_append(&log, &sent);
+
+    meshtastic_MeshPacket ack = make_routing_reply(321U, meshtastic_Routing_Error_NONE);
+    if (mesh_message_ingest(&log, &ack, 2U) != 0) {
+        record_failure(test_name, "a routing reply adds no message of its own");
+        return;
+    }
+
+    const struct mesh_message *message = mesh_message_log_at(&log, 0U);
+    if (message == NULL || message->ack != MESH_MESSAGE_ACK_DELIVERED) {
+        record_failure(test_name, "a NONE error reason means delivered");
+        return;
+    }
+
+    /* And a failure reason marks the same message failed, carrying the reason through. */
+    struct mesh_message second;
+    memset(&second, 0, sizeof(second));
+    second.packet_id = 322U;
+    second.direction = MESH_MESSAGE_OUTBOUND;
+    second.ack = MESH_MESSAGE_ACK_PENDING;
+    snprintf(second.text, sizeof(second.text), "still there");
+    mesh_message_log_append(&log, &second);
+
+    meshtastic_MeshPacket nak = make_routing_reply(322U, meshtastic_Routing_Error_NO_RESPONSE);
+    if (mesh_message_ingest(&log, &nak, 2U) != 0) {
+        record_failure(test_name, "a routing failure adds no message of its own");
+        return;
+    }
+
+    const struct mesh_message *failed = mesh_message_log_at(&log, 1U);
+    if (failed == NULL || failed->ack != MESH_MESSAGE_ACK_FAILED ||
+        failed->ack_error != (uint8_t)meshtastic_Routing_Error_NO_RESPONSE) {
+        record_failure(test_name, "an error reason should mark the message failed");
+        return;
+    }
+
+    /* A reply naming a message we never sent must not disturb anything. */
+    meshtastic_MeshPacket stray = make_routing_reply(9999U, meshtastic_Routing_Error_NONE);
+    if (mesh_message_ingest(&log, &stray, 2U) != 0 || log.count != 2U) {
+        record_failure(test_name, "an unmatched routing reply should be ignored");
+        return;
+    }
+
+    record_success(test_name);
+}
+
+static void test_ui_store_messages(void) {
+    const char *test_name = "ui_store_messages";
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        record_failure(test_name, "store init failed");
+        return;
+    }
+
+    struct mesh_ui_message_list list;
+    memset(&list, 0, sizeof(list));
+    list.count = 2U;
+    list.dropped = 7U;
+    list.entries[0].packet_id = 11U;
+    list.entries[0].peer = 0x1234U;
+    list.entries[0].direction = MESH_MESSAGE_INBOUND;
+    snprintf(list.entries[0].peer_name, sizeof(list.entries[0].peer_name), "AB12");
+    snprintf(list.entries[0].text, sizeof(list.entries[0].text), "hello there");
+    list.entries[1].packet_id = 12U;
+    list.entries[1].peer = MESH_MESSAGE_BROADCAST_ADDR;
+    list.entries[1].direction = MESH_MESSAGE_OUTBOUND;
+    list.entries[1].ack = MESH_MESSAGE_ACK_DELIVERED;
+    list.entries[1].broadcast = true;
+    snprintf(list.entries[1].peer_name, sizeof(list.entries[1].peer_name), "all");
+    /* '=' and a backslash both need escaping in the on-disk format. */
+    snprintf(list.entries[1].text, sizeof(list.entries[1].text), "a=b\\c");
+
+    mesh_ui_store_set_messages(&store, &list);
+
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof(snapshot));
+    if (!mesh_ui_store_consume_updates(&store, &snapshot)) {
+        record_failure(test_name, "setting messages should raise an update");
+        return;
+    }
+    if ((snapshot.update_flags & MESH_UI_UPDATE_MESSAGES) == 0U) {
+        record_failure(test_name, "the messages flag should be set");
+        return;
+    }
+    if (snapshot.messages.count != 2U || snapshot.messages.dropped != 7U) {
+        record_failure(test_name, "message list did not reach the snapshot");
+        return;
+    }
+
+    /* Setting the same list again is not a change and must not wake the UI. */
+    mesh_ui_store_set_messages(&store, &list);
+    struct mesh_ui_snapshot repeat;
+    memset(&repeat, 0, sizeof(repeat));
+    if (mesh_ui_store_consume_updates(&store, &repeat)) {
+        record_failure(test_name, "an unchanged message list should not raise an update");
+        return;
+    }
+
+    char cache_path[] = "/tmp/mesh_ui_messagesXXXXXX";
+    int fd = mkstemp(cache_path);
+    if (fd < 0) {
+        record_failure(test_name, "failed to create a temp cache file");
+        mesh_ui_store_shutdown(&store);
+        return;
+    }
+    close(fd);
+
+    if (mesh_ui_store_save(&store, cache_path) != 0) {
+        record_failure(test_name, "save failed");
+        unlink(cache_path);
+        mesh_ui_store_shutdown(&store);
+        return;
+    }
+
+    struct mesh_ui_store loaded;
+    if (mesh_ui_store_init(&loaded) != 0) {
+        record_failure(test_name, "second store init failed");
+        unlink(cache_path);
+        mesh_ui_store_shutdown(&store);
+        return;
+    }
+
+    if (mesh_ui_store_load(&loaded, cache_path) != 0) {
+        record_failure(test_name, "load failed");
+        unlink(cache_path);
+        mesh_ui_store_shutdown(&loaded);
+        mesh_ui_store_shutdown(&store);
+        return;
+    }
+
+    bool ok = (loaded.messages.count == 2U) && (loaded.messages.dropped == 7U) &&
+              (strcmp(loaded.messages.entries[0].text, "hello there") == 0) &&
+              (strcmp(loaded.messages.entries[0].peer_name, "AB12") == 0) &&
+              (loaded.messages.entries[1].packet_id == 12U) &&
+              (loaded.messages.entries[1].ack == MESH_MESSAGE_ACK_DELIVERED) &&
+              loaded.messages.entries[1].broadcast &&
+              (strcmp(loaded.messages.entries[1].text, "a=b\\c") == 0);
+
+    unlink(cache_path);
+    mesh_ui_store_shutdown(&loaded);
+    mesh_ui_store_shutdown(&store);
+
+    if (!ok) {
+        record_failure(test_name, "messages did not survive the save/load roundtrip");
+        return;
+    }
+
+    record_success(test_name);
+}
+
+/*
+ * End-to-end through the transport: a scripted FromRadio text packet must reach the message
+ * log, an outbound send must leave as a single ToRadio write, and a Routing reply arriving the
+ * same way must settle the outbound message's ack state.
+ *
+ * Uses a single cleanup path rather than repeating the teardown at every check: this test has
+ * far more failure points than the others in this file.
+ */
+static void test_ble_transport_messaging_mock(void) {
+    const char *test_name = "ble_transport_messaging_mock";
+    const char *failure = NULL;
+
+    struct mesh_transport *ble = mesh_ble_transport();
+
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:04", .name = "NodeFour", .rssi = -35},
+    };
+
+    uint8_t write_capture[256];
+    memset(write_capture, 0, sizeof(write_capture));
+    size_t write_len = 0U;
+    char write_path[128];
+    memset(write_path, 0, sizeof(write_path));
+    size_t write_call_count = 0U;
+    size_t write_lengths[8];
+    memset(write_lengths, 0, sizeof(write_lengths));
+
+    uint8_t read_buffers[3][256];
+    const uint8_t *read_payloads[3] = {read_buffers[0], read_buffers[1], read_buffers[2]};
+    size_t read_payload_lengths[3] = {0U, 0U, 0U};
+    size_t read_index = 0U;
+
+    struct mesh_bluez_mock_config mock_config = {
+        .init_result = 0,
+        .check_ready_result = 0,
+        .find_adapter_result = 0,
+        .adapter_path = "/org/bluez/hci0",
+        .start_discovery_result = 0,
+        .stop_discovery_result = 0,
+        .connect_result = 0,
+        .disconnect_result = 0,
+        .subscribe_result = 0,
+        .write_result = 0,
+        .toradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_04/service000a/char000b",
+        .fromradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_04/service000a/char000d",
+        .fromnum_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_04/service000a/char000f",
+        .read_payloads = read_payloads,
+        .read_payload_lengths = read_payload_lengths,
+        .read_payload_count = 3U,
+        .read_index = &read_index,
+        .devices = mock_devices,
+        .device_count = sizeof(mock_devices) / sizeof(mock_devices[0]),
+        .list_result = 0,
+        .write_capture_buffer = write_capture,
+        .write_capture_capacity = sizeof(write_capture),
+        .write_capture_length = &write_len,
+        .write_capture_path = write_path,
+        .write_capture_path_capacity = sizeof(write_path),
+        .write_call_count = &write_call_count,
+        .write_lengths = write_lengths,
+        .write_lengths_capacity = sizeof(write_lengths) / sizeof(write_lengths[0]),
+    };
+
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    struct mesh_app_config config = mesh_app_config_default();
+    struct mesh_event_loop loop;
+    mesh_event_loop_init(&loop);
+
+    const uint32_t my_node = 0x0A0B0C0DU;
+    const uint32_t peer_node = 0x0A0B0C0EU;
+    const uint8_t from_num[4] = {1U, 0U, 0U, 0U};
+
+    if (ble->ops->start(ble, &config, &loop) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+
+    mesh_ble_transport_refresh_devices(ble);
+
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+        failure = "connect should succeed";
+        goto cleanup;
+    }
+
+    /* Script my_info (so the transport knows its own node number) then an inbound text. */
+    meshtastic_FromRadio from_radio = meshtastic_FromRadio_init_default;
+    from_radio.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    from_radio.my_info.my_node_num = my_node;
+
+    pb_ostream_t encode_stream = pb_ostream_from_buffer(read_buffers[0], sizeof(read_buffers[0]));
+    if (!pb_encode(&encode_stream, meshtastic_FromRadio_fields, &from_radio)) {
+        failure = "failed to encode my_info";
+        goto cleanup;
+    }
+    read_payload_lengths[0] = encode_stream.bytes_written;
+
+    const char *inbound_text = "roger that";
+    from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
+    from_radio.which_payload_variant = meshtastic_FromRadio_packet_tag;
+    from_radio.packet =
+        make_decoded_packet(peer_node, my_node, 0U, 4242U, meshtastic_PortNum_TEXT_MESSAGE_APP,
+                            inbound_text, strlen(inbound_text));
+
+    encode_stream = pb_ostream_from_buffer(read_buffers[1], sizeof(read_buffers[1]));
+    if (!pb_encode(&encode_stream, meshtastic_FromRadio_fields, &from_radio)) {
+        failure = "failed to encode inbound text packet";
+        goto cleanup;
+    }
+    read_payload_lengths[1] = encode_stream.bytes_written;
+    read_payload_lengths[2] = 0U; /* empty read terminates the drain */
+
+    read_index = 0U;
+    mesh_bluez_client_mock_emit_notification(mock_config.fromnum_char_path, from_num,
+                                             sizeof(from_num));
+    for (int spin = 0; spin < 20 && read_index < 3U; ++spin) {
+        mesh_event_loop_run(&loop, 10);
+        ble->ops->tick(ble);
+    }
+
+    const struct mesh_message_log *log = mesh_ble_transport_messages(ble);
+    if (log == NULL || log->count != 1U) {
+        failure = "the inbound text packet did not reach the message log";
+        goto cleanup;
+    }
+
+    const struct mesh_message *received = mesh_message_log_at(log, 0U);
+    if (received == NULL || received->direction != MESH_MESSAGE_INBOUND ||
+        received->from != peer_node || strcmp(received->text, inbound_text) != 0) {
+        failure = "inbound message contents are wrong";
+        goto cleanup;
+    }
+
+    /* Now send one, and check what actually goes out on the ToRadio characteristic. */
+    size_t writes_before = write_call_count;
+    uint32_t sent_id = 0U;
+    const char *outbound_text = "on my way";
+    if (mesh_ble_transport_send_text(ble, peer_node, 0U, outbound_text, true, &sent_id) != 0) {
+        failure = "send_text failed";
+        goto cleanup;
+    }
+
+    if (write_call_count - writes_before != 1U) {
+        failure = "a text message should be exactly one ToRadio write";
+        goto cleanup;
+    }
+
+    if (strcmp(write_path, mock_config.toradio_char_path) != 0) {
+        failure = "text message written to the wrong characteristic";
+        goto cleanup;
+    }
+
+    meshtastic_ToRadio sent = meshtastic_ToRadio_init_default;
+    pb_istream_t sent_stream = pb_istream_from_buffer(write_capture, write_len);
+    if (!pb_decode(&sent_stream, meshtastic_ToRadio_fields, &sent)) {
+        failure = "failed to decode the sent ToRadio";
+        goto cleanup;
+    }
+
+    if (sent.which_payload_variant != meshtastic_ToRadio_packet_tag ||
+        sent.packet.which_payload_variant != meshtastic_MeshPacket_decoded_tag ||
+        sent.packet.decoded.portnum != meshtastic_PortNum_TEXT_MESSAGE_APP) {
+        failure = "the sent packet is not a decoded text message";
+        goto cleanup;
+    }
+
+    if (sent.packet.to != peer_node || sent.packet.id != sent_id || !sent.packet.want_ack) {
+        failure = "sent packet header fields are wrong";
+        goto cleanup;
+    }
+
+    if (sent.packet.decoded.payload.size != strlen(outbound_text) ||
+        memcmp(sent.packet.decoded.payload.bytes, outbound_text, strlen(outbound_text)) != 0) {
+        failure = "sent packet text is wrong";
+        goto cleanup;
+    }
+
+    log = mesh_ble_transport_messages(ble);
+    const struct mesh_message *outbound = mesh_message_log_at(log, 1U);
+    if (outbound == NULL || outbound->direction != MESH_MESSAGE_OUTBOUND ||
+        outbound->ack != MESH_MESSAGE_ACK_PENDING) {
+        failure = "the sent message should be logged as pending";
+        goto cleanup;
+    }
+
+    /* Finally, deliver the ack the same way the radio would. */
+    meshtastic_Routing routing = meshtastic_Routing_init_default;
+    routing.which_variant = meshtastic_Routing_error_reason_tag;
+    routing.error_reason = meshtastic_Routing_Error_NONE;
+
+    uint8_t routing_payload[64];
+    pb_ostream_t routing_stream = pb_ostream_from_buffer(routing_payload, sizeof routing_payload);
+    if (!pb_encode(&routing_stream, meshtastic_Routing_fields, &routing)) {
+        failure = "failed to encode the routing reply";
+        goto cleanup;
+    }
+
+    from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
+    from_radio.which_payload_variant = meshtastic_FromRadio_packet_tag;
+    from_radio.packet =
+        make_decoded_packet(peer_node, my_node, 0U, 5555U, meshtastic_PortNum_ROUTING_APP,
+                            routing_payload, routing_stream.bytes_written);
+    from_radio.packet.decoded.request_id = sent_id;
+
+    encode_stream = pb_ostream_from_buffer(read_buffers[0], sizeof(read_buffers[0]));
+    if (!pb_encode(&encode_stream, meshtastic_FromRadio_fields, &from_radio)) {
+        failure = "failed to encode the routing FromRadio";
+        goto cleanup;
+    }
+    read_payload_lengths[0] = encode_stream.bytes_written;
+    read_payload_lengths[1] = 0U;
+    read_payload_lengths[2] = 0U;
+
+    read_index = 0U;
+    mesh_bluez_client_mock_emit_notification(mock_config.fromnum_char_path, from_num,
+                                             sizeof(from_num));
+    for (int spin = 0; spin < 20 && read_index < 2U; ++spin) {
+        mesh_event_loop_run(&loop, 10);
+        ble->ops->tick(ble);
+    }
+
+    log = mesh_ble_transport_messages(ble);
+    outbound = mesh_message_log_at(log, 1U);
+    if (outbound == NULL || outbound->ack != MESH_MESSAGE_ACK_DELIVERED) {
+        failure = "the routing reply should have marked the message delivered";
+        goto cleanup;
+    }
+
+    /* A routing reply is not itself a message. */
+    if (log->count != 2U) {
+        failure = "the routing reply should not have added a message";
+        goto cleanup;
+    }
+
+cleanup:
+    ble->ops->stop(ble);
+    mesh_event_loop_shutdown(&loop);
+    mesh_bluez_client_mock_disable();
+
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}
+
+/* Regression for the cache-erasure bug: the transport's log starts empty on every run, so a
+   publish that ignored the restored history would blank the store and the next save would
+   erase the conversation permanently. */
+static void test_ui_message_list_merge(void) {
+    const char *test_name = "ui_message_list_merge";
+
+    struct mesh_ui_message_list cached;
+    memset(&cached, 0, sizeof(cached));
+    cached.count = 2U;
+    cached.dropped = 1U;
+    cached.entries[0].packet_id = 100U;
+    snprintf(cached.entries[0].text, sizeof(cached.entries[0].text), "older");
+    cached.entries[1].packet_id = 101U;
+    snprintf(cached.entries[1].text, sizeof(cached.entries[1].text), "newer");
+
+    struct mesh_ui_message_list live;
+    memset(&live, 0, sizeof(live));
+
+    /* An empty live list must leave the history intact - this is the actual bug. */
+    struct mesh_ui_message_list merged;
+    mesh_ui_message_list_merge(&cached, &live, &merged);
+    if (merged.count != 2U || strcmp(merged.entries[0].text, "older") != 0 ||
+        strcmp(merged.entries[1].text, "newer") != 0) {
+        record_failure(test_name, "an empty live list should preserve cached history");
+        return;
+    }
+    if (merged.dropped != 1U) {
+        record_failure(test_name, "the cached dropped count should carry through");
+        return;
+    }
+
+    /* Live messages append after the history, newest last. */
+    live.count = 1U;
+    live.entries[0].packet_id = 200U;
+    snprintf(live.entries[0].text, sizeof(live.entries[0].text), "live");
+    mesh_ui_message_list_merge(&cached, &live, &merged);
+    if (merged.count != 3U || strcmp(merged.entries[0].text, "older") != 0 ||
+        strcmp(merged.entries[2].text, "live") != 0) {
+        record_failure(test_name, "live messages should append after cached history");
+        return;
+    }
+
+    /* A message re-received after a restart must not appear twice. */
+    live.entries[0].packet_id = 101U;
+    snprintf(live.entries[0].text, sizeof(live.entries[0].text), "newer");
+    mesh_ui_message_list_merge(&cached, &live, &merged);
+    if (merged.count != 2U || strcmp(merged.entries[0].text, "older") != 0 ||
+        merged.entries[1].packet_id != 101U) {
+        record_failure(test_name, "a cached entry re-received live should not be duplicated");
+        return;
+    }
+
+    /* Packet id 0 means "no id", so it must never be treated as a duplicate key. */
+    struct mesh_ui_message_list unidentified;
+    memset(&unidentified, 0, sizeof(unidentified));
+    unidentified.count = 1U;
+    snprintf(unidentified.entries[0].text, sizeof(unidentified.entries[0].text), "no id");
+    struct mesh_ui_message_list zero_live;
+    memset(&zero_live, 0, sizeof(zero_live));
+    zero_live.count = 1U;
+    snprintf(zero_live.entries[0].text, sizeof(zero_live.entries[0].text), "also no id");
+    mesh_ui_message_list_merge(&unidentified, &zero_live, &merged);
+    if (merged.count != 2U) {
+        record_failure(test_name, "packet id 0 should not collapse distinct messages");
+        return;
+    }
+
+    /* When live traffic fills every slot, the oldest history is dropped and counted. */
+    struct mesh_ui_message_list full_live;
+    memset(&full_live, 0, sizeof(full_live));
+    full_live.count = MESH_UI_MAX_MESSAGES;
+    for (uint32_t i = 0; i < MESH_UI_MAX_MESSAGES; ++i) {
+        full_live.entries[i].packet_id = 1000U + i;
+    }
+    mesh_ui_message_list_merge(&cached, &full_live, &merged);
+    if (merged.count != MESH_UI_MAX_MESSAGES || merged.entries[0].packet_id != 1000U) {
+        record_failure(test_name, "live messages should win every slot when the list is full");
+        return;
+    }
+    if (merged.dropped != 1U + 2U) {
+        record_failure(test_name, "squeezed-out history should be added to the dropped count");
+        return;
+    }
+
+    record_success(test_name);
+}
+
+/* Message text reaches --status --json, and JSON must be valid UTF-8, so malformed sequences
+   from the radio have to be replaced rather than copied through. */
+static void test_message_ingest_invalid_utf8(void) {
+    const char *test_name = "message_ingest_invalid_utf8";
+
+    struct {
+        const char *label;
+        const char *payload;
+        size_t payload_len;
+        const char *expected;
+    } cases[] = {
+        /* Well-formed multi-byte characters survive intact. */
+        {"two-byte", "caf\xC3\xA9", 5U, "caf\xC3\xA9"},
+        {"three-byte", "\xE2\x82\xAC", 3U, "\xE2\x82\xAC"},
+        {"four-byte", "\xF0\x9F\x93\xA1", 4U, "\xF0\x9F\x93\xA1"},
+        /* Bytes that can never lead a sequence. */
+        /* Split so the hex escape does not swallow the trailing 'b' as another hex digit. */
+        {"invalid-lead",
+         "a\xFF"
+         "b",
+         3U, "a?b"},
+        {"stray-continuation", "a\x80\x62", 3U, "a?b"},
+        /* Truncated: a valid lead with the continuation bytes missing. */
+        {"truncated", "a\xE2\x82", 3U, "a??"},
+        /* Overlong encoding of '/' - the classic path-traversal smuggling trick. */
+        {"overlong", "\xC0\xAF", 2U, "??"},
+        /* UTF-16 surrogate half, not a valid character in UTF-8. */
+        {"surrogate", "\xED\xA0\x80", 3U, "???"},
+        /* Above U+10FFFF. */
+        {"out-of-range", "\xF4\x90\x80\x80", 4U, "????"},
+    };
+
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+        struct mesh_message_log log;
+        mesh_message_log_reset(&log);
+
+        meshtastic_MeshPacket packet =
+            make_decoded_packet(1U, 2U, 0U, (uint32_t)(i + 1U), meshtastic_PortNum_TEXT_MESSAGE_APP,
+                                cases[i].payload, cases[i].payload_len);
+
+        if (mesh_message_ingest(&log, &packet, 2U) != 1) {
+            record_failure(test_name, cases[i].label);
+            return;
+        }
+
+        const struct mesh_message *message = mesh_message_log_at(&log, 0U);
+        if (message == NULL || strcmp(message->text, cases[i].expected) != 0) {
+            record_failure(test_name, cases[i].label);
+            return;
+        }
+    }
+
+    record_success(test_name);
+}
+
 static const struct test_case k_test_cases[] = {
     {"config_defaults", "unit", test_config_defaults},
     {"transport_registry_registration", "unit", test_transport_registry_registration},
@@ -1228,6 +2132,18 @@ static const struct test_case k_test_cases[] = {
     {"minui_format_menu", "unit", test_minui_format_menu},
     {"proto_varint_roundtrip", "unit", test_proto_varint_roundtrip},
     {"proto_frame_encode_decode", "unit", test_proto_frame_encode_decode},
+    {"message_encode_text_golden", "unit", test_message_encode_text_golden},
+    {"message_encode_text_roundtrip", "unit", test_message_encode_text_roundtrip},
+    {"message_encode_text_limits", "unit", test_message_encode_text_limits},
+    {"message_log_ring", "unit", test_message_log_ring},
+    {"message_ingest_text", "unit", test_message_ingest_text},
+    {"message_ingest_ignores_other_payloads", "unit", test_message_ingest_ignores_other_payloads},
+    {"message_ingest_echo_is_not_duplicated", "unit", test_message_ingest_echo_is_not_duplicated},
+    {"message_routing_ack", "unit", test_message_routing_ack},
+    {"ui_store_messages", "unit", test_ui_store_messages},
+    {"ble_transport_messaging_mock", "unit", test_ble_transport_messaging_mock},
+    {"ui_message_list_merge", "unit", test_ui_message_list_merge},
+    {"message_ingest_invalid_utf8", "unit", test_message_ingest_invalid_utf8},
 };
 
 struct test_options {

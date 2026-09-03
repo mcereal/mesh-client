@@ -11,12 +11,17 @@ extern "C" {
 #define MESH_UI_MAX_DEVICES 16U
 #define MESH_UI_MAX_HANDSHAKE_NODES 16U
 #define MESH_UI_TRANSPORT_STATUS_MAX 32U
+/* Newest messages carried to the backends. The Brick shows far fewer than this at a time; the
+   rest are scrollback. The transport keeps its own, larger ring. */
+#define MESH_UI_MAX_MESSAGES 16U
+#define MESH_UI_MESSAGE_TEXT_MAX 234U
 
 enum mesh_ui_update_flag {
     MESH_UI_UPDATE_NONE = 0U,
     MESH_UI_UPDATE_DISCOVERY = 1U << 0,
     MESH_UI_UPDATE_HANDSHAKE = 1U << 1,
     MESH_UI_UPDATE_TRANSPORT = 1U << 2,
+    MESH_UI_UPDATE_MESSAGES = 1U << 3,
 };
 typedef uint32_t mesh_ui_update_flags;
 
@@ -59,11 +64,32 @@ struct mesh_ui_handshake_state {
     bool cached;
 };
 
+/* One line of conversation, already resolved for display: peer_name is the short name from
+   the NodeDB when we know it, so backends never have to join against the node list. */
+struct mesh_ui_message {
+    uint32_t packet_id;
+    uint32_t peer; /* the other end: sender for inbound, destination for outbound */
+    uint32_t rx_time;
+    char peer_name[16];
+    char text[MESH_UI_MESSAGE_TEXT_MAX];
+    uint8_t channel;
+    uint8_t direction; /* enum mesh_message_direction */
+    uint8_t ack;       /* enum mesh_message_ack */
+    bool broadcast;
+};
+
+struct mesh_ui_message_list {
+    struct mesh_ui_message entries[MESH_UI_MAX_MESSAGES];
+    uint32_t count;
+    uint32_t dropped; /* older messages the transport ring has already discarded */
+};
+
 struct mesh_ui_snapshot {
     struct mesh_ui_device devices[MESH_UI_MAX_DEVICES];
     size_t device_count;
     struct mesh_ui_handshake_state handshake;
     bool handshake_valid;
+    struct mesh_ui_message_list messages;
     /* Transport state ("waiting-for-bluez", "scanning", "running", ...). Rendered by the
        backends so an empty device list is diagnosable on a device with no console. */
     char transport_status[MESH_UI_TRANSPORT_STATUS_MAX];
@@ -75,6 +101,7 @@ struct mesh_ui_store {
     size_t device_count;
     struct mesh_ui_handshake_state handshake;
     bool handshake_valid;
+    struct mesh_ui_message_list messages;
     char transport_status[MESH_UI_TRANSPORT_STATUS_MAX];
     int event_fd;
     mesh_ui_update_flags pending_flags;
@@ -91,6 +118,19 @@ void mesh_ui_store_set_discovery(struct mesh_ui_store *store, const struct mesh_
 void mesh_ui_store_set_handshake(struct mesh_ui_store *store,
                                  const struct mesh_ui_handshake_state *handshake);
 void mesh_ui_store_set_transport_status(struct mesh_ui_store *store, const char *status);
+void mesh_ui_store_set_messages(struct mesh_ui_store *store,
+                                const struct mesh_ui_message_list *messages);
+
+/* Combines persisted history with this session's live messages into the newest
+   MESH_UI_MAX_MESSAGES, cached entries first. A cached entry whose packet id also appears in
+   `live` is dropped, so a message re-received after a restart is not shown twice.
+
+   This exists because the transport's message log starts empty on every run: without merging,
+   the first publish would push an empty list over the cache loaded at startup and the next
+   save would erase the conversation for good. */
+void mesh_ui_message_list_merge(const struct mesh_ui_message_list *cached,
+                                const struct mesh_ui_message_list *live,
+                                struct mesh_ui_message_list *out);
 
 /* Force the next consume_updates() to yield a snapshot even when nothing changed.
    The setters above deliberately stay quiet when state is unchanged, so without this a

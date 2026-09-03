@@ -2,6 +2,7 @@
 
 #include "mesh/event_loop.h"
 #include "mesh/log.h"
+#include "mesh/mesh_message.h"
 #include "mesh/ui/input.h"
 #include "mesh/ui/store.h"
 
@@ -188,6 +189,77 @@ static void fb_draw_quit_hint(const struct mesh_ui_backend_fb_state *state) {
     fb_draw_text(state, 16, y, mesh_ui_input_quit_hint(), 140, 150, 165);
 }
 
+/* Newest messages shown at the bottom of the HUD. The Brick's screen is the constraint, not
+   the snapshot: only the last few fit, and each is clipped to the panel width. */
+#define FB_MESSAGES_SHOWN 6U
+
+static void fb_render_messages(struct mesh_ui_backend_fb_state *state,
+                               const struct mesh_ui_snapshot *snapshot, int *y_inout) {
+    const struct mesh_ui_message_list *messages = &snapshot->messages;
+    int y = *y_inout + LINE_ADV;
+
+    /* Sized for the widest possible compose below (marker + peer + full text + ack tag) so the
+       snprintf never truncates; the display clamp is width_chars, further down. */
+    char line[288];
+    if (messages->count == 0U) {
+        fb_draw_text(state, 16, y, "Messages: none yet", 150, 170, 190);
+        *y_inout = y + LINE_ADV;
+        return;
+    }
+
+    snprintf(line, sizeof line, "Messages (%u)", (unsigned)messages->count);
+    fb_draw_text(state, 16, y, line, 255, 235, 190);
+    y += LINE_ADV;
+
+    /* How many glyphs fit from the left margin, less a little slack for the trailing marker. */
+    size_t width_chars = 16U;
+    if (state->var.xres > 48U) {
+        width_chars = ((size_t)state->var.xres - 48U) / (size_t)FONT_ADV;
+    }
+    if (width_chars > sizeof(line) - 1U) {
+        width_chars = sizeof(line) - 1U;
+    }
+
+    uint32_t first = 0U;
+    if (messages->count > FB_MESSAGES_SHOWN) {
+        first = messages->count - FB_MESSAGES_SHOWN;
+    }
+
+    for (uint32_t i = first; i < messages->count && i < MESH_UI_MAX_MESSAGES; ++i) {
+        const struct mesh_ui_message *message = &messages->entries[i];
+        const bool outbound = (message->direction == MESH_MESSAGE_OUTBOUND);
+        const char *marker = outbound ? ">" : "<";
+        const char *peer = message->peer_name[0] != '\0' ? message->peer_name : "?";
+
+        char suffix[16];
+        suffix[0] = '\0';
+        if (outbound && message->ack != MESH_MESSAGE_ACK_NONE) {
+            const char *tag = "..";
+            if (message->ack == MESH_MESSAGE_ACK_DELIVERED) {
+                tag = "ok";
+            } else if (message->ack == MESH_MESSAGE_ACK_FAILED) {
+                tag = "!!";
+            }
+            snprintf(suffix, sizeof suffix, " [%s]", tag);
+        }
+
+        snprintf(line, sizeof line, "%s %s: %s%s", marker, peer, message->text, suffix);
+        if (strlen(line) > width_chars) {
+            line[width_chars] = '\0';
+        }
+
+        /* Sent messages sit dimmer than received ones so the eye finds new traffic first. */
+        if (outbound) {
+            fb_draw_text(state, 32, y, line, 170, 190, 210);
+        } else {
+            fb_draw_text(state, 32, y, line, 235, 245, 255);
+        }
+        y += LINE_ADV;
+    }
+
+    *y_inout = y;
+}
+
 static void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
                                const struct mesh_ui_snapshot *snapshot) {
     fb_clear(state, 0x0A, 0x14, 0x1E);
@@ -229,6 +301,8 @@ static void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
     y += LINE_ADV;
     if (!snapshot->handshake_valid) {
         fb_draw_text(state, 16, y, "Handshake: pending", 180, 200, 220);
+        y += LINE_ADV;
+        fb_render_messages(state, snapshot, &y);
         return;
     }
 
@@ -268,6 +342,8 @@ static void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
         fb_draw_text(state, 16, (int)y, line, 200, 220, 240);
         y += LINE_ADV;
     }
+
+    fb_render_messages(state, snapshot, &y);
 }
 
 static int mesh_ui_backend_fb_init(void **state_out, void *userdata) {

@@ -86,6 +86,9 @@ struct mesh_ble_transport_state {
     struct mesh_ble_outbound_packet write_queue[MESH_BLE_MAX_OUTBOUND_PACKETS];
     size_t write_queue_head;
     size_t write_queue_len;
+    /* Survives reconnects: a NodeDB resync must not wipe the conversation. */
+    struct mesh_message_log messages;
+    uint32_t next_packet_id;
 };
 
 static const char *mesh_ble_state_to_string(enum mesh_ble_state state) {
@@ -295,6 +298,8 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     state->drain_retry_at_ms = 0U;
     state->drain_failures = 0U;
     state->loop = loop;
+    mesh_message_log_reset(&state->messages);
+    state->next_packet_id = 0U; /* seeded lazily on the first send */
     state->link_state = MESH_BLE_LINK_DISCONNECTED;
     state->connected_address[0] = '\0';
     state->connected_device_path[0] = '\0';
@@ -742,6 +747,11 @@ static void mesh_ble_handle_from_radio(struct mesh_ble_transport_state *state,
                            state->handshake.request_id);
         }
         break;
+    case meshtastic_FromRadio_packet_tag:
+        mesh_message_ingest(&state->messages, &message.packet,
+                            state->handshake.has_my_info ? state->handshake.my_info.my_node_num
+                                                         : 0U);
+        break;
     case meshtastic_FromRadio_log_record_tag:
         mesh_ble_handle_log_record(&message.log_record);
         break;
@@ -1035,6 +1045,91 @@ int mesh_ble_transport_send_packet(struct mesh_transport *transport, const uint8
         return -ENOTCONN;
     }
     return mesh_ble_queue_packet(state, packet, len);
+}
+
+/*
+ * Meshtastic packet ids only need to be unique per sender for a few minutes, so a cheap
+ * xorshift seeded from the monotonic clock is enough. Zero is reserved by the protocol to mean
+ * "no id", so it is never handed out.
+ */
+static uint32_t mesh_ble_next_packet_id(struct mesh_ble_transport_state *state) {
+    if (state->next_packet_id == 0U) {
+        uint32_t seed = (uint32_t)mesh_ble_now_ms();
+        if (state->handshake.has_my_info) {
+            seed ^= state->handshake.my_info.my_node_num;
+        }
+        state->next_packet_id = (seed == 0U) ? 0x9E3779B9U : seed;
+    }
+
+    uint32_t value = state->next_packet_id;
+    value ^= value << 13U;
+    value ^= value >> 17U;
+    value ^= value << 5U;
+    state->next_packet_id = (value == 0U) ? 0x9E3779B9U : value;
+    return state->next_packet_id;
+}
+
+int mesh_ble_transport_send_text(struct mesh_transport *transport, uint32_t dest, uint8_t channel,
+                                 const char *text, bool want_ack, uint32_t *out_packet_id) {
+    if (transport == NULL || transport->state == NULL || text == NULL) {
+        return -EINVAL;
+    }
+
+    struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
+    if (state->link_state != MESH_BLE_LINK_CONNECTED) {
+        return -ENOTCONN;
+    }
+
+    /* Broadcasts are never acked directly by the mesh; asking for one just wastes airtime. */
+    const bool broadcast = (dest == MESH_MESSAGE_BROADCAST_ADDR);
+    const bool request_ack = want_ack && !broadcast;
+
+    struct mesh_message_text_request request = {
+        .dest = dest,
+        .packet_id = mesh_ble_next_packet_id(state),
+        .text = text,
+        .channel = channel,
+        .hop_limit = 0U,
+        .want_ack = request_ack,
+    };
+
+    uint8_t payload[MESH_BLE_MAX_PACKET_SIZE];
+    size_t written = 0U;
+    int encode_result = mesh_message_encode_text(&request, payload, sizeof(payload), &written);
+    if (encode_result < 0) {
+        return encode_result;
+    }
+
+    int queue_result = mesh_ble_queue_packet(state, payload, written);
+    if (queue_result < 0) {
+        return queue_result;
+    }
+
+    struct mesh_message record;
+    memset(&record, 0, sizeof(record));
+    record.packet_id = request.packet_id;
+    record.from = state->handshake.has_my_info ? state->handshake.my_info.my_node_num : 0U;
+    record.to = dest;
+    record.channel = channel;
+    record.direction = MESH_MESSAGE_OUTBOUND;
+    record.ack = request_ack ? MESH_MESSAGE_ACK_PENDING : MESH_MESSAGE_ACK_NONE;
+    snprintf(record.text, sizeof(record.text), "%s", text);
+    mesh_message_log_append(&state->messages, &record);
+
+    if (out_packet_id != NULL) {
+        *out_packet_id = request.packet_id;
+    }
+
+    mesh_log_info("ble", "Queued text message id=%u to 0x%08x on channel %u", request.packet_id,
+                  dest, (unsigned)channel);
+    return 0;
+}
+
+const struct mesh_message_log *mesh_ble_transport_messages(struct mesh_transport *transport) {
+    if (transport == NULL || transport->state == NULL) {
+        return NULL;
+    }
+    return &((const struct mesh_ble_transport_state *)transport->state)->messages;
 }
 
 struct mesh_ble_handshake_status

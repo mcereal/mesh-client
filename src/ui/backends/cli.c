@@ -1,6 +1,7 @@
 #include "mesh/ui/backends/cli.h"
 
 #include "mesh/log.h"
+#include "mesh/mesh_message.h"
 
 #include <errno.h>
 #include <inttypes.h>
@@ -93,6 +94,34 @@ static void mesh_ui_backend_cli_print_handshake(struct mesh_ui_backend_cli_conte
     }
 }
 
+static void mesh_ui_backend_cli_print_messages(struct mesh_ui_backend_cli_context *context,
+                                               const struct mesh_ui_snapshot *snapshot) {
+    const struct mesh_ui_message_list *messages = &snapshot->messages;
+    if (messages->count == 0U) {
+        mesh_ui_backend_cli_write(context, "[cli-ui] Messages: none\n");
+        return;
+    }
+
+    mesh_ui_backend_cli_write(context, "[cli-ui] Messages (%" PRIu32 ")", messages->count);
+    if (messages->dropped > 0U) {
+        mesh_ui_backend_cli_write(context, " (+%" PRIu32 " older discarded)", messages->dropped);
+    }
+    mesh_ui_backend_cli_write(context, "\n");
+
+    for (uint32_t i = 0; i < messages->count && i < MESH_UI_MAX_MESSAGES; ++i) {
+        const struct mesh_ui_message *message = &messages->entries[i];
+        const bool outbound = (message->direction == MESH_MESSAGE_OUTBOUND);
+        mesh_ui_backend_cli_write(context, "[cli-ui]   %s %s ch%u: %s", outbound ? "->" : "<-",
+                                  message->peer_name[0] != '\0' ? message->peer_name : "?",
+                                  (unsigned)message->channel, message->text);
+        if (outbound && message->ack != MESH_MESSAGE_ACK_NONE) {
+            mesh_ui_backend_cli_write(
+                context, " [%s]", mesh_message_ack_to_string((enum mesh_message_ack)message->ack));
+        }
+        mesh_ui_backend_cli_write(context, "\n");
+    }
+}
+
 static int mesh_ui_backend_cli_init(void **state, void *userdata) {
     struct mesh_ui_backend_cli_context *context = NULL;
     if (userdata != NULL) {
@@ -160,6 +189,9 @@ static void mesh_ui_backend_cli_present(void *state, const struct mesh_ui_snapsh
     }
     if ((snapshot->update_flags & MESH_UI_UPDATE_HANDSHAKE) != 0U) {
         mesh_ui_backend_cli_print_handshake(context, snapshot);
+    }
+    if ((snapshot->update_flags & MESH_UI_UPDATE_MESSAGES) != 0U) {
+        mesh_ui_backend_cli_print_messages(context, snapshot);
     }
 }
 
