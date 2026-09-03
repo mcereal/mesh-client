@@ -11,6 +11,8 @@
 #include <strings.h>
 #include <sys/epoll.h>
 
+#define MESH_BLUEZ_READ_TIMEOUT_MS 3000
+
 #ifdef MESH_HAVE_DBUS
 #include <dbus/dbus.h>
 
@@ -1336,10 +1338,11 @@ int mesh_bluez_client_read(struct mesh_bluez_client* client, const char* char_pa
     dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY, "{sv}", &options_iter);
     dbus_message_iter_close_container(&iter, &options_iter);
 
+    /* A GATT read normally completes in tens of ms; never sit on libdbus's 25 s default. */
     DBusError error;
     dbus_error_init(&error);
     DBusMessage* reply = dbus_connection_send_with_reply_and_block(
-        connection, message, DBUS_TIMEOUT_USE_DEFAULT, &error);
+        connection, message, MESH_BLUEZ_READ_TIMEOUT_MS, &error);
     dbus_message_unref(message);
 
     if (reply == NULL) {

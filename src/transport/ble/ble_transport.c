@@ -19,13 +19,23 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/eventfd.h>
 #include <sys/timerfd.h>
 #include <time.h>
 #include <unistd.h>
 
 #define MESH_BLE_MAX_OUTBOUND_PACKETS 8U
-/* Upper bound on FromRadio reads per drain so a chatty node cannot starve the event loop. */
-#define MESH_BLE_MAX_DRAIN_READS 64U
+/*
+ * FromRadio reads are synchronous D-Bus round trips (~60 ms each on the Brick). Read at most this
+ * many per event-loop turn, then wake the loop via eventfd to continue, so UI input, timers and
+ * disconnects keep flowing during a large NodeDB sync.
+ */
+#define MESH_BLE_READS_PER_TURN 4U
+/* Transient ReadValue failures are retried with exponential backoff, then the link is dropped. */
+#define MESH_BLE_DRAIN_RETRY_BASE_MS 250U
+#define MESH_BLE_DRAIN_MAX_FAILURES 5U
+/* Device-list refresh from tick() is rate limited; the 5 s timerfd is the steady-state refresher. */
+#define MESH_BLE_TICK_REFRESH_MIN_MS 1000U
 
 enum mesh_ble_state {
     MESH_BLE_STATE_DISABLED = 0,
@@ -56,12 +66,16 @@ struct mesh_ble_transport_state {
     struct mesh_bluez_device_info devices[16];
     size_t device_count;
     int refresh_timer_fd;
+    int drain_wake_fd; /* eventfd: continue a FromRadio drain on the next loop turn */
+    uint64_t last_refresh_ms;
     struct mesh_event_loop *loop;
     enum mesh_ble_link_state link_state;
     char connected_address[32];
     char connected_device_path[128];
     bool notifications_enabled;
-    bool drain_pending; /* hit MESH_BLE_MAX_DRAIN_READS; finish on the next tick */
+    bool drain_pending;       /* more FromRadio packets may be waiting */
+    uint64_t drain_retry_at_ms; /* earliest time to run the pending drain (0 = now) */
+    unsigned drain_failures;    /* consecutive ReadValue failures */
     bool node_cache_warned;
     struct mesh_bluez_meshtastic_chars chars;
     size_t frames_received;
@@ -99,22 +113,100 @@ static void mesh_ble_clear_write_queue(struct mesh_ble_transport_state *state);
 static int mesh_ble_queue_packet(struct mesh_ble_transport_state *state, const uint8_t *packet, size_t len);
 static void mesh_ble_flush_write_queue(struct mesh_ble_transport_state *state);
 static void mesh_ble_drain_from_radio(struct mesh_ble_transport_state *state);
+static void mesh_ble_schedule_drain(struct mesh_ble_transport_state *state, uint64_t delay_ms);
+static void mesh_ble_reset_link(struct mesh_ble_transport_state *state, const char *reason);
 static void mesh_ble_notification_handler(const uint8_t *data, size_t len, void *userdata);
+
+static uint64_t mesh_ble_now_ms(void) {
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+        return 0U;
+    }
+    return (uint64_t)ts.tv_sec * 1000U + (uint64_t)ts.tv_nsec / 1000000U;
+}
+
 static void mesh_ble_tick(struct mesh_transport *transport) {
     if (transport == NULL) {
         return;
     }
 
     struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
+    uint64_t now = mesh_ble_now_ms();
     if (state != NULL && state->client_initialised) {
         mesh_bluez_client_process(&state->bluez);
         mesh_ble_flush_write_queue(state);
-        if (state->drain_pending) {
+        /* Fallback for the eventfd wake, and the path that services delayed retries. */
+        if (state->drain_pending && now >= state->drain_retry_at_ms) {
             mesh_ble_drain_from_radio(state);
         }
     }
 
-    mesh_ble_refresh_devices_internal(transport);
+    if (state == NULL || now - state->last_refresh_ms >= MESH_BLE_TICK_REFRESH_MIN_MS) {
+        mesh_ble_refresh_devices_internal(transport);
+        if (state != NULL) {
+            state->last_refresh_ms = now;
+        }
+    }
+}
+
+static int mesh_ble_drain_wake_callback(int fd, uint32_t events, void *userdata) {
+    (void)events;
+    struct mesh_transport *transport = (struct mesh_transport *)userdata;
+    if (transport == NULL) {
+        return 0;
+    }
+    uint64_t value = 0;
+    ssize_t read_result = read(fd, &value, sizeof(value));
+    if (read_result < 0 && errno != EAGAIN) {
+        mesh_log_warn("ble", "drain wake read failed: %s", strerror(errno));
+    }
+    struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
+    if (state != NULL && state->drain_pending && mesh_ble_now_ms() >= state->drain_retry_at_ms) {
+        mesh_ble_drain_from_radio(state);
+    }
+    return 0;
+}
+
+static int mesh_ble_setup_drain_wake(struct mesh_transport *transport, struct mesh_ble_transport_state *state,
+                                     struct mesh_event_loop *loop) {
+    if (loop == NULL) {
+        return 0;
+    }
+    state->drain_wake_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    if (state->drain_wake_fd < 0) {
+        mesh_log_warn("ble", "eventfd create failed: %s", strerror(errno));
+        return -errno;
+    }
+    int add_result = mesh_event_loop_add_fd(loop, state->drain_wake_fd, EPOLLIN, mesh_ble_drain_wake_callback, transport);
+    if (add_result < 0) {
+        mesh_log_warn("ble", "Failed to add drain wake fd: %d", add_result);
+        close(state->drain_wake_fd);
+        state->drain_wake_fd = -1;
+        return add_result;
+    }
+    return 0;
+}
+
+static void mesh_ble_teardown_drain_wake(struct mesh_ble_transport_state *state) {
+    if (state->drain_wake_fd >= 0) {
+        if (state->loop != NULL) {
+            mesh_event_loop_remove_fd(state->loop, state->drain_wake_fd);
+        }
+        close(state->drain_wake_fd);
+        state->drain_wake_fd = -1;
+    }
+}
+
+static void mesh_ble_schedule_drain(struct mesh_ble_transport_state *state, uint64_t delay_ms) {
+    state->drain_pending = true;
+    state->drain_retry_at_ms = delay_ms == 0U ? 0U : mesh_ble_now_ms() + delay_ms;
+    if (delay_ms == 0U && state->drain_wake_fd >= 0) {
+        uint64_t one = 1U;
+        if (write(state->drain_wake_fd, &one, sizeof(one)) < 0 && errno != EAGAIN) {
+            mesh_log_warn("ble", "drain wake write failed: %s", strerror(errno));
+        }
+    }
+    /* Delayed retries are picked up by tick(), which runs every loop turn. */
 }
 
 static int mesh_ble_refresh_timer_callback(int fd, uint32_t events, void *userdata) {
@@ -191,6 +283,10 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     state->adapter_path[0] = '\0';
     state->device_count = 0;
     state->refresh_timer_fd = -1;
+    state->drain_wake_fd = -1;
+    state->last_refresh_ms = 0U;
+    state->drain_retry_at_ms = 0U;
+    state->drain_failures = 0U;
     state->loop = loop;
     state->link_state = MESH_BLE_LINK_DISCONNECTED;
     state->connected_address[0] = '\0';
@@ -290,6 +386,9 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     if (mesh_ble_setup_refresh_timer(transport, state, loop) < 0) {
         mesh_log_debug("ble", "Refresh timer unavailable; continuing without periodic updates");
     }
+    if (mesh_ble_setup_drain_wake(transport, state, loop) < 0) {
+        mesh_log_debug("ble", "Drain wake unavailable; FromRadio drains continue from tick()");
+    }
 
     state->state = MESH_BLE_STATE_READY;
     if (config->preferred_ble_device[0] != '\0') {
@@ -316,6 +415,7 @@ static void mesh_ble_stop(struct mesh_transport *transport) {
     }
 
     mesh_ble_teardown_refresh_timer(state);
+    mesh_ble_teardown_drain_wake(state);
 
     if (state->client_initialised) {
         if (state->link_state == MESH_BLE_LINK_CONNECTED) {
@@ -691,16 +791,28 @@ static void mesh_ble_drain_from_radio(struct mesh_ble_transport_state *state) {
     }
 
     state->drain_pending = false;
+    state->drain_retry_at_ms = 0U;
     uint8_t packet[MESH_BLE_MAX_PACKET_SIZE];
-    for (size_t i = 0; i < MESH_BLE_MAX_DRAIN_READS; ++i) {
+    for (size_t i = 0; i < MESH_BLE_READS_PER_TURN; ++i) {
         size_t len = 0U;
         int result = mesh_bluez_client_read(&state->bluez, state->chars.fromradio_path, packet, sizeof(packet), &len);
         if (result < 0) {
-            mesh_log_warn("ble", "FromRadio read failed: %d", result);
+            state->drain_failures += 1U;
+            if (state->drain_failures >= MESH_BLE_DRAIN_MAX_FAILURES) {
+                mesh_log_error("ble", "FromRadio read failed %u times in a row (%d); dropping link",
+                               state->drain_failures, result);
+                mesh_ble_reset_link(state, "FromRadio unreadable");
+                return;
+            }
+            /* The FromNum notification already told us a packet is waiting; do not lose it. */
+            uint64_t delay = (uint64_t)MESH_BLE_DRAIN_RETRY_BASE_MS << (state->drain_failures - 1U);
+            mesh_log_warn("ble", "FromRadio read failed (%d); retrying in %" PRIu64 " ms", result, delay);
+            mesh_ble_schedule_drain(state, delay);
             return;
         }
+        state->drain_failures = 0U;
         if (len == 0U) {
-            return;
+            return; /* FIFO drained */
         }
 
         state->frames_received += 1U;
@@ -708,8 +820,9 @@ static void mesh_ble_drain_from_radio(struct mesh_ble_transport_state *state) {
         mesh_log_debug("ble", "FromRadio packet (%zu bytes)", len);
         mesh_ble_handle_from_radio(state, packet, len);
     }
-    state->drain_pending = true;
-    mesh_log_debug("ble", "FromRadio drain hit %u read cap; resuming on next tick", (unsigned)MESH_BLE_MAX_DRAIN_READS);
+
+    /* Budget for this turn spent; yield to the event loop and come straight back. */
+    mesh_ble_schedule_drain(state, 0U);
 }
 
 static void mesh_ble_notification_handler(const uint8_t *data, size_t len, void *userdata) {
@@ -803,6 +916,8 @@ int mesh_ble_transport_connect(struct mesh_transport *transport, const char *add
     snprintf(state->connected_device_path, sizeof(state->connected_device_path), "%s", device_path);
     state->chars = chars;
     state->drain_pending = false;
+    state->drain_retry_at_ms = 0U;
+    state->drain_failures = 0U;
     state->frames_received = 0U;
     state->bytes_received = 0U;
     mesh_bluez_client_process(&state->bluez);
@@ -814,6 +929,29 @@ int mesh_ble_transport_connect(struct mesh_transport *transport, const char *add
     /* The node may already have packets queued, and a FromNum notify can race the subscription. */
     mesh_ble_drain_from_radio(state);
     return 0;
+}
+
+static void mesh_ble_reset_link(struct mesh_ble_transport_state *state, const char *reason) {
+    if (state == NULL) {
+        return;
+    }
+    if (state->client_initialised && state->connected_device_path[0] != '\0') {
+        int result = mesh_bluez_client_disconnect(&state->bluez, state->connected_device_path);
+        if (result < 0) {
+            mesh_log_debug("ble", "Disconnect during link reset returned %d", result);
+        }
+    }
+    state->link_state = MESH_BLE_LINK_DISCONNECTED;
+    state->notifications_enabled = false;
+    state->drain_pending = false;
+    state->drain_retry_at_ms = 0U;
+    state->drain_failures = 0U;
+    state->connected_address[0] = '\0';
+    state->connected_device_path[0] = '\0';
+    memset(&state->chars, 0, sizeof(state->chars));
+    mesh_ble_reset_handshake(state);
+    mesh_ble_clear_write_queue(state);
+    mesh_log_info("ble", "Disconnected from Meshtastic node (%s)", reason);
 }
 
 int mesh_ble_transport_disconnect(struct mesh_transport *transport) {
@@ -830,16 +968,8 @@ int mesh_ble_transport_disconnect(struct mesh_transport *transport) {
     if (result < 0) {
         return result;
     }
-
-    state->link_state = MESH_BLE_LINK_DISCONNECTED;
-    state->notifications_enabled = false;
-    state->connected_address[0] = '\0';
-    state->connected_device_path[0] = '\0';
-    state->drain_pending = false;
-    memset(&state->chars, 0, sizeof(state->chars));
-    mesh_ble_reset_handshake(state);
-    mesh_ble_clear_write_queue(state);
-    mesh_log_info("ble", "Disconnected from Meshtastic node");
+    state->connected_device_path[0] = '\0'; /* already disconnected; reset_link must not repeat it */
+    mesh_ble_reset_link(state, "requested");
     return 0;
 }
 

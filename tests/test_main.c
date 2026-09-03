@@ -242,10 +242,14 @@ static void test_ble_transport_connect_mock(void) {
     size_t write_lengths[8];
     memset(write_lengths, 0, sizeof(write_lengths));
 
-    /* Scripted FromRadio reads; the transport drains until it sees an empty read. */
-    uint8_t read_buffers[3][256];
-    const uint8_t *read_payloads[3] = {read_buffers[0], read_buffers[1], read_buffers[2]};
-    size_t read_payload_lengths[3] = {0U, 0U, 0U};
+    /*
+     * Scripted FromRadio reads; the transport drains until it sees an empty read. Five payloads
+     * exceed the per-turn read budget, so this also exercises the eventfd continuation.
+     */
+    uint8_t read_buffers[5][256];
+    const uint8_t *read_payloads[5] = {read_buffers[0], read_buffers[1], read_buffers[2], read_buffers[3],
+                                       read_buffers[4]};
+    size_t read_payload_lengths[5] = {0U, 0U, 0U, 0U, 0U};
     size_t read_index = 0U;
 
     struct mesh_bluez_mock_config mock_config = {
@@ -264,7 +268,7 @@ static void test_ble_transport_connect_mock(void) {
         .fromnum_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_03/service000a/char000f",
         .read_payloads = read_payloads,
         .read_payload_lengths = read_payload_lengths,
-        .read_payload_count = 3U, /* lengths stay 0 (empty FIFO) until scripted below */
+        .read_payload_count = 5U, /* lengths stay 0 (empty FIFO) until scripted below */
         .read_index = &read_index,
         .devices = mock_devices,
         .device_count = sizeof(mock_devices) / sizeof(mock_devices[0]),
@@ -386,11 +390,29 @@ static void test_ble_transport_connect_mock(void) {
     read_payload_lengths[1] = encode_stream.bytes_written;
     const uint32_t expected_peer_num = from_radio.node_info.num;
 
+    /* Two more peers so the FIFO is longer than one turn's read budget. */
+    for (size_t extra = 0; extra < 2U; ++extra) {
+        from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
+        from_radio.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+        from_radio.node_info.num = 0x01020306U + (uint32_t)extra;
+        from_radio.node_info.has_user = true;
+        snprintf(from_radio.node_info.user.short_name, sizeof(from_radio.node_info.user.short_name), "P%zu", extra);
+        encode_stream = pb_ostream_from_buffer(read_buffers[2 + extra], sizeof(read_buffers[2 + extra]));
+        if (!pb_encode(&encode_stream, meshtastic_FromRadio_fields, &from_radio)) {
+            ble->ops->stop(ble);
+            mesh_event_loop_shutdown(&loop);
+            mesh_bluez_client_mock_disable();
+            record_failure(test_name, "failed to encode extra node_info");
+            return;
+        }
+        read_payload_lengths[2 + extra] = encode_stream.bytes_written;
+    }
+
     from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
     from_radio.which_payload_variant = meshtastic_FromRadio_config_complete_id_tag;
     from_radio.config_complete_id = to_radio.want_config_id;
 
-    encode_stream = pb_ostream_from_buffer(read_buffers[2], sizeof(read_buffers[2]));
+    encode_stream = pb_ostream_from_buffer(read_buffers[4], sizeof(read_buffers[4]));
     if (!pb_encode(&encode_stream, meshtastic_FromRadio_fields, &from_radio)) {
         ble->ops->stop(ble);
         mesh_event_loop_shutdown(&loop);
@@ -398,12 +420,25 @@ static void test_ble_transport_connect_mock(void) {
         record_failure(test_name, "failed to encode config_complete");
         return;
     }
-    read_payload_lengths[2] = encode_stream.bytes_written;
+    read_payload_lengths[4] = encode_stream.bytes_written;
 
-    /* Rewind the scripted FIFO and poke FromNum; the transport must drain all three reads. */
+    /* Rewind the scripted FIFO and poke FromNum. */
     read_index = 0U;
-    const uint8_t from_num[4] = {3U, 0U, 0U, 0U};
+    const uint8_t from_num[4] = {5U, 0U, 0U, 0U};
     mesh_bluez_client_mock_emit_notification(mock_config.fromnum_char_path, from_num, sizeof(from_num));
+
+    /* The first turn reads its budget and must stop short of the end; the loop wake finishes it. */
+    if (read_index >= 6U) {
+        ble->ops->stop(ble);
+        mesh_event_loop_shutdown(&loop);
+        mesh_bluez_client_mock_disable();
+        record_failure(test_name, "drain did not yield to the event loop between read batches");
+        return;
+    }
+    for (int spin = 0; spin < 20 && read_index < 6U; ++spin) {
+        mesh_event_loop_run(&loop, 10);
+        ble->ops->tick(ble);
+    }
 
     handshake = mesh_ble_transport_handshake_status(ble);
     if (!handshake.has_my_info || handshake.my_info.my_node_num != expected_node_num) {
@@ -414,7 +449,7 @@ static void test_ble_transport_connect_mock(void) {
         return;
     }
 
-    if (handshake.node_count != 1U || handshake.nodes[0].node_id != expected_peer_num) {
+    if (handshake.node_count != 3U || handshake.nodes[0].node_id != expected_peer_num) {
         ble->ops->stop(ble);
         mesh_event_loop_shutdown(&loop);
         mesh_bluez_client_mock_disable();
@@ -431,8 +466,8 @@ static void test_ble_transport_connect_mock(void) {
         return;
     }
 
-    /* Three payloads plus the terminating empty read. */
-    if (read_index != 4U) {
+    /* Five payloads plus the terminating empty read. */
+    if (read_index != 6U) {
         ble->ops->stop(ble);
         mesh_event_loop_shutdown(&loop);
         mesh_bluez_client_mock_disable();
@@ -441,7 +476,7 @@ static void test_ble_transport_connect_mock(void) {
     }
 
     struct mesh_ble_transport_stats stats = mesh_ble_transport_stats(ble);
-    if (stats.frames_received != 3U) {
+    if (stats.frames_received != 5U) {
         ble->ops->stop(ble);
         mesh_event_loop_shutdown(&loop);
         mesh_bluez_client_mock_disable();
