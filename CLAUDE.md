@@ -114,6 +114,13 @@ via Python3 (needs `pip install protobuf grpcio-tools`).
   that workflow and `docker/setup-cross.sh`; bump them together. `make docker-pak` reproduces the
   release build locally via `scripts/cross-build.sh`; on an arm64 host the `cross` image uses
   native `musl-gcc` (exposed as `aarch64-linux-musl-gcc`) instead of downloading Bootlin.
+- `scripts/build_minui_helpers.sh` stages the helper binaries into the tracked
+  `Tools/tg5040/MeshClient.pak/bin/tg5040/` tree, which holds committed **aarch64** artifacts.
+  Without a cross toolchain it falls back to the host compiler, so every install is checked
+  against the platform's expected ELF machine (`e_machine` 183 for tg5040) and skipped with a
+  warning on a mismatch - a native `make package` on x86_64 leaves the committed binaries
+  alone instead of replacing them with host-arch ones. `MESHCLIENT_ALLOW_HOST_HELPERS=1`
+  overrides this. It warns rather than failing, so CI's host-only `make package` stays green.
 - `scripts/package.sh` copies `$BUILD_ROOT/release/meshclient` into `dist/MeshClient.pak/bin/shared/`
   plus everything under `Tools/tg5040/MeshClient.pak/bin/{shared,tg5040}/` and `launch.sh`.
   `launch.sh` must stay POSIX sh; it sets `HOME` to the pak userdata dir, points
