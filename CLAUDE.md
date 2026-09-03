@@ -24,7 +24,14 @@ make docker-shell                         # bash in the dev container; run cmake
 make docker-pak                           # cross container: static aarch64 build → dist/MeshClient.pak.zip
 make docker-image / docker-cross-image    # force image rebuild after editing docker/
 make format                               # clang-format all tracked .c/.h (runs fine on the host)
+make brick                                # docker-pak + push to the Brick over SSH (needs .brick.env, see docs/device.md)
+make deploy / deploy-logs / deploy-check  # push only / tail device log / report BlueZ, D-Bus, fb0 state on device
+make deploy-run ARGS="--list-devices"     # run launch.sh on the device headless, streaming output
 ```
+
+Device deploys go through `scripts/deploy-device.sh` over SSH (dropbear "SSH Server" pak on the
+Brick, busybox only: transfers are `tar | ssh tar`, no rsync/scp). Host settings live in the
+gitignored `.brick.env`. The script quotes for POSIX `sh`, not bash; keep it that way.
 
 Inside the container (or on a Linux host) the plain targets apply: `make debug`, `make test`,
 `make release && make package`, `make proto`, `make run`,

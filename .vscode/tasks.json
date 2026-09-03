@@ -187,6 +187,60 @@
                 "reveal": "always",
                 "panel": "dedicated"
             }
+        },
+        {
+            "label": "device: brick (build + deploy)",
+            "type": "shell",
+            "command": "make",
+            "args": [
+                "brick"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "device: deploy",
+            "type": "shell",
+            "command": "make",
+            "args": [
+                "deploy"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "device: logs",
+            "type": "shell",
+            "command": "make",
+            "args": [
+                "deploy-logs"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        },
+        {
+            "label": "device: check",
+            "type": "shell",
+            "command": "make",
+            "args": [
+                "deploy-check"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": []
         }
     ]
 }

@@ -56,6 +56,8 @@ From macOS, `make docker-pak` does the same via the cross container (static aarc
 
 Copy the resulting `dist/MeshClient.pak.zip` (or the extracted `MeshClient.pak/` folder) to `Tools/tg5040/` on the TrimUI SD card. From NextUI Launcher, the app will appear under Tools. Logs are written to `/.userdata/tg5040/logs/MeshClient.txt` on the device.
 
+Once the Brick is on WiFi with the SSH Server pak installed, skip the SD card: set `BRICK_HOST` in `.brick.env` (copy `.brick.env.example`) and use `make brick` (build + push), `make deploy`, `make deploy-logs`, `make deploy-run ARGS="--list-devices"`, and `make deploy-check`. See [`docs/device.md`](docs/device.md) for the one-time device setup and troubleshooting.
+
 ## Development Environment
 
 - **Toolchain:** GCC or Clang with C17 support, `cmake`, `ninja` or Make (CMake will pick the default generator). The core is Linux-only (`epoll`, `timerfd`, `eventfd`); on macOS use the `make docker-*` targets, which wrap `scripts/docker.sh` and the images in `docker/Dockerfile` (`dev` mirrors `ci.yml`, `cross` mirrors the release workflow's static aarch64 musl build).
