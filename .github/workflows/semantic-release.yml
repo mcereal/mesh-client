@@ -14,78 +14,65 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           submodules: recursive
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 'lts/*'
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package.json
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config protobuf-compiler python3 python3-pip zip
-          # Install Python protobuf before downloading toolchain
+          sudo apt-get install -y build-essential cmake ninja-build meson pkg-config protobuf-compiler python3 python3-pip zip
           python3 -m pip install --user --upgrade pip setuptools wheel
           python3 -m pip install --user protobuf grpcio-tools
-          # Download and extract Bootlin musl toolchain for ARM cross-compilation
-          wget https://toolchains.bootlin.com/downloads/releases/toolchains/aarch64/tarballs/aarch64--musl--stable-2024.02-1.tar.bz2
-          tar -xf aarch64--musl--stable-2024.02-1.tar.bz2
-          # Add toolchain to PATH immediately for libdbus build
-          export PATH="$PWD/aarch64--musl--stable-2024.02-1/bin:$PATH"
-          echo "$PWD/aarch64--musl--stable-2024.02-1/bin" >> $GITHUB_PATH
-          # Build expat (required by libdbus) from source
-          wget https://github.com/libexpat/libexpat/releases/download/R_2_5_0/expat-2.5.0.tar.xz
-          tar -xf expat-2.5.0.tar.xz
-          cd expat-2.5.0
-          ./configure --host=aarch64-buildroot-linux-musl \
-            CC=aarch64-buildroot-linux-musl-gcc \
-            AR=aarch64-buildroot-linux-musl-ar \
-            RANLIB=aarch64-buildroot-linux-musl-ranlib \
-            --prefix=$PWD/../expat-install \
-            --disable-shared --enable-static \
-            --without-docbook
-          make -j$(nproc)
-          make install
-          cd ..
-          # Build libdbus from source for static linking
-          export PKG_CONFIG_PATH="$PWD/expat-install/lib/pkgconfig:$PKG_CONFIG_PATH"
-          wget https://dbus.freedesktop.org/releases/dbus/dbus-1.14.10.tar.xz
-          tar -xf dbus-1.14.10.tar.xz
-          cd dbus-1.14.10
-          ./configure --host=aarch64-buildroot-linux-musl \
-            CC=aarch64-buildroot-linux-musl-gcc \
-            AR=aarch64-buildroot-linux-musl-ar \
-            RANLIB=aarch64-buildroot-linux-musl-ranlib \
-            --prefix=$PWD/../dbus-install \
-            --disable-shared --enable-static \
-            --disable-tests --disable-doxygen-docs \
-            --disable-xml-docs --disable-selinux \
-            --disable-systemd --disable-traditional-activation \
-            --without-x \
-            EXPAT_CFLAGS="-I$PWD/../expat-install/include" \
-            EXPAT_LIBS="-L$PWD/../expat-install/lib -lexpat"
-          make -j$(nproc)
-          make install
-          cd ..
-          export PKG_CONFIG_PATH="$PWD/dbus-install/lib/pkgconfig:$PKG_CONFIG_PATH"
-          echo "PKG_CONFIG_PATH=$PWD/dbus-install/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+          # Bootlin musl toolchain for the static aarch64 build
+          wget -q https://toolchains.bootlin.com/downloads/releases/toolchains/aarch64/tarballs/aarch64--musl--stable-2025.08-1.tar.xz
+          tar -xf aarch64--musl--stable-2025.08-1.tar.xz
+          echo "$PWD/aarch64--musl--stable-2025.08-1/bin" >> $GITHUB_PATH
+
+      - name: Build static libdbus
+        run: |
+          # libdbus only: message_bus=false skips the daemon, so no XML parser is needed. dbus >= 1.16 is meson-only.
+          cat > meson-cross.ini <<'INI'
+          [binaries]
+          c = 'aarch64-buildroot-linux-musl-gcc'
+          ar = 'aarch64-buildroot-linux-musl-ar'
+          strip = 'aarch64-buildroot-linux-musl-strip'
+          pkg-config = 'pkg-config'
+
+          [host_machine]
+          system = 'linux'
+          cpu_family = 'aarch64'
+          cpu = 'aarch64'
+          endian = 'little'
+          INI
+          wget -q https://dbus.freedesktop.org/releases/dbus/dbus-1.16.2.tar.xz
+          tar -xf dbus-1.16.2.tar.xz
+          cd dbus-1.16.2
+          meson setup build --cross-file ../meson-cross.ini \
+            --prefix="$PWD/../dbus-install" --libdir=lib --buildtype=release \
+            -Ddefault_library=static -Dmessage_bus=false -Dtools=false \
+            -Dmodular_tests=disabled -Dintrusive_tests=false -Dinstalled_tests=false \
+            -Dxml_docs=disabled -Ddoxygen_docs=disabled -Dducktype_docs=disabled -Dqt_help=disabled \
+            -Dselinux=disabled -Dapparmor=disabled -Dsystemd=disabled -Dlibaudit=disabled \
+            -Dx11_autolaunch=disabled
+          ninja -C build
+          ninja -C build install
+          echo "PKG_CONFIG_PATH=$PWD/../dbus-install/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> $GITHUB_ENV
 
       - name: Install semantic-release
-        run: |
-          npm install -g \
-            semantic-release@^23.0.0 \
-            @semantic-release/changelog@^6.0.3 \
-            @semantic-release/git@^10.0.1 \
-            @semantic-release/exec@^6.0.3 \
-            conventional-changelog-conventionalcommits@^7.0.2
+        run: npm install --no-fund --no-audit
 
       - name: Build (Release)
         run: |

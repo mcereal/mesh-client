@@ -21,7 +21,7 @@ cmake -S . -B "$BUILD_DIR" \
     -DCMAKE_SYSTEM_NAME=Linux \
     -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
     -DCMAKE_EXE_LINKER_FLAGS="-static -L${CROSS_DBUS_PREFIX}/lib" \
-    -DCMAKE_C_FLAGS="-Os ${DBUS_CFLAGS}" \
+    -DCMAKE_C_FLAGS="-Os ${CROSS_CFLAGS:-} ${DBUS_CFLAGS}" \
     -DPython3_EXECUTABLE="$(command -v python3)" \
     "$@"
 cmake --build "$BUILD_DIR"

@@ -13,11 +13,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-24.04]
+        os: [ubuntu-24.04]
         compiler: [gcc, clang]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -58,7 +58,7 @@ jobs:
 
       - name: Upload binary artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: meshclient-${{ steps.ver.outputs.version }}-${{ matrix.os }}-${{ matrix.compiler }}-debug
           path: build/debug/meshclient
@@ -66,7 +66,7 @@ jobs:
 
       - name: Upload pak artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: MeshClient.pak-${{ steps.ver.outputs.version }}-${{ matrix.os }}-${{ matrix.compiler }}
           path: |
