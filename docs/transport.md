@@ -15,7 +15,7 @@ Serial, and HTTP transports.
 - Meshtastic node discovery: iterates `org.bluez.Device1` entries, filters on the NUS UUID, and caches address/name/RSSI for downstream UI use (mockable for tests).
 - Periodic refresh loop (timerfd) keeps the discovery cache up to date while the app is running.
 - CLI support: `meshclient --list-devices` prints the cached nodes and exits—useful for diagnostics.
-- Varint-based framing helpers for BLE packets, plus nanopb runtime linked against Meshtastic upstream schemas (tracked via git submodule). `make proto` regenerates `mesh`, `portnums`, `interdevice`, `config`, `module_config`, `telemetry`, `channel`, `device_ui`, and `xmodem` (the `MESH_PROTO_NAMES` list in `CMakeLists.txt`).
+- Varint-based framing helpers for BLE packets, plus nanopb runtime linked against Meshtastic upstream schemas (tracked via git submodule). `make proto` regenerates `mesh`, `portnums`, `interdevice`, `config`, `module_config`, `telemetry`, `channel`, `device_ui`, `xmodem`, and `atak` (the `MESH_PROTO_NAMES` list in `CMakeLists.txt`).
 - GATT data path: device `Connect`/`Disconnect`, `StartNotify`, and notification handling wired into the event loop with frame buffering and basic stats.
 - Initial config handshake: queues `want_config_id`, tracks `MyNodeInfo` / `NodeInfo` summaries, and marks completion via `config_complete_id`.
 - Outbound write queue with MTU-aware chunking ensures large protobuf frames are split across BLE packets.

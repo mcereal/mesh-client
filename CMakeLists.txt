@@ -116,6 +116,7 @@ set(MESH_PROTO_NAMES
     channel
     device_ui
     xmodem
+    atak
 )
 
 set(MESH_PROTO_FILES)

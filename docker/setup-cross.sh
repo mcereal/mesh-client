@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install an aarch64 musl toolchain under /opt/cross and build static expat + libdbus against it.
+# Install an aarch64 musl toolchain under /opt/cross and build a static libdbus against it.
 # Produces /opt/cross/env.sh which scripts/cross-build.sh sources.
 #
 # arm64 host  : native musl-gcc (musl-tools) exposed as aarch64-linux-musl-{gcc,ar,ranlib}.
@@ -7,14 +7,13 @@
 set -euo pipefail
 
 PREFIX=/opt/cross
-EXPAT_VERSION=2.5.0
-DBUS_VERSION=1.14.10
-BOOTLIN_TARBALL=aarch64--musl--stable-2024.02-1
+DBUS_VERSION=1.16.2
+BOOTLIN_TARBALL=aarch64--musl--stable-2025.08-1
 
 mkdir -p "$PREFIX/bin" "$PREFIX/src"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y --no-install-recommends wget xz-utils bzip2 file
+apt-get install -y --no-install-recommends wget xz-utils bzip2 file meson ninja-build
 
 ARCH="$(uname -m)"
 case "$ARCH" in
@@ -32,17 +31,21 @@ case "$ARCH" in
         ln -sfn "/usr/include/$(gcc -print-multiarch)/asm" "$MUSL_INC/asm"
         CROSS_COMPILE=aarch64-linux-musl-
         CROSS_HOST=aarch64-linux-musl
+        # Ubuntu's libgcc.a outline-atomics init needs glibc's __getauxval, which musl lacks.
+        # The Brick's Cortex-A53 has no LSE atomics, so inline atomics lose nothing.
+        CROSS_CFLAGS="-mno-outline-atomics"
         ;;
     x86_64)
         cd "$PREFIX/src"
-        wget -q "https://toolchains.bootlin.com/downloads/releases/toolchains/aarch64/tarballs/${BOOTLIN_TARBALL}.tar.bz2"
-        tar -xf "${BOOTLIN_TARBALL}.tar.bz2" -C "$PREFIX"
-        rm -f "${BOOTLIN_TARBALL}.tar.bz2"
+        wget -q "https://toolchains.bootlin.com/downloads/releases/toolchains/aarch64/tarballs/${BOOTLIN_TARBALL}.tar.xz"
+        tar -xf "${BOOTLIN_TARBALL}.tar.xz" -C "$PREFIX"
+        rm -f "${BOOTLIN_TARBALL}.tar.xz"
         for tool in gcc ar ranlib strip; do
             ln -sf "$PREFIX/$BOOTLIN_TARBALL/bin/aarch64-buildroot-linux-musl-$tool" "$PREFIX/bin/aarch64-linux-musl-$tool"
         done
         CROSS_COMPILE=aarch64-linux-musl-
         CROSS_HOST=aarch64-buildroot-linux-musl
+        CROSS_CFLAGS=""
         ;;
     *)
         echo "Unsupported container architecture: $ARCH" >&2
@@ -56,36 +59,46 @@ AR="${CROSS_COMPILE}ar"
 RANLIB="${CROSS_COMPILE}ranlib"
 JOBS="$(nproc)"
 
-# expat: only needed so dbus's configure/daemon build succeeds; libdbus-1 itself does not use it.
-cd "$PREFIX/src"
-wget -q "https://github.com/libexpat/libexpat/releases/download/R_${EXPAT_VERSION//./_}/expat-${EXPAT_VERSION}.tar.xz"
-tar -xf "expat-${EXPAT_VERSION}.tar.xz"
-cd "expat-${EXPAT_VERSION}"
-./configure --host="$CROSS_HOST" CC="$CC" AR="$AR" RANLIB="$RANLIB" \
-    --prefix="$PREFIX/expat" --disable-shared --enable-static --without-docbook >/dev/null
-make -j"$JOBS" >/dev/null
-make install >/dev/null
+# libdbus only (message_bus=false skips the daemon, so no XML parser is needed). dbus >= 1.16 is meson-only.
+cat > "$PREFIX/meson-cross.ini" <<INI
+[binaries]
+c = '${CROSS_COMPILE}gcc'
+ar = '${CROSS_COMPILE}ar'
+strip = '${CROSS_COMPILE}strip'
+pkg-config = 'pkg-config'
+
+[built-in options]
+c_args = [$(for f in $CROSS_CFLAGS; do printf "'%s', " "$f"; done)]
+
+[host_machine]
+system = 'linux'
+cpu_family = 'aarch64'
+cpu = 'aarch64'
+endian = 'little'
+INI
 
 cd "$PREFIX/src"
 wget -q "https://dbus.freedesktop.org/releases/dbus/dbus-${DBUS_VERSION}.tar.xz"
 tar -xf "dbus-${DBUS_VERSION}.tar.xz"
 cd "dbus-${DBUS_VERSION}"
-PKG_CONFIG_PATH="$PREFIX/expat/lib/pkgconfig" \
-./configure --host="$CROSS_HOST" CC="$CC" AR="$AR" RANLIB="$RANLIB" \
-    --prefix="$PREFIX/dbus" --disable-shared --enable-static \
-    --disable-tests --disable-doxygen-docs --disable-xml-docs --disable-selinux \
-    --disable-systemd --disable-traditional-activation --without-x \
-    EXPAT_CFLAGS="-I$PREFIX/expat/include" EXPAT_LIBS="-L$PREFIX/expat/lib -lexpat" >/dev/null
-make -j"$JOBS" >/dev/null
-make install >/dev/null
+meson setup build --cross-file "$PREFIX/meson-cross.ini" \
+    --prefix="$PREFIX/dbus" --libdir=lib --buildtype=release \
+    -Ddefault_library=static -Dmessage_bus=false -Dtools=false \
+    -Dmodular_tests=disabled -Dintrusive_tests=false -Dinstalled_tests=false \
+    -Dxml_docs=disabled -Ddoxygen_docs=disabled -Dducktype_docs=disabled -Dqt_help=disabled \
+    -Dselinux=disabled -Dapparmor=disabled -Dsystemd=disabled -Dlibaudit=disabled \
+    -Dx11_autolaunch=disabled >/dev/null
+ninja -C build >/dev/null
+ninja -C build install >/dev/null
 
-rm -rf "$PREFIX/src"/expat-* "$PREFIX/src"/dbus-*
+rm -rf "$PREFIX/src"/dbus-*
 
 cat > "$PREFIX/env.sh" <<ENV
 # Sourced by scripts/cross-build.sh inside the cross container.
 export PATH="$PREFIX/bin:\$PATH"
 export CROSS_COMPILE="$CROSS_COMPILE"
 export CROSS_HOST="$CROSS_HOST"
+export CROSS_CFLAGS="$CROSS_CFLAGS"
 export CROSS_DBUS_PREFIX="$PREFIX/dbus"
 export PKG_CONFIG_PATH="$PREFIX/dbus/lib/pkgconfig:\${PKG_CONFIG_PATH:-}"
 export PLATFORM="\${PLATFORM:-tg5040}"

@@ -1,6 +1,6 @@
 {
     "name": "mesh-client",
-    "version": "0.1.0",
+    "version": "1.1.13",
     "description": "A lightweight Meshtastic client targeting the TrimUI Brick and other NextUI/MinUI devices",
     "repository": {
         "type": "git",
@@ -10,10 +10,10 @@
     "license": "SEE LICENSE IN LICENSE",
     "private": true,
     "devDependencies": {
-        "@semantic-release/changelog": "^6.0.3",
-        "@semantic-release/exec": "^6.0.3",
-        "@semantic-release/git": "^10.0.1",
-        "conventional-changelog-conventionalcommits": "^7.0.2",
-        "semantic-release": "^23.0.0"
+        "@semantic-release/changelog": "^7.0.0",
+        "@semantic-release/exec": "^7.1.0",
+        "@semantic-release/git": "^11.0.1",
+        "conventional-changelog-conventionalcommits": "^10.4.0",
+        "semantic-release": "^25.0.9"
     }
 }
