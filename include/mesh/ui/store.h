@@ -10,11 +10,13 @@ extern "C" {
 
 #define MESH_UI_MAX_DEVICES 16U
 #define MESH_UI_MAX_HANDSHAKE_NODES 16U
+#define MESH_UI_TRANSPORT_STATUS_MAX 32U
 
 enum mesh_ui_update_flag {
     MESH_UI_UPDATE_NONE = 0U,
     MESH_UI_UPDATE_DISCOVERY = 1U << 0,
     MESH_UI_UPDATE_HANDSHAKE = 1U << 1,
+    MESH_UI_UPDATE_TRANSPORT = 1U << 2,
 };
 typedef uint32_t mesh_ui_update_flags;
 
@@ -62,6 +64,9 @@ struct mesh_ui_snapshot {
     size_t device_count;
     struct mesh_ui_handshake_state handshake;
     bool handshake_valid;
+    /* Transport state ("waiting-for-bluez", "scanning", "running", ...). Rendered by the
+       backends so an empty device list is diagnosable on a device with no console. */
+    char transport_status[MESH_UI_TRANSPORT_STATUS_MAX];
     mesh_ui_update_flags update_flags;
 };
 
@@ -70,6 +75,7 @@ struct mesh_ui_store {
     size_t device_count;
     struct mesh_ui_handshake_state handshake;
     bool handshake_valid;
+    char transport_status[MESH_UI_TRANSPORT_STATUS_MAX];
     int event_fd;
     mesh_ui_update_flags pending_flags;
 };
@@ -82,6 +88,12 @@ int mesh_ui_store_event_fd(const struct mesh_ui_store *store);
 
 void mesh_ui_store_set_discovery(struct mesh_ui_store *store, const struct mesh_ui_device *devices, size_t count);
 void mesh_ui_store_set_handshake(struct mesh_ui_store *store, const struct mesh_ui_handshake_state *handshake);
+void mesh_ui_store_set_transport_status(struct mesh_ui_store *store, const char *status);
+
+/* Force the next consume_updates() to yield a snapshot even when nothing changed.
+   The setters above deliberately stay quiet when state is unchanged, so without this a
+   client that starts with no devices and no handshake would never paint a first frame. */
+void mesh_ui_store_request_refresh(struct mesh_ui_store *store);
 
 bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_snapshot *snapshot);
 

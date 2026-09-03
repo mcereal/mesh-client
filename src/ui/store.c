@@ -134,6 +134,30 @@ void mesh_ui_store_set_handshake(struct mesh_ui_store *store, const struct mesh_
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_HANDSHAKE);
 }
 
+void mesh_ui_store_set_transport_status(struct mesh_ui_store *store, const char *status) {
+    if (store == NULL) {
+        return;
+    }
+
+    char next[MESH_UI_TRANSPORT_STATUS_MAX];
+    memset(next, 0, sizeof next);
+    if (status != NULL) {
+        snprintf(next, sizeof next, "%s", status);
+    }
+
+    if (memcmp(store->transport_status, next, sizeof next) == 0) {
+        return;
+    }
+
+    memcpy(store->transport_status, next, sizeof store->transport_status);
+    mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_TRANSPORT);
+}
+
+void mesh_ui_store_request_refresh(struct mesh_ui_store *store) {
+    mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_DISCOVERY | MESH_UI_UPDATE_HANDSHAKE |
+                                        MESH_UI_UPDATE_TRANSPORT);
+}
+
 bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_snapshot *snapshot) {
     if (store == NULL || snapshot == NULL) {
         return false;
@@ -167,6 +191,8 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
     } else {
         memset(&snapshot->handshake, 0, sizeof snapshot->handshake);
     }
+
+    memcpy(snapshot->transport_status, store->transport_status, sizeof snapshot->transport_status);
 
     store->pending_flags = MESH_UI_UPDATE_NONE;
     return true;

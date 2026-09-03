@@ -74,6 +74,19 @@ for MeshClient:
   and swaps, so a partial copy never lands under the real name.
 - **Nothing on screen but the log shows discovery working:** the fb backend lost the
   framebuffer to the launcher. Exit to the Tools menu and launch the pak from there.
+- **Buttons do nothing / the client will not exit:** press MENU. The client watches every
+  `/dev/input/event*` node and quits on MENU, POWER, ESC, SELECT or BTN_MODE. If none of those
+  work, the Brick reports different codes: every press is logged to `MeshClient.txt` as
+  `(input): key code N pressed`, so run the pak, press the button you want, read the code out
+  of the log, and set it in `launch.sh`:
+
+  ```sh
+  export MESHCLIENT_QUIT_KEYS="139,316"   # comma-separated evdev codes; replaces the defaults
+  ```
+
+  If the log says `No readable /dev/input devices`, nothing can quit the client from the
+  device and a power cycle is the only way out - report that, it means the pak is not seeing
+  the Brick's input nodes at all.
 - **Transfers are slow:** the pak is small (well under 5 MB), so a push should take a few
   seconds. If it stalls, the Brick has dropped WiFi; NextUI's deep sleep turns the radio off, so
   keep the device awake while pushing.

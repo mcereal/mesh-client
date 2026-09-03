@@ -162,8 +162,13 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
 
     struct mesh_transport *ble = mesh_ble_transport();
     if (ble == NULL) {
+        mesh_ui_store_set_transport_status(&app->ui_store, "unavailable");
         return;
     }
+
+    const char *transport_status =
+        (ble->ops != NULL && ble->ops->status != NULL) ? ble->ops->status(ble) : NULL;
+    mesh_ui_store_set_transport_status(&app->ui_store, transport_status != NULL ? transport_status : "unknown");
 
     struct mesh_bluez_device_info ble_devices[MESH_UI_MAX_DEVICES];
     size_t device_count = mesh_ble_transport_get_devices(ble, ble_devices, MESH_UI_MAX_DEVICES);
@@ -325,6 +330,9 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
 
     memset(&app->ui_minui_context, 0, sizeof app->ui_minui_context);
     memset(&app->ui_fb_context, 0, sizeof app->ui_fb_context);
+    memset(&app->ui_input, 0, sizeof app->ui_input);
+    memset(&app->signals, 0, sizeof app->signals);
+    app->signals.fd = -1;
     memset(&app->ui_preferences, 0, sizeof(app->ui_preferences));
     app->ui_preferences_path[0] = '\0';
     app->ui_preferences_dirty = false;
@@ -397,6 +405,8 @@ void mesh_app_shutdown(struct mesh_app *app) {
     }
 
     mesh_transport_registry_stop_all(&app->transport_registry);
+    mesh_ui_input_shutdown(&app->ui_input);
+    mesh_signals_shutdown(&app->signals);
     mesh_ui_controller_shutdown(&app->ui_controller);
     if (app->ui_handshake_cache_path[0] != '\0') {
         mesh_ui_store_save(&app->ui_store, app->ui_handshake_cache_path);
@@ -419,6 +429,12 @@ int mesh_app_run(struct mesh_app *app) {
     if (result < 0) {
         return result;
     }
+
+    /* Only the interactive run takes these over: --status and --list-devices stay plain CLI
+       tools that Ctrl-C kills outright. Neither is fatal if it fails - a client that cannot
+       read buttons is still better than no client. */
+    mesh_signals_init(&app->signals, &app->loop);
+    mesh_ui_input_init(&app->ui_input, &app->loop);
 
     mesh_app_publish_ui_state(app);
 
@@ -460,5 +476,8 @@ int mesh_app_run(struct mesh_app *app) {
 
     mesh_transport_registry_stop_all(&app->transport_registry);
     mesh_app_publish_ui_state(app);
+
+    mesh_ui_input_shutdown(&app->ui_input);
+    mesh_signals_shutdown(&app->signals);
     return result;
 }

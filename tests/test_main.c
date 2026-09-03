@@ -9,6 +9,7 @@
 #include "mesh/ui/backends/minui.h"
 #include "mesh/ui/backends/stub.h"
 #include "mesh/ui/controller.h"
+#include "mesh/ui/input.h"
 #include "mesh/ui/store.h"
 #include "mesh/ui/preferences.h"
 
@@ -21,6 +22,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <linux/input.h>
 #include <stdlib.h>
 #include <unistd.h>
 
@@ -1025,6 +1027,130 @@ static void test_proto_frame_encode_decode(void) {
     record_success(test_name);
 }
 
+/* Regression: the store deliberately stays quiet when nothing changed, so a client that
+   comes up with no devices and no handshake never got a snapshot - and the framebuffer
+   backend never painted, leaving a black screen on the device. */
+static void test_ui_store_refresh_request(void) {
+    const char *test_name = "ui_store_refresh_request";
+
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        record_failure(test_name, "store init failed");
+        return;
+    }
+
+    struct mesh_ui_snapshot snapshot;
+
+    /* An untouched store publishes nothing: this is the black-screen condition. */
+    mesh_ui_store_set_discovery(&store, NULL, 0U);
+    if (mesh_ui_store_consume_updates(&store, &snapshot)) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "empty discovery should not signal an update");
+        return;
+    }
+
+    mesh_ui_store_request_refresh(&store);
+    if (!mesh_ui_store_consume_updates(&store, &snapshot)) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "refresh request should yield a snapshot");
+        return;
+    }
+
+    if (snapshot.device_count != 0U || snapshot.handshake_valid) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "refreshed snapshot should report an empty state");
+        return;
+    }
+
+    /* And the refresh is one-shot, not a permanently dirty store. */
+    if (mesh_ui_store_consume_updates(&store, &snapshot)) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "refresh should be consumed exactly once");
+        return;
+    }
+
+    mesh_ui_store_set_transport_status(&store, "waiting-for-bluez");
+    if (!mesh_ui_store_consume_updates(&store, &snapshot)) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "transport status change should signal an update");
+        return;
+    }
+
+    if ((snapshot.update_flags & MESH_UI_UPDATE_TRANSPORT) == 0U ||
+        strcmp(snapshot.transport_status, "waiting-for-bluez") != 0) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "transport status not reflected in snapshot");
+        return;
+    }
+
+    mesh_ui_store_set_transport_status(&store, "waiting-for-bluez");
+    if (mesh_ui_store_consume_updates(&store, &snapshot)) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "duplicate transport status should not signal");
+        return;
+    }
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/* The device has no console, so the quit mapping has to be correctable from launch.sh
+   without a rebuild. */
+static void test_ui_input_quit_keys(void) {
+    const char *test_name = "ui_input_quit_keys";
+
+    unsetenv("MESHCLIENT_QUIT_KEYS");
+    mesh_ui_input_reload_quit_keys();
+
+    if (!mesh_ui_input_is_quit_key(KEY_MENU) || !mesh_ui_input_is_quit_key(KEY_ESC)) {
+        record_failure(test_name, "default quit keys should include MENU and ESC");
+        return;
+    }
+
+    /* BTN_START stays free for the menu work still to come. */
+    if (mesh_ui_input_is_quit_key(BTN_START)) {
+        record_failure(test_name, "BTN_START should not quit by default");
+        return;
+    }
+
+    if (mesh_ui_input_quit_hint() == NULL || mesh_ui_input_quit_hint()[0] == '\0') {
+        record_failure(test_name, "quit hint should not be empty");
+        return;
+    }
+
+    setenv("MESHCLIENT_QUIT_KEYS", "300, 301", 1);
+    mesh_ui_input_reload_quit_keys();
+
+    if (!mesh_ui_input_is_quit_key(300U) || !mesh_ui_input_is_quit_key(301U)) {
+        unsetenv("MESHCLIENT_QUIT_KEYS");
+        mesh_ui_input_reload_quit_keys();
+        record_failure(test_name, "override should install the listed codes");
+        return;
+    }
+
+    if (mesh_ui_input_is_quit_key(KEY_MENU)) {
+        unsetenv("MESHCLIENT_QUIT_KEYS");
+        mesh_ui_input_reload_quit_keys();
+        record_failure(test_name, "override should replace the defaults, not extend them");
+        return;
+    }
+
+    /* A garbage override must fall back rather than leave nothing able to quit. */
+    setenv("MESHCLIENT_QUIT_KEYS", "not-a-code", 1);
+    mesh_ui_input_reload_quit_keys();
+    if (!mesh_ui_input_is_quit_key(KEY_MENU)) {
+        unsetenv("MESHCLIENT_QUIT_KEYS");
+        mesh_ui_input_reload_quit_keys();
+        record_failure(test_name, "unparseable override should fall back to defaults");
+        return;
+    }
+
+    unsetenv("MESHCLIENT_QUIT_KEYS");
+    mesh_ui_input_reload_quit_keys();
+    record_success(test_name);
+}
+
+
 struct test_case {
     const char *name;
     const char *category;
@@ -1040,6 +1166,8 @@ static const struct test_case k_test_cases[] = {
     {"ble_transport_connect_mock", "unit", test_ble_transport_connect_mock},
     {"ui_store_basic", "unit", test_ui_store_basic},
     {"ui_store_persistence", "unit", test_ui_store_persistence},
+    {"ui_store_refresh_request", "unit", test_ui_store_refresh_request},
+    {"ui_input_quit_keys", "unit", test_ui_input_quit_keys},
     {"ui_controller_dispatch", "unit", test_ui_controller_dispatch},
     {"ui_preferences_roundtrip", "unit", test_ui_preferences_roundtrip},
     {"minui_format_menu", "unit", test_minui_format_menu},

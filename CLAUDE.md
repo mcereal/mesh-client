@@ -12,7 +12,10 @@ still applies; this file adds what's not obvious from it.
 ## Commands
 
 **The core is Linux-only** (`epoll`, `timerfd`, `eventfd`). This repo is developed on macOS, so
-build and test through the containers. `make docker-*` wraps `scripts/docker.sh`, which builds the
+build and test through the containers. On a Linux host (including a Claude Code on the web
+session) `make setup` provisions the same prerequisites natively and the plain `make debug` /
+`make test` targets work directly - no Docker needed; the `.claude/hooks/session-start.sh`
+SessionStart hook runs that setup automatically for remote sessions. `make docker-*` wraps `scripts/docker.sh`, which builds the
 image from `docker/Dockerfile` on first use and bind-mounts the repo at `/src`. Container builds
 use `BUILD_ROOT=build/linux` so outputs land in `build/linux/{debug,release}`.
 
@@ -122,5 +125,5 @@ via Python3 (needs `pip install protobuf grpcio-tools`).
 One harness, `tests/test_main.c`, with a `k_test_cases` table tagged by category (`unit` today;
 `integration`/`hardware` reserved). Register new cases in that table; use
 `record_failure`/`record_success`. Tests must not touch real BlueZ — use the bluez mock. New
-CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-03: 13 unit tests, all passing in
+CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-03: 15 unit tests, all passing in
 the dev container with zero compiler warnings.

@@ -71,6 +71,11 @@ int mesh_ui_controller_init(struct mesh_ui_controller *controller, struct mesh_u
         controller->registered = true;
     }
 
+    /* The store only signals on change, so a client that comes up with no devices and no
+       handshake would sit on an unpainted screen indefinitely. Ask for one snapshot now so
+       the backend draws a frame as soon as the loop runs. */
+    mesh_ui_store_request_refresh(store);
+
     return 0;
 }
 
