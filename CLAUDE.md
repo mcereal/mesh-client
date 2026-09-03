@@ -99,7 +99,11 @@ via Python3 (needs `pip install protobuf grpcio-tools`).
   Recent history is almost entirely `fix:` commits, each producing a release.
 - The release workflow rewrites `project(meshclient VERSION x.y.z ...)` in `CMakeLists.txt` with
   `sed`. Do not change that line's shape and do not bump it by hand. `package.json` version is
-  unused.
+  unused. Keep `conventional-changelog-conventionalcommits` on 9.x until semantic-release's
+  notes generator ships `conventional-changelog-writer` 9; 10.x fails `generateNotes` with
+  "Missing helper" (Dependabot is told to ignore it). Local dry runs need Node 24.10+, e.g.
+  `docker run --rm -v "$PWD":/src -w /src -e GITHUB_TOKEN=$(gh auth token) node:24 bash -c
+  'npm install && npx semantic-release --dry-run --branches <pushed-branch>'`.
 - Release builds cross-compile with the Bootlin `aarch64--musl` toolchain and statically link a
   from-source libdbus built with meson and `message_bus=false` (library only, no daemon, no expat);
   see `.github/workflows/semantic-release.yml`. CI (`ci.yml`) is host-only gcc/clang on
