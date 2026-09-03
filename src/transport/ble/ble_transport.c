@@ -34,7 +34,8 @@
 /* Transient ReadValue failures are retried with exponential backoff, then the link is dropped. */
 #define MESH_BLE_DRAIN_RETRY_BASE_MS 250U
 #define MESH_BLE_DRAIN_MAX_FAILURES 5U
-/* Device-list refresh from tick() is rate limited; the 5 s timerfd is the steady-state refresher. */
+/* Device-list refresh from tick() is rate limited; the 5 s timerfd is the steady-state refresher.
+ */
 #define MESH_BLE_TICK_REFRESH_MIN_MS 1000U
 
 enum mesh_ble_state {
@@ -73,7 +74,7 @@ struct mesh_ble_transport_state {
     char connected_address[32];
     char connected_device_path[128];
     bool notifications_enabled;
-    bool drain_pending;       /* more FromRadio packets may be waiting */
+    bool drain_pending;         /* more FromRadio packets may be waiting */
     uint64_t drain_retry_at_ms; /* earliest time to run the pending drain (0 = now) */
     unsigned drain_failures;    /* consecutive ReadValue failures */
     bool node_cache_warned;
@@ -89,16 +90,16 @@ struct mesh_ble_transport_state {
 
 static const char *mesh_ble_state_to_string(enum mesh_ble_state state) {
     switch (state) {
-        case MESH_BLE_STATE_DISABLED:
-            return "disabled";
-        case MESH_BLE_STATE_IDLE:
-            return "inactive";
-        case MESH_BLE_STATE_WAITING_FOR_BLUEZ:
-            return "waiting-for-bluez";
-        case MESH_BLE_STATE_WAITING_FOR_ADAPTER:
-            return "waiting-for-adapter";
-        case MESH_BLE_STATE_READY:
-            return "running";
+    case MESH_BLE_STATE_DISABLED:
+        return "disabled";
+    case MESH_BLE_STATE_IDLE:
+        return "inactive";
+    case MESH_BLE_STATE_WAITING_FOR_BLUEZ:
+        return "waiting-for-bluez";
+    case MESH_BLE_STATE_WAITING_FOR_ADAPTER:
+        return "waiting-for-adapter";
+    case MESH_BLE_STATE_READY:
+        return "running";
     }
     return "unknown";
 }
@@ -106,11 +107,14 @@ static const char *mesh_ble_state_to_string(enum mesh_ble_state state) {
 static size_t mesh_ble_refresh_devices_internal(struct mesh_transport *transport);
 static void mesh_ble_reset_handshake(struct mesh_ble_transport_state *state);
 static int mesh_ble_begin_handshake(struct mesh_ble_transport_state *state);
-static void mesh_ble_handle_from_radio(struct mesh_ble_transport_state *state, const uint8_t *payload, size_t len);
-static void mesh_ble_store_node_summary(struct mesh_ble_transport_state *state, const meshtastic_NodeInfo *info);
+static void mesh_ble_handle_from_radio(struct mesh_ble_transport_state *state,
+                                       const uint8_t *payload, size_t len);
+static void mesh_ble_store_node_summary(struct mesh_ble_transport_state *state,
+                                        const meshtastic_NodeInfo *info);
 static void mesh_ble_handle_log_record(const meshtastic_LogRecord *record);
 static void mesh_ble_clear_write_queue(struct mesh_ble_transport_state *state);
-static int mesh_ble_queue_packet(struct mesh_ble_transport_state *state, const uint8_t *packet, size_t len);
+static int mesh_ble_queue_packet(struct mesh_ble_transport_state *state, const uint8_t *packet,
+                                 size_t len);
 static void mesh_ble_flush_write_queue(struct mesh_ble_transport_state *state);
 static void mesh_ble_drain_from_radio(struct mesh_ble_transport_state *state);
 static void mesh_ble_schedule_drain(struct mesh_ble_transport_state *state, uint64_t delay_ms);
@@ -167,7 +171,8 @@ static int mesh_ble_drain_wake_callback(int fd, uint32_t events, void *userdata)
     return 0;
 }
 
-static int mesh_ble_setup_drain_wake(struct mesh_transport *transport, struct mesh_ble_transport_state *state,
+static int mesh_ble_setup_drain_wake(struct mesh_transport *transport,
+                                     struct mesh_ble_transport_state *state,
                                      struct mesh_event_loop *loop) {
     if (loop == NULL) {
         return 0;
@@ -177,7 +182,8 @@ static int mesh_ble_setup_drain_wake(struct mesh_transport *transport, struct me
         mesh_log_warn("ble", "eventfd create failed: %s", strerror(errno));
         return -errno;
     }
-    int add_result = mesh_event_loop_add_fd(loop, state->drain_wake_fd, EPOLLIN, mesh_ble_drain_wake_callback, transport);
+    int add_result = mesh_event_loop_add_fd(loop, state->drain_wake_fd, EPOLLIN,
+                                            mesh_ble_drain_wake_callback, transport);
     if (add_result < 0) {
         mesh_log_warn("ble", "Failed to add drain wake fd: %d", add_result);
         close(state->drain_wake_fd);
@@ -224,7 +230,8 @@ static int mesh_ble_refresh_timer_callback(int fd, uint32_t events, void *userda
     return 0;
 }
 
-static int mesh_ble_setup_refresh_timer(struct mesh_transport *transport, struct mesh_ble_transport_state *state,
+static int mesh_ble_setup_refresh_timer(struct mesh_transport *transport,
+                                        struct mesh_ble_transport_state *state,
                                         struct mesh_event_loop *loop) {
     if (loop == NULL) {
         return 0;
@@ -247,8 +254,8 @@ static int mesh_ble_setup_refresh_timer(struct mesh_transport *transport, struct
         return -errno;
     }
 
-    int add_result = mesh_event_loop_add_fd(loop, state->refresh_timer_fd, EPOLLIN, mesh_ble_refresh_timer_callback,
-                                            transport);
+    int add_result = mesh_event_loop_add_fd(loop, state->refresh_timer_fd, EPOLLIN,
+                                            mesh_ble_refresh_timer_callback, transport);
     if (add_result < 0) {
         mesh_log_warn("ble", "Failed to add refresh timer fd: %d", add_result);
         close(state->refresh_timer_fd);
@@ -297,7 +304,8 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     state->bytes_received = 0U;
     /*
      * want_config_id is a nonce: the node echoes it back in config_complete_id. A per-process seed
-     * keeps a stale completion left in the node's FIFO by a previous session from ending ours early.
+     * keeps a stale completion left in the node's FIFO by a previous session from ending ours
+     * early.
      */
     state->next_config_request_id = (uint32_t)time(NULL) ^ ((uint32_t)getpid() << 16);
     if (state->next_config_request_id == 0U) {
@@ -315,7 +323,8 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     const int init_result = mesh_bluez_client_init(&state->bluez);
     if (init_result < 0) {
         if (init_result == -ENOSYS) {
-            mesh_log_warn("ble", "BLE transport built without D-Bus support; skipping BlueZ startup");
+            mesh_log_warn("ble",
+                          "BLE transport built without D-Bus support; skipping BlueZ startup");
             state->state = MESH_BLE_STATE_IDLE;
             return 0;
         }
@@ -353,7 +362,8 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     }
 
     char adapter_path[sizeof(state->adapter_path)];
-    int adapter_result = mesh_bluez_client_find_adapter(&state->bluez, adapter_path, sizeof(adapter_path));
+    int adapter_result =
+        mesh_bluez_client_find_adapter(&state->bluez, adapter_path, sizeof(adapter_path));
     if (adapter_result < 0) {
         if (adapter_result == -ENODEV) {
             mesh_log_warn("ble", "No BlueZ adapters available; waiting for device");
@@ -392,7 +402,8 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
 
     state->state = MESH_BLE_STATE_READY;
     if (config->preferred_ble_device[0] != '\0') {
-        mesh_log_info("ble", "Attempting to connect to preferred device '%s'", config->preferred_ble_device);
+        mesh_log_info("ble", "Attempting to connect to preferred device '%s'",
+                      config->preferred_ble_device);
     } else {
         mesh_log_info("ble", "Scanning for Meshtastic nodes via %s", state->adapter_path);
     }
@@ -451,7 +462,8 @@ static const char *mesh_ble_status(const struct mesh_transport *transport) {
         return "unknown";
     }
 
-    const struct mesh_ble_transport_state *state = (const struct mesh_ble_transport_state *)transport->state;
+    const struct mesh_ble_transport_state *state =
+        (const struct mesh_ble_transport_state *)transport->state;
     return mesh_ble_state_to_string(state->state);
 }
 
@@ -462,8 +474,8 @@ static const struct mesh_transport_ops k_ble_ops = {
     .tick = mesh_ble_tick,
 };
 
-static bool mesh_ble_format_device_path(const struct mesh_ble_transport_state *state, const char *address,
-                                        char *out_path, size_t out_len) {
+static bool mesh_ble_format_device_path(const struct mesh_ble_transport_state *state,
+                                        const char *address, char *out_path, size_t out_len) {
     if (state->adapter_path[0] == '\0' || address == NULL || out_path == NULL) {
         return false;
     }
@@ -478,8 +490,8 @@ static bool mesh_ble_format_device_path(const struct mesh_ble_transport_state *s
     return true;
 }
 
-size_t mesh_ble_transport_get_devices(struct mesh_transport *transport, struct mesh_bluez_device_info *out,
-                                      size_t capacity) {
+size_t mesh_ble_transport_get_devices(struct mesh_transport *transport,
+                                      struct mesh_bluez_device_info *out, size_t capacity) {
     if (transport == NULL || out == NULL || capacity == 0U) {
         return 0U;
     }
@@ -495,7 +507,8 @@ size_t mesh_ble_transport_get_devices(struct mesh_transport *transport, struct m
     return to_copy;
 }
 
-const struct mesh_bluez_device_info *mesh_ble_transport_devices(struct mesh_transport *transport, size_t *count) {
+const struct mesh_bluez_device_info *mesh_ble_transport_devices(struct mesh_transport *transport,
+                                                                size_t *count) {
     if (transport == NULL || count == NULL) {
         if (count != NULL) {
             *count = 0U;
@@ -515,9 +528,9 @@ static size_t mesh_ble_refresh_devices_internal(struct mesh_transport *transport
 
     struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
     size_t device_count = 0;
-    int list_result = mesh_bluez_client_list_meshtastic(&state->bluez, state->devices,
-                                                        sizeof(state->devices) / sizeof(state->devices[0]),
-                                                        &device_count);
+    int list_result = mesh_bluez_client_list_meshtastic(
+        &state->bluez, state->devices, sizeof(state->devices) / sizeof(state->devices[0]),
+        &device_count);
     if (list_result < 0) {
         mesh_log_debug("ble", "Device enumeration failed: %s", strerror(-list_result));
         state->device_count = 0;
@@ -529,8 +542,8 @@ static size_t mesh_ble_refresh_devices_internal(struct mesh_transport *transport
     }
     state->device_count = device_count;
     for (size_t i = 0; i < state->device_count; ++i) {
-        mesh_log_debug("ble", "  %s (%s) RSSI=%d", state->devices[i].name, state->devices[i].address,
-                       (int)state->devices[i].rssi);
+        mesh_log_debug("ble", "  %s (%s) RSSI=%d", state->devices[i].name,
+                       state->devices[i].address, (int)state->devices[i].rssi);
     }
     return state->device_count;
 }
@@ -562,8 +575,8 @@ static void mesh_ble_flush_write_queue(struct mesh_ble_transport_state *state) {
     while (state->write_queue_len > 0U) {
         struct mesh_ble_outbound_packet *packet = &state->write_queue[state->write_queue_head];
 
-        int result = mesh_bluez_client_write(&state->bluez, state->chars.toradio_path, MESH_BLE_TORADIO_UUID,
-                                             packet->data, packet->length);
+        int result = mesh_bluez_client_write(&state->bluez, state->chars.toradio_path,
+                                             MESH_BLE_TORADIO_UUID, packet->data, packet->length);
         if (result < 0) {
             mesh_log_warn("ble", "ToRadio write failed: %d", result);
             mesh_ble_clear_write_queue(state);
@@ -575,7 +588,8 @@ static void mesh_ble_flush_write_queue(struct mesh_ble_transport_state *state) {
     }
 }
 
-static int mesh_ble_queue_packet(struct mesh_ble_transport_state *state, const uint8_t *packet, size_t len) {
+static int mesh_ble_queue_packet(struct mesh_ble_transport_state *state, const uint8_t *packet,
+                                 size_t len) {
     if (state == NULL || packet == NULL || len == 0U) {
         return -EINVAL;
     }
@@ -591,7 +605,8 @@ static int mesh_ble_queue_packet(struct mesh_ble_transport_state *state, const u
         return -ENOSPC;
     }
 
-    size_t index = (state->write_queue_head + state->write_queue_len) % MESH_BLE_MAX_OUTBOUND_PACKETS;
+    size_t index =
+        (state->write_queue_head + state->write_queue_len) % MESH_BLE_MAX_OUTBOUND_PACKETS;
     struct mesh_ble_outbound_packet *slot = &state->write_queue[index];
     slot->length = len;
     memcpy(slot->data, packet, len);
@@ -601,7 +616,8 @@ static int mesh_ble_queue_packet(struct mesh_ble_transport_state *state, const u
     return 0;
 }
 
-static void mesh_ble_store_node_summary(struct mesh_ble_transport_state *state, const meshtastic_NodeInfo *info) {
+static void mesh_ble_store_node_summary(struct mesh_ble_transport_state *state,
+                                        const meshtastic_NodeInfo *info) {
     if (state == NULL || info == NULL) {
         return;
     }
@@ -663,28 +679,29 @@ static void mesh_ble_handle_log_record(const meshtastic_LogRecord *record) {
     const char *component = "ble.log";
 
     switch (record->level) {
-        case meshtastic_LogRecord_Level_CRITICAL:
-        case meshtastic_LogRecord_Level_ERROR:
-            mesh_log_error(component, "%s", message);
-            break;
-        case meshtastic_LogRecord_Level_WARNING:
-            mesh_log_warn(component, "%s", message);
-            break;
-        case meshtastic_LogRecord_Level_INFO:
-            mesh_log_info(component, "%s", message);
-            break;
-        case meshtastic_LogRecord_Level_DEBUG:
-            mesh_log_debug(component, "%s", message);
-            break;
-        case meshtastic_LogRecord_Level_TRACE:
-        case meshtastic_LogRecord_Level_UNSET:
-        default:
-            mesh_log_trace(component, "%s", message);
-            break;
+    case meshtastic_LogRecord_Level_CRITICAL:
+    case meshtastic_LogRecord_Level_ERROR:
+        mesh_log_error(component, "%s", message);
+        break;
+    case meshtastic_LogRecord_Level_WARNING:
+        mesh_log_warn(component, "%s", message);
+        break;
+    case meshtastic_LogRecord_Level_INFO:
+        mesh_log_info(component, "%s", message);
+        break;
+    case meshtastic_LogRecord_Level_DEBUG:
+        mesh_log_debug(component, "%s", message);
+        break;
+    case meshtastic_LogRecord_Level_TRACE:
+    case meshtastic_LogRecord_Level_UNSET:
+    default:
+        mesh_log_trace(component, "%s", message);
+        break;
     }
 }
 
-static void mesh_ble_handle_from_radio(struct mesh_ble_transport_state *state, const uint8_t *payload, size_t len) {
+static void mesh_ble_handle_from_radio(struct mesh_ble_transport_state *state,
+                                       const uint8_t *payload, size_t len) {
     if (state == NULL || payload == NULL || len == 0U) {
         return;
     }
@@ -697,39 +714,41 @@ static void mesh_ble_handle_from_radio(struct mesh_ble_transport_state *state, c
     }
 
     switch (message.which_payload_variant) {
-        case meshtastic_FromRadio_my_info_tag:
-            state->handshake.has_my_info = true;
-            state->handshake.my_info = message.my_info;
-            mesh_log_info("ble", "MyNodeInfo: node=%u, node_count=%u", message.my_info.my_node_num,
-                          message.my_info.nodedb_count);
-            break;
-        case meshtastic_FromRadio_node_info_tag:
-            mesh_ble_store_node_summary(state, &message.node_info);
-            break;
-        case meshtastic_FromRadio_config_tag:
-            state->handshake.has_config = true;
-            state->handshake.config = message.config;
-            mesh_log_debug("ble", "Received config fragment");
-            break;
-        case meshtastic_FromRadio_config_complete_id_tag:
-            state->handshake.config_complete_id = message.config_complete_id;
-            if (state->handshake.request_in_flight &&
-                message.config_complete_id == state->handshake.request_id) {
-                state->handshake.request_in_flight = false;
-                state->handshake.config_complete = true;
-                mesh_log_info("ble", "Config sync complete for request %u", message.config_complete_id);
-            } else {
-                mesh_log_debug("ble", "Received config_complete_id=%u (pending=%s request=%u)",
-                               message.config_complete_id, state->handshake.request_in_flight ? "yes" : "no",
-                               state->handshake.request_id);
-            }
-            break;
-        case meshtastic_FromRadio_log_record_tag:
-            mesh_ble_handle_log_record(&message.log_record);
-            break;
-        default:
-            mesh_log_debug("ble", "Ignoring FromRadio payload tag %" PRIu32, (uint32_t)message.which_payload_variant);
-            break;
+    case meshtastic_FromRadio_my_info_tag:
+        state->handshake.has_my_info = true;
+        state->handshake.my_info = message.my_info;
+        mesh_log_info("ble", "MyNodeInfo: node=%u, node_count=%u", message.my_info.my_node_num,
+                      message.my_info.nodedb_count);
+        break;
+    case meshtastic_FromRadio_node_info_tag:
+        mesh_ble_store_node_summary(state, &message.node_info);
+        break;
+    case meshtastic_FromRadio_config_tag:
+        state->handshake.has_config = true;
+        state->handshake.config = message.config;
+        mesh_log_debug("ble", "Received config fragment");
+        break;
+    case meshtastic_FromRadio_config_complete_id_tag:
+        state->handshake.config_complete_id = message.config_complete_id;
+        if (state->handshake.request_in_flight &&
+            message.config_complete_id == state->handshake.request_id) {
+            state->handshake.request_in_flight = false;
+            state->handshake.config_complete = true;
+            mesh_log_info("ble", "Config sync complete for request %u", message.config_complete_id);
+        } else {
+            mesh_log_debug("ble", "Received config_complete_id=%u (pending=%s request=%u)",
+                           message.config_complete_id,
+                           state->handshake.request_in_flight ? "yes" : "no",
+                           state->handshake.request_id);
+        }
+        break;
+    case meshtastic_FromRadio_log_record_tag:
+        mesh_ble_handle_log_record(&message.log_record);
+        break;
+    default:
+        mesh_log_debug("ble", "Ignoring FromRadio payload tag %" PRIu32,
+                       (uint32_t)message.which_payload_variant);
+        break;
     }
 }
 
@@ -785,8 +804,8 @@ static int mesh_ble_begin_handshake(struct mesh_ble_transport_state *state) {
  * empty value once the FIFO is drained; FromNum only tells us that there is something to read.
  */
 static void mesh_ble_drain_from_radio(struct mesh_ble_transport_state *state) {
-    if (state == NULL || !state->client_initialised || state->link_state != MESH_BLE_LINK_CONNECTED ||
-        state->chars.fromradio_path[0] == '\0') {
+    if (state == NULL || !state->client_initialised ||
+        state->link_state != MESH_BLE_LINK_CONNECTED || state->chars.fromradio_path[0] == '\0') {
         return;
     }
 
@@ -795,7 +814,8 @@ static void mesh_ble_drain_from_radio(struct mesh_ble_transport_state *state) {
     uint8_t packet[MESH_BLE_MAX_PACKET_SIZE];
     for (size_t i = 0; i < MESH_BLE_READS_PER_TURN; ++i) {
         size_t len = 0U;
-        int result = mesh_bluez_client_read(&state->bluez, state->chars.fromradio_path, packet, sizeof(packet), &len);
+        int result = mesh_bluez_client_read(&state->bluez, state->chars.fromradio_path, packet,
+                                            sizeof(packet), &len);
         if (result < 0) {
             state->drain_failures += 1U;
             if (state->drain_failures >= MESH_BLE_DRAIN_MAX_FAILURES) {
@@ -806,7 +826,8 @@ static void mesh_ble_drain_from_radio(struct mesh_ble_transport_state *state) {
             }
             /* The FromNum notification already told us a packet is waiting; do not lose it. */
             uint64_t delay = (uint64_t)MESH_BLE_DRAIN_RETRY_BASE_MS << (state->drain_failures - 1U);
-            mesh_log_warn("ble", "FromRadio read failed (%d); retrying in %" PRIu64 " ms", result, delay);
+            mesh_log_warn("ble", "FromRadio read failed (%d); retrying in %" PRIu64 " ms", result,
+                          delay);
             mesh_ble_schedule_drain(state, delay);
             return;
         }
@@ -835,7 +856,8 @@ static void mesh_ble_notification_handler(const uint8_t *data, size_t len, void 
         return;
     }
 
-    /* FromNum carries a little-endian uint32 packet counter; the value itself is only informative. */
+    /* FromNum carries a little-endian uint32 packet counter; the value itself is only informative.
+     */
     uint32_t from_num = 0U;
     for (size_t i = 0; i < len && i < 4U; ++i) {
         from_num |= (uint32_t)data[i] << (8U * i);
@@ -862,7 +884,8 @@ int mesh_ble_transport_connect(struct mesh_transport *transport, const char *add
         return -EAGAIN;
     }
 
-    if (state->link_state == MESH_BLE_LINK_CONNECTED && strcmp(state->connected_address, address) == 0) {
+    if (state->link_state == MESH_BLE_LINK_CONNECTED &&
+        strcmp(state->connected_address, address) == 0) {
         return -EALREADY;
     }
 
@@ -893,7 +916,8 @@ int mesh_ble_transport_connect(struct mesh_transport *transport, const char *add
     struct mesh_bluez_meshtastic_chars chars;
     result = mesh_bluez_client_find_meshtastic_characteristics(&state->bluez, device_path, &chars);
     if (result < 0) {
-        mesh_log_warn("ble", "%s does not expose the Meshtastic service characteristics (%d)", address, result);
+        mesh_log_warn("ble", "%s does not expose the Meshtastic service characteristics (%d)",
+                      address, result);
         mesh_bluez_client_disconnect(&state->bluez, device_path);
         state->link_state = MESH_BLE_LINK_DISCONNECTED;
         return result;
@@ -968,7 +992,8 @@ int mesh_ble_transport_disconnect(struct mesh_transport *transport) {
     if (result < 0) {
         return result;
     }
-    state->connected_device_path[0] = '\0'; /* already disconnected; reset_link must not repeat it */
+    state->connected_device_path[0] =
+        '\0'; /* already disconnected; reset_link must not repeat it */
     mesh_ble_reset_link(state, "requested");
     return 0;
 }
@@ -979,7 +1004,8 @@ struct mesh_ble_transport_stats mesh_ble_transport_stats(struct mesh_transport *
         return stats;
     }
 
-    const struct mesh_ble_transport_state *state = (const struct mesh_ble_transport_state *)transport->state;
+    const struct mesh_ble_transport_state *state =
+        (const struct mesh_ble_transport_state *)transport->state;
     stats.frames_received = state->frames_received;
     stats.bytes_received = state->bytes_received;
     return stats;
@@ -990,14 +1016,16 @@ const char *mesh_ble_transport_connected_address(struct mesh_transport *transpor
         return NULL;
     }
 
-    const struct mesh_ble_transport_state *state = (const struct mesh_ble_transport_state *)transport->state;
+    const struct mesh_ble_transport_state *state =
+        (const struct mesh_ble_transport_state *)transport->state;
     if (state->link_state != MESH_BLE_LINK_CONNECTED || state->connected_address[0] == '\0') {
         return NULL;
     }
     return state->connected_address;
 }
 
-int mesh_ble_transport_send_packet(struct mesh_transport *transport, const uint8_t *packet, size_t len) {
+int mesh_ble_transport_send_packet(struct mesh_transport *transport, const uint8_t *packet,
+                                   size_t len) {
     if (transport == NULL || transport->state == NULL) {
         return -EINVAL;
     }
@@ -1009,7 +1037,8 @@ int mesh_ble_transport_send_packet(struct mesh_transport *transport, const uint8
     return mesh_ble_queue_packet(state, packet, len);
 }
 
-struct mesh_ble_handshake_status mesh_ble_transport_handshake_status(struct mesh_transport *transport) {
+struct mesh_ble_handshake_status
+mesh_ble_transport_handshake_status(struct mesh_transport *transport) {
     struct mesh_ble_handshake_status status;
     memset(&status, 0, sizeof(status));
 

@@ -67,7 +67,8 @@ void mesh_app_config_apply_env_overrides(struct mesh_app_config *config) {
         lowercase(value);
         if (strcmp(value, "1") == 0 || strcmp(value, "true") == 0 || strcmp(value, "yes") == 0) {
             config->enable_ble = false;
-        } else if (strcmp(value, "0") == 0 || strcmp(value, "false") == 0 || strcmp(value, "no") == 0) {
+        } else if (strcmp(value, "0") == 0 || strcmp(value, "false") == 0 ||
+                   strcmp(value, "no") == 0) {
             config->enable_ble = true;
         } else {
             mesh_log_warn("config", "Unknown boolean '%s', keeping BLE %s", disable_ble_env,
@@ -77,7 +78,8 @@ void mesh_app_config_apply_env_overrides(struct mesh_app_config *config) {
 
     const char *preferred_env = getenv("MESHCLIENT_PREFERRED_BLE_DEVICE");
     if (preferred_env != NULL) {
-        strncpy(config->preferred_ble_device, preferred_env, sizeof(config->preferred_ble_device) - 1U);
+        strncpy(config->preferred_ble_device, preferred_env,
+                sizeof(config->preferred_ble_device) - 1U);
         config->preferred_ble_device[sizeof(config->preferred_ble_device) - 1U] = '\0';
     }
 }

@@ -2,9 +2,9 @@ BasedOnStyle: LLVM
 IndentWidth: 4
 ColumnLimit: 100
 UseTab: Never
-AlignConsecutiveAssignments: true
+AlignConsecutiveAssignments: false
 AllowShortIfStatementsOnASingleLine: false
 DerivePointerAlignment: false
-PointerAlignment: Left
+PointerAlignment: Right
 SortIncludes: true
 SpaceAfterLogicalNot: false

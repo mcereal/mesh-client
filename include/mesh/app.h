@@ -4,13 +4,13 @@
 #include "mesh/event_loop.h"
 #include "mesh/signals.h"
 #include "mesh/transport/transport.h"
-#include "mesh/ui/controller.h"
-#include "mesh/ui/store.h"
 #include "mesh/ui/backends/cli.h"
-#include "mesh/ui/backends/minui.h"
 #include "mesh/ui/backends/fb.h"
+#include "mesh/ui/backends/minui.h"
+#include "mesh/ui/controller.h"
 #include "mesh/ui/input.h"
 #include "mesh/ui/preferences.h"
+#include "mesh/ui/store.h"
 
 #ifdef __cplusplus
 extern "C" {

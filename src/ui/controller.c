@@ -24,7 +24,8 @@ static int mesh_ui_controller_event_callback(int fd, uint32_t events, void *user
     struct mesh_ui_snapshot snapshot;
     while (mesh_ui_store_consume_updates(controller->store, &snapshot)) {
         if (controller->backend != NULL && controller->backend->present != NULL) {
-            controller->backend->present(controller->backend_state, &snapshot, controller->backend_userdata);
+            controller->backend->present(controller->backend_state, &snapshot,
+                                         controller->backend_userdata);
         }
     }
 
@@ -47,8 +48,8 @@ int mesh_ui_controller_init(struct mesh_ui_controller *controller, struct mesh_u
     if (backend != NULL && backend->init != NULL) {
         int result = backend->init(&controller->backend_state, backend_userdata);
         if (result < 0) {
-            mesh_log_error("ui", "Backend init failed (%s): %d", backend->name != NULL ? backend->name : "unknown",
-                           result);
+            mesh_log_error("ui", "Backend init failed (%s): %d",
+                           backend->name != NULL ? backend->name : "unknown", result);
             controller->backend = NULL;
             controller->backend_state = NULL;
             controller->backend_userdata = NULL;
@@ -57,11 +58,13 @@ int mesh_ui_controller_init(struct mesh_ui_controller *controller, struct mesh_u
 
     const int event_fd = mesh_ui_store_event_fd(store);
     if (loop != NULL && event_fd >= 0) {
-        int add_result = mesh_event_loop_add_fd(loop, event_fd, EPOLLIN, mesh_ui_controller_event_callback, controller);
+        int add_result = mesh_event_loop_add_fd(loop, event_fd, EPOLLIN,
+                                                mesh_ui_controller_event_callback, controller);
         if (add_result < 0) {
             mesh_log_error("ui", "Failed to register UI store fd: %d", add_result);
             if (controller->backend != NULL && controller->backend->shutdown != NULL) {
-                controller->backend->shutdown(controller->backend_state, controller->backend_userdata);
+                controller->backend->shutdown(controller->backend_state,
+                                              controller->backend_userdata);
             }
             controller->backend = NULL;
             controller->backend_state = NULL;
@@ -100,4 +103,3 @@ void mesh_ui_controller_shutdown(struct mesh_ui_controller *controller) {
     controller->store = NULL;
     controller->loop = NULL;
 }
-

@@ -12,7 +12,8 @@ void mesh_transport_registry_init(struct mesh_transport_registry *registry) {
     memset(registry, 0, sizeof *registry);
 }
 
-static bool contains_transport(const struct mesh_transport_registry *registry, const struct mesh_transport *transport) {
+static bool contains_transport(const struct mesh_transport_registry *registry,
+                               const struct mesh_transport *transport) {
     for (size_t i = 0; i < registry->count; ++i) {
         if (registry->transports[i] == transport) {
             return true;
@@ -21,7 +22,8 @@ static bool contains_transport(const struct mesh_transport_registry *registry, c
     return false;
 }
 
-int mesh_transport_registry_register(struct mesh_transport_registry *registry, struct mesh_transport *transport) {
+int mesh_transport_registry_register(struct mesh_transport_registry *registry,
+                                     struct mesh_transport *transport) {
     if (registry == NULL || transport == NULL) {
         return -EINVAL;
     }
@@ -38,7 +40,8 @@ int mesh_transport_registry_register(struct mesh_transport_registry *registry, s
     return 0;
 }
 
-int mesh_transport_registry_start_all(struct mesh_transport_registry *registry, const struct mesh_app_config *config,
+int mesh_transport_registry_start_all(struct mesh_transport_registry *registry,
+                                      const struct mesh_app_config *config,
                                       struct mesh_event_loop *loop) {
     if (registry == NULL || config == NULL || loop == NULL) {
         return -EINVAL;

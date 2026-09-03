@@ -12,4 +12,3 @@ struct mesh_ui_backend_fb_context {
 
 const struct mesh_ui_backend *mesh_ui_backend_fb(void);
 bool mesh_ui_backend_fb_is_available(void);
-

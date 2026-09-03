@@ -125,5 +125,12 @@ via Python3 (needs `pip install protobuf grpcio-tools`).
 One harness, `tests/test_main.c`, with a `k_test_cases` table tagged by category (`unit` today;
 `integration`/`hardware` reserved). Register new cases in that table; use
 `record_failure`/`record_success`. Tests must not touch real BlueZ — use the bluez mock. New
-CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-03: 15 unit tests, all passing in
+CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-03: 16 unit tests, all passing in
 the dev container with zero compiler warnings.
+
+`make format` rewrites every tracked `.c`/`.h` using `.clang-format`, and the tree is kept
+normalised against it - on a clean tree the command is a no-op. It is normalised with
+**clang-format 18** (what `ubuntu:24.04` ships, so the dev container and CI agree); a
+different major version reflows things and produces spurious churn, so run `make format`
+inside `make docker-shell` if your host's clang-format is a different major. Nothing gates on
+formatting in CI, precisely because host versions vary.

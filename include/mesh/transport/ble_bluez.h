@@ -103,26 +103,31 @@ int mesh_bluez_client_check_ready(struct mesh_bluez_client *client);
 int mesh_bluez_client_find_adapter(struct mesh_bluez_client *client, char *path, size_t path_len);
 int mesh_bluez_client_start_discovery(struct mesh_bluez_client *client, const char *adapter_path);
 int mesh_bluez_client_stop_discovery(struct mesh_bluez_client *client, const char *adapter_path);
-int mesh_bluez_client_list_meshtastic(struct mesh_bluez_client *client, struct mesh_bluez_device_info *devices,
-                                      size_t capacity, size_t *count);
+int mesh_bluez_client_list_meshtastic(struct mesh_bluez_client *client,
+                                      struct mesh_bluez_device_info *devices, size_t capacity,
+                                      size_t *count);
 int mesh_bluez_client_connect(struct mesh_bluez_client *client, const char *device_path);
 int mesh_bluez_client_disconnect(struct mesh_bluez_client *client, const char *device_path);
-int mesh_bluez_client_subscribe(struct mesh_bluez_client *client, const char *device_path, const char *char_uuid);
-int mesh_bluez_client_write(struct mesh_bluez_client *client, const char *device_path, const char *char_uuid,
-                            const uint8_t *data, size_t len);
-int mesh_bluez_client_read(struct mesh_bluez_client *client, const char *char_path, uint8_t *out, size_t capacity,
-                           size_t *out_len);
-int mesh_bluez_client_find_meshtastic_characteristics(struct mesh_bluez_client *client, const char *device_path,
+int mesh_bluez_client_subscribe(struct mesh_bluez_client *client, const char *device_path,
+                                const char *char_uuid);
+int mesh_bluez_client_write(struct mesh_bluez_client *client, const char *device_path,
+                            const char *char_uuid, const uint8_t *data, size_t len);
+int mesh_bluez_client_read(struct mesh_bluez_client *client, const char *char_path, uint8_t *out,
+                           size_t capacity, size_t *out_len);
+int mesh_bluez_client_find_meshtastic_characteristics(struct mesh_bluez_client *client,
+                                                      const char *device_path,
                                                       struct mesh_bluez_meshtastic_chars *out);
 int mesh_bluez_client_attach_loop(struct mesh_bluez_client *client, struct mesh_event_loop *loop);
 void mesh_bluez_client_detach_loop(struct mesh_bluez_client *client);
 int mesh_bluez_client_process(struct mesh_bluez_client *client);
 void mesh_bluez_client_set_notification_handler(struct mesh_bluez_client *client,
-                                                mesh_bluez_notification_callback callback, void *userdata);
+                                                mesh_bluez_notification_callback callback,
+                                                void *userdata);
 
 void mesh_bluez_client_mock_enable(const struct mesh_bluez_mock_config *config);
 void mesh_bluez_client_mock_disable(void);
-void mesh_bluez_client_mock_emit_notification(const char *char_path, const uint8_t *data, size_t len);
+void mesh_bluez_client_mock_emit_notification(const char *char_path, const uint8_t *data,
+                                              size_t len);
 
 #ifdef __cplusplus
 }

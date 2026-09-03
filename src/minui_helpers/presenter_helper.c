@@ -40,10 +40,12 @@ int main(int argc, char **argv) {
         if (message == NULL) {
             message = "";
         }
-        fprintf(stderr, "[minui-presenter placeholder] %s\n", message[0] != '\0' ? message : "(empty message)");
+        fprintf(stderr, "[minui-presenter placeholder] %s\n",
+                message[0] != '\0' ? message : "(empty message)");
         free(line);
     } else {
-        fprintf(stderr, "[minui-presenter placeholder] %s\n", message[0] != '\0' ? message : "(empty message)");
+        fprintf(stderr, "[minui-presenter placeholder] %s\n",
+                message[0] != '\0' ? message : "(empty message)");
     }
 
     if (timeout_ms > 0) {

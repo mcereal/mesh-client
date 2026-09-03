@@ -200,8 +200,7 @@ int main(int argc, char **argv) {
     char *json = read_json_payload(file_path, &json_length);
     if (json == NULL) {
         fprintf(stderr, "[minui-list placeholder] failed to read menu payload%s%s\n",
-                file_path != NULL ? " from " : "",
-                file_path != NULL ? file_path : "");
+                file_path != NULL ? " from " : "", file_path != NULL ? file_path : "");
         return 1;
     }
 
@@ -211,13 +210,14 @@ int main(int argc, char **argv) {
     int selection = parse_default_selection(json);
     int original_selection = selection;
     if (env_override(&selection)) {
-        fprintf(stderr, "[minui-list placeholder] override selection via MESHCLIENT_MINUI_SELECTION=%d\n",
+        fprintf(stderr,
+                "[minui-list placeholder] override selection via MESHCLIENT_MINUI_SELECTION=%d\n",
                 selection);
     }
 
     selection = clamp_selection(selection, option_count);
-    fprintf(stderr, "[minui-list placeholder] selecting index %d (default %d, options=%zu)\n", selection,
-            original_selection, option_count);
+    fprintf(stderr, "[minui-list placeholder] selecting index %d (default %d, options=%zu)\n",
+            selection, original_selection, option_count);
 
     printf("{\"settings\":{\"selected\":%d}}\n", selection);
     fflush(stdout);

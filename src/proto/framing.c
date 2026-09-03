@@ -27,7 +27,8 @@ int mesh_proto_varint_encode(uint32_t value, uint8_t *out, size_t out_len, size_
     return 0;
 }
 
-int mesh_proto_varint_decode(const uint8_t *buffer, size_t buffer_len, uint32_t *value, size_t *consumed) {
+int mesh_proto_varint_decode(const uint8_t *buffer, size_t buffer_len, uint32_t *value,
+                             size_t *consumed) {
     if (buffer == NULL || value == NULL || consumed == NULL) {
         return -EINVAL;
     }
@@ -50,14 +51,15 @@ int mesh_proto_varint_decode(const uint8_t *buffer, size_t buffer_len, uint32_t 
     return -EINVAL;
 }
 
-int mesh_proto_frame_encode(const uint8_t *payload, size_t payload_len, uint8_t *out, size_t out_len,
-                            size_t *written) {
+int mesh_proto_frame_encode(const uint8_t *payload, size_t payload_len, uint8_t *out,
+                            size_t out_len, size_t *written) {
     if ((payload_len > 0U && payload == NULL) || out == NULL || written == NULL) {
         return -EINVAL;
     }
 
     size_t header_written = 0;
-    int varint_result = mesh_proto_varint_encode((uint32_t)payload_len, out, out_len, &header_written);
+    int varint_result =
+        mesh_proto_varint_encode((uint32_t)payload_len, out, out_len, &header_written);
     if (varint_result < 0) {
         return varint_result;
     }
@@ -76,7 +78,8 @@ int mesh_proto_frame_encode(const uint8_t *payload, size_t payload_len, uint8_t 
     return 0;
 }
 
-int mesh_proto_frame_decode(const uint8_t *frame, size_t frame_len, size_t *header_len, size_t *payload_len) {
+int mesh_proto_frame_decode(const uint8_t *frame, size_t frame_len, size_t *header_len,
+                            size_t *payload_len) {
     if (frame == NULL || header_len == NULL || payload_len == NULL) {
         return -EINVAL;
     }

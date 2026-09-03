@@ -4,8 +4,8 @@
 #include "mesh/transport/ble.h"
 
 #include <errno.h>
-#include <inttypes.h>
 #include <getopt.h>
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,10 +19,9 @@ static void print_handshake_pretty(FILE *out, const struct mesh_bluez_device_inf
 static void print_cached_handshake(FILE *out, const struct mesh_ui_handshake_state *state);
 static void print_cached_handshake_json(FILE *out, const struct mesh_ui_handshake_state *state);
 static int print_status(struct mesh_app *app, bool output_json, const char *output_path);
-static const struct mesh_bluez_device_info *select_preferred_device(const struct mesh_transport *ble,
-                                                                    const struct mesh_app_config *config,
-                                                                    struct mesh_bluez_device_info *scratch,
-                                                                    size_t *count);
+static const struct mesh_bluez_device_info *
+select_preferred_device(const struct mesh_transport *ble, const struct mesh_app_config *config,
+                        struct mesh_bluez_device_info *scratch, size_t *count);
 static void json_print_string(FILE *out, const char *value);
 
 static void print_usage(const char *program) {
@@ -36,7 +35,8 @@ static void print_usage(const char *program) {
             "  -t, --timeout MS           Poll timeout in milliseconds (default: 1000)\n"
             "  -l, --log-level LEVEL      Log level (trace, debug, info, warn, error)\n"
             "  -s, --status              Connect to a device and print handshake summary\n"
-            "      --json                Emit JSON instead of human-readable output (use with --status)\n"
+            "      --json                Emit JSON instead of human-readable output (use with "
+            "--status)\n"
             "      --status-output PATH  Write handshake JSON to PATH (implies --status --json)\n"
             "  -h, --help                 Show this help message\n",
             program);
@@ -94,45 +94,46 @@ int main(int argc, char **argv) {
     int opt;
     while ((opt = getopt_long(argc, argv, "fdp:t:l:hsj", long_options, &option_index)) != -1) {
         switch (opt) {
-            case 'f':
-                config.run_mode = MESH_APP_RUN_FOREGROUND;
-                break;
-            case 'd':
-                config.enable_ble = false;
-                break;
-            case 'p':
-                if (optarg != NULL) {
-                    strncpy(config.preferred_ble_device, optarg, sizeof(config.preferred_ble_device) - 1U);
-                    config.preferred_ble_device[sizeof(config.preferred_ble_device) - 1U] = '\0';
-                }
-                break;
-            case 't':
-                if (optarg != NULL) {
-                    config.idle_timeout_ms = atoi(optarg);
-                }
-                break;
-            case 'l':
-                mesh_log_set_level(parse_log_level(optarg, mesh_log_get_level()));
-                break;
-            case 1:
-                list_devices = true;
-                break;
-            case 's':
-                show_status = true;
-                break;
-            case 'j':
-                output_json = true;
-                break;
-            case 2:
-                status_output_path = optarg;
-                show_status = true;
-                break;
-            case 'h':
-                print_usage(argv[0]);
-                return EXIT_SUCCESS;
-            default:
-                print_usage(argv[0]);
-                return EXIT_FAILURE;
+        case 'f':
+            config.run_mode = MESH_APP_RUN_FOREGROUND;
+            break;
+        case 'd':
+            config.enable_ble = false;
+            break;
+        case 'p':
+            if (optarg != NULL) {
+                strncpy(config.preferred_ble_device, optarg,
+                        sizeof(config.preferred_ble_device) - 1U);
+                config.preferred_ble_device[sizeof(config.preferred_ble_device) - 1U] = '\0';
+            }
+            break;
+        case 't':
+            if (optarg != NULL) {
+                config.idle_timeout_ms = atoi(optarg);
+            }
+            break;
+        case 'l':
+            mesh_log_set_level(parse_log_level(optarg, mesh_log_get_level()));
+            break;
+        case 1:
+            list_devices = true;
+            break;
+        case 's':
+            show_status = true;
+            break;
+        case 'j':
+            output_json = true;
+            break;
+        case 2:
+            status_output_path = optarg;
+            show_status = true;
+            break;
+        case 'h':
+            print_usage(argv[0]);
+            return EXIT_SUCCESS;
+        default:
+            print_usage(argv[0]);
+            return EXIT_FAILURE;
         }
     }
 
@@ -162,7 +163,8 @@ int main(int argc, char **argv) {
             const struct mesh_bluez_device_info *devices = mesh_ble_transport_devices(ble, &count);
             printf("Meshtastic BLE devices (%zu)\n", count);
             for (size_t i = 0; i < count; ++i) {
-                printf("- %s (%s) RSSI=%d\n", devices[i].name, devices[i].address, (int)devices[i].rssi);
+                printf("- %s (%s) RSSI=%d\n", devices[i].name, devices[i].address,
+                       (int)devices[i].rssi);
             }
             mesh_transport_registry_stop_all(&app.transport_registry);
         } else {
@@ -180,16 +182,16 @@ int main(int argc, char **argv) {
     return (result < 0) ? EXIT_FAILURE : EXIT_SUCCESS;
 }
 
-static const struct mesh_bluez_device_info *select_preferred_device(const struct mesh_transport *ble,
-                                                                    const struct mesh_app_config *config,
-                                                                    struct mesh_bluez_device_info *scratch,
-                                                                    size_t *count) {
+static const struct mesh_bluez_device_info *
+select_preferred_device(const struct mesh_transport *ble, const struct mesh_app_config *config,
+                        struct mesh_bluez_device_info *scratch, size_t *count) {
     if (ble == NULL || config == NULL || scratch == NULL || count == NULL) {
         return NULL;
     }
 
     size_t device_count = mesh_ble_transport_refresh_devices((struct mesh_transport *)ble);
-    const struct mesh_bluez_device_info *devices = mesh_ble_transport_devices((struct mesh_transport *)ble, &device_count);
+    const struct mesh_bluez_device_info *devices =
+        mesh_ble_transport_devices((struct mesh_transport *)ble, &device_count);
     *count = device_count;
     if (device_count == 0U || devices == NULL) {
         return NULL;
@@ -232,7 +234,8 @@ static int print_status(struct mesh_app *app, bool output_json, const char *outp
     struct mesh_transport *ble = mesh_ble_transport();
     struct mesh_bluez_device_info devices[16];
     size_t device_count = 0U;
-    const struct mesh_bluez_device_info *target = select_preferred_device(ble, &app->config, devices, &device_count);
+    const struct mesh_bluez_device_info *target =
+        select_preferred_device(ble, &app->config, devices, &device_count);
     if (target == NULL) {
         printf("No Meshtastic devices discovered.\n");
         if (output_json) {
@@ -260,7 +263,8 @@ static int print_status(struct mesh_app *app, bool output_json, const char *outp
         mesh_transport_registry_tick(&app->transport_registry);
         int run_result = mesh_event_loop_run(&app->loop, app->config.idle_timeout_ms);
         if (run_result < 0) {
-            mesh_log_warn("main", "Event loop returned error %d while waiting for handshake", run_result);
+            mesh_log_warn("main", "Event loop returned error %d while waiting for handshake",
+                          run_result);
             break;
         }
 
@@ -412,7 +416,8 @@ static void print_cached_handshake_json(FILE *out, const struct mesh_ui_handshak
 
     if (state->has_my_info) {
         fprintf(out, ",\"my_node\":{\"id\":%u,\"nodedb_count\":%u,\"reboot_count\":%u}",
-                state->my_info.node_num, state->my_info.nodedb_entries, state->my_info.reboot_count);
+                state->my_info.node_num, state->my_info.nodedb_entries,
+                state->my_info.reboot_count);
     } else {
         fprintf(out, ",\"my_node\":null");
     }
@@ -432,8 +437,8 @@ static void print_cached_handshake_json(FILE *out, const struct mesh_ui_handshak
         json_print_string(out, node->long_name);
         fprintf(out, ",\"short_name\":");
         json_print_string(out, node->short_name);
-        fprintf(out, ",\"snr\":%.2f,\"last_heard\":%u,\"via_mqtt\":%s", (double)node->snr, node->last_heard,
-                node->via_mqtt ? "true" : "false");
+        fprintf(out, ",\"snr\":%.2f,\"last_heard\":%u,\"via_mqtt\":%s", (double)node->snr,
+                node->last_heard, node->via_mqtt ? "true" : "false");
         if (node->has_hops_away) {
             fprintf(out, ",\"hops_away\":%u", node->hops_away);
         }
@@ -450,34 +455,34 @@ static void json_print_string(FILE *out, const char *value) {
     fputc('"', out);
     for (const char *c = value; *c != '\0'; ++c) {
         switch (*c) {
-            case '\\':
-                fputs("\\\\", out);
-                break;
-            case '\"':
-                fputs("\\\"", out);
-                break;
-            case '\b':
-                fputs("\\b", out);
-                break;
-            case '\f':
-                fputs("\\f", out);
-                break;
-            case '\n':
-                fputs("\\n", out);
-                break;
-            case '\r':
-                fputs("\\r", out);
-                break;
-            case '\t':
-                fputs("\\t", out);
-                break;
-            default:
-                if ((unsigned char)*c < 0x20U) {
-                    fprintf(out, "\\u%04x", (unsigned int)(unsigned char)*c);
-                } else {
-                    fputc(*c, out);
-                }
-                break;
+        case '\\':
+            fputs("\\\\", out);
+            break;
+        case '\"':
+            fputs("\\\"", out);
+            break;
+        case '\b':
+            fputs("\\b", out);
+            break;
+        case '\f':
+            fputs("\\f", out);
+            break;
+        case '\n':
+            fputs("\\n", out);
+            break;
+        case '\r':
+            fputs("\\r", out);
+            break;
+        case '\t':
+            fputs("\\t", out);
+            break;
+        default:
+            if ((unsigned char)*c < 0x20U) {
+                fprintf(out, "\\u%04x", (unsigned int)(unsigned char)*c);
+            } else {
+                fputc(*c, out);
+            }
+            break;
         }
     }
     fputc('"', out);
@@ -508,7 +513,8 @@ static void print_handshake_json(FILE *out, const struct mesh_bluez_device_info 
 
     if (status->has_my_info) {
         fprintf(out, ",\"my_node\":{\"id\":%u,\"nodedb_count\":%u,\"reboot_count\":%u}",
-                status->my_info.my_node_num, status->my_info.nodedb_count, status->my_info.reboot_count);
+                status->my_info.my_node_num, status->my_info.nodedb_count,
+                status->my_info.reboot_count);
     } else {
         fprintf(out, ",\"my_node\":null");
     }
@@ -524,8 +530,8 @@ static void print_handshake_json(FILE *out, const struct mesh_bluez_device_info 
         json_print_string(out, node->long_name);
         fprintf(out, ",\"short_name\":");
         json_print_string(out, node->short_name);
-        fprintf(out, ",\"last_heard\":%u,\"snr\":%.2f,\"via_mqtt\":%s", node->last_heard, (double)node->snr,
-                node->via_mqtt ? "true" : "false");
+        fprintf(out, ",\"last_heard\":%u,\"snr\":%.2f,\"via_mqtt\":%s", node->last_heard,
+                (double)node->snr, node->via_mqtt ? "true" : "false");
         if (node->has_hops_away) {
             fprintf(out, ",\"hops_away\":%u", node->hops_away);
         }

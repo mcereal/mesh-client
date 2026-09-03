@@ -20,11 +20,11 @@
 #define MESH_UI_INPUT_MAX_QUIT_KEYS 16U
 
 static const uint16_t k_default_quit_keys[] = {
-    KEY_ESC,      /* 1   - USB keyboard, and what most emulators map "back" to */
-    KEY_POWER,    /* 116 */
-    KEY_MENU,     /* 139 - the Brick's MENU button, the NextUI convention for leaving a pak */
-    BTN_SELECT,   /* 314 */
-    BTN_MODE,     /* 316 - "guide"/menu on gamepad-style reports */
+    KEY_ESC,    /* 1   - USB keyboard, and what most emulators map "back" to */
+    KEY_POWER,  /* 116 */
+    KEY_MENU,   /* 139 - the Brick's MENU button, the NextUI convention for leaving a pak */
+    BTN_SELECT, /* 314 */
+    BTN_MODE,   /* 316 - "guide"/menu on gamepad-style reports */
 };
 
 /* Parsed once from MESHCLIENT_QUIT_KEYS so the mapping can be corrected on-device without a
@@ -60,10 +60,12 @@ static void mesh_ui_input_load_quit_keys(void) {
 
         if (s_quit_key_count > 0U) {
             snprintf(s_quit_hint, sizeof s_quit_hint, "Quit: key code %u", s_quit_keys[0]);
-            mesh_log_info("input", "Quit keys overridden by MESHCLIENT_QUIT_KEYS (%zu codes)", s_quit_key_count);
+            mesh_log_info("input", "Quit keys overridden by MESHCLIENT_QUIT_KEYS (%zu codes)",
+                          s_quit_key_count);
             return;
         }
-        mesh_log_warn("input", "MESHCLIENT_QUIT_KEYS='%s' parsed to nothing; using defaults", override);
+        mesh_log_warn("input", "MESHCLIENT_QUIT_KEYS='%s' parsed to nothing; using defaults",
+                      override);
     }
 
     for (size_t i = 0; i < sizeof(k_default_quit_keys) / sizeof(k_default_quit_keys[0]); ++i) {
@@ -162,7 +164,8 @@ int mesh_ui_input_init(struct mesh_ui_input *input, struct mesh_event_loop *loop
             continue;
         }
 
-        const int add_result = mesh_event_loop_add_fd(loop, fd, EPOLLIN, mesh_ui_input_event_callback, input);
+        const int add_result =
+            mesh_event_loop_add_fd(loop, fd, EPOLLIN, mesh_ui_input_event_callback, input);
         if (add_result < 0) {
             mesh_log_warn("input", "Failed to watch %s: %d", path, add_result);
             close(fd);
@@ -177,7 +180,8 @@ int mesh_ui_input_init(struct mesh_ui_input *input, struct mesh_event_loop *loop
         /* Expected in the dev container and in CI; only the device really has buttons. */
         mesh_log_warn("input", "No readable /dev/input devices; buttons will not quit the client");
     } else {
-        mesh_log_info("input", "Watching %zu input device(s); %s", input->count, mesh_ui_input_quit_hint());
+        mesh_log_info("input", "Watching %zu input device(s); %s", input->count,
+                      mesh_ui_input_quit_hint());
     }
 
     return (int)input->count;

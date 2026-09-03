@@ -11,28 +11,24 @@
 
 static enum mesh_log_level g_log_level = MESH_LOG_LEVEL_INFO;
 
-void mesh_log_set_level(enum mesh_log_level level) {
-    g_log_level = level;
-}
+void mesh_log_set_level(enum mesh_log_level level) { g_log_level = level; }
 
-enum mesh_log_level mesh_log_get_level(void) {
-    return g_log_level;
-}
+enum mesh_log_level mesh_log_get_level(void) { return g_log_level; }
 
 const char *mesh_log_level_to_string(enum mesh_log_level level) {
     switch (level) {
-        case MESH_LOG_LEVEL_TRACE:
-            return "TRACE";
-        case MESH_LOG_LEVEL_DEBUG:
-            return "DEBUG";
-        case MESH_LOG_LEVEL_INFO:
-            return "INFO";
-        case MESH_LOG_LEVEL_WARN:
-            return "WARN";
-        case MESH_LOG_LEVEL_ERROR:
-            return "ERROR";
-        case MESH_LOG_LEVEL_NONE:
-            return "NONE";
+    case MESH_LOG_LEVEL_TRACE:
+        return "TRACE";
+    case MESH_LOG_LEVEL_DEBUG:
+        return "DEBUG";
+    case MESH_LOG_LEVEL_INFO:
+        return "INFO";
+    case MESH_LOG_LEVEL_WARN:
+        return "WARN";
+    case MESH_LOG_LEVEL_ERROR:
+        return "ERROR";
+    case MESH_LOG_LEVEL_NONE:
+        return "NONE";
     }
     return "UNKNOWN";
 }
@@ -51,17 +47,13 @@ static void format_timestamp(char *buffer, size_t buffer_len) {
     }
 
     const long millis = ts.tv_nsec / 1000000L;
-    snprintf(buffer, buffer_len, "%04d-%02d-%02dT%02d:%02d:%02d.%03ldZ",
-             tm_result.tm_year + 1900,
-             tm_result.tm_mon + 1,
-             tm_result.tm_mday,
-             tm_result.tm_hour,
-             tm_result.tm_min,
-             tm_result.tm_sec,
-             millis);
+    snprintf(buffer, buffer_len, "%04d-%02d-%02dT%02d:%02d:%02d.%03ldZ", tm_result.tm_year + 1900,
+             tm_result.tm_mon + 1, tm_result.tm_mday, tm_result.tm_hour, tm_result.tm_min,
+             tm_result.tm_sec, millis);
 }
 
-void mesh_log_message_v(enum mesh_log_level level, const char *component, const char *fmt, va_list args) {
+void mesh_log_message_v(enum mesh_log_level level, const char *component, const char *fmt,
+                        va_list args) {
     if (level < g_log_level || level == MESH_LOG_LEVEL_NONE) {
         return;
     }
