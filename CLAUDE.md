@@ -77,7 +77,7 @@ An SDL2 backend was tried in 1.1.11 and replaced by `fb` in 1.1.12; it is gone f
 ## Protobufs
 
 `CMakeLists.txt` has a hardcoded `MESH_PROTO_NAMES` list (mesh, portnums, interdevice, config,
-module_config, telemetry, channel, device_ui, xmodem). Adding a new upstream `.proto` means adding
+module_config, telemetry, channel, device_ui, xmodem, atak). Adding a new upstream `.proto` means adding
 it there. Generated headers are included as `meshtastic/<name>.pb.h`. The generator is
 `nanopb_generator` from PATH, falling back to `third_party/nanopb/generator/nanopb_generator.py`
 via Python3 (needs `pip install protobuf grpcio-tools`).
@@ -91,8 +91,10 @@ via Python3 (needs `pip install protobuf grpcio-tools`).
   `sed`. Do not change that line's shape and do not bump it by hand. `package.json` version is
   unused.
 - Release builds cross-compile with the Bootlin `aarch64--musl` toolchain and statically link a
-  from-source libdbus + expat (see `.github/workflows/semantic-release.yml`). CI (`ci.yml`) is
-  host-only gcc/clang on Ubuntu and does not cross-compile. `make docker-pak` reproduces the
+  from-source libdbus built with meson and `message_bus=false` (library only, no daemon, no expat);
+  see `.github/workflows/semantic-release.yml`. CI (`ci.yml`) is host-only gcc/clang on
+  ubuntu-24.04 and does not cross-compile. Version pins for the toolchain and dbus live in both
+  that workflow and `docker/setup-cross.sh`; bump them together. `make docker-pak` reproduces the
   release build locally via `scripts/cross-build.sh`; on an arm64 host the `cross` image uses
   native `musl-gcc` (exposed as `aarch64-linux-musl-gcc`) instead of downloading Bootlin.
 - `scripts/package.sh` copies `$BUILD_ROOT/release/meshclient` into `dist/MeshClient.pak/bin/shared/`
