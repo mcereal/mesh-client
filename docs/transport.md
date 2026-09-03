@@ -12,13 +12,13 @@ Serial, and HTTP transports.
 - BLE transport startup gracefully downgrades when BlueZ is missing or D-Bus support is disabled.
 - Status reporting distinguishes between `disabled`, `waiting-for-bluez`, `waiting-for-adapter`, and `running` states.
 - Adapter discovery via `GetManagedObjects`, plus automatic `StartDiscovery` / `StopDiscovery` orchestration for the first available adapter.
-- Meshtastic node discovery: iterates `org.bluez.Device1` entries, filters on the NUS UUID, and caches address/name/RSSI for downstream UI use (mockable for tests).
+- Meshtastic node discovery: iterates `org.bluez.Device1` entries, filters on the Meshtastic service UUID `6ba1b218-15a8-461f-9fa8-5dcae273eafd` (Meshtastic does **not** use the Nordic UART Service), and caches address/name/RSSI for downstream UI use (mockable for tests).
 - Periodic refresh loop (timerfd) keeps the discovery cache up to date while the app is running.
 - CLI support: `meshclient --list-devices` prints the cached nodes and exits—useful for diagnostics.
-- Varint-based framing helpers for BLE packets, plus nanopb runtime linked against Meshtastic upstream schemas (tracked via git submodule). `make proto` regenerates `mesh`, `portnums`, `interdevice`, `config`, `module_config`, `telemetry`, `channel`, `device_ui`, `xmodem`, and `atak` (the `MESH_PROTO_NAMES` list in `CMakeLists.txt`).
-- GATT data path: device `Connect`/`Disconnect`, `StartNotify`, and notification handling wired into the event loop with frame buffering and basic stats.
+- nanopb runtime linked against Meshtastic upstream schemas (tracked via git submodule). The varint framing helpers in `src/proto/framing.c` are for the serial/TCP stream transports; BLE carries bare protobufs. `make proto` regenerates `mesh`, `portnums`, `interdevice`, `config`, `module_config`, `telemetry`, `channel`, `device_ui`, `xmodem`, and `atak` (the `MESH_PROTO_NAMES` list in `CMakeLists.txt`).
+- GATT data path per the Meshtastic client API: `Connect`, look up ToRadio (`f75c76d2-…`), FromRadio (`2c55e69e-…`) and FromNum (`ed9da18c-…`), `StartNotify` on FromNum, and on each notification `ReadValue` FromRadio until it returns empty. One protobuf per write/read, no length framing. Firmware in FIXED/RANDOM PIN mode requires the node to be paired with BlueZ first (`bluetoothctl pair`); the app does not yet register a pairing agent.
 - Initial config handshake: queues `want_config_id`, tracks `MyNodeInfo` / `NodeInfo` summaries, and marks completion via `config_complete_id`.
-- Outbound write queue with MTU-aware chunking ensures large protobuf frames are split across BLE packets.
+- Outbound write queue of whole ToRadio packets (up to 512 bytes each); BlueZ handles ATT long writes, so no client-side chunking.
 - CLI `--status` surface handshake data (text/JSON) and `--status-output` writes a JSON cache for MinUI scripts.
 - MinUI backend consumes the discovery snapshot via JSON, renders it with `minui-list`, and feeds selections back into the BLE transport to trigger connects without blocking the loop.
 

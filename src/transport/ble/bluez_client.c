@@ -11,7 +11,7 @@
 #include <strings.h>
 #include <sys/epoll.h>
 
-#define MESHTASTIC_SERVICE_UUID "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
+#define MESH_BLUEZ_READ_TIMEOUT_MS 3000
 
 #ifdef MESH_HAVE_DBUS
 #include <dbus/dbus.h>
@@ -194,6 +194,7 @@ struct mesh_bluez_mock_state {
     bool enabled;
     struct mesh_bluez_mock_config config;
     struct mesh_bluez_client* client;
+    size_t read_cursor;
 };
 
 static struct mesh_bluez_mock_state g_mock_state;
@@ -224,13 +225,15 @@ void mesh_bluez_client_mock_enable(const struct mesh_bluez_mock_config* config) 
     } else {
         memset(&g_mock_state.config, 0, sizeof(g_mock_state.config));
     }
-    g_mock_state.client = NULL;
+    g_mock_state.client      = NULL;
+    g_mock_state.read_cursor = 0U;
 }
 
 void mesh_bluez_client_mock_disable(void) {
     g_mock_state.enabled = false;
     memset(&g_mock_state.config, 0, sizeof(g_mock_state.config));
-    g_mock_state.client = NULL;
+    g_mock_state.client      = NULL;
+    g_mock_state.read_cursor = 0U;
 }
 
 int mesh_bluez_client_init(struct mesh_bluez_client* client) {
@@ -465,14 +468,18 @@ static void mesh_bluez_client_handle_properties_changed(struct mesh_bluez_client
 
         DBusMessageIter variant_iter;
         dbus_message_iter_recurse(&dict_entry, &variant_iter);
-        if (dbus_message_iter_get_arg_type(&variant_iter) != DBUS_TYPE_ARRAY) {
+        if (dbus_message_iter_get_arg_type(&variant_iter) != DBUS_TYPE_ARRAY ||
+            dbus_message_iter_get_element_type(&variant_iter) != DBUS_TYPE_BYTE) {
             dbus_message_iter_next(&array_iter);
             continue;
         }
 
+        /* get_fixed_array wants an iterator positioned inside the array, not on it. */
+        DBusMessageIter bytes_iter;
+        dbus_message_iter_recurse(&variant_iter, &bytes_iter);
         const uint8_t* payload = NULL;
         int length             = 0;
-        dbus_message_iter_get_fixed_array(&variant_iter, &payload, &length);
+        dbus_message_iter_get_fixed_array(&bytes_iter, &payload, &length);
         if (payload != NULL && length > 0 && client->notification_callback != NULL) {
             client->notification_callback(payload, (size_t)length, client->notification_userdata);
         }
@@ -1214,47 +1221,170 @@ static int mesh_bluez_find_characteristics(DBusConnection* connection, const cha
 }
 #endif
 
-int mesh_bluez_client_find_nus_characteristics(struct mesh_bluez_client* client,
-                                               const char* device_path, char* rx_path,
-                                               size_t rx_len, char* tx_path, size_t tx_len) {
-    if (client == NULL || device_path == NULL || rx_path == NULL || tx_path == NULL) {
+int mesh_bluez_client_find_meshtastic_characteristics(struct mesh_bluez_client* client,
+                                                      const char* device_path,
+                                                      struct mesh_bluez_meshtastic_chars* out) {
+    if (client == NULL || device_path == NULL || out == NULL) {
         return -EINVAL;
     }
 
+    memset(out, 0, sizeof(*out));
+
     if (g_mock_state.enabled) {
-        if (g_mock_state.config.rx_char_path != NULL) {
-            snprintf(rx_path, rx_len, "%s", g_mock_state.config.rx_char_path);
-        } else {
-            snprintf(rx_path, rx_len, "%s/nus_rx", device_path);
+        const struct mesh_bluez_mock_config* cfg = &g_mock_state.config;
+        snprintf(out->toradio_path, sizeof(out->toradio_path), "%s",
+                 cfg->toradio_char_path != NULL ? cfg->toradio_char_path : device_path);
+        if (cfg->toradio_char_path == NULL) {
+            snprintf(out->toradio_path, sizeof(out->toradio_path), "%s/toradio", device_path);
         }
-        if (g_mock_state.config.tx_char_path != NULL) {
-            snprintf(tx_path, tx_len, "%s", g_mock_state.config.tx_char_path);
+        if (cfg->fromradio_char_path != NULL) {
+            snprintf(out->fromradio_path, sizeof(out->fromradio_path), "%s", cfg->fromradio_char_path);
         } else {
-            snprintf(tx_path, tx_len, "%s/nus_tx", device_path);
+            snprintf(out->fromradio_path, sizeof(out->fromradio_path), "%s/fromradio", device_path);
+        }
+        if (cfg->fromnum_char_path != NULL) {
+            snprintf(out->fromnum_path, sizeof(out->fromnum_path), "%s", cfg->fromnum_char_path);
+        } else {
+            snprintf(out->fromnum_path, sizeof(out->fromnum_path), "%s/fromnum", device_path);
         }
         return 0;
     }
 
 #ifdef MESH_HAVE_DBUS
     DBusConnection* connection = (DBusConnection*)client->connection;
-    int rx_result = mesh_bluez_find_characteristics(connection, device_path, MESH_BLE_NUS_RX_UUID,
-                                                    rx_path, rx_len);
-    if (rx_result < 0) {
-        return rx_result;
+    if (connection == NULL) {
+        return -ENOTCONN;
     }
-    int tx_result = mesh_bluez_find_characteristics(connection, device_path, MESH_BLE_NUS_TX_UUID,
-                                                    tx_path, tx_len);
-    if (tx_result < 0) {
-        return tx_result;
+
+    int result = mesh_bluez_find_characteristics(connection, device_path, MESH_BLE_TORADIO_UUID,
+                                                 out->toradio_path, sizeof(out->toradio_path));
+    if (result < 0) {
+        mesh_log_warn("bluez", "ToRadio characteristic not found under %s", device_path);
+        return result;
+    }
+    result = mesh_bluez_find_characteristics(connection, device_path, MESH_BLE_FROMRADIO_UUID,
+                                             out->fromradio_path, sizeof(out->fromradio_path));
+    if (result < 0) {
+        mesh_log_warn("bluez", "FromRadio characteristic not found under %s", device_path);
+        return result;
+    }
+    result = mesh_bluez_find_characteristics(connection, device_path, MESH_BLE_FROMNUM_UUID,
+                                             out->fromnum_path, sizeof(out->fromnum_path));
+    if (result < 0) {
+        mesh_log_warn("bluez", "FromNum characteristic not found under %s", device_path);
+        return result;
+    }
+    /* LogRadio is optional; older firmware does not expose it. */
+    if (mesh_bluez_find_characteristics(connection, device_path, MESH_BLE_LOGRADIO_UUID,
+                                        out->logradio_path, sizeof(out->logradio_path)) < 0) {
+        out->logradio_path[0] = '\0';
     }
     return 0;
 #else
     (void)client;
     (void)device_path;
-    (void)rx_path;
-    (void)rx_len;
-    (void)tx_path;
-    (void)tx_len;
+    (void)out;
+    return -ENOSYS;
+#endif
+}
+
+int mesh_bluez_client_read(struct mesh_bluez_client* client, const char* char_path, uint8_t* out,
+                           size_t capacity, size_t* out_len) {
+    if (client == NULL || char_path == NULL || out == NULL || out_len == NULL) {
+        return -EINVAL;
+    }
+
+    *out_len = 0U;
+
+    if (g_mock_state.enabled) {
+        const struct mesh_bluez_mock_config* cfg = &g_mock_state.config;
+        if (cfg->read_result != 0) {
+            return cfg->read_result;
+        }
+        size_t index = cfg->read_index != NULL ? *cfg->read_index : g_mock_state.read_cursor;
+        if (cfg->read_payloads != NULL && cfg->read_payload_lengths != NULL &&
+            index < cfg->read_payload_count) {
+            size_t len = cfg->read_payload_lengths[index];
+            if (len > capacity) {
+                len = capacity;
+            }
+            memcpy(out, cfg->read_payloads[index], len);
+            *out_len = len;
+        }
+        index++;
+        if (cfg->read_index != NULL) {
+            *cfg->read_index = index;
+        } else {
+            g_mock_state.read_cursor = index;
+        }
+        return 0;
+    }
+
+#ifdef MESH_HAVE_DBUS
+    DBusConnection* connection = (DBusConnection*)client->connection;
+    if (connection == NULL) {
+        return -ENOTCONN;
+    }
+
+    DBusMessage* message = dbus_message_new_method_call(
+        "org.bluez", char_path, "org.bluez.GattCharacteristic1", "ReadValue");
+    if (message == NULL) {
+        return -ENOMEM;
+    }
+
+    DBusMessageIter iter;
+    dbus_message_iter_init_append(message, &iter);
+    DBusMessageIter options_iter;
+    dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY, "{sv}", &options_iter);
+    dbus_message_iter_close_container(&iter, &options_iter);
+
+    /* A GATT read normally completes in tens of ms; never sit on libdbus's 25 s default. */
+    DBusError error;
+    dbus_error_init(&error);
+    DBusMessage* reply = dbus_connection_send_with_reply_and_block(
+        connection, message, MESH_BLUEZ_READ_TIMEOUT_MS, &error);
+    dbus_message_unref(message);
+
+    if (reply == NULL) {
+        if (dbus_error_is_set(&error)) {
+            mesh_log_warn("bluez", "ReadValue failed: %s", error.message);
+            dbus_error_free(&error);
+        }
+        return -EIO;
+    }
+
+    DBusMessageIter reply_iter;
+    if (!dbus_message_iter_init(reply, &reply_iter) ||
+        dbus_message_iter_get_arg_type(&reply_iter) != DBUS_TYPE_ARRAY ||
+        dbus_message_iter_get_element_type(&reply_iter) != DBUS_TYPE_BYTE) {
+        dbus_message_unref(reply);
+        return -EPROTO;
+    }
+
+    DBusMessageIter array_iter;
+    dbus_message_iter_recurse(&reply_iter, &array_iter);
+    const uint8_t* payload = NULL;
+    int length             = 0;
+    dbus_message_iter_get_fixed_array(&array_iter, &payload, &length);
+
+    int result = 0;
+    if (length > 0 && payload != NULL) {
+        if ((size_t)length > capacity) {
+            mesh_log_warn("bluez", "ReadValue returned %d bytes, buffer holds %zu", length, capacity);
+            result = -EMSGSIZE;
+        } else {
+            memcpy(out, payload, (size_t)length);
+            *out_len = (size_t)length;
+        }
+    }
+
+    dbus_message_unref(reply);
+    return result;
+#else
+    (void)client;
+    (void)char_path;
+    (void)out;
+    (void)capacity;
     return -ENOSYS;
 #endif
 }
@@ -1270,7 +1400,7 @@ static bool uuid_equals_meshtastic(const char* uuid) {
         buffer[index++] = (char)toupper((unsigned char)*c);
     }
     buffer[index] = '\0';
-    return strcmp(buffer, MESHTASTIC_SERVICE_UUID) == 0;
+    return strcmp(buffer, MESH_BLE_MESHTASTIC_SERVICE_UUID) == 0;
 }
 #endif
 

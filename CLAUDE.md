@@ -64,8 +64,11 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
   (`mesh_bluez_client_mock_enable`) that tests use to script results and capture writes; there is
   no real BlueZ in CI.
 - `src/transport/ble/ble_transport.c` — state machine (`disabled` → `waiting-for-bluez` →
-  `waiting-for-adapter` → `running`), NUS UUID filtering, varint framing, the `want_config_id`
-  handshake, MTU-aware outbound write queue, and a node-summary cache decoded from `FromRadio`.
+  `waiting-for-adapter` → `running`), Meshtastic service UUID filtering, the `want_config_id`
+  handshake, an outbound ToRadio packet queue, FromNum-notify → FromRadio-read drain loop, and a
+  node-summary cache decoded from `FromRadio`. BLE is **not** Nordic UART and has no length
+  framing: one bare protobuf per GATT write/read. `src/proto/framing.c` is for serial/TCP only.
+  Nodes in PIN mode must be paired with BlueZ out of band (`bluetoothctl pair`) before connect.
 - `src/core/app.c` — `mesh_app_publish_ui_state()` copies BLE discovery/handshake state into the
   UI store every loop iteration, persists the handshake cache and preferences under `$HOME`
   (`~/.meshclient/ui_prefs`, `ui_prefs.handshake`), and picks the UI backend.
