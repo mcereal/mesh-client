@@ -10,7 +10,8 @@ export BUILD_ROOT
 DOCKER := ./scripts/docker.sh
 
 .PHONY: help debug release relwithdebinfo build test package proto clean distclean run minui format \
-        docker-image docker-cross-image docker-shell docker-debug docker-test docker-run docker-pak docker-clean
+        docker-image docker-cross-image docker-shell docker-debug docker-test docker-run docker-pak docker-clean \
+        deploy deploy-run deploy-logs deploy-check deploy-shell deploy-key brick
 
 help:
 	@echo "Host targets (Linux):"
@@ -32,6 +33,15 @@ help:
 	@echo "  make docker-pak     - Static aarch64 build + dist/MeshClient.pak.zip for the TrimUI Brick"
 	@echo "  make docker-image   - (Re)build the dev image;  make docker-cross-image for the cross image"
 	@echo "  make docker-clean   - Remove build/linux"
+	@echo ""
+	@echo "Device targets (TrimUI Brick over SSH; configure .brick.env, see docs/device.md):"
+	@echo "  make deploy         - Push dist/MeshClient.pak to the Brick's Tools/tg5040/"
+	@echo "  make brick          - docker-pak + deploy in one step"
+	@echo "  make deploy-run     - Run launch.sh on the device, streaming output (ARGS=\"--list-devices\")"
+	@echo "  make deploy-logs    - Tail the on-device MeshClient.txt log"
+	@echo "  make deploy-check   - Report SD card / BlueZ / D-Bus / adapter / fb0 state on the device"
+	@echo "  make deploy-shell   - SSH into the device"
+	@echo "  make deploy-key     - Install your SSH public key on the device"
 
 build: debug
 
@@ -93,3 +103,28 @@ docker-pak:
 
 docker-clean:
 	rm -rf build/linux
+
+# ---- Device (TrimUI Brick over SSH) -----------------------------------------
+
+DEPLOY := ./scripts/deploy-device.sh
+ARGS ?=
+
+deploy:
+	$(DEPLOY) push
+
+brick: docker-pak deploy
+
+deploy-run:
+	$(DEPLOY) run -- $(ARGS)
+
+deploy-logs:
+	$(DEPLOY) logs
+
+deploy-check:
+	$(DEPLOY) check
+
+deploy-shell:
+	$(DEPLOY) shell
+
+deploy-key:
+	$(DEPLOY) setup-key
