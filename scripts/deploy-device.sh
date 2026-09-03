@@ -30,8 +30,18 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 
-# shellcheck disable=SC1091
-[[ -f .brick.env ]] && source .brick.env
+# .brick.env supplies defaults only: values already in the environment win, flags win over both.
+BRICK_VARS=(BRICK_HOST BRICK_USER BRICK_PORT BRICK_PLATFORM BRICK_SDCARD BRICK_SSH_OPTS)
+if [[ -f .brick.env ]]; then
+    for v in "${BRICK_VARS[@]}"; do
+        eval "_env_set_${v}=\${${v}+set}; _env_val_${v}=\${${v}-}"
+    done
+    # shellcheck disable=SC1091
+    source .brick.env
+    for v in "${BRICK_VARS[@]}"; do
+        eval "if [[ -n \${_env_set_${v}} ]]; then ${v}=\"\${_env_val_${v}}\"; fi"
+    done
+fi
 
 BRICK_HOST="${BRICK_HOST:-}"
 BRICK_USER="${BRICK_USER:-root}"
@@ -106,6 +116,17 @@ ssh_tty() {
     fi
 }
 
+# sha256 hex digest of a local file; Linux ships sha256sum, macOS ships Perl's shasum.
+sha256_of() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | cut -d' ' -f1
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" | cut -d' ' -f1
+    else
+        die "need sha256sum or shasum on the host"
+    fi
+}
+
 # POSIX single-quote a string for the device's /bin/sh (no bash $'...' forms).
 sq() {
     printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
@@ -116,7 +137,7 @@ cmd_push() {
     [[ -x "${LOCAL_PAK}/bin/shared/meshclient" ]] || die "${LOCAL_PAK}/bin/shared/meshclient missing or not executable"
 
     local local_sum
-    local_sum="$(shasum -a 256 "${LOCAL_PAK}/bin/shared/meshclient" | cut -d' ' -f1)"
+    local_sum="$(sha256_of "${LOCAL_PAK}/bin/shared/meshclient")"
     echo "Pushing ${LOCAL_PAK} -> ${TARGET}:${REMOTE_PAK}"
     echo "  meshclient sha256 ${local_sum}"
 
@@ -161,7 +182,8 @@ cmd_run() {
 
 cmd_logs() {
     echo "Tailing ${TARGET}:${REMOTE_LOG} (Ctrl-C to stop)"
-    ssh_cmd "touch $(sq "${REMOTE_LOG}") && tail -n 50 -f $(sq "${REMOTE_LOG}")"
+    # The logs dir is created by launch.sh on first run; make it so tailing before that just waits.
+    ssh_cmd "mkdir -p $(sq "$(dirname "${REMOTE_LOG}")") && touch $(sq "${REMOTE_LOG}") && tail -n 50 -f $(sq "${REMOTE_LOG}")"
 }
 
 cmd_check() {
