@@ -8,7 +8,7 @@
     },
     "C_Cpp.clang_format_style": "file",
     "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
-    "cmake.configureOnOpen": true,
+    "cmake.configureOnOpen": false,
     "cmake.generator": "Unix Makefiles",
     "cmake.buildDirectory": "${workspaceFolder}/build/${buildType}",
     "cmake.configureArgs": [

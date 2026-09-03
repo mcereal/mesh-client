@@ -19,7 +19,8 @@ case "${BUILD_TYPE}" in
     ;;
 esac
 
-BUILD_DIR="build/${BUILD_SUBDIR}"
+BUILD_ROOT="${BUILD_ROOT:-build}"
+BUILD_DIR="${BUILD_ROOT}/${BUILD_SUBDIR}"
 BINARY_PATH="${BUILD_DIR}/meshclient"
 if [[ ! -x "${BINARY_PATH}" ]]; then
     echo "Binary not found at ${BINARY_PATH}. Run scripts/build.sh ${BUILD_TYPE} first." >&2
