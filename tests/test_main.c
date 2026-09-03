@@ -6,13 +6,13 @@
 #include "mesh/transport/ble.h"
 #include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/transport.h"
+#include "mesh/ui/backends/cli.h"
 #include "mesh/ui/backends/minui.h"
 #include "mesh/ui/backends/stub.h"
 #include "mesh/ui/controller.h"
-#include "mesh/ui/backends/cli.h"
 #include "mesh/ui/input.h"
-#include "mesh/ui/store.h"
 #include "mesh/ui/preferences.h"
+#include "mesh/ui/store.h"
 
 #include <pb_decode.h>
 #include <pb_encode.h>
@@ -20,11 +20,11 @@
 #include "meshtastic/mesh.pb.h"
 
 #include <errno.h>
+#include <linux/input.h>
 #include <stdbool.h>
 #include <stdio.h>
-#include <string.h>
-#include <linux/input.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 struct test_case;
@@ -103,7 +103,8 @@ static void test_event_loop_init_shutdown(void) {
     record_success(test_name);
 }
 
-static bool string_matches_any(const char *value, const char *const options[], size_t option_count) {
+static bool string_matches_any(const char *value, const char *const options[],
+                               size_t option_count) {
     if (value == NULL) {
         return false;
     }
@@ -143,8 +144,10 @@ static void test_ble_transport_status_transitions(void) {
     config.enable_ble = true;
     ble->ops->start(ble, &config, &loop);
     const char *running_status = ble->ops->status(ble);
-    const char *expected_states[] = {"running", "waiting-for-bluez", "waiting-for-adapter", "inactive"};
-    if (!string_matches_any(running_status, expected_states, sizeof(expected_states) / sizeof(expected_states[0]))) {
+    const char *expected_states[] = {"running", "waiting-for-bluez", "waiting-for-adapter",
+                                     "inactive"};
+    if (!string_matches_any(running_status, expected_states,
+                            sizeof(expected_states) / sizeof(expected_states[0]))) {
         record_failure(test_name, "unexpected status after enabling BLE");
         ble->ops->stop(ble);
         return;
@@ -191,7 +194,8 @@ static void test_ble_transport_discovery_mock(void) {
     }
 
     struct mesh_bluez_device_info discovered[4];
-    size_t count = mesh_ble_transport_get_devices(ble, discovered, sizeof(discovered) / sizeof(discovered[0]));
+    size_t count =
+        mesh_ble_transport_get_devices(ble, discovered, sizeof(discovered) / sizeof(discovered[0]));
     if (count != mock_config.device_count) {
         ble->ops->stop(ble);
         mesh_event_loop_shutdown(&loop);
@@ -200,7 +204,8 @@ static void test_ble_transport_discovery_mock(void) {
         return;
     }
 
-    if (strcmp(discovered[0].name, "NodeOne") != 0 || strcmp(discovered[1].address, "AA:BB:CC:DD:EE:02") != 0) {
+    if (strcmp(discovered[0].name, "NodeOne") != 0 ||
+        strcmp(discovered[1].address, "AA:BB:CC:DD:EE:02") != 0) {
         ble->ops->stop(ble);
         mesh_event_loop_shutdown(&loop);
         mesh_bluez_client_mock_disable();
@@ -250,8 +255,8 @@ static void test_ble_transport_connect_mock(void) {
      * exceed the per-turn read budget, so this also exercises the eventfd continuation.
      */
     uint8_t read_buffers[5][256];
-    const uint8_t *read_payloads[5] = {read_buffers[0], read_buffers[1], read_buffers[2], read_buffers[3],
-                                       read_buffers[4]};
+    const uint8_t *read_payloads[5] = {read_buffers[0], read_buffers[1], read_buffers[2],
+                                       read_buffers[3], read_buffers[4]};
     size_t read_payload_lengths[5] = {0U, 0U, 0U, 0U, 0U};
     size_t read_index = 0U;
 
@@ -374,8 +379,10 @@ static void test_ble_transport_connect_mock(void) {
     from_radio.which_payload_variant = meshtastic_FromRadio_node_info_tag;
     from_radio.node_info.num = 0x01020305U;
     from_radio.node_info.has_user = true;
-    snprintf(from_radio.node_info.user.long_name, sizeof(from_radio.node_info.user.long_name), "%s", "Alice Example");
-    snprintf(from_radio.node_info.user.short_name, sizeof(from_radio.node_info.user.short_name), "%s", "AE");
+    snprintf(from_radio.node_info.user.long_name, sizeof(from_radio.node_info.user.long_name), "%s",
+             "Alice Example");
+    snprintf(from_radio.node_info.user.short_name, sizeof(from_radio.node_info.user.short_name),
+             "%s", "AE");
     from_radio.node_info.last_heard = 1234U;
     from_radio.node_info.snr = 12.5f;
     from_radio.node_info.via_mqtt = true;
@@ -399,8 +406,10 @@ static void test_ble_transport_connect_mock(void) {
         from_radio.which_payload_variant = meshtastic_FromRadio_node_info_tag;
         from_radio.node_info.num = 0x01020306U + (uint32_t)extra;
         from_radio.node_info.has_user = true;
-        snprintf(from_radio.node_info.user.short_name, sizeof(from_radio.node_info.user.short_name), "P%zu", extra);
-        encode_stream = pb_ostream_from_buffer(read_buffers[2 + extra], sizeof(read_buffers[2 + extra]));
+        snprintf(from_radio.node_info.user.short_name, sizeof(from_radio.node_info.user.short_name),
+                 "P%zu", extra);
+        encode_stream =
+            pb_ostream_from_buffer(read_buffers[2 + extra], sizeof(read_buffers[2 + extra]));
         if (!pb_encode(&encode_stream, meshtastic_FromRadio_fields, &from_radio)) {
             ble->ops->stop(ble);
             mesh_event_loop_shutdown(&loop);
@@ -428,7 +437,8 @@ static void test_ble_transport_connect_mock(void) {
     /* Rewind the scripted FIFO and poke FromNum. */
     read_index = 0U;
     const uint8_t from_num[4] = {5U, 0U, 0U, 0U};
-    mesh_bluez_client_mock_emit_notification(mock_config.fromnum_char_path, from_num, sizeof(from_num));
+    mesh_bluez_client_mock_emit_notification(mock_config.fromnum_char_path, from_num,
+                                             sizeof(from_num));
 
     /* The first turn reads its budget and must stop short of the end; the loop wake finishes it. */
     if (read_index >= 6U) {
@@ -789,7 +799,8 @@ static void test_ui_controller_dispatch(void) {
     memset(&context, 0, sizeof context);
 
     struct mesh_ui_controller controller;
-    if (mesh_ui_controller_init(&controller, &store, mesh_ui_backend_stub(), &context, &loop) != 0) {
+    if (mesh_ui_controller_init(&controller, &store, mesh_ui_backend_stub(), &context, &loop) !=
+        0) {
         mesh_ui_store_shutdown(&store);
         mesh_event_loop_shutdown(&loop);
         record_failure(test_name, "controller init failed");
@@ -894,12 +905,14 @@ static void test_minui_format_menu(void) {
     memset(&snapshot, 0, sizeof snapshot);
 
     snapshot.device_count = 2U;
-    snprintf(snapshot.devices[0].identifier, sizeof snapshot.devices[0].identifier, "%s", "AA:BB:CC:DD:EE:01");
+    snprintf(snapshot.devices[0].identifier, sizeof snapshot.devices[0].identifier, "%s",
+             "AA:BB:CC:DD:EE:01");
     snprintf(snapshot.devices[0].name, sizeof snapshot.devices[0].name, "%s", "NodeOne");
     snapshot.devices[0].rssi = -42;
     snapshot.devices[0].connected = true;
 
-    snprintf(snapshot.devices[1].identifier, sizeof snapshot.devices[1].identifier, "%s", "AA:BB:CC:DD:EE:02");
+    snprintf(snapshot.devices[1].identifier, sizeof snapshot.devices[1].identifier, "%s",
+             "AA:BB:CC:DD:EE:02");
     snprintf(snapshot.devices[1].name, sizeof snapshot.devices[1].name, "%s", "NodeTwo");
     snapshot.devices[1].rssi = -60;
     snapshot.devices[1].connected = false;
@@ -910,18 +923,19 @@ static void test_minui_format_menu(void) {
     snapshot.handshake.config_complete = true;
     snapshot.handshake.config_complete_id = 5U;
     snapshot.handshake.node_count = 2U;
-    snprintf(snapshot.handshake.my_short_name, sizeof snapshot.handshake.my_short_name, "%s", "ABCD");
+    snprintf(snapshot.handshake.my_short_name, sizeof snapshot.handshake.my_short_name, "%s",
+             "ABCD");
     snapshot.handshake.nodes[0].node_id = 101U;
-    snprintf(snapshot.handshake.nodes[0].long_name, sizeof snapshot.handshake.nodes[0].long_name, "%s",
-             "BaseStation");
-    snprintf(snapshot.handshake.nodes[0].short_name, sizeof snapshot.handshake.nodes[0].short_name, "%s",
-             "BASE");
+    snprintf(snapshot.handshake.nodes[0].long_name, sizeof snapshot.handshake.nodes[0].long_name,
+             "%s", "BaseStation");
+    snprintf(snapshot.handshake.nodes[0].short_name, sizeof snapshot.handshake.nodes[0].short_name,
+             "%s", "BASE");
     snapshot.handshake.nodes[0].snr = 8.5f;
     snapshot.handshake.nodes[1].node_id = 202U;
-    snprintf(snapshot.handshake.nodes[1].long_name, sizeof snapshot.handshake.nodes[1].long_name, "%s",
-             "FieldUnit");
-    snprintf(snapshot.handshake.nodes[1].short_name, sizeof snapshot.handshake.nodes[1].short_name, "%s",
-             "FILD");
+    snprintf(snapshot.handshake.nodes[1].long_name, sizeof snapshot.handshake.nodes[1].long_name,
+             "%s", "FieldUnit");
+    snprintf(snapshot.handshake.nodes[1].short_name, sizeof snapshot.handshake.nodes[1].short_name,
+             "%s", "FILD");
     snapshot.handshake.nodes[1].snr = 4.0f;
 
     char buffer[1024];
@@ -960,12 +974,7 @@ static void test_proto_varint_roundtrip(void) {
         uint32_t value;
         size_t expected_len;
     } cases[] = {
-        {0U, 1U},
-        {1U, 1U},
-        {127U, 1U},
-        {128U, 2U},
-        {16384U, 3U},
-        {268435455U, 4U},
+        {0U, 1U}, {1U, 1U}, {127U, 1U}, {128U, 2U}, {16384U, 3U}, {268435455U, 4U},
     };
 
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
@@ -1151,7 +1160,6 @@ static void test_ui_input_quit_keys(void) {
     record_success(test_name);
 }
 
-
 /* Regression: the transport line used to be printed from inside print_devices(), which only
    runs for MESH_UI_UPDATE_DISCOVERY. A BLE state change that did not also change the device
    list (waiting-for-bluez -> waiting-for-adapter) therefore never reached the console. */
@@ -1196,7 +1204,6 @@ static void test_ui_cli_transport_update(void) {
 
     record_success(test_name);
 }
-
 
 struct test_case {
     const char *name;

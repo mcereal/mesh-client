@@ -7,10 +7,7 @@
 extern "C" {
 #endif
 
-enum mesh_app_run_mode {
-    MESH_APP_RUN_SINGLE_POLL = 0,
-    MESH_APP_RUN_FOREGROUND
-};
+enum mesh_app_run_mode { MESH_APP_RUN_SINGLE_POLL = 0, MESH_APP_RUN_FOREGROUND };
 
 struct mesh_app_config {
     enum mesh_app_run_mode run_mode;

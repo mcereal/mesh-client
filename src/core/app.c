@@ -11,9 +11,9 @@
 #include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include <stdlib.h>
 
 static void mesh_app_minui_on_device_selected(void *userdata, const char *identifier) {
     if (userdata == NULL || identifier == NULL || identifier[0] == '\0') {
@@ -28,8 +28,10 @@ static void mesh_app_minui_on_device_selected(void *userdata, const char *identi
     }
 
     mesh_log_info("ui", "MinUI selection requested connect to %s", identifier);
-    snprintf(app->config.preferred_ble_device, sizeof app->config.preferred_ble_device, "%s", identifier);
-    snprintf(app->ui_preferences.preferred_device, sizeof app->ui_preferences.preferred_device, "%s", identifier);
+    snprintf(app->config.preferred_ble_device, sizeof app->config.preferred_ble_device, "%s",
+             identifier);
+    snprintf(app->ui_preferences.preferred_device, sizeof app->ui_preferences.preferred_device,
+             "%s", identifier);
     app->ui_preferences_dirty = true;
 
     int connect_result = mesh_ble_transport_connect(ble, identifier);
@@ -38,8 +40,8 @@ static void mesh_app_minui_on_device_selected(void *userdata, const char *identi
     }
 }
 
-static bool mesh_app_select_minui(struct mesh_app *app, const struct mesh_ui_backend **backend, void **userdata,
-                                  bool log_on_missing) {
+static bool mesh_app_select_minui(struct mesh_app *app, const struct mesh_ui_backend **backend,
+                                  void **userdata, bool log_on_missing) {
     if (!mesh_ui_backend_minui_is_available()) {
         if (log_on_missing) {
             mesh_log_warn("ui", "MinUI helpers not found; falling back to CLI backend");
@@ -59,7 +61,8 @@ static bool mesh_app_select_minui(struct mesh_app *app, const struct mesh_ui_bac
     return true;
 }
 
-static void mesh_app_select_cli(struct mesh_app *app, const struct mesh_ui_backend **backend, void **userdata) {
+static void mesh_app_select_cli(struct mesh_app *app, const struct mesh_ui_backend **backend,
+                                void **userdata) {
     if (backend != NULL) {
         *backend = mesh_ui_backend_cli();
     }
@@ -77,7 +80,8 @@ static void mesh_app_select_stub(const struct mesh_ui_backend **backend, void **
     }
 }
 
-static bool mesh_app_select_fb(struct mesh_app *app, const struct mesh_ui_backend **backend, void **userdata) {
+static bool mesh_app_select_fb(struct mesh_app *app, const struct mesh_ui_backend **backend,
+                               void **userdata) {
     if (!mesh_ui_backend_fb_is_available()) {
         return false;
     }
@@ -92,7 +96,8 @@ static bool mesh_app_select_fb(struct mesh_app *app, const struct mesh_ui_backen
     return true;
 }
 
-static const struct mesh_ui_backend *mesh_app_select_backend(struct mesh_app *app, void **userdata) {
+static const struct mesh_ui_backend *mesh_app_select_backend(struct mesh_app *app,
+                                                             void **userdata) {
     if (userdata != NULL) {
         *userdata = NULL;
     }
@@ -168,7 +173,8 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
 
     const char *transport_status =
         (ble->ops != NULL && ble->ops->status != NULL) ? ble->ops->status(ble) : NULL;
-    mesh_ui_store_set_transport_status(&app->ui_store, transport_status != NULL ? transport_status : "unknown");
+    mesh_ui_store_set_transport_status(&app->ui_store,
+                                       transport_status != NULL ? transport_status : "unknown");
 
     struct mesh_bluez_device_info ble_devices[MESH_UI_MAX_DEVICES];
     size_t device_count = mesh_ble_transport_get_devices(ble, ble_devices, MESH_UI_MAX_DEVICES);
@@ -180,7 +186,8 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
     bool connected_address_seen = false;
 
     for (size_t i = 0; i < device_count && i < MESH_UI_MAX_DEVICES; ++i) {
-        snprintf(ui_devices[i].identifier, sizeof(ui_devices[i].identifier), "%s", ble_devices[i].address);
+        snprintf(ui_devices[i].identifier, sizeof(ui_devices[i].identifier), "%s",
+                 ble_devices[i].address);
         snprintf(ui_devices[i].name, sizeof(ui_devices[i].name), "%s", ble_devices[i].name);
         int16_t rssi = ble_devices[i].rssi;
         if (rssi < INT8_MIN) {
@@ -198,9 +205,10 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
 
     if (connected_address != NULL && connected_address[0] != '\0' && !connected_address_seen &&
         device_count < MESH_UI_MAX_DEVICES) {
-        snprintf(ui_devices[device_count].identifier, sizeof(ui_devices[device_count].identifier), "%s",
-                 connected_address);
-        snprintf(ui_devices[device_count].name, sizeof(ui_devices[device_count].name), "%s", "Connected");
+        snprintf(ui_devices[device_count].identifier, sizeof(ui_devices[device_count].identifier),
+                 "%s", connected_address);
+        snprintf(ui_devices[device_count].name, sizeof(ui_devices[device_count].name), "%s",
+                 "Connected");
         ui_devices[device_count].rssi = 0;
         ui_devices[device_count].connected = true;
         ++device_count;
@@ -211,16 +219,16 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
     bool preferences_modified = false;
     if (connected_address != NULL && connected_address[0] != '\0') {
         if (strcmp(app->ui_preferences.preferred_device, connected_address) != 0) {
-            snprintf(app->ui_preferences.preferred_device, sizeof app->ui_preferences.preferred_device, "%s",
-                     connected_address);
+            snprintf(app->ui_preferences.preferred_device,
+                     sizeof app->ui_preferences.preferred_device, "%s", connected_address);
             preferences_modified = true;
         }
     }
 
     struct mesh_ble_handshake_status status = mesh_ble_transport_handshake_status(ble);
-    const bool handshake_active =
-        status.request_in_flight || status.config_complete || status.has_my_info || status.has_config ||
-        (status.node_count > 0U);
+    const bool handshake_active = status.request_in_flight || status.config_complete ||
+                                  status.has_my_info || status.has_config ||
+                                  (status.node_count > 0U);
 
     if (handshake_active) {
         struct mesh_ui_handshake_state ui_handshake;
@@ -274,7 +282,8 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
 
         if (ui_handshake.primary_channel[0] != '\0' &&
             strcmp(app->ui_preferences.preferred_channel, ui_handshake.primary_channel) != 0) {
-            snprintf(app->ui_preferences.preferred_channel, sizeof app->ui_preferences.preferred_channel, "%s",
+            snprintf(app->ui_preferences.preferred_channel,
+                     sizeof app->ui_preferences.preferred_channel, "%s",
                      ui_handshake.primary_channel);
             preferences_modified = true;
         }
@@ -339,18 +348,21 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     app->ui_handshake_cache_path[0] = '\0';
     app->ui_handshake_cache_dirty = false;
 
-    if (mesh_ui_preferences_default_path(app->ui_preferences_path, sizeof(app->ui_preferences_path)) == 0) {
+    if (mesh_ui_preferences_default_path(app->ui_preferences_path,
+                                         sizeof(app->ui_preferences_path)) == 0) {
         int load_result = mesh_ui_preferences_load(&app->ui_preferences, app->ui_preferences_path);
         if (load_result == 0) {
             if (app->config.preferred_ble_device[0] == '\0' &&
                 app->ui_preferences.preferred_device[0] != '\0') {
-                snprintf(app->config.preferred_ble_device, sizeof app->config.preferred_ble_device, "%s",
-                         app->ui_preferences.preferred_device);
+                snprintf(app->config.preferred_ble_device, sizeof app->config.preferred_ble_device,
+                         "%s", app->ui_preferences.preferred_device);
             }
         }
-        int handshake_written = snprintf(app->ui_handshake_cache_path, sizeof(app->ui_handshake_cache_path),
-                                         "%s.handshake", app->ui_preferences_path);
-        if (handshake_written < 0 || handshake_written >= (int)sizeof(app->ui_handshake_cache_path)) {
+        int handshake_written =
+            snprintf(app->ui_handshake_cache_path, sizeof(app->ui_handshake_cache_path),
+                     "%s.handshake", app->ui_preferences_path);
+        if (handshake_written < 0 ||
+            handshake_written >= (int)sizeof(app->ui_handshake_cache_path)) {
             mesh_log_warn("app", "Handshake cache path truncated; disabling cache");
             app->ui_handshake_cache_path[0] = '\0';
         }
@@ -372,11 +384,12 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
 
     void *backend_userdata = NULL;
     const struct mesh_ui_backend *ui_backend = mesh_app_select_backend(app, &backend_userdata);
-    result = mesh_ui_controller_init(&app->ui_controller, &app->ui_store, ui_backend, backend_userdata, &app->loop);
+    result = mesh_ui_controller_init(&app->ui_controller, &app->ui_store, ui_backend,
+                                     backend_userdata, &app->loop);
     if (result < 0) {
         mesh_log_warn("app", "UI backend init failed (%d); falling back to stub", result);
-        result = mesh_ui_controller_init(&app->ui_controller, &app->ui_store, mesh_ui_backend_stub(), NULL,
-                                         &app->loop);
+        result = mesh_ui_controller_init(&app->ui_controller, &app->ui_store,
+                                         mesh_ui_backend_stub(), NULL, &app->loop);
     }
     if (result < 0) {
         mesh_log_error("app", "UI controller init failed: %d", result);
@@ -425,7 +438,8 @@ int mesh_app_run(struct mesh_app *app) {
         return -EINVAL;
     }
 
-    int result = mesh_transport_registry_start_all(&app->transport_registry, &app->config, &app->loop);
+    int result =
+        mesh_transport_registry_start_all(&app->transport_registry, &app->config, &app->loop);
     if (result < 0) {
         return result;
     }
@@ -439,39 +453,41 @@ int mesh_app_run(struct mesh_app *app) {
     mesh_app_publish_ui_state(app);
 
     switch (app->config.run_mode) {
-        case MESH_APP_RUN_SINGLE_POLL:
-            mesh_log_debug("app", "Running single poll with timeout %d ms", app->config.idle_timeout_ms);
+    case MESH_APP_RUN_SINGLE_POLL:
+        mesh_log_debug("app", "Running single poll with timeout %d ms",
+                       app->config.idle_timeout_ms);
+        mesh_app_publish_ui_state(app);
+        result = mesh_event_loop_run(&app->loop, app->config.idle_timeout_ms);
+        if (result >= 0) {
             mesh_app_publish_ui_state(app);
-            result = mesh_event_loop_run(&app->loop, app->config.idle_timeout_ms);
-            if (result >= 0) {
-                mesh_app_publish_ui_state(app);
-            }
-            break;
-        case MESH_APP_RUN_FOREGROUND:
-            mesh_log_info("app", "Starting foreground event loop (timeout %d ms)", app->config.idle_timeout_ms);
-            while (true) {
-                mesh_transport_registry_tick(&app->transport_registry);
-                mesh_app_publish_ui_state(app);
-                result = mesh_event_loop_run(&app->loop, app->config.idle_timeout_ms);
-                if (result < 0) {
-                    break;
-                }
-                if (app->loop.stop_requested) {
-                    mesh_log_info("app", "Event loop stop requested");
-                    break;
-                }
-                mesh_app_publish_ui_state(app);
-            }
-            break;
-        default:
-            mesh_log_warn("app", "Unknown run mode %d, performing single poll", app->config.run_mode);
+        }
+        break;
+    case MESH_APP_RUN_FOREGROUND:
+        mesh_log_info("app", "Starting foreground event loop (timeout %d ms)",
+                      app->config.idle_timeout_ms);
+        while (true) {
             mesh_transport_registry_tick(&app->transport_registry);
             mesh_app_publish_ui_state(app);
             result = mesh_event_loop_run(&app->loop, app->config.idle_timeout_ms);
-            if (result >= 0) {
-                mesh_app_publish_ui_state(app);
+            if (result < 0) {
+                break;
             }
-            break;
+            if (app->loop.stop_requested) {
+                mesh_log_info("app", "Event loop stop requested");
+                break;
+            }
+            mesh_app_publish_ui_state(app);
+        }
+        break;
+    default:
+        mesh_log_warn("app", "Unknown run mode %d, performing single poll", app->config.run_mode);
+        mesh_transport_registry_tick(&app->transport_registry);
+        mesh_app_publish_ui_state(app);
+        result = mesh_event_loop_run(&app->loop, app->config.idle_timeout_ms);
+        if (result >= 0) {
+            mesh_app_publish_ui_state(app);
+        }
+        break;
     }
 
     mesh_transport_registry_stop_all(&app->transport_registry);

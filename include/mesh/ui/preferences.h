@@ -18,4 +18,3 @@ int mesh_ui_preferences_save(const struct mesh_ui_preferences *prefs, const char
 #ifdef __cplusplus
 }
 #endif
-

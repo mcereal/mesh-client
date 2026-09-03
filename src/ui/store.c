@@ -79,7 +79,8 @@ int mesh_ui_store_event_fd(const struct mesh_ui_store *store) {
     return store->event_fd;
 }
 
-void mesh_ui_store_set_discovery(struct mesh_ui_store *store, const struct mesh_ui_device *devices, size_t count) {
+void mesh_ui_store_set_discovery(struct mesh_ui_store *store, const struct mesh_ui_device *devices,
+                                 size_t count) {
     if (store == NULL) {
         return;
     }
@@ -105,7 +106,8 @@ void mesh_ui_store_set_discovery(struct mesh_ui_store *store, const struct mesh_
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_DISCOVERY);
 }
 
-void mesh_ui_store_set_handshake(struct mesh_ui_store *store, const struct mesh_ui_handshake_state *handshake) {
+void mesh_ui_store_set_handshake(struct mesh_ui_store *store,
+                                 const struct mesh_ui_handshake_state *handshake) {
     if (store == NULL) {
         return;
     }
@@ -118,7 +120,8 @@ void mesh_ui_store_set_handshake(struct mesh_ui_store *store, const struct mesh_
     }
 
     const bool validity_changed = (store->handshake_valid != next_valid);
-    const bool payload_changed = next_valid && (memcmp(&store->handshake, &next_state, sizeof(next_state)) != 0);
+    const bool payload_changed =
+        next_valid && (memcmp(&store->handshake, &next_state, sizeof(next_state)) != 0);
 
     if (!validity_changed && !payload_changed) {
         return;
@@ -178,7 +181,8 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
     snapshot->update_flags = store->pending_flags;
     snapshot->device_count = store->device_count;
     if (store->device_count > 0U) {
-        memcpy(snapshot->devices, store->devices, store->device_count * sizeof(struct mesh_ui_device));
+        memcpy(snapshot->devices, store->devices,
+               store->device_count * sizeof(struct mesh_ui_device));
     }
     if (store->device_count < MESH_UI_MAX_DEVICES) {
         memset(&snapshot->devices[store->device_count], 0,
@@ -212,24 +216,28 @@ static void mesh_ui_store_escape_and_write(FILE *file, const char *key, const ch
     fputc('\n', file);
 }
 
-static int mesh_ui_store_save_handshake(FILE *file, const struct mesh_ui_handshake_state *handshake) {
+static int mesh_ui_store_save_handshake(FILE *file,
+                                        const struct mesh_ui_handshake_state *handshake) {
     if (file == NULL || handshake == NULL) {
         return 0;
     }
 
-    fprintf(file, "handshake_request=%u,%u\n", handshake->request_in_flight ? 1U : 0U, handshake->request_id);
+    fprintf(file, "handshake_request=%u,%u\n", handshake->request_in_flight ? 1U : 0U,
+            handshake->request_id);
     fprintf(file, "handshake_config=%u,%u,%u\n", handshake->config_complete ? 1U : 0U,
             handshake->config_complete_id, handshake->has_config ? 1U : 0U);
     fprintf(file, "handshake_mynode=%u,%u,%u,%u\n", handshake->has_my_info ? 1U : 0U,
-            handshake->my_info.node_num, handshake->my_info.nodedb_entries, handshake->my_info.reboot_count);
+            handshake->my_info.node_num, handshake->my_info.nodedb_entries,
+            handshake->my_info.reboot_count);
     mesh_ui_store_escape_and_write(file, "handshake_channel", handshake->primary_channel);
     mesh_ui_store_escape_and_write(file, "handshake_my_short", handshake->my_short_name);
     fprintf(file, "handshake_cached=%u\n", handshake->cached ? 1U : 0U);
     fprintf(file, "handshake_nodes=%u\n", handshake->node_count);
     for (uint32_t i = 0; i < handshake->node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
         const struct mesh_ui_node_summary *node = &handshake->nodes[i];
-        fprintf(file, "node[%u]=%u,%u,%u,%f,%u,%u\n", i, node->node_id, node->last_heard, node->has_hops_away ? 1U : 0U,
-                (double)node->snr, node->via_mqtt ? 1U : 0U, node->hops_away);
+        fprintf(file, "node[%u]=%u,%u,%u,%f,%u,%u\n", i, node->node_id, node->last_heard,
+                node->has_hops_away ? 1U : 0U, (double)node->snr, node->via_mqtt ? 1U : 0U,
+                node->hops_away);
         char key_long[32];
         char key_short[32];
         snprintf(key_long, sizeof key_long, "node_long[%u]", i);
@@ -337,7 +345,8 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
             unsigned int node_num = 0U;
             unsigned int nodedb = 0U;
             unsigned int reboot_count = 0U;
-            if (sscanf(value, "%u,%u,%u,%u", &has_my_info, &node_num, &nodedb, &reboot_count) == 4) {
+            if (sscanf(value, "%u,%u,%u,%u", &has_my_info, &node_num, &nodedb, &reboot_count) ==
+                4) {
                 handshake.has_my_info = (has_my_info != 0U);
                 handshake.my_info.node_num = node_num;
                 handshake.my_info.nodedb_entries = nodedb;
@@ -361,7 +370,8 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                 double snr = 0.0;
                 unsigned int via_mqtt = 0U;
                 unsigned int hops = 0U;
-                if (sscanf(value, "%u,%u,%u,%lf,%u,%u", &node_id, &last_heard, &has_hops, &snr, &via_mqtt, &hops) == 6) {
+                if (sscanf(value, "%u,%u,%u,%lf,%u,%u", &node_id, &last_heard, &has_hops, &snr,
+                           &via_mqtt, &hops) == 6) {
                     if (index < MESH_UI_MAX_HANDSHAKE_NODES) {
                         struct mesh_ui_node_summary *node = &handshake.nodes[index];
                         node->node_id = node_id;
@@ -379,12 +389,14 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
         } else if (strncmp(key, "node_long[", 10) == 0) {
             unsigned int index = 0U;
             if (sscanf(key, "node_long[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES) {
-                snprintf(handshake.nodes[index].long_name, sizeof(handshake.nodes[index].long_name), "%s", value);
+                snprintf(handshake.nodes[index].long_name, sizeof(handshake.nodes[index].long_name),
+                         "%s", value);
             }
         } else if (strncmp(key, "node_short[", 11) == 0) {
             unsigned int index = 0U;
             if (sscanf(key, "node_short[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES) {
-                snprintf(handshake.nodes[index].short_name, sizeof(handshake.nodes[index].short_name), "%s", value);
+                snprintf(handshake.nodes[index].short_name,
+                         sizeof(handshake.nodes[index].short_name), "%s", value);
             }
         }
     }

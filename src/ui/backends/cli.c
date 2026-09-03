@@ -8,7 +8,8 @@
 #include <stdio.h>
 #include <string.h>
 
-static void mesh_ui_backend_cli_write(struct mesh_ui_backend_cli_context *context, const char *fmt, ...) {
+static void mesh_ui_backend_cli_write(struct mesh_ui_backend_cli_context *context, const char *fmt,
+                                      ...) {
     va_list args;
     va_start(args, fmt);
     vfprintf(stderr, fmt, args);
@@ -26,7 +27,8 @@ static void mesh_ui_backend_cli_write(struct mesh_ui_backend_cli_context *contex
 static void mesh_ui_backend_cli_print_transport(struct mesh_ui_backend_cli_context *context,
                                                 const struct mesh_ui_snapshot *snapshot) {
     mesh_ui_backend_cli_write(context, "[cli-ui] Transport: %s\n",
-                              snapshot->transport_status[0] != '\0' ? snapshot->transport_status : "starting");
+                              snapshot->transport_status[0] != '\0' ? snapshot->transport_status
+                                                                    : "starting");
 }
 
 static void mesh_ui_backend_cli_print_devices(struct mesh_ui_backend_cli_context *context,
@@ -50,17 +52,18 @@ static void mesh_ui_backend_cli_print_handshake(struct mesh_ui_backend_cli_conte
 
     const struct mesh_ui_handshake_state *handshake = &snapshot->handshake;
 
-    mesh_ui_backend_cli_write(context,
-                              "[cli-ui] Handshake: nodes=%" PRIu32 ", request=%s(%u) config=%s(%u)\n",
-                              handshake->node_count, handshake->request_in_flight ? "pending" : "idle",
-                              handshake->request_id, handshake->config_complete ? "done" : "pending",
-                              handshake->config_complete_id);
+    mesh_ui_backend_cli_write(
+        context, "[cli-ui] Handshake: nodes=%" PRIu32 ", request=%s(%u) config=%s(%u)\n",
+        handshake->node_count, handshake->request_in_flight ? "pending" : "idle",
+        handshake->request_id, handshake->config_complete ? "done" : "pending",
+        handshake->config_complete_id);
 
     if (handshake->has_my_info) {
-        mesh_ui_backend_cli_write(context, "[cli-ui]   my_node=%u short=%s nodedb=%u reboots=%u\n",
-                                  handshake->my_info.node_num,
-                                  handshake->my_short_name[0] != '\0' ? handshake->my_short_name : "<unset>",
-                                  handshake->my_info.nodedb_entries, handshake->my_info.reboot_count);
+        mesh_ui_backend_cli_write(
+            context, "[cli-ui]   my_node=%u short=%s nodedb=%u reboots=%u\n",
+            handshake->my_info.node_num,
+            handshake->my_short_name[0] != '\0' ? handshake->my_short_name : "<unset>",
+            handshake->my_info.nodedb_entries, handshake->my_info.reboot_count);
     }
 
     if (handshake->primary_channel[0] != '\0') {
@@ -122,7 +125,8 @@ static int mesh_ui_backend_cli_init(void **state, void *userdata) {
 static void mesh_ui_backend_cli_shutdown(void *state, void *userdata) {
     (void)state;
     if (userdata != NULL) {
-        struct mesh_ui_backend_cli_context *context = (struct mesh_ui_backend_cli_context *)userdata;
+        struct mesh_ui_backend_cli_context *context =
+            (struct mesh_ui_backend_cli_context *)userdata;
         memset(context, 0, sizeof *context);
         if (context->tty_stream != NULL) {
             fclose(context->tty_stream);
@@ -131,7 +135,8 @@ static void mesh_ui_backend_cli_shutdown(void *state, void *userdata) {
     }
 }
 
-static void mesh_ui_backend_cli_present(void *state, const struct mesh_ui_snapshot *snapshot, void *userdata) {
+static void mesh_ui_backend_cli_present(void *state, const struct mesh_ui_snapshot *snapshot,
+                                        void *userdata) {
     struct mesh_ui_backend_cli_context *context = NULL;
     if (state != NULL) {
         context = (struct mesh_ui_backend_cli_context *)state;

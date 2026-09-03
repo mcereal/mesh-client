@@ -34,7 +34,8 @@ struct mesh_ui_backend_minui_context {
 
 const struct mesh_ui_backend *mesh_ui_backend_minui(void);
 bool mesh_ui_backend_minui_is_available(void);
-int mesh_ui_backend_minui_format_menu(const struct mesh_ui_snapshot *snapshot, char *buffer, size_t buffer_len);
+int mesh_ui_backend_minui_format_menu(const struct mesh_ui_snapshot *snapshot, char *buffer,
+                                      size_t buffer_len);
 
 #ifdef __cplusplus
 }

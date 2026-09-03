@@ -30,8 +30,8 @@ struct mesh_event_loop {
 int mesh_event_loop_init(struct mesh_event_loop *loop);
 void mesh_event_loop_shutdown(struct mesh_event_loop *loop);
 
-int mesh_event_loop_add_fd(struct mesh_event_loop *loop, int fd, uint32_t events, mesh_event_callback callback,
-                           void *userdata);
+int mesh_event_loop_add_fd(struct mesh_event_loop *loop, int fd, uint32_t events,
+                           mesh_event_callback callback, void *userdata);
 int mesh_event_loop_update_fd(struct mesh_event_loop *loop, int fd, uint32_t events);
 int mesh_event_loop_remove_fd(struct mesh_event_loop *loop, int fd);
 

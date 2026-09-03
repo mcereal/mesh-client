@@ -6,8 +6,8 @@
 #include "mesh/log.h"
 
 #include <errno.h>
-#include <stdbool.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/signalfd.h>

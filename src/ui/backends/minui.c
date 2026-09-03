@@ -54,7 +54,8 @@ static bool command_in_path(const char *command) {
 
     bool found = false;
     char *saveptr = NULL;
-    for (char *token = strtok_r(mutable_path, ":", &saveptr); token != NULL; token = strtok_r(NULL, ":", &saveptr)) {
+    for (char *token = strtok_r(mutable_path, ":", &saveptr); token != NULL;
+         token = strtok_r(NULL, ":", &saveptr)) {
         size_t token_len = strlen(token);
         if (token_len == 0U) {
             continue;
@@ -140,7 +141,8 @@ static bool minui_buffer_append_format(struct minui_buffer *buffer, const char *
         return false;
     }
 
-    int written = vsnprintf(buffer->data + buffer->length, buffer->capacity - buffer->length, fmt, args);
+    int written =
+        vsnprintf(buffer->data + buffer->length, buffer->capacity - buffer->length, fmt, args);
     va_end(args);
     if (written < 0) {
         return false;
@@ -203,7 +205,8 @@ static bool minui_buffer_append_string(struct minui_buffer *buffer, const char *
     return minui_buffer_append_char(buffer, '"');
 }
 
-int mesh_ui_backend_minui_format_menu(const struct mesh_ui_snapshot *snapshot, char *buffer, size_t buffer_len) {
+int mesh_ui_backend_minui_format_menu(const struct mesh_ui_snapshot *snapshot, char *buffer,
+                                      size_t buffer_len) {
     if (snapshot == NULL || buffer == NULL || buffer_len == 0U) {
         return -EINVAL;
     }
@@ -211,7 +214,8 @@ int mesh_ui_backend_minui_format_menu(const struct mesh_ui_snapshot *snapshot, c
     struct minui_buffer builder;
     minui_buffer_init(&builder, buffer, buffer_len);
 
-    if (!minui_buffer_append_literal(&builder, "{\"settings\":[{\"name\":\"Devices\",\"options\":")) {
+    if (!minui_buffer_append_literal(&builder,
+                                     "{\"settings\":[{\"name\":\"Devices\",\"options\":")) {
         return -ENOSPC;
     }
     if (!minui_buffer_append_literal(&builder, "[")) {
@@ -233,10 +237,12 @@ int mesh_ui_backend_minui_format_menu(const struct mesh_ui_snapshot *snapshot, c
             }
             const struct mesh_ui_device *device = &snapshot->devices[i];
             const char *name = (device->name[0] != '\0') ? device->name : "<unknown>";
-            const char *identifier = (device->identifier[0] != '\0') ? device->identifier : "<unknown>";
+            const char *identifier =
+                (device->identifier[0] != '\0') ? device->identifier : "<unknown>";
             char line[192];
-            int written = snprintf(line, sizeof line, "%s%s [%s] (%d dBm)",
-                                   device->connected ? "★ " : "", name, identifier, (int)device->rssi);
+            int written =
+                snprintf(line, sizeof line, "%s%s [%s] (%d dBm)", device->connected ? "★ " : "",
+                         name, identifier, (int)device->rssi);
             if (written < 0 || (size_t)written >= sizeof line) {
                 return -ENOSPC;
             }
@@ -268,7 +274,8 @@ int mesh_ui_backend_minui_format_menu(const struct mesh_ui_snapshot *snapshot, c
 
     if (snapshot->handshake_valid) {
         char status_line[128];
-        int written = snprintf(status_line, sizeof status_line, "Nodes: %" PRIu32, snapshot->handshake.node_count);
+        int written = snprintf(status_line, sizeof status_line, "Nodes: %" PRIu32,
+                               snapshot->handshake.node_count);
         if (written < 0 || (size_t)written >= sizeof status_line) {
             return -ENOSPC;
         }
@@ -303,7 +310,8 @@ int mesh_ui_backend_minui_format_menu(const struct mesh_ui_snapshot *snapshot, c
                 return -ENOSPC;
             }
             char name_line[128];
-            written = snprintf(name_line, sizeof name_line, "Me: %s", snapshot->handshake.my_short_name);
+            written =
+                snprintf(name_line, sizeof name_line, "Me: %s", snapshot->handshake.my_short_name);
             if (written < 0 || (size_t)written >= sizeof name_line) {
                 return -ENOSPC;
             }
@@ -317,7 +325,8 @@ int mesh_ui_backend_minui_format_menu(const struct mesh_ui_snapshot *snapshot, c
         }
     }
 
-    if (!minui_buffer_append_literal(&builder, "],\"selected\":0,\"features\":{\"unselectable\":true}}")) {
+    if (!minui_buffer_append_literal(&builder,
+                                     "],\"selected\":0,\"features\":{\"unselectable\":true}}")) {
         return -ENOSPC;
     }
 
@@ -342,8 +351,8 @@ int mesh_ui_backend_minui_format_menu(const struct mesh_ui_snapshot *snapshot, c
             char line[192];
             const char *long_name = (node->long_name[0] != '\0') ? node->long_name : "<unknown>";
             const char *short_name = (node->short_name[0] != '\0') ? node->short_name : "----";
-            int written = snprintf(line, sizeof line, "#%u %s (%s) SNR=%.1f", node->node_id, long_name, short_name,
-                                   (double)node->snr);
+            int written = snprintf(line, sizeof line, "#%u %s (%s) SNR=%.1f", node->node_id,
+                                   long_name, short_name, (double)node->snr);
             if (written < 0 || (size_t)written >= sizeof line) {
                 return -ENOSPC;
             }
@@ -352,7 +361,8 @@ int mesh_ui_backend_minui_format_menu(const struct mesh_ui_snapshot *snapshot, c
             }
         }
 
-        if (!minui_buffer_append_literal(&builder, "],\"selected\":0,\"features\":{\"unselectable\":true}}")) {
+        if (!minui_buffer_append_literal(
+                &builder, "],\"selected\":0,\"features\":{\"unselectable\":true}}")) {
             return -ENOSPC;
         }
     }
@@ -364,7 +374,8 @@ int mesh_ui_backend_minui_format_menu(const struct mesh_ui_snapshot *snapshot, c
     return 0;
 }
 
-static bool minui_snapshots_equal(const struct mesh_ui_snapshot *a, const struct mesh_ui_snapshot *b) {
+static bool minui_snapshots_equal(const struct mesh_ui_snapshot *a,
+                                  const struct mesh_ui_snapshot *b) {
     if (a == NULL || b == NULL) {
         return false;
     }
@@ -386,7 +397,8 @@ static bool minui_snapshots_equal(const struct mesh_ui_snapshot *a, const struct
     return true;
 }
 
-static int minui_write_menu_file(const char *payload, size_t length, char *path_out, size_t path_len) {
+static int minui_write_menu_file(const char *payload, size_t length, char *path_out,
+                                 size_t path_len) {
     if (payload == NULL || path_out == NULL || path_len == 0U) {
         return -EINVAL;
     }
@@ -450,7 +462,8 @@ static void minui_close_stdout_fd(struct mesh_ui_backend_minui_context *context)
     }
 }
 
-static void minui_consume_selection(struct mesh_ui_backend_minui_context *context, int status_code) {
+static void minui_consume_selection(struct mesh_ui_backend_minui_context *context,
+                                    int status_code) {
     if (context->list_json_path[0] != '\0') {
         unlink(context->list_json_path);
         context->list_json_path[0] = '\0';
@@ -529,7 +542,8 @@ static void minui_cancel_list(struct mesh_ui_backend_minui_context *context) {
 }
 
 static int minui_list_fd_callback(int fd, uint32_t events, void *userdata) {
-    struct mesh_ui_backend_minui_context *context = (struct mesh_ui_backend_minui_context *)userdata;
+    struct mesh_ui_backend_minui_context *context =
+        (struct mesh_ui_backend_minui_context *)userdata;
     if (context == NULL) {
         return 0;
     }
@@ -574,14 +588,16 @@ static int minui_spawn_list(struct mesh_ui_backend_minui_context *context) {
     }
 
     char menu_json[4096];
-    int format_result = mesh_ui_backend_minui_format_menu(&context->last_snapshot, menu_json, sizeof menu_json);
+    int format_result =
+        mesh_ui_backend_minui_format_menu(&context->last_snapshot, menu_json, sizeof menu_json);
     if (format_result < 0) {
         mesh_log_warn("ui", "Failed to format MinUI menu: %d", format_result);
         return format_result;
     }
 
     char json_path[MESH_UI_MINUI_PATH_CAP];
-    int file_result = minui_write_menu_file(menu_json, strlen(menu_json), json_path, sizeof json_path);
+    int file_result =
+        minui_write_menu_file(menu_json, strlen(menu_json), json_path, sizeof json_path);
     if (file_result < 0) {
         mesh_log_warn("ui", "Failed to write MinUI menu file: %d", file_result);
         return file_result;
@@ -612,9 +628,9 @@ static int minui_spawn_list(struct mesh_ui_backend_minui_context *context) {
             _exit(127);
         }
         close(pipe_fds[1]);
-        execlp(list_cmd, list_cmd, "--disable-auto-sleep", "--format", "json", "--title", "Mesh Client",
-               "--confirm-text", "CONNECT", "--item-key", "settings", "--write-value", "state", "--file",
-               json_path, (char *)NULL);
+        execlp(list_cmd, list_cmd, "--disable-auto-sleep", "--format", "json", "--title",
+               "Mesh Client", "--confirm-text", "CONNECT", "--item-key", "settings",
+               "--write-value", "state", "--file", json_path, (char *)NULL);
         _exit(127);
     }
 
@@ -634,8 +650,8 @@ static int minui_spawn_list(struct mesh_ui_backend_minui_context *context) {
     context->list_output[0] = '\0';
     snprintf(context->list_json_path, sizeof context->list_json_path, "%s", json_path);
 
-    int add_result = mesh_event_loop_add_fd(context->loop, pipe_fds[0], EPOLLIN | EPOLLHUP | EPOLLERR,
-                                            minui_list_fd_callback, context);
+    int add_result = mesh_event_loop_add_fd(
+        context->loop, pipe_fds[0], EPOLLIN | EPOLLHUP | EPOLLERR, minui_list_fd_callback, context);
     if (add_result < 0) {
         mesh_log_warn("ui", "Failed to watch MinUI output: %d", add_result);
         close(pipe_fds[0]);
@@ -652,12 +668,14 @@ static int minui_spawn_list(struct mesh_ui_backend_minui_context *context) {
     return 0;
 }
 
-static void minui_present_toast(struct mesh_ui_backend_minui_context *context, const char *message) {
+static void minui_present_toast(struct mesh_ui_backend_minui_context *context,
+                                const char *message) {
     if (message == NULL || message[0] == '\0') {
         return;
     }
 
-    const char *presenter_cmd = get_env_or_default("MESHCLIENT_MINUI_PRESENTER_CMD", k_minui_presenter);
+    const char *presenter_cmd =
+        get_env_or_default("MESHCLIENT_MINUI_PRESENTER_CMD", k_minui_presenter);
     if (!command_in_path(presenter_cmd)) {
         if (!context->warned_presenter_missing) {
             mesh_log_warn("ui", "minui-presenter helper not available");
@@ -675,7 +693,8 @@ static void minui_present_toast(struct mesh_ui_backend_minui_context *context, c
     if (pid == 0) {
         pid_t grandchild = fork();
         if (grandchild == 0) {
-            execlp(presenter_cmd, presenter_cmd, "--message", message, "--timeout", "2", (char *)NULL);
+            execlp(presenter_cmd, presenter_cmd, "--message", message, "--timeout", "2",
+                   (char *)NULL);
             _exit(127);
         }
         _exit(0);
@@ -686,7 +705,8 @@ static void minui_present_toast(struct mesh_ui_backend_minui_context *context, c
 
 static void minui_handle_snapshot(struct mesh_ui_backend_minui_context *context) {
     if (context->list_running) {
-        if (!context->list_snapshot_valid || !minui_snapshots_equal(&context->list_snapshot, &context->last_snapshot)) {
+        if (!context->list_snapshot_valid ||
+            !minui_snapshots_equal(&context->list_snapshot, &context->last_snapshot)) {
             minui_cancel_list(context);
         }
     }
@@ -697,7 +717,8 @@ static void minui_handle_snapshot(struct mesh_ui_backend_minui_context *context)
 }
 
 static int mesh_ui_backend_minui_init(void **state, void *userdata) {
-    struct mesh_ui_backend_minui_context *context = (struct mesh_ui_backend_minui_context *)userdata;
+    struct mesh_ui_backend_minui_context *context =
+        (struct mesh_ui_backend_minui_context *)userdata;
     if (context != NULL) {
         struct mesh_event_loop *loop = context->loop;
         void (*callback)(void *, const char *) = context->on_device_selected;
@@ -717,15 +738,18 @@ static int mesh_ui_backend_minui_init(void **state, void *userdata) {
 }
 
 static void mesh_ui_backend_minui_shutdown(void *state, void *userdata) {
-    struct mesh_ui_backend_minui_context *context = (struct mesh_ui_backend_minui_context *)(state != NULL ? state : userdata);
+    struct mesh_ui_backend_minui_context *context =
+        (struct mesh_ui_backend_minui_context *)(state != NULL ? state : userdata);
     if (context == NULL) {
         return;
     }
     minui_cancel_list(context);
 }
 
-static void mesh_ui_backend_minui_present(void *state, const struct mesh_ui_snapshot *snapshot, void *userdata) {
-    struct mesh_ui_backend_minui_context *context = (struct mesh_ui_backend_minui_context *)(state != NULL ? state : userdata);
+static void mesh_ui_backend_minui_present(void *state, const struct mesh_ui_snapshot *snapshot,
+                                          void *userdata) {
+    struct mesh_ui_backend_minui_context *context =
+        (struct mesh_ui_backend_minui_context *)(state != NULL ? state : userdata);
     if (context == NULL || snapshot == NULL) {
         return;
     }
@@ -736,18 +760,18 @@ static void mesh_ui_backend_minui_present(void *state, const struct mesh_ui_snap
     context->last_snapshot = *snapshot;
     context->has_snapshot = true;
 
-    if ((!had_previous || !previous.handshake_valid || !previous.handshake.cached) && snapshot->handshake_valid &&
-        snapshot->handshake.cached) {
+    if ((!had_previous || !previous.handshake_valid || !previous.handshake.cached) &&
+        snapshot->handshake_valid && snapshot->handshake.cached) {
         char message[128];
-        snprintf(message, sizeof message, "Cached nodes available (%" PRIu32 ")", snapshot->handshake.node_count);
+        snprintf(message, sizeof message, "Cached nodes available (%" PRIu32 ")",
+                 snapshot->handshake.node_count);
         minui_present_toast(context, message);
         if (snapshot->handshake.node_count > 0U) {
             const struct mesh_ui_node_summary *node = &snapshot->handshake.nodes[0];
             char node_msg[128];
             snprintf(node_msg, sizeof node_msg, "Last node: %s (%s) SNR %.1f",
                      node->long_name[0] != '\0' ? node->long_name : "<unknown>",
-                     node->short_name[0] != '\0' ? node->short_name : "----",
-                     (double)node->snr);
+                     node->short_name[0] != '\0' ? node->short_name : "----", (double)node->snr);
             minui_present_toast(context, node_msg);
         }
     }
@@ -761,15 +785,17 @@ static void mesh_ui_backend_minui_present(void *state, const struct mesh_ui_snap
         if (!handshake_prev && handshake_now) {
             char message[128];
             if (snapshot->handshake.my_short_name[0] != '\0') {
-                snprintf(message, sizeof message, "Connected as %s (%" PRIu32 " nodes)", snapshot->handshake.my_short_name,
-                         snapshot->handshake.node_count);
+                snprintf(message, sizeof message, "Connected as %s (%" PRIu32 " nodes)",
+                         snapshot->handshake.my_short_name, snapshot->handshake.node_count);
             } else {
-                snprintf(message, sizeof message, "Mesh connected (%" PRIu32 " nodes)", snapshot->handshake.node_count);
+                snprintf(message, sizeof message, "Mesh connected (%" PRIu32 " nodes)",
+                         snapshot->handshake.node_count);
             }
             minui_present_toast(context, message);
         } else if (handshake_prev && !handshake_now) {
             minui_present_toast(context, "Mesh disconnected");
-        } else if (handshake_now && previous.handshake.config_complete != snapshot->handshake.config_complete &&
+        } else if (handshake_now &&
+                   previous.handshake.config_complete != snapshot->handshake.config_complete &&
                    snapshot->handshake.config_complete) {
             minui_present_toast(context, "Mesh config synchronised");
         }

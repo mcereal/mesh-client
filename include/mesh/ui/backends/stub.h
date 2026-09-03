@@ -17,4 +17,3 @@ const struct mesh_ui_backend *mesh_ui_backend_stub(void);
 #ifdef __cplusplus
 }
 #endif
-

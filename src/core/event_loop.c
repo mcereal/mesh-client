@@ -96,8 +96,8 @@ void mesh_event_loop_shutdown(struct mesh_event_loop *loop) {
     loop->stop_requested = false;
 }
 
-int mesh_event_loop_add_fd(struct mesh_event_loop *loop, int fd, uint32_t events, mesh_event_callback callback,
-                           void *userdata) {
+int mesh_event_loop_add_fd(struct mesh_event_loop *loop, int fd, uint32_t events,
+                           mesh_event_callback callback, void *userdata) {
     if (loop == NULL || fd < 0 || callback == NULL) {
         return -EINVAL;
     }
@@ -198,7 +198,8 @@ int mesh_event_loop_run(struct mesh_event_loop *loop, int timeout_ms) {
 
     struct epoll_event events[8];
     while (loop->running) {
-        int ready = epoll_wait(loop->epoll_fd, events, (int)(sizeof events / sizeof events[0]), timeout_ms);
+        int ready =
+            epoll_wait(loop->epoll_fd, events, (int)(sizeof events / sizeof events[0]), timeout_ms);
         if (ready < 0) {
             if (errno == EINTR) {
                 continue;

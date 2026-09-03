@@ -26,4 +26,3 @@ void mesh_ui_controller_shutdown(struct mesh_ui_controller *controller);
 #ifdef __cplusplus
 }
 #endif
-
