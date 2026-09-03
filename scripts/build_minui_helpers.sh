@@ -7,7 +7,7 @@
 # Environment variables:
 #   PLATFORM      Target platform (defaults to tg5040).
 #   CROSS_COMPILE Toolchain prefix (defaults to aarch64-linux-gnu-).
-#   PREFIX        Install prefix for NextUI libs (defaults to a local sysroot).
+#   PREFIX        Install prefix for NextUI libs (defaults to $BUILD_ROOT/nextui-sysroot/$PLATFORM).
 #
 # The script orchestrates the NextUI makefiles to build the Settings helper and
 # copies the resulting binaries (and supporting shared objects) into the Mesh
@@ -32,7 +32,8 @@ fi
 
 PLATFORM="${PLATFORM:-tg5040}"
 CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}"
-PREFIX="${PREFIX:-${WORKSPACE_DIR}/${PLATFORM}/sysroot}"
+# Keep the NextUI sysroot out of the submodule tree so it stays clean.
+PREFIX="${PREFIX:-${REPO_ROOT}/${BUILD_ROOT:-build}/nextui-sysroot/${PLATFORM}}"
 PREFIX_LOCAL="${PREFIX}"
 
 OUTPUT_DIR="${REPO_ROOT}/Tools/tg5040/MeshClient.pak/bin/${PLATFORM}"
@@ -98,7 +99,7 @@ if [[ -d "${HELPER_SRC_DIR}" ]]; then
         out="${OUTPUT_DIR}/minui-${helper}"
         if [[ -f "${src}" ]]; then
             info "Compiling minui-${helper} helper"
-            if ! "${CROSS_COMPILE}gcc" -O2 -o "${out}" "${src}"; then
+            if ! "${CROSS_COMPILE}gcc" -O2 -static -o "${out}" "${src}"; then
                 warn "Failed to compile ${helper} helper with ${CROSS_COMPILE}gcc"
                 rm -f "${out}"
             fi

@@ -24,7 +24,8 @@ case "${BUILD_TYPE}" in
     ;;
 esac
 
-BUILD_DIR="build/${BUILD_SUBDIR}"
+BUILD_ROOT="${BUILD_ROOT:-build}"
+BUILD_DIR="${BUILD_ROOT}/${BUILD_SUBDIR}"
 mkdir -p "${BUILD_DIR}"
 
 cmake -S . -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" "$@"

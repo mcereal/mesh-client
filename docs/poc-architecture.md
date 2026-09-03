@@ -165,7 +165,7 @@ See [`docs/ui-strategy.md`](ui-strategy.md) for the detailed UI plan covering th
 
 ## 8) Build & Toolchain
 
-- Language: C (C11), nanopb for protobufs → smallest and fastest on A133P with minimal RAM usage.
+- Language: C (C17), nanopb for protobufs → smallest and fastest on A133P with minimal RAM usage.
 - BLE: link against BlueZ D‑Bus GATT (no X/GUI). Vendor a tiny D‑Bus client (or use a single‑file wrapper) to keep deps minimal.
 - Cross‑compile: `aarch64-linux-gnu-gcc` with static or mostly‑static linking where permissible.
 
@@ -223,7 +223,7 @@ NodeDB push behavior and single‑consumer caveats on HTTP are documented in ups
 ### Repo bootstrap
 
 - [x] CMake-based build system with `scripts/build.sh` and Makefile wrappers for common tasks.
-- [x] Ship `.clang-format` for consistent formatting; nanopb stub added under `third_party/` (replace with upstream before release) and generated protobuf sources still pending.
+- [x] Ship `.clang-format` for consistent formatting; upstream nanopb and Meshtastic protobufs vendored as submodules with nanopb sources generated at build time.
 
 ### Pak scaffold
 
@@ -233,17 +233,18 @@ NodeDB push behavior and single‑consumer caveats on HTTP are documented in ups
 ### BLE scan/connect
 
 - [x] Device discovery via BlueZ `GetManagedObjects` with Meshtastic UUID filtering, address/name/RSSI cache, and periodic refresh.
-- [ ] NUS discovery, subscribe to notify, MTU negotiation (Connect/StartNotify/Write stubs wired via BlueZ D-Bus; full data path pending).
-- [ ] Basic status screen with device name/RSSI.
-- [ ] Wire CLI/MinUI flows to reuse the discovery cache (CLI `--list-devices` provided for diagnostics).
+- [x] NUS discovery, subscribe to notify, MTU-aware chunked writes via BlueZ D-Bus GATT.
+- [x] Basic status screen with device name/RSSI (framebuffer HUD on device, CLI backend on host).
+- [x] Wire CLI/MinUI flows to reuse the discovery cache (`--list-devices`, `--status`, MinUI JSON menus).
 
 ### Protobuf handshake
 
-- [ ] Send `want_config_id`, parse NodeDB/config into cache.
+- [x] Send `want_config_id`, parse NodeDB/config into cache (persisted to `~/.meshclient/ui_prefs.handshake`).
 
 ### Node list UI
 
-- [ ] Render nodes with `minui-list`; details panel via presenter.
+- [x] Render nodes with `minui-list` (Nodes section from the handshake cache).
+- [ ] Details panel via presenter.
 
 ### Send message
 
@@ -251,7 +252,8 @@ NodeDB push behavior and single‑consumer caveats on HTTP are documented in ups
 
 ### Settings & persistence
 
-- [ ] Save last device addr, autoconnect flag, log level in Pak userdata dir.
+- [x] Save last device addr and preferred channel in Pak userdata dir (`~/.meshclient/ui_prefs`).
+- [ ] Autoconnect flag and log level.
 
 ### Packaging & test
 
@@ -265,7 +267,7 @@ NodeDB push behavior and single‑consumer caveats on HTTP are documented in ups
 - `/docs/transport.md` — transport capability overview (shipped vs in-progress details).
 - `/Tools/tg5040/MeshClient.pak/` — TrimUI pak scaffold (launch script + bins).
 - `Makefile` plus `scripts/build.sh`, `scripts/package.sh` — build/package automation.
-- `third_party/` — hosts nanopb stub today; TODO to replace with upstream sources and vendor MinUI helpers.
+- `third_party/` — `nanopb` and `nextui` git submodules; MinUI helpers are built from the latter by `scripts/build_minui_helpers.sh`.
 - `proto/meshtastic/` — Meshtastic protobuf submodule (currently v2.7.9); regenerate selected nanopb sources via `make proto` after syncing upstream.
 - `LICENSE` (BSD‑3 or MIT).
 

@@ -29,7 +29,7 @@ ctest -L unit
 ./build/debug/tests/meshclient_core_tests --category integration
 
 # Filter by test name substring
-./build/debug/tests/meshclient_core_tests --filter handshake
+./build/debug/tests/meshclient_core_tests --filter ble_transport
 ```
 
 The test driver now prints a concise `[RUN]` line for each case, followed by a
