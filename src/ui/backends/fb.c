@@ -2,6 +2,7 @@
 
 #include "mesh/event_loop.h"
 #include "mesh/log.h"
+#include "mesh/ui/input.h"
 #include "mesh/ui/store.h"
 
 #include <errno.h>
@@ -238,15 +239,38 @@ static void fb_clear(const struct mesh_ui_backend_fb_state *state, uint8_t r, ui
     }
 }
 
+static void fb_draw_quit_hint(const struct mesh_ui_backend_fb_state *state) {
+    const int y = (int)state->var.yres - LINE_ADV - 8;
+    if (y <= 0) {
+        return;
+    }
+    fb_draw_text(state, 16, y, mesh_ui_input_quit_hint(), 140, 150, 165);
+}
+
 static void fb_render_snapshot(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_snapshot *snapshot) {
     fb_clear(state, 0x0A, 0x14, 0x1E);
 
     char line[128];
     int y = 12;
 
+    fb_draw_text(state, 16, y, "MeshClient", 255, 255, 255);
+    y += LINE_ADV;
+
+    /* Without this the screen is indistinguishable from a hang while BlueZ is coming up. */
+    snprintf(line, sizeof line, "Transport: %s",
+             snapshot->transport_status[0] != '\0' ? snapshot->transport_status : "starting");
+    fb_draw_text(state, 16, y, line, 150, 200, 170);
+    y += LINE_ADV;
+    y += LINE_ADV;
+
     snprintf(line, sizeof line, "Devices (%zu)", snapshot->device_count);
     fb_draw_text(state, 16, y, line, 220, 240, 255);
     y += LINE_ADV;
+
+    if (snapshot->device_count == 0U) {
+        fb_draw_text(state, 32, y, "scanning...", 150, 170, 190);
+        y += LINE_ADV;
+    }
 
     for (size_t i = 0; i < snapshot->device_count && i < 10; ++i) {
         const struct mesh_ui_device *device = &snapshot->devices[i];
@@ -384,6 +408,7 @@ static void mesh_ui_backend_fb_present(void *state_ptr, const struct mesh_ui_sna
     }
 
     fb_render_snapshot(state, snapshot);
+    fb_draw_quit_hint(state);
     msync(state->fb_ptr, state->fb_size, MS_ASYNC);
 }
 

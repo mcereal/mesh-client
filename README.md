@@ -20,9 +20,13 @@ make docker-shell    # bash inside the container for ad-hoc cmake/ctest work
 make docker-pak      # static aarch64 build → dist/MeshClient.pak.zip for the TrimUI Brick
 ```
 
-On a Linux host you can build natively:
+On a Linux host you can build natively — no Docker needed:
 
 ```bash
+# One-time: git submodules, libdbus-1-dev, and the Python protobuf packages
+# the nanopb generator needs. Safe to re-run; --check reports without installing.
+make setup
+
 # Debug build (requires CMake ≥3.18 and a C17 toolchain)
 make debug
 

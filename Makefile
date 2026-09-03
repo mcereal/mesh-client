@@ -9,12 +9,13 @@ export BUILD_ROOT
 
 DOCKER := ./scripts/docker.sh
 
-.PHONY: help debug release relwithdebinfo build test package proto clean distclean run minui format \
+.PHONY: help setup debug release relwithdebinfo build test package proto clean distclean run minui format \
         docker-image docker-cross-image docker-shell docker-debug docker-test docker-run docker-pak docker-clean \
         deploy deploy-run deploy-logs deploy-check deploy-shell deploy-key brick
 
 help:
 	@echo "Host targets (Linux):"
+	@echo "  make setup          - Install build prerequisites natively (submodules, libdbus, protobuf)"
 	@echo "  make debug          - Configure and build a Debug build ($(BUILD_ROOT)/debug)"
 	@echo "  make release        - Configure and build a Release build"
 	@echo "  make test           - Run unit tests against the Debug build"
@@ -42,6 +43,9 @@ help:
 	@echo "  make deploy-check   - Report SD card / BlueZ / D-Bus / adapter / fb0 state on the device"
 	@echo "  make deploy-shell   - SSH into the device"
 	@echo "  make deploy-key     - Install your SSH public key on the device"
+
+setup:
+	./scripts/setup-linux.sh
 
 build: debug
 

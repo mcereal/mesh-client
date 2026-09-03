@@ -35,6 +35,7 @@ add_library(meshclient_core
     src/core/app.c
     src/core/config.c
     src/core/event_loop.c
+    src/core/signals.c
     src/transport/transport_registry.c
     src/transport/ble/ble_transport.c
     src/transport/ble/bluez_client.c
@@ -42,6 +43,7 @@ add_library(meshclient_core
     src/utils/log.c
     src/ui/store.c
     src/ui/controller.c
+    src/ui/input.c
     src/ui/backends/stub.c
     src/ui/backends/cli.c
     src/ui/backends/minui.c

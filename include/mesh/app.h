@@ -2,12 +2,14 @@
 
 #include "mesh/config.h"
 #include "mesh/event_loop.h"
+#include "mesh/signals.h"
 #include "mesh/transport/transport.h"
 #include "mesh/ui/controller.h"
 #include "mesh/ui/store.h"
 #include "mesh/ui/backends/cli.h"
 #include "mesh/ui/backends/minui.h"
 #include "mesh/ui/backends/fb.h"
+#include "mesh/ui/input.h"
 #include "mesh/ui/preferences.h"
 
 #ifdef __cplusplus
@@ -24,6 +26,8 @@ struct mesh_app {
     struct mesh_ui_backend_minui_context ui_minui_context;
     struct mesh_ui_backend_fb_context ui_fb_context;
     struct mesh_ui_preferences ui_preferences;
+    struct mesh_ui_input ui_input;
+    struct mesh_signals signals;
     char ui_preferences_path[256];
     char ui_handshake_cache_path[256];
     bool ui_preferences_dirty;
