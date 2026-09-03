@@ -23,10 +23,14 @@ static void mesh_ui_backend_cli_write(struct mesh_ui_backend_cli_context *contex
     }
 }
 
-static void mesh_ui_backend_cli_print_devices(struct mesh_ui_backend_cli_context *context,
-                                              const struct mesh_ui_snapshot *snapshot) {
+static void mesh_ui_backend_cli_print_transport(struct mesh_ui_backend_cli_context *context,
+                                                const struct mesh_ui_snapshot *snapshot) {
     mesh_ui_backend_cli_write(context, "[cli-ui] Transport: %s\n",
                               snapshot->transport_status[0] != '\0' ? snapshot->transport_status : "starting");
+}
+
+static void mesh_ui_backend_cli_print_devices(struct mesh_ui_backend_cli_context *context,
+                                              const struct mesh_ui_snapshot *snapshot) {
     mesh_ui_backend_cli_write(context, "[cli-ui] Devices (%zu)\n", snapshot->device_count);
     for (size_t i = 0; i < snapshot->device_count; ++i) {
         const struct mesh_ui_device *device = &snapshot->devices[i];
@@ -143,6 +147,9 @@ static void mesh_ui_backend_cli_present(void *state, const struct mesh_ui_snapsh
     context->last_snapshot = *snapshot;
     context->has_snapshot = true;
 
+    if ((snapshot->update_flags & MESH_UI_UPDATE_TRANSPORT) != 0U) {
+        mesh_ui_backend_cli_print_transport(context, snapshot);
+    }
     if ((snapshot->update_flags & MESH_UI_UPDATE_DISCOVERY) != 0U) {
         mesh_ui_backend_cli_print_devices(context, snapshot);
     }

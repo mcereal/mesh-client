@@ -9,6 +9,7 @@
 #include "mesh/ui/backends/minui.h"
 #include "mesh/ui/backends/stub.h"
 #include "mesh/ui/controller.h"
+#include "mesh/ui/backends/cli.h"
 #include "mesh/ui/input.h"
 #include "mesh/ui/store.h"
 #include "mesh/ui/preferences.h"
@@ -1151,6 +1152,52 @@ static void test_ui_input_quit_keys(void) {
 }
 
 
+/* Regression: the transport line used to be printed from inside print_devices(), which only
+   runs for MESH_UI_UPDATE_DISCOVERY. A BLE state change that did not also change the device
+   list (waiting-for-bluez -> waiting-for-adapter) therefore never reached the console. */
+static void test_ui_cli_transport_update(void) {
+    const char *test_name = "ui_cli_transport_update";
+
+    const struct mesh_ui_backend *backend = mesh_ui_backend_cli();
+    if (backend == NULL || backend->present == NULL) {
+        record_failure(test_name, "cli backend unavailable");
+        return;
+    }
+
+    struct mesh_ui_backend_cli_context context;
+    memset(&context, 0, sizeof context);
+
+    /* present() also writes to stderr; tty_stream is the part we can capture. */
+    FILE *capture = tmpfile();
+    if (capture == NULL) {
+        record_failure(test_name, "tmpfile failed");
+        return;
+    }
+    context.tty_stream = capture;
+
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    snapshot.update_flags = MESH_UI_UPDATE_TRANSPORT;
+    snprintf(snapshot.transport_status, sizeof snapshot.transport_status, "waiting-for-adapter");
+
+    backend->present(&context, &snapshot, &context);
+
+    fflush(capture);
+    rewind(capture);
+    char buffer[512];
+    const size_t read_bytes = fread(buffer, 1, sizeof(buffer) - 1U, capture);
+    buffer[read_bytes] = '\0';
+    fclose(capture);
+
+    if (strstr(buffer, "waiting-for-adapter") == NULL) {
+        record_failure(test_name, "transport-only update should still print the transport line");
+        return;
+    }
+
+    record_success(test_name);
+}
+
+
 struct test_case {
     const char *name;
     const char *category;
@@ -1168,6 +1215,7 @@ static const struct test_case k_test_cases[] = {
     {"ui_store_persistence", "unit", test_ui_store_persistence},
     {"ui_store_refresh_request", "unit", test_ui_store_refresh_request},
     {"ui_input_quit_keys", "unit", test_ui_input_quit_keys},
+    {"ui_cli_transport_update", "unit", test_ui_cli_transport_update},
     {"ui_controller_dispatch", "unit", test_ui_controller_dispatch},
     {"ui_preferences_roundtrip", "unit", test_ui_preferences_roundtrip},
     {"minui_format_menu", "unit", test_minui_format_menu},
