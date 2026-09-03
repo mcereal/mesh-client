@@ -127,19 +127,19 @@ if [[ -n "${CROSS_COMPILE}" ]]; then
         warn "settings.elf not produced; skipping copy"
     fi
 
+    # Only a candidate that actually installs counts as found: a stale host-arch .so in the
+    # workspace must not stop us falling through to a good one under $PREFIX/lib.
     found_lib=false
     for lib in "${WORKSPACE_DIR}/tg5040/libmsettings/libmsettings.so" \
                "${PREFIX}/lib/libmsettings.so"; do
-        if [[ -f "${lib}" ]]; then
-            if install_device_binary "${lib}" "${OUTPUT_DIR}/libmsettings.so"; then
-                info "Copied $(basename "${lib}") to ${OUTPUT_DIR}"
-            fi
+        if [[ -f "${lib}" ]] && install_device_binary "${lib}" "${OUTPUT_DIR}/libmsettings.so"; then
+            info "Copied $(basename "${lib}") to ${OUTPUT_DIR}"
             found_lib=true
             break
         fi
     done
     if [[ "${found_lib}" == false ]]; then
-        warn "libmsettings.so not found"
+        warn "no usable libmsettings.so found"
     fi
 else
     warn "Skipping NextUI builds; CROSS_COMPILE not set"
