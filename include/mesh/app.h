@@ -13,6 +13,7 @@
 #include "mesh/ui/preferences.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
+#include "mesh/updater.h"
 
 #include <stdint.h>
 
@@ -40,6 +41,10 @@ struct mesh_app {
     struct mesh_ui_message_list ui_messages_cached;
     struct mesh_ui_input ui_input;
     struct mesh_signals signals;
+    /* Self-update: forks the device's curl/wget through the event loop above. Its state is
+       flattened into the UI's client info on every publish, so the About section renders it
+       without the UI ever seeing a child process. */
+    struct mesh_updater updater;
     char ui_preferences_path[256];
     char ui_handshake_cache_path[256];
     bool ui_preferences_dirty;

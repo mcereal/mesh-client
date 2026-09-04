@@ -188,8 +188,39 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   detail rides in the handshake cache as its own `node_user[i]`/`node_ident[i]`/`node_key[i]`/
   `node_pos[i]`/`node_metrics[i]`/`node_env[i]` key lines, so it is both browsable offline and
   compatible in either direction with a build that knows nothing about it.
+- `src/core/updater.c` + `src/core/version.c` — the client updating itself, as opposed to
+  everything else here which is about the radio. `mesh_version_string()` returns the
+  `MESHCLIENT_VERSION` compile definition CMake feeds from `project(... VERSION ...)`, or
+  `"dev"` for a build without one, and `mesh_version_compare()` is SemVer precedence including
+  prerelease ordering - a `dev` build never offers to "update" itself to a release, which is
+  what keeps a working tree from replacing its own binary. The updater has no TLS: it forks the
+  device's `curl` (then `wget`) and reads its stdout through the event loop, the same shape
+  `minui.c` uses for `minui-list`, because the release build is static musl with libdbus as its
+  only dependency. One child at a time, states strictly sequential, `tick()` enforcing the
+  timeout. What makes downloading an executable safe is not the transport but the digest: the
+  release metadata comes from `api.github.com` - `releases/latest` for a stable build, but
+  `releases?per_page=1` for one off the beta or rc channel, because `latest` deliberately skips
+  prereleases and a beta client polling it would never see the next beta (the `per_page=1` cap
+  also keeps the reply a single release object, so the scanner cannot pair one release's tag
+  with another's asset) - the asset URL is refused unless it sits under
+  *this* repository's `releases/download/` path, and the bytes must hash (`src/utils/sha256.c`,
+  self-contained so the one check that matters does not depend on busybox) to the `digest` that
+  metadata carried. A release with no digest is refused rather than installed unverified. The
+  install is `rename()` within one directory, so it is atomic, and Linux keeps the running
+  image alive off its inode - which is why the last state is READY ("relaunch to run it")
+  rather than a restart the app performs on itself.
 - `src/ui/settings.c` — the Settings tab as data: sections → items (label, formatted value,
-  kind, and for editable rows a `field` id). Backends draw the list; `nav.c` walks it
+  kind, and for editable rows a `field` id). `MESH_UI_SETTINGS_ABOUT` is first and is the odd
+  one out: it describes *this client* (version, UI backend, data dir, update state) rather
+  than the radio, so `mesh_ui_settings_section_loaded()` always reports it loaded and the fb
+  backend lets it through the "connect to a radio" guard - it is the one section that means
+  anything with nothing connected. Its rows come from `mesh_ui_client_info` in `store.h`,
+  filled by `mesh_app_flatten_client_info()` in `app.c` the same way the radio's settings
+  are flattened, so neither the nav nor the backends ever see the updater. Its two ACTION
+  rows carry an `enum mesh_ui_settings_action` in `number`, which is how `nav.c` turns A
+  into `MESH_UI_ACTION_CHECK_UPDATE`/`INSTALL_UPDATE` without knowing what a section means;
+  check and install are deliberately separate presses because install replaces the running
+  binary. Backends draw the list; `nav.c` walks it
   (`settings_section` open or `MESH_UI_SETTINGS_NO_SECTION`, X yields
   `MESH_UI_ACTION_REFRESH_SETTINGS`). The UI's `struct mesh_ui_settings` in `store.h` is a
   flattened copy without nanopb types, filled by `mesh_app_flatten_settings` in `app.c`.
@@ -329,7 +360,23 @@ via Python3 (needs `pip install protobuf grpcio-tools`).
   Recent history is almost entirely `fix:` commits, each producing a release.
 - The release workflow rewrites `project(meshclient VERSION x.y.z ...)` in `CMakeLists.txt` with
   `sed`. Do not change that line's shape and do not bump it by hand. `package.json` version is
-  unused. Keep `conventional-changelog-conventionalcommits` on 9.x until semantic-release's
+  unused. **That rewrite is why the build lives inside semantic-release's `prepareCmd` rather
+  than in a workflow step**: the version becomes the `MESHCLIENT_VERSION` compile definition the
+  client reports, so anything built before prepare carries the *previous* release's number.
+  `prepareCmd` is just `scripts/release-build.sh ${nextRelease.version}`, and that script owns
+  the `sed` as well as the build. Plugin order puts `exec` before `@semantic-release/git`, so a
+  failed build aborts with nothing committed and nothing tagged.
+- **`project(VERSION)` stays numeric; the full tag rides beside it.** CMake accepts only numeric
+  components there and errors outright on `1.13.0-beta.1`, which is exactly what the `beta` and
+  `rc` channels release. So `release-build.sh` seds in `${version%%-*}` and passes the whole tag
+  as `-DMESHCLIENT_VERSION_FULL`. Keeping the file numeric also keeps the rewrite idempotent - a
+  suffix left behind would not match the pattern next time and the version would compound.
+- **Only the release build is a release.** `-DMESHCLIENT_RELEASE_BUILD=ON` (set by
+  `release-build.sh`, nothing else) is what defines `MESHCLIENT_RELEASE_BUILD` and makes
+  `mesh_version_is_release()` true. Every other build - `make debug`, `make release`,
+  `make brick` - reports `<version>-dev` and is never offered an update, so a binary you just
+  deployed cannot be replaced by whatever is on GitHub. Do not stamp a local build to "test the
+  updater"; point `MESHCLIENT_UPDATE_REPO` somewhere instead. Keep `conventional-changelog-conventionalcommits` on 9.x until semantic-release's
   notes generator ships `conventional-changelog-writer` 9; 10.x fails `generateNotes` with
   "Missing helper" (Dependabot is told to ignore it). Local dry runs need Node 24.10+, e.g.
   `docker run --rm -v "$PWD":/src -w /src -e GITHUB_TOKEN=$(gh auth token) node:24 bash -c
@@ -340,7 +387,16 @@ via Python3 (needs `pip install protobuf grpcio-tools`).
   ubuntu-24.04 and does not cross-compile. Version pins for the toolchain and dbus live in both
   that workflow and `docker/setup-cross.sh`; bump them together. `make docker-pak` reproduces the
   release build locally via `scripts/cross-build.sh`; on an arm64 host the `cross` image uses
-  native `musl-gcc` (exposed as `aarch64-linux-musl-gcc`) instead of downloading Bootlin.
+  native `musl-gcc` (exposed as `aarch64-linux-musl-gcc`) instead of downloading Bootlin. Both
+  that script and `scripts/release-build.sh` emit the same two artifacts, so `make docker-pak`
+  produces what a release publishes.
+- Each release carries **four assets**: `MeshClient.pak.zip` (+ `.sha256`) for a fresh install,
+  and the bare `meshclient-tg5040-aarch64` binary (+ `.sha256`) which is what the in-app
+  updater downloads. One file the updater can hash and `rename()` into place beats a zip: no
+  unzip on the device, and an interrupted download cannot leave a half-populated pak. The
+  consequence is that `launch.sh` and the `Tools/` helpers do **not** ship through self-update;
+  changing either means the user reinstalls the pak, so treat those two as a compatibility
+  boundary rather than something to edit freely.
 - `scripts/build_minui_helpers.sh` stages the helper binaries into the tracked
   `Tools/tg5040/MeshClient.pak/bin/tg5040/` tree, which holds committed **aarch64** artifacts.
   Without a cross toolchain it falls back to the host compiler, so every install is checked

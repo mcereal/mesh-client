@@ -3,6 +3,7 @@
 #include "mesh/log.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/serial.h"
+#include "mesh/version.h"
 
 #include <errno.h>
 #include <getopt.h>
@@ -109,6 +110,7 @@ static void print_usage(const char *program) {
             "      --channel N           Channel index for --send-text (default: 0)\n"
             "      --ack                 Request delivery confirmation and wait for it\n"
             "                            (direct messages only; the mesh never acks broadcasts)\n"
+            "  -V, --version              Print the client version and exit\n"
             "  -h, --help                 Show this help message\n",
             program);
 }
@@ -169,13 +171,14 @@ int main(int argc, char **argv) {
         {"ack", no_argument, NULL, 6},
         {"serial", optional_argument, NULL, 7},
         {"disable-serial", no_argument, NULL, 8},
+        {"version", no_argument, NULL, 'V'},
         {"help", no_argument, NULL, 'h'},
         {0, 0, 0, 0},
     };
 
     int option_index = 0;
     int opt;
-    while ((opt = getopt_long(argc, argv, "fdp:t:l:hsj", long_options, &option_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "fdp:t:l:hsjV", long_options, &option_index)) != -1) {
         switch (opt) {
         case 'f':
             config.run_mode = MESH_APP_RUN_FOREGROUND;
@@ -241,6 +244,9 @@ int main(int argc, char **argv) {
         case 8:
             config.enable_serial = false;
             break;
+        case 'V':
+            printf("meshclient %s\n", mesh_version_string());
+            return EXIT_SUCCESS;
         case 'h':
             print_usage(argv[0]);
             return EXIT_SUCCESS;

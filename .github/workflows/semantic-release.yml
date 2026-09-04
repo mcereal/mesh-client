@@ -69,40 +69,25 @@ jobs:
             -Dx11_autolaunch=disabled
           ninja -C build
           ninja -C build install
-          echo "PKG_CONFIG_PATH=$PWD/../dbus-install/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> $GITHUB_ENV
+          # These reach the build through $GITHUB_ENV rather than `export`, because the build
+          # no longer runs in a step of its own - it runs inside semantic-release's prepare,
+          # after the version has been rewritten. See scripts/release-build.sh.
+          DBUS_PREFIX="$(cd .. && pwd)/dbus-install"
+          {
+            echo "PKG_CONFIG_PATH=$DBUS_PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+            echo "CROSS_COMPILE=aarch64-buildroot-linux-musl-"
+            echo "PLATFORM=tg5040"
+            echo "DBUS_CFLAGS=-I$DBUS_PREFIX/include/dbus-1.0 -I$DBUS_PREFIX/lib/dbus-1.0/include"
+            echo "DBUS_LIBS=-L$DBUS_PREFIX/lib -ldbus-1"
+            echo "DBUS_LDFLAGS=-L$DBUS_PREFIX/lib"
+          } >> $GITHUB_ENV
 
       - name: Install semantic-release
         run: npm install --no-fund --no-audit
 
-      - name: Build (Release)
-        run: |
-          export CROSS_COMPILE=aarch64-buildroot-linux-musl-
-          # Use system Python3 (not toolchain's) for nanopb code generation
-          SYSTEM_PYTHON=$(which -a python3 | grep -v aarch64 | head -n1)
-          # Set up D-Bus paths for cross-compilation
-          export DBUS_CFLAGS="-I$PWD/dbus-install/include/dbus-1.0 -I$PWD/dbus-install/lib/dbus-1.0/include"
-          export DBUS_LIBS="-L$PWD/dbus-install/lib -ldbus-1"
-          cmake -S . -B build/release \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER=aarch64-buildroot-linux-musl-gcc \
-            -DCMAKE_CXX_COMPILER=aarch64-buildroot-linux-musl-g++ \
-            -DCMAKE_SYSTEM_NAME=Linux \
-            -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
-            -DCMAKE_EXE_LINKER_FLAGS="-static -L$PWD/dbus-install/lib" \
-            -DCMAKE_C_FLAGS="-Os $DBUS_CFLAGS" \
-            -DPython3_EXECUTABLE="$SYSTEM_PYTHON"
-          cmake --build build/release
-
-      - name: Package Pak
-        run: |
-          export CROSS_COMPILE=aarch64-buildroot-linux-musl-
-          export PLATFORM=tg5040
-          make package
-
-      - name: Compute checksums
-        run: |
-          (cd dist && sha256sum MeshClient.pak.zip > MeshClient.pak.zip.sha256)
-
+      # Builds too: semantic-release's prepare step rewrites the version in CMakeLists.txt and
+      # then runs scripts/release-build.sh, so the assets it publishes are built from the
+      # version being released rather than the one before it.
       - name: Run semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

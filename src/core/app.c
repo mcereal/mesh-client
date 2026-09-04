@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "mesh/app.h"
+#include "mesh/version.h"
 
 #include "mesh/log.h"
 #include "mesh/text.h"
@@ -788,6 +789,42 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
         mesh_ui_store_set_toast(&app->ui_store, now, toast);
         return;
     }
+    case MESH_UI_ACTION_CHECK_UPDATE: {
+        const int result = mesh_updater_check(&app->updater, now);
+        if (result == 0) {
+            snprintf(toast, sizeof toast, "%s", "Checking for updates");
+        } else if (result == -ENOTSUP) {
+            snprintf(toast, sizeof toast, "%.*s", (int)(sizeof toast - 1U),
+                     app->updater.message[0] != '\0' ? app->updater.message
+                                                     : "Updates are unavailable here");
+        } else if (result == -EBUSY) {
+            snprintf(toast, sizeof toast, "%s", "Already checking");
+        } else {
+            snprintf(toast, sizeof toast, "Update check failed (%d)", result);
+            mesh_log_warn("ui", "Update check could not start: %d", result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
+    case MESH_UI_ACTION_INSTALL_UPDATE: {
+        const int result = mesh_updater_install(&app->updater, now);
+        if (result == 0) {
+            snprintf(toast, sizeof toast, "Downloading %.20s", app->updater.latest);
+            mesh_log_info("ui", "Installing update %s from the About screen", app->updater.latest);
+        } else if (result == -EBUSY) {
+            snprintf(toast, sizeof toast, "%s", "Already working");
+        } else if (result == -EINVAL) {
+            /* Nothing to install: the check has not run, or found nothing newer. */
+            snprintf(toast, sizeof toast, "%s", "Check for an update first");
+        } else if (result == -ENOTSUP) {
+            snprintf(toast, sizeof toast, "%s", "Updates are unavailable here");
+        } else {
+            snprintf(toast, sizeof toast, "Update failed (%d)", result);
+            mesh_log_warn("ui", "Update install could not start: %d", result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
     case MESH_UI_ACTION_NONE:
     default:
         return;
@@ -1069,6 +1106,41 @@ static void mesh_app_publish_messages(struct mesh_app *app,
 }
 
 /* Flattens the transport's protobuf-typed view into the UI's plain struct. */
+/* The About section's data: this client rather than the radio. The updater's state is copied
+   across as a byte and a line of text so store.h stays free of the updater, the same way the
+   radio's settings are copied free of nanopb. */
+static void mesh_app_flatten_client_info(const struct mesh_app *app,
+                                         struct mesh_ui_client_info *dst) {
+    memset(dst, 0, sizeof *dst);
+    snprintf(dst->version, sizeof dst->version, "%s", mesh_version_string());
+    if (app == NULL) {
+        return;
+    }
+    if (app->ui_controller.backend != NULL && app->ui_controller.backend->name != NULL) {
+        snprintf(dst->backend, sizeof dst->backend, "%s", app->ui_controller.backend->name);
+    }
+    /* The preferences file's directory: where a user looking for canned.txt or the caches
+       should go, which on the Brick is inside the pak's userdata and not obvious. */
+    if (app->ui_preferences_path[0] != '\0') {
+        /* A path longer than the display field is clipped rather than refused: it is shown
+           for orientation, not used to open anything. */
+        snprintf(dst->data_dir, sizeof dst->data_dir, "%.*s", (int)(sizeof dst->data_dir - 1U),
+                 app->ui_preferences_path);
+        char *slash = strrchr(dst->data_dir, '/');
+        if (slash != NULL && slash != dst->data_dir) {
+            *slash = '\0';
+        }
+    }
+
+    const struct mesh_updater *updater = &app->updater;
+    dst->update_state = (uint8_t)updater->state;
+    dst->update_supported = mesh_updater_available(updater);
+    dst->update_busy =
+        updater->state == MESH_UPDATE_CHECKING || updater->state == MESH_UPDATE_DOWNLOADING;
+    snprintf(dst->update_message, sizeof dst->update_message, "%s", updater->message);
+    snprintf(dst->update_latest, sizeof dst->update_latest, "%s", updater->latest);
+}
+
 static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
                                       struct mesh_ui_settings *dst) {
     memset(dst, 0, sizeof *dst);
@@ -1482,6 +1554,8 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     const struct mesh_radio_settings *radio_settings = mesh_session_settings(&app->session);
     struct mesh_ui_settings ui_settings;
     mesh_app_flatten_settings(radio_settings, &ui_settings);
+    /* flatten_settings() zeroes the struct, so the client's own facts go in after it. */
+    mesh_app_flatten_client_info(app, &ui_settings.client);
     mesh_ui_store_set_settings(&app->ui_store, &ui_settings);
     mesh_app_track_settings_save(app, radio_settings, link_connected);
 
@@ -1810,6 +1884,10 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     }
     mesh_ui_controller_set_action_handler(&app->ui_controller, mesh_app_on_ui_action, app);
 
+    /* Never fatal: a client that cannot update itself is still a working client, and the
+       About section says why rather than offering a row that would do nothing. */
+    (void)mesh_updater_init(&app->updater, &app->loop);
+
     /* Optional canned.txt next to the preferences file replaces the built-in quick replies. */
     if (app->ui_preferences_path[0] != '\0') {
         char canned_path[sizeof app->ui_preferences_path + 16U];
@@ -1865,6 +1943,9 @@ void mesh_app_shutdown(struct mesh_app *app) {
     mesh_transport_registry_set_session(&app->transport_registry, NULL);
     mesh_ui_input_shutdown(&app->ui_input);
     mesh_signals_shutdown(&app->signals);
+    /* Before the loop goes: the updater has an fd registered with it, and a half-finished
+       download to clean up. */
+    mesh_updater_shutdown(&app->updater);
     mesh_ui_controller_shutdown(&app->ui_controller);
     if (app->ui_handshake_cache_path[0] != '\0') {
         mesh_ui_store_save(&app->ui_store, app->ui_handshake_cache_path);
@@ -1916,6 +1997,9 @@ int mesh_app_run(struct mesh_app *app) {
         mesh_event_loop_run(&app->loop, 0);
         while (true) {
             mesh_transport_registry_tick(&app->transport_registry);
+            /* The updater's child is watched by the event loop; this only enforces its
+               timeout and reaps a child whose exit the loop did not see. */
+            mesh_updater_tick(&app->updater, mesh_app_now_ms());
             /* Before auto-connect, not after: a retry starts the link over and clears the
                reason the last attempt failed. */
             (void)mesh_app_report_link_errors(app);

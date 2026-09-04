@@ -1,6 +1,7 @@
 #include "mesh/ui/settings.h"
 
 #include "mesh/radio_settings.h"
+#include "mesh/updater.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -8,6 +9,8 @@
 
 const char *mesh_ui_settings_section_name(enum mesh_ui_settings_section section) {
     switch (section) {
+    case MESH_UI_SETTINGS_ABOUT:
+        return "About MeshClient";
     case MESH_UI_SETTINGS_RADIO:
         return "Radio";
     case MESH_UI_SETTINGS_USER:
@@ -46,6 +49,10 @@ bool mesh_ui_settings_section_loaded(const struct mesh_ui_settings *settings,
         return false;
     }
     switch (section) {
+    case MESH_UI_SETTINGS_ABOUT:
+        /* The client knows its own version with no radio in sight, which is the whole point of
+           having this section: it is reachable before anything is connected. */
+        return true;
     case MESH_UI_SETTINGS_RADIO:
         return settings->has_metadata || (handshake != NULL && handshake->has_my_info);
     case MESH_UI_SETTINGS_USER:
@@ -824,6 +831,71 @@ static const char *gps_mode_name(uint8_t mode) {
     }
 }
 
+/* An ACTION row: drawn like an editable one and activated with A, carrying what it does in
+   `number` so the nav can raise the action without knowing about updates. */
+static void item_action(struct item_list *list, const char *label, const char *value,
+                        enum mesh_ui_settings_action action) {
+    struct mesh_ui_settings_item *item = item_add(list, label, MESH_UI_SETTING_ACTION);
+    if (item != NULL) {
+        snprintf(item->value, sizeof item->value, "%s", value);
+        item->number = (uint32_t)action;
+    }
+}
+
+/*
+ * About: what this client is, and the self-update rows. The only section that renders with no
+ * radio connected, and the only one whose values come from the app rather than the air.
+ *
+ * The update rows are deliberately a check and a separate install rather than one button. The
+ * install downloads and replaces the running binary, so it is worth a second, deliberate press
+ * once the user can see which version they are about to move to.
+ */
+static void build_about(const struct mesh_ui_settings *s, struct item_list *list) {
+    const struct mesh_ui_client_info *client = &s->client;
+    item_text(list, "Version", MESH_UI_SETTING_INFO,
+              client->version[0] != '\0' ? client->version : "?");
+    if (client->backend[0] != '\0') {
+        item_text(list, "UI backend", MESH_UI_SETTING_INFO, client->backend);
+    }
+    if (client->data_dir[0] != '\0') {
+        item_text(list, "Data", MESH_UI_SETTING_INFO, client->data_dir);
+    }
+
+    if (!client->update_supported) {
+        item_text(list, "Updates", MESH_UI_SETTING_INFO,
+                  client->update_message[0] != '\0' ? client->update_message : "unavailable");
+        return;
+    }
+
+    const enum mesh_update_state state = (enum mesh_update_state)client->update_state;
+    item_text(list, "Update status", MESH_UI_SETTING_INFO,
+              client->update_message[0] != '\0' ? client->update_message
+                                                : mesh_update_state_name(state));
+    if (client->update_latest[0] != '\0') {
+        item_text(list, "Latest release", MESH_UI_SETTING_INFO, client->update_latest);
+    }
+
+    /* While a child is running neither row does anything, so both say so rather than
+       inviting a press that would be swallowed. */
+    if (client->update_busy) {
+        item_text(list, "Working", MESH_UI_SETTING_INFO,
+                  state == MESH_UPDATE_DOWNLOADING ? "downloading..." : "checking...");
+        return;
+    }
+    if (state == MESH_UPDATE_READY) {
+        item_text(list, "Installed", MESH_UI_SETTING_INFO, "quit and relaunch");
+        return;
+    }
+    item_action(list, "Check for updates", "A", MESH_UI_SETTINGS_ACTION_CHECK_UPDATE);
+    if (state == MESH_UPDATE_AVAILABLE) {
+        /* The version is bounded by the value column, not by what the release named itself. */
+        char label[MESH_UI_SETTINGS_VALUE_MAX];
+        snprintf(label, sizeof label, "install %.*s", (int)(sizeof label - 9U),
+                 client->update_latest);
+        item_action(list, "Download and install", label, MESH_UI_SETTINGS_ACTION_INSTALL_UPDATE);
+    }
+}
+
 static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_handshake_state *hs,
                         struct item_list *list) {
     char buffer[48];
@@ -1076,6 +1148,9 @@ static void build_section(const struct mesh_ui_settings *settings,
         return;
     }
     switch (section) {
+    case MESH_UI_SETTINGS_ABOUT:
+        build_about(settings, list);
+        break;
     case MESH_UI_SETTINGS_RADIO:
         build_radio(settings, handshake, list);
         break;

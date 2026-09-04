@@ -21,7 +21,10 @@ extern "C" {
 #endif
 
 enum mesh_ui_settings_section {
-    MESH_UI_SETTINGS_RADIO = 0, /* firmware, hardware, node number */
+    /* This client, not the radio: version, where its data lives, and the self-update rows.
+       First because it is the one section that means anything without a connection. */
+    MESH_UI_SETTINGS_ABOUT = 0,
+    MESH_UI_SETTINGS_RADIO, /* firmware, hardware, node number */
     MESH_UI_SETTINGS_USER,
     MESH_UI_SETTINGS_DEVICE,
     MESH_UI_SETTINGS_DISPLAY,
@@ -102,6 +105,14 @@ enum mesh_ui_setting_field {
     MESH_UI_FIELD_SECURITY_DEBUG_LOG,
     MESH_UI_FIELD_SECURITY_SIGNATURE_POLICY,
     MESH_UI_FIELD_COUNT,
+};
+
+/* What an ACTION row does when A is pressed. Rows of kind MESH_UI_SETTING_ACTION carry one in
+   `number`, so the nav can raise the right action without knowing what the section means. */
+enum mesh_ui_settings_action {
+    MESH_UI_SETTINGS_ACTION_NONE = 0,
+    MESH_UI_SETTINGS_ACTION_CHECK_UPDATE,
+    MESH_UI_SETTINGS_ACTION_INSTALL_UPDATE,
 };
 
 /* What a KEY edit asks for. KEEP is the radio's current key (no edit); TYPED carries hex in
