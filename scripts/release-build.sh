@@ -41,6 +41,23 @@ if [[ "${BAKED}" != "${NUMERIC}" ]]; then
     exit 1
 fi
 
+# The Pak Store reads pak.json from the repo root and requires its `version` to match the
+# release tag, so it is stamped here alongside the CMake rewrite above and committed by
+# @semantic-release/git. Prereleases are deliberately skipped: the store wants a plain vX.Y.Z,
+# and the beta and rc channels release 1.14.0-beta.1. Leaving those alone means pak.json only
+# ever carries the last stable tag, on every branch, so a beta merging into main cannot put a
+# prerelease version in front of the store even for the minute before the stable stamp lands.
+if [[ "${VERSION}" == "${NUMERIC}" ]]; then
+    sed -i -E "s/(\"version\"[[:space:]]*:[[:space:]]*)\"[^\"]*\"/\1\"v${VERSION}\"/" pak.json
+    PAK_VERSION=$(sed -n -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p' pak.json)
+    if [[ "${PAK_VERSION}" != "v${VERSION}" ]]; then
+        echo "pak.json says ${PAK_VERSION:-<none>} but the release is v${VERSION}." >&2
+        exit 1
+    fi
+else
+    echo "Prerelease ${VERSION}: leaving pak.json on its last stable version."
+fi
+
 PLATFORM="${PLATFORM:-tg5040}"
 CC_BIN="${CROSS_COMPILE:-}gcc"
 CXX_BIN="${CROSS_COMPILE:-}g++"
@@ -79,8 +96,10 @@ export CROSS_COMPILE PLATFORM
 ./scripts/build_minui_helpers.sh
 ./scripts/package.sh release
 
-# Two assets, for two different jobs. The pak zip is a fresh install: unzip it into
-# Tools/<platform>/ and you have launch.sh and the minui helpers alongside the binary. The bare
+# Two assets, for two different jobs. The pak zip is a fresh install: it holds the contents of
+# the pak (launch.sh, pak.json and the minui helpers alongside the binary), unpacked into a
+# Tools/<platform>/MeshClient.pak/ the installer creates - which is what the Pak Store does with
+# it, and what installing by hand has to do too. The bare
 # binary is what the in-app updater downloads - one file it can verify and rename into place,
 # with no unzip on the device and no way for an interrupted download to leave a half-populated
 # pak. Anything outside the binary (launch.sh, the helpers) still needs the zip.

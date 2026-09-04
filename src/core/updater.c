@@ -761,6 +761,103 @@ int mesh_updater_install(struct mesh_updater *updater, uint64_t now_ms) {
     return 0;
 }
 
+/* Room for a pak.json: ours is a few hundred bytes, and anything larger than this is not one. */
+#define MESH_UPDATE_PAK_JSON_MAX 16384U
+
+/*
+ * Rewrite the `version` in the pak.json next to the binary we just installed.
+ *
+ * The Pak Store decides whether an installed pak is out of date by reading that field, and a
+ * self-update replaces only the binary - so without this the store would keep offering an
+ * update the device already has. The file sits at the pak root and the binary at
+ * <pak>/bin/shared/meshclient, hence the walk up; a build running from somewhere else simply
+ * finds nothing.
+ *
+ * Best effort by design: the install has already succeeded by the time this runs, so a pak.json
+ * that is missing, oversized or shaped differently is logged and left alone rather than turned
+ * into a failed update.
+ */
+static void updater_stamp_pak_json(const struct mesh_updater *updater) {
+    if (updater->install_path[0] == '\0' || updater->latest[0] == '\0') {
+        return;
+    }
+
+    char path[MESH_UPDATE_PATH_MAX + 16U];
+    snprintf(path, sizeof path, "%s", updater->install_path);
+    char *found = NULL;
+    /* <pak>/bin/shared/meshclient: the binary's own directory, then bin/, then the pak root. */
+    for (int level = 0; level < 3 && found == NULL; ++level) {
+        char *slash = strrchr(path, '/');
+        if (slash == NULL || slash == path) {
+            return;
+        }
+        *slash = '\0';
+        char candidate[sizeof path + 16U];
+        snprintf(candidate, sizeof candidate, "%s/pak.json", path);
+        if (access(candidate, R_OK | W_OK) == 0) {
+            found = path;
+        }
+    }
+    if (found == NULL) {
+        return;
+    }
+
+    char json_path[sizeof path + 16U];
+    char temp_path[sizeof path + 24U];
+    snprintf(json_path, sizeof json_path, "%s/pak.json", found);
+    snprintf(temp_path, sizeof temp_path, "%s/pak.json.new", found);
+
+    char buffer[MESH_UPDATE_PAK_JSON_MAX];
+    FILE *file = fopen(json_path, "rb");
+    if (file == NULL) {
+        return;
+    }
+    const size_t length = fread(buffer, 1U, sizeof buffer - 1U, file);
+    const bool oversized = !feof(file);
+    fclose(file);
+    if (length == 0U || oversized) {
+        mesh_log_warn("update", "%s is not a pak.json we can rewrite", json_path);
+        return;
+    }
+    buffer[length] = '\0';
+
+    /* "version" : "v1.13.0" - find the value's quotes, and replace only what is between them. */
+    char *key = strstr(buffer, "\"version\"");
+    char *value = NULL;
+    if (key != NULL) {
+        char *colon = strchr(key + strlen("\"version\""), ':');
+        value = colon != NULL ? strchr(colon, '"') : NULL;
+    }
+    char *end = value != NULL ? strchr(value + 1, '"') : NULL;
+    if (end == NULL) {
+        mesh_log_warn("update", "%s has no version field to stamp", json_path);
+        return;
+    }
+
+    file = fopen(temp_path, "wb");
+    if (file == NULL) {
+        mesh_log_warn("update", "Could not write %s: %s", temp_path, strerror(errno));
+        return;
+    }
+    const size_t head = (size_t)(value + 1 - buffer);
+    const size_t tail = length - (size_t)(end - buffer);
+    const bool wrote = fwrite(buffer, 1U, head, file) == head &&
+                       fprintf(file, "v%s", updater->latest) > 0 &&
+                       fwrite(end, 1U, tail, file) == tail;
+    const bool closed = fclose(file) == 0;
+    if (!wrote || !closed) {
+        mesh_log_warn("update", "Could not write %s", temp_path);
+        (void)unlink(temp_path);
+        return;
+    }
+    if (rename(temp_path, json_path) != 0) {
+        mesh_log_warn("update", "Could not replace %s: %s", json_path, strerror(errno));
+        (void)unlink(temp_path);
+        return;
+    }
+    mesh_log_info("update", "Stamped %s with v%s", json_path, updater->latest);
+}
+
 static void updater_finish_download(struct mesh_updater *updater, int exit_status) {
     if (exit_status != 0) {
         char message[MESH_UPDATE_MESSAGE_MAX];
@@ -818,6 +915,7 @@ static void updater_finish_download(struct mesh_updater *updater, int exit_statu
     }
 
     mesh_log_info("update", "Installed %s over %s", updater->latest, updater->install_path);
+    updater_stamp_pak_json(updater);
     char message[MESH_UPDATE_MESSAGE_MAX];
     snprintf(message, sizeof message, "%s installed - relaunch to run it", updater->latest);
     updater_set(updater, MESH_UPDATE_READY, message);

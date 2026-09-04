@@ -13,7 +13,8 @@ The SD card comes out of the device exactly once, for step 2. After that everyth
    POWER. If the screen flashes on and off, keep charging.
 2. **Install NextUI** if the card does not already have it: <https://nextui.loveretro.games/getting-started/installation/>.
    While the card is in the Mac, drop `dist/MeshClient.pak/` into `Tools/tg5040/` so the first
-   boot already has a build to test.
+   boot already has a build to test. (That folder, not `dist/MeshClient.pak.zip`, whose
+   contents unpack *inside* a `MeshClient.pak/` you make yourself.)
 3. **Join WiFi** from the NextUI Settings pak. Note the IP it shows; the Brick will keep it on
    most home routers, but a DHCP reservation saves grief later.
 4. **Install the SSH Server pak** from Tools > Pak Store (preinstalled with NextUI). It wraps
@@ -53,9 +54,12 @@ A client built from the `beta` or `rc` channel tracks that channel: it is offere
 release of any kind, so `1.13.0-beta.1` will be offered `1.13.0-beta.2`. A stable build is only
 ever offered stable releases.
 
-It only replaces the `meshclient` binary. `launch.sh` and the `Tools/` helper binaries ship in
-the pak zip, so a release that changes either still needs the zip unpacked into
-`Tools/tg5040/` by hand. The release notes say when that is the case.
+It only replaces the `meshclient` binary (and the `version` line in the pak's own `pak.json`,
+so the Pak Store stops offering an update the device already has). `launch.sh` and the
+`Tools/` helper binaries ship in the pak zip, so a release that changes either still needs the
+zip unpacked into `Tools/tg5040/MeshClient.pak/` by hand - the zip holds the pak's contents,
+not the folder, so unzip *into* the pak directory rather than next to it. The release notes
+say when that is the case. Installing through the Pak Store does the whole pak either way.
 
 `meshclient --version` prints the same number from a shell, e.g. over SSH:
 

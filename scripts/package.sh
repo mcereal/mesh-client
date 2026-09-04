@@ -38,6 +38,11 @@ chmod +x "${OUTPUT_DIR}/bin/shared/meshclient"
 cp Tools/tg5040/MeshClient.pak/launch.sh "${OUTPUT_DIR}/launch.sh"
 chmod +x "${OUTPUT_DIR}/launch.sh"
 
+# pak.json rides inside the pak as well as sitting at the repo root: the root copy is what the
+# Pak Store reads when it lists us, the packaged copy is how it knows which version is actually
+# installed on the device. scripts/release-build.sh stamps both from the release tag.
+cp pak.json "${OUTPUT_DIR}/pak.json"
+
 if [[ -d Tools/tg5040/MeshClient.pak/bin/shared ]]; then
     while IFS= read -r -d '' file; do
         dest="${OUTPUT_DIR}/bin/shared/$(basename "$file")"
@@ -54,6 +59,12 @@ if [[ -d Tools/tg5040/MeshClient.pak/bin/tg5040 ]]; then
 fi
 
 mkdir -p "${DIST_DIR}"
-( cd "${DIST_DIR}" && zip -qr "MeshClient.pak.zip" "$(basename "${OUTPUT_DIR}")" )
+# The zip holds the *contents* of the pak, not the pak folder itself. That is what the NextUI
+# Pak Store requires - it creates `Tools/<platform>/MeshClient.pak/` and unpacks into it, so a
+# zip with the folder nested inside would install as MeshClient.pak/MeshClient.pak/launch.sh,
+# a pak with no launcher. Installing by hand therefore means making the folder first; see the
+# packaging section of README.md.
+rm -f "${DIST_DIR}/MeshClient.pak.zip"
+( cd "${OUTPUT_DIR}" && zip -qr "../MeshClient.pak.zip" . )
 
 echo "Created package at ${DIST_DIR}/MeshClient.pak.zip"

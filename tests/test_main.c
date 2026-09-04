@@ -8654,10 +8654,30 @@ static void test_updater_fetch_and_install(void) {
     char json_path[256];
     char curl_path[256];
     char install_path[256];
+    char bin_dir[256];
+    char shared_dir[256];
+    char pak_json_path[256];
     snprintf(payload_path, sizeof payload_path, "%s/payload", dir);
     snprintf(json_path, sizeof json_path, "%s/release.json", dir);
     snprintf(curl_path, sizeof curl_path, "%s/curl", dir);
-    snprintf(install_path, sizeof install_path, "%s/meshclient", dir);
+    /* The pak layout, because the install stamps the pak.json two directories above the
+       binary and would find nothing in a flat one. */
+    snprintf(bin_dir, sizeof bin_dir, "%s/bin", dir);
+    snprintf(shared_dir, sizeof shared_dir, "%s/bin/shared", dir);
+    snprintf(install_path, sizeof install_path, "%s/bin/shared/meshclient", dir);
+    snprintf(pak_json_path, sizeof pak_json_path, "%s/pak.json", dir);
+    if (mkdir(bin_dir, 0755) != 0 || mkdir(shared_dir, 0755) != 0) {
+        record_failure(test_name, "could not create the pak layout");
+        return;
+    }
+    FILE *pak_json = fopen(pak_json_path, "wb");
+    if (pak_json == NULL) {
+        record_failure(test_name, "could not write pak.json");
+        return;
+    }
+    fprintf(pak_json, "{\n  \"name\": \"MeshClient\",\n  \"version\": \"v1.0.0\",\n"
+                      "  \"type\": \"TOOL\"\n}\n");
+    fclose(pak_json);
 
     /* The "new binary", and the digest the release will claim for it. */
     static const char k_payload[] = "#!/bin/sh\nexit 0\n";
@@ -8801,6 +8821,23 @@ static void test_updater_fetch_and_install(void) {
         goto cleanup;
     }
 
+    /* The pak's own version has moved with the binary. Without this the Pak Store would read
+       a pak.json still claiming the old version and offer an update the device already has -
+       and only the `version` value changes, so the rest of the file survives untouched. */
+    char pak_body[512];
+    FILE *reread = fopen(pak_json_path, "rb");
+    size_t pak_len = reread != NULL ? fread(pak_body, 1U, sizeof pak_body - 1U, reread) : 0U;
+    if (reread != NULL) {
+        fclose(reread);
+    }
+    pak_body[pak_len] = '\0';
+    if (strstr(pak_body, "\"version\": \"v999.0.0\"") == NULL ||
+        strstr(pak_body, "\"name\": \"MeshClient\"") == NULL ||
+        strstr(pak_body, "\"type\": \"TOOL\"") == NULL) {
+        failure = "the install should stamp the pak.json version and leave the rest alone";
+        goto cleanup;
+    }
+
     /*
      * Now the case that matters most: a release whose digest does not match what arrives. The
      * download must be discarded and the installed binary left exactly as it was, because this
@@ -8845,6 +8882,17 @@ static void test_updater_fetch_and_install(void) {
         failure = "a rejected download must leave the installed binary alone";
         goto cleanup;
     }
+    /* And so is the version it advertises - nothing was installed to advertise. */
+    reread = fopen(pak_json_path, "rb");
+    pak_len = reread != NULL ? fread(pak_body, 1U, sizeof pak_body - 1U, reread) : 0U;
+    if (reread != NULL) {
+        fclose(reread);
+    }
+    pak_body[pak_len] = '\0';
+    if (strstr(pak_body, "\"version\": \"v999.0.0\"") == NULL) {
+        failure = "a rejected download must leave pak.json alone";
+        goto cleanup;
+    }
 
 cleanup:
     if (updater_up) {
@@ -8861,6 +8909,9 @@ cleanup:
     unlink(json_path);
     unlink(curl_path);
     unlink(install_path);
+    unlink(pak_json_path);
+    rmdir(shared_dir);
+    rmdir(bin_dir);
     rmdir(dir);
     if (failure != NULL) {
         record_failure(test_name, failure);

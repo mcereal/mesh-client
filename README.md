@@ -64,7 +64,18 @@ make package
 
 From macOS, `make docker-pak` does the same via the cross container (static aarch64 binary, static libdbus) and also writes `dist/MeshClient.pak.zip.sha256`.
 
-Copy the resulting `dist/MeshClient.pak.zip` (or the extracted `MeshClient.pak/` folder) to `Tools/tg5040/` on the TrimUI SD card. From NextUI Launcher, the app will appear under Tools. Logs are written to `/.userdata/tg5040/logs/MeshClient.txt` on the device.
+The zip holds the *contents* of the pak rather than the pak folder, which is what the NextUI Pak Store expects, so installing by hand means making the folder first:
+
+```bash
+mkdir -p /Volumes/SDCARD/Tools/tg5040/MeshClient.pak
+unzip dist/MeshClient.pak.zip -d /Volumes/SDCARD/Tools/tg5040/MeshClient.pak
+```
+
+Copying the already-unpacked `dist/MeshClient.pak/` folder to `Tools/tg5040/` works the same way. From NextUI Launcher, the app will appear under Tools. Logs are written to `/.userdata/tg5040/logs/MeshClient.txt` on the device.
+
+### Pak Store
+
+`pak.json` at the repo root is the [NextUI Pak Store](https://github.com/UncleJunVIP/nextui-pak-store) listing: name, type, description, the release asset to download, and the platforms it runs on. Its `version` must match the release tag, so `scripts/release-build.sh` stamps it from the tag being released and `@semantic-release/git` commits it - do not bump it by hand. Prereleases are skipped there, so `pak.json` only ever carries the last stable tag. The same file ships inside the pak, which is how the store knows which version a device has; the in-app updater rewrites that copy when it swaps the binary, so a self-update does not leave the store offering an update you already have.
 
 Once the Brick is on WiFi with the SSH Server pak installed, skip the SD card: set `BRICK_HOST` in `.brick.env` (copy `.brick.env.example`) and use `make brick` (build + push), `make deploy`, `make deploy-logs`, `make deploy-run ARGS="--list-devices"`, and `make deploy-check`. See [`docs/device.md`](docs/device.md) for the one-time device setup and troubleshooting.
 

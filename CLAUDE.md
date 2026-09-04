@@ -407,6 +407,19 @@ via Python3 (needs `pip install protobuf grpcio-tools`).
   consequence is that `launch.sh` and the `Tools/` helpers do **not** ship through self-update;
   changing either means the user reinstalls the pak, so treat those two as a compatibility
   boundary rather than something to edit freely.
+- **`pak.json` is the NextUI Pak Store listing**, and the store's rules shape two things here.
+  Its `version` must match the release tag, so `release-build.sh` stamps it (`v${VERSION}`)
+  beside the CMakeLists rewrite and `@semantic-release/git` commits it; prereleases are
+  skipped, so the file only ever carries the last stable `vX.Y.Z` and a beta merging into
+  `main` cannot put one in front of the store. And the zip holds the **contents** of the pak,
+  not the `MeshClient.pak` folder - the store creates that folder and unpacks into it, so a
+  nested zip would install as `MeshClient.pak/MeshClient.pak/launch.sh`. Installing by hand
+  means unzipping *into* the pak directory. `pak.json` also ships inside the pak, because that
+  copy is how the store knows the installed version - which is why `updater.c` rewrites its
+  `version` line after a self-update (best effort; the binary is already installed by then).
+  The store folder is named from the submitted display name, and `launch.sh` derives `$HOME`
+  from the folder name, so the listing must stay **MeshClient** or every user's prefs and
+  message cache move.
 - `scripts/build_minui_helpers.sh` stages the helper binaries into the tracked
   `Tools/tg5040/MeshClient.pak/bin/tg5040/` tree, which holds committed **aarch64** artifacts.
   Without a cross toolchain it falls back to the host compiler, so every install is checked
