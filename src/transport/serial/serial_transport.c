@@ -410,8 +410,8 @@ int mesh_serial_transport_connect(struct mesh_transport *transport, const char *
     }
 
     if (state->loop != NULL) {
-        const int add_result = mesh_event_loop_add_fd(state->loop, fd, EPOLLIN,
-                                                      mesh_serial_fd_callback, transport);
+        const int add_result =
+            mesh_event_loop_add_fd(state->loop, fd, EPOLLIN, mesh_serial_fd_callback, transport);
         if (add_result < 0) {
             mesh_log_warn("serial", "Cannot watch %s: %d", device->path, add_result);
             mesh_serial_detach_fd(state);
@@ -476,8 +476,7 @@ int mesh_serial_transport_disconnect(struct mesh_transport *transport) {
 static size_t mesh_serial_scan_internal(struct mesh_serial_transport_state *state) {
     state->device_count = mesh_serial_usb_scan(state->devices, MESH_SERIAL_MAX_DEVICES);
     if (state->state != MESH_SERIAL_STATE_DISABLED) {
-        state->state =
-            state->device_count > 0U ? MESH_SERIAL_STATE_READY : MESH_SERIAL_STATE_IDLE;
+        state->state = state->device_count > 0U ? MESH_SERIAL_STATE_READY : MESH_SERIAL_STATE_IDLE;
     }
     return state->device_count;
 }

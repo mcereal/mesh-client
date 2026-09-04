@@ -63,8 +63,7 @@ static void mesh_stream_drain(struct mesh_stream_parser *parser,
             return;
         }
 
-        const size_t payload_len =
-            ((size_t)parser->buffer[2] << 8U) | (size_t)parser->buffer[3];
+        const size_t payload_len = ((size_t)parser->buffer[2] << 8U) | (size_t)parser->buffer[3];
         if (payload_len > MESH_STREAM_FRAME_MAX_PAYLOAD) {
             /* 0x94 0xC3 can occur inside a log line; resync past the start byte. */
             mesh_stream_emit_text(callbacks, parser->buffer, 1U);

@@ -49,7 +49,7 @@
 
 /* usbserial drivers whose ports are worth offering even when the interface class is
    vendor-specific, which is what the UART-bridge chips report. */
-static const char *const k_serial_drivers[] = {"cp210x", "ch341",   "ch341-uart",
+static const char *const k_serial_drivers[] = {"cp210x",   "ch341",   "ch341-uart",
                                                "ftdi_sio", "generic", "cdc_acm"};
 
 struct mesh_serial_usb_mock_state {
@@ -71,17 +71,11 @@ void mesh_serial_usb_mock_enable(const struct mesh_serial_usb_mock_config *confi
     }
 }
 
-void mesh_serial_usb_mock_disable(void) {
-    memset(&g_mock_state, 0, sizeof g_mock_state);
-}
+void mesh_serial_usb_mock_disable(void) { memset(&g_mock_state, 0, sizeof g_mock_state); }
 
-size_t mesh_serial_usb_mock_bind_calls(void) {
-    return g_mock_state.bind_calls;
-}
+size_t mesh_serial_usb_mock_bind_calls(void) { return g_mock_state.bind_calls; }
 
-size_t mesh_serial_usb_mock_line_state_calls(void) {
-    return g_mock_state.line_state_calls;
-}
+size_t mesh_serial_usb_mock_line_state_calls(void) { return g_mock_state.line_state_calls; }
 
 static void mesh_serial_sleep_ms(unsigned ms) {
     struct timespec ts;
@@ -307,8 +301,7 @@ size_t mesh_serial_usb_scan(struct mesh_serial_device_info *out, size_t capacity
 
         struct mesh_serial_device_info *info = &out[count];
         memset(info, 0, sizeof *info);
-        snprintf(info->id, sizeof info->id, "%.*s", (int)(sizeof info->id - 1U),
-                 entry->d_name);
+        snprintf(info->id, sizeof info->id, "%.*s", (int)(sizeof info->id - 1U), entry->d_name);
         info->bound = find_interface_tty(iface_dir, info->path, sizeof info->path);
         info->control_interface = find_control_interface(device_name);
         info->needs_line_state =
@@ -498,7 +491,12 @@ int mesh_serial_port_open(const char *path) {
     tio.c_cflag |= (tcflag_t)(CLOCAL | CREAD);
     tio.c_cflag &= (tcflag_t)~CRTSCTS;
     tio.c_iflag &= (tcflag_t) ~(IXON | IXOFF | IXANY);
-    tio.c_cc[VMIN] = 0;
+    /*
+     * VMIN=1, not 0. With VMIN=0 a tty read() returns 0 as soon as the buffer is empty, which is
+     * indistinguishable from the EOF an unplugged node gives; with VMIN=1 an empty buffer on an
+     * O_NONBLOCK fd is a proper EAGAIN and 0 means the port really went away.
+     */
+    tio.c_cc[VMIN] = 1;
     tio.c_cc[VTIME] = 0;
 
     if (tcsetattr(fd, TCSANOW, &tio) < 0) {
