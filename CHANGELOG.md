@@ -1,3 +1,14 @@
+## [1.10.0](https://github.com/mcereal/mesh-client/compare/v1.9.0...v1.10.0) (2026-09-04)
+
+### Features
+
+* **settings:** set the node's clock on connect and edit its time zone ([a5a6086](https://github.com/mcereal/mesh-client/commit/a5a60865dc858048718068b58e14ed12f8620901))
+
+### Bug Fixes
+
+* **ui:** map the Brick's X and Y buttons to the codes it reports ([dbb31b3](https://github.com/mcereal/mesh-client/commit/dbb31b3356b5ee58e621bcf2164b7ba9c4bdd089))
+* **ui:** say how many edits a settings refresh kept ([07b8b1a](https://github.com/mcereal/mesh-client/commit/07b8b1a0b66ba54f95f19b40bb97dc9606b04432))
+
 ## [1.9.0](https://github.com/mcereal/mesh-client/compare/v1.8.0...v1.9.0) (2026-09-04)
 
 ### Features
