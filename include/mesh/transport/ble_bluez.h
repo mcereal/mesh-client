@@ -53,6 +53,10 @@ struct mesh_bluez_client {
     mesh_bluez_notification_callback notification_callback;
     void *notification_userdata;
     char notify_characteristic_path[128];
+    /* In-flight Device1.Connect, tracked by reply serial so the event loop never blocks on it. */
+    uint32_t connect_serial;
+    int connect_state; /* 0 idle, 1 pending, 2 done (see connect_result) */
+    int connect_result;
 #ifdef MESH_HAVE_DBUS
     struct mesh_bluez_watch_entry watches[8];
 #endif
@@ -79,6 +83,8 @@ struct mesh_bluez_mock_config {
        (0 = resolved on the first poll, i.e. BlueZ already had the GATT database cached). */
     unsigned services_resolved_after_polls;
     int services_resolved_result;
+    /* Connect reply polls that stay pending before the mock completes with connect_result. */
+    unsigned connect_pending_polls;
     const char *toradio_char_path;
     const char *fromradio_char_path;
     const char *fromnum_char_path;
@@ -110,7 +116,16 @@ int mesh_bluez_client_stop_discovery(struct mesh_bluez_client *client, const cha
 int mesh_bluez_client_list_meshtastic(struct mesh_bluez_client *client,
                                       struct mesh_bluez_device_info *devices, size_t capacity,
                                       size_t *count);
+/* Blocking Device1.Connect (up to the 25 s D-Bus default). Kept for tools; the transport uses
+   the begin/poll pair below so the UI and buttons stay live while BlueZ works. */
 int mesh_bluez_client_connect(struct mesh_bluez_client *client, const char *device_path);
+/* Sends Device1.Connect and returns at once. -EBUSY if one is already in flight. */
+int mesh_bluez_client_connect_begin(struct mesh_bluez_client *client, const char *device_path);
+/* 1 when the reply has arrived (*out_result 0 or a negative errno), 0 while pending, -EINVAL if
+   nothing is in flight. Replies are picked up by mesh_bluez_client_process(). */
+int mesh_bluez_client_connect_poll(struct mesh_bluez_client *client, int *out_result);
+/* Forget an in-flight Connect (a late reply is then ignored). Safe when none is pending. */
+void mesh_bluez_client_connect_cancel(struct mesh_bluez_client *client);
 int mesh_bluez_client_disconnect(struct mesh_bluez_client *client, const char *device_path);
 /* Device1.ServicesResolved. BlueZ's Connect returns once the link is up, but the GATT
    characteristics only appear on the bus after service discovery, which can take several

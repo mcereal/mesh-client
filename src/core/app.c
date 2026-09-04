@@ -673,6 +673,9 @@ int mesh_app_run(struct mesh_app *app) {
     case MESH_APP_RUN_FOREGROUND:
         mesh_log_info("app", "Starting foreground event loop (timeout %d ms)",
                       app->config.idle_timeout_ms);
+        /* Paint the first frame before any transport work: the store already has a refresh
+           queued, and a zero timeout drains what is ready without waiting for more. */
+        mesh_event_loop_run(&app->loop, 0);
         while (true) {
             mesh_transport_registry_tick(&app->transport_registry);
             mesh_app_autoconnect(app);

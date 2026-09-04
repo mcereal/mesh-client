@@ -684,6 +684,103 @@ cleanup:
     record_success(test_name);
 }
 
+/* Device1.Connect answers asynchronously; the link stays "connecting" (and the loop free)
+   until the reply lands, and a refused connect drops back to disconnected. */
+static void test_ble_transport_connect_async_reply(void) {
+    const char *test_name = "ble_transport_connect_async_reply";
+    const char *failure = NULL;
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:08", .name = "NodeEight", .rssi = -50},
+    };
+    uint8_t write_capture[64];
+    size_t write_len = 0U;
+    struct mesh_bluez_mock_config mock_config = {
+        .adapter_path = "/org/bluez/hci0",
+        .connect_pending_polls = 2U,
+        .devices = mock_devices,
+        .device_count = 1U,
+        .write_capture_buffer = write_capture,
+        .write_capture_capacity = sizeof(write_capture),
+        .write_capture_length = &write_len,
+    };
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    struct mesh_app_config config = mesh_app_config_default();
+    struct mesh_event_loop loop;
+    mesh_event_loop_init(&loop);
+    if (ble->ops->start(ble, &config, &loop) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+        failure = "connect should be accepted";
+        goto cleanup;
+    }
+    if (!mesh_ble_transport_is_connecting(ble) || write_len != 0U) {
+        failure = "must stay connecting until the Connect reply";
+        goto cleanup;
+    }
+    if (strcmp(ble->ops->status(ble), "connecting") != 0) {
+        failure = "status should read connecting";
+        goto cleanup;
+    }
+
+    ble->ops->tick(ble); /* poll 2: still pending */
+    if (!mesh_ble_transport_is_connecting(ble) || write_len != 0U) {
+        failure = "reply arrived too early";
+        goto cleanup;
+    }
+    ble->ops->tick(ble); /* poll 3: reply, services already resolved, handshake sent */
+    if (mesh_ble_transport_connected_address(ble) == NULL || write_len == 0U) {
+        failure = "connect should complete once the reply lands";
+        goto cleanup;
+    }
+    if (strcmp(ble->ops->status(ble), "connected") != 0) {
+        failure = "status should read connected";
+        goto cleanup;
+    }
+
+    /* A refused Connect must leave the link disconnected. */
+    if (mesh_ble_transport_disconnect(ble) != 0) {
+        failure = "disconnect failed";
+        goto cleanup;
+    }
+    ble->ops->stop(ble);
+    mock_config.connect_result = -EIO;
+    mock_config.connect_pending_polls = 1U;
+    mesh_bluez_client_mock_enable(&mock_config);
+    if (ble->ops->start(ble, &config, &loop) != 0) {
+        failure = "ble restart failed";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+        failure = "second connect should be accepted";
+        goto cleanup;
+    }
+    ble->ops->tick(ble);
+    if (mesh_ble_transport_is_connecting(ble) ||
+        mesh_ble_transport_connected_address(ble) != NULL ||
+        strcmp(ble->ops->status(ble), "running") != 0) {
+        failure = "refused connect should drop back to running/disconnected";
+        goto cleanup;
+    }
+
+cleanup:
+    ble->ops->stop(ble);
+    mesh_event_loop_shutdown(&loop);
+    mesh_bluez_client_mock_disable();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}
+
 /* The foreground policy: a saved preferred node wins even when a stronger one is in range;
    with nothing saved, the strongest advertiser is used. */
 static void test_app_autoconnect_policy(void) {
@@ -2356,6 +2453,7 @@ static const struct test_case k_test_cases[] = {
     {"ble_transport_connect_mock", "unit", test_ble_transport_connect_mock},
     {"ble_transport_connect_deferred_services", "unit",
      test_ble_transport_connect_deferred_services},
+    {"ble_transport_connect_async_reply", "unit", test_ble_transport_connect_async_reply},
     {"app_autoconnect_policy", "unit", test_app_autoconnect_policy},
     {"ui_store_basic", "unit", test_ui_store_basic},
     {"ui_store_persistence", "unit", test_ui_store_persistence},

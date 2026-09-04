@@ -41,6 +41,8 @@
    service discovery finishes, which can take several seconds when nothing is cached. */
 #define MESH_BLE_SERVICES_POLL_MS 250U
 #define MESH_BLE_SERVICES_TIMEOUT_MS 20000U
+/* How long to wait for BlueZ to answer Device1.Connect before giving up on the attempt. */
+#define MESH_BLE_CONNECT_TIMEOUT_MS 30000U
 
 enum mesh_ble_state {
     MESH_BLE_STATE_DISABLED = 0,
@@ -81,6 +83,7 @@ struct mesh_ble_transport_state {
     uint64_t connect_started_ms;    /* Device1.Connect returned; link_state is CONNECTING */
     uint64_t next_services_poll_ms; /* earliest next ServicesResolved poll */
     bool services_wait_logged;
+    bool connect_pending;       /* Device1.Connect sent, reply not yet seen */
     bool drain_pending;         /* more FromRadio packets may be waiting */
     uint64_t drain_retry_at_ms; /* earliest time to run the pending drain (0 = now) */
     unsigned drain_failures;    /* consecutive ReadValue failures */
@@ -483,6 +486,14 @@ static const char *mesh_ble_status(const struct mesh_transport *transport) {
 
     const struct mesh_ble_transport_state *state =
         (const struct mesh_ble_transport_state *)transport->state;
+    if (state->state == MESH_BLE_STATE_READY) {
+        if (state->link_state == MESH_BLE_LINK_CONNECTING) {
+            return "connecting";
+        }
+        if (state->link_state == MESH_BLE_LINK_CONNECTED) {
+            return "connected";
+        }
+    }
     return mesh_ble_state_to_string(state->state);
 }
 
@@ -934,7 +945,7 @@ int mesh_ble_transport_connect(struct mesh_transport *transport, const char *add
     }
 
     state->link_state = MESH_BLE_LINK_CONNECTING;
-    int result = mesh_bluez_client_connect(&state->bluez, device_path);
+    int result = mesh_bluez_client_connect_begin(&state->bluez, device_path);
     if (result < 0) {
         state->link_state = MESH_BLE_LINK_DISCONNECTED;
         return result;
@@ -942,12 +953,14 @@ int mesh_ble_transport_connect(struct mesh_transport *transport, const char *add
 
     snprintf(state->connected_address, sizeof(state->connected_address), "%s", address);
     snprintf(state->connected_device_path, sizeof(state->connected_device_path), "%s", device_path);
+    state->connect_pending = true;
     state->connect_started_ms = mesh_ble_now_ms();
     state->next_services_poll_ms = 0U;
     state->services_wait_logged = false;
 
-    /* Finishes right here when BlueZ already holds the GATT database (a bonded node it has seen
-       before); otherwise tick() completes the connect once ServicesResolved flips. */
+    /* Device1.Connect can take BlueZ many seconds (or the full 25 s D-Bus timeout when the node
+       does not answer), so the reply is collected from tick(). With the mock it completes here,
+       and so does a bonded node whose GATT database BlueZ already holds. */
     mesh_ble_poll_connecting(state);
     return 0;
 }
@@ -960,6 +973,27 @@ static void mesh_ble_poll_connecting(struct mesh_ble_transport_state *state) {
     }
 
     uint64_t now = mesh_ble_now_ms();
+
+    if (state->connect_pending) {
+        int connect_result = 0;
+        int poll = mesh_bluez_client_connect_poll(&state->bluez, &connect_result);
+        if (poll == 0) {
+            if (now - state->connect_started_ms >= MESH_BLE_CONNECT_TIMEOUT_MS) {
+                mesh_log_warn("ble", "%s: no reply to Connect after %u ms",
+                              state->connected_address, MESH_BLE_CONNECT_TIMEOUT_MS);
+                mesh_ble_reset_link(state, "connect timed out");
+            }
+            return;
+        }
+        state->connect_pending = false;
+        if (poll < 0 || connect_result < 0) {
+            mesh_ble_reset_link(state, "connect failed");
+            return;
+        }
+        /* Link is up; service discovery starts now, so time it from here. */
+        state->connect_started_ms = now;
+    }
+
     if (now < state->next_services_poll_ms) {
         return;
     }
@@ -1046,7 +1080,11 @@ static void mesh_ble_reset_link(struct mesh_ble_transport_state *state, const ch
             mesh_log_debug("ble", "Disconnect during link reset returned %d", result);
         }
     }
+    if (state->connect_pending) {
+        mesh_bluez_client_connect_cancel(&state->bluez);
+    }
     state->link_state = MESH_BLE_LINK_DISCONNECTED;
+    state->connect_pending = false;
     state->notifications_enabled = false;
     state->drain_pending = false;
     state->drain_retry_at_ms = 0U;

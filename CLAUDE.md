@@ -72,9 +72,11 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
   node-summary cache decoded from `FromRadio`. BLE is **not** Nordic UART and has no length
   framing: one bare protobuf per GATT write/read. `src/proto/framing.c` is for serial/TCP only.
   Nodes in PIN mode must be paired with BlueZ out of band (`bluetoothctl pair`) before connect.
-  `mesh_ble_transport_connect` returns 0 with the link in `connecting` until BlueZ reports
-  `ServicesResolved` (polled from `tick()`, 20 s cap); a bonded node BlueZ has seen before
-  usually resolves inside the call. `connected_address()` is NULL until then.
+  `mesh_ble_transport_connect` sends `Device1.Connect` without blocking (reply matched by
+  serial in `bluez_client.c`, 30 s cap) and returns 0 with the link in `connecting`; `tick()`
+  then waits for `ServicesResolved` (250 ms polls, 20 s cap) before wiring the characteristics.
+  `connected_address()` is NULL until then; `status()` reads `connecting`/`connected` meanwhile.
+  Everything else on the bus (reads, writes, StartNotify) is still a blocking call.
 - `src/core/message.c` — transport-agnostic messaging: builds `TEXT_MESSAGE_APP` packets into a
   `ToRadio`, folds inbound `MeshPacket`s into a fixed ring (`mesh_message_log`), and correlates
   `ROUTING_APP` replies with the outbound message they ack. Message text is untrusted radio
