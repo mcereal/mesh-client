@@ -483,12 +483,14 @@ static void mesh_app_save_settings(struct mesh_app *app, struct mesh_transport *
     }
     const char *section_name = section_label;
     struct mesh_admin_request write;
-    int result = mesh_app_build_settings_write(mesh_ble_transport_settings(ble), action, &write);
+    int result = mesh_app_build_settings_write(
+        mesh_session_settings(mesh_ble_transport_session(ble)), action, &write);
     if (result == 0) {
-        result = mesh_ble_transport_write_settings(ble, &write);
+        result = mesh_session_write_settings(mesh_ble_transport_session(ble), &write);
     }
     if (result > 0) {
-        const struct mesh_radio_settings *radio = mesh_ble_transport_settings(ble);
+        const struct mesh_radio_settings *radio =
+            mesh_session_settings(mesh_ble_transport_session(ble));
         app->settings_save_pending = true;
         app->settings_writes_acked_seen = radio != NULL ? radio->writes_acked : 0U;
         app->settings_writes_failed_seen = radio != NULL ? radio->writes_failed : 0U;
@@ -604,8 +606,9 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
         }
         const bool broadcast = (action->dest == MESH_MESSAGE_BROADCAST_ADDR);
         uint32_t packet_id = 0U;
-        const int result = mesh_ble_transport_send_text(ble, action->dest, action->channel,
-                                                        action->text, !broadcast, &packet_id);
+        const int result =
+            mesh_session_send_text(mesh_ble_transport_session(ble), action->dest, action->channel,
+                                   action->text, !broadcast, &packet_id);
         if (result == 0) {
             snprintf(toast, sizeof toast, "Sent to %s", app->ui_store.nav.target_name);
             mesh_log_info("ui", "Sent \"%s\" to %s (packet %u)", action->text,
@@ -624,7 +627,7 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
             mesh_ui_store_set_toast(&app->ui_store, now, "BLE transport unavailable");
             return;
         }
-        const int result = mesh_ble_transport_refresh_settings(ble);
+        const int result = mesh_session_refresh_settings(mesh_ble_transport_session(ble));
         if (result > 0) {
             snprintf(toast, sizeof toast, "Refreshing %d settings sections", result);
         } else if (result == 0) {
@@ -773,8 +776,8 @@ static const struct mesh_ui_backend *mesh_app_select_backend(struct mesh_app *ap
 
 /* Resolves a node number to something a human can read, preferring the short name the NodeDB
    gave us and falling back to the Meshtastic-style "!hex" id. */
-static void mesh_app_format_peer_name(const struct mesh_ble_handshake_status *status,
-                                      uint32_t node_id, char *out, size_t out_len) {
+static void mesh_app_format_peer_name(const struct mesh_handshake_status *status, uint32_t node_id,
+                                      char *out, size_t out_len) {
     if (out == NULL || out_len == 0U) {
         return;
     }
@@ -785,7 +788,7 @@ static void mesh_app_format_peer_name(const struct mesh_ble_handshake_status *st
     }
 
     if (status != NULL) {
-        for (size_t i = 0; i < status->node_count && i < MESH_BLE_MAX_NODE_SUMMARY; ++i) {
+        for (size_t i = 0; i < status->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
             if (status->nodes[i].node_id != node_id) {
                 continue;
             }
@@ -805,7 +808,7 @@ static void mesh_app_format_peer_name(const struct mesh_ble_handshake_status *st
 }
 
 /* Lower is more important; see the ranking comment in mesh_app_publish_ui_state(). */
-static unsigned mesh_app_node_rank(const struct mesh_ble_node_summary *node, uint32_t my_node,
+static unsigned mesh_app_node_rank(const struct mesh_node_summary *node, uint32_t my_node,
                                    const struct mesh_message_log *log) {
     if (my_node != 0U && node->node_id == my_node) {
         return 0U;
@@ -827,8 +830,8 @@ static unsigned mesh_app_node_rank(const struct mesh_ble_node_summary *node, uin
 /* Copies the newest MESH_UI_MAX_MESSAGES entries out of the transport ring into the store,
    merged with whatever history was restored from the cache at startup. */
 static void mesh_app_publish_messages(struct mesh_app *app, struct mesh_transport *ble,
-                                      const struct mesh_ble_handshake_status *status) {
-    const struct mesh_message_log *log = mesh_ble_transport_messages(ble);
+                                      const struct mesh_handshake_status *status) {
+    const struct mesh_message_log *log = mesh_session_messages(mesh_ble_transport_session(ble));
     if (log == NULL) {
         return;
     }
@@ -1111,7 +1114,7 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
         }
     }
 
-    struct mesh_ble_handshake_status status = mesh_ble_transport_handshake_status(ble);
+    struct mesh_handshake_status status = *mesh_session_handshake(mesh_ble_transport_session(ble));
     const bool handshake_active = status.request_in_flight || status.config_complete ||
                                   status.has_my_info || status.has_config ||
                                   (status.node_count > 0U);
@@ -1131,7 +1134,7 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
             ui_handshake.my_info.node_num = status.my_info.my_node_num;
             ui_handshake.my_info.nodedb_entries = status.my_info.nodedb_count;
             ui_handshake.my_info.reboot_count = status.my_info.reboot_count;
-            for (size_t i = 0; i < status.node_count && i < MESH_BLE_MAX_NODE_SUMMARY; ++i) {
+            for (size_t i = 0; i < status.node_count && i < MESH_SESSION_MAX_NODES; ++i) {
                 if (status.nodes[i].node_id == my_node && status.nodes[i].short_name[0] != '\0') {
                     snprintf(ui_handshake.my_short_name, sizeof(ui_handshake.my_short_name), "%s",
                              status.nodes[i].short_name);
@@ -1145,20 +1148,21 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
            heard directly over RF by last_heard, then MQTT-fed nodes by last_heard. On a mesh
            with an MQTT uplink dozens of far-away nodes are "heard" every minute and would
            otherwise push the radio you are actually talking to off the list. Insertion sort:
-           MESH_BLE_MAX_NODE_SUMMARY is small and this runs once per publish. */
-        const struct mesh_message_log *message_log = mesh_ble_transport_messages(ble);
-        size_t order[MESH_BLE_MAX_NODE_SUMMARY];
-        unsigned rank[MESH_BLE_MAX_NODE_SUMMARY];
-        size_t total = status.node_count > MESH_BLE_MAX_NODE_SUMMARY ? MESH_BLE_MAX_NODE_SUMMARY
-                                                                     : status.node_count;
+           MESH_SESSION_MAX_NODES is small and this runs once per publish. */
+        const struct mesh_message_log *message_log =
+            mesh_session_messages(mesh_ble_transport_session(ble));
+        size_t order[MESH_SESSION_MAX_NODES];
+        unsigned rank[MESH_SESSION_MAX_NODES];
+        size_t total =
+            status.node_count > MESH_SESSION_MAX_NODES ? MESH_SESSION_MAX_NODES : status.node_count;
         const uint32_t my_node = status.has_my_info ? status.my_info.my_node_num : 0U;
         for (size_t i = 0; i < total; ++i) {
-            const struct mesh_ble_node_summary *node = &status.nodes[i];
+            const struct mesh_node_summary *node = &status.nodes[i];
             rank[i] = mesh_app_node_rank(node, my_node, message_log);
             size_t j = i;
             while (j > 0U) {
                 const size_t prev_index = order[j - 1U];
-                const struct mesh_ble_node_summary *prev = &status.nodes[prev_index];
+                const struct mesh_node_summary *prev = &status.nodes[prev_index];
                 if (rank[prev_index] < rank[i] ||
                     (rank[prev_index] == rank[i] && prev->last_heard >= node->last_heard)) {
                     break;
@@ -1174,7 +1178,7 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
             copy_count = MESH_UI_MAX_HANDSHAKE_NODES;
         }
         for (size_t i = 0; i < copy_count; ++i) {
-            const struct mesh_ble_node_summary *src = &status.nodes[order[i]];
+            const struct mesh_node_summary *src = &status.nodes[order[i]];
             struct mesh_ui_node_summary *dst = &ui_handshake.nodes[i];
             dst->node_id = src->node_id;
             snprintf(dst->long_name, sizeof(dst->long_name), "%s", src->long_name);
@@ -1234,7 +1238,8 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
 
     mesh_app_publish_messages(app, ble, &status);
 
-    const struct mesh_radio_settings *radio_settings = mesh_ble_transport_settings(ble);
+    const struct mesh_radio_settings *radio_settings =
+        mesh_session_settings(mesh_ble_transport_session(ble));
     struct mesh_ui_settings ui_settings;
     mesh_app_flatten_settings(radio_settings, &ui_settings);
     mesh_ui_store_set_settings(&app->ui_store, &ui_settings);

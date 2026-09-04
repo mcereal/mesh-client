@@ -55,7 +55,7 @@ CLI backend is selected; without D-Bus headers at build time it compiles out ent
 
 ## Architecture
 
-Data flows one direction: transport → `mesh_app` → UI store → controller → backend.
+Data flows one direction: link (transport) → `mesh_session` → `mesh_app` → UI store → controller → backend.
 
 - `src/core/event_loop.c` — epoll loop with a fixed table of 32 fd sources. Everything (D-Bus
   watches, timerfd discovery refresh, UI store eventfd, minui-list child stdout) registers here.
@@ -66,13 +66,22 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
   `GetManagedObjects`, GATT Connect/StartNotify/Write). Has a compile-time-independent mock
   (`mesh_bluez_client_mock_enable`) that tests use to script results and capture writes; there is
   no real BlueZ in CI.
-- `src/transport/ble/ble_transport.c` — state machine (`disabled` → `waiting-for-bluez` →
-  `waiting-for-adapter` → `running`), Meshtastic service UUID filtering, the `want_config_id`
-  handshake, an outbound ToRadio packet queue, FromNum-notify → FromRadio-read drain loop, and a
-  node-summary cache decoded from `FromRadio` (256 entries; every inbound `MeshPacket` also
-  refreshes its sender's `last_heard`/SNR/hops, adding the sender by id if the sync never
-  delivered its NodeInfo), plus the radio's channel table (`FromRadio.channel`,
-  by slot, role DISABLED kept so indices stay meaningful). BLE is **not** Nordic UART and has no length
+- `src/core/session.c` — the Meshtastic conversation, independent of how bytes travel
+  (`struct mesh_session`): the `want_config_id` handshake, a node-summary cache decoded from
+  `FromRadio` (256 entries; every inbound `MeshPacket` also refreshes its sender's
+  `last_heard`/SNR/hops, adding the sender by id if the sync never delivered its NodeInfo), the
+  radio's channel table (`FromRadio.channel` by slot, role DISABLED kept so indices stay
+  meaningful), the message log, the radio settings and admin queue pump, and packet ids. A link
+  calls `mesh_session_attach(send_fn)` when its connection is usable, hands every FromRadio
+  protobuf to `mesh_session_handle_from_radio`, calls `mesh_session_tick` each turn, and
+  `mesh_session_detach`es when the link drops (handshake and settings reset, messages survive).
+  The session never sees GATT, ttys or framing; a link never decodes a protobuf. Today the BLE
+  transport owns one session (`mesh_ble_transport_session`); the `mesh_ble_transport_*`
+  send/settings/messages/handshake functions are thin wrappers over it.
+- `src/transport/ble/ble_transport.c` — the BLE link: state machine (`disabled` →
+  `waiting-for-bluez` → `waiting-for-adapter` → `running`), Meshtastic service UUID filtering,
+  an outbound ToRadio packet queue (the session's send path), and the FromNum-notify →
+  FromRadio-read drain loop. BLE is **not** Nordic UART and has no length
   framing: one bare protobuf per GATT write/read. `src/proto/framing.c` is for serial/TCP only.
   Nodes in PIN mode must be paired with BlueZ out of band (`bluetoothctl pair`) before connect.
   `mesh_ble_transport_connect` sends `Device1.Connect` without blocking (reply matched by
@@ -89,9 +98,9 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
   `DeviceMetadata`) and the `AdminMessage` plumbing: encodes `ADMIN_APP` requests addressed to
   our own node with `want_response`, decodes replies (correlated by `Data.request_id`), keeps the
   `session_passkey` every reply carries (firmware 2.5+ rejects a `set_*` without it), and runs
-  a one-at-a-time request queue with a 5 s timeout. The BLE transport feeds it handshake fragments
+  a one-at-a-time request queue with a 5 s timeout. The session feeds it handshake fragments
   and admin packets, sends a metadata+owner probe once `config_complete_id` arrives, and pumps
-  the queue from `tick()`. Admin replies never reach the message log. Writes
+  the queue from `mesh_session_tick()`. Admin replies never reach the message log. Writes
   (`mesh_radio_settings_queue_write`) always go out as `get_owner` (fresh passkey; the firmware
   rotates it after 150 s), the `set_*` carrying the **whole** section (the firmware replaces, it
   does not merge), then the matching `get_*`. A `set_*` is answered by a `ROUTING_APP` packet

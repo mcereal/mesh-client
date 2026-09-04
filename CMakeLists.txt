@@ -37,6 +37,7 @@ add_library(meshclient_core
     src/core/event_loop.c
     src/core/message.c
     src/core/radio_settings.c
+    src/core/session.c
     src/core/signals.c
     src/transport/transport_registry.c
     src/transport/ble/ble_transport.c

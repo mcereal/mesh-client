@@ -356,7 +356,7 @@ static void test_ble_transport_connect_mock(void) {
         return;
     }
 
-    struct mesh_ble_handshake_status handshake = mesh_ble_transport_handshake_status(ble);
+    struct mesh_handshake_status handshake = mesh_ble_transport_handshake_status(ble);
     if (!handshake.request_in_flight || handshake.request_id != to_radio.want_config_id) {
         ble->ops->stop(ble);
         mesh_event_loop_shutdown(&loop);
@@ -3057,7 +3057,7 @@ static void test_ble_transport_channel_decode(void) {
         mesh_event_loop_run(&loop, 10);
     }
 
-    struct mesh_ble_handshake_status status = mesh_ble_transport_handshake_status(ble);
+    struct mesh_handshake_status status = mesh_ble_transport_handshake_status(ble);
     if (status.channel_count != 2U) {
         failure = "channel_count should cover slots 0 and 1";
         goto cleanup;
@@ -3577,12 +3577,12 @@ static void test_ble_transport_packet_touches_node(void) {
         mesh_event_loop_run(&loop, 10);
     }
 
-    struct mesh_ble_handshake_status status = mesh_ble_transport_handshake_status(ble);
+    struct mesh_handshake_status status = mesh_ble_transport_handshake_status(ble);
     if (status.node_count != 2U) {
         failure = "expected the synced node plus the one heard without NodeInfo";
         goto cleanup;
     }
-    const struct mesh_ble_node_summary *known = &status.nodes[0];
+    const struct mesh_node_summary *known = &status.nodes[0];
     if (known->node_id != 0x7c376ddaU || known->last_heard != 5000U || known->snr != 7.5f ||
         !known->has_hops_away || known->hops_away != 1U || strcmp(known->short_name, "6dda") != 0) {
         failure = "packet did not refresh the known node";
@@ -4113,7 +4113,7 @@ static void test_ble_transport_admin_probe(void) {
     }
 
     /* Complete the handshake; the probe should go out on the next tick. */
-    struct mesh_ble_handshake_status status = mesh_ble_transport_handshake_status(ble);
+    struct mesh_handshake_status status = mesh_ble_transport_handshake_status(ble);
     if (!status.request_in_flight || status.request_id == 0U) {
         failure = "want_config should be in flight";
         goto cleanup;

@@ -13,10 +13,10 @@
 #include <strings.h>
 
 static void print_handshake_json(FILE *out, const struct mesh_bluez_device_info *device,
-                                 const struct mesh_ble_handshake_status *status,
+                                 const struct mesh_handshake_status *status,
                                  const struct mesh_message_log *log, bool cached);
 static void print_handshake_pretty(FILE *out, const struct mesh_bluez_device_info *device,
-                                   const struct mesh_ble_handshake_status *status,
+                                   const struct mesh_handshake_status *status,
                                    const struct mesh_message_log *log);
 static void print_cached_handshake(FILE *out, const struct mesh_ui_handshake_state *state);
 static void print_cached_handshake_json(FILE *out, const struct mesh_ui_handshake_state *state);
@@ -302,7 +302,7 @@ static int connect_and_sync(struct mesh_app *app, struct mesh_transport *ble,
             break;
         }
 
-        struct mesh_ble_handshake_status status = mesh_ble_transport_handshake_status(ble);
+        struct mesh_handshake_status status = mesh_ble_transport_handshake_status(ble);
         if (!status.request_in_flight && (status.config_complete || status.has_my_info)) {
             break;
         }
@@ -475,7 +475,7 @@ static int print_status(struct mesh_app *app, bool output_json, const char *outp
         return connect_result;
     }
 
-    struct mesh_ble_handshake_status status = mesh_ble_transport_handshake_status(ble);
+    struct mesh_handshake_status status = mesh_ble_transport_handshake_status(ble);
     const struct mesh_message_log *messages = mesh_ble_transport_messages(ble);
 
     FILE *file = stdout;
@@ -506,7 +506,7 @@ static int print_status(struct mesh_app *app, bool output_json, const char *outp
 }
 
 static void print_handshake_pretty(FILE *out, const struct mesh_bluez_device_info *device,
-                                   const struct mesh_ble_handshake_status *status,
+                                   const struct mesh_handshake_status *status,
                                    const struct mesh_message_log *log) {
     fprintf(out, "Device: %s (%s) RSSI=%d\n", device->name, device->address, (int)device->rssi);
     if (status == NULL) {
@@ -534,7 +534,7 @@ static void print_handshake_pretty(FILE *out, const struct mesh_bluez_device_inf
     } else {
         fprintf(out, "Nodes (%zu):\n", status->node_count);
         for (size_t i = 0; i < status->node_count; ++i) {
-            const struct mesh_ble_node_summary *node = &status->nodes[i];
+            const struct mesh_node_summary *node = &status->nodes[i];
             fprintf(out, "  - id=%u", node->node_id);
             if (node->long_name[0] != '\0') {
                 fprintf(out, " name=%s", node->long_name);
@@ -833,7 +833,7 @@ static void print_messages_json(FILE *out, const struct mesh_message_log *log) {
 }
 
 static void print_handshake_json(FILE *out, const struct mesh_bluez_device_info *device,
-                                 const struct mesh_ble_handshake_status *status,
+                                 const struct mesh_handshake_status *status,
                                  const struct mesh_message_log *log, bool cached) {
     fprintf(out, "{");
     fprintf(out, "\"device\":{");
@@ -867,11 +867,11 @@ static void print_handshake_json(FILE *out, const struct mesh_bluez_device_info 
     }
 
     fprintf(out, ",\"nodes\":[");
-    for (size_t i = 0; i < status->node_count && i < MESH_BLE_MAX_NODE_SUMMARY; ++i) {
+    for (size_t i = 0; i < status->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
         if (i > 0U) {
             fputc(',', out);
         }
-        const struct mesh_ble_node_summary *node = &status->nodes[i];
+        const struct mesh_node_summary *node = &status->nodes[i];
         fprintf(out, "{\"id\":%u,", node->node_id);
         fprintf(out, "\"long_name\":");
         json_print_string(out, node->long_name);

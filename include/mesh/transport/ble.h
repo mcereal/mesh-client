@@ -2,9 +2,9 @@
 
 #include "mesh/mesh_message.h"
 #include "mesh/radio_settings.h"
+#include "mesh/session.h"
 #include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/transport.h"
-#include "meshtastic/mesh.pb.h"
 
 #include <stdbool.h>
 
@@ -53,53 +53,11 @@ int mesh_ble_transport_send_text(struct mesh_transport *transport, uint32_t dest
 /* Borrowed view of the inbox/outbox ring. Valid until the next transport tick. */
 const struct mesh_message_log *mesh_ble_transport_messages(struct mesh_transport *transport);
 
-/* Real meshes run past 100 nodes (134 seen on the bench); keep the summary cache large enough
-   for a full NodeDB sync, since a node the sync drops cannot be messaged by name. */
-#define MESH_BLE_MAX_NODE_SUMMARY 256U
+/* The session this link feeds: handshake, node cache, message log and radio settings. The
+   functions below are conveniences over it for callers that only hold the transport. */
+struct mesh_session *mesh_ble_transport_session(struct mesh_transport *transport);
 
-struct mesh_ble_node_summary {
-    uint32_t node_id;
-    char long_name[40];
-    char short_name[5];
-    uint32_t last_heard;
-    float snr;
-    bool via_mqtt;
-    bool has_hops_away;
-    uint8_t hops_away;
-};
-
-/* The radio's channel table: 8 slots, PRIMARY plus SECONDARYs; DISABLED slots are kept so the
-   index stays meaningful (MeshPacket.channel is this index for broadcasts). */
-#define MESH_BLE_MAX_CHANNELS 8U
-
-struct mesh_ble_channel_summary {
-    uint8_t index;
-    uint8_t role; /* meshtastic_Channel_Role */
-    char name[12];
-    uint8_t psk_len; /* 0 none, 1 default-key index, 16 AES-128, 32 AES-256 */
-    bool uplink_enabled;
-    bool downlink_enabled;
-    uint32_t position_precision;
-};
-
-struct mesh_ble_handshake_status {
-    bool request_in_flight;
-    uint32_t request_id;
-    bool config_complete;
-    uint32_t config_complete_id;
-    bool has_my_info;
-    meshtastic_MyNodeInfo my_info;
-    bool has_config;
-    meshtastic_Config config;
-    size_t node_count;
-    struct mesh_ble_node_summary nodes[MESH_BLE_MAX_NODE_SUMMARY];
-    /* Indexed by channel slot; channel_count is the highest slot seen plus one. */
-    size_t channel_count;
-    struct mesh_ble_channel_summary channels[MESH_BLE_MAX_CHANNELS];
-};
-
-struct mesh_ble_handshake_status
-mesh_ble_transport_handshake_status(struct mesh_transport *transport);
+struct mesh_handshake_status mesh_ble_transport_handshake_status(struct mesh_transport *transport);
 
 /* Borrowed view of the connected radio's configuration (Config/ModuleConfig sections,
    owner, metadata, admin session). Reset with the handshake on every (re)connect. Valid
