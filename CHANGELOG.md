@@ -1,3 +1,16 @@
+## [1.8.0](https://github.com/mcereal/mesh-client/compare/v1.7.1...v1.8.0) (2026-09-04)
+
+### Features
+
+* **serial:** add the USB serial transport ([a27de5b](https://github.com/mcereal/mesh-client/commit/a27de5b1e1e5df0f36711bb37016a91472c4af70))
+* **ui:** make the USB node selectable and preferred ([b068282](https://github.com/mcereal/mesh-client/commit/b06828265c4c5f818b025bf0eedff644e96d7f45))
+* **ui:** say why a connect failed ([34e49f3](https://github.com/mcereal/mesh-client/commit/34e49f35509411cf046d58fdc22a3ef51bab1e3d))
+
+### Bug Fixes
+
+* **app:** back auto-connect off when a link fails after connect returns ([f32e901](https://github.com/mcereal/mesh-client/commit/f32e90178f2a3d3650ef8b3e59ae6b449471182b))
+* **serial:** read with VMIN=1 so an empty tty is not read as EOF ([6cb6c1e](https://github.com/mcereal/mesh-client/commit/6cb6c1ed2e6ade5c8d50266f26e678c18d344e8d))
+
 ## [1.7.1](https://github.com/mcereal/mesh-client/compare/v1.7.0...v1.7.1) (2026-09-04)
 
 ### Code Refactoring
