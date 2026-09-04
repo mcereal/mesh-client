@@ -80,6 +80,26 @@ enum mesh_ui_setting_field {
     MESH_UI_FIELD_BT_ENABLED,
     MESH_UI_FIELD_BT_MODE,
     MESH_UI_FIELD_BT_PIN, /* text: six digits */
+    MESH_UI_FIELD_LORA_REGION,
+    MESH_UI_FIELD_LORA_USE_PRESET,
+    MESH_UI_FIELD_LORA_PRESET,
+    MESH_UI_FIELD_LORA_BANDWIDTH,
+    MESH_UI_FIELD_LORA_SPREAD,
+    MESH_UI_FIELD_LORA_CODING,
+    MESH_UI_FIELD_LORA_HOPS,
+    MESH_UI_FIELD_LORA_TX_ENABLED,
+    MESH_UI_FIELD_LORA_TX_POWER, /* number: dBm, 0 = the radio's maximum */
+    MESH_UI_FIELD_LORA_IGNORE_MQTT,
+    MESH_UI_FIELD_LORA_OK_TO_MQTT,
+    MESH_UI_FIELD_SECURITY_PRIVATE_KEY, /* KEY: keep / new random / typed (restore a backup) */
+    MESH_UI_FIELD_SECURITY_ADMIN_KEY_0, /* KEY: keep / none / typed */
+    MESH_UI_FIELD_SECURITY_ADMIN_KEY_1,
+    MESH_UI_FIELD_SECURITY_ADMIN_KEY_2,
+    MESH_UI_FIELD_SECURITY_MANAGED,
+    MESH_UI_FIELD_SECURITY_ADMIN_CHANNEL,
+    MESH_UI_FIELD_SECURITY_SERIAL,
+    MESH_UI_FIELD_SECURITY_DEBUG_LOG,
+    MESH_UI_FIELD_SECURITY_SIGNATURE_POLICY,
     MESH_UI_FIELD_COUNT,
 };
 
@@ -94,6 +114,7 @@ enum mesh_ui_psk_choice {
     MESH_UI_PSK_TYPED,
     MESH_UI_PSK_CHOICE_COUNT,
 };
+#define MESH_UI_PSK_CHOICE_BIT(choice) (1U << (unsigned)(choice))
 
 #define MESH_UI_SETTINGS_LABEL_MAX 24U
 #define MESH_UI_SETTINGS_VALUE_MAX 48U
@@ -124,17 +145,24 @@ uint32_t mesh_ui_settings_number_step(enum mesh_ui_setting_field field, uint32_t
 /* TEXT fields: the longest value the radio accepts, in bytes without the NUL. */
 uint32_t mesh_ui_settings_text_max(enum mesh_ui_setting_field field);
 
-/* Sections whose write can cut this client off (Bluetooth: re-pairing; Channels: a changed
-   key drops you off the channel). The nav asks before saving them; `confirm_text` is what
-   the overlay says. */
+/* Sections whose write can cut this client off or the radio off the mesh (Bluetooth:
+   re-pairing; Channels: a changed key; LoRa: region and preset; Security: identity and
+   managed mode). The nav asks before saving them; `confirm_text` is what the overlay says. */
 bool mesh_ui_settings_section_needs_confirm(enum mesh_ui_settings_section section);
 void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section, char *out,
                                    size_t out_len);
 
-/* Keys as hex. parse accepts an empty string (no key), 2 hex digits (the one-byte shorthand),
-   32 or 64 hex digits; anything else returns false. */
+/* KEY fields: which choices Left/Right offer (a bitmask of MESH_UI_PSK_CHOICE_BIT), and
+   whether a key of `len` bytes is acceptable for the field. */
+uint32_t mesh_ui_settings_key_choices(enum mesh_ui_setting_field field);
+bool mesh_ui_settings_key_len_ok(enum mesh_ui_setting_field field, size_t len);
+
+/* Keys as text. key_text() is base64, what the Meshtastic apps show and accept, so a key
+   read off the Brick can be typed into a phone and vice versa. parse() takes base64 or hex
+   (an even number of hex digits); an empty string is an empty key. */
+void mesh_ui_settings_key_text(const uint8_t *key, size_t len, char *out, size_t out_len);
 void mesh_ui_settings_key_hex(const uint8_t *key, size_t len, char *out, size_t out_len);
-bool mesh_ui_settings_key_parse(const char *hex, uint8_t *out, size_t out_cap, size_t *out_len);
+bool mesh_ui_settings_key_parse(const char *text, uint8_t *out, size_t out_cap, size_t *out_len);
 
 /* The channel slot behind row `row` of the Channels list, or -1. */
 int mesh_ui_settings_channel_at_row(const struct mesh_ui_settings *settings,
