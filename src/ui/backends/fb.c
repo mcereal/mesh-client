@@ -71,20 +71,58 @@ static const uint8_t k_font5x7[96][5] = {
     {0x00, 0x41, 0x41, 0x3E, 0x08}, {0x02, 0x01, 0x02, 0x04, 0x02},
 };
 
+/* Scale an 8-bit channel into a framebuffer bitfield and shift it into place. */
+static inline uint32_t fb_pack_channel(uint8_t value, const struct fb_bitfield *field) {
+    if (field->length == 0U) {
+        return 0U;
+    }
+    uint32_t scaled = field->length >= 8U ? (uint32_t)value << (field->length - 8U)
+                                          : (uint32_t)value >> (8U - field->length);
+    return scaled << field->offset;
+}
+
+/*
+ * The Brick's display engine composites fb0 with per-pixel alpha (the layer dump in
+ * /sys/class/disp/disp/attr/sys says `a[pixel 255]`), so a 32-bit pixel with a zero top byte is
+ * fully transparent and shows the black background no matter what RGB it carries. That was the
+ * black screen. Alpha is therefore always written as opaque, whether or not the driver reports a
+ * transp bitfield: for 32 bpp every bit outside the colour channels is set.
+ */
 static inline uint32_t compose_color(const struct mesh_ui_backend_fb_state *state, uint8_t r,
                                      uint8_t g, uint8_t b) {
-    switch (state->var.bits_per_pixel) {
-    case 32:
-        return (r << 16) | (g << 8) | b;
-    case 24:
-        return (r << 16) | (g << 8) | b;
-    case 16: {
-        uint16_t value = (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
-        return value;
+    const struct fb_var_screeninfo *var = &state->var;
+    const bool has_fields =
+        var->red.length != 0U || var->green.length != 0U || var->blue.length != 0U;
+
+    uint32_t color;
+    uint32_t color_mask;
+    if (has_fields) {
+        color = fb_pack_channel(r, &var->red) | fb_pack_channel(g, &var->green) |
+                fb_pack_channel(b, &var->blue);
+        color_mask = fb_pack_channel(0xFFU, &var->red) | fb_pack_channel(0xFFU, &var->green) |
+                     fb_pack_channel(0xFFU, &var->blue);
+    } else {
+        switch (var->bits_per_pixel) {
+        case 32:
+        case 24:
+            color = ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
+            color_mask = 0x00FFFFFFU;
+            break;
+        case 16:
+            color = (uint32_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+            color_mask = 0xFFFFU;
+            break;
+        default:
+            return 0U;
+        }
     }
-    default:
-        return 0;
+
+    if (var->transp.length != 0U) {
+        color |= fb_pack_channel(0xFFU, &var->transp);
+    } else if (var->bits_per_pixel == 32U) {
+        color |= ~color_mask; /* opaque in whatever byte the colour channels leave free */
     }
+    return color;
 }
 
 static void fb_draw_pixel(const struct mesh_ui_backend_fb_state *state, int x, int y, uint8_t r,
