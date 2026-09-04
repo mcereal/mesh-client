@@ -133,7 +133,14 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   quoting our id: `error_reason` NONE is the ack, `ADMIN_BAD_SESSION_KEY`/`BAD_REQUEST` a
   rejection; `ingest` claims those too and counts them in `writes_acked`/`writes_failed`. The
   full channel table (`has_channel[]`/`channels[]`, keys included, never persisted) is kept
-  for `set_channel`, which must carry the whole `Channel`; `get_channel_request` is index+1. Most
+  for `set_channel`, which must carry the whole `Channel`; `get_channel_request` is index+1.
+  `MESH_ADMIN_SET_TIME` is the odd one out: `mesh_session_sync_clock` pushes the Brick's own
+  `time(NULL)` at the radio once per connection (`set_time_only`, behind a `get_owner` for the
+  passkey, no read-back - there is no `get_time`), so a node with no GPS stops sitting at 00:00
+  and its packets carry a real `rx_time`. It is gated on `MESH_RADIO_CLOCK_MIN_EPOCH` and left
+  out of `mesh_admin_request_is_write` on purpose, so it never counts as a save or toasts over
+  one. `set_time_only` is UTC; the node shows local time only once `DeviceConfig.tzdef` is set,
+  which is the Device section's one editable row. Most
   sections reboot the radio 7 s after a set (owner, module configs, display when
   `screen_on_secs`/`flip_screen` change), so the link drops and auto-connect reconnects; that is
   expected, not a bug. Phase status is in `docs/settings-roadmap.md`.
@@ -211,8 +218,13 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   128-node budget always holds whoever you are talking to; on an MQTT-fed mesh last_heard alone
   buries them. The post-stop publish in `mesh_app_run` only touches the transport line, because
   the shutdown save would otherwise persist an empty handshake and unresolved peer names.
-  Button positions: the Brick's A is `BTN_EAST` (305) and B is `BTN_SOUTH` (304), the reverse
-  of the Linux `BTN_A`/`BTN_B` aliases. Verified from the device log; do not "fix" it back.
+  Button codes: the Brick's A is `BTN_EAST` (305) and B is `BTN_SOUTH` (304), the reverse of
+  the Linux `BTN_A`/`BTN_B` aliases. X and Y do not report by position at all - the button
+  printed **Y, on the left, is `BTN_NORTH` (307)**, so X on the top is `BTN_WEST` (308).
+  Reading them positionally leaves Y unreachable and silently fires X in its place, which cost
+  a round of "the save does nothing" debugging: Y saves a settings section, X refreshes it, so
+  every save became a refresh and the edits stayed pending. All four verified from the device
+  log by pressing the button; `input_brick_face_buttons` pins them. Do not "fix" any of it back.
 - `src/minui_helpers/` — tiny native fallbacks for `minui-list` / `minui-presenter` used when the
   NextUI cross toolchain isn't available; they honor `MESHCLIENT_MINUI_SELECTION`.
 

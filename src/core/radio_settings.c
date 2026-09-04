@@ -136,6 +136,7 @@ void mesh_radio_settings_apply_channel(struct mesh_radio_settings *settings,
 /* ---- admin replies ------------------------------------------------------------------------ */
 
 bool mesh_admin_request_is_write(enum mesh_admin_request_kind kind) {
+    /* MESH_ADMIN_SET_TIME is a set_* on the wire but not here: see the header. */
     return kind == MESH_ADMIN_SET_OWNER || kind == MESH_ADMIN_SET_CONFIG ||
            kind == MESH_ADMIN_SET_MODULE_CONFIG || kind == MESH_ADMIN_SET_CHANNEL;
 }
@@ -326,6 +327,13 @@ int mesh_radio_settings_encode_request(const struct mesh_radio_settings *setting
         admin.which_payload_variant = meshtastic_AdminMessage_set_channel_tag;
         admin.set_channel = request->payload.channel;
         break;
+    case MESH_ADMIN_SET_TIME:
+        if (request->type < MESH_RADIO_CLOCK_MIN_EPOCH) {
+            return -EINVAL;
+        }
+        admin.which_payload_variant = meshtastic_AdminMessage_set_time_only_tag;
+        admin.set_time_only = request->type;
+        break;
     default:
         return -EINVAL;
     }
@@ -445,6 +453,28 @@ int mesh_radio_settings_queue_write(struct mesh_radio_settings *settings,
     settings->queue_len += 1U;
     added += 1U;
     added += mesh_radio_settings_enqueue(settings, readback, write->type);
+    return (int)added;
+}
+
+int mesh_radio_settings_queue_time(struct mesh_radio_settings *settings, uint32_t epoch) {
+    if (settings == NULL) {
+        return -EINVAL;
+    }
+    if (epoch < MESH_RADIO_CLOCK_MIN_EPOCH) {
+        return -EINVAL;
+    }
+    /* Same shape as a write minus the read-back: a get_owner first, because the firmware
+       rejects a set_* whose session passkey has aged out and the one we hold may be minutes
+       old. The epoch rides in `type`, so a second push with a different time is not mistaken
+       for a duplicate of the first. */
+    const size_t needed =
+        (mesh_radio_settings_queued(settings, MESH_ADMIN_GET_OWNER, 0U) ? 0U : 1U) +
+        (mesh_radio_settings_queued(settings, MESH_ADMIN_SET_TIME, epoch) ? 0U : 1U);
+    if (settings->queue_len + needed > MESH_RADIO_SETTINGS_FETCH_MAX) {
+        return -ENOSPC;
+    }
+    size_t added = mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_OWNER, 0U);
+    added += mesh_radio_settings_enqueue(settings, MESH_ADMIN_SET_TIME, epoch);
     return (int)added;
 }
 

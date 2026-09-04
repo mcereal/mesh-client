@@ -181,6 +181,7 @@ static int mesh_app_random_key(uint8_t *out, size_t len) {
 static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
                                        const struct mesh_ui_setting_edit *edit) {
     meshtastic_User *owner = &write->payload.owner;
+    meshtastic_Config_DeviceConfig *device = &write->payload.config.payload_variant.device;
     meshtastic_Config_DisplayConfig *display = &write->payload.config.payload_variant.display;
     meshtastic_Config_BluetoothConfig *bluetooth = &write->payload.config.payload_variant.bluetooth;
     meshtastic_ModuleConfig_StoreForwardConfig *sf =
@@ -207,6 +208,10 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
     case MESH_UI_FIELD_USER_UNMESSAGEABLE:
         owner->has_is_unmessagable = true;
         owner->is_unmessagable = on;
+        break;
+    case MESH_UI_FIELD_DEVICE_TZDEF:
+        snprintf(device->tzdef, sizeof device->tzdef, "%.*s", (int)(sizeof device->tzdef - 1U),
+                 edit->text);
         break;
     case MESH_UI_FIELD_DISPLAY_SCREEN_ON:
         display->screen_on_secs = edit->number;
@@ -468,6 +473,15 @@ int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
         out->kind = MESH_ADMIN_SET_OWNER;
         out->payload.owner = radio->owner;
         break;
+    case MESH_UI_SETTINGS_DEVICE:
+        if (!radio->has_device) {
+            return -ENOENT;
+        }
+        out->kind = MESH_ADMIN_SET_CONFIG;
+        out->type = meshtastic_AdminMessage_ConfigType_DEVICE_CONFIG;
+        out->payload.config.which_payload_variant = meshtastic_Config_device_tag;
+        out->payload.config.payload_variant.device = radio->device;
+        break;
     case MESH_UI_SETTINGS_DISPLAY:
         if (!radio->has_display) {
             return -ENOENT;
@@ -722,7 +736,10 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
             return;
         }
         const int result = mesh_session_refresh_settings(&app->session);
-        if (result > 0) {
+        if (result > 0 && action->edit_count > 0U) {
+            snprintf(toast, sizeof toast, "Refreshing %d sections; %u edit%s kept, Y saves", result,
+                     (unsigned)action->edit_count, action->edit_count == 1U ? "" : "s");
+        } else if (result > 0) {
             snprintf(toast, sizeof toast, "Refreshing %d settings sections", result);
         } else if (result == 0) {
             snprintf(toast, sizeof toast, "%s", "Refresh already in progress");

@@ -4253,8 +4253,10 @@ static void test_ui_nav_settings(void) {
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
-    if (action.type != MESH_UI_ACTION_REFRESH_SETTINGS) {
-        failure = "X should ask for a refresh";
+    /* The refresh carries the pending edit count so the toast can say they were kept: X and
+       Y sit together, and a refresh that reports nothing reads like a save that did nothing. */
+    if (action.type != MESH_UI_ACTION_REFRESH_SETTINGS || action.edit_count != 1U) {
+        failure = "X should ask for a refresh and report the edits it kept";
         goto cleanup;
     }
     /* B with an edit asks first; B again discards and leaves. */
@@ -4982,6 +4984,147 @@ cleanup:
 }
 
 /* The app turns a save into a full-section write from the radio's own copy. */
+/* The clock push: shaped like a write on the wire, deliberately invisible to the save
+   accounting so it never toasts over the user's own save. */
+/* The Brick's face buttons do not report by position, and getting this wrong is silent: the
+   binding still does something, just the wrong thing. Every code here was read off the device
+   log by pressing that button. */
+static void test_input_brick_face_buttons(void) {
+    const char *test_name = "input_brick_face_buttons";
+    static const struct {
+        uint16_t code;
+        enum mesh_ui_key key;
+        const char *printed;
+    } k_expected[] = {
+        {305U, MESH_UI_KEY_A, "A (right)"},
+        {304U, MESH_UI_KEY_B, "B (bottom)"},
+        {308U, MESH_UI_KEY_X, "X (top)"},
+        {307U, MESH_UI_KEY_Y, "Y (left)"},
+    };
+    for (size_t i = 0; i < sizeof k_expected / sizeof k_expected[0]; ++i) {
+        if (mesh_ui_input_map_key(k_expected[i].code) != k_expected[i].key) {
+            char detail[96];
+            snprintf(detail, sizeof detail, "code %u is the Brick's %s", k_expected[i].code,
+                     k_expected[i].printed);
+            record_failure(test_name, detail);
+            return;
+        }
+    }
+    record_success(test_name);
+}
+
+static void test_radio_settings_clock_push(void) {
+    const char *test_name = "radio_settings_clock_push";
+    struct mesh_radio_settings settings;
+    mesh_radio_settings_reset(&settings);
+
+    if (mesh_radio_settings_queue_time(&settings, 0U) != -EINVAL ||
+        mesh_radio_settings_queue_time(&settings, MESH_RADIO_CLOCK_MIN_EPOCH - 1U) != -EINVAL ||
+        settings.queue_len != 0U) {
+        record_failure(test_name, "a clock we do not believe must not be pushed");
+        return;
+    }
+
+    const uint32_t epoch = 1788545372U; /* 2026-09-04T17:09:32Z */
+    if (mesh_radio_settings_queue_time(&settings, epoch) != 2 || settings.queue_len != 2U) {
+        record_failure(test_name, "a clock push should queue the passkey refresh and the set");
+        return;
+    }
+    if (mesh_radio_settings_write_pending(&settings)) {
+        record_failure(test_name, "a clock push is not a settings write");
+        return;
+    }
+
+    struct mesh_admin_request next;
+    if (!mesh_radio_settings_next_request(&settings, 1000U, &next) ||
+        next.kind != MESH_ADMIN_GET_OWNER) {
+        record_failure(test_name, "the passkey refresh should go first");
+        return;
+    }
+    mesh_radio_settings_mark_sent(&settings, 61U, 1000U);
+    meshtastic_AdminMessage reply = meshtastic_AdminMessage_init_default;
+    reply.which_payload_variant = meshtastic_AdminMessage_get_owner_response_tag;
+    reply.session_passkey.size = 8U;
+    memset(reply.session_passkey.bytes, 0xA5, 8U);
+    meshtastic_MeshPacket packet;
+    if (!test_make_admin_reply(0x1234U, 61U, &reply, &packet) ||
+        mesh_radio_settings_ingest(&settings, &packet) != 1) {
+        record_failure(test_name, "the owner reply should release the queue");
+        return;
+    }
+
+    if (!mesh_radio_settings_next_request(&settings, 1100U, &next) ||
+        next.kind != MESH_ADMIN_SET_TIME || next.type != epoch || settings.pending_is_write) {
+        record_failure(test_name, "the set_time should follow, uncounted");
+        return;
+    }
+    next.my_node = 0x1234U;
+    next.packet_id = 62U;
+    uint8_t buffer[512];
+    size_t written = 0U;
+    if (mesh_radio_settings_encode_request(&settings, &next, buffer, sizeof buffer, &written) !=
+        0) {
+        record_failure(test_name, "set_time should encode");
+        return;
+    }
+    meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_default;
+    pb_istream_t in = pb_istream_from_buffer(buffer, written);
+    meshtastic_AdminMessage admin = meshtastic_AdminMessage_init_default;
+    if (!pb_decode(&in, meshtastic_ToRadio_fields, &to_radio) || to_radio.packet.to != 0x1234U ||
+        to_radio.packet.id != 62U ||
+        to_radio.packet.decoded.portnum != meshtastic_PortNum_ADMIN_APP) {
+        record_failure(test_name, "set_time packet header is wrong");
+        return;
+    }
+    in = pb_istream_from_buffer(to_radio.packet.decoded.payload.bytes,
+                                to_radio.packet.decoded.payload.size);
+    if (!pb_decode(&in, meshtastic_AdminMessage_fields, &admin) ||
+        admin.which_payload_variant != meshtastic_AdminMessage_set_time_only_tag ||
+        admin.set_time_only != epoch || admin.session_passkey.size != 8U ||
+        admin.session_passkey.bytes[0] != 0xA5U) {
+        record_failure(test_name, "set_time_only should carry the epoch and the fresh passkey");
+        return;
+    }
+    mesh_radio_settings_mark_sent(&settings, 62U, 1100U);
+    if (settings.writes_sent != 0U) {
+        record_failure(test_name, "a clock push must not count as a write sent");
+        return;
+    }
+
+    /* The firmware acks it like any other set_*; the queue moves on and the counters the save
+       toast watches stay exactly where they were. */
+    meshtastic_MeshPacket ack = make_routing_reply(62U, meshtastic_Routing_Error_NONE);
+    if (mesh_radio_settings_ingest(&settings, &ack) != 1 || mesh_radio_settings_busy(&settings) ||
+        settings.writes_acked != 0U || settings.writes_failed != 0U) {
+        record_failure(test_name, "the ack should release the queue without counting a save");
+        return;
+    }
+
+    /* And a radio that never answers costs us a timeout, not a "save failed". A second push
+       refreshes the passkey again: the firmware rotates it every 150 s. */
+    if (mesh_radio_settings_queue_time(&settings, epoch + 60U) != 2 ||
+        !mesh_radio_settings_next_request(&settings, 2000U, &next) ||
+        next.kind != MESH_ADMIN_GET_OWNER) {
+        record_failure(test_name, "a second push should refresh the passkey again");
+        return;
+    }
+    mesh_radio_settings_mark_sent(&settings, 63U, 2000U);
+    if (!mesh_radio_settings_next_request(
+            &settings, 2000U + MESH_RADIO_SETTINGS_REPLY_TIMEOUT_MS + 1U, &next) ||
+        next.kind != MESH_ADMIN_SET_TIME) {
+        record_failure(test_name, "the set_time should follow the timed-out refresh");
+        return;
+    }
+    mesh_radio_settings_mark_sent(&settings, 64U, 8000U);
+    mesh_radio_settings_next_request(&settings, 8000U + MESH_RADIO_SETTINGS_REPLY_TIMEOUT_MS + 1U,
+                                     &next);
+    if (settings.timeouts != 2U || settings.writes_failed != 0U) {
+        record_failure(test_name, "a silent radio should not fail a save that never happened");
+        return;
+    }
+    record_success(test_name);
+}
+
 static void test_app_settings_write_build(void) {
     const char *test_name = "app_settings_write_build";
     struct mesh_radio_settings radio;
@@ -5035,6 +5178,25 @@ static void test_app_settings_write_build(void) {
         !write.payload.module_config.payload_variant.telemetry.environment_measurement_enabled ||
         write.payload.module_config.payload_variant.telemetry.power_update_interval != 777U) {
         record_failure(test_name, "set_module_config should keep the fields we do not show");
+        return;
+    }
+
+    radio.has_device = true;
+    radio.device.role = meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE;
+    radio.device.node_info_broadcast_secs = 10800U;
+    action.section = MESH_UI_SETTINGS_DEVICE;
+    action.edit_count = 1U;
+    action.edits[0].field = MESH_UI_FIELD_DEVICE_TZDEF;
+    snprintf(action.edits[0].text, sizeof action.edits[0].text, "%s", "AST4");
+    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+        write.kind != MESH_ADMIN_SET_CONFIG ||
+        write.type != meshtastic_AdminMessage_ConfigType_DEVICE_CONFIG ||
+        write.payload.config.which_payload_variant != meshtastic_Config_device_tag ||
+        strcmp(write.payload.config.payload_variant.device.tzdef, "AST4") != 0 ||
+        write.payload.config.payload_variant.device.role !=
+            meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE ||
+        write.payload.config.payload_variant.device.node_info_broadcast_secs != 10800U) {
+        record_failure(test_name, "set_device_config should carry the timezone and the rest");
         return;
     }
 
@@ -6779,6 +6941,8 @@ static const struct test_case k_test_cases[] = {
     {"ui_nav_settings", "unit", test_ui_nav_settings},
     {"ble_transport_admin_probe", "unit", test_ble_transport_admin_probe},
     {"radio_settings_write_queue", "unit", test_radio_settings_write_queue},
+    {"radio_settings_clock_push", "unit", test_radio_settings_clock_push},
+    {"input_brick_face_buttons", "unit", test_input_brick_face_buttons},
     {"ui_settings_edits", "unit", test_ui_settings_edits},
     {"ui_nav_settings_edit", "unit", test_ui_nav_settings_edit},
     {"app_settings_write_build", "unit", test_app_settings_write_build},

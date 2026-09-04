@@ -216,6 +216,10 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
     [MESH_UI_FIELD_USER_UNMESSAGEABLE] = {"Unmessageable", MESH_UI_SETTING_TOGGLE,
                                           MESH_UI_SETTINGS_USER, 0U, NULL, NO_PRESETS, NULL, NULL,
                                           0U},
+    /* tzdef is 64 bytes on the wire. The radio applies it to its own clock only; it has no
+       bearing on what this client shows, which follows the Brick's own TZ. */
+    [MESH_UI_FIELD_DEVICE_TZDEF] = {"Time zone", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_DEVICE, 64U,
+                                    NULL, NO_PRESETS, NULL, NULL, 0U},
     [MESH_UI_FIELD_DISPLAY_SCREEN_ON] = {"Screen on", MESH_UI_SETTING_NUMBER,
                                          MESH_UI_SETTINGS_DISPLAY, 0U, NULL,
                                          PRESETS(k_screen_on_presets), "default", NULL, 0U},
@@ -865,7 +869,7 @@ static void build_user(const struct mesh_ui_settings *s, struct item_list *list)
 
 static void build_device(const struct mesh_ui_settings *s, struct item_list *list) {
     item_text(list, "Role", MESH_UI_SETTING_ENUM, mesh_radio_role_name(s->role));
-    item_text(list, "Time zone", MESH_UI_SETTING_TEXT, s->tzdef[0] != '\0' ? s->tzdef : "not set");
+    item_field(list, MESH_UI_FIELD_DEVICE_TZDEF, 0U, s->tzdef);
     item_text(list, "Rebroadcast", MESH_UI_SETTING_ENUM, rebroadcast_name(s->rebroadcast_mode));
     item_toggle(list, "LED heartbeat", !s->led_heartbeat_disabled);
     item_toggle(list, "Double tap = button", s->double_tap_as_button_press);

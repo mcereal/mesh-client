@@ -1565,6 +1565,11 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         if (nav->screen == MESH_UI_SCREEN_SETTINGS) {
             if (out_action != NULL) {
                 out_action->type = MESH_UI_ACTION_REFRESH_SETTINGS;
+                /* A refresh keeps pending edits, so the app can say how many are still
+                   waiting. X sits next to Y on the same screen and the two are easy to
+                   confuse; a refresh that reports nothing reads like a save that did
+                   nothing. The edits themselves are not needed, only the count. */
+                out_action->edit_count = nav->settings_edit_count;
             }
             return changed;
         }
