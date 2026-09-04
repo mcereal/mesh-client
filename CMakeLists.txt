@@ -42,7 +42,10 @@ add_library(meshclient_core
     src/transport/transport_registry.c
     src/transport/ble/ble_transport.c
     src/transport/ble/bluez_client.c
+    src/transport/serial/serial_transport.c
+    src/transport/serial/serial_usb.c
     src/proto/framing.c
+    src/proto/stream_framing.c
     src/utils/log.c
     src/ui/store.c
     src/ui/controller.c

@@ -2,6 +2,7 @@
 #include "mesh/config.h"
 #include "mesh/log.h"
 #include "mesh/transport/ble.h"
+#include "mesh/transport/serial.h"
 
 #include <errno.h>
 #include <getopt.h>
@@ -12,17 +13,44 @@
 #include <string.h>
 #include <strings.h>
 
-static void print_handshake_json(FILE *out, const struct mesh_bluez_device_info *device,
+/*
+ * The radio --status and --send-text are talking to, and the link they are talking over. Both
+ * transports own a mesh_session, so everything past the connect is shared; only the connect,
+ * the disconnect and how the peer is named differ.
+ */
+struct mesh_cli_peer {
+    const char *transport; /* "ble" or "serial" */
+    const char *name;
+    const char *identifier; /* BLE address, or the tty path */
+    bool has_rssi;          /* BLE only */
+    int rssi;
+};
+
+struct mesh_cli_link {
+    struct mesh_transport *transport;
+    struct mesh_session *session;
+    int (*connect)(struct mesh_transport *transport, const char *identifier);
+    int (*disconnect)(struct mesh_transport *transport);
+    struct mesh_cli_peer peer;
+};
+
+static void print_handshake_json(FILE *out, const struct mesh_cli_peer *device,
                                  const struct mesh_handshake_status *status,
                                  const struct mesh_message_log *log, bool cached);
-static void print_handshake_pretty(FILE *out, const struct mesh_bluez_device_info *device,
+static void print_handshake_pretty(FILE *out, const struct mesh_cli_peer *device,
                                    const struct mesh_handshake_status *status,
                                    const struct mesh_message_log *log);
 static void print_cached_handshake(FILE *out, const struct mesh_ui_handshake_state *state);
 static void print_cached_handshake_json(FILE *out, const struct mesh_ui_handshake_state *state);
-static int print_status(struct mesh_app *app, bool output_json, const char *output_path);
-static int send_text_message(struct mesh_app *app, const char *text, uint32_t dest, uint8_t channel,
-                             bool want_ack);
+static int print_status(struct mesh_app *app, const struct mesh_cli_link *link, bool output_json,
+                        const char *output_path);
+static int send_text_message(struct mesh_app *app, const struct mesh_cli_link *link,
+                             const char *text, uint32_t dest, uint8_t channel, bool want_ack);
+static int select_ble_link(struct mesh_app *app, struct mesh_bluez_device_info *scratch,
+                           struct mesh_cli_link *link);
+static int select_serial_link(struct mesh_app *app, const char *requested,
+                              struct mesh_serial_device_info *scratch, size_t scratch_len,
+                              struct mesh_cli_link *link);
 static bool parse_node_id(const char *value, uint32_t *out);
 static void print_messages_pretty(FILE *out, const struct mesh_message_log *log);
 static void print_messages_json(FILE *out, const struct mesh_message_log *log);
@@ -33,6 +61,29 @@ select_preferred_device(const struct mesh_transport *ble, const struct mesh_app_
                         struct mesh_bluez_device_info *scratch, size_t *count);
 static void json_print_string(FILE *out, const char *value);
 
+/* --list-devices: both transports, so a USB node shows up next to the BLE advertisers. */
+static void list_all_devices(void) {
+    struct mesh_transport *ble = mesh_ble_transport();
+    mesh_ble_transport_refresh_devices(ble);
+    size_t count = 0U;
+    const struct mesh_bluez_device_info *devices = mesh_ble_transport_devices(ble, &count);
+    printf("Meshtastic BLE devices (%zu)\n", count);
+    for (size_t i = 0; i < count; ++i) {
+        printf("- %s (%s) RSSI=%d\n", devices[i].name, devices[i].address, (int)devices[i].rssi);
+    }
+
+    struct mesh_transport *serial = mesh_serial_transport();
+    const size_t serial_count = mesh_serial_transport_refresh_devices(serial);
+    const struct mesh_serial_device_info *ports = mesh_serial_transport_devices(serial, NULL);
+    printf("USB serial ports (%zu)\n", serial_count);
+    for (size_t i = 0; i < serial_count && ports != NULL; ++i) {
+        printf("- %s (%04x:%04x) id=%s port=%s%s\n", ports[i].name, ports[i].vendor_id,
+               ports[i].product_id, ports[i].id,
+               ports[i].path[0] != '\0' ? ports[i].path : "(unbound)",
+               ports[i].needs_line_state ? " [DTR via usbfs]" : "");
+    }
+}
+
 static void print_usage(const char *program) {
     fprintf(stderr,
             "Usage: %s [options]\n"
@@ -40,7 +91,12 @@ static void print_usage(const char *program) {
             "Options:\n"
             "  -f, --foreground           Run until stopped (default: single poll)\n"
             "  -d, --disable-ble          Disable the BLE transport\n"
+            "      --disable-serial       Disable the USB serial transport\n"
             "  -p, --preferred-device ID  Preferred BLE device address or name\n"
+            "      --serial[=ID]          Use a USB serial port instead of BLE for --status\n"
+            "                             and --send-text. ID is a sysfs interface id\n"
+            "                             (1-1:1.1) or a device node (/dev/ttyUSB0);\n"
+            "                             without one, the first port found is used\n"
             "  -t, --timeout MS           Poll timeout in milliseconds (default: 1000)\n"
             "  -l, --log-level LEVEL      Log level (trace, debug, info, warn, error)\n"
             "  -s, --status              Connect to a device and print handshake summary\n"
@@ -94,6 +150,8 @@ int main(int argc, char **argv) {
     uint32_t send_dest = MESH_MESSAGE_BROADCAST_ADDR;
     unsigned long send_channel = 0UL;
     bool send_want_ack = false;
+    bool use_serial = false;
+    const char *serial_identifier = NULL;
 
     static const struct option long_options[] = {
         {"foreground", no_argument, NULL, 'f'},
@@ -109,6 +167,8 @@ int main(int argc, char **argv) {
         {"dest", required_argument, NULL, 4},
         {"channel", required_argument, NULL, 5},
         {"ack", no_argument, NULL, 6},
+        {"serial", optional_argument, NULL, 7},
+        {"disable-serial", no_argument, NULL, 8},
         {"help", no_argument, NULL, 'h'},
         {0, 0, 0, 0},
     };
@@ -174,6 +234,13 @@ int main(int argc, char **argv) {
         case 6:
             send_want_ack = true;
             break;
+        case 7:
+            use_serial = true;
+            serial_identifier = optarg; /* NULL for a bare --serial */
+            break;
+        case 8:
+            config.enable_serial = false;
+            break;
         case 'h':
             print_usage(argv[0]);
             return EXIT_SUCCESS;
@@ -209,22 +276,33 @@ int main(int argc, char **argv) {
         if (result < 0) {
             mesh_log_error("main", "Failed to start transports: %d", result);
         } else if (list_devices) {
-            struct mesh_transport *ble = mesh_ble_transport();
-            mesh_ble_transport_refresh_devices(ble);
-            size_t count = 0;
-            const struct mesh_bluez_device_info *devices = mesh_ble_transport_devices(ble, &count);
-            printf("Meshtastic BLE devices (%zu)\n", count);
-            for (size_t i = 0; i < count; ++i) {
-                printf("- %s (%s) RSSI=%d\n", devices[i].name, devices[i].address,
-                       (int)devices[i].rssi);
-            }
-            mesh_transport_registry_stop_all(&app.transport_registry);
-        } else if (send_text != NULL) {
-            result =
-                send_text_message(&app, send_text, send_dest, (uint8_t)send_channel, send_want_ack);
+            list_all_devices();
             mesh_transport_registry_stop_all(&app.transport_registry);
         } else {
-            result = print_status(&app, output_json, status_output_path);
+            /* The scratch arrays back the peer strings in `link`, so they outlive its use. */
+            struct mesh_bluez_device_info ble_devices[16];
+            struct mesh_serial_device_info serial_devices[MESH_SERIAL_MAX_DEVICES];
+            struct mesh_cli_link link;
+            memset(&link, 0, sizeof link);
+
+            const int select_result =
+                use_serial ? select_serial_link(&app, serial_identifier, serial_devices,
+                                                MESH_SERIAL_MAX_DEVICES, &link)
+                           : select_ble_link(&app, ble_devices, &link);
+
+            if (send_text != NULL) {
+                if (select_result < 0) {
+                    fprintf(stderr, "No %s node available; nothing to send through.\n",
+                            use_serial ? "USB serial" : "Meshtastic BLE");
+                    result = select_result;
+                } else {
+                    result = send_text_message(&app, &link, send_text, send_dest,
+                                               (uint8_t)send_channel, send_want_ack);
+                }
+            } else {
+                const struct mesh_cli_link *selected = select_result < 0 ? NULL : &link;
+                result = print_status(&app, selected, output_json, status_output_path);
+            }
             mesh_transport_registry_stop_all(&app.transport_registry);
         }
     } else {
@@ -282,28 +360,101 @@ select_preferred_device(const struct mesh_transport *ble, const struct mesh_app_
     return &scratch[best];
 }
 
-/* Connects to `target` and pumps the loop until the config handshake settles (or we give up).
+/* Builds the BLE half of a CLI link. `scratch` must outlive the link: the peer names point
+   into it. Returns 0, or -ENODEV when nothing was discovered. */
+static int select_ble_link(struct mesh_app *app, struct mesh_bluez_device_info *scratch,
+                           struct mesh_cli_link *link) {
+    struct mesh_transport *ble = mesh_ble_transport();
+    size_t device_count = 0U;
+    const struct mesh_bluez_device_info *target =
+        select_preferred_device(ble, &app->config, scratch, &device_count);
+    if (target == NULL) {
+        return -ENODEV;
+    }
+
+    link->transport = ble;
+    link->session = mesh_ble_transport_session(ble);
+    link->connect = mesh_ble_transport_connect;
+    link->disconnect = mesh_ble_transport_disconnect;
+    link->peer.transport = "ble";
+    link->peer.name = target->name;
+    link->peer.identifier = target->address;
+    link->peer.has_rssi = true;
+    link->peer.rssi = (int)target->rssi;
+    return 0;
+}
+
+/* Builds the serial half. `requested` is the --serial argument (NULL or empty means whatever
+   --preferred-serial-device says, else the first port found). */
+static int select_serial_link(struct mesh_app *app, const char *requested,
+                              struct mesh_serial_device_info *scratch, size_t scratch_len,
+                              struct mesh_cli_link *link) {
+    struct mesh_transport *serial = mesh_serial_transport();
+    mesh_serial_transport_refresh_devices(serial);
+    const size_t count = mesh_serial_transport_get_devices(serial, scratch, scratch_len);
+    if (count == 0U) {
+        return -ENODEV;
+    }
+
+    const char *wanted = (requested != NULL && requested[0] != '\0')
+                             ? requested
+                             : app->config.preferred_serial_device;
+    const struct mesh_serial_device_info *target = &scratch[0];
+    if (wanted[0] != '\0') {
+        target = NULL;
+        for (size_t i = 0; i < count; ++i) {
+            if (strcmp(scratch[i].id, wanted) == 0 ||
+                (scratch[i].path[0] != '\0' && strcmp(scratch[i].path, wanted) == 0)) {
+                target = &scratch[i];
+                break;
+            }
+        }
+        if (target == NULL) {
+            mesh_log_error("main", "No USB serial port matches '%s'", wanted);
+            return -ENODEV;
+        }
+    }
+
+    link->transport = serial;
+    link->session = mesh_serial_transport_session(serial);
+    link->connect = mesh_serial_transport_connect;
+    link->disconnect = mesh_serial_transport_disconnect;
+    link->peer.transport = "serial";
+    link->peer.name = target->name;
+    /* The tty is what the user recognises; before the bind there is only the sysfs id. */
+    link->peer.identifier = target->path[0] != '\0' ? target->path : target->id;
+    link->peer.has_rssi = false;
+    link->peer.rssi = 0;
+    return 0;
+}
+
+/* Connects the link and pumps the loop until the config handshake settles (or we give up).
    Shared by --status and --send-text: both need MyNodeInfo before their output means anything. */
-static int connect_and_sync(struct mesh_app *app, struct mesh_transport *ble,
-                            const struct mesh_bluez_device_info *target) {
-    int connect_result = mesh_ble_transport_connect(ble, target->address);
+static int connect_and_sync(struct mesh_app *app, const struct mesh_cli_link *link) {
+    int connect_result = link->connect(link->transport, link->peer.identifier);
     if (connect_result < 0 && connect_result != -EALREADY) {
-        mesh_log_error("main", "Failed to connect to %s: %d", target->address, connect_result);
+        mesh_log_error("main", "Failed to connect to %s: %d", link->peer.identifier,
+                       connect_result);
         return connect_result;
     }
 
     const int max_iterations = 50;
     for (int i = 0; i < max_iterations; ++i) {
         mesh_transport_registry_tick(&app->transport_registry);
-        int run_result = mesh_event_loop_run(&app->loop, app->config.idle_timeout_ms);
+        /* Both links finish opening from tick(): BLE waits on service discovery, serial on the
+           wake settle. Poll briefly at first so that costs milliseconds, not a full timeout. */
+        const int timeout_ms =
+            i < 3 && app->config.idle_timeout_ms > 100 ? 100 : app->config.idle_timeout_ms;
+        int run_result = mesh_event_loop_run(&app->loop, timeout_ms);
         if (run_result < 0) {
             mesh_log_warn("main", "Event loop returned error %d while waiting for handshake",
                           run_result);
             break;
         }
 
-        struct mesh_handshake_status status = mesh_ble_transport_handshake_status(ble);
-        if (!status.request_in_flight && (status.config_complete || status.has_my_info)) {
+        const struct mesh_handshake_status *status = mesh_session_handshake(link->session);
+        if (status != NULL && !status->request_in_flight &&
+            (status->config_complete || status->has_my_info)) {
             break;
         }
     }
@@ -347,23 +498,13 @@ static bool parse_node_id(const char *value, uint32_t *out) {
     return true;
 }
 
-static int send_text_message(struct mesh_app *app, const char *text, uint32_t dest, uint8_t channel,
-                             bool want_ack) {
-    if (app == NULL || text == NULL) {
+static int send_text_message(struct mesh_app *app, const struct mesh_cli_link *link,
+                             const char *text, uint32_t dest, uint8_t channel, bool want_ack) {
+    if (app == NULL || link == NULL || text == NULL) {
         return -EINVAL;
     }
 
-    struct mesh_transport *ble = mesh_ble_transport();
-    struct mesh_bluez_device_info devices[16];
-    size_t device_count = 0U;
-    const struct mesh_bluez_device_info *target =
-        select_preferred_device(ble, &app->config, devices, &device_count);
-    if (target == NULL) {
-        fprintf(stderr, "No Meshtastic devices discovered; nothing to send through.\n");
-        return -ENODEV;
-    }
-
-    int connect_result = connect_and_sync(app, ble, target);
+    int connect_result = connect_and_sync(app, link);
     if (connect_result < 0) {
         return connect_result;
     }
@@ -375,10 +516,11 @@ static int send_text_message(struct mesh_app *app, const char *text, uint32_t de
     }
 
     uint32_t packet_id = 0U;
-    int send_result = mesh_ble_transport_send_text(ble, dest, channel, text, want_ack, &packet_id);
+    int send_result =
+        mesh_session_send_text(link->session, dest, channel, text, want_ack, &packet_id);
     if (send_result < 0) {
         mesh_log_error("main", "Failed to send message: %d", send_result);
-        mesh_ble_transport_disconnect(ble);
+        link->disconnect(link->transport);
         return send_result;
     }
 
@@ -400,7 +542,7 @@ static int send_text_message(struct mesh_app *app, const char *text, uint32_t de
             break;
         }
 
-        const struct mesh_message_log *log = mesh_ble_transport_messages(ble);
+        const struct mesh_message_log *log = mesh_session_messages(link->session);
         if (log == NULL) {
             break;
         }
@@ -435,21 +577,17 @@ static int send_text_message(struct mesh_app *app, const char *text, uint32_t de
         }
     }
 
-    mesh_ble_transport_disconnect(ble);
+    link->disconnect(link->transport);
     return exit_result;
 }
 
-static int print_status(struct mesh_app *app, bool output_json, const char *output_path) {
+static int print_status(struct mesh_app *app, const struct mesh_cli_link *link, bool output_json,
+                        const char *output_path) {
     if (app == NULL) {
         return -EINVAL;
     }
 
-    struct mesh_transport *ble = mesh_ble_transport();
-    struct mesh_bluez_device_info devices[16];
-    size_t device_count = 0U;
-    const struct mesh_bluez_device_info *target =
-        select_preferred_device(ble, &app->config, devices, &device_count);
-    if (target == NULL) {
+    if (link == NULL) {
         printf("No Meshtastic devices discovered.\n");
         if (output_json) {
             fprintf(stdout, "{\"device\":null,\"handshake\":null");
@@ -470,13 +608,13 @@ static int print_status(struct mesh_app *app, bool output_json, const char *outp
         return 0;
     }
 
-    int connect_result = connect_and_sync(app, ble, target);
+    int connect_result = connect_and_sync(app, link);
     if (connect_result < 0) {
         return connect_result;
     }
 
-    struct mesh_handshake_status status = mesh_ble_transport_handshake_status(ble);
-    const struct mesh_message_log *messages = mesh_ble_transport_messages(ble);
+    const struct mesh_handshake_status *status = mesh_session_handshake(link->session);
+    const struct mesh_message_log *messages = mesh_session_messages(link->session);
 
     FILE *file = stdout;
     FILE *output_file = NULL;
@@ -484,31 +622,35 @@ static int print_status(struct mesh_app *app, bool output_json, const char *outp
         output_file = fopen(output_path, "w");
         if (output_file == NULL) {
             mesh_log_error("main", "Failed to open %s: %s", output_path, strerror(errno));
-            mesh_ble_transport_disconnect(ble);
+            link->disconnect(link->transport);
             return -errno;
         }
-        print_handshake_json(output_file, target, &status, messages, false);
+        print_handshake_json(output_file, &link->peer, status, messages, false);
         fflush(output_file);
     }
 
     if (output_json) {
-        print_handshake_json(file, target, &status, messages, false);
+        print_handshake_json(file, &link->peer, status, messages, false);
     } else {
-        print_handshake_pretty(file, target, &status, messages);
+        print_handshake_pretty(file, &link->peer, status, messages);
     }
 
     if (output_file != NULL) {
         fclose(output_file);
     }
 
-    mesh_ble_transport_disconnect(ble);
+    link->disconnect(link->transport);
     return 0;
 }
 
-static void print_handshake_pretty(FILE *out, const struct mesh_bluez_device_info *device,
+static void print_handshake_pretty(FILE *out, const struct mesh_cli_peer *device,
                                    const struct mesh_handshake_status *status,
                                    const struct mesh_message_log *log) {
-    fprintf(out, "Device: %s (%s) RSSI=%d\n", device->name, device->address, (int)device->rssi);
+    fprintf(out, "Device: %s (%s) over %s", device->name, device->identifier, device->transport);
+    if (device->has_rssi) {
+        fprintf(out, " RSSI=%d", device->rssi);
+    }
+    fprintf(out, "\n");
     if (status == NULL) {
         fprintf(out, "Handshake: unavailable\n");
         print_messages_pretty(out, log);
@@ -832,16 +974,24 @@ static void print_messages_json(FILE *out, const struct mesh_message_log *log) {
     fputc(']', out);
 }
 
-static void print_handshake_json(FILE *out, const struct mesh_bluez_device_info *device,
+static void print_handshake_json(FILE *out, const struct mesh_cli_peer *device,
                                  const struct mesh_handshake_status *status,
                                  const struct mesh_message_log *log, bool cached) {
     fprintf(out, "{");
     fprintf(out, "\"device\":{");
     fprintf(out, "\"address\":");
-    json_print_string(out, device->address);
+    json_print_string(out, device->identifier);
     fprintf(out, ",\"name\":");
     json_print_string(out, device->name);
-    fprintf(out, ",\"rssi\":%d},", (int)device->rssi);
+    fprintf(out, ",\"transport\":");
+    json_print_string(out, device->transport);
+    fprintf(out, ",\"rssi\":");
+    if (device->has_rssi) {
+        fprintf(out, "%d", device->rssi);
+    } else {
+        fprintf(out, "null");
+    }
+    fprintf(out, "},");
 
     if (status == NULL) {
         fprintf(out, "\"handshake\":null,\"messages\":");

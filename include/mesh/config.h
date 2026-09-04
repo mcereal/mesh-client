@@ -14,6 +14,9 @@ struct mesh_app_config {
     int idle_timeout_ms;
     bool enable_ble;
     char preferred_ble_device[64];
+    bool enable_serial;
+    /* sysfs interface id ("1-1:1.1") or device node ("/dev/ttyUSB0"). */
+    char preferred_serial_device[64];
 };
 
 struct mesh_app_config mesh_app_config_default(void);

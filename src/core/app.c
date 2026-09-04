@@ -4,6 +4,7 @@
 
 #include "mesh/log.h"
 #include "mesh/transport/ble.h"
+#include "mesh/transport/serial.h"
 #include "mesh/ui/backends/cli.h"
 #include "mesh/ui/backends/minui.h"
 #include "mesh/ui/backends/stub.h"
@@ -1492,6 +1493,15 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     result = mesh_transport_registry_register(&app->transport_registry, mesh_ble_transport());
     if (result < 0) {
         mesh_log_error("app", "Failed to register BLE transport: %d", result);
+        mesh_ui_controller_shutdown(&app->ui_controller);
+        mesh_ui_store_shutdown(&app->ui_store);
+        mesh_event_loop_shutdown(&app->loop);
+        return result;
+    }
+
+    result = mesh_transport_registry_register(&app->transport_registry, mesh_serial_transport());
+    if (result < 0) {
+        mesh_log_error("app", "Failed to register serial transport: %d", result);
         mesh_ui_controller_shutdown(&app->ui_controller);
         mesh_ui_store_shutdown(&app->ui_store);
         mesh_event_loop_shutdown(&app->loop);
