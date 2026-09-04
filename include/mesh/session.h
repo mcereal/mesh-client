@@ -35,6 +35,63 @@ extern "C" {
 /* Largest ToRadio/FromRadio protobuf the session encodes or accepts. */
 #define MESH_SESSION_MAX_PACKET 512U
 
+/*
+ * A node's last known fix. Meshtastic carries latitude and longitude as fixed-point 1e-7
+ * degrees, so they are kept in that form and only divided out for display; `time` is the
+ * radio's timestamp for the fix, which is not the same thing as when we heard from the node.
+ */
+struct mesh_node_position {
+    bool valid;
+    int32_t latitude_i;
+    int32_t longitude_i;
+    bool has_altitude;
+    int32_t altitude; /* metres above sea level */
+    uint32_t time;    /* epoch of the fix, 0 when the node did not say */
+    uint8_t sats_in_view;
+    uint8_t precision_bits; /* how much the sender rounded the position off */
+};
+
+/* The DeviceMetrics telemetry every node reports about itself. Each value is optional on the
+   wire, so each carries its own has_* rather than being inferred from a zero. */
+struct mesh_node_metrics {
+    bool valid;
+    uint32_t time; /* when we last saw these, our clock */
+    bool has_battery;
+    uint8_t battery_level; /* percent; 101 means "plugged in", as upstream defines it */
+    bool has_voltage;
+    float voltage;
+    bool has_channel_utilization;
+    float channel_utilization;
+    bool has_air_util_tx;
+    float air_util_tx;
+    bool has_uptime;
+    uint32_t uptime_seconds;
+};
+
+/*
+ * EnvironmentMetrics, for the weather-station and sensor nodes. Only the handful of readings
+ * worth a row on a 1024x768 handheld are kept; the wire message has forty fields, most of them
+ * ADC channels nobody reads off a games console.
+ */
+struct mesh_node_environment {
+    bool valid;
+    uint32_t time;
+    bool has_temperature;
+    float temperature; /* Celsius */
+    bool has_humidity;
+    float relative_humidity;
+    bool has_pressure;
+    float barometric_pressure; /* hPa */
+    bool has_iaq;
+    uint16_t iaq;
+    bool has_lux;
+    float lux;
+    bool has_voltage;
+    float voltage;
+    bool has_current;
+    float current;
+};
+
 struct mesh_node_summary {
     uint32_t node_id;
     char long_name[40];
@@ -44,6 +101,21 @@ struct mesh_node_summary {
     bool via_mqtt;
     bool has_hops_away;
     uint8_t hops_away;
+    /* Identity, from NodeInfo.user. `user_id` is the "!0a1b2c3d" form the apps show. */
+    char user_id[16];
+    uint32_t hw_model; /* meshtastic_HardwareModel */
+    uint32_t role;     /* meshtastic_Config_DeviceConfig_Role */
+    bool is_licensed;
+    bool is_unmessagable;
+    uint8_t public_key[32];
+    uint8_t public_key_len;
+    /* NodeDB flags the radio keeps for us. */
+    bool is_favorite;
+    bool is_ignored;
+    uint8_t channel; /* the channel index the radio last heard this node on */
+    struct mesh_node_position position;
+    struct mesh_node_metrics metrics;
+    struct mesh_node_environment environment;
 };
 
 struct mesh_channel_summary {
@@ -137,6 +209,15 @@ int mesh_session_refresh_settings(struct mesh_session *session);
    has my_info, -ENOSPC when the queue is full, -EINVAL for anything but a write. */
 int mesh_session_write_settings(struct mesh_session *session,
                                 const struct mesh_admin_request *write);
+
+/*
+ * Pins or unpins a node in the radio's NodeDB. The cached record's `is_favorite` is flipped
+ * straight away rather than waiting for the radio: there is no get_favorite to read back with
+ * and the flag only returns with that node's next NodeInfo, which on a quiet mesh is hours
+ * away. Returns the number of admin requests queued, -ENOTCONN before the handshake has
+ * my_info, -ENOENT when the node is not in the cache, -ENOSPC when the queue is full.
+ */
+int mesh_session_set_node_favorite(struct mesh_session *session, uint32_t node_id, bool favorite);
 
 /* Meshtastic packet ids only need to be unique per sender for a few minutes. Never zero. */
 uint32_t mesh_session_next_packet_id(struct mesh_session *session);

@@ -22,6 +22,7 @@
 #include "mesh/ui/font5x7.h"
 #include "mesh/ui/input.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/node_detail.h"
 #include "mesh/ui/preferences.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
@@ -31,6 +32,8 @@
 
 #include "meshtastic/channel.pb.h"
 #include "meshtastic/mesh.pb.h"
+#include "meshtastic/portnums.pb.h"
+#include "meshtastic/telemetry.pb.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -1055,6 +1058,29 @@ static void test_ui_store_persistence(void) {
     snprintf(handshake.nodes[0].short_name, sizeof(handshake.nodes[0].short_name), "%s", "PRIM");
     handshake.nodes[0].snr = 9.5f;
     handshake.nodes[0].last_heard = 123U;
+    /* The detail the Nodes tab drills into rides along in the same cache, so a disconnected
+       Brick can still be browsed. Each block is written on its own key line. */
+    snprintf(handshake.nodes[0].user_id, sizeof(handshake.nodes[0].user_id), "%s", "!000010a2");
+    handshake.nodes[0].hw_model = 9U;
+    handshake.nodes[0].role = 2U;
+    handshake.nodes[0].is_favorite = true;
+    handshake.nodes[0].channel = 3U;
+    handshake.nodes[0].public_key_len = 32U;
+    memset(handshake.nodes[0].public_key, 0x5A, sizeof(handshake.nodes[0].public_key));
+    handshake.nodes[0].position.valid = true;
+    handshake.nodes[0].position.latitude_i = 447654321;
+    handshake.nodes[0].position.longitude_i = -680012345;
+    handshake.nodes[0].position.has_altitude = true;
+    handshake.nodes[0].position.altitude = 312;
+    handshake.nodes[0].position.sats_in_view = 9U;
+    handshake.nodes[0].metrics.valid = true;
+    handshake.nodes[0].metrics.has_battery = true;
+    handshake.nodes[0].metrics.battery_level = 76U;
+    handshake.nodes[0].metrics.has_uptime = true;
+    handshake.nodes[0].metrics.uptime_seconds = 90061U;
+    handshake.nodes[0].environment.valid = true;
+    handshake.nodes[0].environment.has_temperature = true;
+    handshake.nodes[0].environment.temperature = 21.5f;
     handshake.cached = true;
     mesh_ui_store_set_handshake(&store, &handshake);
 
@@ -1121,6 +1147,34 @@ static void test_ui_store_persistence(void) {
     if (!store.handshake.cached) {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "handshake cache flag not set after load");
+        return;
+    }
+
+    const struct mesh_ui_node_summary *node = &store.handshake.nodes[0];
+    if (strcmp(node->user_id, "!000010a2") != 0 || node->hw_model != 9U || node->role != 2U ||
+        !node->is_favorite || node->channel != 3U || node->public_key_len != 32U ||
+        node->public_key[31] != 0x5AU) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "node identity did not survive the cache");
+        return;
+    }
+    if (!node->position.valid || node->position.latitude_i != 447654321 ||
+        node->position.longitude_i != -680012345 || !node->position.has_altitude ||
+        node->position.altitude != 312 || node->position.sats_in_view != 9U) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "node position did not survive the cache");
+        return;
+    }
+    if (!node->metrics.valid || node->metrics.battery_level != 76U ||
+        node->metrics.uptime_seconds != 90061U) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "node metrics did not survive the cache");
+        return;
+    }
+    if (!node->environment.valid || node->environment.temperature < 21.4f ||
+        node->environment.temperature > 21.6f) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "node environment did not survive the cache");
         return;
     }
 
@@ -3182,14 +3236,25 @@ static void test_ui_nav_navigation(void) {
         goto cleanup;
     }
 
-    /* Nodes tab: A on a node targets it; A on ourselves does nothing. */
+    /* Nodes tab: A opens the node's detail; the detail's first row opens its conversation. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
     if (store.nav.screen != MESH_UI_SCREEN_NODES) {
         failure = "RIGHT should reach Nodes";
         goto cleanup;
     }
-    if (mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action)) {
-        failure = "A on our own node should be a no-op";
+    /* Our own node has a detail too - it is the one battery the user can do something about -
+       but no "Message this node" row, so A inside it does nothing. */
+    if (!mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action) || !store.nav.node_detail_open) {
+        failure = "A on our own node should open its detail";
+        goto cleanup;
+    }
+    if (mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action) || store.nav.thread_open) {
+        failure = "our own node's detail should offer nothing to message";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (store.nav.node_detail_open || store.nav.cursor[MESH_UI_SCREEN_NODES] != 0U) {
+        failure = "B should back out of the detail onto the node it came from";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
@@ -3200,19 +3265,35 @@ static void test_ui_nav_navigation(void) {
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.node_detail_open || store.nav.node_detail_node != 0x3000U ||
+        store.nav.node_list_cursor != 2U || store.nav.cursor[MESH_UI_SCREEN_NODES] != 0U) {
+        failure = "A on a node should open that node's detail";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     if (store.nav.screen != MESH_UI_SCREEN_MESSAGES || !store.nav.thread_open ||
         store.nav.compose_open || store.nav.target_node != 0x3000U ||
         strcmp(store.nav.target_name, "BRVO") != 0) {
-        failure = "A on a node should open its conversation, not compose";
+        failure = "the detail's first row should open its conversation, not compose";
         goto cleanup;
     }
-    /* Y on a node goes one step further and opens the overlay over it. */
+    /* Y goes one step further and opens the overlay over it, from either level. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);     /* back to the list */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* Nodes */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* Nodes, detail still open */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
     if (store.nav.screen != MESH_UI_SCREEN_MESSAGES || !store.nav.thread_open ||
         !store.nav.compose_open || store.nav.target_node != 0x3000U) {
-        failure = "Y on a node should open its conversation ready to write";
+        failure = "Y in a node's detail should open its conversation ready to write";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* Nodes */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);     /* close the detail */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    if (store.nav.screen != MESH_UI_SCREEN_MESSAGES || !store.nav.compose_open ||
+        store.nav.target_node != 0x3000U) {
+        failure = "Y on the node list should open its conversation ready to write";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
@@ -3370,10 +3451,11 @@ static void test_ui_nav_conversation_isolation(void) {
         goto cleanup;
     }
 
-    /* Opening a node's conversation from Nodes is one B away from the list again, and the list
-       comes back where it was rather than on the node just visited. */
+    /* Opening a node's conversation from Nodes (through its detail) is one B away from the list
+       again, and the list comes back where it was rather than on the node just visited. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* open the detail */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* "Message this node" */
     if (!store.nav.thread_open || store.nav.target_node != 0x3000U ||
         store.nav.screen != MESH_UI_SCREEN_MESSAGES) {
         failure = "A on a node should open its conversation on the Messages tab";
@@ -7364,6 +7446,489 @@ cleanup:
     }
 }
 
+/* Feeds one FromRadio protobuf into the session. Returns false when it would not encode. */
+static bool session_feed_from_radio(struct mesh_session *session,
+                                    const meshtastic_FromRadio *from_radio) {
+    uint8_t buffer[512];
+    pb_ostream_t stream = pb_ostream_from_buffer(buffer, sizeof buffer);
+    if (!pb_encode(&stream, meshtastic_FromRadio_fields, from_radio)) {
+        return false;
+    }
+    mesh_session_handle_from_radio(session, buffer, stream.bytes_written);
+    return true;
+}
+
+/* Wraps an already-encoded app payload in a MeshPacket from `from` and feeds it in. */
+static bool session_feed_app_packet(struct mesh_session *session, uint32_t from,
+                                    meshtastic_PortNum portnum, const uint8_t *payload,
+                                    size_t len) {
+    meshtastic_FromRadio from_radio = meshtastic_FromRadio_init_default;
+    from_radio.which_payload_variant = meshtastic_FromRadio_packet_tag;
+    from_radio.packet.from = from;
+    from_radio.packet.to = MESH_MESSAGE_BROADCAST_ADDR;
+    from_radio.packet.id = 0x51EEU;
+    from_radio.packet.has_rx_time = true;
+    from_radio.packet.rx_time = 1750000000U;
+    from_radio.packet.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    from_radio.packet.decoded.portnum = portnum;
+    if (len > sizeof from_radio.packet.decoded.payload.bytes) {
+        return false;
+    }
+    memcpy(from_radio.packet.decoded.payload.bytes, payload, len);
+    from_radio.packet.decoded.payload.size = (pb_size_t)len;
+    return session_feed_from_radio(session, &from_radio);
+}
+
+static const struct mesh_node_summary *session_find_node(const struct mesh_session *session,
+                                                         uint32_t node_id) {
+    for (size_t i = 0; i < session->handshake.node_count; ++i) {
+        if (session->handshake.nodes[i].node_id == node_id) {
+            return &session->handshake.nodes[i];
+        }
+    }
+    return NULL;
+}
+
+/*
+ * The node record beyond a name: what the NodeDB sync carries, and the three app payloads that
+ * keep it current once the sync is over. The firmware replays its database exactly once per
+ * connection, so the packet paths are the only thing standing between the detail screen and a
+ * view that is frozen at connect time.
+ */
+static void test_session_node_detail_ingest(void) {
+    const char *test_name = "session_node_detail_ingest";
+
+    struct mesh_session session;
+    mesh_session_init(&session);
+
+    /* The sync: identity, a fix and a battery reading all in one NodeInfo. */
+    meshtastic_FromRadio sync = meshtastic_FromRadio_init_default;
+    sync.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+    sync.node_info.num = 0x4001U;
+    sync.node_info.last_heard = 1749990000U;
+    sync.node_info.snr = 6.25f;
+    sync.node_info.channel = 2U;
+    sync.node_info.is_favorite = true;
+    sync.node_info.has_user = true;
+    snprintf(sync.node_info.user.id, sizeof sync.node_info.user.id, "!00004001");
+    snprintf(sync.node_info.user.long_name, sizeof sync.node_info.user.long_name, "Ridge Repeater");
+    snprintf(sync.node_info.user.short_name, sizeof sync.node_info.user.short_name, "RDG");
+    sync.node_info.user.hw_model = meshtastic_HardwareModel_RAK4631;
+    sync.node_info.user.role = meshtastic_Config_DeviceConfig_Role_ROUTER;
+    sync.node_info.user.public_key.size = 32U;
+    memset(sync.node_info.user.public_key.bytes, 0xAB, 32U);
+    sync.node_info.has_position = true;
+    sync.node_info.position.has_latitude_i = true;
+    sync.node_info.position.latitude_i = 447654321;
+    sync.node_info.position.has_longitude_i = true;
+    sync.node_info.position.longitude_i = -680012345;
+    sync.node_info.position.has_altitude = true;
+    sync.node_info.position.altitude = 312;
+    sync.node_info.position.sats_in_view = 9U;
+    sync.node_info.has_device_metrics = true;
+    sync.node_info.device_metrics.has_battery_level = true;
+    sync.node_info.device_metrics.battery_level = 76U;
+    sync.node_info.device_metrics.has_voltage = true;
+    sync.node_info.device_metrics.voltage = 3.94f;
+    if (!session_feed_from_radio(&session, &sync)) {
+        record_failure(test_name, "encode node_info failed");
+        return;
+    }
+
+    const struct mesh_node_summary *node = session_find_node(&session, 0x4001U);
+    if (node == NULL) {
+        record_failure(test_name, "the node was not cached");
+        return;
+    }
+    if (strcmp(node->user_id, "!00004001") != 0 ||
+        node->hw_model != (uint32_t)meshtastic_HardwareModel_RAK4631 ||
+        node->role != (uint32_t)meshtastic_Config_DeviceConfig_Role_ROUTER ||
+        node->public_key_len != 32U || node->public_key[0] != 0xABU || !node->is_favorite ||
+        node->channel != 2U) {
+        record_failure(test_name, "NodeInfo identity was not kept");
+        return;
+    }
+    if (!node->position.valid || node->position.latitude_i != 447654321 ||
+        node->position.longitude_i != -680012345 || !node->position.has_altitude ||
+        node->position.altitude != 312 || node->position.sats_in_view != 9U) {
+        record_failure(test_name, "NodeInfo position was not kept");
+        return;
+    }
+    if (!node->metrics.valid || !node->metrics.has_battery || node->metrics.battery_level != 76U ||
+        !node->metrics.has_voltage) {
+        record_failure(test_name, "NodeInfo device metrics were not kept");
+        return;
+    }
+
+    /* A POSITION_APP broadcast moves it. */
+    meshtastic_Position position = meshtastic_Position_init_default;
+    position.has_latitude_i = true;
+    position.latitude_i = 447000000;
+    position.has_longitude_i = true;
+    position.longitude_i = -680000000;
+    position.sats_in_view = 11U;
+    uint8_t payload[256];
+    pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof payload);
+    if (!pb_encode(&stream, meshtastic_Position_fields, &position) ||
+        !session_feed_app_packet(&session, 0x4001U, meshtastic_PortNum_POSITION_APP, payload,
+                                 stream.bytes_written)) {
+        record_failure(test_name, "encode POSITION_APP failed");
+        return;
+    }
+    node = session_find_node(&session, 0x4001U);
+    if (node->position.latitude_i != 447000000 || node->position.sats_in_view != 11U) {
+        record_failure(test_name, "POSITION_APP did not move the node");
+        return;
+    }
+
+    /* Environment telemetry: a reading the NodeDB never carries at all. */
+    meshtastic_Telemetry telemetry = meshtastic_Telemetry_init_default;
+    telemetry.time = 1750000000U;
+    telemetry.which_variant = meshtastic_Telemetry_environment_metrics_tag;
+    telemetry.variant.environment_metrics.has_temperature = true;
+    telemetry.variant.environment_metrics.temperature = 21.5f;
+    telemetry.variant.environment_metrics.has_relative_humidity = true;
+    telemetry.variant.environment_metrics.relative_humidity = 48.0f;
+    stream = pb_ostream_from_buffer(payload, sizeof payload);
+    if (!pb_encode(&stream, meshtastic_Telemetry_fields, &telemetry) ||
+        !session_feed_app_packet(&session, 0x4001U, meshtastic_PortNum_TELEMETRY_APP, payload,
+                                 stream.bytes_written)) {
+        record_failure(test_name, "encode TELEMETRY_APP failed");
+        return;
+    }
+    node = session_find_node(&session, 0x4001U);
+    if (!node->environment.valid || !node->environment.has_temperature ||
+        node->environment.temperature < 21.4f || node->environment.temperature > 21.6f) {
+        record_failure(test_name, "TELEMETRY_APP environment was not kept");
+        return;
+    }
+
+    /* A node that joins after the sync introduces itself over the air; without NODEINFO_APP it
+       would sit in the list as a bare id forever. */
+    meshtastic_User user = meshtastic_User_init_default;
+    snprintf(user.id, sizeof user.id, "!00004002");
+    snprintf(user.long_name, sizeof user.long_name, "Late Joiner");
+    snprintf(user.short_name, sizeof user.short_name, "LATE");
+    user.hw_model = meshtastic_HardwareModel_T_ECHO;
+    stream = pb_ostream_from_buffer(payload, sizeof payload);
+    if (!pb_encode(&stream, meshtastic_User_fields, &user) ||
+        !session_feed_app_packet(&session, 0x4002U, meshtastic_PortNum_NODEINFO_APP, payload,
+                                 stream.bytes_written)) {
+        record_failure(test_name, "encode NODEINFO_APP failed");
+        return;
+    }
+    const struct mesh_node_summary *joiner = session_find_node(&session, 0x4002U);
+    if (joiner == NULL || strcmp(joiner->long_name, "Late Joiner") != 0 ||
+        strcmp(joiner->user_id, "!00004002") != 0 ||
+        joiner->hw_model != (uint32_t)meshtastic_HardwareModel_T_ECHO) {
+        record_failure(test_name, "NODEINFO_APP did not name the node");
+        return;
+    }
+
+    /* A second sync must not wipe what only the air ever told us. The radio's NodeDB has no
+       environment telemetry to replace it with, so a naive rebuild would empty the section. */
+    if (!session_feed_from_radio(&session, &sync)) {
+        record_failure(test_name, "re-encode node_info failed");
+        return;
+    }
+    node = session_find_node(&session, 0x4001U);
+    if (!node->environment.valid || !node->environment.has_temperature) {
+        record_failure(test_name, "a NodeDB resync wiped the environment telemetry");
+        return;
+    }
+
+    record_success(test_name);
+}
+
+/* The Nodes tab's detail rows: which ones a node produces, and that the count the nav walks
+   agrees with the list the backend draws. */
+static void test_ui_node_detail_items(void) {
+    const char *test_name = "ui_node_detail_items";
+
+    struct mesh_ui_node_summary node;
+    memset(&node, 0, sizeof node);
+    node.node_id = 0x5001U;
+    snprintf(node.long_name, sizeof node.long_name, "Weather Hut");
+    snprintf(node.short_name, sizeof node.short_name, "WX");
+    node.last_heard = 1750000000U;
+    node.snr = -4.5f;
+
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    uint32_t count =
+        mesh_ui_node_detail_build(&node, false, 1750000600U, items, MESH_UI_NODE_ITEMS_MAX);
+    if (count != mesh_ui_node_detail_count(&node, false)) {
+        record_failure(test_name, "the count the nav walks disagrees with the built list");
+        return;
+    }
+    if (count == 0U || items[0].kind != MESH_UI_NODE_ROW_ACTION ||
+        items[0].action != MESH_UI_NODE_ACTION_MESSAGE) {
+        record_failure(test_name, "the first row should be the message action");
+        return;
+    }
+
+    /* A bare node has no metrics, position or environment to show. */
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, "Position") == 0 || strcmp(items[i].label, "Environment") == 0 ||
+            strcmp(items[i].label, "Device metrics") == 0) {
+            record_failure(test_name, "a bare node should not show an empty section");
+            return;
+        }
+    }
+    /* But it does say when we last heard it, in the same shorthand the list uses. */
+    bool saw_age = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, "Last heard") == 0 && strcmp(items[i].value, "10m ago") == 0) {
+            saw_age = true;
+        }
+    }
+    if (!saw_age) {
+        record_failure(test_name, "the age of the last packet should be a row");
+        return;
+    }
+
+    /* Our own node cannot be messaged and its SNR against itself means nothing. */
+    const uint32_t self_count = mesh_ui_node_detail_count(&node, true);
+    struct mesh_ui_node_item self_items[MESH_UI_NODE_ITEMS_MAX];
+    mesh_ui_node_detail_build(&node, true, 1750000600U, self_items, MESH_UI_NODE_ITEMS_MAX);
+    for (uint32_t i = 0; i < self_count; ++i) {
+        if (self_items[i].kind == MESH_UI_NODE_ROW_ACTION ||
+            strcmp(self_items[i].label, "SNR") == 0) {
+            record_failure(test_name, "our own node should offer no message row and no SNR");
+            return;
+        }
+    }
+
+    /* With readings, each section appears and each value is formatted for the screen. */
+    node.metrics.valid = true;
+    node.metrics.time = 1750000000U;
+    node.metrics.has_battery = true;
+    node.metrics.battery_level = 101U; /* upstream's "plugged in" */
+    node.position.valid = true;
+    node.position.latitude_i = 447654321;
+    node.position.longitude_i = -680012345;
+    node.environment.valid = true;
+    node.environment.has_temperature = true;
+    node.environment.temperature = 20.0f;
+
+    count = mesh_ui_node_detail_build(&node, false, 1750000600U, items, MESH_UI_NODE_ITEMS_MAX);
+    bool battery_ok = false;
+    bool latitude_ok = false;
+    bool temperature_ok = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, "Battery") == 0 && strcmp(items[i].value, "plugged in") == 0) {
+            battery_ok = true;
+        }
+        if (strcmp(items[i].label, "Latitude") == 0 &&
+            strncmp(items[i].value, "44.76543", 8) == 0) {
+            latitude_ok = true;
+        }
+        if (strcmp(items[i].label, "Temperature") == 0 &&
+            strcmp(items[i].value, "20.0 C (68.0 F)") == 0) {
+            temperature_ok = true;
+        }
+    }
+    if (!battery_ok || !latitude_ok || !temperature_ok) {
+        record_failure(test_name, "a reported value was missing or misformatted");
+        return;
+    }
+    if (count != mesh_ui_node_detail_count(&node, false)) {
+        record_failure(test_name, "the count disagrees once the sections appear");
+        return;
+    }
+
+    record_success(test_name);
+}
+
+/*
+ * Pinning a node in the radio's NodeDB. Shaped like the clock push - a passkey refresh then
+ * the set, no read-back because there is no get_favorite - and, like the clock push,
+ * deliberately not a "settings write": it is a press on the Nodes tab and must not make the
+ * Settings tab claim an unsaved section is in flight.
+ */
+static void test_radio_settings_favorite_queue(void) {
+    const char *test_name = "radio_settings_favorite_queue";
+    struct mesh_radio_settings settings;
+    mesh_radio_settings_reset(&settings);
+
+    if (mesh_radio_settings_queue_favorite(&settings, 0U, true) != -EINVAL ||
+        settings.queue_len != 0U) {
+        record_failure(test_name, "node 0 is not a node");
+        return;
+    }
+
+    const uint32_t node_id = 0x7A1BU;
+    if (mesh_radio_settings_queue_favorite(&settings, node_id, true) != 2 ||
+        settings.queue_len != 2U) {
+        record_failure(test_name, "a pin should queue the passkey refresh and the set");
+        return;
+    }
+    if (mesh_radio_settings_write_pending(&settings)) {
+        record_failure(test_name, "a pin is not a settings write");
+        return;
+    }
+
+    struct mesh_admin_request next;
+    if (!mesh_radio_settings_next_request(&settings, 1000U, &next) ||
+        next.kind != MESH_ADMIN_GET_OWNER) {
+        record_failure(test_name, "the passkey refresh should go first");
+        return;
+    }
+    mesh_radio_settings_mark_sent(&settings, 71U, 1000U);
+    meshtastic_AdminMessage reply = meshtastic_AdminMessage_init_default;
+    reply.which_payload_variant = meshtastic_AdminMessage_get_owner_response_tag;
+    reply.session_passkey.size = 8U;
+    memset(reply.session_passkey.bytes, 0x5A, 8U);
+    meshtastic_MeshPacket packet;
+    if (!test_make_admin_reply(0x1234U, 71U, &reply, &packet) ||
+        mesh_radio_settings_ingest(&settings, &packet) != 1) {
+        record_failure(test_name, "the owner reply should release the queue");
+        return;
+    }
+
+    if (!mesh_radio_settings_next_request(&settings, 1100U, &next) ||
+        next.kind != MESH_ADMIN_SET_FAVORITE || next.type != node_id || settings.pending_is_write) {
+        record_failure(test_name, "the set_favorite should follow, uncounted");
+        return;
+    }
+    next.my_node = 0x1234U;
+    next.packet_id = 72U;
+    uint8_t buffer[512];
+    size_t written = 0U;
+    if (mesh_radio_settings_encode_request(&settings, &next, buffer, sizeof buffer, &written) !=
+        0) {
+        record_failure(test_name, "set_favorite should encode");
+        return;
+    }
+    meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_default;
+    pb_istream_t in = pb_istream_from_buffer(buffer, written);
+    meshtastic_AdminMessage admin = meshtastic_AdminMessage_init_default;
+    if (!pb_decode(&in, meshtastic_ToRadio_fields, &to_radio) ||
+        to_radio.packet.decoded.portnum != meshtastic_PortNum_ADMIN_APP) {
+        record_failure(test_name, "set_favorite packet header is wrong");
+        return;
+    }
+    in = pb_istream_from_buffer(to_radio.packet.decoded.payload.bytes,
+                                to_radio.packet.decoded.payload.size);
+    if (!pb_decode(&in, meshtastic_AdminMessage_fields, &admin) ||
+        admin.which_payload_variant != meshtastic_AdminMessage_set_favorite_node_tag ||
+        admin.set_favorite_node != node_id || admin.session_passkey.size != 8U ||
+        admin.session_passkey.bytes[0] != 0x5AU) {
+        record_failure(test_name, "set_favorite_node should carry the node and a fresh passkey");
+        return;
+    }
+    mesh_radio_settings_mark_sent(&settings, 72U, 1100U);
+
+    meshtastic_MeshPacket ack = make_routing_reply(72U, meshtastic_Routing_Error_NONE);
+    if (mesh_radio_settings_ingest(&settings, &ack) != 1 || mesh_radio_settings_busy(&settings) ||
+        settings.writes_acked != 0U || settings.writes_sent != 0U) {
+        record_failure(test_name, "the ack should release the queue without counting a save");
+        return;
+    }
+
+    /* Unpinning is the mirror image, and pinning a *different* node is not a duplicate of the
+       first request even though both are set_favorite. */
+    if (mesh_radio_settings_queue_favorite(&settings, node_id, false) != 2) {
+        record_failure(test_name, "an unpin should queue like a pin");
+        return;
+    }
+    if (mesh_radio_settings_queue_favorite(&settings, node_id + 1U, false) != 1) {
+        record_failure(test_name, "a second node should not collapse into the first request");
+        return;
+    }
+
+    record_success(test_name);
+}
+
+/* The Nodes tab's pin: X from either level, and the detail's own row. The nav sends the state
+   it wants rather than a bare toggle, so a press that races a NodeInfo cannot cancel itself. */
+static void test_ui_nav_node_favorite(void) {
+    const char *test_name = "ui_nav_node_favorite";
+
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        record_failure(test_name, "store init failed");
+        return;
+    }
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 0x1000U;
+    handshake.node_count = 2U;
+    handshake.nodes[0].node_id = 0x1000U;
+    snprintf(handshake.nodes[0].short_name, sizeof handshake.nodes[0].short_name, "ME");
+    handshake.nodes[1].node_id = 0x3000U;
+    snprintf(handshake.nodes[1].short_name, sizeof handshake.nodes[1].short_name, "BRVO");
+    mesh_ui_store_set_handshake(&store, &handshake);
+    mesh_ui_store_consume_updates(&store, NULL);
+
+    struct mesh_ui_action action;
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+
+    /* Our own node cannot be pinned: it already outranks everything. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    if (action.type != MESH_UI_ACTION_NONE) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "X on our own node should do nothing");
+        return;
+    }
+
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    if (action.type != MESH_UI_ACTION_TOGGLE_FAVORITE || action.dest != 0x3000U ||
+        action.number != 1U) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "X on the node list should ask for a pin");
+        return;
+    }
+
+    /* Once the app has flipped the flag, the same press asks for the opposite. */
+    handshake.nodes[1].is_favorite = true;
+    mesh_ui_store_set_handshake(&store, &handshake);
+    mesh_ui_store_consume_updates(&store, NULL);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    if (action.type != MESH_UI_ACTION_TOGGLE_FAVORITE || action.number != 0U) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "X on a pinned node should ask for an unpin");
+        return;
+    }
+
+    /* And the detail's own row does the same thing, wherever it happens to sit. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* open the detail */
+    if (!store.nav.node_detail_open) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "A should open the detail");
+        return;
+    }
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    const uint32_t count = mesh_ui_node_detail_build(&store.handshake.nodes[1], false, 0U, items,
+                                                     MESH_UI_NODE_ITEMS_MAX);
+    uint32_t favorite_row = count;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (items[i].action == MESH_UI_NODE_ACTION_FAVORITE) {
+            favorite_row = i;
+        }
+    }
+    if (favorite_row >= count || strcmp(items[favorite_row].value, "yes") != 0) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "the detail should carry a pin row showing the current state");
+        return;
+    }
+    for (uint32_t i = 0; i < favorite_row; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_TOGGLE_FAVORITE || action.dest != 0x3000U ||
+        action.number != 0U || store.nav.thread_open) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "A on the pin row should ask for an unpin, not open a thread");
+        return;
+    }
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
 static const struct test_case k_test_cases[] = {
     {"config_defaults", "unit", test_config_defaults},
     {"transport_registry_registration", "unit", test_transport_registry_registration},
@@ -7437,6 +8002,10 @@ static const struct test_case k_test_cases[] = {
     {"serial_transport_connect_mock", "unit", test_serial_transport_connect_mock},
     {"serial_transport_link_drop", "unit", test_serial_transport_link_drop},
     {"app_link_routing", "unit", test_app_link_routing},
+    {"session_node_detail_ingest", "unit", test_session_node_detail_ingest},
+    {"ui_node_detail_items", "unit", test_ui_node_detail_items},
+    {"radio_settings_favorite_queue", "unit", test_radio_settings_favorite_queue},
+    {"ui_nav_node_favorite", "unit", test_ui_nav_node_favorite},
 };
 
 struct test_options {

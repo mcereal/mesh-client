@@ -2,6 +2,7 @@
 
 #include "mesh/ui/nav.h"
 
+#include "mesh/ui/node_detail.h"
 #include "mesh/ui/settings.h"
 
 #include "mesh/mesh_message.h"
@@ -269,6 +270,17 @@ static bool mesh_ui_nav_close_thread(struct mesh_ui_nav *nav) {
     return true;
 }
 
+/* B out of a node's detail. Returns false when the node list is already showing. */
+static bool mesh_ui_nav_close_node_detail(struct mesh_ui_nav *nav) {
+    if (!nav->node_detail_open) {
+        return false;
+    }
+    nav->node_detail_open = false;
+    nav->node_detail_node = 0U;
+    nav->cursor[MESH_UI_SCREEN_NODES] = nav->node_list_cursor;
+    return true;
+}
+
 void mesh_ui_nav_conversation_name(const struct mesh_ui_nav *nav, char *out, size_t out_len) {
     if (out == NULL || out_len == 0U) {
         return;
@@ -339,6 +351,25 @@ uint32_t mesh_ui_nav_filter_messages(const struct mesh_ui_nav *nav,
     return written;
 }
 
+/* Our own node, which cannot be messaged and whose SNR and hop count mean nothing. */
+static bool mesh_ui_nav_node_is_self(const struct mesh_ui_store *store,
+                                     const struct mesh_ui_node_summary *node) {
+    return node != NULL && store->handshake.has_my_info &&
+           node->node_id == store->handshake.my_info.node_num;
+}
+
+/* Asks the app for the opposite of the node's current pin state. The state is sent rather than
+   a bare "toggle" so a press that races an incoming NodeInfo cannot cancel itself out. */
+static void mesh_ui_nav_fill_favorite(struct mesh_ui_action *action,
+                                      const struct mesh_ui_node_summary *node) {
+    if (action == NULL || node == NULL) {
+        return;
+    }
+    action->type = MESH_UI_ACTION_TOGGLE_FAVORITE;
+    action->dest = node->node_id;
+    action->number = node->is_favorite ? 0U : 1U;
+}
+
 /* ---- rows and cursors --------------------------------------------------------------------- */
 
 uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
@@ -352,13 +383,20 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
             return mesh_ui_nav_conversation_count(store);
         }
         return mesh_ui_nav_filter_messages(nav, &store->messages, NULL, 0U);
-    case MESH_UI_SCREEN_NODES:
+    case MESH_UI_SCREEN_NODES: {
         if (!store->handshake_valid) {
             return 0U;
         }
-        return store->handshake.node_count > MESH_UI_MAX_HANDSHAKE_NODES
-                   ? MESH_UI_MAX_HANDSHAKE_NODES
-                   : store->handshake.node_count;
+        const uint32_t nodes = store->handshake.node_count > MESH_UI_MAX_HANDSHAKE_NODES
+                                   ? MESH_UI_MAX_HANDSHAKE_NODES
+                                   : store->handshake.node_count;
+        if (nav == NULL || !nav->node_detail_open) {
+            return nodes;
+        }
+        const struct mesh_ui_node_summary *node =
+            mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node);
+        return mesh_ui_node_detail_count(node, mesh_ui_nav_node_is_self(store, node));
+    }
     case MESH_UI_SCREEN_DEVICES:
         return (uint32_t)store->device_count;
     case MESH_UI_SCREEN_SETTINGS:
@@ -384,6 +422,16 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
     }
 
     bool moved = false;
+
+    /* A node can fall out of the list while its detail is open: the cache holds 256 and the UI
+       carries 128 of them, re-ranked every publish. Back out rather than draw an empty screen.
+       This runs before the cursor clamp so the restored list position is clamped with it. */
+    if (nav->node_detail_open &&
+        mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node) == NULL) {
+        mesh_ui_nav_close_node_detail(nav);
+        moved = true;
+    }
+
     for (int screen = 0; screen < MESH_UI_SCREEN_COUNT; ++screen) {
         const uint32_t rows = mesh_ui_nav_row_count(nav, store, (enum mesh_ui_screen)screen);
         uint32_t *cursor = &nav->cursor[screen];
@@ -1383,17 +1431,40 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         if (cursor >= rows) {
             return false;
         }
-        const struct mesh_ui_node_summary *node = &store->handshake.nodes[cursor];
-        if (node->node_id == 0U) {
+        if (!nav->node_detail_open) {
+            /* A on a contact opens what we know about it, the way tapping one in the phone
+               app does. Writing to it is the first row inside, and Y still goes straight
+               there from the list. */
+            const struct mesh_ui_node_summary *node = &store->handshake.nodes[cursor];
+            if (node->node_id == 0U) {
+                return false;
+            }
+            nav->node_list_cursor = cursor;
+            nav->node_detail_node = node->node_id;
+            nav->node_detail_open = true;
+            nav->cursor[MESH_UI_SCREEN_NODES] = 0U;
+            return true;
+        }
+        const struct mesh_ui_node_summary *node =
+            mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node);
+        if (node == NULL) {
             return false;
         }
-        if (store->handshake.has_my_info && node->node_id == store->handshake.my_info.node_num) {
-            return false; /* messaging yourself is not a thing */
+        struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+        const uint32_t count = mesh_ui_node_detail_build(
+            node, mesh_ui_nav_node_is_self(store, node), 0U, items, MESH_UI_NODE_ITEMS_MAX);
+        if (cursor >= count || items[cursor].kind != MESH_UI_NODE_ROW_ACTION) {
+            return false;
         }
-        /* Contacts open a conversation, the way tapping a contact does; Y from here composes
-           into it straight away. */
-        mesh_ui_nav_open_thread(nav, store, node->node_id, 0U, NULL);
-        return true;
+        if (items[cursor].action == MESH_UI_NODE_ACTION_MESSAGE) {
+            mesh_ui_nav_open_thread(nav, store, node->node_id, 0U, NULL);
+            return true;
+        }
+        if (items[cursor].action == MESH_UI_NODE_ACTION_FAVORITE) {
+            mesh_ui_nav_fill_favorite(action, node);
+            return false; /* the row redraws when the app flips the flag */
+        }
+        return false;
     }
     case MESH_UI_SCREEN_DEVICES: {
         if (cursor >= rows) {
@@ -1560,8 +1631,23 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         if (nav->screen == MESH_UI_SCREEN_SETTINGS) {
             return mesh_ui_nav_settings_back(nav) || changed;
         }
+        if (nav->screen == MESH_UI_SCREEN_NODES) {
+            return mesh_ui_nav_close_node_detail(nav) || changed;
+        }
         return changed;
     case MESH_UI_KEY_X:
+        if (nav->screen == MESH_UI_SCREEN_NODES) {
+            /* The one-press version of the detail's "Pinned to top" row, from either level -
+               pinning a node you can see in the list should not cost a drill-down. */
+            const struct mesh_ui_node_summary *node =
+                nav->node_detail_open
+                    ? mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node)
+                    : mesh_ui_node_detail_at(&store->handshake, nav->cursor[nav->screen]);
+            if (node != NULL && node->node_id != 0U && !mesh_ui_nav_node_is_self(store, node)) {
+                mesh_ui_nav_fill_favorite(out_action, node);
+            }
+            return changed;
+        }
         if (nav->screen == MESH_UI_SCREEN_SETTINGS) {
             if (out_action != NULL) {
                 out_action->type = MESH_UI_ACTION_REFRESH_SETTINGS;
@@ -1586,15 +1672,13 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             return true;
         }
         if (nav->screen == MESH_UI_SCREEN_NODES) {
-            /* Straight from a contact into writing to it. */
-            const uint32_t rows = mesh_ui_nav_row_count(nav, store, nav->screen);
-            const uint32_t cursor = nav->cursor[nav->screen];
-            if (cursor >= rows) {
-                return changed;
-            }
-            const struct mesh_ui_node_summary *node = &store->handshake.nodes[cursor];
-            if (node->node_id == 0U || (store->handshake.has_my_info &&
-                                        node->node_id == store->handshake.my_info.node_num)) {
+            /* Straight from a contact into writing to it, from the list or from inside the
+               node's detail. Which cursor names the node depends on which level is showing. */
+            const struct mesh_ui_node_summary *node =
+                nav->node_detail_open
+                    ? mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node)
+                    : mesh_ui_node_detail_at(&store->handshake, nav->cursor[nav->screen]);
+            if (node == NULL || node->node_id == 0U || mesh_ui_nav_node_is_self(store, node)) {
                 return changed;
             }
             mesh_ui_nav_open_thread(nav, store, node->node_id, 0U, NULL);

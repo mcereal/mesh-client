@@ -5,6 +5,7 @@
 #include "mesh/log.h"
 
 #include "mesh/mesh_message.h"
+#include "mesh/ui/settings.h"
 
 #include <errno.h>
 #include <stdbool.h>
@@ -498,6 +499,49 @@ static int mesh_ui_store_save_handshake(FILE *file,
         snprintf(key_short, sizeof key_short, "node_short[%u]", i);
         mesh_ui_store_escape_and_write(file, key_long, node->long_name);
         mesh_ui_store_escape_and_write(file, key_short, node->short_name);
+
+        /* The detail the Nodes tab drills into. Written as separate keys rather than widened
+           onto node[] so an older build reading a newer cache skips what it does not know and
+           a newer build reading an older one simply finds nothing to fill in. */
+        char key[40];
+        snprintf(key, sizeof key, "node_user[%u]", i);
+        mesh_ui_store_escape_and_write(file, key, node->user_id);
+        fprintf(file, "node_ident[%u]=%u,%u,%u,%u,%u,%u,%u\n", i, node->hw_model, node->role,
+                node->is_licensed ? 1U : 0U, node->is_unmessagable ? 1U : 0U,
+                node->is_favorite ? 1U : 0U, node->is_ignored ? 1U : 0U, (unsigned)node->channel);
+        if (node->public_key_len > 0U) {
+            char pubkey[2U * sizeof node->public_key + 1U];
+            mesh_ui_settings_key_hex(node->public_key, node->public_key_len, pubkey, sizeof pubkey);
+            snprintf(key, sizeof key, "node_key[%u]", i);
+            mesh_ui_store_escape_and_write(file, key, pubkey);
+        }
+        if (node->position.valid) {
+            fprintf(file, "node_pos[%u]=%d,%d,%u,%d,%u,%u,%u\n", i, node->position.latitude_i,
+                    node->position.longitude_i, node->position.has_altitude ? 1U : 0U,
+                    node->position.altitude, node->position.time,
+                    (unsigned)node->position.sats_in_view, (unsigned)node->position.precision_bits);
+        }
+        if (node->metrics.valid) {
+            fprintf(file, "node_metrics[%u]=%u,%u,%u,%u,%f,%u,%f,%u,%f,%u,%u\n", i,
+                    node->metrics.time, node->metrics.has_battery ? 1U : 0U,
+                    (unsigned)node->metrics.battery_level, node->metrics.has_voltage ? 1U : 0U,
+                    (double)node->metrics.voltage, node->metrics.has_channel_utilization ? 1U : 0U,
+                    (double)node->metrics.channel_utilization,
+                    node->metrics.has_air_util_tx ? 1U : 0U, (double)node->metrics.air_util_tx,
+                    node->metrics.has_uptime ? 1U : 0U, node->metrics.uptime_seconds);
+        }
+        if (node->environment.valid) {
+            fprintf(file, "node_env[%u]=%u,%u,%f,%u,%f,%u,%f,%u,%u,%u,%f,%u,%f,%u,%f\n", i,
+                    node->environment.time, node->environment.has_temperature ? 1U : 0U,
+                    (double)node->environment.temperature, node->environment.has_humidity ? 1U : 0U,
+                    (double)node->environment.relative_humidity,
+                    node->environment.has_pressure ? 1U : 0U,
+                    (double)node->environment.barometric_pressure,
+                    node->environment.has_iaq ? 1U : 0U, (unsigned)node->environment.iaq,
+                    node->environment.has_lux ? 1U : 0U, (double)node->environment.lux,
+                    node->environment.has_voltage ? 1U : 0U, (double)node->environment.voltage,
+                    node->environment.has_current ? 1U : 0U, (double)node->environment.current);
+        }
     }
 
     return 0;
@@ -715,6 +759,137 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
             if (sscanf(key, "node_short[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES) {
                 snprintf(handshake.nodes[index].short_name,
                          sizeof(handshake.nodes[index].short_name), "%s", value);
+            }
+        } else if (strncmp(key, "node_user[", 10) == 0) {
+            unsigned int index = 0U;
+            if (sscanf(key, "node_user[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES) {
+                snprintf(handshake.nodes[index].user_id, sizeof(handshake.nodes[index].user_id),
+                         "%s", value);
+            }
+        } else if (strncmp(key, "node_ident[", 11) == 0) {
+            unsigned int index = 0U;
+            unsigned int hw = 0U;
+            unsigned int role = 0U;
+            unsigned int licensed = 0U;
+            unsigned int unmessagable = 0U;
+            unsigned int favorite = 0U;
+            unsigned int ignored = 0U;
+            unsigned int channel = 0U;
+            if (sscanf(key, "node_ident[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES &&
+                sscanf(value, "%u,%u,%u,%u,%u,%u,%u", &hw, &role, &licensed, &unmessagable,
+                       &favorite, &ignored, &channel) == 7) {
+                struct mesh_ui_node_summary *node = &handshake.nodes[index];
+                node->hw_model = hw;
+                node->role = role;
+                node->is_licensed = (licensed != 0U);
+                node->is_unmessagable = (unmessagable != 0U);
+                node->is_favorite = (favorite != 0U);
+                node->is_ignored = (ignored != 0U);
+                node->channel = (uint8_t)channel;
+            }
+        } else if (strncmp(key, "node_key[", 9) == 0) {
+            unsigned int index = 0U;
+            if (sscanf(key, "node_key[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES) {
+                struct mesh_ui_node_summary *node = &handshake.nodes[index];
+                size_t len = 0U;
+                if (mesh_ui_settings_key_parse(value, node->public_key, sizeof node->public_key,
+                                               &len)) {
+                    node->public_key_len = (uint8_t)len;
+                }
+            }
+        } else if (strncmp(key, "node_pos[", 9) == 0) {
+            unsigned int index = 0U;
+            int latitude = 0;
+            int longitude = 0;
+            unsigned int has_altitude = 0U;
+            int altitude = 0;
+            unsigned int stamp = 0U;
+            unsigned int sats = 0U;
+            unsigned int precision = 0U;
+            if (sscanf(key, "node_pos[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES &&
+                sscanf(value, "%d,%d,%u,%d,%u,%u,%u", &latitude, &longitude, &has_altitude,
+                       &altitude, &stamp, &sats, &precision) == 7) {
+                struct mesh_ui_node_position *position = &handshake.nodes[index].position;
+                position->valid = true;
+                position->latitude_i = (int32_t)latitude;
+                position->longitude_i = (int32_t)longitude;
+                position->has_altitude = (has_altitude != 0U);
+                position->altitude = (int32_t)altitude;
+                position->time = stamp;
+                position->sats_in_view = (uint8_t)sats;
+                position->precision_bits = (uint8_t)precision;
+            }
+        } else if (strncmp(key, "node_metrics[", 13) == 0) {
+            unsigned int index = 0U;
+            unsigned int stamp = 0U;
+            unsigned int has_battery = 0U;
+            unsigned int battery = 0U;
+            unsigned int has_voltage = 0U;
+            double voltage = 0.0;
+            unsigned int has_channel = 0U;
+            double channel_util = 0.0;
+            unsigned int has_air = 0U;
+            double air_util = 0.0;
+            unsigned int has_uptime = 0U;
+            unsigned int uptime = 0U;
+            if (sscanf(key, "node_metrics[%u]", &index) == 1 &&
+                index < MESH_UI_MAX_HANDSHAKE_NODES &&
+                sscanf(value, "%u,%u,%u,%u,%lf,%u,%lf,%u,%lf,%u,%u", &stamp, &has_battery, &battery,
+                       &has_voltage, &voltage, &has_channel, &channel_util, &has_air, &air_util,
+                       &has_uptime, &uptime) == 11) {
+                struct mesh_ui_node_metrics *metrics = &handshake.nodes[index].metrics;
+                metrics->valid = true;
+                metrics->time = stamp;
+                metrics->has_battery = (has_battery != 0U);
+                metrics->battery_level = (uint8_t)battery;
+                metrics->has_voltage = (has_voltage != 0U);
+                metrics->voltage = (float)voltage;
+                metrics->has_channel_utilization = (has_channel != 0U);
+                metrics->channel_utilization = (float)channel_util;
+                metrics->has_air_util_tx = (has_air != 0U);
+                metrics->air_util_tx = (float)air_util;
+                metrics->has_uptime = (has_uptime != 0U);
+                metrics->uptime_seconds = uptime;
+            }
+        } else if (strncmp(key, "node_env[", 9) == 0) {
+            unsigned int index = 0U;
+            unsigned int stamp = 0U;
+            unsigned int has_temperature = 0U;
+            double temperature = 0.0;
+            unsigned int has_humidity = 0U;
+            double humidity = 0.0;
+            unsigned int has_pressure = 0U;
+            double pressure = 0.0;
+            unsigned int has_iaq = 0U;
+            unsigned int iaq = 0U;
+            unsigned int has_lux = 0U;
+            double lux = 0.0;
+            unsigned int has_voltage = 0U;
+            double voltage = 0.0;
+            unsigned int has_current = 0U;
+            double current = 0.0;
+            if (sscanf(key, "node_env[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES &&
+                sscanf(value, "%u,%u,%lf,%u,%lf,%u,%lf,%u,%u,%u,%lf,%u,%lf,%u,%lf", &stamp,
+                       &has_temperature, &temperature, &has_humidity, &humidity, &has_pressure,
+                       &pressure, &has_iaq, &iaq, &has_lux, &lux, &has_voltage, &voltage,
+                       &has_current, &current) == 15) {
+                struct mesh_ui_node_environment *env = &handshake.nodes[index].environment;
+                env->valid = true;
+                env->time = stamp;
+                env->has_temperature = (has_temperature != 0U);
+                env->temperature = (float)temperature;
+                env->has_humidity = (has_humidity != 0U);
+                env->relative_humidity = (float)humidity;
+                env->has_pressure = (has_pressure != 0U);
+                env->barometric_pressure = (float)pressure;
+                env->has_iaq = (has_iaq != 0U);
+                env->iaq = (uint16_t)iaq;
+                env->has_lux = (has_lux != 0U);
+                env->lux = (float)lux;
+                env->has_voltage = (has_voltage != 0U);
+                env->voltage = (float)voltage;
+                env->has_current = (has_current != 0U);
+                env->current = (float)current;
             }
         } else if (strcmp(key, "messages") == 0) {
             unsigned int count = 0U;
