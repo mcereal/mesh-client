@@ -105,12 +105,14 @@ void mesh_ui_store_settings_edits_clear(struct mesh_ui_store *store) {
     if (store == NULL) {
         return;
     }
-    if (store->nav.settings_edit_count == 0U && !store->nav.settings_discard_armed) {
+    if (store->nav.settings_edit_count == 0U && !store->nav.settings_discard_armed &&
+        !store->nav.confirm_open) {
         return;
     }
     memset(store->nav.settings_edits, 0, sizeof store->nav.settings_edits);
     store->nav.settings_edit_count = 0U;
     store->nav.settings_discard_armed = false;
+    store->nav.confirm_open = false;
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
 }
 

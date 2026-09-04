@@ -913,6 +913,35 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
     fb_draw_text(state, FB_MARGIN, y, mesh_ui_input_quit_hint(), state->scale, k_dim);
 }
 
+/* "Save <section>?" for the sections whose write can cut this client off. */
+static void fb_render_confirm(const struct mesh_ui_backend_fb_state *state,
+                              const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    const enum mesh_ui_settings_section section =
+        (enum mesh_ui_settings_section)nav->settings_section;
+    char title[96];
+    if (section == MESH_UI_SETTINGS_CHANNELS &&
+        nav->settings_channel != MESH_UI_SETTINGS_NO_CHANNEL) {
+        snprintf(title, sizeof title, "Save channel %u?", (unsigned)nav->settings_channel);
+    } else {
+        snprintf(title, sizeof title, "Save %s?", mesh_ui_settings_section_name(section));
+    }
+    fb_draw_title(state, layout, title);
+
+    char text[256];
+    mesh_ui_settings_confirm_text(section, text, sizeof text);
+    int y = layout->body_y;
+    const int text_lines = 4;
+    fb_draw_wrapped(state, y, text, layout->cols, text_lines, k_text);
+    y += text_lines * layout->line + layout->line / 2;
+
+    static const char *const k_rows[] = {"Save to radio", "Cancel"};
+    for (unsigned i = 0; i < 2U; ++i) {
+        fb_draw_row(state, y, k_rows[i], i == 0U ? k_accent : k_text, nav->confirm_cursor == i);
+        y += layout->line;
+    }
+}
+
 /* Settings: the section list, or one section's label/value rows. Editable rows show a
    pending edit in place of the radio's value with a marker until Y saves it. */
 static void fb_render_settings(const struct mesh_ui_backend_fb_state *state,
@@ -926,7 +955,10 @@ static void fb_render_settings(const struct mesh_ui_backend_fb_state *state,
         (enum mesh_ui_settings_section)nav->settings_section;
 
     char title[96];
-    if (section_open) {
+    if (section_open && nav->settings_channel != MESH_UI_SETTINGS_NO_CHANNEL) {
+        snprintf(title, sizeof title, "Settings > Channel %u%s", (unsigned)nav->settings_channel,
+                 nav->settings_edit_count > 0U ? " (unsaved)" : "");
+    } else if (section_open) {
         snprintf(title, sizeof title, "Settings > %s%s", mesh_ui_settings_section_name(section),
                  nav->settings_edit_count > 0U ? " (unsaved)" : "");
     } else {
@@ -939,7 +971,8 @@ static void fb_render_settings(const struct mesh_ui_backend_fb_state *state,
         return;
     }
 
-    const uint32_t count = section_open ? mesh_ui_settings_item_count(settings, handshake, section)
+    const uint32_t count = section_open ? mesh_ui_settings_item_count(settings, handshake, section,
+                                                                      nav->settings_channel)
                                         : (uint32_t)MESH_UI_SETTINGS_SECTION_COUNT;
     if (count == 0U) {
         fb_draw_empty(state, layout, "Not sent by the radio yet; X to refresh");
@@ -963,11 +996,16 @@ static void fb_render_settings(const struct mesh_ui_backend_fb_state *state,
         if (section_open) {
             struct mesh_ui_settings_item item;
             if (!mesh_ui_settings_item(settings, handshake, nav->settings_edits,
-                                       nav->settings_edit_count, section, i, &item)) {
+                                       nav->settings_edit_count, section, nav->settings_channel, i,
+                                       &item)) {
                 break;
             }
-            /* Editable rows carry a marker so the eye can tell what Left/Right will act on. */
-            const char *marker = item.dirty ? "* " : item.field != MESH_UI_FIELD_NONE ? "> " : "  ";
+            /* Editable rows carry a marker so the eye can tell what Left/Right will act on;
+               channel rows open with A. */
+            const char *marker = item.dirty                            ? "* "
+                                 : item.field != MESH_UI_FIELD_NONE    ? "> "
+                                 : item.kind == MESH_UI_SETTING_ACTION ? "> "
+                                                                       : "  ";
             snprintf(line, sizeof line, "%-*.*s %s%s", (int)label_cols, (int)label_cols, item.label,
                      marker, item.value);
             if (item.dirty) {
@@ -1006,6 +1044,12 @@ static void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
     layout.rows = body_height > 0 ? (uint32_t)(body_height / layout.line) : 0U;
 
     const char *hint = "A select  B back  Left/Right tabs";
+    if (snapshot->nav.confirm_open) {
+        hint = "Up/Down choose  A confirm  B cancel";
+        fb_render_confirm(state, snapshot, &layout);
+        fb_draw_footer(state, snapshot, &layout, hint);
+        return;
+    }
     if (snapshot->nav.picker_open) {
         hint = "A choose  B cancel  Up/Down move  L/R jump 10";
         fb_render_picker(state, snapshot, &layout);
@@ -1044,6 +1088,9 @@ static void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
             hint = "B again to discard  Y save";
         } else if (snapshot->nav.settings_edit_count > 0U) {
             hint = "Left/Right/A edit  Y save  B discard  L1/R1 tabs";
+        } else if (snapshot->nav.settings_section == MESH_UI_SETTINGS_CHANNELS &&
+                   snapshot->nav.settings_channel == MESH_UI_SETTINGS_NO_CHANNEL) {
+            hint = "A open channel  B back  X refresh  L1/R1 tabs";
         } else {
             hint = "Left/Right/A edit  B back  X refresh  L1/R1 tabs";
         }

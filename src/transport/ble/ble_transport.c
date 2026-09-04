@@ -855,6 +855,7 @@ static void mesh_ble_handle_from_radio(struct mesh_ble_transport_state *state,
             mesh_log_debug("ble", "Ignoring channel with index %d", (int)channel->index);
             break;
         }
+        mesh_radio_settings_apply_channel(&state->settings, channel);
         struct mesh_ble_channel_summary *slot = &state->handshake.channels[channel->index];
         memset(slot, 0, sizeof *slot);
         slot->index = (uint8_t)channel->index;

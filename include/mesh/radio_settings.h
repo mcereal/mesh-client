@@ -15,6 +15,7 @@
  */
 
 #include "meshtastic/admin.pb.h"
+#include "meshtastic/channel.pb.h"
 #include "meshtastic/config.pb.h"
 #include "meshtastic/mesh.pb.h"
 #include "meshtastic/module_config.pb.h"
@@ -36,6 +37,8 @@ enum mesh_admin_request_kind {
     MESH_ADMIN_SET_OWNER,         /* payload.owner */
     MESH_ADMIN_SET_CONFIG,        /* type as GET_CONFIG; payload.config with its oneof set */
     MESH_ADMIN_SET_MODULE_CONFIG, /* type as GET_MODULE_CONFIG; payload.module_config */
+    MESH_ADMIN_GET_CHANNEL,       /* type = channel index (sent as index + 1 on the wire) */
+    MESH_ADMIN_SET_CHANNEL,       /* type = channel index; payload.channel */
 };
 
 struct mesh_admin_request {
@@ -49,6 +52,7 @@ struct mesh_admin_request {
         meshtastic_User owner;
         meshtastic_Config config;
         meshtastic_ModuleConfig module_config;
+        meshtastic_Channel channel;
     } payload;
 };
 
@@ -58,8 +62,9 @@ bool mesh_admin_request_is_write(enum mesh_admin_request_kind kind);
 /* last_write_error when the radio never answered a set_*. Routing errors are positive. */
 #define MESH_RADIO_SETTINGS_WRITE_TIMEOUT (-1)
 
-/* Sections we fetch on a full refresh, in the order they are asked for. */
-#define MESH_RADIO_SETTINGS_FETCH_MAX 16U
+/* Queue depth: a full refresh is 13 sections plus every channel slot, and a save adds three. */
+#define MESH_RADIO_SETTINGS_FETCH_MAX 32U
+#define MESH_RADIO_SETTINGS_MAX_CHANNELS 8U
 /* A reply that has not arrived after this long is given up on and the queue moves on. */
 #define MESH_RADIO_SETTINGS_REPLY_TIMEOUT_MS 5000U
 
@@ -90,6 +95,10 @@ struct mesh_radio_settings {
     meshtastic_User owner;
     bool has_metadata;
     meshtastic_DeviceMetadata metadata;
+    /* The channel table as the radio sent it, by slot, keys included: set_channel must carry
+       the whole Channel back. Never persisted. */
+    bool has_channel[MESH_RADIO_SETTINGS_MAX_CHANNELS];
+    meshtastic_Channel channels[MESH_RADIO_SETTINGS_MAX_CHANNELS];
 
     /* Admin session. */
     bool has_session_passkey;
@@ -128,6 +137,8 @@ void mesh_radio_settings_apply_metadata(struct mesh_radio_settings *settings,
                                         const meshtastic_DeviceMetadata *metadata);
 void mesh_radio_settings_apply_owner(struct mesh_radio_settings *settings,
                                      const meshtastic_User *owner);
+void mesh_radio_settings_apply_channel(struct mesh_radio_settings *settings,
+                                       const meshtastic_Channel *channel);
 
 /* Folds an ADMIN_APP packet in: captures the session passkey, stores whatever get_*_response
    it carries, and releases the fetch queue when it answers the pending request. A ROUTING_APP
@@ -145,8 +156,8 @@ int mesh_radio_settings_encode_request(const struct mesh_radio_settings *setting
                                        size_t out_len, size_t *written);
 
 /* Fetch queue. queue_probe() asks for the owner and the metadata (enough to prove the admin
-   round trip); queue_all() asks for everything the Settings tab shows. Duplicates of a kind
-   already queued are skipped. Returns the number of requests added. */
+   round trip); queue_all() asks for everything the Settings tab shows, every channel slot
+   included. Duplicates of a kind already queued are skipped. Returns the number added. */
 size_t mesh_radio_settings_queue_probe(struct mesh_radio_settings *settings);
 size_t mesh_radio_settings_queue_all(struct mesh_radio_settings *settings);
 

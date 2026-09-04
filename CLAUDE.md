@@ -96,7 +96,9 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
   rotates it after 150 s), the `set_*` carrying the **whole** section (the firmware replaces, it
   does not merge), then the matching `get_*`. A `set_*` is answered by a `ROUTING_APP` packet
   quoting our id: `error_reason` NONE is the ack, `ADMIN_BAD_SESSION_KEY`/`BAD_REQUEST` a
-  rejection; `ingest` claims those too and counts them in `writes_acked`/`writes_failed`. Most
+  rejection; `ingest` claims those too and counts them in `writes_acked`/`writes_failed`. The
+  full channel table (`has_channel[]`/`channels[]`, keys included, never persisted) is kept
+  for `set_channel`, which must carry the whole `Channel`; `get_channel_request` is index+1. Most
   sections reboot the radio 7 s after a set (owner, module configs, display when
   `screen_on_secs`/`flip_screen` change), so the link drops and auto-connect reconnects; that is
   expected, not a bug. Phase status is in `docs/settings-roadmap.md`.
@@ -123,6 +125,12 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
   `app.c` maps each field back onto the nanopb section. Adding an editable field means: the
   enum + table row here, the flatten in `app.c`, the `mesh_app_apply_setting_edit` case, and
   the `item_field` call in the section builder. Sections without fields stay read-only.
+  Channels are a two-level list (`nav.settings_channel` is the open slot or
+  `MESH_UI_SETTINGS_NO_CHANNEL`; `mesh_ui_settings_channel_at_row` maps a list row to a slot)
+  and the Key row is kind `KEY`: `number` is an `enum mesh_ui_psk_choice` (keep, default,
+  random 128/256, none, typed hex in `text`), resolved to bytes in `app.c`. Sections named by
+  `mesh_ui_settings_section_needs_confirm` (Bluetooth, Channels) get the `confirm_open`
+  overlay between Y and the write; the action's `channel` carries the slot.
 - `src/ui/store.c` + `controller.c` — store owns `mesh_ui_snapshot` and signals via eventfd;
   controller drains it and calls `backend->present(snapshot)`. Backends implement the three-function
   `struct mesh_ui_backend` in `include/mesh/ui/backend.h` and live in `src/ui/backends/`.
@@ -206,7 +214,7 @@ via Python3 (needs `pip install protobuf grpcio-tools`).
 One harness, `tests/test_main.c`, with a `k_test_cases` table tagged by category (`unit` today;
 `integration`/`hardware` reserved). Register new cases in that table; use
 `record_failure`/`record_success`. Tests must not touch real BlueZ — use the bluez mock. New
-CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-04: 50 unit tests, all passing in
+CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-04: 53 unit tests, all passing in
 the dev container with zero compiler warnings. `message_encode_text_golden` pins the
 `TEXT_MESSAGE_APP` wire format against a hand-derived byte vector (not against our own encoder),
 so a protobuf regeneration that changes field numbers or wire types fails loudly.
