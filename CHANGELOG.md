@@ -1,3 +1,9 @@
+## [1.7.0](https://github.com/mcereal/mesh-client/compare/v1.6.0...v1.7.0) (2026-09-04)
+
+### Features
+
+* **settings:** edit LoRa and Security, with key backup and regeneration ([94270f2](https://github.com/mcereal/mesh-client/commit/94270f25ae858f0aa95a668a9f524633756531ed))
+
 ## [1.6.0](https://github.com/mcereal/mesh-client/compare/v1.5.0...v1.6.0) (2026-09-04)
 
 ### Features
