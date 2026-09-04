@@ -1139,6 +1139,7 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         }
         if (action != NULL) {
             action->type = MESH_UI_ACTION_CONNECT;
+            action->kind = device->kind;
             snprintf(action->identifier, sizeof action->identifier, "%s", device->identifier);
         }
         return false;

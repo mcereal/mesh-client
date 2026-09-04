@@ -33,11 +33,19 @@ enum mesh_ui_update_flag {
 };
 typedef uint32_t mesh_ui_update_flags;
 
+/* How a device is reached. The Devices tab lists both kinds in one list, and the app routes
+   a connect to the matching transport. */
+enum mesh_ui_device_kind {
+    MESH_UI_DEVICE_BLE = 0,
+    MESH_UI_DEVICE_SERIAL,
+};
+
 struct mesh_ui_device {
     char identifier[64];
     char name[64];
-    int8_t rssi;
+    int8_t rssi; /* BLE only; 0 for a USB port */
     bool connected;
+    uint8_t kind; /* enum mesh_ui_device_kind */
 };
 
 struct mesh_ui_node_summary {

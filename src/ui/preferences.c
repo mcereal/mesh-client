@@ -103,12 +103,20 @@ int mesh_ui_preferences_load(struct mesh_ui_preferences *prefs, const char *path
 
         if (strncmp(line, "preferred_device", key_len) == 0) {
             snprintf(prefs->preferred_device, sizeof prefs->preferred_device, "%s", value);
+        } else if (strncmp(line, "preferred_device_kind", key_len) == 0) {
+            prefs->preferred_device_kind = (uint8_t)(strcmp(value, "serial") == 0 ? 1 : 0);
         } else if (strncmp(line, "preferred_channel", key_len) == 0) {
             snprintf(prefs->preferred_channel, sizeof prefs->preferred_channel, "%s", value);
         }
     }
 
     fclose(file);
+
+    /* Files written before the kind was recorded hold a bare identifier. A tty path can only
+       have come from the serial link, so migrate rather than handing it to BLE. */
+    if (prefs->preferred_device_kind == 0U && prefs->preferred_device[0] == '/') {
+        prefs->preferred_device_kind = 1U;
+    }
     return 0;
 }
 
@@ -163,6 +171,8 @@ int mesh_ui_preferences_save(const struct mesh_ui_preferences *prefs, const char
     }
 
     fprintf(file, "preferred_device=%s\n", prefs->preferred_device);
+    fprintf(file, "preferred_device_kind=%s\n",
+            prefs->preferred_device_kind == 1U ? "serial" : "ble");
     fprintf(file, "preferred_channel=%s\n", prefs->preferred_channel);
 
     fclose(file);

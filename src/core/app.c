@@ -4,6 +4,7 @@
 
 #include "mesh/log.h"
 #include "mesh/transport/ble.h"
+#include "mesh/transport/serial.h"
 #include "mesh/ui/backends/cli.h"
 #include "mesh/ui/backends/minui.h"
 #include "mesh/ui/backends/stub.h"
@@ -19,26 +20,124 @@
 #include <sys/random.h>
 #include <time.h>
 
+/* ---- link routing --------------------------------------------------------------------- */
+
+/*
+ * Two links, one session, one radio at a time. The Devices tab lists BLE advertisers and USB
+ * ports together, so a connect has to be routed to the transport that owns the row, and taking
+ * one link up drops the other.
+ */
+
+static struct mesh_transport *mesh_app_transport_for_kind(uint8_t kind) {
+    return kind == (uint8_t)MESH_UI_DEVICE_SERIAL ? mesh_serial_transport() : mesh_ble_transport();
+}
+
+struct mesh_transport *mesh_app_active_transport(void) {
+    struct mesh_transport *serial = mesh_serial_transport();
+    struct mesh_transport *ble = mesh_ble_transport();
+    if (serial != NULL && mesh_serial_transport_connected_port(serial) != NULL) {
+        return serial;
+    }
+    if (ble != NULL && mesh_ble_transport_connected_address(ble) != NULL) {
+        return ble;
+    }
+    if (serial != NULL && mesh_serial_transport_is_connecting(serial)) {
+        return serial;
+    }
+    if (ble != NULL && mesh_ble_transport_is_connecting(ble)) {
+        return ble;
+    }
+    return ble;
+}
+
+const char *mesh_app_connected_identifier(void) {
+    const char *port = mesh_serial_transport_connected_port(mesh_serial_transport());
+    if (port != NULL && port[0] != '\0') {
+        return port;
+    }
+    const char *address = mesh_ble_transport_connected_address(mesh_ble_transport());
+    return (address != NULL && address[0] != '\0') ? address : NULL;
+}
+
+bool mesh_app_link_connecting(void) {
+    return mesh_ble_transport_is_connecting(mesh_ble_transport()) ||
+           mesh_serial_transport_is_connecting(mesh_serial_transport());
+}
+
+/* Drops whatever link is up or coming up, except the transport we are about to use. */
+static void mesh_app_release_other_link(const struct mesh_transport *keep) {
+    struct mesh_transport *ble = mesh_ble_transport();
+    struct mesh_transport *serial = mesh_serial_transport();
+    if (ble != keep && (mesh_ble_transport_connected_address(ble) != NULL ||
+                        mesh_ble_transport_is_connecting(ble))) {
+        mesh_ble_transport_disconnect(ble);
+    }
+    if (serial != keep && (mesh_serial_transport_connected_port(serial) != NULL ||
+                           mesh_serial_transport_is_connecting(serial))) {
+        mesh_serial_transport_disconnect(serial);
+    }
+}
+
+/* Connects `identifier` over the transport `kind` names, dropping the other link first.
+   Returns what the transport's connect returned. */
+static int mesh_app_link_connect(struct mesh_app *app, const char *identifier, uint8_t kind) {
+    struct mesh_transport *transport = mesh_app_transport_for_kind(kind);
+    if (transport == NULL) {
+        return -ENODEV;
+    }
+
+    mesh_app_release_other_link(transport);
+
+    /* This becomes the node auto-connect goes back to. The two preferences are kept apart so
+       unplugging a USB node does not erase which radio to look for over the air. */
+    if (kind == (uint8_t)MESH_UI_DEVICE_SERIAL) {
+        snprintf(app->config.preferred_serial_device, sizeof app->config.preferred_serial_device,
+                 "%s", identifier);
+        if (mesh_serial_transport_connected_port(transport) != NULL ||
+            mesh_serial_transport_is_connecting(transport)) {
+            mesh_serial_transport_disconnect(transport);
+        }
+        return mesh_serial_transport_connect(transport, identifier);
+    }
+
+    snprintf(app->config.preferred_ble_device, sizeof app->config.preferred_ble_device, "%s",
+             identifier);
+    if (mesh_ble_transport_connected_address(transport) != NULL ||
+        mesh_ble_transport_is_connecting(transport)) {
+        mesh_ble_transport_disconnect(transport);
+    }
+    return mesh_ble_transport_connect(transport, identifier);
+}
+
 static void mesh_app_minui_on_device_selected(void *userdata, const char *identifier) {
     if (userdata == NULL || identifier == NULL || identifier[0] == '\0') {
         return;
     }
 
     struct mesh_app *app = (struct mesh_app *)userdata;
-    struct mesh_transport *ble = mesh_ble_transport();
-    if (ble == NULL) {
-        mesh_log_warn("ui", "BLE transport unavailable for MinUI selection");
-        return;
+
+    /* MinUI hands back a row label, not a kind; ask the serial transport whether the identifier
+       is one of its ports and fall back to BLE. */
+    uint8_t kind = (uint8_t)MESH_UI_DEVICE_BLE;
+    struct mesh_serial_device_info ports[MESH_SERIAL_MAX_DEVICES];
+    const size_t port_count =
+        mesh_serial_transport_get_devices(mesh_serial_transport(), ports, MESH_SERIAL_MAX_DEVICES);
+    for (size_t i = 0; i < port_count; ++i) {
+        if (strcmp(ports[i].id, identifier) == 0 ||
+            (ports[i].path[0] != '\0' && strcmp(ports[i].path, identifier) == 0)) {
+            kind = (uint8_t)MESH_UI_DEVICE_SERIAL;
+            break;
+        }
     }
 
     mesh_log_info("ui", "MinUI selection requested connect to %s", identifier);
-    snprintf(app->config.preferred_ble_device, sizeof app->config.preferred_ble_device, "%s",
-             identifier);
     snprintf(app->ui_preferences.preferred_device, sizeof app->ui_preferences.preferred_device,
              "%s", identifier);
+    app->ui_preferences.preferred_device_kind = kind;
     app->ui_preferences_dirty = true;
 
-    int connect_result = mesh_ble_transport_connect(ble, identifier);
+    int connect_result = mesh_app_link_connect(app, identifier, kind);
+    app->ui_report_link_error = true;
     if (connect_result < 0 && connect_result != -EALREADY) {
         mesh_log_warn("ui", "Failed to connect to %s via MinUI (%d)", identifier, connect_result);
     }
@@ -470,8 +569,8 @@ int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
     return 0;
 }
 
-static void mesh_app_save_settings(struct mesh_app *app, struct mesh_transport *ble,
-                                   const struct mesh_ui_action *action, uint64_t now) {
+static void mesh_app_save_settings(struct mesh_app *app, const struct mesh_ui_action *action,
+                                   uint64_t now) {
     char toast[MESH_UI_NAV_TOAST_MAX];
     char section_label[MESH_UI_SETTINGS_LABEL_MAX];
     if ((enum mesh_ui_settings_section)action->section == MESH_UI_SETTINGS_CHANNELS &&
@@ -483,14 +582,13 @@ static void mesh_app_save_settings(struct mesh_app *app, struct mesh_transport *
     }
     const char *section_name = section_label;
     struct mesh_admin_request write;
-    int result = mesh_app_build_settings_write(
-        mesh_session_settings(mesh_ble_transport_session(ble)), action, &write);
+    int result =
+        mesh_app_build_settings_write(mesh_session_settings(&app->session), action, &write);
     if (result == 0) {
-        result = mesh_session_write_settings(mesh_ble_transport_session(ble), &write);
+        result = mesh_session_write_settings(&app->session, &write);
     }
     if (result > 0) {
-        const struct mesh_radio_settings *radio =
-            mesh_session_settings(mesh_ble_transport_session(ble));
+        const struct mesh_radio_settings *radio = mesh_session_settings(&app->session);
         app->settings_save_pending = true;
         app->settings_writes_acked_seen = radio != NULL ? radio->writes_acked : 0U;
         app->settings_writes_failed_seen = radio != NULL ? radio->writes_failed : 0U;
@@ -572,26 +670,23 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
 
     switch (action->type) {
     case MESH_UI_ACTION_CONNECT: {
-        if (ble == NULL) {
-            mesh_ui_store_set_toast(&app->ui_store, now, "BLE transport unavailable");
-            return;
-        }
-        mesh_log_info("ui", "Connect to %s requested from the device", action->identifier);
-        /* Same bookkeeping as a MinUI pick: this becomes the node auto-connect goes back to. */
-        snprintf(app->config.preferred_ble_device, sizeof app->config.preferred_ble_device, "%s",
-                 action->identifier);
+        mesh_log_info("ui", "Connect to %s (%s) requested from the device", action->identifier,
+                      action->kind == (uint8_t)MESH_UI_DEVICE_SERIAL ? "usb" : "ble");
         snprintf(app->ui_preferences.preferred_device, sizeof app->ui_preferences.preferred_device,
                  "%s", action->identifier);
+        app->ui_preferences.preferred_device_kind = action->kind;
         app->ui_preferences_dirty = true;
 
-        /* A user pick beats whatever auto-connect is doing or has done. */
-        if (mesh_ble_transport_connected_address(ble) != NULL ||
-            mesh_ble_transport_is_connecting(ble)) {
-            mesh_ble_transport_disconnect(ble);
-        }
-        const int result = mesh_ble_transport_connect(ble, action->identifier);
+        /* A user pick beats whatever auto-connect is doing or has done, on either link. */
+        const int result = mesh_app_link_connect(app, action->identifier, action->kind);
         if (result == 0 || result == -EALREADY || result == -EINPROGRESS) {
             snprintf(toast, sizeof toast, "Connecting to %.40s", action->identifier);
+            /* BLE resolves services from tick(), so a 0 here is not yet a connection. Arm the
+               error report so whatever goes wrong next reaches the screen. */
+            app->ui_report_link_error = true;
+        } else if (mesh_transport_registry_take_error(&app->transport_registry, toast,
+                                                      sizeof toast)) {
+            mesh_log_warn("ui", "Connect to %s failed: %s (%d)", action->identifier, toast, result);
         } else {
             snprintf(toast, sizeof toast, "Connect failed (%d)", result);
             mesh_log_warn("ui", "Connect to %s failed: %d", action->identifier, result);
@@ -606,9 +701,8 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
         }
         const bool broadcast = (action->dest == MESH_MESSAGE_BROADCAST_ADDR);
         uint32_t packet_id = 0U;
-        const int result =
-            mesh_session_send_text(mesh_ble_transport_session(ble), action->dest, action->channel,
-                                   action->text, !broadcast, &packet_id);
+        const int result = mesh_session_send_text(&app->session, action->dest, action->channel,
+                                                  action->text, !broadcast, &packet_id);
         if (result == 0) {
             snprintf(toast, sizeof toast, "Sent to %s", app->ui_store.nav.target_name);
             mesh_log_info("ui", "Sent \"%s\" to %s (packet %u)", action->text,
@@ -627,7 +721,7 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
             mesh_ui_store_set_toast(&app->ui_store, now, "BLE transport unavailable");
             return;
         }
-        const int result = mesh_session_refresh_settings(mesh_ble_transport_session(ble));
+        const int result = mesh_session_refresh_settings(&app->session);
         if (result > 0) {
             snprintf(toast, sizeof toast, "Refreshing %d settings sections", result);
         } else if (result == 0) {
@@ -645,7 +739,7 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
             mesh_ui_store_set_toast(&app->ui_store, now, "BLE transport unavailable");
             return;
         }
-        mesh_app_save_settings(app, ble, action, now);
+        mesh_app_save_settings(app, action, now);
         return;
     }
     case MESH_UI_ACTION_NONE:
@@ -829,9 +923,9 @@ static unsigned mesh_app_node_rank(const struct mesh_node_summary *node, uint32_
 
 /* Copies the newest MESH_UI_MAX_MESSAGES entries out of the transport ring into the store,
    merged with whatever history was restored from the cache at startup. */
-static void mesh_app_publish_messages(struct mesh_app *app, struct mesh_transport *ble,
+static void mesh_app_publish_messages(struct mesh_app *app,
                                       const struct mesh_handshake_status *status) {
-    const struct mesh_message_log *log = mesh_session_messages(mesh_ble_transport_session(ble));
+    const struct mesh_message_log *log = mesh_session_messages(&app->session);
     if (log == NULL) {
         return;
     }
@@ -1039,7 +1133,7 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
     }
 }
 
-static void mesh_app_publish_ui_state(struct mesh_app *app) {
+void mesh_app_publish_ui_state(struct mesh_app *app) {
     if (app == NULL) {
         return;
     }
@@ -1052,18 +1146,19 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
         return;
     }
 
+    const struct mesh_transport *active = mesh_app_active_transport();
     const char *transport_status =
-        (ble->ops != NULL && ble->ops->status != NULL) ? ble->ops->status(ble) : NULL;
+        (active != NULL && active->ops != NULL && active->ops->status != NULL)
+            ? active->ops->status(active)
+            : NULL;
     mesh_ui_store_set_transport_status(&app->ui_store,
                                        transport_status != NULL ? transport_status : "unknown");
 
-    struct mesh_bluez_device_info ble_devices[MESH_UI_MAX_DEVICES];
-    size_t device_count = mesh_ble_transport_get_devices(ble, ble_devices, MESH_UI_MAX_DEVICES);
-
     struct mesh_ui_device ui_devices[MESH_UI_MAX_DEVICES];
     memset(ui_devices, 0, sizeof(ui_devices));
+    size_t device_count = 0U;
 
-    const char *connected_address = mesh_ble_transport_connected_address(ble);
+    const char *connected_address = mesh_app_connected_identifier();
     bool connected_address_seen = false;
 
     /* Announce a dropped link once; auto-connect brings it back and the footer tracks it. */
@@ -1074,22 +1169,52 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
     }
     app->ui_link_was_connected = link_connected;
 
-    for (size_t i = 0; i < device_count && i < MESH_UI_MAX_DEVICES; ++i) {
-        snprintf(ui_devices[i].identifier, sizeof(ui_devices[i].identifier), "%s",
-                 ble_devices[i].address);
-        snprintf(ui_devices[i].name, sizeof(ui_devices[i].name), "%s", ble_devices[i].name);
+    if (link_connected) {
+        app->ui_report_link_error = false;
+    }
+
+    /* USB ports first: a plugged-in node needs no pairing and no range, so it is the one you
+       almost always want, and putting it at the top makes it the default cursor row. */
+    struct mesh_serial_device_info serial_devices[MESH_SERIAL_MAX_DEVICES];
+    const size_t serial_count = mesh_serial_transport_get_devices(
+        mesh_serial_transport(), serial_devices, MESH_SERIAL_MAX_DEVICES);
+    for (size_t i = 0; i < serial_count && device_count < MESH_UI_MAX_DEVICES; ++i) {
+        struct mesh_ui_device *slot = &ui_devices[device_count];
+        /* Before the bind there is no tty, so the sysfs id is all we can address it by. */
+        const char *identifier =
+            serial_devices[i].path[0] != '\0' ? serial_devices[i].path : serial_devices[i].id;
+        snprintf(slot->identifier, sizeof slot->identifier, "%s", identifier);
+        snprintf(slot->name, sizeof slot->name, "%s", serial_devices[i].name);
+        slot->kind = (uint8_t)MESH_UI_DEVICE_SERIAL;
+        slot->rssi = 0;
+        slot->connected = (connected_address != NULL && connected_address[0] != '\0' &&
+                           strcmp(connected_address, identifier) == 0);
+        if (slot->connected) {
+            connected_address_seen = true;
+        }
+        ++device_count;
+    }
+
+    struct mesh_bluez_device_info ble_devices[MESH_UI_MAX_DEVICES];
+    const size_t ble_count = mesh_ble_transport_get_devices(ble, ble_devices, MESH_UI_MAX_DEVICES);
+    for (size_t i = 0; i < ble_count && device_count < MESH_UI_MAX_DEVICES; ++i) {
+        struct mesh_ui_device *slot = &ui_devices[device_count];
+        snprintf(slot->identifier, sizeof slot->identifier, "%s", ble_devices[i].address);
+        snprintf(slot->name, sizeof slot->name, "%s", ble_devices[i].name);
+        slot->kind = (uint8_t)MESH_UI_DEVICE_BLE;
         int16_t rssi = ble_devices[i].rssi;
         if (rssi < INT8_MIN) {
             rssi = INT8_MIN;
         } else if (rssi > INT8_MAX) {
             rssi = INT8_MAX;
         }
-        ui_devices[i].rssi = (int8_t)rssi;
-        ui_devices[i].connected = (connected_address != NULL && connected_address[0] != '\0' &&
-                                   strcmp(connected_address, ble_devices[i].address) == 0);
-        if (ui_devices[i].connected) {
+        slot->rssi = (int8_t)rssi;
+        slot->connected = (connected_address != NULL && connected_address[0] != '\0' &&
+                           strcmp(connected_address, ble_devices[i].address) == 0);
+        if (slot->connected) {
             connected_address_seen = true;
         }
+        ++device_count;
     }
 
     if (connected_address != NULL && connected_address[0] != '\0' && !connected_address_seen &&
@@ -1107,14 +1232,19 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
 
     bool preferences_modified = false;
     if (connected_address != NULL && connected_address[0] != '\0') {
-        if (strcmp(app->ui_preferences.preferred_device, connected_address) != 0) {
+        const uint8_t connected_kind = (active == mesh_serial_transport())
+                                           ? (uint8_t)MESH_UI_DEVICE_SERIAL
+                                           : (uint8_t)MESH_UI_DEVICE_BLE;
+        if (strcmp(app->ui_preferences.preferred_device, connected_address) != 0 ||
+            app->ui_preferences.preferred_device_kind != connected_kind) {
             snprintf(app->ui_preferences.preferred_device,
                      sizeof app->ui_preferences.preferred_device, "%s", connected_address);
+            app->ui_preferences.preferred_device_kind = connected_kind;
             preferences_modified = true;
         }
     }
 
-    struct mesh_handshake_status status = *mesh_session_handshake(mesh_ble_transport_session(ble));
+    struct mesh_handshake_status status = *mesh_session_handshake(&app->session);
     const bool handshake_active = status.request_in_flight || status.config_complete ||
                                   status.has_my_info || status.has_config ||
                                   (status.node_count > 0U);
@@ -1149,8 +1279,7 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
            with an MQTT uplink dozens of far-away nodes are "heard" every minute and would
            otherwise push the radio you are actually talking to off the list. Insertion sort:
            MESH_SESSION_MAX_NODES is small and this runs once per publish. */
-        const struct mesh_message_log *message_log =
-            mesh_session_messages(mesh_ble_transport_session(ble));
+        const struct mesh_message_log *message_log = mesh_session_messages(&app->session);
         size_t order[MESH_SESSION_MAX_NODES];
         unsigned rank[MESH_SESSION_MAX_NODES];
         size_t total =
@@ -1236,10 +1365,9 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
         }
     }
 
-    mesh_app_publish_messages(app, ble, &status);
+    mesh_app_publish_messages(app, &status);
 
-    const struct mesh_radio_settings *radio_settings =
-        mesh_session_settings(mesh_ble_transport_session(ble));
+    const struct mesh_radio_settings *radio_settings = mesh_session_settings(&app->session);
     struct mesh_ui_settings ui_settings;
     mesh_app_flatten_settings(radio_settings, &ui_settings);
     mesh_ui_store_set_settings(&app->ui_store, &ui_settings);
@@ -1290,6 +1418,20 @@ static bool mesh_app_env_disabled(const char *name) {
            strcasecmp(value, "false") == 0 || strcasecmp(value, "no") == 0;
 }
 
+/* Exponential backoff, shared by the two ways a connect can fail: the errno connect() handed
+   back, and the failure that only surfaces later from tick(). Returns the delay it scheduled. */
+static uint64_t mesh_app_backoff_autoconnect(struct mesh_app *app) {
+    if (app->autoconnect_failures < 8U) {
+        app->autoconnect_failures++;
+    }
+    uint64_t delay = (uint64_t)MESH_APP_AUTOCONNECT_RETRY_MS << (app->autoconnect_failures - 1U);
+    if (delay > MESH_APP_AUTOCONNECT_MAX_BACKOFF_MS) {
+        delay = MESH_APP_AUTOCONNECT_MAX_BACKOFF_MS;
+    }
+    app->autoconnect_retry_at_ms = mesh_app_now_ms() + delay;
+    return delay;
+}
+
 void mesh_app_autoconnect(struct mesh_app *app) {
     if (app == NULL || app->autoconnect_disabled ||
         app->config.run_mode != MESH_APP_RUN_FOREGROUND) {
@@ -1297,8 +1439,13 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     }
 
     struct mesh_transport *ble = mesh_ble_transport();
-    if (ble == NULL || mesh_ble_transport_connected_address(ble) != NULL ||
-        mesh_ble_transport_is_connecting(ble)) {
+    const bool link_up = (mesh_app_connected_identifier() != NULL);
+    if (link_up) {
+        /* An established link is the only proof an attempt worked, so it is the only thing that
+           clears the backoff. */
+        app->autoconnect_failures = 0U;
+    }
+    if (ble == NULL || link_up || mesh_app_link_connecting()) {
         return;
     }
 
@@ -1308,6 +1455,43 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     }
     if (now < app->autoconnect_retry_at_ms) {
         return;
+    }
+
+    /*
+     * A plugged-in node wins over anything on the air: it needs no pairing, has no range to
+     * lose, and is almost certainly why the cable is there. BLE keeps its own policy below for
+     * when nothing is plugged in.
+     */
+    struct mesh_serial_device_info ports[MESH_SERIAL_MAX_DEVICES];
+    struct mesh_transport *serial = mesh_serial_transport();
+    const size_t port_count =
+        mesh_serial_transport_get_devices(serial, ports, MESH_SERIAL_MAX_DEVICES);
+    if (port_count > 0U) {
+        const struct mesh_serial_device_info *port = &ports[0];
+        const char *preferred_port = app->config.preferred_serial_device;
+        if (preferred_port[0] != '\0') {
+            for (size_t i = 0; i < port_count; ++i) {
+                if (strcmp(ports[i].id, preferred_port) == 0 ||
+                    (ports[i].path[0] != '\0' && strcmp(ports[i].path, preferred_port) == 0)) {
+                    port = &ports[i];
+                    break;
+                }
+            }
+        }
+        const char *identifier = port->path[0] != '\0' ? port->path : port->id;
+        const int serial_result =
+            mesh_app_link_connect(app, identifier, (uint8_t)MESH_UI_DEVICE_SERIAL);
+        if (serial_result == 0 || serial_result == -EALREADY || serial_result == -EINPROGRESS) {
+            if (serial_result == 0) {
+                mesh_log_info("app", "Auto-connecting to %s over USB (%s)", port->name, identifier);
+            }
+            /* Not a success yet: the handshake still has to go out. The counter stays where it
+               is until a link is actually up. */
+            app->autoconnect_retry_at_ms = now + MESH_APP_AUTOCONNECT_RETRY_MS;
+            return;
+        }
+        mesh_log_warn("app", "Auto-connect to %s over USB failed (%d); trying Bluetooth",
+                      identifier, serial_result);
     }
 
     struct mesh_bluez_device_info devices[MESH_UI_MAX_DEVICES];
@@ -1356,7 +1540,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
         if (result == 0) {
             mesh_log_info("app", "Auto-connecting to %s (%s)", target->name, target->address);
         }
-        app->autoconnect_failures = 0U;
+        /* Not a success yet: BLE only resolves its services a few seconds from now. */
         app->autoconnect_retry_at_ms = now + MESH_APP_AUTOCONNECT_RETRY_MS;
         return;
     }
@@ -1365,16 +1549,40 @@ void mesh_app_autoconnect(struct mesh_app *app) {
         return;
     }
 
-    if (app->autoconnect_failures < 8U) {
-        app->autoconnect_failures++;
-    }
-    uint64_t delay = (uint64_t)MESH_APP_AUTOCONNECT_RETRY_MS << (app->autoconnect_failures - 1U);
-    if (delay > MESH_APP_AUTOCONNECT_MAX_BACKOFF_MS) {
-        delay = MESH_APP_AUTOCONNECT_MAX_BACKOFF_MS;
-    }
-    app->autoconnect_retry_at_ms = now + delay;
+    const uint64_t delay = mesh_app_backoff_autoconnect(app);
     mesh_log_warn("app", "Auto-connect to %s failed (%d); retrying in %llu ms", target->address,
                   result, (unsigned long long)delay);
+}
+
+bool mesh_app_report_link_errors(struct mesh_app *app) {
+    if (app == NULL) {
+        return false;
+    }
+
+    char link_error[MESH_TRANSPORT_ERROR_MAX];
+    if (!mesh_transport_registry_take_error(&app->transport_registry, link_error,
+                                            sizeof link_error)) {
+        return false;
+    }
+
+    if (app->ui_report_link_error && app->config.run_mode == MESH_APP_RUN_FOREGROUND) {
+        mesh_log_info("ui", "Link failure shown to the user: %s", link_error);
+        mesh_ui_store_set_toast(&app->ui_store, mesh_app_now_ms(), link_error);
+    } else {
+        mesh_log_debug("ui", "Link failure not shown (auto-connect): %s", link_error);
+    }
+    app->ui_report_link_error = false;
+
+    /*
+     * This is also the only honest failure signal auto-connect has. Its backoff keys off what
+     * connect() returned, and a BLE connect returns 0 several seconds before it is a
+     * connection - so a node that refuses every attempt looked like an unbroken run of
+     * successes and got hammered every couple of seconds forever.
+     */
+    if (mesh_app_connected_identifier() == NULL) {
+        (void)mesh_app_backoff_autoconnect(app);
+    }
+    return true;
 }
 
 int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
@@ -1409,6 +1617,7 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     app->autoconnect_failures = 0U;
     app->autoconnect_waiting_logged = false;
     app->ui_link_was_connected = false;
+    app->ui_report_link_error = false;
     app->autoconnect_disabled = mesh_app_env_disabled("MESHCLIENT_AUTOCONNECT");
     if (app->autoconnect_disabled) {
         mesh_log_info("app", "Auto-connect disabled by MESHCLIENT_AUTOCONNECT");
@@ -1419,10 +1628,18 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
                                          sizeof(app->ui_preferences_path)) == 0) {
         int load_result = mesh_ui_preferences_load(&app->ui_preferences, app->ui_preferences_path);
         if (load_result == 0) {
-            if (app->config.preferred_ble_device[0] == '\0' &&
-                app->ui_preferences.preferred_device[0] != '\0') {
-                snprintf(app->config.preferred_ble_device, sizeof app->config.preferred_ble_device,
-                         "%s", app->ui_preferences.preferred_device);
+            if (app->ui_preferences.preferred_device[0] != '\0') {
+                if (app->ui_preferences.preferred_device_kind == (uint8_t)MESH_UI_DEVICE_SERIAL) {
+                    if (app->config.preferred_serial_device[0] == '\0') {
+                        snprintf(app->config.preferred_serial_device,
+                                 sizeof app->config.preferred_serial_device, "%s",
+                                 app->ui_preferences.preferred_device);
+                    }
+                } else if (app->config.preferred_ble_device[0] == '\0') {
+                    snprintf(app->config.preferred_ble_device,
+                             sizeof app->config.preferred_ble_device, "%s",
+                             app->ui_preferences.preferred_device);
+                }
             }
         }
         int handshake_written =
@@ -1498,6 +1715,19 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
         return result;
     }
 
+    result = mesh_transport_registry_register(&app->transport_registry, mesh_serial_transport());
+    if (result < 0) {
+        mesh_log_error("app", "Failed to register serial transport: %d", result);
+        mesh_ui_controller_shutdown(&app->ui_controller);
+        mesh_ui_store_shutdown(&app->ui_store);
+        mesh_event_loop_shutdown(&app->loop);
+        return result;
+    }
+
+    /* One conversation for both links, so switching between them keeps the message log. */
+    mesh_session_init(&app->session);
+    mesh_transport_registry_set_session(&app->transport_registry, &app->session);
+
     return 0;
 }
 
@@ -1507,6 +1737,9 @@ void mesh_app_shutdown(struct mesh_app *app) {
     }
 
     mesh_transport_registry_stop_all(&app->transport_registry);
+    /* The transports are process-wide singletons but the session lives in `app`; leaving them
+       pointed at it would dangle for anything that uses a transport after this. */
+    mesh_transport_registry_set_session(&app->transport_registry, NULL);
     mesh_ui_input_shutdown(&app->ui_input);
     mesh_signals_shutdown(&app->signals);
     mesh_ui_controller_shutdown(&app->ui_controller);
@@ -1560,6 +1793,9 @@ int mesh_app_run(struct mesh_app *app) {
         mesh_event_loop_run(&app->loop, 0);
         while (true) {
             mesh_transport_registry_tick(&app->transport_registry);
+            /* Before auto-connect, not after: a retry starts the link over and clears the
+               reason the last attempt failed. */
+            (void)mesh_app_report_link_errors(app);
             mesh_app_autoconnect(app);
             mesh_app_publish_ui_state(app);
             result = mesh_event_loop_run(&app->loop, app->config.idle_timeout_ms);

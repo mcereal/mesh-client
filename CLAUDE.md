@@ -48,7 +48,8 @@ Single test: the whole suite is one binary with a name filter, not per-test CTes
 ./scripts/docker.sh ./build/linux/debug/tests/meshclient_core_tests --filter ble_transport
 ```
 
-Manual checks: `meshclient --list-devices`, `--status --json`, `--status --status-output PATH`.
+Manual checks: `meshclient --list-devices` (BLE advertisers and USB ports), `--status --json`,
+`--status --status-output PATH`, and `--serial[=ID] --status` to drive a USB node instead of BLE.
 Inside the container there is no BlueZ, so the BLE transport sits in `waiting-for-bluez` and the
 CLI backend is selected; without D-Bus headers at build time it compiles out entirely
 (`MESH_HAVE_DBUS` is set only if `pkg-config dbus-1` succeeds) and reports `disabled`.
@@ -60,8 +61,10 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
 - `src/core/event_loop.c` — epoll loop with a fixed table of 32 fd sources. Everything (D-Bus
   watches, timerfd discovery refresh, UI store eventfd, minui-list child stdout) registers here.
   No threads anywhere; do not add them.
-- `src/transport/transport_registry.c` — `struct mesh_transport_ops {start, stop, status, tick}`.
-  Only BLE is registered today; Serial/HTTP are planned to plug in here.
+- `src/transport/transport_registry.c` — `struct mesh_transport_ops {start, stop, status, tick}`
+  plus the optional `set_session` and `take_error`.
+  BLE and serial are registered today; HTTP is planned to plug in here. Both links own a
+  `struct mesh_session`, so everything past the connect is shared.
 - `src/transport/ble/bluez_client.c` — raw libdbus wrapper for `org.bluez` (adapter discovery,
   `GetManagedObjects`, GATT Connect/StartNotify/Write). Has a compile-time-independent mock
   (`mesh_bluez_client_mock_enable`) that tests use to script results and capture writes; there is
@@ -82,7 +85,8 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   `waiting-for-bluez` → `waiting-for-adapter` → `running`), Meshtastic service UUID filtering,
   an outbound ToRadio packet queue (the session's send path), and the FromNum-notify →
   FromRadio-read drain loop. BLE is **not** Nordic UART and has no length
-  framing: one bare protobuf per GATT write/read. `src/proto/framing.c` is for serial/TCP only.
+  framing: one bare protobuf per GATT write/read. `src/proto/framing.c` is a homegrown varint
+  prefix that nothing on the wire uses; serial framing is `src/proto/stream_framing.c`.
   Nodes in PIN mode must be paired with BlueZ out of band (`bluetoothctl pair`) before connect.
   `mesh_ble_transport_connect` sends `Device1.Connect` without blocking (reply matched by
   serial in `bluez_client.c`, 30 s cap) and returns 0 with the link in `connecting`; `tick()`
@@ -93,6 +97,28 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   `Device1.Connected` every 2 s while CONNECTED (`mesh_ble_transport_check_link`) and a failed
   GATT write also resets the link; queued messages are marked FAILED either way, and the
   message log survives the reset. Auto-connect then reconnects.
+- `src/proto/stream_framing.c` — Meshtastic's serial/TCP framing: `0x94 0xC3 len_hi len_lo` plus
+  one raw protobuf, 512-byte cap. The parser is incremental and resync-tolerant because the
+  firmware interleaves its text log with the frames on the same port; junk between frames goes to
+  a text callback (logged as `radio: ...` at debug), a split frame is held until the rest lands.
+- `src/transport/serial/serial_usb.c` — finding and opening a USB port, and the Brick-specific
+  part. The Brick's kernel has `CONFIG_USB_ACM` off, so a native-USB node gets no `/dev/ttyACM*`;
+  the transport writes `VID PID` to `/sys/bus/usb-serial/drivers/generic/new_id` (the generic
+  driver refuses the control interface and takes the data one as `/dev/ttyUSB0`), then sends one
+  CDC `SET_CONTROL_LINE_STATE` through usbfs because the node discards output until DTR is
+  asserted and the generic driver cannot assert it. Neither survives a reboot, so both happen on
+  every connect. UART-bridge boards (cp210x/ch341/ftdi_sio) skip both and take a normal
+  `TIOCMBIS`. Mockable (`mesh_serial_usb_mock_enable`) so tests never touch sysfs or usbfs; the
+  mock's `open_fd` lets a test hand the link one end of a socketpair. Note the `MESH_IOCTL_REQUEST`
+  shim: glibc's `ioctl` takes `unsigned long`, musl's takes `int`, and the USBDEVFS codes have the
+  high bit set - the release build is musl, the dev container glibc, so both need narrowing.
+- `src/transport/serial/serial_transport.c` — the serial link: sysfs scan (rescanned every 3 s
+  while idle, never while a port is held), bind + DTR, open the tty raw at 115200, register the fd
+  with the epoll loop, send the 32-byte `0xC3` resync burst the Meshtastic clients send, wait
+  100 ms, then attach the session and run the same `want_config_id` handshake as BLE. Outbound
+  packets are framed into a queue with a partial-write cursor; `EPOLLOUT` is armed only while
+  that queue has a remainder. EOF or a fatal read/write error resets the link and marks queued
+  messages FAILED, leaving the message log intact.
 - `src/core/radio_settings.c` — transport-agnostic view of the connected radio's configuration
   (`struct mesh_radio_settings`: every `Config`/`ModuleConfig` section, owner `User`,
   `DeviceMetadata`) and the `AdminMessage` plumbing: encodes `ADMIN_APP` requests addressed to
@@ -120,7 +146,12 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   (`~/.meshclient/ui_prefs`, `ui_prefs.handshake`), and picks the UI backend.
   `mesh_app_autoconnect()` runs every foreground turn: preferred node if in range, else the
   strongest advertiser after 30 s, exponential backoff on failure; `MESHCLIENT_AUTOCONNECT=0`
-  turns it off. The `--status`/`--list-devices` paths in `main.c` do their own connect.
+  turns it off. A BLE connect returns 0 several seconds before it is a connection, so neither
+  the backoff nor the UI can key off that return value: `mesh_app_report_link_errors()` runs
+  between `tick()` and `mesh_app_autoconnect()` (a retry restarts the link and clears the
+  reason the last attempt failed), pops a transport's `take_error()` line, toasts it when the
+  user asked for the connect, and counts the attempt against the backoff. Only an established
+  link clears the backoff. The `--status`/`--list-devices` paths in `main.c` do their own connect.
 - `src/ui/settings.c` — the Settings tab as data: sections → items (label, formatted value,
   kind, and for editable rows a `field` id). Backends draw the list; `nav.c` walks it
   (`settings_section` open or `MESH_UI_SETTINGS_NO_SECTION`, X yields
@@ -227,7 +258,7 @@ via Python3 (needs `pip install protobuf grpcio-tools`).
 One harness, `tests/test_main.c`, with a `k_test_cases` table tagged by category (`unit` today;
 `integration`/`hardware` reserved). Register new cases in that table; use
 `record_failure`/`record_success`. Tests must not touch real BlueZ — use the bluez mock. New
-CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-04: 55 unit tests, all passing in
+CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-04: 61 unit tests, all passing in
 the dev container with zero compiler warnings. `message_encode_text_golden` pins the
 `TEXT_MESSAGE_APP` wire format against a hand-derived byte vector (not against our own encoder),
 so a protobuf regeneration that changes field numbers or wire types fails loudly.

@@ -154,6 +154,10 @@ enum mesh_ui_action_type {
 struct mesh_ui_action {
     enum mesh_ui_action_type type;
     char identifier[64];
+    /* CONNECT: which transport the picked row belongs to (enum mesh_ui_device_kind). The
+       Devices tab lists BLE advertisers and USB ports together, so the app cannot infer it
+       from the identifier. */
+    uint8_t kind;
     uint32_t dest;
     uint8_t channel;
     char text[MESH_UI_DRAFT_MAX];

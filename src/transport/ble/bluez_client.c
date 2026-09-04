@@ -34,6 +34,54 @@ static uint32_t mesh_bluez_watch_flags_to_events(unsigned int flags) {
     return events;
 }
 
+/*
+ * Turns a BlueZ D-Bus error into an errno the transport can act on. Everything used to come
+ * back as -EIO, which left the UI unable to tell "this node needs pairing" - the one failure
+ * the user can actually fix - apart from a radio that is simply out of range. BlueZ is not
+ * consistent about which name it uses (StartNotify on an unpaired node answers
+ * org.bluez.Error.Failed with "Not paired"), so the message is checked too.
+ */
+static int mesh_bluez_error_to_errno(const char *name, const char *message) {
+    if (name != NULL) {
+        const char *suffix = strrchr(name, '.');
+        suffix = (suffix != NULL) ? suffix + 1 : name;
+        if (strcmp(suffix, "NotPaired") == 0 || strcmp(suffix, "NotPermitted") == 0 ||
+            strcmp(suffix, "NotAuthorized") == 0 || strncmp(suffix, "Authentication", 14) == 0) {
+            return -EACCES;
+        }
+        if (strcmp(suffix, "NotConnected") == 0 || strcmp(suffix, "NotReady") == 0) {
+            return -ENOTCONN;
+        }
+        if (strcmp(suffix, "InProgress") == 0) {
+            return -EBUSY;
+        }
+        if (strcmp(suffix, "NoReply") == 0 || strcmp(suffix, "Timeout") == 0 ||
+            strcmp(suffix, "TimedOut") == 0) {
+            return -ETIMEDOUT;
+        }
+        if (strcmp(suffix, "DoesNotExist") == 0 || strcmp(suffix, "UnknownObject") == 0) {
+            return -ENOENT;
+        }
+    }
+    if (message != NULL) {
+        if (strcasecmp(message, "Not paired") == 0 || strcasecmp(message, "Not Authorized") == 0) {
+            return -EACCES;
+        }
+        if (strcasecmp(message, "Page Timeout") == 0 ||
+            strcasecmp(message, "Connection Timeout") == 0) {
+            return -ETIMEDOUT;
+        }
+    }
+    return -EIO;
+}
+
+static int mesh_bluez_dbus_error_to_errno(const DBusError *error) {
+    if (error == NULL || !dbus_error_is_set(error)) {
+        return -EIO;
+    }
+    return mesh_bluez_error_to_errno(error->name, error->message);
+}
+
 static int mesh_bluez_watch_fd_callback(int fd, uint32_t events, void *userdata);
 
 static int mesh_bluez_watch_sync(struct mesh_bluez_client *client, size_t index) {
@@ -517,7 +565,7 @@ static void mesh_bluez_client_handle_message(struct mesh_bluez_client *client,
             dbus_message_get_args(message, NULL, DBUS_TYPE_STRING, &text, DBUS_TYPE_INVALID);
             mesh_log_warn("bluez", "Connect failed: %s%s%s", error_name != NULL ? error_name : "?",
                           text != NULL ? ": " : "", text != NULL ? text : "");
-            client->connect_result = -EIO;
+            client->connect_result = mesh_bluez_error_to_errno(error_name, text);
         }
         client->connect_state = 2;
         return;
@@ -900,11 +948,13 @@ int mesh_bluez_client_connect(struct mesh_bluez_client *client, const char *devi
     dbus_message_unref(message);
 
     if (reply == NULL) {
+        int mapped = -EIO;
         if (dbus_error_is_set(&error)) {
             mesh_log_warn("bluez", "Connect failed: %s", error.message);
+            mapped = mesh_bluez_dbus_error_to_errno(&error);
             dbus_error_free(&error);
         }
-        return -EIO;
+        return mapped;
     }
 
     dbus_message_unref(reply);
@@ -1188,11 +1238,13 @@ int mesh_bluez_client_subscribe(struct mesh_bluez_client *client, const char *de
     dbus_message_unref(message);
 
     if (reply == NULL) {
+        int mapped = -EIO;
         if (dbus_error_is_set(&error)) {
             mesh_log_warn("bluez", "StartNotify failed: %s", error.message);
+            mapped = mesh_bluez_dbus_error_to_errno(&error);
             dbus_error_free(&error);
         }
-        return -EIO;
+        return mapped;
     }
 
     dbus_message_unref(reply);

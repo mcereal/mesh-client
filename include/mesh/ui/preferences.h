@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -8,6 +9,10 @@ extern "C" {
 
 struct mesh_ui_preferences {
     char preferred_device[64];
+    /* Which transport preferred_device names (enum mesh_ui_device_kind). Without it a BLE
+       address and a tty path are indistinguishable, and reconnecting would hand one to the
+       wrong link. */
+    uint8_t preferred_device_kind;
     char preferred_channel[64];
 };
 

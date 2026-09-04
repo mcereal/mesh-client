@@ -13,6 +13,8 @@ struct mesh_app_config mesh_app_config_default(void) {
     config.idle_timeout_ms = 1000;
     config.enable_ble = true;
     config.preferred_ble_device[0] = '\0';
+    config.enable_serial = true;
+    config.preferred_serial_device[0] = '\0';
     return config;
 }
 
@@ -33,6 +35,26 @@ static int parse_int(const char *value, int fallback) {
 static void lowercase(char *buffer) {
     for (; *buffer != '\0'; ++buffer) {
         *buffer = (char)tolower((unsigned char)*buffer);
+    }
+}
+
+/* MESHCLIENT_DISABLE_<X>: truthy turns the transport off, falsy turns it back on. */
+static void apply_disable_override(const char *env_name, const char *label, bool *enabled) {
+    const char *raw = getenv(env_name);
+    if (raw == NULL || raw[0] == '\0') {
+        return;
+    }
+
+    char value[8];
+    snprintf(value, sizeof value, "%s", raw);
+    lowercase(value);
+    if (strcmp(value, "1") == 0 || strcmp(value, "true") == 0 || strcmp(value, "yes") == 0) {
+        *enabled = false;
+    } else if (strcmp(value, "0") == 0 || strcmp(value, "false") == 0 || strcmp(value, "no") == 0) {
+        *enabled = true;
+    } else {
+        mesh_log_warn("config", "Unknown boolean '%s', keeping %s %s", raw, label,
+                      *enabled ? "enabled" : "disabled");
     }
 }
 
@@ -60,26 +82,20 @@ void mesh_app_config_apply_env_overrides(struct mesh_app_config *config) {
         config->idle_timeout_ms = parse_int(timeout_env, config->idle_timeout_ms);
     }
 
-    const char *disable_ble_env = getenv("MESHCLIENT_DISABLE_BLE");
-    if (disable_ble_env != NULL && disable_ble_env[0] != '\0') {
-        char value[8];
-        snprintf(value, sizeof value, "%s", disable_ble_env);
-        lowercase(value);
-        if (strcmp(value, "1") == 0 || strcmp(value, "true") == 0 || strcmp(value, "yes") == 0) {
-            config->enable_ble = false;
-        } else if (strcmp(value, "0") == 0 || strcmp(value, "false") == 0 ||
-                   strcmp(value, "no") == 0) {
-            config->enable_ble = true;
-        } else {
-            mesh_log_warn("config", "Unknown boolean '%s', keeping BLE %s", disable_ble_env,
-                          config->enable_ble ? "enabled" : "disabled");
-        }
-    }
+    apply_disable_override("MESHCLIENT_DISABLE_BLE", "BLE", &config->enable_ble);
+    apply_disable_override("MESHCLIENT_DISABLE_SERIAL", "serial", &config->enable_serial);
 
     const char *preferred_env = getenv("MESHCLIENT_PREFERRED_BLE_DEVICE");
     if (preferred_env != NULL) {
         strncpy(config->preferred_ble_device, preferred_env,
                 sizeof(config->preferred_ble_device) - 1U);
         config->preferred_ble_device[sizeof(config->preferred_ble_device) - 1U] = '\0';
+    }
+
+    const char *preferred_serial_env = getenv("MESHCLIENT_PREFERRED_SERIAL_DEVICE");
+    if (preferred_serial_env != NULL) {
+        strncpy(config->preferred_serial_device, preferred_serial_env,
+                sizeof(config->preferred_serial_device) - 1U);
+        config->preferred_serial_device[sizeof(config->preferred_serial_device) - 1U] = '\0';
     }
 }

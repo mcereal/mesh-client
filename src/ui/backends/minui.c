@@ -240,9 +240,15 @@ int mesh_ui_backend_minui_format_menu(const struct mesh_ui_snapshot *snapshot, c
             const char *identifier =
                 (device->identifier[0] != '\0') ? device->identifier : "<unknown>";
             char line[192];
-            int written =
-                snprintf(line, sizeof line, "%s%s [%s] (%d dBm)", device->connected ? "★ " : "",
-                         name, identifier, (int)device->rssi);
+            int written;
+            if (device->kind == (uint8_t)MESH_UI_DEVICE_SERIAL) {
+                written = snprintf(line, sizeof line, "%s%s [%s] (USB)",
+                                   device->connected ? "★ " : "", name, identifier);
+            } else {
+                written =
+                    snprintf(line, sizeof line, "%s%s [%s] (%d dBm)", device->connected ? "★ " : "",
+                             name, identifier, (int)device->rssi);
+            }
             if (written < 0 || (size_t)written >= sizeof line) {
                 return -ENOSPC;
             }
