@@ -722,6 +722,61 @@ static void mesh_ble_store_node_summary(struct mesh_ble_transport_state *state,
                    summary->short_name[0] != '\0' ? summary->short_name : summary->long_name);
 }
 
+/*
+ * Every packet a node sends us is proof it is alive now. The NodeDB sync only tells us what the
+ * radio knew at connect time, and a mesh of 130 nodes re-sorts constantly, so without this the
+ * node you are actually talking to sinks down (or off) the UI's list while it is chatting with
+ * you. A node the sync never delivered (cache full, or joined later) is added with just its id;
+ * the name follows when the radio sends its NodeInfo.
+ */
+static void mesh_ble_touch_node_from_packet(struct mesh_ble_transport_state *state,
+                                            const meshtastic_MeshPacket *packet) {
+    if (state == NULL || packet == NULL || packet->from == 0U ||
+        packet->from == MESH_MESSAGE_BROADCAST_ADDR ||
+        (state->handshake.has_my_info && packet->from == state->handshake.my_info.my_node_num)) {
+        return;
+    }
+
+    uint32_t heard = packet->has_rx_time ? packet->rx_time : 0U;
+    if (heard == 0U) {
+        /* No radio timestamp: use ours if it looks like a real clock (not 1970). */
+        const time_t now = time(NULL);
+        if (now > 1600000000) {
+            heard = (uint32_t)now;
+        }
+    }
+
+    struct mesh_ble_node_summary *summary = NULL;
+    for (size_t i = 0; i < state->handshake.node_count && i < MESH_BLE_MAX_NODE_SUMMARY; ++i) {
+        if (state->handshake.nodes[i].node_id == packet->from) {
+            summary = &state->handshake.nodes[i];
+            break;
+        }
+    }
+    if (summary == NULL) {
+        if (state->handshake.node_count >= MESH_BLE_MAX_NODE_SUMMARY) {
+            return;
+        }
+        summary = &state->handshake.nodes[state->handshake.node_count++];
+        memset(summary, 0, sizeof(*summary));
+        summary->node_id = packet->from;
+        mesh_log_info("ble", "Node 0x%08x heard before its NodeInfo; added to the cache",
+                      packet->from);
+    }
+
+    if (heard > summary->last_heard) {
+        summary->last_heard = heard;
+    }
+    if (packet->rx_snr != 0.0f) {
+        summary->snr = packet->rx_snr;
+    }
+    if (packet->hop_start != 0U && packet->hop_start >= packet->hop_limit) {
+        summary->has_hops_away = true;
+        summary->hops_away = (uint8_t)(packet->hop_start - packet->hop_limit);
+    }
+    summary->via_mqtt = packet->via_mqtt;
+}
+
 static void mesh_ble_handle_log_record(const meshtastic_LogRecord *record) {
     if (record == NULL) {
         return;
@@ -823,6 +878,7 @@ static void mesh_ble_handle_from_radio(struct mesh_ble_transport_state *state,
         }
         break;
     case meshtastic_FromRadio_packet_tag:
+        mesh_ble_touch_node_from_packet(state, &message.packet);
         mesh_message_ingest(&state->messages, &message.packet,
                             state->handshake.has_my_info ? state->handshake.my_info.my_node_num
                                                          : 0U);

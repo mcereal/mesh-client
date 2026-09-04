@@ -60,8 +60,9 @@ row (layer, space, del, send, cancel). **D-pad** moves (wrapping), **A** types, 
 space, **START** sends. L1 and R1 double as delete and space. Drafts survive leaving the
 keyboard: the Compose draft row shows what is pending.
 
-Nodes are listed most recently heard first (this radio first), so the radio you were just
-talking to is near the top of both the Nodes tab and the picker. The HUD carries the 64 most
+Nodes are listed most recently heard first (this radio first), and every packet a node sends
+refreshes its place, so the radio you were just talking to is near the top of both the Nodes
+tab and the picker even on a busy mesh. The HUD carries the 64 most
 recent; the radio's full NodeDB count is shown in the Nodes title.
 
 If the radio drops the BLE link (it happens after a few minutes idle on some firmware), the

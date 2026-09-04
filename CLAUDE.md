@@ -69,7 +69,9 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
 - `src/transport/ble/ble_transport.c` — state machine (`disabled` → `waiting-for-bluez` →
   `waiting-for-adapter` → `running`), Meshtastic service UUID filtering, the `want_config_id`
   handshake, an outbound ToRadio packet queue, FromNum-notify → FromRadio-read drain loop, and a
-  node-summary cache decoded from `FromRadio`, plus the radio's channel table (`FromRadio.channel`,
+  node-summary cache decoded from `FromRadio` (256 entries; every inbound `MeshPacket` also
+  refreshes its sender's `last_heard`/SNR/hops, adding the sender by id if the sync never
+  delivered its NodeInfo), plus the radio's channel table (`FromRadio.channel`,
   by slot, role DISABLED kept so indices stay meaningful). BLE is **not** Nordic UART and has no length
   framing: one bare protobuf per GATT write/read. `src/proto/framing.c` is for serial/TCP only.
   Nodes in PIN mode must be paired with BlueZ out of band (`bluetoothctl pair`) before connect.
@@ -172,7 +174,7 @@ via Python3 (needs `pip install protobuf grpcio-tools`).
 One harness, `tests/test_main.c`, with a `k_test_cases` table tagged by category (`unit` today;
 `integration`/`hardware` reserved). Register new cases in that table; use
 `record_failure`/`record_success`. Tests must not touch real BlueZ — use the bluez mock. New
-CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-04: 39 unit tests, all passing in
+CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-04: 40 unit tests, all passing in
 the dev container with zero compiler warnings. `message_encode_text_golden` pins the
 `TEXT_MESSAGE_APP` wire format against a hand-derived byte vector (not against our own encoder),
 so a protobuf regeneration that changes field numbers or wire types fails loudly.

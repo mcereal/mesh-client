@@ -52,8 +52,9 @@ int mesh_ble_transport_send_text(struct mesh_transport *transport, uint32_t dest
 /* Borrowed view of the inbox/outbox ring. Valid until the next transport tick. */
 const struct mesh_message_log *mesh_ble_transport_messages(struct mesh_transport *transport);
 
-/* Real meshes run past 100 nodes; keep the summary cache large enough for a full NodeDB sync. */
-#define MESH_BLE_MAX_NODE_SUMMARY 128U
+/* Real meshes run past 100 nodes (134 seen on the bench); keep the summary cache large enough
+   for a full NodeDB sync, since a node the sync drops cannot be messaged by name. */
+#define MESH_BLE_MAX_NODE_SUMMARY 256U
 
 struct mesh_ble_node_summary {
     uint32_t node_id;

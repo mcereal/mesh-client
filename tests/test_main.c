@@ -3468,6 +3468,145 @@ cleanup:
     }
 }
 
+/* A packet from a node refreshes its last_heard/SNR; one from a node the sync never delivered
+   adds it, so the UI can name and target whoever is actually talking to us. */
+static void test_ble_transport_packet_touches_node(void) {
+    const char *test_name = "ble_transport_packet_touches_node";
+    const char *failure = NULL;
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:0C", .name = "NodeTwelve", .rssi = -50},
+    };
+    uint8_t write_capture[64];
+    size_t write_len = 0U;
+
+    uint8_t read_buffers[3][160];
+    const uint8_t *read_payloads[3] = {read_buffers[0], read_buffers[1], read_buffers[2]};
+    size_t read_payload_lengths[3] = {0U, 0U, 0U};
+    size_t read_index = 0U;
+
+    meshtastic_FromRadio from_radio = meshtastic_FromRadio_init_default;
+    from_radio.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+    from_radio.node_info.num = 0x7c376ddaU;
+    from_radio.node_info.has_user = true;
+    snprintf(from_radio.node_info.user.short_name, sizeof from_radio.node_info.user.short_name,
+             "%s", "6dda");
+    from_radio.node_info.last_heard = 1000U;
+    from_radio.node_info.snr = 1.0f;
+    pb_ostream_t stream = pb_ostream_from_buffer(read_buffers[0], sizeof read_buffers[0]);
+    if (!pb_encode(&stream, meshtastic_FromRadio_fields, &from_radio)) {
+        record_failure(test_name, "encode node_info failed");
+        return;
+    }
+    read_payload_lengths[0] = stream.bytes_written;
+
+    /* A text from that node, timestamped well after the sync. */
+    from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
+    from_radio.which_payload_variant = meshtastic_FromRadio_packet_tag;
+    from_radio.packet.from = 0x7c376ddaU;
+    from_radio.packet.to = 0x11111111U;
+    from_radio.packet.id = 77U;
+    from_radio.packet.has_rx_time = true;
+    from_radio.packet.rx_time = 5000U;
+    from_radio.packet.rx_snr = 7.5f;
+    from_radio.packet.hop_start = 3U;
+    from_radio.packet.hop_limit = 2U;
+    from_radio.packet.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    from_radio.packet.decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
+    from_radio.packet.decoded.payload.size = 2U;
+    memcpy(from_radio.packet.decoded.payload.bytes, "hi", 2U);
+    stream = pb_ostream_from_buffer(read_buffers[1], sizeof read_buffers[1]);
+    if (!pb_encode(&stream, meshtastic_FromRadio_fields, &from_radio)) {
+        record_failure(test_name, "encode packet failed");
+        return;
+    }
+    read_payload_lengths[1] = stream.bytes_written;
+
+    /* A position packet from a node we never got NodeInfo for. */
+    from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
+    from_radio.which_payload_variant = meshtastic_FromRadio_packet_tag;
+    from_radio.packet.from = 0x0badf00dU;
+    from_radio.packet.to = MESH_MESSAGE_BROADCAST_ADDR;
+    from_radio.packet.id = 78U;
+    from_radio.packet.has_rx_time = true;
+    from_radio.packet.rx_time = 6000U;
+    from_radio.packet.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    from_radio.packet.decoded.portnum = meshtastic_PortNum_POSITION_APP;
+    stream = pb_ostream_from_buffer(read_buffers[2], sizeof read_buffers[2]);
+    if (!pb_encode(&stream, meshtastic_FromRadio_fields, &from_radio)) {
+        record_failure(test_name, "encode position failed");
+        return;
+    }
+    read_payload_lengths[2] = stream.bytes_written;
+
+    struct mesh_bluez_mock_config mock_config = {
+        .adapter_path = "/org/bluez/hci0",
+        .toradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_0C/service000a/char000b",
+        .fromradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_0C/service000a/char000d",
+        .fromnum_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_0C/service000a/char000f",
+        .read_payloads = read_payloads,
+        .read_payload_lengths = read_payload_lengths,
+        .read_payload_count = 3U,
+        .read_index = &read_index,
+        .devices = mock_devices,
+        .device_count = 1U,
+        .write_capture_buffer = write_capture,
+        .write_capture_capacity = sizeof(write_capture),
+        .write_capture_length = &write_len,
+    };
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    struct mesh_app_config config = mesh_app_config_default();
+    struct mesh_event_loop loop;
+    mesh_event_loop_init(&loop);
+    if (ble->ops->start(ble, &config, &loop) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+        failure = "connect should be accepted";
+        goto cleanup;
+    }
+    for (int spin = 0; spin < 20 && read_index < 4U; ++spin) {
+        ble->ops->tick(ble);
+        mesh_event_loop_run(&loop, 10);
+    }
+
+    struct mesh_ble_handshake_status status = mesh_ble_transport_handshake_status(ble);
+    if (status.node_count != 2U) {
+        failure = "expected the synced node plus the one heard without NodeInfo";
+        goto cleanup;
+    }
+    const struct mesh_ble_node_summary *known = &status.nodes[0];
+    if (known->node_id != 0x7c376ddaU || known->last_heard != 5000U || known->snr != 7.5f ||
+        !known->has_hops_away || known->hops_away != 1U || strcmp(known->short_name, "6dda") != 0) {
+        failure = "packet did not refresh the known node";
+        goto cleanup;
+    }
+    if (status.nodes[1].node_id != 0x0badf00dU || status.nodes[1].last_heard != 6000U ||
+        status.nodes[1].short_name[0] != '\0') {
+        failure = "unknown sender should be added by id";
+        goto cleanup;
+    }
+    const struct mesh_message_log *log = mesh_ble_transport_messages(ble);
+    if (log == NULL || log->count != 1U) {
+        failure = "the text should still be ingested";
+        goto cleanup;
+    }
+
+cleanup:
+    ble->ops->stop(ble);
+    mesh_event_loop_shutdown(&loop);
+    mesh_bluez_client_mock_disable();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
 static const struct test_case k_test_cases[] = {
     {"config_defaults", "unit", test_config_defaults},
     {"transport_registry_registration", "unit", test_transport_registry_registration},
@@ -3491,6 +3630,7 @@ static const struct test_case k_test_cases[] = {
     {"ble_transport_channel_decode", "unit", test_ble_transport_channel_decode},
     {"ble_transport_link_drop", "unit", test_ble_transport_link_drop},
     {"ble_transport_write_failure", "unit", test_ble_transport_write_failure},
+    {"ble_transport_packet_touches_node", "unit", test_ble_transport_packet_touches_node},
     {"ui_canned_load", "unit", test_ui_canned_load},
     {"ui_input_key_mapping", "unit", test_ui_input_key_mapping},
     {"ui_preferences_roundtrip", "unit", test_ui_preferences_roundtrip},
