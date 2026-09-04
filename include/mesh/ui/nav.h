@@ -134,6 +134,13 @@ struct mesh_ui_nav {
     uint8_t kb_col;
     uint8_t kb_layer; /* enum mesh_ui_kb_layer */
     char draft[MESH_UI_DRAFT_MAX];
+    /* Nodes tab: a node's detail is open (cursor[NODES] indexes its rows) rather than the node
+       list, whose position is parked in node_list_cursor meanwhile. The same two-level shape
+       as Settings and Messages. Opening a detail does *not* move the compose target; only the
+       detail's "Message this node" row does. */
+    bool node_detail_open;
+    uint32_t node_detail_node; /* the open node's id: the list is re-ranked under us */
+    uint32_t node_list_cursor;
     /* Settings tab: the open section (enum mesh_ui_settings_section) or NO_SECTION for the
        section list. cursor[SETTINGS] indexes whichever list is showing; the section list's
        position is parked here while a section is open. */
@@ -165,6 +172,7 @@ enum mesh_ui_action_type {
     MESH_UI_ACTION_SEND_TEXT,        /* dest/channel/text */
     MESH_UI_ACTION_REFRESH_SETTINGS, /* re-read the radio's configuration */
     MESH_UI_ACTION_SAVE_SETTINGS,    /* section + edits: write one section to the radio */
+    MESH_UI_ACTION_TOGGLE_FAVORITE,  /* dest = node to pin/unpin; `number` is 1 to pin */
 };
 
 struct mesh_ui_action {
@@ -176,6 +184,9 @@ struct mesh_ui_action {
     uint8_t kind;
     uint32_t dest;
     uint8_t channel;
+    /* TOGGLE_FAVORITE: 1 to pin, 0 to unpin. The nav reads the node's current flag and sends
+       the state it wants, so a press that races a NodeInfo cannot end up as a no-op toggle. */
+    uint32_t number;
     char text[MESH_UI_DRAFT_MAX];
     /* SAVE_SETTINGS: the section (enum mesh_ui_settings_section), the channel slot for the
        Channels section (in `channel`), and the pending edits. */

@@ -48,6 +48,53 @@ struct mesh_ui_device {
     uint8_t kind; /* enum mesh_ui_device_kind */
 };
 
+/* The node detail the Nodes tab drills into, mirroring the session's structs without nanopb.
+   Latitude and longitude stay in Meshtastic's fixed-point 1e-7 degrees. */
+struct mesh_ui_node_position {
+    bool valid;
+    int32_t latitude_i;
+    int32_t longitude_i;
+    bool has_altitude;
+    int32_t altitude;
+    uint32_t time;
+    uint8_t sats_in_view;
+    uint8_t precision_bits;
+};
+
+struct mesh_ui_node_metrics {
+    bool valid;
+    uint32_t time;
+    bool has_battery;
+    uint8_t battery_level; /* 101 means "plugged in" */
+    bool has_voltage;
+    float voltage;
+    bool has_channel_utilization;
+    float channel_utilization;
+    bool has_air_util_tx;
+    float air_util_tx;
+    bool has_uptime;
+    uint32_t uptime_seconds;
+};
+
+struct mesh_ui_node_environment {
+    bool valid;
+    uint32_t time;
+    bool has_temperature;
+    float temperature;
+    bool has_humidity;
+    float relative_humidity;
+    bool has_pressure;
+    float barometric_pressure;
+    bool has_iaq;
+    uint16_t iaq;
+    bool has_lux;
+    float lux;
+    bool has_voltage;
+    float voltage;
+    bool has_current;
+    float current;
+};
+
 struct mesh_ui_node_summary {
     uint32_t node_id;
     char long_name[40];
@@ -57,6 +104,19 @@ struct mesh_ui_node_summary {
     bool via_mqtt;
     bool has_hops_away;
     uint8_t hops_away;
+    char user_id[16];
+    uint32_t hw_model;
+    uint32_t role;
+    bool is_licensed;
+    bool is_unmessagable;
+    uint8_t public_key[32];
+    uint8_t public_key_len;
+    bool is_favorite;
+    bool is_ignored;
+    uint8_t channel;
+    struct mesh_ui_node_position position;
+    struct mesh_ui_node_metrics metrics;
+    struct mesh_ui_node_environment environment;
 };
 
 struct mesh_ui_channel {

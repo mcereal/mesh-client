@@ -74,7 +74,16 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   `FromRadio` (256 entries; every inbound `MeshPacket` also refreshes its sender's
   `last_heard`/SNR/hops, adding the sender by id if the sync never delivered its NodeInfo), the
   radio's channel table (`FromRadio.channel` by slot, role DISABLED kept so indices stay
-  meaningful), the message log, the radio settings and admin queue pump, and packet ids. A link
+  meaningful), the message log, the radio settings and admin queue pump, and packet ids.
+  `struct mesh_node_summary` is the whole node record, not just a name: identity from
+  `NodeInfo.user` (id, hw model, role, public key, licensed/unmessagable), the NodeDB flags,
+  and `position`/`metrics`/`environment` sub-structs. The NodeDB replay fills what it carries
+  and `mesh_session_apply_packet_details` keeps it current from the air - the firmware replays
+  its database exactly once per connection, so `NODEINFO_APP`, `POSITION_APP` and
+  `TELEMETRY_APP` packets are the only reason a node that joins mid-session ever gets a name
+  and the only source of environment telemetry at all (the NodeDB has none). A resync therefore
+  overwrites only what the NodeInfo actually carries rather than rebuilding the record, or it
+  would empty the detail screen every time. A link
   calls `mesh_session_attach(send_fn)` when its connection is usable, hands every FromRadio
   protobuf to `mesh_session_handle_from_radio`, calls `mesh_session_tick` each turn, and
   `mesh_session_detach`es when the link drops (handshake and settings reset, messages survive).
@@ -134,7 +143,7 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   rejection; `ingest` claims those too and counts them in `writes_acked`/`writes_failed`. The
   full channel table (`has_channel[]`/`channels[]`, keys included, never persisted) is kept
   for `set_channel`, which must carry the whole `Channel`; `get_channel_request` is index+1.
-  `MESH_ADMIN_SET_TIME` is the odd one out: `mesh_session_sync_clock` pushes the Brick's own
+  `MESH_ADMIN_SET_TIME` and the two favorite kinds are the odd ones out: `mesh_session_sync_clock` pushes the Brick's own
   `time(NULL)` at the radio once per connection (`set_time_only`, behind a `get_owner` for the
   passkey, no read-back - there is no `get_time`), so a node with no GPS stops sitting at 00:00
   and its packets carry a real `rx_time`. It is gated on `MESH_RADIO_CLOCK_MIN_EPOCH` and left
@@ -159,6 +168,26 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   reason the last attempt failed), pops a transport's `take_error()` line, toasts it when the
   user asked for the connect, and counts the attempt against the backoff. Only an established
   link clears the backoff. The `--status`/`--list-devices` paths in `main.c` do their own connect.
+- `src/ui/node_detail.c` — the Nodes tab's second level, the same list-of-rows shape Settings
+  uses: `mesh_ui_node_detail_build` emits the rows one node produces (an action, then Identity /
+  Signal / Device metrics / Position / Environment groups) and a row simply is not emitted when
+  the node has not reported it, so the count the nav walks and the list the backend draws can
+  never disagree. A opens the detail, its first row ("Message this node") opens the
+  conversation, B backs out, Y still writes from either level, and X pins the node to the top
+  of the list (`MESH_UI_ACTION_TOGGLE_FAVORITE` -> `mesh_session_set_node_favorite`, which
+  queues `set_favorite_node`/`remove_favorite_node` and flips the cached flag itself because
+  there is no get_favorite and the radio only returns the flag with that node's next NodeInfo).
+  `mesh_app_node_rank` puts a pinned node at rank 1, above even a node you are mid-conversation
+  with, which is also what keeps a quiet pinned node inside the UI's 128-node budget; the list
+  marks it with a star sprite in the same column our own node's `*` uses. The open node is remembered by
+  **id** (`nav.node_detail_node`), not by row: `app.c` re-ranks the node list on every publish,
+  so an index would slide onto a different node while the user was reading one; `nav.c`'s clamp
+  closes the detail when that id leaves the list. `mesh_ui_node_summary` in `store.h` is the
+  nanopb-free twin of the session's record, copied by `mesh_app_copy_node_detail` in `app.c` -
+  field by field on purpose, because nothing else keeps the two declarations in step. The whole
+  detail rides in the handshake cache as its own `node_user[i]`/`node_ident[i]`/`node_key[i]`/
+  `node_pos[i]`/`node_metrics[i]`/`node_env[i]` key lines, so it is both browsable offline and
+  compatible in either direction with a build that knows nothing about it.
 - `src/ui/settings.c` — the Settings tab as data: sections → items (label, formatted value,
   kind, and for editable rows a `field` id). Backends draw the list; `nav.c` walks it
   (`settings_section` open or `MESH_UI_SETTINGS_NO_SECTION`, X yields
@@ -207,9 +236,10 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   thread clears its badge and a message landing in the thread you are sitting in never raises
   one; the all-traffic view marks nothing (it is a view, not a conversation) and its badge is
   the sum of the rest. **Only opening a thread
-  moves the target** - the Nodes tab opens the node's conversation rather than retargeting what
-  Messages was showing, and Compose is an overlay (`compose_open`) over the open thread rather
-  than a tab, so it can never be reached with a stale destination. The on-screen keyboard is
+  moves the target** - the Nodes tab opens the node's *detail*, and only that detail's message
+  row opens a conversation, rather than retargeting what Messages was showing, and Compose is
+  an overlay (`compose_open`) over the open thread rather than a tab, so it can never be
+  reached with a stale destination. The on-screen keyboard is
   `keyboard_open` plus `kb_row/kb_col/kb_layer` and `draft`, all in the nav; while it is open
   every key goes to the keyboard handler and tabs do not switch. The `picker_open` overlay
   ("New message") works the same way; its rows come from `mesh_ui_nav_picker_row` (channels,

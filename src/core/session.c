@@ -10,6 +10,8 @@
 
 #include "meshtastic/channel.pb.h"
 #include "meshtastic/mesh.pb.h"
+#include "meshtastic/portnums.pb.h"
+#include "meshtastic/telemetry.pb.h"
 
 #include <errno.h>
 #include <inttypes.h>
@@ -135,52 +137,162 @@ int mesh_session_begin_handshake(struct mesh_session *session) {
     return 0;
 }
 
-static void mesh_session_store_node_summary(struct mesh_session *session,
-                                            const meshtastic_NodeInfo *info) {
+static bool mesh_session_node_known(const struct mesh_session *session, uint32_t node_id) {
+    const struct mesh_handshake_status *handshake = &session->handshake;
+    for (size_t i = 0; i < handshake->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+        if (handshake->nodes[i].node_id == node_id) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* The node's entry in the cache, adding it if it is new. NULL only when the cache is full. */
+static struct mesh_node_summary *mesh_session_node_slot(struct mesh_session *session,
+                                                        uint32_t node_id) {
     struct mesh_handshake_status *handshake = &session->handshake;
     if (handshake->node_count > MESH_SESSION_MAX_NODES) {
         handshake->node_count = MESH_SESSION_MAX_NODES;
     }
 
-    size_t index = handshake->node_count;
     for (size_t i = 0; i < handshake->node_count; ++i) {
-        if (handshake->nodes[i].node_id == info->num) {
-            index = i;
-            break;
+        if (handshake->nodes[i].node_id == node_id) {
+            return &handshake->nodes[i];
         }
     }
 
-    if (index == handshake->node_count) {
-        if (handshake->node_count >= MESH_SESSION_MAX_NODES) {
-            if (!session->node_cache_warned) {
-                mesh_log_warn("session",
-                              "Node cache full (%u); further nodes dropped for this sync",
-                              (unsigned)MESH_SESSION_MAX_NODES);
-                session->node_cache_warned = true;
-            }
-            return;
+    if (handshake->node_count >= MESH_SESSION_MAX_NODES) {
+        if (!session->node_cache_warned) {
+            mesh_log_warn("session", "Node cache full (%u); further nodes dropped for this sync",
+                          (unsigned)MESH_SESSION_MAX_NODES);
+            session->node_cache_warned = true;
         }
-        handshake->node_count += 1U;
+        return NULL;
     }
 
-    struct mesh_node_summary *summary = &handshake->nodes[index];
+    struct mesh_node_summary *summary = &handshake->nodes[handshake->node_count++];
     memset(summary, 0, sizeof *summary);
-    summary->node_id = info->num;
-    summary->last_heard = info->last_heard;
+    summary->node_id = node_id;
+    return summary;
+}
+
+/*
+ * The identity half of a node record. Reached from two directions: NodeInfo during the NodeDB
+ * sync, and a NODEINFO_APP packet when a node introduces itself over the air afterwards - the
+ * firmware only replays the database once per connection, so without the packet path a node
+ * that joins mid-session stays a bare id forever.
+ */
+static void mesh_session_apply_user(struct mesh_node_summary *summary,
+                                    const meshtastic_User *user) {
+    /* Names are chosen by whoever owns that node, so they are untrusted radio input just like
+       message bodies: sanitise them here rather than at each of the several places that draw
+       or serialise them. A plain snprintf would also happily cut a multi-byte character in
+       half at the field boundary, which matters because Meshtastic short names are routinely a
+       single four-byte emoji. */
+    mesh_text_sanitise_str(user->long_name, summary->long_name, sizeof summary->long_name);
+    mesh_text_sanitise_str(user->short_name, summary->short_name, sizeof summary->short_name);
+    mesh_text_sanitise_str(user->id, summary->user_id, sizeof summary->user_id);
+    summary->hw_model = (uint32_t)user->hw_model;
+    summary->role = (uint32_t)user->role;
+    summary->is_licensed = user->is_licensed;
+    summary->is_unmessagable = user->has_is_unmessagable && user->is_unmessagable;
+
+    summary->public_key_len = 0U;
+    if (user->public_key.size > 0U && user->public_key.size <= sizeof summary->public_key) {
+        memcpy(summary->public_key, user->public_key.bytes, user->public_key.size);
+        summary->public_key_len = (uint8_t)user->public_key.size;
+    }
+}
+
+static void mesh_session_apply_position(struct mesh_node_summary *summary,
+                                        const meshtastic_Position *position) {
+    /* A Position with neither coordinate is a time-only or precision-only broadcast; keeping
+       the last real fix beats replacing it with 0,0 in the Gulf of Guinea. */
+    if (!position->has_latitude_i || !position->has_longitude_i) {
+        return;
+    }
+    summary->position.valid = true;
+    summary->position.latitude_i = position->latitude_i;
+    summary->position.longitude_i = position->longitude_i;
+    summary->position.has_altitude = position->has_altitude;
+    summary->position.altitude = position->altitude;
+    summary->position.time = position->time;
+    summary->position.sats_in_view =
+        (uint8_t)(position->sats_in_view > 255U ? 255U : position->sats_in_view);
+    summary->position.precision_bits =
+        (uint8_t)(position->precision_bits > 255U ? 255U : position->precision_bits);
+}
+
+static void mesh_session_apply_device_metrics(struct mesh_node_summary *summary,
+                                              const meshtastic_DeviceMetrics *metrics,
+                                              uint32_t heard) {
+    summary->metrics.valid = true;
+    summary->metrics.time = heard;
+    summary->metrics.has_battery = metrics->has_battery_level;
+    summary->metrics.battery_level =
+        (uint8_t)(metrics->battery_level > 255U ? 255U : metrics->battery_level);
+    summary->metrics.has_voltage = metrics->has_voltage;
+    summary->metrics.voltage = metrics->voltage;
+    summary->metrics.has_channel_utilization = metrics->has_channel_utilization;
+    summary->metrics.channel_utilization = metrics->channel_utilization;
+    summary->metrics.has_air_util_tx = metrics->has_air_util_tx;
+    summary->metrics.air_util_tx = metrics->air_util_tx;
+    summary->metrics.has_uptime = metrics->has_uptime_seconds;
+    summary->metrics.uptime_seconds = metrics->uptime_seconds;
+}
+
+static void mesh_session_apply_environment(struct mesh_node_summary *summary,
+                                           const meshtastic_EnvironmentMetrics *env,
+                                           uint32_t heard) {
+    summary->environment.valid = true;
+    summary->environment.time = heard;
+    summary->environment.has_temperature = env->has_temperature;
+    summary->environment.temperature = env->temperature;
+    summary->environment.has_humidity = env->has_relative_humidity;
+    summary->environment.relative_humidity = env->relative_humidity;
+    summary->environment.has_pressure = env->has_barometric_pressure;
+    summary->environment.barometric_pressure = env->barometric_pressure;
+    summary->environment.has_iaq = env->has_iaq;
+    summary->environment.iaq = (uint16_t)env->iaq;
+    summary->environment.has_lux = env->has_lux;
+    summary->environment.lux = env->lux;
+    summary->environment.has_voltage = env->has_voltage;
+    summary->environment.voltage = env->voltage;
+    summary->environment.has_current = env->has_current;
+    summary->environment.current = env->current;
+}
+
+static void mesh_session_store_node_summary(struct mesh_session *session,
+                                            const meshtastic_NodeInfo *info) {
+    struct mesh_node_summary *summary = mesh_session_node_slot(session, info->num);
+    if (summary == NULL) {
+        return;
+    }
+
+    /*
+     * A resync replaces what the radio knows, but the radio's NodeDB does not carry environment
+     * telemetry, and it may send a NodeInfo with no position or metrics for a node we have
+     * already heard both from. Overwriting only what this NodeInfo actually carries keeps the
+     * detail screen from emptying itself every time the database is replayed.
+     */
+    summary->last_heard =
+        info->last_heard > summary->last_heard ? info->last_heard : summary->last_heard;
     summary->snr = info->snr;
     summary->via_mqtt = info->via_mqtt;
     summary->has_hops_away = info->has_hops_away;
     summary->hops_away = info->hops_away;
+    summary->is_favorite = info->is_favorite;
+    summary->is_ignored = info->is_ignored;
+    summary->channel = (uint8_t)info->channel;
 
     if (info->has_user) {
-        /* Names are chosen by whoever owns that node, so they are untrusted radio input just
-           like message bodies: sanitise them here rather than at each of the several places
-           that draw or serialise them. A plain snprintf would also happily cut a multi-byte
-           character in half at the field boundary, which matters because Meshtastic short
-           names are routinely a single four-byte emoji. */
-        mesh_text_sanitise_str(info->user.long_name, summary->long_name, sizeof summary->long_name);
-        mesh_text_sanitise_str(info->user.short_name, summary->short_name,
-                               sizeof summary->short_name);
+        mesh_session_apply_user(summary, &info->user);
+    }
+    if (info->has_position) {
+        mesh_session_apply_position(summary, &info->position);
+    }
+    if (info->has_device_metrics) {
+        mesh_session_apply_device_metrics(summary, &info->device_metrics, info->last_heard);
     }
 
     mesh_log_debug("session", "Cached node %u (%s) last_heard=%u%s", summary->node_id,
@@ -212,20 +324,12 @@ static void mesh_session_touch_node_from_packet(struct mesh_session *session,
         }
     }
 
-    struct mesh_node_summary *summary = NULL;
-    for (size_t i = 0; i < handshake->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
-        if (handshake->nodes[i].node_id == packet->from) {
-            summary = &handshake->nodes[i];
-            break;
-        }
-    }
+    const bool known = mesh_session_node_known(session, packet->from);
+    struct mesh_node_summary *summary = mesh_session_node_slot(session, packet->from);
     if (summary == NULL) {
-        if (handshake->node_count >= MESH_SESSION_MAX_NODES) {
-            return;
-        }
-        summary = &handshake->nodes[handshake->node_count++];
-        memset(summary, 0, sizeof *summary);
-        summary->node_id = packet->from;
+        return;
+    }
+    if (!known) {
         mesh_log_info("session", "Node 0x%08x heard before its NodeInfo; added to the cache",
                       packet->from);
     }
@@ -241,6 +345,88 @@ static void mesh_session_touch_node_from_packet(struct mesh_session *session,
         summary->hops_away = (uint8_t)(packet->hop_start - packet->hop_limit);
     }
     summary->via_mqtt = packet->via_mqtt;
+}
+
+/*
+ * The other half of a node's record, off the air rather than out of the NodeDB. The firmware
+ * replays its database exactly once per connection, so everything that happens afterwards - a
+ * node joining, a battery draining, a tracker moving - only reaches us as one of these three
+ * app payloads. Without this the detail screen would show whatever was true at connect time
+ * and then quietly rot for the rest of the session.
+ *
+ * Unlike the last_heard touch above this runs for our own node too: our node broadcasts its
+ * own position and telemetry like any other, and it is the one node whose battery the user can
+ * do something about.
+ */
+static void mesh_session_apply_packet_details(struct mesh_session *session,
+                                              const meshtastic_MeshPacket *packet) {
+    if (packet->from == 0U || packet->from == MESH_MESSAGE_BROADCAST_ADDR ||
+        packet->which_payload_variant != meshtastic_MeshPacket_decoded_tag) {
+        return;
+    }
+
+    const meshtastic_Data *data = &packet->decoded;
+    if (data->portnum != meshtastic_PortNum_NODEINFO_APP &&
+        data->portnum != meshtastic_PortNum_POSITION_APP &&
+        data->portnum != meshtastic_PortNum_TELEMETRY_APP) {
+        return;
+    }
+
+    uint32_t heard = packet->has_rx_time ? packet->rx_time : 0U;
+    if (heard == 0U) {
+        const time_t now = time(NULL);
+        if (now > 1600000000) {
+            heard = (uint32_t)now;
+        }
+    }
+
+    struct mesh_node_summary *summary = mesh_session_node_slot(session, packet->from);
+    if (summary == NULL) {
+        return;
+    }
+
+    pb_istream_t stream = pb_istream_from_buffer(data->payload.bytes, data->payload.size);
+    switch (data->portnum) {
+    case meshtastic_PortNum_NODEINFO_APP: {
+        meshtastic_User user = meshtastic_User_init_default;
+        if (!pb_decode(&stream, meshtastic_User_fields, &user)) {
+            mesh_log_debug("session", "Bad NODEINFO_APP from 0x%08x: %s", packet->from,
+                           PB_GET_ERROR(&stream));
+            return;
+        }
+        mesh_session_apply_user(summary, &user);
+        mesh_log_debug("session", "Node 0x%08x introduced itself as %s", packet->from,
+                       summary->short_name[0] != '\0' ? summary->short_name : summary->long_name);
+        break;
+    }
+    case meshtastic_PortNum_POSITION_APP: {
+        meshtastic_Position position = meshtastic_Position_init_default;
+        if (!pb_decode(&stream, meshtastic_Position_fields, &position)) {
+            mesh_log_debug("session", "Bad POSITION_APP from 0x%08x: %s", packet->from,
+                           PB_GET_ERROR(&stream));
+            return;
+        }
+        mesh_session_apply_position(summary, &position);
+        break;
+    }
+    case meshtastic_PortNum_TELEMETRY_APP: {
+        meshtastic_Telemetry telemetry = meshtastic_Telemetry_init_default;
+        if (!pb_decode(&stream, meshtastic_Telemetry_fields, &telemetry)) {
+            mesh_log_debug("session", "Bad TELEMETRY_APP from 0x%08x: %s", packet->from,
+                           PB_GET_ERROR(&stream));
+            return;
+        }
+        const uint32_t stamp = telemetry.time != 0U ? telemetry.time : heard;
+        if (telemetry.which_variant == meshtastic_Telemetry_device_metrics_tag) {
+            mesh_session_apply_device_metrics(summary, &telemetry.variant.device_metrics, stamp);
+        } else if (telemetry.which_variant == meshtastic_Telemetry_environment_metrics_tag) {
+            mesh_session_apply_environment(summary, &telemetry.variant.environment_metrics, stamp);
+        }
+        break;
+    }
+    default:
+        break;
+    }
 }
 
 static void mesh_session_handle_log_record(const meshtastic_LogRecord *record) {
@@ -369,6 +555,7 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
             break;
         }
         mesh_session_touch_node_from_packet(session, &message.packet);
+        mesh_session_apply_packet_details(session, &message.packet);
         mesh_message_ingest(&session->messages, &message.packet,
                             handshake->has_my_info ? handshake->my_info.my_node_num : 0U);
         break;
@@ -564,6 +751,38 @@ int mesh_session_write_settings(struct mesh_session *session,
         mesh_log_info("session", "Queued settings write kind=%u type=%u (%d requests)",
                       (unsigned)write->kind, (unsigned)write->type, queued);
     }
+    return queued;
+}
+
+int mesh_session_set_node_favorite(struct mesh_session *session, uint32_t node_id, bool favorite) {
+    if (session == NULL || node_id == 0U) {
+        return -EINVAL;
+    }
+    if (session->send == NULL || !session->handshake.has_my_info) {
+        return -ENOTCONN;
+    }
+
+    struct mesh_node_summary *summary = NULL;
+    for (size_t i = 0; i < session->handshake.node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+        if (session->handshake.nodes[i].node_id == node_id) {
+            summary = &session->handshake.nodes[i];
+            break;
+        }
+    }
+    if (summary == NULL) {
+        return -ENOENT;
+    }
+    if (summary->is_favorite == favorite) {
+        return 0; /* already what the user asked for; nothing to send */
+    }
+
+    const int queued = mesh_radio_settings_queue_favorite(&session->settings, node_id, favorite);
+    if (queued < 0) {
+        return queued;
+    }
+    summary->is_favorite = favorite;
+    mesh_log_info("session", "%s node 0x%08x in the NodeDB (%d requests)",
+                  favorite ? "Pinned" : "Unpinned", node_id, queued);
     return queued;
 }
 

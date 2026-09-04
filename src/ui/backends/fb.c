@@ -10,6 +10,7 @@
 #include "mesh/ui/font5x7.h"
 #include "mesh/ui/input.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/node_detail.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
 
@@ -724,9 +725,90 @@ static void fb_render_thread(const struct mesh_ui_backend_fb_state *state,
     fb_draw_wrapped(state, y, selected->text, layout->cols, detail_lines - 1, k_text);
 }
 
+/*
+ * One node's detail: the same list-of-rows shape the Settings tab draws, so the two screens
+ * scroll and clip identically. Headings are dimmed and get no value column; the action row
+ * carries the "> " marker an editable settings row uses, for the same reason - it is the only
+ * thing on the screen A does anything to.
+ */
+static void fb_render_node_detail(const struct mesh_ui_backend_fb_state *state,
+                                  const struct mesh_ui_snapshot *snapshot,
+                                  struct fb_layout *layout) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
+    const struct mesh_ui_node_summary *node = mesh_ui_node_detail_find(hs, nav->node_detail_node);
+    if (node == NULL) {
+        fb_draw_title(state, layout, "Nodes");
+        fb_draw_empty(state, layout, "That node is no longer in the list.");
+        return;
+    }
+
+    const bool is_self = hs->has_my_info && node->node_id == hs->my_info.node_num;
+    char title[96];
+    const char *name = node->long_name[0] != '\0'    ? node->long_name
+                       : node->short_name[0] != '\0' ? node->short_name
+                                                     : NULL;
+    if (name != NULL) {
+        snprintf(title, sizeof title, "Nodes > %s", name);
+    } else {
+        snprintf(title, sizeof title, "Nodes > !%08x", node->node_id);
+    }
+    fb_draw_title(state, layout, title);
+
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    const uint32_t count = mesh_ui_node_detail_build(node, is_self, (uint32_t)time(NULL), items,
+                                                     MESH_UI_NODE_ITEMS_MAX);
+    if (count == 0U) {
+        fb_draw_empty(state, layout, "Nothing reported for this node yet.");
+        return;
+    }
+
+    const uint32_t cursor =
+        nav->cursor[MESH_UI_SCREEN_NODES] < count ? nav->cursor[MESH_UI_SCREEN_NODES] : count - 1U;
+    const uint32_t first = fb_first_visible(cursor, count, layout->rows);
+
+    size_t label_cols = 16U;
+    if (layout->cols < 40U) {
+        label_cols = layout->cols / 2U;
+    }
+
+    int y = layout->body_y;
+    char line[160];
+    for (uint32_t i = first; i < count && i < first + layout->rows; ++i) {
+        const struct mesh_ui_node_item *item = &items[i];
+        struct fb_rgb color = k_text;
+        if (item->kind == MESH_UI_NODE_ROW_HEADING) {
+            snprintf(line, sizeof line, "%s", item->label);
+            color = k_dim;
+        } else if (item->kind == MESH_UI_NODE_ROW_ACTION) {
+            snprintf(line, sizeof line, "> %s", item->label);
+            color = k_accent;
+        } else {
+            /* Pad by columns, not bytes: a name or short name in the value can be emoji. */
+            snprintf(line, sizeof line, "%s", item->label);
+            for (size_t width = fb_width(line); width < label_cols; ++width) {
+                const size_t used = strlen(line);
+                if (used + 2U >= sizeof line) {
+                    break;
+                }
+                line[used] = ' ';
+                line[used + 1U] = '\0';
+            }
+            snprintf(line + strlen(line), sizeof line - strlen(line), "  %s", item->value);
+        }
+        fb_fit(line, layout->cols);
+        fb_draw_row(state, y, line, color, i == cursor);
+        y += layout->line;
+    }
+}
+
 static void fb_render_nodes(const struct mesh_ui_backend_fb_state *state,
                             const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
+    if (nav->node_detail_open) {
+        fb_render_node_detail(state, snapshot, layout);
+        return;
+    }
     if (!snapshot->handshake_valid || snapshot->handshake.node_count == 0U) {
         fb_draw_title(state, layout, "Nodes");
         fb_draw_empty(state, layout,
@@ -772,10 +854,15 @@ static void fb_render_nodes(const struct mesh_ui_backend_fb_state *state,
         /* Left part is clipped so the right-aligned metrics always fit. */
         const size_t right_len = fb_width(right);
         size_t left_cols = layout->cols > right_len + 1U ? layout->cols - right_len - 1U : 8U;
+        /* The marker column: ourselves, then pinned. A star sprite rather than an ASCII
+           stand-in because the row is already measured in cells and drawn through the emoji
+           walker, so it costs one column exactly like the '*' does. */
+        const char *marker = (me != 0U && node->node_id == me) ? "*"
+                             : node->is_favorite               ? "\xE2\xAD\x90"
+                                                               : " ";
         /* "%-4s" pads to four bytes, so an emoji short name - four bytes, one column - comes
            out of it a column wide instead of four. Pad the field by columns instead. */
-        snprintf(line, sizeof line, "%c%s", (me != 0U && node->node_id == me) ? '*' : ' ',
-                 short_name);
+        snprintf(line, sizeof line, "%s%s", marker, short_name);
         for (size_t width = fb_width(short_name); width < 4U; ++width) {
             const size_t used = strlen(line);
             if (used + 2U >= sizeof line) {
@@ -1238,7 +1325,8 @@ static void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
         }
         break;
     case MESH_UI_SCREEN_NODES:
-        hint = "A open conversation  Y write  L/R tabs";
+        hint = snapshot->nav.node_detail_open ? "A select  B back  X pin  Y write  L/R tabs"
+                                              : "A open node  X pin  Y write  L/R tabs";
         fb_render_nodes(state, snapshot, &layout);
         break;
     case MESH_UI_SCREEN_DEVICES:

@@ -40,6 +40,8 @@ enum mesh_admin_request_kind {
     MESH_ADMIN_GET_CHANNEL,       /* type = channel index (sent as index + 1 on the wire) */
     MESH_ADMIN_SET_CHANNEL,       /* type = channel index; payload.channel */
     MESH_ADMIN_SET_TIME,          /* type = UTC epoch seconds; no payload, nothing to read back */
+    MESH_ADMIN_SET_FAVORITE,      /* type = node number to pin in the radio's NodeDB */
+    MESH_ADMIN_REMOVE_FAVORITE,   /* type = node number to unpin */
 };
 
 struct mesh_admin_request {
@@ -57,11 +59,13 @@ struct mesh_admin_request {
     } payload;
 };
 
-/* True for the SET_* kinds the user asks for, which are counted and announced.
+/* True for the SET_* kinds the Settings tab asks for, which are counted and announced.
    MESH_ADMIN_SET_TIME is deliberately not one of them: the clock is pushed by itself on every
    connect, and it must not toast "saved" or occupy the ", saving" marker the user's own save
    owns. It is still acked by a Routing reply like any other set_*; that reply just releases
-   the queue without touching the counters. */
+   the queue without touching the counters. The favorite kinds are out for the same reason -
+   they are a press on the Nodes tab, not a settings section, and must not make the Settings
+   tab claim an unsaved write is in flight. */
 bool mesh_admin_request_is_write(enum mesh_admin_request_kind kind);
 
 /* last_write_error when the radio never answered a set_*. Routing errors are positive. */
@@ -182,6 +186,12 @@ int mesh_radio_settings_queue_write(struct mesh_radio_settings *settings,
    requests queued, -EINVAL for an epoch below MESH_RADIO_CLOCK_MIN_EPOCH, -ENOSPC when the
    queue cannot take both. */
 int mesh_radio_settings_queue_time(struct mesh_radio_settings *settings, uint32_t epoch);
+
+/* Pins or unpins a node in the radio's NodeDB, the same shape as the clock push: a get_owner
+   for a fresh passkey, then the set. There is no get_favorite to read back with - the flag
+   comes home on the next NodeInfo for that node, so the caller updates its own copy. */
+int mesh_radio_settings_queue_favorite(struct mesh_radio_settings *settings, uint32_t node_id,
+                                       bool favorite);
 
 /* True while a set_* is queued or awaiting its reply. */
 bool mesh_radio_settings_write_pending(const struct mesh_radio_settings *settings);

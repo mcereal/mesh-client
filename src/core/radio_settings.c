@@ -334,6 +334,20 @@ int mesh_radio_settings_encode_request(const struct mesh_radio_settings *setting
         admin.which_payload_variant = meshtastic_AdminMessage_set_time_only_tag;
         admin.set_time_only = request->type;
         break;
+    case MESH_ADMIN_SET_FAVORITE:
+        if (request->type == 0U) {
+            return -EINVAL;
+        }
+        admin.which_payload_variant = meshtastic_AdminMessage_set_favorite_node_tag;
+        admin.set_favorite_node = request->type;
+        break;
+    case MESH_ADMIN_REMOVE_FAVORITE:
+        if (request->type == 0U) {
+            return -EINVAL;
+        }
+        admin.which_payload_variant = meshtastic_AdminMessage_remove_favorite_node_tag;
+        admin.remove_favorite_node = request->type;
+        break;
     default:
         return -EINVAL;
     }
@@ -453,6 +467,28 @@ int mesh_radio_settings_queue_write(struct mesh_radio_settings *settings,
     settings->queue_len += 1U;
     added += 1U;
     added += mesh_radio_settings_enqueue(settings, readback, write->type);
+    return (int)added;
+}
+
+int mesh_radio_settings_queue_favorite(struct mesh_radio_settings *settings, uint32_t node_id,
+                                       bool favorite) {
+    if (settings == NULL || node_id == 0U) {
+        return -EINVAL;
+    }
+    const enum mesh_admin_request_kind kind =
+        favorite ? MESH_ADMIN_SET_FAVORITE : MESH_ADMIN_REMOVE_FAVORITE;
+    /* Same shape as the clock push: a get_owner first for a passkey the firmware will still
+       accept, then the set. Nothing to read back - there is no get_favorite, and the flag
+       returns with the node's next NodeInfo. The node id rides in `type`, so pinning two
+       different nodes queues two requests rather than looking like a duplicate. */
+    const size_t needed =
+        (mesh_radio_settings_queued(settings, MESH_ADMIN_GET_OWNER, 0U) ? 0U : 1U) +
+        (mesh_radio_settings_queued(settings, kind, node_id) ? 0U : 1U);
+    if (settings->queue_len + needed > MESH_RADIO_SETTINGS_FETCH_MAX) {
+        return -ENOSPC;
+    }
+    size_t added = mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_OWNER, 0U);
+    added += mesh_radio_settings_enqueue(settings, kind, node_id);
     return (int)added;
 }
 

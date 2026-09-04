@@ -53,6 +53,7 @@ add_library(meshclient_core
     src/ui/input.c
     src/ui/nav.c
     src/ui/settings.c
+    src/ui/node_detail.c
     src/ui/backends/stub.c
     src/ui/backends/cli.c
     src/ui/backends/minui.c

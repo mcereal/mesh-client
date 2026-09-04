@@ -673,6 +673,10 @@ static void mesh_app_track_settings_save(struct mesh_app *app,
 }
 
 /* What the navigation model cannot do by itself: talk to the radio. */
+/* Defined below, next to the publish path it was written for. */
+static void mesh_app_format_peer_name(const struct mesh_handshake_status *status, uint32_t node_id,
+                                      char *out, size_t out_len);
+
 static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) {
     struct mesh_app *app = (struct mesh_app *)userdata;
     if (app == NULL || action == NULL) {
@@ -758,6 +762,30 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
             return;
         }
         mesh_app_save_settings(app, action, now);
+        return;
+    }
+    case MESH_UI_ACTION_TOGGLE_FAVORITE: {
+        const bool favorite = (action->number != 0U);
+        char name[MESH_UI_NAV_TARGET_NAME_MAX];
+        mesh_app_format_peer_name(mesh_session_handshake(&app->session), action->dest, name,
+                                  sizeof name);
+        const int result = mesh_session_set_node_favorite(&app->session, action->dest, favorite);
+        if (result > 0) {
+            snprintf(toast, sizeof toast, "%s %.20s", favorite ? "Pinned" : "Unpinned", name);
+            mesh_log_info("ui", "%s node 0x%08x from the Nodes tab",
+                          favorite ? "Pinned" : "Unpinned", action->dest);
+        } else if (result == 0) {
+            snprintf(toast, sizeof toast, "%.20s is already %s", name,
+                     favorite ? "pinned" : "unpinned");
+        } else if (result == -ENOTCONN) {
+            snprintf(toast, sizeof toast, "%s", "Not connected to a node");
+        } else if (result == -ENOENT) {
+            snprintf(toast, sizeof toast, "%s", "That node is no longer in the list");
+        } else {
+            snprintf(toast, sizeof toast, "Pin failed (%d)", result);
+            mesh_log_warn("ui", "Favorite for 0x%08x failed: %d", action->dest, result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
         return;
     }
     case MESH_UI_ACTION_NONE:
@@ -921,11 +949,62 @@ static void mesh_app_format_peer_name(const struct mesh_handshake_status *status
     snprintf(out, out_len, "!%08x", node_id);
 }
 
+/* Position, device metrics and environment, from the session's structs into the UI's twins.
+   Field by field rather than a memcpy: the two declarations are deliberately independent (the
+   UI half must stay free of nanopb), so nothing but this function keeps them in step. */
+static void mesh_app_copy_node_detail(const struct mesh_node_summary *src,
+                                      struct mesh_ui_node_summary *dst) {
+    dst->position.valid = src->position.valid;
+    dst->position.latitude_i = src->position.latitude_i;
+    dst->position.longitude_i = src->position.longitude_i;
+    dst->position.has_altitude = src->position.has_altitude;
+    dst->position.altitude = src->position.altitude;
+    dst->position.time = src->position.time;
+    dst->position.sats_in_view = src->position.sats_in_view;
+    dst->position.precision_bits = src->position.precision_bits;
+
+    dst->metrics.valid = src->metrics.valid;
+    dst->metrics.time = src->metrics.time;
+    dst->metrics.has_battery = src->metrics.has_battery;
+    dst->metrics.battery_level = src->metrics.battery_level;
+    dst->metrics.has_voltage = src->metrics.has_voltage;
+    dst->metrics.voltage = src->metrics.voltage;
+    dst->metrics.has_channel_utilization = src->metrics.has_channel_utilization;
+    dst->metrics.channel_utilization = src->metrics.channel_utilization;
+    dst->metrics.has_air_util_tx = src->metrics.has_air_util_tx;
+    dst->metrics.air_util_tx = src->metrics.air_util_tx;
+    dst->metrics.has_uptime = src->metrics.has_uptime;
+    dst->metrics.uptime_seconds = src->metrics.uptime_seconds;
+
+    dst->environment.valid = src->environment.valid;
+    dst->environment.time = src->environment.time;
+    dst->environment.has_temperature = src->environment.has_temperature;
+    dst->environment.temperature = src->environment.temperature;
+    dst->environment.has_humidity = src->environment.has_humidity;
+    dst->environment.relative_humidity = src->environment.relative_humidity;
+    dst->environment.has_pressure = src->environment.has_pressure;
+    dst->environment.barometric_pressure = src->environment.barometric_pressure;
+    dst->environment.has_iaq = src->environment.has_iaq;
+    dst->environment.iaq = src->environment.iaq;
+    dst->environment.has_lux = src->environment.has_lux;
+    dst->environment.lux = src->environment.lux;
+    dst->environment.has_voltage = src->environment.has_voltage;
+    dst->environment.voltage = src->environment.voltage;
+    dst->environment.has_current = src->environment.has_current;
+    dst->environment.current = src->environment.current;
+}
+
 /* Lower is more important; see the ranking comment in mesh_app_publish_ui_state(). */
 static unsigned mesh_app_node_rank(const struct mesh_node_summary *node, uint32_t my_node,
                                    const struct mesh_message_log *log) {
     if (my_node != 0U && node->node_id == my_node) {
         return 0U;
+    }
+    /* A pinned node outranks even someone you are mid-conversation with: pinning is the user
+       saying "keep this one where I can see it", and it is also what keeps a quiet node inside
+       the UI's 128-node budget when the mesh is busy. */
+    if (node->is_favorite) {
+        return 1U;
     }
     if (log != NULL) {
         for (size_t i = 0; i < log->count; ++i) {
@@ -934,11 +1013,11 @@ static unsigned mesh_app_node_rank(const struct mesh_node_summary *node, uint32_
                 continue;
             }
             if (message->from == node->node_id || message->to == node->node_id) {
-                return 1U;
+                return 2U;
             }
         }
     }
-    return node->via_mqtt ? 3U : 2U;
+    return node->via_mqtt ? 4U : 3U;
 }
 
 /* Copies the newest MESH_UI_MAX_MESSAGES entries out of the transport ring into the store,
@@ -1337,6 +1416,19 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             dst->via_mqtt = src->via_mqtt;
             dst->has_hops_away = src->has_hops_away;
             dst->hops_away = src->hops_away;
+            snprintf(dst->user_id, sizeof(dst->user_id), "%s", src->user_id);
+            dst->hw_model = src->hw_model;
+            dst->role = src->role;
+            dst->is_licensed = src->is_licensed;
+            dst->is_unmessagable = src->is_unmessagable;
+            dst->public_key_len = src->public_key_len > sizeof(dst->public_key)
+                                      ? (uint8_t)sizeof(dst->public_key)
+                                      : src->public_key_len;
+            memcpy(dst->public_key, src->public_key, dst->public_key_len);
+            dst->is_favorite = src->is_favorite;
+            dst->is_ignored = src->is_ignored;
+            dst->channel = src->channel;
+            mesh_app_copy_node_detail(src, dst);
         }
         ui_handshake.node_count = (uint32_t)copy_count;
 
