@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mesh/mesh_message.h"
+#include "mesh/radio_settings.h"
 #include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/transport.h"
 #include "meshtastic/mesh.pb.h"
@@ -75,6 +76,10 @@ struct mesh_ble_channel_summary {
     uint8_t index;
     uint8_t role; /* meshtastic_Channel_Role */
     char name[12];
+    uint8_t psk_len; /* 0 none, 1 default-key index, 16 AES-128, 32 AES-256 */
+    bool uplink_enabled;
+    bool downlink_enabled;
+    uint32_t position_precision;
 };
 
 struct mesh_ble_handshake_status {
@@ -95,6 +100,15 @@ struct mesh_ble_handshake_status {
 
 struct mesh_ble_handshake_status
 mesh_ble_transport_handshake_status(struct mesh_transport *transport);
+
+/* Borrowed view of the connected radio's configuration (Config/ModuleConfig sections,
+   owner, metadata, admin session). Reset with the handshake on every (re)connect. Valid
+   until the next transport tick. */
+const struct mesh_radio_settings *mesh_ble_transport_settings(struct mesh_transport *transport);
+
+/* Re-reads every section the Settings tab shows through the admin path, one request per
+   tick. Returns the number of requests queued, -ENOTCONN when no node is connected. */
+int mesh_ble_transport_refresh_settings(struct mesh_transport *transport);
 
 #ifdef __cplusplus
 }

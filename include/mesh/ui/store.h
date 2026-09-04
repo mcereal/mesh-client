@@ -29,6 +29,7 @@ enum mesh_ui_update_flag {
     MESH_UI_UPDATE_TRANSPORT = 1U << 2,
     MESH_UI_UPDATE_MESSAGES = 1U << 3,
     MESH_UI_UPDATE_NAV = 1U << 4,
+    MESH_UI_UPDATE_SETTINGS = 1U << 5,
 };
 typedef uint32_t mesh_ui_update_flags;
 
@@ -54,6 +55,115 @@ struct mesh_ui_channel {
     uint8_t index;
     uint8_t role; /* 0 disabled, 1 primary, 2 secondary (meshtastic_Channel_Role) */
     char name[MESH_UI_CHANNEL_NAME_MAX];
+    uint8_t psk_len; /* 0 none, 1 default-key index, 16 AES-128, 32 AES-256 */
+    bool uplink_enabled;
+    bool downlink_enabled;
+    uint32_t position_precision;
+};
+
+/*
+ * The connected radio's configuration, flattened from the protobufs the transport decoded so
+ * the backends and the settings table never include nanopb. Every `has_*` says whether that
+ * section has arrived this connection; `loaded` is any of them. Read-only in phase 1 of
+ * docs/settings-roadmap.md; the same fields become the edit targets later.
+ */
+struct mesh_ui_settings {
+    bool loaded;
+    bool admin_ok;   /* at least one AdminMessage reply came back this connection */
+    bool admin_busy; /* a refresh is in flight */
+    uint32_t admin_replies;
+
+    bool has_owner;
+    char long_name[40];
+    char short_name[5];
+    bool is_licensed;
+
+    bool has_device;
+    uint8_t role;
+    uint8_t rebroadcast_mode;
+    char tzdef[65];
+    bool led_heartbeat_disabled;
+    bool double_tap_as_button_press;
+
+    bool has_display;
+    uint32_t screen_on_secs;
+    uint32_t carousel_secs;
+    uint8_t compass_orientation;
+    bool use_12h_clock;
+    uint8_t units; /* 0 metric, 1 imperial */
+    bool flip_screen;
+
+    bool has_lora;
+    bool use_preset;
+    uint8_t modem_preset;
+    uint8_t region;
+    uint32_t bandwidth;
+    uint32_t spread_factor;
+    uint32_t coding_rate;
+    uint8_t hop_limit;
+    bool tx_enabled;
+    int8_t tx_power;
+    bool ignore_mqtt;
+    bool config_ok_to_mqtt;
+
+    bool has_bluetooth;
+    bool bluetooth_enabled;
+    uint8_t pairing_mode; /* 0 random pin, 1 fixed pin, 2 no pin */
+    uint32_t fixed_pin;
+
+    bool has_security;
+    uint8_t public_key[32];
+    uint8_t public_key_len;
+    bool has_private_key;
+    uint8_t admin_key_count;
+    bool is_managed;
+    bool serial_enabled;
+    bool debug_log_api_enabled;
+    bool admin_channel_enabled;
+    uint8_t packet_signature_policy;
+
+    bool has_position;
+    uint8_t gps_mode; /* 0 disabled, 1 enabled, 2 not present */
+    uint32_t position_broadcast_secs;
+    bool position_broadcast_smart_enabled;
+    bool fixed_position;
+
+    bool has_power;
+    bool is_power_saving;
+    uint32_t ls_secs;
+    uint32_t min_wake_secs;
+    uint32_t on_battery_shutdown_after_secs;
+
+    bool has_mqtt;
+    bool mqtt_enabled;
+    char mqtt_address[64];
+    char mqtt_root[32];
+    bool mqtt_encryption_enabled;
+    bool mqtt_tls_enabled;
+    bool mqtt_proxy_to_client_enabled;
+
+    bool has_store_forward;
+    bool store_forward_enabled;
+    bool store_forward_heartbeat;
+    bool store_forward_is_server;
+
+    bool has_telemetry;
+    uint32_t device_update_interval;
+    bool device_telemetry_enabled;
+    bool environment_measurement_enabled;
+    bool environment_screen_enabled;
+    bool environment_display_fahrenheit;
+    bool air_quality_enabled;
+    bool power_measurement_enabled;
+
+    bool has_metadata;
+    char firmware_version[18];
+    uint32_t hw_model;
+    bool has_wifi;
+    bool has_bluetooth_radio;
+    bool has_ethernet;
+    bool has_pkc;
+    bool can_shutdown;
 };
 
 struct mesh_ui_my_info {
@@ -112,6 +222,9 @@ struct mesh_ui_snapshot {
     /* Cursor, current tab, compose target: what the user is doing, as opposed to what the
        radio is doing. Clamped to the lists above before every snapshot. */
     struct mesh_ui_nav nav;
+    /* Radio configuration for the Settings tab. Not persisted: it describes the radio that
+       is connected right now. */
+    struct mesh_ui_settings settings;
     mesh_ui_update_flags update_flags;
 };
 
@@ -123,6 +236,7 @@ struct mesh_ui_store {
     struct mesh_ui_message_list messages;
     char transport_status[MESH_UI_TRANSPORT_STATUS_MAX];
     struct mesh_ui_nav nav;
+    struct mesh_ui_settings settings;
     int event_fd;
     mesh_ui_update_flags pending_flags;
 };
@@ -140,6 +254,9 @@ void mesh_ui_store_set_handshake(struct mesh_ui_store *store,
 void mesh_ui_store_set_transport_status(struct mesh_ui_store *store, const char *status);
 void mesh_ui_store_set_messages(struct mesh_ui_store *store,
                                 const struct mesh_ui_message_list *messages);
+/* Replaces the radio settings view; quiet when nothing changed. */
+void mesh_ui_store_set_settings(struct mesh_ui_store *store,
+                                const struct mesh_ui_settings *settings);
 
 /* Combines persisted history with this session's live messages into the newest
    MESH_UI_MAX_MESSAGES, cached entries first. A cached entry whose packet id also appears in

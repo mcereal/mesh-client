@@ -7,6 +7,7 @@
 #include "mesh/mesh_message.h"
 #include "mesh/ui/input.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
 
 #include <errno.h>
@@ -903,6 +904,73 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
     fb_draw_text(state, FB_MARGIN, y, mesh_ui_input_quit_hint(), state->scale, k_dim);
 }
 
+/* Settings: the section list, or one section's label/value rows. Read-only in phase 1. */
+static void fb_render_settings(const struct mesh_ui_backend_fb_state *state,
+                               const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    const struct mesh_ui_settings *settings = &snapshot->settings;
+    const struct mesh_ui_handshake_state *handshake =
+        snapshot->handshake_valid ? &snapshot->handshake : NULL;
+    const bool section_open = (nav->settings_section != MESH_UI_SETTINGS_NO_SECTION);
+    const enum mesh_ui_settings_section section =
+        (enum mesh_ui_settings_section)nav->settings_section;
+
+    char title[96];
+    if (section_open) {
+        snprintf(title, sizeof title, "Settings > %s", mesh_ui_settings_section_name(section));
+    } else {
+        snprintf(title, sizeof title, "%s", "Settings");
+    }
+    fb_draw_title(state, layout, title);
+
+    if (!settings->loaded && (handshake == NULL || !handshake->has_my_info)) {
+        fb_draw_empty(state, layout, "Connect to a radio to read its settings");
+        return;
+    }
+
+    const uint32_t count = section_open ? mesh_ui_settings_item_count(settings, handshake, section)
+                                        : (uint32_t)MESH_UI_SETTINGS_SECTION_COUNT;
+    if (count == 0U) {
+        fb_draw_empty(state, layout, "Not sent by the radio yet; X to refresh");
+        return;
+    }
+    const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_SETTINGS] < count
+                                ? nav->cursor[MESH_UI_SCREEN_SETTINGS]
+                                : count - 1U;
+    const uint32_t first = fb_first_visible(cursor, count, layout->rows);
+
+    /* Label column: a fixed width so values line up, capped for narrow scales. */
+    size_t label_cols = 20U;
+    if (layout->cols < 40U) {
+        label_cols = layout->cols / 2U;
+    }
+
+    int y = layout->body_y;
+    char line[160];
+    for (uint32_t i = first; i < count && i < first + layout->rows; ++i) {
+        struct fb_rgb color = k_text;
+        if (section_open) {
+            struct mesh_ui_settings_item item;
+            if (!mesh_ui_settings_item(settings, handshake, section, i, &item)) {
+                break;
+            }
+            snprintf(line, sizeof line, "%-*.*s %s", (int)label_cols, (int)label_cols, item.label,
+                     item.value);
+        } else {
+            const enum mesh_ui_settings_section row = (enum mesh_ui_settings_section)i;
+            const bool loaded = mesh_ui_settings_section_loaded(settings, handshake, row);
+            snprintf(line, sizeof line, "%-*.*s %s", (int)label_cols, (int)label_cols,
+                     mesh_ui_settings_section_name(row), loaded ? "" : "not loaded");
+            if (!loaded) {
+                color = k_dim;
+            }
+        }
+        fb_fit(line, layout->cols);
+        fb_draw_row(state, y, line, color, i == cursor);
+        y += layout->line;
+    }
+}
+
 static void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
                                const struct mesh_ui_snapshot *snapshot) {
     fb_clear(state, k_bg);
@@ -949,6 +1017,12 @@ static void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
     case MESH_UI_SCREEN_DEVICES:
         hint = "A connect  Up/Down scroll  L/R tabs";
         fb_render_devices(state, snapshot, &layout);
+        break;
+    case MESH_UI_SCREEN_SETTINGS:
+        hint = snapshot->nav.settings_section == MESH_UI_SETTINGS_NO_SECTION
+                   ? "A open  X refresh  L/R tabs"
+                   : "B back  X refresh  L/R tabs";
+        fb_render_settings(state, snapshot, &layout);
         break;
     case MESH_UI_SCREEN_STATUS:
     default:

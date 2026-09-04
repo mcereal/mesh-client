@@ -53,6 +53,7 @@ The HUD is five tabs. **Left/Right** (or **L1/R1**) switch tabs, **Up/Down** mov
 | Compose | `To:` row, a draft row, then the quick replies | **A** on `To:` opens the **Send to** picker (every enabled channel, then every node; Up/Down move, Left/Right jump ten rows, A picks, B cancels); on the draft row opens the keyboard; on a reply sends it. **B** back to the conversation. |
 | Devices | Meshtastic radios in BLE range, `*` connected | **A** connect to that radio and make it the preferred one |
 | Status | Transport state, radio, sync, my node, channel, counts | none |
+| Settings | The radio's configuration, read from the radio: a section list (Radio, User, Device, Display, LoRa, Bluetooth, Channels, Security, Position, Power, MQTT, Store & Forward, Telemetry), each a list of label/value rows. Read-only for now; see `docs/settings-roadmap.md`. | **A** open the highlighted section. **B** back to the section list. **X** re-read every section from the radio (one admin request at a time; the Radio section's `Admin session` row shows the replies). |
 
 The keyboard is a ten-column grid with lower-case, upper-case and symbol layers plus an action
 row (layer, space, del, send, cancel). **D-pad** moves (wrapping), **A** types, **B** deletes
