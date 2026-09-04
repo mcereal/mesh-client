@@ -5,6 +5,8 @@
 #include "mesh/transport/transport.h"
 #include "meshtastic/mesh.pb.h"
 
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -28,6 +30,9 @@ struct mesh_ble_transport_stats mesh_ble_transport_stats(struct mesh_transport *
 int mesh_ble_transport_send_packet(struct mesh_transport *transport, const uint8_t *packet,
                                    size_t len);
 const char *mesh_ble_transport_connected_address(struct mesh_transport *transport);
+/* True between a successful Device1.Connect and the end of GATT service discovery; the link
+   is neither usable nor reported by mesh_ble_transport_connected_address() yet. */
+bool mesh_ble_transport_is_connecting(struct mesh_transport *transport);
 
 /* Encode and queue a TEXT_MESSAGE_APP packet for the connected node, and record it in the
    message log as outbound. Pass MESH_MESSAGE_BROADCAST_ADDR to broadcast on `channel`.

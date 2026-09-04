@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 
+#include "mesh/app.h"
 #include "mesh/config.h"
 #include "mesh/event_loop.h"
 #include "mesh/mesh_message.h"
@@ -26,6 +27,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 struct test_case;
@@ -569,6 +571,333 @@ static void test_ble_transport_connect_mock(void) {
     ble->ops->stop(ble);
     mesh_event_loop_shutdown(&loop);
     mesh_bluez_client_mock_disable();
+    record_success(test_name);
+}
+
+static void test_sleep_ms(unsigned ms) {
+    struct timespec ts = {.tv_sec = ms / 1000U, .tv_nsec = (long)(ms % 1000U) * 1000000L};
+    nanosleep(&ts, NULL);
+}
+
+/* Mirrors what a real node does on a fresh BlueZ cache: Connect returns, but the GATT
+   characteristics only appear a few polls later. The connect must stay pending, not fail. */
+static void test_ble_transport_connect_deferred_services(void) {
+    const char *test_name = "ble_transport_connect_deferred_services";
+    const char *failure = NULL;
+
+    struct mesh_transport *ble = mesh_ble_transport();
+
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:05", .name = "NodeFive", .rssi = -50},
+    };
+
+    uint8_t write_capture[64];
+    memset(write_capture, 0, sizeof(write_capture));
+    size_t write_len = 0U;
+    char write_path[128];
+    memset(write_path, 0, sizeof(write_path));
+
+    struct mesh_bluez_mock_config mock_config = {
+        .adapter_path = "/org/bluez/hci0",
+        .services_resolved_after_polls = 2U,
+        .toradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_05/service000a/char000b",
+        .fromradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_05/service000a/char000d",
+        .fromnum_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_05/service000a/char000f",
+        .devices = mock_devices,
+        .device_count = 1U,
+        .write_capture_buffer = write_capture,
+        .write_capture_capacity = sizeof(write_capture),
+        .write_capture_length = &write_len,
+        .write_capture_path = write_path,
+        .write_capture_path_capacity = sizeof(write_path),
+    };
+
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    struct mesh_app_config config = mesh_app_config_default();
+    struct mesh_event_loop loop;
+    mesh_event_loop_init(&loop);
+
+    if (ble->ops->start(ble, &config, &loop) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+        failure = "connect should be accepted";
+        goto cleanup;
+    }
+    if (!mesh_ble_transport_is_connecting(ble)) {
+        failure = "link should be connecting while services are unresolved";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_connected_address(ble) != NULL) {
+        failure = "must not report connected before service discovery";
+        goto cleanup;
+    }
+    if (write_len != 0U) {
+        failure = "want_config must wait for the characteristics";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != -EINPROGRESS) {
+        failure = "repeat connect should report in progress";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_connect(ble, "AA:BB:CC:DD:EE:99") != -EBUSY) {
+        failure = "connect to another node should report busy";
+        goto cleanup;
+    }
+
+    /* Second poll: still unresolved. Third poll: resolved, connect completes. */
+    test_sleep_ms(300U);
+    ble->ops->tick(ble);
+    if (!mesh_ble_transport_is_connecting(ble) || write_len != 0U) {
+        failure = "connect completed before the mock resolved services";
+        goto cleanup;
+    }
+
+    test_sleep_ms(300U);
+    ble->ops->tick(ble);
+    if (mesh_ble_transport_is_connecting(ble)) {
+        failure = "connect should have completed";
+        goto cleanup;
+    }
+    const char *connected = mesh_ble_transport_connected_address(ble);
+    if (connected == NULL || strcmp(connected, mock_devices[0].address) != 0) {
+        failure = "connected address mismatch after deferred connect";
+        goto cleanup;
+    }
+    if (write_len == 0U || strcmp(write_path, mock_config.toradio_char_path) != 0) {
+        failure = "want_config write missing after deferred connect";
+        goto cleanup;
+    }
+
+cleanup:
+    ble->ops->stop(ble);
+    mesh_event_loop_shutdown(&loop);
+    mesh_bluez_client_mock_disable();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}
+
+/* Device1.Connect answers asynchronously; the link stays "connecting" (and the loop free)
+   until the reply lands, and a refused connect drops back to disconnected. */
+static void test_ble_transport_connect_async_reply(void) {
+    const char *test_name = "ble_transport_connect_async_reply";
+    const char *failure = NULL;
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:08", .name = "NodeEight", .rssi = -50},
+    };
+    uint8_t write_capture[64];
+    size_t write_len = 0U;
+    struct mesh_bluez_mock_config mock_config = {
+        .adapter_path = "/org/bluez/hci0",
+        .connect_pending_polls = 2U,
+        .devices = mock_devices,
+        .device_count = 1U,
+        .write_capture_buffer = write_capture,
+        .write_capture_capacity = sizeof(write_capture),
+        .write_capture_length = &write_len,
+    };
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    struct mesh_app_config config = mesh_app_config_default();
+    struct mesh_event_loop loop;
+    mesh_event_loop_init(&loop);
+    if (ble->ops->start(ble, &config, &loop) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+        failure = "connect should be accepted";
+        goto cleanup;
+    }
+    if (!mesh_ble_transport_is_connecting(ble) || write_len != 0U) {
+        failure = "must stay connecting until the Connect reply";
+        goto cleanup;
+    }
+    if (strcmp(ble->ops->status(ble), "connecting") != 0) {
+        failure = "status should read connecting";
+        goto cleanup;
+    }
+
+    ble->ops->tick(ble); /* poll 2: still pending */
+    if (!mesh_ble_transport_is_connecting(ble) || write_len != 0U) {
+        failure = "reply arrived too early";
+        goto cleanup;
+    }
+    ble->ops->tick(ble); /* poll 3: reply, services already resolved, handshake sent */
+    if (mesh_ble_transport_connected_address(ble) == NULL || write_len == 0U) {
+        failure = "connect should complete once the reply lands";
+        goto cleanup;
+    }
+    if (strcmp(ble->ops->status(ble), "connected") != 0) {
+        failure = "status should read connected";
+        goto cleanup;
+    }
+
+    /* A refused Connect must leave the link disconnected. */
+    if (mesh_ble_transport_disconnect(ble) != 0) {
+        failure = "disconnect failed";
+        goto cleanup;
+    }
+    ble->ops->stop(ble);
+    mock_config.connect_result = -EIO;
+    mock_config.connect_pending_polls = 1U;
+    mesh_bluez_client_mock_enable(&mock_config);
+    if (ble->ops->start(ble, &config, &loop) != 0) {
+        failure = "ble restart failed";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+        failure = "second connect should be accepted";
+        goto cleanup;
+    }
+    ble->ops->tick(ble);
+    if (mesh_ble_transport_is_connecting(ble) ||
+        mesh_ble_transport_connected_address(ble) != NULL ||
+        strcmp(ble->ops->status(ble), "running") != 0) {
+        failure = "refused connect should drop back to running/disconnected";
+        goto cleanup;
+    }
+
+cleanup:
+    ble->ops->stop(ble);
+    mesh_event_loop_shutdown(&loop);
+    mesh_bluez_client_mock_disable();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}
+
+/* The foreground policy: a saved preferred node wins even when a stronger one is in range;
+   with nothing saved, the strongest advertiser is used. */
+static void test_app_autoconnect_policy(void) {
+    const char *test_name = "app_autoconnect_policy";
+    const char *failure = NULL;
+
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:06", .name = "NodeSix", .rssi = -30},
+        {.address = "AA:BB:CC:DD:EE:07", .name = "NodeSeven", .rssi = -70},
+    };
+
+    uint8_t write_capture[64];
+    size_t write_len = 0U;
+    struct mesh_bluez_mock_config mock_config = {
+        .adapter_path = "/org/bluez/hci0",
+        .devices = mock_devices,
+        .device_count = 2U,
+        .write_capture_buffer = write_capture,
+        .write_capture_capacity = sizeof(write_capture),
+        .write_capture_length = &write_len,
+    };
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    /* Keep the app's preference files out of the real $HOME. */
+    char home_dir[] = "/tmp/mesh_app_autoconnectXXXXXX";
+    if (mkdtemp(home_dir) == NULL) {
+        mesh_bluez_client_mock_disable();
+        record_failure(test_name, "mkdtemp failed");
+        return;
+    }
+    setenv("HOME", home_dir, 1);
+    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
+    unsetenv("MESHCLIENT_AUTOCONNECT");
+
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    snprintf(config.preferred_ble_device, sizeof config.preferred_ble_device, "%s", "NodeSeven");
+
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+    bool app_ready = false;
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    if (mesh_transport_registry_start_all(&app.transport_registry, &app.config, &app.loop) < 0) {
+        failure = "transport start failed";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+
+    mesh_app_autoconnect(&app);
+    const char *connected = mesh_ble_transport_connected_address(ble);
+    if (connected == NULL || strcmp(connected, mock_devices[1].address) != 0) {
+        failure = "preferred node (by name) should win over a stronger one";
+        goto cleanup;
+    }
+
+    /* Drop the link and the preference: the strongest node should be chosen next. */
+    if (mesh_ble_transport_disconnect(ble) != 0) {
+        failure = "disconnect failed";
+        goto cleanup;
+    }
+    app.config.preferred_ble_device[0] = '\0';
+    app.autoconnect_retry_at_ms = 0U;
+    mesh_app_autoconnect(&app);
+    connected = mesh_ble_transport_connected_address(ble);
+    if (connected == NULL || strcmp(connected, mock_devices[0].address) != 0) {
+        failure = "strongest node should be chosen without a preference";
+        goto cleanup;
+    }
+
+    /* Already connected: another turn must be a no-op rather than a reconnect. */
+    write_len = 0U;
+    app.autoconnect_retry_at_ms = 0U;
+    mesh_app_autoconnect(&app);
+    if (write_len != 0U) {
+        failure = "autoconnect should not act while connected";
+        goto cleanup;
+    }
+
+    /* Not in foreground mode it must never connect. */
+    if (mesh_ble_transport_disconnect(ble) != 0) {
+        failure = "second disconnect failed";
+        goto cleanup;
+    }
+    app.config.run_mode = MESH_APP_RUN_SINGLE_POLL;
+    app.autoconnect_retry_at_ms = 0U;
+    mesh_app_autoconnect(&app);
+    if (mesh_ble_transport_connected_address(ble) != NULL) {
+        failure = "single-poll mode must not auto-connect";
+        goto cleanup;
+    }
+
+cleanup:
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    mesh_bluez_client_mock_disable();
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    {
+        char path[256];
+        snprintf(path, sizeof path, "%s/.meshclient/ui_prefs.handshake", home_dir);
+        unlink(path);
+        snprintf(path, sizeof path, "%s/.meshclient/ui_prefs", home_dir);
+        unlink(path);
+        snprintf(path, sizeof path, "%s/.meshclient", home_dir);
+        rmdir(path);
+        rmdir(home_dir);
+    }
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
     record_success(test_name);
 }
 
@@ -2122,6 +2451,10 @@ static const struct test_case k_test_cases[] = {
     {"ble_transport_status_transitions", "unit", test_ble_transport_status_transitions},
     {"ble_transport_discovery_mock", "unit", test_ble_transport_discovery_mock},
     {"ble_transport_connect_mock", "unit", test_ble_transport_connect_mock},
+    {"ble_transport_connect_deferred_services", "unit",
+     test_ble_transport_connect_deferred_services},
+    {"ble_transport_connect_async_reply", "unit", test_ble_transport_connect_async_reply},
+    {"app_autoconnect_policy", "unit", test_app_autoconnect_policy},
     {"ui_store_basic", "unit", test_ui_store_basic},
     {"ui_store_persistence", "unit", test_ui_store_persistence},
     {"ui_store_refresh_request", "unit", test_ui_store_refresh_request},

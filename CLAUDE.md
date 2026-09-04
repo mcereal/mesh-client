@@ -72,6 +72,11 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
   node-summary cache decoded from `FromRadio`. BLE is **not** Nordic UART and has no length
   framing: one bare protobuf per GATT write/read. `src/proto/framing.c` is for serial/TCP only.
   Nodes in PIN mode must be paired with BlueZ out of band (`bluetoothctl pair`) before connect.
+  `mesh_ble_transport_connect` sends `Device1.Connect` without blocking (reply matched by
+  serial in `bluez_client.c`, 30 s cap) and returns 0 with the link in `connecting`; `tick()`
+  then waits for `ServicesResolved` (250 ms polls, 20 s cap) before wiring the characteristics.
+  `connected_address()` is NULL until then; `status()` reads `connecting`/`connected` meanwhile.
+  Everything else on the bus (reads, writes, StartNotify) is still a blocking call.
 - `src/core/message.c` — transport-agnostic messaging: builds `TEXT_MESSAGE_APP` packets into a
   `ToRadio`, folds inbound `MeshPacket`s into a fixed ring (`mesh_message_log`), and correlates
   `ROUTING_APP` replies with the outbound message they ack. Message text is untrusted radio
@@ -79,11 +84,19 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
 - `src/core/app.c` — `mesh_app_publish_ui_state()` copies BLE discovery/handshake state into the
   UI store every loop iteration, persists the handshake cache and preferences under `$HOME`
   (`~/.meshclient/ui_prefs`, `ui_prefs.handshake`), and picks the UI backend.
+  `mesh_app_autoconnect()` runs every foreground turn: preferred node if in range, else the
+  strongest advertiser after 30 s, exponential backoff on failure; `MESHCLIENT_AUTOCONNECT=0`
+  turns it off. The `--status`/`--list-devices` paths in `main.c` do their own connect.
 - `src/ui/store.c` + `controller.c` — store owns `mesh_ui_snapshot` and signals via eventfd;
   controller drains it and calls `backend->present(snapshot)`. Backends implement the three-function
   `struct mesh_ui_backend` in `include/mesh/ui/backend.h` and live in `src/ui/backends/`.
 - `src/minui_helpers/` — tiny native fallbacks for `minui-list` / `minui-presenter` used when the
   NextUI cross toolchain isn't available; they honor `MESHCLIENT_MINUI_SELECTION`.
+
+The fb backend draws into page 0 of the Brick's 1024x16384 framebuffer, then `FBIOPAN_DISPLAY`s
+to it and mirrors the frame into page 1, because the Allwinner display engine keeps showing the
+page NextUI's SDL last flipped to (page 1 in practice). The layer blends with per-pixel alpha,
+so `compose_color` always writes an opaque alpha byte. Drop any of these and the screen is black.
 
 Backend selection (`MESHCLIENT_UI_BACKEND=auto|minui|fb|cli|stub`, in `app.c`): `auto` prefers
 minui if helpers are on PATH, then fb (`/dev/fb0`), then cli. `launch.sh` forces `fb` on device.

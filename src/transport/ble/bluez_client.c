@@ -12,6 +12,7 @@
 #include <sys/epoll.h>
 
 #define MESH_BLUEZ_READ_TIMEOUT_MS 3000
+#define MESH_BLUEZ_PROPERTY_TIMEOUT_MS 1000
 
 #ifdef MESH_HAVE_DBUS
 #include <dbus/dbus.h>
@@ -195,6 +196,8 @@ struct mesh_bluez_mock_state {
     struct mesh_bluez_mock_config config;
     struct mesh_bluez_client *client;
     size_t read_cursor;
+    unsigned services_resolved_polls;
+    unsigned connect_polls;
 };
 
 static struct mesh_bluez_mock_state g_mock_state;
@@ -227,6 +230,8 @@ void mesh_bluez_client_mock_enable(const struct mesh_bluez_mock_config *config) 
     }
     g_mock_state.client = NULL;
     g_mock_state.read_cursor = 0U;
+    g_mock_state.services_resolved_polls = 0U;
+    g_mock_state.connect_polls = 0U;
 }
 
 void mesh_bluez_client_mock_disable(void) {
@@ -234,6 +239,8 @@ void mesh_bluez_client_mock_disable(void) {
     memset(&g_mock_state.config, 0, sizeof(g_mock_state.config));
     g_mock_state.client = NULL;
     g_mock_state.read_cursor = 0U;
+    g_mock_state.services_resolved_polls = 0U;
+    g_mock_state.connect_polls = 0U;
 }
 
 int mesh_bluez_client_init(struct mesh_bluez_client *client) {
@@ -490,6 +497,23 @@ static void mesh_bluez_client_handle_properties_changed(struct mesh_bluez_client
 static void mesh_bluez_client_handle_message(struct mesh_bluez_client *client,
                                              DBusMessage *message) {
     if (client == NULL || message == NULL) {
+        return;
+    }
+
+    if (client->connect_state == 1 && client->connect_serial != 0U &&
+        dbus_message_get_reply_serial(message) == client->connect_serial) {
+        int type = dbus_message_get_type(message);
+        if (type == DBUS_MESSAGE_TYPE_METHOD_RETURN) {
+            client->connect_result = 0;
+        } else {
+            const char *error_name = dbus_message_get_error_name(message);
+            char *text = NULL;
+            dbus_message_get_args(message, NULL, DBUS_TYPE_STRING, &text, DBUS_TYPE_INVALID);
+            mesh_log_warn("bluez", "Connect failed: %s%s%s", error_name != NULL ? error_name : "?",
+                          text != NULL ? ": " : "", text != NULL ? text : "");
+            client->connect_result = -EIO;
+        }
+        client->connect_state = 2;
         return;
     }
 
@@ -879,6 +903,164 @@ int mesh_bluez_client_connect(struct mesh_bluez_client *client, const char *devi
 
     dbus_message_unref(reply);
     return 0;
+#else
+    (void)client;
+    (void)device_path;
+    return -ENOSYS;
+#endif
+}
+
+int mesh_bluez_client_connect_begin(struct mesh_bluez_client *client, const char *device_path) {
+    if (client == NULL || device_path == NULL) {
+        return -EINVAL;
+    }
+    if (client->connect_state == 1) {
+        return -EBUSY;
+    }
+
+    if (g_mock_state.enabled) {
+        g_mock_state.connect_polls = 0U;
+        client->connect_state = 1;
+        client->connect_serial = 1U;
+        client->connect_result = g_mock_state.config.connect_result;
+        return 0;
+    }
+
+#ifdef MESH_HAVE_DBUS
+    DBusConnection *connection = (DBusConnection *)client->connection;
+    if (connection == NULL) {
+        return -ENOTCONN;
+    }
+
+    DBusMessage *message =
+        dbus_message_new_method_call("org.bluez", device_path, "org.bluez.Device1", "Connect");
+    if (message == NULL) {
+        return -ENOMEM;
+    }
+
+    dbus_uint32_t serial = 0U;
+    dbus_bool_t sent = dbus_connection_send(connection, message, &serial);
+    dbus_message_unref(message);
+    if (!sent) {
+        return -EIO;
+    }
+    dbus_connection_flush(connection);
+
+    client->connect_serial = serial;
+    client->connect_state = 1;
+    client->connect_result = 0;
+    return 0;
+#else
+    (void)client;
+    (void)device_path;
+    return -ENOSYS;
+#endif
+}
+
+int mesh_bluez_client_connect_poll(struct mesh_bluez_client *client, int *out_result) {
+    if (client == NULL || out_result == NULL) {
+        return -EINVAL;
+    }
+    if (client->connect_state == 0) {
+        return -EINVAL;
+    }
+
+    if (g_mock_state.enabled && client->connect_state == 1) {
+        g_mock_state.connect_polls++;
+        if (g_mock_state.connect_polls > g_mock_state.config.connect_pending_polls) {
+            client->connect_state = 2;
+            if (client->connect_result == 0) {
+                g_mock_state.client = client;
+            }
+        }
+    }
+
+    if (client->connect_state != 2) {
+        return 0;
+    }
+
+    *out_result = client->connect_result;
+    client->connect_state = 0;
+    client->connect_serial = 0U;
+    return 1;
+}
+
+void mesh_bluez_client_connect_cancel(struct mesh_bluez_client *client) {
+    if (client == NULL) {
+        return;
+    }
+    client->connect_state = 0;
+    client->connect_serial = 0U;
+    client->connect_result = 0;
+}
+
+int mesh_bluez_client_services_resolved(struct mesh_bluez_client *client, const char *device_path,
+                                        bool *out_resolved) {
+    if (client == NULL || device_path == NULL || out_resolved == NULL) {
+        return -EINVAL;
+    }
+
+    *out_resolved = false;
+
+    if (g_mock_state.enabled) {
+        if (g_mock_state.config.services_resolved_result != 0) {
+            return g_mock_state.config.services_resolved_result;
+        }
+        g_mock_state.services_resolved_polls++;
+        *out_resolved = g_mock_state.services_resolved_polls >
+                        g_mock_state.config.services_resolved_after_polls;
+        return 0;
+    }
+
+#ifdef MESH_HAVE_DBUS
+    DBusConnection *connection = (DBusConnection *)client->connection;
+    if (connection == NULL) {
+        return -ENOTCONN;
+    }
+
+    DBusMessage *message = dbus_message_new_method_call("org.bluez", device_path,
+                                                        "org.freedesktop.DBus.Properties", "Get");
+    if (message == NULL) {
+        return -ENOMEM;
+    }
+
+    const char *interface = "org.bluez.Device1";
+    const char *property = "ServicesResolved";
+    if (!dbus_message_append_args(message, DBUS_TYPE_STRING, &interface, DBUS_TYPE_STRING,
+                                  &property, DBUS_TYPE_INVALID)) {
+        dbus_message_unref(message);
+        return -ENOMEM;
+    }
+
+    DBusError error;
+    dbus_error_init(&error);
+    DBusMessage *reply = dbus_connection_send_with_reply_and_block(
+        connection, message, MESH_BLUEZ_PROPERTY_TIMEOUT_MS, &error);
+    dbus_message_unref(message);
+
+    if (reply == NULL) {
+        if (dbus_error_is_set(&error)) {
+            mesh_log_warn("bluez", "Get ServicesResolved failed: %s", error.message);
+            dbus_error_free(&error);
+        }
+        return -EIO;
+    }
+
+    int result = -EIO;
+    DBusMessageIter iter;
+    if (dbus_message_iter_init(reply, &iter) &&
+        dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_VARIANT) {
+        DBusMessageIter variant_iter;
+        dbus_message_iter_recurse(&iter, &variant_iter);
+        if (dbus_message_iter_get_arg_type(&variant_iter) == DBUS_TYPE_BOOLEAN) {
+            dbus_bool_t value = FALSE;
+            dbus_message_iter_get_basic(&variant_iter, &value);
+            *out_resolved = value ? true : false;
+            result = 0;
+        }
+    }
+    dbus_message_unref(reply);
+    return result;
 #else
     (void)client;
     (void)device_path;

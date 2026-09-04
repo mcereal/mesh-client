@@ -172,7 +172,7 @@ sha256sum $(sq "${REMOTE_PAK}/bin/shared/meshclient") 2>/dev/null | cut -d' ' -f
 cmd_run() {
     echo "Running ${REMOTE_PAK}/launch.sh ${PASSTHRU[*]+"${PASSTHRU[*]}"} (Ctrl-C to stop)"
     echo "Note: launch.sh forces --foreground and the fb backend; the NextUI launcher may repaint over it."
-    local remote_cmd="cd $(sq "${REMOTE_PAK}") && exec ./launch.sh"
+    local remote_cmd="cd $(sq "${REMOTE_PAK}") && exec $(sq "${REMOTE_PAK}/launch.sh")"
     local arg
     for arg in ${PASSTHRU[@]+"${PASSTHRU[@]}"}; do
         remote_cmd+=" $(sq "${arg}")"

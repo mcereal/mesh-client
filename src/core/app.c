@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include "mesh/app.h"
 
 #include "mesh/log.h"
@@ -14,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <time.h>
 
 static void mesh_app_minui_on_device_selected(void *userdata, const char *identifier) {
     if (userdata == NULL || identifier == NULL || identifier[0] == '\0') {
@@ -402,6 +405,116 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
     }
 }
 
+#define MESH_APP_AUTOCONNECT_RETRY_MS 2000U
+#define MESH_APP_AUTOCONNECT_MAX_BACKOFF_MS 60000U
+/* How long a saved preferred node gets to show up in discovery before another node is used. */
+#define MESH_APP_AUTOCONNECT_PREFERRED_GRACE_MS 30000U
+
+static uint64_t mesh_app_now_ms(void) {
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+        return 0U;
+    }
+    return (uint64_t)ts.tv_sec * 1000U + (uint64_t)ts.tv_nsec / 1000000U;
+}
+
+/* "0", "off", "false" and "no" disable; anything else (including unset) leaves the default. */
+static bool mesh_app_env_disabled(const char *name) {
+    const char *value = getenv(name);
+    if (value == NULL || value[0] == '\0') {
+        return false;
+    }
+    return strcasecmp(value, "0") == 0 || strcasecmp(value, "off") == 0 ||
+           strcasecmp(value, "false") == 0 || strcasecmp(value, "no") == 0;
+}
+
+void mesh_app_autoconnect(struct mesh_app *app) {
+    if (app == NULL || app->autoconnect_disabled ||
+        app->config.run_mode != MESH_APP_RUN_FOREGROUND) {
+        return;
+    }
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    if (ble == NULL || mesh_ble_transport_connected_address(ble) != NULL ||
+        mesh_ble_transport_is_connecting(ble)) {
+        return;
+    }
+
+    uint64_t now = mesh_app_now_ms();
+    if (app->autoconnect_started_ms == 0U) {
+        app->autoconnect_started_ms = now;
+    }
+    if (now < app->autoconnect_retry_at_ms) {
+        return;
+    }
+
+    struct mesh_bluez_device_info devices[MESH_UI_MAX_DEVICES];
+    size_t device_count = mesh_ble_transport_get_devices(ble, devices, MESH_UI_MAX_DEVICES);
+    if (device_count == 0U) {
+        return; /* nothing in range yet; discovery keeps running */
+    }
+
+    const struct mesh_bluez_device_info *target = NULL;
+    const char *preferred = app->config.preferred_ble_device;
+    if (preferred[0] != '\0') {
+        for (size_t i = 0; i < device_count; ++i) {
+            if (strcasecmp(devices[i].address, preferred) == 0 ||
+                strcasecmp(devices[i].name, preferred) == 0) {
+                target = &devices[i];
+                break;
+            }
+        }
+        if (target == NULL &&
+            now - app->autoconnect_started_ms < MESH_APP_AUTOCONNECT_PREFERRED_GRACE_MS) {
+            if (!app->autoconnect_waiting_logged) {
+                mesh_log_info("app", "Preferred device '%s' not in range yet; waiting", preferred);
+                app->autoconnect_waiting_logged = true;
+            }
+            app->autoconnect_retry_at_ms = now + 1000U;
+            return;
+        }
+    }
+
+    if (target == NULL) {
+        size_t best = 0U;
+        for (size_t i = 1; i < device_count; ++i) {
+            if (devices[i].rssi > devices[best].rssi) {
+                best = i;
+            }
+        }
+        target = &devices[best];
+        mesh_log_info("app", "%s; using strongest node %s (%s, %d dBm)",
+                      preferred[0] != '\0' ? "Preferred device not in range"
+                                           : "No preferred device saved",
+                      target->name, target->address, (int)target->rssi);
+    }
+
+    int result = mesh_ble_transport_connect(ble, target->address);
+    if (result == 0 || result == -EALREADY || result == -EINPROGRESS) {
+        if (result == 0) {
+            mesh_log_info("app", "Auto-connecting to %s (%s)", target->name, target->address);
+        }
+        app->autoconnect_failures = 0U;
+        app->autoconnect_retry_at_ms = now + MESH_APP_AUTOCONNECT_RETRY_MS;
+        return;
+    }
+    if (result == -EAGAIN) {
+        app->autoconnect_retry_at_ms = now + 1000U; /* transport not READY yet */
+        return;
+    }
+
+    if (app->autoconnect_failures < 8U) {
+        app->autoconnect_failures++;
+    }
+    uint64_t delay = (uint64_t)MESH_APP_AUTOCONNECT_RETRY_MS << (app->autoconnect_failures - 1U);
+    if (delay > MESH_APP_AUTOCONNECT_MAX_BACKOFF_MS) {
+        delay = MESH_APP_AUTOCONNECT_MAX_BACKOFF_MS;
+    }
+    app->autoconnect_retry_at_ms = now + delay;
+    mesh_log_warn("app", "Auto-connect to %s failed (%d); retrying in %llu ms", target->address,
+                  result, (unsigned long long)delay);
+}
+
 int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     if (app == NULL) {
         return -EINVAL;
@@ -429,6 +542,14 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     app->ui_preferences_path[0] = '\0';
     app->ui_preferences_dirty = false;
     app->ui_handshake_cache_path[0] = '\0';
+    app->autoconnect_started_ms = 0U;
+    app->autoconnect_retry_at_ms = 0U;
+    app->autoconnect_failures = 0U;
+    app->autoconnect_waiting_logged = false;
+    app->autoconnect_disabled = mesh_app_env_disabled("MESHCLIENT_AUTOCONNECT");
+    if (app->autoconnect_disabled) {
+        mesh_log_info("app", "Auto-connect disabled by MESHCLIENT_AUTOCONNECT");
+    }
     app->ui_handshake_cache_dirty = false;
 
     if (mesh_ui_preferences_default_path(app->ui_preferences_path,
@@ -552,8 +673,12 @@ int mesh_app_run(struct mesh_app *app) {
     case MESH_APP_RUN_FOREGROUND:
         mesh_log_info("app", "Starting foreground event loop (timeout %d ms)",
                       app->config.idle_timeout_ms);
+        /* Paint the first frame before any transport work: the store already has a refresh
+           queued, and a zero timeout drains what is ready without waiting for more. */
+        mesh_event_loop_run(&app->loop, 0);
         while (true) {
             mesh_transport_registry_tick(&app->transport_registry);
+            mesh_app_autoconnect(app);
             mesh_app_publish_ui_state(app);
             result = mesh_event_loop_run(&app->loop, app->config.idle_timeout_ms);
             if (result < 0) {

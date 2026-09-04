@@ -36,7 +36,11 @@ make deploy           # push only, if dist/ is already current
 make deploy-logs      # tail /.userdata/tg5040/logs/MeshClient.txt while you launch from the Tools menu
 ```
 
-Launch the pak from **Tools > MeshClient** on the device for anything involving the screen. The
+Launch the pak from **Tools > MeshClient** on the device for anything involving the screen. It
+scans, connects on its own (the last node it talked to, or the strongest one in range if there is
+no saved preference), runs the config handshake and shows the result on the HUD. **MENU** or
+**POWER** quits back to NextUI; both are in the default quit-key set (the Brick's gamepad reports
+MENU as `BTN_MODE` 316 and the power key as `KEY_POWER` 116). The
 framebuffer backend and the NextUI launcher share `/dev/fb0`, so a run started over SSH while the
 launcher is on screen may get painted over. For headless checks SSH is fine:
 
@@ -44,6 +48,9 @@ launcher is on screen may get painted over. For headless checks SSH is fine:
 make deploy-run ARGS="--list-devices"
 make deploy-run ARGS="--status --json"
 ```
+
+To watch a launch from the Mac, run `make deploy-logs` first, then start the pak from the Tools
+menu; the log shows discovery, `Auto-connecting to ...`, the handshake, and every button press.
 
 `make deploy-shell` drops you into a shell on the device. The pak lives at
 `/mnt/SDCARD/Tools/tg5040/MeshClient.pak`, its `$HOME` (prefs, handshake cache) at
@@ -60,7 +67,7 @@ for MeshClient:
 | `bluetoothd` | running | The BLE transport will sit in `waiting-for-bluez`. NextUI starts BlueZ for Bluetooth audio, so this should be up when Bluetooth is enabled in Settings. |
 | `dbus_socket` | `/var/run/dbus/system_bus_socket` | `launch.sh` hardcodes this path in `DBUS_SYSTEM_BUS_ADDRESS`. If the socket is elsewhere, fix `launch.sh`. |
 | `hci_adapters` | `hci0` | No adapter means `waiting-for-adapter`. Toggle Bluetooth in NextUI Settings. |
-| `fb0` | present, with `virtual_size` and `bpp` | The fb backend needs these; the Brick panel is 1024x768. |
+| `fb0` | present, with `virtual_size` and `bpp` | The fb backend needs these; the Brick panel is 1024x768. `virtual_size` is 1024x16384: a stack of 768-row pages that NextUI's SDL flips between, and the display keeps showing whichever page SDL last presented (page 1, rows 768..1535, in practice). The backend pans back to page 0 after every frame and mirrors into page 1 as a fallback. The layer also composites with per-pixel alpha, so every pixel is written with an opaque alpha byte; a `0x00RRGGBB` pixel is invisible. `cat /sys/class/disp/disp/attr/sys` shows the live layer `crop`. |
 | `pak_sha256` | matches the value `make deploy` printed | Confirms the binary on the card is the one you built. |
 
 ## Troubleshooting
@@ -72,6 +79,12 @@ for MeshClient:
 - **`meshclient binary not found in PATH`** in the log: the push did not finish, or `launch.sh`
   was run from the wrong directory. Re-run `make deploy`; it stages into `MeshClient.pak.new`
   and swaps, so a partial copy never lands under the real name.
+- **Screen stays black while the log shows the HUD backend active:** the display engine is
+  showing a different framebuffer page than the one being drawn. `cat
+  /sys/class/disp/disp/attr/sys` on the device prints the layer's `crop[x, y, w, h]`; a `y` of
+  768 means page 1. Builds before the pan fix never handled this. A quick check that the panel
+  really is fb0: `head -c 3145728 /dev/zero | tr '\000' '\377' | dd of=/dev/fb0 bs=4096
+  seek=768 conv=notrunc` paints page 1 white until the next redraw.
 - **Nothing on screen but the log shows discovery working:** the fb backend lost the
   framebuffer to the launcher. Exit to the Tools menu and launch the pak from there.
 - **Buttons do nothing / the client will not exit:** press MENU. The client watches every
@@ -87,6 +100,10 @@ for MeshClient:
   If the log says `No readable /dev/input devices`, nothing can quit the client from the
   device and a power cycle is the only way out - report that, it means the pak is not seeing
   the Brick's input nodes at all.
+- **`make deploy-run` output never reaches `MeshClient.txt`:** the pak's `launch.sh` predates
+  the absolute `PAK_DIR` fix and wrote to `logs/.txt` with `$HOME` at `.userdata/tg5040/`
+  when started as `./launch.sh`. Redeploy; move anything useful out of
+  `.userdata/tg5040/.meshclient/` into `.userdata/tg5040/MeshClient/.meshclient/`.
 - **Transfers are slow:** the pak is small (well under 5 MB), so a push should take a few
   seconds. If it stalls, the Brick has dropped WiFi; NextUI's deep sleep turns the radio off, so
   keep the device awake while pushing.
