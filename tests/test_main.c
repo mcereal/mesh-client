@@ -7845,6 +7845,169 @@ static void test_radio_settings_favorite_queue(void) {
 
 /* The Nodes tab's pin: X from either level, and the detail's own row. The nav sends the state
    it wants rather than a bare toggle, so a press that races a NodeInfo cannot cancel itself. */
+/*
+ * The client's memory of its own radios. A favorite is stored in the connected radio's NodeDB
+ * and resolved per receiver, so pins never follow the Brick from one of your nodes to another;
+ * this list does, and it is what mesh_app_node_rank() keeps the node you unplugged with.
+ */
+static void test_ui_preferences_known_radios(void) {
+    const char *test_name = "ui_preferences_known_radios";
+
+    struct mesh_ui_preferences prefs;
+    memset(&prefs, 0, sizeof prefs);
+
+    if (mesh_ui_preferences_note_radio(&prefs, 0U) || mesh_ui_preferences_knows_radio(&prefs, 0U)) {
+        record_failure(test_name, "node 0 is not a node");
+        return;
+    }
+    if (!mesh_ui_preferences_note_radio(&prefs, 0xABC123U) || prefs.known_radio_count != 1U ||
+        !mesh_ui_preferences_knows_radio(&prefs, 0xABC123U)) {
+        record_failure(test_name, "the first radio should be recorded");
+        return;
+    }
+    /* Every publish notes the connected radio again; only a change is worth a file write. */
+    if (mesh_ui_preferences_note_radio(&prefs, 0xABC123U) || prefs.known_radio_count != 1U) {
+        record_failure(test_name, "re-noting the most recent radio should not dirty the file");
+        return;
+    }
+    if (!mesh_ui_preferences_note_radio(&prefs, 0xDEF456U) || prefs.known_radio_count != 2U ||
+        prefs.known_radios[0] != 0xDEF456U || prefs.known_radios[1] != 0xABC123U) {
+        record_failure(test_name, "the newly connected radio should lead, the old one survive");
+        return;
+    }
+    /* Switching back moves it to the front rather than adding it twice. */
+    if (!mesh_ui_preferences_note_radio(&prefs, 0xABC123U) || prefs.known_radio_count != 2U ||
+        prefs.known_radios[0] != 0xABC123U || prefs.known_radios[1] != 0xDEF456U) {
+        record_failure(test_name, "an already-known radio should move to the front");
+        return;
+    }
+
+    /* Past the cap the oldest radio falls off; the recent ones stay. */
+    for (uint32_t i = 0; i < MESH_UI_MAX_KNOWN_RADIOS; ++i) {
+        mesh_ui_preferences_note_radio(&prefs, 0x9000U + i);
+    }
+    if (prefs.known_radio_count != MESH_UI_MAX_KNOWN_RADIOS ||
+        mesh_ui_preferences_knows_radio(&prefs, 0xDEF456U) ||
+        !mesh_ui_preferences_knows_radio(&prefs, 0x9000U + MESH_UI_MAX_KNOWN_RADIOS - 1U)) {
+        record_failure(test_name,
+                       "the list should cap at MESH_UI_MAX_KNOWN_RADIOS, oldest first out");
+        return;
+    }
+
+    char prefab_path[128];
+    snprintf(prefab_path, sizeof prefab_path, "/tmp/meshclient_radios_%ld", (long)getpid());
+    if (mesh_ui_preferences_save(&prefs, prefab_path) != 0) {
+        unlink(prefab_path);
+        record_failure(test_name, "save failed");
+        return;
+    }
+    struct mesh_ui_preferences loaded;
+    if (mesh_ui_preferences_load(&loaded, prefab_path) != 0) {
+        unlink(prefab_path);
+        record_failure(test_name, "load failed");
+        return;
+    }
+    if (loaded.known_radio_count != prefs.known_radio_count ||
+        memcmp(loaded.known_radios, prefs.known_radios, sizeof prefs.known_radios) != 0) {
+        unlink(prefab_path);
+        record_failure(test_name, "the radio list should roundtrip in order");
+        return;
+    }
+
+    /* A file written before this existed simply has no radios, not a broken parse. */
+    FILE *legacy = fopen(prefab_path, "w");
+    if (legacy == NULL) {
+        unlink(prefab_path);
+        record_failure(test_name, "failed to rewrite temp file");
+        return;
+    }
+    fprintf(legacy, "preferred_device=AA:BB:CC:DD:EE:01\npreferred_channel=LongFast\n");
+    fclose(legacy);
+    memset(&loaded, 0, sizeof loaded);
+    if (mesh_ui_preferences_load(&loaded, prefab_path) != 0 || loaded.known_radio_count != 0U) {
+        unlink(prefab_path);
+        record_failure(test_name, "a file from before known_radios should load with none");
+        return;
+    }
+
+    unlink(prefab_path);
+    record_success(test_name);
+}
+
+/*
+ * Who survives the Nodes tab's budget, and specifically what happens on the day you move the
+ * Brick from one of your radios to another: the one you unplugged has no pin on the new radio
+ * (favorites are NodeDB state, per receiver) and must not sink to the bottom of a busy mesh.
+ */
+static void test_app_node_rank_known_radio(void) {
+    const char *test_name = "app_node_rank_known_radio";
+
+    const uint32_t abc = 0xABC123U;
+    const uint32_t def = 0xDEF456U;
+    const uint32_t peer = 0x00777U;
+    const uint32_t stranger = 0x00888U;
+
+    struct mesh_ui_preferences prefs;
+    memset(&prefs, 0, sizeof prefs);
+
+    struct mesh_message_log log;
+    mesh_message_log_reset(&log);
+    log.count = 1U;
+    log.entries[0].from = peer;
+    log.entries[0].to = abc;
+
+    struct mesh_node_summary nodes[4];
+    memset(nodes, 0, sizeof nodes);
+    nodes[0].node_id = abc;
+    nodes[1].node_id = def;
+    nodes[2].node_id = peer;
+    nodes[3].node_id = stranger;
+    nodes[3].via_mqtt = true;
+
+    /* Connected to ABC123, with DEF456 pinned into ABC123's NodeDB. */
+    prefs.known_radio_count = 1U;
+    prefs.known_radios[0] = abc;
+    nodes[1].is_favorite = true;
+    if (mesh_app_node_rank(&nodes[0], abc, &log, &prefs) != 0U ||
+        mesh_app_node_rank(&nodes[1], abc, &log, &prefs) != 1U ||
+        mesh_app_node_rank(&nodes[2], abc, &log, &prefs) != 3U ||
+        mesh_app_node_rank(&nodes[3], abc, &log, &prefs) != 5U) {
+        record_failure(test_name, "us, then pinned, then a message peer, then MQTT");
+        return;
+    }
+
+    /* Now the Brick is moved onto DEF456. Its NodeDB never heard of the pin ABC123 carried,
+       so the flag is gone - and ABC123 is nobody's favorite over here. */
+    mesh_ui_preferences_note_radio(&prefs, def);
+    nodes[1].is_favorite = false;
+    if (mesh_app_node_rank(&nodes[1], def, &log, &prefs) != 0U) {
+        record_failure(test_name, "the radio we are now on is us, pinned or not");
+        return;
+    }
+    if (mesh_app_node_rank(&nodes[0], def, &log, &prefs) != 2U) {
+        record_failure(test_name, "the radio we just unplugged should rank as one of ours");
+        return;
+    }
+    if (mesh_app_node_rank(&nodes[2], def, &log, &prefs) != 3U ||
+        mesh_app_node_rank(&nodes[3], def, &log, &prefs) != 5U) {
+        record_failure(test_name, "everyone else should keep their tier");
+        return;
+    }
+
+    /* Without the memory - a fresh install, or a radio we have never connected to - ABC123 is
+       an ordinary node heard over RF, which is the behaviour this tier exists to avoid. */
+    struct mesh_ui_preferences empty;
+    memset(&empty, 0, sizeof empty);
+    if (mesh_app_node_rank(&nodes[0], def, &log, &empty) != 3U ||
+        mesh_app_node_rank(&nodes[0], def, NULL, &empty) != 4U ||
+        mesh_app_node_rank(&nodes[0], def, NULL, NULL) != 4U) {
+        record_failure(test_name, "an unknown radio should fall back to the ordinary tiers");
+        return;
+    }
+
+    record_success(test_name);
+}
+
 static void test_ui_nav_node_favorite(void) {
     const char *test_name = "ui_nav_node_favorite";
 
@@ -8927,6 +9090,8 @@ static const struct test_case k_test_cases[] = {
     {"session_node_detail_ingest", "unit", test_session_node_detail_ingest},
     {"ui_node_detail_items", "unit", test_ui_node_detail_items},
     {"radio_settings_favorite_queue", "unit", test_radio_settings_favorite_queue},
+    {"ui_preferences_known_radios", "unit", test_ui_preferences_known_radios},
+    {"app_node_rank_known_radio", "unit", test_app_node_rank_known_radio},
     {"ui_nav_node_favorite", "unit", test_ui_nav_node_favorite},
 };
 

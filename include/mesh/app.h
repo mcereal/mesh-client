@@ -100,6 +100,15 @@ void mesh_app_autoconnect(struct mesh_app *app);
    drained. */
 bool mesh_app_report_link_errors(struct mesh_app *app);
 
+/* Where a node sits in the Nodes tab, lower being nearer the top: 0 the radio we are connected
+   to, 1 a pinned node, 2 another radio of ours (see mesh_ui_preferences_note_radio), 3 someone
+   we have messages with, 4 a node heard over RF, 5 one fed in over MQTT. Ties break on
+   last_heard. The UI carries fewer nodes than a busy mesh has, so this decides who survives the
+   cut. Exposed for tests. */
+unsigned mesh_app_node_rank(const struct mesh_node_summary *node, uint32_t my_node,
+                            const struct mesh_message_log *log,
+                            const struct mesh_ui_preferences *prefs);
+
 /* Builds the admin write for a MESH_UI_ACTION_SAVE_SETTINGS: the radio's own copy of the
    section with the action's edits applied, since the firmware replaces sections whole.
    -ENOENT when the radio has not sent that section yet, -ENOTSUP for a section that is still

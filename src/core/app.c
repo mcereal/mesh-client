@@ -1032,8 +1032,9 @@ static void mesh_app_copy_node_detail(const struct mesh_node_summary *src,
 }
 
 /* Lower is more important; see the ranking comment in mesh_app_publish_ui_state(). */
-static unsigned mesh_app_node_rank(const struct mesh_node_summary *node, uint32_t my_node,
-                                   const struct mesh_message_log *log) {
+unsigned mesh_app_node_rank(const struct mesh_node_summary *node, uint32_t my_node,
+                            const struct mesh_message_log *log,
+                            const struct mesh_ui_preferences *prefs) {
     if (my_node != 0U && node->node_id == my_node) {
         return 0U;
     }
@@ -1043,6 +1044,18 @@ static unsigned mesh_app_node_rank(const struct mesh_node_summary *node, uint32_
     if (node->is_favorite) {
         return 1U;
     }
+    /*
+     * A radio of our own that we are not connected to right now. is_favorite lives in the
+     * connected radio's NodeDB and is resolved per receiver, so a pin only ever teaches the
+     * radio it was made on: move the Brick from one of your nodes to another and the node you
+     * just unplugged arrives on the new radio as an ordinary stranger, ranked by last_heard,
+     * free to fall out of the 128-node budget on a busy mesh. The client remembers its own
+     * hardware instead (mesh_ui_preferences_note_radio), which needs no admin write and cannot
+     * disagree with what "favorite" means on the radio.
+     */
+    if (mesh_ui_preferences_knows_radio(prefs, node->node_id)) {
+        return 2U;
+    }
     if (log != NULL) {
         for (size_t i = 0; i < log->count; ++i) {
             const struct mesh_message *message = mesh_message_log_at(log, i);
@@ -1050,11 +1063,11 @@ static unsigned mesh_app_node_rank(const struct mesh_node_summary *node, uint32_
                 continue;
             }
             if (message->from == node->node_id || message->to == node->node_id) {
-                return 2U;
+                return 3U;
             }
         }
     }
-    return node->via_mqtt ? 4U : 3U;
+    return node->via_mqtt ? 5U : 4U;
 }
 
 /* Copies the newest MESH_UI_MAX_MESSAGES entries out of the transport ring into the store,
@@ -1432,6 +1445,12 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         ui_handshake.cached = false;
         if (status.has_my_info) {
             const uint32_t my_node = status.my_info.my_node_num;
+            /* Remember this radio as one of ours. Pins live in the radio's own NodeDB, so
+               without this the node you connect to today is a stranger on the node you
+               connect to tomorrow; see mesh_app_node_rank(). */
+            if (mesh_ui_preferences_note_radio(&app->ui_preferences, my_node)) {
+                preferences_modified = true;
+            }
             ui_handshake.my_info.node_num = status.my_info.my_node_num;
             ui_handshake.my_info.nodedb_entries = status.my_info.nodedb_count;
             ui_handshake.my_info.reboot_count = status.my_info.reboot_count;
@@ -1445,11 +1464,12 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         }
 
         /* The UI carries fewer nodes than a real mesh has. Rank them so the ones that matter
-           survive the cut: ourselves, then anyone we have exchanged messages with, then nodes
-           heard directly over RF by last_heard, then MQTT-fed nodes by last_heard. On a mesh
-           with an MQTT uplink dozens of far-away nodes are "heard" every minute and would
-           otherwise push the radio you are actually talking to off the list. Insertion sort:
-           MESH_SESSION_MAX_NODES is small and this runs once per publish. */
+           survive the cut: ourselves, then pinned nodes, then our other radios, then anyone we
+           have exchanged messages with, then nodes heard directly over RF by last_heard, then
+           MQTT-fed nodes by last_heard. On a mesh with an MQTT uplink dozens of far-away nodes
+           are "heard" every minute and would otherwise push the radio you are actually talking
+           to off the list. Insertion sort: MESH_SESSION_MAX_NODES is small and this runs once
+           per publish. */
         const struct mesh_message_log *message_log = mesh_session_messages(&app->session);
         size_t order[MESH_SESSION_MAX_NODES];
         unsigned rank[MESH_SESSION_MAX_NODES];
@@ -1458,7 +1478,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         const uint32_t my_node = status.has_my_info ? status.my_info.my_node_num : 0U;
         for (size_t i = 0; i < total; ++i) {
             const struct mesh_node_summary *node = &status.nodes[i];
-            rank[i] = mesh_app_node_rank(node, my_node, message_log);
+            rank[i] = mesh_app_node_rank(node, my_node, message_log, &app->ui_preferences);
             size_t j = i;
             while (j > 0U) {
                 const size_t prev_index = order[j - 1U];
