@@ -3,6 +3,7 @@
 #include "mesh/app.h"
 
 #include "mesh/log.h"
+#include "mesh/text.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/serial.h"
 #include "mesh/ui/backends/cli.h"
@@ -903,12 +904,14 @@ static void mesh_app_format_peer_name(const struct mesh_handshake_status *status
             if (status->nodes[i].node_id != node_id) {
                 continue;
             }
+            /* The names are already sanitised; the copy still has to respect character
+               boundaries because peer_name is far shorter than long_name. */
             if (status->nodes[i].short_name[0] != '\0') {
-                snprintf(out, out_len, "%s", status->nodes[i].short_name);
+                mesh_text_sanitise_str(status->nodes[i].short_name, out, out_len);
                 return;
             }
             if (status->nodes[i].long_name[0] != '\0') {
-                snprintf(out, out_len, "%s", status->nodes[i].long_name);
+                mesh_text_sanitise_str(status->nodes[i].long_name, out, out_len);
                 return;
             }
             break;

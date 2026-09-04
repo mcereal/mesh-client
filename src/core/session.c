@@ -3,6 +3,7 @@
 #include "mesh/session.h"
 
 #include "mesh/log.h"
+#include "mesh/text.h"
 
 #include <pb_decode.h>
 #include <pb_encode.h>
@@ -172,8 +173,14 @@ static void mesh_session_store_node_summary(struct mesh_session *session,
     summary->hops_away = info->hops_away;
 
     if (info->has_user) {
-        snprintf(summary->long_name, sizeof summary->long_name, "%s", info->user.long_name);
-        snprintf(summary->short_name, sizeof summary->short_name, "%s", info->user.short_name);
+        /* Names are chosen by whoever owns that node, so they are untrusted radio input just
+           like message bodies: sanitise them here rather than at each of the several places
+           that draw or serialise them. A plain snprintf would also happily cut a multi-byte
+           character in half at the field boundary, which matters because Meshtastic short
+           names are routinely a single four-byte emoji. */
+        mesh_text_sanitise_str(info->user.long_name, summary->long_name, sizeof summary->long_name);
+        mesh_text_sanitise_str(info->user.short_name, summary->short_name,
+                               sizeof summary->short_name);
     }
 
     mesh_log_debug("session", "Cached node %u (%s) last_heard=%u%s", summary->node_id,

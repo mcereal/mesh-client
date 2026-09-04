@@ -5,6 +5,9 @@
 #include "mesh/event_loop.h"
 #include "mesh/log.h"
 #include "mesh/mesh_message.h"
+#include "mesh/text.h"
+#include "mesh/ui/emoji.h"
+#include "mesh/ui/font5x7.h"
 #include "mesh/ui/input.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/settings.h"
@@ -55,47 +58,10 @@ static const struct fb_rgb k_accent = {255, 220, 120};
 static const struct fb_rgb k_good = {120, 220, 150};
 static const struct fb_rgb k_bad = {240, 120, 120};
 
-#define FONT_WIDTH 5
-#define FONT_HEIGHT 7
 #define FB_MARGIN 16
 #define FB_DEFAULT_SCALE 4
 #define FB_MIN_SCALE 2
 #define FB_MAX_SCALE 6
-
-static const uint8_t k_font5x7[96][5] = {
-    {0x00, 0x00, 0x00, 0x00, 0x00}, {0x00, 0x00, 0x5F, 0x00, 0x00}, {0x00, 0x07, 0x00, 0x07, 0x00},
-    {0x14, 0x7F, 0x14, 0x7F, 0x14}, {0x24, 0x2A, 0x7F, 0x2A, 0x12}, {0x23, 0x13, 0x08, 0x64, 0x62},
-    {0x36, 0x49, 0x55, 0x22, 0x50}, {0x00, 0x05, 0x03, 0x00, 0x00}, {0x00, 0x1C, 0x22, 0x41, 0x00},
-    {0x00, 0x41, 0x22, 0x1C, 0x00}, {0x14, 0x08, 0x3E, 0x08, 0x14}, {0x08, 0x08, 0x3E, 0x08, 0x08},
-    {0x00, 0x50, 0x30, 0x00, 0x00}, {0x08, 0x08, 0x08, 0x08, 0x08}, {0x00, 0x60, 0x60, 0x00, 0x00},
-    {0x20, 0x10, 0x08, 0x04, 0x02}, {0x3E, 0x51, 0x49, 0x45, 0x3E}, {0x00, 0x42, 0x7F, 0x40, 0x00},
-    {0x42, 0x61, 0x51, 0x49, 0x46}, {0x21, 0x41, 0x45, 0x4B, 0x31}, {0x18, 0x14, 0x12, 0x7F, 0x10},
-    {0x27, 0x45, 0x45, 0x45, 0x39}, {0x3C, 0x4A, 0x49, 0x49, 0x30}, {0x01, 0x71, 0x09, 0x05, 0x03},
-    {0x36, 0x49, 0x49, 0x49, 0x36}, {0x06, 0x49, 0x49, 0x29, 0x1E}, {0x00, 0x36, 0x36, 0x00, 0x00},
-    {0x00, 0x56, 0x36, 0x00, 0x00}, {0x08, 0x14, 0x22, 0x41, 0x00}, {0x14, 0x14, 0x14, 0x14, 0x14},
-    {0x00, 0x41, 0x22, 0x14, 0x08}, {0x02, 0x01, 0x51, 0x09, 0x06}, {0x3E, 0x41, 0x5D, 0x55, 0x1E},
-    {0x7E, 0x11, 0x11, 0x11, 0x7E}, {0x7F, 0x49, 0x49, 0x49, 0x36}, {0x3E, 0x41, 0x41, 0x41, 0x22},
-    {0x7F, 0x41, 0x41, 0x22, 0x1C}, {0x7F, 0x49, 0x49, 0x49, 0x41}, {0x7F, 0x09, 0x09, 0x09, 0x01},
-    {0x3E, 0x41, 0x49, 0x49, 0x7A}, {0x7F, 0x08, 0x08, 0x08, 0x7F}, {0x00, 0x41, 0x7F, 0x41, 0x00},
-    {0x20, 0x40, 0x41, 0x3F, 0x01}, {0x7F, 0x08, 0x14, 0x22, 0x41}, {0x7F, 0x40, 0x40, 0x40, 0x40},
-    {0x7F, 0x02, 0x0C, 0x02, 0x7F}, {0x7F, 0x04, 0x08, 0x10, 0x7F}, {0x3E, 0x41, 0x41, 0x41, 0x3E},
-    {0x7F, 0x09, 0x09, 0x09, 0x06}, {0x3E, 0x41, 0x51, 0x21, 0x5E}, {0x7F, 0x09, 0x19, 0x29, 0x46},
-    {0x46, 0x49, 0x49, 0x49, 0x31}, {0x01, 0x01, 0x7F, 0x01, 0x01}, {0x3F, 0x40, 0x40, 0x40, 0x3F},
-    {0x1F, 0x20, 0x40, 0x20, 0x1F}, {0x7F, 0x20, 0x18, 0x20, 0x7F}, {0x63, 0x14, 0x08, 0x14, 0x63},
-    {0x03, 0x04, 0x78, 0x04, 0x03}, {0x61, 0x51, 0x49, 0x45, 0x43}, {0x00, 0x7F, 0x41, 0x41, 0x00},
-    {0x02, 0x04, 0x08, 0x10, 0x20}, {0x00, 0x41, 0x41, 0x7F, 0x00}, {0x04, 0x02, 0x01, 0x02, 0x04},
-    {0x40, 0x40, 0x40, 0x40, 0x40}, {0x00, 0x01, 0x02, 0x04, 0x00}, {0x20, 0x54, 0x54, 0x54, 0x78},
-    {0x7F, 0x48, 0x44, 0x44, 0x38}, {0x38, 0x44, 0x44, 0x44, 0x20}, {0x38, 0x44, 0x44, 0x48, 0x7F},
-    {0x38, 0x54, 0x54, 0x54, 0x18}, {0x08, 0x7E, 0x09, 0x01, 0x02}, {0x0C, 0x52, 0x52, 0x52, 0x3E},
-    {0x7F, 0x08, 0x04, 0x04, 0x78}, {0x00, 0x44, 0x7D, 0x40, 0x00}, {0x20, 0x40, 0x44, 0x3D, 0x00},
-    {0x7F, 0x10, 0x28, 0x44, 0x00}, {0x00, 0x41, 0x7F, 0x40, 0x00}, {0x7C, 0x04, 0x18, 0x04, 0x78},
-    {0x7C, 0x08, 0x04, 0x04, 0x78}, {0x38, 0x44, 0x44, 0x44, 0x38}, {0x7C, 0x14, 0x14, 0x14, 0x08},
-    {0x08, 0x14, 0x14, 0x18, 0x7C}, {0x7C, 0x08, 0x04, 0x04, 0x08}, {0x48, 0x54, 0x54, 0x54, 0x20},
-    {0x04, 0x3F, 0x44, 0x40, 0x20}, {0x3C, 0x40, 0x40, 0x20, 0x7C}, {0x1C, 0x20, 0x40, 0x20, 0x1C},
-    {0x3C, 0x40, 0x30, 0x40, 0x3C}, {0x44, 0x28, 0x10, 0x28, 0x44}, {0x0C, 0x50, 0x50, 0x50, 0x3C},
-    {0x44, 0x64, 0x54, 0x4C, 0x44}, {0x08, 0x3E, 0x41, 0x41, 0x00}, {0x00, 0x00, 0x7F, 0x00, 0x00},
-    {0x00, 0x41, 0x41, 0x3E, 0x08}, {0x02, 0x01, 0x02, 0x04, 0x02},
-};
 
 /* Scale an 8-bit channel into a framebuffer bitfield and shift it into place. */
 static inline uint32_t fb_pack_channel(uint8_t value, const struct fb_bitfield *field) {
@@ -183,40 +149,102 @@ static void fb_draw_pixel(const struct mesh_ui_backend_fb_state *state, int x, i
 }
 
 /* Glyph metrics for a given multiplier: one pixel column of gap per scale step, two rows. */
-static inline int fb_char_adv(int scale) { return FONT_WIDTH * scale + scale; }
-static inline int fb_line_adv(int scale) { return FONT_HEIGHT * scale + 2 * scale; }
+static inline int fb_char_adv(int scale) { return MESH_FONT_WIDTH * scale + scale; }
+static inline int fb_line_adv(int scale) { return MESH_FONT_HEIGHT * scale + 2 * scale; }
 
-static void fb_draw_char(const struct mesh_ui_backend_fb_state *state, int x, int y,
-                         unsigned char ch, int scale, struct fb_rgb color) {
-    if (ch < 32 || ch > 126) {
-        ch = '?';
+/* One scaled pixel of a glyph. */
+static void fb_draw_block(const struct mesh_ui_backend_fb_state *state, int x, int y, int scale,
+                          struct fb_rgb color) {
+    for (int sx = 0; sx < scale; ++sx) {
+        for (int sy = 0; sy < scale; ++sy) {
+            fb_draw_pixel(state, x + sx, y + sy, color.r, color.g, color.b);
+        }
     }
-    const uint8_t *glyph = k_font5x7[ch - 32];
-    for (int col = 0; col < FONT_WIDTH; ++col) {
-        uint8_t bits = glyph[col];
-        for (int row = 0; row < FONT_HEIGHT; ++row) {
-            if (bits & (1U << row)) {
-                for (int sx = 0; sx < scale; ++sx) {
-                    for (int sy = 0; sy < scale; ++sy) {
-                        fb_draw_pixel(state, x + col * scale + sx, y + row * scale + sy, color.r,
-                                      color.g, color.b);
-                    }
-                }
+}
+
+static void fb_draw_glyph(const struct mesh_ui_backend_fb_state *state, int x, int y,
+                          uint32_t codepoint, int scale, struct fb_rgb color) {
+    struct mesh_font_glyph glyph;
+    (void)mesh_font5x7_glyph(codepoint, &glyph);
+
+    for (int col = 0; col < MESH_FONT_WIDTH; ++col) {
+        for (int row = 0; row < MESH_FONT_HEIGHT; ++row) {
+            if (glyph.columns[col] & (1U << row)) {
+                fb_draw_block(state, x + col * scale, y + row * scale, scale, color);
+            }
+        }
+        /* An accent that would not fit in the cell hangs in the gap above the line. */
+        if (glyph.above[col] & 0x01U) {
+            fb_draw_block(state, x + col * scale, y - scale, scale, color);
+        }
+    }
+}
+
+/*
+ * Draw one emoji sprite into the cell.
+ *
+ * The sprite is square and the cell is five by seven, so it is drawn at the cell's width and
+ * centred vertically - one font row of padding above and below, which puts it on the same
+ * optical line as the capitals beside it. Sampling is nearest-neighbour from the stored 16x16:
+ * the cell is 15 px at the tab scale and 20 px at the body scale, so this is a small upscale
+ * of pixel art, and anything smoother would need to blend against a background this function
+ * cannot see (rows under the cursor are filled a different colour).
+ *
+ * Emoji ignore `color`. They carry their own, which is the point of having them: the red of a
+ * flag and the yellow of a lightning bolt are most of what makes one recognisable at 20 px.
+ */
+static void fb_draw_emoji(const struct mesh_ui_backend_fb_state *state, int x, int y,
+                          uint16_t sprite, int scale) {
+    uint8_t pixels[MESH_EMOJI_SIZE * MESH_EMOJI_SIZE];
+    mesh_emoji_decode(sprite, pixels);
+
+    /* The box is the full character advance rather than the glyph's five columns: at the
+       advance an emoji stands as tall as the capitals beside it, and the sprites carry their
+       own transparent margin, so neighbours still separate. */
+    const int box = fb_char_adv(scale);
+    const int top = y + (MESH_FONT_HEIGHT * scale - box) / 2;
+
+    for (int dy = 0; dy < box; ++dy) {
+        const int sy = dy * MESH_EMOJI_SIZE / box;
+        for (int dx = 0; dx < box; ++dx) {
+            const int sx = dx * MESH_EMOJI_SIZE / box;
+            uint8_t rgb[3];
+            if (mesh_emoji_color(pixels[sy * MESH_EMOJI_SIZE + sx], rgb)) {
+                fb_draw_pixel(state, x + dx, top + dy, rgb[0], rgb[1], rgb[2]);
             }
         }
     }
 }
 
+/*
+ * Draw `text` as UTF-8, one cell per character - or per emoji, which may be several
+ * codepoints.
+ *
+ * Walking cells rather than bytes is the whole point: a node named with a single emoji used to
+ * draw as four question marks, because every byte of the sequence fell through the font's
+ * ASCII range separately. Everything below measures with the same walker, so a line is always
+ * as wide as it draws.
+ */
 static void fb_draw_text(const struct mesh_ui_backend_fb_state *state, int x, int y,
                          const char *text, int scale, struct fb_rgb color) {
     int cursor = x;
-    for (const unsigned char *c = (const unsigned char *)text; *c != '\0'; ++c) {
-        if (*c == '\n') {
+    size_t offset = 0;
+    for (;;) {
+        const struct mesh_ui_text_cell cell = mesh_ui_text_cell_next(&text[offset]);
+        if (cell.bytes == 0U) {
+            break;
+        }
+        offset += cell.bytes;
+
+        if (cell.is_emoji) {
+            fb_draw_emoji(state, cursor, y, cell.sprite, scale);
+        } else if (cell.codepoint == (uint32_t)'\n') {
             y += fb_line_adv(scale);
             cursor = x;
             continue;
+        } else {
+            fb_draw_glyph(state, cursor, y, cell.codepoint, scale, color);
         }
-        fb_draw_char(state, cursor, y, *c, scale, color);
         cursor += fb_char_adv(scale);
     }
 }
@@ -288,11 +316,14 @@ static size_t fb_cols(const struct mesh_ui_backend_fb_state *state, int scale) {
     return (size_t)(usable / fb_char_adv(scale));
 }
 
-static void fb_fit(char *line, size_t cols) {
-    if (strlen(line) > cols) {
-        line[cols] = '\0';
-    }
-}
+/* Clip a line to `cols` columns. Counted in drawn cells, not bytes, so a character is never
+   cut in half - half a sequence would draw as the replacement box and, on the paths that also
+   log or serialise the line, would be malformed UTF-8 - and a flag or a ZWJ sequence is never
+   split into the pieces it is spelled with. */
+static void fb_fit(char *line, size_t cols) { mesh_ui_text_cell_truncate(line, cols); }
+
+/* Columns a line occupies once drawn. */
+static size_t fb_width(const char *line) { return mesh_ui_text_cells(line); }
 
 /* Draw one list row, highlighting it when it is the cursor. `x` is the text origin; the
    highlight spans the full width so the eye finds it without reading. */
@@ -380,7 +411,7 @@ static void fb_draw_tabs(const struct mesh_ui_backend_fb_state *state,
     for (int i = 0; i < MESH_UI_SCREEN_COUNT; ++i) {
         const enum mesh_ui_screen screen = (enum mesh_ui_screen)i;
         const char *name = mesh_ui_screen_name(screen);
-        const int width = (int)strlen(name) * adv + 2 * small;
+        const int width = (int)fb_width(name) * adv + 2 * small;
         const bool active = (snapshot->nav.screen == screen);
         if (active) {
             fb_fill_rect(state, x, y - small, width, line, k_tab_active_bg);
@@ -463,11 +494,12 @@ static int fb_draw_wrapped(const struct mesh_ui_backend_fb_state *state, int y, 
         cols = sizeof line - 1U;
     }
     while (*cursor != '\0' && lines < max_lines) {
-        size_t take = strlen(cursor);
-        if (take > cols) {
-            take = cols;
-            /* Break at the last space inside the window when there is one. */
-            for (size_t i = take; i > cols / 2; --i) {
+        /* Byte length of the next `cols` cells, which is what memcpy below wants. */
+        size_t take = mesh_ui_text_cell_offset(cursor, cols);
+        if (cursor[take] != '\0') {
+            /* Break at the last space inside the window when there is one. A space byte can
+               never appear inside a multi-byte sequence, so scanning bytes is safe here. */
+            for (size_t i = take; i > take / 2; --i) {
                 if (cursor[i] == ' ') {
                     take = i;
                     break;
@@ -565,12 +597,15 @@ static void fb_render_conversations(const struct mesh_ui_backend_fb_state *state
                 fb_format_age(conversation.last_time, age, sizeof age);
                 snprintf(right, sizeof right, "%s", age);
             }
-            const size_t right_len = strlen(right);
+            const size_t right_len = fb_width(right);
             snprintf(line, sizeof line, "%s%s", unread ? "* " : "  ", conversation.name);
             fb_fit(line, layout->cols > right_len + 1U ? layout->cols - right_len - 1U : 8U);
             if (right_len > 0U) {
-                const size_t pad = layout->cols > strlen(line) + right_len
-                                       ? layout->cols - strlen(line) - right_len
+                /* Pad by columns, append at the byte end: a name holding emoji has fewer
+                   columns than bytes, and padding on the byte count pushes the metrics off
+                   the right edge. */
+                const size_t pad = layout->cols > fb_width(line) + right_len
+                                       ? layout->cols - fb_width(line) - right_len
                                        : 1U;
                 snprintf(line + strlen(line), sizeof line - strlen(line), "%*s%s", (int)pad, "",
                          right);
@@ -735,13 +770,25 @@ static void fb_render_nodes(const struct mesh_ui_backend_fb_state *state,
         }
 
         /* Left part is clipped so the right-aligned metrics always fit. */
-        const size_t right_len = strlen(right);
+        const size_t right_len = fb_width(right);
         size_t left_cols = layout->cols > right_len + 1U ? layout->cols - right_len - 1U : 8U;
-        snprintf(line, sizeof line, "%c%-4s %s", (me != 0U && node->node_id == me) ? '*' : ' ',
-                 short_name, long_name);
+        /* "%-4s" pads to four bytes, so an emoji short name - four bytes, one column - comes
+           out of it a column wide instead of four. Pad the field by columns instead. */
+        snprintf(line, sizeof line, "%c%s", (me != 0U && node->node_id == me) ? '*' : ' ',
+                 short_name);
+        for (size_t width = fb_width(short_name); width < 4U; ++width) {
+            const size_t used = strlen(line);
+            if (used + 2U >= sizeof line) {
+                break;
+            }
+            line[used] = ' ';
+            line[used + 1U] = '\0';
+        }
+        snprintf(line + strlen(line), sizeof line - strlen(line), " %s", long_name);
         fb_fit(line, left_cols);
-        const size_t pad =
-            layout->cols > strlen(line) + right_len ? layout->cols - strlen(line) - right_len : 1U;
+        const size_t pad = layout->cols > fb_width(line) + right_len
+                               ? layout->cols - fb_width(line) - right_len
+                               : 1U;
         snprintf(line + strlen(line), sizeof line - strlen(line), "%*s%s", (int)pad, "", right);
 
         fb_draw_row(state, y, line, (node->node_id == nav->target_node) ? k_accent : k_text,
@@ -853,17 +900,18 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
     /* Show the tail when the draft outgrows the box. */
     const size_t visible = layout->cols * (size_t)box_lines;
     const char *shown = draft;
-    if (strlen(draft) > visible) {
-        shown = draft + (strlen(draft) - visible);
+    const size_t draft_width = fb_width(draft);
+    if (draft_width > visible) {
+        shown = draft + mesh_ui_text_cell_offset(draft, draft_width - visible);
     }
     fb_draw_wrapped(state, y, shown, layout->cols, box_lines, k_white);
     y += box_lines * line;
 
     char meter[32];
     snprintf(meter, sizeof meter, "%zu/%zu", strlen(nav->draft), draft_cap);
-    fb_draw_text(state,
-                 (int)state->var.xres - FB_MARGIN - (int)strlen(meter) * fb_char_adv(layout->small),
-                 y, meter, layout->small, k_dim);
+    fb_draw_text(
+        state, (int)state->var.xres - FB_MARGIN - (int)fb_width(meter) * fb_char_adv(layout->small),
+        y, meter, layout->small, k_dim);
     y += fb_line_adv(layout->small) + scale;
 
     /* Grid. */
@@ -880,8 +928,8 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
                 fb_fill_rect(state, x, y, cell_w - scale, cell_h - scale, k_tab_active_bg);
             }
             if (ch != '\0') {
-                fb_draw_char(state, x + (cell_w - adv) / 2, y + scale, (unsigned char)ch, scale,
-                             selected ? k_white : k_text);
+                fb_draw_glyph(state, x + (cell_w - adv) / 2, y + scale, (uint32_t)(unsigned char)ch,
+                              scale, selected ? k_white : k_text);
             }
         }
         y += cell_h;
@@ -895,7 +943,7 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
         const bool selected = (nav->kb_row == MESH_UI_KB_CHAR_ROWS && nav->kb_col == col);
         fb_fill_rect(state, x, y, action_w - scale, cell_h - scale,
                      selected ? k_tab_active_bg : k_cursor_bg);
-        const int text_w = (int)strlen(label) * adv;
+        const int text_w = (int)fb_width(label) * adv;
         fb_draw_text(state, x + (action_w - text_w) / 2, y + scale, label, scale,
                      selected ? k_white : k_text);
     }

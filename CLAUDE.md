@@ -225,6 +225,41 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   a round of "the save does nothing" debugging: Y saves a settings section, X refreshes it, so
   every save became a refresh and the edits stayed pending. All four verified from the device
   log by pressing the button; `input_brick_face_buttons` pins them. Do not "fix" any of it back.
+- `src/utils/text.c` — the UTF-8 helpers everything that touches radio text shares.
+  `mesh_text_sanitise` (folds C0 controls, replaces malformed bytes with `?`, never splits a
+  sequence at the buffer boundary) is what `message.c` runs on message bodies and `session.c`
+  runs on `long_name`/`short_name`; `mesh_text_utf8_length`/`_offset`/`_truncate` are what the
+  fb backend measures lines with. Names are radio input exactly like message text is - whoever
+  owns the node picks the bytes - and `User.short_name` is `char[5]`, sized for one four-byte
+  emoji and its NUL, so multi-byte names are the norm, not an edge case.
+- `src/ui/font5x7.c` — the framebuffer font, keyed by codepoint rather than by byte. ASCII plus
+  Latin-1 Supplement and Latin Extended-A; accented letters are **composed** from a base letter
+  and a mark (`k_composed`) rather than drawn, so adding one is a line. Lowercase leaves rows 0
+  and 1 of the cell free and the mark goes there; capitals and ascenders fill all seven rows, so
+  their mark collapses to a one-row silhouette in `glyph.above`, which `fb_draw_glyph` hangs in
+  the gap `fb_line_adv` leaves between lines. Consequences of a seven-row cell, all deliberate:
+  circumflex/caron/macron/ring are indistinguishable over a capital, and marks that sit *under*
+  a letter have nowhere to go, so `Ç` draws as `C`. Anything with no glyph - emoji, CJK - gets
+  the replacement box - but only for what `emoji.c` below does not cover.
+- `src/ui/emoji.c` + the generated `src/ui/emoji_glyphs.c` — colour emoji sprites, and the
+  **display-cell walker** the whole UI measures with. On a real mesh a good share of nodes are
+  named entirely in emoji, so without these those rows are indistinguishable boxes.
+  `mesh_ui_text_cell_next` is the one place that decides what one drawn column contains, and a
+  cell is neither a byte nor always a codepoint: a flag is a regional-indicator pair, a family
+  is a ZWJ sequence, and selectors/skin tones attach to what precedes them. Two rules earn
+  their keep: matching happens with variation selectors **filtered out** (the font spells its
+  keycap `0039 20E3`, people type `0039 FE0F 20E3`), and a single codepoint the text font can
+  draw is drawn by the text font (the emoji font claims `#`, `*` and the ten digits because
+  they lead keycaps - without this the 9 of "Dog Tracker K9" becomes a grey keycap tile).
+  Sequences always win; that is what the extra codepoints mean.
+  `scripts/gen-emoji.py` rasterises Noto Color Emoji into the committed table and is **not part
+  of the build** - run it by hand, commit the result, the way `Tools/` holds committed aarch64
+  helpers. 5626 sprites over 3963 unique 16x16 bitmaps (a third are duplicates), one shared
+  255-colour palette, run-length encoded, ~920 KB. The pixels are emitted as one string literal
+  on purpose: a braced initialiser of a million integers costs minutes of compile time, the
+  literal costs about two seconds, and the file carries its own
+  `#pragma GCC diagnostic ignored "-Woverlength-strings"` plus a `.clang-format-ignore` entry.
+  Emoji ignore the row's text colour - carrying their own is the point of having them.
 - `src/minui_helpers/` — tiny native fallbacks for `minui-list` / `minui-presenter` used when the
   NextUI cross toolchain isn't available; they honor `MESHCLIENT_MINUI_SELECTION`.
 
@@ -232,6 +267,16 @@ The fb backend draws into page 0 of the Brick's 1024x16384 framebuffer, then `FB
 to it and mirrors the frame into page 1, because the Allwinner display engine keeps showing the
 page NextUI's SDL last flipped to (page 1 in practice). The layer blends with per-pixel alpha,
 so `compose_color` always writes an opaque alpha byte. Drop any of these and the screen is black.
+
+Its text is measured in **cells, not bytes**: `fb_draw_text` walks `mesh_ui_text_cell_next` and
+spends one cell per character or emoji, and `fb_fit`/`fb_width` (over
+`mesh_ui_text_cell_truncate`/`mesh_ui_text_cells`) are the only right way to clip or
+right-align a line. A `strlen` in layout code is a bug - it used to mean an emoji name counted
+four columns and drew four question marks, and it still means padding computed from bytes
+pushes right-aligned metrics off the edge. `%-Ns` has the same problem and is why the Nodes tab
+pads its short-name field by hand. `fb_draw_emoji` draws a sprite across the full character
+advance rather than the glyph's five columns, so an emoji stands as tall as the capitals next
+to it; the sprites' own transparent margins keep neighbours apart.
 
 Backend selection (`MESHCLIENT_UI_BACKEND=auto|minui|fb|cli|stub`, in `app.c`): `auto` prefers
 minui if helpers are on PATH, then fb (`/dev/fb0`), then cli. `launch.sh` forces `fb` on device.
@@ -284,7 +329,7 @@ via Python3 (needs `pip install protobuf grpcio-tools`).
 One harness, `tests/test_main.c`, with a `k_test_cases` table tagged by category (`unit` today;
 `integration`/`hardware` reserved). Register new cases in that table; use
 `record_failure`/`record_success`. Tests must not touch real BlueZ — use the bluez mock. New
-CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-04: 61 unit tests, all passing in
+CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-04: 71 unit tests, all passing in
 the dev container with zero compiler warnings. `message_encode_text_golden` pins the
 `TEXT_MESSAGE_APP` wire format against a hand-derived byte vector (not against our own encoder),
 so a protobuf regeneration that changes field numbers or wire types fails loudly.
