@@ -4253,8 +4253,10 @@ static void test_ui_nav_settings(void) {
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
-    if (action.type != MESH_UI_ACTION_REFRESH_SETTINGS) {
-        failure = "X should ask for a refresh";
+    /* The refresh carries the pending edit count so the toast can say they were kept: X and
+       Y sit together, and a refresh that reports nothing reads like a save that did nothing. */
+    if (action.type != MESH_UI_ACTION_REFRESH_SETTINGS || action.edit_count != 1U) {
+        failure = "X should ask for a refresh and report the edits it kept";
         goto cleanup;
     }
     /* B with an edit asks first; B again discards and leaves. */

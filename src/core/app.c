@@ -736,7 +736,10 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
             return;
         }
         const int result = mesh_session_refresh_settings(&app->session);
-        if (result > 0) {
+        if (result > 0 && action->edit_count > 0U) {
+            snprintf(toast, sizeof toast, "Refreshing %d sections; %u edit%s kept, Y saves", result,
+                     (unsigned)action->edit_count, action->edit_count == 1U ? "" : "s");
+        } else if (result > 0) {
             snprintf(toast, sizeof toast, "Refreshing %d settings sections", result);
         } else if (result == 0) {
             snprintf(toast, sizeof toast, "%s", "Refresh already in progress");
