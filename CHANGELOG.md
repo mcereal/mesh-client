@@ -1,3 +1,9 @@
+## [1.7.1](https://github.com/mcereal/mesh-client/compare/v1.7.0...v1.7.1) (2026-09-04)
+
+### Code Refactoring
+
+* **session:** lift the Meshtastic session out of the BLE transport ([57e7e2b](https://github.com/mcereal/mesh-client/commit/57e7e2b0766c49c7bdda5aae1c88eb14a7d2fe27))
+
 ## [1.7.0](https://github.com/mcereal/mesh-client/compare/v1.6.0...v1.7.0) (2026-09-04)
 
 ### Features
