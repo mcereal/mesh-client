@@ -39,6 +39,7 @@ enum mesh_admin_request_kind {
     MESH_ADMIN_SET_MODULE_CONFIG, /* type as GET_MODULE_CONFIG; payload.module_config */
     MESH_ADMIN_GET_CHANNEL,       /* type = channel index (sent as index + 1 on the wire) */
     MESH_ADMIN_SET_CHANNEL,       /* type = channel index; payload.channel */
+    MESH_ADMIN_SET_TIME,          /* type = UTC epoch seconds; no payload, nothing to read back */
 };
 
 struct mesh_admin_request {
@@ -56,7 +57,11 @@ struct mesh_admin_request {
     } payload;
 };
 
-/* True for the SET_* kinds. */
+/* True for the SET_* kinds the user asks for, which are counted and announced.
+   MESH_ADMIN_SET_TIME is deliberately not one of them: the clock is pushed by itself on every
+   connect, and it must not toast "saved" or occupy the ", saving" marker the user's own save
+   owns. It is still acked by a Routing reply like any other set_*; that reply just releases
+   the queue without touching the counters. */
 bool mesh_admin_request_is_write(enum mesh_admin_request_kind kind);
 
 /* last_write_error when the radio never answered a set_*. Routing errors are positive. */
@@ -67,6 +72,10 @@ bool mesh_admin_request_is_write(enum mesh_admin_request_kind kind);
 #define MESH_RADIO_SETTINGS_MAX_CHANNELS 8U
 /* A reply that has not arrived after this long is given up on and the queue moves on. */
 #define MESH_RADIO_SETTINGS_REPLY_TIMEOUT_MS 5000U
+/* Floor on a clock we are willing to push at a radio: 2025-01-01T00:00:00Z. A Brick whose RTC
+   has been lost reads back somewhere near the epoch, and a node with no time at all is better
+   off than a node confidently set to 1970. */
+#define MESH_RADIO_CLOCK_MIN_EPOCH 1735689600U
 
 struct mesh_radio_settings {
     bool has_device;
@@ -168,6 +177,12 @@ size_t mesh_radio_settings_queue_all(struct mesh_radio_settings *settings);
    cannot take all three. */
 int mesh_radio_settings_queue_write(struct mesh_radio_settings *settings,
                                     const struct mesh_admin_request *write);
+/* Queues a clock push: a get_owner_request for a fresh passkey, then set_time_only carrying
+   `epoch` (UTC seconds). There is no get_time, so nothing is read back. Returns the number of
+   requests queued, -EINVAL for an epoch below MESH_RADIO_CLOCK_MIN_EPOCH, -ENOSPC when the
+   queue cannot take both. */
+int mesh_radio_settings_queue_time(struct mesh_radio_settings *settings, uint32_t epoch);
+
 /* True while a set_* is queued or awaiting its reply. */
 bool mesh_radio_settings_write_pending(const struct mesh_radio_settings *settings);
 /* Records that a dequeued request could not be sent at all (the caller's write failed). */

@@ -345,16 +345,15 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
         break;
     case meshtastic_FromRadio_config_complete_id_tag:
         handshake->config_complete_id = message.config_complete_id;
-        if (handshake->request_in_flight &&
-            message.config_complete_id == handshake->request_id) {
+        if (handshake->request_in_flight && message.config_complete_id == handshake->request_id) {
             handshake->request_in_flight = false;
             handshake->config_complete = true;
             mesh_log_info("session", "Config sync complete for request %u",
                           message.config_complete_id);
         } else {
             mesh_log_debug("session", "Received config_complete_id=%u (pending=%s request=%u)",
-                           message.config_complete_id,
-                           handshake->request_in_flight ? "yes" : "no", handshake->request_id);
+                           message.config_complete_id, handshake->request_in_flight ? "yes" : "no",
+                           handshake->request_id);
         }
         break;
     case meshtastic_FromRadio_packet_tag:
@@ -377,9 +376,36 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
 }
 
 /*
+ * Pushes our wall clock at the radio once per connection. A node with no GPS and no phone ever
+ * attached sits at 00:00 forever, which also means every packet it hands us has rx_time 0 and
+ * the UI can say nothing about when anything arrived. `set_time_only` is the firmware's
+ * convenience for exactly this, and it is what the phone clients do on connect.
+ *
+ * Silent either way: a radio that already has a better clock (GPS, another node) is free to
+ * ignore us, and a Brick whose own clock is not credible pushes nothing at all.
+ */
+static void mesh_session_sync_clock(struct mesh_session *session) {
+    const time_t now = time(NULL);
+    if (now <= 0 || (uint64_t)now > UINT32_MAX) {
+        return;
+    }
+    const uint32_t epoch = (uint32_t)now;
+    if (epoch < MESH_RADIO_CLOCK_MIN_EPOCH) {
+        mesh_log_info("session", "Not setting the radio clock: our own clock reads %u", epoch);
+        return;
+    }
+    const int queued = mesh_radio_settings_queue_time(&session->settings, epoch);
+    if (queued > 0) {
+        mesh_log_info("session", "Setting the radio clock to %u (%d requests)", epoch, queued);
+    } else if (queued < 0) {
+        mesh_log_warn("session", "Could not queue the radio clock: %d", queued);
+    }
+}
+
+/*
  * Once the handshake has completed, ask for the metadata and the owner (proof that the
- * AdminMessage round trip and its session passkey work on this radio), then send whatever else
- * is queued, one request at a time.
+ * AdminMessage round trip and its session passkey work on this radio), push our clock at the
+ * radio, then send whatever else is queued, one request at a time.
  */
 void mesh_session_tick(struct mesh_session *session, uint64_t now_ms) {
     if (session == NULL || session->send == NULL || !session->handshake.has_my_info) {
@@ -388,6 +414,7 @@ void mesh_session_tick(struct mesh_session *session, uint64_t now_ms) {
     if (session->handshake.config_complete && !session->admin_probe_queued) {
         session->admin_probe_queued = true;
         mesh_radio_settings_queue_probe(&session->settings);
+        mesh_session_sync_clock(session);
     }
 
     struct mesh_admin_request request;
@@ -495,8 +522,8 @@ int mesh_session_send_text(struct mesh_session *session, uint32_t dest, uint8_t 
     if (out_packet_id != NULL) {
         *out_packet_id = request.packet_id;
     }
-    mesh_log_info("session", "Queued text message id=%u to 0x%08x on channel %u",
-                  request.packet_id, dest, (unsigned)channel);
+    mesh_log_info("session", "Queued text message id=%u to 0x%08x on channel %u", request.packet_id,
+                  dest, (unsigned)channel);
     return 0;
 }
 

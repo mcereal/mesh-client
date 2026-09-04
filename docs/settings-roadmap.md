@@ -47,7 +47,7 @@ fragment, and uses the admin path for refreshes and as proof that writes will wo
 | Short / long name, licensed operator, unmessageable | `User.short_name` (4 bytes), `long_name` (39 on the wire, 24 kept by the firmware), `is_licensed`, `is_unmessagable` (optional, so `has_is_unmessagable` must be set); written with `set_owner` | The firmware ignores empty names and rejects all-whitespace ones with `BAD_REQUEST`. |
 | Bluetooth PIN mode | `BluetoothConfig.mode` (`RANDOM_PIN`, `FIXED_PIN`, `NO_PIN`), `fixed_pin` | Changing it invalidates the BlueZ pairing. The UI must say so and point at `bluetoothctl pair`. |
 | Device role | `DeviceConfig.role`: CLIENT, CLIENT_MUTE, ROUTER, ROUTER_CLIENT (deprecated), REPEATER (deprecated), TRACKER, SENSOR, TAK, CLIENT_HIDDEN, LOST_AND_FOUND, TAK_TRACKER, ROUTER_LATE, CLIENT_BASE | Hide the deprecated two. |
-| Time zone | `DeviceConfig.tzdef`, a POSIX TZ string (65 bytes) | Ship a preset list (US zones, UTC, common EU/APAC); no free text. |
+| Time zone | `DeviceConfig.tzdef`, a POSIX TZ string (65 bytes) | Shipped as free text on the keyboard; a preset list would still be kinder. |
 | Compass, 12 h clock, units, screen on, carousel | `DisplayConfig.compass_orientation`, `use_12h_clock`, `units`, `screen_on_secs`, `auto_screen_carousel_secs` | Plain enums, toggles and number steppers. |
 | Store and Forward | `ModuleConfig.store_forward.enabled` (+ `heartbeat`, `is_server`) | |
 | Telemetry device metrics | `ModuleConfig.telemetry.device_telemetry_enabled`, `device_update_interval` | The radio also reports environment/power/air quality toggles; show them, edit later. |
@@ -166,7 +166,20 @@ Brick can be entered in the app and vice versa; hex is accepted when typing too.
 
 ### Later, maybe never
 
-Firmware install. Also `tzdef` presets beyond a short list, `Device` (role, time zone),
-`Position` and `Power` sections (shown read-only, not edited), `Network` (WiFi credentials on
-a device with no WiFi of its own is a poor fit), and closing channel gaps the way the phone
-apps do when a middle slot is removed.
+Firmware install. Also `tzdef` presets beyond typing the POSIX string by hand, the rest of
+`Device` (role, rebroadcast mode), `Position` and `Power` sections (shown read-only, not
+edited), `Network` (WiFi credentials on a device with no WiFi of its own is a poor fit), and
+closing channel gaps the way the phone apps do when a middle slot is removed.
+
+### Done outside the phases
+
+The **clock**. A node with no GPS that has never had a phone attached sits at 00:00, and every
+packet it hands us then carries `rx_time` 0, so the UI can say nothing about when anything
+arrived. `mesh_session_sync_clock` pushes the Brick's own time at the radio once per
+connection as `AdminMessage.set_time_only`, behind a `get_owner` for a fresh passkey and with
+no read-back (there is no `get_time`). It is gated on `MESH_RADIO_CLOCK_MIN_EPOCH` so a Brick
+that has lost its RTC pushes nothing, and it is deliberately excluded from
+`mesh_admin_request_is_write` so it never toasts "saved" or claims the ", saving" marker that
+belongs to the user's own save. `set_time_only` is UTC: the node shows local time only once
+`Device` → Time zone (`DeviceConfig.tzdef`, a POSIX TZ string such as `AST4` or
+`EST5EDT,M3.2.0,M11.1.0`) is set, which is the one editable row in the Device section.

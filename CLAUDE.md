@@ -133,7 +133,14 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   quoting our id: `error_reason` NONE is the ack, `ADMIN_BAD_SESSION_KEY`/`BAD_REQUEST` a
   rejection; `ingest` claims those too and counts them in `writes_acked`/`writes_failed`. The
   full channel table (`has_channel[]`/`channels[]`, keys included, never persisted) is kept
-  for `set_channel`, which must carry the whole `Channel`; `get_channel_request` is index+1. Most
+  for `set_channel`, which must carry the whole `Channel`; `get_channel_request` is index+1.
+  `MESH_ADMIN_SET_TIME` is the odd one out: `mesh_session_sync_clock` pushes the Brick's own
+  `time(NULL)` at the radio once per connection (`set_time_only`, behind a `get_owner` for the
+  passkey, no read-back - there is no `get_time`), so a node with no GPS stops sitting at 00:00
+  and its packets carry a real `rx_time`. It is gated on `MESH_RADIO_CLOCK_MIN_EPOCH` and left
+  out of `mesh_admin_request_is_write` on purpose, so it never counts as a save or toasts over
+  one. `set_time_only` is UTC; the node shows local time only once `DeviceConfig.tzdef` is set,
+  which is the Device section's one editable row. Most
   sections reboot the radio 7 s after a set (owner, module configs, display when
   `screen_on_secs`/`flip_screen` change), so the link drops and auto-connect reconnects; that is
   expected, not a bug. Phase status is in `docs/settings-roadmap.md`.
