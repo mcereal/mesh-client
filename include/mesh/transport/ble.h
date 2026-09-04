@@ -34,6 +34,13 @@ const char *mesh_ble_transport_connected_address(struct mesh_transport *transpor
    is neither usable nor reported by mesh_ble_transport_connected_address() yet. */
 bool mesh_ble_transport_is_connecting(struct mesh_transport *transport);
 
+/* Asks BlueZ whether the device is still connected. BlueZ does not push a disconnect to us
+   (we only watch characteristic properties), so tick() calls this every couple of seconds
+   while linked. Returns 1 when the link is up, 0 when it was found down and has been reset
+   (queued messages are marked failed), a negative errno when the question could not be asked.
+   Exposed for tests. */
+int mesh_ble_transport_check_link(struct mesh_transport *transport);
+
 /* Encode and queue a TEXT_MESSAGE_APP packet for the connected node, and record it in the
    message log as outbound. Pass MESH_MESSAGE_BROADCAST_ADDR to broadcast on `channel`.
    want_ack is ignored for broadcasts, which the mesh never acks directly. On success the
@@ -45,8 +52,9 @@ int mesh_ble_transport_send_text(struct mesh_transport *transport, uint32_t dest
 /* Borrowed view of the inbox/outbox ring. Valid until the next transport tick. */
 const struct mesh_message_log *mesh_ble_transport_messages(struct mesh_transport *transport);
 
-/* Real meshes run past 100 nodes; keep the summary cache large enough for a full NodeDB sync. */
-#define MESH_BLE_MAX_NODE_SUMMARY 128U
+/* Real meshes run past 100 nodes (134 seen on the bench); keep the summary cache large enough
+   for a full NodeDB sync, since a node the sync drops cannot be messaged by name. */
+#define MESH_BLE_MAX_NODE_SUMMARY 256U
 
 struct mesh_ble_node_summary {
     uint32_t node_id;
@@ -57,6 +65,16 @@ struct mesh_ble_node_summary {
     bool via_mqtt;
     bool has_hops_away;
     uint8_t hops_away;
+};
+
+/* The radio's channel table: 8 slots, PRIMARY plus SECONDARYs; DISABLED slots are kept so the
+   index stays meaningful (MeshPacket.channel is this index for broadcasts). */
+#define MESH_BLE_MAX_CHANNELS 8U
+
+struct mesh_ble_channel_summary {
+    uint8_t index;
+    uint8_t role; /* meshtastic_Channel_Role */
+    char name[12];
 };
 
 struct mesh_ble_handshake_status {
@@ -70,6 +88,9 @@ struct mesh_ble_handshake_status {
     meshtastic_Config config;
     size_t node_count;
     struct mesh_ble_node_summary nodes[MESH_BLE_MAX_NODE_SUMMARY];
+    /* Indexed by channel slot; channel_count is the highest slot seen plus one. */
+    size_t channel_count;
+    struct mesh_ble_channel_summary channels[MESH_BLE_MAX_CHANNELS];
 };
 
 struct mesh_ble_handshake_status

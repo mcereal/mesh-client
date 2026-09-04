@@ -43,6 +43,86 @@ static void mesh_app_minui_on_device_selected(void *userdata, const char *identi
     }
 }
 
+/* Button presses arrive here from the evdev reader and go straight into the UI store's
+   navigation model; the repaint happens on the store's eventfd in the same loop turn. */
+static void mesh_app_on_ui_key(void *userdata, enum mesh_ui_key key) {
+    struct mesh_app *app = (struct mesh_app *)userdata;
+    if (app == NULL) {
+        return;
+    }
+    mesh_ui_controller_handle_key(&app->ui_controller, key);
+}
+
+static uint64_t mesh_app_now_ms(void);
+
+/* What the navigation model cannot do by itself: talk to the radio. */
+static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) {
+    struct mesh_app *app = (struct mesh_app *)userdata;
+    if (app == NULL || action == NULL) {
+        return;
+    }
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    const uint64_t now = mesh_app_now_ms();
+
+    switch (action->type) {
+    case MESH_UI_ACTION_CONNECT: {
+        if (ble == NULL) {
+            mesh_ui_store_set_toast(&app->ui_store, now, "BLE transport unavailable");
+            return;
+        }
+        mesh_log_info("ui", "Connect to %s requested from the device", action->identifier);
+        /* Same bookkeeping as a MinUI pick: this becomes the node auto-connect goes back to. */
+        snprintf(app->config.preferred_ble_device, sizeof app->config.preferred_ble_device, "%s",
+                 action->identifier);
+        snprintf(app->ui_preferences.preferred_device, sizeof app->ui_preferences.preferred_device,
+                 "%s", action->identifier);
+        app->ui_preferences_dirty = true;
+
+        /* A user pick beats whatever auto-connect is doing or has done. */
+        if (mesh_ble_transport_connected_address(ble) != NULL ||
+            mesh_ble_transport_is_connecting(ble)) {
+            mesh_ble_transport_disconnect(ble);
+        }
+        const int result = mesh_ble_transport_connect(ble, action->identifier);
+        if (result == 0 || result == -EALREADY || result == -EINPROGRESS) {
+            snprintf(toast, sizeof toast, "Connecting to %.40s", action->identifier);
+        } else {
+            snprintf(toast, sizeof toast, "Connect failed (%d)", result);
+            mesh_log_warn("ui", "Connect to %s failed: %d", action->identifier, result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
+    case MESH_UI_ACTION_SEND_TEXT: {
+        if (ble == NULL) {
+            mesh_ui_store_set_toast(&app->ui_store, now, "BLE transport unavailable");
+            return;
+        }
+        const bool broadcast = (action->dest == MESH_MESSAGE_BROADCAST_ADDR);
+        uint32_t packet_id = 0U;
+        const int result = mesh_ble_transport_send_text(ble, action->dest, action->channel,
+                                                        action->text, !broadcast, &packet_id);
+        if (result == 0) {
+            snprintf(toast, sizeof toast, "Sent to %s", app->ui_store.nav.target_name);
+            mesh_log_info("ui", "Sent \"%s\" to %s (packet %u)", action->text,
+                          app->ui_store.nav.target_name, packet_id);
+        } else if (result == -ENOTCONN) {
+            snprintf(toast, sizeof toast, "%s", "Not connected to a node");
+        } else {
+            snprintf(toast, sizeof toast, "Send failed (%d)", result);
+            mesh_log_warn("ui", "Send to %s failed: %d", app->ui_store.nav.target_name, result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
+    case MESH_UI_ACTION_NONE:
+    default:
+        return;
+    }
+}
+
 static bool mesh_app_select_minui(struct mesh_app *app, const struct mesh_ui_backend **backend,
                                   void **userdata, bool log_on_missing) {
     if (!mesh_ui_backend_minui_is_available()) {
@@ -196,6 +276,26 @@ static void mesh_app_format_peer_name(const struct mesh_ble_handshake_status *st
     snprintf(out, out_len, "!%08x", node_id);
 }
 
+/* Lower is more important; see the ranking comment in mesh_app_publish_ui_state(). */
+static unsigned mesh_app_node_rank(const struct mesh_ble_node_summary *node, uint32_t my_node,
+                                   const struct mesh_message_log *log) {
+    if (my_node != 0U && node->node_id == my_node) {
+        return 0U;
+    }
+    if (log != NULL) {
+        for (size_t i = 0; i < log->count; ++i) {
+            const struct mesh_message *message = mesh_message_log_at(log, i);
+            if (message == NULL) {
+                continue;
+            }
+            if (message->from == node->node_id || message->to == node->node_id) {
+                return 1U;
+            }
+        }
+    }
+    return node->via_mqtt ? 3U : 2U;
+}
+
 /* Copies the newest MESH_UI_MAX_MESSAGES entries out of the transport ring into the store,
    merged with whatever history was restored from the cache at startup. */
 static void mesh_app_publish_messages(struct mesh_app *app, struct mesh_transport *ble,
@@ -249,6 +349,8 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
         return;
     }
 
+    mesh_ui_store_tick(&app->ui_store, mesh_app_now_ms());
+
     struct mesh_transport *ble = mesh_ble_transport();
     if (ble == NULL) {
         mesh_ui_store_set_transport_status(&app->ui_store, "unavailable");
@@ -268,6 +370,14 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
 
     const char *connected_address = mesh_ble_transport_connected_address(ble);
     bool connected_address_seen = false;
+
+    /* Announce a dropped link once; auto-connect brings it back and the footer tracks it. */
+    const bool link_connected = (connected_address != NULL && connected_address[0] != '\0');
+    if (app->ui_link_was_connected && !link_connected &&
+        app->config.run_mode == MESH_APP_RUN_FOREGROUND) {
+        mesh_ui_store_set_toast(&app->ui_store, mesh_app_now_ms(), "Radio link lost; reconnecting");
+    }
+    app->ui_link_was_connected = link_connected;
 
     for (size_t i = 0; i < device_count && i < MESH_UI_MAX_DEVICES; ++i) {
         snprintf(ui_devices[i].identifier, sizeof(ui_devices[i].identifier), "%s",
@@ -338,12 +448,41 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
             }
         }
 
-        size_t copy_count = status.node_count;
+        /* The UI carries fewer nodes than a real mesh has. Rank them so the ones that matter
+           survive the cut: ourselves, then anyone we have exchanged messages with, then nodes
+           heard directly over RF by last_heard, then MQTT-fed nodes by last_heard. On a mesh
+           with an MQTT uplink dozens of far-away nodes are "heard" every minute and would
+           otherwise push the radio you are actually talking to off the list. Insertion sort:
+           MESH_BLE_MAX_NODE_SUMMARY is small and this runs once per publish. */
+        const struct mesh_message_log *message_log = mesh_ble_transport_messages(ble);
+        size_t order[MESH_BLE_MAX_NODE_SUMMARY];
+        unsigned rank[MESH_BLE_MAX_NODE_SUMMARY];
+        size_t total = status.node_count > MESH_BLE_MAX_NODE_SUMMARY ? MESH_BLE_MAX_NODE_SUMMARY
+                                                                     : status.node_count;
+        const uint32_t my_node = status.has_my_info ? status.my_info.my_node_num : 0U;
+        for (size_t i = 0; i < total; ++i) {
+            const struct mesh_ble_node_summary *node = &status.nodes[i];
+            rank[i] = mesh_app_node_rank(node, my_node, message_log);
+            size_t j = i;
+            while (j > 0U) {
+                const size_t prev_index = order[j - 1U];
+                const struct mesh_ble_node_summary *prev = &status.nodes[prev_index];
+                if (rank[prev_index] < rank[i] ||
+                    (rank[prev_index] == rank[i] && prev->last_heard >= node->last_heard)) {
+                    break;
+                }
+                order[j] = prev_index;
+                --j;
+            }
+            order[j] = i;
+        }
+
+        size_t copy_count = total;
         if (copy_count > MESH_UI_MAX_HANDSHAKE_NODES) {
             copy_count = MESH_UI_MAX_HANDSHAKE_NODES;
         }
         for (size_t i = 0; i < copy_count; ++i) {
-            const struct mesh_ble_node_summary *src = &status.nodes[i];
+            const struct mesh_ble_node_summary *src = &status.nodes[order[i]];
             struct mesh_ui_node_summary *dst = &ui_handshake.nodes[i];
             dst->node_id = src->node_id;
             snprintf(dst->long_name, sizeof(dst->long_name), "%s", src->long_name);
@@ -355,6 +494,22 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
             dst->hops_away = src->hops_away;
         }
         ui_handshake.node_count = (uint32_t)copy_count;
+
+        size_t channel_count = status.channel_count;
+        if (channel_count > MESH_UI_MAX_CHANNELS) {
+            channel_count = MESH_UI_MAX_CHANNELS;
+        }
+        for (size_t i = 0; i < channel_count; ++i) {
+            ui_handshake.channels[i].index = status.channels[i].index;
+            ui_handshake.channels[i].role = status.channels[i].role;
+            snprintf(ui_handshake.channels[i].name, sizeof(ui_handshake.channels[i].name), "%s",
+                     status.channels[i].name);
+            if (status.channels[i].role == 1U /* PRIMARY */) {
+                snprintf(ui_handshake.primary_channel, sizeof(ui_handshake.primary_channel), "%s",
+                         status.channels[i].name);
+            }
+        }
+        ui_handshake.channel_count = (uint32_t)channel_count;
 
         mesh_ui_update_flags prev_flags = app->ui_store.pending_flags;
         mesh_ui_store_set_handshake(&app->ui_store, &ui_handshake);
@@ -546,6 +701,7 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     app->autoconnect_retry_at_ms = 0U;
     app->autoconnect_failures = 0U;
     app->autoconnect_waiting_logged = false;
+    app->ui_link_was_connected = false;
     app->autoconnect_disabled = mesh_app_env_disabled("MESHCLIENT_AUTOCONNECT");
     if (app->autoconnect_disabled) {
         mesh_log_info("app", "Auto-connect disabled by MESHCLIENT_AUTOCONNECT");
@@ -605,6 +761,24 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
         mesh_event_loop_shutdown(&app->loop);
         return result;
     }
+    mesh_ui_controller_set_action_handler(&app->ui_controller, mesh_app_on_ui_action, app);
+
+    /* Optional canned.txt next to the preferences file replaces the built-in quick replies. */
+    if (app->ui_preferences_path[0] != '\0') {
+        char canned_path[sizeof app->ui_preferences_path + 16U];
+        snprintf(canned_path, sizeof canned_path, "%s", app->ui_preferences_path);
+        char *slash = strrchr(canned_path, '/');
+        if (slash != NULL) {
+            const size_t room = sizeof canned_path - (size_t)(slash + 1 - canned_path);
+            snprintf(slash + 1, room, "%s", "canned.txt");
+            const int loaded = mesh_ui_canned_load(canned_path);
+            if (loaded > 0) {
+                mesh_log_info("app", "Loaded %d canned replies from %s", loaded, canned_path);
+            } else if (loaded != -ENOENT) {
+                mesh_log_warn("app", "Ignoring %s: %d", canned_path, loaded);
+            }
+        }
+    }
 
     mesh_transport_registry_init(&app->transport_registry);
 
@@ -657,6 +831,7 @@ int mesh_app_run(struct mesh_app *app) {
        read buttons is still better than no client. */
     mesh_signals_init(&app->signals, &app->loop);
     mesh_ui_input_init(&app->ui_input, &app->loop);
+    mesh_ui_input_set_handler(&app->ui_input, mesh_app_on_ui_key, app);
 
     mesh_app_publish_ui_state(app);
 
@@ -703,7 +878,16 @@ int mesh_app_run(struct mesh_app *app) {
     }
 
     mesh_transport_registry_stop_all(&app->transport_registry);
-    mesh_app_publish_ui_state(app);
+    /* Only the transport line changes here. A full publish would see the stopped transport
+       report no handshake and no node names, and that empty state is what mesh_app_shutdown()
+       would then save as the cache. */
+    {
+        struct mesh_transport *ble = mesh_ble_transport();
+        const char *status = (ble != NULL && ble->ops != NULL && ble->ops->status != NULL)
+                                 ? ble->ops->status(ble)
+                                 : "stopped";
+        mesh_ui_store_set_transport_status(&app->ui_store, status != NULL ? status : "stopped");
+    }
 
     mesh_ui_input_shutdown(&app->ui_input);
     mesh_signals_shutdown(&app->signals);

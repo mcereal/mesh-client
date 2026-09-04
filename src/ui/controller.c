@@ -4,6 +4,7 @@
 
 #include "mesh/log.h"
 #include "mesh/ui/backend.h"
+#include "mesh/ui/nav.h"
 
 #include <errno.h>
 #include <stddef.h>
@@ -80,6 +81,27 @@ int mesh_ui_controller_init(struct mesh_ui_controller *controller, struct mesh_u
     mesh_ui_store_request_refresh(store);
 
     return 0;
+}
+
+void mesh_ui_controller_set_action_handler(struct mesh_ui_controller *controller,
+                                           mesh_ui_action_handler handler, void *userdata) {
+    if (controller == NULL) {
+        return;
+    }
+    controller->on_action = handler;
+    controller->action_userdata = userdata;
+}
+
+void mesh_ui_controller_handle_key(struct mesh_ui_controller *controller, enum mesh_ui_key key) {
+    if (controller == NULL || controller->store == NULL || key == MESH_UI_KEY_NONE) {
+        return;
+    }
+
+    struct mesh_ui_action action;
+    mesh_ui_store_handle_key(controller->store, key, &action);
+    if (action.type != MESH_UI_ACTION_NONE && controller->on_action != NULL) {
+        controller->on_action(controller->action_userdata, &action);
+    }
 }
 
 void mesh_ui_controller_shutdown(struct mesh_ui_controller *controller) {

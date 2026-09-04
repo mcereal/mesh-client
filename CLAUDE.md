@@ -69,14 +69,21 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
 - `src/transport/ble/ble_transport.c` — state machine (`disabled` → `waiting-for-bluez` →
   `waiting-for-adapter` → `running`), Meshtastic service UUID filtering, the `want_config_id`
   handshake, an outbound ToRadio packet queue, FromNum-notify → FromRadio-read drain loop, and a
-  node-summary cache decoded from `FromRadio`. BLE is **not** Nordic UART and has no length
+  node-summary cache decoded from `FromRadio` (256 entries; every inbound `MeshPacket` also
+  refreshes its sender's `last_heard`/SNR/hops, adding the sender by id if the sync never
+  delivered its NodeInfo), plus the radio's channel table (`FromRadio.channel`,
+  by slot, role DISABLED kept so indices stay meaningful). BLE is **not** Nordic UART and has no length
   framing: one bare protobuf per GATT write/read. `src/proto/framing.c` is for serial/TCP only.
   Nodes in PIN mode must be paired with BlueZ out of band (`bluetoothctl pair`) before connect.
   `mesh_ble_transport_connect` sends `Device1.Connect` without blocking (reply matched by
   serial in `bluez_client.c`, 30 s cap) and returns 0 with the link in `connecting`; `tick()`
   then waits for `ServicesResolved` (250 ms polls, 20 s cap) before wiring the characteristics.
   `connected_address()` is NULL until then; `status()` reads `connecting`/`connected` meanwhile.
-  Everything else on the bus (reads, writes, StartNotify) is still a blocking call.
+  Everything else on the bus (reads, writes, StartNotify) is still a blocking call. BlueZ never
+  tells us about a dropped link (only characteristic properties are watched), so `tick()` reads
+  `Device1.Connected` every 2 s while CONNECTED (`mesh_ble_transport_check_link`) and a failed
+  GATT write also resets the link; queued messages are marked FAILED either way, and the
+  message log survives the reset. Auto-connect then reconnects.
 - `src/core/message.c` — transport-agnostic messaging: builds `TEXT_MESSAGE_APP` packets into a
   `ToRadio`, folds inbound `MeshPacket`s into a fixed ring (`mesh_message_log`), and correlates
   `ROUTING_APP` replies with the outbound message they ack. Message text is untrusted radio
@@ -90,6 +97,27 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
 - `src/ui/store.c` + `controller.c` — store owns `mesh_ui_snapshot` and signals via eventfd;
   controller drains it and calls `backend->present(snapshot)`. Backends implement the three-function
   `struct mesh_ui_backend` in `include/mesh/ui/backend.h` and live in `src/ui/backends/`.
+- Input goes the other way: `src/ui/input.c` reads every `/dev/input/event*`, maps evdev codes
+  (BTN_SOUTH.., ABS_HAT0X/Y for the d-pad, arrow keys on a keyboard) to `enum mesh_ui_key`, and
+  calls the handler the app installed; quit keys stop the loop before mapping. The handler feeds
+  `mesh_ui_controller_handle_key` → `mesh_ui_store_handle_key` → `src/ui/nav.c`, which owns the
+  tab/cursor/compose-target model (`struct mesh_ui_nav`, carried inside every snapshot, clamped
+  against the lists on each consume) and returns a `mesh_ui_action` (connect, send text) that the
+  controller hands to `mesh_app_on_ui_action` in `app.c`. Backends are stateless: they draw the
+  cursor from `snapshot->nav`. Nav logic has no fd or device dependency, so test it directly.
+  The nav's `target_node`/`target_channel` pair is both the Compose destination and the
+  conversation the Messages tab shows (`inbox` shows everything); `mesh_ui_nav_filter_messages`
+  is the one place that filter lives, so the Messages cursor indexes the filtered list. The
+  on-screen keyboard is `keyboard_open` plus `kb_row/kb_col/kb_layer` and `draft`, all in the
+  nav; while it is open every key goes to the keyboard handler and tabs do not switch. The
+  `picker_open` overlay (Compose To:) works the same way; its rows come from
+  `mesh_ui_nav_picker_row` (channels, then nodes). `app.c` ranks nodes before publishing
+  (`mesh_app_node_rank`: us, message peers, RF nodes by `last_heard`, MQTT nodes) so the UI's
+  128-node budget always holds whoever you are talking to; on an MQTT-fed mesh last_heard alone
+  buries them. The post-stop publish in `mesh_app_run` only touches the transport line, because
+  the shutdown save would otherwise persist an empty handshake and unresolved peer names.
+  Button positions: the Brick's A is `BTN_EAST` (305) and B is `BTN_SOUTH` (304), the reverse
+  of the Linux `BTN_A`/`BTN_B` aliases. Verified from the device log; do not "fix" it back.
 - `src/minui_helpers/` — tiny native fallbacks for `minui-list` / `minui-presenter` used when the
   NextUI cross toolchain isn't available; they honor `MESHCLIENT_MINUI_SELECTION`.
 
@@ -149,7 +177,7 @@ via Python3 (needs `pip install protobuf grpcio-tools`).
 One harness, `tests/test_main.c`, with a `k_test_cases` table tagged by category (`unit` today;
 `integration`/`hardware` reserved). Register new cases in that table; use
 `record_failure`/`record_success`. Tests must not touch real BlueZ — use the bluez mock. New
-CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-03: 26 unit tests, all passing in
+CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-04: 40 unit tests, all passing in
 the dev container with zero compiler warnings. `message_encode_text_golden` pins the
 `TEXT_MESSAGE_APP` wire format against a hand-derived byte vector (not against our own encoder),
 so a protobuf regeneration that changes field numbers or wire types fails loudly.

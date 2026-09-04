@@ -1,9 +1,12 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include "mesh/ui/backends/fb.h"
 
 #include "mesh/event_loop.h"
 #include "mesh/log.h"
 #include "mesh/mesh_message.h"
 #include "mesh/ui/input.h"
+#include "mesh/ui/nav.h"
 #include "mesh/ui/store.h"
 
 #include <errno.h>
@@ -17,6 +20,7 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 struct mesh_ui_backend_fb_state {
@@ -28,13 +32,34 @@ struct mesh_ui_backend_fb_state {
     uint32_t line_bytes;
     uint32_t bytes_per_pixel;
     bool pan_failed_logged;
+    /* Glyph multiplier for body text; the tab bar and footer use one step smaller. The Brick's
+       3.2" panel is 1024 px wide, so 4 gives ~41 columns of legible text. */
+    int scale;
 };
+
+struct fb_rgb {
+    uint8_t r, g, b;
+};
+
+/* Palette. Dark ground, cool greys for chrome, one warm colour for things that need the eye. */
+static const struct fb_rgb k_bg = {0x0A, 0x14, 0x1E};
+static const struct fb_rgb k_text = {220, 230, 240};
+static const struct fb_rgb k_dim = {140, 150, 165};
+static const struct fb_rgb k_tab_active_bg = {60, 110, 170};
+static const struct fb_rgb k_cursor_bg = {40, 80, 120};
+static const struct fb_rgb k_white = {255, 255, 255};
+static const struct fb_rgb k_inbound = {235, 245, 255};
+static const struct fb_rgb k_outbound = {170, 190, 210};
+static const struct fb_rgb k_accent = {255, 220, 120};
+static const struct fb_rgb k_good = {120, 220, 150};
+static const struct fb_rgb k_bad = {240, 120, 120};
 
 #define FONT_WIDTH 5
 #define FONT_HEIGHT 7
-#define FONT_SCALE 2
-#define FONT_ADV (FONT_WIDTH * FONT_SCALE + 2)
-#define LINE_ADV (FONT_HEIGHT * FONT_SCALE + 4)
+#define FB_MARGIN 16
+#define FB_DEFAULT_SCALE 4
+#define FB_MIN_SCALE 2
+#define FB_MAX_SCALE 6
 
 static const uint8_t k_font5x7[96][5] = {
     {0x00, 0x00, 0x00, 0x00, 0x00}, {0x00, 0x00, 0x5F, 0x00, 0x00}, {0x00, 0x07, 0x00, 0x07, 0x00},
@@ -156,8 +181,12 @@ static void fb_draw_pixel(const struct mesh_ui_backend_fb_state *state, int x, i
     }
 }
 
+/* Glyph metrics for a given multiplier: one pixel column of gap per scale step, two rows. */
+static inline int fb_char_adv(int scale) { return FONT_WIDTH * scale + scale; }
+static inline int fb_line_adv(int scale) { return FONT_HEIGHT * scale + 2 * scale; }
+
 static void fb_draw_char(const struct mesh_ui_backend_fb_state *state, int x, int y,
-                         unsigned char ch, uint8_t r, uint8_t g, uint8_t b) {
+                         unsigned char ch, int scale, struct fb_rgb color) {
     if (ch < 32 || ch > 126) {
         ch = '?';
     }
@@ -166,10 +195,10 @@ static void fb_draw_char(const struct mesh_ui_backend_fb_state *state, int x, in
         uint8_t bits = glyph[col];
         for (int row = 0; row < FONT_HEIGHT; ++row) {
             if (bits & (1U << row)) {
-                for (int sx = 0; sx < FONT_SCALE; ++sx) {
-                    for (int sy = 0; sy < FONT_SCALE; ++sy) {
-                        fb_draw_pixel(state, x + col * FONT_SCALE + sx, y + row * FONT_SCALE + sy,
-                                      r, g, b);
+                for (int sx = 0; sx < scale; ++sx) {
+                    for (int sy = 0; sy < scale; ++sy) {
+                        fb_draw_pixel(state, x + col * scale + sx, y + row * scale + sy, color.r,
+                                      color.g, color.b);
                     }
                 }
             }
@@ -178,211 +207,772 @@ static void fb_draw_char(const struct mesh_ui_backend_fb_state *state, int x, in
 }
 
 static void fb_draw_text(const struct mesh_ui_backend_fb_state *state, int x, int y,
-                         const char *text, uint8_t r, uint8_t g, uint8_t b) {
+                         const char *text, int scale, struct fb_rgb color) {
     int cursor = x;
     for (const unsigned char *c = (const unsigned char *)text; *c != '\0'; ++c) {
         if (*c == '\n') {
-            y += LINE_ADV;
+            y += fb_line_adv(scale);
             cursor = x;
             continue;
         }
-        fb_draw_char(state, cursor, y, *c, r, g, b);
-        cursor += FONT_ADV;
+        fb_draw_char(state, cursor, y, *c, scale, color);
+        cursor += fb_char_adv(scale);
     }
 }
 
-static void fb_clear(const struct mesh_ui_backend_fb_state *state, uint8_t r, uint8_t g,
-                     uint8_t b) {
-    uint32_t color = compose_color(state, r, g, b);
-    for (unsigned int y = 0; y < state->var.yres; ++y) {
-        uint8_t *row = state->fb_ptr + y * state->fix.line_length;
-        for (unsigned int x = 0; x < state->var.xres; ++x) {
+static void fb_fill_rect(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h,
+                         struct fb_rgb color) {
+    if (w <= 0 || h <= 0) {
+        return;
+    }
+    if (x < 0) {
+        w += x;
+        x = 0;
+    }
+    if (y < 0) {
+        h += y;
+        y = 0;
+    }
+    if (x + w > (int)state->var.xres) {
+        w = (int)state->var.xres - x;
+    }
+    if (y + h > (int)state->var.yres) {
+        h = (int)state->var.yres - y;
+    }
+    if (w <= 0 || h <= 0) {
+        return;
+    }
+
+    const uint32_t packed = compose_color(state, color.r, color.g, color.b);
+    for (int row = y; row < y + h; ++row) {
+        uint8_t *px = state->fb_ptr + (size_t)row * state->fix.line_length +
+                      (size_t)x * state->bytes_per_pixel;
+        if ((size_t)(px - state->fb_ptr) + (size_t)w * state->bytes_per_pixel > state->fb_size) {
+            return;
+        }
+        for (int col = 0; col < w; ++col) {
             switch (state->bytes_per_pixel) {
             case 4:
-                *(uint32_t *)row = color;
-                row += 4;
+                *(uint32_t *)px = packed;
+                px += 4;
                 continue;
             case 3:
-                row[0] = color & 0xFF;
-                row[1] = (color >> 8) & 0xFF;
-                row[2] = (color >> 16) & 0xFF;
-                row += 3;
+                px[0] = packed & 0xFF;
+                px[1] = (packed >> 8) & 0xFF;
+                px[2] = (packed >> 16) & 0xFF;
+                px += 3;
                 continue;
             case 2:
-                *(uint16_t *)row = (uint16_t)color;
-                row += 2;
+                *(uint16_t *)px = (uint16_t)packed;
+                px += 2;
                 continue;
             default:
-                *row++ = color & 0xFF;
+                *px++ = packed & 0xFF;
                 continue;
             }
         }
     }
 }
 
-static void fb_draw_quit_hint(const struct mesh_ui_backend_fb_state *state) {
-    const int y = (int)state->var.yres - LINE_ADV - 8;
-    if (y <= 0) {
-        return;
-    }
-    fb_draw_text(state, 16, y, mesh_ui_input_quit_hint(), 140, 150, 165);
+static void fb_clear(const struct mesh_ui_backend_fb_state *state, struct fb_rgb color) {
+    fb_fill_rect(state, 0, 0, (int)state->var.xres, (int)state->var.yres, color);
 }
 
-/* Newest messages shown at the bottom of the HUD. The Brick's screen is the constraint, not
-   the snapshot: only the last few fit, and each is clipped to the panel width. */
-#define FB_MESSAGES_SHOWN 6U
+/* Columns of text that fit between the margins at this scale. */
+static size_t fb_cols(const struct mesh_ui_backend_fb_state *state, int scale) {
+    const int usable = (int)state->var.xres - 2 * FB_MARGIN;
+    if (usable <= 0) {
+        return 1U;
+    }
+    return (size_t)(usable / fb_char_adv(scale));
+}
 
-static void fb_render_messages(struct mesh_ui_backend_fb_state *state,
-                               const struct mesh_ui_snapshot *snapshot, int *y_inout) {
-    const struct mesh_ui_message_list *messages = &snapshot->messages;
-    int y = *y_inout + LINE_ADV;
+static void fb_fit(char *line, size_t cols) {
+    if (strlen(line) > cols) {
+        line[cols] = '\0';
+    }
+}
 
-    /* Sized for the widest possible compose below (marker + peer + full text + ack tag) so the
-       snprintf never truncates; the display clamp is width_chars, further down. */
-    char line[288];
-    if (messages->count == 0U) {
-        fb_draw_text(state, 16, y, "Messages: none yet", 150, 170, 190);
-        *y_inout = y + LINE_ADV;
+/* Draw one list row, highlighting it when it is the cursor. `x` is the text origin; the
+   highlight spans the full width so the eye finds it without reading. */
+static void fb_draw_row(const struct mesh_ui_backend_fb_state *state, int y, const char *text,
+                        struct fb_rgb color, bool selected) {
+    const int line = fb_line_adv(state->scale);
+    if (selected) {
+        fb_fill_rect(state, FB_MARGIN / 2, y - state->scale, (int)state->var.xres - FB_MARGIN, line,
+                     k_cursor_bg);
+        color = k_white;
+    }
+    fb_draw_text(state, FB_MARGIN, y, text, state->scale, color);
+}
+
+/* "3m", "2h", "5d" since a radio-reported epoch; "?" when either clock is unusable. */
+static void fb_format_age(uint32_t last_heard, char *out, size_t out_len) {
+    if (last_heard == 0U) {
+        snprintf(out, out_len, "%s", "?");
         return;
     }
-
-    snprintf(line, sizeof line, "Messages (%u)", (unsigned)messages->count);
-    fb_draw_text(state, 16, y, line, 255, 235, 190);
-    y += LINE_ADV;
-
-    /* How many glyphs fit from the left margin, less a little slack for the trailing marker. */
-    size_t width_chars = 16U;
-    if (state->var.xres > 48U) {
-        width_chars = ((size_t)state->var.xres - 48U) / (size_t)FONT_ADV;
+    const time_t now = time(NULL);
+    if (now <= 0 || (uint32_t)now < last_heard) {
+        snprintf(out, out_len, "%s", "now");
+        return;
     }
-    if (width_chars > sizeof(line) - 1U) {
-        width_chars = sizeof(line) - 1U;
+    const uint32_t delta = (uint32_t)now - last_heard;
+    if (delta < 60U) {
+        snprintf(out, out_len, "%us", delta);
+    } else if (delta < 3600U) {
+        snprintf(out, out_len, "%um", delta / 60U);
+    } else if (delta < 86400U) {
+        snprintf(out, out_len, "%uh", delta / 3600U);
+    } else {
+        snprintf(out, out_len, "%ud", delta / 86400U);
+    }
+}
+
+static void fb_format_clock(uint32_t rx_time, char *out, size_t out_len) {
+    if (rx_time == 0U) {
+        out[0] = '\0';
+        return;
+    }
+    time_t t = (time_t)rx_time;
+    struct tm tm_buf;
+    if (localtime_r(&t, &tm_buf) == NULL) {
+        out[0] = '\0';
+        return;
+    }
+    strftime(out, out_len, "%H:%M", &tm_buf);
+}
+
+/* Where the scrolling window starts so the cursor row is on screen. Stateless on purpose:
+   the backend keeps nothing between frames, so this is derived from the snapshot alone. */
+static uint32_t fb_first_visible(uint32_t cursor, uint32_t count, uint32_t visible) {
+    if (visible == 0U || count <= visible) {
+        return 0U;
+    }
+    if (cursor + 1U > visible) {
+        uint32_t first = cursor + 1U - visible;
+        if (first + visible > count) {
+            first = count - visible;
+        }
+        return first;
+    }
+    return 0U;
+}
+
+struct fb_layout {
+    int body_y;    /* first body row */
+    int footer_y;  /* top of the two footer lines */
+    int line;      /* body line advance */
+    uint32_t rows; /* body rows available */
+    size_t cols;   /* body columns */
+    int small;     /* scale for chrome text */
+};
+
+static void fb_draw_tabs(const struct mesh_ui_backend_fb_state *state,
+                         const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+    const int small = layout->small;
+    const int adv = fb_char_adv(small);
+    const int line = fb_line_adv(small);
+    const int y = FB_MARGIN / 2 + small;
+    int x = FB_MARGIN / 2;
+
+    for (int i = 0; i < MESH_UI_SCREEN_COUNT; ++i) {
+        const enum mesh_ui_screen screen = (enum mesh_ui_screen)i;
+        const char *name = mesh_ui_screen_name(screen);
+        const int width = (int)strlen(name) * adv + 2 * small;
+        const bool active = (snapshot->nav.screen == screen);
+        if (active) {
+            fb_fill_rect(state, x, y - small, width, line, k_tab_active_bg);
+        }
+        fb_draw_text(state, x + small, y, name, small, active ? k_white : k_dim);
+        x += width + adv;
     }
 
-    uint32_t first = 0U;
-    if (messages->count > FB_MESSAGES_SHOWN) {
-        first = messages->count - FB_MESSAGES_SHOWN;
-    }
+    /* Rule under the tab strip. */
+    fb_fill_rect(state, 0, y + line, (int)state->var.xres, small / 2 > 0 ? small / 2 : 1,
+                 k_tab_active_bg);
+    layout->body_y = y + line + 2 * small + FB_MARGIN / 2;
+}
 
-    for (uint32_t i = first; i < messages->count && i < MESH_UI_MAX_MESSAGES; ++i) {
-        const struct mesh_ui_message *message = &messages->entries[i];
-        const bool outbound = (message->direction == MESH_MESSAGE_OUTBOUND);
-        const char *marker = outbound ? ">" : "<";
-        const char *peer = message->peer_name[0] != '\0' ? message->peer_name : "?";
+static void fb_draw_footer(const struct mesh_ui_backend_fb_state *state,
+                           const struct mesh_ui_snapshot *snapshot, const struct fb_layout *layout,
+                           const char *hint) {
+    const int small = layout->small;
+    const int line = fb_line_adv(small);
+    const size_t cols = fb_cols(state, small);
+    char text[160];
 
-        char suffix[16];
-        suffix[0] = '\0';
-        if (outbound && message->ack != MESH_MESSAGE_ACK_NONE) {
-            const char *tag = "..";
-            if (message->ack == MESH_MESSAGE_ACK_DELIVERED) {
-                tag = "ok";
-            } else if (message->ack == MESH_MESSAGE_ACK_FAILED) {
-                tag = "!!";
+    /* Line 1: what the buttons do here. */
+    snprintf(text, sizeof text, "%s", hint);
+    fb_fit(text, cols);
+    fb_draw_text(state, FB_MARGIN, layout->footer_y, text, small, k_dim);
+
+    /* Line 2: a toast when there is one, else the link summary. */
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    struct fb_rgb color = k_dim;
+    if (nav->toast[0] != '\0') {
+        snprintf(text, sizeof text, "%s", nav->toast);
+        color = k_accent;
+    } else {
+        const char *status =
+            snapshot->transport_status[0] != '\0' ? snapshot->transport_status : "starting";
+        const char *connected = NULL;
+        for (size_t i = 0; i < snapshot->device_count; ++i) {
+            if (snapshot->devices[i].connected) {
+                connected = snapshot->devices[i].name[0] != '\0' ? snapshot->devices[i].name
+                                                                 : snapshot->devices[i].identifier;
+                break;
             }
-            snprintf(suffix, sizeof suffix, " [%s]", tag);
         }
-
-        snprintf(line, sizeof line, "%s %s: %s%s", marker, peer, message->text, suffix);
-        if (strlen(line) > width_chars) {
-            line[width_chars] = '\0';
-        }
-
-        /* Sent messages sit dimmer than received ones so the eye finds new traffic first. */
-        if (outbound) {
-            fb_draw_text(state, 32, y, line, 170, 190, 210);
+        if (connected != NULL) {
+            snprintf(text, sizeof text, "%s: %s", status, connected);
+            color = k_good;
         } else {
-            fb_draw_text(state, 32, y, line, 235, 245, 255);
+            snprintf(text, sizeof text, "%s | %s", status, mesh_ui_input_quit_hint());
         }
-        y += LINE_ADV;
     }
-
-    *y_inout = y;
+    fb_fit(text, cols);
+    fb_draw_text(state, FB_MARGIN, layout->footer_y + line, text, small, color);
 }
 
-static void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
-                               const struct mesh_ui_snapshot *snapshot) {
-    fb_clear(state, 0x0A, 0x14, 0x1E);
+static void fb_draw_title(const struct mesh_ui_backend_fb_state *state, struct fb_layout *layout,
+                          const char *title) {
+    char text[128];
+    snprintf(text, sizeof text, "%s", title);
+    fb_fit(text, layout->cols);
+    fb_draw_text(state, FB_MARGIN, layout->body_y, text, state->scale, k_accent);
+    layout->body_y += layout->line + state->scale;
+    if (layout->rows > 1U) {
+        layout->rows -= 1U;
+    }
+}
 
-    char line[128];
-    int y = 12;
+static void fb_draw_empty(const struct mesh_ui_backend_fb_state *state,
+                          const struct fb_layout *layout, const char *text) {
+    fb_draw_text(state, FB_MARGIN, layout->body_y, text, state->scale, k_dim);
+}
 
-    fb_draw_text(state, 16, y, "MeshClient", 255, 255, 255);
-    y += LINE_ADV;
+/* Wraps `text` into at most `max_lines` lines of `cols` columns, drawing each. */
+static int fb_draw_wrapped(const struct mesh_ui_backend_fb_state *state, int y, const char *text,
+                           size_t cols, int max_lines, struct fb_rgb color) {
+    int lines = 0;
+    const char *cursor = text;
+    char line[160];
+    if (cols >= sizeof line) {
+        cols = sizeof line - 1U;
+    }
+    while (*cursor != '\0' && lines < max_lines) {
+        size_t take = strlen(cursor);
+        if (take > cols) {
+            take = cols;
+            /* Break at the last space inside the window when there is one. */
+            for (size_t i = take; i > cols / 2; --i) {
+                if (cursor[i] == ' ') {
+                    take = i;
+                    break;
+                }
+            }
+        }
+        memcpy(line, cursor, take);
+        line[take] = '\0';
+        fb_draw_text(state, FB_MARGIN, y, line, state->scale, color);
+        y += fb_line_adv(state->scale);
+        lines++;
+        cursor += take;
+        while (*cursor == ' ') {
+            ++cursor;
+        }
+    }
+    return lines;
+}
 
-    /* Without this the screen is indistinguishable from a hang while BlueZ is coming up. */
-    snprintf(line, sizeof line, "Transport: %s",
-             snapshot->transport_status[0] != '\0' ? snapshot->transport_status : "starting");
-    fb_draw_text(state, 16, y, line, 150, 200, 170);
-    y += LINE_ADV;
-    y += LINE_ADV;
+static void fb_render_messages(const struct mesh_ui_backend_fb_state *state,
+                               const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+    const struct mesh_ui_message_list *messages = &snapshot->messages;
+    const struct mesh_ui_nav *nav = &snapshot->nav;
 
-    snprintf(line, sizeof line, "Devices (%zu)", snapshot->device_count);
-    fb_draw_text(state, 16, y, line, 220, 240, 255);
-    y += LINE_ADV;
+    uint32_t indices[MESH_UI_MAX_MESSAGES];
+    const uint32_t count =
+        mesh_ui_nav_filter_messages(nav, messages, indices, MESH_UI_MAX_MESSAGES);
+
+    char convo[MESH_UI_NAV_TARGET_NAME_MAX];
+    mesh_ui_nav_conversation_name(nav, convo, sizeof convo);
+    char title[96];
+    if (nav->inbox && messages->dropped > 0U) {
+        snprintf(title, sizeof title, "%s (%u, +%u older)", convo, count,
+                 (unsigned)messages->dropped);
+    } else if (nav->inbox) {
+        snprintf(title, sizeof title, "%s (%u)", convo, count);
+    } else {
+        snprintf(title, sizeof title, "%s (%u)  %s", convo, count,
+                 nav->target_node == MESH_MESSAGE_BROADCAST_ADDR ? "channel" : "direct");
+    }
+    fb_draw_title(state, layout, title);
+
+    if (count == 0U) {
+        fb_draw_empty(state, layout,
+                      nav->inbox ? "No messages yet. Y opens Compose."
+                                 : "Nothing here yet. Y composes, X switches.");
+        return;
+    }
+
+    /* The bottom of the body is a detail pane for the selected message: full text, sender,
+       channel and time, since the list rows are clipped to one line. */
+    const int detail_lines = 3;
+    uint32_t list_rows = layout->rows > (uint32_t)detail_lines + 1U
+                             ? layout->rows - (uint32_t)detail_lines - 1U
+                             : 1U;
+    const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_MESSAGES] < count
+                                ? nav->cursor[MESH_UI_SCREEN_MESSAGES]
+                                : count - 1U;
+    const uint32_t first = fb_first_visible(cursor, count, list_rows);
+
+    int y = layout->body_y;
+    char line[300];
+    for (uint32_t i = first; i < count && i < first + list_rows; ++i) {
+        const struct mesh_ui_message *message = &messages->entries[indices[i]];
+        const bool outbound = (message->direction == MESH_MESSAGE_OUTBOUND);
+        const char *peer = message->peer_name[0] != '\0' ? message->peer_name : "?";
+        char tag[8] = "";
+        if (outbound && message->ack != MESH_MESSAGE_ACK_NONE) {
+            snprintf(tag, sizeof tag, " %s",
+                     message->ack == MESH_MESSAGE_ACK_DELIVERED ? "ok"
+                     : message->ack == MESH_MESSAGE_ACK_FAILED  ? "!!"
+                                                                : "..");
+        }
+        /* In the inbox, say where a line belongs; inside a conversation that is the title. */
+        char where[16] = "";
+        if (nav->inbox) {
+            if (message->broadcast) {
+                snprintf(where, sizeof where, " #%u", (unsigned)message->channel);
+            } else {
+                snprintf(where, sizeof where, " dm");
+            }
+        }
+        snprintf(line, sizeof line, "%s%s%s%s: %s", outbound ? ">" : "<", peer, where, tag,
+                 message->text);
+        fb_fit(line, layout->cols);
+        fb_draw_row(state, y, line, outbound ? k_outbound : k_inbound, i == cursor);
+        y += layout->line;
+    }
+
+    /* Detail pane. */
+    const struct mesh_ui_message *selected = &messages->entries[indices[cursor]];
+    y = layout->body_y + (int)list_rows * layout->line + layout->line / 2;
+    fb_fill_rect(state, FB_MARGIN, y - state->scale, (int)state->var.xres - 2 * FB_MARGIN,
+                 state->scale / 2 > 0 ? state->scale / 2 : 1, k_cursor_bg);
+    y += state->scale * 2;
+
+    char clock[8];
+    fb_format_clock(selected->rx_time, clock, sizeof clock);
+    snprintf(line, sizeof line, "%s %s%s ch%u%s%s",
+             selected->direction == MESH_MESSAGE_OUTBOUND ? "To" : "From",
+             selected->peer_name[0] != '\0' ? selected->peer_name : "?",
+             selected->broadcast ? " (all)" : "", (unsigned)selected->channel,
+             clock[0] != '\0' ? " " : "", clock);
+    fb_fit(line, layout->cols);
+    fb_draw_text(state, FB_MARGIN, y, line, state->scale, k_dim);
+    y += layout->line;
+    fb_draw_wrapped(state, y, selected->text, layout->cols, detail_lines - 1, k_text);
+}
+
+static void fb_render_nodes(const struct mesh_ui_backend_fb_state *state,
+                            const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    if (!snapshot->handshake_valid || snapshot->handshake.node_count == 0U) {
+        fb_draw_title(state, layout, "Nodes");
+        fb_draw_empty(state, layout,
+                      snapshot->handshake_valid ? "Waiting for the node list..."
+                                                : "Connect to a node to see the mesh.");
+        return;
+    }
+
+    const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
+    const uint32_t count =
+        hs->node_count > MESH_UI_MAX_HANDSHAKE_NODES ? MESH_UI_MAX_HANDSHAKE_NODES : hs->node_count;
+    char title[96];
+    if (hs->has_my_info && hs->my_info.nodedb_entries > count) {
+        snprintf(title, sizeof title, "Nodes (%u of %u)", count, hs->my_info.nodedb_entries);
+    } else {
+        snprintf(title, sizeof title, "Nodes (%u)", count);
+    }
+    fb_draw_title(state, layout, title);
+
+    const uint32_t cursor =
+        nav->cursor[MESH_UI_SCREEN_NODES] < count ? nav->cursor[MESH_UI_SCREEN_NODES] : count - 1U;
+    const uint32_t first = fb_first_visible(cursor, count, layout->rows);
+    const uint32_t me = hs->has_my_info ? hs->my_info.node_num : 0U;
+
+    int y = layout->body_y;
+    char line[160];
+    char right[32];
+    char age[8];
+    for (uint32_t i = first; i < count && i < first + layout->rows; ++i) {
+        const struct mesh_ui_node_summary *node = &hs->nodes[i];
+        const char *short_name = node->short_name[0] != '\0' ? node->short_name : "----";
+        const char *long_name = node->long_name[0] != '\0' ? node->long_name : "";
+        fb_format_age(node->last_heard, age, sizeof age);
+
+        if (node->has_hops_away && node->hops_away > 0U) {
+            snprintf(right, sizeof right, "%uhop %s", (unsigned)node->hops_away, age);
+        } else if (node->via_mqtt) {
+            snprintf(right, sizeof right, "mqtt %s", age);
+        } else {
+            snprintf(right, sizeof right, "%.1fdB %s", (double)node->snr, age);
+        }
+
+        /* Left part is clipped so the right-aligned metrics always fit. */
+        const size_t right_len = strlen(right);
+        size_t left_cols = layout->cols > right_len + 1U ? layout->cols - right_len - 1U : 8U;
+        snprintf(line, sizeof line, "%c%-4s %s", (me != 0U && node->node_id == me) ? '*' : ' ',
+                 short_name, long_name);
+        fb_fit(line, left_cols);
+        const size_t pad =
+            layout->cols > strlen(line) + right_len ? layout->cols - strlen(line) - right_len : 1U;
+        snprintf(line + strlen(line), sizeof line - strlen(line), "%*s%s", (int)pad, "", right);
+
+        fb_draw_row(state, y, line, (node->node_id == nav->target_node) ? k_accent : k_text,
+                    i == cursor);
+        y += layout->line;
+    }
+}
+
+static void fb_render_compose(const struct mesh_ui_backend_fb_state *state,
+                              const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    fb_draw_title(state, layout, "Compose");
+
+    const size_t canned = mesh_ui_canned_count();
+    const uint32_t count = MESH_UI_COMPOSE_FIRST_CANNED + (uint32_t)canned;
+    const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_COMPOSE] < count
+                                ? nav->cursor[MESH_UI_SCREEN_COMPOSE]
+                                : count - 1U;
+    const uint32_t first = fb_first_visible(cursor, count, layout->rows);
+
+    int y = layout->body_y;
+    char line[300];
+    for (uint32_t i = first; i < count && i < first + layout->rows; ++i) {
+        if (i == MESH_UI_COMPOSE_ROW_TARGET) {
+            snprintf(line, sizeof line, "To: %s%s", nav->target_name,
+                     nav->target_node == MESH_MESSAGE_BROADCAST_ADDR ? " (channel)" : " (direct)");
+            fb_fit(line, layout->cols);
+            fb_draw_row(state, y, line, k_accent, i == cursor);
+        } else if (i == MESH_UI_COMPOSE_ROW_DRAFT) {
+            if (nav->draft[0] != '\0') {
+                snprintf(line, sizeof line, "Draft: %s", nav->draft);
+            } else {
+                snprintf(line, sizeof line, "%s", "[ Type a message ]");
+            }
+            fb_fit(line, layout->cols);
+            fb_draw_row(state, y, line, k_accent, i == cursor);
+        } else {
+            snprintf(line, sizeof line, "  %s",
+                     mesh_ui_canned_text(i - MESH_UI_COMPOSE_FIRST_CANNED));
+            fb_fit(line, layout->cols);
+            fb_draw_row(state, y, line, k_text, i == cursor);
+        }
+        y += layout->line;
+    }
+}
+
+/* "Send to" list: channels, then nodes, cursor on the current target. */
+static void fb_render_picker(const struct mesh_ui_backend_fb_state *state,
+                             const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    /* The snapshot is the store's data; the picker helpers take a store, so view it as one. */
+    struct mesh_ui_store view;
+    memset(&view, 0, sizeof view);
+    memcpy(view.devices, snapshot->devices, sizeof view.devices);
+    view.device_count = snapshot->device_count;
+    view.handshake = snapshot->handshake;
+    view.handshake_valid = snapshot->handshake_valid;
+    view.messages = snapshot->messages;
+    view.event_fd = -1;
+
+    const uint32_t count = mesh_ui_nav_picker_count(&view);
+    char title[96];
+    snprintf(title, sizeof title, "Send to (%u)", count);
+    fb_draw_title(state, layout, title);
+    if (count == 0U) {
+        fb_draw_empty(state, layout, "No channels or nodes known yet.");
+        return;
+    }
+
+    const uint32_t cursor = nav->picker_cursor < count ? nav->picker_cursor : count - 1U;
+    const uint32_t first = fb_first_visible(cursor, count, layout->rows);
+    int y = layout->body_y;
+    char name[96];
+    char line[160];
+    for (uint32_t i = first; i < count && i < first + layout->rows; ++i) {
+        uint32_t node = 0U;
+        uint8_t channel = 0U;
+        if (!mesh_ui_nav_picker_row(&view, i, &node, &channel, name, sizeof name)) {
+            break;
+        }
+        const bool is_channel = (node == MESH_MESSAGE_BROADCAST_ADDR);
+        const bool current =
+            (node == nav->target_node) && (!is_channel || channel == nav->target_channel);
+        snprintf(line, sizeof line, "%c %s%s", current ? '*' : ' ', name,
+                 is_channel ? "  (channel)" : "");
+        fb_fit(line, layout->cols);
+        fb_draw_row(state, y, line, is_channel ? k_accent : k_text, i == cursor);
+        y += layout->line;
+    }
+}
+
+/* The on-screen keyboard takes the whole body: target, the draft so far, then the grid. */
+static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
+                               const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    char title[96];
+    snprintf(title, sizeof title, "To: %s", nav->target_name);
+    fb_draw_title(state, layout, title);
+
+    const int scale = state->scale;
+    const int line = layout->line;
+    int y = layout->body_y;
+
+    /* Draft box: two wrapped lines plus a cursor and a byte count. */
+    const int box_lines = 2;
+    fb_fill_rect(state, FB_MARGIN / 2, y - scale, (int)state->var.xres - FB_MARGIN,
+                 box_lines * line + scale, (struct fb_rgb){0x14, 0x22, 0x32});
+    char draft[MESH_UI_DRAFT_MAX + 2U];
+    snprintf(draft, sizeof draft, "%s_", nav->draft);
+    /* Show the tail when the draft outgrows the box. */
+    const size_t visible = layout->cols * (size_t)box_lines;
+    const char *shown = draft;
+    if (strlen(draft) > visible) {
+        shown = draft + (strlen(draft) - visible);
+    }
+    fb_draw_wrapped(state, y, shown, layout->cols, box_lines, k_white);
+    y += box_lines * line;
+
+    char meter[32];
+    snprintf(meter, sizeof meter, "%zu/%u", strlen(nav->draft), (unsigned)(MESH_UI_DRAFT_MAX - 1U));
+    fb_draw_text(state,
+                 (int)state->var.xres - FB_MARGIN - (int)strlen(meter) * fb_char_adv(layout->small),
+                 y, meter, layout->small, k_dim);
+    y += fb_line_adv(layout->small) + scale;
+
+    /* Grid. */
+    const int grid_w = (int)state->var.xres - 2 * FB_MARGIN;
+    const int cell_w = grid_w / (int)MESH_UI_KB_COLS;
+    const int cell_h = line + 2 * scale;
+    const int adv = fb_char_adv(scale);
+    for (unsigned row = 0; row < MESH_UI_KB_CHAR_ROWS; ++row) {
+        for (unsigned col = 0; col < MESH_UI_KB_COLS; ++col) {
+            const char ch = mesh_ui_kb_char((enum mesh_ui_kb_layer)nav->kb_layer, row, col);
+            const int x = FB_MARGIN + (int)col * cell_w;
+            const bool selected = (nav->kb_row == row && nav->kb_col == col);
+            if (selected) {
+                fb_fill_rect(state, x, y, cell_w - scale, cell_h - scale, k_tab_active_bg);
+            }
+            if (ch != '\0') {
+                fb_draw_char(state, x + (cell_w - adv) / 2, y + scale, (unsigned char)ch, scale,
+                             selected ? k_white : k_text);
+            }
+        }
+        y += cell_h;
+    }
+
+    /* Action row: five wide keys. */
+    const int action_w = grid_w / (int)MESH_UI_KB_ACTIONS;
+    for (unsigned col = 0; col < MESH_UI_KB_ACTIONS; ++col) {
+        const char *label = mesh_ui_kb_action_label(nav, (enum mesh_ui_kb_action)col);
+        const int x = FB_MARGIN + (int)col * action_w;
+        const bool selected = (nav->kb_row == MESH_UI_KB_CHAR_ROWS && nav->kb_col == col);
+        fb_fill_rect(state, x, y, action_w - scale, cell_h - scale,
+                     selected ? k_tab_active_bg : k_cursor_bg);
+        const int text_w = (int)strlen(label) * adv;
+        fb_draw_text(state, x + (action_w - text_w) / 2, y + scale, label, scale,
+                     selected ? k_white : k_text);
+    }
+}
+
+static void fb_render_devices(const struct mesh_ui_backend_fb_state *state,
+                              const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    char title[96];
+    snprintf(title, sizeof title, "Devices (%zu)", snapshot->device_count);
+    fb_draw_title(state, layout, title);
 
     if (snapshot->device_count == 0U) {
-        fb_draw_text(state, 32, y, "scanning...", 150, 170, 190);
-        y += LINE_ADV;
+        fb_draw_empty(state, layout, "Scanning for Meshtastic nodes...");
+        return;
     }
 
-    for (size_t i = 0; i < snapshot->device_count && i < 10; ++i) {
+    const uint32_t count = (uint32_t)snapshot->device_count;
+    const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_DEVICES] < count
+                                ? nav->cursor[MESH_UI_SCREEN_DEVICES]
+                                : count - 1U;
+    const uint32_t first = fb_first_visible(cursor, count, layout->rows);
+
+    int y = layout->body_y;
+    char line[160];
+    for (uint32_t i = first; i < count && i < first + layout->rows; ++i) {
         const struct mesh_ui_device *device = &snapshot->devices[i];
         const char *name = device->name[0] != '\0' ? device->name : device->identifier;
         if (name[0] == '\0') {
             name = "<unknown>";
         }
-        snprintf(line, sizeof line, "%c %s RSSI %d", device->connected ? '*' : '-', name,
-                 (int)device->rssi);
-        fb_draw_text(state, 32, (int)y, line, 220, 240, 255);
-        y += LINE_ADV;
+        snprintf(line, sizeof line, "%c %s  %ddBm%s", device->connected ? '*' : ' ', name,
+                 (int)device->rssi, device->connected ? "  connected" : "");
+        fb_fit(line, layout->cols);
+        fb_draw_row(state, y, line, device->connected ? k_good : k_text, i == cursor);
+        y += layout->line;
+    }
+}
+
+static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
+                             const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+    fb_draw_title(state, layout, "Status");
+
+    int y = layout->body_y;
+    char line[160];
+    const int adv = layout->line;
+
+    snprintf(line, sizeof line, "Transport   %s",
+             snapshot->transport_status[0] != '\0' ? snapshot->transport_status : "starting");
+    fb_fit(line, layout->cols);
+    fb_draw_text(state, FB_MARGIN, y, line, state->scale, k_text);
+    y += adv;
+
+    const struct mesh_ui_device *connected = NULL;
+    for (size_t i = 0; i < snapshot->device_count; ++i) {
+        if (snapshot->devices[i].connected) {
+            connected = &snapshot->devices[i];
+            break;
+        }
+    }
+    snprintf(line, sizeof line, "Radio       %s",
+             connected != NULL
+                 ? (connected->name[0] != '\0' ? connected->name : connected->identifier)
+                 : "not connected");
+    fb_fit(line, layout->cols);
+    fb_draw_text(state, FB_MARGIN, y, line, state->scale, connected != NULL ? k_good : k_bad);
+    y += adv;
+
+    if (snapshot->handshake_valid) {
+        const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
+        snprintf(line, sizeof line, "Sync        %s%s",
+                 hs->config_complete ? "complete"
+                                     : (hs->request_in_flight ? "in progress" : "idle"),
+                 hs->cached ? " (cached)" : "");
+        fb_fit(line, layout->cols);
+        fb_draw_text(state, FB_MARGIN, y, line, state->scale, k_text);
+        y += adv;
+
+        if (hs->has_my_info) {
+            snprintf(line, sizeof line, "My node     %s !%08x", hs->my_short_name,
+                     hs->my_info.node_num);
+            fb_fit(line, layout->cols);
+            fb_draw_text(state, FB_MARGIN, y, line, state->scale, k_text);
+            y += adv;
+            snprintf(line, sizeof line, "NodeDB      %u nodes, %u reboots",
+                     hs->my_info.nodedb_entries, hs->my_info.reboot_count);
+            fb_fit(line, layout->cols);
+            fb_draw_text(state, FB_MARGIN, y, line, state->scale, k_text);
+            y += adv;
+        }
+        if (hs->primary_channel[0] != '\0') {
+            snprintf(line, sizeof line, "Channel     %s", hs->primary_channel);
+            fb_fit(line, layout->cols);
+            fb_draw_text(state, FB_MARGIN, y, line, state->scale, k_text);
+            y += adv;
+        }
+    } else {
+        fb_draw_text(state, FB_MARGIN, y, "Sync        waiting for a radio", state->scale, k_dim);
+        y += adv;
     }
 
-    y += LINE_ADV;
-    if (!snapshot->handshake_valid) {
-        fb_draw_text(state, 16, y, "Handshake: pending", 180, 200, 220);
-        y += LINE_ADV;
-        fb_render_messages(state, snapshot, &y);
+    snprintf(line, sizeof line, "Messages    %u kept, %u dropped",
+             (unsigned)snapshot->messages.count, (unsigned)snapshot->messages.dropped);
+    fb_fit(line, layout->cols);
+    fb_draw_text(state, FB_MARGIN, y, line, state->scale, k_text);
+    y += adv;
+
+    snprintf(line, sizeof line, "Devices     %zu in range", snapshot->device_count);
+    fb_fit(line, layout->cols);
+    fb_draw_text(state, FB_MARGIN, y, line, state->scale, k_text);
+    y += adv + adv / 2;
+
+    fb_draw_text(state, FB_MARGIN, y, "Left/Right or L1/R1 switch tabs.", state->scale, k_dim);
+    y += adv;
+    fb_draw_text(state, FB_MARGIN, y, "Up/Down move, A selects, B backs out.", state->scale, k_dim);
+    y += adv;
+    fb_draw_text(state, FB_MARGIN, y, mesh_ui_input_quit_hint(), state->scale, k_dim);
+}
+
+static void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
+                               const struct mesh_ui_snapshot *snapshot) {
+    fb_clear(state, k_bg);
+
+    struct fb_layout layout;
+    memset(&layout, 0, sizeof layout);
+    layout.small = state->scale > FB_MIN_SCALE ? state->scale - 1 : FB_MIN_SCALE;
+    layout.line = fb_line_adv(state->scale);
+    layout.cols = fb_cols(state, state->scale);
+
+    fb_draw_tabs(state, snapshot, &layout);
+
+    const int footer_height = 2 * fb_line_adv(layout.small) + FB_MARGIN;
+    layout.footer_y = (int)state->var.yres - footer_height;
+    const int body_height = layout.footer_y - layout.body_y - FB_MARGIN / 2;
+    layout.rows = body_height > 0 ? (uint32_t)(body_height / layout.line) : 0U;
+
+    const char *hint = "A select  B back  Left/Right tabs";
+    if (snapshot->nav.picker_open) {
+        hint = "A choose  B cancel  Up/Down move  L/R jump 10";
+        fb_render_picker(state, snapshot, &layout);
+        fb_draw_footer(state, snapshot, &layout, hint);
         return;
     }
-
-    const struct mesh_ui_handshake_state *handshake = &snapshot->handshake;
-    snprintf(line, sizeof line, "Handshake: request %u (%s) config %s", handshake->request_id,
-             handshake->request_in_flight ? "pending" : "idle",
-             handshake->config_complete ? "done" : "pending");
-    fb_draw_text(state, 16, (int)y, line, 180, 200, 220);
-    y += LINE_ADV;
-
-    if (handshake->has_my_info) {
-        snprintf(line, sizeof line, "MyNode %u nodedb %u reboot %u", handshake->my_info.node_num,
-                 handshake->my_info.nodedb_entries, handshake->my_info.reboot_count);
-        fb_draw_text(state, 16, (int)y, line, 180, 200, 220);
-        y += LINE_ADV;
+    if (snapshot->nav.keyboard_open) {
+        hint = "A type  B delete  X shift  Y space  START send";
+        fb_render_keyboard(state, snapshot, &layout);
+        fb_draw_footer(state, snapshot, &layout, hint);
+        return;
+    }
+    switch (snapshot->nav.screen) {
+    case MESH_UI_SCREEN_MESSAGES:
+        hint = "A reply  X conversation  Y compose  L/R tabs";
+        fb_render_messages(state, snapshot, &layout);
+        break;
+    case MESH_UI_SCREEN_NODES:
+        hint = "A message node  Y compose  L/R tabs";
+        fb_render_nodes(state, snapshot, &layout);
+        break;
+    case MESH_UI_SCREEN_COMPOSE:
+        hint = "A send / edit / pick To  B back  L/R tabs";
+        fb_render_compose(state, snapshot, &layout);
+        break;
+    case MESH_UI_SCREEN_DEVICES:
+        hint = "A connect  Up/Down scroll  L/R tabs";
+        fb_render_devices(state, snapshot, &layout);
+        break;
+    case MESH_UI_SCREEN_STATUS:
+    default:
+        hint = "L/R tabs";
+        fb_render_status(state, snapshot, &layout);
+        break;
     }
 
-    if (handshake->primary_channel[0] != '\0') {
-        snprintf(line, sizeof line, "Primary channel: %s", handshake->primary_channel);
-        fb_draw_text(state, 16, (int)y, line, 180, 200, 220);
-        y += LINE_ADV;
-    }
+    fb_draw_footer(state, snapshot, &layout, hint);
+}
 
-    uint32_t nodes_to_print = handshake->node_count;
-    if (nodes_to_print > 5U) {
-        nodes_to_print = 5U;
+static int fb_scale_from_env(void) {
+    const char *value = getenv("MESHCLIENT_FB_SCALE");
+    if (value == NULL || value[0] == '\0') {
+        return FB_DEFAULT_SCALE;
     }
-
-    for (uint32_t i = 0; i < nodes_to_print; ++i) {
-        const struct mesh_ui_node_summary *node = &handshake->nodes[i];
-        const char *node_name = node->long_name[0] != '\0' ? node->long_name : node->short_name;
-        if (node_name[0] == '\0') {
-            node_name = "<node>";
-        }
-        snprintf(line, sizeof line, "Node %u %s SNR %.1f", node->node_id, node_name,
-                 (double)node->snr);
-        fb_draw_text(state, 16, (int)y, line, 200, 220, 240);
-        y += LINE_ADV;
+    char *end = NULL;
+    const long parsed = strtol(value, &end, 10);
+    if (end == value || parsed < FB_MIN_SCALE || parsed > FB_MAX_SCALE) {
+        mesh_log_warn("ui", "MESHCLIENT_FB_SCALE='%s' out of range %d..%d; using %d", value,
+                      FB_MIN_SCALE, FB_MAX_SCALE, FB_DEFAULT_SCALE);
+        return FB_DEFAULT_SCALE;
     }
-
-    fb_render_messages(state, snapshot, &y);
+    return (int)parsed;
 }
 
 static int mesh_ui_backend_fb_init(void **state_out, void *userdata) {
@@ -394,6 +984,7 @@ static int mesh_ui_backend_fb_init(void **state_out, void *userdata) {
     static struct mesh_ui_backend_fb_state state_storage;
     struct mesh_ui_backend_fb_state *state = &state_storage;
     memset(state, 0, sizeof *state);
+    state->scale = fb_scale_from_env();
 
     state->fb_fd = open("/dev/fb0", O_RDWR);
     if (state->fb_fd < 0) {
@@ -486,7 +1077,6 @@ static void mesh_ui_backend_fb_present(void *state_ptr, const struct mesh_ui_sna
     }
 
     fb_render_snapshot(state, snapshot);
-    fb_draw_quit_hint(state);
     fb_show_page0(state);
     msync(state->fb_ptr, state->fb_size, MS_ASYNC);
 }

@@ -13,12 +13,14 @@
 #include "mesh/ui/backends/stub.h"
 #include "mesh/ui/controller.h"
 #include "mesh/ui/input.h"
+#include "mesh/ui/nav.h"
 #include "mesh/ui/preferences.h"
 #include "mesh/ui/store.h"
 
 #include <pb_decode.h>
 #include <pb_encode.h>
 
+#include "meshtastic/channel.pb.h"
 #include "meshtastic/mesh.pb.h"
 
 #include <errno.h>
@@ -2444,6 +2446,1167 @@ static void test_message_ingest_invalid_utf8(void) {
     record_success(test_name);
 }
 
+/* Builds a store with three devices (one connected), a synced handshake with three nodes (the
+   first is us) and two messages: a broadcast from ALFA and a direct message from BRVO. */
+static void test_nav_populate(struct mesh_ui_store *store) {
+    struct mesh_ui_device devices[3] = {
+        {.identifier = "AA:BB:CC:DD:EE:01", .name = "NodeOne", .rssi = -45, .connected = true},
+        {.identifier = "AA:BB:CC:DD:EE:02", .name = "NodeTwo", .rssi = -60, .connected = false},
+        {.identifier = "AA:BB:CC:DD:EE:03", .name = "NodeThree", .rssi = -70, .connected = false},
+    };
+    mesh_ui_store_set_discovery(store, devices, 3U);
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.config_complete = true;
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 0x1000U;
+    handshake.node_count = 3U;
+    handshake.nodes[0].node_id = 0x1000U;
+    snprintf(handshake.nodes[0].short_name, sizeof handshake.nodes[0].short_name, "%s", "ME");
+    handshake.nodes[1].node_id = 0x2000U;
+    snprintf(handshake.nodes[1].short_name, sizeof handshake.nodes[1].short_name, "%s", "ALFA");
+    snprintf(handshake.nodes[1].long_name, sizeof handshake.nodes[1].long_name, "%s", "Alfa Node");
+    handshake.nodes[2].node_id = 0x3000U;
+    snprintf(handshake.nodes[2].short_name, sizeof handshake.nodes[2].short_name, "%s", "BRVO");
+    mesh_ui_store_set_handshake(store, &handshake);
+
+    struct mesh_ui_message_list messages;
+    memset(&messages, 0, sizeof messages);
+    messages.count = 2U;
+    messages.entries[0].packet_id = 11U;
+    messages.entries[0].peer = 0x2000U;
+    messages.entries[0].broadcast = true;
+    messages.entries[0].direction = MESH_MESSAGE_INBOUND;
+    snprintf(messages.entries[0].peer_name, sizeof messages.entries[0].peer_name, "%s", "ALFA");
+    snprintf(messages.entries[0].text, sizeof messages.entries[0].text, "%s", "hello all");
+    messages.entries[1].packet_id = 12U;
+    messages.entries[1].peer = 0x3000U;
+    messages.entries[1].broadcast = false;
+    messages.entries[1].direction = MESH_MESSAGE_INBOUND;
+    snprintf(messages.entries[1].peer_name, sizeof messages.entries[1].peer_name, "%s", "BRVO");
+    snprintf(messages.entries[1].text, sizeof messages.entries[1].text, "%s", "just you");
+    mesh_ui_store_set_messages(store, &messages);
+}
+
+static void test_ui_nav_navigation(void) {
+    const char *test_name = "ui_nav_navigation";
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    test_nav_populate(&store);
+
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_action action;
+
+    /* First frame: Messages tab showing the inbox, cursor parked on the newest message. */
+    if (!mesh_ui_store_consume_updates(&store, &snapshot)) {
+        failure = "expected initial snapshot";
+        goto cleanup;
+    }
+    if (snapshot.nav.screen != MESH_UI_SCREEN_MESSAGES || !snapshot.nav.inbox ||
+        snapshot.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 1U ||
+        snapshot.nav.target_node != MESH_MESSAGE_BROADCAST_ADDR ||
+        strcmp(snapshot.nav.target_name, "#Primary") != 0) {
+        failure = "initial nav state wrong";
+        goto cleanup;
+    }
+
+    /* A on the direct message replies to its sender and lands on the first canned reply. */
+    if (!mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action) ||
+        action.type != MESH_UI_ACTION_NONE) {
+        failure = "reply should change screen without an action";
+        goto cleanup;
+    }
+    if (store.nav.screen != MESH_UI_SCREEN_COMPOSE || store.nav.target_node != 0x3000U ||
+        strcmp(store.nav.target_name, "BRVO") != 0 || store.nav.inbox ||
+        store.nav.cursor[MESH_UI_SCREEN_COMPOSE] != MESH_UI_COMPOSE_FIRST_CANNED) {
+        failure = "reply target not taken from the message";
+        goto cleanup;
+    }
+    if (!mesh_ui_store_consume_updates(&store, &snapshot) ||
+        (snapshot.update_flags & MESH_UI_UPDATE_NAV) == 0U) {
+        failure = "nav change must signal the store";
+        goto cleanup;
+    }
+
+    /* A on a canned row asks the app to send it to the target and shows that conversation. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_SEND_TEXT || action.dest != 0x3000U || action.channel != 0U ||
+        strcmp(action.text, mesh_ui_canned_text(0)) != 0 ||
+        store.nav.screen != MESH_UI_SCREEN_MESSAGES) {
+        failure = "send action not produced";
+        goto cleanup;
+    }
+    /* Only the one direct message with BRVO is in view now. */
+    if (mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_MESSAGES) != 1U) {
+        failure = "conversation view should hold only BRVO's messages";
+        goto cleanup;
+    }
+
+    /* Y reopens Compose; A on the To: row opens the picker with the cursor on the current
+       target (BRVO, after #Primary and ALFA), Up/Down move, A picks, B cancels. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    if (store.nav.screen != MESH_UI_SCREEN_COMPOSE) {
+        failure = "Y should open Compose";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    if (store.nav.cursor[MESH_UI_SCREEN_COMPOSE] != MESH_UI_COMPOSE_ROW_TARGET) {
+        failure = "UP twice should reach the To: row";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.picker_open || mesh_ui_nav_picker_count(&store) != 3U ||
+        store.nav.picker_cursor != 2U) {
+        failure = "picker should open on the current target";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);  /* jump to the top */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* LEFT/RIGHT switch tabs? no */
+    if (store.nav.screen != MESH_UI_SCREEN_COMPOSE || !store.nav.picker_open ||
+        store.nav.picker_cursor != 2U) {
+        failure = "LEFT/RIGHT in the picker must page, not switch tabs";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action); /* clamps at the top */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.picker_open || store.nav.target_node != MESH_MESSAGE_BROADCAST_ADDR ||
+        store.nav.target_channel != 0U || strcmp(store.nav.target_name, "#Primary") != 0) {
+        failure = "picking the first row should target the primary channel";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.target_node != 0x2000U || strcmp(store.nav.target_name, "ALFA") != 0) {
+        failure = "second picker row should be the first node other than us";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action); /* cancel keeps ALFA */
+    if (store.nav.picker_open || store.nav.target_node != 0x2000U) {
+        failure = "B should cancel the picker without changing the target";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* +10 clamps to the last */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.target_node != 0x3000U) {
+        failure = "RIGHT should jump to the last row";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action); /* no-op at the top */
+    if (store.nav.cursor[MESH_UI_SCREEN_COMPOSE] != 0U) {
+        failure = "UP at row 0 must not underflow";
+        goto cleanup;
+    }
+
+    /* B leaves Compose for the conversation; X walks conversations: BRVO -> Inbox ->
+       #Primary -> BRVO (the only direct peer) -> Inbox. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (store.nav.screen != MESH_UI_SCREEN_MESSAGES || store.nav.inbox) {
+        failure = "B should return to the BRVO conversation";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    if (!store.nav.inbox) {
+        failure = "X after the last direct peer should show the inbox";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    if (store.nav.inbox || store.nav.target_node != MESH_MESSAGE_BROADCAST_ADDR ||
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_MESSAGES) != 1U) {
+        failure = "X from the inbox should show the channel with its one broadcast";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    if (store.nav.inbox || store.nav.target_node != 0x3000U) {
+        failure = "X after the channels should reach the first direct peer";
+        goto cleanup;
+    }
+
+    /* Tabs wrap in both directions; L1/R1 mirror Left/Right. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    if (store.nav.screen != MESH_UI_SCREEN_STATUS) {
+        failure = "LEFT from the first tab should wrap to the last";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
+    if (store.nav.screen != MESH_UI_SCREEN_MESSAGES) {
+        failure = "R1 from the last tab should wrap to the first";
+        goto cleanup;
+    }
+
+    /* Nodes tab: A on a node targets it; A on ourselves does nothing. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    if (store.nav.screen != MESH_UI_SCREEN_NODES) {
+        failure = "RIGHT should reach Nodes";
+        goto cleanup;
+    }
+    if (mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action)) {
+        failure = "A on our own node should be a no-op";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* clamps at the last row */
+    if (store.nav.cursor[MESH_UI_SCREEN_NODES] != 2U) {
+        failure = "DOWN must clamp at the last node";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.screen != MESH_UI_SCREEN_COMPOSE || store.nav.target_node != 0x3000U ||
+        strcmp(store.nav.target_name, "BRVO") != 0) {
+        failure = "A on a node should target it in Compose";
+        goto cleanup;
+    }
+
+    /* Devices tab: A connects to an unconnected device and does nothing on the connected one. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    if (store.nav.screen != MESH_UI_SCREEN_DEVICES) {
+        failure = "RIGHT from Compose should reach Devices";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_NONE) {
+        failure = "A on the connected device should not reconnect";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_CONNECT ||
+        strcmp(action.identifier, "AA:BB:CC:DD:EE:02") != 0) {
+        failure = "A on another device should request a connect";
+        goto cleanup;
+    }
+
+    /* Status has no rows; the cursor must stay at zero and A must be inert. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    if (store.nav.screen != MESH_UI_SCREEN_STATUS ||
+        store.nav.cursor[MESH_UI_SCREEN_STATUS] != 0U ||
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action) ||
+        action.type != MESH_UI_ACTION_NONE) {
+        failure = "Status tab must be inert";
+        goto cleanup;
+    }
+
+    /* Back in the inbox, a cursor on the newest line follows new traffic; one that was moved
+       up stays where it was. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* wraps to Messages */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);     /* BRVO -> inbox */
+    if (!store.nav.inbox) {
+        failure = "expected the inbox";
+        goto cleanup;
+    }
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    if (snapshot.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 1U) {
+        failure = "switching conversation should park the cursor on the newest line";
+        goto cleanup;
+    }
+    struct mesh_ui_message_list more = store.messages;
+    more.entries[more.count] = more.entries[1];
+    more.entries[more.count].packet_id = 13U;
+    more.count++;
+    mesh_ui_store_set_messages(&store, &more);
+    if (!mesh_ui_store_consume_updates(&store, &snapshot) ||
+        snapshot.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 2U) {
+        failure = "cursor at the tail should follow a new message";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    more.entries[more.count] = more.entries[1];
+    more.entries[more.count].packet_id = 14U;
+    more.count++;
+    mesh_ui_store_set_messages(&store, &more);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    if (snapshot.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 1U) {
+        failure = "cursor moved off the tail should hold its place";
+        goto cleanup;
+    }
+
+    /* Lists shrinking pull the cursor back inside. */
+    struct mesh_ui_message_list fewer;
+    memset(&fewer, 0, sizeof fewer);
+    fewer.count = 1U;
+    fewer.entries[0] = more.entries[0];
+    mesh_ui_store_set_messages(&store, &fewer);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    if (snapshot.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 0U ||
+        (snapshot.update_flags & MESH_UI_UPDATE_NAV) == 0U) {
+        failure = "cursor must be clamped when the list shrinks";
+        goto cleanup;
+    }
+
+    /* Toasts expire on tick and are dismissed by any key. */
+    mesh_ui_store_set_toast(&store, 1000U, "Sent to BRVO");
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    if (strcmp(snapshot.nav.toast, "Sent to BRVO") != 0) {
+        failure = "toast not carried in the snapshot";
+        goto cleanup;
+    }
+    mesh_ui_store_tick(&store, 2000U);
+    if (store.nav.toast[0] == '\0') {
+        failure = "toast expired too early";
+        goto cleanup;
+    }
+    mesh_ui_store_tick(&store, 6000U);
+    if (store.nav.toast[0] != '\0' || !mesh_ui_store_consume_updates(&store, &snapshot)) {
+        failure = "toast should expire after a few seconds and repaint";
+        goto cleanup;
+    }
+    mesh_ui_store_set_toast(&store, 7000U, "Connecting");
+    if (!mesh_ui_store_handle_key(&store, MESH_UI_KEY_SELECT, &action) ||
+        store.nav.toast[0] != '\0') {
+        failure = "any key should dismiss a toast";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+/* Channel table drives the To: cycle and the conversation filter; the keyboard builds a draft. */
+static void test_ui_nav_channels_and_keyboard(void) {
+    const char *test_name = "ui_nav_channels_and_keyboard";
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    test_nav_populate(&store);
+
+    /* Add a channel table (primary "LongFast", secondary "Team", slot 2 disabled) and a
+       broadcast on the secondary channel. */
+    struct mesh_ui_handshake_state handshake = store.handshake;
+    handshake.channel_count = 3U;
+    handshake.channels[0].index = 0U;
+    handshake.channels[0].role = 1U;
+    snprintf(handshake.channels[0].name, sizeof handshake.channels[0].name, "%s", "LongFast");
+    handshake.channels[1].index = 1U;
+    handshake.channels[1].role = 2U;
+    snprintf(handshake.channels[1].name, sizeof handshake.channels[1].name, "%s", "Team");
+    handshake.channels[2].index = 2U;
+    handshake.channels[2].role = 0U;
+    mesh_ui_store_set_handshake(&store, &handshake);
+
+    struct mesh_ui_message_list messages = store.messages;
+    messages.entries[messages.count] = messages.entries[0];
+    messages.entries[messages.count].packet_id = 21U;
+    messages.entries[messages.count].channel = 1U;
+    snprintf(messages.entries[messages.count].text, sizeof messages.entries[0].text, "%s",
+             "team only");
+    messages.count++;
+    mesh_ui_store_set_messages(&store, &messages);
+
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_action action;
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    if (strcmp(snapshot.nav.target_name, "#LongFast") != 0) {
+        failure = "target name should pick up the primary channel name";
+        goto cleanup;
+    }
+
+    /* X: Inbox -> #LongFast (1 broadcast) -> #Team (1 broadcast) -> BRVO -> Inbox. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    if (store.nav.inbox || store.nav.target_channel != 0U ||
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_MESSAGES) != 1U) {
+        failure = "first X should show the primary channel";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    if (store.nav.target_channel != 1U || strcmp(store.nav.target_name, "#Team") != 0 ||
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_MESSAGES) != 1U) {
+        failure = "second X should show the secondary channel with its broadcast";
+        goto cleanup;
+    }
+    uint32_t indices[MESH_UI_MAX_MESSAGES];
+    if (mesh_ui_nav_filter_messages(&store.nav, &store.messages, indices, MESH_UI_MAX_MESSAGES) !=
+            1U ||
+        store.messages.entries[indices[0]].packet_id != 21U) {
+        failure = "channel filter picked the wrong message";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    if (!store.nav.inbox) {
+        failure = "X should return to the inbox after the direct peers";
+        goto cleanup;
+    }
+
+    /* The picker lists #LongFast, #Team, ALFA, BRVO (never us, never the disabled slot); a
+       canned reply sent while on #Team carries channel 1. */
+    if (mesh_ui_nav_picker_count(&store) != 4U) {
+        failure = "picker should list two channels and two nodes";
+        goto cleanup;
+    }
+    char row_name[96];
+    uint32_t row_node = 0U;
+    uint8_t row_channel = 0U;
+    if (!mesh_ui_nav_picker_row(&store, 1U, &row_node, &row_channel, row_name, sizeof row_name) ||
+        row_node != MESH_MESSAGE_BROADCAST_ADDR || row_channel != 1U ||
+        strcmp(row_name, "#Team") != 0) {
+        failure = "picker row 1 should be the secondary channel";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);    /* open picker (on BRVO) */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action); /* top */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* #Team */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.picker_open || store.nav.target_node != MESH_MESSAGE_BROADCAST_ADDR ||
+        store.nav.target_channel != 1U) {
+        failure = "picker should select the secondary channel";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_SEND_TEXT || action.dest != MESH_MESSAGE_BROADCAST_ADDR ||
+        action.channel != 1U) {
+        failure = "canned send should target the selected channel";
+        goto cleanup;
+    }
+
+    /* Keyboard: type "Hi", a space, delete it, a space again, START sends "Hi ". */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action); /* draft row */
+    if (store.nav.cursor[MESH_UI_SCREEN_COMPOSE] != MESH_UI_COMPOSE_ROW_DRAFT) {
+        failure = "expected the draft row";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.keyboard_open || store.nav.kb_row != 0U || store.nav.kb_col != 0U) {
+        failure = "A on the draft row should open the keyboard at the top-left";
+        goto cleanup;
+    }
+    /* LEFT/RIGHT move within the grid while the keyboard is open, never switch tabs. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    if (store.nav.kb_col != MESH_UI_KB_COLS - 1U || store.nav.screen != MESH_UI_SCREEN_COMPOSE) {
+        failure = "LEFT should wrap to the last column";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* back to col 0 */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* row 2: asdfghjkl' */
+    for (int i = 0; i < 5; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action); /* shift */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* H */
+    if (strcmp(store.nav.draft, "H") != 0 || store.nav.kb_layer != MESH_UI_KB_LOWER) {
+        failure = "shift should apply to one character";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action); /* row 1: qwertyuiop */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* col 7: i */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action); /* space */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action); /* delete it */
+    if (strcmp(store.nav.draft, "Hi") != 0) {
+        failure = "typing/deleting produced the wrong draft";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    if (action.type != MESH_UI_ACTION_SEND_TEXT || strcmp(action.text, "Hi ") != 0 ||
+        action.channel != 1U || store.nav.keyboard_open || store.nav.draft[0] != '\0' ||
+        store.nav.screen != MESH_UI_SCREEN_MESSAGES) {
+        failure = "START should send the draft and return to the conversation";
+        goto cleanup;
+    }
+
+    /* The action row: moving down from column 9 lands on the last (cancel) key; the mapping
+       comes back to a sensible column. Cancel drops the draft and closes the keyboard. B on
+       an empty draft also closes it. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);    /* keyboard open, row 0 col 0 */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);    /* '1' */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action); /* col 9 */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);   /* wraps to the action row */
+    if (store.nav.kb_row != MESH_UI_KB_CHAR_ROWS || store.nav.kb_col != MESH_UI_KB_ACTIONS - 1U) {
+        failure = "column should map onto the action row";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* cancel */
+    if (store.nav.keyboard_open || store.nav.draft[0] != '\0' ||
+        store.nav.screen != MESH_UI_SCREEN_COMPOSE) {
+        failure = "cancel should discard the draft and close the keyboard";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* reopen (cursor still on draft) */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (store.nav.keyboard_open) {
+        failure = "B with an empty draft should close the keyboard";
+        goto cleanup;
+    }
+    if (mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action) == false &&
+        action.type != MESH_UI_ACTION_NONE) {
+        failure = "unexpected action";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+/* The radio's Channel messages land in the handshake status, indexed by slot. */
+static void test_ble_transport_channel_decode(void) {
+    const char *test_name = "ble_transport_channel_decode";
+    const char *failure = NULL;
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:09", .name = "NodeNine", .rssi = -50},
+    };
+    uint8_t write_capture[64];
+    size_t write_len = 0U;
+
+    uint8_t read_buffers[2][128];
+    const uint8_t *read_payloads[2] = {read_buffers[0], read_buffers[1]};
+    size_t read_payload_lengths[2] = {0U, 0U};
+    size_t read_index = 0U;
+
+    meshtastic_FromRadio from_radio = meshtastic_FromRadio_init_default;
+    from_radio.which_payload_variant = meshtastic_FromRadio_channel_tag;
+    from_radio.channel.index = 1;
+    from_radio.channel.role = meshtastic_Channel_Role_SECONDARY;
+    from_radio.channel.has_settings = true;
+    snprintf(from_radio.channel.settings.name, sizeof from_radio.channel.settings.name, "%s",
+             "Team");
+    pb_ostream_t stream = pb_ostream_from_buffer(read_buffers[0], sizeof read_buffers[0]);
+    if (!pb_encode(&stream, meshtastic_FromRadio_fields, &from_radio)) {
+        record_failure(test_name, "encode channel 1 failed");
+        return;
+    }
+    read_payload_lengths[0] = stream.bytes_written;
+
+    from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
+    from_radio.which_payload_variant = meshtastic_FromRadio_channel_tag;
+    from_radio.channel.index = 0;
+    from_radio.channel.role = meshtastic_Channel_Role_PRIMARY;
+    from_radio.channel.has_settings = true; /* unnamed: the default primary */
+    stream = pb_ostream_from_buffer(read_buffers[1], sizeof read_buffers[1]);
+    if (!pb_encode(&stream, meshtastic_FromRadio_fields, &from_radio)) {
+        record_failure(test_name, "encode channel 0 failed");
+        return;
+    }
+    read_payload_lengths[1] = stream.bytes_written;
+
+    struct mesh_bluez_mock_config mock_config = {
+        .adapter_path = "/org/bluez/hci0",
+        .toradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_09/service000a/char000b",
+        .fromradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_09/service000a/char000d",
+        .fromnum_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_09/service000a/char000f",
+        .read_payloads = read_payloads,
+        .read_payload_lengths = read_payload_lengths,
+        .read_payload_count = 2U,
+        .read_index = &read_index,
+        .devices = mock_devices,
+        .device_count = 1U,
+        .write_capture_buffer = write_capture,
+        .write_capture_capacity = sizeof(write_capture),
+        .write_capture_length = &write_len,
+    };
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    struct mesh_app_config config = mesh_app_config_default();
+    struct mesh_event_loop loop;
+    mesh_event_loop_init(&loop);
+    if (ble->ops->start(ble, &config, &loop) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+        failure = "connect should be accepted";
+        goto cleanup;
+    }
+    for (int spin = 0; spin < 20 && read_index < 3U; ++spin) {
+        ble->ops->tick(ble);
+        mesh_event_loop_run(&loop, 10);
+    }
+
+    struct mesh_ble_handshake_status status = mesh_ble_transport_handshake_status(ble);
+    if (status.channel_count != 2U) {
+        failure = "channel_count should cover slots 0 and 1";
+        goto cleanup;
+    }
+    if (status.channels[1].index != 1U || status.channels[1].role != 2U ||
+        strcmp(status.channels[1].name, "Team") != 0) {
+        failure = "secondary channel not decoded";
+        goto cleanup;
+    }
+    if (status.channels[0].index != 0U || status.channels[0].role != 1U ||
+        status.channels[0].name[0] != '\0') {
+        failure = "primary channel not decoded";
+        goto cleanup;
+    }
+
+cleanup:
+    ble->ops->stop(ble);
+    mesh_event_loop_shutdown(&loop);
+    mesh_bluez_client_mock_disable();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+static void test_ui_canned_load(void) {
+    const char *test_name = "ui_canned_load";
+    const char *failure = NULL;
+
+    char path[] = "/tmp/meshclient-canned-XXXXXX";
+    int fd = mkstemp(path);
+    if (fd < 0) {
+        record_failure(test_name, "mkstemp failed");
+        return;
+    }
+    const char *content = "# quick replies\n\nAck\n  \nBe there in 5\nbad\x01line\n";
+    if (write(fd, content, strlen(content)) < 0) {
+        close(fd);
+        unlink(path);
+        record_failure(test_name, "write failed");
+        return;
+    }
+    close(fd);
+
+    mesh_ui_canned_reset();
+    const size_t defaults = mesh_ui_canned_count();
+    if (defaults == 0U || strcmp(mesh_ui_canned_text(0), "OK") != 0) {
+        failure = "built-in replies missing";
+        goto cleanup;
+    }
+
+    /* Comments, blank lines and lines with control bytes are skipped; "  " is not blank but
+       has no visible text and is kept as-is (the user asked for it). */
+    const int loaded = mesh_ui_canned_load(path);
+    if (loaded != 3 || mesh_ui_canned_count() != 3U || strcmp(mesh_ui_canned_text(0), "Ack") != 0 ||
+        strcmp(mesh_ui_canned_text(2), "Be there in 5") != 0) {
+        failure = "canned file not parsed as expected";
+        goto cleanup;
+    }
+    if (mesh_ui_canned_text(3)[0] != '\0') {
+        failure = "out-of-range index must yield an empty string";
+        goto cleanup;
+    }
+    if (mesh_ui_canned_load("/nonexistent/canned.txt") != -ENOENT || mesh_ui_canned_count() != 3U) {
+        failure = "a missing file must leave the loaded set alone";
+        goto cleanup;
+    }
+
+cleanup:
+    unlink(path);
+    mesh_ui_canned_reset();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+struct test_key_capture {
+    enum mesh_ui_key keys[16];
+    size_t count;
+};
+
+static void test_capture_key(void *userdata, enum mesh_ui_key key) {
+    struct test_key_capture *capture = (struct test_key_capture *)userdata;
+    if (capture->count < sizeof(capture->keys) / sizeof(capture->keys[0])) {
+        capture->keys[capture->count++] = key;
+    }
+}
+
+static void test_ui_input_key_mapping(void) {
+    const char *test_name = "ui_input_key_mapping";
+    const char *failure = NULL;
+    unsetenv("MESHCLIENT_QUIT_KEYS");
+    mesh_ui_input_reload_quit_keys();
+
+    struct mesh_event_loop loop;
+    if (mesh_event_loop_init(&loop) != 0) {
+        record_failure(test_name, "event loop init failed");
+        return;
+    }
+
+    struct test_key_capture capture;
+    memset(&capture, 0, sizeof capture);
+    struct mesh_ui_input input;
+    memset(&input, 0, sizeof input);
+    input.loop = &loop; /* not opening /dev/input: only the translation is under test */
+    mesh_ui_input_set_handler(&input, test_capture_key, &capture);
+
+    /* The Brick's gamepad: face buttons as BTN_ codes, d-pad as hat axes. */
+    mesh_ui_input_handle_event(&input, EV_KEY, BTN_SOUTH, 1);
+    mesh_ui_input_handle_event(&input, EV_KEY, BTN_SOUTH, 0); /* release: nothing */
+    mesh_ui_input_handle_event(&input, EV_KEY, BTN_EAST, 1);
+    mesh_ui_input_handle_event(&input, EV_ABS, ABS_HAT0Y, -1); /* up */
+    mesh_ui_input_handle_event(&input, EV_ABS, ABS_HAT0Y, 0);  /* centre: nothing */
+    mesh_ui_input_handle_event(&input, EV_ABS, ABS_HAT0X, 1);  /* right */
+    mesh_ui_input_handle_event(&input, EV_KEY, BTN_TL, 1);
+    mesh_ui_input_handle_event(&input, EV_KEY, KEY_DOWN, 2); /* keyboard autorepeat counts */
+    mesh_ui_input_handle_event(&input, EV_KEY, BTN_SELECT, 1);
+    mesh_ui_input_handle_event(&input, EV_SYN, 0, 0);
+    mesh_ui_input_handle_event(&input, EV_KEY, KEY_F1, 1); /* unmapped: nothing */
+
+    /* BTN_SOUTH is the Brick's B and BTN_EAST its A (Nintendo layout). */
+    const enum mesh_ui_key expected[] = {
+        MESH_UI_KEY_B,  MESH_UI_KEY_A,    MESH_UI_KEY_UP,     MESH_UI_KEY_RIGHT,
+        MESH_UI_KEY_L1, MESH_UI_KEY_DOWN, MESH_UI_KEY_SELECT,
+    };
+    const size_t expected_count = sizeof(expected) / sizeof(expected[0]);
+    if (capture.count != expected_count) {
+        failure = "unexpected number of logical keys";
+        goto cleanup;
+    }
+    for (size_t i = 0; i < expected_count; ++i) {
+        if (capture.keys[i] != expected[i]) {
+            failure = "logical key order mismatch";
+            goto cleanup;
+        }
+    }
+    if (loop.stop_requested) {
+        failure = "navigation keys must not stop the loop";
+        goto cleanup;
+    }
+
+    /* MENU (as either device reports it) still quits, and never reaches the handler. */
+    mesh_ui_input_handle_event(&input, EV_KEY, BTN_MODE, 1);
+    if (!loop.stop_requested || capture.count != expected_count) {
+        failure = "MENU should stop the loop without emitting a key";
+        goto cleanup;
+    }
+    if (mesh_ui_input_is_quit_key(BTN_SELECT) || mesh_ui_input_is_quit_key(BTN_START)) {
+        failure = "SELECT/START are navigation keys, not quit keys";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_event_loop_shutdown(&loop);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+struct test_action_capture {
+    struct mesh_ui_action last;
+    size_t count;
+};
+
+static void test_capture_action(void *userdata, const struct mesh_ui_action *action) {
+    struct test_action_capture *capture = (struct test_action_capture *)userdata;
+    capture->last = *action;
+    capture->count++;
+}
+
+static void test_ui_controller_key_dispatch(void) {
+    const char *test_name = "ui_controller_key_dispatch";
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_event_loop loop;
+    if (mesh_event_loop_init(&loop) != 0) {
+        record_failure(test_name, "event loop init failed");
+        return;
+    }
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        mesh_event_loop_shutdown(&loop);
+        record_failure(test_name, "store init failed");
+        return;
+    }
+
+    struct mesh_ui_backend_stub_context backend;
+    memset(&backend, 0, sizeof backend);
+    struct mesh_ui_controller controller;
+    if (mesh_ui_controller_init(&controller, &store, mesh_ui_backend_stub(), &backend, &loop) !=
+        0) {
+        mesh_ui_store_shutdown(&store);
+        mesh_event_loop_shutdown(&loop);
+        record_failure(test_name, "controller init failed");
+        return;
+    }
+    struct test_action_capture actions;
+    memset(&actions, 0, sizeof actions);
+    mesh_ui_controller_set_action_handler(&controller, test_capture_action, &actions);
+
+    test_nav_populate(&store);
+    mesh_event_loop_run(&loop, 0);
+    const size_t presents_before = backend.present_calls;
+
+    /* Right x2 lands on Compose; the repaint arrives through the eventfd on the next turn. */
+    mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_RIGHT);
+    mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_RIGHT);
+    mesh_event_loop_run(&loop, 0);
+    if (backend.present_calls <= presents_before ||
+        backend.last_snapshot.nav.screen != MESH_UI_SCREEN_COMPOSE ||
+        (backend.last_snapshot.update_flags & MESH_UI_UPDATE_NAV) == 0U) {
+        failure = "key presses should repaint with the new tab";
+        goto cleanup;
+    }
+
+    /* Down past the draft row to the first canned reply, A sends it: the action reaches the
+       handler once. */
+    mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_DOWN);
+    mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_DOWN);
+    mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_A);
+    if (actions.count != 1U || actions.last.type != MESH_UI_ACTION_SEND_TEXT ||
+        actions.last.dest != MESH_MESSAGE_BROADCAST_ADDR ||
+        strcmp(actions.last.text, mesh_ui_canned_text(0)) != 0) {
+        failure = "send action did not reach the handler";
+        goto cleanup;
+    }
+
+    /* Navigation-only keys never call the handler. */
+    mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_UP);
+    mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_NONE);
+    if (actions.count != 1U) {
+        failure = "navigation keys must not produce actions";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_controller_shutdown(&controller);
+    mesh_ui_store_shutdown(&store);
+    mesh_event_loop_shutdown(&loop);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+/* BlueZ says the device is gone: the link resets, the UI sees "running", and auto-connect can
+   try again. Checked via the explicit probe tick() runs every couple of seconds. */
+static void test_ble_transport_link_drop(void) {
+    const char *test_name = "ble_transport_link_drop";
+    const char *failure = NULL;
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:0A", .name = "NodeTen", .rssi = -50},
+    };
+    uint8_t write_capture[64];
+    size_t write_len = 0U;
+    struct mesh_bluez_mock_config mock_config = {
+        .adapter_path = "/org/bluez/hci0",
+        .connected_drops_after_polls = 2U, /* tick() already probes once on connect */
+        .devices = mock_devices,
+        .device_count = 1U,
+        .write_capture_buffer = write_capture,
+        .write_capture_capacity = sizeof(write_capture),
+        .write_capture_length = &write_len,
+    };
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    struct mesh_app_config config = mesh_app_config_default();
+    struct mesh_event_loop loop;
+    mesh_event_loop_init(&loop);
+    if (ble->ops->start(ble, &config, &loop) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+        failure = "connect should be accepted";
+        goto cleanup;
+    }
+    ble->ops->tick(ble);
+    if (mesh_ble_transport_connected_address(ble) == NULL) {
+        failure = "expected a connected link";
+        goto cleanup;
+    }
+
+    /* A message in flight when the link drops ends up FAILED, not PENDING forever. */
+    uint32_t packet_id = 0U;
+    if (mesh_ble_transport_send_text(ble, 0x11223344U, 0U, "hello", true, &packet_id) != 0) {
+        failure = "send should succeed while connected";
+        goto cleanup;
+    }
+
+    if (mesh_ble_transport_check_link(ble) != 1) {
+        failure = "first probe should find the link up";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_check_link(ble) != 0) {
+        failure = "second probe should find the link down and reset it";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_connected_address(ble) != NULL ||
+        mesh_ble_transport_is_connecting(ble) || strcmp(ble->ops->status(ble), "running") != 0) {
+        failure = "link should be reset after the drop";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_check_link(ble) != -ENOTCONN) {
+        failure = "probe while disconnected should say so";
+        goto cleanup;
+    }
+    /* The message was already written, so it stays pending (the radio may still ack it);
+       the conversation itself survives the reset. */
+    const struct mesh_message_log *log = mesh_ble_transport_messages(ble);
+    if (log == NULL || log->count != 1U || mesh_message_log_at(log, 0)->packet_id != packet_id ||
+        mesh_message_log_at(log, 0)->ack != MESH_MESSAGE_ACK_PENDING) {
+        failure = "message log should survive a link reset";
+        goto cleanup;
+    }
+
+cleanup:
+    ble->ops->stop(ble);
+    mesh_event_loop_shutdown(&loop);
+    mesh_bluez_client_mock_disable();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+/* A failing GATT write is a dead link: send_text reports the error, marks the message FAILED
+   and the link resets instead of pretending the message went out. */
+static void test_ble_transport_write_failure(void) {
+    const char *test_name = "ble_transport_write_failure";
+    const char *failure = NULL;
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:0B", .name = "NodeEleven", .rssi = -50},
+    };
+    uint8_t write_capture[64];
+    size_t write_len = 0U;
+    struct mesh_bluez_mock_config mock_config = {
+        .adapter_path = "/org/bluez/hci0",
+        .write_fail_after_calls = 1U, /* the handshake write succeeds, the message does not */
+        .write_result_late = -EIO,
+        .devices = mock_devices,
+        .device_count = 1U,
+        .write_capture_buffer = write_capture,
+        .write_capture_capacity = sizeof(write_capture),
+        .write_capture_length = &write_len,
+    };
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    struct mesh_app_config config = mesh_app_config_default();
+    struct mesh_event_loop loop;
+    mesh_event_loop_init(&loop);
+    if (ble->ops->start(ble, &config, &loop) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+        failure = "connect should be accepted";
+        goto cleanup;
+    }
+    ble->ops->tick(ble);
+    if (mesh_ble_transport_connected_address(ble) == NULL) {
+        failure = "expected a connected link";
+        goto cleanup;
+    }
+
+    uint32_t packet_id = 0U;
+    const int result =
+        mesh_ble_transport_send_text(ble, 0x11223344U, 0U, "hello", true, &packet_id);
+    if (result != -EIO) {
+        failure = "send_text should surface the write error";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_connected_address(ble) != NULL ||
+        strcmp(ble->ops->status(ble), "running") != 0) {
+        failure = "a failed write should drop the link";
+        goto cleanup;
+    }
+    const struct mesh_message_log *log = mesh_ble_transport_messages(ble);
+    if (log == NULL || log->count != 1U ||
+        mesh_message_log_at(log, 0)->ack != MESH_MESSAGE_ACK_FAILED) {
+        failure = "the unsent message should be marked failed";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_send_text(ble, 0x11223344U, 0U, "again", true, NULL) != -ENOTCONN) {
+        failure = "sending while disconnected should say so";
+        goto cleanup;
+    }
+
+cleanup:
+    ble->ops->stop(ble);
+    mesh_event_loop_shutdown(&loop);
+    mesh_bluez_client_mock_disable();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+/* A packet from a node refreshes its last_heard/SNR; one from a node the sync never delivered
+   adds it, so the UI can name and target whoever is actually talking to us. */
+static void test_ble_transport_packet_touches_node(void) {
+    const char *test_name = "ble_transport_packet_touches_node";
+    const char *failure = NULL;
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:0C", .name = "NodeTwelve", .rssi = -50},
+    };
+    uint8_t write_capture[64];
+    size_t write_len = 0U;
+
+    uint8_t read_buffers[3][160];
+    const uint8_t *read_payloads[3] = {read_buffers[0], read_buffers[1], read_buffers[2]};
+    size_t read_payload_lengths[3] = {0U, 0U, 0U};
+    size_t read_index = 0U;
+
+    meshtastic_FromRadio from_radio = meshtastic_FromRadio_init_default;
+    from_radio.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+    from_radio.node_info.num = 0x7c376ddaU;
+    from_radio.node_info.has_user = true;
+    snprintf(from_radio.node_info.user.short_name, sizeof from_radio.node_info.user.short_name,
+             "%s", "6dda");
+    from_radio.node_info.last_heard = 1000U;
+    from_radio.node_info.snr = 1.0f;
+    pb_ostream_t stream = pb_ostream_from_buffer(read_buffers[0], sizeof read_buffers[0]);
+    if (!pb_encode(&stream, meshtastic_FromRadio_fields, &from_radio)) {
+        record_failure(test_name, "encode node_info failed");
+        return;
+    }
+    read_payload_lengths[0] = stream.bytes_written;
+
+    /* A text from that node, timestamped well after the sync. */
+    from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
+    from_radio.which_payload_variant = meshtastic_FromRadio_packet_tag;
+    from_radio.packet.from = 0x7c376ddaU;
+    from_radio.packet.to = 0x11111111U;
+    from_radio.packet.id = 77U;
+    from_radio.packet.has_rx_time = true;
+    from_radio.packet.rx_time = 5000U;
+    from_radio.packet.rx_snr = 7.5f;
+    from_radio.packet.hop_start = 3U;
+    from_radio.packet.hop_limit = 2U;
+    from_radio.packet.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    from_radio.packet.decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
+    from_radio.packet.decoded.payload.size = 2U;
+    memcpy(from_radio.packet.decoded.payload.bytes, "hi", 2U);
+    stream = pb_ostream_from_buffer(read_buffers[1], sizeof read_buffers[1]);
+    if (!pb_encode(&stream, meshtastic_FromRadio_fields, &from_radio)) {
+        record_failure(test_name, "encode packet failed");
+        return;
+    }
+    read_payload_lengths[1] = stream.bytes_written;
+
+    /* A position packet from a node we never got NodeInfo for. */
+    from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
+    from_radio.which_payload_variant = meshtastic_FromRadio_packet_tag;
+    from_radio.packet.from = 0x0badf00dU;
+    from_radio.packet.to = MESH_MESSAGE_BROADCAST_ADDR;
+    from_radio.packet.id = 78U;
+    from_radio.packet.has_rx_time = true;
+    from_radio.packet.rx_time = 6000U;
+    from_radio.packet.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    from_radio.packet.decoded.portnum = meshtastic_PortNum_POSITION_APP;
+    stream = pb_ostream_from_buffer(read_buffers[2], sizeof read_buffers[2]);
+    if (!pb_encode(&stream, meshtastic_FromRadio_fields, &from_radio)) {
+        record_failure(test_name, "encode position failed");
+        return;
+    }
+    read_payload_lengths[2] = stream.bytes_written;
+
+    struct mesh_bluez_mock_config mock_config = {
+        .adapter_path = "/org/bluez/hci0",
+        .toradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_0C/service000a/char000b",
+        .fromradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_0C/service000a/char000d",
+        .fromnum_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_0C/service000a/char000f",
+        .read_payloads = read_payloads,
+        .read_payload_lengths = read_payload_lengths,
+        .read_payload_count = 3U,
+        .read_index = &read_index,
+        .devices = mock_devices,
+        .device_count = 1U,
+        .write_capture_buffer = write_capture,
+        .write_capture_capacity = sizeof(write_capture),
+        .write_capture_length = &write_len,
+    };
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    struct mesh_app_config config = mesh_app_config_default();
+    struct mesh_event_loop loop;
+    mesh_event_loop_init(&loop);
+    if (ble->ops->start(ble, &config, &loop) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+        failure = "connect should be accepted";
+        goto cleanup;
+    }
+    for (int spin = 0; spin < 20 && read_index < 4U; ++spin) {
+        ble->ops->tick(ble);
+        mesh_event_loop_run(&loop, 10);
+    }
+
+    struct mesh_ble_handshake_status status = mesh_ble_transport_handshake_status(ble);
+    if (status.node_count != 2U) {
+        failure = "expected the synced node plus the one heard without NodeInfo";
+        goto cleanup;
+    }
+    const struct mesh_ble_node_summary *known = &status.nodes[0];
+    if (known->node_id != 0x7c376ddaU || known->last_heard != 5000U || known->snr != 7.5f ||
+        !known->has_hops_away || known->hops_away != 1U || strcmp(known->short_name, "6dda") != 0) {
+        failure = "packet did not refresh the known node";
+        goto cleanup;
+    }
+    if (status.nodes[1].node_id != 0x0badf00dU || status.nodes[1].last_heard != 6000U ||
+        status.nodes[1].short_name[0] != '\0') {
+        failure = "unknown sender should be added by id";
+        goto cleanup;
+    }
+    const struct mesh_message_log *log = mesh_ble_transport_messages(ble);
+    if (log == NULL || log->count != 1U) {
+        failure = "the text should still be ingested";
+        goto cleanup;
+    }
+
+cleanup:
+    ble->ops->stop(ble);
+    mesh_event_loop_shutdown(&loop);
+    mesh_bluez_client_mock_disable();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
 static const struct test_case k_test_cases[] = {
     {"config_defaults", "unit", test_config_defaults},
     {"transport_registry_registration", "unit", test_transport_registry_registration},
@@ -2461,6 +3624,15 @@ static const struct test_case k_test_cases[] = {
     {"ui_input_quit_keys", "unit", test_ui_input_quit_keys},
     {"ui_cli_transport_update", "unit", test_ui_cli_transport_update},
     {"ui_controller_dispatch", "unit", test_ui_controller_dispatch},
+    {"ui_controller_key_dispatch", "unit", test_ui_controller_key_dispatch},
+    {"ui_nav_navigation", "unit", test_ui_nav_navigation},
+    {"ui_nav_channels_and_keyboard", "unit", test_ui_nav_channels_and_keyboard},
+    {"ble_transport_channel_decode", "unit", test_ble_transport_channel_decode},
+    {"ble_transport_link_drop", "unit", test_ble_transport_link_drop},
+    {"ble_transport_write_failure", "unit", test_ble_transport_write_failure},
+    {"ble_transport_packet_touches_node", "unit", test_ble_transport_packet_touches_node},
+    {"ui_canned_load", "unit", test_ui_canned_load},
+    {"ui_input_key_mapping", "unit", test_ui_input_key_mapping},
     {"ui_preferences_roundtrip", "unit", test_ui_preferences_roundtrip},
     {"minui_format_menu", "unit", test_minui_format_menu},
     {"proto_varint_roundtrip", "unit", test_proto_varint_roundtrip},

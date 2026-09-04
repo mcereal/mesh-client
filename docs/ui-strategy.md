@@ -86,7 +86,7 @@
 
 ## Platform Agnosticism
 
-- Backends implement `struct mesh_ui_backend` (`include/mesh/ui/backend.h`) with three function pointers: `init`, `shutdown`, and `present(snapshot)`. Input handling and prompts are backend-internal for now (e.g. the MinUI backend reads `minui-list` output through the event loop).
+- Backends implement `struct mesh_ui_backend` (`include/mesh/ui/backend.h`) with three function pointers: `init`, `shutdown`, and `present(snapshot)`. Input is shared: `src/ui/input.c` turns evdev events into `enum mesh_ui_key`, the store's navigation model (`src/ui/nav.c`) moves the cursor and emits actions, and backends draw from `snapshot->nav`. The MinUI backend is the exception and still reads `minui-list` output through the event loop.
 - TrimUI builds select the MinUI backend at runtime using an environment flag or build flag; desktop builds default to the CLI backend.
 - New platforms (e.g., SDL mock, web UI) only implement the backend interface, leaving controller and store untouched.
 

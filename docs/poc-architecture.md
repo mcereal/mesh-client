@@ -20,7 +20,7 @@ A native NextUI/MinUI Pak that turns the TrimUI Brick into a lightweight Meshtas
 
 **In Progress / Next Up**
 
-- On-device input: `mesh_ui_input` currently only detects a quit key, so the framebuffer UI is read-only. Promote it to a d-pad/button event source with a selection model so nodes can be picked and messages composed without the CLI.
+- On-device input: `mesh_ui_input` maps the Brick's buttons and d-pad to logical keys and `src/ui/nav.c` turns them into tab/cursor state and actions (connect, send a canned reply). Compose has a d-pad keyboard, the Messages tab shows one conversation at a time (inbox, a channel, or a node's direct messages), and broadcasts pick their channel from the radio's channel table. Still missing: unread markers, message deletion, and a MinUI-native rendering of the same model.
 - Package a `minui-keyboard` helper so text can be entered on the device.
 - Add Serial/HTTP transports and end-to-end protocol validation tests. Note that `src/proto/framing.c` is a homegrown varint length prefix, **not** Meshtastic's serial framing (`0x94 0xc3` + 16-bit big-endian length); a serial transport needs the real thing.
 

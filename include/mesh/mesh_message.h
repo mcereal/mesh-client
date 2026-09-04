@@ -18,7 +18,7 @@ extern "C" {
 
 /* The newest N messages are kept. The Brick has 1 GB and no swap, so the inbox is a fixed
    ring rather than a growing list; evictions are counted so the UI can say what it lost. */
-#define MESH_MESSAGE_LOG_CAPACITY 32U
+#define MESH_MESSAGE_LOG_CAPACITY 64U
 
 enum mesh_message_direction {
     MESH_MESSAGE_INBOUND = 0,

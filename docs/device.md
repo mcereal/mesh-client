@@ -40,9 +40,46 @@ Launch the pak from **Tools > MeshClient** on the device for anything involving 
 scans, connects on its own (the last node it talked to, or the strongest one in range if there is
 no saved preference), runs the config handshake and shows the result on the HUD. **MENU** or
 **POWER** quits back to NextUI; both are in the default quit-key set (the Brick's gamepad reports
-MENU as `BTN_MODE` 316 and the power key as `KEY_POWER` 116). The
-framebuffer backend and the NextUI launcher share `/dev/fb0`, so a run started over SSH while the
-launcher is on screen may get painted over. For headless checks SSH is fine:
+MENU as `BTN_MODE` 316 and the power key as `KEY_POWER` 116).
+
+The HUD is five tabs. **Left/Right** (or **L1/R1**) switch tabs, **Up/Down** move the cursor,
+**A** acts on the highlighted row, **B** backs out. The Brick's A is the right-hand face button
+(`BTN_EAST` 305) and B the bottom one (`BTN_SOUTH` 304).
+
+| Tab | Shows | Buttons |
+|-----|-------|---------|
+| Messages | One conversation at a time: the **Inbox** (everything, each line tagged `#n` or `dm`), a channel's broadcasts, or the direct messages with one node. The highlighted message is shown in full below the list. | **A** reply to the highlighted message. **X** next conversation (Inbox, each channel, each node you have direct messages with). **Y** compose to the current conversation. |
+| Nodes | The mesh as the radio sent it: short name, long name, hops or SNR, time since last heard; `*` is this radio | **A** open Compose to that node. **Y** compose to the current target. |
+| Compose | `To:` row, a draft row, then the quick replies | **A** on `To:` opens the **Send to** picker (every enabled channel, then every node; Up/Down move, Left/Right jump ten rows, A picks, B cancels); on the draft row opens the keyboard; on a reply sends it. **B** back to the conversation. |
+| Devices | Meshtastic radios in BLE range, `*` connected | **A** connect to that radio and make it the preferred one |
+| Status | Transport state, radio, sync, my node, channel, counts | none |
+
+The keyboard is a ten-column grid with lower-case, upper-case and symbol layers plus an action
+row (layer, space, del, send, cancel). **D-pad** moves (wrapping), **A** types, **B** deletes
+(and closes the keyboard once the draft is empty), **X** shifts for one character, **Y** is
+space, **START** sends. L1 and R1 double as delete and space. Drafts survive leaving the
+keyboard: the Compose draft row shows what is pending.
+
+Nodes are ranked: this radio, then every node you have exchanged messages with, then nodes
+heard directly over RF (most recent first), then nodes that only arrive via MQTT. Every packet
+a node sends refreshes its place. The HUD carries 128 of them; the radio's full NodeDB count is
+shown in the Nodes title.
+
+If the radio drops the BLE link (it happens after a few minutes idle on some firmware), the
+footer flips from green `connected: <name>` to `running`, a toast says the link was lost, and
+auto-connect brings it back within a few seconds. A message sent in that window is tagged `!!`
+rather than pretending it went out; send it again once the footer is green.
+
+Quick replies default to OK / Yes / No / On my way / Where are you? / I'm here / Call me / Need
+help / Heading back / Ping. Put your own, one per line, in
+`/mnt/SDCARD/.userdata/tg5040/MeshClient/.meshclient/canned.txt` (`#` comments allowed, 16 max).
+Sends to a node ask for an ack; the Messages tab tags them `..` while pending, `ok` when
+delivered, `!!` when routing failed. Broadcasts go out on the channel shown in `To:`; the
+channel table comes from the radio during the config sync. Text is drawn at four times the 5x7
+font; set `MESHCLIENT_FB_SCALE=3` in `launch.sh` for more rows or `5` for bigger type.
+
+The framebuffer backend and the NextUI launcher share `/dev/fb0`, so a run started over SSH
+while the launcher is on screen may get painted over. For headless checks SSH is fine:
 
 ```bash
 make deploy-run ARGS="--list-devices"
@@ -88,10 +125,11 @@ for MeshClient:
 - **Nothing on screen but the log shows discovery working:** the fb backend lost the
   framebuffer to the launcher. Exit to the Tools menu and launch the pak from there.
 - **Buttons do nothing / the client will not exit:** press MENU. The client watches every
-  `/dev/input/event*` node and quits on MENU, POWER, ESC, SELECT or BTN_MODE. If none of those
-  work, the Brick reports different codes: every press is logged to `MeshClient.txt` as
-  `(input): key code N pressed`, so run the pak, press the button you want, read the code out
-  of the log, and set it in `launch.sh`:
+  `/dev/input/event*` node and quits on MENU (`KEY_MENU` 139 or `BTN_MODE` 316), POWER or ESC;
+  SELECT and START are navigation keys, not quit keys. If none of those work, the Brick reports
+  different codes: with `--log-level debug` (what `launch.sh` passes) every press is logged to
+  `MeshClient.txt` as `(input): key code N pressed`, so run the pak, press the button you want,
+  read the code out of the log, and set it in `launch.sh`:
 
   ```sh
   export MESHCLIENT_QUIT_KEYS="139,316"   # comma-separated evdev codes; replaces the defaults

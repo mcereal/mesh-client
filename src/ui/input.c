@@ -14,17 +14,17 @@
 #include <sys/epoll.h>
 #include <unistd.h>
 
-/* Standard evdev codes. The Brick reports its face and system buttons through the usual
-   KEY_ and BTN_ space, so these work without a device-specific keymap. BTN_START is left out
-   deliberately: it is the natural "confirm" button for the menu work still to come. */
+/* Standard evdev codes. The Brick's gamepad device ("TRIMUI Player1") reports the face and
+   system buttons through the usual BTN_ space and the d-pad as ABS_HAT0X/Y, so these work
+   without a device-specific keymap. SELECT and START are not quit keys: they sit next to the
+   d-pad and are too easy to hit while navigating. */
 #define MESH_UI_INPUT_MAX_QUIT_KEYS 16U
 
 static const uint16_t k_default_quit_keys[] = {
-    KEY_ESC,    /* 1   - USB keyboard, and what most emulators map "back" to */
-    KEY_POWER,  /* 116 */
-    KEY_MENU,   /* 139 - the Brick's MENU button, the NextUI convention for leaving a pak */
-    BTN_SELECT, /* 314 */
-    BTN_MODE,   /* 316 - "guide"/menu on gamepad-style reports */
+    KEY_ESC,   /* 1   - USB keyboard, and what most emulators map "back" to */
+    KEY_POWER, /* 116 */
+    KEY_MENU,  /* 139 - the Brick's MENU button, the NextUI convention for leaving a pak */
+    BTN_MODE,  /* 316 - the same MENU button as the gamepad device reports it */
 };
 
 /* Parsed once from MESHCLIENT_QUIT_KEYS so the mapping can be corrected on-device without a
@@ -97,6 +97,108 @@ const char *mesh_ui_input_quit_hint(void) {
     return s_quit_hint;
 }
 
+enum mesh_ui_key mesh_ui_input_map_key(uint16_t code) {
+    switch (code) {
+    /* Gamepad face buttons by position. The Brick has a Nintendo layout: the button printed A
+       is on the right (BTN_EAST, 305) and B is at the bottom (BTN_SOUTH, 304), which is the
+       reverse of what the BTN_A/BTN_B aliases suggest. Confirmed from the device log. */
+    case BTN_EAST: /* 305, the Brick's A */
+    case KEY_ENTER:
+        return MESH_UI_KEY_A;
+    case BTN_SOUTH: /* 304, B */
+    case KEY_BACKSPACE:
+        return MESH_UI_KEY_B;
+    case BTN_NORTH: /* 307, X (top) */
+        return MESH_UI_KEY_X;
+    case BTN_WEST: /* 308, Y (left) */
+    case KEY_SPACE:
+        return MESH_UI_KEY_Y;
+    case BTN_TL: /* 310 */
+    case KEY_PAGEUP:
+        return MESH_UI_KEY_L1;
+    case BTN_TR: /* 311 */
+    case KEY_PAGEDOWN:
+    case KEY_TAB:
+        return MESH_UI_KEY_R1;
+    case BTN_SELECT: /* 314 */
+        return MESH_UI_KEY_SELECT;
+    case BTN_START: /* 315 */
+        return MESH_UI_KEY_START;
+    /* Keyboards, and d-pads that some drivers report as keys rather than a hat. */
+    case KEY_UP:
+    case BTN_DPAD_UP:
+        return MESH_UI_KEY_UP;
+    case KEY_DOWN:
+    case BTN_DPAD_DOWN:
+        return MESH_UI_KEY_DOWN;
+    case KEY_LEFT:
+    case BTN_DPAD_LEFT:
+        return MESH_UI_KEY_LEFT;
+    case KEY_RIGHT:
+    case BTN_DPAD_RIGHT:
+        return MESH_UI_KEY_RIGHT;
+    default:
+        return MESH_UI_KEY_NONE;
+    }
+}
+
+enum mesh_ui_key mesh_ui_input_map_hat(uint16_t code, int32_t value) {
+    /* 0 is the release back to centre; only the edge into a direction counts as a press. */
+    if (value == 0) {
+        return MESH_UI_KEY_NONE;
+    }
+    if (code == ABS_HAT0X) {
+        return value < 0 ? MESH_UI_KEY_LEFT : MESH_UI_KEY_RIGHT;
+    }
+    if (code == ABS_HAT0Y) {
+        return value < 0 ? MESH_UI_KEY_UP : MESH_UI_KEY_DOWN;
+    }
+    return MESH_UI_KEY_NONE;
+}
+
+void mesh_ui_input_set_handler(struct mesh_ui_input *input, mesh_ui_key_handler handler,
+                               void *userdata) {
+    if (input == NULL) {
+        return;
+    }
+    input->on_key = handler;
+    input->key_userdata = userdata;
+}
+
+void mesh_ui_input_handle_event(struct mesh_ui_input *input, uint16_t type, uint16_t code,
+                                int32_t value) {
+    if (input == NULL) {
+        return;
+    }
+
+    enum mesh_ui_key key = MESH_UI_KEY_NONE;
+    if (type == EV_KEY) {
+        /* value 1 is a press, 2 is autorepeat, 0 is a release. Repeat is honoured for the
+           navigation keys so holding the d-pad scrolls, but never for quitting. */
+        if (value == 1) {
+            if (mesh_ui_input_is_quit_key(code)) {
+                mesh_log_info("input", "Quit key %u pressed; stopping", (unsigned)code);
+                if (input->loop != NULL) {
+                    mesh_event_loop_request_stop(input->loop);
+                }
+                return;
+            }
+            /* Logged at debug so a device run reveals the real button codes in
+               MeshClient.txt, which is how MESHCLIENT_QUIT_KEYS gets tuned. */
+            mesh_log_debug("input", "key code %u pressed", (unsigned)code);
+        } else if (value != 2) {
+            return;
+        }
+        key = mesh_ui_input_map_key(code);
+    } else if (type == EV_ABS) {
+        key = mesh_ui_input_map_hat(code, value);
+    }
+
+    if (key != MESH_UI_KEY_NONE && input->on_key != NULL) {
+        input->on_key(input->key_userdata, key);
+    }
+}
+
 static int mesh_ui_input_event_callback(int fd, uint32_t events, void *userdata) {
     struct mesh_ui_input *input = (struct mesh_ui_input *)userdata;
     if (input == NULL || (events & EPOLLIN) == 0U) {
@@ -122,18 +224,8 @@ static int mesh_ui_input_event_callback(int fd, uint32_t events, void *userdata)
 
         const size_t count = (size_t)bytes / sizeof(struct input_event);
         for (size_t i = 0; i < count; ++i) {
-            /* value 1 is a press, 2 is autorepeat, 0 is a release. */
-            if (batch[i].type != EV_KEY || batch[i].value != 1) {
-                continue;
-            }
-
-            /* Logged at info so a device run reveals the real button codes in
-               MeshClient.txt, which is how MESHCLIENT_QUIT_KEYS gets tuned. */
-            mesh_log_info("input", "key code %u pressed", (unsigned)batch[i].code);
-
-            if (mesh_ui_input_is_quit_key(batch[i].code)) {
-                mesh_log_info("input", "Quit key %u pressed; stopping", (unsigned)batch[i].code);
-                mesh_event_loop_request_stop(input->loop);
+            mesh_ui_input_handle_event(input, batch[i].type, batch[i].code, batch[i].value);
+            if (input->loop != NULL && input->loop->stop_requested) {
                 return 0;
             }
         }
@@ -201,4 +293,6 @@ void mesh_ui_input_shutdown(struct mesh_ui_input *input) {
 
     input->count = 0U;
     input->loop = NULL;
+    input->on_key = NULL;
+    input->key_userdata = NULL;
 }

@@ -44,6 +44,8 @@ struct mesh_app {
     unsigned autoconnect_failures;
     bool autoconnect_disabled;
     bool autoconnect_waiting_logged;
+    /* Last published link state, so a drop can be announced once on the HUD. */
+    bool ui_link_was_connected;
 };
 
 int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config);

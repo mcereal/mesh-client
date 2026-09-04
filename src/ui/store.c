@@ -36,6 +36,7 @@ int mesh_ui_store_init(struct mesh_ui_store *store) {
     }
 
     memset(store, 0, sizeof *store);
+    mesh_ui_nav_init(&store->nav);
     store->event_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     if (store->event_fd < 0) {
         const int err = -errno;
@@ -69,8 +70,44 @@ void mesh_ui_store_reset(struct mesh_ui_store *store) {
 
     struct mesh_ui_store preserved = *store;
     memset(store, 0, sizeof *store);
+    mesh_ui_nav_init(&store->nav);
     store->event_fd = preserved.event_fd;
     store->pending_flags = preserved.pending_flags;
+}
+
+bool mesh_ui_store_handle_key(struct mesh_ui_store *store, enum mesh_ui_key key,
+                              struct mesh_ui_action *out_action) {
+    if (store == NULL) {
+        if (out_action != NULL) {
+            memset(out_action, 0, sizeof *out_action);
+        }
+        return false;
+    }
+
+    /* Lists may have changed since the last frame; a stale cursor would act on the wrong row. */
+    mesh_ui_nav_clamp(&store->nav, store);
+    const bool changed = mesh_ui_nav_handle_key(&store->nav, store, key, out_action);
+    if (changed) {
+        mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
+    }
+    return changed;
+}
+
+void mesh_ui_store_set_toast(struct mesh_ui_store *store, uint64_t now_ms, const char *text) {
+    if (store == NULL) {
+        return;
+    }
+    mesh_ui_nav_set_toast(&store->nav, now_ms, text);
+    mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
+}
+
+void mesh_ui_store_tick(struct mesh_ui_store *store, uint64_t now_ms) {
+    if (store == NULL) {
+        return;
+    }
+    if (mesh_ui_nav_tick(&store->nav, now_ms)) {
+        mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
+    }
 }
 
 int mesh_ui_store_event_fd(const struct mesh_ui_store *store) {
@@ -240,7 +277,8 @@ void mesh_ui_message_list_merge(const struct mesh_ui_message_list *cached,
 
 void mesh_ui_store_request_refresh(struct mesh_ui_store *store) {
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_DISCOVERY | MESH_UI_UPDATE_HANDSHAKE |
-                                        MESH_UI_UPDATE_TRANSPORT | MESH_UI_UPDATE_MESSAGES);
+                                        MESH_UI_UPDATE_TRANSPORT | MESH_UI_UPDATE_MESSAGES |
+                                        MESH_UI_UPDATE_NAV);
 }
 
 bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_snapshot *snapshot) {
@@ -282,6 +320,14 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
 
     memcpy(snapshot->transport_status, store->transport_status, sizeof snapshot->transport_status);
 
+    /* Data changes (a node dropping out, a message arriving) move or invalidate cursors; fix
+       them up here so every backend draws a cursor that points at a real row. */
+    if (mesh_ui_nav_clamp(&store->nav, store)) {
+        store->pending_flags |= MESH_UI_UPDATE_NAV;
+        snapshot->update_flags = store->pending_flags;
+    }
+    snapshot->nav = store->nav;
+
     store->pending_flags = MESH_UI_UPDATE_NONE;
     return true;
 }
@@ -316,6 +362,14 @@ static int mesh_ui_store_save_handshake(FILE *file,
     mesh_ui_store_escape_and_write(file, "handshake_channel", handshake->primary_channel);
     mesh_ui_store_escape_and_write(file, "handshake_my_short", handshake->my_short_name);
     fprintf(file, "handshake_cached=%u\n", handshake->cached ? 1U : 0U);
+    fprintf(file, "handshake_channels=%u\n", handshake->channel_count);
+    for (uint32_t i = 0; i < handshake->channel_count && i < MESH_UI_MAX_CHANNELS; ++i) {
+        const struct mesh_ui_channel *channel = &handshake->channels[i];
+        fprintf(file, "channel[%u]=%u,%u\n", i, (unsigned)channel->index, (unsigned)channel->role);
+        char key[32];
+        snprintf(key, sizeof key, "channel_name[%u]", i);
+        mesh_ui_store_escape_and_write(file, key, channel->name);
+    }
     fprintf(file, "handshake_nodes=%u\n", handshake->node_count);
     for (uint32_t i = 0; i < handshake->node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
         const struct mesh_ui_node_summary *node = &handshake->nodes[i];
@@ -473,6 +527,24 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
             nodes_expected_set = true;
         } else if (strcmp(key, "handshake_cached") == 0) {
             handshake.cached = (strtoul(value, NULL, 10) != 0U);
+        } else if (strcmp(key, "handshake_channels") == 0) {
+            uint32_t count = (uint32_t)strtoul(value, NULL, 10);
+            handshake.channel_count = count > MESH_UI_MAX_CHANNELS ? MESH_UI_MAX_CHANNELS : count;
+        } else if (strncmp(key, "channel[", 8) == 0) {
+            unsigned int index = 0U;
+            unsigned int slot = 0U;
+            unsigned int role = 0U;
+            if (sscanf(key, "channel[%u]", &index) == 1 && index < MESH_UI_MAX_CHANNELS &&
+                sscanf(value, "%u,%u", &slot, &role) == 2) {
+                handshake.channels[index].index = (uint8_t)slot;
+                handshake.channels[index].role = (uint8_t)role;
+            }
+        } else if (strncmp(key, "channel_name[", 13) == 0) {
+            unsigned int index = 0U;
+            if (sscanf(key, "channel_name[%u]", &index) == 1 && index < MESH_UI_MAX_CHANNELS) {
+                snprintf(handshake.channels[index].name, sizeof(handshake.channels[index].name),
+                         "%s", value);
+            }
         } else if (strncmp(key, "node[", 5) == 0) {
             unsigned int index = 0U;
             if (sscanf(key, "node[%u]", &index) == 1) {
