@@ -1169,22 +1169,6 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     }
     app->ui_link_was_connected = link_connected;
 
-    /*
-     * Say why a connect failed. Always drain, so a message auto-connect provoked cannot surface
-     * later against an unrelated attempt; only show it when the user asked for this connect,
-     * because auto-connect retries the same doomed node on every backoff.
-     */
-    char link_error[MESH_TRANSPORT_ERROR_MAX];
-    if (mesh_transport_registry_take_error(&app->transport_registry, link_error,
-                                           sizeof link_error)) {
-        if (app->ui_report_link_error && app->config.run_mode == MESH_APP_RUN_FOREGROUND) {
-            mesh_log_info("ui", "Link failure shown to the user: %s", link_error);
-            mesh_ui_store_set_toast(&app->ui_store, mesh_app_now_ms(), link_error);
-        } else {
-            mesh_log_debug("ui", "Link failure not shown (auto-connect): %s", link_error);
-        }
-        app->ui_report_link_error = false;
-    }
     if (link_connected) {
         app->ui_report_link_error = false;
     }
@@ -1434,6 +1418,20 @@ static bool mesh_app_env_disabled(const char *name) {
            strcasecmp(value, "false") == 0 || strcasecmp(value, "no") == 0;
 }
 
+/* Exponential backoff, shared by the two ways a connect can fail: the errno connect() handed
+   back, and the failure that only surfaces later from tick(). Returns the delay it scheduled. */
+static uint64_t mesh_app_backoff_autoconnect(struct mesh_app *app) {
+    if (app->autoconnect_failures < 8U) {
+        app->autoconnect_failures++;
+    }
+    uint64_t delay = (uint64_t)MESH_APP_AUTOCONNECT_RETRY_MS << (app->autoconnect_failures - 1U);
+    if (delay > MESH_APP_AUTOCONNECT_MAX_BACKOFF_MS) {
+        delay = MESH_APP_AUTOCONNECT_MAX_BACKOFF_MS;
+    }
+    app->autoconnect_retry_at_ms = mesh_app_now_ms() + delay;
+    return delay;
+}
+
 void mesh_app_autoconnect(struct mesh_app *app) {
     if (app == NULL || app->autoconnect_disabled ||
         app->config.run_mode != MESH_APP_RUN_FOREGROUND) {
@@ -1441,7 +1439,13 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     }
 
     struct mesh_transport *ble = mesh_ble_transport();
-    if (ble == NULL || mesh_app_connected_identifier() != NULL || mesh_app_link_connecting()) {
+    const bool link_up = (mesh_app_connected_identifier() != NULL);
+    if (link_up) {
+        /* An established link is the only proof an attempt worked, so it is the only thing that
+           clears the backoff. */
+        app->autoconnect_failures = 0U;
+    }
+    if (ble == NULL || link_up || mesh_app_link_connecting()) {
         return;
     }
 
@@ -1481,7 +1485,8 @@ void mesh_app_autoconnect(struct mesh_app *app) {
             if (serial_result == 0) {
                 mesh_log_info("app", "Auto-connecting to %s over USB (%s)", port->name, identifier);
             }
-            app->autoconnect_failures = 0U;
+            /* Not a success yet: the handshake still has to go out. The counter stays where it
+               is until a link is actually up. */
             app->autoconnect_retry_at_ms = now + MESH_APP_AUTOCONNECT_RETRY_MS;
             return;
         }
@@ -1535,7 +1540,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
         if (result == 0) {
             mesh_log_info("app", "Auto-connecting to %s (%s)", target->name, target->address);
         }
-        app->autoconnect_failures = 0U;
+        /* Not a success yet: BLE only resolves its services a few seconds from now. */
         app->autoconnect_retry_at_ms = now + MESH_APP_AUTOCONNECT_RETRY_MS;
         return;
     }
@@ -1544,16 +1549,40 @@ void mesh_app_autoconnect(struct mesh_app *app) {
         return;
     }
 
-    if (app->autoconnect_failures < 8U) {
-        app->autoconnect_failures++;
-    }
-    uint64_t delay = (uint64_t)MESH_APP_AUTOCONNECT_RETRY_MS << (app->autoconnect_failures - 1U);
-    if (delay > MESH_APP_AUTOCONNECT_MAX_BACKOFF_MS) {
-        delay = MESH_APP_AUTOCONNECT_MAX_BACKOFF_MS;
-    }
-    app->autoconnect_retry_at_ms = now + delay;
+    const uint64_t delay = mesh_app_backoff_autoconnect(app);
     mesh_log_warn("app", "Auto-connect to %s failed (%d); retrying in %llu ms", target->address,
                   result, (unsigned long long)delay);
+}
+
+bool mesh_app_report_link_errors(struct mesh_app *app) {
+    if (app == NULL) {
+        return false;
+    }
+
+    char link_error[MESH_TRANSPORT_ERROR_MAX];
+    if (!mesh_transport_registry_take_error(&app->transport_registry, link_error,
+                                            sizeof link_error)) {
+        return false;
+    }
+
+    if (app->ui_report_link_error && app->config.run_mode == MESH_APP_RUN_FOREGROUND) {
+        mesh_log_info("ui", "Link failure shown to the user: %s", link_error);
+        mesh_ui_store_set_toast(&app->ui_store, mesh_app_now_ms(), link_error);
+    } else {
+        mesh_log_debug("ui", "Link failure not shown (auto-connect): %s", link_error);
+    }
+    app->ui_report_link_error = false;
+
+    /*
+     * This is also the only honest failure signal auto-connect has. Its backoff keys off what
+     * connect() returned, and a BLE connect returns 0 several seconds before it is a
+     * connection - so a node that refuses every attempt looked like an unbroken run of
+     * successes and got hammered every couple of seconds forever.
+     */
+    if (mesh_app_connected_identifier() == NULL) {
+        (void)mesh_app_backoff_autoconnect(app);
+    }
+    return true;
 }
 
 int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
@@ -1764,6 +1793,9 @@ int mesh_app_run(struct mesh_app *app) {
         mesh_event_loop_run(&app->loop, 0);
         while (true) {
             mesh_transport_registry_tick(&app->transport_registry);
+            /* Before auto-connect, not after: a retry starts the link over and clears the
+               reason the last attempt failed. */
+            (void)mesh_app_report_link_errors(app);
             mesh_app_autoconnect(app);
             mesh_app_publish_ui_state(app);
             result = mesh_event_loop_run(&app->loop, app->config.idle_timeout_ms);

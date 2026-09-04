@@ -86,6 +86,11 @@ void mesh_app_publish_ui_state(struct mesh_app *app);
    while connected or connecting. mesh_app_run() calls it every loop turn; exposed for tests
    and for MESHCLIENT_AUTOCONNECT=0 to be honoured in one place. */
 void mesh_app_autoconnect(struct mesh_app *app);
+/* Pops a link failure from the transports, shows it when the user asked for the connect, and
+   backs auto-connect off. Call once per loop turn, before mesh_app_autoconnect(): a retry
+   restarts the link and clears the reason the last attempt failed. Returns true if one was
+   drained. */
+bool mesh_app_report_link_errors(struct mesh_app *app);
 
 /* Builds the admin write for a MESH_UI_ACTION_SAVE_SETTINGS: the radio's own copy of the
    section with the action's edits applied, since the firmware replaces sections whole.

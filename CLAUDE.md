@@ -61,7 +61,8 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
 - `src/core/event_loop.c` — epoll loop with a fixed table of 32 fd sources. Everything (D-Bus
   watches, timerfd discovery refresh, UI store eventfd, minui-list child stdout) registers here.
   No threads anywhere; do not add them.
-- `src/transport/transport_registry.c` — `struct mesh_transport_ops {start, stop, status, tick}`.
+- `src/transport/transport_registry.c` — `struct mesh_transport_ops {start, stop, status, tick}`
+  plus the optional `set_session` and `take_error`.
   BLE and serial are registered today; HTTP is planned to plug in here. Both links own a
   `struct mesh_session`, so everything past the connect is shared.
 - `src/transport/ble/bluez_client.c` — raw libdbus wrapper for `org.bluez` (adapter discovery,
@@ -145,7 +146,12 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   (`~/.meshclient/ui_prefs`, `ui_prefs.handshake`), and picks the UI backend.
   `mesh_app_autoconnect()` runs every foreground turn: preferred node if in range, else the
   strongest advertiser after 30 s, exponential backoff on failure; `MESHCLIENT_AUTOCONNECT=0`
-  turns it off. The `--status`/`--list-devices` paths in `main.c` do their own connect.
+  turns it off. A BLE connect returns 0 several seconds before it is a connection, so neither
+  the backoff nor the UI can key off that return value: `mesh_app_report_link_errors()` runs
+  between `tick()` and `mesh_app_autoconnect()` (a retry restarts the link and clears the
+  reason the last attempt failed), pops a transport's `take_error()` line, toasts it when the
+  user asked for the connect, and counts the attempt against the backoff. Only an established
+  link clears the backoff. The `--status`/`--list-devices` paths in `main.c` do their own connect.
 - `src/ui/settings.c` — the Settings tab as data: sections → items (label, formatted value,
   kind, and for editable rows a `field` id). Backends draw the list; `nav.c` walks it
   (`settings_section` open or `MESH_UI_SETTINGS_NO_SECTION`, X yields
@@ -252,7 +258,7 @@ via Python3 (needs `pip install protobuf grpcio-tools`).
 One harness, `tests/test_main.c`, with a `k_test_cases` table tagged by category (`unit` today;
 `integration`/`hardware` reserved). Register new cases in that table; use
 `record_failure`/`record_success`. Tests must not touch real BlueZ — use the bluez mock. New
-CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-04: 59 unit tests, all passing in
+CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-04: 61 unit tests, all passing in
 the dev container with zero compiler warnings. `message_encode_text_golden` pins the
 `TEXT_MESSAGE_APP` wire format against a hand-derived byte vector (not against our own encoder),
 so a protobuf regeneration that changes field numbers or wire types fails loudly.

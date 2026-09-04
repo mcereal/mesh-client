@@ -953,6 +953,12 @@ static int mesh_ble_complete_connect(struct mesh_ble_transport_state *state) {
            notify. Say so instead of printing an errno. */
         if (result == -EACCES) {
             mesh_ble_set_error(state, "%s needs pairing (PIN mode)", mesh_ble_short_label(address));
+        } else if (result == -ENOTCONN) {
+            /* BlueZ answers "Not Connected" instead of "Not paired" when the node has already
+               torn the ACL down by the time StartNotify goes out - which is what an unpaired
+               node in PIN mode does after a couple of refused attempts. Same fix either way. */
+            mesh_ble_set_error(state, "%s dropped the link; pair it first",
+                               mesh_ble_short_label(address));
         } else {
             mesh_ble_set_error(state, "%s: could not subscribe (%d)", mesh_ble_short_label(address),
                                result);

@@ -6398,8 +6398,7 @@ static void test_app_connect_failure_toast(void) {
         failure = "the user should first be told the connect is in flight";
         goto cleanup;
     }
-    mesh_app_publish_ui_state(&app);
-    if (strstr(app.ui_store.nav.toast, "Connecting") == NULL) {
+    if (mesh_app_report_link_errors(&app)) {
         failure = "no failure should be reported while the connect is still pending";
         goto cleanup;
     }
@@ -6412,34 +6411,55 @@ static void test_app_connect_failure_toast(void) {
         goto cleanup;
     }
 
-    mesh_app_publish_ui_state(&app);
+    if (!mesh_app_report_link_errors(&app)) {
+        failure = "the pairing failure should have been drained";
+        goto cleanup;
+    }
     if (strstr(app.ui_store.nav.toast, "pairing") == NULL ||
         strstr(app.ui_store.nav.toast, "EE:07") == NULL) {
         failure = "the pairing failure should have reached the screen";
         goto cleanup;
     }
 
-    /* One report per attempt: the same failure must not keep re-toasting every publish. */
+    /* One report per attempt: the same failure must not keep re-toasting every turn. */
     mesh_ui_store_set_toast(&app.ui_store, test_now_ms(), "quiet");
-    mesh_app_publish_ui_state(&app);
-    if (strcmp(app.ui_store.nav.toast, "quiet") != 0) {
-        failure = "the failure should be reported once, not on every publish";
+    if (mesh_app_report_link_errors(&app)) {
+        failure = "the failure should be reported once, not on every turn";
         goto cleanup;
     }
+
+    /*
+     * A connect that returned 0 and failed later is still a failure. Nothing else tells
+     * auto-connect that, so without it the backoff never grows and a node that refuses every
+     * time is retried every couple of seconds forever.
+     */
+    if (app.autoconnect_failures == 0U) {
+        failure = "the late failure should have counted against auto-connect";
+        goto cleanup;
+    }
+    const unsigned failures_before = app.autoconnect_failures;
+    const uint64_t retry_before = app.autoconnect_retry_at_ms;
 
     /* Auto-connect retries the same doomed node on every backoff, so its failures stay in the
        log; only a connect the user asked for is worth interrupting them for. */
     app.autoconnect_retry_at_ms = 0U;
-    app.autoconnect_failures = 0U;
     snprintf(app.config.preferred_ble_device, sizeof app.config.preferred_ble_device, "%s",
              "AA:BB:CC:DD:EE:07");
     mesh_app_autoconnect(&app);
     mesh_transport_registry_tick(&app.transport_registry);
-    mesh_app_publish_ui_state(&app);
+    if (!mesh_app_report_link_errors(&app)) {
+        failure = "the auto-connect failure should still have been drained";
+        goto cleanup;
+    }
     if (strcmp(app.ui_store.nav.toast, "quiet") != 0) {
         failure = "an auto-connect failure should not raise a toast";
         goto cleanup;
     }
+    if (app.autoconnect_failures <= failures_before) {
+        failure = "each failed attempt should push the backoff out further";
+        goto cleanup;
+    }
+    (void)retry_before;
 
 cleanup:
     if (app_ready) {
