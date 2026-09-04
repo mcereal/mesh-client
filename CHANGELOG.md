@@ -1,3 +1,13 @@
+## [1.13.0](https://github.com/mcereal/mesh-client/compare/v1.12.0...v1.13.0) (2026-09-04)
+
+### Features
+
+* **update:** show the client version and let it update itself ([487613b](https://github.com/mcereal/mesh-client/commit/487613bdcf80a9dd3d82744e1a53531ca7ac8cda))
+
+### Bug Fixes
+
+* **update:** keep prereleases building and stop dev builds self-updating ([6958fed](https://github.com/mcereal/mesh-client/commit/6958fed87f2059a25a64bb8db2e12060774c7d5b)), closes [#39](https://github.com/mcereal/mesh-client/issues/39)
+
 ## [1.12.0](https://github.com/mcereal/mesh-client/compare/v1.11.0...v1.12.0) (2026-09-04)
 
 ### Features
