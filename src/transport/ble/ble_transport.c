@@ -37,6 +37,10 @@
 /* Device-list refresh from tick() is rate limited; the 5 s timerfd is the steady-state refresher.
  */
 #define MESH_BLE_TICK_REFRESH_MIN_MS 1000U
+/* BlueZ's Connect returns as soon as the link is up; the GATT characteristics only appear once
+   service discovery finishes, which can take several seconds when nothing is cached. */
+#define MESH_BLE_SERVICES_POLL_MS 250U
+#define MESH_BLE_SERVICES_TIMEOUT_MS 20000U
 
 enum mesh_ble_state {
     MESH_BLE_STATE_DISABLED = 0,
@@ -74,6 +78,9 @@ struct mesh_ble_transport_state {
     char connected_address[32];
     char connected_device_path[128];
     bool notifications_enabled;
+    uint64_t connect_started_ms;    /* Device1.Connect returned; link_state is CONNECTING */
+    uint64_t next_services_poll_ms; /* earliest next ServicesResolved poll */
+    bool services_wait_logged;
     bool drain_pending;         /* more FromRadio packets may be waiting */
     uint64_t drain_retry_at_ms; /* earliest time to run the pending drain (0 = now) */
     unsigned drain_failures;    /* consecutive ReadValue failures */
@@ -123,6 +130,8 @@ static void mesh_ble_drain_from_radio(struct mesh_ble_transport_state *state);
 static void mesh_ble_schedule_drain(struct mesh_ble_transport_state *state, uint64_t delay_ms);
 static void mesh_ble_reset_link(struct mesh_ble_transport_state *state, const char *reason);
 static void mesh_ble_notification_handler(const uint8_t *data, size_t len, void *userdata);
+static void mesh_ble_poll_connecting(struct mesh_ble_transport_state *state);
+static int mesh_ble_complete_connect(struct mesh_ble_transport_state *state);
 
 static uint64_t mesh_ble_now_ms(void) {
     struct timespec ts;
@@ -142,6 +151,9 @@ static void mesh_ble_tick(struct mesh_transport *transport) {
     if (state != NULL && state->client_initialised) {
         mesh_bluez_client_process(&state->bluez);
         mesh_ble_flush_write_queue(state);
+        if (state->link_state == MESH_BLE_LINK_CONNECTING) {
+            mesh_ble_poll_connecting(state);
+        }
         /* Fallback for the eventfd wake, and the path that services delayed retries. */
         if (state->drain_pending && now >= state->drain_retry_at_ms) {
             mesh_ble_drain_from_radio(state);
@@ -434,7 +446,9 @@ static void mesh_ble_stop(struct mesh_transport *transport) {
     mesh_ble_teardown_drain_wake(state);
 
     if (state->client_initialised) {
-        if (state->link_state == MESH_BLE_LINK_CONNECTED) {
+        /* A CONNECTING link is up at the controller even though setup never finished. */
+        if (state->link_state != MESH_BLE_LINK_DISCONNECTED &&
+            state->connected_device_path[0] != '\0') {
             mesh_bluez_client_disconnect(&state->bluez, state->connected_device_path);
         }
         mesh_bluez_client_set_notification_handler(&state->bluez, NULL, NULL);
@@ -898,6 +912,9 @@ int mesh_ble_transport_connect(struct mesh_transport *transport, const char *add
         strcmp(state->connected_address, address) == 0) {
         return -EALREADY;
     }
+    if (state->link_state == MESH_BLE_LINK_CONNECTING) {
+        return strcmp(state->connected_address, address) == 0 ? -EINPROGRESS : -EBUSY;
+    }
 
     const struct mesh_bluez_device_info *devices = state->devices;
     bool found = false;
@@ -923,13 +940,71 @@ int mesh_ble_transport_connect(struct mesh_transport *transport, const char *add
         return result;
     }
 
+    snprintf(state->connected_address, sizeof(state->connected_address), "%s", address);
+    snprintf(state->connected_device_path, sizeof(state->connected_device_path), "%s", device_path);
+    state->connect_started_ms = mesh_ble_now_ms();
+    state->next_services_poll_ms = 0U;
+    state->services_wait_logged = false;
+
+    /* Finishes right here when BlueZ already holds the GATT database (a bonded node it has seen
+       before); otherwise tick() completes the connect once ServicesResolved flips. */
+    mesh_ble_poll_connecting(state);
+    return 0;
+}
+
+/* Runs while link_state is CONNECTING: completes the connect once BlueZ reports
+   ServicesResolved, and drops the link if discovery errors out or overruns the timeout. */
+static void mesh_ble_poll_connecting(struct mesh_ble_transport_state *state) {
+    if (state == NULL || state->link_state != MESH_BLE_LINK_CONNECTING) {
+        return;
+    }
+
+    uint64_t now = mesh_ble_now_ms();
+    if (now < state->next_services_poll_ms) {
+        return;
+    }
+    state->next_services_poll_ms = now + MESH_BLE_SERVICES_POLL_MS;
+
+    bool resolved = false;
+    int result =
+        mesh_bluez_client_services_resolved(&state->bluez, state->connected_device_path, &resolved);
+    if (result < 0) {
+        mesh_log_warn("ble", "ServicesResolved query failed for %s (%d)", state->connected_address,
+                      result);
+        mesh_ble_reset_link(state, "service discovery failed");
+        return;
+    }
+
+    if (!resolved) {
+        if (now - state->connect_started_ms >= MESH_BLE_SERVICES_TIMEOUT_MS) {
+            mesh_log_warn("ble", "%s: GATT services still unresolved after %u ms",
+                          state->connected_address, MESH_BLE_SERVICES_TIMEOUT_MS);
+            mesh_ble_reset_link(state, "service discovery timed out");
+            return;
+        }
+        if (!state->services_wait_logged) {
+            mesh_log_info("ble", "Link to %s is up; waiting for GATT service discovery",
+                          state->connected_address);
+            state->services_wait_logged = true;
+        }
+        return;
+    }
+
+    if (mesh_ble_complete_connect(state) < 0) {
+        mesh_ble_reset_link(state, "characteristic setup failed");
+    }
+}
+
+static int mesh_ble_complete_connect(struct mesh_ble_transport_state *state) {
+    const char *address = state->connected_address;
+    const char *device_path = state->connected_device_path;
+
     struct mesh_bluez_meshtastic_chars chars;
-    result = mesh_bluez_client_find_meshtastic_characteristics(&state->bluez, device_path, &chars);
+    int result =
+        mesh_bluez_client_find_meshtastic_characteristics(&state->bluez, device_path, &chars);
     if (result < 0) {
         mesh_log_warn("ble", "%s does not expose the Meshtastic service characteristics (%d)",
                       address, result);
-        mesh_bluez_client_disconnect(&state->bluez, device_path);
-        state->link_state = MESH_BLE_LINK_DISCONNECTED;
         return result;
     }
     mesh_log_debug("ble", "ToRadio %s", chars.toradio_path);
@@ -939,15 +1014,11 @@ int mesh_ble_transport_connect(struct mesh_transport *transport, const char *add
     result = mesh_bluez_client_subscribe(&state->bluez, chars.fromnum_path, MESH_BLE_FROMNUM_UUID);
     if (result < 0) {
         mesh_log_warn("ble", "FromNum StartNotify failed (%d); is the node paired?", result);
-        mesh_bluez_client_disconnect(&state->bluez, device_path);
-        state->link_state = MESH_BLE_LINK_DISCONNECTED;
         return result;
     }
 
     state->link_state = MESH_BLE_LINK_CONNECTED;
     state->notifications_enabled = true;
-    snprintf(state->connected_address, sizeof(state->connected_address), "%s", address);
-    snprintf(state->connected_device_path, sizeof(state->connected_device_path), "%s", device_path);
     state->chars = chars;
     state->drain_pending = false;
     state->drain_retry_at_ms = 0U;
@@ -1019,6 +1090,15 @@ struct mesh_ble_transport_stats mesh_ble_transport_stats(struct mesh_transport *
     stats.frames_received = state->frames_received;
     stats.bytes_received = state->bytes_received;
     return stats;
+}
+
+bool mesh_ble_transport_is_connecting(struct mesh_transport *transport) {
+    if (transport == NULL || transport->state == NULL) {
+        return false;
+    }
+    const struct mesh_ble_transport_state *state =
+        (const struct mesh_ble_transport_state *)transport->state;
+    return state->link_state == MESH_BLE_LINK_CONNECTING;
 }
 
 const char *mesh_ble_transport_connected_address(struct mesh_transport *transport) {

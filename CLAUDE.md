@@ -72,6 +72,9 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
   node-summary cache decoded from `FromRadio`. BLE is **not** Nordic UART and has no length
   framing: one bare protobuf per GATT write/read. `src/proto/framing.c` is for serial/TCP only.
   Nodes in PIN mode must be paired with BlueZ out of band (`bluetoothctl pair`) before connect.
+  `mesh_ble_transport_connect` returns 0 with the link in `connecting` until BlueZ reports
+  `ServicesResolved` (polled from `tick()`, 20 s cap); a bonded node BlueZ has seen before
+  usually resolves inside the call. `connected_address()` is NULL until then.
 - `src/core/message.c` — transport-agnostic messaging: builds `TEXT_MESSAGE_APP` packets into a
   `ToRadio`, folds inbound `MeshPacket`s into a fixed ring (`mesh_message_log`), and correlates
   `ROUTING_APP` replies with the outbound message they ack. Message text is untrusted radio
@@ -79,6 +82,9 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
 - `src/core/app.c` — `mesh_app_publish_ui_state()` copies BLE discovery/handshake state into the
   UI store every loop iteration, persists the handshake cache and preferences under `$HOME`
   (`~/.meshclient/ui_prefs`, `ui_prefs.handshake`), and picks the UI backend.
+  `mesh_app_autoconnect()` runs every foreground turn: preferred node if in range, else the
+  strongest advertiser after 30 s, exponential backoff on failure; `MESHCLIENT_AUTOCONNECT=0`
+  turns it off. The `--status`/`--list-devices` paths in `main.c` do their own connect.
 - `src/ui/store.c` + `controller.c` — store owns `mesh_ui_snapshot` and signals via eventfd;
   controller drains it and calls `backend->present(snapshot)`. Backends implement the three-function
   `struct mesh_ui_backend` in `include/mesh/ui/backend.h` and live in `src/ui/backends/`.

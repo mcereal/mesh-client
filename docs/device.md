@@ -36,7 +36,11 @@ make deploy           # push only, if dist/ is already current
 make deploy-logs      # tail /.userdata/tg5040/logs/MeshClient.txt while you launch from the Tools menu
 ```
 
-Launch the pak from **Tools > MeshClient** on the device for anything involving the screen. The
+Launch the pak from **Tools > MeshClient** on the device for anything involving the screen. It
+scans, connects on its own (the last node it talked to, or the strongest one in range if there is
+no saved preference), runs the config handshake and shows the result on the HUD. **MENU** or
+**POWER** quits back to NextUI; both are in the default quit-key set (the Brick's gamepad reports
+MENU as `BTN_MODE` 316 and the power key as `KEY_POWER` 116). The
 framebuffer backend and the NextUI launcher share `/dev/fb0`, so a run started over SSH while the
 launcher is on screen may get painted over. For headless checks SSH is fine:
 
@@ -44,6 +48,9 @@ launcher is on screen may get painted over. For headless checks SSH is fine:
 make deploy-run ARGS="--list-devices"
 make deploy-run ARGS="--status --json"
 ```
+
+To watch a launch from the Mac, run `make deploy-logs` first, then start the pak from the Tools
+menu; the log shows discovery, `Auto-connecting to ...`, the handshake, and every button press.
 
 `make deploy-shell` drops you into a shell on the device. The pak lives at
 `/mnt/SDCARD/Tools/tg5040/MeshClient.pak`, its `$HOME` (prefs, handshake cache) at
@@ -87,6 +94,10 @@ for MeshClient:
   If the log says `No readable /dev/input devices`, nothing can quit the client from the
   device and a power cycle is the only way out - report that, it means the pak is not seeing
   the Brick's input nodes at all.
+- **`make deploy-run` output never reaches `MeshClient.txt`:** the pak's `launch.sh` predates
+  the absolute `PAK_DIR` fix and wrote to `logs/.txt` with `$HOME` at `.userdata/tg5040/`
+  when started as `./launch.sh`. Redeploy; move anything useful out of
+  `.userdata/tg5040/.meshclient/` into `.userdata/tg5040/MeshClient/.meshclient/`.
 - **Transfers are slow:** the pak is small (well under 5 MB), so a push should take a few
   seconds. If it stalls, the Brick has dropped WiFi; NextUI's deep sleep turns the radio off, so
   keep the device awake while pushing.

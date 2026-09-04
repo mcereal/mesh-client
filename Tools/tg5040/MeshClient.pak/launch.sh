@@ -1,7 +1,10 @@
 #!/bin/sh
 set -eu
 
-PAK_DIR="$(dirname "$0")"
+# Absolute, so `./launch.sh` from inside the pak (what `make deploy-run` does) names the log and
+# userdata dirs the same way a NextUI launch by full path does. With a bare `.` the
+# `${PAK_NAME%.*}` strip below would leave an empty name.
+PAK_DIR="$(cd "$(dirname "$0")" && pwd)"
 PAK_NAME="$(basename "$PAK_DIR")"
 PAK_NAME="${PAK_NAME%.*}"
 PLATFORM="${PLATFORM:-tg5040}"
