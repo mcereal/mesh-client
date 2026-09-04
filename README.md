@@ -75,7 +75,11 @@ Copying the already-unpacked `dist/MeshClient.pak/` folder to `Tools/tg5040/` wo
 
 ### Pak Store
 
-`pak.json` at the repo root is the [NextUI Pak Store](https://github.com/UncleJunVIP/nextui-pak-store) listing: name, type, description, the release asset to download, and the platforms it runs on. Its `version` must match the release tag, so `scripts/release-build.sh` stamps it from the tag being released and `@semantic-release/git` commits it - do not bump it by hand. Prereleases are skipped there, so `pak.json` only ever carries the last stable tag. The same file ships inside the pak, which is how the store knows which version a device has; the in-app updater rewrites that copy when it swaps the binary, so a self-update does not leave the store offering an update you already have.
+`pak.json` at the repo root is the [NextUI Pak Store](https://github.com/LoveRetro/nextui-pak-store) listing: name, type, description, the release asset to download, and the platforms it runs on. Its `version` must match the release tag, so `scripts/release-build.sh` stamps it from the tag being released and `@semantic-release/git` commits it - do not bump it by hand. Prereleases are skipped there, so `pak.json` only ever carries the last stable tag. The same file ships inside the pak, which is how the store knows which version a device has; the in-app updater rewrites that copy when it swaps the binary, so a self-update does not leave the store offering an update you already have.
+
+### CA certificates
+
+The pak ships Mozilla's CA roots at `certs/certificates.crt`, taken from [curl.se/ca](https://curl.se/ca/cacert.pem). The Brick has no system CA store, so without it the in-app updater cannot verify github.com and every check fails. Refresh it by re-downloading that file into `Tools/tg5040/MeshClient.pak/certs/certificates.crt` and committing the result; `scripts/package.sh` copies it into the pak. It is not delivered by self-update, so a client installed before it existed needs one pak reinstall before updates work.
 
 Once the Brick is on WiFi with the SSH Server pak installed, skip the SD card: set `BRICK_HOST` in `.brick.env` (copy `.brick.env.example`) and use `make brick` (build + push), `make deploy`, `make deploy-logs`, `make deploy-run ARGS="--list-devices"`, and `make deploy-check`. See [`docs/device.md`](docs/device.md) for the one-time device setup and troubleshooting.
 

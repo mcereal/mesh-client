@@ -46,6 +46,12 @@ What it needs:
 - **WiFi**, and either `curl` or `wget` on the device. Without one the About section says so
   instead of offering the rows; NextUI ships a downloader for its own Pak Store, so this is
   normally already there.
+- **The CA bundle in the pak** (`certs/certificates.crt`). The Brick has no system CA store, so
+  curl cannot verify github.com without it and every check fails; the About screen says "No CA
+  certificates; reinstall the pak" when it is missing. It ships in the pak rather than through
+  self-update, so a client installed before this existed needs one pak reinstall (from the Pak
+  Store, or `make brick`) before updates start working. Set `SSL_CERT_FILE` or `CURL_CA_BUNDLE`
+  to override it.
 - A **release build**. Anything you build yourself reports `<version>-dev` (e.g. `1.12.0-dev`)
   and is never offered an update, which is what stops a `make brick` deploy from being replaced
   by whatever is on GitHub. Only the release workflow stamps a build as a release.

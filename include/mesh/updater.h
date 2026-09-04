@@ -72,6 +72,10 @@ struct mesh_updater {
     char staged_path[MESH_UPDATE_PATH_MAX + 16U];
     /* "curl" or "wget"; empty when the device has neither and updates are unavailable. */
     const char *fetcher;
+    /* CA bundle handed to the fetcher, or empty to leave it on its own defaults. The Brick has
+       no system CA store at all, so without one every HTTPS fetch fails; the pak ships a bundle
+       in certs/ and this is wherever it was found. See updater_resolve_ca_bundle(). */
+    char ca_bundle[MESH_UPDATE_PATH_MAX];
 
     struct mesh_event_loop *loop;
     /* The running child, or -1. Only ever one: the states are strictly sequential. */

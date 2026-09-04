@@ -43,6 +43,13 @@ chmod +x "${OUTPUT_DIR}/launch.sh"
 # installed on the device. scripts/release-build.sh stamps both from the release tag.
 cp pak.json "${OUTPUT_DIR}/pak.json"
 
+# The CA bundle the updater verifies GitHub against. The Brick has no system CA store at all, so
+# without this every HTTPS fetch fails with curl exit 60 and self-update cannot work; see the
+# updater section of CLAUDE.md. It ships in the pak rather than through self-update, which is why
+# a device that predates it has to reinstall the pak once to get updates working.
+mkdir -p "${OUTPUT_DIR}/certs"
+cp Tools/tg5040/MeshClient.pak/certs/certificates.crt "${OUTPUT_DIR}/certs/certificates.crt"
+
 if [[ -d Tools/tg5040/MeshClient.pak/bin/shared ]]; then
     while IFS= read -r -d '' file; do
         dest="${OUTPUT_DIR}/bin/shared/$(basename "$file")"

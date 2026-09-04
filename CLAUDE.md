@@ -206,7 +206,18 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   device's `curl` (then `wget`) and reads its stdout through the event loop, the same shape
   `minui.c` uses for `minui-list`, because the release build is static musl with libdbus as its
   only dependency. One child at a time, states strictly sequential, `tick()` enforcing the
-  timeout. What makes downloading an executable safe is not the transport but the digest: the
+  timeout. **It also has to bring its own CA bundle**: the Brick has no system CA store at all
+  - no `/etc/ssl` - so a bare `curl` fails every HTTPS request with exit 60, and busybox `wget`
+  there has no HTTPS support whatever. So the pak ships Mozilla's roots at `certs/certificates.crt`
+  (the same thing Pak Store does) and `updater_resolve_ca_bundle()` picks one: `SSL_CERT_FILE`
+  or `CURL_CA_BUNDLE` first, then our bundle via `updater_pak_file()`, then the usual distro
+  paths so a desktop build keeps using the system's. `--insecure` is **not** an alternative and
+  must not be added - the release metadata is what carries the digest every download is checked
+  against, so trusting it unauthenticated would defeat the verification rather than route around
+  a missing file. Because the bundle ships in the pak and not through self-update, a device
+  installed before it has to reinstall the pak once; curl's exit 60 is mapped to
+  "No CA certificates; reinstall the pak" so the About screen says so.
+  What makes downloading an executable safe is not the transport but the digest: the
   release metadata comes from `api.github.com` - `releases/latest` for a stable build, but
   `releases?per_page=1` for one off the beta or rc channel, because `latest` deliberately skips
   prereleases and a beta client polling it would never see the next beta (the `per_page=1` cap

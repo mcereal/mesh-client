@@ -8636,6 +8636,65 @@ static bool updater_wait_past(struct mesh_event_loop *loop, struct mesh_updater 
  * in the seams - a child reaped before its output was drained, a blocking waitpid in the
  * loop's own thread - and none of those show up when the fetch is stubbed out.
  */
+/*
+ * The CA bundle the fetcher is pointed at.
+ *
+ * Worth pinning because getting it wrong is invisible until it is on hardware: the Brick has no
+ * system CA store, so a build that resolves nothing here fails every check with curl exit 60 and
+ * self-update simply never works. The environment override is the one branch a test can drive
+ * deterministically - the pak lookup needs the binary to live in a pak, and the system paths
+ * differ per distro - and it is also the branch that documents the precedence.
+ */
+static void test_updater_ca_bundle(void) {
+    const char *test_name = "updater_ca_bundle";
+    char bundle_path[] = "/tmp/meshclient_ca_XXXXXX";
+    const int fd = mkstemp(bundle_path);
+    if (fd < 0) {
+        record_failure(test_name, "could not create a stand-in CA bundle");
+        return;
+    }
+    (void)!write(fd, "# not a real bundle\n", 20U);
+    close(fd);
+
+    struct mesh_event_loop loop;
+    if (mesh_event_loop_init(&loop) != 0) {
+        unlink(bundle_path);
+        record_failure(test_name, "event loop init failed");
+        return;
+    }
+
+    /* SSL_CERT_FILE wins over everything: whatever the host has in /etc/ssl, an operator who
+       names a bundle gets that bundle. */
+    setenv("SSL_CERT_FILE", bundle_path, 1);
+    struct mesh_updater updater;
+    mesh_updater_init(&updater, &loop);
+    const bool honoured = strcmp(updater.ca_bundle, bundle_path) == 0;
+    mesh_updater_shutdown(&updater);
+    unsetenv("SSL_CERT_FILE");
+    if (!honoured) {
+        mesh_event_loop_shutdown(&loop);
+        unlink(bundle_path);
+        record_failure(test_name, "SSL_CERT_FILE should be the bundle the fetcher is given");
+        return;
+    }
+
+    /* A path that does not exist is ignored rather than passed to curl, which would turn a
+       stale environment variable into a failed update with a confusing message. */
+    setenv("CURL_CA_BUNDLE", "/nonexistent/meshclient/ca.crt", 1);
+    mesh_updater_init(&updater, &loop);
+    const bool ignored = strcmp(updater.ca_bundle, "/nonexistent/meshclient/ca.crt") != 0;
+    mesh_updater_shutdown(&updater);
+    unsetenv("CURL_CA_BUNDLE");
+    mesh_event_loop_shutdown(&loop);
+    unlink(bundle_path);
+    if (!ignored) {
+        record_failure(test_name, "an unreadable CA bundle should not be used");
+        return;
+    }
+
+    record_success(test_name);
+}
+
 static void test_updater_fetch_and_install(void) {
     const char *test_name = "updater_fetch_and_install";
     char dir[] = "/tmp/meshclient_update_XXXXXX";
@@ -9064,6 +9123,7 @@ static const struct test_case k_test_cases[] = {
     {"updater_parse_release", "unit", test_updater_parse_release},
     {"updater_lifecycle", "unit", test_updater_lifecycle},
     {"updater_fetch_and_install", "unit", test_updater_fetch_and_install},
+    {"updater_ca_bundle", "unit", test_updater_ca_bundle},
     {"updater_child_outlives_stdout", "unit", test_updater_child_outlives_stdout},
     {"version_build_stamp", "unit", test_version_build_stamp},
     {"ui_settings_about", "unit", test_ui_settings_about},

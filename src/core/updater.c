@@ -541,6 +541,111 @@ static int updater_on_child_output(int fd, uint32_t events, void *userdata) {
     return 0;
 }
 
+/* ---- the pak around us ------------------------------------------------------------------ */
+
+/*
+ * Find a file that sits at the root of the pak we were installed into.
+ *
+ * The binary lives at <pak>/bin/shared/meshclient, so the root is three directories up; a build
+ * running from anywhere else simply finds nothing, which is what every caller here wants. Used
+ * for both the CA bundle we ship and the pak.json the store reads.
+ */
+static bool updater_pak_file(const char *install_path, const char *relative, char *out,
+                             size_t out_len) {
+    if (install_path == NULL || install_path[0] == '\0') {
+        return false;
+    }
+    char path[MESH_UPDATE_PATH_MAX + 16U];
+    if ((size_t)snprintf(path, sizeof path, "%s", install_path) >= sizeof path) {
+        return false;
+    }
+    /* <pak>/bin/shared/meshclient: the binary's own directory, then bin/, then the pak root. */
+    for (int level = 0; level < 3; ++level) {
+        char *slash = strrchr(path, '/');
+        if (slash == NULL || slash == path) {
+            return false;
+        }
+        *slash = '\0';
+        char candidate[sizeof path + 64U];
+        if ((size_t)snprintf(candidate, sizeof candidate, "%s/%s", path, relative) >=
+            sizeof candidate) {
+            continue;
+        }
+        if (access(candidate, R_OK) == 0) {
+            return (size_t)snprintf(out, out_len, "%s", candidate) < out_len;
+        }
+    }
+    return false;
+}
+
+/*
+ * Pick the CA bundle the fetcher will verify github.com against.
+ *
+ * The Brick has no system CA store - no /etc/ssl at all - so curl rejects every HTTPS request
+ * with exit 60 and the updater could never do anything on the one device it ships for.
+ * `--insecure` is not the way out: the release metadata is what carries the digest the download
+ * is checked against, so trusting it over an unauthenticated channel would defeat the
+ * verification rather than work around a missing file. The pak therefore ships its own bundle
+ * in certs/, and this finds it.
+ *
+ * Order: an explicit environment override first (curl honours SSL_CERT_FILE and CURL_CA_BUNDLE
+ * itself, so this only records what is already in effect), then our own bundle, then the usual
+ * system locations so a desktop build keeps using the distribution's certificates. Finding
+ * nothing is not fatal - curl may have a built-in default - but it lets updater_fetch_failed()
+ * say something more useful than "exit 60" when it turns out there was none.
+ */
+static void updater_resolve_ca_bundle(struct mesh_updater *updater) {
+    updater->ca_bundle[0] = '\0';
+
+    static const char *const k_env[] = {"SSL_CERT_FILE", "CURL_CA_BUNDLE"};
+    for (size_t i = 0; i < sizeof k_env / sizeof k_env[0]; ++i) {
+        const char *const value = getenv(k_env[i]);
+        if (value != NULL && value[0] != '\0' && access(value, R_OK) == 0) {
+            snprintf(updater->ca_bundle, sizeof updater->ca_bundle, "%s", value);
+            return;
+        }
+    }
+
+    if (updater_pak_file(updater->install_path, "certs/certificates.crt", updater->ca_bundle,
+                         sizeof updater->ca_bundle)) {
+        return;
+    }
+
+    static const char *const k_system[] = {
+        "/etc/ssl/certs/ca-certificates.crt", /* Debian, Ubuntu, Alpine, Arch */
+        "/etc/pki/tls/certs/ca-bundle.crt",   /* Fedora, RHEL */
+        "/etc/ssl/cert.pem",                  /* BSD, and Alpine's compatibility link */
+        "/etc/ssl/certs/ca-bundle.crt",
+    };
+    for (size_t i = 0; i < sizeof k_system / sizeof k_system[0]; ++i) {
+        if (access(k_system[i], R_OK) == 0) {
+            snprintf(updater->ca_bundle, sizeof updater->ca_bundle, "%s", k_system[i]);
+            return;
+        }
+    }
+}
+
+/*
+ * The one line the About screen shows when a fetcher exits non-zero.
+ *
+ * curl's 60 is specifically "peer certificate cannot be authenticated", which on a device with
+ * no CA store is the only thing that will ever happen and which "exit 60" tells nobody how to
+ * fix. The bundle ships in the pak and not through self-update, so the answer really is to
+ * reinstall the pak.
+ */
+static void updater_fetch_failed(struct mesh_updater *updater, int exit_status, const char *what) {
+    char message[MESH_UPDATE_MESSAGE_MAX];
+    if (updater->fetcher != NULL && strcmp(updater->fetcher, "curl") == 0 && exit_status == 60) {
+        snprintf(message, sizeof message, "%s",
+                 updater->ca_bundle[0] != '\0' ? "Could not verify GitHub's certificate"
+                                               : "No CA certificates; reinstall the pak");
+    } else {
+        snprintf(message, sizeof message, "%s failed (%s exit %d)", what,
+                 updater->fetcher != NULL ? updater->fetcher : "fetcher", exit_status);
+    }
+    updater_set(updater, MESH_UPDATE_FAILED, message);
+}
+
 /* ---- steps ------------------------------------------------------------------------------ */
 
 int mesh_updater_init(struct mesh_updater *updater, struct mesh_event_loop *loop) {
@@ -573,15 +678,19 @@ int mesh_updater_init(struct mesh_updater *updater, struct mesh_event_loop *loop
         updater->install_path[0] = '\0';
     }
 
+    /* Needs install_path, so it has to come after the readlink above. */
+    updater_resolve_ca_bundle(updater);
+
     if (updater->fetcher == NULL) {
         snprintf(updater->message, sizeof updater->message, "%s", "No curl or wget on this device");
     } else if (!mesh_version_is_release()) {
         snprintf(updater->message, sizeof updater->message, "%s", "Development build");
     }
-    mesh_log_info("update", "Updater ready: fetcher=%s binary=%s version=%s",
+    mesh_log_info("update", "Updater ready: fetcher=%s binary=%s version=%s cacert=%s",
                   updater->fetcher != NULL ? updater->fetcher : "none",
                   updater->install_path[0] != '\0' ? updater->install_path : "unknown",
-                  mesh_version_string());
+                  mesh_version_string(),
+                  updater->ca_bundle[0] != '\0' ? updater->ca_bundle : "(fetcher default)");
     return 0;
 }
 
@@ -639,20 +748,42 @@ int mesh_updater_check(struct mesh_updater *updater, uint64_t now_ms) {
     if (strcmp(updater->fetcher, "curl") == 0) {
         char agent_header[80];
         snprintf(agent_header, sizeof agent_header, "User-Agent: %s", agent);
-        char *const argv[] = {
-            (char *)"curl", (char *)"-fsSL", (char *)"--max-time",
-            (char *)"25",   (char *)"-H",    (char *)"Accept: application/vnd.github+json",
-            (char *)"-H",   agent_header,    url,
-            NULL,
-        };
+        char *argv[16];
+        size_t argc = 0U;
+        argv[argc++] = (char *)"curl";
+        argv[argc++] = (char *)"-fsSL";
+        argv[argc++] = (char *)"--max-time";
+        argv[argc++] = (char *)"25";
+        if (updater->ca_bundle[0] != '\0') {
+            argv[argc++] = (char *)"--cacert";
+            argv[argc++] = updater->ca_bundle;
+        }
+        argv[argc++] = (char *)"-H";
+        argv[argc++] = (char *)"Accept: application/vnd.github+json";
+        argv[argc++] = (char *)"-H";
+        argv[argc++] = agent_header;
+        argv[argc++] = url;
+        argv[argc] = NULL;
         result = updater_spawn(updater, argv, now_ms, MESH_UPDATE_CHECK_TIMEOUT_MS);
     } else {
         char agent_option[80];
         snprintf(agent_option, sizeof agent_option, "--user-agent=%s", agent);
-        char *const argv[] = {
-            (char *)"wget", (char *)"-q", (char *)"-T", (char *)"25", agent_option,
-            (char *)"-O",   (char *)"-",  url,          NULL,
-        };
+        char ca_option[MESH_UPDATE_PATH_MAX + 24U];
+        snprintf(ca_option, sizeof ca_option, "--ca-certificate=%s", updater->ca_bundle);
+        char *argv[12];
+        size_t argc = 0U;
+        argv[argc++] = (char *)"wget";
+        argv[argc++] = (char *)"-q";
+        argv[argc++] = (char *)"-T";
+        argv[argc++] = (char *)"25";
+        if (updater->ca_bundle[0] != '\0') {
+            argv[argc++] = ca_option;
+        }
+        argv[argc++] = agent_option;
+        argv[argc++] = (char *)"-O";
+        argv[argc++] = (char *)"-";
+        argv[argc++] = url;
+        argv[argc] = NULL;
         result = updater_spawn(updater, argv, now_ms, MESH_UPDATE_CHECK_TIMEOUT_MS);
     }
     if (result != 0) {
@@ -665,10 +796,7 @@ int mesh_updater_check(struct mesh_updater *updater, uint64_t now_ms) {
 
 static void updater_finish_check(struct mesh_updater *updater, int exit_status) {
     if (exit_status != 0) {
-        char message[MESH_UPDATE_MESSAGE_MAX];
-        snprintf(message, sizeof message, "Check failed (%s exit %d)", updater->fetcher,
-                 exit_status);
-        updater_set(updater, MESH_UPDATE_FAILED, message);
+        updater_fetch_failed(updater, exit_status, "Check");
         return;
     }
     if (updater->response == NULL) {
@@ -739,16 +867,37 @@ int mesh_updater_install(struct mesh_updater *updater, uint64_t now_ms) {
 
     int result;
     if (strcmp(updater->fetcher, "curl") == 0) {
-        char *const argv[] = {
-            (char *)"curl", (char *)"-fsSL",      (char *)"--max-time", (char *)"280",
-            (char *)"-o",   updater->staged_path, updater->asset_url,   NULL,
-        };
+        char *argv[12];
+        size_t argc = 0U;
+        argv[argc++] = (char *)"curl";
+        argv[argc++] = (char *)"-fsSL";
+        argv[argc++] = (char *)"--max-time";
+        argv[argc++] = (char *)"280";
+        if (updater->ca_bundle[0] != '\0') {
+            argv[argc++] = (char *)"--cacert";
+            argv[argc++] = updater->ca_bundle;
+        }
+        argv[argc++] = (char *)"-o";
+        argv[argc++] = updater->staged_path;
+        argv[argc++] = updater->asset_url;
+        argv[argc] = NULL;
         result = updater_spawn(updater, argv, now_ms, MESH_UPDATE_DOWNLOAD_TIMEOUT_MS);
     } else {
-        char *const argv[] = {
-            (char *)"wget", (char *)"-q",         (char *)"-T",       (char *)"280",
-            (char *)"-O",   updater->staged_path, updater->asset_url, NULL,
-        };
+        char ca_option[MESH_UPDATE_PATH_MAX + 24U];
+        snprintf(ca_option, sizeof ca_option, "--ca-certificate=%s", updater->ca_bundle);
+        char *argv[12];
+        size_t argc = 0U;
+        argv[argc++] = (char *)"wget";
+        argv[argc++] = (char *)"-q";
+        argv[argc++] = (char *)"-T";
+        argv[argc++] = (char *)"280";
+        if (updater->ca_bundle[0] != '\0') {
+            argv[argc++] = ca_option;
+        }
+        argv[argc++] = (char *)"-O";
+        argv[argc++] = updater->staged_path;
+        argv[argc++] = updater->asset_url;
+        argv[argc] = NULL;
         result = updater_spawn(updater, argv, now_ms, MESH_UPDATE_DOWNLOAD_TIMEOUT_MS);
     }
     if (result != 0) {
@@ -782,30 +931,16 @@ static void updater_stamp_pak_json(const struct mesh_updater *updater) {
         return;
     }
 
-    char path[MESH_UPDATE_PATH_MAX + 16U];
-    snprintf(path, sizeof path, "%s", updater->install_path);
-    char *found = NULL;
-    /* <pak>/bin/shared/meshclient: the binary's own directory, then bin/, then the pak root. */
-    for (int level = 0; level < 3 && found == NULL; ++level) {
-        char *slash = strrchr(path, '/');
-        if (slash == NULL || slash == path) {
-            return;
-        }
-        *slash = '\0';
-        char candidate[sizeof path + 16U];
-        snprintf(candidate, sizeof candidate, "%s/pak.json", path);
-        if (access(candidate, R_OK | W_OK) == 0) {
-            found = path;
-        }
-    }
-    if (found == NULL) {
+    char json_path[MESH_UPDATE_PATH_MAX + 32U];
+    if (!updater_pak_file(updater->install_path, "pak.json", json_path, sizeof json_path)) {
         return;
     }
-
-    char json_path[sizeof path + 16U];
-    char temp_path[sizeof path + 24U];
-    snprintf(json_path, sizeof json_path, "%s/pak.json", found);
-    snprintf(temp_path, sizeof temp_path, "%s/pak.json.new", found);
+    if (access(json_path, W_OK) != 0) {
+        mesh_log_warn("update", "%s is not writable; leaving its version alone", json_path);
+        return;
+    }
+    char temp_path[sizeof json_path + 8U];
+    snprintf(temp_path, sizeof temp_path, "%s.new", json_path);
 
     char buffer[MESH_UPDATE_PAK_JSON_MAX];
     FILE *file = fopen(json_path, "rb");
@@ -860,10 +995,7 @@ static void updater_stamp_pak_json(const struct mesh_updater *updater) {
 
 static void updater_finish_download(struct mesh_updater *updater, int exit_status) {
     if (exit_status != 0) {
-        char message[MESH_UPDATE_MESSAGE_MAX];
-        snprintf(message, sizeof message, "Download failed (%s exit %d)", updater->fetcher,
-                 exit_status);
-        updater_set(updater, MESH_UPDATE_FAILED, message);
+        updater_fetch_failed(updater, exit_status, "Download");
         (void)unlink(updater->staged_path);
         return;
     }
