@@ -10,6 +10,7 @@
 #include "mesh/ui/controller.h"
 #include "mesh/ui/input.h"
 #include "mesh/ui/preferences.h"
+#include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
 
 #include <stdint.h>
@@ -46,6 +47,12 @@ struct mesh_app {
     bool autoconnect_waiting_logged;
     /* Last published link state, so a drop can be announced once on the HUD. */
     bool ui_link_was_connected;
+    /* A Settings save in flight: the write counters seen when it was queued, so its ack or
+       rejection can be announced once; see mesh_app_track_settings_save(). */
+    bool settings_save_pending;
+    uint32_t settings_writes_acked_seen;
+    uint32_t settings_writes_failed_seen;
+    char settings_save_section[MESH_UI_SETTINGS_LABEL_MAX];
 };
 
 int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config);
@@ -58,6 +65,16 @@ int mesh_app_run(struct mesh_app *app);
    while connected or connecting. mesh_app_run() calls it every loop turn; exposed for tests
    and for MESHCLIENT_AUTOCONNECT=0 to be honoured in one place. */
 void mesh_app_autoconnect(struct mesh_app *app);
+
+/* Builds the admin write for a MESH_UI_ACTION_SAVE_SETTINGS: the radio's own copy of the
+   section with the action's edits applied, since the firmware replaces sections whole.
+   -ENOENT when the radio has not sent that section yet, -ENOTSUP for a section that is still
+   read-only. Exposed for tests. */
+struct mesh_radio_settings;
+struct mesh_admin_request;
+int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
+                                  const struct mesh_ui_action *action,
+                                  struct mesh_admin_request *out);
 
 #ifdef __cplusplus
 }

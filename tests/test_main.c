@@ -3853,41 +3853,45 @@ static void test_ui_settings_items(void) {
     }
 
     struct mesh_ui_settings_item item;
-    if (!mesh_ui_settings_item(&settings, &handshake, MESH_UI_SETTINGS_LORA, 0U, &item) ||
+    if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_LORA, 0U, &item) ||
         strcmp(item.label, "Region") != 0 || strcmp(item.value, "US") != 0 ||
         item.kind != MESH_UI_SETTING_ENUM) {
         record_failure(test_name, "LoRa region row is wrong");
         return;
     }
-    if (!mesh_ui_settings_item(&settings, &handshake, MESH_UI_SETTINGS_LORA, 2U, &item) ||
+    if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_LORA, 2U, &item) ||
         strcmp(item.label, "Preset") != 0 || strcmp(item.value, "Long Range - Moderate") != 0) {
         record_failure(test_name, "LoRa preset row is wrong");
         return;
     }
-    if (!mesh_ui_settings_item(&settings, &handshake, MESH_UI_SETTINGS_DEVICE, 0U, &item) ||
+    if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_DEVICE, 0U,
+                               &item) ||
         strcmp(item.value, "Router Late") != 0) {
         record_failure(test_name, "device role row is wrong");
         return;
     }
-    if (!mesh_ui_settings_item(&settings, &handshake, MESH_UI_SETTINGS_SECURITY, 0U, &item) ||
+    if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_SECURITY, 0U,
+                               &item) ||
         item.kind != MESH_UI_SETTING_KEY || strncmp(item.value, "deadbeef...", 11U) != 0 ||
         strstr(item.value, "32 bytes") == NULL) {
         record_failure(test_name, "public key fingerprint is wrong");
         return;
     }
     if (mesh_ui_settings_item_count(&settings, &handshake, MESH_UI_SETTINGS_CHANNELS) != 2U ||
-        !mesh_ui_settings_item(&settings, &handshake, MESH_UI_SETTINGS_CHANNELS, 1U, &item) ||
+        !mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U,
+                               &item) ||
         strcmp(item.label, "1 Team") != 0 || strstr(item.value, "AES-128") == NULL ||
         strstr(item.value, "up on") == NULL || strstr(item.value, "down off") == NULL) {
         record_failure(test_name, "channel row is wrong");
         return;
     }
-    if (!mesh_ui_settings_item(&settings, &handshake, MESH_UI_SETTINGS_CHANNELS, 0U, &item) ||
+    if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 0U,
+                               &item) ||
         strcmp(item.label, "0 Primary") != 0 || strstr(item.value, "default key") == NULL) {
         record_failure(test_name, "primary channel row is wrong");
         return;
     }
-    if (mesh_ui_settings_item(&settings, &handshake, MESH_UI_SETTINGS_LORA, 99U, &item)) {
+    if (mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_LORA, 99U, &item)) {
         record_failure(test_name, "out-of-range row should fail");
         return;
     }
@@ -4222,6 +4226,795 @@ cleanup:
     }
 }
 
+/* The write path in isolation: a save queues passkey refresh, set_*, read-back; the set_*
+   carries the full section and the passkey; a Routing reply quoting the id settles it. */
+static void test_radio_settings_write_queue(void) {
+    const char *test_name = "radio_settings_write_queue";
+    struct mesh_radio_settings settings;
+    mesh_radio_settings_reset(&settings);
+    settings.has_session_passkey = true;
+    settings.session_passkey_len = 8U;
+    memset(settings.session_passkey, 0x5AU, 8U);
+
+    struct mesh_admin_request write;
+    memset(&write, 0, sizeof write);
+    write.kind = MESH_ADMIN_SET_CONFIG;
+    write.type = meshtastic_AdminMessage_ConfigType_DISPLAY_CONFIG;
+    write.payload.config.which_payload_variant = meshtastic_Config_display_tag;
+    write.payload.config.payload_variant.display.screen_on_secs = 300U;
+    write.payload.config.payload_variant.display.use_12h_clock = true;
+
+    struct mesh_admin_request bad = write;
+    bad.kind = MESH_ADMIN_GET_CONFIG;
+    if (mesh_radio_settings_queue_write(&settings, &bad) != -EINVAL) {
+        record_failure(test_name, "a get is not a write");
+        return;
+    }
+    if (mesh_radio_settings_queue_write(&settings, &write) != 3 || settings.queue_len != 3U ||
+        !mesh_radio_settings_write_pending(&settings)) {
+        record_failure(test_name, "a write should queue refresh, set and read-back");
+        return;
+    }
+
+    struct mesh_admin_request next;
+    if (!mesh_radio_settings_next_request(&settings, 1000U, &next) ||
+        next.kind != MESH_ADMIN_GET_OWNER || settings.pending_is_write) {
+        record_failure(test_name, "the passkey refresh should go first");
+        return;
+    }
+    mesh_radio_settings_mark_sent(&settings, 41U, 1000U);
+    meshtastic_AdminMessage reply = meshtastic_AdminMessage_init_default;
+    reply.which_payload_variant = meshtastic_AdminMessage_get_owner_response_tag;
+    reply.session_passkey.size = 8U;
+    memset(reply.session_passkey.bytes, 0xC3, 8U);
+    meshtastic_MeshPacket packet;
+    if (!test_make_admin_reply(0x1234U, 41U, &reply, &packet) ||
+        mesh_radio_settings_ingest(&settings, &packet) != 1 ||
+        mesh_radio_settings_busy(&settings)) {
+        record_failure(test_name, "the owner reply should release the queue");
+        return;
+    }
+
+    if (!mesh_radio_settings_next_request(&settings, 1100U, &next) ||
+        next.kind != MESH_ADMIN_SET_CONFIG || !settings.pending_is_write) {
+        record_failure(test_name, "the set_config should follow");
+        return;
+    }
+    next.my_node = 0x1234U;
+    next.packet_id = 42U;
+    uint8_t buffer[512];
+    size_t written = 0U;
+    if (mesh_radio_settings_encode_request(&settings, &next, buffer, sizeof buffer, &written) !=
+        0) {
+        record_failure(test_name, "set_config should encode");
+        return;
+    }
+    meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_default;
+    pb_istream_t in = pb_istream_from_buffer(buffer, written);
+    meshtastic_AdminMessage admin = meshtastic_AdminMessage_init_default;
+    if (!pb_decode(&in, meshtastic_ToRadio_fields, &to_radio) || to_radio.packet.to != 0x1234U ||
+        to_radio.packet.id != 42U || !to_radio.packet.decoded.want_response ||
+        to_radio.packet.decoded.portnum != meshtastic_PortNum_ADMIN_APP) {
+        record_failure(test_name, "set_config packet header is wrong");
+        return;
+    }
+    in = pb_istream_from_buffer(to_radio.packet.decoded.payload.bytes,
+                                to_radio.packet.decoded.payload.size);
+    if (!pb_decode(&in, meshtastic_AdminMessage_fields, &admin) ||
+        admin.which_payload_variant != meshtastic_AdminMessage_set_config_tag ||
+        admin.set_config.which_payload_variant != meshtastic_Config_display_tag ||
+        admin.set_config.payload_variant.display.screen_on_secs != 300U ||
+        !admin.set_config.payload_variant.display.use_12h_clock ||
+        admin.session_passkey.size != 8U || admin.session_passkey.bytes[0] != 0xC3U) {
+        record_failure(test_name, "set_config should carry the section and the fresh passkey");
+        return;
+    }
+    mesh_radio_settings_mark_sent(&settings, 42U, 1100U);
+    if (settings.writes_sent != 1U || !mesh_radio_settings_busy(&settings)) {
+        record_failure(test_name, "the write should be counted as sent and pending");
+        return;
+    }
+
+    /* A stray routing reply for another id is not ours; the ack for 42 is. */
+    meshtastic_MeshPacket stray = make_routing_reply(7U, meshtastic_Routing_Error_NONE);
+    if (mesh_radio_settings_ingest(&settings, &stray) != 0 ||
+        !mesh_radio_settings_busy(&settings)) {
+        record_failure(test_name, "an unrelated routing reply must be left alone");
+        return;
+    }
+    meshtastic_MeshPacket ack = make_routing_reply(42U, meshtastic_Routing_Error_NONE);
+    if (mesh_radio_settings_ingest(&settings, &ack) != 1 || mesh_radio_settings_busy(&settings) ||
+        settings.writes_acked != 1U || settings.writes_failed != 0U ||
+        mesh_radio_settings_write_pending(&settings) /* only the read-back is left */) {
+        record_failure(test_name, "the ack should settle the write");
+        return;
+    }
+    if (!mesh_radio_settings_next_request(&settings, 1200U, &next) ||
+        next.kind != MESH_ADMIN_GET_CONFIG ||
+        next.type != meshtastic_AdminMessage_ConfigType_DISPLAY_CONFIG ||
+        settings.pending_is_write) {
+        record_failure(test_name, "the read-back should be last");
+        return;
+    }
+    mesh_radio_settings_mark_sent(&settings, 43U, 1200U);
+    if (mesh_radio_settings_write_pending(&settings)) {
+        record_failure(test_name, "nothing is pending once the read-back is out");
+        return;
+    }
+
+    /* A rejection is counted with its reason; a timeout with the sentinel. */
+    struct mesh_admin_request owner_write;
+    memset(&owner_write, 0, sizeof owner_write);
+    owner_write.kind = MESH_ADMIN_SET_OWNER;
+    snprintf(owner_write.payload.owner.long_name, sizeof owner_write.payload.owner.long_name, "%s",
+             "Brick");
+    mesh_radio_settings_reset(&settings);
+    if (mesh_radio_settings_queue_write(&settings, &owner_write) != 2) {
+        record_failure(test_name, "set_owner should share its read-back with the passkey refresh");
+        return;
+    }
+    mesh_radio_settings_next_request(&settings, 1U, &next);
+    mesh_radio_settings_mark_sent(&settings, 50U, 1U);
+    reply.session_passkey.size = 8U;
+    test_make_admin_reply(0x1234U, 50U, &reply, &packet);
+    mesh_radio_settings_ingest(&settings, &packet);
+    mesh_radio_settings_next_request(&settings, 2U, &next);
+    mesh_radio_settings_mark_sent(&settings, 51U, 2U);
+    meshtastic_MeshPacket nak =
+        make_routing_reply(51U, meshtastic_Routing_Error_ADMIN_BAD_SESSION_KEY);
+    if (mesh_radio_settings_ingest(&settings, &nak) != 1 || settings.writes_failed != 1U ||
+        settings.last_write_error != (int32_t)meshtastic_Routing_Error_ADMIN_BAD_SESSION_KEY) {
+        record_failure(test_name, "a rejection should carry its reason");
+        return;
+    }
+    mesh_radio_settings_queue_write(&settings, &owner_write);
+    mesh_radio_settings_next_request(&settings, 3U, &next); /* get_owner */
+    mesh_radio_settings_mark_sent(&settings, 52U, 3U);
+    test_make_admin_reply(0x1234U, 52U, &reply, &packet);
+    mesh_radio_settings_ingest(&settings, &packet);
+    mesh_radio_settings_next_request(&settings, 4U, &next); /* set_owner */
+    mesh_radio_settings_mark_sent(&settings, 53U, 4U);
+    if (mesh_radio_settings_next_request(&settings, 4U + MESH_RADIO_SETTINGS_REPLY_TIMEOUT_MS,
+                                         &next) ||
+        settings.writes_failed != 2U ||
+        settings.last_write_error != MESH_RADIO_SETTINGS_WRITE_TIMEOUT) {
+        record_failure(test_name, "a silent radio should fail the write with the timeout code");
+        return;
+    }
+    record_success(test_name);
+}
+
+/* Editable rows: the field table, pending edits rendered in place, and the steppers. */
+static void test_ui_settings_edits(void) {
+    const char *test_name = "ui_settings_edits";
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_owner = true;
+    snprintf(settings.long_name, sizeof settings.long_name, "%s", "Meshtastic 0ad8");
+    snprintf(settings.short_name, sizeof settings.short_name, "%s", "0ad8");
+    settings.has_display = true;
+    settings.screen_on_secs = 60U;
+    settings.compass_orientation = 7U;
+    settings.units = 1U;
+    settings.has_telemetry = true;
+    settings.device_update_interval = 1234U; /* not a preset */
+
+    struct mesh_ui_settings_item item;
+    if (!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_USER, 0U, &item) ||
+        item.field != MESH_UI_FIELD_USER_LONG_NAME || item.kind != MESH_UI_SETTING_TEXT ||
+        item.dirty || strcmp(item.text, "Meshtastic 0ad8") != 0 ||
+        strcmp(item.value, "Meshtastic 0ad8") != 0) {
+        record_failure(test_name, "long name row is wrong");
+        return;
+    }
+    if (mesh_ui_settings_text_max(MESH_UI_FIELD_USER_LONG_NAME) != 24U ||
+        mesh_ui_settings_text_max(MESH_UI_FIELD_USER_SHORT_NAME) != 4U ||
+        mesh_ui_settings_text_max(MESH_UI_FIELD_DISPLAY_12H) != 0U) {
+        record_failure(test_name, "text caps are wrong");
+        return;
+    }
+    if (!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_DISPLAY, 0U, &item) ||
+        item.field != MESH_UI_FIELD_DISPLAY_SCREEN_ON || item.kind != MESH_UI_SETTING_NUMBER ||
+        item.number != 60U || strcmp(item.value, "1m") != 0) {
+        record_failure(test_name, "screen-on row is wrong");
+        return;
+    }
+    if (mesh_ui_settings_number_step(MESH_UI_FIELD_DISPLAY_SCREEN_ON, 60U, +1) != 120U ||
+        mesh_ui_settings_number_step(MESH_UI_FIELD_DISPLAY_SCREEN_ON, 60U, -1) != 30U ||
+        mesh_ui_settings_number_step(MESH_UI_FIELD_DISPLAY_SCREEN_ON, 3600U, +1) != 3600U ||
+        mesh_ui_settings_number_step(MESH_UI_FIELD_DISPLAY_SCREEN_ON, 0U, -1) != 0U ||
+        mesh_ui_settings_number_step(MESH_UI_FIELD_TELEMETRY_INTERVAL, 1234U, +1) != 1800U ||
+        mesh_ui_settings_number_step(MESH_UI_FIELD_TELEMETRY_INTERVAL, 1234U, -1) != 900U) {
+        record_failure(test_name, "number presets step wrong");
+        return;
+    }
+    if (mesh_ui_settings_enum_count(MESH_UI_FIELD_DISPLAY_COMPASS) != 8U ||
+        mesh_ui_settings_enum_count(MESH_UI_FIELD_DISPLAY_UNITS) != 2U ||
+        mesh_ui_settings_enum_count(MESH_UI_FIELD_DISPLAY_FLIP) != 0U ||
+        strcmp(mesh_ui_settings_enum_name(MESH_UI_FIELD_DISPLAY_UNITS, 1U), "Imperial") != 0 ||
+        strcmp(mesh_ui_settings_enum_name(MESH_UI_FIELD_DISPLAY_COMPASS, 7U), "270 flip") != 0) {
+        record_failure(test_name, "enum tables are wrong");
+        return;
+    }
+    if (mesh_ui_settings_field_section(MESH_UI_FIELD_SF_SERVER) != MESH_UI_SETTINGS_STORE_FORWARD ||
+        mesh_ui_settings_field_kind(MESH_UI_FIELD_TELEMETRY_INTERVAL) != MESH_UI_SETTING_NUMBER ||
+        strcmp(mesh_ui_settings_field_label(MESH_UI_FIELD_USER_SHORT_NAME), "Short name") != 0) {
+        record_failure(test_name, "field descriptions are wrong");
+        return;
+    }
+    /* A read-only row has no field. */
+    if (!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_TELEMETRY, 1U, &item) ||
+        item.field != MESH_UI_FIELD_TELEMETRY_INTERVAL || strcmp(item.value, "1234s") != 0) {
+        record_failure(test_name, "telemetry interval row is wrong");
+        return;
+    }
+
+    /* Pending edits show in place, marked. */
+    struct mesh_ui_setting_edit edits[2];
+    memset(edits, 0, sizeof edits);
+    edits[0].field = MESH_UI_FIELD_DISPLAY_UNITS;
+    edits[0].number = 0U;
+    edits[1].field = MESH_UI_FIELD_USER_SHORT_NAME;
+    snprintf(edits[1].text, sizeof edits[1].text, "%s", "BRCK");
+    if (!mesh_ui_settings_item(&settings, NULL, edits, 2U, MESH_UI_SETTINGS_DISPLAY, 4U, &item) ||
+        item.field != MESH_UI_FIELD_DISPLAY_UNITS || !item.dirty || item.number != 0U ||
+        strcmp(item.value, "Metric") != 0) {
+        record_failure(test_name, "an enum edit should render in place");
+        return;
+    }
+    if (!mesh_ui_settings_item(&settings, NULL, edits, 2U, MESH_UI_SETTINGS_USER, 1U, &item) ||
+        !item.dirty || strcmp(item.text, "BRCK") != 0 || strcmp(item.value, "BRCK") != 0) {
+        record_failure(test_name, "a text edit should render in place");
+        return;
+    }
+    if (!mesh_ui_settings_item(&settings, NULL, edits, 2U, MESH_UI_SETTINGS_DISPLAY, 0U, &item) ||
+        item.dirty || item.number != 60U) {
+        record_failure(test_name, "rows without an edit stay clean");
+        return;
+    }
+    if (mesh_ui_settings_find_edit(edits, 2U, MESH_UI_FIELD_USER_SHORT_NAME) != &edits[1] ||
+        mesh_ui_settings_find_edit(edits, 2U, MESH_UI_FIELD_DISPLAY_FLIP) != NULL) {
+        record_failure(test_name, "find_edit is wrong");
+        return;
+    }
+    record_success(test_name);
+}
+
+/* Editing through the nav: Left/Right and A change rows, the keyboard edits text and gives
+   the Compose draft back, Y emits the save, B asks before discarding. */
+static void test_ui_nav_settings_edit(void) {
+    const char *test_name = "ui_nav_settings_edit";
+    const char *failure = NULL;
+
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    test_nav_populate(&store);
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_owner = true;
+    snprintf(settings.long_name, sizeof settings.long_name, "%s", "Old Name");
+    snprintf(settings.short_name, sizeof settings.short_name, "%s", "OLDN");
+    settings.has_display = true;
+    settings.screen_on_secs = 60U;
+    settings.use_12h_clock = false;
+    settings.units = 0U;
+    settings.has_lora = true;
+    mesh_ui_store_set_settings(&store, &settings);
+    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "half typed");
+
+    struct mesh_ui_action action;
+    for (int i = 0; i < 5; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    }
+    for (int i = 0; i < MESH_UI_SETTINGS_DISPLAY; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.settings_section != MESH_UI_SETTINGS_DISPLAY) {
+        failure = "Display should open";
+        goto cleanup;
+    }
+
+    /* Right on Screen on steps to the next preset; Left twice goes back past it. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    struct mesh_ui_settings_item item;
+    if (store.nav.screen != MESH_UI_SCREEN_SETTINGS || store.nav.settings_edit_count != 1U ||
+        store.nav.settings_edits[0].field != MESH_UI_FIELD_DISPLAY_SCREEN_ON ||
+        store.nav.settings_edits[0].number != 120U ||
+        !mesh_ui_settings_item(&store.settings, NULL, store.nav.settings_edits,
+                               store.nav.settings_edit_count, MESH_UI_SETTINGS_DISPLAY, 0U,
+                               &item) ||
+        !item.dirty || strcmp(item.value, "2m") != 0) {
+        failure = "Right should step the number and stay on the tab";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    if (store.nav.settings_edit_count != 0U) {
+        failure = "stepping back to the radio's value should drop the edit";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    if (store.nav.settings_edit_count != 1U || store.nav.settings_edits[0].number != 30U) {
+        failure = "Left should step down";
+        goto cleanup;
+    }
+    /* Down to 12-hour clock: A flips a toggle. Down to Units: Left wraps the enum. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    if (store.nav.settings_edit_count != 3U ||
+        mesh_ui_settings_find_edit(store.nav.settings_edits, 3U, MESH_UI_FIELD_DISPLAY_12H) ==
+            NULL ||
+        mesh_ui_settings_find_edit(store.nav.settings_edits, 3U, MESH_UI_FIELD_DISPLAY_12H)
+                ->number != 1U ||
+        mesh_ui_settings_find_edit(store.nav.settings_edits, 3U, MESH_UI_FIELD_DISPLAY_UNITS) ==
+            NULL ||
+        mesh_ui_settings_find_edit(store.nav.settings_edits, 3U, MESH_UI_FIELD_DISPLAY_UNITS)
+                ->number != 1U) {
+        failure = "toggle and enum edits are wrong";
+        goto cleanup;
+    }
+    if (mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 6U) {
+        failure = "edits must not change the row count";
+        goto cleanup;
+    }
+
+    /* B asks first; a different key stands the question down; B twice discards. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (!store.nav.settings_discard_armed ||
+        store.nav.settings_section != MESH_UI_SETTINGS_DISPLAY) {
+        failure = "B with edits should ask, not leave";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    if (store.nav.settings_discard_armed) {
+        failure = "another key should cancel the discard question";
+        goto cleanup;
+    }
+    /* Y saves: the action carries the section and every edit; the nav keeps them until the
+       app says so. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    if (action.type != MESH_UI_ACTION_SAVE_SETTINGS || action.section != MESH_UI_SETTINGS_DISPLAY ||
+        action.edit_count != 3U || action.edits[0].field != MESH_UI_FIELD_DISPLAY_SCREEN_ON ||
+        action.edits[0].number != 30U || store.nav.settings_edit_count != 3U) {
+        failure = "Y should emit a save with the edits";
+        goto cleanup;
+    }
+    mesh_ui_store_settings_edits_clear(&store);
+    if (store.nav.settings_edit_count != 0U || (store.pending_flags & MESH_UI_UPDATE_NAV) == 0U) {
+        failure = "clearing the edits should repaint";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    if (action.type != MESH_UI_ACTION_NONE) {
+        failure = "Y with nothing to save does nothing";
+        goto cleanup;
+    }
+
+    /* Text: A on Short name opens the keyboard on that field with the value preloaded, the
+       Compose draft parked; typing is capped at four bytes; done records the edit. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    for (int i = 0; i < MESH_UI_SETTINGS_DISPLAY - MESH_UI_SETTINGS_USER; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.keyboard_open || store.nav.keyboard_field != MESH_UI_FIELD_USER_SHORT_NAME ||
+        strcmp(store.nav.draft, "OLDN") != 0 || strcmp(store.nav.draft_saved, "half typed") != 0 ||
+        strcmp(mesh_ui_kb_action_label(&store.nav, MESH_UI_KB_ACTION_SEND), "done") != 0) {
+        failure = "A on a text row should open the keyboard for it";
+        goto cleanup;
+    }
+    /* Row 0 col 0 of the lower layer is '1': appending at the cap is refused. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (strcmp(store.nav.draft, "OLDN") != 0) {
+        failure = "the draft must respect the field's byte cap";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action); /* delete -> OLD */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* '1' -> OLD1 */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    if (store.nav.keyboard_open || store.nav.screen != MESH_UI_SCREEN_SETTINGS ||
+        store.nav.keyboard_field != MESH_UI_FIELD_NONE ||
+        strcmp(store.nav.draft, "half typed") != 0 || action.type != MESH_UI_ACTION_NONE ||
+        store.nav.settings_edit_count != 1U ||
+        store.nav.settings_edits[0].field != MESH_UI_FIELD_USER_SHORT_NAME ||
+        strcmp(store.nav.settings_edits[0].text, "OLD1") != 0) {
+        failure = "done should record the text edit and restore the Compose draft";
+        goto cleanup;
+    }
+    /* Reopen and cancel: nothing changes. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.keyboard_open || strcmp(store.nav.draft, "OLD1") != 0) {
+        failure = "the keyboard should preload the pending edit";
+        goto cleanup;
+    }
+    store.nav.kb_row = MESH_UI_KB_CHAR_ROWS;
+    store.nav.kb_col = MESH_UI_KB_ACTION_CANCEL;
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.keyboard_open || store.nav.settings_edit_count != 1U ||
+        strcmp(store.nav.draft, "half typed") != 0) {
+        failure = "cancel should keep the edit as it was";
+        goto cleanup;
+    }
+    /* B twice leaves the section with the edits gone. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (store.nav.settings_section != MESH_UI_SETTINGS_NO_SECTION ||
+        store.nav.settings_edit_count != 0U) {
+        failure = "B twice should discard and go back";
+        goto cleanup;
+    }
+    /* Left on the section list still switches tabs. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    if (store.nav.screen != MESH_UI_SCREEN_STATUS) {
+        failure = "Left on the section list should switch tabs";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+/* The app turns a save into a full-section write from the radio's own copy. */
+static void test_app_settings_write_build(void) {
+    const char *test_name = "app_settings_write_build";
+    struct mesh_radio_settings radio;
+    mesh_radio_settings_reset(&radio);
+    radio.has_owner = true;
+    snprintf(radio.owner.long_name, sizeof radio.owner.long_name, "%s", "Old Name");
+    snprintf(radio.owner.short_name, sizeof radio.owner.short_name, "%s", "OLDN");
+    radio.owner.public_key.size = 32U;
+    radio.owner.public_key.bytes[0] = 0x42U;
+    radio.has_telemetry = true;
+    radio.telemetry.device_update_interval = 900U;
+    radio.telemetry.environment_measurement_enabled = true;
+    radio.telemetry.power_update_interval = 777U;
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    action.type = MESH_UI_ACTION_SAVE_SETTINGS;
+    action.section = MESH_UI_SETTINGS_USER;
+    action.edit_count = 3U;
+    action.edits[0].field = MESH_UI_FIELD_USER_LONG_NAME;
+    snprintf(action.edits[0].text, sizeof action.edits[0].text, "%s", "Brick");
+    action.edits[1].field = MESH_UI_FIELD_USER_UNMESSAGEABLE;
+    action.edits[1].number = 1U;
+    action.edits[2].field = MESH_UI_FIELD_DISPLAY_FLIP; /* wrong section: ignored */
+    action.edits[2].number = 1U;
+
+    struct mesh_admin_request write;
+    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+        write.kind != MESH_ADMIN_SET_OWNER || strcmp(write.payload.owner.long_name, "Brick") != 0 ||
+        strcmp(write.payload.owner.short_name, "OLDN") != 0 ||
+        !write.payload.owner.has_is_unmessagable || !write.payload.owner.is_unmessagable ||
+        write.payload.owner.public_key.size != 32U ||
+        write.payload.owner.public_key.bytes[0] != 0x42U) {
+        record_failure(test_name, "set_owner should be the radio's user plus the edits");
+        return;
+    }
+
+    action.section = MESH_UI_SETTINGS_TELEMETRY;
+    action.edit_count = 2U;
+    action.edits[0].field = MESH_UI_FIELD_TELEMETRY_INTERVAL;
+    action.edits[0].number = 3600U;
+    action.edits[1].field = MESH_UI_FIELD_TELEMETRY_DEVICE;
+    action.edits[1].number = 1U;
+    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+        write.kind != MESH_ADMIN_SET_MODULE_CONFIG ||
+        write.type != meshtastic_AdminMessage_ModuleConfigType_TELEMETRY_CONFIG ||
+        write.payload.module_config.which_payload_variant !=
+            meshtastic_ModuleConfig_telemetry_tag ||
+        write.payload.module_config.payload_variant.telemetry.device_update_interval != 3600U ||
+        !write.payload.module_config.payload_variant.telemetry.device_telemetry_enabled ||
+        !write.payload.module_config.payload_variant.telemetry.environment_measurement_enabled ||
+        write.payload.module_config.payload_variant.telemetry.power_update_interval != 777U) {
+        record_failure(test_name, "set_module_config should keep the fields we do not show");
+        return;
+    }
+
+    action.section = MESH_UI_SETTINGS_DISPLAY;
+    if (mesh_app_build_settings_write(&radio, &action, &write) != -ENOENT) {
+        record_failure(test_name, "a section the radio has not sent cannot be written");
+        return;
+    }
+    action.section = MESH_UI_SETTINGS_LORA;
+    if (mesh_app_build_settings_write(&radio, &action, &write) != -ENOTSUP) {
+        record_failure(test_name, "LoRa is still read-only");
+        return;
+    }
+    record_success(test_name);
+}
+
+/* Answers whatever admin request the mock last captured, the way the radio would: a get with
+   the matching response (carrying a passkey), a set with a Routing ack. Returns the kind. */
+static int test_answer_admin_write(const uint8_t *capture, size_t capture_len, uint32_t my_node,
+                                   meshtastic_Routing_Error set_result, uint8_t *out,
+                                   size_t out_cap, size_t *out_len, meshtastic_AdminMessage *seen) {
+    meshtastic_ToRadio sent = meshtastic_ToRadio_init_default;
+    pb_istream_t in = pb_istream_from_buffer(capture, capture_len);
+    if (!pb_decode(&in, meshtastic_ToRadio_fields, &sent) ||
+        sent.which_payload_variant != meshtastic_ToRadio_packet_tag ||
+        sent.packet.decoded.portnum != meshtastic_PortNum_ADMIN_APP) {
+        return -1;
+    }
+    meshtastic_AdminMessage admin = meshtastic_AdminMessage_init_default;
+    in =
+        pb_istream_from_buffer(sent.packet.decoded.payload.bytes, sent.packet.decoded.payload.size);
+    if (!pb_decode(&in, meshtastic_AdminMessage_fields, &admin)) {
+        return -2;
+    }
+    if (seen != NULL) {
+        *seen = admin;
+    }
+    meshtastic_FromRadio from_radio = meshtastic_FromRadio_init_default;
+    from_radio.which_payload_variant = meshtastic_FromRadio_packet_tag;
+    meshtastic_AdminMessage reply = meshtastic_AdminMessage_init_default;
+    reply.session_passkey.size = 8U;
+    memset(reply.session_passkey.bytes, 0x77, 8U);
+    switch (admin.which_payload_variant) {
+    case meshtastic_AdminMessage_get_owner_request_tag:
+        reply.which_payload_variant = meshtastic_AdminMessage_get_owner_response_tag;
+        snprintf(reply.get_owner_response.short_name, sizeof reply.get_owner_response.short_name,
+                 "%s", "0ad8");
+        test_make_admin_reply(my_node, sent.packet.id, &reply, &from_radio.packet);
+        break;
+    case meshtastic_AdminMessage_get_device_metadata_request_tag:
+        reply.which_payload_variant = meshtastic_AdminMessage_get_device_metadata_response_tag;
+        test_make_admin_reply(my_node, sent.packet.id, &reply, &from_radio.packet);
+        break;
+    case meshtastic_AdminMessage_get_module_config_request_tag:
+        reply.which_payload_variant = meshtastic_AdminMessage_get_module_config_response_tag;
+        reply.get_module_config_response.which_payload_variant =
+            meshtastic_ModuleConfig_store_forward_tag;
+        reply.get_module_config_response.payload_variant.store_forward.enabled = true;
+        reply.get_module_config_response.payload_variant.store_forward.heartbeat = true;
+        test_make_admin_reply(my_node, sent.packet.id, &reply, &from_radio.packet);
+        break;
+    case meshtastic_AdminMessage_set_module_config_tag:
+    case meshtastic_AdminMessage_set_config_tag:
+    case meshtastic_AdminMessage_set_owner_tag:
+        from_radio.packet = make_routing_reply(sent.packet.id, set_result);
+        from_radio.packet.from = my_node;
+        from_radio.packet.to = my_node;
+        break;
+    default:
+        return -3;
+    }
+    if (!test_encode_from_radio(&from_radio, out, out_cap, out_len)) {
+        return -4;
+    }
+    return (int)admin.which_payload_variant;
+}
+
+/* End to end on the mock bus: a Store & Forward save goes out as passkey refresh, set with
+   the passkey and the full section, read-back; the Routing ack is consumed rather than logged,
+   the counters move, and the read-back updates the view. */
+static void test_ble_transport_settings_write(void) {
+    const char *test_name = "ble_transport_settings_write";
+    const char *failure = NULL;
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:0B", .name = "NodeWrite", .rssi = -40},
+    };
+    uint8_t write_capture[512];
+    size_t write_len = 0U;
+    size_t write_call_count = 0U;
+    size_t write_lengths[32];
+    memset(write_lengths, 0, sizeof write_lengths);
+
+    enum { READ_SLOTS = 24 };
+    static uint8_t read_buffers[READ_SLOTS][300];
+    const uint8_t *read_payloads[READ_SLOTS];
+    size_t read_payload_lengths[READ_SLOTS];
+    for (size_t i = 0; i < READ_SLOTS; ++i) {
+        read_payloads[i] = read_buffers[i];
+        read_payload_lengths[i] = 0U;
+    }
+    size_t read_index = 0U;
+
+    const uint32_t my_node = 0x9E9D0AD8U;
+    meshtastic_FromRadio from_radio = meshtastic_FromRadio_init_default;
+    from_radio.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    from_radio.my_info.my_node_num = my_node;
+    test_encode_from_radio(&from_radio, read_buffers[0], sizeof read_buffers[0],
+                           &read_payload_lengths[0]);
+    from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
+    from_radio.which_payload_variant = meshtastic_FromRadio_moduleConfig_tag;
+    from_radio.moduleConfig.which_payload_variant = meshtastic_ModuleConfig_store_forward_tag;
+    from_radio.moduleConfig.payload_variant.store_forward.enabled = false;
+    from_radio.moduleConfig.payload_variant.store_forward.records = 500U;
+    test_encode_from_radio(&from_radio, read_buffers[1], sizeof read_buffers[1],
+                           &read_payload_lengths[1]);
+    /* read_buffers[2] empty: ends the first drain. */
+
+    struct mesh_bluez_mock_config mock_config = {
+        .adapter_path = "/org/bluez/hci0",
+        .toradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_0B/service000a/char000b",
+        .fromradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_0B/service000a/char000d",
+        .fromnum_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_0B/service000a/char000f",
+        .read_payloads = read_payloads,
+        .read_payload_lengths = read_payload_lengths,
+        .read_payload_count = READ_SLOTS,
+        .read_index = &read_index,
+        .devices = mock_devices,
+        .device_count = 1U,
+        .write_capture_buffer = write_capture,
+        .write_capture_capacity = sizeof write_capture,
+        .write_capture_length = &write_len,
+        .write_call_count = &write_call_count,
+        .write_lengths = write_lengths,
+        .write_lengths_capacity = sizeof write_lengths / sizeof write_lengths[0],
+    };
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    struct mesh_app_config config = mesh_app_config_default();
+    struct mesh_event_loop loop;
+    mesh_event_loop_init(&loop);
+    if (ble->ops->start(ble, &config, &loop) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+        failure = "connect should be accepted";
+        goto cleanup;
+    }
+    const uint8_t from_num[4] = {1U, 0U, 0U, 0U};
+    for (int spin = 0; spin < 30 && read_index < 3U; ++spin) {
+        ble->ops->tick(ble);
+        mesh_event_loop_run(&loop, 10);
+        if (mesh_ble_transport_connected_address(ble) != NULL && spin % 5 == 0) {
+            mesh_bluez_client_mock_emit_notification(mock_config.fromnum_char_path, from_num,
+                                                     sizeof from_num);
+        }
+    }
+    const struct mesh_radio_settings *settings = mesh_ble_transport_settings(ble);
+    if (settings == NULL || !settings->has_store_forward || settings->store_forward.enabled) {
+        failure = "the store & forward section should have arrived";
+        goto cleanup;
+    }
+
+    /* Before the handshake completes there is no probe, so the write is the first admin
+       traffic: get_owner, set_module_config, get_module_config. */
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    action.type = MESH_UI_ACTION_SAVE_SETTINGS;
+    action.section = MESH_UI_SETTINGS_STORE_FORWARD;
+    action.edit_count = 2U;
+    action.edits[0].field = MESH_UI_FIELD_SF_ENABLED;
+    action.edits[0].number = 1U;
+    action.edits[1].field = MESH_UI_FIELD_SF_HEARTBEAT;
+    action.edits[1].number = 1U;
+    struct mesh_admin_request write;
+    if (mesh_app_build_settings_write(settings, &action, &write) != 0 ||
+        mesh_ble_transport_write_settings(ble, &write) != 3) {
+        failure = "the write should queue three requests";
+        goto cleanup;
+    }
+
+    size_t slot = 3U;
+    const int expected[] = {
+        (int)meshtastic_AdminMessage_get_owner_request_tag,
+        (int)meshtastic_AdminMessage_set_module_config_tag,
+        (int)meshtastic_AdminMessage_get_module_config_request_tag,
+    };
+    meshtastic_AdminMessage seen;
+    /* Each reply releases the next request during the settle spins, so count from a fixed
+       base rather than per step. */
+    const size_t base = write_call_count;
+    for (size_t step = 0; step < 3U; ++step) {
+        for (int spin = 0; spin < 20 && write_call_count < base + step + 1U; ++spin) {
+            ble->ops->tick(ble);
+            mesh_event_loop_run(&loop, 10);
+        }
+        if (write_call_count != base + step + 1U) {
+            failure = "each request should go out once the previous one is answered";
+            goto cleanup;
+        }
+        memset(&seen, 0, sizeof seen);
+        const int kind = test_answer_admin_write(
+            write_capture, write_len, my_node, meshtastic_Routing_Error_NONE, read_buffers[slot],
+            sizeof read_buffers[slot], &read_payload_lengths[slot], &seen);
+        if (kind != expected[step]) {
+            failure = "requests should go out as refresh, set, read-back";
+            goto cleanup;
+        }
+        if (step == 1U) {
+            const meshtastic_ModuleConfig_StoreForwardConfig *sf =
+                &seen.set_module_config.payload_variant.store_forward;
+            if (seen.set_module_config.which_payload_variant !=
+                    meshtastic_ModuleConfig_store_forward_tag ||
+                !sf->enabled || !sf->heartbeat || sf->records != 500U ||
+                seen.session_passkey.size != 8U || seen.session_passkey.bytes[0] != 0x77U) {
+                failure = "the set should carry the whole section, the edits and the passkey";
+                goto cleanup;
+            }
+        }
+        read_index = slot;
+        slot += 2U; /* leave an empty slot to end each drain */
+        mesh_bluez_client_mock_emit_notification(mock_config.fromnum_char_path, from_num,
+                                                 sizeof from_num);
+        for (int spin = 0; spin < 5; ++spin) {
+            mesh_event_loop_run(&loop, 10);
+            ble->ops->tick(ble);
+        }
+    }
+
+    settings = mesh_ble_transport_settings(ble);
+    if (settings->writes_sent != 1U || settings->writes_acked != 1U ||
+        settings->writes_failed != 0U || mesh_radio_settings_write_pending(settings) ||
+        mesh_radio_settings_busy(settings)) {
+        failure = "the ack should be counted and nothing left pending";
+        goto cleanup;
+    }
+    if (!settings->store_forward.enabled || !settings->store_forward.heartbeat) {
+        failure = "the read-back should update the section";
+        goto cleanup;
+    }
+    const struct mesh_message_log *log = mesh_ble_transport_messages(ble);
+    if (log == NULL || log->count != 0U) {
+        failure = "the routing ack must not appear in the message log";
+        goto cleanup;
+    }
+
+    /* A rejected write: the same dance, answered with a bad-session-key error. */
+    if (mesh_ble_transport_write_settings(ble, &write) != 3) {
+        failure = "a second write should queue again";
+        goto cleanup;
+    }
+    const size_t base2 = write_call_count;
+    for (size_t step = 0; step < 2U; ++step) {
+        for (int spin = 0; spin < 20 && write_call_count < base2 + step + 1U; ++spin) {
+            ble->ops->tick(ble);
+            mesh_event_loop_run(&loop, 10);
+        }
+        test_answer_admin_write(write_capture, write_len, my_node,
+                                meshtastic_Routing_Error_ADMIN_BAD_SESSION_KEY, read_buffers[slot],
+                                sizeof read_buffers[slot], &read_payload_lengths[slot], NULL);
+        read_index = slot;
+        slot += 2U;
+        mesh_bluez_client_mock_emit_notification(mock_config.fromnum_char_path, from_num,
+                                                 sizeof from_num);
+        for (int spin = 0; spin < 5; ++spin) {
+            mesh_event_loop_run(&loop, 10);
+            ble->ops->tick(ble);
+        }
+    }
+    settings = mesh_ble_transport_settings(ble);
+    if (settings->writes_failed != 1U ||
+        settings->last_write_error != (int32_t)meshtastic_Routing_Error_ADMIN_BAD_SESSION_KEY ||
+        settings->writes_acked != 1U) {
+        failure = "a rejection should be counted with its reason";
+        goto cleanup;
+    }
+
+cleanup:
+    ble->ops->stop(ble);
+    mesh_event_loop_shutdown(&loop);
+    mesh_bluez_client_mock_disable();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
 static const struct test_case k_test_cases[] = {
     {"config_defaults", "unit", test_config_defaults},
     {"transport_registry_registration", "unit", test_transport_registry_registration},
@@ -4269,6 +5062,11 @@ static const struct test_case k_test_cases[] = {
     {"ui_settings_items", "unit", test_ui_settings_items},
     {"ui_nav_settings", "unit", test_ui_nav_settings},
     {"ble_transport_admin_probe", "unit", test_ble_transport_admin_probe},
+    {"radio_settings_write_queue", "unit", test_radio_settings_write_queue},
+    {"ui_settings_edits", "unit", test_ui_settings_edits},
+    {"ui_nav_settings_edit", "unit", test_ui_nav_settings_edit},
+    {"app_settings_write_build", "unit", test_app_settings_write_build},
+    {"ble_transport_settings_write", "unit", test_ble_transport_settings_write},
 };
 
 struct test_options {

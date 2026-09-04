@@ -12,13 +12,28 @@ Everything in this roadmap except a firmware *install* is a field of `Config`,
 `ADMIN_APP` port, addressed to our own node number. The flow is always:
 
 1. `get_*_request` → the radio answers with `get_*_response` (correlated by
-   `Data.request_id`), and every admin reply carries a `session_passkey`.
+   `Data.request_id`), and every `get_*` reply carries a `session_passkey`.
 2. Edit locally.
-3. `begin_edit_settings`, one or more `set_*` carrying the passkey, `commit_edit_settings`.
-   The radio reboots on commit for LoRa, Bluetooth, Security and a few other sections.
+3. A `set_*` carrying the passkey and the **whole** section (the firmware assigns
+   `config.display = received`, it does not merge; `set_owner` is the exception and merges
+   names/flags, ignoring empty strings). The radio answers a `set_*` with a `ROUTING_APP`
+   packet quoting our packet id: `error_reason` NONE is the ack, `ADMIN_BAD_SESSION_KEY` or
+   `BAD_REQUEST` a rejection. No AdminMessage comes back for a set.
+4. We follow every set with the matching `get_*` so the tab shows what the radio actually
+   kept.
 
-Firmware 2.5+ rejects a `set_*` without a fresh passkey (they live five minutes), which is
-why every phase keeps the passkey dance live rather than bolting it on at the end.
+Passkeys: the firmware accepts a key for 300 s from generation and rotates it when a `get_*`
+arrives more than 150 s after the last rotation. A key we hold may therefore be stale, so
+every write is preceded by a `get_owner_request`; the extra round trip is cheap.
+
+Reboots (checked against firmware `master`, `AdminModule::saveChanges` defaults to
+`shouldReboot = true`): `set_owner` reboots when anything changed; every `set_module_config`
+reboots; `set_config` DISPLAY reboots only when `screen_on_secs`, `flip_screen`, `oled` or
+`displaymode` change; LoRa, Bluetooth, Security, Device, Position, Power, Network all reboot.
+The reboot fires 7 s after the set (after our read-back has been answered), BLE is disabled
+first, the link drops, and auto-connect reconnects. `begin_edit_settings` /
+`commit_edit_settings` only coalesce several sets into one reboot; since a save is one
+section at a time we do not use them yet.
 
 We already receive most of this without asking: the `want_config_id` handshake streams every
 `Config` and `ModuleConfig` section, the channel table, `DeviceMetadata` and our own `User`
@@ -29,7 +44,7 @@ fragment, and uses the admin path for refreshes and as proof that writes will wo
 
 | Feature | Protobuf | Notes |
 |---|---|---|
-| Short / long name, licensed operator | `User.short_name` (4 chars), `long_name` (39), `is_licensed`; written with `set_owner` | `is_unmessagable` is only on the device-side `UserLite` in v2.8.0, not on the wire `User`; revisit after a protobuf bump. |
+| Short / long name, licensed operator, unmessageable | `User.short_name` (4 bytes), `long_name` (39 on the wire, 24 kept by the firmware), `is_licensed`, `is_unmessagable` (optional, so `has_is_unmessagable` must be set); written with `set_owner` | The firmware ignores empty names and rejects all-whitespace ones with `BAD_REQUEST`. |
 | Bluetooth PIN mode | `BluetoothConfig.mode` (`RANDOM_PIN`, `FIXED_PIN`, `NO_PIN`), `fixed_pin` | Changing it invalidates the BlueZ pairing. The UI must say so and point at `bluetoothctl pair`. |
 | Device role | `DeviceConfig.role`: CLIENT, CLIENT_MUTE, ROUTER, ROUTER_CLIENT (deprecated), REPEATER (deprecated), TRACKER, SENSOR, TAK, CLIENT_HIDDEN, LOST_AND_FOUND, TAK_TRACKER, ROUTER_LATE, CLIENT_BASE | Hide the deprecated two. |
 | Time zone | `DeviceConfig.tzdef`, a POSIX TZ string (65 bytes) | Ship a preset list (US zones, UTC, common EU/APAC); no free text. |
@@ -50,13 +65,14 @@ over a static description of each section:
 - A **section list** (Radio, User, Device, Display, LoRa, Bluetooth, Channels, Security,
   Modules). A opens a section, B returns.
 - Each section is a list of **items**: label, current value, and a kind. Kinds are `info`
-  (read-only), `toggle`, `enum`, `text`, `number`, `key`, `action`. Phase 1 renders every
-  kind read-only; later phases wire up A per kind: toggles flip, enums open the existing
-  picker overlay, text reuses the on-screen keyboard, numbers get a stepper, keys show a
-  fingerprint with reveal/regenerate behind a confirm, actions run a command.
-- Edits accumulate in the nav (pending values per item) until **Save**, which sends
-  `begin_edit_settings` / `set_*` / `commit_edit_settings`. A dirty section shows a marker;
-  B on a dirty section asks discard/keep.
+  (read-only), `toggle`, `enum`, `text`, `number`, `key`, `action`. An editable item names
+  its `field`; a table in `src/ui/settings.c` describes every field (kind, enum names, number
+  presets, text cap) so the nav edits blind: Left/Right/A flip toggles, cycle enums and step
+  numbers through presets; A on text opens the on-screen keyboard retargeted at the field.
+  Keys will show a fingerprint with reveal/regenerate behind a confirm, actions run a command.
+- Edits accumulate in the nav (pending values per field) until **Y** saves the section as
+  one `set_*`. Dirty rows carry a marker and the title says `(unsaved)`; B on a dirty section
+  asks once and discards on the second press.
 - Sections that reboot the radio get a **confirm** screen (a new overlay, two rows) that
   states what will happen, and after commit the HUD shows "radio rebooting, reconnecting"
   until the link poller and auto-connect bring it back.
@@ -84,11 +100,20 @@ Each phase ships on its own and is tested on the Brick before the next starts.
 - Exit criteria: on the Brick, the log shows `Admin reply ... session passkey held`, every
   section shows real values, and X refreshes them without disturbing the message log.
 
-### Phase 2 - low-risk writes
+### Phase 2 - first writes (this branch)
 
-User (names, licensed), Display, Telemetry, Store and Forward. Introduces pending edits,
-Save, toggles, enums, number stepper, text via keyboard, and the
-`begin_edit_settings`/`commit_edit_settings` bracket. None of these reboot the radio.
+User (names, licensed, unmessageable), Display, Telemetry, Store and Forward. Introduces the
+field table, pending edits, Y to save, toggles, enums, number presets, text via the keyboard,
+the passkey-refresh / set / read-back sequence, Routing-ack correlation, and the save-outcome
+toasts ("saved; radio may restart", "rejected: session expired", "restarting to apply;
+reconnecting"). The original premise that these sections do not reboot the radio was wrong
+(see "The one mechanism"); the reboot is handled by the existing link poller and auto-connect
+rather than avoided.
+
+- Exit criteria: on the Brick, flipping a Display toggle and pressing Y shows the saving toast,
+  the log shows `Admin request N acknowledged`, the row shows the new value after the
+  read-back, the radio reboots and the client reconnects with the value still set; renaming
+  the node via the keyboard shows the new name in the phone app.
 
 ### Phase 3 - Channels and Bluetooth
 

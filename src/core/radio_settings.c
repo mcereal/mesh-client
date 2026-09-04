@@ -117,12 +117,62 @@ void mesh_radio_settings_apply_owner(struct mesh_radio_settings *settings,
 
 /* ---- admin replies ------------------------------------------------------------------------ */
 
-static void mesh_radio_settings_finish_pending(struct mesh_radio_settings *settings,
-                                               uint32_t request_id) {
-    if (settings->pending_request_id != 0U && settings->pending_request_id == request_id) {
-        settings->pending_request_id = 0U;
-        settings->pending_sent_at_ms = 0U;
+bool mesh_admin_request_is_write(enum mesh_admin_request_kind kind) {
+    return kind == MESH_ADMIN_SET_OWNER || kind == MESH_ADMIN_SET_CONFIG ||
+           kind == MESH_ADMIN_SET_MODULE_CONFIG;
+}
+
+static void mesh_radio_settings_record_write_result(struct mesh_radio_settings *settings,
+                                                    int32_t error) {
+    if (error == 0) {
+        settings->writes_acked += 1U;
+    } else {
+        settings->writes_failed += 1U;
+        settings->last_write_error = error;
     }
+}
+
+/* Releases the queue when `request_id` answers the request in flight. `error` is the Routing
+   error the reply carried (0 for an AdminMessage reply or a clean ack). */
+static bool mesh_radio_settings_finish_pending(struct mesh_radio_settings *settings,
+                                               uint32_t request_id, int32_t error) {
+    if (settings->pending_request_id == 0U || settings->pending_request_id != request_id) {
+        return false;
+    }
+    if (settings->pending_is_write) {
+        mesh_radio_settings_record_write_result(settings, error);
+    }
+    settings->pending_request_id = 0U;
+    settings->pending_sent_at_ms = 0U;
+    settings->pending_is_write = false;
+    return true;
+}
+
+/* The ack (or rejection) of a set_*: a Routing packet quoting our packet id. */
+static int mesh_radio_settings_ingest_routing(struct mesh_radio_settings *settings,
+                                              const meshtastic_MeshPacket *packet) {
+    const uint32_t request_id = packet->decoded.request_id;
+    if (request_id == 0U || settings->pending_request_id != request_id) {
+        return 0; /* answers a text message or something else; not ours */
+    }
+    meshtastic_Routing routing = meshtastic_Routing_init_default;
+    pb_istream_t stream =
+        pb_istream_from_buffer(packet->decoded.payload.bytes, packet->decoded.payload.size);
+    int32_t error = 0;
+    if (!pb_decode(&stream, meshtastic_Routing_fields, &routing)) {
+        mesh_log_warn("admin", "Undecodable Routing reply to admin request %u: %s", request_id,
+                      PB_GET_ERROR(&stream));
+    } else if (routing.which_variant == meshtastic_Routing_error_reason_tag) {
+        error = (int32_t)routing.error_reason;
+    }
+    if (error == 0) {
+        mesh_log_info("admin", "Admin request %u acknowledged", request_id);
+    } else {
+        mesh_log_warn("admin", "Admin request %u rejected: routing error %d", request_id,
+                      (int)error);
+    }
+    mesh_radio_settings_finish_pending(settings, request_id, error);
+    return 1;
 }
 
 int mesh_radio_settings_ingest(struct mesh_radio_settings *settings,
@@ -130,8 +180,13 @@ int mesh_radio_settings_ingest(struct mesh_radio_settings *settings,
     if (settings == NULL || packet == NULL) {
         return -EINVAL;
     }
-    if (packet->which_payload_variant != meshtastic_MeshPacket_decoded_tag ||
-        packet->decoded.portnum != meshtastic_PortNum_ADMIN_APP) {
+    if (packet->which_payload_variant != meshtastic_MeshPacket_decoded_tag) {
+        return 0;
+    }
+    if (packet->decoded.portnum == meshtastic_PortNum_ROUTING_APP) {
+        return mesh_radio_settings_ingest_routing(settings, packet);
+    }
+    if (packet->decoded.portnum != meshtastic_PortNum_ADMIN_APP) {
         return 0;
     }
 
@@ -141,7 +196,7 @@ int mesh_radio_settings_ingest(struct mesh_radio_settings *settings,
     if (!pb_decode(&stream, meshtastic_AdminMessage_fields, &admin)) {
         mesh_log_warn("admin", "Undecodable AdminMessage (request_id=%u): %s",
                       packet->decoded.request_id, PB_GET_ERROR(&stream));
-        mesh_radio_settings_finish_pending(settings, packet->decoded.request_id);
+        mesh_radio_settings_finish_pending(settings, packet->decoded.request_id, 0);
         return 1;
     }
 
@@ -178,10 +233,10 @@ int mesh_radio_settings_ingest(struct mesh_radio_settings *settings,
         break;
     }
 
-    mesh_log_info("admin", "Admin reply: %s (request_id=%u, variant=%u, session passkey %s)",
-                  what, packet->decoded.request_id, (unsigned)admin.which_payload_variant,
+    mesh_log_info("admin", "Admin reply: %s (request_id=%u, variant=%u, session passkey %s)", what,
+                  packet->decoded.request_id, (unsigned)admin.which_payload_variant,
                   settings->has_session_passkey ? "held" : "absent");
-    mesh_radio_settings_finish_pending(settings, packet->decoded.request_id);
+    mesh_radio_settings_finish_pending(settings, packet->decoded.request_id, 0);
     return 1;
 }
 
@@ -215,6 +270,24 @@ int mesh_radio_settings_encode_request(const struct mesh_radio_settings *setting
         admin.which_payload_variant = meshtastic_AdminMessage_get_module_config_request_tag;
         admin.get_module_config_request = (meshtastic_AdminMessage_ModuleConfigType)request->type;
         break;
+    case MESH_ADMIN_SET_OWNER:
+        admin.which_payload_variant = meshtastic_AdminMessage_set_owner_tag;
+        admin.set_owner = request->payload.owner;
+        break;
+    case MESH_ADMIN_SET_CONFIG:
+        if (request->payload.config.which_payload_variant == 0U) {
+            return -EINVAL;
+        }
+        admin.which_payload_variant = meshtastic_AdminMessage_set_config_tag;
+        admin.set_config = request->payload.config;
+        break;
+    case MESH_ADMIN_SET_MODULE_CONFIG:
+        if (request->payload.module_config.which_payload_variant == 0U) {
+            return -EINVAL;
+        }
+        admin.which_payload_variant = meshtastic_AdminMessage_set_module_config_tag;
+        admin.set_module_config = request->payload.module_config;
+        break;
     default:
         return -EINVAL;
     }
@@ -233,6 +306,7 @@ int mesh_radio_settings_encode_request(const struct mesh_radio_settings *setting
     packet->id = request->packet_id;
     packet->which_payload_variant = meshtastic_MeshPacket_decoded_tag;
     packet->decoded.portnum = meshtastic_PortNum_ADMIN_APP;
+    /* A get is answered with the data; a set with a Routing ack we correlate by id. */
     packet->decoded.want_response = true;
 
     pb_ostream_t payload =
@@ -273,12 +347,85 @@ static size_t mesh_radio_settings_enqueue(struct mesh_radio_settings *settings,
         return 0U;
     }
     struct mesh_admin_request *slot =
-        &settings->queue[(settings->queue_head + settings->queue_len) % MESH_RADIO_SETTINGS_FETCH_MAX];
+        &settings
+             ->queue[(settings->queue_head + settings->queue_len) % MESH_RADIO_SETTINGS_FETCH_MAX];
     memset(slot, 0, sizeof *slot);
     slot->kind = kind;
     slot->type = type;
     settings->queue_len += 1U;
     return 1U;
+}
+
+int mesh_radio_settings_queue_write(struct mesh_radio_settings *settings,
+                                    const struct mesh_admin_request *write) {
+    if (settings == NULL || write == NULL || !mesh_admin_request_is_write(write->kind)) {
+        return -EINVAL;
+    }
+    enum mesh_admin_request_kind readback = MESH_ADMIN_GET_OWNER;
+    switch (write->kind) {
+    case MESH_ADMIN_SET_OWNER:
+        readback = MESH_ADMIN_GET_OWNER;
+        break;
+    case MESH_ADMIN_SET_CONFIG:
+        if (write->payload.config.which_payload_variant == 0U) {
+            return -EINVAL;
+        }
+        readback = MESH_ADMIN_GET_CONFIG;
+        break;
+    case MESH_ADMIN_SET_MODULE_CONFIG:
+        if (write->payload.module_config.which_payload_variant == 0U) {
+            return -EINVAL;
+        }
+        readback = MESH_ADMIN_GET_MODULE_CONFIG;
+        break;
+    default:
+        return -EINVAL;
+    }
+    /* Passkey refresh (unless one is already on its way), the write, the read-back. Writes
+       are never deduplicated: two saves of one section both carry a full struct and the
+       later one wins, which is what the user asked for. */
+    const size_t needed =
+        (mesh_radio_settings_queued(settings, MESH_ADMIN_GET_OWNER, 0U) ? 0U : 1U) + 1U +
+        (mesh_radio_settings_queued(settings, readback, write->type) ? 0U : 1U);
+    if (settings->queue_len + needed > MESH_RADIO_SETTINGS_FETCH_MAX) {
+        return -ENOSPC;
+    }
+    size_t added = mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_OWNER, 0U);
+    struct mesh_admin_request *slot =
+        &settings
+             ->queue[(settings->queue_head + settings->queue_len) % MESH_RADIO_SETTINGS_FETCH_MAX];
+    *slot = *write;
+    slot->my_node = 0U;
+    slot->packet_id = 0U;
+    settings->queue_len += 1U;
+    added += 1U;
+    added += mesh_radio_settings_enqueue(settings, readback, write->type);
+    return (int)added;
+}
+
+bool mesh_radio_settings_write_pending(const struct mesh_radio_settings *settings) {
+    if (settings == NULL) {
+        return false;
+    }
+    if (settings->pending_request_id != 0U && settings->pending_is_write) {
+        return true;
+    }
+    for (size_t i = 0; i < settings->queue_len; ++i) {
+        const struct mesh_admin_request *entry =
+            &settings->queue[(settings->queue_head + i) % MESH_RADIO_SETTINGS_FETCH_MAX];
+        if (mesh_admin_request_is_write(entry->kind)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void mesh_radio_settings_mark_unsent(struct mesh_radio_settings *settings,
+                                     const struct mesh_admin_request *request, int error) {
+    if (settings == NULL || request == NULL || !mesh_admin_request_is_write(request->kind)) {
+        return;
+    }
+    mesh_radio_settings_record_write_result(settings, error != 0 ? (int32_t)error : -EIO);
 }
 
 size_t mesh_radio_settings_queue_probe(struct mesh_radio_settings *settings) {
@@ -338,8 +485,12 @@ bool mesh_radio_settings_next_request(struct mesh_radio_settings *settings, uint
         mesh_log_warn("admin", "No reply to admin request %u after %u ms; moving on",
                       settings->pending_request_id, MESH_RADIO_SETTINGS_REPLY_TIMEOUT_MS);
         settings->timeouts += 1U;
+        if (settings->pending_is_write) {
+            mesh_radio_settings_record_write_result(settings, MESH_RADIO_SETTINGS_WRITE_TIMEOUT);
+        }
         settings->pending_request_id = 0U;
         settings->pending_sent_at_ms = 0U;
+        settings->pending_is_write = false;
     }
     if (settings->queue_len == 0U) {
         return false;
@@ -347,6 +498,9 @@ bool mesh_radio_settings_next_request(struct mesh_radio_settings *settings, uint
     *out = settings->queue[settings->queue_head];
     settings->queue_head = (settings->queue_head + 1U) % MESH_RADIO_SETTINGS_FETCH_MAX;
     settings->queue_len -= 1U;
+    /* Remember what kind went out so the reply (or its absence) is accounted correctly. The
+       caller's mark_sent() confirms it actually left. */
+    settings->pending_is_write = mesh_admin_request_is_write(out->kind);
     return true;
 }
 
@@ -357,6 +511,9 @@ void mesh_radio_settings_mark_sent(struct mesh_radio_settings *settings, uint32_
     }
     settings->pending_request_id = packet_id;
     settings->pending_sent_at_ms = now_ms;
+    if (settings->pending_is_write) {
+        settings->writes_sent += 1U;
+    }
 }
 
 /* ---- names -------------------------------------------------------------------------------- */

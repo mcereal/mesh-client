@@ -6,9 +6,12 @@
  * transport feeds FromRadio fragments and ADMIN_APP packets in and pulls encoded ToRadio
  * requests out; serial/TCP would do the same. docs/settings-roadmap.md explains the plan.
  *
- * Every admin reply carries a session passkey that a later set_* must echo back (firmware
- * 2.5+ rejects a write without one, and keys live for five minutes). Phase 1 only reads, but
- * the passkey is captured and reported so the write path can be proven on hardware first.
+ * Every admin reply carries a session passkey that a set_* must echo back (firmware 2.5+
+ * rejects a write without one, and keys live for five minutes). Writes therefore always go out
+ * behind a fresh get_owner_request, and are followed by the matching get_* so the view returns
+ * to what the radio actually holds. A set_* is answered with a Routing packet quoting our
+ * packet id: error NONE is the ack, anything else (ADMIN_BAD_SESSION_KEY in particular) is a
+ * rejection.
  */
 
 #include "meshtastic/admin.pb.h"
@@ -24,12 +27,15 @@
 extern "C" {
 #endif
 
-/* What a request asks for. GET_CONFIG and GET_MODULE_CONFIG carry the section type. */
+/* What a request asks for. The CONFIG and MODULE_CONFIG kinds carry the section type. */
 enum mesh_admin_request_kind {
     MESH_ADMIN_GET_OWNER = 0,
     MESH_ADMIN_GET_METADATA,
     MESH_ADMIN_GET_CONFIG,        /* type = meshtastic_AdminMessage_ConfigType */
     MESH_ADMIN_GET_MODULE_CONFIG, /* type = meshtastic_AdminMessage_ModuleConfigType */
+    MESH_ADMIN_SET_OWNER,         /* payload.owner */
+    MESH_ADMIN_SET_CONFIG,        /* type as GET_CONFIG; payload.config with its oneof set */
+    MESH_ADMIN_SET_MODULE_CONFIG, /* type as GET_MODULE_CONFIG; payload.module_config */
 };
 
 struct mesh_admin_request {
@@ -37,7 +43,20 @@ struct mesh_admin_request {
     uint32_t type;
     uint32_t my_node;   /* MeshPacket.to: admin goes to ourselves */
     uint32_t packet_id; /* MeshPacket.id; replies quote it in Data.request_id */
+    /* What a set_* carries. The firmware replaces the whole section, so this is the full
+       struct as the radio last reported it with the edits applied, never a partial. */
+    union {
+        meshtastic_User owner;
+        meshtastic_Config config;
+        meshtastic_ModuleConfig module_config;
+    } payload;
 };
+
+/* True for the SET_* kinds. */
+bool mesh_admin_request_is_write(enum mesh_admin_request_kind kind);
+
+/* last_write_error when the radio never answered a set_*. Routing errors are positive. */
+#define MESH_RADIO_SETTINGS_WRITE_TIMEOUT (-1)
 
 /* Sections we fetch on a full refresh, in the order they are asked for. */
 #define MESH_RADIO_SETTINGS_FETCH_MAX 16U
@@ -78,13 +97,21 @@ struct mesh_radio_settings {
     size_t session_passkey_len;
     uint32_t admin_replies; /* ADMIN_APP replies decoded since reset */
 
-    /* One-at-a-time fetch queue. */
+    /* One-at-a-time request queue. */
     struct mesh_admin_request queue[MESH_RADIO_SETTINGS_FETCH_MAX];
     size_t queue_head;
     size_t queue_len;
     uint32_t pending_request_id; /* 0 = nothing in flight */
     uint64_t pending_sent_at_ms;
+    bool pending_is_write;
     unsigned timeouts;
+
+    /* Write outcomes, counted so the app can announce each one once. */
+    uint32_t writes_sent;
+    uint32_t writes_acked;    /* Routing reply with error NONE */
+    uint32_t writes_failed;   /* Routing error, timeout, or the GATT write itself failed */
+    int32_t last_write_error; /* meshtastic_Routing_Error, MESH_RADIO_SETTINGS_WRITE_TIMEOUT,
+                                 or a negative errno from the transport */
 };
 
 void mesh_radio_settings_reset(struct mesh_radio_settings *settings);
@@ -103,9 +130,10 @@ void mesh_radio_settings_apply_owner(struct mesh_radio_settings *settings,
                                      const meshtastic_User *owner);
 
 /* Folds an ADMIN_APP packet in: captures the session passkey, stores whatever get_*_response
-   it carries, and releases the fetch queue when it answers the pending request. Returns 1
-   when the packet was an admin reply (the caller should not treat it as a message), 0 when
-   it was something else, a negative errno on bad input. */
+   it carries, and releases the fetch queue when it answers the pending request. A ROUTING_APP
+   packet answering the pending request (the ack or rejection of a set_*) is consumed the same
+   way. Returns 1 when the packet was ours (the caller should not treat it as a message), 0
+   when it was something else, a negative errno on bad input. */
 int mesh_radio_settings_ingest(struct mesh_radio_settings *settings,
                                const meshtastic_MeshPacket *packet);
 
@@ -121,6 +149,19 @@ int mesh_radio_settings_encode_request(const struct mesh_radio_settings *setting
    already queued are skipped. Returns the number of requests added. */
 size_t mesh_radio_settings_queue_probe(struct mesh_radio_settings *settings);
 size_t mesh_radio_settings_queue_all(struct mesh_radio_settings *settings);
+
+/* Queues one write: a get_owner_request first (a fresh passkey, since the one we hold may be
+   minutes old), the set_* itself, then the get_* for the same section. `write->kind` must be
+   a SET_* kind with its payload filled in; my_node and packet_id are assigned at send time.
+   Returns the number of requests queued, -EINVAL for a non-write, -ENOSPC when the queue
+   cannot take all three. */
+int mesh_radio_settings_queue_write(struct mesh_radio_settings *settings,
+                                    const struct mesh_admin_request *write);
+/* True while a set_* is queued or awaiting its reply. */
+bool mesh_radio_settings_write_pending(const struct mesh_radio_settings *settings);
+/* Records that a dequeued request could not be sent at all (the caller's write failed). */
+void mesh_radio_settings_mark_unsent(struct mesh_radio_settings *settings,
+                                     const struct mesh_admin_request *request, int error);
 
 /* Hands out the next request to send when nothing is in flight (or the in-flight one has
    timed out). The caller fills in packet_id/my_node, encodes and sends it, then calls

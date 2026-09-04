@@ -142,7 +142,7 @@ const char *mesh_ui_kb_action_label(const struct mesh_ui_nav *nav, enum mesh_ui_
     case MESH_UI_KB_ACTION_DELETE:
         return "del";
     case MESH_UI_KB_ACTION_SEND:
-        return "send";
+        return (nav != NULL && nav->keyboard_field != MESH_UI_FIELD_NONE) ? "done" : "send";
     case MESH_UI_KB_ACTION_CANCEL:
         return "cancel";
     default:
@@ -621,31 +621,205 @@ static void mesh_ui_nav_cycle_conversation(struct mesh_ui_nav *nav,
 
 /* ---- keyboard ----------------------------------------------------------------------------- */
 
+/* The most bytes the draft may hold: the message limit, or the field's cap when the keyboard
+   is editing a setting. */
+static size_t mesh_ui_nav_draft_cap(const struct mesh_ui_nav *nav) {
+    if (nav->keyboard_field != MESH_UI_FIELD_NONE) {
+        const uint32_t cap =
+            mesh_ui_settings_text_max((enum mesh_ui_setting_field)nav->keyboard_field);
+        return cap < MESH_UI_DRAFT_MAX - 1U ? cap : MESH_UI_DRAFT_MAX - 1U;
+    }
+    return MESH_UI_DRAFT_MAX - 1U;
+}
+
 static void mesh_ui_nav_draft_append(struct mesh_ui_nav *nav, char ch) {
     const size_t len = strlen(nav->draft);
-    if (len + 1U >= sizeof nav->draft) {
+    if (len + 1U >= sizeof nav->draft || len >= mesh_ui_nav_draft_cap(nav)) {
         return;
     }
     nav->draft[len] = ch;
     nav->draft[len + 1U] = '\0';
 }
 
+/* Removes one character. A name preloaded from the radio may hold UTF-8 the keyboard cannot
+   type; deleting byte-wise would leave a broken sequence behind. */
 static bool mesh_ui_nav_draft_delete(struct mesh_ui_nav *nav) {
-    const size_t len = strlen(nav->draft);
+    size_t len = strlen(nav->draft);
     if (len == 0U) {
         return false;
+    }
+    while (len > 1U && ((unsigned char)nav->draft[len - 1U] & 0xC0U) == 0x80U) {
+        len--;
     }
     nav->draft[len - 1U] = '\0';
     return true;
 }
 
-/* Closing always parks the cursor at the top-left so the next message starts the same way. */
+/* Closing always parks the cursor at the top-left so the next message starts the same way.
+   A keyboard opened for a setting returns to that section and restores the Compose draft. */
 static void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
     nav->keyboard_open = false;
     nav->kb_row = 0U;
     nav->kb_col = 0U;
     nav->kb_layer = MESH_UI_KB_LOWER;
+    if (nav->keyboard_field != MESH_UI_FIELD_NONE) {
+        nav->keyboard_field = MESH_UI_FIELD_NONE;
+        snprintf(nav->draft, sizeof nav->draft, "%s", nav->draft_saved);
+        nav->draft_saved[0] = '\0';
+        nav->screen = MESH_UI_SCREEN_SETTINGS;
+        return;
+    }
     nav->screen = MESH_UI_SCREEN_COMPOSE;
+}
+
+/* ---- settings edits ----------------------------------------------------------------------- */
+
+static const struct mesh_ui_handshake_state *
+mesh_ui_nav_handshake(const struct mesh_ui_store *store) {
+    return store->handshake_valid ? &store->handshake : NULL;
+}
+
+/* The row under the cursor in the open section, with (or without) the pending edits. */
+static bool mesh_ui_nav_settings_current(const struct mesh_ui_nav *nav,
+                                         const struct mesh_ui_store *store, bool with_edits,
+                                         struct mesh_ui_settings_item *out) {
+    if (nav->screen != MESH_UI_SCREEN_SETTINGS ||
+        nav->settings_section == MESH_UI_SETTINGS_NO_SECTION) {
+        return false;
+    }
+    return mesh_ui_settings_item(&store->settings, mesh_ui_nav_handshake(store),
+                                 with_edits ? nav->settings_edits : NULL,
+                                 with_edits ? nav->settings_edit_count : 0U,
+                                 (enum mesh_ui_settings_section)nav->settings_section,
+                                 nav->cursor[MESH_UI_SCREEN_SETTINGS], out);
+}
+
+static void mesh_ui_nav_edit_remove(struct mesh_ui_nav *nav, enum mesh_ui_setting_field field) {
+    for (uint8_t i = 0; i < nav->settings_edit_count; ++i) {
+        if (nav->settings_edits[i].field != (uint8_t)field) {
+            continue;
+        }
+        for (uint8_t j = i; j + 1U < nav->settings_edit_count; ++j) {
+            nav->settings_edits[j] = nav->settings_edits[j + 1U];
+        }
+        nav->settings_edit_count--;
+        memset(&nav->settings_edits[nav->settings_edit_count], 0, sizeof nav->settings_edits[0]);
+        return;
+    }
+}
+
+/* Records an edit for the row under the cursor; an edit that puts the radio's own value back
+   is dropped instead, so toggling something twice leaves the section clean. */
+static bool mesh_ui_nav_edit_set(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                 enum mesh_ui_setting_field field, uint32_t number,
+                                 const char *text) {
+    struct mesh_ui_settings_item base;
+    if (!mesh_ui_nav_settings_current(nav, store, false, &base) || base.field != field) {
+        return false;
+    }
+    const bool same = (base.kind == MESH_UI_SETTING_TEXT)
+                          ? (text != NULL && strcmp(base.text, text) == 0)
+                          : (base.number == number);
+    if (same) {
+        mesh_ui_nav_edit_remove(nav, field);
+        return true;
+    }
+    struct mesh_ui_setting_edit *slot = NULL;
+    for (uint8_t i = 0; i < nav->settings_edit_count; ++i) {
+        if (nav->settings_edits[i].field == (uint8_t)field) {
+            slot = &nav->settings_edits[i];
+            break;
+        }
+    }
+    if (slot == NULL) {
+        if (nav->settings_edit_count >= MESH_UI_SETTINGS_EDITS_MAX) {
+            return false;
+        }
+        slot = &nav->settings_edits[nav->settings_edit_count++];
+    }
+    memset(slot, 0, sizeof *slot);
+    slot->field = (uint8_t)field;
+    slot->number = number;
+    if (text != NULL) {
+        snprintf(slot->text, sizeof slot->text, "%s", text);
+    }
+    return true;
+}
+
+static void mesh_ui_nav_edits_clear(struct mesh_ui_nav *nav) {
+    memset(nav->settings_edits, 0, sizeof nav->settings_edits);
+    nav->settings_edit_count = 0U;
+    nav->settings_discard_armed = false;
+}
+
+/* A, Left or Right on a row of an open section. Toggles flip, enums cycle, numbers step
+   through their presets, text opens the keyboard. Read-only rows ignore the press. */
+static bool mesh_ui_nav_settings_edit_key(struct mesh_ui_nav *nav,
+                                          const struct mesh_ui_store *store, enum mesh_ui_key key) {
+    struct mesh_ui_settings_item item;
+    if (!mesh_ui_nav_settings_current(nav, store, true, &item) ||
+        item.field == MESH_UI_FIELD_NONE) {
+        return false;
+    }
+    const enum mesh_ui_setting_field field = item.field;
+    const int delta = (key == MESH_UI_KEY_LEFT) ? -1 : +1;
+    switch (item.kind) {
+    case MESH_UI_SETTING_TOGGLE:
+        return mesh_ui_nav_edit_set(nav, store, field, item.number != 0U ? 0U : 1U, NULL);
+    case MESH_UI_SETTING_ENUM: {
+        const uint32_t count = mesh_ui_settings_enum_count(field);
+        if (count == 0U) {
+            return false;
+        }
+        const uint32_t next =
+            (item.number + count + (uint32_t)(delta < 0 ? count - 1U : 1U)) % count;
+        return mesh_ui_nav_edit_set(nav, store, field, next, NULL);
+    }
+    case MESH_UI_SETTING_NUMBER: {
+        const uint32_t next = mesh_ui_settings_number_step(field, item.number, delta);
+        if (next == item.number) {
+            return false;
+        }
+        return mesh_ui_nav_edit_set(nav, store, field, next, NULL);
+    }
+    case MESH_UI_SETTING_TEXT:
+        if (key != MESH_UI_KEY_A) {
+            return false;
+        }
+        /* Park the Compose draft; the keyboard edits this field until done or cancel. */
+        snprintf(nav->draft_saved, sizeof nav->draft_saved, "%s", nav->draft);
+        snprintf(nav->draft, sizeof nav->draft, "%s", item.text);
+        nav->keyboard_field = (uint8_t)field;
+        nav->keyboard_open = true;
+        nav->kb_row = 0U;
+        nav->kb_col = 0U;
+        nav->kb_layer = MESH_UI_KB_LOWER;
+        return true;
+    default:
+        return false;
+    }
+}
+
+/* Done on the keyboard while it edits a setting: the draft becomes the pending edit. */
+static bool mesh_ui_nav_settings_commit_text(struct mesh_ui_nav *nav,
+                                             const struct mesh_ui_store *store) {
+    const enum mesh_ui_setting_field field = (enum mesh_ui_setting_field)nav->keyboard_field;
+    char text[MESH_UI_SETTING_TEXT_MAX];
+    snprintf(text, sizeof text, "%.*s", (int)(sizeof text - 1U), nav->draft);
+    size_t cap = mesh_ui_settings_text_max(field);
+    if (cap >= sizeof text) {
+        cap = sizeof text - 1U;
+    }
+    if (strlen(text) > cap) {
+        /* Never cut a UTF-8 sequence in half. */
+        while (cap > 0U && ((unsigned char)text[cap] & 0xC0U) == 0x80U) {
+            cap--;
+        }
+        text[cap] = '\0';
+    }
+    mesh_ui_nav_edit_set(nav, store, field, 0U, text);
+    mesh_ui_nav_keyboard_close(nav);
+    return true;
 }
 
 /* Sends the draft as-is; empty drafts are ignored. */
@@ -667,8 +841,9 @@ static bool mesh_ui_nav_send_draft(struct mesh_ui_nav *nav, struct mesh_ui_actio
     return true;
 }
 
-static bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, enum mesh_ui_key key,
-                                     struct mesh_ui_action *action) {
+static bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                     enum mesh_ui_key key, struct mesh_ui_action *action) {
+    const bool for_setting = (nav->keyboard_field != MESH_UI_FIELD_NONE);
     switch (key) {
     case MESH_UI_KEY_UP:
     case MESH_UI_KEY_DOWN: {
@@ -724,7 +899,8 @@ static bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, enum mesh_ui_key k
         case MESH_UI_KB_ACTION_DELETE:
             return mesh_ui_nav_draft_delete(nav);
         case MESH_UI_KB_ACTION_SEND:
-            return mesh_ui_nav_send_draft(nav, action);
+            return for_setting ? mesh_ui_nav_settings_commit_text(nav, store)
+                               : mesh_ui_nav_send_draft(nav, action);
         case MESH_UI_KB_ACTION_CANCEL:
             nav->draft[0] = '\0';
             mesh_ui_nav_keyboard_close(nav);
@@ -751,7 +927,8 @@ static bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, enum mesh_ui_key k
         mesh_ui_nav_draft_append(nav, ' ');
         return true;
     case MESH_UI_KEY_START:
-        return mesh_ui_nav_send_draft(nav, action);
+        return for_setting ? mesh_ui_nav_settings_commit_text(nav, store)
+                           : mesh_ui_nav_send_draft(nav, action);
     case MESH_UI_KEY_SELECT:
     case MESH_UI_KEY_NONE:
     default:
@@ -881,7 +1058,7 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
     }
     case MESH_UI_SCREEN_SETTINGS: {
         if (nav->settings_section != MESH_UI_SETTINGS_NO_SECTION) {
-            return false; /* items are read-only for now (docs/settings-roadmap.md, phase 1) */
+            return mesh_ui_nav_settings_edit_key(nav, store, MESH_UI_KEY_A);
         }
         if (cursor >= MESH_UI_SETTINGS_SECTION_COUNT) {
             return false;
@@ -901,9 +1078,45 @@ static bool mesh_ui_nav_settings_back(struct mesh_ui_nav *nav) {
     if (nav->settings_section == MESH_UI_SETTINGS_NO_SECTION) {
         return false;
     }
+    mesh_ui_nav_edits_clear(nav);
     nav->settings_section = MESH_UI_SETTINGS_NO_SECTION;
     nav->cursor[MESH_UI_SCREEN_SETTINGS] = nav->settings_list_cursor;
     return true;
+}
+
+/* Keys that mean something different while a Settings section is open: Left/Right edit the
+   row instead of switching tabs (L1/R1 still do), Y saves, B asks before discarding edits.
+   Returns false to let the ordinary handling run. */
+static bool mesh_ui_nav_settings_section_key(struct mesh_ui_nav *nav,
+                                             const struct mesh_ui_store *store,
+                                             enum mesh_ui_key key, struct mesh_ui_action *action,
+                                             bool *handled) {
+    *handled = true;
+    switch (key) {
+    case MESH_UI_KEY_LEFT:
+    case MESH_UI_KEY_RIGHT:
+        return mesh_ui_nav_settings_edit_key(nav, store, key);
+    case MESH_UI_KEY_Y:
+        if (nav->settings_edit_count == 0U) {
+            return false;
+        }
+        if (action != NULL) {
+            action->type = MESH_UI_ACTION_SAVE_SETTINGS;
+            action->section = nav->settings_section;
+            action->edit_count = nav->settings_edit_count;
+            memcpy(action->edits, nav->settings_edits, sizeof action->edits);
+        }
+        return false; /* the app clears the edits once the write is queued */
+    case MESH_UI_KEY_B:
+        if (nav->settings_edit_count > 0U && !nav->settings_discard_armed) {
+            nav->settings_discard_armed = true; /* the footer now says "B again to discard" */
+            return true;
+        }
+        return mesh_ui_nav_settings_back(nav);
+    default:
+        *handled = false;
+        return false;
+    }
 }
 
 bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
@@ -927,7 +1140,22 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         return mesh_ui_nav_picker_key(nav, store, key) || changed;
     }
     if (nav->keyboard_open) {
-        return mesh_ui_nav_keyboard_key(nav, key, out_action) || changed;
+        return mesh_ui_nav_keyboard_key(nav, store, key, out_action) || changed;
+    }
+
+    if (nav->screen == MESH_UI_SCREEN_SETTINGS &&
+        nav->settings_section != MESH_UI_SETTINGS_NO_SECTION) {
+        /* A second press of anything but B stands the discard question down. */
+        const bool was_armed = nav->settings_discard_armed;
+        if (key != MESH_UI_KEY_B) {
+            nav->settings_discard_armed = false;
+            changed = changed || was_armed;
+        }
+        bool handled = false;
+        const bool result = mesh_ui_nav_settings_section_key(nav, store, key, out_action, &handled);
+        if (handled) {
+            return result || changed;
+        }
     }
 
     switch (key) {

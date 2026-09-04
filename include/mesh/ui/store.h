@@ -69,14 +69,16 @@ struct mesh_ui_channel {
  */
 struct mesh_ui_settings {
     bool loaded;
-    bool admin_ok;   /* at least one AdminMessage reply came back this connection */
-    bool admin_busy; /* a refresh is in flight */
+    bool admin_ok;      /* at least one AdminMessage reply came back this connection */
+    bool admin_busy;    /* a refresh is in flight */
+    bool write_pending; /* a set_* is queued or awaiting its ack */
     uint32_t admin_replies;
 
     bool has_owner;
     char long_name[40];
     char short_name[5];
     bool is_licensed;
+    bool is_unmessagable;
 
     bool has_device;
     uint8_t role;
@@ -276,6 +278,8 @@ bool mesh_ui_store_handle_key(struct mesh_ui_store *store, enum mesh_ui_key key,
                               struct mesh_ui_action *out_action);
 /* Show a transient one-line notice on the backends ("Sent to ABCD"). */
 void mesh_ui_store_set_toast(struct mesh_ui_store *store, uint64_t now_ms, const char *text);
+/* Drops the pending Settings edits: the app calls this once a save has been queued. */
+void mesh_ui_store_settings_edits_clear(struct mesh_ui_store *store);
 /* Time-based housekeeping (toast expiry). Call once per loop turn. */
 void mesh_ui_store_tick(struct mesh_ui_store *store, uint64_t now_ms);
 
