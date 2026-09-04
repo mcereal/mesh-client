@@ -74,6 +74,52 @@ static void strip_newline(char *line) {
     }
 }
 
+bool mesh_ui_preferences_knows_radio(const struct mesh_ui_preferences *prefs, uint32_t node_num) {
+    if (prefs == NULL || node_num == 0U) {
+        return false;
+    }
+    for (uint8_t i = 0; i < prefs->known_radio_count && i < MESH_UI_MAX_KNOWN_RADIOS; ++i) {
+        if (prefs->known_radios[i] == node_num) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool mesh_ui_preferences_note_radio(struct mesh_ui_preferences *prefs, uint32_t node_num) {
+    if (prefs == NULL || node_num == 0U) {
+        return false;
+    }
+    if (prefs->known_radio_count > MESH_UI_MAX_KNOWN_RADIOS) {
+        prefs->known_radio_count = MESH_UI_MAX_KNOWN_RADIOS;
+    }
+    if (prefs->known_radio_count > 0U && prefs->known_radios[0] == node_num) {
+        return false; /* already the most recent; the common case, every publish */
+    }
+
+    /* Slide everything ahead of the existing entry down by one and put this radio in front.
+       A radio we have not seen before pushes the oldest one off the end. */
+    uint8_t existing = prefs->known_radio_count;
+    for (uint8_t i = 0; i < prefs->known_radio_count; ++i) {
+        if (prefs->known_radios[i] == node_num) {
+            existing = i;
+            break;
+        }
+    }
+    uint8_t shift_from = existing;
+    if (existing == prefs->known_radio_count) {
+        if (prefs->known_radio_count < MESH_UI_MAX_KNOWN_RADIOS) {
+            prefs->known_radio_count++;
+        }
+        shift_from = (uint8_t)(prefs->known_radio_count - 1U);
+    }
+    for (uint8_t i = shift_from; i > 0U; --i) {
+        prefs->known_radios[i] = prefs->known_radios[i - 1U];
+    }
+    prefs->known_radios[0] = node_num;
+    return true;
+}
+
 int mesh_ui_preferences_load(struct mesh_ui_preferences *prefs, const char *path) {
     if (prefs == NULL || path == NULL || path[0] == '\0') {
         return -EINVAL;
@@ -107,6 +153,22 @@ int mesh_ui_preferences_load(struct mesh_ui_preferences *prefs, const char *path
             prefs->preferred_device_kind = (uint8_t)(strcmp(value, "serial") == 0 ? 1 : 0);
         } else if (strncmp(line, "preferred_channel", key_len) == 0) {
             snprintf(prefs->preferred_channel, sizeof prefs->preferred_channel, "%s", value);
+        } else if (strncmp(line, "known_radios", key_len) == 0) {
+            /* One comma-separated line, most recent first - the order is the value here, so
+               it is read back in file order rather than through note_radio(). */
+            prefs->known_radio_count = 0U;
+            const char *cursor = value;
+            while (*cursor != '\0' && prefs->known_radio_count < MESH_UI_MAX_KNOWN_RADIOS) {
+                char *end = NULL;
+                const unsigned long parsed = strtoul(cursor, &end, 10);
+                if (end == cursor) {
+                    break;
+                }
+                if (parsed != 0UL && !mesh_ui_preferences_knows_radio(prefs, (uint32_t)parsed)) {
+                    prefs->known_radios[prefs->known_radio_count++] = (uint32_t)parsed;
+                }
+                cursor = (*end == ',') ? end + 1 : end;
+            }
         }
     }
 
@@ -174,6 +236,11 @@ int mesh_ui_preferences_save(const struct mesh_ui_preferences *prefs, const char
     fprintf(file, "preferred_device_kind=%s\n",
             prefs->preferred_device_kind == 1U ? "serial" : "ble");
     fprintf(file, "preferred_channel=%s\n", prefs->preferred_channel);
+    fprintf(file, "known_radios=");
+    for (uint8_t i = 0; i < prefs->known_radio_count && i < MESH_UI_MAX_KNOWN_RADIOS; ++i) {
+        fprintf(file, "%s%u", i > 0U ? "," : "", prefs->known_radios[i]);
+    }
+    fputc('\n', file);
 
     fclose(file);
     return 0;

@@ -179,7 +179,16 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   there is no get_favorite and the radio only returns the flag with that node's next NodeInfo).
   `mesh_app_node_rank` puts a pinned node at rank 1, above even a node you are mid-conversation
   with, which is also what keeps a quiet pinned node inside the UI's 128-node budget; the list
-  marks it with a star sprite in the same column our own node's `*` uses. The open node is remembered by
+  marks it with a star sprite in the same column our own node's `*` uses. A pin is **NodeDB
+  state on the radio it was made on** - `is_favorite` is resolved per receiver - so it never
+  follows the Brick from one of your radios to another. That cuts both ways and only one half
+  needs handling: the node you connect to is rank 0 (`*`) whatever its stale flag says, and
+  `node_detail.c`/`nav.c` both refuse to pin our own node, so a leftover flag is inert; but the
+  radio you just unplugged arrives on the new one as an ordinary stranger. Rank 2 is that case
+  - `mesh_ui_preferences_note_radio` records every `my_node_num` we connect to in a small MRU
+  in `ui_prefs` (`known_radios=`), and `mesh_ui_preferences_knows_radio` lifts those above
+  message peers. It is client-side on purpose: no admin write, and nothing that could disagree
+  with what "favorite" means on the radio. The open node is remembered by
   **id** (`nav.node_detail_node`), not by row: `app.c` re-ranks the node list on every publish,
   so an index would slide onto a different node while the user was reading one; `nav.c`'s clamp
   closes the detail when that id leaves the list. `mesh_ui_node_summary` in `store.h` is the
@@ -275,7 +284,8 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   every key goes to the keyboard handler and tabs do not switch. The `picker_open` overlay
   ("New message") works the same way; its rows come from `mesh_ui_nav_picker_row` (channels,
   then nodes), and picking one opens that conversation. `app.c` ranks nodes before publishing
-  (`mesh_app_node_rank`: us, message peers, RF nodes by `last_heard`, MQTT nodes) so the UI's
+  (`mesh_app_node_rank`: us, pinned nodes, our other radios, message peers, RF nodes by
+  `last_heard`, MQTT nodes) so the UI's
   128-node budget always holds whoever you are talking to; on an MQTT-fed mesh last_heard alone
   buries them. The post-stop publish in `mesh_app_run` only touches the transport line, because
   the shutdown save would otherwise persist an empty handshake and unresolved peer names.
