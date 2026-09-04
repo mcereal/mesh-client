@@ -5,6 +5,7 @@
 #include "mesh/event_loop.h"
 #include "mesh/mesh_message.h"
 #include "mesh/proto/framing.h"
+#include "mesh/radio_settings.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/transport.h"
@@ -15,6 +16,7 @@
 #include "mesh/ui/input.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/preferences.h"
+#include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
 
 #include <pb_decode.h>
@@ -2637,7 +2639,7 @@ static void test_ui_nav_navigation(void) {
 
     /* Tabs wrap in both directions; L1/R1 mirror Left/Right. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
-    if (store.nav.screen != MESH_UI_SCREEN_STATUS) {
+    if (store.nav.screen != MESH_UI_SCREEN_SETTINGS) {
         failure = "LEFT from the first tab should wrap to the last";
         goto cleanup;
     }
@@ -2703,6 +2705,7 @@ static void test_ui_nav_navigation(void) {
 
     /* Back in the inbox, a cursor on the newest line follows new traffic; one that was moved
        up stays where it was. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* Settings */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* wraps to Messages */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);     /* BRVO -> inbox */
     if (!store.nav.inbox) {
@@ -3607,6 +3610,618 @@ cleanup:
     }
 }
 
+/* ---- radio settings / admin ---------------------------------------------------------------- */
+
+static bool test_encode_from_radio(const meshtastic_FromRadio *message, uint8_t *out, size_t cap,
+                                   size_t *out_len) {
+    pb_ostream_t stream = pb_ostream_from_buffer(out, cap);
+    if (!pb_encode(&stream, meshtastic_FromRadio_fields, message)) {
+        return false;
+    }
+    *out_len = stream.bytes_written;
+    return true;
+}
+
+/* Builds the ADMIN_APP reply a radio would send for `admin`, quoting `request_id`. */
+static bool test_make_admin_reply(uint32_t my_node, uint32_t request_id,
+                                  const meshtastic_AdminMessage *admin,
+                                  meshtastic_MeshPacket *out) {
+    uint8_t payload[meshtastic_AdminMessage_size];
+    pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof payload);
+    if (!pb_encode(&stream, meshtastic_AdminMessage_fields, admin)) {
+        return false;
+    }
+    *out = make_decoded_packet(my_node, my_node, 0U, 0x5150U, meshtastic_PortNum_ADMIN_APP, payload,
+                               stream.bytes_written);
+    out->decoded.request_id = request_id;
+    return true;
+}
+
+static void test_radio_settings_admin_roundtrip(void) {
+    const char *test_name = "radio_settings_admin_roundtrip";
+    const uint32_t my_node = 0x9E9D0AD8U;
+
+    struct mesh_radio_settings settings;
+    mesh_radio_settings_reset(&settings);
+
+    /* A get_config request: to ourselves, ADMIN_APP, wants a response, no passkey yet. */
+    struct mesh_admin_request request = {
+        .kind = MESH_ADMIN_GET_CONFIG,
+        .type = meshtastic_AdminMessage_ConfigType_LORA_CONFIG,
+        .my_node = my_node,
+        .packet_id = 77U,
+    };
+    uint8_t wire[256];
+    size_t wire_len = 0U;
+    if (mesh_radio_settings_encode_request(&settings, &request, wire, sizeof wire, &wire_len) !=
+        0) {
+        record_failure(test_name, "encode request failed");
+        return;
+    }
+    meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_default;
+    pb_istream_t in = pb_istream_from_buffer(wire, wire_len);
+    if (!pb_decode(&in, meshtastic_ToRadio_fields, &to_radio)) {
+        record_failure(test_name, "request is not a ToRadio");
+        return;
+    }
+    if (to_radio.which_payload_variant != meshtastic_ToRadio_packet_tag ||
+        to_radio.packet.to != my_node || to_radio.packet.id != 77U ||
+        to_radio.packet.which_payload_variant != meshtastic_MeshPacket_decoded_tag ||
+        to_radio.packet.decoded.portnum != meshtastic_PortNum_ADMIN_APP ||
+        !to_radio.packet.decoded.want_response) {
+        record_failure(test_name, "request packet header is wrong");
+        return;
+    }
+    meshtastic_AdminMessage admin = meshtastic_AdminMessage_init_default;
+    in = pb_istream_from_buffer(to_radio.packet.decoded.payload.bytes,
+                                to_radio.packet.decoded.payload.size);
+    if (!pb_decode(&in, meshtastic_AdminMessage_fields, &admin) ||
+        admin.which_payload_variant != meshtastic_AdminMessage_get_config_request_tag ||
+        admin.get_config_request != meshtastic_AdminMessage_ConfigType_LORA_CONFIG ||
+        admin.session_passkey.size != 0U) {
+        record_failure(test_name, "request AdminMessage is wrong");
+        return;
+    }
+
+    /* The reply: LoRa config plus a session passkey, quoting our request id. */
+    mesh_radio_settings_mark_sent(&settings, 77U, 1000U);
+    if (!mesh_radio_settings_busy(&settings)) {
+        record_failure(test_name, "should be busy after mark_sent");
+        return;
+    }
+    admin = (meshtastic_AdminMessage)meshtastic_AdminMessage_init_default;
+    admin.which_payload_variant = meshtastic_AdminMessage_get_config_response_tag;
+    admin.get_config_response.which_payload_variant = meshtastic_Config_lora_tag;
+    admin.get_config_response.payload_variant.lora.region =
+        meshtastic_Config_LoRaConfig_RegionCode_US;
+    admin.get_config_response.payload_variant.lora.use_preset = true;
+    admin.get_config_response.payload_variant.lora.modem_preset =
+        meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST;
+    admin.get_config_response.payload_variant.lora.hop_limit = 3U;
+    static const uint8_t k_passkey[8] = {1U, 2U, 3U, 4U, 5U, 6U, 7U, 8U};
+    admin.session_passkey.size = sizeof k_passkey;
+    memcpy(admin.session_passkey.bytes, k_passkey, sizeof k_passkey);
+
+    meshtastic_MeshPacket reply;
+    if (!test_make_admin_reply(my_node, 77U, &admin, &reply)) {
+        record_failure(test_name, "encode reply failed");
+        return;
+    }
+    if (mesh_radio_settings_ingest(&settings, &reply) != 1) {
+        record_failure(test_name, "admin reply should be consumed");
+        return;
+    }
+    if (!settings.has_lora || settings.lora.region != meshtastic_Config_LoRaConfig_RegionCode_US ||
+        settings.lora.hop_limit != 3U || !settings.has_session_passkey ||
+        settings.session_passkey_len != sizeof k_passkey ||
+        memcmp(settings.session_passkey, k_passkey, sizeof k_passkey) != 0 ||
+        settings.admin_replies != 1U || mesh_radio_settings_busy(&settings) ||
+        !mesh_radio_settings_loaded(&settings)) {
+        record_failure(test_name, "reply was not folded in");
+        return;
+    }
+
+    /* The next request carries the passkey. */
+    request.kind = MESH_ADMIN_GET_OWNER;
+    request.packet_id = 78U;
+    if (mesh_radio_settings_encode_request(&settings, &request, wire, sizeof wire, &wire_len) !=
+        0) {
+        record_failure(test_name, "second encode failed");
+        return;
+    }
+    to_radio = (meshtastic_ToRadio)meshtastic_ToRadio_init_default;
+    in = pb_istream_from_buffer(wire, wire_len);
+    admin = (meshtastic_AdminMessage)meshtastic_AdminMessage_init_default;
+    if (!pb_decode(&in, meshtastic_ToRadio_fields, &to_radio)) {
+        record_failure(test_name, "second request is not a ToRadio");
+        return;
+    }
+    in = pb_istream_from_buffer(to_radio.packet.decoded.payload.bytes,
+                                to_radio.packet.decoded.payload.size);
+    if (!pb_decode(&in, meshtastic_AdminMessage_fields, &admin) ||
+        admin.which_payload_variant != meshtastic_AdminMessage_get_owner_request_tag ||
+        admin.session_passkey.size != sizeof k_passkey ||
+        memcmp(admin.session_passkey.bytes, k_passkey, sizeof k_passkey) != 0) {
+        record_failure(test_name, "second request should carry the passkey");
+        return;
+    }
+
+    /* A text message is not ours to consume. */
+    meshtastic_MeshPacket text = make_decoded_packet(0x1234U, my_node, 0U, 99U,
+                                                     meshtastic_PortNum_TEXT_MESSAGE_APP, "hi", 2U);
+    if (mesh_radio_settings_ingest(&settings, &text) != 0) {
+        record_failure(test_name, "text packet should be left alone");
+        return;
+    }
+
+    record_success(test_name);
+}
+
+static void test_radio_settings_fetch_queue(void) {
+    const char *test_name = "radio_settings_fetch_queue";
+    struct mesh_radio_settings settings;
+    mesh_radio_settings_reset(&settings);
+
+    if (mesh_radio_settings_queue_probe(&settings) != 2U ||
+        mesh_radio_settings_queue_probe(&settings) != 0U) {
+        record_failure(test_name, "probe should queue two requests once");
+        return;
+    }
+
+    struct mesh_admin_request request;
+    if (!mesh_radio_settings_next_request(&settings, 0U, &request) ||
+        request.kind != MESH_ADMIN_GET_METADATA) {
+        record_failure(test_name, "first request should be metadata");
+        return;
+    }
+    mesh_radio_settings_mark_sent(&settings, 1U, 0U);
+    if (mesh_radio_settings_next_request(&settings, 100U, &request)) {
+        record_failure(test_name, "nothing should go out while a reply is awaited");
+        return;
+    }
+    /* Reply never comes: after the timeout the queue moves on. */
+    if (!mesh_radio_settings_next_request(&settings, MESH_RADIO_SETTINGS_REPLY_TIMEOUT_MS + 1U,
+                                          &request) ||
+        request.kind != MESH_ADMIN_GET_OWNER || settings.timeouts != 1U) {
+        record_failure(test_name, "timed-out request should be skipped");
+        return;
+    }
+    mesh_radio_settings_mark_sent(&settings, 2U, 6000U);
+
+    meshtastic_AdminMessage admin = meshtastic_AdminMessage_init_default;
+    admin.which_payload_variant = meshtastic_AdminMessage_get_owner_response_tag;
+    snprintf(admin.get_owner_response.short_name, sizeof admin.get_owner_response.short_name, "%s",
+             "0ad8");
+    meshtastic_MeshPacket reply;
+    if (!test_make_admin_reply(0x10U, 2U, &admin, &reply) ||
+        mesh_radio_settings_ingest(&settings, &reply) != 1 || mesh_radio_settings_busy(&settings) ||
+        !settings.has_owner || strcmp(settings.owner.short_name, "0ad8") != 0) {
+        record_failure(test_name, "owner reply should release the queue");
+        return;
+    }
+
+    /* Everything: the probe pair plus eight configs and three module configs, no repeats. */
+    if (mesh_radio_settings_queue_all(&settings) != 13U || settings.queue_len != 13U) {
+        record_failure(test_name, "queue_all should add thirteen requests");
+        return;
+    }
+    if (mesh_radio_settings_queue_all(&settings) != 0U) {
+        record_failure(test_name, "queue_all again should add nothing");
+        return;
+    }
+    record_success(test_name);
+}
+
+static void test_ui_settings_items(void) {
+    const char *test_name = "ui_settings_items";
+
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_lora = true;
+    settings.use_preset = true;
+    settings.region = meshtastic_Config_LoRaConfig_RegionCode_US;
+    settings.modem_preset = meshtastic_Config_LoRaConfig_ModemPreset_LONG_MODERATE;
+    settings.hop_limit = 3U;
+    settings.tx_enabled = true;
+    settings.has_device = true;
+    settings.role = meshtastic_Config_DeviceConfig_Role_ROUTER_LATE;
+    settings.has_security = true;
+    settings.public_key_len = 32U;
+    settings.public_key[0] = 0xDEU;
+    settings.public_key[1] = 0xADU;
+    settings.public_key[2] = 0xBEU;
+    settings.public_key[3] = 0xEFU;
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.channel_count = 2U;
+    handshake.channels[0].index = 0U;
+    handshake.channels[0].role = 1U;
+    handshake.channels[0].psk_len = 1U;
+    handshake.channels[1].index = 1U;
+    handshake.channels[1].role = 2U;
+    handshake.channels[1].psk_len = 16U;
+    handshake.channels[1].uplink_enabled = true;
+    snprintf(handshake.channels[1].name, sizeof handshake.channels[1].name, "%s", "Team");
+
+    if (!mesh_ui_settings_section_loaded(&settings, &handshake, MESH_UI_SETTINGS_LORA) ||
+        mesh_ui_settings_section_loaded(&settings, &handshake, MESH_UI_SETTINGS_DISPLAY) ||
+        mesh_ui_settings_item_count(&settings, &handshake, MESH_UI_SETTINGS_DISPLAY) != 0U) {
+        record_failure(test_name, "section loaded flags are wrong");
+        return;
+    }
+
+    struct mesh_ui_settings_item item;
+    if (!mesh_ui_settings_item(&settings, &handshake, MESH_UI_SETTINGS_LORA, 0U, &item) ||
+        strcmp(item.label, "Region") != 0 || strcmp(item.value, "US") != 0 ||
+        item.kind != MESH_UI_SETTING_ENUM) {
+        record_failure(test_name, "LoRa region row is wrong");
+        return;
+    }
+    if (!mesh_ui_settings_item(&settings, &handshake, MESH_UI_SETTINGS_LORA, 2U, &item) ||
+        strcmp(item.label, "Preset") != 0 || strcmp(item.value, "Long Range - Moderate") != 0) {
+        record_failure(test_name, "LoRa preset row is wrong");
+        return;
+    }
+    if (!mesh_ui_settings_item(&settings, &handshake, MESH_UI_SETTINGS_DEVICE, 0U, &item) ||
+        strcmp(item.value, "Router Late") != 0) {
+        record_failure(test_name, "device role row is wrong");
+        return;
+    }
+    if (!mesh_ui_settings_item(&settings, &handshake, MESH_UI_SETTINGS_SECURITY, 0U, &item) ||
+        item.kind != MESH_UI_SETTING_KEY || strncmp(item.value, "deadbeef...", 11U) != 0 ||
+        strstr(item.value, "32 bytes") == NULL) {
+        record_failure(test_name, "public key fingerprint is wrong");
+        return;
+    }
+    if (mesh_ui_settings_item_count(&settings, &handshake, MESH_UI_SETTINGS_CHANNELS) != 2U ||
+        !mesh_ui_settings_item(&settings, &handshake, MESH_UI_SETTINGS_CHANNELS, 1U, &item) ||
+        strcmp(item.label, "1 Team") != 0 || strstr(item.value, "AES-128") == NULL ||
+        strstr(item.value, "up on") == NULL || strstr(item.value, "down off") == NULL) {
+        record_failure(test_name, "channel row is wrong");
+        return;
+    }
+    if (!mesh_ui_settings_item(&settings, &handshake, MESH_UI_SETTINGS_CHANNELS, 0U, &item) ||
+        strcmp(item.label, "0 Primary") != 0 || strstr(item.value, "default key") == NULL) {
+        record_failure(test_name, "primary channel row is wrong");
+        return;
+    }
+    if (mesh_ui_settings_item(&settings, &handshake, MESH_UI_SETTINGS_LORA, 99U, &item)) {
+        record_failure(test_name, "out-of-range row should fail");
+        return;
+    }
+    record_success(test_name);
+}
+
+static void test_ui_nav_settings(void) {
+    const char *test_name = "ui_nav_settings";
+    const char *failure = NULL;
+
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    test_nav_populate(&store);
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_lora = true;
+    settings.use_preset = true;
+    mesh_ui_store_set_settings(&store, &settings);
+
+    struct mesh_ui_action action;
+    /* Messages → Nodes → Compose → Devices → Status → Settings. */
+    for (int i = 0; i < 5; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    }
+    if (store.nav.screen != MESH_UI_SCREEN_SETTINGS ||
+        store.nav.settings_section != MESH_UI_SETTINGS_NO_SECTION ||
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) !=
+            MESH_UI_SETTINGS_SECTION_COUNT) {
+        failure = "Settings tab should open on the section list";
+        goto cleanup;
+    }
+    for (int i = 0; i < MESH_UI_SETTINGS_LORA; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
+    if (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != MESH_UI_SETTINGS_LORA) {
+        failure = "cursor should sit on LoRa";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    const uint32_t lora_rows = mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS);
+    if (store.nav.settings_section != MESH_UI_SETTINGS_LORA ||
+        store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 0U || lora_rows == 0U ||
+        action.type != MESH_UI_ACTION_NONE) {
+        failure = "A should open the LoRa section";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    if (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 1U) {
+        failure = "Down should move within the section";
+        goto cleanup;
+    }
+    /* Items are read-only in phase 1: A does nothing. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_NONE || store.nav.settings_section != MESH_UI_SETTINGS_LORA) {
+        failure = "A on an item should be a no-op";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    if (action.type != MESH_UI_ACTION_REFRESH_SETTINGS) {
+        failure = "X should ask for a refresh";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (store.nav.settings_section != MESH_UI_SETTINGS_NO_SECTION ||
+        store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != MESH_UI_SETTINGS_LORA ||
+        store.nav.screen != MESH_UI_SCREEN_SETTINGS) {
+        failure = "B should return to the section list at the same row";
+        goto cleanup;
+    }
+    /* An unloaded section opens empty rather than refusing; the backend explains. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.settings_section != MESH_UI_SETTINGS_DISPLAY ||
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 0U) {
+        failure = "unloaded section should open with no rows";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+/* The whole path on the mock bus: handshake fragments land in the settings, the completed
+   handshake triggers the admin probe, the reply is consumed (not logged as a message) and
+   the passkey is held for the next request. */
+static void test_ble_transport_admin_probe(void) {
+    const char *test_name = "ble_transport_admin_probe";
+    const char *failure = NULL;
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:0A", .name = "NodeAdmin", .rssi = -40},
+    };
+    uint8_t write_capture[256];
+    size_t write_len = 0U;
+    size_t write_call_count = 0U;
+    size_t write_lengths[16];
+    memset(write_lengths, 0, sizeof write_lengths);
+
+    enum { READ_SLOTS = 12 };
+    uint8_t read_buffers[READ_SLOTS][300];
+    const uint8_t *read_payloads[READ_SLOTS];
+    size_t read_payload_lengths[READ_SLOTS];
+    for (size_t i = 0; i < READ_SLOTS; ++i) {
+        read_payloads[i] = read_buffers[i];
+        read_payload_lengths[i] = 0U;
+    }
+    size_t read_index = 0U;
+
+    const uint32_t my_node = 0x9E9D0AD8U;
+    meshtastic_FromRadio from_radio = meshtastic_FromRadio_init_default;
+    from_radio.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    from_radio.my_info.my_node_num = my_node;
+    test_encode_from_radio(&from_radio, read_buffers[0], sizeof read_buffers[0],
+                           &read_payload_lengths[0]);
+
+    from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
+    from_radio.which_payload_variant = meshtastic_FromRadio_config_tag;
+    from_radio.config.which_payload_variant = meshtastic_Config_lora_tag;
+    from_radio.config.payload_variant.lora.region = meshtastic_Config_LoRaConfig_RegionCode_EU_868;
+    from_radio.config.payload_variant.lora.hop_limit = 5U;
+    test_encode_from_radio(&from_radio, read_buffers[1], sizeof read_buffers[1],
+                           &read_payload_lengths[1]);
+
+    from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
+    from_radio.which_payload_variant = meshtastic_FromRadio_moduleConfig_tag;
+    from_radio.moduleConfig.which_payload_variant = meshtastic_ModuleConfig_store_forward_tag;
+    from_radio.moduleConfig.payload_variant.store_forward.enabled = true;
+    test_encode_from_radio(&from_radio, read_buffers[2], sizeof read_buffers[2],
+                           &read_payload_lengths[2]);
+
+    from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
+    from_radio.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+    from_radio.node_info.num = my_node;
+    from_radio.node_info.has_user = true;
+    snprintf(from_radio.node_info.user.short_name, sizeof from_radio.node_info.user.short_name,
+             "%s", "0ad8");
+    snprintf(from_radio.node_info.user.long_name, sizeof from_radio.node_info.user.long_name, "%s",
+             "Meshtastic 0ad8");
+    test_encode_from_radio(&from_radio, read_buffers[3], sizeof read_buffers[3],
+                           &read_payload_lengths[3]);
+    /* read_buffers[4] stays empty: ends the first drain. */
+
+    struct mesh_bluez_mock_config mock_config = {
+        .adapter_path = "/org/bluez/hci0",
+        .toradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_0A/service000a/char000b",
+        .fromradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_0A/service000a/char000d",
+        .fromnum_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_0A/service000a/char000f",
+        .read_payloads = read_payloads,
+        .read_payload_lengths = read_payload_lengths,
+        .read_payload_count = READ_SLOTS,
+        .read_index = &read_index,
+        .devices = mock_devices,
+        .device_count = 1U,
+        .write_capture_buffer = write_capture,
+        .write_capture_capacity = sizeof write_capture,
+        .write_capture_length = &write_len,
+        .write_call_count = &write_call_count,
+        .write_lengths = write_lengths,
+        .write_lengths_capacity = sizeof write_lengths / sizeof write_lengths[0],
+    };
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    struct mesh_app_config config = mesh_app_config_default();
+    struct mesh_event_loop loop;
+    mesh_event_loop_init(&loop);
+    if (ble->ops->start(ble, &config, &loop) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+        failure = "connect should be accepted";
+        goto cleanup;
+    }
+    const uint8_t from_num[4] = {1U, 0U, 0U, 0U};
+    for (int spin = 0; spin < 30 && read_index < 5U; ++spin) {
+        ble->ops->tick(ble);
+        mesh_event_loop_run(&loop, 10);
+        if (mesh_ble_transport_connected_address(ble) != NULL && spin % 5 == 0) {
+            mesh_bluez_client_mock_emit_notification(mock_config.fromnum_char_path, from_num,
+                                                     sizeof from_num);
+        }
+    }
+
+    const struct mesh_radio_settings *settings = mesh_ble_transport_settings(ble);
+    if (settings == NULL || !settings->has_lora ||
+        settings->lora.region != meshtastic_Config_LoRaConfig_RegionCode_EU_868 ||
+        !settings->has_store_forward || !settings->store_forward.enabled || !settings->has_owner ||
+        strcmp(settings->owner.short_name, "0ad8") != 0) {
+        failure = "handshake fragments should land in the settings";
+        goto cleanup;
+    }
+    if (settings->admin_replies != 0U || mesh_radio_settings_busy(settings)) {
+        failure = "no admin traffic before the handshake completes";
+        goto cleanup;
+    }
+
+    /* Complete the handshake; the probe should go out on the next tick. */
+    struct mesh_ble_handshake_status status = mesh_ble_transport_handshake_status(ble);
+    if (!status.request_in_flight || status.request_id == 0U) {
+        failure = "want_config should be in flight";
+        goto cleanup;
+    }
+    from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
+    from_radio.which_payload_variant = meshtastic_FromRadio_config_complete_id_tag;
+    from_radio.config_complete_id = status.request_id;
+    read_index = 5U;
+    test_encode_from_radio(&from_radio, read_buffers[5], sizeof read_buffers[5],
+                           &read_payload_lengths[5]);
+    const size_t writes_before = write_call_count;
+    mesh_bluez_client_mock_emit_notification(mock_config.fromnum_char_path, from_num,
+                                             sizeof from_num);
+    for (int spin = 0; spin < 20 && write_call_count == writes_before; ++spin) {
+        mesh_event_loop_run(&loop, 10);
+        ble->ops->tick(ble);
+    }
+    if (write_call_count != writes_before + 1U) {
+        failure = "completing the handshake should send exactly one admin request";
+        goto cleanup;
+    }
+    meshtastic_ToRadio sent = meshtastic_ToRadio_init_default;
+    pb_istream_t in = pb_istream_from_buffer(write_capture, write_len);
+    if (!pb_decode(&in, meshtastic_ToRadio_fields, &sent) ||
+        sent.which_payload_variant != meshtastic_ToRadio_packet_tag || sent.packet.to != my_node ||
+        sent.packet.decoded.portnum != meshtastic_PortNum_ADMIN_APP ||
+        !sent.packet.decoded.want_response) {
+        failure = "the probe is not an admin packet to ourselves";
+        goto cleanup;
+    }
+    meshtastic_AdminMessage admin = meshtastic_AdminMessage_init_default;
+    in =
+        pb_istream_from_buffer(sent.packet.decoded.payload.bytes, sent.packet.decoded.payload.size);
+    if (!pb_decode(&in, meshtastic_AdminMessage_fields, &admin) ||
+        admin.which_payload_variant != meshtastic_AdminMessage_get_device_metadata_request_tag) {
+        failure = "the probe should ask for the device metadata first";
+        goto cleanup;
+    }
+    settings = mesh_ble_transport_settings(ble);
+    if (!mesh_radio_settings_busy(settings) || settings->pending_request_id != sent.packet.id) {
+        failure = "the probe should be recorded as pending";
+        goto cleanup;
+    }
+
+    /* Answer it the way the radio would. */
+    admin = (meshtastic_AdminMessage)meshtastic_AdminMessage_init_default;
+    admin.which_payload_variant = meshtastic_AdminMessage_get_device_metadata_response_tag;
+    snprintf(admin.get_device_metadata_response.firmware_version,
+             sizeof admin.get_device_metadata_response.firmware_version, "%s", "2.8.0.abcdef");
+    admin.get_device_metadata_response.hw_model = meshtastic_HardwareModel_TBEAM;
+    admin.get_device_metadata_response.hasBluetooth = true;
+    admin.session_passkey.size = 8U;
+    memset(admin.session_passkey.bytes, 0xA5, 8U);
+    from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
+    from_radio.which_payload_variant = meshtastic_FromRadio_packet_tag;
+    if (!test_make_admin_reply(my_node, sent.packet.id, &admin, &from_radio.packet)) {
+        failure = "encode metadata reply failed";
+        goto cleanup;
+    }
+    read_index = 7U;
+    test_encode_from_radio(&from_radio, read_buffers[7], sizeof read_buffers[7],
+                           &read_payload_lengths[7]);
+    const size_t writes_before_reply = write_call_count;
+    mesh_bluez_client_mock_emit_notification(mock_config.fromnum_char_path, from_num,
+                                             sizeof from_num);
+    for (int spin = 0; spin < 20 && write_call_count == writes_before_reply; ++spin) {
+        mesh_event_loop_run(&loop, 10);
+        ble->ops->tick(ble);
+    }
+    settings = mesh_ble_transport_settings(ble);
+    if (settings->admin_replies != 1U || !settings->has_session_passkey ||
+        settings->session_passkey_len != 8U || !settings->has_metadata ||
+        strcmp(settings->metadata.firmware_version, "2.8.0.abcdef") != 0) {
+        failure = "the metadata reply should be folded in with its passkey";
+        goto cleanup;
+    }
+    const struct mesh_message_log *log = mesh_ble_transport_messages(ble);
+    if (log == NULL || log->count != 0U) {
+        failure = "an admin reply must not appear in the message log";
+        goto cleanup;
+    }
+    /* The queue moved on to the owner request, and it now carries the passkey. */
+    if (write_call_count != writes_before_reply + 1U) {
+        failure = "the owner request should follow the metadata reply";
+        goto cleanup;
+    }
+    sent = (meshtastic_ToRadio)meshtastic_ToRadio_init_default;
+    in = pb_istream_from_buffer(write_capture, write_len);
+    admin = (meshtastic_AdminMessage)meshtastic_AdminMessage_init_default;
+    if (!pb_decode(&in, meshtastic_ToRadio_fields, &sent)) {
+        failure = "second request is not a ToRadio";
+        goto cleanup;
+    }
+    in =
+        pb_istream_from_buffer(sent.packet.decoded.payload.bytes, sent.packet.decoded.payload.size);
+    if (!pb_decode(&in, meshtastic_AdminMessage_fields, &admin) ||
+        admin.which_payload_variant != meshtastic_AdminMessage_get_owner_request_tag ||
+        admin.session_passkey.size != 8U || admin.session_passkey.bytes[0] != 0xA5U) {
+        failure = "the owner request should carry the passkey";
+        goto cleanup;
+    }
+
+    /* A manual refresh re-reads everything (the probe pair included, since they have left
+       the queue); nothing goes out until the owner reply lands or times out. */
+    const int queued = mesh_ble_transport_refresh_settings(ble);
+    if (queued != 13) {
+        failure = "refresh should queue all thirteen requests";
+        goto cleanup;
+    }
+    if (write_call_count != writes_before_reply + 1U) {
+        failure = "refresh must not write while a reply is awaited";
+        goto cleanup;
+    }
+
+cleanup:
+    ble->ops->stop(ble);
+    mesh_event_loop_shutdown(&loop);
+    mesh_bluez_client_mock_disable();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
 static const struct test_case k_test_cases[] = {
     {"config_defaults", "unit", test_config_defaults},
     {"transport_registry_registration", "unit", test_transport_registry_registration},
@@ -3649,6 +4264,11 @@ static const struct test_case k_test_cases[] = {
     {"ble_transport_messaging_mock", "unit", test_ble_transport_messaging_mock},
     {"ui_message_list_merge", "unit", test_ui_message_list_merge},
     {"message_ingest_invalid_utf8", "unit", test_message_ingest_invalid_utf8},
+    {"radio_settings_admin_roundtrip", "unit", test_radio_settings_admin_roundtrip},
+    {"radio_settings_fetch_queue", "unit", test_radio_settings_fetch_queue},
+    {"ui_settings_items", "unit", test_ui_settings_items},
+    {"ui_nav_settings", "unit", test_ui_nav_settings},
+    {"ble_transport_admin_probe", "unit", test_ble_transport_admin_probe},
 };
 
 struct test_options {

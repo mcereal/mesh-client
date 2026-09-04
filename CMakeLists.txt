@@ -36,6 +36,7 @@ add_library(meshclient_core
     src/core/config.c
     src/core/event_loop.c
     src/core/message.c
+    src/core/radio_settings.c
     src/core/signals.c
     src/transport/transport_registry.c
     src/transport/ble/ble_transport.c
@@ -46,6 +47,7 @@ add_library(meshclient_core
     src/ui/controller.c
     src/ui/input.c
     src/ui/nav.c
+    src/ui/settings.c
     src/ui/backends/stub.c
     src/ui/backends/cli.c
     src/ui/backends/minui.c
@@ -121,6 +123,8 @@ set(MESH_PROTO_NAMES
     device_ui
     xmodem
     atak
+    admin
+    connection_status
 )
 
 set(MESH_PROTO_FILES)

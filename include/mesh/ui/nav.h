@@ -39,10 +39,13 @@ enum mesh_ui_screen {
     MESH_UI_SCREEN_COMPOSE,
     MESH_UI_SCREEN_DEVICES,
     MESH_UI_SCREEN_STATUS,
+    MESH_UI_SCREEN_SETTINGS,
     MESH_UI_SCREEN_COUNT,
 };
 
 #define MESH_UI_NAV_TARGET_NAME_MAX 40U
+/* nav.settings_section when the Settings tab shows the section list rather than a section. */
+#define MESH_UI_SETTINGS_NO_SECTION 0xFFU
 #define MESH_UI_NAV_TOAST_MAX 64U
 #define MESH_UI_CANNED_MAX 16U
 #define MESH_UI_CANNED_TEXT_MAX 64U
@@ -101,12 +104,18 @@ struct mesh_ui_nav {
     uint8_t kb_col;
     uint8_t kb_layer; /* enum mesh_ui_kb_layer */
     char draft[MESH_UI_DRAFT_MAX];
+    /* Settings tab: the open section (enum mesh_ui_settings_section) or NO_SECTION for the
+       section list. cursor[SETTINGS] indexes whichever list is showing; the section list's
+       position is parked here while a section is open. */
+    uint8_t settings_section;
+    uint32_t settings_list_cursor;
 };
 
 enum mesh_ui_action_type {
     MESH_UI_ACTION_NONE = 0,
-    MESH_UI_ACTION_CONNECT,   /* identifier = BLE address */
-    MESH_UI_ACTION_SEND_TEXT, /* dest/channel/text */
+    MESH_UI_ACTION_CONNECT,          /* identifier = BLE address */
+    MESH_UI_ACTION_SEND_TEXT,        /* dest/channel/text */
+    MESH_UI_ACTION_REFRESH_SETTINGS, /* re-read the radio's configuration */
 };
 
 struct mesh_ui_action {

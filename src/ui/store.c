@@ -194,6 +194,24 @@ void mesh_ui_store_set_transport_status(struct mesh_ui_store *store, const char 
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_TRANSPORT);
 }
 
+void mesh_ui_store_set_settings(struct mesh_ui_store *store,
+                                const struct mesh_ui_settings *settings) {
+    if (store == NULL) {
+        return;
+    }
+
+    struct mesh_ui_settings next;
+    memset(&next, 0, sizeof next);
+    if (settings != NULL) {
+        next = *settings;
+    }
+    if (memcmp(&store->settings, &next, sizeof next) == 0) {
+        return;
+    }
+    store->settings = next;
+    mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_SETTINGS);
+}
+
 void mesh_ui_store_set_messages(struct mesh_ui_store *store,
                                 const struct mesh_ui_message_list *messages) {
     if (store == NULL) {
@@ -317,6 +335,7 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
     }
 
     snapshot->messages = store->messages;
+    snapshot->settings = store->settings;
 
     memcpy(snapshot->transport_status, store->transport_status, sizeof snapshot->transport_status);
 

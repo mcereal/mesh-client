@@ -117,6 +117,24 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
         mesh_ui_store_set_toast(&app->ui_store, now, toast);
         return;
     }
+    case MESH_UI_ACTION_REFRESH_SETTINGS: {
+        if (ble == NULL) {
+            mesh_ui_store_set_toast(&app->ui_store, now, "BLE transport unavailable");
+            return;
+        }
+        const int result = mesh_ble_transport_refresh_settings(ble);
+        if (result > 0) {
+            snprintf(toast, sizeof toast, "Refreshing %d settings sections", result);
+        } else if (result == 0) {
+            snprintf(toast, sizeof toast, "%s", "Refresh already in progress");
+        } else if (result == -ENOTCONN) {
+            snprintf(toast, sizeof toast, "%s", "Not connected to a node");
+        } else {
+            snprintf(toast, sizeof toast, "Refresh failed (%d)", result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
     case MESH_UI_ACTION_NONE:
     default:
         return;
@@ -344,6 +362,129 @@ static void mesh_app_publish_messages(struct mesh_app *app, struct mesh_transpor
     }
 }
 
+/* Flattens the transport's protobuf-typed view into the UI's plain struct. */
+static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
+                                      struct mesh_ui_settings *dst) {
+    memset(dst, 0, sizeof *dst);
+    if (src == NULL) {
+        return;
+    }
+    dst->loaded = mesh_radio_settings_loaded(src);
+    dst->admin_ok = src->admin_replies > 0U;
+    dst->admin_busy = mesh_radio_settings_busy(src) || src->queue_len > 0U;
+    dst->admin_replies = src->admin_replies;
+
+    if (src->has_owner) {
+        dst->has_owner = true;
+        snprintf(dst->long_name, sizeof dst->long_name, "%s", src->owner.long_name);
+        snprintf(dst->short_name, sizeof dst->short_name, "%s", src->owner.short_name);
+        dst->is_licensed = src->owner.is_licensed;
+    }
+    if (src->has_device) {
+        dst->has_device = true;
+        dst->role = (uint8_t)src->device.role;
+        dst->rebroadcast_mode = (uint8_t)src->device.rebroadcast_mode;
+        snprintf(dst->tzdef, sizeof dst->tzdef, "%s", src->device.tzdef);
+        dst->led_heartbeat_disabled = src->device.led_heartbeat_disabled;
+        dst->double_tap_as_button_press = src->device.double_tap_as_button_press;
+    }
+    if (src->has_display) {
+        dst->has_display = true;
+        dst->screen_on_secs = src->display.screen_on_secs;
+        dst->carousel_secs = src->display.auto_screen_carousel_secs;
+        dst->compass_orientation = (uint8_t)src->display.compass_orientation;
+        dst->use_12h_clock = src->display.use_12h_clock;
+        dst->units = (uint8_t)src->display.units;
+        dst->flip_screen = src->display.flip_screen;
+    }
+    if (src->has_lora) {
+        dst->has_lora = true;
+        dst->use_preset = src->lora.use_preset;
+        dst->modem_preset = (uint8_t)src->lora.modem_preset;
+        dst->region = (uint8_t)src->lora.region;
+        dst->bandwidth = src->lora.bandwidth;
+        dst->spread_factor = src->lora.spread_factor;
+        dst->coding_rate = src->lora.coding_rate;
+        dst->hop_limit = (uint8_t)src->lora.hop_limit;
+        dst->tx_enabled = src->lora.tx_enabled;
+        dst->tx_power = (int8_t)src->lora.tx_power;
+        dst->ignore_mqtt = src->lora.ignore_mqtt;
+        dst->config_ok_to_mqtt = src->lora.config_ok_to_mqtt;
+    }
+    if (src->has_bluetooth) {
+        dst->has_bluetooth = true;
+        dst->bluetooth_enabled = src->bluetooth.enabled;
+        dst->pairing_mode = (uint8_t)src->bluetooth.mode;
+        dst->fixed_pin = src->bluetooth.fixed_pin;
+    }
+    if (src->has_security) {
+        dst->has_security = true;
+        size_t key_len = src->security.public_key.size;
+        if (key_len > sizeof dst->public_key) {
+            key_len = sizeof dst->public_key;
+        }
+        memcpy(dst->public_key, src->security.public_key.bytes, key_len);
+        dst->public_key_len = (uint8_t)key_len;
+        dst->has_private_key = src->security.private_key.size > 0U;
+        dst->admin_key_count = (uint8_t)src->security.admin_key_count;
+        dst->is_managed = src->security.is_managed;
+        dst->serial_enabled = src->security.serial_enabled;
+        dst->debug_log_api_enabled = src->security.debug_log_api_enabled;
+        dst->admin_channel_enabled = src->security.admin_channel_enabled;
+        dst->packet_signature_policy = (uint8_t)src->security.packet_signature_policy;
+    }
+    if (src->has_position) {
+        dst->has_position = true;
+        dst->gps_mode = (uint8_t)src->position.gps_mode;
+        dst->position_broadcast_secs = src->position.position_broadcast_secs;
+        dst->position_broadcast_smart_enabled = src->position.position_broadcast_smart_enabled;
+        dst->fixed_position = src->position.fixed_position;
+    }
+    if (src->has_power) {
+        dst->has_power = true;
+        dst->is_power_saving = src->power.is_power_saving;
+        dst->ls_secs = src->power.ls_secs;
+        dst->min_wake_secs = src->power.min_wake_secs;
+        dst->on_battery_shutdown_after_secs = src->power.on_battery_shutdown_after_secs;
+    }
+    if (src->has_mqtt) {
+        dst->has_mqtt = true;
+        dst->mqtt_enabled = src->mqtt.enabled;
+        snprintf(dst->mqtt_address, sizeof dst->mqtt_address, "%s", src->mqtt.address);
+        snprintf(dst->mqtt_root, sizeof dst->mqtt_root, "%s", src->mqtt.root);
+        dst->mqtt_encryption_enabled = src->mqtt.encryption_enabled;
+        dst->mqtt_tls_enabled = src->mqtt.tls_enabled;
+        dst->mqtt_proxy_to_client_enabled = src->mqtt.proxy_to_client_enabled;
+    }
+    if (src->has_store_forward) {
+        dst->has_store_forward = true;
+        dst->store_forward_enabled = src->store_forward.enabled;
+        dst->store_forward_heartbeat = src->store_forward.heartbeat;
+        dst->store_forward_is_server = src->store_forward.is_server;
+    }
+    if (src->has_telemetry) {
+        dst->has_telemetry = true;
+        dst->device_update_interval = src->telemetry.device_update_interval;
+        dst->device_telemetry_enabled = src->telemetry.device_telemetry_enabled;
+        dst->environment_measurement_enabled = src->telemetry.environment_measurement_enabled;
+        dst->environment_screen_enabled = src->telemetry.environment_screen_enabled;
+        dst->environment_display_fahrenheit = src->telemetry.environment_display_fahrenheit;
+        dst->air_quality_enabled = src->telemetry.air_quality_enabled;
+        dst->power_measurement_enabled = src->telemetry.power_measurement_enabled;
+    }
+    if (src->has_metadata) {
+        dst->has_metadata = true;
+        snprintf(dst->firmware_version, sizeof dst->firmware_version, "%s",
+                 src->metadata.firmware_version);
+        dst->hw_model = (uint32_t)src->metadata.hw_model;
+        dst->has_wifi = src->metadata.hasWifi;
+        dst->has_bluetooth_radio = src->metadata.hasBluetooth;
+        dst->has_ethernet = src->metadata.hasEthernet;
+        dst->has_pkc = src->metadata.hasPKC;
+        dst->can_shutdown = src->metadata.canShutdown;
+    }
+}
+
 static void mesh_app_publish_ui_state(struct mesh_app *app) {
     if (app == NULL) {
         return;
@@ -502,6 +643,10 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
         for (size_t i = 0; i < channel_count; ++i) {
             ui_handshake.channels[i].index = status.channels[i].index;
             ui_handshake.channels[i].role = status.channels[i].role;
+            ui_handshake.channels[i].psk_len = status.channels[i].psk_len;
+            ui_handshake.channels[i].uplink_enabled = status.channels[i].uplink_enabled;
+            ui_handshake.channels[i].downlink_enabled = status.channels[i].downlink_enabled;
+            ui_handshake.channels[i].position_precision = status.channels[i].position_precision;
             snprintf(ui_handshake.channels[i].name, sizeof(ui_handshake.channels[i].name), "%s",
                      status.channels[i].name);
             if (status.channels[i].role == 1U /* PRIMARY */) {
@@ -537,6 +682,10 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
     }
 
     mesh_app_publish_messages(app, ble, &status);
+
+    struct mesh_ui_settings ui_settings;
+    mesh_app_flatten_settings(mesh_ble_transport_settings(ble), &ui_settings);
+    mesh_ui_store_set_settings(&app->ui_store, &ui_settings);
 
     if (preferences_modified && app->ui_preferences_path[0] != '\0') {
         if (mesh_ui_preferences_save(&app->ui_preferences, app->ui_preferences_path) == 0) {

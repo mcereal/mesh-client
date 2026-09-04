@@ -104,6 +104,9 @@ struct mesh_ble_transport_state {
     /* Survives reconnects: a NodeDB resync must not wipe the conversation. */
     struct mesh_message_log messages;
     uint32_t next_packet_id;
+    /* The radio's configuration and the admin session; reset with the handshake. */
+    struct mesh_radio_settings settings;
+    bool admin_probe_queued; /* the post-handshake probe has been queued this connection */
 };
 
 static const char *mesh_ble_state_to_string(enum mesh_ble_state state) {
@@ -133,6 +136,8 @@ static void mesh_ble_handle_log_record(const meshtastic_LogRecord *record);
 static void mesh_ble_clear_write_queue(struct mesh_ble_transport_state *state);
 static int mesh_ble_queue_packet(struct mesh_ble_transport_state *state, const uint8_t *packet,
                                  size_t len, uint32_t packet_id);
+static void mesh_ble_pump_admin(struct mesh_ble_transport_state *state, uint64_t now);
+static uint32_t mesh_ble_next_packet_id(struct mesh_ble_transport_state *state);
 static int mesh_ble_flush_write_queue(struct mesh_ble_transport_state *state);
 static void mesh_ble_drain_from_radio(struct mesh_ble_transport_state *state);
 static void mesh_ble_schedule_drain(struct mesh_ble_transport_state *state, uint64_t delay_ms);
@@ -165,6 +170,9 @@ static void mesh_ble_tick(struct mesh_transport *transport) {
                    now >= state->next_link_poll_ms) {
             state->next_link_poll_ms = now + MESH_BLE_LINK_POLL_MS;
             (void)mesh_ble_transport_check_link(transport);
+        }
+        if (state->link_state == MESH_BLE_LINK_CONNECTED) {
+            mesh_ble_pump_admin(state, now);
         }
         /* Fallback for the eventfd wake, and the path that services delayed retries. */
         if (state->drain_pending && now >= state->drain_retry_at_ms) {
@@ -594,6 +602,8 @@ static void mesh_ble_reset_handshake(struct mesh_ble_transport_state *state) {
 
     memset(&state->handshake, 0, sizeof(state->handshake));
     state->node_cache_warned = false;
+    mesh_radio_settings_reset(&state->settings);
+    state->admin_probe_queued = false;
 }
 
 /* Drops everything still queued. Messages among them never reached the radio, so their
@@ -833,6 +843,11 @@ static void mesh_ble_handle_from_radio(struct mesh_ble_transport_state *state,
         break;
     case meshtastic_FromRadio_node_info_tag:
         mesh_ble_store_node_summary(state, &message.node_info);
+        /* Our own NodeInfo carries the owner record the User settings section shows. */
+        if (message.node_info.has_user && state->handshake.has_my_info &&
+            message.node_info.num == state->handshake.my_info.my_node_num) {
+            mesh_radio_settings_apply_owner(&state->settings, &message.node_info.user);
+        }
         break;
     case meshtastic_FromRadio_channel_tag: {
         const meshtastic_Channel *channel = &message.channel;
@@ -841,12 +856,17 @@ static void mesh_ble_handle_from_radio(struct mesh_ble_transport_state *state,
             break;
         }
         struct mesh_ble_channel_summary *slot = &state->handshake.channels[channel->index];
+        memset(slot, 0, sizeof *slot);
         slot->index = (uint8_t)channel->index;
         slot->role = (uint8_t)channel->role;
         if (channel->has_settings) {
             snprintf(slot->name, sizeof slot->name, "%s", channel->settings.name);
-        } else {
-            slot->name[0] = '\0';
+            slot->psk_len = (uint8_t)channel->settings.psk.size;
+            slot->uplink_enabled = channel->settings.uplink_enabled;
+            slot->downlink_enabled = channel->settings.downlink_enabled;
+            if (channel->settings.has_module_settings) {
+                slot->position_precision = channel->settings.module_settings.position_precision;
+            }
         }
         if ((size_t)channel->index + 1U > state->handshake.channel_count) {
             state->handshake.channel_count = (size_t)channel->index + 1U;
@@ -862,7 +882,19 @@ static void mesh_ble_handle_from_radio(struct mesh_ble_transport_state *state,
     case meshtastic_FromRadio_config_tag:
         state->handshake.has_config = true;
         state->handshake.config = message.config;
-        mesh_log_debug("ble", "Received config fragment");
+        mesh_radio_settings_apply_config(&state->settings, &message.config);
+        mesh_log_debug("ble", "Received config fragment (variant %u)",
+                       (unsigned)message.config.which_payload_variant);
+        break;
+    case meshtastic_FromRadio_moduleConfig_tag:
+        mesh_radio_settings_apply_module_config(&state->settings, &message.moduleConfig);
+        mesh_log_debug("ble", "Received module config fragment (variant %u)",
+                       (unsigned)message.moduleConfig.which_payload_variant);
+        break;
+    case meshtastic_FromRadio_metadata_tag:
+        mesh_radio_settings_apply_metadata(&state->settings, &message.metadata);
+        mesh_log_info("ble", "Device metadata: firmware %s, hw_model %u",
+                      message.metadata.firmware_version, (unsigned)message.metadata.hw_model);
         break;
     case meshtastic_FromRadio_config_complete_id_tag:
         state->handshake.config_complete_id = message.config_complete_id;
@@ -879,6 +911,10 @@ static void mesh_ble_handle_from_radio(struct mesh_ble_transport_state *state,
         }
         break;
     case meshtastic_FromRadio_packet_tag:
+        /* Admin replies come from ourselves; they are not traffic and never a message. */
+        if (mesh_radio_settings_ingest(&state->settings, &message.packet) == 1) {
+            break;
+        }
         mesh_ble_touch_node_from_packet(state, &message.packet);
         mesh_message_ingest(&state->messages, &message.packet,
                             state->handshake.has_my_info ? state->handshake.my_info.my_node_num
@@ -1283,6 +1319,64 @@ const char *mesh_ble_transport_connected_address(struct mesh_transport *transpor
         return NULL;
     }
     return state->connected_address;
+}
+
+/*
+ * Drives the admin fetch queue: once the handshake has completed, ask for the metadata and the
+ * owner (proof that the AdminMessage round trip and its session passkey work on this radio),
+ * then send whatever else is queued, one request at a time. Runs every tick while connected.
+ */
+static void mesh_ble_pump_admin(struct mesh_ble_transport_state *state, uint64_t now) {
+    if (state == NULL || !state->handshake.has_my_info) {
+        return;
+    }
+    if (state->handshake.config_complete && !state->admin_probe_queued) {
+        state->admin_probe_queued = true;
+        mesh_radio_settings_queue_probe(&state->settings);
+    }
+
+    struct mesh_admin_request request;
+    if (!mesh_radio_settings_next_request(&state->settings, now, &request)) {
+        return;
+    }
+    request.my_node = state->handshake.my_info.my_node_num;
+    request.packet_id = mesh_ble_next_packet_id(state);
+
+    uint8_t payload[MESH_BLE_MAX_PACKET_SIZE];
+    size_t written = 0U;
+    int result = mesh_radio_settings_encode_request(&state->settings, &request, payload,
+                                                    sizeof payload, &written);
+    if (result < 0) {
+        mesh_log_warn("ble", "Admin request encode failed: %d", result);
+        return;
+    }
+    result = mesh_ble_queue_packet(state, payload, written, 0U);
+    if (result < 0) {
+        mesh_log_warn("ble", "Admin request write failed: %d", result);
+        return;
+    }
+    mesh_radio_settings_mark_sent(&state->settings, request.packet_id, now);
+    mesh_log_info("ble", "Sent admin request kind=%u type=%u id=%u", (unsigned)request.kind,
+                  (unsigned)request.type, request.packet_id);
+}
+
+const struct mesh_radio_settings *mesh_ble_transport_settings(struct mesh_transport *transport) {
+    if (transport == NULL || transport->state == NULL) {
+        return NULL;
+    }
+    struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
+    return &state->settings;
+}
+
+int mesh_ble_transport_refresh_settings(struct mesh_transport *transport) {
+    if (transport == NULL || transport->state == NULL) {
+        return -EINVAL;
+    }
+    struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
+    if (state->link_state != MESH_BLE_LINK_CONNECTED || !state->handshake.has_my_info) {
+        return -ENOTCONN;
+    }
+    return (int)mesh_radio_settings_queue_all(&state->settings);
 }
 
 int mesh_ble_transport_send_packet(struct mesh_transport *transport, const uint8_t *packet,

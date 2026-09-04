@@ -2,6 +2,8 @@
 
 #include "mesh/ui/nav.h"
 
+#include "mesh/ui/settings.h"
+
 #include "mesh/mesh_message.h"
 #include "mesh/ui/store.h"
 
@@ -111,6 +113,8 @@ const char *mesh_ui_screen_name(enum mesh_ui_screen screen) {
         return "Devices";
     case MESH_UI_SCREEN_STATUS:
         return "Status";
+    case MESH_UI_SCREEN_SETTINGS:
+        return "Settings";
     default:
         return "?";
     }
@@ -244,6 +248,7 @@ void mesh_ui_nav_init(struct mesh_ui_nav *nav) {
     nav->target_channel = 0U;
     nav->inbox = true; /* nothing hidden until the user picks a conversation */
     snprintf(nav->target_name, sizeof nav->target_name, "%s", "#Primary");
+    nav->settings_section = MESH_UI_SETTINGS_NO_SECTION;
 }
 
 /* ---- message filter ----------------------------------------------------------------------- */
@@ -301,6 +306,13 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
         return MESH_UI_COMPOSE_FIRST_CANNED + (uint32_t)mesh_ui_canned_count();
     case MESH_UI_SCREEN_DEVICES:
         return (uint32_t)store->device_count;
+    case MESH_UI_SCREEN_SETTINGS:
+        if (nav->settings_section == MESH_UI_SETTINGS_NO_SECTION) {
+            return MESH_UI_SETTINGS_SECTION_COUNT;
+        }
+        return mesh_ui_settings_item_count(&store->settings,
+                                           store->handshake_valid ? &store->handshake : NULL,
+                                           (enum mesh_ui_settings_section)nav->settings_section);
     case MESH_UI_SCREEN_STATUS:
     default:
         return 0U;
@@ -867,10 +879,31 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         }
         return false;
     }
+    case MESH_UI_SCREEN_SETTINGS: {
+        if (nav->settings_section != MESH_UI_SETTINGS_NO_SECTION) {
+            return false; /* items are read-only for now (docs/settings-roadmap.md, phase 1) */
+        }
+        if (cursor >= MESH_UI_SETTINGS_SECTION_COUNT) {
+            return false;
+        }
+        nav->settings_list_cursor = cursor;
+        nav->settings_section = (uint8_t)cursor;
+        nav->cursor[MESH_UI_SCREEN_SETTINGS] = 0U;
+        return true;
+    }
     case MESH_UI_SCREEN_STATUS:
     default:
         return false;
     }
+}
+
+static bool mesh_ui_nav_settings_back(struct mesh_ui_nav *nav) {
+    if (nav->settings_section == MESH_UI_SETTINGS_NO_SECTION) {
+        return false;
+    }
+    nav->settings_section = MESH_UI_SETTINGS_NO_SECTION;
+    nav->cursor[MESH_UI_SCREEN_SETTINGS] = nav->settings_list_cursor;
+    return true;
 }
 
 bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
@@ -918,11 +951,20 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             nav->screen = MESH_UI_SCREEN_MESSAGES;
             return true;
         }
+        if (nav->screen == MESH_UI_SCREEN_SETTINGS) {
+            return mesh_ui_nav_settings_back(nav) || changed;
+        }
         return changed;
     case MESH_UI_KEY_X:
         if (nav->screen == MESH_UI_SCREEN_MESSAGES) {
             mesh_ui_nav_cycle_conversation(nav, store);
             return true;
+        }
+        if (nav->screen == MESH_UI_SCREEN_SETTINGS) {
+            if (out_action != NULL) {
+                out_action->type = MESH_UI_ACTION_REFRESH_SETTINGS;
+            }
+            return changed;
         }
         return changed;
     case MESH_UI_KEY_Y:

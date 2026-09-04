@@ -84,6 +84,15 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
   `Device1.Connected` every 2 s while CONNECTED (`mesh_ble_transport_check_link`) and a failed
   GATT write also resets the link; queued messages are marked FAILED either way, and the
   message log survives the reset. Auto-connect then reconnects.
+- `src/core/radio_settings.c` — transport-agnostic view of the connected radio's configuration
+  (`struct mesh_radio_settings`: every `Config`/`ModuleConfig` section, owner `User`,
+  `DeviceMetadata`) and the `AdminMessage` plumbing: encodes `ADMIN_APP` requests addressed to
+  our own node with `want_response`, decodes replies (correlated by `Data.request_id`), keeps the
+  `session_passkey` every reply carries (firmware 2.5+ rejects a `set_*` without it), and runs
+  a one-at-a-time fetch queue with a 5 s timeout. The BLE transport feeds it handshake fragments
+  and admin packets, sends a metadata+owner probe once `config_complete_id` arrives, and pumps
+  the queue from `tick()`. Admin replies never reach the message log. The plan for writes is in
+  `docs/settings-roadmap.md`; phase 1 (this) is read-only.
 - `src/core/message.c` — transport-agnostic messaging: builds `TEXT_MESSAGE_APP` packets into a
   `ToRadio`, folds inbound `MeshPacket`s into a fixed ring (`mesh_message_log`), and correlates
   `ROUTING_APP` replies with the outbound message they ack. Message text is untrusted radio
@@ -94,6 +103,12 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
   `mesh_app_autoconnect()` runs every foreground turn: preferred node if in range, else the
   strongest advertiser after 30 s, exponential backoff on failure; `MESHCLIENT_AUTOCONNECT=0`
   turns it off. The `--status`/`--list-devices` paths in `main.c` do their own connect.
+- `src/ui/settings.c` — the Settings tab as data: sections → items (label, formatted value,
+  kind). Backends draw the list; `nav.c` walks it (`settings_section` open or
+  `MESH_UI_SETTINGS_NO_SECTION`, X yields `MESH_UI_ACTION_REFRESH_SETTINGS`). The UI's
+  `struct mesh_ui_settings` in `store.h` is a flattened copy without nanopb types, filled by
+  `mesh_app_flatten_settings` in `app.c`; adding a field means touching both plus the item
+  builder here.
 - `src/ui/store.c` + `controller.c` — store owns `mesh_ui_snapshot` and signals via eventfd;
   controller drains it and calls `backend->present(snapshot)`. Backends implement the three-function
   `struct mesh_ui_backend` in `include/mesh/ui/backend.h` and live in `src/ui/backends/`.
@@ -135,7 +150,7 @@ An SDL2 backend was tried in 1.1.11 and replaced by `fb` in 1.1.12; it is gone f
 ## Protobufs
 
 `CMakeLists.txt` has a hardcoded `MESH_PROTO_NAMES` list (mesh, portnums, interdevice, config,
-module_config, telemetry, channel, device_ui, xmodem, atak). Adding a new upstream `.proto` means adding
+module_config, telemetry, channel, device_ui, xmodem, atak, admin, connection_status). Adding a new upstream `.proto` means adding
 it there. Generated headers are included as `meshtastic/<name>.pb.h`. The generator is
 `nanopb_generator` from PATH, falling back to `third_party/nanopb/generator/nanopb_generator.py`
 via Python3 (needs `pip install protobuf grpcio-tools`).
@@ -177,7 +192,7 @@ via Python3 (needs `pip install protobuf grpcio-tools`).
 One harness, `tests/test_main.c`, with a `k_test_cases` table tagged by category (`unit` today;
 `integration`/`hardware` reserved). Register new cases in that table; use
 `record_failure`/`record_success`. Tests must not touch real BlueZ — use the bluez mock. New
-CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-04: 40 unit tests, all passing in
+CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-04: 45 unit tests, all passing in
 the dev container with zero compiler warnings. `message_encode_text_golden` pins the
 `TEXT_MESSAGE_APP` wire format against a hand-derived byte vector (not against our own encoder),
 so a protobuf regeneration that changes field numbers or wire types fails loudly.
