@@ -1,3 +1,9 @@
+## [1.4.0](https://github.com/mcereal/mesh-client/compare/v1.3.0...v1.4.0) (2026-09-04)
+
+### Features
+
+* **settings:** read the radio's configuration over the admin protocol ([bd3666c](https://github.com/mcereal/mesh-client/commit/bd3666c1b9936891ba0cdb9e90ea7392e0f6fb42))
+
 ## [1.3.0](https://github.com/mcereal/mesh-client/compare/v1.2.1...v1.3.0) (2026-09-04)
 
 ### Features
