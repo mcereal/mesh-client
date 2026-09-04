@@ -51,6 +51,17 @@ enum mesh_ui_screen {
 #define MESH_UI_CANNED_TEXT_MAX 64U
 /* Upstream Data.payload caps at 233 bytes; the draft and action text hold that plus a NUL. */
 #define MESH_UI_DRAFT_MAX 234U
+/* Pending Settings edits held until Save, and the longest text a setting can take. */
+#define MESH_UI_SETTINGS_EDITS_MAX 8U
+#define MESH_UI_SETTING_TEXT_MAX 40U
+
+/* One edited setting. `field` is an enum mesh_ui_setting_field (settings.h); NONE marks an
+   empty slot. Toggles and enums use `number`, numbers use `number`, text uses `text`. */
+struct mesh_ui_setting_edit {
+    uint8_t field;
+    uint32_t number;
+    char text[MESH_UI_SETTING_TEXT_MAX];
+};
 
 /* On-screen keyboard geometry: four rows of ten characters and a row of five actions. */
 #define MESH_UI_KB_COLS 10U
@@ -109,6 +120,16 @@ struct mesh_ui_nav {
        position is parked here while a section is open. */
     uint8_t settings_section;
     uint32_t settings_list_cursor;
+    /* Edits made in the open section and not yet saved. Y sends them as one
+       MESH_UI_ACTION_SAVE_SETTINGS; B asks once (discard_armed) and discards on the second
+       press. The app clears them through mesh_ui_store_settings_edits_clear() once queued. */
+    struct mesh_ui_setting_edit settings_edits[MESH_UI_SETTINGS_EDITS_MAX];
+    uint8_t settings_edit_count;
+    bool settings_discard_armed;
+    /* When the keyboard edits a setting rather than the Compose draft: the field it is for
+       (NONE for Compose) and the Compose draft parked while it is open. */
+    uint8_t keyboard_field;
+    char draft_saved[MESH_UI_DRAFT_MAX];
 };
 
 enum mesh_ui_action_type {
@@ -116,6 +137,7 @@ enum mesh_ui_action_type {
     MESH_UI_ACTION_CONNECT,          /* identifier = BLE address */
     MESH_UI_ACTION_SEND_TEXT,        /* dest/channel/text */
     MESH_UI_ACTION_REFRESH_SETTINGS, /* re-read the radio's configuration */
+    MESH_UI_ACTION_SAVE_SETTINGS,    /* section + edits: write one section to the radio */
 };
 
 struct mesh_ui_action {
@@ -124,6 +146,10 @@ struct mesh_ui_action {
     uint32_t dest;
     uint8_t channel;
     char text[MESH_UI_DRAFT_MAX];
+    /* SAVE_SETTINGS: the section (enum mesh_ui_settings_section) and its pending edits. */
+    uint8_t section;
+    uint8_t edit_count;
+    struct mesh_ui_setting_edit edits[MESH_UI_SETTINGS_EDITS_MAX];
 };
 
 void mesh_ui_nav_init(struct mesh_ui_nav *nav);

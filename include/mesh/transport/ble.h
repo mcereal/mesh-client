@@ -110,6 +110,14 @@ const struct mesh_radio_settings *mesh_ble_transport_settings(struct mesh_transp
    tick. Returns the number of requests queued, -ENOTCONN when no node is connected. */
 int mesh_ble_transport_refresh_settings(struct mesh_transport *transport);
 
+/* Queues one settings write (a SET_* request with its payload filled in; see
+   mesh_radio_settings_queue_write) behind a passkey refresh and ahead of a read-back. The
+   result arrives through the settings' writes_acked/writes_failed counters. Returns the
+   number of requests queued, -ENOTCONN without a connected radio, -ENOSPC when the queue is
+   full, -EINVAL for anything but a write. */
+int mesh_ble_transport_write_settings(struct mesh_transport *transport,
+                                      const struct mesh_admin_request *write);
+
 #ifdef __cplusplus
 }
 #endif

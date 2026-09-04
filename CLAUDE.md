@@ -89,10 +89,17 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
   `DeviceMetadata`) and the `AdminMessage` plumbing: encodes `ADMIN_APP` requests addressed to
   our own node with `want_response`, decodes replies (correlated by `Data.request_id`), keeps the
   `session_passkey` every reply carries (firmware 2.5+ rejects a `set_*` without it), and runs
-  a one-at-a-time fetch queue with a 5 s timeout. The BLE transport feeds it handshake fragments
+  a one-at-a-time request queue with a 5 s timeout. The BLE transport feeds it handshake fragments
   and admin packets, sends a metadata+owner probe once `config_complete_id` arrives, and pumps
-  the queue from `tick()`. Admin replies never reach the message log. The plan for writes is in
-  `docs/settings-roadmap.md`; phase 1 (this) is read-only.
+  the queue from `tick()`. Admin replies never reach the message log. Writes
+  (`mesh_radio_settings_queue_write`) always go out as `get_owner` (fresh passkey; the firmware
+  rotates it after 150 s), the `set_*` carrying the **whole** section (the firmware replaces, it
+  does not merge), then the matching `get_*`. A `set_*` is answered by a `ROUTING_APP` packet
+  quoting our id: `error_reason` NONE is the ack, `ADMIN_BAD_SESSION_KEY`/`BAD_REQUEST` a
+  rejection; `ingest` claims those too and counts them in `writes_acked`/`writes_failed`. Most
+  sections reboot the radio 7 s after a set (owner, module configs, display when
+  `screen_on_secs`/`flip_screen` change), so the link drops and auto-connect reconnects; that is
+  expected, not a bug. Phase status is in `docs/settings-roadmap.md`.
 - `src/core/message.c` — transport-agnostic messaging: builds `TEXT_MESSAGE_APP` packets into a
   `ToRadio`, folds inbound `MeshPacket`s into a fixed ring (`mesh_message_log`), and correlates
   `ROUTING_APP` replies with the outbound message they ack. Message text is untrusted radio
@@ -104,11 +111,18 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
   strongest advertiser after 30 s, exponential backoff on failure; `MESHCLIENT_AUTOCONNECT=0`
   turns it off. The `--status`/`--list-devices` paths in `main.c` do their own connect.
 - `src/ui/settings.c` — the Settings tab as data: sections → items (label, formatted value,
-  kind). Backends draw the list; `nav.c` walks it (`settings_section` open or
-  `MESH_UI_SETTINGS_NO_SECTION`, X yields `MESH_UI_ACTION_REFRESH_SETTINGS`). The UI's
-  `struct mesh_ui_settings` in `store.h` is a flattened copy without nanopb types, filled by
-  `mesh_app_flatten_settings` in `app.c`; adding a field means touching both plus the item
-  builder here.
+  kind, and for editable rows a `field` id). Backends draw the list; `nav.c` walks it
+  (`settings_section` open or `MESH_UI_SETTINGS_NO_SECTION`, X yields
+  `MESH_UI_ACTION_REFRESH_SETTINGS`). The UI's `struct mesh_ui_settings` in `store.h` is a
+  flattened copy without nanopb types, filled by `mesh_app_flatten_settings` in `app.c`.
+  Editing is driven by the `k_fields` table here (label, kind, enum names, number presets, text
+  byte cap per `enum mesh_ui_setting_field`): the nav keeps pending edits in
+  `nav.settings_edits` (Left/Right/A change the row, the keyboard is retargeted for text via
+  `keyboard_field`, Y emits `MESH_UI_ACTION_SAVE_SETTINGS`, B asks once then discards), the
+  item builder renders them in place marked `dirty`, and `mesh_app_build_settings_write` in
+  `app.c` maps each field back onto the nanopb section. Adding an editable field means: the
+  enum + table row here, the flatten in `app.c`, the `mesh_app_apply_setting_edit` case, and
+  the `item_field` call in the section builder. Sections without fields stay read-only.
 - `src/ui/store.c` + `controller.c` — store owns `mesh_ui_snapshot` and signals via eventfd;
   controller drains it and calls `backend->present(snapshot)`. Backends implement the three-function
   `struct mesh_ui_backend` in `include/mesh/ui/backend.h` and live in `src/ui/backends/`.
@@ -192,7 +206,7 @@ via Python3 (needs `pip install protobuf grpcio-tools`).
 One harness, `tests/test_main.c`, with a `k_test_cases` table tagged by category (`unit` today;
 `integration`/`hardware` reserved). Register new cases in that table; use
 `record_failure`/`record_success`. Tests must not touch real BlueZ — use the bluez mock. New
-CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-04: 45 unit tests, all passing in
+CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-04: 50 unit tests, all passing in
 the dev container with zero compiler warnings. `message_encode_text_golden` pins the
 `TEXT_MESSAGE_APP` wire format against a hand-derived byte vector (not against our own encoder),
 so a protobuf regeneration that changes field numbers or wire types fails loudly.

@@ -1352,7 +1352,10 @@ static void mesh_ble_pump_admin(struct mesh_ble_transport_state *state, uint64_t
     }
     result = mesh_ble_queue_packet(state, payload, written, 0U);
     if (result < 0) {
+        /* A failed GATT write has already reset the link (and the settings with it); the
+           note below lands in the fresh struct so the app still hears about the lost write. */
         mesh_log_warn("ble", "Admin request write failed: %d", result);
+        mesh_radio_settings_mark_unsent(&state->settings, &request, result);
         return;
     }
     mesh_radio_settings_mark_sent(&state->settings, request.packet_id, now);
@@ -1377,6 +1380,23 @@ int mesh_ble_transport_refresh_settings(struct mesh_transport *transport) {
         return -ENOTCONN;
     }
     return (int)mesh_radio_settings_queue_all(&state->settings);
+}
+
+int mesh_ble_transport_write_settings(struct mesh_transport *transport,
+                                      const struct mesh_admin_request *write) {
+    if (transport == NULL || transport->state == NULL || write == NULL) {
+        return -EINVAL;
+    }
+    struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
+    if (state->link_state != MESH_BLE_LINK_CONNECTED || !state->handshake.has_my_info) {
+        return -ENOTCONN;
+    }
+    const int queued = mesh_radio_settings_queue_write(&state->settings, write);
+    if (queued > 0) {
+        mesh_log_info("ble", "Queued settings write kind=%u type=%u (%d requests)",
+                      (unsigned)write->kind, (unsigned)write->type, queued);
+    }
+    return queued;
 }
 
 int mesh_ble_transport_send_packet(struct mesh_transport *transport, const uint8_t *packet,

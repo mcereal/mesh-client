@@ -101,6 +101,19 @@ void mesh_ui_store_set_toast(struct mesh_ui_store *store, uint64_t now_ms, const
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
 }
 
+void mesh_ui_store_settings_edits_clear(struct mesh_ui_store *store) {
+    if (store == NULL) {
+        return;
+    }
+    if (store->nav.settings_edit_count == 0U && !store->nav.settings_discard_armed) {
+        return;
+    }
+    memset(store->nav.settings_edits, 0, sizeof store->nav.settings_edits);
+    store->nav.settings_edit_count = 0U;
+    store->nav.settings_discard_armed = false;
+    mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
+}
+
 void mesh_ui_store_tick(struct mesh_ui_store *store, uint64_t now_ms) {
     if (store == NULL) {
         return;

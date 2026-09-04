@@ -55,6 +55,228 @@ static void mesh_app_on_ui_key(void *userdata, enum mesh_ui_key key) {
 
 static uint64_t mesh_app_now_ms(void);
 
+/* ---- settings writes ---------------------------------------------------------------------- */
+
+/* Applies one pending edit to the protobuf section a write carries. The reverse of
+   mesh_app_flatten_settings(): this is the only place the UI's field ids meet nanopb. */
+static void mesh_app_apply_setting_edit(struct mesh_admin_request *write,
+                                        const struct mesh_ui_setting_edit *edit) {
+    meshtastic_User *owner = &write->payload.owner;
+    meshtastic_Config_DisplayConfig *display = &write->payload.config.payload_variant.display;
+    meshtastic_ModuleConfig_StoreForwardConfig *sf =
+        &write->payload.module_config.payload_variant.store_forward;
+    meshtastic_ModuleConfig_TelemetryConfig *telemetry =
+        &write->payload.module_config.payload_variant.telemetry;
+    const bool on = edit->number != 0U;
+
+    switch ((enum mesh_ui_setting_field)edit->field) {
+    case MESH_UI_FIELD_USER_LONG_NAME:
+        snprintf(owner->long_name, sizeof owner->long_name, "%.*s",
+                 (int)(sizeof owner->long_name - 1U), edit->text);
+        break;
+    case MESH_UI_FIELD_USER_SHORT_NAME:
+        snprintf(owner->short_name, sizeof owner->short_name, "%.*s",
+                 (int)(sizeof owner->short_name - 1U), edit->text);
+        break;
+    case MESH_UI_FIELD_USER_LICENSED:
+        owner->is_licensed = on;
+        break;
+    case MESH_UI_FIELD_USER_UNMESSAGEABLE:
+        owner->has_is_unmessagable = true;
+        owner->is_unmessagable = on;
+        break;
+    case MESH_UI_FIELD_DISPLAY_SCREEN_ON:
+        display->screen_on_secs = edit->number;
+        break;
+    case MESH_UI_FIELD_DISPLAY_CAROUSEL:
+        display->auto_screen_carousel_secs = edit->number;
+        break;
+    case MESH_UI_FIELD_DISPLAY_COMPASS:
+        display->compass_orientation =
+            (meshtastic_Config_DisplayConfig_CompassOrientation)edit->number;
+        break;
+    case MESH_UI_FIELD_DISPLAY_12H:
+        display->use_12h_clock = on;
+        break;
+    case MESH_UI_FIELD_DISPLAY_UNITS:
+        display->units = (meshtastic_Config_DisplayConfig_DisplayUnits)edit->number;
+        break;
+    case MESH_UI_FIELD_DISPLAY_FLIP:
+        display->flip_screen = on;
+        break;
+    case MESH_UI_FIELD_SF_ENABLED:
+        sf->enabled = on;
+        break;
+    case MESH_UI_FIELD_SF_HEARTBEAT:
+        sf->heartbeat = on;
+        break;
+    case MESH_UI_FIELD_SF_SERVER:
+        sf->is_server = on;
+        break;
+    case MESH_UI_FIELD_TELEMETRY_DEVICE:
+        telemetry->device_telemetry_enabled = on;
+        break;
+    case MESH_UI_FIELD_TELEMETRY_INTERVAL:
+        telemetry->device_update_interval = edit->number;
+        break;
+    case MESH_UI_FIELD_TELEMETRY_ENVIRONMENT:
+        telemetry->environment_measurement_enabled = on;
+        break;
+    case MESH_UI_FIELD_TELEMETRY_ENV_SCREEN:
+        telemetry->environment_screen_enabled = on;
+        break;
+    case MESH_UI_FIELD_TELEMETRY_ENV_FAHRENHEIT:
+        telemetry->environment_display_fahrenheit = on;
+        break;
+    case MESH_UI_FIELD_TELEMETRY_AIR_QUALITY:
+        telemetry->air_quality_enabled = on;
+        break;
+    case MESH_UI_FIELD_TELEMETRY_POWER:
+        telemetry->power_measurement_enabled = on;
+        break;
+    default:
+        mesh_log_warn("ui", "Ignoring edit to unknown settings field %u", (unsigned)edit->field);
+        break;
+    }
+}
+
+/* Builds the set_* for a section from what the radio last reported plus the edits. The
+   firmware replaces the whole section, so the base must be the radio's own copy: -ENOENT
+   when that has not arrived yet, -ENOTSUP for a section this phase does not write. */
+int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
+                                  const struct mesh_ui_action *action,
+                                  struct mesh_admin_request *out) {
+    if (radio == NULL || action == NULL || out == NULL) {
+        return -EINVAL;
+    }
+    memset(out, 0, sizeof *out);
+    switch ((enum mesh_ui_settings_section)action->section) {
+    case MESH_UI_SETTINGS_USER:
+        if (!radio->has_owner) {
+            return -ENOENT;
+        }
+        out->kind = MESH_ADMIN_SET_OWNER;
+        out->payload.owner = radio->owner;
+        break;
+    case MESH_UI_SETTINGS_DISPLAY:
+        if (!radio->has_display) {
+            return -ENOENT;
+        }
+        out->kind = MESH_ADMIN_SET_CONFIG;
+        out->type = meshtastic_AdminMessage_ConfigType_DISPLAY_CONFIG;
+        out->payload.config.which_payload_variant = meshtastic_Config_display_tag;
+        out->payload.config.payload_variant.display = radio->display;
+        break;
+    case MESH_UI_SETTINGS_STORE_FORWARD:
+        if (!radio->has_store_forward) {
+            return -ENOENT;
+        }
+        out->kind = MESH_ADMIN_SET_MODULE_CONFIG;
+        out->type = meshtastic_AdminMessage_ModuleConfigType_STOREFORWARD_CONFIG;
+        out->payload.module_config.which_payload_variant =
+            meshtastic_ModuleConfig_store_forward_tag;
+        out->payload.module_config.payload_variant.store_forward = radio->store_forward;
+        break;
+    case MESH_UI_SETTINGS_TELEMETRY:
+        if (!radio->has_telemetry) {
+            return -ENOENT;
+        }
+        out->kind = MESH_ADMIN_SET_MODULE_CONFIG;
+        out->type = meshtastic_AdminMessage_ModuleConfigType_TELEMETRY_CONFIG;
+        out->payload.module_config.which_payload_variant = meshtastic_ModuleConfig_telemetry_tag;
+        out->payload.module_config.payload_variant.telemetry = radio->telemetry;
+        break;
+    default:
+        return -ENOTSUP;
+    }
+    for (uint8_t i = 0; i < action->edit_count && i < MESH_UI_SETTINGS_EDITS_MAX; ++i) {
+        if (mesh_ui_settings_field_section((enum mesh_ui_setting_field)action->edits[i].field) !=
+            (enum mesh_ui_settings_section)action->section) {
+            continue; /* an edit from another section has no business in this write */
+        }
+        mesh_app_apply_setting_edit(out, &action->edits[i]);
+    }
+    return 0;
+}
+
+static void mesh_app_save_settings(struct mesh_app *app, struct mesh_transport *ble,
+                                   const struct mesh_ui_action *action, uint64_t now) {
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    const char *section_name =
+        mesh_ui_settings_section_name((enum mesh_ui_settings_section)action->section);
+    struct mesh_admin_request write;
+    int result = mesh_app_build_settings_write(mesh_ble_transport_settings(ble), action, &write);
+    if (result == 0) {
+        result = mesh_ble_transport_write_settings(ble, &write);
+    }
+    if (result > 0) {
+        const struct mesh_radio_settings *radio = mesh_ble_transport_settings(ble);
+        app->settings_save_pending = true;
+        app->settings_writes_acked_seen = radio != NULL ? radio->writes_acked : 0U;
+        app->settings_writes_failed_seen = radio != NULL ? radio->writes_failed : 0U;
+        snprintf(app->settings_save_section, sizeof app->settings_save_section, "%s", section_name);
+        mesh_ui_store_settings_edits_clear(&app->ui_store);
+        snprintf(toast, sizeof toast, "Saving %s...", section_name);
+        mesh_log_info("ui", "Saving %s: %u edits, %d admin requests", section_name,
+                      (unsigned)action->edit_count, result);
+    } else if (result == -ENOTCONN) {
+        snprintf(toast, sizeof toast, "%s", "Not connected to a node; edits kept");
+    } else if (result == -ENOENT) {
+        snprintf(toast, sizeof toast, "%s not loaded yet; X to refresh", section_name);
+    } else if (result == -ENOTSUP) {
+        snprintf(toast, sizeof toast, "%s is read-only for now", section_name);
+    } else {
+        snprintf(toast, sizeof toast, "Save failed (%d); edits kept", result);
+        mesh_log_warn("ui", "Saving %s failed: %d", section_name, result);
+    }
+    mesh_ui_store_set_toast(&app->ui_store, now, toast);
+}
+
+/* Announces the outcome of a save once: the ack, the rejection, or the radio dropping the
+   link to reboot with the new settings (most sections do; auto-connect brings it back). */
+static void mesh_app_track_settings_save(struct mesh_app *app,
+                                         const struct mesh_radio_settings *radio,
+                                         bool link_connected) {
+    if (!app->settings_save_pending) {
+        return;
+    }
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    const uint64_t now = mesh_app_now_ms();
+    if (radio != NULL && radio->writes_failed > app->settings_writes_failed_seen) {
+        switch (radio->last_write_error) {
+        case meshtastic_Routing_Error_ADMIN_BAD_SESSION_KEY:
+            snprintf(toast, sizeof toast, "%s rejected: session expired, try again",
+                     app->settings_save_section);
+            break;
+        case meshtastic_Routing_Error_BAD_REQUEST:
+            snprintf(toast, sizeof toast, "%s rejected by the radio (bad value)",
+                     app->settings_save_section);
+            break;
+        case MESH_RADIO_SETTINGS_WRITE_TIMEOUT:
+            snprintf(toast, sizeof toast, "No reply saving %s; X to check",
+                     app->settings_save_section);
+            break;
+        default:
+            snprintf(toast, sizeof toast, "%s rejected (error %d)", app->settings_save_section,
+                     (int)radio->last_write_error);
+            break;
+        }
+        mesh_log_warn("ui", "Save of %s failed: error %d", app->settings_save_section,
+                      (int)radio->last_write_error);
+    } else if (radio != NULL && radio->writes_acked > app->settings_writes_acked_seen) {
+        snprintf(toast, sizeof toast, "%s saved; radio may restart", app->settings_save_section);
+        mesh_log_info("ui", "Save of %s acknowledged", app->settings_save_section);
+    } else if (!link_connected) {
+        snprintf(toast, sizeof toast, "%s", "Radio restarting to apply; reconnecting");
+        mesh_log_info("ui", "Link dropped while saving %s; assuming reboot",
+                      app->settings_save_section);
+    } else {
+        return; /* still waiting */
+    }
+    app->settings_save_pending = false;
+    mesh_ui_store_set_toast(&app->ui_store, now, toast);
+}
+
 /* What the navigation model cannot do by itself: talk to the radio. */
 static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) {
     struct mesh_app *app = (struct mesh_app *)userdata;
@@ -133,6 +355,14 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
             snprintf(toast, sizeof toast, "Refresh failed (%d)", result);
         }
         mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
+    case MESH_UI_ACTION_SAVE_SETTINGS: {
+        if (ble == NULL) {
+            mesh_ui_store_set_toast(&app->ui_store, now, "BLE transport unavailable");
+            return;
+        }
+        mesh_app_save_settings(app, ble, action, now);
         return;
     }
     case MESH_UI_ACTION_NONE:
@@ -372,6 +602,7 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
     dst->loaded = mesh_radio_settings_loaded(src);
     dst->admin_ok = src->admin_replies > 0U;
     dst->admin_busy = mesh_radio_settings_busy(src) || src->queue_len > 0U;
+    dst->write_pending = mesh_radio_settings_write_pending(src);
     dst->admin_replies = src->admin_replies;
 
     if (src->has_owner) {
@@ -379,6 +610,7 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
         snprintf(dst->long_name, sizeof dst->long_name, "%s", src->owner.long_name);
         snprintf(dst->short_name, sizeof dst->short_name, "%s", src->owner.short_name);
         dst->is_licensed = src->owner.is_licensed;
+        dst->is_unmessagable = src->owner.has_is_unmessagable && src->owner.is_unmessagable;
     }
     if (src->has_device) {
         dst->has_device = true;
@@ -683,9 +915,11 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
 
     mesh_app_publish_messages(app, ble, &status);
 
+    const struct mesh_radio_settings *radio_settings = mesh_ble_transport_settings(ble);
     struct mesh_ui_settings ui_settings;
-    mesh_app_flatten_settings(mesh_ble_transport_settings(ble), &ui_settings);
+    mesh_app_flatten_settings(radio_settings, &ui_settings);
     mesh_ui_store_set_settings(&app->ui_store, &ui_settings);
+    mesh_app_track_settings_save(app, radio_settings, link_connected);
 
     if (preferences_modified && app->ui_preferences_path[0] != '\0') {
         if (mesh_ui_preferences_save(&app->ui_preferences, app->ui_preferences_path) == 0) {

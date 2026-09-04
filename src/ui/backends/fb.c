@@ -725,8 +725,17 @@ static void fb_render_picker(const struct mesh_ui_backend_fb_state *state,
 static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
                                const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
+    const bool for_setting = (nav->keyboard_field != MESH_UI_FIELD_NONE);
+    const size_t draft_cap =
+        for_setting ? mesh_ui_settings_text_max((enum mesh_ui_setting_field)nav->keyboard_field)
+                    : MESH_UI_DRAFT_MAX - 1U;
     char title[96];
-    snprintf(title, sizeof title, "To: %s", nav->target_name);
+    if (for_setting) {
+        snprintf(title, sizeof title, "%s",
+                 mesh_ui_settings_field_label((enum mesh_ui_setting_field)nav->keyboard_field));
+    } else {
+        snprintf(title, sizeof title, "To: %s", nav->target_name);
+    }
     fb_draw_title(state, layout, title);
 
     const int scale = state->scale;
@@ -749,7 +758,7 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
     y += box_lines * line;
 
     char meter[32];
-    snprintf(meter, sizeof meter, "%zu/%u", strlen(nav->draft), (unsigned)(MESH_UI_DRAFT_MAX - 1U));
+    snprintf(meter, sizeof meter, "%zu/%zu", strlen(nav->draft), draft_cap);
     fb_draw_text(state,
                  (int)state->var.xres - FB_MARGIN - (int)strlen(meter) * fb_char_adv(layout->small),
                  y, meter, layout->small, k_dim);
@@ -904,7 +913,8 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
     fb_draw_text(state, FB_MARGIN, y, mesh_ui_input_quit_hint(), state->scale, k_dim);
 }
 
-/* Settings: the section list, or one section's label/value rows. Read-only in phase 1. */
+/* Settings: the section list, or one section's label/value rows. Editable rows show a
+   pending edit in place of the radio's value with a marker until Y saves it. */
 static void fb_render_settings(const struct mesh_ui_backend_fb_state *state,
                                const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
@@ -917,7 +927,8 @@ static void fb_render_settings(const struct mesh_ui_backend_fb_state *state,
 
     char title[96];
     if (section_open) {
-        snprintf(title, sizeof title, "Settings > %s", mesh_ui_settings_section_name(section));
+        snprintf(title, sizeof title, "Settings > %s%s", mesh_ui_settings_section_name(section),
+                 nav->settings_edit_count > 0U ? " (unsaved)" : "");
     } else {
         snprintf(title, sizeof title, "%s", "Settings");
     }
@@ -951,11 +962,17 @@ static void fb_render_settings(const struct mesh_ui_backend_fb_state *state,
         struct fb_rgb color = k_text;
         if (section_open) {
             struct mesh_ui_settings_item item;
-            if (!mesh_ui_settings_item(settings, handshake, section, i, &item)) {
+            if (!mesh_ui_settings_item(settings, handshake, nav->settings_edits,
+                                       nav->settings_edit_count, section, i, &item)) {
                 break;
             }
-            snprintf(line, sizeof line, "%-*.*s %s", (int)label_cols, (int)label_cols, item.label,
-                     item.value);
+            /* Editable rows carry a marker so the eye can tell what Left/Right will act on. */
+            const char *marker = item.dirty ? "* " : item.field != MESH_UI_FIELD_NONE ? "> " : "  ";
+            snprintf(line, sizeof line, "%-*.*s %s%s", (int)label_cols, (int)label_cols, item.label,
+                     marker, item.value);
+            if (item.dirty) {
+                color = k_white;
+            }
         } else {
             const enum mesh_ui_settings_section row = (enum mesh_ui_settings_section)i;
             const bool loaded = mesh_ui_settings_section_loaded(settings, handshake, row);
@@ -996,7 +1013,9 @@ static void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
         return;
     }
     if (snapshot->nav.keyboard_open) {
-        hint = "A type  B delete  X shift  Y space  START send";
+        hint = snapshot->nav.keyboard_field != MESH_UI_FIELD_NONE
+                   ? "A type  B delete  X shift  Y space  START done"
+                   : "A type  B delete  X shift  Y space  START send";
         fb_render_keyboard(state, snapshot, &layout);
         fb_draw_footer(state, snapshot, &layout, hint);
         return;
@@ -1019,9 +1038,15 @@ static void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
         fb_render_devices(state, snapshot, &layout);
         break;
     case MESH_UI_SCREEN_SETTINGS:
-        hint = snapshot->nav.settings_section == MESH_UI_SETTINGS_NO_SECTION
-                   ? "A open  X refresh  L/R tabs"
-                   : "B back  X refresh  L/R tabs";
+        if (snapshot->nav.settings_section == MESH_UI_SETTINGS_NO_SECTION) {
+            hint = "A open  X refresh  L/R tabs";
+        } else if (snapshot->nav.settings_discard_armed) {
+            hint = "B again to discard  Y save";
+        } else if (snapshot->nav.settings_edit_count > 0U) {
+            hint = "Left/Right/A edit  Y save  B discard  L1/R1 tabs";
+        } else {
+            hint = "Left/Right/A edit  B back  X refresh  L1/R1 tabs";
+        }
         fb_render_settings(state, snapshot, &layout);
         break;
     case MESH_UI_SCREEN_STATUS:
