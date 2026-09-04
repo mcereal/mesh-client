@@ -3952,15 +3952,23 @@ static void test_ui_nav_settings(void) {
         failure = "Down should move within the section";
         goto cleanup;
     }
-    /* Items are read-only in phase 1: A does nothing. */
+    /* A on the "Use preset" toggle edits it in place; nothing is sent until Y. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    if (action.type != MESH_UI_ACTION_NONE || store.nav.settings_section != MESH_UI_SETTINGS_LORA) {
-        failure = "A on an item should be a no-op";
+    if (action.type != MESH_UI_ACTION_NONE || store.nav.settings_section != MESH_UI_SETTINGS_LORA ||
+        store.nav.settings_edit_count != 1U ||
+        store.nav.settings_edits[0].field != MESH_UI_FIELD_LORA_USE_PRESET) {
+        failure = "A on a toggle should record an edit";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
     if (action.type != MESH_UI_ACTION_REFRESH_SETTINGS) {
         failure = "X should ask for a refresh";
+        goto cleanup;
+    }
+    /* B with an edit asks first; B again discards and leaves. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (!store.nav.settings_discard_armed || store.nav.settings_section != MESH_UI_SETTINGS_LORA) {
+        failure = "B with an edit should ask before leaving";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
@@ -4743,9 +4751,9 @@ static void test_app_settings_write_build(void) {
         record_failure(test_name, "a section the radio has not sent cannot be written");
         return;
     }
-    action.section = MESH_UI_SETTINGS_LORA;
+    action.section = MESH_UI_SETTINGS_RADIO;
     if (mesh_app_build_settings_write(&radio, &action, &write) != -ENOTSUP) {
-        record_failure(test_name, "LoRa is still read-only");
+        record_failure(test_name, "the Radio section is read-only");
         return;
     }
     record_success(test_name);
@@ -5210,8 +5218,8 @@ static void test_ui_nav_channel_edit(void) {
         !mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U, 2U,
                                &item) ||
         item.field != MESH_UI_FIELD_CHANNEL_KEY || item.kind != MESH_UI_SETTING_KEY ||
-        strncmp(item.text, "a0a1a2a3", 8U) != 0 || strlen(item.text) != 32U ||
-        strstr(item.value, "a0a1a2a3...") == NULL || strstr(item.value, "AES-128") == NULL ||
+        strcmp(item.text, "oKGio6SlpqeoqaqrrK2urw==") != 0 ||
+        strstr(item.value, "oKGio6Sl...") == NULL || strstr(item.value, "AES-128") == NULL ||
         !mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U, 5U,
                                &item) ||
         strcmp(item.value, "~3 km") != 0) {
@@ -5235,8 +5243,8 @@ static void test_ui_nav_channel_edit(void) {
         store.nav.settings_edits[0].number != MESH_UI_PSK_DEFAULT ||
         !mesh_ui_settings_item(&store.settings, NULL, store.nav.settings_edits, 1U,
                                MESH_UI_SETTINGS_CHANNELS, 1U, 2U, &item) ||
-        !item.dirty || strcmp(item.value, "default key") != 0 || strlen(item.text) != 32U) {
-        failure = "Right on the key should pick the default key and keep the hex for the keyboard";
+        !item.dirty || strcmp(item.value, "default key") != 0 || strlen(item.text) != 24U) {
+        failure = "Right on the key should pick the default key and keep the text for the keyboard";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
@@ -5252,25 +5260,42 @@ static void test_ui_nav_channel_edit(void) {
         failure = "Left back to keep should drop the edit";
         goto cleanup;
     }
-    /* A opens the keyboard on the hex; a bad key keeps it open; a good one is recorded. */
+    /* A opens the keyboard on the key as base64; a bad key keeps it open; a good one is
+       recorded. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     if (!store.nav.keyboard_open || store.nav.keyboard_field != MESH_UI_FIELD_CHANNEL_KEY ||
-        strlen(store.nav.draft) != 32U) {
-        failure = "A on the key should open the keyboard on the current key as hex";
+        strcmp(store.nav.draft, "oKGio6SlpqeoqaqrrK2urw==") != 0) {
+        failure = "A on the key should open the keyboard on the current key as base64";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action); /* 31 digits: not a key */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action); /* 23 chars: not base64 */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
     if (!store.nav.keyboard_open || store.nav.settings_edit_count != 0U) {
-        failure = "an odd number of hex digits should be refused and the keyboard stay open";
+        failure = "a truncated key should be refused and the keyboard stay open";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* '1' -> 32 digits again */
+    /* Delete "w=" too, then type "a==": still 16 bytes, last byte different. 'a' is row 2
+       col 0 of the lower layer; '=' is row 1 col 2 of the symbol layer. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (strcmp(store.nav.draft, "oKGio6SlpqeoqaqrrK2ura==") != 0) {
+        failure = "typing on the key keyboard went wrong";
+        goto cleanup;
+    }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
     if (store.nav.keyboard_open || store.nav.settings_edit_count != 1U ||
         store.nav.settings_edits[0].number != MESH_UI_PSK_TYPED ||
-        strlen(store.nav.settings_edits[0].text) != 32U ||
-        store.nav.settings_edits[0].text[31] != '1') {
+        strcmp(store.nav.settings_edits[0].text, "oKGio6SlpqeoqaqrrK2ura==") != 0) {
         failure = "a valid typed key should be recorded";
         goto cleanup;
     }
@@ -5436,6 +5461,232 @@ static void test_app_channel_write_build(void) {
     record_success(test_name);
 }
 
+/* Keys as text: base64 out, base64 or hex in, per-field lengths and choices. */
+static void test_ui_settings_key_text(void) {
+    const char *test_name = "ui_settings_key_text";
+    static const uint8_t k_default[16] = {0xd4, 0xf1, 0xbb, 0x3a, 0x20, 0x29, 0x07, 0x59,
+                                          0xf0, 0xbc, 0xff, 0xab, 0xcf, 0x4e, 0x69, 0x01};
+    char text[64];
+    mesh_ui_settings_key_text(k_default, sizeof k_default, text, sizeof text);
+    if (strcmp(text, "1PG7OiApB1nwvP+rz05pAQ==") != 0) {
+        record_failure(test_name, "base64 of the default key is wrong");
+        return;
+    }
+    uint8_t parsed[32];
+    size_t len = 0U;
+    if (!mesh_ui_settings_key_parse("1PG7OiApB1nwvP+rz05pAQ==", parsed, sizeof parsed, &len) ||
+        len != 16U || memcmp(parsed, k_default, 16U) != 0) {
+        record_failure(test_name, "base64 should parse back");
+        return;
+    }
+    if (!mesh_ui_settings_key_parse("d4f1bb3a20290759f0bcffabcf4e6901", parsed, sizeof parsed,
+                                    &len) ||
+        len != 16U || memcmp(parsed, k_default, 16U) != 0) {
+        record_failure(test_name, "hex should parse too");
+        return;
+    }
+    if (!mesh_ui_settings_key_parse("AQ==", parsed, sizeof parsed, &len) || len != 1U ||
+        parsed[0] != 1U || !mesh_ui_settings_key_parse("", parsed, sizeof parsed, &len) ||
+        len != 0U) {
+        record_failure(test_name, "one-byte and empty keys should parse");
+        return;
+    }
+    if (mesh_ui_settings_key_parse("1PG7OiApB1nwvP+rz05pAQ=", parsed, sizeof parsed, &len) ||
+        mesh_ui_settings_key_parse("1PG7Oi=pB1nwvP+rz05pAQ==", parsed, sizeof parsed, &len) ||
+        mesh_ui_settings_key_parse("not a key!", parsed, sizeof parsed, &len) ||
+        mesh_ui_settings_key_parse("abc", parsed, sizeof parsed, &len)) {
+        record_failure(test_name, "bad text must be refused");
+        return;
+    }
+    uint8_t all[32];
+    for (unsigned i = 0; i < 32U; ++i) {
+        all[i] = (uint8_t)(i * 7U);
+    }
+    mesh_ui_settings_key_text(all, 32U, text, sizeof text);
+    if (strlen(text) != 44U || !mesh_ui_settings_key_parse(text, parsed, sizeof parsed, &len) ||
+        len != 32U || memcmp(parsed, all, 32U) != 0) {
+        record_failure(test_name, "a 32-byte key should round-trip");
+        return;
+    }
+    if (!mesh_ui_settings_key_len_ok(MESH_UI_FIELD_CHANNEL_KEY, 1U) ||
+        mesh_ui_settings_key_len_ok(MESH_UI_FIELD_CHANNEL_KEY, 8U) ||
+        !mesh_ui_settings_key_len_ok(MESH_UI_FIELD_SECURITY_PRIVATE_KEY, 32U) ||
+        mesh_ui_settings_key_len_ok(MESH_UI_FIELD_SECURITY_PRIVATE_KEY, 16U) ||
+        !mesh_ui_settings_key_len_ok(MESH_UI_FIELD_SECURITY_ADMIN_KEY_1, 0U) ||
+        mesh_ui_settings_key_len_ok(MESH_UI_FIELD_DISPLAY_FLIP, 0U)) {
+        record_failure(test_name, "key length rules are wrong");
+        return;
+    }
+    if (mesh_ui_settings_key_choices(MESH_UI_FIELD_SECURITY_PRIVATE_KEY) !=
+            (MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_KEEP) |
+             MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_RANDOM_256)) ||
+        (mesh_ui_settings_key_choices(MESH_UI_FIELD_CHANNEL_KEY) &
+         MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_DEFAULT)) == 0U ||
+        mesh_ui_settings_key_choices(MESH_UI_FIELD_LORA_HOPS) != 0U) {
+        record_failure(test_name, "key choices are wrong");
+        return;
+    }
+    record_success(test_name);
+}
+
+/* LoRa and Security rows, and the writes built from them. */
+static void test_app_lora_security_write_build(void) {
+    const char *test_name = "app_lora_security_write_build";
+    struct mesh_radio_settings radio;
+    mesh_radio_settings_reset(&radio);
+    radio.has_lora = true;
+    radio.lora.region = meshtastic_Config_LoRaConfig_RegionCode_US;
+    radio.lora.use_preset = true;
+    radio.lora.modem_preset = meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST;
+    radio.lora.hop_limit = 3U;
+    radio.lora.tx_enabled = true;
+    radio.lora.frequency_offset = 1.5f;
+    radio.has_security = true;
+    radio.security.private_key.size = 32U;
+    memset(radio.security.private_key.bytes, 0x11, 32U);
+    radio.security.public_key.size = 32U;
+    memset(radio.security.public_key.bytes, 0x22, 32U);
+    radio.security.admin_key_count = 2U;
+    radio.security.admin_key[0].size = 32U;
+    memset(radio.security.admin_key[0].bytes, 0x33, 32U);
+    radio.security.admin_key[1].size = 32U;
+    memset(radio.security.admin_key[1].bytes, 0x44, 32U);
+
+    /* The flattened view carries the keys for the rows. */
+    struct mesh_ui_settings settings;
+    struct mesh_ui_action probe;
+    memset(&probe, 0, sizeof probe);
+    struct mesh_ui_snapshot *unused = NULL;
+    (void)unused;
+    (void)probe;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_lora = true;
+    settings.region = 1U;
+    settings.use_preset = true;
+    settings.tx_power = 0;
+    settings.has_security = true;
+    settings.private_key_len = 32U;
+    memset(settings.private_key, 0x11, 32U);
+    settings.admin_key_count = 2U;
+    settings.admin_key_lens[0] = 32U;
+    memset(settings.admin_keys[0], 0x33, 32U);
+    settings.admin_key_lens[1] = 32U;
+    struct mesh_ui_settings_item item;
+    if (mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_LORA,
+                                    MESH_UI_SETTINGS_NO_CHANNEL) != 11U ||
+        !mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_LORA,
+                               MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
+        item.field != MESH_UI_FIELD_LORA_REGION || strcmp(item.value, "US") != 0 ||
+        mesh_ui_settings_enum_count(MESH_UI_FIELD_LORA_REGION) != 38U ||
+        strcmp(mesh_ui_settings_enum_name(MESH_UI_FIELD_LORA_REGION, 37U), "ITU2 1.25m") != 0 ||
+        !mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_LORA,
+                               MESH_UI_SETTINGS_NO_CHANNEL, 8U, &item) ||
+        item.field != MESH_UI_FIELD_LORA_TX_POWER || strcmp(item.value, "max") != 0 ||
+        mesh_ui_settings_number_step(MESH_UI_FIELD_LORA_TX_POWER, 0U, +1) != 2U ||
+        !mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_LORA,
+                               MESH_UI_SETTINGS_NO_CHANNEL, 5U, &item) ||
+        strcmp(item.value, "4/0") != 0) {
+        record_failure(test_name, "LoRa rows are wrong");
+        return;
+    }
+    if (mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_SECURITY,
+                                    MESH_UI_SETTINGS_NO_CHANNEL) != 10U ||
+        !mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_SECURITY,
+                               MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
+        item.field != MESH_UI_FIELD_SECURITY_PRIVATE_KEY || item.kind != MESH_UI_SETTING_KEY ||
+        strlen(item.text) != 44U || strstr(item.value, "256-bit") == NULL ||
+        !mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_SECURITY,
+                               MESH_UI_SETTINGS_NO_CHANNEL, 4U, &item) ||
+        item.field != MESH_UI_FIELD_SECURITY_ADMIN_KEY_2 || strcmp(item.value, "none") != 0 ||
+        !mesh_ui_settings_section_needs_confirm(MESH_UI_SETTINGS_LORA) ||
+        !mesh_ui_settings_section_needs_confirm(MESH_UI_SETTINGS_SECURITY)) {
+        record_failure(test_name, "Security rows are wrong");
+        return;
+    }
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    action.type = MESH_UI_ACTION_SAVE_SETTINGS;
+    action.section = MESH_UI_SETTINGS_LORA;
+    action.channel = MESH_UI_SETTINGS_NO_CHANNEL;
+    action.edit_count = 3U;
+    action.edits[0].field = MESH_UI_FIELD_LORA_REGION;
+    action.edits[0].number = meshtastic_Config_LoRaConfig_RegionCode_EU_868;
+    action.edits[1].field = MESH_UI_FIELD_LORA_HOPS;
+    action.edits[1].number = 5U;
+    action.edits[2].field = MESH_UI_FIELD_LORA_TX_POWER;
+    action.edits[2].number = 20U;
+    struct mesh_admin_request write;
+    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+        write.kind != MESH_ADMIN_SET_CONFIG ||
+        write.type != meshtastic_AdminMessage_ConfigType_LORA_CONFIG ||
+        write.payload.config.which_payload_variant != meshtastic_Config_lora_tag ||
+        write.payload.config.payload_variant.lora.region !=
+            meshtastic_Config_LoRaConfig_RegionCode_EU_868 ||
+        write.payload.config.payload_variant.lora.hop_limit != 5U ||
+        write.payload.config.payload_variant.lora.tx_power != 20 ||
+        !write.payload.config.payload_variant.lora.use_preset ||
+        write.payload.config.payload_variant.lora.frequency_offset != 1.5f) {
+        record_failure(test_name, "the LoRa write should carry the edits over the radio's copy");
+        return;
+    }
+
+    /* Security: a new private key is clamped and the public key cleared for the firmware to
+       derive; clearing admin key 1 compacts the list. */
+    action.section = MESH_UI_SETTINGS_SECURITY;
+    action.edit_count = 3U;
+    action.edits[0].field = MESH_UI_FIELD_SECURITY_PRIVATE_KEY;
+    action.edits[0].number = MESH_UI_PSK_RANDOM_256;
+    action.edits[1].field = MESH_UI_FIELD_SECURITY_ADMIN_KEY_0;
+    action.edits[1].number = MESH_UI_PSK_NONE;
+    action.edits[2].field = MESH_UI_FIELD_SECURITY_MANAGED;
+    action.edits[2].number = 1U;
+    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+        write.type != meshtastic_AdminMessage_ConfigType_SECURITY_CONFIG ||
+        write.payload.config.which_payload_variant != meshtastic_Config_security_tag) {
+        record_failure(test_name, "the Security write should build");
+        return;
+    }
+    const meshtastic_Config_SecurityConfig *sec = &write.payload.config.payload_variant.security;
+    if (sec->private_key.size != 32U || (sec->private_key.bytes[0] & 7U) != 0U ||
+        (sec->private_key.bytes[31] & 0x80U) != 0U || (sec->private_key.bytes[31] & 0x40U) == 0U ||
+        memcmp(sec->private_key.bytes, radio.security.private_key.bytes, 32U) == 0 ||
+        sec->public_key.size != 0U || !sec->is_managed) {
+        record_failure(test_name, "a new private key should be clamped and the public key cleared");
+        return;
+    }
+    if (sec->admin_key_count != 1U || sec->admin_key[0].size != 32U ||
+        sec->admin_key[0].bytes[0] != 0x44U || sec->admin_key[1].size != 0U) {
+        record_failure(test_name, "clearing an admin key should compact the list");
+        return;
+    }
+    /* Restoring a backed-up private key and adding an admin key by text. */
+    action.edit_count = 2U;
+    action.edits[0].field = MESH_UI_FIELD_SECURITY_PRIVATE_KEY;
+    action.edits[0].number = MESH_UI_PSK_TYPED;
+    uint8_t restore[32];
+    memset(restore, 0x5A, 32U);
+    mesh_ui_settings_key_text(restore, 32U, action.edits[0].text, sizeof action.edits[0].text);
+    action.edits[1].field = MESH_UI_FIELD_SECURITY_ADMIN_KEY_2;
+    action.edits[1].number = MESH_UI_PSK_TYPED;
+    memset(restore, 0x66, 32U);
+    mesh_ui_settings_key_text(restore, 32U, action.edits[1].text, sizeof action.edits[1].text);
+    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+        sec->private_key.bytes[0] != 0x5AU || sec->private_key.size != 32U ||
+        sec->public_key.size != 0U || sec->admin_key_count != 3U ||
+        sec->admin_key[2].bytes[0] != 0x66U) {
+        record_failure(test_name, "typed keys should be restored as given");
+        return;
+    }
+    snprintf(action.edits[0].text, sizeof action.edits[0].text, "%s", "AQ=="); /* 1 byte */
+    if (mesh_app_build_settings_write(&radio, &action, &write) != -EINVAL) {
+        record_failure(test_name, "a private key must be 32 bytes");
+        return;
+    }
+    record_success(test_name);
+}
+
 static const struct test_case k_test_cases[] = {
     {"config_defaults", "unit", test_config_defaults},
     {"transport_registry_registration", "unit", test_transport_registry_registration},
@@ -5491,6 +5742,8 @@ static const struct test_case k_test_cases[] = {
     {"radio_settings_channel_write", "unit", test_radio_settings_channel_write},
     {"ui_nav_channel_edit", "unit", test_ui_nav_channel_edit},
     {"app_channel_write_build", "unit", test_app_channel_write_build},
+    {"ui_settings_key_text", "unit", test_ui_settings_key_text},
+    {"app_lora_security_write_build", "unit", test_app_lora_security_write_build},
 };
 
 struct test_options {

@@ -132,7 +132,11 @@ struct mesh_ui_settings {
     uint8_t public_key[32];
     uint8_t public_key_len;
     bool has_private_key;
+    uint8_t private_key[32]; /* revealed only through the keyboard, for backup */
+    uint8_t private_key_len;
     uint8_t admin_key_count;
+    uint8_t admin_keys[3][32];
+    uint8_t admin_key_lens[3];
     bool is_managed;
     bool serial_enabled;
     bool debug_log_api_enabled;

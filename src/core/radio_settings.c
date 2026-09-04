@@ -655,6 +655,28 @@ const char *mesh_radio_region_name(uint32_t region) {
         return "NP 865";
     case meshtastic_Config_LoRaConfig_RegionCode_BR_902:
         return "BR 902";
+    case meshtastic_Config_LoRaConfig_RegionCode_ITU1_2M:
+        return "ITU1 2m";
+    case meshtastic_Config_LoRaConfig_RegionCode_ITU2_2M:
+        return "ITU2 2m";
+    case meshtastic_Config_LoRaConfig_RegionCode_EU_866:
+        return "EU 866";
+    case meshtastic_Config_LoRaConfig_RegionCode_EU_874:
+        return "EU 874";
+    case meshtastic_Config_LoRaConfig_RegionCode_EU_917:
+        return "EU 917";
+    case meshtastic_Config_LoRaConfig_RegionCode_EU_N_868:
+        return "EU narrow 868";
+    case meshtastic_Config_LoRaConfig_RegionCode_ITU3_2M:
+        return "ITU3 2m";
+    case meshtastic_Config_LoRaConfig_RegionCode_ITU1_70CM:
+        return "ITU1 70cm";
+    case meshtastic_Config_LoRaConfig_RegionCode_ITU2_70CM:
+        return "ITU2 70cm";
+    case meshtastic_Config_LoRaConfig_RegionCode_ITU3_70CM:
+        return "ITU3 70cm";
+    case meshtastic_Config_LoRaConfig_RegionCode_ITU2_125CM:
+        return "ITU2 1.25m";
     default:
         return "?";
     }

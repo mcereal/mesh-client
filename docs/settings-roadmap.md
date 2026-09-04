@@ -138,13 +138,35 @@ the radio to another channel), cursor on Cancel, A on "Save to radio" emits the 
   the same name and key fingerprint in the phone app after the reboot; switching the pairing
   mode to No PIN, re-pairing once with `bluetoothctl`, and reconnecting works.
 
-### Phase 4 - LoRa and Security
+### Phase 4 - LoRa and Security (this branch)
 
-Region, preset, hops, MQTT flags, TX enable, coding rate; public/private key view, key
-backup, admin keys, regenerate key. All behind confirm screens with explicit consequences.
+LoRa: region (all 38 codes), use preset, preset, bandwidth / spread factor / coding rate
+(always listed so the row count is stable while the preset toggle is edited), hop limit,
+transmit, TX power (0 = the radio's maximum), ignore MQTT, OK to MQTT. The firmware does not
+reject a LoRa write; it only coerces an out-of-range spread factor or coding rate back to the
+default, and any RF-relevant change reboots.
+
+Security: the public key is shown as a fingerprint. The private key is a KEY row with keep /
+new random key, and A reveals it as base64 for backup or lets a backed-up key be typed back
+in. A new key is 32 random bytes clamped the Curve25519 way (the firmware does not clamp a
+client-supplied key) and is sent with the public key cleared: the firmware derives the public
+key itself (`regeneratePublicKey`) and copies it into the owner record. Three admin key rows
+(keep / none / typed) with the repeated field compacted on save; managed mode, admin channel,
+serial console, debug log API toggles; packet signature policy. The firmware refuses managed
+mode without an admin key, and managed mode locks out any client whose key is not listed,
+this one included. Key and admin-key changes do not reboot; the serial and debug-log toggles
+do.
+
+Keys everywhere are shown and typed as base64, what the phone apps use, so a key read off the
+Brick can be entered in the app and vice versa; hex is accepted when typing too.
+
+- Exit criteria: on the Brick, a LoRa hop-limit change survives the reboot and shows in the
+  phone app; the private key revealed on the Brick matches the app's; an admin key typed from
+  the app's public key lets that phone administer the node.
 
 ### Later, maybe never
 
-Firmware install. Also `tzdef` presets beyond a short list, `Position` and `Power`
-sections (shown read-only from phase 1, not edited), `Network` (WiFi credentials on a device
-with no WiFi of its own is a poor fit).
+Firmware install. Also `tzdef` presets beyond a short list, `Device` (role, time zone),
+`Position` and `Power` sections (shown read-only, not edited), `Network` (WiFi credentials on
+a device with no WiFi of its own is a poor fit), and closing channel gaps the way the phone
+apps do when a middle slot is removed.

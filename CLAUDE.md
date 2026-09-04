@@ -130,7 +130,11 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
   and the Key row is kind `KEY`: `number` is an `enum mesh_ui_psk_choice` (keep, default,
   random 128/256, none, typed hex in `text`), resolved to bytes in `app.c`. Sections named by
   `mesh_ui_settings_section_needs_confirm` (Bluetooth, Channels) get the `confirm_open`
-  overlay between Y and the write; the action's `channel` carries the slot.
+  overlay between Y and the write; the action's `channel` carries the slot. LoRa and Security
+  are behind it too. Keys are shown and typed as base64 (`mesh_ui_settings_key_text`/`_parse`,
+  hex accepted); each KEY field has a choice mask (`mesh_ui_settings_key_choices`) and a length
+  rule (`_key_len_ok`). A new private key is clamped in `app.c` and sent with the public key
+  cleared, which the firmware fills in; admin keys are compacted before the write.
 - `src/ui/store.c` + `controller.c` — store owns `mesh_ui_snapshot` and signals via eventfd;
   controller drains it and calls `backend->present(snapshot)`. Backends implement the three-function
   `struct mesh_ui_backend` in `include/mesh/ui/backend.h` and live in `src/ui/backends/`.
@@ -214,7 +218,7 @@ via Python3 (needs `pip install protobuf grpcio-tools`).
 One harness, `tests/test_main.c`, with a `k_test_cases` table tagged by category (`unit` today;
 `integration`/`hardware` reserved). Register new cases in that table; use
 `record_failure`/`record_success`. Tests must not touch real BlueZ — use the bluez mock. New
-CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-04: 53 unit tests, all passing in
+CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-04: 55 unit tests, all passing in
 the dev container with zero compiler warnings. `message_encode_text_golden` pins the
 `TEXT_MESSAGE_APP` wire format against a hand-derived byte vector (not against our own encoder),
 so a protobuf regeneration that changes field numbers or wire types fails loudly.

@@ -122,6 +122,52 @@ static void format_precision(uint32_t bits, char *out, size_t out_len) {
     }
 }
 
+static const char *region_enum_name(uint32_t region) { return mesh_radio_region_name(region); }
+static const char *preset_enum_name(uint32_t preset) {
+    return mesh_radio_modem_preset_name(preset);
+}
+static const char *signature_policy_name(uint32_t policy) {
+    switch (policy) {
+    case 0U:
+        return "Compatible";
+    case 1U:
+        return "Balanced";
+    case 2U:
+        return "Strict";
+    default:
+        return "?";
+    }
+}
+
+static void format_bandwidth(uint32_t khz, char *out, size_t out_len) {
+    if (khz == 31U) {
+        snprintf(out, out_len, "%s", "31.25 kHz");
+    } else if (khz == 62U) {
+        snprintf(out, out_len, "%s", "62.5 kHz");
+    } else {
+        snprintf(out, out_len, "%u kHz", (unsigned)khz);
+    }
+}
+static void format_plain(uint32_t value, char *out, size_t out_len) {
+    snprintf(out, out_len, "%u", (unsigned)value);
+}
+static void format_coding_rate(uint32_t value, char *out, size_t out_len) {
+    snprintf(out, out_len, "4/%u", (unsigned)value);
+}
+static void format_tx_power(uint32_t value, char *out, size_t out_len) {
+    if (value == 0U) {
+        snprintf(out, out_len, "%s", "max");
+    } else {
+        snprintf(out, out_len, "%d dBm", (int)(int8_t)value);
+    }
+}
+
+static const uint32_t k_bandwidth_presets[] = {31U, 62U, 125U, 250U, 500U};
+static const uint32_t k_spread_presets[] = {7U, 8U, 9U, 10U, 11U, 12U};
+static const uint32_t k_coding_presets[] = {5U, 6U, 7U, 8U};
+static const uint32_t k_hop_presets[] = {1U, 2U, 3U, 4U, 5U, 6U, 7U};
+static const uint32_t k_tx_power_presets[] = {0U, 2U, 5U, 8U, 10U, 14U, 17U, 20U, 22U, 27U, 30U};
+
 static const uint32_t k_precision_presets[] = {0U,  10U, 11U, 12U, 13U, 14U,
                                                15U, 16U, 17U, 18U, 19U, 32U};
 
@@ -142,7 +188,17 @@ struct field_spec {
     size_t preset_count;
     const char *zero_label; /* NUMBER: what 0 means (seconds formatting) */
     void (*format)(uint32_t value, char *out, size_t out_len); /* NUMBER: overrides seconds */
+    uint32_t choices; /* KEY: MESH_UI_PSK_CHOICE_BIT mask Left/Right walk */
 };
+
+#define CHANNEL_KEY_CHOICES                                                                        \
+    (MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_KEEP) | MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_DEFAULT) |      \
+     MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_RANDOM_128) |                                              \
+     MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_RANDOM_256) | MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_NONE))
+#define PRIVATE_KEY_CHOICES                                                                        \
+    (MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_KEEP) | MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_RANDOM_256))
+#define ADMIN_KEY_CHOICES                                                                          \
+    (MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_KEEP) | MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_NONE))
 
 #define PRESETS(array) (array), (sizeof(array) / sizeof((array)[0]))
 #define NO_PRESETS NULL, 0U
@@ -150,77 +206,132 @@ struct field_spec {
 /* User.long_name is 39 bytes on the wire but the firmware truncates to 24 (mesh.proto). */
 static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
     [MESH_UI_FIELD_NONE] = {"?", MESH_UI_SETTING_INFO, MESH_UI_SETTINGS_SECTION_COUNT, 0U, NULL,
-                            NO_PRESETS, NULL, NULL},
+                            NO_PRESETS, NULL, NULL, 0U},
     [MESH_UI_FIELD_USER_LONG_NAME] = {"Long name", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_USER, 24U,
-                                      NULL, NO_PRESETS, NULL, NULL},
+                                      NULL, NO_PRESETS, NULL, NULL, 0U},
     [MESH_UI_FIELD_USER_SHORT_NAME] = {"Short name", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_USER,
-                                       4U, NULL, NO_PRESETS, NULL, NULL},
+                                       4U, NULL, NO_PRESETS, NULL, NULL, 0U},
     [MESH_UI_FIELD_USER_LICENSED] = {"Licensed operator", MESH_UI_SETTING_TOGGLE,
-                                     MESH_UI_SETTINGS_USER, 0U, NULL, NO_PRESETS, NULL, NULL},
+                                     MESH_UI_SETTINGS_USER, 0U, NULL, NO_PRESETS, NULL, NULL, 0U},
     [MESH_UI_FIELD_USER_UNMESSAGEABLE] = {"Unmessageable", MESH_UI_SETTING_TOGGLE,
-                                          MESH_UI_SETTINGS_USER, 0U, NULL, NO_PRESETS, NULL, NULL},
+                                          MESH_UI_SETTINGS_USER, 0U, NULL, NO_PRESETS, NULL, NULL,
+                                          0U},
     [MESH_UI_FIELD_DISPLAY_SCREEN_ON] = {"Screen on", MESH_UI_SETTING_NUMBER,
                                          MESH_UI_SETTINGS_DISPLAY, 0U, NULL,
-                                         PRESETS(k_screen_on_presets), "default", NULL},
+                                         PRESETS(k_screen_on_presets), "default", NULL, 0U},
     [MESH_UI_FIELD_DISPLAY_CAROUSEL] = {"Carousel", MESH_UI_SETTING_NUMBER,
                                         MESH_UI_SETTINGS_DISPLAY, 0U, NULL,
-                                        PRESETS(k_carousel_presets), "off", NULL},
+                                        PRESETS(k_carousel_presets), "off", NULL, 0U},
     [MESH_UI_FIELD_DISPLAY_COMPASS] = {"Compass", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_DISPLAY,
-                                       8U, compass_name, NO_PRESETS, NULL, NULL},
+                                       8U, compass_name, NO_PRESETS, NULL, NULL, 0U},
     [MESH_UI_FIELD_DISPLAY_12H] = {"12-hour clock", MESH_UI_SETTING_TOGGLE,
-                                   MESH_UI_SETTINGS_DISPLAY, 0U, NULL, NO_PRESETS, NULL, NULL},
+                                   MESH_UI_SETTINGS_DISPLAY, 0U, NULL, NO_PRESETS, NULL, NULL, 0U},
     [MESH_UI_FIELD_DISPLAY_UNITS] = {"Units", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_DISPLAY, 2U,
-                                     units_name, NO_PRESETS, NULL, NULL},
+                                     units_name, NO_PRESETS, NULL, NULL, 0U},
     [MESH_UI_FIELD_DISPLAY_FLIP] = {"Flip screen", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_DISPLAY,
-                                    0U, NULL, NO_PRESETS, NULL, NULL},
+                                    0U, NULL, NO_PRESETS, NULL, NULL, 0U},
     [MESH_UI_FIELD_SF_ENABLED] = {"Store & Forward", MESH_UI_SETTING_TOGGLE,
-                                  MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL, NO_PRESETS, NULL, NULL},
+                                  MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL, NO_PRESETS, NULL, NULL,
+                                  0U},
     [MESH_UI_FIELD_SF_HEARTBEAT] = {"Heartbeat", MESH_UI_SETTING_TOGGLE,
                                     MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL, NO_PRESETS, NULL,
-                                    NULL},
+                                    NULL, 0U},
     [MESH_UI_FIELD_SF_SERVER] = {"Act as server", MESH_UI_SETTING_TOGGLE,
-                                 MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL, NO_PRESETS, NULL, NULL},
+                                 MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL, NO_PRESETS, NULL, NULL,
+                                 0U},
     [MESH_UI_FIELD_TELEMETRY_DEVICE] = {"Device metrics", MESH_UI_SETTING_TOGGLE,
                                         MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS, NULL,
-                                        NULL},
+                                        NULL, 0U},
     [MESH_UI_FIELD_TELEMETRY_INTERVAL] = {"Device interval", MESH_UI_SETTING_NUMBER,
                                           MESH_UI_SETTINGS_TELEMETRY, 0U, NULL,
-                                          PRESETS(k_interval_presets), "default", NULL},
+                                          PRESETS(k_interval_presets), "default", NULL, 0U},
     [MESH_UI_FIELD_TELEMETRY_ENVIRONMENT] = {"Environment", MESH_UI_SETTING_TOGGLE,
                                              MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS, NULL,
-                                             NULL},
+                                             NULL, 0U},
     [MESH_UI_FIELD_TELEMETRY_ENV_SCREEN] = {"Env on screen", MESH_UI_SETTING_TOGGLE,
                                             MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS, NULL,
-                                            NULL},
+                                            NULL, 0U},
     [MESH_UI_FIELD_TELEMETRY_ENV_FAHRENHEIT] = {"Env in Fahrenheit", MESH_UI_SETTING_TOGGLE,
                                                 MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS,
-                                                NULL, NULL},
+                                                NULL, NULL, 0U},
     [MESH_UI_FIELD_TELEMETRY_AIR_QUALITY] = {"Air quality", MESH_UI_SETTING_TOGGLE,
                                              MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS, NULL,
-                                             NULL},
+                                             NULL, 0U},
     [MESH_UI_FIELD_TELEMETRY_POWER] = {"Power metrics", MESH_UI_SETTING_TOGGLE,
-                                       MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS, NULL,
-                                       NULL},
+                                       MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS, NULL, NULL,
+                                       0U},
     [MESH_UI_FIELD_CHANNEL_NAME] = {"Name", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_CHANNELS, 11U,
-                                    NULL, NO_PRESETS, NULL, NULL},
+                                    NULL, NO_PRESETS, NULL, NULL, 0U},
     [MESH_UI_FIELD_CHANNEL_ROLE] = {"Role", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_CHANNELS, 2U,
-                                    channel_role_name, NO_PRESETS, NULL, NULL},
+                                    channel_role_name, NO_PRESETS, NULL, NULL, 0U},
     [MESH_UI_FIELD_CHANNEL_KEY] = {"Key", MESH_UI_SETTING_KEY, MESH_UI_SETTINGS_CHANNELS, 64U, NULL,
-                                   NO_PRESETS, NULL, NULL},
+                                   NO_PRESETS, NULL, NULL, CHANNEL_KEY_CHOICES},
     [MESH_UI_FIELD_CHANNEL_UPLINK] = {"MQTT uplink", MESH_UI_SETTING_TOGGLE,
-                                      MESH_UI_SETTINGS_CHANNELS, 0U, NULL, NO_PRESETS, NULL, NULL},
+                                      MESH_UI_SETTINGS_CHANNELS, 0U, NULL, NO_PRESETS, NULL, NULL,
+                                      0U},
     [MESH_UI_FIELD_CHANNEL_DOWNLINK] = {"MQTT downlink", MESH_UI_SETTING_TOGGLE,
-                                        MESH_UI_SETTINGS_CHANNELS, 0U, NULL, NO_PRESETS, NULL,
-                                        NULL},
+                                        MESH_UI_SETTINGS_CHANNELS, 0U, NULL, NO_PRESETS, NULL, NULL,
+                                        0U},
     [MESH_UI_FIELD_CHANNEL_POSITION] = {"Position precision", MESH_UI_SETTING_NUMBER,
                                         MESH_UI_SETTINGS_CHANNELS, 0U, NULL,
-                                        PRESETS(k_precision_presets), "off", format_precision},
+                                        PRESETS(k_precision_presets), "off", format_precision, 0U},
     [MESH_UI_FIELD_BT_ENABLED] = {"Bluetooth", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_BLUETOOTH,
-                                  0U, NULL, NO_PRESETS, NULL, NULL},
+                                  0U, NULL, NO_PRESETS, NULL, NULL, 0U},
     [MESH_UI_FIELD_BT_MODE] = {"Pairing", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_BLUETOOTH, 3U,
-                               pairing_enum_name, NO_PRESETS, NULL, NULL},
+                               pairing_enum_name, NO_PRESETS, NULL, NULL, 0U},
     [MESH_UI_FIELD_BT_PIN] = {"Fixed PIN", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_BLUETOOTH, 6U,
-                              NULL, NO_PRESETS, NULL, NULL},
+                              NULL, NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_LORA_REGION] = {"Region", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_LORA, 38U,
+                                   region_enum_name, NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_LORA_USE_PRESET] = {"Use preset", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_LORA,
+                                       0U, NULL, NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_LORA_PRESET] = {"Preset", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_LORA, 17U,
+                                   preset_enum_name, NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_LORA_BANDWIDTH] = {"Bandwidth", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_LORA,
+                                      0U, NULL, PRESETS(k_bandwidth_presets), NULL,
+                                      format_bandwidth, 0U},
+    [MESH_UI_FIELD_LORA_SPREAD] = {"Spread factor", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_LORA,
+                                   0U, NULL, PRESETS(k_spread_presets), NULL, format_plain, 0U},
+    [MESH_UI_FIELD_LORA_CODING] = {"Coding rate", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_LORA, 0U,
+                                   NULL, PRESETS(k_coding_presets), NULL, format_coding_rate, 0U},
+    [MESH_UI_FIELD_LORA_HOPS] = {"Hop limit", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_LORA, 0U,
+                                 NULL, PRESETS(k_hop_presets), NULL, format_plain, 0U},
+    [MESH_UI_FIELD_LORA_TX_ENABLED] = {"Transmit", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_LORA,
+                                       0U, NULL, NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_LORA_TX_POWER] = {"TX power", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_LORA, 0U,
+                                     NULL, PRESETS(k_tx_power_presets), NULL, format_tx_power, 0U},
+    [MESH_UI_FIELD_LORA_IGNORE_MQTT] = {"Ignore MQTT", MESH_UI_SETTING_TOGGLE,
+                                        MESH_UI_SETTINGS_LORA, 0U, NULL, NO_PRESETS, NULL, NULL,
+                                        0U},
+    [MESH_UI_FIELD_LORA_OK_TO_MQTT] = {"OK to MQTT", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_LORA,
+                                       0U, NULL, NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_SECURITY_PRIVATE_KEY] = {"Private key", MESH_UI_SETTING_KEY,
+                                            MESH_UI_SETTINGS_SECURITY, 64U, NULL, NO_PRESETS, NULL,
+                                            NULL, PRIVATE_KEY_CHOICES},
+    [MESH_UI_FIELD_SECURITY_ADMIN_KEY_0] = {"Admin key 1", MESH_UI_SETTING_KEY,
+                                            MESH_UI_SETTINGS_SECURITY, 64U, NULL, NO_PRESETS, NULL,
+                                            NULL, ADMIN_KEY_CHOICES},
+    [MESH_UI_FIELD_SECURITY_ADMIN_KEY_1] = {"Admin key 2", MESH_UI_SETTING_KEY,
+                                            MESH_UI_SETTINGS_SECURITY, 64U, NULL, NO_PRESETS, NULL,
+                                            NULL, ADMIN_KEY_CHOICES},
+    [MESH_UI_FIELD_SECURITY_ADMIN_KEY_2] = {"Admin key 3", MESH_UI_SETTING_KEY,
+                                            MESH_UI_SETTINGS_SECURITY, 64U, NULL, NO_PRESETS, NULL,
+                                            NULL, ADMIN_KEY_CHOICES},
+    [MESH_UI_FIELD_SECURITY_MANAGED] = {"Managed mode", MESH_UI_SETTING_TOGGLE,
+                                        MESH_UI_SETTINGS_SECURITY, 0U, NULL, NO_PRESETS, NULL, NULL,
+                                        0U},
+    [MESH_UI_FIELD_SECURITY_ADMIN_CHANNEL] = {"Admin channel", MESH_UI_SETTING_TOGGLE,
+                                              MESH_UI_SETTINGS_SECURITY, 0U, NULL, NO_PRESETS, NULL,
+                                              NULL, 0U},
+    [MESH_UI_FIELD_SECURITY_SERIAL] = {"Serial console", MESH_UI_SETTING_TOGGLE,
+                                       MESH_UI_SETTINGS_SECURITY, 0U, NULL, NO_PRESETS, NULL, NULL,
+                                       0U},
+    [MESH_UI_FIELD_SECURITY_DEBUG_LOG] = {"Debug log API", MESH_UI_SETTING_TOGGLE,
+                                          MESH_UI_SETTINGS_SECURITY, 0U, NULL, NO_PRESETS, NULL,
+                                          NULL, 0U},
+    [MESH_UI_FIELD_SECURITY_SIGNATURE_POLICY] = {"Packet signing", MESH_UI_SETTING_ENUM,
+                                                 MESH_UI_SETTINGS_SECURITY, 3U,
+                                                 signature_policy_name, NO_PRESETS, NULL, NULL, 0U},
 };
 
 static const struct field_spec *field_spec(enum mesh_ui_setting_field field) {
@@ -284,8 +395,29 @@ uint32_t mesh_ui_settings_text_max(enum mesh_ui_setting_field field) {
     return spec->limit < MESH_UI_SETTING_TEXT_MAX ? spec->limit : MESH_UI_SETTING_TEXT_MAX - 1U;
 }
 
+uint32_t mesh_ui_settings_key_choices(enum mesh_ui_setting_field field) {
+    const struct field_spec *spec = field_spec(field);
+    return spec->kind == MESH_UI_SETTING_KEY ? spec->choices : 0U;
+}
+
+bool mesh_ui_settings_key_len_ok(enum mesh_ui_setting_field field, size_t len) {
+    switch (field) {
+    case MESH_UI_FIELD_CHANNEL_KEY:
+        return len == 0U || len == 1U || len == 16U || len == 32U;
+    case MESH_UI_FIELD_SECURITY_PRIVATE_KEY:
+        return len == 32U;
+    case MESH_UI_FIELD_SECURITY_ADMIN_KEY_0:
+    case MESH_UI_FIELD_SECURITY_ADMIN_KEY_1:
+    case MESH_UI_FIELD_SECURITY_ADMIN_KEY_2:
+        return len == 0U || len == 32U;
+    default:
+        return false;
+    }
+}
+
 bool mesh_ui_settings_section_needs_confirm(enum mesh_ui_settings_section section) {
-    return section == MESH_UI_SETTINGS_BLUETOOTH || section == MESH_UI_SETTINGS_CHANNELS;
+    return section == MESH_UI_SETTINGS_BLUETOOTH || section == MESH_UI_SETTINGS_CHANNELS ||
+           section == MESH_UI_SETTINGS_LORA || section == MESH_UI_SETTINGS_SECURITY;
 }
 
 void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section, char *out,
@@ -304,6 +436,18 @@ void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section, char *
         snprintf(out, out_len, "%s",
                  "The radio will reboot. A new key or name moves this radio to a different "
                  "channel: every other node needs the same settings to keep talking to it.");
+        break;
+    case MESH_UI_SETTINGS_LORA:
+        snprintf(out, out_len, "%s",
+                 "The radio will reboot. A region or preset the other nodes do not share takes "
+                 "this radio off the mesh, and a wrong region may be illegal to transmit on. "
+                 "Transmit off makes it receive-only.");
+        break;
+    case MESH_UI_SETTINGS_SECURITY:
+        snprintf(out, out_len, "%s",
+                 "A new private key changes this node's identity: peers must learn it again "
+                 "and old direct messages stay unreadable. Managed mode locks out every "
+                 "client whose key is not an admin key, this one included.");
         break;
     default:
         snprintf(out, out_len, "%s", "The radio will reboot to apply this.");
@@ -337,20 +481,43 @@ static int hex_nibble(char c) {
     return -1;
 }
 
-bool mesh_ui_settings_key_parse(const char *hex, uint8_t *out, size_t out_cap, size_t *out_len) {
-    if (hex == NULL || out == NULL || out_len == NULL) {
-        return false;
+static const char k_base64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+void mesh_ui_settings_key_text(const uint8_t *key, size_t len, char *out, size_t out_len) {
+    if (out == NULL || out_len == 0U) {
+        return;
     }
-    const size_t digits = strlen(hex);
-    if (digits != 0U && digits != 2U && digits != 32U && digits != 64U) {
-        return false;
+    out[0] = '\0';
+    if (key == NULL || (len + 2U) / 3U * 4U + 1U > out_len) {
+        return;
     }
-    if (digits / 2U > out_cap) {
+    size_t pos = 0U;
+    for (size_t i = 0; i < len; i += 3U) {
+        const uint32_t b0 = key[i];
+        const uint32_t b1 = i + 1U < len ? key[i + 1U] : 0U;
+        const uint32_t b2 = i + 2U < len ? key[i + 2U] : 0U;
+        const uint32_t triple = (b0 << 16) | (b1 << 8) | b2;
+        out[pos++] = k_base64[(triple >> 18) & 0x3FU];
+        out[pos++] = k_base64[(triple >> 12) & 0x3FU];
+        out[pos++] = i + 1U < len ? k_base64[(triple >> 6) & 0x3FU] : '=';
+        out[pos++] = i + 2U < len ? k_base64[triple & 0x3FU] : '=';
+    }
+    out[pos] = '\0';
+}
+
+static int base64_value(char c) {
+    const char *at = c != '\0' ? strchr(k_base64, c) : NULL;
+    return at != NULL ? (int)(at - k_base64) : -1;
+}
+
+static bool parse_hex(const char *text, size_t digits, uint8_t *out, size_t out_cap,
+                      size_t *out_len) {
+    if (digits % 2U != 0U || digits / 2U > out_cap) {
         return false;
     }
     for (size_t i = 0; i < digits; i += 2U) {
-        const int hi = hex_nibble(hex[i]);
-        const int lo = hex_nibble(hex[i + 1U]);
+        const int hi = hex_nibble(text[i]);
+        const int lo = hex_nibble(text[i + 1U]);
         if (hi < 0 || lo < 0) {
             return false;
         }
@@ -360,10 +527,81 @@ bool mesh_ui_settings_key_parse(const char *hex, uint8_t *out, size_t out_cap, s
     return true;
 }
 
-/* "d4f1bb3a... (AES-128)", "default key", "no encryption". */
-static void key_summary(const uint8_t *key, size_t len, char *out, size_t out_len) {
+static bool parse_base64(const char *text, size_t chars, uint8_t *out, size_t out_cap,
+                         size_t *out_len) {
+    if (chars % 4U != 0U) {
+        return false;
+    }
+    size_t len = 0U;
+    for (size_t i = 0; i < chars; i += 4U) {
+        int values[4];
+        unsigned pad = 0U;
+        for (unsigned j = 0; j < 4U; ++j) {
+            const char c = text[i + j];
+            if (c == '=') {
+                /* Padding only in the last group's last two places. */
+                if (i + 4U != chars || j < 2U) {
+                    return false;
+                }
+                pad++;
+                values[j] = 0;
+                continue;
+            }
+            if (pad > 0U) {
+                return false;
+            }
+            values[j] = base64_value(c);
+            if (values[j] < 0) {
+                return false;
+            }
+        }
+        const uint32_t triple = ((uint32_t)values[0] << 18) | ((uint32_t)values[1] << 12) |
+                                ((uint32_t)values[2] << 6) | (uint32_t)values[3];
+        const unsigned bytes = 3U - pad;
+        if (len + bytes > out_cap) {
+            return false;
+        }
+        out[len++] = (uint8_t)(triple >> 16);
+        if (bytes > 1U) {
+            out[len++] = (uint8_t)(triple >> 8);
+        }
+        if (bytes > 2U) {
+            out[len++] = (uint8_t)triple;
+        }
+    }
+    *out_len = len;
+    return true;
+}
+
+bool mesh_ui_settings_key_parse(const char *text, uint8_t *out, size_t out_cap, size_t *out_len) {
+    if (text == NULL || out == NULL || out_len == NULL) {
+        return false;
+    }
+    const size_t chars = strlen(text);
+    if (chars == 0U) {
+        *out_len = 0U;
+        return true;
+    }
+    /* Hex first: a base64 string made only of hex digits is ambiguous, and hex is what the
+       firmware logs show. Only the three key sizes are hex; anything else is base64. */
+    bool all_hex = true;
+    for (size_t i = 0; i < chars; ++i) {
+        if (hex_nibble(text[i]) < 0) {
+            all_hex = false;
+            break;
+        }
+    }
+    if (all_hex && (chars == 2U || chars == 32U || chars == 64U)) {
+        return parse_hex(text, chars, out, out_cap, out_len);
+    }
+    return parse_base64(text, chars, out, out_cap, out_len);
+}
+
+/* "oKGio6Sl... (AES-128)", "default key", "no encryption"; `aes` names the size the way the
+   channel list does, else it is plain bits. */
+static void key_summary(const uint8_t *key, size_t len, bool aes, char *out, size_t out_len) {
     if (len == 0U) {
-        snprintf(out, out_len, "%s", "no encryption");
+        snprintf(out, out_len, "%s", aes ? "no encryption" : "none");
         return;
     }
     if (len == 1U) {
@@ -374,9 +612,13 @@ static void key_summary(const uint8_t *key, size_t len, char *out, size_t out_le
         }
         return;
     }
-    char hex[9];
-    mesh_ui_settings_key_hex(key, len < 4U ? len : 4U, hex, sizeof hex);
-    snprintf(out, out_len, "%s... (AES-%u)", hex, (unsigned)(len * 8U));
+    char text[48];
+    mesh_ui_settings_key_text(key, len, text, sizeof text);
+    if (aes) {
+        snprintf(out, out_len, "%.8s... (AES-%u)", text, (unsigned)(len * 8U));
+    } else {
+        snprintf(out, out_len, "%.8s... (%u-bit)", text, (unsigned)(len * 8U));
+    }
 }
 
 const struct mesh_ui_setting_edit *
@@ -424,14 +666,6 @@ static void item_text(struct item_list *list, const char *label, enum mesh_ui_se
 
 static void item_toggle(struct item_list *list, const char *label, bool value) {
     item_text(list, label, MESH_UI_SETTING_TOGGLE, value ? "on" : "off");
-}
-
-static void item_number(struct item_list *list, const char *label, uint32_t value,
-                        const char *unit) {
-    struct mesh_ui_settings_item *item = item_add(list, label, MESH_UI_SETTING_NUMBER);
-    if (item != NULL) {
-        snprintf(item->value, sizeof item->value, "%u%s", (unsigned)value, unit);
-    }
 }
 
 /* "30s", "5m", "2h"; `zero` says what 0 means for this field ("off", "default"). */
@@ -498,19 +732,21 @@ static void item_field(struct item_list *list, enum mesh_ui_setting_field field,
     }
 }
 
-/* The Key row. `key`/`len` is the radio's current key; an edit is a choice, or typed hex. The
-   text carried is what the keyboard should open on: the typed hex if there is one, else the
-   current key as hex (an explicit reveal, never shown in the row). */
-static void item_key_field(struct item_list *list, const uint8_t *key, size_t len) {
-    const struct field_spec *spec = field_spec(MESH_UI_FIELD_CHANNEL_KEY);
+/* A KEY row. `key`/`len` is the radio's current key; an edit is a choice, or typed text. The
+   text carried is what the keyboard should open on: the typed text if there is one, else the
+   current key as base64 (an explicit reveal, never shown in the row). */
+static void item_key_field(struct item_list *list, enum mesh_ui_setting_field field,
+                           const uint8_t *key, size_t len) {
+    const struct field_spec *spec = field_spec(field);
+    const bool aes = (field == MESH_UI_FIELD_CHANNEL_KEY);
     struct mesh_ui_settings_item *item = item_add(list, spec->label, spec->kind);
     if (item == NULL) {
         return;
     }
-    item->field = MESH_UI_FIELD_CHANNEL_KEY;
-    mesh_ui_settings_key_hex(key, len, item->text, sizeof item->text);
+    item->field = field;
+    mesh_ui_settings_key_text(key, len, item->text, sizeof item->text);
     const struct mesh_ui_setting_edit *edit =
-        mesh_ui_settings_find_edit(list->edits, list->edit_count, MESH_UI_FIELD_CHANNEL_KEY);
+        mesh_ui_settings_find_edit(list->edits, list->edit_count, field);
     item->number = edit != NULL ? edit->number : (uint32_t)MESH_UI_PSK_KEEP;
     item->dirty = edit != NULL;
     switch ((enum mesh_ui_psk_choice)item->number) {
@@ -521,25 +757,26 @@ static void item_key_field(struct item_list *list, const uint8_t *key, size_t le
         snprintf(item->value, sizeof item->value, "%s", "new random AES-128");
         break;
     case MESH_UI_PSK_RANDOM_256:
-        snprintf(item->value, sizeof item->value, "%s", "new random AES-256");
+        snprintf(item->value, sizeof item->value, "%s",
+                 aes ? "new random AES-256" : "new random key");
         break;
     case MESH_UI_PSK_NONE:
-        snprintf(item->value, sizeof item->value, "%s", "no encryption");
+        snprintf(item->value, sizeof item->value, "%s", aes ? "no encryption" : "none (clear)");
         break;
     case MESH_UI_PSK_TYPED: {
         uint8_t typed[MESH_UI_PSK_MAX];
         size_t typed_len = 0U;
         snprintf(item->text, sizeof item->text, "%s", edit->text);
         if (mesh_ui_settings_key_parse(edit->text, typed, sizeof typed, &typed_len)) {
-            key_summary(typed, typed_len, item->value, sizeof item->value);
+            key_summary(typed, typed_len, aes, item->value, sizeof item->value);
         } else {
-            snprintf(item->value, sizeof item->value, "%s", "invalid hex");
+            snprintf(item->value, sizeof item->value, "%s", "invalid key");
         }
         break;
     }
     case MESH_UI_PSK_KEEP:
     default:
-        key_summary(key, len, item->value, sizeof item->value);
+        key_summary(key, len, aes, item->value, sizeof item->value);
         break;
     }
 }
@@ -644,25 +881,19 @@ static void build_display(const struct mesh_ui_settings *s, struct item_list *li
 }
 
 static void build_lora(const struct mesh_ui_settings *s, struct item_list *list) {
-    char buffer[48];
-    item_text(list, "Region", MESH_UI_SETTING_ENUM, mesh_radio_region_name(s->region));
-    item_toggle(list, "Use preset", s->use_preset);
-    if (s->use_preset) {
-        item_text(list, "Preset", MESH_UI_SETTING_ENUM,
-                  mesh_radio_modem_preset_name(s->modem_preset));
-    } else {
-        snprintf(buffer, sizeof buffer, "%u kHz", (unsigned)s->bandwidth);
-        item_text(list, "Bandwidth", MESH_UI_SETTING_NUMBER, buffer);
-        item_number(list, "Spread factor", s->spread_factor, "");
-        snprintf(buffer, sizeof buffer, "4/%u", (unsigned)s->coding_rate);
-        item_text(list, "Coding rate", MESH_UI_SETTING_NUMBER, buffer);
-    }
-    item_number(list, "Hop limit", s->hop_limit, "");
-    item_toggle(list, "Transmit", s->tx_enabled);
-    snprintf(buffer, sizeof buffer, "%d dBm%s", (int)s->tx_power, s->tx_power == 0 ? " (max)" : "");
-    item_text(list, "TX power", MESH_UI_SETTING_NUMBER, buffer);
-    item_toggle(list, "Ignore MQTT", s->ignore_mqtt);
-    item_toggle(list, "OK to MQTT", s->config_ok_to_mqtt);
+    item_field(list, MESH_UI_FIELD_LORA_REGION, s->region, NULL);
+    item_field(list, MESH_UI_FIELD_LORA_USE_PRESET, s->use_preset ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_LORA_PRESET, s->modem_preset, NULL);
+    /* The manual trio only applies with the preset off; they stay listed so the row count
+       does not move under the cursor as the toggle is edited. */
+    item_field(list, MESH_UI_FIELD_LORA_BANDWIDTH, s->bandwidth, NULL);
+    item_field(list, MESH_UI_FIELD_LORA_SPREAD, s->spread_factor, NULL);
+    item_field(list, MESH_UI_FIELD_LORA_CODING, s->coding_rate, NULL);
+    item_field(list, MESH_UI_FIELD_LORA_HOPS, s->hop_limit, NULL);
+    item_field(list, MESH_UI_FIELD_LORA_TX_ENABLED, s->tx_enabled ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_LORA_TX_POWER, (uint32_t)(uint8_t)s->tx_power, NULL);
+    item_field(list, MESH_UI_FIELD_LORA_IGNORE_MQTT, s->ignore_mqtt ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_LORA_OK_TO_MQTT, s->config_ok_to_mqtt ? 1U : 0U, NULL);
 }
 
 static void build_bluetooth(const struct mesh_ui_settings *s, struct item_list *list) {
@@ -752,7 +983,7 @@ static void build_channel(const struct mesh_ui_settings *s, uint8_t slot, struct
     } else {
         item_field(list, MESH_UI_FIELD_CHANNEL_ROLE, channel->role == 2U ? 1U : 0U, NULL);
     }
-    item_key_field(list, channel->psk, channel->psk_len);
+    item_key_field(list, MESH_UI_FIELD_CHANNEL_KEY, channel->psk, channel->psk_len);
     item_field(list, MESH_UI_FIELD_CHANNEL_UPLINK, channel->uplink_enabled ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_CHANNEL_DOWNLINK, channel->downlink_enabled ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_CHANNEL_POSITION, channel->position_precision, NULL);
@@ -771,17 +1002,18 @@ int mesh_ui_settings_channel_at_row(const struct mesh_ui_settings *settings,
 }
 
 static void build_security(const struct mesh_ui_settings *s, struct item_list *list) {
-    char buffer[48];
     item_key(list, "Public key", s->public_key, s->public_key_len);
-    item_text(list, "Private key", MESH_UI_SETTING_KEY, s->has_private_key ? "present" : "none");
-    snprintf(buffer, sizeof buffer, "%u", (unsigned)s->admin_key_count);
-    item_text(list, "Admin keys", MESH_UI_SETTING_INFO, buffer);
-    item_text(list, "Packet signing", MESH_UI_SETTING_ENUM,
-              s->packet_signature_policy == 1U ? "Balanced" : "Compatible");
-    item_toggle(list, "Managed mode", s->is_managed);
-    item_toggle(list, "Admin channel", s->admin_channel_enabled);
-    item_toggle(list, "Serial console", s->serial_enabled);
-    item_toggle(list, "Debug log API", s->debug_log_api_enabled);
+    item_key_field(list, MESH_UI_FIELD_SECURITY_PRIVATE_KEY, s->private_key, s->private_key_len);
+    for (unsigned i = 0; i < 3U; ++i) {
+        item_key_field(list, (enum mesh_ui_setting_field)(MESH_UI_FIELD_SECURITY_ADMIN_KEY_0 + i),
+                       s->admin_keys[i], s->admin_key_lens[i]);
+    }
+    item_field(list, MESH_UI_FIELD_SECURITY_SIGNATURE_POLICY, s->packet_signature_policy, NULL);
+    item_field(list, MESH_UI_FIELD_SECURITY_MANAGED, s->is_managed ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_SECURITY_ADMIN_CHANNEL, s->admin_channel_enabled ? 1U : 0U,
+               NULL);
+    item_field(list, MESH_UI_FIELD_SECURITY_SERIAL, s->serial_enabled ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_SECURITY_DEBUG_LOG, s->debug_log_api_enabled ? 1U : 0U, NULL);
 }
 
 static void build_position(const struct mesh_ui_settings *s, struct item_list *list) {

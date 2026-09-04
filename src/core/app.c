@@ -89,6 +89,8 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
     meshtastic_ModuleConfig_TelemetryConfig *telemetry =
         &write->payload.module_config.payload_variant.telemetry;
     meshtastic_ChannelSettings *channel = &write->payload.channel.settings;
+    meshtastic_Config_LoRaConfig *lora = &write->payload.config.payload_variant.lora;
+    meshtastic_Config_SecurityConfig *security = &write->payload.config.payload_variant.security;
     const bool on = edit->number != 0U;
 
     switch ((enum mesh_ui_setting_field)edit->field) {
@@ -215,6 +217,119 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
     case MESH_UI_FIELD_BT_MODE:
         bluetooth->mode = (meshtastic_Config_BluetoothConfig_PairingMode)edit->number;
         break;
+    case MESH_UI_FIELD_LORA_REGION:
+        lora->region = (meshtastic_Config_LoRaConfig_RegionCode)edit->number;
+        break;
+    case MESH_UI_FIELD_LORA_USE_PRESET:
+        lora->use_preset = on;
+        break;
+    case MESH_UI_FIELD_LORA_PRESET:
+        lora->modem_preset = (meshtastic_Config_LoRaConfig_ModemPreset)edit->number;
+        break;
+    case MESH_UI_FIELD_LORA_BANDWIDTH:
+        lora->bandwidth = (uint16_t)edit->number;
+        break;
+    case MESH_UI_FIELD_LORA_SPREAD:
+        lora->spread_factor = edit->number;
+        break;
+    case MESH_UI_FIELD_LORA_CODING:
+        lora->coding_rate = (uint8_t)edit->number;
+        break;
+    case MESH_UI_FIELD_LORA_HOPS:
+        lora->hop_limit = edit->number;
+        break;
+    case MESH_UI_FIELD_LORA_TX_ENABLED:
+        lora->tx_enabled = on;
+        break;
+    case MESH_UI_FIELD_LORA_TX_POWER:
+        lora->tx_power = (int8_t)(uint8_t)edit->number;
+        break;
+    case MESH_UI_FIELD_LORA_IGNORE_MQTT:
+        lora->ignore_mqtt = on;
+        break;
+    case MESH_UI_FIELD_LORA_OK_TO_MQTT:
+        lora->config_ok_to_mqtt = on;
+        break;
+    case MESH_UI_FIELD_SECURITY_PRIVATE_KEY:
+        switch ((enum mesh_ui_psk_choice)edit->number) {
+        case MESH_UI_PSK_KEEP:
+            break;
+        case MESH_UI_PSK_RANDOM_256: {
+            const int result = mesh_app_random_key(security->private_key.bytes, 32U);
+            if (result < 0) {
+                mesh_log_error("ui", "No random bytes for a private key: %d", result);
+                return -EIO;
+            }
+            /* Curve25519 clamping, as the firmware does for the key it generates itself. */
+            security->private_key.bytes[0] &= 248U;
+            security->private_key.bytes[31] &= 127U;
+            security->private_key.bytes[31] |= 64U;
+            security->private_key.size = 32U;
+            /* An empty public key makes the firmware derive the matching one. */
+            security->public_key.size = 0U;
+            memset(security->public_key.bytes, 0, sizeof security->public_key.bytes);
+            break;
+        }
+        case MESH_UI_PSK_TYPED: {
+            size_t len = 0U;
+            if (!mesh_ui_settings_key_parse(edit->text, security->private_key.bytes,
+                                            sizeof security->private_key.bytes, &len) ||
+                len != 32U) {
+                return -EINVAL;
+            }
+            security->private_key.size = 32U;
+            security->public_key.size = 0U;
+            memset(security->public_key.bytes, 0, sizeof security->public_key.bytes);
+            break;
+        }
+        default:
+            return -EINVAL;
+        }
+        break;
+    case MESH_UI_FIELD_SECURITY_ADMIN_KEY_0:
+    case MESH_UI_FIELD_SECURITY_ADMIN_KEY_1:
+    case MESH_UI_FIELD_SECURITY_ADMIN_KEY_2: {
+        const unsigned slot = (unsigned)(edit->field - MESH_UI_FIELD_SECURITY_ADMIN_KEY_0);
+        meshtastic_Config_SecurityConfig_admin_key_t *key = &security->admin_key[slot];
+        switch ((enum mesh_ui_psk_choice)edit->number) {
+        case MESH_UI_PSK_KEEP:
+            break;
+        case MESH_UI_PSK_NONE:
+            key->size = 0U;
+            break;
+        case MESH_UI_PSK_TYPED: {
+            size_t len = 0U;
+            if (!mesh_ui_settings_key_parse(edit->text, key->bytes, sizeof key->bytes, &len) ||
+                len != 32U) {
+                return -EINVAL;
+            }
+            key->size = 32U;
+            break;
+        }
+        default:
+            return -EINVAL;
+        }
+        if (slot + 1U > security->admin_key_count) {
+            security->admin_key_count = (pb_size_t)(slot + 1U);
+        }
+        break;
+    }
+    case MESH_UI_FIELD_SECURITY_MANAGED:
+        security->is_managed = on;
+        break;
+    case MESH_UI_FIELD_SECURITY_ADMIN_CHANNEL:
+        security->admin_channel_enabled = on;
+        break;
+    case MESH_UI_FIELD_SECURITY_SERIAL:
+        security->serial_enabled = on;
+        break;
+    case MESH_UI_FIELD_SECURITY_DEBUG_LOG:
+        security->debug_log_api_enabled = on;
+        break;
+    case MESH_UI_FIELD_SECURITY_SIGNATURE_POLICY:
+        security->packet_signature_policy =
+            (meshtastic_Config_SecurityConfig_PacketSignaturePolicy)edit->number;
+        break;
     case MESH_UI_FIELD_BT_PIN: {
         if (strlen(edit->text) != 6U) {
             return -EINVAL;
@@ -291,6 +406,24 @@ int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
         out->payload.config.which_payload_variant = meshtastic_Config_bluetooth_tag;
         out->payload.config.payload_variant.bluetooth = radio->bluetooth;
         break;
+    case MESH_UI_SETTINGS_LORA:
+        if (!radio->has_lora) {
+            return -ENOENT;
+        }
+        out->kind = MESH_ADMIN_SET_CONFIG;
+        out->type = meshtastic_AdminMessage_ConfigType_LORA_CONFIG;
+        out->payload.config.which_payload_variant = meshtastic_Config_lora_tag;
+        out->payload.config.payload_variant.lora = radio->lora;
+        break;
+    case MESH_UI_SETTINGS_SECURITY:
+        if (!radio->has_security) {
+            return -ENOENT;
+        }
+        out->kind = MESH_ADMIN_SET_CONFIG;
+        out->type = meshtastic_AdminMessage_ConfigType_SECURITY_CONFIG;
+        out->payload.config.which_payload_variant = meshtastic_Config_security_tag;
+        out->payload.config.payload_variant.security = radio->security;
+        break;
     case MESH_UI_SETTINGS_CHANNELS:
         if (action->channel >= MESH_RADIO_SETTINGS_MAX_CHANNELS ||
             !radio->has_channel[action->channel]) {
@@ -314,6 +447,25 @@ int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
         if (result < 0) {
             return result;
         }
+    }
+    if (out->kind == MESH_ADMIN_SET_CONFIG &&
+        out->payload.config.which_payload_variant == meshtastic_Config_security_tag) {
+        /* admin_key is a repeated field: close the gaps a cleared slot leaves. */
+        meshtastic_Config_SecurityConfig *security = &out->payload.config.payload_variant.security;
+        pb_size_t kept = 0U;
+        for (pb_size_t i = 0; i < security->admin_key_count && i < 3U; ++i) {
+            if (security->admin_key[i].size == 0U) {
+                continue;
+            }
+            if (kept != i) {
+                security->admin_key[kept] = security->admin_key[i];
+            }
+            kept++;
+        }
+        for (pb_size_t i = kept; i < 3U; ++i) {
+            memset(&security->admin_key[i], 0, sizeof security->admin_key[i]);
+        }
+        security->admin_key_count = kept;
     }
     return 0;
 }
@@ -786,7 +938,21 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
         memcpy(dst->public_key, src->security.public_key.bytes, key_len);
         dst->public_key_len = (uint8_t)key_len;
         dst->has_private_key = src->security.private_key.size > 0U;
+        size_t private_len = src->security.private_key.size;
+        if (private_len > sizeof dst->private_key) {
+            private_len = sizeof dst->private_key;
+        }
+        memcpy(dst->private_key, src->security.private_key.bytes, private_len);
+        dst->private_key_len = (uint8_t)private_len;
         dst->admin_key_count = (uint8_t)src->security.admin_key_count;
+        for (unsigned i = 0; i < 3U && i < src->security.admin_key_count; ++i) {
+            size_t len = src->security.admin_key[i].size;
+            if (len > sizeof dst->admin_keys[i]) {
+                len = sizeof dst->admin_keys[i];
+            }
+            memcpy(dst->admin_keys[i], src->security.admin_key[i].bytes, len);
+            dst->admin_key_lens[i] = (uint8_t)len;
+        }
         dst->is_managed = src->security.is_managed;
         dst->serial_enabled = src->security.serial_enabled;
         dst->debug_log_api_enabled = src->security.debug_log_api_enabled;

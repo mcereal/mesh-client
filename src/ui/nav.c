@@ -724,8 +724,16 @@ static bool mesh_ui_nav_edit_set(struct mesh_ui_nav *nav, const struct mesh_ui_s
         same = (text != NULL && strcmp(base.text, text) == 0);
     } else if (base.kind == MESH_UI_SETTING_KEY) {
         /* Keeping the key, or typing the very key the radio has, is no edit. */
-        same = (number == MESH_UI_PSK_KEEP) ||
-               (number == MESH_UI_PSK_TYPED && text != NULL && strcasecmp(base.text, text) == 0);
+        same = (number == MESH_UI_PSK_KEEP);
+        if (number == MESH_UI_PSK_TYPED && text != NULL) {
+            uint8_t current[MESH_UI_PSK_MAX];
+            uint8_t typed[MESH_UI_PSK_MAX];
+            size_t current_len = 0U;
+            size_t typed_len = 0U;
+            same = mesh_ui_settings_key_parse(base.text, current, sizeof current, &current_len) &&
+                   mesh_ui_settings_key_parse(text, typed, sizeof typed, &typed_len) &&
+                   current_len == typed_len && memcmp(current, typed, typed_len) == 0;
+        }
     } else {
         same = (base.number == number);
     }
@@ -809,10 +817,17 @@ static bool mesh_ui_nav_settings_edit_key(struct mesh_ui_nav *nav,
             return true;
         }
         {
-            /* Left/Right walk the generated choices; a typed key counts as the current one. */
+            /* Left/Right walk the choices the field offers; a typed key counts as "keep". */
+            const uint32_t allowed = mesh_ui_settings_key_choices(field);
             uint32_t choice = item.number >= MESH_UI_PSK_TYPED ? 0U : item.number;
-            const uint32_t count = MESH_UI_PSK_TYPED; /* KEEP .. NONE */
-            choice = (choice + count + (uint32_t)(delta < 0 ? count - 1U : 1U)) % count;
+            for (unsigned step = 0; step < (unsigned)MESH_UI_PSK_TYPED; ++step) {
+                choice = (choice + (uint32_t)MESH_UI_PSK_TYPED +
+                          (uint32_t)(delta < 0 ? (unsigned)MESH_UI_PSK_TYPED - 1U : 1U)) %
+                         (uint32_t)MESH_UI_PSK_TYPED;
+                if ((allowed & MESH_UI_PSK_CHOICE_BIT(choice)) != 0U) {
+                    break;
+                }
+            }
             return mesh_ui_nav_edit_set(nav, store, field, choice, NULL);
         }
     case MESH_UI_SETTING_TEXT:
@@ -846,8 +861,9 @@ static bool mesh_ui_nav_settings_commit_text(struct mesh_ui_nav *nav,
     if (mesh_ui_settings_field_kind(field) == MESH_UI_SETTING_KEY) {
         uint8_t parsed[MESH_UI_PSK_MAX];
         size_t parsed_len = 0U;
-        if (!mesh_ui_settings_key_parse(text, parsed, sizeof parsed, &parsed_len)) {
-            return true; /* not a key: stay on the keyboard so it can be fixed */
+        if (!mesh_ui_settings_key_parse(text, parsed, sizeof parsed, &parsed_len) ||
+            !mesh_ui_settings_key_len_ok(field, parsed_len)) {
+            return true; /* not a key this field takes: stay on the keyboard so it can be fixed */
         }
         mesh_ui_nav_edit_set(nav, store, field, MESH_UI_PSK_TYPED, text);
     } else {
