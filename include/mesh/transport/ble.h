@@ -59,6 +59,16 @@ struct mesh_ble_node_summary {
     uint8_t hops_away;
 };
 
+/* The radio's channel table: 8 slots, PRIMARY plus SECONDARYs; DISABLED slots are kept so the
+   index stays meaningful (MeshPacket.channel is this index for broadcasts). */
+#define MESH_BLE_MAX_CHANNELS 8U
+
+struct mesh_ble_channel_summary {
+    uint8_t index;
+    uint8_t role; /* meshtastic_Channel_Role */
+    char name[12];
+};
+
 struct mesh_ble_handshake_status {
     bool request_in_flight;
     uint32_t request_id;
@@ -70,6 +80,9 @@ struct mesh_ble_handshake_status {
     meshtastic_Config config;
     size_t node_count;
     struct mesh_ble_node_summary nodes[MESH_BLE_MAX_NODE_SUMMARY];
+    /* Indexed by channel slot; channel_count is the highest slot seen plus one. */
+    size_t channel_count;
+    struct mesh_ble_channel_summary channels[MESH_BLE_MAX_CHANNELS];
 };
 
 struct mesh_ble_handshake_status

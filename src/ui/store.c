@@ -362,6 +362,14 @@ static int mesh_ui_store_save_handshake(FILE *file,
     mesh_ui_store_escape_and_write(file, "handshake_channel", handshake->primary_channel);
     mesh_ui_store_escape_and_write(file, "handshake_my_short", handshake->my_short_name);
     fprintf(file, "handshake_cached=%u\n", handshake->cached ? 1U : 0U);
+    fprintf(file, "handshake_channels=%u\n", handshake->channel_count);
+    for (uint32_t i = 0; i < handshake->channel_count && i < MESH_UI_MAX_CHANNELS; ++i) {
+        const struct mesh_ui_channel *channel = &handshake->channels[i];
+        fprintf(file, "channel[%u]=%u,%u\n", i, (unsigned)channel->index, (unsigned)channel->role);
+        char key[32];
+        snprintf(key, sizeof key, "channel_name[%u]", i);
+        mesh_ui_store_escape_and_write(file, key, channel->name);
+    }
     fprintf(file, "handshake_nodes=%u\n", handshake->node_count);
     for (uint32_t i = 0; i < handshake->node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
         const struct mesh_ui_node_summary *node = &handshake->nodes[i];
@@ -519,6 +527,24 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
             nodes_expected_set = true;
         } else if (strcmp(key, "handshake_cached") == 0) {
             handshake.cached = (strtoul(value, NULL, 10) != 0U);
+        } else if (strcmp(key, "handshake_channels") == 0) {
+            uint32_t count = (uint32_t)strtoul(value, NULL, 10);
+            handshake.channel_count = count > MESH_UI_MAX_CHANNELS ? MESH_UI_MAX_CHANNELS : count;
+        } else if (strncmp(key, "channel[", 8) == 0) {
+            unsigned int index = 0U;
+            unsigned int slot = 0U;
+            unsigned int role = 0U;
+            if (sscanf(key, "channel[%u]", &index) == 1 && index < MESH_UI_MAX_CHANNELS &&
+                sscanf(value, "%u,%u", &slot, &role) == 2) {
+                handshake.channels[index].index = (uint8_t)slot;
+                handshake.channels[index].role = (uint8_t)role;
+            }
+        } else if (strncmp(key, "channel_name[", 13) == 0) {
+            unsigned int index = 0U;
+            if (sscanf(key, "channel_name[%u]", &index) == 1 && index < MESH_UI_MAX_CHANNELS) {
+                snprintf(handshake.channels[index].name, sizeof(handshake.channels[index].name),
+                         "%s", value);
+            }
         } else if (strncmp(key, "node[", 5) == 0) {
             unsigned int index = 0U;
             if (sscanf(key, "node[%u]", &index) == 1) {

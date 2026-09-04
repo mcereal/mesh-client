@@ -125,9 +125,16 @@ static void mesh_ui_backend_cli_print_messages(struct mesh_ui_backend_cli_contex
 static void mesh_ui_backend_cli_print_nav(struct mesh_ui_backend_cli_context *context,
                                           const struct mesh_ui_snapshot *snapshot) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
-    mesh_ui_backend_cli_write(context, "[cli-ui] Screen: %s row %u, to %s%s%s\n",
+    char convo[MESH_UI_NAV_TARGET_NAME_MAX];
+    mesh_ui_nav_conversation_name(nav, convo, sizeof convo);
+    mesh_ui_backend_cli_write(context, "[cli-ui] Screen: %s row %u, to %s, showing %s%s%s%s%s\n",
                               mesh_ui_screen_name(nav->screen), nav->cursor[nav->screen],
-                              nav->target_name, nav->toast[0] != '\0' ? " | " : "", nav->toast);
+                              nav->target_name, convo, nav->keyboard_open ? " [keyboard: " : "",
+                              nav->keyboard_open ? nav->draft : "", nav->keyboard_open ? "]" : "",
+                              nav->toast[0] != '\0' ? " | " : "");
+    if (nav->toast[0] != '\0') {
+        mesh_ui_backend_cli_write(context, "[cli-ui] %s\n", nav->toast);
+    }
 }
 
 static int mesh_ui_backend_cli_init(void **state, void *userdata) {

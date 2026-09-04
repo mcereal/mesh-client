@@ -11,6 +11,7 @@
 #include <pb_decode.h>
 #include <pb_encode.h>
 
+#include "meshtastic/channel.pb.h"
 #include "meshtastic/mesh.pb.h"
 
 #include <errno.h>
@@ -753,6 +754,31 @@ static void mesh_ble_handle_from_radio(struct mesh_ble_transport_state *state,
     case meshtastic_FromRadio_node_info_tag:
         mesh_ble_store_node_summary(state, &message.node_info);
         break;
+    case meshtastic_FromRadio_channel_tag: {
+        const meshtastic_Channel *channel = &message.channel;
+        if (channel->index < 0 || (size_t)channel->index >= MESH_BLE_MAX_CHANNELS) {
+            mesh_log_debug("ble", "Ignoring channel with index %d", (int)channel->index);
+            break;
+        }
+        struct mesh_ble_channel_summary *slot = &state->handshake.channels[channel->index];
+        slot->index = (uint8_t)channel->index;
+        slot->role = (uint8_t)channel->role;
+        if (channel->has_settings) {
+            snprintf(slot->name, sizeof slot->name, "%s", channel->settings.name);
+        } else {
+            slot->name[0] = '\0';
+        }
+        if ((size_t)channel->index + 1U > state->handshake.channel_count) {
+            state->handshake.channel_count = (size_t)channel->index + 1U;
+        }
+        if (channel->role != meshtastic_Channel_Role_DISABLED) {
+            mesh_log_info("ble", "Channel %d: %s (%s)", (int)channel->index,
+                          slot->name[0] != '\0' ? slot->name : "<default>",
+                          channel->role == meshtastic_Channel_Role_PRIMARY ? "primary"
+                                                                           : "secondary");
+        }
+        break;
+    }
     case meshtastic_FromRadio_config_tag:
         state->handshake.has_config = true;
         state->handshake.config = message.config;
@@ -1263,6 +1289,9 @@ mesh_ble_transport_handshake_status(struct mesh_transport *transport) {
     status = state->handshake;
     if (status.node_count > MESH_BLE_MAX_NODE_SUMMARY) {
         status.node_count = MESH_BLE_MAX_NODE_SUMMARY;
+    }
+    if (status.channel_count > MESH_BLE_MAX_CHANNELS) {
+        status.channel_count = MESH_BLE_MAX_CHANNELS;
     }
     return status;
 }

@@ -69,7 +69,8 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
 - `src/transport/ble/ble_transport.c` — state machine (`disabled` → `waiting-for-bluez` →
   `waiting-for-adapter` → `running`), Meshtastic service UUID filtering, the `want_config_id`
   handshake, an outbound ToRadio packet queue, FromNum-notify → FromRadio-read drain loop, and a
-  node-summary cache decoded from `FromRadio`. BLE is **not** Nordic UART and has no length
+  node-summary cache decoded from `FromRadio`, plus the radio's channel table (`FromRadio.channel`,
+  by slot, role DISABLED kept so indices stay meaningful). BLE is **not** Nordic UART and has no length
   framing: one bare protobuf per GATT write/read. `src/proto/framing.c` is for serial/TCP only.
   Nodes in PIN mode must be paired with BlueZ out of band (`bluetoothctl pair`) before connect.
   `mesh_ble_transport_connect` sends `Device1.Connect` without blocking (reply matched by
@@ -98,6 +99,13 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
   against the lists on each consume) and returns a `mesh_ui_action` (connect, send text) that the
   controller hands to `mesh_app_on_ui_action` in `app.c`. Backends are stateless: they draw the
   cursor from `snapshot->nav`. Nav logic has no fd or device dependency, so test it directly.
+  The nav's `target_node`/`target_channel` pair is both the Compose destination and the
+  conversation the Messages tab shows (`inbox` shows everything); `mesh_ui_nav_filter_messages`
+  is the one place that filter lives, so the Messages cursor indexes the filtered list. The
+  on-screen keyboard is `keyboard_open` plus `kb_row/kb_col/kb_layer` and `draft`, all in the
+  nav; while it is open every key goes to the keyboard handler and tabs do not switch.
+  Button positions: the Brick's A is `BTN_EAST` (305) and B is `BTN_SOUTH` (304), the reverse
+  of the Linux `BTN_A`/`BTN_B` aliases. Verified from the device log; do not "fix" it back.
 - `src/minui_helpers/` — tiny native fallbacks for `minui-list` / `minui-presenter` used when the
   NextUI cross toolchain isn't available; they honor `MESHCLIENT_MINUI_SELECTION`.
 
@@ -157,7 +165,7 @@ via Python3 (needs `pip install protobuf grpcio-tools`).
 One harness, `tests/test_main.c`, with a `k_test_cases` table tagged by category (`unit` today;
 `integration`/`hardware` reserved). Register new cases in that table; use
 `record_failure`/`record_success`. Tests must not touch real BlueZ — use the bluez mock. New
-CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-04: 35 unit tests, all passing in
+CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-04: 37 unit tests, all passing in
 the dev container with zero compiler warnings. `message_encode_text_golden` pins the
 `TEXT_MESSAGE_APP` wire format against a hand-derived byte vector (not against our own encoder),
 so a protobuf regeneration that changes field numbers or wire types fails loudly.

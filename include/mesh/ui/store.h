@@ -15,9 +15,11 @@ extern "C" {
    past 100 nodes; the Nodes tab scrolls, so this is a screen budget, not a mesh limit. */
 #define MESH_UI_MAX_HANDSHAKE_NODES 32U
 #define MESH_UI_TRANSPORT_STATUS_MAX 32U
-/* Newest messages carried to the backends. The Brick shows far fewer than this at a time; the
-   rest are scrollback. The transport keeps its own, larger ring. */
-#define MESH_UI_MAX_MESSAGES 16U
+/* Newest messages carried to the backends. Matches the transport ring so a per-conversation
+   view has the same history the radio gave us; the Brick shows a screenful at a time. */
+#define MESH_UI_MAX_MESSAGES 64U
+#define MESH_UI_MAX_CHANNELS 8U
+#define MESH_UI_CHANNEL_NAME_MAX 12U
 #define MESH_UI_MESSAGE_TEXT_MAX 234U
 
 enum mesh_ui_update_flag {
@@ -48,6 +50,12 @@ struct mesh_ui_node_summary {
     uint8_t hops_away;
 };
 
+struct mesh_ui_channel {
+    uint8_t index;
+    uint8_t role; /* 0 disabled, 1 primary, 2 secondary (meshtastic_Channel_Role) */
+    char name[MESH_UI_CHANNEL_NAME_MAX];
+};
+
 struct mesh_ui_my_info {
     uint32_t node_num;
     uint32_t nodedb_entries;
@@ -66,6 +74,9 @@ struct mesh_ui_handshake_state {
     char primary_channel[33];
     char my_short_name[6];
     struct mesh_ui_node_summary nodes[MESH_UI_MAX_HANDSHAKE_NODES];
+    /* Channel table by slot; disabled slots are present with role 0. */
+    uint32_t channel_count;
+    struct mesh_ui_channel channels[MESH_UI_MAX_CHANNELS];
     bool cached;
 };
 

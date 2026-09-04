@@ -20,6 +20,7 @@
 #include <pb_decode.h>
 #include <pb_encode.h>
 
+#include "meshtastic/channel.pb.h"
 #include "meshtastic/mesh.pb.h"
 
 #include <errno.h>
@@ -2503,14 +2504,15 @@ static void test_ui_nav_navigation(void) {
     struct mesh_ui_snapshot snapshot;
     struct mesh_ui_action action;
 
-    /* First frame: Messages tab, cursor parked on the newest message. */
+    /* First frame: Messages tab showing the inbox, cursor parked on the newest message. */
     if (!mesh_ui_store_consume_updates(&store, &snapshot)) {
         failure = "expected initial snapshot";
         goto cleanup;
     }
-    if (snapshot.nav.screen != MESH_UI_SCREEN_MESSAGES ||
+    if (snapshot.nav.screen != MESH_UI_SCREEN_MESSAGES || !snapshot.nav.inbox ||
         snapshot.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 1U ||
-        snapshot.nav.target_node != MESH_MESSAGE_BROADCAST_ADDR) {
+        snapshot.nav.target_node != MESH_MESSAGE_BROADCAST_ADDR ||
+        strcmp(snapshot.nav.target_name, "#Primary") != 0) {
         failure = "initial nav state wrong";
         goto cleanup;
     }
@@ -2522,8 +2524,8 @@ static void test_ui_nav_navigation(void) {
         goto cleanup;
     }
     if (store.nav.screen != MESH_UI_SCREEN_COMPOSE || store.nav.target_node != 0x3000U ||
-        strcmp(store.nav.target_name, "BRVO") != 0 ||
-        store.nav.cursor[MESH_UI_SCREEN_COMPOSE] != 1U) {
+        strcmp(store.nav.target_name, "BRVO") != 0 || store.nav.inbox ||
+        store.nav.cursor[MESH_UI_SCREEN_COMPOSE] != MESH_UI_COMPOSE_FIRST_CANNED) {
         failure = "reply target not taken from the message";
         goto cleanup;
     }
@@ -2533,29 +2535,41 @@ static void test_ui_nav_navigation(void) {
         goto cleanup;
     }
 
-    /* A on a canned row asks the app to send it, to the current target, and stays put. */
+    /* A on a canned row asks the app to send it to the target and shows that conversation. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_SEND_TEXT || action.dest != 0x3000U || action.channel != 0U ||
-        strcmp(action.text, mesh_ui_canned_text(0)) != 0) {
+        strcmp(action.text, mesh_ui_canned_text(0)) != 0 ||
+        store.nav.screen != MESH_UI_SCREEN_MESSAGES) {
         failure = "send action not produced";
         goto cleanup;
     }
+    /* Only the one direct message with BRVO is in view now. */
+    if (mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_MESSAGES) != 1U) {
+        failure = "conversation view should hold only BRVO's messages";
+        goto cleanup;
+    }
 
-    /* The To: row cycles All -> ALFA -> BRVO -> All, never offering our own node. */
+    /* Y reopens Compose; the To: row cycles BRVO -> #Primary -> ALFA -> BRVO, never us. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    if (store.nav.screen != MESH_UI_SCREEN_COMPOSE) {
+        failure = "Y should open Compose";
+        goto cleanup;
+    }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
-    if (store.nav.cursor[MESH_UI_SCREEN_COMPOSE] != 0U) {
-        failure = "UP should reach the To: row";
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    if (store.nav.cursor[MESH_UI_SCREEN_COMPOSE] != MESH_UI_COMPOSE_ROW_TARGET) {
+        failure = "UP twice should reach the To: row";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* BRVO -> All */
-    if (store.nav.target_node != MESH_MESSAGE_BROADCAST_ADDR ||
-        strcmp(store.nav.target_name, "All") != 0) {
-        failure = "cycle after last node should wrap to All";
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.target_node != MESH_MESSAGE_BROADCAST_ADDR || store.nav.target_channel != 0U ||
+        strcmp(store.nav.target_name, "#Primary") != 0) {
+        failure = "cycle after the last node should wrap to the channel";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* All -> ALFA (skips ME) */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     if (store.nav.target_node != 0x2000U || strcmp(store.nav.target_name, "ALFA") != 0) {
-        failure = "cycle from All should skip our own node";
+        failure = "cycle from the channel should skip our own node";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
@@ -2569,10 +2583,27 @@ static void test_ui_nav_navigation(void) {
         goto cleanup;
     }
 
-    /* B leaves Compose for the conversation. */
+    /* B leaves Compose for the conversation; X walks conversations: BRVO -> Inbox ->
+       #Primary -> BRVO (the only direct peer) -> Inbox. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
-    if (store.nav.screen != MESH_UI_SCREEN_MESSAGES) {
-        failure = "B should return to Messages";
+    if (store.nav.screen != MESH_UI_SCREEN_MESSAGES || store.nav.inbox) {
+        failure = "B should return to the BRVO conversation";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    if (!store.nav.inbox) {
+        failure = "X after the last direct peer should show the inbox";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    if (store.nav.inbox || store.nav.target_node != MESH_MESSAGE_BROADCAST_ADDR ||
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_MESSAGES) != 1U) {
+        failure = "X from the inbox should show the channel with its one broadcast";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    if (store.nav.inbox || store.nav.target_node != 0x3000U) {
+        failure = "X after the channels should reach the first direct peer";
         goto cleanup;
     }
 
@@ -2642,10 +2673,19 @@ static void test_ui_nav_navigation(void) {
         goto cleanup;
     }
 
-    /* Back on Messages, a cursor on the newest line follows new traffic; one that was moved
+    /* Back in the inbox, a cursor on the newest line follows new traffic; one that was moved
        up stays where it was. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* wraps to Messages */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);     /* BRVO -> inbox */
+    if (!store.nav.inbox) {
+        failure = "expected the inbox";
+        goto cleanup;
+    }
     (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    if (snapshot.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 1U) {
+        failure = "switching conversation should park the cursor on the newest line";
+        goto cleanup;
+    }
     struct mesh_ui_message_list more = store.messages;
     more.entries[more.count] = more.entries[1];
     more.entries[more.count].packet_id = 13U;
@@ -2698,13 +2738,298 @@ static void test_ui_nav_navigation(void) {
         goto cleanup;
     }
     mesh_ui_store_set_toast(&store, 7000U, "Connecting");
-    if (!mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action) || store.nav.toast[0] != '\0') {
+    if (!mesh_ui_store_handle_key(&store, MESH_UI_KEY_SELECT, &action) ||
+        store.nav.toast[0] != '\0') {
         failure = "any key should dismiss a toast";
         goto cleanup;
     }
 
 cleanup:
     mesh_ui_store_shutdown(&store);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+/* Channel table drives the To: cycle and the conversation filter; the keyboard builds a draft. */
+static void test_ui_nav_channels_and_keyboard(void) {
+    const char *test_name = "ui_nav_channels_and_keyboard";
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    test_nav_populate(&store);
+
+    /* Add a channel table (primary "LongFast", secondary "Team", slot 2 disabled) and a
+       broadcast on the secondary channel. */
+    struct mesh_ui_handshake_state handshake = store.handshake;
+    handshake.channel_count = 3U;
+    handshake.channels[0].index = 0U;
+    handshake.channels[0].role = 1U;
+    snprintf(handshake.channels[0].name, sizeof handshake.channels[0].name, "%s", "LongFast");
+    handshake.channels[1].index = 1U;
+    handshake.channels[1].role = 2U;
+    snprintf(handshake.channels[1].name, sizeof handshake.channels[1].name, "%s", "Team");
+    handshake.channels[2].index = 2U;
+    handshake.channels[2].role = 0U;
+    mesh_ui_store_set_handshake(&store, &handshake);
+
+    struct mesh_ui_message_list messages = store.messages;
+    messages.entries[messages.count] = messages.entries[0];
+    messages.entries[messages.count].packet_id = 21U;
+    messages.entries[messages.count].channel = 1U;
+    snprintf(messages.entries[messages.count].text, sizeof messages.entries[0].text, "%s",
+             "team only");
+    messages.count++;
+    mesh_ui_store_set_messages(&store, &messages);
+
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_action action;
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    if (strcmp(snapshot.nav.target_name, "#LongFast") != 0) {
+        failure = "target name should pick up the primary channel name";
+        goto cleanup;
+    }
+
+    /* X: Inbox -> #LongFast (1 broadcast) -> #Team (1 broadcast) -> BRVO -> Inbox. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    if (store.nav.inbox || store.nav.target_channel != 0U ||
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_MESSAGES) != 1U) {
+        failure = "first X should show the primary channel";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    if (store.nav.target_channel != 1U || strcmp(store.nav.target_name, "#Team") != 0 ||
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_MESSAGES) != 1U) {
+        failure = "second X should show the secondary channel with its broadcast";
+        goto cleanup;
+    }
+    uint32_t indices[MESH_UI_MAX_MESSAGES];
+    if (mesh_ui_nav_filter_messages(&store.nav, &store.messages, indices, MESH_UI_MAX_MESSAGES) !=
+            1U ||
+        store.messages.entries[indices[0]].packet_id != 21U) {
+        failure = "channel filter picked the wrong message";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    if (!store.nav.inbox) {
+        failure = "X should return to the inbox after the direct peers";
+        goto cleanup;
+    }
+
+    /* Compose To: from #LongFast cycles #Team, ALFA, BRVO, then back to #LongFast; a canned
+       reply sent while on #Team carries channel 1. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* BRVO -> #LongFast */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* -> #Team */
+    if (store.nav.target_node != MESH_MESSAGE_BROADCAST_ADDR || store.nav.target_channel != 1U) {
+        failure = "To: cycle should visit the secondary channel";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_SEND_TEXT || action.dest != MESH_MESSAGE_BROADCAST_ADDR ||
+        action.channel != 1U) {
+        failure = "canned send should target the selected channel";
+        goto cleanup;
+    }
+
+    /* Keyboard: type "Hi", a space, delete it, a space again, START sends "Hi ". */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action); /* draft row */
+    if (store.nav.cursor[MESH_UI_SCREEN_COMPOSE] != MESH_UI_COMPOSE_ROW_DRAFT) {
+        failure = "expected the draft row";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.keyboard_open || store.nav.kb_row != 0U || store.nav.kb_col != 0U) {
+        failure = "A on the draft row should open the keyboard at the top-left";
+        goto cleanup;
+    }
+    /* LEFT/RIGHT move within the grid while the keyboard is open, never switch tabs. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    if (store.nav.kb_col != MESH_UI_KB_COLS - 1U || store.nav.screen != MESH_UI_SCREEN_COMPOSE) {
+        failure = "LEFT should wrap to the last column";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* back to col 0 */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* row 2: asdfghjkl' */
+    for (int i = 0; i < 5; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action); /* shift */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* H */
+    if (strcmp(store.nav.draft, "H") != 0 || store.nav.kb_layer != MESH_UI_KB_LOWER) {
+        failure = "shift should apply to one character";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action); /* row 1: qwertyuiop */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* col 7: i */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action); /* space */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action); /* delete it */
+    if (strcmp(store.nav.draft, "Hi") != 0) {
+        failure = "typing/deleting produced the wrong draft";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    if (action.type != MESH_UI_ACTION_SEND_TEXT || strcmp(action.text, "Hi ") != 0 ||
+        action.channel != 1U || store.nav.keyboard_open || store.nav.draft[0] != '\0' ||
+        store.nav.screen != MESH_UI_SCREEN_MESSAGES) {
+        failure = "START should send the draft and return to the conversation";
+        goto cleanup;
+    }
+
+    /* The action row: moving down from column 9 lands on the last (cancel) key; the mapping
+       comes back to a sensible column. Cancel drops the draft and closes the keyboard. B on
+       an empty draft also closes it. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);    /* keyboard open, row 0 col 0 */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);    /* '1' */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action); /* col 9 */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);   /* wraps to the action row */
+    if (store.nav.kb_row != MESH_UI_KB_CHAR_ROWS || store.nav.kb_col != MESH_UI_KB_ACTIONS - 1U) {
+        failure = "column should map onto the action row";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* cancel */
+    if (store.nav.keyboard_open || store.nav.draft[0] != '\0' ||
+        store.nav.screen != MESH_UI_SCREEN_COMPOSE) {
+        failure = "cancel should discard the draft and close the keyboard";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* reopen (cursor still on draft) */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (store.nav.keyboard_open) {
+        failure = "B with an empty draft should close the keyboard";
+        goto cleanup;
+    }
+    if (mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action) == false &&
+        action.type != MESH_UI_ACTION_NONE) {
+        failure = "unexpected action";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+/* The radio's Channel messages land in the handshake status, indexed by slot. */
+static void test_ble_transport_channel_decode(void) {
+    const char *test_name = "ble_transport_channel_decode";
+    const char *failure = NULL;
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:09", .name = "NodeNine", .rssi = -50},
+    };
+    uint8_t write_capture[64];
+    size_t write_len = 0U;
+
+    uint8_t read_buffers[2][128];
+    const uint8_t *read_payloads[2] = {read_buffers[0], read_buffers[1]};
+    size_t read_payload_lengths[2] = {0U, 0U};
+    size_t read_index = 0U;
+
+    meshtastic_FromRadio from_radio = meshtastic_FromRadio_init_default;
+    from_radio.which_payload_variant = meshtastic_FromRadio_channel_tag;
+    from_radio.channel.index = 1;
+    from_radio.channel.role = meshtastic_Channel_Role_SECONDARY;
+    from_radio.channel.has_settings = true;
+    snprintf(from_radio.channel.settings.name, sizeof from_radio.channel.settings.name, "%s",
+             "Team");
+    pb_ostream_t stream = pb_ostream_from_buffer(read_buffers[0], sizeof read_buffers[0]);
+    if (!pb_encode(&stream, meshtastic_FromRadio_fields, &from_radio)) {
+        record_failure(test_name, "encode channel 1 failed");
+        return;
+    }
+    read_payload_lengths[0] = stream.bytes_written;
+
+    from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
+    from_radio.which_payload_variant = meshtastic_FromRadio_channel_tag;
+    from_radio.channel.index = 0;
+    from_radio.channel.role = meshtastic_Channel_Role_PRIMARY;
+    from_radio.channel.has_settings = true; /* unnamed: the default primary */
+    stream = pb_ostream_from_buffer(read_buffers[1], sizeof read_buffers[1]);
+    if (!pb_encode(&stream, meshtastic_FromRadio_fields, &from_radio)) {
+        record_failure(test_name, "encode channel 0 failed");
+        return;
+    }
+    read_payload_lengths[1] = stream.bytes_written;
+
+    struct mesh_bluez_mock_config mock_config = {
+        .adapter_path = "/org/bluez/hci0",
+        .toradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_09/service000a/char000b",
+        .fromradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_09/service000a/char000d",
+        .fromnum_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_09/service000a/char000f",
+        .read_payloads = read_payloads,
+        .read_payload_lengths = read_payload_lengths,
+        .read_payload_count = 2U,
+        .read_index = &read_index,
+        .devices = mock_devices,
+        .device_count = 1U,
+        .write_capture_buffer = write_capture,
+        .write_capture_capacity = sizeof(write_capture),
+        .write_capture_length = &write_len,
+    };
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    struct mesh_app_config config = mesh_app_config_default();
+    struct mesh_event_loop loop;
+    mesh_event_loop_init(&loop);
+    if (ble->ops->start(ble, &config, &loop) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+        failure = "connect should be accepted";
+        goto cleanup;
+    }
+    for (int spin = 0; spin < 20 && read_index < 3U; ++spin) {
+        ble->ops->tick(ble);
+        mesh_event_loop_run(&loop, 10);
+    }
+
+    struct mesh_ble_handshake_status status = mesh_ble_transport_handshake_status(ble);
+    if (status.channel_count != 2U) {
+        failure = "channel_count should cover slots 0 and 1";
+        goto cleanup;
+    }
+    if (status.channels[1].index != 1U || status.channels[1].role != 2U ||
+        strcmp(status.channels[1].name, "Team") != 0) {
+        failure = "secondary channel not decoded";
+        goto cleanup;
+    }
+    if (status.channels[0].index != 0U || status.channels[0].role != 1U ||
+        status.channels[0].name[0] != '\0') {
+        failure = "primary channel not decoded";
+        goto cleanup;
+    }
+
+cleanup:
+    ble->ops->stop(ble);
+    mesh_event_loop_shutdown(&loop);
+    mesh_bluez_client_mock_disable();
     if (failure != NULL) {
         record_failure(test_name, failure);
     } else {
@@ -2809,8 +3134,9 @@ static void test_ui_input_key_mapping(void) {
     mesh_ui_input_handle_event(&input, EV_SYN, 0, 0);
     mesh_ui_input_handle_event(&input, EV_KEY, KEY_F1, 1); /* unmapped: nothing */
 
+    /* BTN_SOUTH is the Brick's B and BTN_EAST its A (Nintendo layout). */
     const enum mesh_ui_key expected[] = {
-        MESH_UI_KEY_A,  MESH_UI_KEY_B,    MESH_UI_KEY_UP,     MESH_UI_KEY_RIGHT,
+        MESH_UI_KEY_B,  MESH_UI_KEY_A,    MESH_UI_KEY_UP,     MESH_UI_KEY_RIGHT,
         MESH_UI_KEY_L1, MESH_UI_KEY_DOWN, MESH_UI_KEY_SELECT,
     };
     const size_t expected_count = sizeof(expected) / sizeof(expected[0]);
@@ -2906,7 +3232,9 @@ static void test_ui_controller_key_dispatch(void) {
         goto cleanup;
     }
 
-    /* Down to the first canned reply, A sends it: the action reaches the handler once. */
+    /* Down past the draft row to the first canned reply, A sends it: the action reaches the
+       handler once. */
+    mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_DOWN);
     mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_DOWN);
     mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_A);
     if (actions.count != 1U || actions.last.type != MESH_UI_ACTION_SEND_TEXT ||
@@ -2954,6 +3282,8 @@ static const struct test_case k_test_cases[] = {
     {"ui_controller_dispatch", "unit", test_ui_controller_dispatch},
     {"ui_controller_key_dispatch", "unit", test_ui_controller_key_dispatch},
     {"ui_nav_navigation", "unit", test_ui_nav_navigation},
+    {"ui_nav_channels_and_keyboard", "unit", test_ui_nav_channels_and_keyboard},
+    {"ble_transport_channel_decode", "unit", test_ble_transport_channel_decode},
     {"ui_canned_load", "unit", test_ui_canned_load},
     {"ui_input_key_mapping", "unit", test_ui_input_key_mapping},
     {"ui_preferences_roundtrip", "unit", test_ui_preferences_roundtrip},

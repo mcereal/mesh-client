@@ -99,17 +99,19 @@ const char *mesh_ui_input_quit_hint(void) {
 
 enum mesh_ui_key mesh_ui_input_map_key(uint16_t code) {
     switch (code) {
-    /* Gamepad face buttons: BTN_A..BTN_Y are aliases of BTN_SOUTH/EAST/NORTH/WEST. */
-    case BTN_SOUTH: /* 304, the Brick's A */
+    /* Gamepad face buttons by position. The Brick has a Nintendo layout: the button printed A
+       is on the right (BTN_EAST, 305) and B is at the bottom (BTN_SOUTH, 304), which is the
+       reverse of what the BTN_A/BTN_B aliases suggest. Confirmed from the device log. */
+    case BTN_EAST: /* 305, the Brick's A */
     case KEY_ENTER:
-    case KEY_SPACE:
         return MESH_UI_KEY_A;
-    case BTN_EAST: /* 305, B */
+    case BTN_SOUTH: /* 304, B */
     case KEY_BACKSPACE:
         return MESH_UI_KEY_B;
-    case BTN_NORTH: /* 307, X */
+    case BTN_NORTH: /* 307, X (top) */
         return MESH_UI_KEY_X;
-    case BTN_WEST: /* 308, Y */
+    case BTN_WEST: /* 308, Y (left) */
+    case KEY_SPACE:
         return MESH_UI_KEY_Y;
     case BTN_TL: /* 310 */
     case KEY_PAGEUP:

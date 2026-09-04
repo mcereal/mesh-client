@@ -9,6 +9,7 @@ extern "C" {
 #endif
 
 struct mesh_ui_store;
+struct mesh_ui_message_list;
 
 /*
  * Logical buttons. Backends and the input layer translate from whatever the hardware reports
@@ -45,22 +46,58 @@ enum mesh_ui_screen {
 #define MESH_UI_NAV_TOAST_MAX 64U
 #define MESH_UI_CANNED_MAX 16U
 #define MESH_UI_CANNED_TEXT_MAX 64U
+/* Upstream Data.payload caps at 233 bytes; the draft and action text hold that plus a NUL. */
+#define MESH_UI_DRAFT_MAX 234U
 
-/* Everything a backend needs to draw a cursor and the compose target. Lives in the store and
-   is copied into each snapshot, so backends stay stateless. */
+/* On-screen keyboard geometry: four rows of ten characters and a row of five actions. */
+#define MESH_UI_KB_COLS 10U
+#define MESH_UI_KB_CHAR_ROWS 4U
+#define MESH_UI_KB_ROWS (MESH_UI_KB_CHAR_ROWS + 1U)
+#define MESH_UI_KB_ACTIONS 5U
+
+enum mesh_ui_kb_layer {
+    MESH_UI_KB_LOWER = 0,
+    MESH_UI_KB_UPPER,
+    MESH_UI_KB_SYMBOLS,
+    MESH_UI_KB_LAYER_COUNT,
+};
+
+enum mesh_ui_kb_action {
+    MESH_UI_KB_ACTION_LAYER = 0, /* cycle lower/upper/symbols */
+    MESH_UI_KB_ACTION_SPACE,
+    MESH_UI_KB_ACTION_DELETE,
+    MESH_UI_KB_ACTION_SEND,
+    MESH_UI_KB_ACTION_CANCEL,
+};
+
+/*
+ * Everything a backend needs to draw a cursor, the compose target and the keyboard. Lives in
+ * the store and is copied into each snapshot, so backends stay stateless.
+ *
+ * The conversation model: `target_node` is either MESH_MESSAGE_BROADCAST_ADDR (the channel
+ * `target_channel`) or a node number. The Messages tab shows that conversation, or everything
+ * when `inbox` is set. Compose sends to it. The Nodes tab, a message, and the Compose To: row
+ * all set it.
+ */
 struct mesh_ui_nav {
     enum mesh_ui_screen screen;
     uint32_t cursor[MESH_UI_SCREEN_COUNT];
-    /* Where the Compose tab sends: MESH_MESSAGE_BROADCAST_ADDR for the primary channel, or a
-       node number picked from the Nodes or Messages tab. */
     uint32_t target_node;
+    uint8_t target_channel;
+    bool inbox;
     char target_name[MESH_UI_NAV_TARGET_NAME_MAX];
     /* One-line transient notice ("Sent to ABCD", "Connecting..."); empty when none. */
     char toast[MESH_UI_NAV_TOAST_MAX];
     uint64_t toast_until_ms;
-    /* Message count at the last clamp, so a cursor parked on the newest message follows new
-       traffic instead of being left behind. */
+    /* Filtered message count at the last clamp, so a cursor parked on the newest message
+       follows new traffic instead of being left behind. */
     uint32_t messages_seen;
+    /* Free-text entry. */
+    bool keyboard_open;
+    uint8_t kb_row;
+    uint8_t kb_col;
+    uint8_t kb_layer; /* enum mesh_ui_kb_layer */
+    char draft[MESH_UI_DRAFT_MAX];
 };
 
 enum mesh_ui_action_type {
@@ -74,7 +111,7 @@ struct mesh_ui_action {
     char identifier[64];
     uint32_t dest;
     uint8_t channel;
-    char text[MESH_UI_CANNED_TEXT_MAX];
+    char text[MESH_UI_DRAFT_MAX];
 };
 
 void mesh_ui_nav_init(struct mesh_ui_nav *nav);
@@ -88,8 +125,29 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
 /* Keeps cursors inside their lists after the data changed. Returns true if anything moved. */
 bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *store);
 
-/* Rows on a screen for the current data (the Compose tab counts its "To:" row). */
-uint32_t mesh_ui_nav_row_count(const struct mesh_ui_store *store, enum mesh_ui_screen screen);
+/* Rows on a screen for the current data (the Compose tab counts its To: and draft rows; the
+   Messages tab counts only the current conversation). */
+uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                               enum mesh_ui_screen screen);
+
+/* Indices into `messages` that belong to the conversation the nav is showing, oldest first.
+   Returns how many were written (at most `capacity`). */
+uint32_t mesh_ui_nav_filter_messages(const struct mesh_ui_nav *nav,
+                                     const struct mesh_ui_message_list *messages,
+                                     uint32_t *out_indices, uint32_t capacity);
+
+/* Human name for the current conversation: "Inbox", "#LongFast", "BRVO". */
+void mesh_ui_nav_conversation_name(const struct mesh_ui_nav *nav, char *out, size_t out_len);
+
+/* Compose rows: 0 = To:, 1 = draft, then the canned replies. */
+#define MESH_UI_COMPOSE_ROW_TARGET 0U
+#define MESH_UI_COMPOSE_ROW_DRAFT 1U
+#define MESH_UI_COMPOSE_FIRST_CANNED 2U
+
+/* Keyboard legend for the backends. Character rows return the glyph at that cell (a NUL for an
+   unused cell); the action row is described by mesh_ui_kb_action_label(). */
+char mesh_ui_kb_char(enum mesh_ui_kb_layer layer, unsigned row, unsigned col);
+const char *mesh_ui_kb_action_label(const struct mesh_ui_nav *nav, enum mesh_ui_kb_action action);
 
 void mesh_ui_nav_set_toast(struct mesh_ui_nav *nav, uint64_t now_ms, const char *text);
 /* Clears an expired toast; returns true if it did. */

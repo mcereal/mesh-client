@@ -490,17 +490,29 @@ static void fb_render_messages(const struct mesh_ui_backend_fb_state *state,
                                const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_message_list *messages = &snapshot->messages;
     const struct mesh_ui_nav *nav = &snapshot->nav;
+
+    uint32_t indices[MESH_UI_MAX_MESSAGES];
+    const uint32_t count =
+        mesh_ui_nav_filter_messages(nav, messages, indices, MESH_UI_MAX_MESSAGES);
+
+    char convo[MESH_UI_NAV_TARGET_NAME_MAX];
+    mesh_ui_nav_conversation_name(nav, convo, sizeof convo);
     char title[96];
-    if (messages->dropped > 0U) {
-        snprintf(title, sizeof title, "Messages (%u, +%u older)", (unsigned)messages->count,
+    if (nav->inbox && messages->dropped > 0U) {
+        snprintf(title, sizeof title, "%s (%u, +%u older)", convo, count,
                  (unsigned)messages->dropped);
+    } else if (nav->inbox) {
+        snprintf(title, sizeof title, "%s (%u)", convo, count);
     } else {
-        snprintf(title, sizeof title, "Messages (%u)", (unsigned)messages->count);
+        snprintf(title, sizeof title, "%s (%u)  %s", convo, count,
+                 nav->target_node == MESH_MESSAGE_BROADCAST_ADDR ? "channel" : "direct");
     }
     fb_draw_title(state, layout, title);
 
-    if (messages->count == 0U) {
-        fb_draw_empty(state, layout, "No messages yet. Compose sends a quick reply.");
+    if (count == 0U) {
+        fb_draw_empty(state, layout,
+                      nav->inbox ? "No messages yet. Y opens Compose."
+                                 : "Nothing here yet. Y composes, X switches.");
         return;
     }
 
@@ -510,8 +522,6 @@ static void fb_render_messages(const struct mesh_ui_backend_fb_state *state,
     uint32_t list_rows = layout->rows > (uint32_t)detail_lines + 1U
                              ? layout->rows - (uint32_t)detail_lines - 1U
                              : 1U;
-    const uint32_t count =
-        messages->count > MESH_UI_MAX_MESSAGES ? MESH_UI_MAX_MESSAGES : messages->count;
     const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_MESSAGES] < count
                                 ? nav->cursor[MESH_UI_SCREEN_MESSAGES]
                                 : count - 1U;
@@ -520,7 +530,7 @@ static void fb_render_messages(const struct mesh_ui_backend_fb_state *state,
     int y = layout->body_y;
     char line[300];
     for (uint32_t i = first; i < count && i < first + list_rows; ++i) {
-        const struct mesh_ui_message *message = &messages->entries[i];
+        const struct mesh_ui_message *message = &messages->entries[indices[i]];
         const bool outbound = (message->direction == MESH_MESSAGE_OUTBOUND);
         const char *peer = message->peer_name[0] != '\0' ? message->peer_name : "?";
         char tag[8] = "";
@@ -530,14 +540,24 @@ static void fb_render_messages(const struct mesh_ui_backend_fb_state *state,
                      : message->ack == MESH_MESSAGE_ACK_FAILED  ? "!!"
                                                                 : "..");
         }
-        snprintf(line, sizeof line, "%s%s%s: %s", outbound ? ">" : "<", peer, tag, message->text);
+        /* In the inbox, say where a line belongs; inside a conversation that is the title. */
+        char where[16] = "";
+        if (nav->inbox) {
+            if (message->broadcast) {
+                snprintf(where, sizeof where, " #%u", (unsigned)message->channel);
+            } else {
+                snprintf(where, sizeof where, " dm");
+            }
+        }
+        snprintf(line, sizeof line, "%s%s%s%s: %s", outbound ? ">" : "<", peer, where, tag,
+                 message->text);
         fb_fit(line, layout->cols);
         fb_draw_row(state, y, line, outbound ? k_outbound : k_inbound, i == cursor);
         y += layout->line;
     }
 
     /* Detail pane. */
-    const struct mesh_ui_message *selected = &messages->entries[cursor];
+    const struct mesh_ui_message *selected = &messages->entries[indices[cursor]];
     y = layout->body_y + (int)list_rows * layout->line + layout->line / 2;
     fb_fill_rect(state, FB_MARGIN, y - state->scale, (int)state->var.xres - 2 * FB_MARGIN,
                  state->scale / 2 > 0 ? state->scale / 2 : 1, k_cursor_bg);
@@ -623,27 +643,104 @@ static void fb_render_compose(const struct mesh_ui_backend_fb_state *state,
     fb_draw_title(state, layout, "Compose");
 
     const size_t canned = mesh_ui_canned_count();
-    const uint32_t count = 1U + (uint32_t)canned;
+    const uint32_t count = MESH_UI_COMPOSE_FIRST_CANNED + (uint32_t)canned;
     const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_COMPOSE] < count
                                 ? nav->cursor[MESH_UI_SCREEN_COMPOSE]
                                 : count - 1U;
     const uint32_t first = fb_first_visible(cursor, count, layout->rows);
 
     int y = layout->body_y;
-    char line[160];
+    char line[300];
     for (uint32_t i = first; i < count && i < first + layout->rows; ++i) {
-        if (i == 0U) {
+        if (i == MESH_UI_COMPOSE_ROW_TARGET) {
             snprintf(line, sizeof line, "To: %s%s", nav->target_name,
-                     nav->target_node == MESH_MESSAGE_BROADCAST_ADDR ? " (primary channel)"
-                                                                     : " (direct)");
+                     nav->target_node == MESH_MESSAGE_BROADCAST_ADDR ? " (channel)" : " (direct)");
+            fb_fit(line, layout->cols);
+            fb_draw_row(state, y, line, k_accent, i == cursor);
+        } else if (i == MESH_UI_COMPOSE_ROW_DRAFT) {
+            if (nav->draft[0] != '\0') {
+                snprintf(line, sizeof line, "Draft: %s", nav->draft);
+            } else {
+                snprintf(line, sizeof line, "%s", "[ Type a message ]");
+            }
             fb_fit(line, layout->cols);
             fb_draw_row(state, y, line, k_accent, i == cursor);
         } else {
-            snprintf(line, sizeof line, "  %s", mesh_ui_canned_text(i - 1U));
+            snprintf(line, sizeof line, "  %s",
+                     mesh_ui_canned_text(i - MESH_UI_COMPOSE_FIRST_CANNED));
             fb_fit(line, layout->cols);
             fb_draw_row(state, y, line, k_text, i == cursor);
         }
         y += layout->line;
+    }
+}
+
+/* The on-screen keyboard takes the whole body: target, the draft so far, then the grid. */
+static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
+                               const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    char title[96];
+    snprintf(title, sizeof title, "To: %s", nav->target_name);
+    fb_draw_title(state, layout, title);
+
+    const int scale = state->scale;
+    const int line = layout->line;
+    int y = layout->body_y;
+
+    /* Draft box: two wrapped lines plus a cursor and a byte count. */
+    const int box_lines = 2;
+    fb_fill_rect(state, FB_MARGIN / 2, y - scale, (int)state->var.xres - FB_MARGIN,
+                 box_lines * line + scale, (struct fb_rgb){0x14, 0x22, 0x32});
+    char draft[MESH_UI_DRAFT_MAX + 2U];
+    snprintf(draft, sizeof draft, "%s_", nav->draft);
+    /* Show the tail when the draft outgrows the box. */
+    const size_t visible = layout->cols * (size_t)box_lines;
+    const char *shown = draft;
+    if (strlen(draft) > visible) {
+        shown = draft + (strlen(draft) - visible);
+    }
+    fb_draw_wrapped(state, y, shown, layout->cols, box_lines, k_white);
+    y += box_lines * line;
+
+    char meter[32];
+    snprintf(meter, sizeof meter, "%zu/%u", strlen(nav->draft), (unsigned)(MESH_UI_DRAFT_MAX - 1U));
+    fb_draw_text(state,
+                 (int)state->var.xres - FB_MARGIN - (int)strlen(meter) * fb_char_adv(layout->small),
+                 y, meter, layout->small, k_dim);
+    y += fb_line_adv(layout->small) + scale;
+
+    /* Grid. */
+    const int grid_w = (int)state->var.xres - 2 * FB_MARGIN;
+    const int cell_w = grid_w / (int)MESH_UI_KB_COLS;
+    const int cell_h = line + 2 * scale;
+    const int adv = fb_char_adv(scale);
+    for (unsigned row = 0; row < MESH_UI_KB_CHAR_ROWS; ++row) {
+        for (unsigned col = 0; col < MESH_UI_KB_COLS; ++col) {
+            const char ch = mesh_ui_kb_char((enum mesh_ui_kb_layer)nav->kb_layer, row, col);
+            const int x = FB_MARGIN + (int)col * cell_w;
+            const bool selected = (nav->kb_row == row && nav->kb_col == col);
+            if (selected) {
+                fb_fill_rect(state, x, y, cell_w - scale, cell_h - scale, k_tab_active_bg);
+            }
+            if (ch != '\0') {
+                fb_draw_char(state, x + (cell_w - adv) / 2, y + scale, (unsigned char)ch, scale,
+                             selected ? k_white : k_text);
+            }
+        }
+        y += cell_h;
+    }
+
+    /* Action row: five wide keys. */
+    const int action_w = grid_w / (int)MESH_UI_KB_ACTIONS;
+    for (unsigned col = 0; col < MESH_UI_KB_ACTIONS; ++col) {
+        const char *label = mesh_ui_kb_action_label(nav, (enum mesh_ui_kb_action)col);
+        const int x = FB_MARGIN + (int)col * action_w;
+        const bool selected = (nav->kb_row == MESH_UI_KB_CHAR_ROWS && nav->kb_col == col);
+        fb_fill_rect(state, x, y, action_w - scale, cell_h - scale,
+                     selected ? k_tab_active_bg : k_cursor_bg);
+        const int text_w = (int)strlen(label) * adv;
+        fb_draw_text(state, x + (action_w - text_w) / 2, y + scale, label, scale,
+                     selected ? k_white : k_text);
     }
 }
 
@@ -779,26 +876,32 @@ static void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
     layout.rows = body_height > 0 ? (uint32_t)(body_height / layout.line) : 0U;
 
     const char *hint = "A select  B back  Left/Right tabs";
+    if (snapshot->nav.keyboard_open) {
+        hint = "A type  B delete  X shift  Y space  START send";
+        fb_render_keyboard(state, snapshot, &layout);
+        fb_draw_footer(state, snapshot, &layout, hint);
+        return;
+    }
     switch (snapshot->nav.screen) {
     case MESH_UI_SCREEN_MESSAGES:
-        hint = "A reply  Up/Down scroll  Left/Right tabs";
+        hint = "A reply  X conversation  Y compose  L/R tabs";
         fb_render_messages(state, snapshot, &layout);
         break;
     case MESH_UI_SCREEN_NODES:
-        hint = "A message node  Up/Down scroll  Left/Right tabs";
+        hint = "A message node  Y compose  L/R tabs";
         fb_render_nodes(state, snapshot, &layout);
         break;
     case MESH_UI_SCREEN_COMPOSE:
-        hint = "A send / change To  B back  Left/Right tabs";
+        hint = "A send / edit  B back  L/R tabs";
         fb_render_compose(state, snapshot, &layout);
         break;
     case MESH_UI_SCREEN_DEVICES:
-        hint = "A connect  Up/Down scroll  Left/Right tabs";
+        hint = "A connect  Up/Down scroll  L/R tabs";
         fb_render_devices(state, snapshot, &layout);
         break;
     case MESH_UI_SCREEN_STATUS:
     default:
-        hint = "Left/Right tabs";
+        hint = "L/R tabs";
         fb_render_status(state, snapshot, &layout);
         break;
     }

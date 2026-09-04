@@ -438,6 +438,22 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
         }
         ui_handshake.node_count = (uint32_t)copy_count;
 
+        size_t channel_count = status.channel_count;
+        if (channel_count > MESH_UI_MAX_CHANNELS) {
+            channel_count = MESH_UI_MAX_CHANNELS;
+        }
+        for (size_t i = 0; i < channel_count; ++i) {
+            ui_handshake.channels[i].index = status.channels[i].index;
+            ui_handshake.channels[i].role = status.channels[i].role;
+            snprintf(ui_handshake.channels[i].name, sizeof(ui_handshake.channels[i].name), "%s",
+                     status.channels[i].name);
+            if (status.channels[i].role == 1U /* PRIMARY */) {
+                snprintf(ui_handshake.primary_channel, sizeof(ui_handshake.primary_channel), "%s",
+                         status.channels[i].name);
+            }
+        }
+        ui_handshake.channel_count = (uint32_t)channel_count;
+
         mesh_ui_update_flags prev_flags = app->ui_store.pending_flags;
         mesh_ui_store_set_handshake(&app->ui_store, &ui_handshake);
         if (app->ui_handshake_cache_path[0] != '\0' &&
