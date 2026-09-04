@@ -81,7 +81,7 @@ Copying the already-unpacked `dist/MeshClient.pak/` folder to `Tools/tg5040/` wo
 
 The pak ships Mozilla's CA roots at `certs/certificates.crt`, taken from [curl.se/ca](https://curl.se/ca/cacert.pem). The Brick has no system CA store, so without it the in-app updater cannot verify github.com and every check fails. Refresh it by re-downloading that file into `Tools/tg5040/MeshClient.pak/certs/certificates.crt` and committing the result; `scripts/package.sh` copies it into the pak. It is not delivered by self-update, so a client installed before it existed needs one pak reinstall before updates work.
 
-Once the Brick is on WiFi with the SSH Server pak installed, skip the SD card: set `BRICK_HOST` in `.brick.env` (copy `.brick.env.example`) and use `make brick` (build + push), `make deploy`, `make deploy-logs`, `make deploy-run ARGS="--list-devices"`, and `make deploy-check`. See [`docs/device.md`](docs/device.md) for the one-time device setup and troubleshooting.
+Once the Brick is on WiFi with the SSH Server pak installed, skip the SD card: set `BRICK_HOST` in `.brick.env` (copy `.brick.env.example`) and use `make brick` (build + push), `make deploy`, `make deploy-logs`, `make deploy-run ARGS="--list-devices"`, `make deploy-check`, and `make deploy-shot` (a PNG of whatever is on the device's screen). See [`docs/device.md`](docs/device.md) for the one-time device setup and troubleshooting.
 
 ## Development Environment
 

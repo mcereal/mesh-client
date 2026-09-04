@@ -11,7 +11,7 @@ DOCKER := ./scripts/docker.sh
 
 .PHONY: help setup debug release relwithdebinfo build test package proto clean distclean run minui format \
         docker-image docker-cross-image docker-shell docker-debug docker-test docker-run docker-pak docker-clean \
-        deploy deploy-run deploy-logs deploy-check deploy-shell deploy-key brick
+        deploy deploy-run deploy-logs deploy-check deploy-shot deploy-shell deploy-key brick
 
 help:
 	@echo "Host targets (Linux):"
@@ -41,6 +41,7 @@ help:
 	@echo "  make deploy-run     - Run launch.sh on the device, streaming output (ARGS=\"--list-devices\")"
 	@echo "  make deploy-logs    - Tail the on-device MeshClient.txt log"
 	@echo "  make deploy-check   - Report SD card / BlueZ / D-Bus / adapter / fb0 state on the device"
+	@echo "  make deploy-shot    - Screenshot the device's screen to a PNG (ARGS=\"-d 10 -o nodes.png\")"
 	@echo "  make deploy-shell   - SSH into the device"
 	@echo "  make deploy-key     - Install your SSH public key on the device"
 
@@ -126,6 +127,9 @@ deploy-logs:
 
 deploy-check:
 	$(DEPLOY) check
+
+deploy-shot:
+	$(DEPLOY) shot -- $(ARGS)
 
 deploy-shell:
 	$(DEPLOY) shell

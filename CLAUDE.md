@@ -29,6 +29,7 @@ make docker-image / docker-cross-image    # force image rebuild after editing do
 make format                               # clang-format all tracked .c/.h (runs fine on the host)
 make brick                                # docker-pak + push to the Brick over SSH (needs .brick.env, see docs/device.md)
 make deploy / deploy-logs / deploy-check  # push only / tail device log / report BlueZ, D-Bus, fb0 state on device
+make deploy-shot ARGS="-d 10 -o x.png"    # screenshot the device's screen off /dev/fb0 (page 0; -P 1 is the launcher)
 make deploy-run ARGS="--list-devices"     # run launch.sh on the device headless, streaming output
 ```
 

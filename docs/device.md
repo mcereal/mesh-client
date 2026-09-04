@@ -140,6 +140,33 @@ menu; the log shows discovery, `Auto-connecting to ...`, the handshake, and ever
 `/mnt/SDCARD/Tools/tg5040/MeshClient.pak`, its `$HOME` (prefs, handshake cache) at
 `/mnt/SDCARD/.userdata/tg5040/MeshClient/`.
 
+## Screenshots
+
+NextUI's own screenshot shortcut is part of `minarch`, the emulator runtime, and captures that
+process's GL surface - so it cannot see a pak like ours, which draws straight to `/dev/fb0`.
+`make deploy-shot` reads the framebuffer over SSH instead, which catches whatever is actually
+on the panel: our HUD, the launcher, a crash. Nothing extra is needed on the device.
+
+```bash
+make deploy-shot                                   # grab now -> shot-<timestamp>.png
+make deploy-shot ARGS="-d 10 -o nodes.png"         # 10 s to navigate there first
+make deploy-shot ARGS="-n 5 -d 3 -o tour.png"      # five, 3 s apart -> tour-1.png ...
+make deploy-shot ARGS="-P 1 -o launcher.png"       # the other page (see below)
+```
+
+Output is a 1024x768 PNG written where you ran the command, converted on the host with nothing
+but the Python standard library - no Pillow, no ffmpeg. This is how the screenshots for the Pak
+Store listing get made.
+
+Two things to know when a shot looks wrong:
+
+- **`fb0` is 1024x16384**, a stack of 768-row pages the display engine flips between. The fb
+  backend draws page 0 and mirrors into page 1, so page 0 is MeshClient. NextUI's SDL usually
+  leaves the panel on page 1, so `-P 1` is what catches the launcher.
+- **Colours are read as little-endian XRGB8888** (`B,G,R,X` in memory), which is what the Brick
+  reports. If red and blue ever come out swapped, that assumption is what to change - the
+  channel assignment is four lines in `cmd_shot`.
+
 ## What `make deploy-check` tells you
 
 It runs a busybox-only script on the device and prints one line per fact. The ones that matter
