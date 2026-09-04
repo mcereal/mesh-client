@@ -1,3 +1,10 @@
+## [1.6.0](https://github.com/mcereal/mesh-client/compare/v1.5.0...v1.6.0) (2026-09-04)
+
+### Features
+
+* **settings:** edit channels and Bluetooth behind a confirm screen ([8a7f0b1](https://github.com/mcereal/mesh-client/commit/8a7f0b1cd5d508357dfce932fcdd1d23e2dff4a1))
+* **settings:** list empty channel slots so channels can be added and removed ([7eed2dd](https://github.com/mcereal/mesh-client/commit/7eed2dd5bf0e21caed8b87390006aecf6f41cff1))
+
 ## [1.5.0](https://github.com/mcereal/mesh-client/compare/v1.4.0...v1.5.0) (2026-09-04)
 
 ### Features
