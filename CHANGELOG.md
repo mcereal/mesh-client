@@ -1,3 +1,9 @@
+## [1.11.0](https://github.com/mcereal/mesh-client/compare/v1.10.0...v1.11.0) (2026-09-04)
+
+### Features
+
+* **ui:** draw emoji and accented node names instead of question marks ([e6501fb](https://github.com/mcereal/mesh-client/commit/e6501fb08a86193402cc9a1d653244ecd8a6766d))
+
 ## [1.10.0](https://github.com/mcereal/mesh-client/compare/v1.9.0...v1.10.0) (2026-09-04)
 
 ### Features
