@@ -60,10 +60,10 @@ row (layer, space, del, send, cancel). **D-pad** moves (wrapping), **A** types, 
 space, **START** sends. L1 and R1 double as delete and space. Drafts survive leaving the
 keyboard: the Compose draft row shows what is pending.
 
-Nodes are listed most recently heard first (this radio first), and every packet a node sends
-refreshes its place, so the radio you were just talking to is near the top of both the Nodes
-tab and the picker even on a busy mesh. The HUD carries the 64 most
-recent; the radio's full NodeDB count is shown in the Nodes title.
+Nodes are ranked: this radio, then every node you have exchanged messages with, then nodes
+heard directly over RF (most recent first), then nodes that only arrive via MQTT. Every packet
+a node sends refreshes its place. The HUD carries 128 of them; the radio's full NodeDB count is
+shown in the Nodes title.
 
 If the radio drops the BLE link (it happens after a few minutes idle on some firmware), the
 footer flips from green `connected: <name>` to `running`, a toast says the link was lost, and

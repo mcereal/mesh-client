@@ -111,8 +111,11 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
   on-screen keyboard is `keyboard_open` plus `kb_row/kb_col/kb_layer` and `draft`, all in the
   nav; while it is open every key goes to the keyboard handler and tabs do not switch. The
   `picker_open` overlay (Compose To:) works the same way; its rows come from
-  `mesh_ui_nav_picker_row` (channels, then nodes). `app.c` sorts nodes by `last_heard` before
-  publishing, so the UI's 64-node budget holds the recently active ones.
+  `mesh_ui_nav_picker_row` (channels, then nodes). `app.c` ranks nodes before publishing
+  (`mesh_app_node_rank`: us, message peers, RF nodes by `last_heard`, MQTT nodes) so the UI's
+  128-node budget always holds whoever you are talking to; on an MQTT-fed mesh last_heard alone
+  buries them. The post-stop publish in `mesh_app_run` only touches the transport line, because
+  the shutdown save would otherwise persist an empty handshake and unresolved peer names.
   Button positions: the Brick's A is `BTN_EAST` (305) and B is `BTN_SOUTH` (304), the reverse
   of the Linux `BTN_A`/`BTN_B` aliases. Verified from the device log; do not "fix" it back.
 - `src/minui_helpers/` — tiny native fallbacks for `minui-list` / `minui-presenter` used when the

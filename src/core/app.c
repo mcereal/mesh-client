@@ -276,6 +276,26 @@ static void mesh_app_format_peer_name(const struct mesh_ble_handshake_status *st
     snprintf(out, out_len, "!%08x", node_id);
 }
 
+/* Lower is more important; see the ranking comment in mesh_app_publish_ui_state(). */
+static unsigned mesh_app_node_rank(const struct mesh_ble_node_summary *node, uint32_t my_node,
+                                   const struct mesh_message_log *log) {
+    if (my_node != 0U && node->node_id == my_node) {
+        return 0U;
+    }
+    if (log != NULL) {
+        for (size_t i = 0; i < log->count; ++i) {
+            const struct mesh_message *message = mesh_message_log_at(log, i);
+            if (message == NULL) {
+                continue;
+            }
+            if (message->from == node->node_id || message->to == node->node_id) {
+                return 1U;
+            }
+        }
+    }
+    return node->via_mqtt ? 3U : 2U;
+}
+
 /* Copies the newest MESH_UI_MAX_MESSAGES entries out of the transport ring into the store,
    merged with whatever history was restored from the cache at startup. */
 static void mesh_app_publish_messages(struct mesh_app *app, struct mesh_transport *ble,
@@ -428,24 +448,30 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
             }
         }
 
-        /* The UI carries fewer nodes than a real mesh has, so hand it the ones heard most
-           recently; the radio's own order is arbitrary. Ourselves first, then by last_heard,
-           stable for ties (insertion sort: MESH_BLE_MAX_NODE_SUMMARY is small). */
+        /* The UI carries fewer nodes than a real mesh has. Rank them so the ones that matter
+           survive the cut: ourselves, then anyone we have exchanged messages with, then nodes
+           heard directly over RF by last_heard, then MQTT-fed nodes by last_heard. On a mesh
+           with an MQTT uplink dozens of far-away nodes are "heard" every minute and would
+           otherwise push the radio you are actually talking to off the list. Insertion sort:
+           MESH_BLE_MAX_NODE_SUMMARY is small and this runs once per publish. */
+        const struct mesh_message_log *message_log = mesh_ble_transport_messages(ble);
         size_t order[MESH_BLE_MAX_NODE_SUMMARY];
+        unsigned rank[MESH_BLE_MAX_NODE_SUMMARY];
         size_t total = status.node_count > MESH_BLE_MAX_NODE_SUMMARY ? MESH_BLE_MAX_NODE_SUMMARY
                                                                      : status.node_count;
         const uint32_t my_node = status.has_my_info ? status.my_info.my_node_num : 0U;
         for (size_t i = 0; i < total; ++i) {
-            size_t j = i;
             const struct mesh_ble_node_summary *node = &status.nodes[i];
-            const bool node_is_me = (my_node != 0U && node->node_id == my_node);
+            rank[i] = mesh_app_node_rank(node, my_node, message_log);
+            size_t j = i;
             while (j > 0U) {
-                const struct mesh_ble_node_summary *prev = &status.nodes[order[j - 1U]];
-                const bool prev_is_me = (my_node != 0U && prev->node_id == my_node);
-                if (prev_is_me || (!node_is_me && prev->last_heard >= node->last_heard)) {
+                const size_t prev_index = order[j - 1U];
+                const struct mesh_ble_node_summary *prev = &status.nodes[prev_index];
+                if (rank[prev_index] < rank[i] ||
+                    (rank[prev_index] == rank[i] && prev->last_heard >= node->last_heard)) {
                     break;
                 }
-                order[j] = order[j - 1U];
+                order[j] = prev_index;
                 --j;
             }
             order[j] = i;
@@ -852,7 +878,16 @@ int mesh_app_run(struct mesh_app *app) {
     }
 
     mesh_transport_registry_stop_all(&app->transport_registry);
-    mesh_app_publish_ui_state(app);
+    /* Only the transport line changes here. A full publish would see the stopped transport
+       report no handshake and no node names, and that empty state is what mesh_app_shutdown()
+       would then save as the cache. */
+    {
+        struct mesh_transport *ble = mesh_ble_transport();
+        const char *status = (ble != NULL && ble->ops != NULL && ble->ops->status != NULL)
+                                 ? ble->ops->status(ble)
+                                 : "stopped";
+        mesh_ui_store_set_transport_status(&app->ui_store, status != NULL ? status : "stopped");
+    }
 
     mesh_ui_input_shutdown(&app->ui_input);
     mesh_signals_shutdown(&app->signals);

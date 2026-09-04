@@ -13,7 +13,7 @@ extern "C" {
 #define MESH_UI_MAX_DEVICES 16U
 /* Nodes carried to the backends, newest-heard first as the radio sends them. Real meshes run
    past 100 nodes; the Nodes tab scrolls, so this is a screen budget, not a mesh limit. */
-#define MESH_UI_MAX_HANDSHAKE_NODES 64U
+#define MESH_UI_MAX_HANDSHAKE_NODES 128U
 #define MESH_UI_TRANSPORT_STATUS_MAX 32U
 /* Newest messages carried to the backends. Matches the transport ring so a per-conversation
    view has the same history the radio gave us; the Brick shows a screenful at a time. */

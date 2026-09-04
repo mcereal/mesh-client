@@ -718,8 +718,9 @@ static void mesh_ble_store_node_summary(struct mesh_ble_transport_state *state,
         summary->short_name[0] = '\0';
     }
 
-    mesh_log_debug("ble", "Cached node %u (%s)", summary->node_id,
-                   summary->short_name[0] != '\0' ? summary->short_name : summary->long_name);
+    mesh_log_debug("ble", "Cached node %u (%s) last_heard=%u%s", summary->node_id,
+                   summary->short_name[0] != '\0' ? summary->short_name : summary->long_name,
+                   summary->last_heard, summary->via_mqtt ? " via_mqtt" : "");
 }
 
 /*
