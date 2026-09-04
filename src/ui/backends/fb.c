@@ -1209,7 +1209,11 @@ static void fb_render_settings(const struct mesh_ui_backend_fb_state *state,
     }
     fb_draw_title(state, layout, title);
 
-    if (!settings->loaded && (handshake == NULL || !handshake->has_my_info)) {
+    /* Every other section describes the radio, but About describes this client, so the tab
+       stays usable with nothing connected: the section list still draws (About is the only
+       row not greyed out) and opening About still works. */
+    if (!settings->loaded && (handshake == NULL || !handshake->has_my_info) && section_open &&
+        section != MESH_UI_SETTINGS_ABOUT) {
         fb_draw_empty(state, layout, "Connect to a radio to read its settings");
         return;
     }
@@ -1343,6 +1347,10 @@ static void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
         } else if (snapshot->nav.settings_section == MESH_UI_SETTINGS_CHANNELS &&
                    snapshot->nav.settings_channel == MESH_UI_SETTINGS_NO_CHANNEL) {
             hint = "A open channel  B back  X refresh  L1/R1 tabs";
+        } else if (snapshot->nav.settings_section == MESH_UI_SETTINGS_ABOUT) {
+            /* Nothing here is editable and nothing here comes from the radio, so neither the
+               edit keys nor X mean anything. */
+            hint = "A run the highlighted row  B back  L1/R1 tabs";
         } else {
             hint = "Left/Right/A edit  B back  X refresh  L1/R1 tabs";
         }

@@ -31,4 +31,10 @@ file "$BUILD_DIR/meshclient"
 export CROSS_COMPILE PLATFORM
 BUILD_ROOT="$BUILD_ROOT" ./scripts/build_minui_helpers.sh
 BUILD_ROOT="$BUILD_ROOT" ./scripts/package.sh release
+# Both assets the release publishes, so `make docker-pak` produces locally what CI uploads:
+# the pak zip for a fresh install, and the bare binary the in-app updater downloads.
+ASSET_NAME="meshclient-${PLATFORM:-tg5040}-aarch64"
+cp "$BUILD_DIR/meshclient" "dist/${ASSET_NAME}"
+chmod +x "dist/${ASSET_NAME}"
 (cd dist && sha256sum MeshClient.pak.zip > MeshClient.pak.zip.sha256 && cat MeshClient.pak.zip.sha256)
+(cd dist && sha256sum "${ASSET_NAME}" > "${ASSET_NAME}.sha256" && cat "${ASSET_NAME}.sha256")

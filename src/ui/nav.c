@@ -1496,6 +1496,22 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             return true;
         }
         if (nav->settings_section != MESH_UI_SETTINGS_NO_SECTION) {
+            /* An ACTION row asks the app to do something rather than editing a value, so it
+               is answered here where out_action is in hand. It carries what it does in
+               `number`, which keeps the nav from needing to know what any section means. */
+            struct mesh_ui_settings_item item;
+            if (mesh_ui_nav_settings_current(nav, store, true, &item) &&
+                item.kind == MESH_UI_SETTING_ACTION && item.field == MESH_UI_FIELD_NONE) {
+                if (action != NULL) {
+                    if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_UPDATE) {
+                        action->type = MESH_UI_ACTION_CHECK_UPDATE;
+                    } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_INSTALL_UPDATE) {
+                        action->type = MESH_UI_ACTION_INSTALL_UPDATE;
+                    }
+                }
+                /* The row itself does not change; the app's reply comes back as new state. */
+                return false;
+            }
             return mesh_ui_nav_settings_edit_key(nav, store, MESH_UI_KEY_A);
         }
         if (cursor >= MESH_UI_SETTINGS_SECTION_COUNT) {

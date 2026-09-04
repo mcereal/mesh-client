@@ -101,11 +101,26 @@ Semantic release is configured for these branches:
    - Analyze your commits since the last release
    - Determine the next version number
    - Update `CMakeLists.txt` with the new version
+   - **Then** build and package the release, from that rewritten version
    - Generate/update `CHANGELOG.md`
-   - Create a git tag
-   - Build and package the release
-   - Create a GitHub release with artifacts
    - Commit the version bump back to the repository
+   - Create a git tag
+   - Create a GitHub release with artifacts
+
+The order of steps 3 and 4 matters. `project(meshclient VERSION ...)` in `CMakeLists.txt` is
+where the client's own version comes from - it becomes the `MESHCLIENT_VERSION` compile
+definition that `meshclient --version` and the About screen report, and that the in-app updater
+compares against GitHub. A build that ran *before* the rewrite would ship the previous
+release's number under the new tag, so both live in one `prepareCmd`:
+
+```
+sed -i 's/project(meshclient VERSION .../' CMakeLists.txt && ./scripts/release-build.sh <version>
+```
+
+`scripts/release-build.sh` refuses to run if `CMakeLists.txt` does not already say the version
+being released, and greps the linked binary for it afterwards. Because `@semantic-release/exec`
+runs before `@semantic-release/git`, a failed build aborts the release with nothing committed
+and no tag created.
 
 ## What Gets Updated
 
@@ -115,9 +130,18 @@ When semantic-release runs, it automatically:
 2. **CHANGELOG.md**: Generates release notes from commit messages
 3. **Git tags**: Creates a new tag (e.g., `v1.2.3`)
 4. **GitHub Releases**: Creates a release with:
-   - `MeshClient.pak.zip` - The packaged TrimUI pak
+   - `MeshClient.pak.zip` - The packaged TrimUI pak, for a fresh install
    - `MeshClient.pak.zip.sha256` - Checksum file
+   - `meshclient-tg5040-aarch64` - The bare static binary, which is what the in-app updater
+     downloads (Settings > About MeshClient). One file it can verify and rename into place,
+     rather than a zip it would have to unpack on the device.
+   - `meshclient-tg5040-aarch64.sha256` - Checksum file
    - Auto-generated release notes
+
+   The updater verifies the download against the `digest` GitHub reports for the asset, not
+   against the `.sha256` file; that file is published for people checking a manual download.
+   Renaming or dropping the binary asset breaks self-update for every installed client, so
+   keep its name in step with `MESHCLIENT_UPDATE_ASSET` in `src/core/updater.c`.
 
 ## Testing Locally
 

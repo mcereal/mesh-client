@@ -131,7 +131,7 @@
             "@semantic-release/exec",
             {
                 "verifyReleaseCmd": "echo ${nextRelease.version}",
-                "prepareCmd": "sed -i 's/project(meshclient VERSION [0-9]\\+\\.[0-9]\\+\\.[0-9]\\+/project(meshclient VERSION ${nextRelease.version}/' CMakeLists.txt"
+                "prepareCmd": "sed -i 's/project(meshclient VERSION [0-9]\\+\\.[0-9]\\+\\.[0-9]\\+/project(meshclient VERSION ${nextRelease.version}/' CMakeLists.txt && ./scripts/release-build.sh ${nextRelease.version}"
             }
         ],
         [
@@ -161,6 +161,14 @@
                     {
                         "path": "dist/MeshClient.pak.zip.sha256",
                         "label": "MeshClient.pak.zip.sha256"
+                    },
+                    {
+                        "path": "dist/meshclient-tg5040-aarch64",
+                        "label": "meshclient-tg5040-aarch64"
+                    },
+                    {
+                        "path": "dist/meshclient-tg5040-aarch64.sha256",
+                        "label": "meshclient-tg5040-aarch64.sha256"
                     }
                 ]
             }

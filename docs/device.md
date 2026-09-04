@@ -28,6 +28,36 @@ The SD card comes out of the device exactly once, for step 2. After that everyth
    make deploy-check             # confirms SSH works and reports what the device has
    ```
 
+## Updating without a laptop
+
+Every release publishes four assets: `MeshClient.pak.zip` (plus a `.sha256`) for a fresh
+install, and the bare `meshclient-tg5040-aarch64` binary (plus a `.sha256`), which is what the
+client downloads when it updates itself.
+
+On the device, **Settings > About MeshClient** shows the running version and offers
+`Check for updates`. If GitHub has a newer release a `Download and install` row appears; **A**
+on it downloads the binary, checks it against the checksum the release published, and renames
+it over the running one. That last step is atomic and safe to do while the client is running -
+Linux keeps the running image alive - so nothing changes until you quit and launch it again.
+
+What it needs:
+
+- **WiFi**, and either `curl` or `wget` on the device. Without one the About section says so
+  instead of offering the rows; NextUI ships a downloader for its own Pak Store, so this is
+  normally already there.
+- A **release build**. A locally-built binary reports `dev` and is never offered an update,
+  which is what stops a `make brick` deploy from being replaced by whatever is on GitHub.
+
+It only replaces the `meshclient` binary. `launch.sh` and the `Tools/` helper binaries ship in
+the pak zip, so a release that changes either still needs the zip unpacked into
+`Tools/tg5040/` by hand. The release notes say when that is the case.
+
+`meshclient --version` prints the same number from a shell, e.g. over SSH:
+
+```bash
+make deploy-run ARGS="--version"
+```
+
 ## The loop
 
 ```bash
@@ -54,7 +84,7 @@ reached with a stale destination. The Brick's A is the right-hand face button
 | Nodes | The mesh as the radio sent it: short name, long name, hops or SNR, time since last heard; `*` is this radio. This is the contact list. | **A** open your conversation with that node. **Y** open it and start writing. |
 | Devices | Meshtastic radios in BLE range, `*` connected | **A** connect to that radio and make it the preferred one |
 | Status | Transport state, radio, sync, my node, channel, counts | none |
-| Settings | The radio's configuration, read from the radio: a section list (Radio, User, Device, Display, LoRa, Bluetooth, Channels, Security, Position, Power, MQTT, Store & Forward, Telemetry), each a list of label/value rows. Rows marked `>` can be edited (User, Display, Store & Forward, Telemetry, Bluetooth, LoRa, Security, and each channel under Channels; Radio, Device, Position, Power and MQTT are read-only); an edited row shows `*` and the title says `(unsaved)`. | On the section list: **A** open, **X** re-read every section from the radio (the Radio section's `Admin session` row shows the replies). In a section: **Left/Right** step a value (toggles flip, enums cycle, times step through presets), **A** flips a toggle or opens the keyboard for a name (START or `done` keeps it, `cancel` drops it), **Y** save the section to the radio (Channels, Bluetooth, LoRa and Security first show a confirm screen that spells out the consequence: Up/Down to `Save to radio`, **A**; **B** cancels), **B** back (with unsaved edits it asks once; **B** again discards). Under Channels every slot the radio has is listed, empty ones as `N (empty)`: open an empty slot and set its role to Secondary (plus a name and key) to add a channel, set an existing one to Disabled to remove it. **A** on a channel opens it; its `Key` row cycles keep / default key / new random AES-128 / AES-256 / none with Left/Right, and **A** opens the keyboard on the current key as base64 (what the phone app shows) to copy it down or type one in; hex is accepted too. Under Security the `Private key` row works the same way (keep / new random key, **A** to reveal or restore a backup) and the three `Admin key` rows take a phone's public key (keep / none / typed). **L1/R1** still switch tabs. After a save the footer reports the ack or rejection; most sections make the radio reboot a few seconds later, the link drops and auto-connect brings it back. |
+| Settings | A section list. **About MeshClient** is first and is about the client rather than the radio - version, UI backend, where its data lives, and the self-update rows; it is the only section that works with nothing connected. The rest is the radio's configuration, read from the radio (Radio, User, Device, Display, LoRa, Bluetooth, Channels, Security, Position, Power, MQTT, Store & Forward, Telemetry), each a list of label/value rows. Rows marked `>` can be edited (User, Display, Store & Forward, Telemetry, Bluetooth, LoRa, Security, and each channel under Channels; Radio, Device, Position, Power and MQTT are read-only); an edited row shows `*` and the title says `(unsaved)`. | On the section list: **A** open, **X** re-read every section from the radio (the Radio section's `Admin session` row shows the replies). In **About MeshClient**: **A** on `Check for updates` asks GitHub for the newest release, and if there is one a `Download and install` row appears - **A** on that downloads it, checks it against the release's published checksum and swaps it in; quit and relaunch to run it. Nothing there is editable, so Left/Right and Y do nothing. In a section: **Left/Right** step a value (toggles flip, enums cycle, times step through presets), **A** flips a toggle or opens the keyboard for a name (START or `done` keeps it, `cancel` drops it), **Y** save the section to the radio (Channels, Bluetooth, LoRa and Security first show a confirm screen that spells out the consequence: Up/Down to `Save to radio`, **A**; **B** cancels), **B** back (with unsaved edits it asks once; **B** again discards). Under Channels every slot the radio has is listed, empty ones as `N (empty)`: open an empty slot and set its role to Secondary (plus a name and key) to add a channel, set an existing one to Disabled to remove it. **A** on a channel opens it; its `Key` row cycles keep / default key / new random AES-128 / AES-256 / none with Left/Right, and **A** opens the keyboard on the current key as base64 (what the phone app shows) to copy it down or type one in; hex is accepted too. Under Security the `Private key` row works the same way (keep / new random key, **A** to reveal or restore a backup) and the three `Admin key` rows take a phone's public key (keep / none / typed). **L1/R1** still switch tabs. After a save the footer reports the ack or rejection; most sections make the radio reboot a few seconds later, the link drops and auto-connect brings it back. |
 
 The keyboard is a ten-column grid with lower-case, upper-case and symbol layers plus an action
 row (layer, space, del, send, cancel). **D-pad** moves (wrapping), **A** types, **B** deletes

@@ -39,6 +39,8 @@ add_library(meshclient_core
     src/core/radio_settings.c
     src/core/session.c
     src/core/signals.c
+    src/core/updater.c
+    src/core/version.c
     src/transport/transport_registry.c
     src/transport/ble/ble_transport.c
     src/transport/ble/bluez_client.c
@@ -47,6 +49,7 @@ add_library(meshclient_core
     src/proto/framing.c
     src/proto/stream_framing.c
     src/utils/log.c
+    src/utils/sha256.c
     src/utils/text.c
     src/ui/store.c
     src/ui/controller.c
@@ -68,6 +71,10 @@ target_include_directories(meshclient_core
     PUBLIC
         ${PROJECT_SOURCE_DIR}/include
 )
+
+# The client's own version, for the About screen and the updater. PROJECT_VERSION comes from
+# the project() line that the release workflow rewrites, so this is the single source of truth.
+target_compile_definitions(meshclient_core PUBLIC MESHCLIENT_VERSION="${PROJECT_VERSION}")
 
 target_compile_options(meshclient_core PRIVATE ${MESHCLIENT_COMPILE_OPTIONS})
 if(MESHCLIENT_LINK_OPTIONS)

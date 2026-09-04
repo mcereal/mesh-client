@@ -145,12 +145,42 @@ struct mesh_ui_channel_detail {
 };
 
 /*
+ * The client's own facts, for the Settings tab's About section - as opposed to every other
+ * field below, which describes the radio. Filled by mesh_app_publish_ui_state(); it is a
+ * flattened, updater-free copy for the same reason the radio's settings are a nanopb-free one,
+ * so the nav and the backends depend on neither.
+ */
+#define MESH_UI_CLIENT_TEXT_MAX 64U
+#define MESH_UI_CLIENT_PATH_MAX 128U
+#define MESH_UI_CLIENT_MESSAGE_MAX 96U
+
+struct mesh_ui_client_info {
+    char version[MESH_UI_CLIENT_TEXT_MAX];  /* "1.12.0", or "dev" */
+    char backend[MESH_UI_CLIENT_TEXT_MAX];  /* the UI backend actually in use */
+    char data_dir[MESH_UI_CLIENT_PATH_MAX]; /* where preferences and caches are kept */
+    /* enum mesh_update_state (mesh/updater.h), carried as a byte so this header does not
+       have to pull the updater in. */
+    uint8_t update_state;
+    char update_message[MESH_UI_CLIENT_MESSAGE_MAX];
+    char update_latest[MESH_UI_CLIENT_TEXT_MAX];
+    /* False when the device has no curl or wget, or the running binary could not be located:
+       the About section then shows why instead of an update row that cannot work. */
+    bool update_supported;
+    /* A check or a download is in flight, so the action row reads as busy and a second press
+       does not stack another child. */
+    bool update_busy;
+};
+
+/*
  * The connected radio's configuration, flattened from the protobufs the transport decoded so
  * the backends and the settings table never include nanopb. Every `has_*` says whether that
  * section has arrived this connection; `loaded` is any of them. Read-only in phase 1 of
  * docs/settings-roadmap.md; the same fields become the edit targets later.
  */
 struct mesh_ui_settings {
+    /* The client's own facts. Always populated, radio or no radio - the About section is the
+       one part of this tab that does not need a connection. */
+    struct mesh_ui_client_info client;
     bool loaded;
     bool admin_ok;      /* at least one AdminMessage reply came back this connection */
     bool admin_busy;    /* a refresh is in flight */

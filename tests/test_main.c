@@ -8,6 +8,7 @@
 #include "mesh/proto/stream_framing.h"
 #include "mesh/radio_settings.h"
 #include "mesh/session.h"
+#include "mesh/sha256.h"
 #include "mesh/text.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/ble_bluez.h"
@@ -26,6 +27,8 @@
 #include "mesh/ui/preferences.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
+#include "mesh/updater.h"
+#include "mesh/version.h"
 
 #include <pb_decode.h>
 #include <pb_encode.h>
@@ -43,6 +46,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -7929,8 +7933,785 @@ static void test_ui_nav_node_favorite(void) {
     record_success(test_name);
 }
 
+/* ---- client version and self-update ------------------------------------------------------- */
+
+static void test_version_compare(void) {
+    const char *test_name = "version_compare";
+
+    /* Ordering: each pair must compare strictly less-than in the given direction. */
+    static const struct {
+        const char *lower;
+        const char *higher;
+    } k_ordered[] = {
+        {"1.0.0", "1.0.1"},
+        {"1.0.9", "1.1.0"},
+        {"1.9.0", "2.0.0"},
+        {"1.2.0", "1.10.0"},     /* not string order */
+        {"1.2.0-rc.1", "1.2.0"}, /* a prerelease precedes its release */
+        {"1.2.0-beta.1", "1.2.0-beta.2"},
+        {"1.2.0-beta.2", "1.2.0-beta.10"}, /* numeric identifiers compare numerically */
+        {"1.2.0-beta", "1.2.0-rc"},
+        {"1.2.0-rc.1", "1.2.0-rc.1.1"}, /* a longer run of identifiers outranks its prefix */
+        {"garbage", "1.0.0"},           /* unparseable can never look newer */
+    };
+    for (size_t i = 0; i < sizeof k_ordered / sizeof k_ordered[0]; ++i) {
+        if (mesh_version_compare(k_ordered[i].lower, k_ordered[i].higher) >= 0) {
+            record_failure(test_name, k_ordered[i].lower);
+            return;
+        }
+        if (mesh_version_compare(k_ordered[i].higher, k_ordered[i].lower) <= 0) {
+            record_failure(test_name, "the reverse comparison should be positive");
+            return;
+        }
+    }
+
+    /* Equality, including the forms a GitHub tag and CMake spell differently. */
+    static const char *const k_equal[][2] = {
+        {"1.2.3", "1.2.3"},
+        {"v1.2.3", "1.2.3"},
+        {"V1.2.3", "v1.2.3"},
+        {"1.2", "1.2.0"},
+        {"1", "1.0.0"},
+        {"1.2.3+build7", "1.2.3"}, /* build metadata is not part of precedence */
+        {"1.2.3-rc.1+build7", "1.2.3-rc.1"},
+    };
+    for (size_t i = 0; i < sizeof k_equal / sizeof k_equal[0]; ++i) {
+        if (mesh_version_compare(k_equal[i][0], k_equal[i][1]) != 0) {
+            record_failure(test_name, k_equal[i][0]);
+            return;
+        }
+    }
+
+    if (mesh_version_compare(NULL, NULL) != 0 || mesh_version_compare("1.0.0", NULL) <= 0 ||
+        mesh_version_compare(NULL, "1.0.0") >= 0) {
+        record_failure(test_name, "NULL should be handled and sort below a real version");
+        return;
+    }
+
+    /* The build under test carries a version, so it should never think a release at or below
+       it is newer, and should always think one above it is. */
+    if (!mesh_version_is_release() || mesh_version_string()[0] == '\0') {
+        record_failure(test_name, "the test build should carry a baked-in version");
+        return;
+    }
+    if (mesh_version_is_newer_than_running(mesh_version_string())) {
+        record_failure(test_name, "the running version is not newer than itself");
+        return;
+    }
+    if (mesh_version_is_newer_than_running("0.0.1") ||
+        mesh_version_is_newer_than_running("not-a-version")) {
+        record_failure(test_name, "an older or unparseable tag is not an update");
+        return;
+    }
+    if (!mesh_version_is_newer_than_running("999.0.0")) {
+        record_failure(test_name, "a higher release should read as an update");
+        return;
+    }
+    record_success(test_name);
+}
+
+static void test_sha256_vectors(void) {
+    const char *test_name = "sha256_vectors";
+
+    /* The published FIPS 180-4 vectors, plus the empty string. */
+    static const struct {
+        const char *input;
+        const char *expected;
+    } k_vectors[] = {
+        {"", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+        {"abc", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"},
+        {"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
+         "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"},
+    };
+    for (size_t i = 0; i < sizeof k_vectors / sizeof k_vectors[0]; ++i) {
+        struct mesh_sha256 ctx;
+        uint8_t digest[MESH_SHA256_DIGEST_LEN];
+        char hex[MESH_SHA256_HEX_LEN];
+        mesh_sha256_init(&ctx);
+        mesh_sha256_update(&ctx, k_vectors[i].input, strlen(k_vectors[i].input));
+        mesh_sha256_final(&ctx, digest);
+        mesh_sha256_hex(digest, hex, sizeof hex);
+        if (strcmp(hex, k_vectors[i].expected) != 0) {
+            record_failure(test_name, hex);
+            return;
+        }
+    }
+
+    /* A message longer than one block, fed in awkward pieces: the streaming path and the
+       one-shot path must agree, or a download hashed in 4 KB reads would not match. */
+    char long_input[1000];
+    for (size_t i = 0; i < sizeof long_input; ++i) {
+        long_input[i] = (char)('a' + (i % 26U));
+    }
+    struct mesh_sha256 whole;
+    uint8_t whole_digest[MESH_SHA256_DIGEST_LEN];
+    mesh_sha256_init(&whole);
+    mesh_sha256_update(&whole, long_input, sizeof long_input);
+    mesh_sha256_final(&whole, whole_digest);
+
+    struct mesh_sha256 pieces;
+    uint8_t pieces_digest[MESH_SHA256_DIGEST_LEN];
+    mesh_sha256_init(&pieces);
+    for (size_t offset = 0; offset < sizeof long_input;) {
+        const size_t chunk = (offset % 7U) + 1U;
+        const size_t take = offset + chunk > sizeof long_input ? sizeof long_input - offset : chunk;
+        mesh_sha256_update(&pieces, long_input + offset, take);
+        offset += take;
+    }
+    mesh_sha256_final(&pieces, pieces_digest);
+    if (memcmp(whole_digest, pieces_digest, sizeof whole_digest) != 0) {
+        record_failure(test_name, "streamed and one-shot hashes should agree");
+        return;
+    }
+
+    /* And the file path, which is what actually verifies a download. */
+    char path[] = "/tmp/meshclient_sha256_XXXXXX";
+    const int fd = mkstemp(path);
+    if (fd < 0) {
+        record_failure(test_name, "could not create a temporary file");
+        return;
+    }
+    if (write(fd, "abc", 3U) != 3) {
+        close(fd);
+        unlink(path);
+        record_failure(test_name, "could not write the temporary file");
+        return;
+    }
+    close(fd);
+    uint8_t file_digest[MESH_SHA256_DIGEST_LEN];
+    const int hashed = mesh_sha256_file(path, file_digest);
+    char file_hex[MESH_SHA256_HEX_LEN];
+    mesh_sha256_hex(file_digest, file_hex, sizeof file_hex);
+    unlink(path);
+    if (hashed != 0 ||
+        strcmp(file_hex, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad") != 0) {
+        record_failure(test_name, "hashing a file should match the same bytes in memory");
+        return;
+    }
+    if (mesh_sha256_file("/nonexistent/meshclient", file_digest) == 0) {
+        record_failure(test_name, "hashing a missing file should fail");
+        return;
+    }
+    record_success(test_name);
+}
+
+/* A release payload shaped like the one api.github.com actually returns, trimmed to the keys
+   the updater reads plus enough noise to catch a scanner that latches onto the wrong one. */
+static const char k_release_json[] =
+    "{\"tag_name\":\"v1.13.0\",\"name\":\"v1.13.0\",\"draft\":false,\"prerelease\":false,"
+    "\"body\":\"### Features\\n* something with \\\"name\\\": \\\"decoy\\\" inside it\","
+    "\"assets\":["
+    "{\"name\":\"MeshClient.pak.zip\",\"size\":949158,"
+    "\"browser_download_url\":\"https://github.com/mcereal/mesh-client/releases/download/"
+    "v1.13.0/MeshClient.pak.zip\",\"digest\":\"sha256:"
+    "1111111111111111111111111111111111111111111111111111111111111111\"},"
+    "{\"name\":\"meshclient-tg5040-aarch64\",\"size\":874112,"
+    "\"browser_download_url\":\"https://github.com/mcereal/mesh-client/releases/download/"
+    "v1.13.0/meshclient-tg5040-aarch64\",\"digest\":\"sha256:"
+    "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789\"}"
+    "]}";
+
+static void test_updater_parse_release(void) {
+    const char *test_name = "updater_parse_release";
+    const char *repo = "mcereal/mesh-client";
+    const char *asset = "meshclient-tg5040-aarch64";
+
+    char tag[MESH_UPDATE_VERSION_MAX];
+    char url[MESH_UPDATE_URL_MAX];
+    char sha[65];
+    uint64_t size = 0U;
+
+    if (!mesh_updater_parse_release(k_release_json, repo, asset, tag, sizeof tag, url, sizeof url,
+                                    sha, sizeof sha, &size)) {
+        record_failure(test_name, "a well-formed release should parse");
+        return;
+    }
+    /* The tag loses its leading v so it can be compared against the baked-in version. */
+    if (strcmp(tag, "1.13.0") != 0) {
+        record_failure(test_name, tag);
+        return;
+    }
+    /* The second asset's URL, not the first one's: the scanner must follow the matched name. */
+    if (strcmp(url, "https://github.com/mcereal/mesh-client/releases/download/v1.13.0/"
+                    "meshclient-tg5040-aarch64") != 0) {
+        record_failure(test_name, url);
+        return;
+    }
+    if (strcmp(sha, "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789") != 0) {
+        record_failure(test_name, sha);
+        return;
+    }
+    if (size != 874112U) {
+        record_failure(test_name, "the asset size should come from the matched asset");
+        return;
+    }
+
+    /* An asset the release does not carry is not an error to paper over. */
+    if (mesh_updater_parse_release(k_release_json, repo, "meshclient-nonesuch", tag, sizeof tag,
+                                   url, sizeof url, sha, sizeof sha, &size)) {
+        record_failure(test_name, "a missing asset should not parse");
+        return;
+    }
+
+    /*
+     * The security-relevant case: the download URL is only accepted when it is under this
+     * repository's release-download path. A response that points somewhere else is refused
+     * outright rather than downloaded and hashed, because the digest beside it would just be
+     * the attacker's digest.
+     */
+    static const char *const k_bad_urls[] = {
+        "http://github.com/mcereal/mesh-client/releases/download/v1.13.0/meshclient",   /* no TLS */
+        "https://github.com.evil.test/mcereal/mesh-client/releases/download/v1/mesh",   /* host */
+        "https://github.com/someone/else/releases/download/v1.13.0/meshclient",         /* repo */
+        "https://github.com/mcereal/mesh-client/releases/download/../../../etc/passwd", /* climb */
+        "https://github.com/mcereal/mesh-client/releases/download/",                    /* empty */
+    };
+    for (size_t i = 0; i < sizeof k_bad_urls / sizeof k_bad_urls[0]; ++i) {
+        char json[1024];
+        snprintf(json, sizeof json,
+                 "{\"tag_name\":\"v9.9.9\",\"assets\":[{\"name\":\"%s\",\"size\":10,"
+                 "\"browser_download_url\":\"%s\",\"digest\":\"sha256:%064d\"}]}",
+                 asset, k_bad_urls[i], 0);
+        if (mesh_updater_parse_release(json, repo, asset, tag, sizeof tag, url, sizeof url, sha,
+                                       sizeof sha, &size)) {
+            record_failure(test_name, k_bad_urls[i]);
+            return;
+        }
+    }
+
+    /* A malformed digest is dropped rather than carried through; the updater refuses to
+       install without one, so this is what keeps an unverifiable release from being offered. */
+    char json[1024];
+    snprintf(json, sizeof json,
+             "{\"tag_name\":\"v9.9.9\",\"assets\":[{\"name\":\"%s\",\"size\":10,"
+             "\"browser_download_url\":\"https://github.com/%s/releases/download/v9.9.9/%s\","
+             "\"digest\":\"md5:deadbeef\"}]}",
+             asset, repo, asset);
+    if (!mesh_updater_parse_release(json, repo, asset, tag, sizeof tag, url, sizeof url, sha,
+                                    sizeof sha, &size) ||
+        sha[0] != '\0') {
+        record_failure(test_name, "a non-sha256 digest should be dropped");
+        return;
+    }
+
+    /* Truncated and empty payloads must fail rather than read past the end. */
+    static const char *const k_broken[] = {
+        "", "{", "{\"tag_name\":", "{\"tag_name\":\"v1.0.0\"}", "not json at all",
+    };
+    for (size_t i = 0; i < sizeof k_broken / sizeof k_broken[0]; ++i) {
+        if (mesh_updater_parse_release(k_broken[i], repo, asset, tag, sizeof tag, url, sizeof url,
+                                       sha, sizeof sha, &size)) {
+            record_failure(test_name, "a broken payload should not parse");
+            return;
+        }
+    }
+    record_success(test_name);
+}
+
+static void test_updater_lifecycle(void) {
+    const char *test_name = "updater_lifecycle";
+    struct mesh_event_loop loop;
+    if (mesh_event_loop_init(&loop) != 0) {
+        record_failure(test_name, "event loop init failed");
+        return;
+    }
+
+    struct mesh_updater updater;
+    if (mesh_updater_init(&updater, &loop) != 0) {
+        mesh_event_loop_shutdown(&loop);
+        record_failure(test_name, "updater init failed");
+        return;
+    }
+    if (updater.state != MESH_UPDATE_IDLE || updater.revision != 0U) {
+        mesh_updater_shutdown(&updater);
+        mesh_event_loop_shutdown(&loop);
+        record_failure(test_name, "a fresh updater should be idle");
+        return;
+    }
+    /* init reads /proc/self/exe, so the staged name must sit beside the running binary - the
+       rename that installs it is only atomic within one directory. */
+    if (updater.install_path[0] == '\0' ||
+        strncmp(updater.staged_path, updater.install_path, strlen(updater.install_path)) != 0) {
+        mesh_updater_shutdown(&updater);
+        mesh_event_loop_shutdown(&loop);
+        record_failure(test_name, "the staged path should sit next to the installed one");
+        return;
+    }
+
+    /* Install is only reachable from AVAILABLE with an asset in hand; from IDLE it is a
+       programming error, not a no-op that silently downloads nothing. */
+    if (mesh_updater_install(&updater, 0U) == 0) {
+        mesh_updater_shutdown(&updater);
+        mesh_event_loop_shutdown(&loop);
+        record_failure(test_name, "install from idle should be refused");
+        return;
+    }
+
+    /* An updater with no event loop reports itself unavailable rather than half-working. */
+    struct mesh_updater detached;
+    mesh_updater_init(&detached, NULL);
+    if (mesh_updater_available(&detached) || mesh_updater_check(&detached, 0U) != -ENOTSUP) {
+        mesh_updater_shutdown(&detached);
+        mesh_updater_shutdown(&updater);
+        mesh_event_loop_shutdown(&loop);
+        record_failure(test_name, "an updater with no loop should be unavailable");
+        return;
+    }
+    mesh_updater_shutdown(&detached);
+
+    /* tick() on an idle updater must not touch a child it does not have. */
+    mesh_updater_tick(&updater, 1000000U);
+    if (updater.state != MESH_UPDATE_IDLE) {
+        mesh_updater_shutdown(&updater);
+        mesh_event_loop_shutdown(&loop);
+        record_failure(test_name, "ticking an idle updater should change nothing");
+        return;
+    }
+
+    if (mesh_update_state_name(MESH_UPDATE_READY) == NULL ||
+        strcmp(mesh_update_state_name(MESH_UPDATE_IDLE), "idle") != 0) {
+        mesh_updater_shutdown(&updater);
+        mesh_event_loop_shutdown(&loop);
+        record_failure(test_name, "every state should have a name");
+        return;
+    }
+
+    mesh_updater_shutdown(&updater);
+    mesh_event_loop_shutdown(&loop);
+    record_success(test_name);
+}
+
+/*
+ * The About section is the one part of the Settings tab that works with no radio: it opens on
+ * a store that has never seen a handshake, and its rows come from the client info the app
+ * publishes rather than from the air.
+ */
+static void test_ui_settings_about(void) {
+    const char *test_name = "ui_settings_about";
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    const char *failure = NULL;
+
+    /* Deliberately nothing from a radio: no handshake, no loaded sections. */
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    snprintf(settings.client.version, sizeof settings.client.version, "%s", "1.12.0");
+    snprintf(settings.client.backend, sizeof settings.client.backend, "%s", "fb");
+    snprintf(settings.client.data_dir, sizeof settings.client.data_dir, "%s", "/tmp/meshclient");
+    settings.client.update_supported = true;
+    settings.client.update_state = (uint8_t)MESH_UPDATE_IDLE;
+    mesh_ui_store_set_settings(&store, &settings);
+
+    if (!mesh_ui_settings_section_loaded(&store.settings, NULL, MESH_UI_SETTINGS_ABOUT)) {
+        failure = "About should be loaded with no radio connected";
+        goto cleanup;
+    }
+    if (mesh_ui_settings_section_loaded(&store.settings, NULL, MESH_UI_SETTINGS_LORA)) {
+        failure = "the radio's own sections should still read as not loaded";
+        goto cleanup;
+    }
+
+    struct mesh_ui_action action;
+    for (int i = 0; i < 4; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    }
+    /* About is the first row, so the cursor is already on it. */
+    if (store.nav.screen != MESH_UI_SCREEN_SETTINGS ||
+        store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != MESH_UI_SETTINGS_ABOUT) {
+        failure = "Settings should open with the cursor on About";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.settings_section != MESH_UI_SETTINGS_ABOUT) {
+        failure = "A should open About";
+        goto cleanup;
+    }
+
+    /* Version, backend, data dir, update status, then the check action. */
+    const uint32_t rows = mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS);
+    if (rows < 2U) {
+        failure = "About should have rows";
+        goto cleanup;
+    }
+    struct mesh_ui_settings_item item;
+    if (!mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
+                               MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
+        strcmp(item.label, "Version") != 0 || strcmp(item.value, "1.12.0") != 0) {
+        failure = "the first row should be the client version";
+        goto cleanup;
+    }
+
+    /* Find the check row and press A on it; it must raise CHECK_UPDATE and nothing else. */
+    uint32_t check_row = rows;
+    for (uint32_t i = 0; i < rows; ++i) {
+        if (mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+            item.kind == MESH_UI_SETTING_ACTION &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_UPDATE) {
+            check_row = i;
+        }
+    }
+    if (check_row >= rows) {
+        failure = "About should offer a check action when updates are supported";
+        goto cleanup;
+    }
+    for (uint32_t i = 0; i < check_row; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_CHECK_UPDATE) {
+        failure = "A on the check row should ask the app to check";
+        goto cleanup;
+    }
+
+    /* No install row until a check has actually found something: the action that replaces the
+       running binary must never be reachable on a guess. */
+    for (uint32_t i = 0; i < rows; ++i) {
+        if (mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_INSTALL_UPDATE) {
+            failure = "there should be no install row before a check finds an update";
+            goto cleanup;
+        }
+    }
+
+    /* With an update found, the install row appears and A on it asks for the install. */
+    settings.client.update_state = (uint8_t)MESH_UPDATE_AVAILABLE;
+    snprintf(settings.client.update_latest, sizeof settings.client.update_latest, "%s", "1.13.0");
+    snprintf(settings.client.update_message, sizeof settings.client.update_message, "%s",
+             "1.13.0 available (running 1.12.0)");
+    mesh_ui_store_set_settings(&store, &settings);
+    const uint32_t available_rows =
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS);
+    uint32_t install_row = available_rows;
+    for (uint32_t i = 0; i < available_rows; ++i) {
+        if (mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_INSTALL_UPDATE) {
+            install_row = i;
+        }
+    }
+    if (install_row >= available_rows) {
+        failure = "an available update should offer an install row";
+        goto cleanup;
+    }
+    store.nav.cursor[MESH_UI_SCREEN_SETTINGS] = install_row;
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_INSTALL_UPDATE) {
+        failure = "A on the install row should ask the app to install";
+        goto cleanup;
+    }
+
+    /* While a child is running neither action is offered, so a second press cannot stack one. */
+    settings.client.update_state = (uint8_t)MESH_UPDATE_DOWNLOADING;
+    settings.client.update_busy = true;
+    mesh_ui_store_set_settings(&store, &settings);
+    const uint32_t busy_rows = mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS);
+    for (uint32_t i = 0; i < busy_rows; ++i) {
+        if (mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+            item.kind == MESH_UI_SETTING_ACTION) {
+            failure = "a busy updater should offer no actions";
+            goto cleanup;
+        }
+    }
+
+    /* A device with no curl or wget says so instead of offering rows that cannot work. */
+    memset(&settings.client, 0, sizeof settings.client);
+    snprintf(settings.client.version, sizeof settings.client.version, "%s", "1.12.0");
+    snprintf(settings.client.update_message, sizeof settings.client.update_message, "%s",
+             "No curl or wget on this device");
+    mesh_ui_store_set_settings(&store, &settings);
+    const uint32_t bare_rows = mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS);
+    bool said_why = false;
+    for (uint32_t i = 0; i < bare_rows; ++i) {
+        if (!mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, i, &item)) {
+            continue;
+        }
+        if (item.kind == MESH_UI_SETTING_ACTION) {
+            failure = "an unsupported updater should offer no actions";
+            goto cleanup;
+        }
+        if (strcmp(item.value, "No curl or wget on this device") == 0) {
+            said_why = true;
+        }
+    }
+    if (!said_why) {
+        failure = "an unsupported updater should say why";
+        goto cleanup;
+    }
+
+    /* B backs out to the section list, as in every other section. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (store.nav.settings_section != MESH_UI_SETTINGS_NO_SECTION) {
+        failure = "B should return to the section list";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}
+
+/* Runs the loop until `updater` leaves `from`, or the budget runs out. Returns true if it
+   moved: every step is driven by a child process, so the test has to pump the loop. */
+static bool updater_wait_past(struct mesh_event_loop *loop, struct mesh_updater *updater,
+                              enum mesh_update_state from) {
+    for (int i = 0; i < 200 && updater->state == from; ++i) {
+        mesh_event_loop_run(loop, 50);
+        mesh_updater_tick(updater, (uint64_t)i * 50U);
+    }
+    return updater->state != from;
+}
+
+/*
+ * The whole update path with a fake `curl` on PATH: fork, drain its stdout through the event
+ * loop, parse the release, download, verify the checksum and rename the binary into place.
+ *
+ * Worth doing for real rather than mocking the pieces, because the bugs this path attracts are
+ * in the seams - a child reaped before its output was drained, a blocking waitpid in the
+ * loop's own thread - and none of those show up when the fetch is stubbed out.
+ */
+static void test_updater_fetch_and_install(void) {
+    const char *test_name = "updater_fetch_and_install";
+    char dir[] = "/tmp/meshclient_update_XXXXXX";
+    if (mkdtemp(dir) == NULL) {
+        record_failure(test_name, "could not create a temporary directory");
+        return;
+    }
+    const char *failure = NULL;
+    char *saved_path = NULL;
+    struct mesh_event_loop loop;
+    struct mesh_updater updater;
+    bool loop_up = false;
+    bool updater_up = false;
+
+    char payload_path[256];
+    char json_path[256];
+    char curl_path[256];
+    char install_path[256];
+    snprintf(payload_path, sizeof payload_path, "%s/payload", dir);
+    snprintf(json_path, sizeof json_path, "%s/release.json", dir);
+    snprintf(curl_path, sizeof curl_path, "%s/curl", dir);
+    snprintf(install_path, sizeof install_path, "%s/meshclient", dir);
+
+    /* The "new binary", and the digest the release will claim for it. */
+    static const char k_payload[] = "#!/bin/sh\nexit 0\n";
+    FILE *payload = fopen(payload_path, "wb");
+    if (payload == NULL ||
+        fwrite(k_payload, 1U, sizeof k_payload - 1U, payload) != sizeof k_payload - 1U) {
+        if (payload != NULL) {
+            fclose(payload);
+        }
+        failure = "could not write the payload";
+        goto cleanup;
+    }
+    fclose(payload);
+
+    uint8_t digest[MESH_SHA256_DIGEST_LEN];
+    char digest_hex[MESH_SHA256_HEX_LEN];
+    if (mesh_sha256_file(payload_path, digest) != 0) {
+        failure = "could not hash the payload";
+        goto cleanup;
+    }
+    mesh_sha256_hex(digest, digest_hex, sizeof digest_hex);
+
+    FILE *json = fopen(json_path, "wb");
+    if (json == NULL) {
+        failure = "could not write the release json";
+        goto cleanup;
+    }
+    fprintf(json,
+            "{\"tag_name\":\"v999.0.0\",\"assets\":[{\"name\":\"meshclient-tg5040-aarch64\","
+            "\"size\":%zu,\"browser_download_url\":\"https://github.com/mcereal/mesh-client/"
+            "releases/download/v999.0.0/meshclient-tg5040-aarch64\",\"digest\":\"sha256:%s\"}]}",
+            sizeof k_payload - 1U, digest_hex);
+    fclose(json);
+
+    /* A stand-in for curl: with -o it "downloads" the payload, otherwise it prints the
+       release metadata on stdout, which is exactly the shape the real one is invoked in. */
+    FILE *script = fopen(curl_path, "w");
+    if (script == NULL) {
+        failure = "could not write the fake curl";
+        goto cleanup;
+    }
+    fprintf(script,
+            "#!/bin/sh\n"
+            "out=''\n"
+            "prev=''\n"
+            "for a in \"$@\"; do\n"
+            "  if [ \"$prev\" = '-o' ]; then out=\"$a\"; fi\n"
+            "  prev=\"$a\"\n"
+            "done\n"
+            "if [ -n \"$out\" ]; then cp '%s' \"$out\"; else cat '%s'; fi\n",
+            payload_path, json_path);
+    fclose(script);
+    if (chmod(curl_path, 0755) != 0) {
+        failure = "could not make the fake curl executable";
+        goto cleanup;
+    }
+
+    const char *old_path = getenv("PATH");
+    saved_path = old_path != NULL ? strdup(old_path) : NULL;
+    char new_path[1024];
+    snprintf(new_path, sizeof new_path, "%s:%s", dir, old_path != NULL ? old_path : "/usr/bin");
+    setenv("PATH", new_path, 1);
+
+    if (mesh_event_loop_init(&loop) != 0) {
+        failure = "event loop init failed";
+        goto cleanup;
+    }
+    loop_up = true;
+    if (mesh_updater_init(&updater, &loop) != 0) {
+        failure = "updater init failed";
+        goto cleanup;
+    }
+    updater_up = true;
+    if (updater.fetcher == NULL || strcmp(updater.fetcher, "curl") != 0) {
+        failure = "the fake curl should have been picked up from PATH";
+        goto cleanup;
+    }
+
+    /* Never let the install rename over the running test binary. */
+    snprintf(updater.install_path, sizeof updater.install_path, "%s", install_path);
+    snprintf(updater.staged_path, sizeof updater.staged_path, "%s.update", install_path);
+
+    if (mesh_updater_check(&updater, 0U) != 0 || updater.state != MESH_UPDATE_CHECKING) {
+        failure = "check should start";
+        goto cleanup;
+    }
+    if (!updater_wait_past(&loop, &updater, MESH_UPDATE_CHECKING)) {
+        failure = "the check never finished";
+        goto cleanup;
+    }
+    if (updater.state != MESH_UPDATE_AVAILABLE) {
+        failure = updater.message[0] != '\0' ? updater.message : "999.0.0 should read as available";
+        goto cleanup;
+    }
+    if (strcmp(updater.latest, "999.0.0") != 0 || strcmp(updater.asset_sha256, digest_hex) != 0 ||
+        updater.asset_size != sizeof k_payload - 1U) {
+        failure = "the release metadata should have been drained and parsed in full";
+        goto cleanup;
+    }
+
+    if (mesh_updater_install(&updater, 0U) != 0 || updater.state != MESH_UPDATE_DOWNLOADING) {
+        failure = "install should start";
+        goto cleanup;
+    }
+    if (!updater_wait_past(&loop, &updater, MESH_UPDATE_DOWNLOADING)) {
+        failure = "the download never finished";
+        goto cleanup;
+    }
+    if (updater.state != MESH_UPDATE_READY) {
+        failure =
+            updater.message[0] != '\0' ? updater.message : "a verified download should install";
+        goto cleanup;
+    }
+
+    /* The binary is in place, executable, and byte-for-byte what was served. */
+    struct stat info;
+    if (stat(install_path, &info) != 0 || (info.st_mode & 0111) == 0 ||
+        (size_t)info.st_size != sizeof k_payload - 1U) {
+        failure = "the installed binary should be in place and executable";
+        goto cleanup;
+    }
+    uint8_t installed[MESH_SHA256_DIGEST_LEN];
+    if (mesh_sha256_file(install_path, installed) != 0 ||
+        memcmp(installed, digest, sizeof digest) != 0) {
+        failure = "the installed binary should hash to what the release claimed";
+        goto cleanup;
+    }
+    /* And nothing is left staged next to it. */
+    char staged[300];
+    snprintf(staged, sizeof staged, "%s.update", install_path);
+    if (access(staged, F_OK) == 0) {
+        failure = "the staging file should be gone once installed";
+        goto cleanup;
+    }
+
+    /*
+     * Now the case that matters most: a release whose digest does not match what arrives. The
+     * download must be discarded and the installed binary left exactly as it was, because this
+     * check is the only thing standing between the client and running someone else's code.
+     */
+    json = fopen(json_path, "wb");
+    if (json == NULL) {
+        failure = "could not rewrite the release json";
+        goto cleanup;
+    }
+    fprintf(json,
+            "{\"tag_name\":\"v999.0.1\",\"assets\":[{\"name\":\"meshclient-tg5040-aarch64\","
+            "\"size\":%zu,\"browser_download_url\":\"https://github.com/mcereal/mesh-client/"
+            "releases/download/v999.0.1/meshclient-tg5040-aarch64\",\"digest\":\"sha256:%064d\"}]}",
+            sizeof k_payload - 1U, 0);
+    fclose(json);
+
+    updater.state = MESH_UPDATE_IDLE;
+    if (mesh_updater_check(&updater, 0U) != 0 ||
+        !updater_wait_past(&loop, &updater, MESH_UPDATE_CHECKING) ||
+        updater.state != MESH_UPDATE_AVAILABLE) {
+        failure = "the second check should also find an update";
+        goto cleanup;
+    }
+    if (mesh_updater_install(&updater, 0U) != 0 ||
+        !updater_wait_past(&loop, &updater, MESH_UPDATE_DOWNLOADING)) {
+        failure = "the second install should run";
+        goto cleanup;
+    }
+    if (updater.state != MESH_UPDATE_FAILED) {
+        failure = "a mismatched checksum must fail the install";
+        goto cleanup;
+    }
+    if (access(staged, F_OK) == 0) {
+        failure = "a rejected download should not be left on disk";
+        goto cleanup;
+    }
+    /* The previously installed binary is untouched: a bad update never damages a good one. */
+    if (mesh_sha256_file(install_path, installed) != 0 ||
+        memcmp(installed, digest, sizeof digest) != 0) {
+        failure = "a rejected download must leave the installed binary alone";
+        goto cleanup;
+    }
+
+cleanup:
+    if (updater_up) {
+        mesh_updater_shutdown(&updater);
+    }
+    if (loop_up) {
+        mesh_event_loop_shutdown(&loop);
+    }
+    if (saved_path != NULL) {
+        setenv("PATH", saved_path, 1);
+        free(saved_path);
+    }
+    unlink(payload_path);
+    unlink(json_path);
+    unlink(curl_path);
+    unlink(install_path);
+    rmdir(dir);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}
+
 static const struct test_case k_test_cases[] = {
     {"config_defaults", "unit", test_config_defaults},
+    {"version_compare", "unit", test_version_compare},
+    {"sha256_vectors", "unit", test_sha256_vectors},
+    {"updater_parse_release", "unit", test_updater_parse_release},
+    {"updater_lifecycle", "unit", test_updater_lifecycle},
+    {"updater_fetch_and_install", "unit", test_updater_fetch_and_install},
+    {"ui_settings_about", "unit", test_ui_settings_about},
     {"transport_registry_registration", "unit", test_transport_registry_registration},
     {"event_loop_init_shutdown", "unit", test_event_loop_init_shutdown},
     {"ble_transport_status_transitions", "unit", test_ble_transport_status_transitions},
