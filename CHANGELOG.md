@@ -1,3 +1,9 @@
+## [1.9.0](https://github.com/mcereal/mesh-client/compare/v1.8.0...v1.9.0) (2026-09-04)
+
+### Features
+
+* **ui:** rebuild Messages around a conversation list ([af0fa31](https://github.com/mcereal/mesh-client/commit/af0fa319dfd5f1ef640bc38d9fbc18d8bd225d0e))
+
 ## [1.8.0](https://github.com/mcereal/mesh-client/compare/v1.7.1...v1.8.0) (2026-09-04)
 
 ### Features
