@@ -36,6 +36,7 @@ int mesh_ui_store_init(struct mesh_ui_store *store) {
     }
 
     memset(store, 0, sizeof *store);
+    mesh_ui_nav_init(&store->nav);
     store->event_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     if (store->event_fd < 0) {
         const int err = -errno;
@@ -69,8 +70,44 @@ void mesh_ui_store_reset(struct mesh_ui_store *store) {
 
     struct mesh_ui_store preserved = *store;
     memset(store, 0, sizeof *store);
+    mesh_ui_nav_init(&store->nav);
     store->event_fd = preserved.event_fd;
     store->pending_flags = preserved.pending_flags;
+}
+
+bool mesh_ui_store_handle_key(struct mesh_ui_store *store, enum mesh_ui_key key,
+                              struct mesh_ui_action *out_action) {
+    if (store == NULL) {
+        if (out_action != NULL) {
+            memset(out_action, 0, sizeof *out_action);
+        }
+        return false;
+    }
+
+    /* Lists may have changed since the last frame; a stale cursor would act on the wrong row. */
+    mesh_ui_nav_clamp(&store->nav, store);
+    const bool changed = mesh_ui_nav_handle_key(&store->nav, store, key, out_action);
+    if (changed) {
+        mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
+    }
+    return changed;
+}
+
+void mesh_ui_store_set_toast(struct mesh_ui_store *store, uint64_t now_ms, const char *text) {
+    if (store == NULL) {
+        return;
+    }
+    mesh_ui_nav_set_toast(&store->nav, now_ms, text);
+    mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
+}
+
+void mesh_ui_store_tick(struct mesh_ui_store *store, uint64_t now_ms) {
+    if (store == NULL) {
+        return;
+    }
+    if (mesh_ui_nav_tick(&store->nav, now_ms)) {
+        mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
+    }
 }
 
 int mesh_ui_store_event_fd(const struct mesh_ui_store *store) {
@@ -240,7 +277,8 @@ void mesh_ui_message_list_merge(const struct mesh_ui_message_list *cached,
 
 void mesh_ui_store_request_refresh(struct mesh_ui_store *store) {
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_DISCOVERY | MESH_UI_UPDATE_HANDSHAKE |
-                                        MESH_UI_UPDATE_TRANSPORT | MESH_UI_UPDATE_MESSAGES);
+                                        MESH_UI_UPDATE_TRANSPORT | MESH_UI_UPDATE_MESSAGES |
+                                        MESH_UI_UPDATE_NAV);
 }
 
 bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_snapshot *snapshot) {
@@ -281,6 +319,14 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
     snapshot->messages = store->messages;
 
     memcpy(snapshot->transport_status, store->transport_status, sizeof snapshot->transport_status);
+
+    /* Data changes (a node dropping out, a message arriving) move or invalidate cursors; fix
+       them up here so every backend draws a cursor that points at a real row. */
+    if (mesh_ui_nav_clamp(&store->nav, store)) {
+        store->pending_flags |= MESH_UI_UPDATE_NAV;
+        snapshot->update_flags = store->pending_flags;
+    }
+    snapshot->nav = store->nav;
 
     store->pending_flags = MESH_UI_UPDATE_NONE;
     return true;

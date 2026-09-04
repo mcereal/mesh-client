@@ -43,6 +43,86 @@ static void mesh_app_minui_on_device_selected(void *userdata, const char *identi
     }
 }
 
+/* Button presses arrive here from the evdev reader and go straight into the UI store's
+   navigation model; the repaint happens on the store's eventfd in the same loop turn. */
+static void mesh_app_on_ui_key(void *userdata, enum mesh_ui_key key) {
+    struct mesh_app *app = (struct mesh_app *)userdata;
+    if (app == NULL) {
+        return;
+    }
+    mesh_ui_controller_handle_key(&app->ui_controller, key);
+}
+
+static uint64_t mesh_app_now_ms(void);
+
+/* What the navigation model cannot do by itself: talk to the radio. */
+static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) {
+    struct mesh_app *app = (struct mesh_app *)userdata;
+    if (app == NULL || action == NULL) {
+        return;
+    }
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    const uint64_t now = mesh_app_now_ms();
+
+    switch (action->type) {
+    case MESH_UI_ACTION_CONNECT: {
+        if (ble == NULL) {
+            mesh_ui_store_set_toast(&app->ui_store, now, "BLE transport unavailable");
+            return;
+        }
+        mesh_log_info("ui", "Connect to %s requested from the device", action->identifier);
+        /* Same bookkeeping as a MinUI pick: this becomes the node auto-connect goes back to. */
+        snprintf(app->config.preferred_ble_device, sizeof app->config.preferred_ble_device, "%s",
+                 action->identifier);
+        snprintf(app->ui_preferences.preferred_device, sizeof app->ui_preferences.preferred_device,
+                 "%s", action->identifier);
+        app->ui_preferences_dirty = true;
+
+        /* A user pick beats whatever auto-connect is doing or has done. */
+        if (mesh_ble_transport_connected_address(ble) != NULL ||
+            mesh_ble_transport_is_connecting(ble)) {
+            mesh_ble_transport_disconnect(ble);
+        }
+        const int result = mesh_ble_transport_connect(ble, action->identifier);
+        if (result == 0 || result == -EALREADY || result == -EINPROGRESS) {
+            snprintf(toast, sizeof toast, "Connecting to %.40s", action->identifier);
+        } else {
+            snprintf(toast, sizeof toast, "Connect failed (%d)", result);
+            mesh_log_warn("ui", "Connect to %s failed: %d", action->identifier, result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
+    case MESH_UI_ACTION_SEND_TEXT: {
+        if (ble == NULL) {
+            mesh_ui_store_set_toast(&app->ui_store, now, "BLE transport unavailable");
+            return;
+        }
+        const bool broadcast = (action->dest == MESH_MESSAGE_BROADCAST_ADDR);
+        uint32_t packet_id = 0U;
+        const int result = mesh_ble_transport_send_text(ble, action->dest, action->channel,
+                                                        action->text, !broadcast, &packet_id);
+        if (result == 0) {
+            snprintf(toast, sizeof toast, "Sent to %s", app->ui_store.nav.target_name);
+            mesh_log_info("ui", "Sent \"%s\" to %s (packet %u)", action->text,
+                          app->ui_store.nav.target_name, packet_id);
+        } else if (result == -ENOTCONN) {
+            snprintf(toast, sizeof toast, "%s", "Not connected to a node");
+        } else {
+            snprintf(toast, sizeof toast, "Send failed (%d)", result);
+            mesh_log_warn("ui", "Send to %s failed: %d", app->ui_store.nav.target_name, result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
+    case MESH_UI_ACTION_NONE:
+    default:
+        return;
+    }
+}
+
 static bool mesh_app_select_minui(struct mesh_app *app, const struct mesh_ui_backend **backend,
                                   void **userdata, bool log_on_missing) {
     if (!mesh_ui_backend_minui_is_available()) {
@@ -248,6 +328,8 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
     if (app == NULL) {
         return;
     }
+
+    mesh_ui_store_tick(&app->ui_store, mesh_app_now_ms());
 
     struct mesh_transport *ble = mesh_ble_transport();
     if (ble == NULL) {
@@ -605,6 +687,24 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
         mesh_event_loop_shutdown(&app->loop);
         return result;
     }
+    mesh_ui_controller_set_action_handler(&app->ui_controller, mesh_app_on_ui_action, app);
+
+    /* Optional canned.txt next to the preferences file replaces the built-in quick replies. */
+    if (app->ui_preferences_path[0] != '\0') {
+        char canned_path[sizeof app->ui_preferences_path + 16U];
+        snprintf(canned_path, sizeof canned_path, "%s", app->ui_preferences_path);
+        char *slash = strrchr(canned_path, '/');
+        if (slash != NULL) {
+            const size_t room = sizeof canned_path - (size_t)(slash + 1 - canned_path);
+            snprintf(slash + 1, room, "%s", "canned.txt");
+            const int loaded = mesh_ui_canned_load(canned_path);
+            if (loaded > 0) {
+                mesh_log_info("app", "Loaded %d canned replies from %s", loaded, canned_path);
+            } else if (loaded != -ENOENT) {
+                mesh_log_warn("app", "Ignoring %s: %d", canned_path, loaded);
+            }
+        }
+    }
 
     mesh_transport_registry_init(&app->transport_registry);
 
@@ -657,6 +757,7 @@ int mesh_app_run(struct mesh_app *app) {
        read buttons is still better than no client. */
     mesh_signals_init(&app->signals, &app->loop);
     mesh_ui_input_init(&app->ui_input, &app->loop);
+    mesh_ui_input_set_handler(&app->ui_input, mesh_app_on_ui_key, app);
 
     mesh_app_publish_ui_state(app);
 

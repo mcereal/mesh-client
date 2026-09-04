@@ -90,6 +90,14 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
 - `src/ui/store.c` + `controller.c` — store owns `mesh_ui_snapshot` and signals via eventfd;
   controller drains it and calls `backend->present(snapshot)`. Backends implement the three-function
   `struct mesh_ui_backend` in `include/mesh/ui/backend.h` and live in `src/ui/backends/`.
+- Input goes the other way: `src/ui/input.c` reads every `/dev/input/event*`, maps evdev codes
+  (BTN_SOUTH.., ABS_HAT0X/Y for the d-pad, arrow keys on a keyboard) to `enum mesh_ui_key`, and
+  calls the handler the app installed; quit keys stop the loop before mapping. The handler feeds
+  `mesh_ui_controller_handle_key` → `mesh_ui_store_handle_key` → `src/ui/nav.c`, which owns the
+  tab/cursor/compose-target model (`struct mesh_ui_nav`, carried inside every snapshot, clamped
+  against the lists on each consume) and returns a `mesh_ui_action` (connect, send text) that the
+  controller hands to `mesh_app_on_ui_action` in `app.c`. Backends are stateless: they draw the
+  cursor from `snapshot->nav`. Nav logic has no fd or device dependency, so test it directly.
 - `src/minui_helpers/` — tiny native fallbacks for `minui-list` / `minui-presenter` used when the
   NextUI cross toolchain isn't available; they honor `MESHCLIENT_MINUI_SELECTION`.
 
@@ -149,7 +157,7 @@ via Python3 (needs `pip install protobuf grpcio-tools`).
 One harness, `tests/test_main.c`, with a `k_test_cases` table tagged by category (`unit` today;
 `integration`/`hardware` reserved). Register new cases in that table; use
 `record_failure`/`record_success`. Tests must not touch real BlueZ — use the bluez mock. New
-CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-03: 26 unit tests, all passing in
+CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-04: 35 unit tests, all passing in
 the dev container with zero compiler warnings. `message_encode_text_golden` pins the
 `TEXT_MESSAGE_APP` wire format against a hand-derived byte vector (not against our own encoder),
 so a protobuf regeneration that changes field numbers or wire types fails loudly.

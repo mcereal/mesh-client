@@ -122,6 +122,14 @@ static void mesh_ui_backend_cli_print_messages(struct mesh_ui_backend_cli_contex
     }
 }
 
+static void mesh_ui_backend_cli_print_nav(struct mesh_ui_backend_cli_context *context,
+                                          const struct mesh_ui_snapshot *snapshot) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    mesh_ui_backend_cli_write(context, "[cli-ui] Screen: %s row %u, to %s%s%s\n",
+                              mesh_ui_screen_name(nav->screen), nav->cursor[nav->screen],
+                              nav->target_name, nav->toast[0] != '\0' ? " | " : "", nav->toast);
+}
+
 static int mesh_ui_backend_cli_init(void **state, void *userdata) {
     struct mesh_ui_backend_cli_context *context = NULL;
     if (userdata != NULL) {
@@ -192,6 +200,9 @@ static void mesh_ui_backend_cli_present(void *state, const struct mesh_ui_snapsh
     }
     if ((snapshot->update_flags & MESH_UI_UPDATE_MESSAGES) != 0U) {
         mesh_ui_backend_cli_print_messages(context, snapshot);
+    }
+    if ((snapshot->update_flags & MESH_UI_UPDATE_NAV) != 0U) {
+        mesh_ui_backend_cli_print_nav(context, snapshot);
     }
 }
 

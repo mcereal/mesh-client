@@ -13,6 +13,7 @@
 #include "mesh/ui/backends/stub.h"
 #include "mesh/ui/controller.h"
 #include "mesh/ui/input.h"
+#include "mesh/ui/nav.h"
 #include "mesh/ui/preferences.h"
 #include "mesh/ui/store.h"
 
@@ -2444,6 +2445,496 @@ static void test_message_ingest_invalid_utf8(void) {
     record_success(test_name);
 }
 
+/* Builds a store with three devices (one connected), a synced handshake with three nodes (the
+   first is us) and two messages: a broadcast from ALFA and a direct message from BRVO. */
+static void test_nav_populate(struct mesh_ui_store *store) {
+    struct mesh_ui_device devices[3] = {
+        {.identifier = "AA:BB:CC:DD:EE:01", .name = "NodeOne", .rssi = -45, .connected = true},
+        {.identifier = "AA:BB:CC:DD:EE:02", .name = "NodeTwo", .rssi = -60, .connected = false},
+        {.identifier = "AA:BB:CC:DD:EE:03", .name = "NodeThree", .rssi = -70, .connected = false},
+    };
+    mesh_ui_store_set_discovery(store, devices, 3U);
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.config_complete = true;
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 0x1000U;
+    handshake.node_count = 3U;
+    handshake.nodes[0].node_id = 0x1000U;
+    snprintf(handshake.nodes[0].short_name, sizeof handshake.nodes[0].short_name, "%s", "ME");
+    handshake.nodes[1].node_id = 0x2000U;
+    snprintf(handshake.nodes[1].short_name, sizeof handshake.nodes[1].short_name, "%s", "ALFA");
+    snprintf(handshake.nodes[1].long_name, sizeof handshake.nodes[1].long_name, "%s", "Alfa Node");
+    handshake.nodes[2].node_id = 0x3000U;
+    snprintf(handshake.nodes[2].short_name, sizeof handshake.nodes[2].short_name, "%s", "BRVO");
+    mesh_ui_store_set_handshake(store, &handshake);
+
+    struct mesh_ui_message_list messages;
+    memset(&messages, 0, sizeof messages);
+    messages.count = 2U;
+    messages.entries[0].packet_id = 11U;
+    messages.entries[0].peer = 0x2000U;
+    messages.entries[0].broadcast = true;
+    messages.entries[0].direction = MESH_MESSAGE_INBOUND;
+    snprintf(messages.entries[0].peer_name, sizeof messages.entries[0].peer_name, "%s", "ALFA");
+    snprintf(messages.entries[0].text, sizeof messages.entries[0].text, "%s", "hello all");
+    messages.entries[1].packet_id = 12U;
+    messages.entries[1].peer = 0x3000U;
+    messages.entries[1].broadcast = false;
+    messages.entries[1].direction = MESH_MESSAGE_INBOUND;
+    snprintf(messages.entries[1].peer_name, sizeof messages.entries[1].peer_name, "%s", "BRVO");
+    snprintf(messages.entries[1].text, sizeof messages.entries[1].text, "%s", "just you");
+    mesh_ui_store_set_messages(store, &messages);
+}
+
+static void test_ui_nav_navigation(void) {
+    const char *test_name = "ui_nav_navigation";
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    test_nav_populate(&store);
+
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_action action;
+
+    /* First frame: Messages tab, cursor parked on the newest message. */
+    if (!mesh_ui_store_consume_updates(&store, &snapshot)) {
+        failure = "expected initial snapshot";
+        goto cleanup;
+    }
+    if (snapshot.nav.screen != MESH_UI_SCREEN_MESSAGES ||
+        snapshot.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 1U ||
+        snapshot.nav.target_node != MESH_MESSAGE_BROADCAST_ADDR) {
+        failure = "initial nav state wrong";
+        goto cleanup;
+    }
+
+    /* A on the direct message replies to its sender and lands on the first canned reply. */
+    if (!mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action) ||
+        action.type != MESH_UI_ACTION_NONE) {
+        failure = "reply should change screen without an action";
+        goto cleanup;
+    }
+    if (store.nav.screen != MESH_UI_SCREEN_COMPOSE || store.nav.target_node != 0x3000U ||
+        strcmp(store.nav.target_name, "BRVO") != 0 ||
+        store.nav.cursor[MESH_UI_SCREEN_COMPOSE] != 1U) {
+        failure = "reply target not taken from the message";
+        goto cleanup;
+    }
+    if (!mesh_ui_store_consume_updates(&store, &snapshot) ||
+        (snapshot.update_flags & MESH_UI_UPDATE_NAV) == 0U) {
+        failure = "nav change must signal the store";
+        goto cleanup;
+    }
+
+    /* A on a canned row asks the app to send it, to the current target, and stays put. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_SEND_TEXT || action.dest != 0x3000U || action.channel != 0U ||
+        strcmp(action.text, mesh_ui_canned_text(0)) != 0) {
+        failure = "send action not produced";
+        goto cleanup;
+    }
+
+    /* The To: row cycles All -> ALFA -> BRVO -> All, never offering our own node. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    if (store.nav.cursor[MESH_UI_SCREEN_COMPOSE] != 0U) {
+        failure = "UP should reach the To: row";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* BRVO -> All */
+    if (store.nav.target_node != MESH_MESSAGE_BROADCAST_ADDR ||
+        strcmp(store.nav.target_name, "All") != 0) {
+        failure = "cycle after last node should wrap to All";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* All -> ALFA (skips ME) */
+    if (store.nav.target_node != 0x2000U || strcmp(store.nav.target_name, "ALFA") != 0) {
+        failure = "cycle from All should skip our own node";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.target_node != 0x3000U) {
+        failure = "cycle should reach BRVO";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action); /* no-op at the top */
+    if (store.nav.cursor[MESH_UI_SCREEN_COMPOSE] != 0U) {
+        failure = "UP at row 0 must not underflow";
+        goto cleanup;
+    }
+
+    /* B leaves Compose for the conversation. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (store.nav.screen != MESH_UI_SCREEN_MESSAGES) {
+        failure = "B should return to Messages";
+        goto cleanup;
+    }
+
+    /* Tabs wrap in both directions; L1/R1 mirror Left/Right. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    if (store.nav.screen != MESH_UI_SCREEN_STATUS) {
+        failure = "LEFT from the first tab should wrap to the last";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
+    if (store.nav.screen != MESH_UI_SCREEN_MESSAGES) {
+        failure = "R1 from the last tab should wrap to the first";
+        goto cleanup;
+    }
+
+    /* Nodes tab: A on a node targets it; A on ourselves does nothing. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    if (store.nav.screen != MESH_UI_SCREEN_NODES) {
+        failure = "RIGHT should reach Nodes";
+        goto cleanup;
+    }
+    if (mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action)) {
+        failure = "A on our own node should be a no-op";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* clamps at the last row */
+    if (store.nav.cursor[MESH_UI_SCREEN_NODES] != 2U) {
+        failure = "DOWN must clamp at the last node";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.screen != MESH_UI_SCREEN_COMPOSE || store.nav.target_node != 0x3000U ||
+        strcmp(store.nav.target_name, "BRVO") != 0) {
+        failure = "A on a node should target it in Compose";
+        goto cleanup;
+    }
+
+    /* Devices tab: A connects to an unconnected device and does nothing on the connected one. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    if (store.nav.screen != MESH_UI_SCREEN_DEVICES) {
+        failure = "RIGHT from Compose should reach Devices";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_NONE) {
+        failure = "A on the connected device should not reconnect";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_CONNECT ||
+        strcmp(action.identifier, "AA:BB:CC:DD:EE:02") != 0) {
+        failure = "A on another device should request a connect";
+        goto cleanup;
+    }
+
+    /* Status has no rows; the cursor must stay at zero and A must be inert. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    if (store.nav.screen != MESH_UI_SCREEN_STATUS ||
+        store.nav.cursor[MESH_UI_SCREEN_STATUS] != 0U ||
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action) ||
+        action.type != MESH_UI_ACTION_NONE) {
+        failure = "Status tab must be inert";
+        goto cleanup;
+    }
+
+    /* Back on Messages, a cursor on the newest line follows new traffic; one that was moved
+       up stays where it was. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* wraps to Messages */
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    struct mesh_ui_message_list more = store.messages;
+    more.entries[more.count] = more.entries[1];
+    more.entries[more.count].packet_id = 13U;
+    more.count++;
+    mesh_ui_store_set_messages(&store, &more);
+    if (!mesh_ui_store_consume_updates(&store, &snapshot) ||
+        snapshot.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 2U) {
+        failure = "cursor at the tail should follow a new message";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    more.entries[more.count] = more.entries[1];
+    more.entries[more.count].packet_id = 14U;
+    more.count++;
+    mesh_ui_store_set_messages(&store, &more);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    if (snapshot.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 1U) {
+        failure = "cursor moved off the tail should hold its place";
+        goto cleanup;
+    }
+
+    /* Lists shrinking pull the cursor back inside. */
+    struct mesh_ui_message_list fewer;
+    memset(&fewer, 0, sizeof fewer);
+    fewer.count = 1U;
+    fewer.entries[0] = more.entries[0];
+    mesh_ui_store_set_messages(&store, &fewer);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    if (snapshot.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 0U ||
+        (snapshot.update_flags & MESH_UI_UPDATE_NAV) == 0U) {
+        failure = "cursor must be clamped when the list shrinks";
+        goto cleanup;
+    }
+
+    /* Toasts expire on tick and are dismissed by any key. */
+    mesh_ui_store_set_toast(&store, 1000U, "Sent to BRVO");
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    if (strcmp(snapshot.nav.toast, "Sent to BRVO") != 0) {
+        failure = "toast not carried in the snapshot";
+        goto cleanup;
+    }
+    mesh_ui_store_tick(&store, 2000U);
+    if (store.nav.toast[0] == '\0') {
+        failure = "toast expired too early";
+        goto cleanup;
+    }
+    mesh_ui_store_tick(&store, 6000U);
+    if (store.nav.toast[0] != '\0' || !mesh_ui_store_consume_updates(&store, &snapshot)) {
+        failure = "toast should expire after a few seconds and repaint";
+        goto cleanup;
+    }
+    mesh_ui_store_set_toast(&store, 7000U, "Connecting");
+    if (!mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action) || store.nav.toast[0] != '\0') {
+        failure = "any key should dismiss a toast";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+static void test_ui_canned_load(void) {
+    const char *test_name = "ui_canned_load";
+    const char *failure = NULL;
+
+    char path[] = "/tmp/meshclient-canned-XXXXXX";
+    int fd = mkstemp(path);
+    if (fd < 0) {
+        record_failure(test_name, "mkstemp failed");
+        return;
+    }
+    const char *content = "# quick replies\n\nAck\n  \nBe there in 5\nbad\x01line\n";
+    if (write(fd, content, strlen(content)) < 0) {
+        close(fd);
+        unlink(path);
+        record_failure(test_name, "write failed");
+        return;
+    }
+    close(fd);
+
+    mesh_ui_canned_reset();
+    const size_t defaults = mesh_ui_canned_count();
+    if (defaults == 0U || strcmp(mesh_ui_canned_text(0), "OK") != 0) {
+        failure = "built-in replies missing";
+        goto cleanup;
+    }
+
+    /* Comments, blank lines and lines with control bytes are skipped; "  " is not blank but
+       has no visible text and is kept as-is (the user asked for it). */
+    const int loaded = mesh_ui_canned_load(path);
+    if (loaded != 3 || mesh_ui_canned_count() != 3U || strcmp(mesh_ui_canned_text(0), "Ack") != 0 ||
+        strcmp(mesh_ui_canned_text(2), "Be there in 5") != 0) {
+        failure = "canned file not parsed as expected";
+        goto cleanup;
+    }
+    if (mesh_ui_canned_text(3)[0] != '\0') {
+        failure = "out-of-range index must yield an empty string";
+        goto cleanup;
+    }
+    if (mesh_ui_canned_load("/nonexistent/canned.txt") != -ENOENT || mesh_ui_canned_count() != 3U) {
+        failure = "a missing file must leave the loaded set alone";
+        goto cleanup;
+    }
+
+cleanup:
+    unlink(path);
+    mesh_ui_canned_reset();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+struct test_key_capture {
+    enum mesh_ui_key keys[16];
+    size_t count;
+};
+
+static void test_capture_key(void *userdata, enum mesh_ui_key key) {
+    struct test_key_capture *capture = (struct test_key_capture *)userdata;
+    if (capture->count < sizeof(capture->keys) / sizeof(capture->keys[0])) {
+        capture->keys[capture->count++] = key;
+    }
+}
+
+static void test_ui_input_key_mapping(void) {
+    const char *test_name = "ui_input_key_mapping";
+    const char *failure = NULL;
+    unsetenv("MESHCLIENT_QUIT_KEYS");
+    mesh_ui_input_reload_quit_keys();
+
+    struct mesh_event_loop loop;
+    if (mesh_event_loop_init(&loop) != 0) {
+        record_failure(test_name, "event loop init failed");
+        return;
+    }
+
+    struct test_key_capture capture;
+    memset(&capture, 0, sizeof capture);
+    struct mesh_ui_input input;
+    memset(&input, 0, sizeof input);
+    input.loop = &loop; /* not opening /dev/input: only the translation is under test */
+    mesh_ui_input_set_handler(&input, test_capture_key, &capture);
+
+    /* The Brick's gamepad: face buttons as BTN_ codes, d-pad as hat axes. */
+    mesh_ui_input_handle_event(&input, EV_KEY, BTN_SOUTH, 1);
+    mesh_ui_input_handle_event(&input, EV_KEY, BTN_SOUTH, 0); /* release: nothing */
+    mesh_ui_input_handle_event(&input, EV_KEY, BTN_EAST, 1);
+    mesh_ui_input_handle_event(&input, EV_ABS, ABS_HAT0Y, -1); /* up */
+    mesh_ui_input_handle_event(&input, EV_ABS, ABS_HAT0Y, 0);  /* centre: nothing */
+    mesh_ui_input_handle_event(&input, EV_ABS, ABS_HAT0X, 1);  /* right */
+    mesh_ui_input_handle_event(&input, EV_KEY, BTN_TL, 1);
+    mesh_ui_input_handle_event(&input, EV_KEY, KEY_DOWN, 2); /* keyboard autorepeat counts */
+    mesh_ui_input_handle_event(&input, EV_KEY, BTN_SELECT, 1);
+    mesh_ui_input_handle_event(&input, EV_SYN, 0, 0);
+    mesh_ui_input_handle_event(&input, EV_KEY, KEY_F1, 1); /* unmapped: nothing */
+
+    const enum mesh_ui_key expected[] = {
+        MESH_UI_KEY_A,  MESH_UI_KEY_B,    MESH_UI_KEY_UP,     MESH_UI_KEY_RIGHT,
+        MESH_UI_KEY_L1, MESH_UI_KEY_DOWN, MESH_UI_KEY_SELECT,
+    };
+    const size_t expected_count = sizeof(expected) / sizeof(expected[0]);
+    if (capture.count != expected_count) {
+        failure = "unexpected number of logical keys";
+        goto cleanup;
+    }
+    for (size_t i = 0; i < expected_count; ++i) {
+        if (capture.keys[i] != expected[i]) {
+            failure = "logical key order mismatch";
+            goto cleanup;
+        }
+    }
+    if (loop.stop_requested) {
+        failure = "navigation keys must not stop the loop";
+        goto cleanup;
+    }
+
+    /* MENU (as either device reports it) still quits, and never reaches the handler. */
+    mesh_ui_input_handle_event(&input, EV_KEY, BTN_MODE, 1);
+    if (!loop.stop_requested || capture.count != expected_count) {
+        failure = "MENU should stop the loop without emitting a key";
+        goto cleanup;
+    }
+    if (mesh_ui_input_is_quit_key(BTN_SELECT) || mesh_ui_input_is_quit_key(BTN_START)) {
+        failure = "SELECT/START are navigation keys, not quit keys";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_event_loop_shutdown(&loop);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+struct test_action_capture {
+    struct mesh_ui_action last;
+    size_t count;
+};
+
+static void test_capture_action(void *userdata, const struct mesh_ui_action *action) {
+    struct test_action_capture *capture = (struct test_action_capture *)userdata;
+    capture->last = *action;
+    capture->count++;
+}
+
+static void test_ui_controller_key_dispatch(void) {
+    const char *test_name = "ui_controller_key_dispatch";
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_event_loop loop;
+    if (mesh_event_loop_init(&loop) != 0) {
+        record_failure(test_name, "event loop init failed");
+        return;
+    }
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        mesh_event_loop_shutdown(&loop);
+        record_failure(test_name, "store init failed");
+        return;
+    }
+
+    struct mesh_ui_backend_stub_context backend;
+    memset(&backend, 0, sizeof backend);
+    struct mesh_ui_controller controller;
+    if (mesh_ui_controller_init(&controller, &store, mesh_ui_backend_stub(), &backend, &loop) !=
+        0) {
+        mesh_ui_store_shutdown(&store);
+        mesh_event_loop_shutdown(&loop);
+        record_failure(test_name, "controller init failed");
+        return;
+    }
+    struct test_action_capture actions;
+    memset(&actions, 0, sizeof actions);
+    mesh_ui_controller_set_action_handler(&controller, test_capture_action, &actions);
+
+    test_nav_populate(&store);
+    mesh_event_loop_run(&loop, 0);
+    const size_t presents_before = backend.present_calls;
+
+    /* Right x2 lands on Compose; the repaint arrives through the eventfd on the next turn. */
+    mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_RIGHT);
+    mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_RIGHT);
+    mesh_event_loop_run(&loop, 0);
+    if (backend.present_calls <= presents_before ||
+        backend.last_snapshot.nav.screen != MESH_UI_SCREEN_COMPOSE ||
+        (backend.last_snapshot.update_flags & MESH_UI_UPDATE_NAV) == 0U) {
+        failure = "key presses should repaint with the new tab";
+        goto cleanup;
+    }
+
+    /* Down to the first canned reply, A sends it: the action reaches the handler once. */
+    mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_DOWN);
+    mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_A);
+    if (actions.count != 1U || actions.last.type != MESH_UI_ACTION_SEND_TEXT ||
+        actions.last.dest != MESH_MESSAGE_BROADCAST_ADDR ||
+        strcmp(actions.last.text, mesh_ui_canned_text(0)) != 0) {
+        failure = "send action did not reach the handler";
+        goto cleanup;
+    }
+
+    /* Navigation-only keys never call the handler. */
+    mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_UP);
+    mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_NONE);
+    if (actions.count != 1U) {
+        failure = "navigation keys must not produce actions";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_controller_shutdown(&controller);
+    mesh_ui_store_shutdown(&store);
+    mesh_event_loop_shutdown(&loop);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
 static const struct test_case k_test_cases[] = {
     {"config_defaults", "unit", test_config_defaults},
     {"transport_registry_registration", "unit", test_transport_registry_registration},
@@ -2461,6 +2952,10 @@ static const struct test_case k_test_cases[] = {
     {"ui_input_quit_keys", "unit", test_ui_input_quit_keys},
     {"ui_cli_transport_update", "unit", test_ui_cli_transport_update},
     {"ui_controller_dispatch", "unit", test_ui_controller_dispatch},
+    {"ui_controller_key_dispatch", "unit", test_ui_controller_key_dispatch},
+    {"ui_nav_navigation", "unit", test_ui_nav_navigation},
+    {"ui_canned_load", "unit", test_ui_canned_load},
+    {"ui_input_key_mapping", "unit", test_ui_input_key_mapping},
     {"ui_preferences_roundtrip", "unit", test_ui_preferences_roundtrip},
     {"minui_format_menu", "unit", test_minui_format_menu},
     {"proto_varint_roundtrip", "unit", test_proto_varint_roundtrip},

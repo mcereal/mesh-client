@@ -1,5 +1,7 @@
 #pragma once
 
+#include "mesh/ui/nav.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -9,7 +11,9 @@ extern "C" {
 #endif
 
 #define MESH_UI_MAX_DEVICES 16U
-#define MESH_UI_MAX_HANDSHAKE_NODES 16U
+/* Nodes carried to the backends, newest-heard first as the radio sends them. Real meshes run
+   past 100 nodes; the Nodes tab scrolls, so this is a screen budget, not a mesh limit. */
+#define MESH_UI_MAX_HANDSHAKE_NODES 32U
 #define MESH_UI_TRANSPORT_STATUS_MAX 32U
 /* Newest messages carried to the backends. The Brick shows far fewer than this at a time; the
    rest are scrollback. The transport keeps its own, larger ring. */
@@ -22,6 +26,7 @@ enum mesh_ui_update_flag {
     MESH_UI_UPDATE_HANDSHAKE = 1U << 1,
     MESH_UI_UPDATE_TRANSPORT = 1U << 2,
     MESH_UI_UPDATE_MESSAGES = 1U << 3,
+    MESH_UI_UPDATE_NAV = 1U << 4,
 };
 typedef uint32_t mesh_ui_update_flags;
 
@@ -93,6 +98,9 @@ struct mesh_ui_snapshot {
     /* Transport state ("waiting-for-bluez", "scanning", "running", ...). Rendered by the
        backends so an empty device list is diagnosable on a device with no console. */
     char transport_status[MESH_UI_TRANSPORT_STATUS_MAX];
+    /* Cursor, current tab, compose target: what the user is doing, as opposed to what the
+       radio is doing. Clamped to the lists above before every snapshot. */
+    struct mesh_ui_nav nav;
     mesh_ui_update_flags update_flags;
 };
 
@@ -103,6 +111,7 @@ struct mesh_ui_store {
     bool handshake_valid;
     struct mesh_ui_message_list messages;
     char transport_status[MESH_UI_TRANSPORT_STATUS_MAX];
+    struct mesh_ui_nav nav;
     int event_fd;
     mesh_ui_update_flags pending_flags;
 };
@@ -131,6 +140,16 @@ void mesh_ui_store_set_messages(struct mesh_ui_store *store,
 void mesh_ui_message_list_merge(const struct mesh_ui_message_list *cached,
                                 const struct mesh_ui_message_list *live,
                                 struct mesh_ui_message_list *out);
+
+/* Navigation. A key press moves the cursor or switches tabs and, for A on an actionable row,
+   fills *out_action for the caller to carry out (connect, send). Returns true when the frame
+   needs repainting; the store has already signalled its eventfd in that case. */
+bool mesh_ui_store_handle_key(struct mesh_ui_store *store, enum mesh_ui_key key,
+                              struct mesh_ui_action *out_action);
+/* Show a transient one-line notice on the backends ("Sent to ABCD"). */
+void mesh_ui_store_set_toast(struct mesh_ui_store *store, uint64_t now_ms, const char *text);
+/* Time-based housekeeping (toast expiry). Call once per loop turn. */
+void mesh_ui_store_tick(struct mesh_ui_store *store, uint64_t now_ms);
 
 /* Force the next consume_updates() to yield a snapshot even when nothing changed.
    The setters above deliberately stay quiet when state is unchanged, so without this a
