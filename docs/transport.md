@@ -34,9 +34,30 @@ Serial, and HTTP transports.
 
 ## Serial Transport
 
-- Not yet implemented. Next step is to expose a `serial` transport stub mirroring the BLE
-  registration pattern and mapping to the Meshtastic PROTO UART mode.
-- Investigate using `termios`-backed polling with the existing event loop.
+- Not yet implemented. The protocol side is ready: `struct mesh_session` (`src/core/session.c`)
+  is link-agnostic, and `src/proto/framing.c` has the `0x94 0xC3 len_hi len_lo` stream framing.
+  The firmware interleaves its text log with the frames on the same port, so the parser must
+  resync on junk between frames.
+- Findings from the Brick (TinaLinux 4.9.191, 2026-09-04): the USB-C port is a host port
+  (`sunxi-ohci`) and enumerates a Heltec nRF52840 node (`239a:4405`) as CDC-ACM (interface 0
+  class 02/02, interface 1 class 0a). The kernel has `CONFIG_USB_ACM` off with no module, so no
+  `/dev/ttyACM*` ever appears. Only `cp210x`, `ch341`, `ftdi_sio` and the generic `usbserial`
+  drivers exist, which cover UART-bridge boards (ESP32 dev kits) but not native-USB nodes.
+- Workaround that was verified end to end: write the vendor/product id to
+  `/sys/bus/usb-serial/drivers/generic/new_id`; the generic driver rejects the control
+  interface ("no bulk out") and attaches the data interface as `/dev/ttyUSB0`. The node stays
+  silent until DTR is asserted (TinyUSB discards output while the host has not set the line
+  state), and the generic driver cannot do that, so send one CDC `SET_CONTROL_LINE_STATE`
+  (`bmRequestType 0x21, bRequest 0x22, wValue 0x0003, wIndex 0`) to the unbound control interface
+  through `/dev/bus/usb/BBB/DDD` (`USBDEVFS_CLAIMINTERFACE` on interface 0, then
+  `USBDEVFS_CONTROL`). With that, a `want_config_id` over the tty was answered with the full
+  config stream (125 frames in 10 s). The binding and line state are lost at reboot, so the
+  transport does both at start.
+- Plan: a `serial` link mirroring the BLE registration pattern - sysfs scan for CDC devices
+  without a driver, `new_id` + DTR, open the tty raw (baud is meaningless over USB CDC; 115200
+  for UART bridges), register the fd with the epoll loop, frame parser in, framed writes out,
+  the same `mesh_session` attach/detach as BLE. The Devices tab then lists USB nodes beside BLE
+  nodes and picking one disconnects the other.
 
 ## HTTP Transport
 
