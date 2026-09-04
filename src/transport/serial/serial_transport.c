@@ -71,7 +71,9 @@ struct mesh_serial_transport_state {
     size_t write_queue_len;
 
     /* The Meshtastic conversation itself. The link attaches to it once the port is awake. */
-    struct mesh_session session;
+    /* Owned only when nothing was injected; `session` is what the code uses. */
+    struct mesh_session own_session;
+    struct mesh_session *session;
 };
 
 static const char *mesh_serial_state_to_string(enum mesh_serial_state state) {
@@ -105,7 +107,7 @@ static void mesh_serial_clear_write_queue(struct mesh_serial_transport_state *st
         const size_t index = (state->write_queue_head + i) % MESH_SERIAL_MAX_OUTBOUND_PACKETS;
         const uint32_t packet_id = state->write_queue[index].packet_id;
         if (packet_id != 0U) {
-            mesh_session_packet_failed(&state->session, packet_id);
+            mesh_session_packet_failed(state->session, packet_id);
         }
     }
     state->write_queue_head = 0U;
@@ -204,7 +206,7 @@ static int mesh_serial_session_send(void *ctx, const uint8_t *packet, size_t len
 static void mesh_serial_on_frame(const uint8_t *payload, size_t len, void *ctx) {
     struct mesh_serial_transport_state *state = (struct mesh_serial_transport_state *)ctx;
     state->frames_received += 1U;
-    mesh_session_handle_from_radio(&state->session, payload, len);
+    mesh_session_handle_from_radio(state->session, payload, len);
 }
 
 /* Whatever sits between frames is the radio's own log. Surface it at debug, one line at a time,
@@ -329,7 +331,7 @@ static void mesh_serial_reset_link(struct mesh_serial_transport_state *state, co
     state->link_state = MESH_SERIAL_LINK_DISCONNECTED;
     state->wake_done_at_ms = 0U;
     mesh_stream_parser_reset(&state->parser);
-    mesh_session_detach(&state->session);
+    mesh_session_detach(state->session);
     mesh_serial_clear_write_queue(state);
     memset(&state->connected, 0, sizeof state->connected);
     mesh_log_info("serial", "Disconnected from %s (%s)", port, reason);
@@ -448,8 +450,8 @@ static void mesh_serial_finish_wake(struct mesh_serial_transport_state *state) {
     }
 
     state->link_state = MESH_SERIAL_LINK_CONNECTED;
-    mesh_session_attach(&state->session, mesh_serial_session_send, state);
-    const int handshake = mesh_session_begin_handshake(&state->session);
+    mesh_session_attach(state->session, mesh_serial_session_send, state);
+    const int handshake = mesh_session_begin_handshake(state->session);
     if (handshake < 0) {
         mesh_log_warn("serial", "Failed to request config sync: %d", handshake);
         mesh_serial_reset_link(state, "handshake failed");
@@ -545,7 +547,7 @@ static void mesh_serial_tick(struct mesh_transport *transport) {
         mesh_serial_finish_wake(state);
     } else if (state->link_state == MESH_SERIAL_LINK_CONNECTED) {
         (void)mesh_serial_flush_write_queue(state);
-        mesh_session_tick(&state->session, now);
+        mesh_session_tick(state->session, now);
     }
 
     /* Only rescan while idle: a live link holds the port, and sysfs will not change under it. */
@@ -564,12 +566,22 @@ static int mesh_serial_start(struct mesh_transport *transport, const struct mesh
 
     struct mesh_serial_transport_state *state =
         (struct mesh_serial_transport_state *)transport->state;
+    /* The injected session outlives a restart; everything else is cleared. */
+    struct mesh_session *injected = state->session != &state->own_session ? state->session : NULL;
     memset(state, 0, sizeof *state);
+    state->session = injected;
     state->fd = -1;
     state->loop = loop;
     state->link_state = MESH_SERIAL_LINK_DISCONNECTED;
     mesh_stream_parser_reset(&state->parser);
-    mesh_session_init(&state->session);
+    /* The app hands every link the same session; standalone (tests, --list-devices) each link
+       falls back to its own and initialises it here. */
+    if (state->session == NULL) {
+        state->session = &state->own_session;
+    }
+    if (state->session == &state->own_session) {
+        mesh_session_init(state->session);
+    }
 
     if (!config->enable_serial) {
         mesh_log_info("serial", "Serial transport disabled by configuration");
@@ -624,11 +636,20 @@ static const char *mesh_serial_status(const struct mesh_transport *transport) {
     return mesh_serial_state_to_string(state->state);
 }
 
+static void mesh_serial_set_session(struct mesh_transport *transport,
+                                    struct mesh_session *session) {
+    if (transport == NULL || transport->state == NULL) {
+        return;
+    }
+    ((struct mesh_serial_transport_state *)transport->state)->session = session;
+}
+
 static const struct mesh_transport_ops k_serial_ops = {
     .start = mesh_serial_start,
     .stop = mesh_serial_stop,
     .status = mesh_serial_status,
     .tick = mesh_serial_tick,
+    .set_session = mesh_serial_set_session,
 };
 
 /* ------------------------------------------------------------------ accessors */
@@ -671,7 +692,7 @@ struct mesh_session *mesh_serial_transport_session(struct mesh_transport *transp
     if (transport == NULL || transport->state == NULL) {
         return NULL;
     }
-    return &((struct mesh_serial_transport_state *)transport->state)->session;
+    return ((struct mesh_serial_transport_state *)transport->state)->session;
 }
 
 struct mesh_handshake_status

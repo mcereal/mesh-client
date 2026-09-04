@@ -825,8 +825,14 @@ static void fb_render_devices(const struct mesh_ui_backend_fb_state *state,
         if (name[0] == '\0') {
             name = "<unknown>";
         }
-        snprintf(line, sizeof line, "%c %s  %ddBm%s", device->connected ? '*' : ' ', name,
-                 (int)device->rssi, device->connected ? "  connected" : "");
+        /* A USB port has no RSSI to show; the badge is what tells the two kinds apart. */
+        if (device->kind == (uint8_t)MESH_UI_DEVICE_SERIAL) {
+            snprintf(line, sizeof line, "%c %s  USB%s", device->connected ? '*' : ' ', name,
+                     device->connected ? "  connected" : "");
+        } else {
+            snprintf(line, sizeof line, "%c %s  %ddBm%s", device->connected ? '*' : ' ', name,
+                     (int)device->rssi, device->connected ? "  connected" : "");
+        }
         fb_fit(line, layout->cols);
         fb_draw_row(state, y, line, device->connected ? k_good : k_text, i == cursor);
         y += layout->line;

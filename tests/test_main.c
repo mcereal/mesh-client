@@ -826,6 +826,9 @@ static void test_app_autoconnect_policy(void) {
 
     struct mesh_app_config config = mesh_app_config_default();
     config.run_mode = MESH_APP_RUN_FOREGROUND;
+    /* This test is about BLE ranking; a USB port on the build host now outranks every
+       advertiser, so keep the serial link out of it. */
+    config.enable_serial = false;
     snprintf(config.preferred_ble_device, sizeof config.preferred_ble_device, "%s", "NodeSeven");
 
     struct mesh_app app;
@@ -1227,9 +1230,39 @@ static void test_ui_preferences_roundtrip(void) {
     }
 
     if (strcmp(loaded.preferred_device, prefs.preferred_device) != 0 ||
-        strcmp(loaded.preferred_channel, prefs.preferred_channel) != 0) {
+        strcmp(loaded.preferred_channel, prefs.preferred_channel) != 0 ||
+        loaded.preferred_device_kind != prefs.preferred_device_kind) {
         unlink(prefab_path);
         record_failure(test_name, "roundtrip mismatch");
+        return;
+    }
+
+    /* A USB port roundtrips as serial, so the reconnect goes to the right link. */
+    snprintf(prefs.preferred_device, sizeof prefs.preferred_device, "%s", "/dev/ttyUSB0");
+    prefs.preferred_device_kind = (uint8_t)MESH_UI_DEVICE_SERIAL;
+    if (mesh_ui_preferences_save(&prefs, prefab_path) != 0 ||
+        mesh_ui_preferences_load(&loaded, prefab_path) != 0 ||
+        loaded.preferred_device_kind != (uint8_t)MESH_UI_DEVICE_SERIAL ||
+        strcmp(loaded.preferred_device, "/dev/ttyUSB0") != 0) {
+        unlink(prefab_path);
+        record_failure(test_name, "serial preference did not roundtrip");
+        return;
+    }
+
+    /* A file from before the kind was recorded: a tty path must not be handed to BLE. */
+    temp = fopen(prefab_path, "w");
+    if (temp == NULL) {
+        unlink(prefab_path);
+        record_failure(test_name, "failed to rewrite temp file");
+        return;
+    }
+    fprintf(temp, "preferred_device=/dev/ttyUSB0\npreferred_channel=LongFast\n");
+    fclose(temp);
+    memset(&loaded, 0, sizeof loaded);
+    if (mesh_ui_preferences_load(&loaded, prefab_path) != 0 ||
+        loaded.preferred_device_kind != (uint8_t)MESH_UI_DEVICE_SERIAL) {
+        unlink(prefab_path);
+        record_failure(test_name, "a legacy tty preference should migrate to serial");
         return;
     }
 
@@ -6119,6 +6152,171 @@ cleanup:
     }
 }
 
+/*
+ * With both links available the app must prefer the plugged-in node, route the connect to the
+ * serial transport, list USB ports above BLE advertisers, and - the point of the shared session -
+ * fold what the USB radio says into the app's own session rather than one buried in the link.
+ */
+static void test_app_link_routing(void) {
+    const char *test_name = "app_link_routing";
+    const char *failure = NULL;
+    int pair[2] = {-1, -1};
+    bool app_ready = false;
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, pair) != 0) {
+        record_failure(test_name, "socketpair failed");
+        return;
+    }
+    (void)fcntl(pair[0], F_SETFL, O_NONBLOCK);
+    (void)fcntl(pair[1], F_SETFL, O_NONBLOCK);
+
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:06", .name = "NodeSix", .rssi = -30},
+    };
+    struct mesh_bluez_mock_config mock_config = {
+        .adapter_path = "/org/bluez/hci0",
+        .devices = mock_devices,
+        .device_count = 1U,
+    };
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    const struct mesh_serial_device_info ports[] = {serial_test_device()};
+    struct mesh_serial_usb_mock_config serial_mock;
+    memset(&serial_mock, 0, sizeof serial_mock);
+    serial_mock.devices = ports;
+    serial_mock.device_count = 1U;
+    serial_mock.bound_path = "/dev/ttyUSB0";
+    serial_mock.open_fd = pair[0];
+    mesh_serial_usb_mock_enable(&serial_mock);
+
+    char home_dir[] = "/tmp/mesh_app_link_routingXXXXXX";
+    if (mkdtemp(home_dir) == NULL) {
+        failure = "mkdtemp failed";
+        goto cleanup;
+    }
+    setenv("HOME", home_dir, 1);
+    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
+    unsetenv("MESHCLIENT_AUTOCONNECT");
+
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    struct mesh_transport *serial = mesh_serial_transport();
+    if (mesh_transport_registry_start_all(&app.transport_registry, &app.config, &app.loop) < 0) {
+        failure = "transport start failed";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+    mesh_serial_transport_refresh_devices(serial);
+
+    /* USB wins even though a BLE advertiser is in range at a healthy RSSI. */
+    mesh_app_autoconnect(&app);
+    if (!mesh_serial_transport_is_connecting(serial)) {
+        failure = "auto-connect should have opened the USB port first";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_connected_address(ble) != NULL ||
+        mesh_ble_transport_is_connecting(ble)) {
+        failure = "the BLE link should have been left alone";
+        goto cleanup;
+    }
+
+    serial_test_sleep_ms(150);
+    mesh_transport_registry_tick(&app.transport_registry);
+    const char *connected = mesh_app_connected_identifier();
+    if (connected == NULL || strcmp(connected, "/dev/ttyUSB0") != 0) {
+        failure = "the app should report the tty as the connected radio";
+        goto cleanup;
+    }
+    if (mesh_app_active_transport() != serial) {
+        failure = "the serial transport should be the active link";
+        goto cleanup;
+    }
+
+    /* The radio's reply has to land in the app's session, not one hidden in the transport. */
+    meshtastic_FromRadio from_radio = meshtastic_FromRadio_init_zero;
+    from_radio.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    from_radio.my_info.my_node_num = 0x0BADCAFEU;
+    uint8_t encoded[256];
+    size_t encoded_len = 0U;
+    if (!test_encode_from_radio(&from_radio, encoded, sizeof encoded, &encoded_len)) {
+        failure = "failed to encode the reply";
+        goto cleanup;
+    }
+    uint8_t frame[300];
+    size_t frame_len = 0U;
+    mesh_stream_frame_encode(encoded, encoded_len, frame, sizeof frame, &frame_len);
+    if (write(pair[1], frame, frame_len) != (ssize_t)frame_len) {
+        failure = "failed to write the reply into the port";
+        goto cleanup;
+    }
+    if (mesh_serial_transport_pump(serial) <= 0) {
+        failure = "pump should have read the reply";
+        goto cleanup;
+    }
+    if (!app.session.handshake.has_my_info ||
+        app.session.handshake.my_info.my_node_num != 0x0BADCAFEU) {
+        failure = "the USB link should feed the app's own session";
+        goto cleanup;
+    }
+
+    /* The Devices tab shows one list: USB ports first, then BLE advertisers. */
+    mesh_app_publish_ui_state(&app);
+    if (app.ui_store.device_count != 2U) {
+        failure = "both the USB port and the BLE advertiser should be listed";
+        goto cleanup;
+    }
+    if (app.ui_store.devices[0].kind != (uint8_t)MESH_UI_DEVICE_SERIAL ||
+        strcmp(app.ui_store.devices[0].identifier, "/dev/ttyUSB0") != 0 ||
+        !app.ui_store.devices[0].connected) {
+        failure = "the connected USB port should be the first row";
+        goto cleanup;
+    }
+    if (app.ui_store.devices[1].kind != (uint8_t)MESH_UI_DEVICE_BLE ||
+        strcmp(app.ui_store.devices[1].identifier, "AA:BB:CC:DD:EE:06") != 0 ||
+        app.ui_store.devices[1].connected) {
+        failure = "the BLE advertiser should follow it, unconnected";
+        goto cleanup;
+    }
+
+    /* Nothing should be reconnected while a link is up. */
+    app.autoconnect_retry_at_ms = 0U;
+    mesh_app_autoconnect(&app);
+    if (mesh_ble_transport_is_connecting(ble) ||
+        mesh_ble_transport_connected_address(ble) != NULL) {
+        failure = "auto-connect should stay put while the USB link is up";
+        goto cleanup;
+    }
+
+cleanup:
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    mesh_bluez_client_mock_disable();
+    mesh_serial_usb_mock_disable();
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    if (pair[0] >= 0) {
+        close(pair[0]);
+    }
+    if (pair[1] >= 0) {
+        close(pair[1]);
+    }
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
 static const struct test_case k_test_cases[] = {
     {"config_defaults", "unit", test_config_defaults},
     {"transport_registry_registration", "unit", test_transport_registry_registration},
@@ -6180,6 +6378,7 @@ static const struct test_case k_test_cases[] = {
     {"stream_parser_resync", "unit", test_stream_parser_resync},
     {"serial_transport_connect_mock", "unit", test_serial_transport_connect_mock},
     {"serial_transport_link_drop", "unit", test_serial_transport_link_drop},
+    {"app_link_routing", "unit", test_app_link_routing},
 };
 
 struct test_options {

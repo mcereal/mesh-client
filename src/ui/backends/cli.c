@@ -37,10 +37,19 @@ static void mesh_ui_backend_cli_print_devices(struct mesh_ui_backend_cli_context
     mesh_ui_backend_cli_write(context, "[cli-ui] Devices (%zu)\n", snapshot->device_count);
     for (size_t i = 0; i < snapshot->device_count; ++i) {
         const struct mesh_ui_device *device = &snapshot->devices[i];
-        mesh_ui_backend_cli_write(context, "  - %s (%s) RSSI=%d%s\n",
-                                  device->name[0] != '\0' ? device->name : "<unknown>",
-                                  device->identifier[0] != '\0' ? device->identifier : "<unknown>",
-                                  (int)device->rssi, device->connected ? " [connected]" : "");
+        if (device->kind == (uint8_t)MESH_UI_DEVICE_SERIAL) {
+            mesh_ui_backend_cli_write(context, "  - %s (%s) USB%s\n",
+                                      device->name[0] != '\0' ? device->name : "<unknown>",
+                                      device->identifier[0] != '\0' ? device->identifier
+                                                                    : "<unknown>",
+                                      device->connected ? " [connected]" : "");
+        } else {
+            mesh_ui_backend_cli_write(context, "  - %s (%s) RSSI=%d%s\n",
+                                      device->name[0] != '\0' ? device->name : "<unknown>",
+                                      device->identifier[0] != '\0' ? device->identifier
+                                                                    : "<unknown>",
+                                      (int)device->rssi, device->connected ? " [connected]" : "");
+        }
     }
 }
 
