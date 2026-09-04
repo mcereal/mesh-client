@@ -242,12 +242,38 @@ struct mesh_ui_message_list {
     uint32_t dropped; /* older messages the transport ring has already discarded */
 };
 
+/* Enough for every channel slot plus the peers anyone realistically keeps in view; the oldest
+   mark is evicted once they are all taken. */
+#define MESH_UI_READ_MARKS_MAX 32U
+
+/*
+ * "Everything up to and including this packet in this conversation has been seen." A packet id
+ * rather than a timestamp or an index: ids survive the ring evicting older messages and the
+ * cache merging history back in, and a mark whose message has since been evicted correctly
+ * reads as "everything still in view arrived after it".
+ */
+struct mesh_ui_read_mark {
+    uint8_t kind; /* enum mesh_ui_conversation_kind: CHANNEL or DIRECT */
+    uint8_t channel;
+    uint32_t node;
+    uint32_t packet_id;
+    uint32_t stamp; /* bumped on every write, so the least recently read can be evicted */
+};
+
+struct mesh_ui_read_state {
+    struct mesh_ui_read_mark marks[MESH_UI_READ_MARKS_MAX];
+    uint32_t count;
+    uint32_t stamp;
+};
+
 struct mesh_ui_snapshot {
     struct mesh_ui_device devices[MESH_UI_MAX_DEVICES];
     size_t device_count;
     struct mesh_ui_handshake_state handshake;
     bool handshake_valid;
     struct mesh_ui_message_list messages;
+    /* Which conversations have been read, so the list can badge the ones that have not. */
+    struct mesh_ui_read_state read_state;
     /* Transport state ("waiting-for-bluez", "scanning", "running", ...). Rendered by the
        backends so an empty device list is diagnosable on a device with no console. */
     char transport_status[MESH_UI_TRANSPORT_STATUS_MAX];
@@ -266,6 +292,7 @@ struct mesh_ui_store {
     struct mesh_ui_handshake_state handshake;
     bool handshake_valid;
     struct mesh_ui_message_list messages;
+    struct mesh_ui_read_state read_state;
     char transport_status[MESH_UI_TRANSPORT_STATUS_MAX];
     struct mesh_ui_nav nav;
     struct mesh_ui_settings settings;
@@ -317,6 +344,16 @@ void mesh_ui_store_tick(struct mesh_ui_store *store, uint64_t now_ms);
    The setters above deliberately stay quiet when state is unchanged, so without this a
    client that starts with no devices and no handshake would never paint a first frame. */
 void mesh_ui_store_request_refresh(struct mesh_ui_store *store);
+
+/*
+ * Marks the conversation the nav has open as read up to its newest message. Called from
+ * consume_updates(), so opening a thread clears its badge and a message arriving while you are
+ * sitting in that thread never raises one. The all-traffic view marks nothing: it is a view
+ * over conversations, not one of them.
+ *
+ * Returns true when a mark changed.
+ */
+bool mesh_ui_store_mark_open_conversation_read(struct mesh_ui_store *store);
 
 bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_snapshot *snapshot);
 

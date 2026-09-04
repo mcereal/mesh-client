@@ -42,15 +42,16 @@ no saved preference), runs the config handshake and shows the result on the HUD.
 **POWER** quits back to NextUI; both are in the default quit-key set (the Brick's gamepad reports
 MENU as `BTN_MODE` 316 and the power key as `KEY_POWER` 116).
 
-The HUD is five tabs. **Left/Right** (or **L1/R1**) switch tabs, **Up/Down** move the cursor,
-**A** acts on the highlighted row, **B** backs out. The Brick's A is the right-hand face button
+The HUD is five tabs (Messages, Nodes, Devices, Status, Settings). **Left/Right** (or
+**L1/R1**) switch tabs, **Up/Down** move the cursor, **A** acts on the highlighted row, **B**
+backs out. Compose is not a tab: it opens over the conversation you are in, so it can never be
+reached with a stale destination. The Brick's A is the right-hand face button
 (`BTN_EAST` 305) and B the bottom one (`BTN_SOUTH` 304).
 
 | Tab | Shows | Buttons |
 |-----|-------|---------|
-| Messages | One conversation at a time: the **Inbox** (everything, each line tagged `#n` or `dm`), a channel's broadcasts, or the direct messages with one node. The highlighted message is shown in full below the list. | **A** reply to the highlighted message. **X** next conversation (Inbox, each channel, each node you have direct messages with). **Y** compose to the current conversation. |
-| Nodes | The mesh as the radio sent it: short name, long name, hops or SNR, time since last heard; `*` is this radio | **A** open Compose to that node. **Y** compose to the current target. |
-| Compose | `To:` row, a draft row, then the quick replies | **A** on `To:` opens the **Send to** picker (every enabled channel, then every node; Up/Down move, Left/Right jump ten rows, A picks, B cancels); on the draft row opens the keyboard; on a reply sends it. **B** back to the conversation. |
+| Messages | Two levels. The **conversation list**: **All traffic**, then each enabled channel, then each node you have direct messages with, then **New message**; every row carries its newest message, and rows with unread traffic are marked `*` with an `N new` count instead of the usual total and age. Opening one shows that **conversation** - its messages, the highlighted one in full below the list. | On the list: **A** open the row, **Y** new message (opens the **Send to** picker). In a conversation: **A** reply (opens Compose over it), **Y** write, **B** back to the list. In **All traffic** (every line tagged `#n` or `dm`) **A** opens the conversation that line belongs to instead; it is a view rather than a conversation, so looking at it marks nothing read and its own badge is whatever the rows below still owe. |
+| Nodes | The mesh as the radio sent it: short name, long name, hops or SNR, time since last heard; `*` is this radio. This is the contact list. | **A** open your conversation with that node. **Y** open it and start writing. |
 | Devices | Meshtastic radios in BLE range, `*` connected | **A** connect to that radio and make it the preferred one |
 | Status | Transport state, radio, sync, my node, channel, counts | none |
 | Settings | The radio's configuration, read from the radio: a section list (Radio, User, Device, Display, LoRa, Bluetooth, Channels, Security, Position, Power, MQTT, Store & Forward, Telemetry), each a list of label/value rows. Rows marked `>` can be edited (User, Display, Store & Forward, Telemetry, Bluetooth, LoRa, Security, and each channel under Channels; Radio, Device, Position, Power and MQTT are read-only); an edited row shows `*` and the title says `(unsaved)`. | On the section list: **A** open, **X** re-read every section from the radio (the Radio section's `Admin session` row shows the replies). In a section: **Left/Right** step a value (toggles flip, enums cycle, times step through presets), **A** flips a toggle or opens the keyboard for a name (START or `done` keeps it, `cancel` drops it), **Y** save the section to the radio (Channels, Bluetooth, LoRa and Security first show a confirm screen that spells out the consequence: Up/Down to `Save to radio`, **A**; **B** cancels), **B** back (with unsaved edits it asks once; **B** again discards). Under Channels every slot the radio has is listed, empty ones as `N (empty)`: open an empty slot and set its role to Secondary (plus a name and key) to add a channel, set an existing one to Disabled to remove it. **A** on a channel opens it; its `Key` row cycles keep / default key / new random AES-128 / AES-256 / none with Left/Right, and **A** opens the keyboard on the current key as base64 (what the phone app shows) to copy it down or type one in; hex is accepted too. Under Security the `Private key` row works the same way (keep / new random key, **A** to reveal or restore a backup) and the three `Admin key` rows take a phone's public key (keep / none / typed). **L1/R1** still switch tabs. After a save the footer reports the ack or rejection; most sections make the radio reboot a few seconds later, the link drops and auto-connect brings it back. |
@@ -59,7 +60,7 @@ The keyboard is a ten-column grid with lower-case, upper-case and symbol layers 
 row (layer, space, del, send, cancel). **D-pad** moves (wrapping), **A** types, **B** deletes
 (and closes the keyboard once the draft is empty), **X** shifts for one character, **Y** is
 space, **START** sends. L1 and R1 double as delete and space. Drafts survive leaving the
-keyboard: the Compose draft row shows what is pending.
+keyboard: the Compose overlay's draft row shows what is pending.
 
 Nodes are ranked: this radio, then every node you have exchanged messages with, then nodes
 heard directly over RF (most recent first), then nodes that only arrive via MQTT. Every packet

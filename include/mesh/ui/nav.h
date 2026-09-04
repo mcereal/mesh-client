@@ -32,11 +32,11 @@ enum mesh_ui_key {
     MESH_UI_KEY_SELECT,
 };
 
-/* Tabs, in the order LEFT/RIGHT (and L1/R1) walk them. */
+/* Tabs, in the order LEFT/RIGHT (and L1/R1) walk them. Compose is not one: it is an overlay
+   over the open conversation, so it can never be reached with a stale destination. */
 enum mesh_ui_screen {
     MESH_UI_SCREEN_MESSAGES = 0,
     MESH_UI_SCREEN_NODES,
-    MESH_UI_SCREEN_COMPOSE,
     MESH_UI_SCREEN_DEVICES,
     MESH_UI_SCREEN_STATUS,
     MESH_UI_SCREEN_SETTINGS,
@@ -91,16 +91,26 @@ enum mesh_ui_kb_action {
  * Everything a backend needs to draw a cursor, the compose target and the keyboard. Lives in
  * the store and is copied into each snapshot, so backends stay stateless.
  *
- * The conversation model: `target_node` is either MESH_MESSAGE_BROADCAST_ADDR (the channel
- * `target_channel`) or a node number. The Messages tab shows that conversation, or everything
- * when `inbox` is set. Compose sends to it. The Nodes tab, a message, and the Compose To: row
- * all set it.
+ * The conversation model, in the shape the Settings tab already uses: the Messages tab is two
+ * levels. With `thread_open` clear it lists conversations (all traffic, each enabled channel,
+ * each node we have direct messages with, then "New message"); with it set it shows the one
+ * conversation named by `target_node` (MESH_MESSAGE_BROADCAST_ADDR means the channel
+ * `target_channel`) or, when `inbox` is set, every message. Compose is an overlay over the open
+ * thread and always sends there.
+ *
+ * The invariant that keeps this predictable: *only* opening a thread moves the target. The
+ * Nodes tab opens the node's thread rather than retargeting whatever Messages was showing.
  */
 struct mesh_ui_nav {
     enum mesh_ui_screen screen;
     uint32_t cursor[MESH_UI_SCREEN_COUNT];
     uint32_t target_node;
     uint8_t target_channel;
+    /* Messages tab: a thread is open (cursor[MESSAGES] indexes its messages) rather than the
+       conversation list, whose position is parked in conversation_list_cursor meanwhile. */
+    bool thread_open;
+    uint32_t conversation_list_cursor;
+    /* The open thread is the all-traffic one; meaningless unless thread_open. */
     bool inbox;
     char target_name[MESH_UI_NAV_TARGET_NAME_MAX];
     /* One-line transient notice ("Sent to ABCD", "Connecting..."); empty when none. */
@@ -109,9 +119,15 @@ struct mesh_ui_nav {
     /* Filtered message count at the last clamp, so a cursor parked on the newest message
        follows new traffic instead of being left behind. */
     uint32_t messages_seen;
-    /* "Send to" picker over the Compose tab: every enabled channel, then every node. */
+    /* Compose overlay over the open thread: the draft row, then the canned replies. */
+    bool compose_open;
+    uint32_t compose_cursor;
+    /* "Send to" picker: every enabled channel, then every node. Picking opens that
+       conversation's thread, and when `picker_to_compose` is set (the "New message" row) the
+       compose overlay with it. */
     bool picker_open;
     uint32_t picker_cursor;
+    bool picker_to_compose;
     /* Free-text entry. */
     bool keyboard_open;
     uint8_t kb_row;
@@ -190,8 +206,52 @@ uint32_t mesh_ui_nav_filter_messages(const struct mesh_ui_nav *nav,
                                      const struct mesh_ui_message_list *messages,
                                      uint32_t *out_indices, uint32_t capacity);
 
-/* Human name for the current conversation: "Inbox", "#LongFast", "BRVO". */
+/* Human name for the open thread: "All traffic", "#LongFast", "BRVO", or "Messages" when the
+   conversation list is showing. */
 void mesh_ui_nav_conversation_name(const struct mesh_ui_nav *nav, char *out, size_t out_len);
+
+/* What a row of the Messages tab's conversation list is. */
+enum mesh_ui_conversation_kind {
+    MESH_UI_CONVERSATION_ALL = 0, /* every message, whatever it belongs to */
+    MESH_UI_CONVERSATION_CHANNEL,
+    MESH_UI_CONVERSATION_DIRECT,
+    MESH_UI_CONVERSATION_NEW, /* the "New message" row: opens the send-to picker */
+};
+
+#define MESH_UI_CONVERSATION_PREVIEW_MAX 96U
+
+struct mesh_ui_conversation {
+    uint8_t kind; /* enum mesh_ui_conversation_kind */
+    /* Where a message to this conversation goes, in the same terms as nav.target_*. */
+    uint32_t node;
+    uint8_t channel;
+    char name[MESH_UI_NAV_TARGET_NAME_MAX];
+    /* Newest message in the conversation, for the list's second line. Empty and zero when the
+       conversation has no traffic yet. */
+    char preview[MESH_UI_CONVERSATION_PREVIEW_MAX];
+    uint32_t last_time;
+    uint32_t message_count;
+    bool preview_outbound;
+    /* Inbound messages that arrived after this conversation was last read. The "All traffic"
+       row carries the total across every other row rather than a mark of its own. */
+    uint32_t unread;
+};
+
+/*
+ * The conversation list: "All traffic", then every enabled channel in the radio's table order,
+ * then every node we have direct messages with newest first, then "New message". Channels keep
+ * the radio's order rather than sorting by recency so a row does not move out from under the
+ * cursor while the user is reaching for it.
+ */
+uint32_t mesh_ui_nav_conversation_count(const struct mesh_ui_store *store);
+bool mesh_ui_nav_conversation_at(const struct mesh_ui_store *store, uint32_t index,
+                                 struct mesh_ui_conversation *out);
+/* True when the nav's open thread is the conversation on that row. */
+bool mesh_ui_nav_conversation_is_open(const struct mesh_ui_nav *nav,
+                                      const struct mesh_ui_conversation *conversation);
+
+/* Inbound messages across every channel and peer that have not been read. */
+uint32_t mesh_ui_nav_unread_total(const struct mesh_ui_store *store);
 
 /* The picker's rows: channels first (node_id = MESH_MESSAGE_BROADCAST_ADDR, channel set), then
    nodes other than ourselves. Returns the row count; mesh_ui_nav_picker_row() describes one. */
@@ -199,10 +259,11 @@ uint32_t mesh_ui_nav_picker_count(const struct mesh_ui_store *store);
 bool mesh_ui_nav_picker_row(const struct mesh_ui_store *store, uint32_t index, uint32_t *out_node,
                             uint8_t *out_channel, char *out_name, size_t out_name_len);
 
-/* Compose rows: 0 = To:, 1 = draft, then the canned replies. */
-#define MESH_UI_COMPOSE_ROW_TARGET 0U
-#define MESH_UI_COMPOSE_ROW_DRAFT 1U
-#define MESH_UI_COMPOSE_FIRST_CANNED 2U
+/* Compose overlay rows: 0 = the draft, then the canned replies. There is no To: row; the
+   overlay only ever opens over a thread, and that thread is the destination. */
+#define MESH_UI_COMPOSE_ROW_DRAFT 0U
+#define MESH_UI_COMPOSE_FIRST_CANNED 1U
+uint32_t mesh_ui_nav_compose_row_count(void);
 
 /* Keyboard legend for the backends. Character rows return the glyph at that cell (a NUL for an
    unused cell); the action row is described by mesh_ui_kb_action_label(). */

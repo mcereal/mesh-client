@@ -44,6 +44,9 @@ struct mesh_app {
     char ui_handshake_cache_path[256];
     bool ui_preferences_dirty;
     bool ui_handshake_cache_dirty;
+    /* Read marks change without any message or handshake changing, so the cache save needs its
+       own trigger: the store bumps this stamp every time a conversation is marked read. */
+    uint32_t ui_read_state_stamp;
     /* Foreground auto-connect bookkeeping; see mesh_app_autoconnect(). */
     uint64_t autoconnect_started_ms;
     uint64_t autoconnect_retry_at_ms;
