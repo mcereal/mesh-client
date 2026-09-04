@@ -18,12 +18,26 @@ if [[ -z "${VERSION}" ]]; then
     exit 1
 fi
 
-# Guard the ordering this script exists to enforce: if CMakeLists.txt does not already carry the
-# version being released, the sed in prepareCmd did not run and every asset would be mislabelled.
+# CMake's project(VERSION) accepts numeric components only - it errors outright on a SemVer
+# prerelease - but the beta and rc channels release exactly those (1.13.0-beta.1). So the
+# project() line gets the numeric part and the full tag is passed to the build separately, as
+# MESHCLIENT_VERSION_FULL. Keeping CMakeLists.txt numeric also keeps this rewrite idempotent:
+# a suffix left in the file would not match the pattern on the next release and the version
+# would compound instead of being replaced.
+NUMERIC="${VERSION%%-*}"   # drop any -beta.1 / -rc.2
+NUMERIC="${NUMERIC%%+*}"   # and any +build metadata
+if [[ ! "${NUMERIC}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Cannot derive a numeric CMake version from '${VERSION}'." >&2
+    exit 1
+fi
+
+sed -i "s/^project(meshclient VERSION [0-9]\+\.[0-9]\+\.[0-9]\+/project(meshclient VERSION ${NUMERIC}/" CMakeLists.txt
+
+# Guard the ordering this script exists to enforce: the rewrite above must have landed, or
+# every published asset would carry the previous release's number.
 BAKED=$(sed -n 's/^project(meshclient VERSION \([0-9][0-9.]*\).*/\1/p' CMakeLists.txt)
-if [[ "${BAKED}" != "${VERSION}" ]]; then
-    echo "CMakeLists.txt says ${BAKED:-<none>} but the release is ${VERSION}." >&2
-    echo "The version rewrite must happen before this script; see .releaserc.json." >&2
+if [[ "${BAKED}" != "${NUMERIC}" ]]; then
+    echo "CMakeLists.txt says ${BAKED:-<none>} but the release is ${VERSION} (${NUMERIC})." >&2
     exit 1
 fi
 
@@ -41,7 +55,9 @@ cmake -S . -B build/release \
     -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
     -DCMAKE_EXE_LINKER_FLAGS="-static ${DBUS_LDFLAGS:-}" \
     -DCMAKE_C_FLAGS="-Os ${DBUS_CFLAGS:-}" \
-    -DPython3_EXECUTABLE="${SYSTEM_PYTHON}"
+    -DPython3_EXECUTABLE="${SYSTEM_PYTHON}" \
+    -DMESHCLIENT_VERSION_FULL="${VERSION}" \
+    -DMESHCLIENT_RELEASE_BUILD=ON
 cmake --build build/release
 
 # Prove the version actually made it into the binary rather than trusting the build. This is

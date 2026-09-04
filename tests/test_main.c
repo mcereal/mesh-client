@@ -7988,23 +7988,16 @@ static void test_version_compare(void) {
         return;
     }
 
-    /* The build under test carries a version, so it should never think a release at or below
-       it is newer, and should always think one above it is. */
-    if (!mesh_version_is_release() || mesh_version_string()[0] == '\0') {
+    /* The build under test always reports something, release-stamped or not. Whether it is
+     *offered* an update is a separate question, covered by version_build_stamp. */
+    if (mesh_version_string()[0] == '\0') {
         record_failure(test_name, "the test build should carry a baked-in version");
         return;
     }
-    if (mesh_version_is_newer_than_running(mesh_version_string())) {
-        record_failure(test_name, "the running version is not newer than itself");
-        return;
-    }
-    if (mesh_version_is_newer_than_running("0.0.1") ||
+    if (mesh_version_is_newer_than_running(mesh_version_string()) ||
+        mesh_version_is_newer_than_running("0.0.1") ||
         mesh_version_is_newer_than_running("not-a-version")) {
-        record_failure(test_name, "an older or unparseable tag is not an update");
-        return;
-    }
-    if (!mesh_version_is_newer_than_running("999.0.0")) {
-        record_failure(test_name, "a higher release should read as an update");
+        record_failure(test_name, "nothing at or below the running version is an update");
         return;
     }
     record_success(test_name);
@@ -8592,8 +8585,11 @@ static void test_updater_fetch_and_install(void) {
         failure = "the check never finished";
         goto cleanup;
     }
-    if (updater.state != MESH_UPDATE_AVAILABLE) {
-        failure = updater.message[0] != '\0' ? updater.message : "999.0.0 should read as available";
+    /* This binary is not release-stamped, so even a 999.0.0 release is deliberately not
+       offered - that is the safeguard that stops a locally built client being replaced. */
+    if (updater.state != MESH_UPDATE_UP_TO_DATE) {
+        failure = updater.message[0] != '\0' ? updater.message
+                                             : "an unstamped build should not be offered 999.0.0";
         goto cleanup;
     }
     if (strcmp(updater.latest, "999.0.0") != 0 || strcmp(updater.asset_sha256, digest_hex) != 0 ||
@@ -8601,6 +8597,11 @@ static void test_updater_fetch_and_install(void) {
         failure = "the release metadata should have been drained and parsed in full";
         goto cleanup;
     }
+
+    /* The metadata is all there, so drive the install path from it directly. A release build
+       reaches this state through the check; here it is set so the download, the checksum and
+       the swap are still exercised without pretending this binary is a release. */
+    updater.state = MESH_UPDATE_AVAILABLE;
 
     if (mesh_updater_install(&updater, 0U) != 0 || updater.state != MESH_UPDATE_DOWNLOADING) {
         failure = "install should start";
@@ -8657,10 +8658,11 @@ static void test_updater_fetch_and_install(void) {
     updater.state = MESH_UPDATE_IDLE;
     if (mesh_updater_check(&updater, 0U) != 0 ||
         !updater_wait_past(&loop, &updater, MESH_UPDATE_CHECKING) ||
-        updater.state != MESH_UPDATE_AVAILABLE) {
-        failure = "the second check should also find an update";
+        updater.asset_sha256[0] == '\0') {
+        failure = "the second check should also read the release metadata";
         goto cleanup;
     }
+    updater.state = MESH_UPDATE_AVAILABLE;
     if (mesh_updater_install(&updater, 0U) != 0 ||
         !updater_wait_past(&loop, &updater, MESH_UPDATE_DOWNLOADING)) {
         failure = "the second install should run";
@@ -8704,6 +8706,143 @@ cleanup:
     record_success(test_name);
 }
 
+/*
+ * A downloader that closes stdout but keeps running must not wedge the client.
+ *
+ * The trap: once the child closes its stdout, epoll reports EOF/HUP on that fd on every wait,
+ * so mesh_event_loop_run() never sees a zero-event timeout and never returns - which means
+ * mesh_updater_tick() never runs and the timeout that is supposed to kill the child never
+ * fires. The whole UI is single-threaded, so that is a freeze, not a slow update. The fd is
+ * therefore dropped at EOF while the pid is kept for polling.
+ */
+static void test_updater_child_outlives_stdout(void) {
+    const char *test_name = "updater_child_outlives_stdout";
+    char dir[] = "/tmp/meshclient_hang_XXXXXX";
+    if (mkdtemp(dir) == NULL) {
+        record_failure(test_name, "could not create a temporary directory");
+        return;
+    }
+    const char *failure = NULL;
+    char *saved_path = NULL;
+    struct mesh_event_loop loop;
+    struct mesh_updater updater;
+    bool loop_up = false;
+    bool updater_up = false;
+
+    char curl_path[256];
+    snprintf(curl_path, sizeof curl_path, "%s/curl", dir);
+    FILE *script = fopen(curl_path, "w");
+    if (script == NULL) {
+        failure = "could not write the fake curl";
+        goto cleanup;
+    }
+    /* Closes stdout immediately, then lingers well past the test's budget. */
+    fprintf(script, "#!/bin/sh\nexec >&-\nsleep 120\n");
+    fclose(script);
+    if (chmod(curl_path, 0755) != 0) {
+        failure = "could not make the fake curl executable";
+        goto cleanup;
+    }
+
+    const char *old_path = getenv("PATH");
+    saved_path = old_path != NULL ? strdup(old_path) : NULL;
+    char new_path[1024];
+    snprintf(new_path, sizeof new_path, "%s:%s", dir, old_path != NULL ? old_path : "/usr/bin");
+    setenv("PATH", new_path, 1);
+
+    if (mesh_event_loop_init(&loop) != 0) {
+        failure = "event loop init failed";
+        goto cleanup;
+    }
+    loop_up = true;
+    if (mesh_updater_init(&updater, &loop) != 0) {
+        failure = "updater init failed";
+        goto cleanup;
+    }
+    updater_up = true;
+    if (mesh_updater_check(&updater, 0U) != 0) {
+        failure = "check should start";
+        goto cleanup;
+    }
+
+    /*
+     * Each turn must return promptly. Before the fix mesh_event_loop_run() spun forever inside
+     * its own loop and this never came back at all; the deadline is walked forward so the
+     * timeout can be reached in a handful of turns rather than in real time.
+     */
+    for (int i = 0; i < 20 && updater.state == MESH_UPDATE_CHECKING; ++i) {
+        mesh_event_loop_run(&loop, 10);
+        mesh_updater_tick(&updater, (uint64_t)i * 5000U);
+    }
+    if (updater.state != MESH_UPDATE_FAILED) {
+        failure = "a child that closed stdout without exiting should hit the timeout";
+        goto cleanup;
+    }
+    /* And the child is gone rather than left behind holding the staging file. */
+    if (updater.child > 0 || updater.child_fd >= 0) {
+        failure = "the timed-out child should have been reaped and its pipe closed";
+        goto cleanup;
+    }
+
+cleanup:
+    if (updater_up) {
+        mesh_updater_shutdown(&updater);
+    }
+    if (loop_up) {
+        mesh_event_loop_shutdown(&loop);
+    }
+    if (saved_path != NULL) {
+        setenv("PATH", saved_path, 1);
+        free(saved_path);
+    }
+    unlink(curl_path);
+    rmdir(dir);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}
+
+/*
+ * A build that was not stamped by the release script must never look like a release, whatever
+ * its version string says. This is the safeguard that keeps the updater from replacing a
+ * binary someone just built with `make brick`, and the test suite is exactly such a build.
+ */
+static void test_version_build_stamp(void) {
+    const char *test_name = "version_build_stamp";
+
+#ifdef MESHCLIENT_RELEASE_BUILD
+    record_failure(test_name, "the test build should not be stamped as a release");
+    return;
+#else
+    if (mesh_version_is_release()) {
+        record_failure(test_name, "an unstamped build must not report itself as a release");
+        return;
+    }
+    /* It still reports a useful number, suffixed so it is obvious on screen. */
+    const char *version = mesh_version_string();
+    const size_t len = strlen(version);
+    if (len < 4U || strcmp(version + len - 4U, "-dev") != 0) {
+        record_failure(test_name, version);
+        return;
+    }
+    /* And "-dev" is a prerelease of the version it names, so it sorts below the real thing. */
+    char base[MESH_UPDATE_VERSION_MAX];
+    snprintf(base, sizeof base, "%.*s", (int)(len - 4U), version);
+    if (mesh_version_compare(version, base) >= 0) {
+        record_failure(test_name, "a -dev build should sort below the release it precedes");
+        return;
+    }
+    /* No release, however new, is ever offered to an unstamped build. */
+    if (mesh_version_is_newer_than_running("999.0.0")) {
+        record_failure(test_name, "an unstamped build must never be offered an update");
+        return;
+    }
+    record_success(test_name);
+#endif
+}
+
 static const struct test_case k_test_cases[] = {
     {"config_defaults", "unit", test_config_defaults},
     {"version_compare", "unit", test_version_compare},
@@ -8711,6 +8850,8 @@ static const struct test_case k_test_cases[] = {
     {"updater_parse_release", "unit", test_updater_parse_release},
     {"updater_lifecycle", "unit", test_updater_lifecycle},
     {"updater_fetch_and_install", "unit", test_updater_fetch_and_install},
+    {"updater_child_outlives_stdout", "unit", test_updater_child_outlives_stdout},
+    {"version_build_stamp", "unit", test_version_build_stamp},
     {"ui_settings_about", "unit", test_ui_settings_about},
     {"transport_registry_registration", "unit", test_transport_registry_registration},
     {"event_loop_init_shutdown", "unit", test_event_loop_init_shutdown},

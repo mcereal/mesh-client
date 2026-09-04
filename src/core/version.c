@@ -4,12 +4,23 @@
 #include <string.h>
 
 #ifndef MESHCLIENT_VERSION
-#define MESHCLIENT_VERSION "dev"
+#define MESHCLIENT_VERSION "0.0.0-dev"
 #endif
 
 const char *mesh_version_string(void) { return MESHCLIENT_VERSION; }
 
-bool mesh_version_is_release(void) { return strcmp(MESHCLIENT_VERSION, "dev") != 0; }
+/*
+ * Only the release build defines MESHCLIENT_RELEASE_BUILD, and it is what the updater gates on
+ * - not the shape of the version string. A local build reports "<version>-dev" and answers
+ * false here, so the updater never offers to replace a binary someone just built.
+ */
+bool mesh_version_is_release(void) {
+#ifdef MESHCLIENT_RELEASE_BUILD
+    return true;
+#else
+    return false;
+#endif
+}
 
 /* One parsed version. `pre` points into the caller's string and is NULL when there is none. */
 struct semver {
@@ -202,4 +213,9 @@ bool mesh_version_is_newer_than_running(const char *candidate) {
         return false;
     }
     return mesh_version_compare(candidate, mesh_version_string()) > 0;
+}
+
+bool mesh_version_is_prerelease(void) {
+    struct semver parsed;
+    return semver_parse(MESHCLIENT_VERSION, &parsed) && parsed.pre != NULL;
 }

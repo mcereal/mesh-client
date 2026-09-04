@@ -72,9 +72,29 @@ target_include_directories(meshclient_core
         ${PROJECT_SOURCE_DIR}/include
 )
 
-# The client's own version, for the About screen and the updater. PROJECT_VERSION comes from
-# the project() line that the release workflow rewrites, so this is the single source of truth.
-target_compile_definitions(meshclient_core PUBLIC MESHCLIENT_VERSION="${PROJECT_VERSION}")
+# The client's own version, for the About screen and the updater.
+#
+# Two knobs rather than one, because PROJECT_VERSION cannot carry the whole answer:
+#
+#  - project(VERSION) only accepts numeric components - CMake errors outright on a SemVer
+#    prerelease like 1.13.0-beta.1 - but the beta and rc channels release exactly those. So the
+#    project() line stays numeric and scripts/release-build.sh passes the full tag separately.
+#  - a build is only a *release* when the release script says so. Stamping PROJECT_VERSION
+#    unconditionally would make every `make debug` and `make brick` binary claim to be an
+#    official release, and the updater would then happily replace a developer's own build with
+#    whatever is on GitHub. Local builds report "<version>-dev" and are never updatable.
+set(MESHCLIENT_VERSION_FULL "${PROJECT_VERSION}" CACHE STRING
+    "Full SemVer version to report, including any prerelease suffix")
+option(MESHCLIENT_RELEASE_BUILD "Stamp this build as an official release" OFF)
+
+if(MESHCLIENT_RELEASE_BUILD)
+    target_compile_definitions(meshclient_core PUBLIC
+        MESHCLIENT_VERSION="${MESHCLIENT_VERSION_FULL}"
+        MESHCLIENT_RELEASE_BUILD=1)
+else()
+    target_compile_definitions(meshclient_core PUBLIC
+        MESHCLIENT_VERSION="${MESHCLIENT_VERSION_FULL}-dev")
+endif()
 
 target_compile_options(meshclient_core PRIVATE ${MESHCLIENT_COMPILE_OPTIONS})
 if(MESHCLIENT_LINK_OPTIONS)

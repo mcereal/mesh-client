@@ -131,7 +131,7 @@
             "@semantic-release/exec",
             {
                 "verifyReleaseCmd": "echo ${nextRelease.version}",
-                "prepareCmd": "sed -i 's/project(meshclient VERSION [0-9]\\+\\.[0-9]\\+\\.[0-9]\\+/project(meshclient VERSION ${nextRelease.version}/' CMakeLists.txt && ./scripts/release-build.sh ${nextRelease.version}"
+                "prepareCmd": "./scripts/release-build.sh ${nextRelease.version}"
             }
         ],
         [

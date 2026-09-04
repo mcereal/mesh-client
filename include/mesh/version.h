@@ -19,8 +19,16 @@ extern "C" {
 /* "1.12.0", or "dev" for a build with no version baked in. */
 const char *mesh_version_string(void);
 
-/* True when this build carries a real release version (i.e. not "dev"). */
+/* True only for a build the release script stamped (CMake's MESHCLIENT_RELEASE_BUILD). A
+   local build reports "<version>-dev" and answers false, which is what stops the updater from
+   replacing a binary someone just built with whatever happens to be on GitHub. */
 bool mesh_version_is_release(void);
+
+/* True when the running version carries a prerelease suffix, i.e. this build came off the
+   beta or rc channel. The updater asks GitHub a different question in that case: the
+   `releases/latest` endpoint deliberately skips prereleases, so a beta client polling it would
+   only ever be offered stable. */
+bool mesh_version_is_prerelease(void);
 
 /*
  * Orders two semantic versions: negative when a < b, 0 when equal, positive when a > b.

@@ -341,14 +341,27 @@ static bool have_executable(const char *name) {
     return false;
 }
 
-static void updater_close_child(struct mesh_updater *updater) {
-    if (updater->child_fd >= 0) {
-        if (updater->loop != NULL) {
-            (void)mesh_event_loop_remove_fd(updater->loop, updater->child_fd);
-        }
-        close(updater->child_fd);
-        updater->child_fd = -1;
+/*
+ * Drops the pipe but keeps the pid. Once the child has closed stdout there is nothing more to
+ * read, and leaving the fd registered would be actively harmful: epoll reports EOF/HUP on
+ * every wait, so mesh_event_loop_run() would never see a zero-event timeout, never return, and
+ * never let mesh_updater_tick() enforce the deadline - a child that closed stdout without
+ * exiting would spin the loop and freeze the UI. The response buffer is left alone; the step
+ * that started the child still has to parse it.
+ */
+static void updater_release_fd(struct mesh_updater *updater) {
+    if (updater->child_fd < 0) {
+        return;
     }
+    if (updater->loop != NULL) {
+        (void)mesh_event_loop_remove_fd(updater->loop, updater->child_fd);
+    }
+    close(updater->child_fd);
+    updater->child_fd = -1;
+}
+
+static void updater_close_child(struct mesh_updater *updater) {
+    updater_release_fd(updater);
     if (updater->child > 0) {
         int status = 0;
         /* The caller has already decided the outcome; make sure the child is gone either way. */
@@ -489,7 +502,10 @@ static void updater_try_finish(struct mesh_updater *updater) {
     if (updater->child <= 0) {
         return;
     }
-    (void)updater_drain(updater);
+    if (!updater_drain(updater)) {
+        /* EOF, or the drain tore the child down. Either way the pipe is finished with. */
+        updater_release_fd(updater);
+    }
     if (updater->child <= 0) {
         return; /* drain failed and tore the child down */
     }
@@ -601,9 +617,21 @@ int mesh_updater_check(struct mesh_updater *updater, uint64_t now_ms) {
     updater->asset_sha256[0] = '\0';
     updater->asset_size = 0U;
 
+    /*
+     * Which question to ask depends on the channel this build came from. `releases/latest`
+     * deliberately skips prereleases, so a client built from beta or rc would only ever be
+     * offered stable and would never see the next beta. `releases?per_page=1` is the newest
+     * release of any kind - and capping it at one keeps the reply a single release object, so
+     * the scanner below cannot pair one release's tag with another's asset.
+     */
     char url[MESH_UPDATE_URL_MAX];
-    snprintf(url, sizeof url, "https://api.github.com/repos/%s/releases/latest",
-             mesh_updater_repo());
+    if (mesh_version_is_release() && mesh_version_is_prerelease()) {
+        snprintf(url, sizeof url, "https://api.github.com/repos/%s/releases?per_page=1",
+                 mesh_updater_repo());
+    } else {
+        snprintf(url, sizeof url, "https://api.github.com/repos/%s/releases/latest",
+                 mesh_updater_repo());
+    }
     char agent[64];
     snprintf(agent, sizeof agent, "meshclient/%s", mesh_version_string());
 

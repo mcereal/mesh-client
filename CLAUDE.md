@@ -198,7 +198,11 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   `minui.c` uses for `minui-list`, because the release build is static musl with libdbus as its
   only dependency. One child at a time, states strictly sequential, `tick()` enforcing the
   timeout. What makes downloading an executable safe is not the transport but the digest: the
-  release metadata comes from `api.github.com`, the asset URL is refused unless it sits under
+  release metadata comes from `api.github.com` - `releases/latest` for a stable build, but
+  `releases?per_page=1` for one off the beta or rc channel, because `latest` deliberately skips
+  prereleases and a beta client polling it would never see the next beta (the `per_page=1` cap
+  also keeps the reply a single release object, so the scanner cannot pair one release's tag
+  with another's asset) - the asset URL is refused unless it sits under
   *this* repository's `releases/download/` path, and the bytes must hash (`src/utils/sha256.c`,
   self-contained so the one check that matters does not depend on busybox) to the `digest` that
   metadata carried. A release with no digest is refused rather than installed unverified. The
@@ -357,12 +361,22 @@ via Python3 (needs `pip install protobuf grpcio-tools`).
 - The release workflow rewrites `project(meshclient VERSION x.y.z ...)` in `CMakeLists.txt` with
   `sed`. Do not change that line's shape and do not bump it by hand. `package.json` version is
   unused. **That rewrite is why the build lives inside semantic-release's `prepareCmd` rather
-  than in a workflow step**: `PROJECT_VERSION` becomes the `MESHCLIENT_VERSION` compile
-  definition the client reports, so anything built before prepare carries the *previous*
-  release's number. `prepareCmd` is `sed ... && scripts/release-build.sh ${nextRelease.version}`,
-  and that script refuses to run if `CMakeLists.txt` does not already say the version being
-  released, then greps the linked binary for it. Plugin order puts `exec` before
-  `@semantic-release/git`, so a failed build aborts with nothing committed and nothing tagged. Keep `conventional-changelog-conventionalcommits` on 9.x until semantic-release's
+  than in a workflow step**: the version becomes the `MESHCLIENT_VERSION` compile definition the
+  client reports, so anything built before prepare carries the *previous* release's number.
+  `prepareCmd` is just `scripts/release-build.sh ${nextRelease.version}`, and that script owns
+  the `sed` as well as the build. Plugin order puts `exec` before `@semantic-release/git`, so a
+  failed build aborts with nothing committed and nothing tagged.
+- **`project(VERSION)` stays numeric; the full tag rides beside it.** CMake accepts only numeric
+  components there and errors outright on `1.13.0-beta.1`, which is exactly what the `beta` and
+  `rc` channels release. So `release-build.sh` seds in `${version%%-*}` and passes the whole tag
+  as `-DMESHCLIENT_VERSION_FULL`. Keeping the file numeric also keeps the rewrite idempotent - a
+  suffix left behind would not match the pattern next time and the version would compound.
+- **Only the release build is a release.** `-DMESHCLIENT_RELEASE_BUILD=ON` (set by
+  `release-build.sh`, nothing else) is what defines `MESHCLIENT_RELEASE_BUILD` and makes
+  `mesh_version_is_release()` true. Every other build - `make debug`, `make release`,
+  `make brick` - reports `<version>-dev` and is never offered an update, so a binary you just
+  deployed cannot be replaced by whatever is on GitHub. Do not stamp a local build to "test the
+  updater"; point `MESHCLIENT_UPDATE_REPO` somewhere instead. Keep `conventional-changelog-conventionalcommits` on 9.x until semantic-release's
   notes generator ships `conventional-changelog-writer` 9; 10.x fails `generateNotes` with
   "Missing helper" (Dependabot is told to ignore it). Local dry runs need Node 24.10+, e.g.
   `docker run --rm -v "$PWD":/src -w /src -e GITHUB_TOKEN=$(gh auth token) node:24 bash -c

@@ -45,8 +45,13 @@ What it needs:
 - **WiFi**, and either `curl` or `wget` on the device. Without one the About section says so
   instead of offering the rows; NextUI ships a downloader for its own Pak Store, so this is
   normally already there.
-- A **release build**. A locally-built binary reports `dev` and is never offered an update,
-  which is what stops a `make brick` deploy from being replaced by whatever is on GitHub.
+- A **release build**. Anything you build yourself reports `<version>-dev` (e.g. `1.12.0-dev`)
+  and is never offered an update, which is what stops a `make brick` deploy from being replaced
+  by whatever is on GitHub. Only the release workflow stamps a build as a release.
+
+A client built from the `beta` or `rc` channel tracks that channel: it is offered the newest
+release of any kind, so `1.13.0-beta.1` will be offered `1.13.0-beta.2`. A stable build is only
+ever offered stable releases.
 
 It only replaces the `meshclient` binary. `launch.sh` and the `Tools/` helper binaries ship in
 the pak zip, so a release that changes either still needs the zip unpacked into
