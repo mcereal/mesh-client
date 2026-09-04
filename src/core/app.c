@@ -137,6 +137,7 @@ static void mesh_app_minui_on_device_selected(void *userdata, const char *identi
     app->ui_preferences_dirty = true;
 
     int connect_result = mesh_app_link_connect(app, identifier, kind);
+    app->ui_report_link_error = true;
     if (connect_result < 0 && connect_result != -EALREADY) {
         mesh_log_warn("ui", "Failed to connect to %s via MinUI (%d)", identifier, connect_result);
     }
@@ -680,6 +681,12 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
         const int result = mesh_app_link_connect(app, action->identifier, action->kind);
         if (result == 0 || result == -EALREADY || result == -EINPROGRESS) {
             snprintf(toast, sizeof toast, "Connecting to %.40s", action->identifier);
+            /* BLE resolves services from tick(), so a 0 here is not yet a connection. Arm the
+               error report so whatever goes wrong next reaches the screen. */
+            app->ui_report_link_error = true;
+        } else if (mesh_transport_registry_take_error(&app->transport_registry, toast,
+                                                      sizeof toast)) {
+            mesh_log_warn("ui", "Connect to %s failed: %s (%d)", action->identifier, toast, result);
         } else {
             snprintf(toast, sizeof toast, "Connect failed (%d)", result);
             mesh_log_warn("ui", "Connect to %s failed: %d", action->identifier, result);
@@ -1162,6 +1169,26 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     }
     app->ui_link_was_connected = link_connected;
 
+    /*
+     * Say why a connect failed. Always drain, so a message auto-connect provoked cannot surface
+     * later against an unrelated attempt; only show it when the user asked for this connect,
+     * because auto-connect retries the same doomed node on every backoff.
+     */
+    char link_error[MESH_TRANSPORT_ERROR_MAX];
+    if (mesh_transport_registry_take_error(&app->transport_registry, link_error,
+                                           sizeof link_error)) {
+        if (app->ui_report_link_error && app->config.run_mode == MESH_APP_RUN_FOREGROUND) {
+            mesh_log_info("ui", "Link failure shown to the user: %s", link_error);
+            mesh_ui_store_set_toast(&app->ui_store, mesh_app_now_ms(), link_error);
+        } else {
+            mesh_log_debug("ui", "Link failure not shown (auto-connect): %s", link_error);
+        }
+        app->ui_report_link_error = false;
+    }
+    if (link_connected) {
+        app->ui_report_link_error = false;
+    }
+
     /* USB ports first: a plugged-in node needs no pairing and no range, so it is the one you
        almost always want, and putting it at the top makes it the default cursor row. */
     struct mesh_serial_device_info serial_devices[MESH_SERIAL_MAX_DEVICES];
@@ -1561,6 +1588,7 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     app->autoconnect_failures = 0U;
     app->autoconnect_waiting_logged = false;
     app->ui_link_was_connected = false;
+    app->ui_report_link_error = false;
     app->autoconnect_disabled = mesh_app_env_disabled("MESHCLIENT_AUTOCONNECT");
     if (app->autoconnect_disabled) {
         mesh_log_info("app", "Auto-connect disabled by MESHCLIENT_AUTOCONNECT");

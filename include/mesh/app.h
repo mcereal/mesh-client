@@ -52,6 +52,10 @@ struct mesh_app {
     bool autoconnect_waiting_logged;
     /* Last published link state, so a drop can be announced once on the HUD. */
     bool ui_link_was_connected;
+    /* Set while a connect the user asked for is in flight. A link can fail seconds after its
+       connect() returned 0, so the reason is collected later from the transport; this keeps
+       auto-connect's own retries from toasting the same failure on every backoff. */
+    bool ui_report_link_error;
     /* A Settings save in flight: the write counters seen when it was queued, so its ack or
        rejection can be announced once; see mesh_app_track_settings_save(). */
     bool settings_save_pending;

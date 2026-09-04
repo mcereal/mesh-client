@@ -110,3 +110,18 @@ void mesh_transport_registry_set_session(struct mesh_transport_registry *registr
         }
     }
 }
+
+bool mesh_transport_registry_take_error(struct mesh_transport_registry *registry, char *out,
+                                        size_t out_len) {
+    if (registry == NULL || out == NULL || out_len == 0U) {
+        return false;
+    }
+    for (size_t i = 0; i < registry->count; ++i) {
+        struct mesh_transport *transport = registry->transports[i];
+        if (transport != NULL && transport->ops != NULL && transport->ops->take_error != NULL &&
+            transport->ops->take_error(transport, out, out_len)) {
+            return true;
+        }
+    }
+    return false;
+}

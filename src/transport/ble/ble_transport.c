@@ -10,6 +10,7 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
@@ -97,7 +98,52 @@ struct mesh_ble_transport_state {
     /* Owned only when nothing was injected; `session` is what the code uses. */
     struct mesh_session own_session;
     struct mesh_session *session;
+    /* Why the last connect attempt failed, in words, waiting to be shown once. A connect that
+       returned 0 can still fail several seconds later from tick(), so the errno the caller saw
+       cannot explain it. */
+    char last_error[MESH_TRANSPORT_ERROR_MAX];
 };
+
+/* Records a failure for the UI to pick up. First one wins until it is read, so the message the
+   user sees is the thing that actually went wrong rather than whatever cleanup reported last. */
+static void mesh_ble_set_error(struct mesh_ble_transport_state *state, const char *fmt, ...) {
+    if (state == NULL || state->last_error[0] != '\0') {
+        return;
+    }
+    va_list args;
+    va_start(args, fmt);
+    (void)vsnprintf(state->last_error, sizeof state->last_error, fmt, args);
+    va_end(args);
+}
+
+/* A short label for a node: the last four hex digits are what the Meshtastic apps show and what
+   is printed on the case, so "6DDA" beats the full MAC in a 64-column toast. */
+static const char *mesh_ble_short_label(const char *address) {
+    if (address == NULL || address[0] == '\0') {
+        return "node";
+    }
+    const size_t len = strlen(address);
+    /* "FB:17:7C:37:6D:DA" -> "6D:DA"; anything shorter is used as-is. */
+    return (len > 5U) ? address + (len - 5U) : address;
+}
+
+/* Plain English for the errnos bluez_client maps its D-Bus errors onto. */
+static const char *mesh_ble_connect_failure_text(int err) {
+    switch (err) {
+    case -EACCES:
+        return "needs pairing (PIN mode)";
+    case -ETIMEDOUT:
+        return "did not answer; is it in range?";
+    case -EBUSY:
+        return "already connecting";
+    case -ENOENT:
+        return "is not in range";
+    case -ENOTCONN:
+        return "Bluetooth is not ready";
+    default:
+        return "connect failed";
+    }
+}
 
 static const char *mesh_ble_state_to_string(enum mesh_ble_state state) {
     switch (state) {
@@ -498,12 +544,26 @@ static void mesh_ble_set_session(struct mesh_transport *transport, struct mesh_s
     ((struct mesh_ble_transport_state *)transport->state)->session = session;
 }
 
+static bool mesh_ble_take_error(struct mesh_transport *transport, char *out, size_t out_len) {
+    if (transport == NULL || transport->state == NULL || out == NULL || out_len == 0U) {
+        return false;
+    }
+    struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
+    if (state->last_error[0] == '\0') {
+        return false;
+    }
+    snprintf(out, out_len, "%s", state->last_error);
+    state->last_error[0] = '\0';
+    return true;
+}
+
 static const struct mesh_transport_ops k_ble_ops = {
     .start = mesh_ble_start,
     .stop = mesh_ble_stop,
     .status = mesh_ble_status,
     .tick = mesh_ble_tick,
     .set_session = mesh_ble_set_session,
+    .take_error = mesh_ble_take_error,
 };
 
 static bool mesh_ble_format_device_path(const struct mesh_ble_transport_state *state,
@@ -734,11 +794,16 @@ int mesh_ble_transport_connect(struct mesh_transport *transport, const char *add
     }
 
     struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
+    /* A new attempt supersedes whatever the last one failed with. */
+    state->last_error[0] = '\0';
+
     if (!state->client_initialised) {
+        mesh_ble_set_error(state, "Bluetooth is unavailable");
         return -ENOTCONN;
     }
 
     if (state->state != MESH_BLE_STATE_READY) {
+        mesh_ble_set_error(state, "Bluetooth is not ready yet");
         return -EAGAIN;
     }
 
@@ -759,6 +824,7 @@ int mesh_ble_transport_connect(struct mesh_transport *transport, const char *add
         }
     }
     if (!found) {
+        mesh_ble_set_error(state, "%s is not in range", mesh_ble_short_label(address));
         return -ENOENT;
     }
 
@@ -771,6 +837,8 @@ int mesh_ble_transport_connect(struct mesh_transport *transport, const char *add
     int result = mesh_bluez_client_connect_begin(&state->bluez, device_path);
     if (result < 0) {
         state->link_state = MESH_BLE_LINK_DISCONNECTED;
+        mesh_ble_set_error(state, "%s: %s", mesh_ble_short_label(address),
+                           mesh_ble_connect_failure_text(result));
         return result;
     }
 
@@ -804,12 +872,16 @@ static void mesh_ble_poll_connecting(struct mesh_ble_transport_state *state) {
             if (now - state->connect_started_ms >= MESH_BLE_CONNECT_TIMEOUT_MS) {
                 mesh_log_warn("ble", "%s: no reply to Connect after %u ms",
                               state->connected_address, MESH_BLE_CONNECT_TIMEOUT_MS);
+                mesh_ble_set_error(state, "%s did not answer; is it in range?",
+                                   mesh_ble_short_label(state->connected_address));
                 mesh_ble_reset_link(state, "connect timed out");
             }
             return;
         }
         state->connect_pending = false;
         if (poll < 0 || connect_result < 0) {
+            mesh_ble_set_error(state, "%s: %s", mesh_ble_short_label(state->connected_address),
+                               mesh_ble_connect_failure_text(connect_result));
             mesh_ble_reset_link(state, "connect failed");
             return;
         }
@@ -828,6 +900,8 @@ static void mesh_ble_poll_connecting(struct mesh_ble_transport_state *state) {
     if (result < 0) {
         mesh_log_warn("ble", "ServicesResolved query failed for %s (%d)", state->connected_address,
                       result);
+        mesh_ble_set_error(state, "%s: service discovery failed",
+                           mesh_ble_short_label(state->connected_address));
         mesh_ble_reset_link(state, "service discovery failed");
         return;
     }
@@ -836,6 +910,8 @@ static void mesh_ble_poll_connecting(struct mesh_ble_transport_state *state) {
         if (now - state->connect_started_ms >= MESH_BLE_SERVICES_TIMEOUT_MS) {
             mesh_log_warn("ble", "%s: GATT services still unresolved after %u ms",
                           state->connected_address, MESH_BLE_SERVICES_TIMEOUT_MS);
+            mesh_ble_set_error(state, "%s: no GATT services; try re-pairing",
+                               mesh_ble_short_label(state->connected_address));
             mesh_ble_reset_link(state, "service discovery timed out");
             return;
         }
@@ -862,6 +938,7 @@ static int mesh_ble_complete_connect(struct mesh_ble_transport_state *state) {
     if (result < 0) {
         mesh_log_warn("ble", "%s does not expose the Meshtastic service characteristics (%d)",
                       address, result);
+        mesh_ble_set_error(state, "%s is not a Meshtastic node", mesh_ble_short_label(address));
         return result;
     }
     mesh_log_debug("ble", "ToRadio %s", chars.toradio_path);
@@ -871,6 +948,15 @@ static int mesh_ble_complete_connect(struct mesh_ble_transport_state *state) {
     result = mesh_bluez_client_subscribe(&state->bluez, chars.fromnum_path, MESH_BLE_FROMNUM_UUID);
     if (result < 0) {
         mesh_log_warn("ble", "FromNum StartNotify failed (%d); is the node paired?", result);
+        /* The overwhelmingly common cause, and the only one the user can act on: a node in PIN
+           pairing mode has to be bonded with BlueZ out of band before its characteristics will
+           notify. Say so instead of printing an errno. */
+        if (result == -EACCES) {
+            mesh_ble_set_error(state, "%s needs pairing (PIN mode)", mesh_ble_short_label(address));
+        } else {
+            mesh_ble_set_error(state, "%s: could not subscribe (%d)", mesh_ble_short_label(address),
+                               result);
+        }
         return result;
     }
 

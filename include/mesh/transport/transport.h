@@ -23,7 +23,17 @@ struct mesh_transport_ops {
        the transport, so every link feeds the same node cache, message log and settings and
        switching transports does not lose the conversation. Call before start(). */
     void (*set_session)(struct mesh_transport *transport, struct mesh_session *session);
+    /* Optional. Pops the last connection failure as a line fit to show the user, or returns
+       false when there is none pending. A link's connect can fail long after connect() has
+       returned 0 (BlueZ resolves services asynchronously), so the errno the caller got back
+       is not enough to explain what went wrong; this is how that reaches the UI. One-shot:
+       the message is cleared by the read. */
+    bool (*take_error)(struct mesh_transport *transport, char *out, size_t out_len);
 };
+
+/* Cap on a take_error() line. Sized to fit MESH_UI_NAV_TOAST_MAX without the transports
+   having to include the UI headers. */
+#define MESH_TRANSPORT_ERROR_MAX 64U
 
 struct mesh_transport {
     const char *name;
@@ -52,6 +62,10 @@ int mesh_transport_registry_handle_command(struct mesh_transport_registry *regis
 /* Hands `session` to every registered transport that supports it. Call before start_all(). */
 void mesh_transport_registry_set_session(struct mesh_transport_registry *registry,
                                          struct mesh_session *session);
+/* Pops the first pending connection failure from any registered transport into `out`.
+   Returns true if one was taken. */
+bool mesh_transport_registry_take_error(struct mesh_transport_registry *registry, char *out,
+                                        size_t out_len);
 
 #ifdef __cplusplus
 }

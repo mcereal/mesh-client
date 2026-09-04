@@ -8,6 +8,7 @@
 #include "mesh/proto/stream_framing.h"
 
 #include <errno.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/epoll.h>
@@ -74,7 +75,20 @@ struct mesh_serial_transport_state {
     /* Owned only when nothing was injected; `session` is what the code uses. */
     struct mesh_session own_session;
     struct mesh_session *session;
+    /* Why the last connect attempt failed, in words, waiting to be shown once. */
+    char last_error[MESH_TRANSPORT_ERROR_MAX];
 };
+
+/* Records a failure for the UI to pick up. First one wins until it is read. */
+static void mesh_serial_set_error(struct mesh_serial_transport_state *state, const char *fmt, ...) {
+    if (state == NULL || state->last_error[0] != '\0') {
+        return;
+    }
+    va_list args;
+    va_start(args, fmt);
+    (void)vsnprintf(state->last_error, sizeof state->last_error, fmt, args);
+    va_end(args);
+}
 
 static const char *mesh_serial_state_to_string(enum mesh_serial_state state) {
     switch (state) {
@@ -359,7 +373,11 @@ int mesh_serial_transport_connect(struct mesh_transport *transport, const char *
     }
     struct mesh_serial_transport_state *state =
         (struct mesh_serial_transport_state *)transport->state;
+    /* A new attempt supersedes whatever the last one failed with. */
+    state->last_error[0] = '\0';
+
     if (state->state == MESH_SERIAL_STATE_DISABLED) {
+        mesh_serial_set_error(state, "USB serial is disabled");
         return -ENODEV;
     }
     if (state->link_state != MESH_SERIAL_LINK_DISCONNECTED) {
@@ -373,6 +391,7 @@ int mesh_serial_transport_connect(struct mesh_transport *transport, const char *
     }
     if (device == NULL) {
         mesh_log_warn("serial", "No USB serial port matches '%s'", identifier);
+        mesh_serial_set_error(state, "USB port is gone; is it still plugged in?");
         return -ENODEV;
     }
 
@@ -380,6 +399,8 @@ int mesh_serial_transport_connect(struct mesh_transport *transport, const char *
     if (!device->bound || device->path[0] == '\0') {
         const int bind_result = mesh_serial_usb_bind(device);
         if (bind_result < 0) {
+            mesh_serial_set_error(state, "%.20s: no USB serial driver (%d)", device->name,
+                                  bind_result);
             return bind_result;
         }
     }
@@ -387,6 +408,7 @@ int mesh_serial_transport_connect(struct mesh_transport *transport, const char *
     const int fd = mesh_serial_port_open(device->path);
     if (fd < 0) {
         mesh_log_warn("serial", "Cannot open %s: %s", device->path, strerror(-fd));
+        mesh_serial_set_error(state, "Cannot open %.24s: %.20s", device->path, strerror(-fd));
         return fd;
     }
     state->fd = fd;
@@ -454,6 +476,7 @@ static void mesh_serial_finish_wake(struct mesh_serial_transport_state *state) {
     const int handshake = mesh_session_begin_handshake(state->session);
     if (handshake < 0) {
         mesh_log_warn("serial", "Failed to request config sync: %d", handshake);
+        mesh_serial_set_error(state, "%.24s: the radio did not answer", state->connected.path);
         mesh_serial_reset_link(state, "handshake failed");
         return;
     }
@@ -644,12 +667,27 @@ static void mesh_serial_set_session(struct mesh_transport *transport,
     ((struct mesh_serial_transport_state *)transport->state)->session = session;
 }
 
+static bool mesh_serial_take_error(struct mesh_transport *transport, char *out, size_t out_len) {
+    if (transport == NULL || transport->state == NULL || out == NULL || out_len == 0U) {
+        return false;
+    }
+    struct mesh_serial_transport_state *state =
+        (struct mesh_serial_transport_state *)transport->state;
+    if (state->last_error[0] == '\0') {
+        return false;
+    }
+    snprintf(out, out_len, "%s", state->last_error);
+    state->last_error[0] = '\0';
+    return true;
+}
+
 static const struct mesh_transport_ops k_serial_ops = {
     .start = mesh_serial_start,
     .stop = mesh_serial_stop,
     .status = mesh_serial_status,
     .tick = mesh_serial_tick,
     .set_session = mesh_serial_set_session,
+    .take_error = mesh_serial_take_error,
 };
 
 /* ------------------------------------------------------------------ accessors */

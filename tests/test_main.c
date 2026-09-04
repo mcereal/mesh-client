@@ -6317,6 +6317,143 @@ cleanup:
     }
 }
 
+/* The clock mesh_app_publish_ui_state stamps its toasts with. */
+static uint64_t test_now_ms(void) {
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+        return 0U;
+    }
+    return (uint64_t)ts.tv_sec * 1000U + (uint64_t)ts.tv_nsec / 1000000U;
+}
+
+/*
+ * A BLE connect can return 0 and still fail seconds later, when BlueZ finishes service discovery
+ * and StartNotify is rejected because the node was never paired. That used to leave the UI stuck
+ * on "connecting" with the reason only in the log.
+ */
+static void test_app_connect_failure_toast(void) {
+    const char *test_name = "app_connect_failure_toast";
+    const char *failure = NULL;
+    bool app_ready = false;
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:07", .name = "NodeSeven", .rssi = -40},
+    };
+    struct mesh_bluez_mock_config mock_config = {
+        .adapter_path = "/org/bluez/hci0",
+        .devices = mock_devices,
+        .device_count = 1U,
+        /* The node answers Connect and resolves services, then refuses the subscription. */
+        .connect_pending_polls = 1U,
+        .subscribe_result = -EACCES,
+    };
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    char home_dir[] = "/tmp/mesh_app_connect_failXXXXXX";
+    if (mkdtemp(home_dir) == NULL) {
+        failure = "mkdtemp failed";
+        goto cleanup;
+    }
+    setenv("HOME", home_dir, 1);
+    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
+    unsetenv("MESHCLIENT_AUTOCONNECT");
+
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    config.enable_serial = false;
+
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    if (mesh_transport_registry_start_all(&app.transport_registry, &app.config, &app.loop) < 0) {
+        failure = "transport start failed";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+
+    if (app.ui_controller.on_action == NULL) {
+        failure = "the app should have installed a UI action handler";
+        goto cleanup;
+    }
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    action.type = MESH_UI_ACTION_CONNECT;
+    action.kind = (uint8_t)MESH_UI_DEVICE_BLE;
+    snprintf(action.identifier, sizeof action.identifier, "%s", "AA:BB:CC:DD:EE:07");
+    app.ui_controller.on_action(app.ui_controller.action_userdata, &action);
+
+    /* Connect has only been sent; nothing has failed yet. */
+    if (!mesh_ble_transport_is_connecting(ble)) {
+        failure = "the connect should be in flight";
+        goto cleanup;
+    }
+    if (strstr(app.ui_store.nav.toast, "Connecting") == NULL) {
+        failure = "the user should first be told the connect is in flight";
+        goto cleanup;
+    }
+    mesh_app_publish_ui_state(&app);
+    if (strstr(app.ui_store.nav.toast, "Connecting") == NULL) {
+        failure = "no failure should be reported while the connect is still pending";
+        goto cleanup;
+    }
+
+    /* Now the reply lands, services resolve, and StartNotify is refused. */
+    mesh_transport_registry_tick(&app.transport_registry);
+    if (mesh_ble_transport_is_connecting(ble) ||
+        mesh_ble_transport_connected_address(ble) != NULL) {
+        failure = "the link should have been dropped";
+        goto cleanup;
+    }
+
+    mesh_app_publish_ui_state(&app);
+    if (strstr(app.ui_store.nav.toast, "pairing") == NULL ||
+        strstr(app.ui_store.nav.toast, "EE:07") == NULL) {
+        failure = "the pairing failure should have reached the screen";
+        goto cleanup;
+    }
+
+    /* One report per attempt: the same failure must not keep re-toasting every publish. */
+    mesh_ui_store_set_toast(&app.ui_store, test_now_ms(), "quiet");
+    mesh_app_publish_ui_state(&app);
+    if (strcmp(app.ui_store.nav.toast, "quiet") != 0) {
+        failure = "the failure should be reported once, not on every publish";
+        goto cleanup;
+    }
+
+    /* Auto-connect retries the same doomed node on every backoff, so its failures stay in the
+       log; only a connect the user asked for is worth interrupting them for. */
+    app.autoconnect_retry_at_ms = 0U;
+    app.autoconnect_failures = 0U;
+    snprintf(app.config.preferred_ble_device, sizeof app.config.preferred_ble_device, "%s",
+             "AA:BB:CC:DD:EE:07");
+    mesh_app_autoconnect(&app);
+    mesh_transport_registry_tick(&app.transport_registry);
+    mesh_app_publish_ui_state(&app);
+    if (strcmp(app.ui_store.nav.toast, "quiet") != 0) {
+        failure = "an auto-connect failure should not raise a toast";
+        goto cleanup;
+    }
+
+cleanup:
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    mesh_bluez_client_mock_disable();
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
 static const struct test_case k_test_cases[] = {
     {"config_defaults", "unit", test_config_defaults},
     {"transport_registry_registration", "unit", test_transport_registry_registration},
@@ -6328,6 +6465,7 @@ static const struct test_case k_test_cases[] = {
      test_ble_transport_connect_deferred_services},
     {"ble_transport_connect_async_reply", "unit", test_ble_transport_connect_async_reply},
     {"app_autoconnect_policy", "unit", test_app_autoconnect_policy},
+    {"app_connect_failure_toast", "unit", test_app_connect_failure_toast},
     {"ui_store_basic", "unit", test_ui_store_basic},
     {"ui_store_persistence", "unit", test_ui_store_persistence},
     {"ui_store_refresh_request", "unit", test_ui_store_refresh_request},
