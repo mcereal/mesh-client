@@ -186,13 +186,27 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   against the lists on each consume) and returns a `mesh_ui_action` (connect, send text) that the
   controller hands to `mesh_app_on_ui_action` in `app.c`. Backends are stateless: they draw the
   cursor from `snapshot->nav`. Nav logic has no fd or device dependency, so test it directly.
-  The nav's `target_node`/`target_channel` pair is both the Compose destination and the
-  conversation the Messages tab shows (`inbox` shows everything); `mesh_ui_nav_filter_messages`
-  is the one place that filter lives, so the Messages cursor indexes the filtered list. The
-  on-screen keyboard is `keyboard_open` plus `kb_row/kb_col/kb_layer` and `draft`, all in the
-  nav; while it is open every key goes to the keyboard handler and tabs do not switch. The
-  `picker_open` overlay (Compose To:) works the same way; its rows come from
-  `mesh_ui_nav_picker_row` (channels, then nodes). `app.c` ranks nodes before publishing
+  The Messages tab is two levels, the shape the Settings tab already uses: `thread_open` clear
+  lists conversations (`mesh_ui_nav_conversation_count`/`_at`: all traffic, each enabled
+  channel, each node with direct messages, then "New message"), set shows the one named by
+  `target_node`/`target_channel` (or everything, when `inbox`), with the list's cursor parked in
+  `conversation_list_cursor` and B backing out. `mesh_ui_nav_filter_messages` is the one place
+  that filter lives, so the Messages cursor indexes the filtered list. Unread counts come from
+  `struct mesh_ui_read_state` in the store (persisted with the message cache): one
+  `packet_id` per conversation meaning "read up to here", chosen over a timestamp or an index
+  because ids survive both the ring evicting older messages and the cache merging history back
+  in - and a mark whose message has been evicted correctly reads as "everything in view is
+  newer". `mesh_ui_store_mark_open_conversation_read` runs from `consume_updates`, so opening a
+  thread clears its badge and a message landing in the thread you are sitting in never raises
+  one; the all-traffic view marks nothing (it is a view, not a conversation) and its badge is
+  the sum of the rest. **Only opening a thread
+  moves the target** - the Nodes tab opens the node's conversation rather than retargeting what
+  Messages was showing, and Compose is an overlay (`compose_open`) over the open thread rather
+  than a tab, so it can never be reached with a stale destination. The on-screen keyboard is
+  `keyboard_open` plus `kb_row/kb_col/kb_layer` and `draft`, all in the nav; while it is open
+  every key goes to the keyboard handler and tabs do not switch. The `picker_open` overlay
+  ("New message") works the same way; its rows come from `mesh_ui_nav_picker_row` (channels,
+  then nodes), and picking one opens that conversation. `app.c` ranks nodes before publishing
   (`mesh_app_node_rank`: us, message peers, RF nodes by `last_heard`, MQTT nodes) so the UI's
   128-node budget always holds whoever you are talking to; on an MQTT-fed mesh last_heard alone
   buries them. The post-stop publish in `mesh_app_run` only touches the transport line, because

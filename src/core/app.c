@@ -1385,6 +1385,14 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         }
     }
 
+    /* Marking a conversation read touches nothing else, so watch the stamp for it. */
+    if (app->ui_store.read_state.stamp != app->ui_read_state_stamp) {
+        app->ui_read_state_stamp = app->ui_store.read_state.stamp;
+        if (app->ui_handshake_cache_path[0] != '\0') {
+            app->ui_handshake_cache_dirty = true;
+        }
+    }
+
     if (app->ui_handshake_cache_dirty && app->ui_handshake_cache_path[0] != '\0') {
         int save_handshake = mesh_ui_store_save(&app->ui_store, app->ui_handshake_cache_path);
         if (save_handshake == 0) {
@@ -1623,6 +1631,7 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
         mesh_log_info("app", "Auto-connect disabled by MESHCLIENT_AUTOCONNECT");
     }
     app->ui_handshake_cache_dirty = false;
+    app->ui_read_state_stamp = 0U;
 
     if (mesh_ui_preferences_default_path(app->ui_preferences_path,
                                          sizeof(app->ui_preferences_path)) == 0) {
@@ -1669,6 +1678,8 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     /* Keep the restored conversation aside: every publish merges it back in, so an empty
        transport log at startup never overwrites it. */
     app->ui_messages_cached = app->ui_store.messages;
+    /* Restored read marks are already on disk; only later ones need a save. */
+    app->ui_read_state_stamp = app->ui_store.read_state.stamp;
 
     void *backend_userdata = NULL;
     const struct mesh_ui_backend *ui_backend = mesh_app_select_backend(app, &backend_userdata);

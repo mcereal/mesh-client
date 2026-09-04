@@ -487,8 +487,120 @@ static int fb_draw_wrapped(const struct mesh_ui_backend_fb_state *state, int y, 
     return lines;
 }
 
-static void fb_render_messages(const struct mesh_ui_backend_fb_state *state,
-                               const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+/* The conversation and picker helpers take a store; a snapshot carries the same data, so hand
+   them a view of it rather than duplicating the walk. */
+static void fb_store_view(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_store *view) {
+    memset(view, 0, sizeof *view);
+    memcpy(view->devices, snapshot->devices, sizeof view->devices);
+    view->device_count = snapshot->device_count;
+    view->handshake = snapshot->handshake;
+    view->handshake_valid = snapshot->handshake_valid;
+    view->messages = snapshot->messages;
+    view->read_state = snapshot->read_state;
+    view->event_fd = -1;
+}
+
+/* Level one of the Messages tab: all traffic, the channels, whoever we have direct messages
+   with, and the way to start a new one. Two lines a row - name and newest message. */
+static void fb_render_conversations(const struct mesh_ui_backend_fb_state *state,
+                                    const struct mesh_ui_snapshot *snapshot,
+                                    struct fb_layout *layout) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    struct mesh_ui_store view;
+    fb_store_view(snapshot, &view);
+
+    const uint32_t count = mesh_ui_nav_conversation_count(&view);
+    char title[96];
+    if (snapshot->messages.dropped > 0U) {
+        snprintf(title, sizeof title, "Messages (%u, +%u older)", count,
+                 (unsigned)snapshot->messages.dropped);
+    } else {
+        snprintf(title, sizeof title, "Messages (%u)", count);
+    }
+    fb_draw_title(state, layout, title);
+    if (count == 0U) {
+        fb_draw_empty(state, layout, "Connect to a node to see conversations.");
+        return;
+    }
+
+    /* Each conversation is a name line plus a preview line. */
+    const uint32_t per_row = 2U;
+    const uint32_t visible = layout->rows / per_row > 0U ? layout->rows / per_row : 1U;
+    const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_MESSAGES] < count
+                                ? nav->cursor[MESH_UI_SCREEN_MESSAGES]
+                                : count - 1U;
+    const uint32_t first = fb_first_visible(cursor, count, visible);
+
+    int y = layout->body_y;
+    char line[300];
+    char age[8];
+    for (uint32_t i = first; i < count && i < first + visible; ++i) {
+        struct mesh_ui_conversation conversation;
+        if (!mesh_ui_nav_conversation_at(&view, i, &conversation)) {
+            break;
+        }
+        const bool is_new = (conversation.kind == MESH_UI_CONVERSATION_NEW);
+        struct fb_rgb color = k_text;
+        if (conversation.kind == MESH_UI_CONVERSATION_CHANNEL ||
+            conversation.kind == MESH_UI_CONVERSATION_ALL) {
+            color = k_accent;
+        } else if (is_new) {
+            color = k_dim;
+        }
+
+        const bool unread = (conversation.unread > 0U);
+        if (is_new) {
+            snprintf(line, sizeof line, "+ %s", conversation.name);
+        } else {
+            /* The right-hand column says one thing only: how many messages are waiting, or
+               else how long ago the last one arrived. A bare message count there read as an
+               unread badge, and radios with no clock set report rx_time 0, so the age was a
+               bare "?" - between them the row said nothing anyone could act on. The total is
+               still in the conversation's own title once it is open. */
+            char right[24];
+            right[0] = '\0';
+            if (unread) {
+                snprintf(right, sizeof right, "%u new", (unsigned)conversation.unread);
+            } else if (conversation.last_time != 0U) {
+                fb_format_age(conversation.last_time, age, sizeof age);
+                snprintf(right, sizeof right, "%s", age);
+            }
+            const size_t right_len = strlen(right);
+            snprintf(line, sizeof line, "%s%s", unread ? "* " : "  ", conversation.name);
+            fb_fit(line, layout->cols > right_len + 1U ? layout->cols - right_len - 1U : 8U);
+            if (right_len > 0U) {
+                const size_t pad = layout->cols > strlen(line) + right_len
+                                       ? layout->cols - strlen(line) - right_len
+                                       : 1U;
+                snprintf(line + strlen(line), sizeof line - strlen(line), "%*s%s", (int)pad, "",
+                         right);
+            }
+        }
+        fb_fit(line, layout->cols);
+        /* Unread is drawn bright; so is the open thread, so B lands somewhere recognisable. */
+        if (unread || mesh_ui_nav_conversation_is_open(nav, &conversation)) {
+            color = k_white;
+        }
+        fb_draw_row(state, y, line, color, i == cursor);
+        y += layout->line;
+
+        if (!is_new) {
+            if (conversation.preview[0] != '\0') {
+                snprintf(line, sizeof line, "  %s%s", conversation.preview_outbound ? "> " : "",
+                         conversation.preview);
+            } else {
+                snprintf(line, sizeof line, "%s", "  no messages yet");
+            }
+            fb_fit(line, layout->cols);
+            fb_draw_text(state, FB_MARGIN, y, line, state->scale, k_dim);
+        }
+        y += layout->line;
+    }
+}
+
+/* Level two: the messages in the open thread. */
+static void fb_render_thread(const struct mesh_ui_backend_fb_state *state,
+                             const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_message_list *messages = &snapshot->messages;
     const struct mesh_ui_nav *nav = &snapshot->nav;
 
@@ -512,8 +624,8 @@ static void fb_render_messages(const struct mesh_ui_backend_fb_state *state,
 
     if (count == 0U) {
         fb_draw_empty(state, layout,
-                      nav->inbox ? "No messages yet. Y opens Compose."
-                                 : "Nothing here yet. Y composes, X switches.");
+                      nav->inbox ? "No messages yet. B goes back to the list."
+                                 : "Nothing here yet. Y writes one, B goes back.");
         return;
     }
 
@@ -638,27 +750,24 @@ static void fb_render_nodes(const struct mesh_ui_backend_fb_state *state,
     }
 }
 
+/* Compose overlay: it writes to the open thread, so the destination is a heading rather than
+   an editable row. */
 static void fb_render_compose(const struct mesh_ui_backend_fb_state *state,
                               const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
-    fb_draw_title(state, layout, "Compose");
+    char title[96];
+    snprintf(title, sizeof title, "To: %s%s", nav->target_name,
+             nav->target_node == MESH_MESSAGE_BROADCAST_ADDR ? "  (channel)" : "  (direct)");
+    fb_draw_title(state, layout, title);
 
-    const size_t canned = mesh_ui_canned_count();
-    const uint32_t count = MESH_UI_COMPOSE_FIRST_CANNED + (uint32_t)canned;
-    const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_COMPOSE] < count
-                                ? nav->cursor[MESH_UI_SCREEN_COMPOSE]
-                                : count - 1U;
+    const uint32_t count = mesh_ui_nav_compose_row_count();
+    const uint32_t cursor = nav->compose_cursor < count ? nav->compose_cursor : count - 1U;
     const uint32_t first = fb_first_visible(cursor, count, layout->rows);
 
     int y = layout->body_y;
     char line[300];
     for (uint32_t i = first; i < count && i < first + layout->rows; ++i) {
-        if (i == MESH_UI_COMPOSE_ROW_TARGET) {
-            snprintf(line, sizeof line, "To: %s%s", nav->target_name,
-                     nav->target_node == MESH_MESSAGE_BROADCAST_ADDR ? " (channel)" : " (direct)");
-            fb_fit(line, layout->cols);
-            fb_draw_row(state, y, line, k_accent, i == cursor);
-        } else if (i == MESH_UI_COMPOSE_ROW_DRAFT) {
+        if (i == MESH_UI_COMPOSE_ROW_DRAFT) {
             if (nav->draft[0] != '\0') {
                 snprintf(line, sizeof line, "Draft: %s", nav->draft);
             } else {
@@ -680,15 +789,8 @@ static void fb_render_compose(const struct mesh_ui_backend_fb_state *state,
 static void fb_render_picker(const struct mesh_ui_backend_fb_state *state,
                              const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
-    /* The snapshot is the store's data; the picker helpers take a store, so view it as one. */
     struct mesh_ui_store view;
-    memset(&view, 0, sizeof view);
-    memcpy(view.devices, snapshot->devices, sizeof view.devices);
-    view.device_count = snapshot->device_count;
-    view.handshake = snapshot->handshake;
-    view.handshake_valid = snapshot->handshake_valid;
-    view.messages = snapshot->messages;
-    view.event_fd = -1;
+    fb_store_view(snapshot, &view);
 
     const uint32_t count = mesh_ui_nav_picker_count(&view);
     char title[96];
@@ -1070,18 +1172,26 @@ static void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
         fb_draw_footer(state, snapshot, &layout, hint);
         return;
     }
+    if (snapshot->nav.compose_open) {
+        hint = "A send / type  B back to the conversation";
+        fb_render_compose(state, snapshot, &layout);
+        fb_draw_footer(state, snapshot, &layout, hint);
+        return;
+    }
     switch (snapshot->nav.screen) {
     case MESH_UI_SCREEN_MESSAGES:
-        hint = "A reply  X conversation  Y compose  L/R tabs";
-        fb_render_messages(state, snapshot, &layout);
+        if (!snapshot->nav.thread_open) {
+            hint = "A open  Y new message  L/R tabs";
+            fb_render_conversations(state, snapshot, &layout);
+        } else {
+            hint = snapshot->nav.inbox ? "A open conversation  B back  L/R tabs"
+                                       : "A reply  Y write  B back  L/R tabs";
+            fb_render_thread(state, snapshot, &layout);
+        }
         break;
     case MESH_UI_SCREEN_NODES:
-        hint = "A message node  Y compose  L/R tabs";
+        hint = "A open conversation  Y write  L/R tabs";
         fb_render_nodes(state, snapshot, &layout);
-        break;
-    case MESH_UI_SCREEN_COMPOSE:
-        hint = "A send / edit / pick To  B back  L/R tabs";
-        fb_render_compose(state, snapshot, &layout);
         break;
     case MESH_UI_SCREEN_DEVICES:
         hint = "A connect  Up/Down scroll  L/R tabs";

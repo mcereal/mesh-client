@@ -4,6 +4,8 @@
 
 #include "mesh/log.h"
 
+#include "mesh/mesh_message.h"
+
 #include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -308,6 +310,80 @@ void mesh_ui_message_list_merge(const struct mesh_ui_message_list *cached,
         ((cached != NULL) ? cached->dropped : 0U) + ((live != NULL) ? live->dropped : 0U) + skipped;
 }
 
+/* The slot holding this conversation's mark, taking a free one or evicting the least recently
+   read when they are all in use. Never fails. */
+static struct mesh_ui_read_mark *mesh_ui_store_read_mark_slot(struct mesh_ui_read_state *state,
+                                                              uint8_t kind, uint32_t node,
+                                                              uint8_t channel) {
+    for (uint32_t i = 0; i < state->count && i < MESH_UI_READ_MARKS_MAX; ++i) {
+        struct mesh_ui_read_mark *mark = &state->marks[i];
+        if (mark->kind != kind) {
+            continue;
+        }
+        if (kind == MESH_UI_CONVERSATION_CHANNEL && mark->channel == channel) {
+            return mark;
+        }
+        if (kind == MESH_UI_CONVERSATION_DIRECT && mark->node == node) {
+            return mark;
+        }
+    }
+
+    struct mesh_ui_read_mark *slot = NULL;
+    if (state->count < MESH_UI_READ_MARKS_MAX) {
+        slot = &state->marks[state->count++];
+    } else {
+        slot = &state->marks[0];
+        for (uint32_t i = 1; i < MESH_UI_READ_MARKS_MAX; ++i) {
+            if (state->marks[i].stamp < slot->stamp) {
+                slot = &state->marks[i];
+            }
+        }
+    }
+    memset(slot, 0, sizeof *slot);
+    slot->kind = kind;
+    slot->node = node;
+    slot->channel = channel;
+    return slot;
+}
+
+bool mesh_ui_store_mark_open_conversation_read(struct mesh_ui_store *store) {
+    if (store == NULL || !store->nav.thread_open || store->nav.inbox) {
+        return false;
+    }
+
+    const bool is_channel = (store->nav.target_node == MESH_MESSAGE_BROADCAST_ADDR);
+    const uint8_t kind =
+        is_channel ? (uint8_t)MESH_UI_CONVERSATION_CHANNEL : (uint8_t)MESH_UI_CONVERSATION_DIRECT;
+
+    /* The newest message in the conversation that carries an id. Packet id 0 means "no id" in
+       the Meshtastic protocol, so it can never be a mark; fall back to the newest one that can. */
+    uint32_t newest = 0U;
+    const uint32_t count =
+        store->messages.count > MESH_UI_MAX_MESSAGES ? MESH_UI_MAX_MESSAGES : store->messages.count;
+    for (uint32_t i = 0; i < count; ++i) {
+        const struct mesh_ui_message *message = &store->messages.entries[i];
+        const bool belongs =
+            is_channel ? (message->broadcast && message->channel == store->nav.target_channel)
+                       : (!message->broadcast && message->peer == store->nav.target_node);
+        if (belongs && message->packet_id != 0U) {
+            newest = message->packet_id;
+        }
+    }
+    if (newest == 0U) {
+        return false; /* nothing here to have read */
+    }
+
+    struct mesh_ui_read_mark *mark = mesh_ui_store_read_mark_slot(
+        &store->read_state, kind, store->nav.target_node, store->nav.target_channel);
+    store->read_state.stamp++;
+    mark->stamp = store->read_state.stamp;
+    if (mark->packet_id == newest) {
+        return false;
+    }
+    mark->packet_id = newest;
+    return true;
+}
+
 void mesh_ui_store_request_refresh(struct mesh_ui_store *store) {
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_DISCOVERY | MESH_UI_UPDATE_HANDSHAKE |
                                         MESH_UI_UPDATE_TRANSPORT | MESH_UI_UPDATE_MESSAGES |
@@ -331,6 +407,11 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
         return false;
     }
 
+    /* Whatever is on screen has been seen. Doing this here covers both halves of the rule: a
+       key that opens a thread marks NAV dirty, and a message arriving into the open thread
+       marks MESSAGES dirty, so either way we get here before the frame is built. */
+    mesh_ui_store_mark_open_conversation_read(store);
+
     snapshot->update_flags = store->pending_flags;
     snapshot->device_count = store->device_count;
     if (store->device_count > 0U) {
@@ -350,6 +431,7 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
     }
 
     snapshot->messages = store->messages;
+    snapshot->read_state = store->read_state;
     snapshot->settings = store->settings;
 
     memcpy(snapshot->transport_status, store->transport_status, sizeof snapshot->transport_status);
@@ -462,6 +544,20 @@ static void mesh_ui_store_save_messages(FILE *file, const struct mesh_ui_message
     }
 }
 
+/* One line per conversation that has been read. The stamp is not written: load order stands in
+   for it, which is all the eviction ordering needs. */
+static void mesh_ui_store_save_read_state(FILE *file, const struct mesh_ui_read_state *state) {
+    if (file == NULL || state == NULL) {
+        return;
+    }
+    fprintf(file, "read_marks=%u\n", state->count);
+    for (uint32_t i = 0; i < state->count && i < MESH_UI_READ_MARKS_MAX; ++i) {
+        const struct mesh_ui_read_mark *mark = &state->marks[i];
+        fprintf(file, "read[%u]=%u,%u,%u,%u\n", i, (unsigned)mark->kind, (unsigned)mark->channel,
+                mark->node, mark->packet_id);
+    }
+}
+
 int mesh_ui_store_save(const struct mesh_ui_store *store, const char *path) {
     if (store == NULL || path == NULL || path[0] == '\0') {
         return -EINVAL;
@@ -477,6 +573,7 @@ int mesh_ui_store_save(const struct mesh_ui_store *store, const char *path) {
         mesh_ui_store_save_handshake(file, &store->handshake);
     }
     mesh_ui_store_save_messages(file, &store->messages);
+    mesh_ui_store_save_read_state(file, &store->read_state);
 
     fclose(file);
     return 0;
@@ -504,6 +601,9 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
     uint32_t messages_expected = 0U;
     bool messages_expected_set = false;
     uint32_t messages_loaded = 0U;
+
+    struct mesh_ui_read_state read_state;
+    memset(&read_state, 0, sizeof(read_state));
 
     char line[1280];
     while (fgets(line, sizeof line, file) != NULL) {
@@ -661,6 +761,26 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                 snprintf(messages.entries[index].text, sizeof(messages.entries[index].text), "%s",
                          value);
             }
+        } else if (strncmp(key, "read[", 5) == 0) {
+            unsigned int index = 0U;
+            if (sscanf(key, "read[%u]", &index) == 1 && index < MESH_UI_READ_MARKS_MAX) {
+                unsigned int kind = 0U;
+                unsigned int channel = 0U;
+                unsigned int node = 0U;
+                unsigned int packet_id = 0U;
+                if (sscanf(value, "%u,%u,%u,%u", &kind, &channel, &node, &packet_id) == 4 &&
+                    packet_id != 0U) {
+                    struct mesh_ui_read_mark *mark = &read_state.marks[index];
+                    mark->kind = (uint8_t)kind;
+                    mark->channel = (uint8_t)channel;
+                    mark->node = node;
+                    mark->packet_id = packet_id;
+                    mark->stamp = index + 1U;
+                    if ((uint32_t)(index + 1U) > read_state.count) {
+                        read_state.count = index + 1U;
+                    }
+                }
+            }
         }
     }
 
@@ -689,6 +809,8 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
     }
     messages.count = message_count;
     store->messages = messages;
+    read_state.stamp = read_state.count;
+    store->read_state = read_state;
 
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_HANDSHAKE | MESH_UI_UPDATE_MESSAGES);
     return 0;

@@ -108,8 +108,6 @@ const char *mesh_ui_screen_name(enum mesh_ui_screen screen) {
         return "Messages";
     case MESH_UI_SCREEN_NODES:
         return "Nodes";
-    case MESH_UI_SCREEN_COMPOSE:
-        return "Compose";
     case MESH_UI_SCREEN_DEVICES:
         return "Devices";
     case MESH_UI_SCREEN_STATUS:
@@ -228,12 +226,63 @@ static void mesh_ui_nav_set_target(struct mesh_ui_nav *nav, const struct mesh_ui
     mesh_ui_nav_refresh_target_name(nav, store, name_hint);
 }
 
+/* Opening a thread is the only thing that moves the target, and it always parks the
+   conversation list's cursor so B can put it back. */
+static void mesh_ui_nav_open_thread(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                    uint32_t node_id, uint8_t channel, const char *name_hint) {
+    if (!nav->thread_open) {
+        nav->conversation_list_cursor = nav->cursor[MESH_UI_SCREEN_MESSAGES];
+    }
+    mesh_ui_nav_set_target(nav, store, node_id, channel, name_hint);
+    nav->thread_open = true;
+    nav->screen = MESH_UI_SCREEN_MESSAGES;
+    nav->cursor[MESH_UI_SCREEN_MESSAGES] = 0U;
+}
+
+static void mesh_ui_nav_open_all_traffic(struct mesh_ui_nav *nav) {
+    if (!nav->thread_open) {
+        nav->conversation_list_cursor = nav->cursor[MESH_UI_SCREEN_MESSAGES];
+    }
+    nav->inbox = true;
+    nav->thread_open = true;
+    nav->messages_seen = 0U;
+    nav->screen = MESH_UI_SCREEN_MESSAGES;
+    nav->cursor[MESH_UI_SCREEN_MESSAGES] = 0U;
+}
+
+/* The compose overlay always writes to the open thread, so it needs no target of its own. */
+static void mesh_ui_nav_open_compose(struct mesh_ui_nav *nav) {
+    nav->compose_open = true;
+    nav->compose_cursor =
+        nav->draft[0] != '\0' ? MESH_UI_COMPOSE_ROW_DRAFT : MESH_UI_COMPOSE_FIRST_CANNED;
+}
+
+/* B out of a thread. Returns false when the conversation list is already showing. */
+static bool mesh_ui_nav_close_thread(struct mesh_ui_nav *nav) {
+    if (!nav->thread_open) {
+        return false;
+    }
+    nav->thread_open = false;
+    nav->inbox = false;
+    nav->messages_seen = 0U;
+    nav->cursor[MESH_UI_SCREEN_MESSAGES] = nav->conversation_list_cursor;
+    return true;
+}
+
 void mesh_ui_nav_conversation_name(const struct mesh_ui_nav *nav, char *out, size_t out_len) {
     if (out == NULL || out_len == 0U) {
         return;
     }
-    if (nav == NULL || nav->inbox) {
-        snprintf(out, out_len, "%s", "Inbox");
+    if (nav == NULL) {
+        snprintf(out, out_len, "%s", "Messages");
+        return;
+    }
+    if (!nav->thread_open) {
+        snprintf(out, out_len, "%s", "Messages");
+        return;
+    }
+    if (nav->inbox) {
+        snprintf(out, out_len, "%s", "All traffic");
         return;
     }
     snprintf(out, out_len, "%s", nav->target_name);
@@ -247,7 +296,8 @@ void mesh_ui_nav_init(struct mesh_ui_nav *nav) {
     nav->screen = MESH_UI_SCREEN_MESSAGES;
     nav->target_node = MESH_MESSAGE_BROADCAST_ADDR;
     nav->target_channel = 0U;
-    nav->inbox = true; /* nothing hidden until the user picks a conversation */
+    nav->thread_open = false; /* land on the conversation list, the way a phone does */
+    nav->inbox = false;
     snprintf(nav->target_name, sizeof nav->target_name, "%s", "#Primary");
     nav->settings_section = MESH_UI_SETTINGS_NO_SECTION;
     nav->settings_channel = MESH_UI_SETTINGS_NO_CHANNEL;
@@ -255,6 +305,8 @@ void mesh_ui_nav_init(struct mesh_ui_nav *nav) {
 
 /* ---- message filter ----------------------------------------------------------------------- */
 
+/* Which messages belong to the thread the nav has open. Only meaningful while thread_open;
+   the conversation list below matches on its own terms. */
 static bool mesh_ui_nav_message_matches(const struct mesh_ui_nav *nav,
                                         const struct mesh_ui_message *message) {
     if (nav->inbox) {
@@ -296,6 +348,9 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
     }
     switch (screen) {
     case MESH_UI_SCREEN_MESSAGES:
+        if (nav == NULL || !nav->thread_open) {
+            return mesh_ui_nav_conversation_count(store);
+        }
         return mesh_ui_nav_filter_messages(nav, &store->messages, NULL, 0U);
     case MESH_UI_SCREEN_NODES:
         if (!store->handshake_valid) {
@@ -304,8 +359,6 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
         return store->handshake.node_count > MESH_UI_MAX_HANDSHAKE_NODES
                    ? MESH_UI_MAX_HANDSHAKE_NODES
                    : store->handshake.node_count;
-    case MESH_UI_SCREEN_COMPOSE:
-        return MESH_UI_COMPOSE_FIRST_CANNED + (uint32_t)mesh_ui_canned_count();
     case MESH_UI_SCREEN_DEVICES:
         return (uint32_t)store->device_count;
     case MESH_UI_SCREEN_SETTINGS:
@@ -319,6 +372,10 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
     default:
         return 0U;
     }
+}
+
+uint32_t mesh_ui_nav_compose_row_count(void) {
+    return MESH_UI_COMPOSE_FIRST_CANNED + (uint32_t)mesh_ui_canned_count();
 }
 
 bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *store) {
@@ -341,7 +398,7 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
             continue;
         }
 
-        if (screen == MESH_UI_SCREEN_MESSAGES) {
+        if (screen == MESH_UI_SCREEN_MESSAGES && nav->thread_open) {
             /* Newest at the bottom; a cursor sitting on the newest line stays on the newest
                line as traffic arrives. Anywhere else it holds its place. */
             const bool at_tail = (nav->messages_seen == 0U) || (*cursor + 1U >= nav->messages_seen);
@@ -356,6 +413,22 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
             *cursor = rows - 1U;
             moved = true;
         }
+    }
+
+    /* The parked conversation-list position, so backing out of a thread lands on a real row
+       even when the list shrank while it was open. */
+    if (nav->thread_open) {
+        const uint32_t conversations = mesh_ui_nav_conversation_count(store);
+        if (nav->conversation_list_cursor >= conversations) {
+            nav->conversation_list_cursor = conversations > 0U ? conversations - 1U : 0U;
+        }
+    }
+
+    /* The compose overlay's own cursor: the canned list is replaceable at runtime. */
+    const uint32_t compose_rows = mesh_ui_nav_compose_row_count();
+    if (nav->compose_cursor >= compose_rows) {
+        nav->compose_cursor = compose_rows > 0U ? compose_rows - 1U : 0U;
+        moved = moved || nav->compose_open;
     }
 
     /* A stale target name (node renamed, channel list arrived) is refreshed here too. */
@@ -460,8 +533,10 @@ bool mesh_ui_nav_picker_row(const struct mesh_ui_store *store, uint32_t index, u
     return false;
 }
 
-static void mesh_ui_nav_picker_open(struct mesh_ui_nav *nav, const struct mesh_ui_store *store) {
+static void mesh_ui_nav_picker_open(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                    bool then_compose) {
     nav->picker_open = true;
+    nav->picker_to_compose = then_compose;
     nav->picker_cursor = 0U;
     /* Start on the current target so a stray A changes nothing. */
     const uint32_t count = mesh_ui_nav_picker_count(store);
@@ -516,111 +591,265 @@ static bool mesh_ui_nav_picker_key(struct mesh_ui_nav *nav, const struct mesh_ui
         uint32_t node = 0U;
         uint8_t channel = 0U;
         if (mesh_ui_nav_picker_row(store, nav->picker_cursor, &node, &channel, NULL, 0U)) {
-            mesh_ui_nav_set_target(nav, store, node, channel, NULL);
+            /* Picking is the one other way to open a thread: it names a destination, so the
+               target moves and the conversation opens together. */
+            mesh_ui_nav_open_thread(nav, store, node, channel, NULL);
+            if (nav->picker_to_compose) {
+                mesh_ui_nav_open_compose(nav);
+            }
         }
         nav->picker_open = false;
+        nav->picker_to_compose = false;
         return true;
     }
     case MESH_UI_KEY_B:
         nav->picker_open = false;
+        nav->picker_to_compose = false;
         return true;
     default:
         return false;
     }
 }
 
-/* ---- target cycling ----------------------------------------------------------------------- */
+/* ---- conversation list --------------------------------------------------------------------- */
 
-/* X on Messages: Inbox, then each channel, then each node we have direct messages with. */
-static void mesh_ui_nav_cycle_conversation(struct mesh_ui_nav *nav,
-                                           const struct mesh_ui_store *store) {
-    if (nav->inbox) {
-        /* Leave the inbox for the first channel. */
-        const struct mesh_ui_handshake_state *hs =
-            store->handshake_valid ? &store->handshake : NULL;
-        uint8_t first = 0U;
-        if (hs != NULL) {
-            for (uint32_t i = 0; i < hs->channel_count && i < MESH_UI_MAX_CHANNELS; ++i) {
-                if (hs->channels[i].role != 0U) {
-                    first = hs->channels[i].index;
-                    break;
-                }
-            }
-        }
-        mesh_ui_nav_set_target(nav, store, MESH_MESSAGE_BROADCAST_ADDR, first, NULL);
-        return;
+/* The distinct nodes we have direct messages with, newest traffic first. Returns how many were
+   written; the ring caps the answer, so no allocation is needed anywhere. */
+static uint32_t mesh_ui_nav_direct_peers(const struct mesh_ui_store *store, uint32_t *out_peers,
+                                         uint32_t capacity) {
+    if (store == NULL) {
+        return 0U;
     }
-
-    if (nav->target_node == MESH_MESSAGE_BROADCAST_ADDR) {
-        /* Next channel, else the first node with direct traffic, else the inbox. */
-        const struct mesh_ui_handshake_state *hs =
-            store->handshake_valid ? &store->handshake : NULL;
-        if (hs != NULL) {
-            bool passed = false;
-            for (uint32_t i = 0; i < hs->channel_count && i < MESH_UI_MAX_CHANNELS; ++i) {
-                if (hs->channels[i].role == 0U) {
-                    continue;
-                }
-                if (passed) {
-                    mesh_ui_nav_set_target(nav, store, MESH_MESSAGE_BROADCAST_ADDR,
-                                           hs->channels[i].index, NULL);
-                    return;
-                }
-                if (hs->channels[i].index == nav->target_channel) {
-                    passed = true;
-                }
-            }
-        }
-        const struct mesh_ui_message_list *messages = &store->messages;
-        const uint32_t count =
-            messages->count > MESH_UI_MAX_MESSAGES ? MESH_UI_MAX_MESSAGES : messages->count;
-        for (uint32_t i = 0; i < count; ++i) {
-            if (!messages->entries[i].broadcast) {
-                mesh_ui_nav_set_target(nav, store, messages->entries[i].peer, 0U,
-                                       messages->entries[i].peer_name);
-                return;
-            }
-        }
-        nav->inbox = true;
-        nav->messages_seen = 0U;
-        return;
-    }
-
-    /* On a node: the next distinct direct-message peer after this one, else the inbox. */
     const struct mesh_ui_message_list *messages = &store->messages;
     const uint32_t count =
         messages->count > MESH_UI_MAX_MESSAGES ? MESH_UI_MAX_MESSAGES : messages->count;
-    uint32_t seen[MESH_UI_MAX_MESSAGES];
-    uint32_t seen_count = 0U;
-    bool passed = false;
-    for (uint32_t i = 0; i < count; ++i) {
-        const struct mesh_ui_message *message = &messages->entries[i];
+    uint32_t written = 0U;
+    /* The log is oldest-first, so walk it backwards to meet the newest peer first. */
+    for (uint32_t i = count; i > 0U; --i) {
+        const struct mesh_ui_message *message = &messages->entries[i - 1U];
         if (message->broadcast) {
             continue;
         }
         bool duplicate = false;
-        for (uint32_t j = 0; j < seen_count; ++j) {
-            if (seen[j] == message->peer) {
+        for (uint32_t j = 0; j < written; ++j) {
+            if (out_peers[j] == message->peer) {
                 duplicate = true;
                 break;
             }
         }
-        if (duplicate) {
+        if (duplicate || written >= capacity) {
             continue;
         }
-        seen[seen_count++] = message->peer;
-        if (passed) {
-            mesh_ui_nav_set_target(nav, store, message->peer, 0U, message->peer_name);
-            return;
-        }
-        if (message->peer == nav->target_node) {
-            passed = true;
-        }
+        out_peers[written++] = message->peer;
     }
-    nav->inbox = true;
-    nav->messages_seen = 0U;
+    return written;
 }
 
+/* The mark for one conversation, or NULL when it has never been read. */
+static const struct mesh_ui_read_mark *mesh_ui_nav_read_mark(const struct mesh_ui_read_state *state,
+                                                             uint8_t kind, uint32_t node,
+                                                             uint8_t channel) {
+    if (state == NULL) {
+        return NULL;
+    }
+    for (uint32_t i = 0; i < state->count && i < MESH_UI_READ_MARKS_MAX; ++i) {
+        const struct mesh_ui_read_mark *mark = &state->marks[i];
+        if (mark->kind != kind) {
+            continue;
+        }
+        if (kind == MESH_UI_CONVERSATION_CHANNEL && mark->channel == channel) {
+            return mark;
+        }
+        if (kind == MESH_UI_CONVERSATION_DIRECT && mark->node == node) {
+            return mark;
+        }
+    }
+    return NULL;
+}
+
+/* Newest message in a conversation for the list's preview line, plus how many inbound ones
+   arrived after it was last read. */
+static void mesh_ui_nav_conversation_summarise(const struct mesh_ui_store *store,
+                                               struct mesh_ui_conversation *conversation) {
+    const struct mesh_ui_message_list *messages = &store->messages;
+    const uint32_t count =
+        messages->count > MESH_UI_MAX_MESSAGES ? MESH_UI_MAX_MESSAGES : messages->count;
+
+    const struct mesh_ui_read_mark *mark = mesh_ui_nav_read_mark(
+        &store->read_state, conversation->kind, conversation->node, conversation->channel);
+    const uint32_t read_id = (mark != NULL) ? mark->packet_id : 0U;
+    /* Everything inbound, and everything inbound since the mark. Which one is the unread count
+       depends on whether the marked message is still in the log: if the ring has evicted it,
+       every message still in view arrived after it. */
+    uint32_t inbound_total = 0U;
+    uint32_t since_mark = 0U;
+    bool mark_seen = false;
+
+    for (uint32_t i = 0; i < count; ++i) {
+        const struct mesh_ui_message *message = &messages->entries[i];
+        bool belongs = false;
+        switch ((enum mesh_ui_conversation_kind)conversation->kind) {
+        case MESH_UI_CONVERSATION_ALL:
+            belongs = true;
+            break;
+        case MESH_UI_CONVERSATION_CHANNEL:
+            belongs = message->broadcast && message->channel == conversation->channel;
+            break;
+        case MESH_UI_CONVERSATION_DIRECT:
+            belongs = !message->broadcast && message->peer == conversation->node;
+            break;
+        case MESH_UI_CONVERSATION_NEW:
+        default:
+            return;
+        }
+        if (!belongs) {
+            continue;
+        }
+        conversation->message_count++;
+        /* Oldest first, so the last match seen is the newest. The preview is one list row;
+           anything longer is the thread's business. */
+        snprintf(conversation->preview, sizeof conversation->preview, "%.*s",
+                 (int)(sizeof conversation->preview - 1U), message->text);
+        conversation->last_time = message->rx_time;
+        conversation->preview_outbound = (message->direction == MESH_MESSAGE_OUTBOUND);
+
+        if (read_id != 0U && message->packet_id == read_id) {
+            mark_seen = true;
+            since_mark = 0U; /* the marked message and everything before it are read */
+            continue;
+        }
+        if (message->direction != MESH_MESSAGE_OUTBOUND) {
+            inbound_total++;
+            since_mark++;
+        }
+    }
+
+    if (read_id == 0U || !mark_seen) {
+        conversation->unread = inbound_total;
+    } else {
+        conversation->unread = since_mark;
+    }
+}
+
+uint32_t mesh_ui_nav_unread_total(const struct mesh_ui_store *store) {
+    if (store == NULL) {
+        return 0U;
+    }
+    const uint32_t rows = mesh_ui_nav_conversation_count(store);
+    uint32_t total = 0U;
+    /* Row 0 is the all-traffic row this total belongs to, and the last is "New message". */
+    for (uint32_t i = 1U; i + 1U < rows; ++i) {
+        struct mesh_ui_conversation conversation;
+        if (!mesh_ui_nav_conversation_at(store, i, &conversation)) {
+            break;
+        }
+        total += conversation.unread;
+    }
+    return total;
+}
+
+uint32_t mesh_ui_nav_conversation_count(const struct mesh_ui_store *store) {
+    uint8_t slots[MESH_UI_MAX_CHANNELS];
+    uint32_t peers[MESH_UI_MAX_MESSAGES];
+    const uint32_t channels = mesh_ui_nav_enabled_channels(store, slots, MESH_UI_MAX_CHANNELS);
+    const uint32_t directs = mesh_ui_nav_direct_peers(store, peers, MESH_UI_MAX_MESSAGES);
+    /* All traffic + channels + direct peers + New message. */
+    return 1U + channels + directs + 1U;
+}
+
+bool mesh_ui_nav_conversation_at(const struct mesh_ui_store *store, uint32_t index,
+                                 struct mesh_ui_conversation *out) {
+    if (store == NULL || out == NULL) {
+        return false;
+    }
+    uint8_t slots[MESH_UI_MAX_CHANNELS];
+    uint32_t peers[MESH_UI_MAX_MESSAGES];
+    const uint32_t channels = mesh_ui_nav_enabled_channels(store, slots, MESH_UI_MAX_CHANNELS);
+    const uint32_t directs = mesh_ui_nav_direct_peers(store, peers, MESH_UI_MAX_MESSAGES);
+
+    memset(out, 0, sizeof *out);
+    out->node = MESH_MESSAGE_BROADCAST_ADDR;
+
+    if (index == 0U) {
+        out->kind = MESH_UI_CONVERSATION_ALL;
+        snprintf(out->name, sizeof out->name, "%s", "All traffic");
+        mesh_ui_nav_conversation_summarise(store, out);
+        /* All traffic is a view, not a conversation: it keeps no mark of its own (opening it
+           marks nothing read), so its badge is what the rows below it still owe. */
+        out->unread = mesh_ui_nav_unread_total(store);
+        return true;
+    }
+    if (index < 1U + channels) {
+        out->kind = MESH_UI_CONVERSATION_CHANNEL;
+        out->channel = slots[index - 1U];
+        mesh_ui_nav_channel_name(store, out->channel, out->name, sizeof out->name);
+        mesh_ui_nav_conversation_summarise(store, out);
+        return true;
+    }
+    if (index < 1U + channels + directs) {
+        out->kind = MESH_UI_CONVERSATION_DIRECT;
+        out->node = peers[index - 1U - channels];
+        mesh_ui_nav_node_name(store, out->node, out->name, sizeof out->name);
+        mesh_ui_nav_conversation_summarise(store, out);
+        return true;
+    }
+    if (index == 1U + channels + directs) {
+        out->kind = MESH_UI_CONVERSATION_NEW;
+        snprintf(out->name, sizeof out->name, "%s", "New message");
+        return true;
+    }
+    return false;
+}
+
+bool mesh_ui_nav_conversation_is_open(const struct mesh_ui_nav *nav,
+                                      const struct mesh_ui_conversation *conversation) {
+    if (nav == NULL || conversation == NULL || !nav->thread_open) {
+        return false;
+    }
+    switch ((enum mesh_ui_conversation_kind)conversation->kind) {
+    case MESH_UI_CONVERSATION_ALL:
+        return nav->inbox;
+    case MESH_UI_CONVERSATION_CHANNEL:
+        return !nav->inbox && nav->target_node == MESH_MESSAGE_BROADCAST_ADDR &&
+               nav->target_channel == conversation->channel;
+    case MESH_UI_CONVERSATION_DIRECT:
+        return !nav->inbox && nav->target_node == conversation->node;
+    case MESH_UI_CONVERSATION_NEW:
+    default:
+        return false;
+    }
+}
+
+/* A on a conversation row. Returns true when the frame changed. */
+static bool mesh_ui_nav_open_conversation(struct mesh_ui_nav *nav,
+                                          const struct mesh_ui_store *store, uint32_t index,
+                                          bool then_compose) {
+    struct mesh_ui_conversation conversation;
+    if (!mesh_ui_nav_conversation_at(store, index, &conversation)) {
+        return false;
+    }
+    switch ((enum mesh_ui_conversation_kind)conversation.kind) {
+    case MESH_UI_CONVERSATION_ALL:
+        /* Nothing to compose to: all traffic is a view, not a destination. */
+        mesh_ui_nav_open_all_traffic(nav);
+        return true;
+    case MESH_UI_CONVERSATION_CHANNEL:
+        mesh_ui_nav_open_thread(nav, store, MESH_MESSAGE_BROADCAST_ADDR, conversation.channel,
+                                NULL);
+        break;
+    case MESH_UI_CONVERSATION_DIRECT:
+        mesh_ui_nav_open_thread(nav, store, conversation.node, 0U, NULL);
+        break;
+    case MESH_UI_CONVERSATION_NEW:
+    default:
+        mesh_ui_nav_picker_open(nav, store, true);
+        return true;
+    }
+    if (then_compose) {
+        mesh_ui_nav_open_compose(nav);
+    }
+    return true;
+}
 /* ---- keyboard ----------------------------------------------------------------------------- */
 
 /* The most bytes the draft may hold: the message limit, or the field's cap when the keyboard
@@ -658,7 +887,8 @@ static bool mesh_ui_nav_draft_delete(struct mesh_ui_nav *nav) {
 }
 
 /* Closing always parks the cursor at the top-left so the next message starts the same way.
-   A keyboard opened for a setting returns to that section and restores the Compose draft. */
+   A keyboard opened for a setting returns to that section and restores the Compose draft; one
+   opened for a message falls back to the compose overlay it was opened from. */
 static void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
     nav->keyboard_open = false;
     nav->kb_row = 0U;
@@ -669,9 +899,7 @@ static void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
         snprintf(nav->draft, sizeof nav->draft, "%s", nav->draft_saved);
         nav->draft_saved[0] = '\0';
         nav->screen = MESH_UI_SCREEN_SETTINGS;
-        return;
     }
-    nav->screen = MESH_UI_SCREEN_COMPOSE;
 }
 
 /* ---- settings edits ----------------------------------------------------------------------- */
@@ -922,8 +1150,8 @@ static bool mesh_ui_nav_send_draft(struct mesh_ui_nav *nav, struct mesh_ui_actio
     }
     nav->draft[0] = '\0';
     mesh_ui_nav_keyboard_close(nav);
-    nav->inbox = false; /* show the conversation the message went to */
-    nav->messages_seen = 0U;
+    /* Land back in the thread it went to, with the compose overlay out of the way. */
+    nav->compose_open = false;
     nav->screen = MESH_UI_SCREEN_MESSAGES;
     return true;
 }
@@ -1057,10 +1285,63 @@ static bool mesh_ui_nav_move_cursor(struct mesh_ui_nav *nav, const struct mesh_u
     return true;
 }
 
-static void mesh_ui_nav_open_compose(struct mesh_ui_nav *nav) {
-    nav->screen = MESH_UI_SCREEN_COMPOSE;
-    nav->cursor[MESH_UI_SCREEN_COMPOSE] =
-        nav->draft[0] != '\0' ? MESH_UI_COMPOSE_ROW_DRAFT : MESH_UI_COMPOSE_FIRST_CANNED;
+/* ---- compose overlay ---------------------------------------------------------------------- */
+
+/* Sends one canned reply to the open thread. */
+static bool mesh_ui_nav_send_canned(struct mesh_ui_nav *nav, struct mesh_ui_action *action,
+                                    size_t index) {
+    if (index >= mesh_ui_canned_count()) {
+        return false;
+    }
+    if (action != NULL) {
+        action->type = MESH_UI_ACTION_SEND_TEXT;
+        action->dest = nav->target_node;
+        action->channel = nav->target_channel;
+        snprintf(action->text, sizeof action->text, "%s", mesh_ui_canned_text(index));
+    }
+    /* Back to the thread it went to; the app's toast reports the outcome. */
+    nav->compose_open = false;
+    return true;
+}
+
+static bool mesh_ui_nav_compose_key(struct mesh_ui_nav *nav, enum mesh_ui_key key,
+                                    struct mesh_ui_action *action) {
+    const uint32_t rows = mesh_ui_nav_compose_row_count();
+    if (nav->compose_cursor >= rows && rows > 0U) {
+        nav->compose_cursor = rows - 1U;
+    }
+    switch (key) {
+    case MESH_UI_KEY_UP:
+        if (nav->compose_cursor == 0U) {
+            return false;
+        }
+        nav->compose_cursor--;
+        return true;
+    case MESH_UI_KEY_DOWN:
+        if (nav->compose_cursor + 1U >= rows) {
+            return false;
+        }
+        nav->compose_cursor++;
+        return true;
+    case MESH_UI_KEY_A:
+    case MESH_UI_KEY_START:
+        if (nav->compose_cursor == MESH_UI_COMPOSE_ROW_DRAFT) {
+            nav->keyboard_open = true;
+            return true;
+        }
+        return mesh_ui_nav_send_canned(nav, action,
+                                       nav->compose_cursor - MESH_UI_COMPOSE_FIRST_CANNED);
+    case MESH_UI_KEY_Y:
+        /* Y opened this; a second press types, which is what the row it lands on offers. */
+        nav->compose_cursor = MESH_UI_COMPOSE_ROW_DRAFT;
+        nav->keyboard_open = true;
+        return true;
+    case MESH_UI_KEY_B:
+        nav->compose_open = false;
+        return true;
+    default:
+        return false;
+    }
 }
 
 static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
@@ -1073,6 +1354,9 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         if (cursor >= rows) {
             return false;
         }
+        if (!nav->thread_open) {
+            return mesh_ui_nav_open_conversation(nav, store, cursor, false);
+        }
         uint32_t indices[MESH_UI_MAX_MESSAGES];
         const uint32_t count =
             mesh_ui_nav_filter_messages(nav, &store->messages, indices, MESH_UI_MAX_MESSAGES);
@@ -1080,12 +1364,18 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             return false;
         }
         const struct mesh_ui_message *message = &store->messages.entries[indices[cursor]];
-        /* Reply: a broadcast goes back to its channel, a direct message back to the peer. */
-        if (message->broadcast) {
-            mesh_ui_nav_set_target(nav, store, MESH_MESSAGE_BROADCAST_ADDR, message->channel, NULL);
-        } else {
-            mesh_ui_nav_set_target(nav, store, message->peer, 0U, message->peer_name);
+        if (nav->inbox) {
+            /* All traffic is a view over several conversations: A drills into the one this
+               line belongs to rather than guessing a destination. */
+            if (message->broadcast) {
+                mesh_ui_nav_open_thread(nav, store, MESH_MESSAGE_BROADCAST_ADDR, message->channel,
+                                        NULL);
+            } else {
+                mesh_ui_nav_open_thread(nav, store, message->peer, 0U, message->peer_name);
+            }
+            return true;
         }
+        /* Inside a conversation there is only one thing A can mean: reply here. */
         mesh_ui_nav_open_compose(nav);
         return true;
     }
@@ -1100,33 +1390,9 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         if (store->handshake.has_my_info && node->node_id == store->handshake.my_info.node_num) {
             return false; /* messaging yourself is not a thing */
         }
-        mesh_ui_nav_set_target(nav, store, node->node_id, 0U, NULL);
-        mesh_ui_nav_open_compose(nav);
-        return true;
-    }
-    case MESH_UI_SCREEN_COMPOSE: {
-        if (cursor == MESH_UI_COMPOSE_ROW_TARGET) {
-            mesh_ui_nav_picker_open(nav, store);
-            return true;
-        }
-        if (cursor == MESH_UI_COMPOSE_ROW_DRAFT) {
-            nav->keyboard_open = true;
-            return true;
-        }
-        const size_t canned_index = cursor - MESH_UI_COMPOSE_FIRST_CANNED;
-        if (canned_index >= mesh_ui_canned_count()) {
-            return false;
-        }
-        if (action != NULL) {
-            action->type = MESH_UI_ACTION_SEND_TEXT;
-            action->dest = nav->target_node;
-            action->channel = nav->target_channel;
-            snprintf(action->text, sizeof action->text, "%s", mesh_ui_canned_text(canned_index));
-        }
-        /* Show the conversation it went to; the app's toast reports the outcome. */
-        nav->inbox = false;
-        nav->messages_seen = 0U;
-        nav->screen = MESH_UI_SCREEN_MESSAGES;
+        /* Contacts open a conversation, the way tapping a contact does; Y from here composes
+           into it straight away. */
+        mesh_ui_nav_open_thread(nav, store, node->node_id, 0U, NULL);
         return true;
     }
     case MESH_UI_SCREEN_DEVICES: {
@@ -1252,6 +1518,9 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
     if (nav->keyboard_open) {
         return mesh_ui_nav_keyboard_key(nav, store, key, out_action) || changed;
     }
+    if (nav->compose_open) {
+        return mesh_ui_nav_compose_key(nav, key, out_action) || changed;
+    }
 
     if (nav->screen == MESH_UI_SCREEN_SETTINGS &&
         nav->settings_section != MESH_UI_SETTINGS_NO_SECTION) {
@@ -1283,21 +1552,16 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
     case MESH_UI_KEY_START:
         return mesh_ui_nav_confirm(nav, store, out_action) || changed;
     case MESH_UI_KEY_B:
-        /* Back out of Compose to the conversation; elsewhere B is a no-op so a stray press
-           never drops the user somewhere unexpected. */
-        if (nav->screen == MESH_UI_SCREEN_COMPOSE) {
-            nav->screen = MESH_UI_SCREEN_MESSAGES;
-            return true;
+        /* Back out of a thread to the conversation list; elsewhere B is a no-op so a stray
+           press never drops the user somewhere unexpected. */
+        if (nav->screen == MESH_UI_SCREEN_MESSAGES) {
+            return mesh_ui_nav_close_thread(nav) || changed;
         }
         if (nav->screen == MESH_UI_SCREEN_SETTINGS) {
             return mesh_ui_nav_settings_back(nav) || changed;
         }
         return changed;
     case MESH_UI_KEY_X:
-        if (nav->screen == MESH_UI_SCREEN_MESSAGES) {
-            mesh_ui_nav_cycle_conversation(nav, store);
-            return true;
-        }
         if (nav->screen == MESH_UI_SCREEN_SETTINGS) {
             if (out_action != NULL) {
                 out_action->type = MESH_UI_ACTION_REFRESH_SETTINGS;
@@ -1306,8 +1570,29 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         }
         return changed;
     case MESH_UI_KEY_Y:
-        /* Compose to the current conversation from anywhere it makes sense. */
-        if (nav->screen == MESH_UI_SCREEN_MESSAGES || nav->screen == MESH_UI_SCREEN_NODES) {
+        if (nav->screen == MESH_UI_SCREEN_MESSAGES) {
+            /* In a conversation, write to it. On the list (or in the all-traffic view, which
+               has no single destination), pick who to write to first. */
+            if (nav->thread_open && !nav->inbox) {
+                mesh_ui_nav_open_compose(nav);
+            } else {
+                mesh_ui_nav_picker_open(nav, store, true);
+            }
+            return true;
+        }
+        if (nav->screen == MESH_UI_SCREEN_NODES) {
+            /* Straight from a contact into writing to it. */
+            const uint32_t rows = mesh_ui_nav_row_count(nav, store, nav->screen);
+            const uint32_t cursor = nav->cursor[nav->screen];
+            if (cursor >= rows) {
+                return changed;
+            }
+            const struct mesh_ui_node_summary *node = &store->handshake.nodes[cursor];
+            if (node->node_id == 0U || (store->handshake.has_my_info &&
+                                        node->node_id == store->handshake.my_info.node_num)) {
+                return changed;
+            }
+            mesh_ui_nav_open_thread(nav, store, node->node_id, 0U, NULL);
             mesh_ui_nav_open_compose(nav);
             return true;
         }
