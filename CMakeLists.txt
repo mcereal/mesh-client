@@ -47,6 +47,7 @@ add_library(meshclient_core
     src/proto/framing.c
     src/proto/stream_framing.c
     src/utils/log.c
+    src/utils/text.c
     src/ui/store.c
     src/ui/controller.c
     src/ui/input.c
@@ -56,6 +57,9 @@ add_library(meshclient_core
     src/ui/backends/cli.c
     src/ui/backends/minui.c
     src/ui/backends/fb.c
+    src/ui/font5x7.c
+    src/ui/emoji.c
+    src/ui/emoji_glyphs.c
     src/ui/preferences.c
 )
 

@@ -68,3 +68,7 @@ package-lock.json
 .npm/
 # Device deploy settings (scripts/deploy-device.sh)
 .brick.env
+
+# Python helper tooling (scripts/gen-emoji.py)
+__pycache__/
+.venv/
