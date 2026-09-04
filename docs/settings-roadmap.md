@@ -77,8 +77,9 @@ over a static description of each section:
   states what will happen, and after commit the HUD shows "radio rebooting, reconnecting"
   until the link poller and auto-connect bring it back.
 
-New primitives this needs beyond what exists: confirm overlay, number stepper, hex key
-entry (the keyboard's symbol layer covers it), and per-item pending values in the nav.
+New primitives this needed beyond what existed: confirm overlay, number presets, hex key
+entry through the keyboard, and per-field pending values in the nav (all in place as of
+phase 3).
 
 ## Phases
 
@@ -115,11 +116,27 @@ rather than avoided.
   read-back, the radio reboots and the client reconnects with the value still set; renaming
   the node via the keyboard shows the new name in the phone app.
 
-### Phase 3 - Channels and Bluetooth
+### Phase 3 - Channels and Bluetooth (this branch)
 
-Channel name/role/PSK/uplink/downlink/position precision with generated keys; Bluetooth PIN
-mode with the re-pair warning. Bluetooth changes reboot the radio; this phase adds the
-confirm overlay and the "rebooting, reconnecting" state.
+The core keeps the radio's full channel table (`FromRadio.channel` during the handshake,
+`get_channel_response` on refresh; `get_channel_request` is one-based on the wire) and writes
+a slot with `set_channel` carrying the whole `Channel`, id included. In the Channels section every slot
+is listed, empty ones included, and A opens it (adding a channel is setting up an empty slot;
+removing one is setting its role to Disabled): name (11 bytes), role (Disabled/Secondary; the primary slot's role is shown
+read-only so a mesh cannot be left with two primaries or none by accident), key, MQTT uplink
+and downlink, position precision (presets 0, 10..19, 32 labelled by distance). The key row is
+a new kind: Left/Right walk keep / default key / new random AES-128 / new random AES-256 / no
+encryption, and A opens the keyboard on the current key as hex (the one place it is revealed)
+to type or copy one; random keys are drawn with `getrandom()` when the write is built.
+Bluetooth: enabled, pairing mode, fixed PIN (six digits, validated before the write).
+
+Both sections sit behind a **confirm overlay**: Y opens "Save channel N?" / "Save Bluetooth?"
+with the consequence spelled out (reboot; re-pair with `bluetoothctl`; a new key or name moves
+the radio to another channel), cursor on Cancel, A on "Save to radio" emits the write.
+
+- Exit criteria: on the Brick, a secondary channel renamed and re-keyed from the Brick shows
+  the same name and key fingerprint in the phone app after the reboot; switching the pairing
+  mode to No PIN, re-pairing once with `bluetoothctl`, and reconnecting works.
 
 ### Phase 4 - LoRa and Security
 

@@ -61,6 +61,21 @@ struct mesh_ui_channel {
     uint32_t position_precision;
 };
 
+/* One channel slot with everything set_channel needs, keys included. Lives in the settings
+   (never persisted) rather than the cached handshake. */
+#define MESH_UI_PSK_MAX 32U
+struct mesh_ui_channel_detail {
+    bool present;
+    uint8_t index;
+    uint8_t role; /* meshtastic_Channel_Role */
+    char name[MESH_UI_CHANNEL_NAME_MAX];
+    uint8_t psk[MESH_UI_PSK_MAX];
+    uint8_t psk_len;
+    bool uplink_enabled;
+    bool downlink_enabled;
+    uint32_t position_precision;
+};
+
 /*
  * The connected radio's configuration, flattened from the protobufs the transport decoded so
  * the backends and the settings table never include nanopb. Every `has_*` says whether that
@@ -157,6 +172,9 @@ struct mesh_ui_settings {
     bool environment_display_fahrenheit;
     bool air_quality_enabled;
     bool power_measurement_enabled;
+
+    bool has_channels; /* any slot present */
+    struct mesh_ui_channel_detail channels[MESH_UI_MAX_CHANNELS];
 
     bool has_metadata;
     char firmware_version[18];

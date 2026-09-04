@@ -3801,7 +3801,7 @@ static void test_radio_settings_fetch_queue(void) {
     }
 
     /* Everything: the probe pair plus eight configs and three module configs, no repeats. */
-    if (mesh_radio_settings_queue_all(&settings) != 13U || settings.queue_len != 13U) {
+    if (mesh_radio_settings_queue_all(&settings) != 21U || settings.queue_len != 21U) {
         record_failure(test_name, "queue_all should add thirteen requests");
         return;
     }
@@ -3847,51 +3847,56 @@ static void test_ui_settings_items(void) {
 
     if (!mesh_ui_settings_section_loaded(&settings, &handshake, MESH_UI_SETTINGS_LORA) ||
         mesh_ui_settings_section_loaded(&settings, &handshake, MESH_UI_SETTINGS_DISPLAY) ||
-        mesh_ui_settings_item_count(&settings, &handshake, MESH_UI_SETTINGS_DISPLAY) != 0U) {
+        mesh_ui_settings_item_count(&settings, &handshake, MESH_UI_SETTINGS_DISPLAY,
+                                    MESH_UI_SETTINGS_NO_CHANNEL) != 0U) {
         record_failure(test_name, "section loaded flags are wrong");
         return;
     }
 
     struct mesh_ui_settings_item item;
-    if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_LORA, 0U, &item) ||
+    if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_LORA,
+                               MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
         strcmp(item.label, "Region") != 0 || strcmp(item.value, "US") != 0 ||
         item.kind != MESH_UI_SETTING_ENUM) {
         record_failure(test_name, "LoRa region row is wrong");
         return;
     }
-    if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_LORA, 2U, &item) ||
+    if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_LORA,
+                               MESH_UI_SETTINGS_NO_CHANNEL, 2U, &item) ||
         strcmp(item.label, "Preset") != 0 || strcmp(item.value, "Long Range - Moderate") != 0) {
         record_failure(test_name, "LoRa preset row is wrong");
         return;
     }
-    if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_DEVICE, 0U,
-                               &item) ||
+    if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_DEVICE,
+                               MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
         strcmp(item.value, "Router Late") != 0) {
         record_failure(test_name, "device role row is wrong");
         return;
     }
-    if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_SECURITY, 0U,
-                               &item) ||
+    if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_SECURITY,
+                               MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
         item.kind != MESH_UI_SETTING_KEY || strncmp(item.value, "deadbeef...", 11U) != 0 ||
         strstr(item.value, "32 bytes") == NULL) {
         record_failure(test_name, "public key fingerprint is wrong");
         return;
     }
-    if (mesh_ui_settings_item_count(&settings, &handshake, MESH_UI_SETTINGS_CHANNELS) != 2U ||
-        !mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U,
-                               &item) ||
+    if (mesh_ui_settings_item_count(&settings, &handshake, MESH_UI_SETTINGS_CHANNELS,
+                                    MESH_UI_SETTINGS_NO_CHANNEL) != 2U ||
+        !mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_CHANNELS,
+                               MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
         strcmp(item.label, "1 Team") != 0 || strstr(item.value, "AES-128") == NULL ||
         strstr(item.value, "up on") == NULL || strstr(item.value, "down off") == NULL) {
         record_failure(test_name, "channel row is wrong");
         return;
     }
-    if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 0U,
-                               &item) ||
+    if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_CHANNELS,
+                               MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
         strcmp(item.label, "0 Primary") != 0 || strstr(item.value, "default key") == NULL) {
         record_failure(test_name, "primary channel row is wrong");
         return;
     }
-    if (mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_LORA, 99U, &item)) {
+    if (mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_LORA,
+                              MESH_UI_SETTINGS_NO_CHANNEL, 99U, &item)) {
         record_failure(test_name, "out-of-range row should fail");
         return;
     }
@@ -4206,8 +4211,8 @@ static void test_ble_transport_admin_probe(void) {
     /* A manual refresh re-reads everything (the probe pair included, since they have left
        the queue); nothing goes out until the owner reply lands or times out. */
     const int queued = mesh_ble_transport_refresh_settings(ble);
-    if (queued != 13) {
-        failure = "refresh should queue all thirteen requests";
+    if (queued != 21) {
+        failure = "refresh should queue all thirteen sections and eight channel slots";
         goto cleanup;
     }
     if (write_call_count != writes_before_reply + 1U) {
@@ -4401,7 +4406,8 @@ static void test_ui_settings_edits(void) {
     settings.device_update_interval = 1234U; /* not a preset */
 
     struct mesh_ui_settings_item item;
-    if (!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_USER, 0U, &item) ||
+    if (!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_USER,
+                               MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
         item.field != MESH_UI_FIELD_USER_LONG_NAME || item.kind != MESH_UI_SETTING_TEXT ||
         item.dirty || strcmp(item.text, "Meshtastic 0ad8") != 0 ||
         strcmp(item.value, "Meshtastic 0ad8") != 0) {
@@ -4414,7 +4420,8 @@ static void test_ui_settings_edits(void) {
         record_failure(test_name, "text caps are wrong");
         return;
     }
-    if (!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_DISPLAY, 0U, &item) ||
+    if (!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_DISPLAY,
+                               MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
         item.field != MESH_UI_FIELD_DISPLAY_SCREEN_ON || item.kind != MESH_UI_SETTING_NUMBER ||
         item.number != 60U || strcmp(item.value, "1m") != 0) {
         record_failure(test_name, "screen-on row is wrong");
@@ -4444,7 +4451,8 @@ static void test_ui_settings_edits(void) {
         return;
     }
     /* A read-only row has no field. */
-    if (!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_TELEMETRY, 1U, &item) ||
+    if (!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_TELEMETRY,
+                               MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
         item.field != MESH_UI_FIELD_TELEMETRY_INTERVAL || strcmp(item.value, "1234s") != 0) {
         record_failure(test_name, "telemetry interval row is wrong");
         return;
@@ -4457,18 +4465,21 @@ static void test_ui_settings_edits(void) {
     edits[0].number = 0U;
     edits[1].field = MESH_UI_FIELD_USER_SHORT_NAME;
     snprintf(edits[1].text, sizeof edits[1].text, "%s", "BRCK");
-    if (!mesh_ui_settings_item(&settings, NULL, edits, 2U, MESH_UI_SETTINGS_DISPLAY, 4U, &item) ||
+    if (!mesh_ui_settings_item(&settings, NULL, edits, 2U, MESH_UI_SETTINGS_DISPLAY,
+                               MESH_UI_SETTINGS_NO_CHANNEL, 4U, &item) ||
         item.field != MESH_UI_FIELD_DISPLAY_UNITS || !item.dirty || item.number != 0U ||
         strcmp(item.value, "Metric") != 0) {
         record_failure(test_name, "an enum edit should render in place");
         return;
     }
-    if (!mesh_ui_settings_item(&settings, NULL, edits, 2U, MESH_UI_SETTINGS_USER, 1U, &item) ||
+    if (!mesh_ui_settings_item(&settings, NULL, edits, 2U, MESH_UI_SETTINGS_USER,
+                               MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
         !item.dirty || strcmp(item.text, "BRCK") != 0 || strcmp(item.value, "BRCK") != 0) {
         record_failure(test_name, "a text edit should render in place");
         return;
     }
-    if (!mesh_ui_settings_item(&settings, NULL, edits, 2U, MESH_UI_SETTINGS_DISPLAY, 0U, &item) ||
+    if (!mesh_ui_settings_item(&settings, NULL, edits, 2U, MESH_UI_SETTINGS_DISPLAY,
+                               MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
         item.dirty || item.number != 60U) {
         record_failure(test_name, "rows without an edit stay clean");
         return;
@@ -4527,8 +4538,8 @@ static void test_ui_nav_settings_edit(void) {
         store.nav.settings_edits[0].field != MESH_UI_FIELD_DISPLAY_SCREEN_ON ||
         store.nav.settings_edits[0].number != 120U ||
         !mesh_ui_settings_item(&store.settings, NULL, store.nav.settings_edits,
-                               store.nav.settings_edit_count, MESH_UI_SETTINGS_DISPLAY, 0U,
-                               &item) ||
+                               store.nav.settings_edit_count, MESH_UI_SETTINGS_DISPLAY,
+                               MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
         !item.dirty || strcmp(item.value, "2m") != 0) {
         failure = "Right should step the number and stay on the tab";
         goto cleanup;
@@ -5015,6 +5026,416 @@ cleanup:
     }
 }
 
+/* Channels in the core: the table is kept whole, get_channel is one-based on the wire, and a
+   set_channel write reads its slot back. */
+static void test_radio_settings_channel_write(void) {
+    const char *test_name = "radio_settings_channel_write";
+    struct mesh_radio_settings settings;
+    mesh_radio_settings_reset(&settings);
+
+    meshtastic_Channel channel = meshtastic_Channel_init_default;
+    channel.index = 1;
+    channel.role = meshtastic_Channel_Role_SECONDARY;
+    channel.has_settings = true;
+    snprintf(channel.settings.name, sizeof channel.settings.name, "%s", "Team");
+    channel.settings.psk.size = 16U;
+    memset(channel.settings.psk.bytes, 0xAB, 16U);
+    channel.settings.id = 0x1234U;
+    mesh_radio_settings_apply_channel(&settings, &channel);
+    meshtastic_Channel bad = channel;
+    bad.index = 9;
+    mesh_radio_settings_apply_channel(&settings, &bad);
+    if (!settings.has_channel[1] || settings.has_channel[0] ||
+        strcmp(settings.channels[1].settings.name, "Team") != 0 ||
+        !mesh_radio_settings_loaded(&settings)) {
+        record_failure(test_name, "apply_channel should keep the slot and ignore bad indices");
+        return;
+    }
+
+    struct mesh_admin_request get;
+    memset(&get, 0, sizeof get);
+    get.kind = MESH_ADMIN_GET_CHANNEL;
+    get.type = 1U;
+    get.my_node = 0x1234U;
+    get.packet_id = 7U;
+    uint8_t buffer[512];
+    size_t written = 0U;
+    meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_default;
+    meshtastic_AdminMessage admin = meshtastic_AdminMessage_init_default;
+    pb_istream_t in;
+    if (mesh_radio_settings_encode_request(&settings, &get, buffer, sizeof buffer, &written) != 0) {
+        record_failure(test_name, "get_channel should encode");
+        return;
+    }
+    in = pb_istream_from_buffer(buffer, written);
+    pb_decode(&in, meshtastic_ToRadio_fields, &to_radio);
+    in = pb_istream_from_buffer(to_radio.packet.decoded.payload.bytes,
+                                to_radio.packet.decoded.payload.size);
+    if (!pb_decode(&in, meshtastic_AdminMessage_fields, &admin) ||
+        admin.which_payload_variant != meshtastic_AdminMessage_get_channel_request_tag ||
+        admin.get_channel_request != 2U) {
+        record_failure(test_name, "get_channel_request is index + 1 on the wire");
+        return;
+    }
+
+    struct mesh_admin_request write;
+    memset(&write, 0, sizeof write);
+    write.kind = MESH_ADMIN_SET_CHANNEL;
+    write.type = 1U;
+    write.payload.channel = settings.channels[1];
+    write.payload.channel.settings.uplink_enabled = true;
+    if (mesh_radio_settings_queue_write(&settings, &write) != 3) {
+        record_failure(test_name, "a channel write should queue refresh, set and read-back");
+        return;
+    }
+    struct mesh_admin_request next;
+    mesh_radio_settings_next_request(&settings, 1U, &next); /* get_owner */
+    mesh_radio_settings_mark_sent(&settings, 10U, 1U);
+    meshtastic_AdminMessage reply = meshtastic_AdminMessage_init_default;
+    reply.which_payload_variant = meshtastic_AdminMessage_get_owner_response_tag;
+    reply.session_passkey.size = 8U;
+    meshtastic_MeshPacket packet;
+    test_make_admin_reply(0x1234U, 10U, &reply, &packet);
+    mesh_radio_settings_ingest(&settings, &packet);
+    if (!mesh_radio_settings_next_request(&settings, 2U, &next) ||
+        next.kind != MESH_ADMIN_SET_CHANNEL) {
+        record_failure(test_name, "set_channel should follow the refresh");
+        return;
+    }
+    next.my_node = 0x1234U;
+    next.packet_id = 11U;
+    if (mesh_radio_settings_encode_request(&settings, &next, buffer, sizeof buffer, &written) !=
+        0) {
+        record_failure(test_name, "set_channel should encode");
+        return;
+    }
+    in = pb_istream_from_buffer(buffer, written);
+    to_radio = (meshtastic_ToRadio)meshtastic_ToRadio_init_default;
+    pb_decode(&in, meshtastic_ToRadio_fields, &to_radio);
+    in = pb_istream_from_buffer(to_radio.packet.decoded.payload.bytes,
+                                to_radio.packet.decoded.payload.size);
+    admin = (meshtastic_AdminMessage)meshtastic_AdminMessage_init_default;
+    if (!pb_decode(&in, meshtastic_AdminMessage_fields, &admin) ||
+        admin.which_payload_variant != meshtastic_AdminMessage_set_channel_tag ||
+        admin.set_channel.index != 1 || !admin.set_channel.settings.uplink_enabled ||
+        admin.set_channel.settings.psk.size != 16U || admin.set_channel.settings.id != 0x1234U ||
+        admin.session_passkey.size != 8U) {
+        record_failure(test_name, "set_channel should carry the whole channel and the passkey");
+        return;
+    }
+    mesh_radio_settings_mark_sent(&settings, 11U, 2U);
+    meshtastic_MeshPacket ack = make_routing_reply(11U, meshtastic_Routing_Error_NONE);
+    mesh_radio_settings_ingest(&settings, &ack);
+    if (!mesh_radio_settings_next_request(&settings, 3U, &next) ||
+        next.kind != MESH_ADMIN_GET_CHANNEL || next.type != 1U) {
+        record_failure(test_name, "the read-back should be get_channel for the same slot");
+        return;
+    }
+    /* A mismatched index is refused before it reaches the radio. */
+    write.type = 2U;
+    if (mesh_radio_settings_queue_write(&settings, &write) != -EINVAL) {
+        record_failure(test_name, "type and channel index must agree");
+        return;
+    }
+    record_success(test_name);
+}
+
+/* Channel editing through the nav: opening a slot, walking the key choices, typing a key,
+   and the confirm overlay that stands between Y and the write. */
+static void test_ui_nav_channel_edit(void) {
+    const char *test_name = "ui_nav_channel_edit";
+    const char *failure = NULL;
+
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    test_nav_populate(&store);
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_channels = true;
+    settings.channels[0].present = true;
+    settings.channels[0].role = 1U;
+    settings.channels[0].psk_len = 1U;
+    settings.channels[0].psk[0] = 1U;
+    settings.channels[1].present = true;
+    settings.channels[1].index = 1U;
+    settings.channels[1].role = 2U;
+    snprintf(settings.channels[1].name, sizeof settings.channels[1].name, "%s", "Team");
+    settings.channels[1].psk_len = 16U;
+    for (unsigned i = 0; i < 16U; ++i) {
+        settings.channels[1].psk[i] = (uint8_t)(0xA0U + i);
+    }
+    settings.channels[1].position_precision = 13U;
+    settings.channels[2].present = true; /* disabled: not listed */
+    settings.channels[2].index = 2U;
+    settings.has_bluetooth = true;
+    settings.pairing_mode = 0U;
+    mesh_ui_store_set_settings(&store, &settings);
+
+    struct mesh_ui_action action;
+    struct mesh_ui_settings_item item;
+    for (int i = 0; i < 5; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    }
+    for (int i = 0; i < MESH_UI_SETTINGS_CHANNELS; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.settings_section != MESH_UI_SETTINGS_CHANNELS ||
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 3U ||
+        mesh_ui_settings_channel_at_row(&store.settings, NULL, 1U) != 1 ||
+        mesh_ui_settings_channel_at_row(&store.settings, NULL, 2U) != 2 ||
+        mesh_ui_settings_channel_at_row(&store.settings, NULL, 3U) != -1 ||
+        !mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS,
+                               MESH_UI_SETTINGS_NO_CHANNEL, 2U, &item) ||
+        strcmp(item.label, "2 (empty)") != 0 || strstr(item.value, "disabled") == NULL) {
+        failure = "the channel list should show every slot, the empty one openable";
+        goto cleanup;
+    }
+    /* An empty slot opens with the same rows, role Disabled: that is how a channel is added. */
+    if (mesh_ui_settings_item_count(&store.settings, NULL, MESH_UI_SETTINGS_CHANNELS, 2U) != 6U ||
+        !mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 2U, 1U,
+                               &item) ||
+        item.field != MESH_UI_FIELD_CHANNEL_ROLE || item.number != 0U) {
+        failure = "an empty slot should open with an editable Disabled role";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.settings_channel != 1U || store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 0U ||
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 6U ||
+        !mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U, 2U,
+                               &item) ||
+        item.field != MESH_UI_FIELD_CHANNEL_KEY || item.kind != MESH_UI_SETTING_KEY ||
+        strncmp(item.text, "a0a1a2a3", 8U) != 0 || strlen(item.text) != 32U ||
+        strstr(item.value, "a0a1a2a3...") == NULL || strstr(item.value, "AES-128") == NULL ||
+        !mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U, 5U,
+                               &item) ||
+        strcmp(item.value, "~3 km") != 0) {
+        failure = "A should open channel 1 with its six rows";
+        goto cleanup;
+    }
+    /* The primary slot's role is not offered. */
+    if (!mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 0U, 1U,
+                               &item) ||
+        item.field != MESH_UI_FIELD_NONE || strcmp(item.value, "Primary") != 0) {
+        failure = "the primary channel's role should be read-only";
+        goto cleanup;
+    }
+
+    /* Key row: Right walks default / random 128 / random 256 / none / back to keep. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    if (store.nav.settings_edit_count != 1U ||
+        store.nav.settings_edits[0].field != MESH_UI_FIELD_CHANNEL_KEY ||
+        store.nav.settings_edits[0].number != MESH_UI_PSK_DEFAULT ||
+        !mesh_ui_settings_item(&store.settings, NULL, store.nav.settings_edits, 1U,
+                               MESH_UI_SETTINGS_CHANNELS, 1U, 2U, &item) ||
+        !item.dirty || strcmp(item.value, "default key") != 0 || strlen(item.text) != 32U) {
+        failure = "Right on the key should pick the default key and keep the hex for the keyboard";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    if (store.nav.settings_edits[0].number != MESH_UI_PSK_RANDOM_256) {
+        failure = "Right twice more should reach random AES-256";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    if (store.nav.settings_edit_count != 0U) {
+        failure = "Left back to keep should drop the edit";
+        goto cleanup;
+    }
+    /* A opens the keyboard on the hex; a bad key keeps it open; a good one is recorded. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.keyboard_open || store.nav.keyboard_field != MESH_UI_FIELD_CHANNEL_KEY ||
+        strlen(store.nav.draft) != 32U) {
+        failure = "A on the key should open the keyboard on the current key as hex";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action); /* 31 digits: not a key */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    if (!store.nav.keyboard_open || store.nav.settings_edit_count != 0U) {
+        failure = "an odd number of hex digits should be refused and the keyboard stay open";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* '1' -> 32 digits again */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    if (store.nav.keyboard_open || store.nav.settings_edit_count != 1U ||
+        store.nav.settings_edits[0].number != MESH_UI_PSK_TYPED ||
+        strlen(store.nav.settings_edits[0].text) != 32U ||
+        store.nav.settings_edits[0].text[31] != '1') {
+        failure = "a valid typed key should be recorded";
+        goto cleanup;
+    }
+    /* Y asks first; B cancels; Y, Up, A saves with the channel slot in the action. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    if (!store.nav.confirm_open || store.nav.confirm_cursor != 1U ||
+        action.type != MESH_UI_ACTION_NONE) {
+        failure = "Y on a channel should open the confirm overlay on Cancel";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.confirm_open || action.type != MESH_UI_ACTION_NONE ||
+        store.nav.settings_edit_count != 1U) {
+        failure = "A on Cancel should close the overlay and keep the edits";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.confirm_open || action.type != MESH_UI_ACTION_SAVE_SETTINGS ||
+        action.section != MESH_UI_SETTINGS_CHANNELS || action.channel != 1U ||
+        action.edit_count != 1U || action.edits[0].field != MESH_UI_FIELD_CHANNEL_KEY) {
+        failure = "confirming should emit the save for channel 1";
+        goto cleanup;
+    }
+    mesh_ui_store_settings_edits_clear(&store);
+    /* B leaves the channel for the list, then the list for the sections. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (store.nav.settings_channel != MESH_UI_SETTINGS_NO_CHANNEL ||
+        store.nav.settings_section != MESH_UI_SETTINGS_CHANNELS ||
+        store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 1U) {
+        failure = "B should return to the channel list at the same row";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (store.nav.settings_section != MESH_UI_SETTINGS_NO_SECTION) {
+        failure = "B again should return to the section list";
+        goto cleanup;
+    }
+    /* Bluetooth asks too; Display does not. */
+    if (!mesh_ui_settings_section_needs_confirm(MESH_UI_SETTINGS_BLUETOOTH) ||
+        mesh_ui_settings_section_needs_confirm(MESH_UI_SETTINGS_DISPLAY)) {
+        failure = "confirm applies to Bluetooth and Channels only";
+        goto cleanup;
+    }
+    if (!mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_BLUETOOTH,
+                               MESH_UI_SETTINGS_NO_CHANNEL, 2U, &item) ||
+        item.field != MESH_UI_FIELD_BT_PIN || strcmp(item.text, "000000") != 0 ||
+        mesh_ui_settings_text_max(MESH_UI_FIELD_BT_PIN) != 6U) {
+        failure = "the Bluetooth PIN row is wrong";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+/* Key choices become bytes, roles map back, and a bad PIN never reaches the radio. */
+static void test_app_channel_write_build(void) {
+    const char *test_name = "app_channel_write_build";
+    struct mesh_radio_settings radio;
+    mesh_radio_settings_reset(&radio);
+    meshtastic_Channel channel = meshtastic_Channel_init_default;
+    channel.index = 1;
+    channel.role = meshtastic_Channel_Role_SECONDARY;
+    channel.has_settings = true;
+    channel.settings.psk.size = 1U;
+    channel.settings.psk.bytes[0] = 1U;
+    channel.settings.id = 77U;
+    mesh_radio_settings_apply_channel(&radio, &channel);
+    radio.has_bluetooth = true;
+    radio.bluetooth.enabled = true;
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    action.type = MESH_UI_ACTION_SAVE_SETTINGS;
+    action.section = MESH_UI_SETTINGS_CHANNELS;
+    action.channel = 1U;
+    action.edit_count = 4U;
+    action.edits[0].field = MESH_UI_FIELD_CHANNEL_KEY;
+    action.edits[0].number = MESH_UI_PSK_RANDOM_256;
+    action.edits[1].field = MESH_UI_FIELD_CHANNEL_NAME;
+    snprintf(action.edits[1].text, sizeof action.edits[1].text, "%s", "Hikers");
+    action.edits[2].field = MESH_UI_FIELD_CHANNEL_ROLE;
+    action.edits[2].number = 0U; /* disabled */
+    action.edits[3].field = MESH_UI_FIELD_CHANNEL_POSITION;
+    action.edits[3].number = 16U;
+
+    struct mesh_admin_request write;
+    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+        write.kind != MESH_ADMIN_SET_CHANNEL || write.type != 1U ||
+        write.payload.channel.index != 1 ||
+        write.payload.channel.role != meshtastic_Channel_Role_DISABLED ||
+        strcmp(write.payload.channel.settings.name, "Hikers") != 0 ||
+        write.payload.channel.settings.psk.size != 32U ||
+        write.payload.channel.settings.id != 77U ||
+        !write.payload.channel.settings.has_module_settings ||
+        write.payload.channel.settings.module_settings.position_precision != 16U) {
+        record_failure(test_name, "the channel write should carry the edits over the radio's copy");
+        return;
+    }
+    bool all_zero = true;
+    for (unsigned i = 0; i < 32U; ++i) {
+        if (write.payload.channel.settings.psk.bytes[i] != 0U) {
+            all_zero = false;
+        }
+    }
+    if (all_zero) {
+        record_failure(test_name, "a random key should not be all zeroes");
+        return;
+    }
+    action.edit_count = 1U;
+    action.edits[0].number = MESH_UI_PSK_TYPED;
+    snprintf(action.edits[0].text, sizeof action.edits[0].text, "%s",
+             "d4f1bb3a20290759f0bcffabcf4e6901");
+    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+        write.payload.channel.settings.psk.size != 16U ||
+        write.payload.channel.settings.psk.bytes[0] != 0xD4U ||
+        write.payload.channel.settings.psk.bytes[15] != 0x01U) {
+        record_failure(test_name, "a typed key should be parsed as hex");
+        return;
+    }
+    action.edits[0].number = MESH_UI_PSK_NONE;
+    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+        write.payload.channel.settings.psk.size != 0U) {
+        record_failure(test_name, "no encryption is an empty key");
+        return;
+    }
+    action.channel = 3U;
+    if (mesh_app_build_settings_write(&radio, &action, &write) != -ENOENT) {
+        record_failure(test_name, "a slot the radio never sent cannot be written");
+        return;
+    }
+
+    action.section = MESH_UI_SETTINGS_BLUETOOTH;
+    action.channel = MESH_UI_SETTINGS_NO_CHANNEL;
+    action.edit_count = 2U;
+    action.edits[0].field = MESH_UI_FIELD_BT_MODE;
+    action.edits[0].number = 1U;
+    action.edits[1].field = MESH_UI_FIELD_BT_PIN;
+    snprintf(action.edits[1].text, sizeof action.edits[1].text, "%s", "123456");
+    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+        write.kind != MESH_ADMIN_SET_CONFIG ||
+        write.type != meshtastic_AdminMessage_ConfigType_BLUETOOTH_CONFIG ||
+        write.payload.config.which_payload_variant != meshtastic_Config_bluetooth_tag ||
+        write.payload.config.payload_variant.bluetooth.mode !=
+            meshtastic_Config_BluetoothConfig_PairingMode_FIXED_PIN ||
+        write.payload.config.payload_variant.bluetooth.fixed_pin != 123456U ||
+        !write.payload.config.payload_variant.bluetooth.enabled) {
+        record_failure(test_name, "the Bluetooth write is wrong");
+        return;
+    }
+    snprintf(action.edits[1].text, sizeof action.edits[1].text, "%s", "12ab56");
+    if (mesh_app_build_settings_write(&radio, &action, &write) != -EINVAL) {
+        record_failure(test_name, "a PIN that is not six digits must be refused");
+        return;
+    }
+    record_success(test_name);
+}
+
 static const struct test_case k_test_cases[] = {
     {"config_defaults", "unit", test_config_defaults},
     {"transport_registry_registration", "unit", test_transport_registry_registration},
@@ -5067,6 +5488,9 @@ static const struct test_case k_test_cases[] = {
     {"ui_nav_settings_edit", "unit", test_ui_nav_settings_edit},
     {"app_settings_write_build", "unit", test_app_settings_write_build},
     {"ble_transport_settings_write", "unit", test_ble_transport_settings_write},
+    {"radio_settings_channel_write", "unit", test_radio_settings_channel_write},
+    {"ui_nav_channel_edit", "unit", test_ui_nav_channel_edit},
+    {"app_channel_write_build", "unit", test_app_channel_write_build},
 };
 
 struct test_options {

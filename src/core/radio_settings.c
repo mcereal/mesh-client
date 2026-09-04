@@ -21,11 +21,19 @@ bool mesh_radio_settings_loaded(const struct mesh_radio_settings *settings) {
     if (settings == NULL) {
         return false;
     }
-    return settings->has_device || settings->has_position || settings->has_power ||
-           settings->has_network || settings->has_display || settings->has_lora ||
-           settings->has_bluetooth || settings->has_security || settings->has_mqtt ||
-           settings->has_store_forward || settings->has_telemetry || settings->has_owner ||
-           settings->has_metadata;
+    if (settings->has_device || settings->has_position || settings->has_power ||
+        settings->has_network || settings->has_display || settings->has_lora ||
+        settings->has_bluetooth || settings->has_security || settings->has_mqtt ||
+        settings->has_store_forward || settings->has_telemetry || settings->has_owner ||
+        settings->has_metadata) {
+        return true;
+    }
+    for (size_t i = 0; i < MESH_RADIO_SETTINGS_MAX_CHANNELS; ++i) {
+        if (settings->has_channel[i]) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /* ---- handshake fragments ------------------------------------------------------------------ */
@@ -115,11 +123,21 @@ void mesh_radio_settings_apply_owner(struct mesh_radio_settings *settings,
     settings->owner = *owner;
 }
 
+void mesh_radio_settings_apply_channel(struct mesh_radio_settings *settings,
+                                       const meshtastic_Channel *channel) {
+    if (settings == NULL || channel == NULL || channel->index < 0 ||
+        (size_t)channel->index >= MESH_RADIO_SETTINGS_MAX_CHANNELS) {
+        return;
+    }
+    settings->has_channel[channel->index] = true;
+    settings->channels[channel->index] = *channel;
+}
+
 /* ---- admin replies ------------------------------------------------------------------------ */
 
 bool mesh_admin_request_is_write(enum mesh_admin_request_kind kind) {
     return kind == MESH_ADMIN_SET_OWNER || kind == MESH_ADMIN_SET_CONFIG ||
-           kind == MESH_ADMIN_SET_MODULE_CONFIG;
+           kind == MESH_ADMIN_SET_MODULE_CONFIG || kind == MESH_ADMIN_SET_CHANNEL;
 }
 
 static void mesh_radio_settings_record_write_result(struct mesh_radio_settings *settings,
@@ -229,6 +247,10 @@ int mesh_radio_settings_ingest(struct mesh_radio_settings *settings,
         mesh_radio_settings_apply_metadata(settings, &admin.get_device_metadata_response);
         what = "metadata";
         break;
+    case meshtastic_AdminMessage_get_channel_response_tag:
+        mesh_radio_settings_apply_channel(settings, &admin.get_channel_response);
+        what = "channel";
+        break;
     default:
         break;
     }
@@ -287,6 +309,22 @@ int mesh_radio_settings_encode_request(const struct mesh_radio_settings *setting
         }
         admin.which_payload_variant = meshtastic_AdminMessage_set_module_config_tag;
         admin.set_module_config = request->payload.module_config;
+        break;
+    case MESH_ADMIN_GET_CHANNEL:
+        if (request->type >= MESH_RADIO_SETTINGS_MAX_CHANNELS) {
+            return -EINVAL;
+        }
+        /* One-based on the wire so a request for slot 0 is never an absent field. */
+        admin.which_payload_variant = meshtastic_AdminMessage_get_channel_request_tag;
+        admin.get_channel_request = request->type + 1U;
+        break;
+    case MESH_ADMIN_SET_CHANNEL:
+        if (request->payload.channel.index < 0 ||
+            (uint32_t)request->payload.channel.index != request->type) {
+            return -EINVAL;
+        }
+        admin.which_payload_variant = meshtastic_AdminMessage_set_channel_tag;
+        admin.set_channel = request->payload.channel;
         break;
     default:
         return -EINVAL;
@@ -378,6 +416,13 @@ int mesh_radio_settings_queue_write(struct mesh_radio_settings *settings,
         }
         readback = MESH_ADMIN_GET_MODULE_CONFIG;
         break;
+    case MESH_ADMIN_SET_CHANNEL:
+        if (write->type >= MESH_RADIO_SETTINGS_MAX_CHANNELS ||
+            write->payload.channel.index != (int8_t)write->type) {
+            return -EINVAL;
+        }
+        readback = MESH_ADMIN_GET_CHANNEL;
+        break;
     default:
         return -EINVAL;
     }
@@ -465,6 +510,9 @@ size_t mesh_radio_settings_queue_all(struct mesh_radio_settings *settings) {
     for (size_t i = 0; i < sizeof k_module_types / sizeof k_module_types[0]; ++i) {
         added +=
             mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_MODULE_CONFIG, k_module_types[i]);
+    }
+    for (uint32_t slot = 0; slot < MESH_RADIO_SETTINGS_MAX_CHANNELS; ++slot) {
+        added += mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_CHANNEL, slot);
     }
     return added;
 }

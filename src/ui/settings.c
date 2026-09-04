@@ -2,6 +2,7 @@
 
 #include "mesh/radio_settings.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -58,7 +59,7 @@ bool mesh_ui_settings_section_loaded(const struct mesh_ui_settings *settings,
     case MESH_UI_SETTINGS_BLUETOOTH:
         return settings->has_bluetooth;
     case MESH_UI_SETTINGS_CHANNELS:
-        return handshake != NULL && handshake->channel_count > 0U;
+        return settings->has_channels || (handshake != NULL && handshake->channel_count > 0U);
     case MESH_UI_SETTINGS_SECURITY:
         return settings->has_security;
     case MESH_UI_SETTINGS_POSITION:
@@ -87,6 +88,43 @@ static const char *compass_name(uint32_t orientation) {
 
 static const char *units_name(uint32_t units) { return units == 1U ? "Imperial" : "Metric"; }
 
+static const char *channel_role_name(uint32_t value) {
+    return value == 1U ? "Secondary" : "Disabled";
+}
+
+static const char *pairing_enum_name(uint32_t mode) {
+    switch (mode) {
+    case 0U:
+        return "Random PIN";
+    case 1U:
+        return "Fixed PIN";
+    case 2U:
+        return "No PIN";
+    default:
+        return "?";
+    }
+}
+
+/* Position precision is a bit count; the phone apps label the useful ones by distance. */
+static void format_precision(uint32_t bits, char *out, size_t out_len) {
+    static const char *const k_distance[] = {
+        "~23 km", "~12 km", "~6 km",  "~3 km", "~1.5 km",
+        "~730 m", "~360 m", "~180 m", "~90 m", "~45 m",
+    };
+    if (bits == 0U) {
+        snprintf(out, out_len, "%s", "off");
+    } else if (bits >= 32U) {
+        snprintf(out, out_len, "%s", "precise");
+    } else if (bits >= 10U && bits <= 19U) {
+        snprintf(out, out_len, "%s", k_distance[bits - 10U]);
+    } else {
+        snprintf(out, out_len, "%u bits", (unsigned)bits);
+    }
+}
+
+static const uint32_t k_precision_presets[] = {0U,  10U, 11U, 12U, 13U, 14U,
+                                               15U, 16U, 17U, 18U, 19U, 32U};
+
 /* 0 means "firmware default" for these, and the presets are what the phone apps offer. */
 static const uint32_t k_screen_on_presets[] = {0U,   15U,  30U,  60U,   120U,
                                                300U, 600U, 900U, 1800U, 3600U};
@@ -102,59 +140,87 @@ struct field_spec {
     const char *(*enum_name)(uint32_t value);
     const uint32_t *presets; /* NUMBER */
     size_t preset_count;
-    const char *zero_label; /* NUMBER: what 0 means */
+    const char *zero_label; /* NUMBER: what 0 means (seconds formatting) */
+    void (*format)(uint32_t value, char *out, size_t out_len); /* NUMBER: overrides seconds */
 };
 
 #define PRESETS(array) (array), (sizeof(array) / sizeof((array)[0]))
+#define NO_PRESETS NULL, 0U
 
 /* User.long_name is 39 bytes on the wire but the firmware truncates to 24 (mesh.proto). */
 static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
     [MESH_UI_FIELD_NONE] = {"?", MESH_UI_SETTING_INFO, MESH_UI_SETTINGS_SECTION_COUNT, 0U, NULL,
-                            NULL, 0U, NULL},
+                            NO_PRESETS, NULL, NULL},
     [MESH_UI_FIELD_USER_LONG_NAME] = {"Long name", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_USER, 24U,
-                                      NULL, NULL, 0U, NULL},
+                                      NULL, NO_PRESETS, NULL, NULL},
     [MESH_UI_FIELD_USER_SHORT_NAME] = {"Short name", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_USER,
-                                       4U, NULL, NULL, 0U, NULL},
+                                       4U, NULL, NO_PRESETS, NULL, NULL},
     [MESH_UI_FIELD_USER_LICENSED] = {"Licensed operator", MESH_UI_SETTING_TOGGLE,
-                                     MESH_UI_SETTINGS_USER, 0U, NULL, NULL, 0U, NULL},
+                                     MESH_UI_SETTINGS_USER, 0U, NULL, NO_PRESETS, NULL, NULL},
     [MESH_UI_FIELD_USER_UNMESSAGEABLE] = {"Unmessageable", MESH_UI_SETTING_TOGGLE,
-                                          MESH_UI_SETTINGS_USER, 0U, NULL, NULL, 0U, NULL},
+                                          MESH_UI_SETTINGS_USER, 0U, NULL, NO_PRESETS, NULL, NULL},
     [MESH_UI_FIELD_DISPLAY_SCREEN_ON] = {"Screen on", MESH_UI_SETTING_NUMBER,
                                          MESH_UI_SETTINGS_DISPLAY, 0U, NULL,
-                                         PRESETS(k_screen_on_presets), "default"},
+                                         PRESETS(k_screen_on_presets), "default", NULL},
     [MESH_UI_FIELD_DISPLAY_CAROUSEL] = {"Carousel", MESH_UI_SETTING_NUMBER,
                                         MESH_UI_SETTINGS_DISPLAY, 0U, NULL,
-                                        PRESETS(k_carousel_presets), "off"},
+                                        PRESETS(k_carousel_presets), "off", NULL},
     [MESH_UI_FIELD_DISPLAY_COMPASS] = {"Compass", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_DISPLAY,
-                                       8U, compass_name, NULL, 0U, NULL},
+                                       8U, compass_name, NO_PRESETS, NULL, NULL},
     [MESH_UI_FIELD_DISPLAY_12H] = {"12-hour clock", MESH_UI_SETTING_TOGGLE,
-                                   MESH_UI_SETTINGS_DISPLAY, 0U, NULL, NULL, 0U, NULL},
+                                   MESH_UI_SETTINGS_DISPLAY, 0U, NULL, NO_PRESETS, NULL, NULL},
     [MESH_UI_FIELD_DISPLAY_UNITS] = {"Units", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_DISPLAY, 2U,
-                                     units_name, NULL, 0U, NULL},
+                                     units_name, NO_PRESETS, NULL, NULL},
     [MESH_UI_FIELD_DISPLAY_FLIP] = {"Flip screen", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_DISPLAY,
-                                    0U, NULL, NULL, 0U, NULL},
+                                    0U, NULL, NO_PRESETS, NULL, NULL},
     [MESH_UI_FIELD_SF_ENABLED] = {"Store & Forward", MESH_UI_SETTING_TOGGLE,
-                                  MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL, NULL, 0U, NULL},
+                                  MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL, NO_PRESETS, NULL, NULL},
     [MESH_UI_FIELD_SF_HEARTBEAT] = {"Heartbeat", MESH_UI_SETTING_TOGGLE,
-                                    MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL, NULL, 0U, NULL},
+                                    MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL, NO_PRESETS, NULL,
+                                    NULL},
     [MESH_UI_FIELD_SF_SERVER] = {"Act as server", MESH_UI_SETTING_TOGGLE,
-                                 MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL, NULL, 0U, NULL},
+                                 MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL, NO_PRESETS, NULL, NULL},
     [MESH_UI_FIELD_TELEMETRY_DEVICE] = {"Device metrics", MESH_UI_SETTING_TOGGLE,
-                                        MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NULL, 0U, NULL},
+                                        MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS, NULL,
+                                        NULL},
     [MESH_UI_FIELD_TELEMETRY_INTERVAL] = {"Device interval", MESH_UI_SETTING_NUMBER,
                                           MESH_UI_SETTINGS_TELEMETRY, 0U, NULL,
-                                          PRESETS(k_interval_presets), "default"},
+                                          PRESETS(k_interval_presets), "default", NULL},
     [MESH_UI_FIELD_TELEMETRY_ENVIRONMENT] = {"Environment", MESH_UI_SETTING_TOGGLE,
-                                             MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NULL, 0U, NULL},
+                                             MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS, NULL,
+                                             NULL},
     [MESH_UI_FIELD_TELEMETRY_ENV_SCREEN] = {"Env on screen", MESH_UI_SETTING_TOGGLE,
-                                            MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NULL, 0U, NULL},
+                                            MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS, NULL,
+                                            NULL},
     [MESH_UI_FIELD_TELEMETRY_ENV_FAHRENHEIT] = {"Env in Fahrenheit", MESH_UI_SETTING_TOGGLE,
-                                                MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NULL, 0U,
-                                                NULL},
+                                                MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS,
+                                                NULL, NULL},
     [MESH_UI_FIELD_TELEMETRY_AIR_QUALITY] = {"Air quality", MESH_UI_SETTING_TOGGLE,
-                                             MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NULL, 0U, NULL},
+                                             MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS, NULL,
+                                             NULL},
     [MESH_UI_FIELD_TELEMETRY_POWER] = {"Power metrics", MESH_UI_SETTING_TOGGLE,
-                                       MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NULL, 0U, NULL},
+                                       MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS, NULL,
+                                       NULL},
+    [MESH_UI_FIELD_CHANNEL_NAME] = {"Name", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_CHANNELS, 11U,
+                                    NULL, NO_PRESETS, NULL, NULL},
+    [MESH_UI_FIELD_CHANNEL_ROLE] = {"Role", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_CHANNELS, 2U,
+                                    channel_role_name, NO_PRESETS, NULL, NULL},
+    [MESH_UI_FIELD_CHANNEL_KEY] = {"Key", MESH_UI_SETTING_KEY, MESH_UI_SETTINGS_CHANNELS, 64U, NULL,
+                                   NO_PRESETS, NULL, NULL},
+    [MESH_UI_FIELD_CHANNEL_UPLINK] = {"MQTT uplink", MESH_UI_SETTING_TOGGLE,
+                                      MESH_UI_SETTINGS_CHANNELS, 0U, NULL, NO_PRESETS, NULL, NULL},
+    [MESH_UI_FIELD_CHANNEL_DOWNLINK] = {"MQTT downlink", MESH_UI_SETTING_TOGGLE,
+                                        MESH_UI_SETTINGS_CHANNELS, 0U, NULL, NO_PRESETS, NULL,
+                                        NULL},
+    [MESH_UI_FIELD_CHANNEL_POSITION] = {"Position precision", MESH_UI_SETTING_NUMBER,
+                                        MESH_UI_SETTINGS_CHANNELS, 0U, NULL,
+                                        PRESETS(k_precision_presets), "off", format_precision},
+    [MESH_UI_FIELD_BT_ENABLED] = {"Bluetooth", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_BLUETOOTH,
+                                  0U, NULL, NO_PRESETS, NULL, NULL},
+    [MESH_UI_FIELD_BT_MODE] = {"Pairing", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_BLUETOOTH, 3U,
+                               pairing_enum_name, NO_PRESETS, NULL, NULL},
+    [MESH_UI_FIELD_BT_PIN] = {"Fixed PIN", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_BLUETOOTH, 6U,
+                              NULL, NO_PRESETS, NULL, NULL},
 };
 
 static const struct field_spec *field_spec(enum mesh_ui_setting_field field) {
@@ -212,10 +278,105 @@ uint32_t mesh_ui_settings_number_step(enum mesh_ui_setting_field field, uint32_t
 
 uint32_t mesh_ui_settings_text_max(enum mesh_ui_setting_field field) {
     const struct field_spec *spec = field_spec(field);
-    if (spec->kind != MESH_UI_SETTING_TEXT) {
+    if (spec->kind != MESH_UI_SETTING_TEXT && spec->kind != MESH_UI_SETTING_KEY) {
         return 0U;
     }
     return spec->limit < MESH_UI_SETTING_TEXT_MAX ? spec->limit : MESH_UI_SETTING_TEXT_MAX - 1U;
+}
+
+bool mesh_ui_settings_section_needs_confirm(enum mesh_ui_settings_section section) {
+    return section == MESH_UI_SETTINGS_BLUETOOTH || section == MESH_UI_SETTINGS_CHANNELS;
+}
+
+void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section, char *out,
+                                   size_t out_len) {
+    if (out == NULL || out_len == 0U) {
+        return;
+    }
+    switch (section) {
+    case MESH_UI_SETTINGS_BLUETOOTH:
+        snprintf(out, out_len, "%s",
+                 "The radio will reboot. Changing the pairing mode or PIN invalidates the "
+                 "Brick's pairing: run bluetoothctl pair again before it can reconnect. "
+                 "Turning Bluetooth off cuts this client off until re-enabled elsewhere.");
+        break;
+    case MESH_UI_SETTINGS_CHANNELS:
+        snprintf(out, out_len, "%s",
+                 "The radio will reboot. A new key or name moves this radio to a different "
+                 "channel: every other node needs the same settings to keep talking to it.");
+        break;
+    default:
+        snprintf(out, out_len, "%s", "The radio will reboot to apply this.");
+        break;
+    }
+}
+
+void mesh_ui_settings_key_hex(const uint8_t *key, size_t len, char *out, size_t out_len) {
+    if (out == NULL || out_len == 0U) {
+        return;
+    }
+    out[0] = '\0';
+    if (key == NULL) {
+        return;
+    }
+    size_t pos = 0U;
+    for (size_t i = 0; i < len && pos + 3U <= out_len; ++i) {
+        snprintf(out + pos, out_len - pos, "%02x", key[i]);
+        pos += 2U;
+    }
+}
+
+static int hex_nibble(char c) {
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    c = (char)tolower((unsigned char)c);
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    return -1;
+}
+
+bool mesh_ui_settings_key_parse(const char *hex, uint8_t *out, size_t out_cap, size_t *out_len) {
+    if (hex == NULL || out == NULL || out_len == NULL) {
+        return false;
+    }
+    const size_t digits = strlen(hex);
+    if (digits != 0U && digits != 2U && digits != 32U && digits != 64U) {
+        return false;
+    }
+    if (digits / 2U > out_cap) {
+        return false;
+    }
+    for (size_t i = 0; i < digits; i += 2U) {
+        const int hi = hex_nibble(hex[i]);
+        const int lo = hex_nibble(hex[i + 1U]);
+        if (hi < 0 || lo < 0) {
+            return false;
+        }
+        out[i / 2U] = (uint8_t)((hi << 4) | lo);
+    }
+    *out_len = digits / 2U;
+    return true;
+}
+
+/* "d4f1bb3a... (AES-128)", "default key", "no encryption". */
+static void key_summary(const uint8_t *key, size_t len, char *out, size_t out_len) {
+    if (len == 0U) {
+        snprintf(out, out_len, "%s", "no encryption");
+        return;
+    }
+    if (len == 1U) {
+        if (key[0] == 1U) {
+            snprintf(out, out_len, "%s", "default key");
+        } else {
+            snprintf(out, out_len, "simple key %u", (unsigned)key[0]);
+        }
+        return;
+    }
+    char hex[9];
+    mesh_ui_settings_key_hex(key, len < 4U ? len : 4U, hex, sizeof hex);
+    snprintf(out, out_len, "%s... (AES-%u)", hex, (unsigned)(len * 8U));
 }
 
 const struct mesh_ui_setting_edit *
@@ -320,14 +481,65 @@ static void item_field(struct item_list *list, enum mesh_ui_setting_field field,
         snprintf(item->value, sizeof item->value, "%s", mesh_ui_settings_enum_name(field, number));
         break;
     case MESH_UI_SETTING_NUMBER:
-        format_seconds(item->value, sizeof item->value, number,
-                       spec->zero_label != NULL ? spec->zero_label : "0");
+        if (spec->format != NULL) {
+            spec->format(number, item->value, sizeof item->value);
+        } else {
+            format_seconds(item->value, sizeof item->value, number,
+                           spec->zero_label != NULL ? spec->zero_label : "0");
+        }
         break;
     case MESH_UI_SETTING_TEXT:
         snprintf(item->text, sizeof item->text, "%s", text != NULL ? text : "");
-        snprintf(item->value, sizeof item->value, "%s", item->text[0] != '\0' ? item->text : "-");
+        snprintf(item->value, sizeof item->value, "%.*s", (int)(sizeof item->value - 1U),
+                 item->text[0] != '\0' ? item->text : "-");
         break;
     default:
+        break;
+    }
+}
+
+/* The Key row. `key`/`len` is the radio's current key; an edit is a choice, or typed hex. The
+   text carried is what the keyboard should open on: the typed hex if there is one, else the
+   current key as hex (an explicit reveal, never shown in the row). */
+static void item_key_field(struct item_list *list, const uint8_t *key, size_t len) {
+    const struct field_spec *spec = field_spec(MESH_UI_FIELD_CHANNEL_KEY);
+    struct mesh_ui_settings_item *item = item_add(list, spec->label, spec->kind);
+    if (item == NULL) {
+        return;
+    }
+    item->field = MESH_UI_FIELD_CHANNEL_KEY;
+    mesh_ui_settings_key_hex(key, len, item->text, sizeof item->text);
+    const struct mesh_ui_setting_edit *edit =
+        mesh_ui_settings_find_edit(list->edits, list->edit_count, MESH_UI_FIELD_CHANNEL_KEY);
+    item->number = edit != NULL ? edit->number : (uint32_t)MESH_UI_PSK_KEEP;
+    item->dirty = edit != NULL;
+    switch ((enum mesh_ui_psk_choice)item->number) {
+    case MESH_UI_PSK_DEFAULT:
+        snprintf(item->value, sizeof item->value, "%s", "default key");
+        break;
+    case MESH_UI_PSK_RANDOM_128:
+        snprintf(item->value, sizeof item->value, "%s", "new random AES-128");
+        break;
+    case MESH_UI_PSK_RANDOM_256:
+        snprintf(item->value, sizeof item->value, "%s", "new random AES-256");
+        break;
+    case MESH_UI_PSK_NONE:
+        snprintf(item->value, sizeof item->value, "%s", "no encryption");
+        break;
+    case MESH_UI_PSK_TYPED: {
+        uint8_t typed[MESH_UI_PSK_MAX];
+        size_t typed_len = 0U;
+        snprintf(item->text, sizeof item->text, "%s", edit->text);
+        if (mesh_ui_settings_key_parse(edit->text, typed, sizeof typed, &typed_len)) {
+            key_summary(typed, typed_len, item->value, sizeof item->value);
+        } else {
+            snprintf(item->value, sizeof item->value, "%s", "invalid hex");
+        }
+        break;
+    }
+    case MESH_UI_PSK_KEEP:
+    default:
+        key_summary(key, len, item->value, sizeof item->value);
         break;
     }
 }
@@ -349,19 +561,6 @@ static void item_key(struct item_list *list, const char *label, const uint8_t *k
         snprintf(hex + 2U * i, sizeof hex - 2U * i, "%02x", key[i]);
     }
     snprintf(item->value, sizeof item->value, "%s... (%u bytes)", hex, (unsigned)len);
-}
-
-static const char *pairing_name(uint8_t mode) {
-    switch (mode) {
-    case 0U:
-        return "Random PIN";
-    case 1U:
-        return "Fixed PIN";
-    case 2U:
-        return "No PIN";
-    default:
-        return "?";
-    }
 }
 
 static const char *rebroadcast_name(uint8_t mode) {
@@ -467,41 +666,108 @@ static void build_lora(const struct mesh_ui_settings *s, struct item_list *list)
 }
 
 static void build_bluetooth(const struct mesh_ui_settings *s, struct item_list *list) {
-    char buffer[48];
-    item_toggle(list, "Bluetooth", s->bluetooth_enabled);
-    item_text(list, "Pairing", MESH_UI_SETTING_ENUM, pairing_name(s->pairing_mode));
-    if (s->pairing_mode == 1U) {
-        snprintf(buffer, sizeof buffer, "%06u", (unsigned)s->fixed_pin);
-        item_text(list, "Fixed PIN", MESH_UI_SETTING_NUMBER, buffer);
-    }
+    char pin[8];
+    snprintf(pin, sizeof pin, "%06u", (unsigned)(s->fixed_pin % 1000000U));
+    item_field(list, MESH_UI_FIELD_BT_ENABLED, s->bluetooth_enabled ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_BT_MODE, s->pairing_mode, NULL);
+    item_field(list, MESH_UI_FIELD_BT_PIN, 0U, pin);
 }
 
-static void build_channels(const struct mesh_ui_handshake_state *hs, struct item_list *list) {
-    for (uint32_t i = 0; i < hs->channel_count && i < MESH_UI_MAX_CHANNELS; ++i) {
-        const struct mesh_ui_channel *channel = &hs->channels[i];
-        if (channel->role == 0U) {
-            continue;
+static void channel_label(uint8_t index, const char *name, char *out, size_t out_len) {
+    snprintf(out, out_len, "%u %s", (unsigned)index,
+             name[0] != '\0' ? name : (index == 0U ? "Primary" : "?"));
+}
+
+static void channel_summary(uint8_t role, uint8_t psk_len, bool uplink, bool downlink, char *out,
+                            size_t out_len) {
+    const char *key = psk_len == 0U    ? "no key"
+                      : psk_len == 1U  ? "default key"
+                      : psk_len == 16U ? "AES-128"
+                      : psk_len == 32U ? "AES-256"
+                                       : "odd key";
+    snprintf(out, out_len, "%s, %s, up %s, down %s", role == 1U ? "primary" : "secondary", key,
+             uplink ? "on" : "off", downlink ? "on" : "off");
+}
+
+/* The channel list. With the radio's full table held every slot is listed, disabled ones
+   included, and A opens it: that is how a channel is added (set up an empty slot) or removed
+   (set its role to Disabled). Without the table only the handshake summary of the enabled
+   slots is shown, read-only. */
+static void build_channels(const struct mesh_ui_settings *s,
+                           const struct mesh_ui_handshake_state *hs, struct item_list *list) {
+    char label[MESH_UI_SETTINGS_LABEL_MAX];
+    if (s->has_channels) {
+        for (uint32_t i = 0; i < MESH_UI_MAX_CHANNELS; ++i) {
+            const struct mesh_ui_channel_detail *channel = &s->channels[i];
+            if (!channel->present) {
+                continue;
+            }
+            if (channel->role == 0U) {
+                snprintf(label, sizeof label, "%u (empty)", (unsigned)channel->index);
+            } else {
+                channel_label(channel->index, channel->name, label, sizeof label);
+            }
+            struct mesh_ui_settings_item *item = item_add(list, label, MESH_UI_SETTING_ACTION);
+            if (item == NULL) {
+                continue;
+            }
+            item->number = channel->index;
+            if (channel->role == 0U) {
+                snprintf(item->value, sizeof item->value, "%s", "disabled, A to set up");
+            } else {
+                channel_summary(channel->role, channel->psk_len, channel->uplink_enabled,
+                                channel->downlink_enabled, item->value, sizeof item->value);
+            }
         }
-        char label[MESH_UI_SETTINGS_LABEL_MAX];
-        snprintf(label, sizeof label, "%u %s", (unsigned)channel->index,
-                 channel->name[0] != '\0' ? channel->name
-                                          : (channel->index == 0U ? "Primary" : "?"));
-        const char *key = channel->psk_len == 0U    ? "no key"
-                          : channel->psk_len == 1U  ? "default key"
-                          : channel->psk_len == 16U ? "AES-128"
-                          : channel->psk_len == 32U ? "AES-256"
-                                                    : "odd key";
-        struct mesh_ui_settings_item *item = item_add(list, label, MESH_UI_SETTING_ACTION);
-        if (item != NULL) {
-            snprintf(item->value, sizeof item->value, "%s, %s, up %s, down %s",
-                     channel->role == 1U ? "primary" : "secondary", key,
-                     channel->uplink_enabled ? "on" : "off",
-                     channel->downlink_enabled ? "on" : "off");
+    } else if (hs != NULL) {
+        for (uint32_t i = 0; i < hs->channel_count && i < MESH_UI_MAX_CHANNELS; ++i) {
+            const struct mesh_ui_channel *channel = &hs->channels[i];
+            if (channel->role == 0U) {
+                continue;
+            }
+            channel_label(channel->index, channel->name, label, sizeof label);
+            struct mesh_ui_settings_item *item = item_add(list, label, MESH_UI_SETTING_INFO);
+            if (item != NULL) {
+                channel_summary(channel->role, channel->psk_len, channel->uplink_enabled,
+                                channel->downlink_enabled, item->value, sizeof item->value);
+                item->number = channel->index;
+            }
         }
     }
     if (list->count == 0U) {
-        item_text(list, "Channels", MESH_UI_SETTING_INFO, "none enabled");
+        item_text(list, "Channels", MESH_UI_SETTING_INFO, "none known yet");
     }
+}
+
+/* One channel's rows. The primary slot's role is shown but not offered: a mesh with two
+   primaries or none is not something to reach by accident. */
+static void build_channel(const struct mesh_ui_settings *s, uint8_t slot, struct item_list *list) {
+    if (slot >= MESH_UI_MAX_CHANNELS || !s->channels[slot].present) {
+        return;
+    }
+    const struct mesh_ui_channel_detail *channel = &s->channels[slot];
+    item_field(list, MESH_UI_FIELD_CHANNEL_NAME, 0U, channel->name);
+    if (channel->role == 1U) {
+        item_text(list, "Role", MESH_UI_SETTING_INFO, "Primary");
+    } else {
+        item_field(list, MESH_UI_FIELD_CHANNEL_ROLE, channel->role == 2U ? 1U : 0U, NULL);
+    }
+    item_key_field(list, channel->psk, channel->psk_len);
+    item_field(list, MESH_UI_FIELD_CHANNEL_UPLINK, channel->uplink_enabled ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_CHANNEL_DOWNLINK, channel->downlink_enabled ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_CHANNEL_POSITION, channel->position_precision, NULL);
+}
+
+int mesh_ui_settings_channel_at_row(const struct mesh_ui_settings *settings,
+                                    const struct mesh_ui_handshake_state *handshake, uint32_t row) {
+    struct mesh_ui_settings_item item;
+    if (settings == NULL || !settings->has_channels ||
+        !mesh_ui_settings_item(settings, handshake, NULL, 0U, MESH_UI_SETTINGS_CHANNELS,
+                               MESH_UI_SETTINGS_NO_CHANNEL, row, &item) ||
+        item.kind != MESH_UI_SETTING_ACTION) {
+        return -1;
+    }
+    return (int)item.number;
 }
 
 static void build_security(const struct mesh_ui_settings *s, struct item_list *list) {
@@ -565,7 +831,8 @@ static void build_telemetry(const struct mesh_ui_settings *s, struct item_list *
 static void build_section(const struct mesh_ui_settings *settings,
                           const struct mesh_ui_handshake_state *handshake,
                           const struct mesh_ui_setting_edit *edits, size_t edit_count,
-                          enum mesh_ui_settings_section section, struct item_list *list) {
+                          enum mesh_ui_settings_section section, uint8_t channel,
+                          struct item_list *list) {
     memset(list, 0, sizeof *list);
     list->edits = edits;
     list->edit_count = edits != NULL ? edit_count : 0U;
@@ -592,7 +859,11 @@ static void build_section(const struct mesh_ui_settings *settings,
         build_bluetooth(settings, list);
         break;
     case MESH_UI_SETTINGS_CHANNELS:
-        build_channels(handshake, list);
+        if (channel != MESH_UI_SETTINGS_NO_CHANNEL) {
+            build_channel(settings, channel, list);
+        } else {
+            build_channels(settings, handshake, list);
+        }
         break;
     case MESH_UI_SETTINGS_SECURITY:
         build_security(settings, list);
@@ -619,22 +890,22 @@ static void build_section(const struct mesh_ui_settings *settings,
 
 uint32_t mesh_ui_settings_item_count(const struct mesh_ui_settings *settings,
                                      const struct mesh_ui_handshake_state *handshake,
-                                     enum mesh_ui_settings_section section) {
+                                     enum mesh_ui_settings_section section, uint8_t channel) {
     struct item_list list;
-    build_section(settings, handshake, NULL, 0U, section, &list);
+    build_section(settings, handshake, NULL, 0U, section, channel, &list);
     return list.count;
 }
 
 bool mesh_ui_settings_item(const struct mesh_ui_settings *settings,
                            const struct mesh_ui_handshake_state *handshake,
                            const struct mesh_ui_setting_edit *edits, size_t edit_count,
-                           enum mesh_ui_settings_section section, uint32_t row,
+                           enum mesh_ui_settings_section section, uint8_t channel, uint32_t row,
                            struct mesh_ui_settings_item *out) {
     if (out == NULL) {
         return false;
     }
     struct item_list list;
-    build_section(settings, handshake, edits, edit_count, section, &list);
+    build_section(settings, handshake, edits, edit_count, section, channel, &list);
     if (row >= list.count) {
         memset(out, 0, sizeof *out);
         return false;

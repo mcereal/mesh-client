@@ -46,6 +46,8 @@ enum mesh_ui_screen {
 #define MESH_UI_NAV_TARGET_NAME_MAX 40U
 /* nav.settings_section when the Settings tab shows the section list rather than a section. */
 #define MESH_UI_SETTINGS_NO_SECTION 0xFFU
+/* nav.settings_channel when the Channels section shows its list rather than one channel. */
+#define MESH_UI_SETTINGS_NO_CHANNEL 0xFFU
 #define MESH_UI_NAV_TOAST_MAX 64U
 #define MESH_UI_CANNED_MAX 16U
 #define MESH_UI_CANNED_TEXT_MAX 64U
@@ -53,7 +55,8 @@ enum mesh_ui_screen {
 #define MESH_UI_DRAFT_MAX 234U
 /* Pending Settings edits held until Save, and the longest text a setting can take. */
 #define MESH_UI_SETTINGS_EDITS_MAX 8U
-#define MESH_UI_SETTING_TEXT_MAX 40U
+/* Long enough for a 32-byte key typed as hex. */
+#define MESH_UI_SETTING_TEXT_MAX 72U
 
 /* One edited setting. `field` is an enum mesh_ui_setting_field (settings.h); NONE marks an
    empty slot. Toggles and enums use `number`, numbers use `number`, text uses `text`. */
@@ -120,6 +123,14 @@ struct mesh_ui_nav {
        position is parked here while a section is open. */
     uint8_t settings_section;
     uint32_t settings_list_cursor;
+    /* Channels section: the open channel slot or NO_CHANNEL for the channel list, whose
+       position is parked in settings_channel_list_cursor while a channel is open. */
+    uint8_t settings_channel;
+    uint32_t settings_channel_list_cursor;
+    /* "Save <section>?" overlay for sections whose write can cut this client off (Bluetooth,
+       Channels). Row 0 saves, row 1 cancels. */
+    bool confirm_open;
+    uint8_t confirm_cursor;
     /* Edits made in the open section and not yet saved. Y sends them as one
        MESH_UI_ACTION_SAVE_SETTINGS; B asks once (discard_armed) and discards on the second
        press. The app clears them through mesh_ui_store_settings_edits_clear() once queued. */
@@ -146,7 +157,8 @@ struct mesh_ui_action {
     uint32_t dest;
     uint8_t channel;
     char text[MESH_UI_DRAFT_MAX];
-    /* SAVE_SETTINGS: the section (enum mesh_ui_settings_section) and its pending edits. */
+    /* SAVE_SETTINGS: the section (enum mesh_ui_settings_section), the channel slot for the
+       Channels section (in `channel`), and the pending edits. */
     uint8_t section;
     uint8_t edit_count;
     struct mesh_ui_setting_edit edits[MESH_UI_SETTINGS_EDITS_MAX];
