@@ -211,8 +211,13 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   128-node budget always holds whoever you are talking to; on an MQTT-fed mesh last_heard alone
   buries them. The post-stop publish in `mesh_app_run` only touches the transport line, because
   the shutdown save would otherwise persist an empty handshake and unresolved peer names.
-  Button positions: the Brick's A is `BTN_EAST` (305) and B is `BTN_SOUTH` (304), the reverse
-  of the Linux `BTN_A`/`BTN_B` aliases. Verified from the device log; do not "fix" it back.
+  Button codes: the Brick's A is `BTN_EAST` (305) and B is `BTN_SOUTH` (304), the reverse of
+  the Linux `BTN_A`/`BTN_B` aliases. X and Y do not report by position at all - the button
+  printed **Y, on the left, is `BTN_NORTH` (307)**, so X on the top is `BTN_WEST` (308).
+  Reading them positionally leaves Y unreachable and silently fires X in its place, which cost
+  a round of "the save does nothing" debugging: Y saves a settings section, X refreshes it, so
+  every save became a refresh and the edits stayed pending. All four verified from the device
+  log by pressing the button; `input_brick_face_buttons` pins them. Do not "fix" any of it back.
 - `src/minui_helpers/` — tiny native fallbacks for `minui-list` / `minui-presenter` used when the
   NextUI cross toolchain isn't available; they honor `MESHCLIENT_MINUI_SELECTION`.
 

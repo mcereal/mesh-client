@@ -4982,6 +4982,33 @@ cleanup:
 }
 
 /* The app turns a save into a full-section write from the radio's own copy. */
+/* The Brick's face buttons do not report by position, and getting this wrong is silent: the
+   binding still does something, just the wrong thing. Every code here was read off the device
+   log by pressing that button. */
+static void test_input_brick_face_buttons(void) {
+    const char *test_name = "input_brick_face_buttons";
+    static const struct {
+        uint16_t code;
+        enum mesh_ui_key key;
+        const char *printed;
+    } k_expected[] = {
+        {305U, MESH_UI_KEY_A, "A (right)"},
+        {304U, MESH_UI_KEY_B, "B (bottom)"},
+        {308U, MESH_UI_KEY_X, "X (top)"},
+        {307U, MESH_UI_KEY_Y, "Y (left)"},
+    };
+    for (size_t i = 0; i < sizeof k_expected / sizeof k_expected[0]; ++i) {
+        if (mesh_ui_input_map_key(k_expected[i].code) != k_expected[i].key) {
+            char detail[96];
+            snprintf(detail, sizeof detail, "code %u is the Brick's %s", k_expected[i].code,
+                     k_expected[i].printed);
+            record_failure(test_name, detail);
+            return;
+        }
+    }
+    record_success(test_name);
+}
+
 static void test_app_settings_write_build(void) {
     const char *test_name = "app_settings_write_build";
     struct mesh_radio_settings radio;
@@ -6779,6 +6806,7 @@ static const struct test_case k_test_cases[] = {
     {"ui_nav_settings", "unit", test_ui_nav_settings},
     {"ble_transport_admin_probe", "unit", test_ble_transport_admin_probe},
     {"radio_settings_write_queue", "unit", test_radio_settings_write_queue},
+    {"input_brick_face_buttons", "unit", test_input_brick_face_buttons},
     {"ui_settings_edits", "unit", test_ui_settings_edits},
     {"ui_nav_settings_edit", "unit", test_ui_nav_settings_edit},
     {"app_settings_write_build", "unit", test_app_settings_write_build},

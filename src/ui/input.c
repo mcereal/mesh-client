@@ -99,18 +99,23 @@ const char *mesh_ui_input_quit_hint(void) {
 
 enum mesh_ui_key mesh_ui_input_map_key(uint16_t code) {
     switch (code) {
-    /* Gamepad face buttons by position. The Brick has a Nintendo layout: the button printed A
-       is on the right (BTN_EAST, 305) and B is at the bottom (BTN_SOUTH, 304), which is the
-       reverse of what the BTN_A/BTN_B aliases suggest. Confirmed from the device log. */
+    /* Gamepad face buttons on the Brick, every one of them confirmed from the device log by
+       pressing it and reading back the code. The button printed A is on the right (BTN_EAST,
+       305) and B is at the bottom (BTN_SOUTH, 304) - the reverse of what the BTN_A/BTN_B
+       aliases suggest. X and Y are stranger still: they do not follow the positional
+       convention the other two do. The button printed Y, on the LEFT, reports BTN_NORTH (307,
+       nominally "top"), so X on the top reports BTN_WEST (308). Mapping these by position
+       leaves Y unreachable and every Y binding - saving a settings section, above all -
+       firing X instead. Do not "correct" this back to the positional reading. */
     case BTN_EAST: /* 305, the Brick's A */
     case KEY_ENTER:
         return MESH_UI_KEY_A;
     case BTN_SOUTH: /* 304, B */
     case KEY_BACKSPACE:
         return MESH_UI_KEY_B;
-    case BTN_NORTH: /* 307, X (top) */
+    case BTN_WEST: /* 308, the Brick's X (top) */
         return MESH_UI_KEY_X;
-    case BTN_WEST: /* 308, Y (left) */
+    case BTN_NORTH: /* 307, the Brick's Y (left) */
     case KEY_SPACE:
         return MESH_UI_KEY_Y;
     case BTN_TL: /* 310 */
