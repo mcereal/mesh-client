@@ -1,3 +1,9 @@
+## [1.12.0](https://github.com/mcereal/mesh-client/compare/v1.11.0...v1.12.0) (2026-09-04)
+
+### Features
+
+* **ui:** show node details and let a node be pinned to the top ([4ec7801](https://github.com/mcereal/mesh-client/commit/4ec7801fe5cfe1788e7cab05e97f8c3e7cdf5998))
+
 ## [1.11.0](https://github.com/mcereal/mesh-client/compare/v1.10.0...v1.11.0) (2026-09-04)
 
 ### Features
