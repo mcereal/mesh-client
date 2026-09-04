@@ -1,3 +1,9 @@
+## [1.14.0](https://github.com/mcereal/mesh-client/compare/v1.13.0...v1.14.0) (2026-09-04)
+
+### Features
+
+* **nodes:** keep your other radios near the top of the Nodes tab ([1cff90d](https://github.com/mcereal/mesh-client/commit/1cff90db4f3d74bb3934cef5594150342f4f9d8c))
+
 ## [1.13.0](https://github.com/mcereal/mesh-client/compare/v1.12.0...v1.13.0) (2026-09-04)
 
 ### Features
