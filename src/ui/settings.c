@@ -689,23 +689,34 @@ static void channel_summary(uint8_t role, uint8_t psk_len, bool uplink, bool dow
              uplink ? "on" : "off", downlink ? "on" : "off");
 }
 
-/* The channel list: one row per enabled slot. From the settings when the radio's full table
-   is held (then A opens the slot), else the handshake summary, read-only. */
+/* The channel list. With the radio's full table held every slot is listed, disabled ones
+   included, and A opens it: that is how a channel is added (set up an empty slot) or removed
+   (set its role to Disabled). Without the table only the handshake summary of the enabled
+   slots is shown, read-only. */
 static void build_channels(const struct mesh_ui_settings *s,
                            const struct mesh_ui_handshake_state *hs, struct item_list *list) {
     char label[MESH_UI_SETTINGS_LABEL_MAX];
     if (s->has_channels) {
         for (uint32_t i = 0; i < MESH_UI_MAX_CHANNELS; ++i) {
             const struct mesh_ui_channel_detail *channel = &s->channels[i];
-            if (!channel->present || channel->role == 0U) {
+            if (!channel->present) {
                 continue;
             }
-            channel_label(channel->index, channel->name, label, sizeof label);
+            if (channel->role == 0U) {
+                snprintf(label, sizeof label, "%u (empty)", (unsigned)channel->index);
+            } else {
+                channel_label(channel->index, channel->name, label, sizeof label);
+            }
             struct mesh_ui_settings_item *item = item_add(list, label, MESH_UI_SETTING_ACTION);
-            if (item != NULL) {
+            if (item == NULL) {
+                continue;
+            }
+            item->number = channel->index;
+            if (channel->role == 0U) {
+                snprintf(item->value, sizeof item->value, "%s", "disabled, A to set up");
+            } else {
                 channel_summary(channel->role, channel->psk_len, channel->uplink_enabled,
                                 channel->downlink_enabled, item->value, sizeof item->value);
-                item->number = channel->index;
             }
         }
     } else if (hs != NULL) {
@@ -724,7 +735,7 @@ static void build_channels(const struct mesh_ui_settings *s,
         }
     }
     if (list->count == 0U) {
-        item_text(list, "Channels", MESH_UI_SETTING_INFO, "none enabled");
+        item_text(list, "Channels", MESH_UI_SETTING_INFO, "none known yet");
     }
 }
 

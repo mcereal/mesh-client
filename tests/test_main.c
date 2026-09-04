@@ -5176,6 +5176,7 @@ static void test_ui_nav_channel_edit(void) {
     mesh_ui_store_set_settings(&store, &settings);
 
     struct mesh_ui_action action;
+    struct mesh_ui_settings_item item;
     for (int i = 0; i < 5; ++i) {
         mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
     }
@@ -5184,15 +5185,26 @@ static void test_ui_nav_channel_edit(void) {
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     if (store.nav.settings_section != MESH_UI_SETTINGS_CHANNELS ||
-        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 2U ||
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 3U ||
         mesh_ui_settings_channel_at_row(&store.settings, NULL, 1U) != 1 ||
-        mesh_ui_settings_channel_at_row(&store.settings, NULL, 2U) != -1) {
-        failure = "the channel list should show the two enabled slots";
+        mesh_ui_settings_channel_at_row(&store.settings, NULL, 2U) != 2 ||
+        mesh_ui_settings_channel_at_row(&store.settings, NULL, 3U) != -1 ||
+        !mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS,
+                               MESH_UI_SETTINGS_NO_CHANNEL, 2U, &item) ||
+        strcmp(item.label, "2 (empty)") != 0 || strstr(item.value, "disabled") == NULL) {
+        failure = "the channel list should show every slot, the empty one openable";
+        goto cleanup;
+    }
+    /* An empty slot opens with the same rows, role Disabled: that is how a channel is added. */
+    if (mesh_ui_settings_item_count(&store.settings, NULL, MESH_UI_SETTINGS_CHANNELS, 2U) != 6U ||
+        !mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 2U, 1U,
+                               &item) ||
+        item.field != MESH_UI_FIELD_CHANNEL_ROLE || item.number != 0U) {
+        failure = "an empty slot should open with an editable Disabled role";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    struct mesh_ui_settings_item item;
     if (store.nav.settings_channel != 1U || store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 0U ||
         mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 6U ||
         !mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CHANNELS, 1U, 2U,

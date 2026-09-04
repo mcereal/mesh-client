@@ -120,8 +120,9 @@ rather than avoided.
 
 The core keeps the radio's full channel table (`FromRadio.channel` during the handshake,
 `get_channel_response` on refresh; `get_channel_request` is one-based on the wire) and writes
-a slot with `set_channel` carrying the whole `Channel`, id included. In the Channels section A
-opens a slot: name (11 bytes), role (Disabled/Secondary; the primary slot's role is shown
+a slot with `set_channel` carrying the whole `Channel`, id included. In the Channels section every slot
+is listed, empty ones included, and A opens it (adding a channel is setting up an empty slot;
+removing one is setting its role to Disabled): name (11 bytes), role (Disabled/Secondary; the primary slot's role is shown
 read-only so a mesh cannot be left with two primaries or none by accident), key, MQTT uplink
 and downlink, position precision (presets 0, 10..19, 32 labelled by distance). The key row is
 a new kind: Left/Right walk keep / default key / new random AES-128 / new random AES-256 / no
