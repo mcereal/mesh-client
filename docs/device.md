@@ -50,7 +50,7 @@ The HUD is five tabs. **Left/Right** (or **L1/R1**) switch tabs, **Up/Down** mov
 |-----|-------|---------|
 | Messages | One conversation at a time: the **Inbox** (everything, each line tagged `#n` or `dm`), a channel's broadcasts, or the direct messages with one node. The highlighted message is shown in full below the list. | **A** reply to the highlighted message. **X** next conversation (Inbox, each channel, each node you have direct messages with). **Y** compose to the current conversation. |
 | Nodes | The mesh as the radio sent it: short name, long name, hops or SNR, time since last heard; `*` is this radio | **A** open Compose to that node. **Y** compose to the current target. |
-| Compose | `To:` row, a draft row, then the quick replies | **A** on `To:` cycles every enabled channel then every node; on the draft row opens the keyboard; on a reply sends it. **B** back to the conversation. |
+| Compose | `To:` row, a draft row, then the quick replies | **A** on `To:` opens the **Send to** picker (every enabled channel, then every node; Up/Down move, Left/Right jump ten rows, A picks, B cancels); on the draft row opens the keyboard; on a reply sends it. **B** back to the conversation. |
 | Devices | Meshtastic radios in BLE range, `*` connected | **A** connect to that radio and make it the preferred one |
 | Status | Transport state, radio, sync, my node, channel, counts | none |
 
@@ -59,6 +59,15 @@ row (layer, space, del, send, cancel). **D-pad** moves (wrapping), **A** types, 
 (and closes the keyboard once the draft is empty), **X** shifts for one character, **Y** is
 space, **START** sends. L1 and R1 double as delete and space. Drafts survive leaving the
 keyboard: the Compose draft row shows what is pending.
+
+Nodes are listed most recently heard first (this radio first), so the radio you were just
+talking to is near the top of both the Nodes tab and the picker. The HUD carries the 64 most
+recent; the radio's full NodeDB count is shown in the Nodes title.
+
+If the radio drops the BLE link (it happens after a few minutes idle on some firmware), the
+footer flips from green `connected: <name>` to `running`, a toast says the link was lost, and
+auto-connect brings it back within a few seconds. A message sent in that window is tagged `!!`
+rather than pretending it went out; send it again once the footer is green.
 
 Quick replies default to OK / Yes / No / On my way / Where are you? / I'm here / Call me / Need
 help / Heading back / Ping. Put your own, one per line, in

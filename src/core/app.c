@@ -351,6 +351,14 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
     const char *connected_address = mesh_ble_transport_connected_address(ble);
     bool connected_address_seen = false;
 
+    /* Announce a dropped link once; auto-connect brings it back and the footer tracks it. */
+    const bool link_connected = (connected_address != NULL && connected_address[0] != '\0');
+    if (app->ui_link_was_connected && !link_connected &&
+        app->config.run_mode == MESH_APP_RUN_FOREGROUND) {
+        mesh_ui_store_set_toast(&app->ui_store, mesh_app_now_ms(), "Radio link lost; reconnecting");
+    }
+    app->ui_link_was_connected = link_connected;
+
     for (size_t i = 0; i < device_count && i < MESH_UI_MAX_DEVICES; ++i) {
         snprintf(ui_devices[i].identifier, sizeof(ui_devices[i].identifier), "%s",
                  ble_devices[i].address);
@@ -420,12 +428,35 @@ static void mesh_app_publish_ui_state(struct mesh_app *app) {
             }
         }
 
-        size_t copy_count = status.node_count;
+        /* The UI carries fewer nodes than a real mesh has, so hand it the ones heard most
+           recently; the radio's own order is arbitrary. Ourselves first, then by last_heard,
+           stable for ties (insertion sort: MESH_BLE_MAX_NODE_SUMMARY is small). */
+        size_t order[MESH_BLE_MAX_NODE_SUMMARY];
+        size_t total = status.node_count > MESH_BLE_MAX_NODE_SUMMARY ? MESH_BLE_MAX_NODE_SUMMARY
+                                                                     : status.node_count;
+        const uint32_t my_node = status.has_my_info ? status.my_info.my_node_num : 0U;
+        for (size_t i = 0; i < total; ++i) {
+            size_t j = i;
+            const struct mesh_ble_node_summary *node = &status.nodes[i];
+            const bool node_is_me = (my_node != 0U && node->node_id == my_node);
+            while (j > 0U) {
+                const struct mesh_ble_node_summary *prev = &status.nodes[order[j - 1U]];
+                const bool prev_is_me = (my_node != 0U && prev->node_id == my_node);
+                if (prev_is_me || (!node_is_me && prev->last_heard >= node->last_heard)) {
+                    break;
+                }
+                order[j] = order[j - 1U];
+                --j;
+            }
+            order[j] = i;
+        }
+
+        size_t copy_count = total;
         if (copy_count > MESH_UI_MAX_HANDSHAKE_NODES) {
             copy_count = MESH_UI_MAX_HANDSHAKE_NODES;
         }
         for (size_t i = 0; i < copy_count; ++i) {
-            const struct mesh_ble_node_summary *src = &status.nodes[i];
+            const struct mesh_ble_node_summary *src = &status.nodes[order[i]];
             struct mesh_ui_node_summary *dst = &ui_handshake.nodes[i];
             dst->node_id = src->node_id;
             snprintf(dst->long_name, sizeof(dst->long_name), "%s", src->long_name);
@@ -644,6 +675,7 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     app->autoconnect_retry_at_ms = 0U;
     app->autoconnect_failures = 0U;
     app->autoconnect_waiting_logged = false;
+    app->ui_link_was_connected = false;
     app->autoconnect_disabled = mesh_app_env_disabled("MESHCLIENT_AUTOCONNECT");
     if (app->autoconnect_disabled) {
         mesh_log_info("app", "Auto-connect disabled by MESHCLIENT_AUTOCONNECT");

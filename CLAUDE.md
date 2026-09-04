@@ -77,7 +77,11 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
   serial in `bluez_client.c`, 30 s cap) and returns 0 with the link in `connecting`; `tick()`
   then waits for `ServicesResolved` (250 ms polls, 20 s cap) before wiring the characteristics.
   `connected_address()` is NULL until then; `status()` reads `connecting`/`connected` meanwhile.
-  Everything else on the bus (reads, writes, StartNotify) is still a blocking call.
+  Everything else on the bus (reads, writes, StartNotify) is still a blocking call. BlueZ never
+  tells us about a dropped link (only characteristic properties are watched), so `tick()` reads
+  `Device1.Connected` every 2 s while CONNECTED (`mesh_ble_transport_check_link`) and a failed
+  GATT write also resets the link; queued messages are marked FAILED either way, and the
+  message log survives the reset. Auto-connect then reconnects.
 - `src/core/message.c` — transport-agnostic messaging: builds `TEXT_MESSAGE_APP` packets into a
   `ToRadio`, folds inbound `MeshPacket`s into a fixed ring (`mesh_message_log`), and correlates
   `ROUTING_APP` replies with the outbound message they ack. Message text is untrusted radio
@@ -103,7 +107,10 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
   conversation the Messages tab shows (`inbox` shows everything); `mesh_ui_nav_filter_messages`
   is the one place that filter lives, so the Messages cursor indexes the filtered list. The
   on-screen keyboard is `keyboard_open` plus `kb_row/kb_col/kb_layer` and `draft`, all in the
-  nav; while it is open every key goes to the keyboard handler and tabs do not switch.
+  nav; while it is open every key goes to the keyboard handler and tabs do not switch. The
+  `picker_open` overlay (Compose To:) works the same way; its rows come from
+  `mesh_ui_nav_picker_row` (channels, then nodes). `app.c` sorts nodes by `last_heard` before
+  publishing, so the UI's 64-node budget holds the recently active ones.
   Button positions: the Brick's A is `BTN_EAST` (305) and B is `BTN_SOUTH` (304), the reverse
   of the Linux `BTN_A`/`BTN_B` aliases. Verified from the device log; do not "fix" it back.
 - `src/minui_helpers/` — tiny native fallbacks for `minui-list` / `minui-presenter` used when the
@@ -165,7 +172,7 @@ via Python3 (needs `pip install protobuf grpcio-tools`).
 One harness, `tests/test_main.c`, with a `k_test_cases` table tagged by category (`unit` today;
 `integration`/`hardware` reserved). Register new cases in that table; use
 `record_failure`/`record_success`. Tests must not touch real BlueZ — use the bluez mock. New
-CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-04: 37 unit tests, all passing in
+CTest labels need a matching `add_test` in `tests/CMakeLists.txt`. Verified state as of 2026-09-04: 39 unit tests, all passing in
 the dev container with zero compiler warnings. `message_encode_text_golden` pins the
 `TEXT_MESSAGE_APP` wire format against a hand-derived byte vector (not against our own encoder),
 so a protobuf regeneration that changes field numbers or wire types fails loudly.

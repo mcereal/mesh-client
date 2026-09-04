@@ -675,6 +675,51 @@ static void fb_render_compose(const struct mesh_ui_backend_fb_state *state,
     }
 }
 
+/* "Send to" list: channels, then nodes, cursor on the current target. */
+static void fb_render_picker(const struct mesh_ui_backend_fb_state *state,
+                             const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    /* The snapshot is the store's data; the picker helpers take a store, so view it as one. */
+    struct mesh_ui_store view;
+    memset(&view, 0, sizeof view);
+    memcpy(view.devices, snapshot->devices, sizeof view.devices);
+    view.device_count = snapshot->device_count;
+    view.handshake = snapshot->handshake;
+    view.handshake_valid = snapshot->handshake_valid;
+    view.messages = snapshot->messages;
+    view.event_fd = -1;
+
+    const uint32_t count = mesh_ui_nav_picker_count(&view);
+    char title[96];
+    snprintf(title, sizeof title, "Send to (%u)", count);
+    fb_draw_title(state, layout, title);
+    if (count == 0U) {
+        fb_draw_empty(state, layout, "No channels or nodes known yet.");
+        return;
+    }
+
+    const uint32_t cursor = nav->picker_cursor < count ? nav->picker_cursor : count - 1U;
+    const uint32_t first = fb_first_visible(cursor, count, layout->rows);
+    int y = layout->body_y;
+    char name[96];
+    char line[160];
+    for (uint32_t i = first; i < count && i < first + layout->rows; ++i) {
+        uint32_t node = 0U;
+        uint8_t channel = 0U;
+        if (!mesh_ui_nav_picker_row(&view, i, &node, &channel, name, sizeof name)) {
+            break;
+        }
+        const bool is_channel = (node == MESH_MESSAGE_BROADCAST_ADDR);
+        const bool current =
+            (node == nav->target_node) && (!is_channel || channel == nav->target_channel);
+        snprintf(line, sizeof line, "%c %s%s", current ? '*' : ' ', name,
+                 is_channel ? "  (channel)" : "");
+        fb_fit(line, layout->cols);
+        fb_draw_row(state, y, line, is_channel ? k_accent : k_text, i == cursor);
+        y += layout->line;
+    }
+}
+
 /* The on-screen keyboard takes the whole body: target, the draft so far, then the grid. */
 static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
                                const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
@@ -876,6 +921,12 @@ static void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
     layout.rows = body_height > 0 ? (uint32_t)(body_height / layout.line) : 0U;
 
     const char *hint = "A select  B back  Left/Right tabs";
+    if (snapshot->nav.picker_open) {
+        hint = "A choose  B cancel  Up/Down move  L/R jump 10";
+        fb_render_picker(state, snapshot, &layout);
+        fb_draw_footer(state, snapshot, &layout, hint);
+        return;
+    }
     if (snapshot->nav.keyboard_open) {
         hint = "A type  B delete  X shift  Y space  START send";
         fb_render_keyboard(state, snapshot, &layout);
@@ -892,7 +943,7 @@ static void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
         fb_render_nodes(state, snapshot, &layout);
         break;
     case MESH_UI_SCREEN_COMPOSE:
-        hint = "A send / edit  B back  L/R tabs";
+        hint = "A send / edit / pick To  B back  L/R tabs";
         fb_render_compose(state, snapshot, &layout);
         break;
     case MESH_UI_SCREEN_DEVICES:

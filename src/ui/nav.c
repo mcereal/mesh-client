@@ -363,72 +363,159 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
     return moved;
 }
 
-/* ---- target cycling ----------------------------------------------------------------------- */
+/* ---- send-to picker ----------------------------------------------------------------------- */
 
-/* Order: every enabled channel by slot, then every node except ourselves, then back around. */
-static void mesh_ui_nav_cycle_target(struct mesh_ui_nav *nav, const struct mesh_ui_store *store) {
-    const struct mesh_ui_handshake_state *hs = store->handshake_valid ? &store->handshake : NULL;
-    const uint32_t node_count =
-        (hs != NULL) ? (hs->node_count > MESH_UI_MAX_HANDSHAKE_NODES ? MESH_UI_MAX_HANDSHAKE_NODES
-                                                                     : hs->node_count)
-                     : 0U;
-    const uint32_t me = (hs != NULL && hs->has_my_info) ? hs->my_info.node_num : 0U;
-
-    /* Enabled channel slots, in order; with no channel table known, slot 0 stands in. */
-    uint8_t slots[MESH_UI_MAX_CHANNELS];
-    uint32_t slot_count = 0U;
-    if (hs != NULL) {
-        for (uint32_t i = 0; i < hs->channel_count && i < MESH_UI_MAX_CHANNELS; ++i) {
+static uint32_t mesh_ui_nav_enabled_channels(const struct mesh_ui_store *store, uint8_t *slots,
+                                             uint32_t capacity) {
+    uint32_t count = 0U;
+    if (store != NULL && store->handshake_valid) {
+        const struct mesh_ui_handshake_state *hs = &store->handshake;
+        for (uint32_t i = 0; i < hs->channel_count && i < MESH_UI_MAX_CHANNELS && count < capacity;
+             ++i) {
             if (hs->channels[i].role != 0U) {
-                slots[slot_count++] = hs->channels[i].index;
+                slots[count++] = hs->channels[i].index;
             }
         }
     }
-    if (slot_count == 0U) {
-        slots[slot_count++] = 0U;
+    if (count == 0U && capacity > 0U) {
+        slots[count++] = 0U; /* no table yet: the primary slot still exists */
     }
+    return count;
+}
 
-    if (nav->target_node == MESH_MESSAGE_BROADCAST_ADDR) {
-        uint32_t position = slot_count; /* not found: fall through to the first node */
-        for (uint32_t i = 0; i < slot_count; ++i) {
-            if (slots[i] == nav->target_channel) {
-                position = i + 1U;
-                break;
+uint32_t mesh_ui_nav_picker_count(const struct mesh_ui_store *store) {
+    uint8_t slots[MESH_UI_MAX_CHANNELS];
+    uint32_t count = mesh_ui_nav_enabled_channels(store, slots, MESH_UI_MAX_CHANNELS);
+    if (store != NULL && store->handshake_valid) {
+        const struct mesh_ui_handshake_state *hs = &store->handshake;
+        const uint32_t me = hs->has_my_info ? hs->my_info.node_num : 0U;
+        for (uint32_t i = 0; i < hs->node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+            if (hs->nodes[i].node_id != 0U && hs->nodes[i].node_id != me) {
+                count++;
             }
         }
-        if (position < slot_count) {
-            mesh_ui_nav_set_target(nav, store, MESH_MESSAGE_BROADCAST_ADDR, slots[position], NULL);
-            return;
-        }
-        for (uint32_t i = 0; i < node_count; ++i) {
-            const struct mesh_ui_node_summary *node = &hs->nodes[i];
-            if (node->node_id == 0U || (me != 0U && node->node_id == me)) {
-                continue;
-            }
-            mesh_ui_nav_set_target(nav, store, node->node_id, 0U, NULL);
-            return;
-        }
-        mesh_ui_nav_set_target(nav, store, MESH_MESSAGE_BROADCAST_ADDR, slots[0], NULL);
-        return;
     }
+    return count;
+}
 
-    uint32_t start = node_count; /* unknown node: wrap to the first channel */
-    for (uint32_t i = 0; i < node_count; ++i) {
-        if (hs->nodes[i].node_id == nav->target_node) {
-            start = i + 1U;
+bool mesh_ui_nav_picker_row(const struct mesh_ui_store *store, uint32_t index, uint32_t *out_node,
+                            uint8_t *out_channel, char *out_name, size_t out_name_len) {
+    uint8_t slots[MESH_UI_MAX_CHANNELS];
+    const uint32_t channels = mesh_ui_nav_enabled_channels(store, slots, MESH_UI_MAX_CHANNELS);
+    if (index < channels) {
+        if (out_node != NULL) {
+            *out_node = MESH_MESSAGE_BROADCAST_ADDR;
+        }
+        if (out_channel != NULL) {
+            *out_channel = slots[index];
+        }
+        if (out_name != NULL) {
+            mesh_ui_nav_channel_name(store, slots[index], out_name, out_name_len);
+        }
+        return true;
+    }
+    if (store == NULL || !store->handshake_valid) {
+        return false;
+    }
+    const struct mesh_ui_handshake_state *hs = &store->handshake;
+    const uint32_t me = hs->has_my_info ? hs->my_info.node_num : 0U;
+    uint32_t position = channels;
+    for (uint32_t i = 0; i < hs->node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+        const struct mesh_ui_node_summary *node = &hs->nodes[i];
+        if (node->node_id == 0U || node->node_id == me) {
+            continue;
+        }
+        if (position == index) {
+            if (out_node != NULL) {
+                *out_node = node->node_id;
+            }
+            if (out_channel != NULL) {
+                *out_channel = 0U;
+            }
+            if (out_name != NULL) {
+                if (node->long_name[0] != '\0' && node->short_name[0] != '\0') {
+                    snprintf(out_name, out_name_len, "%s  %s", node->short_name, node->long_name);
+                } else {
+                    mesh_ui_nav_node_name(store, node->node_id, out_name, out_name_len);
+                }
+            }
+            return true;
+        }
+        position++;
+    }
+    return false;
+}
+
+static void mesh_ui_nav_picker_open(struct mesh_ui_nav *nav, const struct mesh_ui_store *store) {
+    nav->picker_open = true;
+    nav->picker_cursor = 0U;
+    /* Start on the current target so a stray A changes nothing. */
+    const uint32_t count = mesh_ui_nav_picker_count(store);
+    for (uint32_t i = 0; i < count; ++i) {
+        uint32_t node = 0U;
+        uint8_t channel = 0U;
+        if (!mesh_ui_nav_picker_row(store, i, &node, &channel, NULL, 0U)) {
+            break;
+        }
+        if (node == nav->target_node &&
+            (node != MESH_MESSAGE_BROADCAST_ADDR || channel == nav->target_channel)) {
+            nav->picker_cursor = i;
             break;
         }
     }
-    for (uint32_t i = start; i < node_count; ++i) {
-        const struct mesh_ui_node_summary *node = &hs->nodes[i];
-        if (node->node_id == 0U || (me != 0U && node->node_id == me)) {
-            continue;
-        }
-        mesh_ui_nav_set_target(nav, store, node->node_id, 0U, NULL);
-        return;
-    }
-    mesh_ui_nav_set_target(nav, store, MESH_MESSAGE_BROADCAST_ADDR, slots[0], NULL);
 }
+
+static bool mesh_ui_nav_picker_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                   enum mesh_ui_key key) {
+    const uint32_t count = mesh_ui_nav_picker_count(store);
+    if (nav->picker_cursor >= count && count > 0U) {
+        nav->picker_cursor = count - 1U;
+    }
+    switch (key) {
+    case MESH_UI_KEY_UP:
+        if (nav->picker_cursor == 0U) {
+            return false;
+        }
+        nav->picker_cursor--;
+        return true;
+    case MESH_UI_KEY_DOWN:
+        if (nav->picker_cursor + 1U >= count) {
+            return false;
+        }
+        nav->picker_cursor++;
+        return true;
+    case MESH_UI_KEY_LEFT:
+    case MESH_UI_KEY_L1:
+        /* Page up: a 130-node mesh is not walked one row at a time. */
+        nav->picker_cursor = nav->picker_cursor > 10U ? nav->picker_cursor - 10U : 0U;
+        return true;
+    case MESH_UI_KEY_RIGHT:
+    case MESH_UI_KEY_R1:
+        if (count == 0U) {
+            return false;
+        }
+        nav->picker_cursor =
+            nav->picker_cursor + 10U < count ? nav->picker_cursor + 10U : count - 1U;
+        return true;
+    case MESH_UI_KEY_A:
+    case MESH_UI_KEY_START: {
+        uint32_t node = 0U;
+        uint8_t channel = 0U;
+        if (mesh_ui_nav_picker_row(store, nav->picker_cursor, &node, &channel, NULL, 0U)) {
+            mesh_ui_nav_set_target(nav, store, node, channel, NULL);
+        }
+        nav->picker_open = false;
+        return true;
+    }
+    case MESH_UI_KEY_B:
+        nav->picker_open = false;
+        return true;
+    default:
+        return false;
+    }
+}
+
+/* ---- target cycling ----------------------------------------------------------------------- */
 
 /* X on Messages: Inbox, then each channel, then each node we have direct messages with. */
 static void mesh_ui_nav_cycle_conversation(struct mesh_ui_nav *nav,
@@ -743,7 +830,7 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
     }
     case MESH_UI_SCREEN_COMPOSE: {
         if (cursor == MESH_UI_COMPOSE_ROW_TARGET) {
-            mesh_ui_nav_cycle_target(nav, store);
+            mesh_ui_nav_picker_open(nav, store);
             return true;
         }
         if (cursor == MESH_UI_COMPOSE_ROW_DRAFT) {
@@ -803,6 +890,9 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         changed = true;
     }
 
+    if (nav->picker_open) {
+        return mesh_ui_nav_picker_key(nav, store, key) || changed;
+    }
     if (nav->keyboard_open) {
         return mesh_ui_nav_keyboard_key(nav, key, out_action) || changed;
     }

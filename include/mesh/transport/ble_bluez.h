@@ -85,6 +85,13 @@ struct mesh_bluez_mock_config {
     int services_resolved_result;
     /* Connect reply polls that stay pending before the mock completes with connect_result. */
     unsigned connect_pending_polls;
+    /* Device1.Connected polls that report true before the mock reports the link dropped
+       (0 = never drops). */
+    unsigned connected_drops_after_polls;
+    /* Writes that succeed before the mock starts failing them with write_result_late
+       (0 = write_result applies to every call). */
+    unsigned write_fail_after_calls;
+    int write_result_late;
     const char *toradio_char_path;
     const char *fromradio_char_path;
     const char *fromnum_char_path;
@@ -130,6 +137,9 @@ int mesh_bluez_client_disconnect(struct mesh_bluez_client *client, const char *d
 /* Device1.ServicesResolved. BlueZ's Connect returns once the link is up, but the GATT
    characteristics only appear on the bus after service discovery, which can take several
    seconds when nothing is cached. Callers poll this before looking them up. */
+/* Device1.Connected. False once BlueZ has seen the radio drop the link. */
+int mesh_bluez_client_device_connected(struct mesh_bluez_client *client, const char *device_path,
+                                       bool *out_connected);
 int mesh_bluez_client_services_resolved(struct mesh_bluez_client *client, const char *device_path,
                                         bool *out_resolved);
 int mesh_bluez_client_subscribe(struct mesh_bluez_client *client, const char *device_path,

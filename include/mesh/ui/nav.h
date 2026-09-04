@@ -92,6 +92,9 @@ struct mesh_ui_nav {
     /* Filtered message count at the last clamp, so a cursor parked on the newest message
        follows new traffic instead of being left behind. */
     uint32_t messages_seen;
+    /* "Send to" picker over the Compose tab: every enabled channel, then every node. */
+    bool picker_open;
+    uint32_t picker_cursor;
     /* Free-text entry. */
     bool keyboard_open;
     uint8_t kb_row;
@@ -138,6 +141,12 @@ uint32_t mesh_ui_nav_filter_messages(const struct mesh_ui_nav *nav,
 
 /* Human name for the current conversation: "Inbox", "#LongFast", "BRVO". */
 void mesh_ui_nav_conversation_name(const struct mesh_ui_nav *nav, char *out, size_t out_len);
+
+/* The picker's rows: channels first (node_id = MESH_MESSAGE_BROADCAST_ADDR, channel set), then
+   nodes other than ourselves. Returns the row count; mesh_ui_nav_picker_row() describes one. */
+uint32_t mesh_ui_nav_picker_count(const struct mesh_ui_store *store);
+bool mesh_ui_nav_picker_row(const struct mesh_ui_store *store, uint32_t index, uint32_t *out_node,
+                            uint8_t *out_channel, char *out_name, size_t out_name_len);
 
 /* Compose rows: 0 = To:, 1 = draft, then the canned replies. */
 #define MESH_UI_COMPOSE_ROW_TARGET 0U

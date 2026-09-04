@@ -34,6 +34,13 @@ const char *mesh_ble_transport_connected_address(struct mesh_transport *transpor
    is neither usable nor reported by mesh_ble_transport_connected_address() yet. */
 bool mesh_ble_transport_is_connecting(struct mesh_transport *transport);
 
+/* Asks BlueZ whether the device is still connected. BlueZ does not push a disconnect to us
+   (we only watch characteristic properties), so tick() calls this every couple of seconds
+   while linked. Returns 1 when the link is up, 0 when it was found down and has been reset
+   (queued messages are marked failed), a negative errno when the question could not be asked.
+   Exposed for tests. */
+int mesh_ble_transport_check_link(struct mesh_transport *transport);
+
 /* Encode and queue a TEXT_MESSAGE_APP packet for the connected node, and record it in the
    message log as outbound. Pass MESH_MESSAGE_BROADCAST_ADDR to broadcast on `channel`.
    want_ack is ignored for broadcasts, which the mesh never acks directly. On success the

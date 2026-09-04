@@ -2549,7 +2549,8 @@ static void test_ui_nav_navigation(void) {
         goto cleanup;
     }
 
-    /* Y reopens Compose; the To: row cycles BRVO -> #Primary -> ALFA -> BRVO, never us. */
+    /* Y reopens Compose; A on the To: row opens the picker with the cursor on the current
+       target (BRVO, after #Primary and ALFA), Up/Down move, A picks, B cancels. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
     if (store.nav.screen != MESH_UI_SCREEN_COMPOSE) {
         failure = "Y should open Compose";
@@ -2562,19 +2563,46 @@ static void test_ui_nav_navigation(void) {
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    if (store.nav.target_node != MESH_MESSAGE_BROADCAST_ADDR || store.nav.target_channel != 0U ||
-        strcmp(store.nav.target_name, "#Primary") != 0) {
-        failure = "cycle after the last node should wrap to the channel";
+    if (!store.nav.picker_open || mesh_ui_nav_picker_count(&store) != 3U ||
+        store.nav.picker_cursor != 2U) {
+        failure = "picker should open on the current target";
         goto cleanup;
     }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);  /* jump to the top */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* LEFT/RIGHT switch tabs? no */
+    if (store.nav.screen != MESH_UI_SCREEN_COMPOSE || !store.nav.picker_open ||
+        store.nav.picker_cursor != 2U) {
+        failure = "LEFT/RIGHT in the picker must page, not switch tabs";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action); /* clamps at the top */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.picker_open || store.nav.target_node != MESH_MESSAGE_BROADCAST_ADDR ||
+        store.nav.target_channel != 0U || strcmp(store.nav.target_name, "#Primary") != 0) {
+        failure = "picking the first row should target the primary channel";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     if (store.nav.target_node != 0x2000U || strcmp(store.nav.target_name, "ALFA") != 0) {
-        failure = "cycle from the channel should skip our own node";
+        failure = "second picker row should be the first node other than us";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action); /* cancel keeps ALFA */
+    if (store.nav.picker_open || store.nav.target_node != 0x2000U) {
+        failure = "B should cancel the picker without changing the target";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* +10 clamps to the last */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     if (store.nav.target_node != 0x3000U) {
-        failure = "cycle should reach BRVO";
+        failure = "RIGHT should jump to the last row";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action); /* no-op at the top */
@@ -2824,15 +2852,31 @@ static void test_ui_nav_channels_and_keyboard(void) {
         goto cleanup;
     }
 
-    /* Compose To: from #LongFast cycles #Team, ALFA, BRVO, then back to #LongFast; a canned
-       reply sent while on #Team carries channel 1. */
+    /* The picker lists #LongFast, #Team, ALFA, BRVO (never us, never the disabled slot); a
+       canned reply sent while on #Team carries channel 1. */
+    if (mesh_ui_nav_picker_count(&store) != 4U) {
+        failure = "picker should list two channels and two nodes";
+        goto cleanup;
+    }
+    char row_name[96];
+    uint32_t row_node = 0U;
+    uint8_t row_channel = 0U;
+    if (!mesh_ui_nav_picker_row(&store, 1U, &row_node, &row_channel, row_name, sizeof row_name) ||
+        row_node != MESH_MESSAGE_BROADCAST_ADDR || row_channel != 1U ||
+        strcmp(row_name, "#Team") != 0) {
+        failure = "picker row 1 should be the secondary channel";
+        goto cleanup;
+    }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* BRVO -> #LongFast */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* -> #Team */
-    if (store.nav.target_node != MESH_MESSAGE_BROADCAST_ADDR || store.nav.target_channel != 1U) {
-        failure = "To: cycle should visit the secondary channel";
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);    /* open picker (on BRVO) */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action); /* top */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* #Team */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.picker_open || store.nav.target_node != MESH_MESSAGE_BROADCAST_ADDR ||
+        store.nav.target_channel != 1U) {
+        failure = "picker should select the secondary channel";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
@@ -3263,6 +3307,167 @@ cleanup:
     }
 }
 
+/* BlueZ says the device is gone: the link resets, the UI sees "running", and auto-connect can
+   try again. Checked via the explicit probe tick() runs every couple of seconds. */
+static void test_ble_transport_link_drop(void) {
+    const char *test_name = "ble_transport_link_drop";
+    const char *failure = NULL;
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:0A", .name = "NodeTen", .rssi = -50},
+    };
+    uint8_t write_capture[64];
+    size_t write_len = 0U;
+    struct mesh_bluez_mock_config mock_config = {
+        .adapter_path = "/org/bluez/hci0",
+        .connected_drops_after_polls = 2U, /* tick() already probes once on connect */
+        .devices = mock_devices,
+        .device_count = 1U,
+        .write_capture_buffer = write_capture,
+        .write_capture_capacity = sizeof(write_capture),
+        .write_capture_length = &write_len,
+    };
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    struct mesh_app_config config = mesh_app_config_default();
+    struct mesh_event_loop loop;
+    mesh_event_loop_init(&loop);
+    if (ble->ops->start(ble, &config, &loop) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+        failure = "connect should be accepted";
+        goto cleanup;
+    }
+    ble->ops->tick(ble);
+    if (mesh_ble_transport_connected_address(ble) == NULL) {
+        failure = "expected a connected link";
+        goto cleanup;
+    }
+
+    /* A message in flight when the link drops ends up FAILED, not PENDING forever. */
+    uint32_t packet_id = 0U;
+    if (mesh_ble_transport_send_text(ble, 0x11223344U, 0U, "hello", true, &packet_id) != 0) {
+        failure = "send should succeed while connected";
+        goto cleanup;
+    }
+
+    if (mesh_ble_transport_check_link(ble) != 1) {
+        failure = "first probe should find the link up";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_check_link(ble) != 0) {
+        failure = "second probe should find the link down and reset it";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_connected_address(ble) != NULL ||
+        mesh_ble_transport_is_connecting(ble) || strcmp(ble->ops->status(ble), "running") != 0) {
+        failure = "link should be reset after the drop";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_check_link(ble) != -ENOTCONN) {
+        failure = "probe while disconnected should say so";
+        goto cleanup;
+    }
+    /* The message was already written, so it stays pending (the radio may still ack it);
+       the conversation itself survives the reset. */
+    const struct mesh_message_log *log = mesh_ble_transport_messages(ble);
+    if (log == NULL || log->count != 1U || mesh_message_log_at(log, 0)->packet_id != packet_id ||
+        mesh_message_log_at(log, 0)->ack != MESH_MESSAGE_ACK_PENDING) {
+        failure = "message log should survive a link reset";
+        goto cleanup;
+    }
+
+cleanup:
+    ble->ops->stop(ble);
+    mesh_event_loop_shutdown(&loop);
+    mesh_bluez_client_mock_disable();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+/* A failing GATT write is a dead link: send_text reports the error, marks the message FAILED
+   and the link resets instead of pretending the message went out. */
+static void test_ble_transport_write_failure(void) {
+    const char *test_name = "ble_transport_write_failure";
+    const char *failure = NULL;
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:0B", .name = "NodeEleven", .rssi = -50},
+    };
+    uint8_t write_capture[64];
+    size_t write_len = 0U;
+    struct mesh_bluez_mock_config mock_config = {
+        .adapter_path = "/org/bluez/hci0",
+        .write_fail_after_calls = 1U, /* the handshake write succeeds, the message does not */
+        .write_result_late = -EIO,
+        .devices = mock_devices,
+        .device_count = 1U,
+        .write_capture_buffer = write_capture,
+        .write_capture_capacity = sizeof(write_capture),
+        .write_capture_length = &write_len,
+    };
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    struct mesh_app_config config = mesh_app_config_default();
+    struct mesh_event_loop loop;
+    mesh_event_loop_init(&loop);
+    if (ble->ops->start(ble, &config, &loop) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+        failure = "connect should be accepted";
+        goto cleanup;
+    }
+    ble->ops->tick(ble);
+    if (mesh_ble_transport_connected_address(ble) == NULL) {
+        failure = "expected a connected link";
+        goto cleanup;
+    }
+
+    uint32_t packet_id = 0U;
+    const int result =
+        mesh_ble_transport_send_text(ble, 0x11223344U, 0U, "hello", true, &packet_id);
+    if (result != -EIO) {
+        failure = "send_text should surface the write error";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_connected_address(ble) != NULL ||
+        strcmp(ble->ops->status(ble), "running") != 0) {
+        failure = "a failed write should drop the link";
+        goto cleanup;
+    }
+    const struct mesh_message_log *log = mesh_ble_transport_messages(ble);
+    if (log == NULL || log->count != 1U ||
+        mesh_message_log_at(log, 0)->ack != MESH_MESSAGE_ACK_FAILED) {
+        failure = "the unsent message should be marked failed";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_send_text(ble, 0x11223344U, 0U, "again", true, NULL) != -ENOTCONN) {
+        failure = "sending while disconnected should say so";
+        goto cleanup;
+    }
+
+cleanup:
+    ble->ops->stop(ble);
+    mesh_event_loop_shutdown(&loop);
+    mesh_bluez_client_mock_disable();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
 static const struct test_case k_test_cases[] = {
     {"config_defaults", "unit", test_config_defaults},
     {"transport_registry_registration", "unit", test_transport_registry_registration},
@@ -3284,6 +3489,8 @@ static const struct test_case k_test_cases[] = {
     {"ui_nav_navigation", "unit", test_ui_nav_navigation},
     {"ui_nav_channels_and_keyboard", "unit", test_ui_nav_channels_and_keyboard},
     {"ble_transport_channel_decode", "unit", test_ble_transport_channel_decode},
+    {"ble_transport_link_drop", "unit", test_ble_transport_link_drop},
+    {"ble_transport_write_failure", "unit", test_ble_transport_write_failure},
     {"ui_canned_load", "unit", test_ui_canned_load},
     {"ui_input_key_mapping", "unit", test_ui_input_key_mapping},
     {"ui_preferences_roundtrip", "unit", test_ui_preferences_roundtrip},
