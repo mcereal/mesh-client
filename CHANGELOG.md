@@ -1,3 +1,9 @@
+## [1.5.0](https://github.com/mcereal/mesh-client/compare/v1.4.0...v1.5.0) (2026-09-04)
+
+### Features
+
+* **settings:** edit and save User, Display, Store & Forward and Telemetry ([1efa5e1](https://github.com/mcereal/mesh-client/commit/1efa5e1de1b13fad6659242e01b81882dddbd723))
+
 ## [1.4.0](https://github.com/mcereal/mesh-client/compare/v1.3.0...v1.4.0) (2026-09-04)
 
 ### Features
