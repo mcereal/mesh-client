@@ -91,6 +91,10 @@ Data flows one direction: transport → `mesh_app` → UI store → controller �
 - `src/minui_helpers/` — tiny native fallbacks for `minui-list` / `minui-presenter` used when the
   NextUI cross toolchain isn't available; they honor `MESHCLIENT_MINUI_SELECTION`.
 
+The fb backend draws into page 0 of the Brick's 1024x16384 framebuffer, then `FBIOPAN_DISPLAY`s
+to it and mirrors the frame into page 1, because the Allwinner display engine keeps showing the
+page NextUI's SDL last flipped to (page 1 in practice). Drop either step and the screen is black.
+
 Backend selection (`MESHCLIENT_UI_BACKEND=auto|minui|fb|cli|stub`, in `app.c`): `auto` prefers
 minui if helpers are on PATH, then fb (`/dev/fb0`), then cli. `launch.sh` forces `fb` on device.
 

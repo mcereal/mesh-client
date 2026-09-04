@@ -27,6 +27,7 @@ struct mesh_ui_backend_fb_state {
     struct fb_var_screeninfo var;
     uint32_t line_bytes;
     uint32_t bytes_per_pixel;
+    bool pan_failed_logged;
 };
 
 #define FONT_WIDTH 5
@@ -387,8 +388,10 @@ static int mesh_ui_backend_fb_init(void **state_out, void *userdata) {
         return -errno;
     }
 
-    mesh_log_info("ui", "Framebuffer UI backend active (%ux%u %u bpp)", state->var.xres,
-                  state->var.yres, state->var.bits_per_pixel);
+    mesh_log_info("ui", "Framebuffer UI backend active (%ux%u %u bpp, virtual %ux%u, offset %u,%u)",
+                  state->var.xres, state->var.yres, state->var.bits_per_pixel,
+                  state->var.xres_virtual, state->var.yres_virtual, state->var.xoffset,
+                  state->var.yoffset);
 
     if (state_out != NULL) {
         *state_out = state;
@@ -411,6 +414,31 @@ static void mesh_ui_backend_fb_shutdown(void *state_ptr, void *userdata) {
     (void)userdata;
 }
 
+/*
+ * The Brick's fb0 is 1024x16384: a stack of 768-row pages that NextUI's SDL flips between, and
+ * the Allwinner display engine keeps showing whichever page SDL last presented (observed:
+ * rows 768..1535, i.e. page 1) after the launcher hands over. Drawing at row 0 is then
+ * invisible. Pan the display back to page 0 after each frame and, in case the driver ignores
+ * the pan, mirror the frame into page 1 as well - a 3 MB copy per HUD update is nothing.
+ */
+static void fb_show_page0(struct mesh_ui_backend_fb_state *state) {
+    const size_t page_bytes = (size_t)state->line_bytes * state->var.yres;
+    if (state->var.yres_virtual >= 2U * state->var.yres && 2U * page_bytes <= state->fb_size) {
+        memcpy(state->fb_ptr + page_bytes, state->fb_ptr, page_bytes);
+    }
+
+    struct fb_var_screeninfo var = state->var;
+    var.xoffset = 0U;
+    var.yoffset = 0U;
+    if (ioctl(state->fb_fd, FBIOPAN_DISPLAY, &var) < 0) {
+        if (!state->pan_failed_logged) {
+            mesh_log_warn("ui", "FBIOPAN_DISPLAY failed: %s; relying on the mirrored page",
+                          strerror(errno));
+            state->pan_failed_logged = true;
+        }
+    }
+}
+
 static void mesh_ui_backend_fb_present(void *state_ptr, const struct mesh_ui_snapshot *snapshot,
                                        void *userdata) {
     struct mesh_ui_backend_fb_state *state = (struct mesh_ui_backend_fb_state *)state_ptr;
@@ -421,6 +449,7 @@ static void mesh_ui_backend_fb_present(void *state_ptr, const struct mesh_ui_sna
 
     fb_render_snapshot(state, snapshot);
     fb_draw_quit_hint(state);
+    fb_show_page0(state);
     msync(state->fb_ptr, state->fb_size, MS_ASYNC);
 }
 
