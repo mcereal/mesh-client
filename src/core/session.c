@@ -1019,6 +1019,43 @@ int mesh_session_set_node_favorite(struct mesh_session *session, uint32_t node_i
     return queued;
 }
 
+/* For the log line only; the UI has its own labels. */
+static const char *mesh_session_action_name(enum mesh_admin_request_kind kind) {
+    switch (kind) {
+    case MESH_ADMIN_REBOOT:
+        return "reboot";
+    case MESH_ADMIN_SHUTDOWN:
+        return "shutdown";
+    case MESH_ADMIN_RESET_NODEDB:
+        return "nodedb reset";
+    case MESH_ADMIN_FACTORY_RESET_CONFIG:
+        return "factory reset (config)";
+    case MESH_ADMIN_FACTORY_RESET_DEVICE:
+        return "factory reset (device)";
+    default:
+        return "?";
+    }
+}
+
+int mesh_session_radio_action(struct mesh_session *session, enum mesh_admin_request_kind kind) {
+    if (session == NULL || !mesh_admin_request_is_action(kind)) {
+        return -EINVAL;
+    }
+    if (session->send == NULL || !session->handshake.has_my_info) {
+        return -ENOTCONN;
+    }
+    const int queued =
+        mesh_radio_settings_queue_action(&session->settings, kind, MESH_RADIO_ACTION_DELAY_SECONDS);
+    if (queued < 0) {
+        return queued;
+    }
+    /* Loud on purpose: this is the one thing the Settings tab does that cannot be undone by
+       pressing the opposite row, and the log is what says who asked for it. */
+    mesh_log_warn("session", "Requested %s of node 0x%08x (%d requests)",
+                  mesh_session_action_name(kind), session->handshake.my_info.my_node_num, queued);
+    return queued;
+}
+
 const struct mesh_handshake_status *mesh_session_handshake(const struct mesh_session *session) {
     return session != NULL ? &session->handshake : NULL;
 }

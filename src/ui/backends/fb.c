@@ -1324,31 +1324,30 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
     }
 }
 
-/* "Save <section>?" for the sections whose write can cut this client off. */
+/* "Save <section>?" for the sections whose write can cut this client off, and "Reboot the
+   radio?" and its siblings for the Radio actions section. Which of the two it is standing in
+   front of is nav->confirm_action; all three strings come from settings.c. */
 static void fb_render_confirm(const struct mesh_ui_backend_fb_state *state,
                               const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     const enum mesh_ui_settings_section section =
         (enum mesh_ui_settings_section)nav->settings_section;
+    const enum mesh_ui_settings_action confirmed =
+        (enum mesh_ui_settings_action)nav->confirm_action;
     char title[96];
-    if (section == MESH_UI_SETTINGS_CHANNELS &&
-        nav->settings_channel != MESH_UI_SETTINGS_NO_CHANNEL) {
-        snprintf(title, sizeof title, "Save channel %u?", (unsigned)nav->settings_channel);
-    } else {
-        snprintf(title, sizeof title, "Save %s?", mesh_ui_settings_section_name(section));
-    }
+    mesh_ui_settings_confirm_title(section, nav->settings_channel, confirmed, title, sizeof title);
     fb_draw_title(state, layout, title);
 
     char text[256];
-    mesh_ui_settings_confirm_text(section, text, sizeof text);
+    mesh_ui_settings_confirm_text(section, confirmed, text, sizeof text);
     int y = layout->body_y;
     const int text_lines = 4;
     fb_draw_wrapped(state, y, text, layout->cols, text_lines, k_text);
     y += text_lines * layout->line + layout->line / 2;
 
-    static const char *const k_rows[] = {"Save to radio", "Cancel"};
+    const char *const rows[] = {mesh_ui_settings_confirm_accept(confirmed), "Cancel"};
     for (unsigned i = 0; i < 2U; ++i) {
-        fb_draw_row(state, y, k_rows[i], i == 0U ? k_accent : k_text, nav->confirm_cursor == i);
+        fb_draw_row(state, y, rows[i], i == 0U ? k_accent : k_text, nav->confirm_cursor == i);
         y += layout->line;
     }
 }

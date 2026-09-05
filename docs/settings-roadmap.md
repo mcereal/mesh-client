@@ -211,11 +211,62 @@ it cannot cut this client off or take the radio off the mesh - the rule the over
 - Exit criteria: on the Brick, a username and root topic typed on the keyboard read back
   after the reboot with the server and the proxy flag untouched.
 
+### Phase 7 - Radio actions (this branch)
+
+The first section that writes nothing. Reboot, shutdown, reset the node database, factory
+reset the config, factory reset the device: five `AdminMessage` verbs (`reboot_seconds`,
+`shutdown_seconds`, `nodedb_reset`, `factory_reset_config`, `factory_reset_device`) that make
+the radio *do* something instead of keeping something.
+
+Three things follow from that and are the whole of the design:
+
+- **Nothing is read back.** A rebooting radio has no state to re-read and a factory-reset one
+  has none we would recognise, so the queue shape is the clock push's: a `get_owner_request`
+  for a passkey the firmware will still accept, then the verb. The firmware checks the session
+  passkey on these exactly as it does on a `set_*`.
+- **They are not writes.** `mesh_admin_request_is_action` marks them and
+  `mesh_admin_request_is_write` continues not to, for a sharper version of the reason the
+  clock push and the favorites are excluded: the radio stops answering *in the middle of doing
+  what it was asked*, so a Routing ack that never lands is the action working. Counting it as
+  a rejected save would make the Settings tab announce a failure every time a reboot succeeded.
+- **The reboot and the shutdown carry a delay** (`MESH_RADIO_ACTION_DELAY_SECONDS`, 5).
+  Zero is refused: the firmware answers before it acts, and the ack has to get out of the door
+  while the radio is still listening.
+
+Nothing about the UI is new either, except that the **confirm overlay had to stop being
+hard-wired to a section save**. It now carries `nav.confirm_action`: NONE is the save it always
+was, anything else is the radio action A on the row put there. The title, the body and the verb
+on the accept row all come from `mesh_ui_settings_confirm_*` in `src/ui/settings.c` rather than
+from the backend, since the overlay now says five things it did not before. Every row in the
+section goes through it - A on the row opens the question, and only the answer emits anything.
+
+The section is last in the list so a cursor that overshoots lands on nothing worse than the row
+above it, its rows run least to most destructive, and it needs no config fragment to render:
+the one thing it waits on is our own node number, which is what an `AdminMessage` cannot be
+addressed without. `Shutdown` reads "not supported" when `DeviceMetadata.can_shutdown` says the
+board cannot cut its own power, rather than offering a press the firmware would drop.
+
+Reconnection is the existing machinery: a reboot drops the link and auto-connect brings it
+back. A shutdown does not, and the toast says so - there is nothing to reconnect to until
+somebody presses the radio's own button. A `factory_reset_device` clears the BLE bond, so the
+toast points at Devices → Y.
+
+- Exit criteria: on the Brick, Reboot restarts the radio and auto-connect reconnects with
+  everything intact; Shutdown powers it off and the toast does not promise a reconnect; the
+  node database reset empties the radio's list with favorites still in it, and the Brick's own
+  cached list survives.
+
 ### Later, maybe never
 
 Firmware install. Also `tzdef` presets beyond typing the POSIX string by hand, `Network`
 (WiFi credentials on a device with no WiFi of its own is a poor fit), MQTT client proxying,
 and closing channel gaps the way the phone apps do when a middle slot is removed.
+
+The admin verbs deliberately left out of phase 7: `enter_dfu_mode_request` and `ota_request`
+(firmware install, above), `exit_simulator`, and `reboot_ota_seconds` (deprecated upstream in
+favour of `reboot_ota_mode`). `remove_by_nodenum` and `toggle_muted_node` belong on the Nodes
+tab beside the favorite and ignore rows rather than in a settings section, so they are not
+here either.
 
 ### Done outside the phases
 

@@ -889,6 +889,52 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
         mesh_app_save_settings(app, action, now);
         return;
     }
+    case MESH_UI_ACTION_RADIO_ACTION: {
+        /*
+         * Reboot, shutdown and the three resets. Nothing here waits for an answer: the radio
+         * acts a few seconds after acking and takes the link with it, so the toast says what
+         * was asked for. A shutdown in particular has no reconnect to promise - the radio has
+         * to be switched on by hand - so it says so rather than leaving auto-connect to look
+         * broken while it retries a node that is off.
+         */
+        enum mesh_admin_request_kind kind = MESH_ADMIN_REBOOT;
+        const char *asked = "Rebooting; reconnecting shortly";
+        switch ((enum mesh_ui_settings_action)action->number) {
+        case MESH_UI_SETTINGS_ACTION_REBOOT:
+            break;
+        case MESH_UI_SETTINGS_ACTION_SHUTDOWN:
+            kind = MESH_ADMIN_SHUTDOWN;
+            asked = "Shutting down; switch it on by hand";
+            break;
+        case MESH_UI_SETTINGS_ACTION_RESET_NODEDB:
+            kind = MESH_ADMIN_RESET_NODEDB;
+            asked = "Node database reset; favorites kept";
+            break;
+        case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG:
+            kind = MESH_ADMIN_FACTORY_RESET_CONFIG;
+            asked = "Factory reset sent; radio restarting";
+            break;
+        case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE:
+            kind = MESH_ADMIN_FACTORY_RESET_DEVICE;
+            asked = "Factory reset sent; forget it in Devices";
+            break;
+        default:
+            return; /* a row the nav should never have confirmed */
+        }
+        const int result = mesh_session_radio_action(&app->session, kind);
+        if (result > 0) {
+            snprintf(toast, sizeof toast, "%s", asked);
+        } else if (result == 0) {
+            snprintf(toast, sizeof toast, "%s", "Already requested");
+        } else if (result == -ENOTCONN) {
+            snprintf(toast, sizeof toast, "%s", "Not connected to a node");
+        } else {
+            snprintf(toast, sizeof toast, "Request failed (%d)", result);
+            mesh_log_warn("ui", "Radio action %u failed: %d", (unsigned)action->number, result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
     case MESH_UI_ACTION_TOGGLE_FAVORITE: {
         const bool favorite = (action->number != 0U);
         char name[MESH_UI_NAV_TARGET_NAME_MAX];

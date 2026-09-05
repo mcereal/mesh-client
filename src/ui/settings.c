@@ -37,6 +37,8 @@ const char *mesh_ui_settings_section_name(enum mesh_ui_settings_section section)
         return "Store & Forward";
     case MESH_UI_SETTINGS_TELEMETRY:
         return "Telemetry";
+    case MESH_UI_SETTINGS_ACTIONS:
+        return "Radio actions";
     default:
         return "?";
     }
@@ -79,6 +81,10 @@ bool mesh_ui_settings_section_loaded(const struct mesh_ui_settings *settings,
         return settings->has_store_forward;
     case MESH_UI_SETTINGS_TELEMETRY:
         return settings->has_telemetry;
+    case MESH_UI_SETTINGS_ACTIONS:
+        /* Nothing is read for this section, so what it waits on is not a config fragment but
+           the one thing an AdminMessage cannot be addressed without: our own node number. */
+        return handshake != NULL && handshake->has_my_info;
     default:
         return false;
     }
@@ -561,10 +567,104 @@ bool mesh_ui_settings_section_needs_confirm(enum mesh_ui_settings_section sectio
            section == MESH_UI_SETTINGS_POWER;
 }
 
-void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section, char *out,
-                                   size_t out_len) {
+bool mesh_ui_settings_action_is_radio(enum mesh_ui_settings_action action) {
+    return action == MESH_UI_SETTINGS_ACTION_REBOOT || action == MESH_UI_SETTINGS_ACTION_SHUTDOWN ||
+           action == MESH_UI_SETTINGS_ACTION_RESET_NODEDB ||
+           action == MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG ||
+           action == MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE;
+}
+
+void mesh_ui_settings_confirm_title(enum mesh_ui_settings_section section, uint8_t channel,
+                                    enum mesh_ui_settings_action action, char *out,
+                                    size_t out_len) {
     if (out == NULL || out_len == 0U) {
         return;
+    }
+    switch (action) {
+    case MESH_UI_SETTINGS_ACTION_REBOOT:
+        snprintf(out, out_len, "%s", "Reboot the radio?");
+        return;
+    case MESH_UI_SETTINGS_ACTION_SHUTDOWN:
+        snprintf(out, out_len, "%s", "Shut the radio down?");
+        return;
+    case MESH_UI_SETTINGS_ACTION_RESET_NODEDB:
+        snprintf(out, out_len, "%s", "Reset the node database?");
+        return;
+    case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG:
+        snprintf(out, out_len, "%s", "Factory reset the config?");
+        return;
+    case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE:
+        snprintf(out, out_len, "%s", "Factory reset everything?");
+        return;
+    default:
+        break;
+    }
+    if (section == MESH_UI_SETTINGS_CHANNELS && channel != MESH_UI_SETTINGS_NO_CHANNEL) {
+        snprintf(out, out_len, "Save channel %u?", (unsigned)channel);
+        return;
+    }
+    snprintf(out, out_len, "Save %s?", mesh_ui_settings_section_name(section));
+}
+
+const char *mesh_ui_settings_confirm_accept(enum mesh_ui_settings_action action) {
+    switch (action) {
+    case MESH_UI_SETTINGS_ACTION_REBOOT:
+        return "Reboot now";
+    case MESH_UI_SETTINGS_ACTION_SHUTDOWN:
+        return "Shut down now";
+    case MESH_UI_SETTINGS_ACTION_RESET_NODEDB:
+        return "Reset the node database";
+    case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG:
+        return "Factory reset config";
+    case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE:
+        return "Factory reset device";
+    default:
+        return "Save to radio";
+    }
+}
+
+void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section,
+                                   enum mesh_ui_settings_action action, char *out, size_t out_len) {
+    if (out == NULL || out_len == 0U) {
+        return;
+    }
+    /*
+     * The actions first: they are the only rows here that cannot be undone by pressing the
+     * opposite one, so each says what is lost rather than only what happens. A reset that
+     * spares something says so too - "favorites excepted" is the difference between a press
+     * the user regrets and one they do not.
+     */
+    switch (action) {
+    case MESH_UI_SETTINGS_ACTION_REBOOT:
+        snprintf(out, out_len, "%s",
+                 "The radio restarts in a few seconds. The link drops with it and auto-connect "
+                 "brings it back; anything sent to this node meanwhile is lost.");
+        return;
+    case MESH_UI_SETTINGS_ACTION_SHUTDOWN:
+        snprintf(out, out_len, "%s",
+                 "The radio powers off in a few seconds and nothing here can wake it again: "
+                 "that takes its own button. Everything it has stored survives.");
+        return;
+    case MESH_UI_SETTINGS_ACTION_RESET_NODEDB:
+        snprintf(out, out_len, "%s",
+                 "The radio forgets every node it has heard, favorites excepted. Names and "
+                 "positions return only as each node speaks again, which on a quiet mesh is "
+                 "hours. This client's own cached list is left alone.");
+        return;
+    case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG:
+        snprintf(out, out_len, "%s",
+                 "Every setting on this radio returns to its factory default, the Bluetooth "
+                 "bond excepted. Channels and their keys go with them: the node leaves your "
+                 "mesh until it is set up again.");
+        return;
+    case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE:
+        snprintf(out, out_len, "%s",
+                 "Every setting and the node database return to factory defaults and the "
+                 "Bluetooth bond is cleared, so this node has to be forgotten in Devices (Y) "
+                 "and paired again. Its identity key changes.");
+        return;
+    default:
+        break;
     }
     switch (section) {
     case MESH_UI_SETTINGS_BLUETOOTH:
@@ -1330,6 +1430,32 @@ static void build_telemetry(const struct mesh_ui_settings *s, struct item_list *
     item_field(list, MESH_UI_FIELD_TELEMETRY_POWER, s->power_measurement_enabled ? 1U : 0U, NULL);
 }
 
+/*
+ * Radio actions: the rows that make the radio do something rather than keep something. None of
+ * them is a setting, so there is no Y to press and nothing to read back - A on a row opens the
+ * confirm overlay and the answer goes out on its own.
+ *
+ * Ordered least to most destructive, so a cursor arriving at the top of the list is on the one
+ * press here that costs nothing but a reconnect, and the two that cannot be undone are the
+ * furthest to travel to.
+ */
+static void build_actions(const struct mesh_ui_settings *s, struct item_list *list) {
+    item_action(list, "Reboot", "press A", MESH_UI_SETTINGS_ACTION_REBOOT);
+    /* DeviceMetadata says whether the hardware can cut its own power; on a board that cannot,
+       the request is simply ignored, so the row says so rather than lying about what A does.
+       Until the metadata arrives the row is offered: the radio is the authority, not us. */
+    if (s->has_metadata && !s->can_shutdown) {
+        item_text(list, "Shutdown", MESH_UI_SETTING_INFO, "not supported");
+    } else {
+        item_action(list, "Shutdown", "press A", MESH_UI_SETTINGS_ACTION_SHUTDOWN);
+    }
+    item_action(list, "Reset node database", "press A", MESH_UI_SETTINGS_ACTION_RESET_NODEDB);
+    item_action(list, "Factory reset config", "press A",
+                MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG);
+    item_action(list, "Factory reset device", "press A",
+                MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE);
+}
+
 static void build_section(const struct mesh_ui_settings *settings,
                           const struct mesh_ui_handshake_state *handshake,
                           const struct mesh_ui_setting_edit *edits, size_t edit_count,
@@ -1387,6 +1513,9 @@ static void build_section(const struct mesh_ui_settings *settings,
         break;
     case MESH_UI_SETTINGS_TELEMETRY:
         build_telemetry(settings, list);
+        break;
+    case MESH_UI_SETTINGS_ACTIONS:
+        build_actions(settings, list);
         break;
     default:
         break;

@@ -1182,6 +1182,11 @@ static void mesh_ui_nav_fill_save(const struct mesh_ui_nav *nav, struct mesh_ui_
     memcpy(action->edits, nav->settings_edits, sizeof action->edits);
 }
 
+static void mesh_ui_nav_confirm_close(struct mesh_ui_nav *nav) {
+    nav->confirm_open = false;
+    nav->confirm_action = (uint8_t)MESH_UI_SETTINGS_ACTION_NONE;
+}
+
 static bool mesh_ui_nav_confirm_key(struct mesh_ui_nav *nav, enum mesh_ui_key key,
                                     struct mesh_ui_action *action) {
     switch (key) {
@@ -1194,12 +1199,22 @@ static bool mesh_ui_nav_confirm_key(struct mesh_ui_nav *nav, enum mesh_ui_key ke
     case MESH_UI_KEY_A:
     case MESH_UI_KEY_START:
         if (nav->confirm_cursor == 0U) {
-            mesh_ui_nav_fill_save(nav, action);
+            /* Two things stand behind this overlay: a section save, and a radio action that
+               keeps no state and so has no edits to carry. */
+            if (nav->confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_NONE) {
+                if (action != NULL) {
+                    action->type = MESH_UI_ACTION_RADIO_ACTION;
+                    action->section = nav->settings_section;
+                    action->number = nav->confirm_action;
+                }
+            } else {
+                mesh_ui_nav_fill_save(nav, action);
+            }
         }
-        nav->confirm_open = false;
+        mesh_ui_nav_confirm_close(nav);
         return true;
     case MESH_UI_KEY_B:
-        nav->confirm_open = false;
+        mesh_ui_nav_confirm_close(nav);
         return true;
     default:
         return false;
@@ -1595,6 +1610,14 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             struct mesh_ui_settings_item item;
             if (mesh_ui_nav_settings_current(nav, store, true, &item) &&
                 item.kind == MESH_UI_SETTING_ACTION && item.field == MESH_UI_FIELD_NONE) {
+                /* A radio action is never done on the press that selected it: the row opens
+                   the question, and the answer to that is what goes out. */
+                if (mesh_ui_settings_action_is_radio((enum mesh_ui_settings_action)item.number)) {
+                    nav->confirm_open = true;
+                    nav->confirm_cursor = 1U; /* Cancel, so a repeated press changes nothing */
+                    nav->confirm_action = (uint8_t)item.number;
+                    return true;
+                }
                 if (action != NULL) {
                     if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_UPDATE) {
                         action->type = MESH_UI_ACTION_CHECK_UPDATE;
@@ -1662,6 +1685,7 @@ static bool mesh_ui_nav_settings_section_key(struct mesh_ui_nav *nav,
                 (enum mesh_ui_settings_section)nav->settings_section)) {
             nav->confirm_open = true;
             nav->confirm_cursor = 1U; /* Cancel, so a repeated press changes nothing */
+            nav->confirm_action = (uint8_t)MESH_UI_SETTINGS_ACTION_NONE;
             return true;
         }
         mesh_ui_nav_fill_save(nav, action);

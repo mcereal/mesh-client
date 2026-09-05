@@ -10287,6 +10287,308 @@ static void test_message_routing_failure_reason(void) {
     record_success(test_name);
 }
 
+/*
+ * The Radio actions section's wire side. Shaped like the favorite pair - a passkey refresh,
+ * the action itself, no read-back - and, like them, deliberately not a "settings write": the
+ * radio stops answering in the middle of doing what it was asked, so an ack that never lands
+ * must not surface as a rejected save.
+ */
+static bool test_action_encodes_as(enum mesh_admin_request_kind kind,
+                                   meshtastic_AdminMessage *out_admin) {
+    struct mesh_radio_settings settings;
+    mesh_radio_settings_reset(&settings);
+    struct mesh_admin_request request;
+    memset(&request, 0, sizeof request);
+    request.kind = kind;
+    request.type = MESH_RADIO_ACTION_DELAY_SECONDS;
+    request.my_node = 0x1234U;
+    request.packet_id = 90U;
+
+    uint8_t buffer[512];
+    size_t written = 0U;
+    if (mesh_radio_settings_encode_request(&settings, &request, buffer, sizeof buffer, &written) !=
+        0) {
+        return false;
+    }
+    meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_default;
+    pb_istream_t in = pb_istream_from_buffer(buffer, written);
+    if (!pb_decode(&in, meshtastic_ToRadio_fields, &to_radio) ||
+        to_radio.packet.decoded.portnum != meshtastic_PortNum_ADMIN_APP ||
+        to_radio.packet.to != 0x1234U) {
+        return false;
+    }
+    *out_admin = (meshtastic_AdminMessage)meshtastic_AdminMessage_init_default;
+    in = pb_istream_from_buffer(to_radio.packet.decoded.payload.bytes,
+                                to_radio.packet.decoded.payload.size);
+    return pb_decode(&in, meshtastic_AdminMessage_fields, out_admin);
+}
+
+static void test_radio_settings_action_queue(void) {
+    const char *test_name = "radio_settings_action_queue";
+    struct mesh_radio_settings settings;
+    mesh_radio_settings_reset(&settings);
+
+    if (mesh_admin_request_is_write(MESH_ADMIN_REBOOT) ||
+        !mesh_admin_request_is_action(MESH_ADMIN_FACTORY_RESET_DEVICE) ||
+        mesh_admin_request_is_action(MESH_ADMIN_SET_CONFIG)) {
+        record_failure(test_name, "an action is not a write and a write is not an action");
+        return;
+    }
+    if (mesh_radio_settings_queue_action(&settings, MESH_ADMIN_SET_CONFIG, 5U) != -EINVAL ||
+        mesh_radio_settings_queue_action(&settings, MESH_ADMIN_REBOOT, 0U) != -EINVAL ||
+        settings.queue_len != 0U) {
+        record_failure(test_name, "only an action with a delay may be queued");
+        return;
+    }
+
+    if (mesh_radio_settings_queue_action(&settings, MESH_ADMIN_REBOOT,
+                                         MESH_RADIO_ACTION_DELAY_SECONDS) != 2 ||
+        settings.queue_len != 2U) {
+        record_failure(test_name, "a reboot should queue the passkey refresh and the action");
+        return;
+    }
+    if (mesh_radio_settings_write_pending(&settings)) {
+        record_failure(test_name, "a radio action is not a settings write");
+        return;
+    }
+    /* A second press before the first has gone out is the same request, not another one. */
+    if (mesh_radio_settings_queue_action(&settings, MESH_ADMIN_REBOOT,
+                                         MESH_RADIO_ACTION_DELAY_SECONDS) != 0 ||
+        settings.queue_len != 2U) {
+        record_failure(test_name, "a repeated press should not queue a second reboot");
+        return;
+    }
+
+    struct mesh_admin_request next;
+    if (!mesh_radio_settings_next_request(&settings, 1000U, &next) ||
+        next.kind != MESH_ADMIN_GET_OWNER) {
+        record_failure(test_name, "the passkey refresh should go first");
+        return;
+    }
+    mesh_radio_settings_mark_sent(&settings, 81U, 1000U);
+    meshtastic_AdminMessage reply = meshtastic_AdminMessage_init_default;
+    reply.which_payload_variant = meshtastic_AdminMessage_get_owner_response_tag;
+    reply.session_passkey.size = 8U;
+    memset(reply.session_passkey.bytes, 0x33, 8U);
+    meshtastic_MeshPacket packet;
+    if (!test_make_admin_reply(0x1234U, 81U, &reply, &packet) ||
+        mesh_radio_settings_ingest(&settings, &packet) != 1) {
+        record_failure(test_name, "the owner reply should release the queue");
+        return;
+    }
+
+    if (!mesh_radio_settings_next_request(&settings, 1100U, &next) ||
+        next.kind != MESH_ADMIN_REBOOT || next.type != MESH_RADIO_ACTION_DELAY_SECONDS ||
+        settings.pending_is_write) {
+        record_failure(test_name, "the reboot should follow, uncounted");
+        return;
+    }
+    next.my_node = 0x1234U;
+    next.packet_id = 82U;
+    uint8_t buffer[512];
+    size_t written = 0U;
+    if (mesh_radio_settings_encode_request(&settings, &next, buffer, sizeof buffer, &written) !=
+        0) {
+        record_failure(test_name, "the reboot should encode");
+        return;
+    }
+    meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_default;
+    pb_istream_t in = pb_istream_from_buffer(buffer, written);
+    meshtastic_AdminMessage admin = meshtastic_AdminMessage_init_default;
+    if (!pb_decode(&in, meshtastic_ToRadio_fields, &to_radio)) {
+        record_failure(test_name, "the reboot ToRadio should decode");
+        return;
+    }
+    in = pb_istream_from_buffer(to_radio.packet.decoded.payload.bytes,
+                                to_radio.packet.decoded.payload.size);
+    if (!pb_decode(&in, meshtastic_AdminMessage_fields, &admin) ||
+        admin.which_payload_variant != meshtastic_AdminMessage_reboot_seconds_tag ||
+        admin.reboot_seconds != (int32_t)MESH_RADIO_ACTION_DELAY_SECONDS ||
+        admin.session_passkey.size != 8U || admin.session_passkey.bytes[0] != 0x33U) {
+        record_failure(test_name, "reboot_seconds should carry the delay and a fresh passkey");
+        return;
+    }
+    mesh_radio_settings_mark_sent(&settings, 82U, 1100U);
+
+    meshtastic_MeshPacket ack = make_routing_reply(82U, meshtastic_Routing_Error_NONE);
+    if (mesh_radio_settings_ingest(&settings, &ack) != 1 || mesh_radio_settings_busy(&settings) ||
+        settings.writes_sent != 0U || settings.writes_acked != 0U) {
+        record_failure(test_name, "the ack should release the queue without counting a save");
+        return;
+    }
+
+    /* A radio that reboots before it answers is the action working, not a failed save: the
+       queue moves on after the timeout and nothing is counted against the Settings tab. */
+    if (mesh_radio_settings_queue_action(&settings, MESH_ADMIN_SHUTDOWN,
+                                         MESH_RADIO_ACTION_DELAY_SECONDS) != 2) {
+        record_failure(test_name, "a shutdown should queue like a reboot");
+        return;
+    }
+    (void)mesh_radio_settings_next_request(&settings, 2000U, &next);
+    mesh_radio_settings_mark_sent(&settings, 83U, 2000U);
+    if (!mesh_radio_settings_next_request(
+            &settings, 2000U + MESH_RADIO_SETTINGS_REPLY_TIMEOUT_MS + 1U, &next) ||
+        settings.writes_failed != 0U) {
+        record_failure(test_name, "a timed-out action should not count as a failed write");
+        return;
+    }
+
+    /* Each verb lands on its own field, and the two the firmware only tests for truth carry
+       something true. */
+    meshtastic_AdminMessage encoded;
+    if (!test_action_encodes_as(MESH_ADMIN_SHUTDOWN, &encoded) ||
+        encoded.which_payload_variant != meshtastic_AdminMessage_shutdown_seconds_tag ||
+        encoded.shutdown_seconds != (int32_t)MESH_RADIO_ACTION_DELAY_SECONDS) {
+        record_failure(test_name, "shutdown_seconds is wrong");
+        return;
+    }
+    if (!test_action_encodes_as(MESH_ADMIN_RESET_NODEDB, &encoded) ||
+        encoded.which_payload_variant != meshtastic_AdminMessage_nodedb_reset_tag ||
+        !encoded.nodedb_reset) {
+        record_failure(test_name, "nodedb_reset is wrong");
+        return;
+    }
+    if (!test_action_encodes_as(MESH_ADMIN_FACTORY_RESET_CONFIG, &encoded) ||
+        encoded.which_payload_variant != meshtastic_AdminMessage_factory_reset_config_tag ||
+        encoded.factory_reset_config == 0) {
+        record_failure(test_name, "factory_reset_config is wrong");
+        return;
+    }
+    if (!test_action_encodes_as(MESH_ADMIN_FACTORY_RESET_DEVICE, &encoded) ||
+        encoded.which_payload_variant != meshtastic_AdminMessage_factory_reset_device_tag ||
+        encoded.factory_reset_device == 0) {
+        record_failure(test_name, "factory_reset_device is wrong");
+        return;
+    }
+
+    record_success(test_name);
+}
+
+/*
+ * The Radio actions section as the user walks it: A opens the question rather than doing the
+ * thing, Cancel is where the cursor starts, and only the answer emits an action. The section
+ * needs no config fragment, so it is reachable as soon as the handshake has told us our own
+ * node number.
+ */
+static void test_ui_nav_radio_actions(void) {
+    const char *test_name = "ui_nav_radio_actions";
+    const char *failure = NULL;
+
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    test_nav_populate(&store);
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_metadata = true;
+    settings.can_shutdown = true;
+    mesh_ui_store_set_settings(&store, &settings);
+
+    if (!mesh_ui_settings_section_loaded(&store.settings, &store.handshake,
+                                         MESH_UI_SETTINGS_ACTIONS) ||
+        mesh_ui_settings_section_loaded(&store.settings, NULL, MESH_UI_SETTINGS_ACTIONS)) {
+        failure = "Radio actions needs our node number and nothing else";
+        goto cleanup;
+    }
+
+    struct mesh_ui_action action;
+    for (int i = 0; i < 4; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    }
+    for (int i = 0; i < MESH_UI_SETTINGS_ACTIONS; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.settings_section != MESH_UI_SETTINGS_ACTIONS ||
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 5U) {
+        failure = "the Radio actions section should open with five rows";
+        goto cleanup;
+    }
+
+    struct mesh_ui_settings_item item;
+    if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
+                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
+        item.kind != MESH_UI_SETTING_ACTION ||
+        item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_REBOOT ||
+        strcmp(item.label, "Reboot") != 0) {
+        failure = "Reboot should be the first row";
+        goto cleanup;
+    }
+
+    /* A opens the question on Cancel, and asking is not doing. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.confirm_open || store.nav.confirm_cursor != 1U ||
+        store.nav.confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_REBOOT ||
+        action.type != MESH_UI_ACTION_NONE) {
+        failure = "A on Reboot should open the confirm overlay on Cancel";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.confirm_open || action.type != MESH_UI_ACTION_NONE ||
+        store.nav.confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_NONE) {
+        failure = "A on Cancel should close the overlay without acting";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (store.nav.confirm_open || action.type != MESH_UI_ACTION_NONE) {
+        failure = "B should back out of the overlay";
+        goto cleanup;
+    }
+
+    /* Open it again, move onto the verb, and answer: that is the only press that acts. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.confirm_open || action.type != MESH_UI_ACTION_RADIO_ACTION ||
+        action.number != (uint32_t)MESH_UI_SETTINGS_ACTION_REBOOT ||
+        action.section != MESH_UI_SETTINGS_ACTIONS || action.edit_count != 0U) {
+        failure = "confirming should emit the reboot and carry no edits";
+        goto cleanup;
+    }
+
+    char text[96];
+    mesh_ui_settings_confirm_title(MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL,
+                                   MESH_UI_SETTINGS_ACTION_REBOOT, text, sizeof text);
+    if (strcmp(text, "Reboot the radio?") != 0 ||
+        strcmp(mesh_ui_settings_confirm_accept(MESH_UI_SETTINGS_ACTION_REBOOT), "Reboot now") !=
+            0 ||
+        strcmp(mesh_ui_settings_confirm_accept(MESH_UI_SETTINGS_ACTION_NONE), "Save to radio") !=
+            0) {
+        failure = "the overlay should name what it is standing in front of";
+        goto cleanup;
+    }
+    /* A save keeps its own title, channel slot included. */
+    mesh_ui_settings_confirm_title(MESH_UI_SETTINGS_CHANNELS, 1U, MESH_UI_SETTINGS_ACTION_NONE,
+                                   text, sizeof text);
+    if (strcmp(text, "Save channel 1?") != 0) {
+        failure = "a channel save should still say which slot";
+        goto cleanup;
+    }
+
+    /* A board that cannot cut its own power says so rather than offering a press that the
+       firmware would drop on the floor. */
+    settings.can_shutdown = false;
+    mesh_ui_store_set_settings(&store, &settings);
+    if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
+                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
+        item.kind != MESH_UI_SETTING_INFO || strcmp(item.value, "not supported") != 0) {
+        failure = "Shutdown should be a fact on a board that cannot shut down";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}
+
 static const struct test_case k_test_cases[] = {
     {"config_defaults", "unit", test_config_defaults},
     {"version_compare", "unit", test_version_compare},
@@ -10383,6 +10685,8 @@ static const struct test_case k_test_cases[] = {
     {"ble_transport_pair_cancel", "unit", test_ble_transport_pair_cancel},
     {"ui_nav_devices_disconnect_forget", "unit", test_ui_nav_devices_disconnect_forget},
     {"ui_nav_passkey_prompt", "unit", test_ui_nav_passkey_prompt},
+    {"radio_settings_action_queue", "unit", test_radio_settings_action_queue},
+    {"ui_nav_radio_actions", "unit", test_ui_nav_radio_actions},
 };
 
 struct test_options {

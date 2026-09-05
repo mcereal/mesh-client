@@ -150,10 +150,14 @@ struct mesh_ui_nav {
        position is parked in settings_channel_list_cursor while a channel is open. */
     uint8_t settings_channel;
     uint32_t settings_channel_list_cursor;
-    /* "Save <section>?" overlay for sections whose write can cut this client off (Bluetooth,
-       Channels). Row 0 saves, row 1 cancels. */
+    /* The confirm overlay: "Save <section>?" for sections whose write can cut this client off
+       (Bluetooth, Channels, LoRa, Security, Power), and every row in the Radio actions
+       section. Row 0 goes ahead, row 1 cancels. `confirm_action` says which of the two it is
+       standing in front of: MESH_UI_SETTINGS_ACTION_NONE is the section save, anything else is
+       that radio action. */
     bool confirm_open;
     uint8_t confirm_cursor;
+    uint8_t confirm_action; /* enum mesh_ui_settings_action */
     /* Edits made in the open section and not yet saved. Y sends them as one
        MESH_UI_ACTION_SAVE_SETTINGS; B asks once (discard_armed) and discards on the second
        press. The app clears them through mesh_ui_store_settings_edits_clear() once queued. */
@@ -199,6 +203,10 @@ enum mesh_ui_action_type {
     MESH_UI_ACTION_INSTALL_UPDATE,
     MESH_UI_ACTION_CYCLE_UPDATE_CHANNEL,
     MESH_UI_ACTION_TOGGLE_DEV_UPDATES,
+    /* Radio actions section: `number` is the enum mesh_ui_settings_action the user confirmed.
+       One action type rather than five because the nav has nothing to say about any of them
+       beyond which row it was - the app owns what each one means. */
+    MESH_UI_ACTION_RADIO_ACTION,
     /* Devices tab. DISCONNECT with an empty identifier means "whatever link is up": only one
        radio is ever connected, so the row the cursor happens to be on does not decide it. */
     MESH_UI_ACTION_DISCONNECT,
@@ -218,7 +226,8 @@ struct mesh_ui_action {
     uint32_t dest;
     uint8_t channel;
     /* TOGGLE_FAVORITE: 1 to pin, 0 to unpin. The nav reads the node's current flag and sends
-       the state it wants, so a press that races a NodeInfo cannot end up as a no-op toggle. */
+       the state it wants, so a press that races a NodeInfo cannot end up as a no-op toggle.
+       RADIO_ACTION: the enum mesh_ui_settings_action that was confirmed. */
     uint32_t number;
     char text[MESH_UI_DRAFT_MAX];
     /* SAVE_SETTINGS: the section (enum mesh_ui_settings_section), the channel slot for the

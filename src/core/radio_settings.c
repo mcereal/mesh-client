@@ -7,6 +7,7 @@
 #include <pb_encode.h>
 
 #include <errno.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -139,6 +140,12 @@ bool mesh_admin_request_is_write(enum mesh_admin_request_kind kind) {
     /* MESH_ADMIN_SET_TIME is a set_* on the wire but not here: see the header. */
     return kind == MESH_ADMIN_SET_OWNER || kind == MESH_ADMIN_SET_CONFIG ||
            kind == MESH_ADMIN_SET_MODULE_CONFIG || kind == MESH_ADMIN_SET_CHANNEL;
+}
+
+bool mesh_admin_request_is_action(enum mesh_admin_request_kind kind) {
+    return kind == MESH_ADMIN_REBOOT || kind == MESH_ADMIN_SHUTDOWN ||
+           kind == MESH_ADMIN_RESET_NODEDB || kind == MESH_ADMIN_FACTORY_RESET_CONFIG ||
+           kind == MESH_ADMIN_FACTORY_RESET_DEVICE;
 }
 
 static void mesh_radio_settings_record_write_result(struct mesh_radio_settings *settings,
@@ -362,6 +369,37 @@ int mesh_radio_settings_encode_request(const struct mesh_radio_settings *setting
         admin.which_payload_variant = meshtastic_AdminMessage_remove_ignored_node_tag;
         admin.remove_ignored_node = request->type;
         break;
+    /* The actions. A negative second count means "cancel a pending reboot" upstream, which is
+       not something this client offers, so `type` is unsigned here and a zero delay - act at
+       once, before the ack is out - is refused. */
+    case MESH_ADMIN_REBOOT:
+        if (request->type == 0U || request->type > INT32_MAX) {
+            return -EINVAL;
+        }
+        admin.which_payload_variant = meshtastic_AdminMessage_reboot_seconds_tag;
+        admin.reboot_seconds = (int32_t)request->type;
+        break;
+    case MESH_ADMIN_SHUTDOWN:
+        if (request->type == 0U || request->type > INT32_MAX) {
+            return -EINVAL;
+        }
+        admin.which_payload_variant = meshtastic_AdminMessage_shutdown_seconds_tag;
+        admin.shutdown_seconds = (int32_t)request->type;
+        break;
+    case MESH_ADMIN_RESET_NODEDB:
+        admin.which_payload_variant = meshtastic_AdminMessage_nodedb_reset_tag;
+        admin.nodedb_reset = true;
+        break;
+    /* The reset pair carry an int the firmware only tests for truth; 1 is what the phone
+       apps send. */
+    case MESH_ADMIN_FACTORY_RESET_CONFIG:
+        admin.which_payload_variant = meshtastic_AdminMessage_factory_reset_config_tag;
+        admin.factory_reset_config = 1;
+        break;
+    case MESH_ADMIN_FACTORY_RESET_DEVICE:
+        admin.which_payload_variant = meshtastic_AdminMessage_factory_reset_device_tag;
+        admin.factory_reset_device = 1;
+        break;
     default:
         return -EINVAL;
     }
@@ -501,6 +539,31 @@ int mesh_radio_settings_queue_ignored(struct mesh_radio_settings *settings, uint
     }
     size_t added = mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_OWNER, 0U);
     added += mesh_radio_settings_enqueue(settings, kind, node_id);
+    return (int)added;
+}
+
+int mesh_radio_settings_queue_action(struct mesh_radio_settings *settings,
+                                     enum mesh_admin_request_kind kind, uint32_t seconds) {
+    if (settings == NULL || !mesh_admin_request_is_action(kind)) {
+        return -EINVAL;
+    }
+    /* Only the reboot and the shutdown have a delay; the resets carry nothing, and pinning
+       their `type` at zero keeps two presses of one reset a single queued request. */
+    const uint32_t type = (kind == MESH_ADMIN_REBOOT || kind == MESH_ADMIN_SHUTDOWN) ? seconds : 0U;
+    if ((kind == MESH_ADMIN_REBOOT || kind == MESH_ADMIN_SHUTDOWN) && type == 0U) {
+        return -EINVAL;
+    }
+    /* The favorite pair's shape once more: a passkey the firmware will still accept, then the
+       action. There is nothing to read back - a rebooting radio has no state to re-read, and a
+       factory-reset one has none we would recognise. */
+    const size_t needed =
+        (mesh_radio_settings_queued(settings, MESH_ADMIN_GET_OWNER, 0U) ? 0U : 1U) +
+        (mesh_radio_settings_queued(settings, kind, type) ? 0U : 1U);
+    if (settings->queue_len + needed > MESH_RADIO_SETTINGS_FETCH_MAX) {
+        return -ENOSPC;
+    }
+    size_t added = mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_OWNER, 0U);
+    added += mesh_radio_settings_enqueue(settings, kind, type);
     return (int)added;
 }
 

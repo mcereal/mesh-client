@@ -138,6 +138,7 @@ void mesh_ui_store_settings_edits_clear(struct mesh_ui_store *store) {
     store->nav.settings_edit_count = 0U;
     store->nav.settings_discard_armed = false;
     store->nav.confirm_open = false;
+    store->nav.confirm_action = (uint8_t)MESH_UI_SETTINGS_ACTION_NONE;
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
 }
 

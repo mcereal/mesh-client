@@ -305,6 +305,16 @@ int mesh_session_write_settings(struct mesh_session *session,
 int mesh_session_set_node_favorite(struct mesh_session *session, uint32_t node_id, bool favorite);
 
 /*
+ * Tells the radio to reboot, shut down, or reset itself (mesh_radio_settings_queue_action).
+ * Nothing here can confirm that it happened: the radio acts a few seconds after answering and
+ * the link drops with it, so the caller announces what was asked for, not what was done.
+ *
+ * Returns the number of admin requests queued, -ENOTCONN before the handshake has my_info,
+ * -EINVAL for a kind that is not an action, -ENOSPC when the queue is full.
+ */
+int mesh_session_radio_action(struct mesh_session *session, enum mesh_admin_request_kind kind);
+
+/*
  * Adds or removes a node from the radio's ignore list. Same shape and same caveat as
  * favorite: there is no get_ignored, so the cached flag is flipped here rather than waiting
  * for the node's next NodeInfo - which for a node you are ignoring precisely because it is
