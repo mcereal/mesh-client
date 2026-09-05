@@ -9484,6 +9484,65 @@ static void test_ui_nav_passkey_prompt(void) {
     record_success(test_name);
 }
 
+/* A failed delivery has to say which failure it was: "!!" alone sends the user looking in the
+   wrong place, and the reasons call for completely different fixes. */
+static void test_message_routing_failure_reason(void) {
+    const char *test_name = "message_routing_failure_reason";
+
+    struct mesh_message_log log;
+    mesh_message_log_reset(&log);
+
+    struct mesh_message sent;
+    memset(&sent, 0, sizeof sent);
+    sent.packet_id = 4242U;
+    sent.direction = MESH_MESSAGE_OUTBOUND;
+    sent.to = 0x9E9D0AD8U;
+    sent.ack = (uint8_t)MESH_MESSAGE_ACK_PENDING;
+    snprintf(sent.text, sizeof sent.text, "%s", "test54");
+    mesh_message_log_append(&log, &sent);
+
+    /* What the firmware sends back when nothing acked the packet. */
+    meshtastic_Routing routing = meshtastic_Routing_init_default;
+    routing.which_variant = meshtastic_Routing_error_reason_tag;
+    routing.error_reason = meshtastic_Routing_Error_MAX_RETRANSMIT;
+
+    meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_default;
+    packet.from = 0x9E9D0AD8U;
+    packet.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    packet.decoded.portnum = meshtastic_PortNum_ROUTING_APP;
+    packet.decoded.request_id = 4242U;
+    pb_ostream_t stream =
+        pb_ostream_from_buffer(packet.decoded.payload.bytes, sizeof packet.decoded.payload.bytes);
+    if (!pb_encode(&stream, meshtastic_Routing_fields, &routing)) {
+        record_failure(test_name, "failed to encode the routing reply");
+        return;
+    }
+    packet.decoded.payload.size = (pb_size_t)stream.bytes_written;
+
+    mesh_message_ingest(&log, &packet, 0x11111111U);
+
+    const struct mesh_message *entry = mesh_message_log_find(&log, 4242U);
+    if (entry == NULL || entry->ack != (uint8_t)MESH_MESSAGE_ACK_FAILED) {
+        record_failure(test_name, "the message should be marked failed");
+        return;
+    }
+    if (entry->ack_error != (uint8_t)meshtastic_Routing_Error_MAX_RETRANSMIT) {
+        record_failure(test_name, "the routing error should be kept");
+        return;
+    }
+    if (strcmp(mesh_message_ack_error_to_string(entry->ack_error), "no ack after retries") != 0) {
+        record_failure(test_name, "the reason should be named");
+        return;
+    }
+    /* An unknown code from a newer firmware still has to render as something. */
+    if (strcmp(mesh_message_ack_error_to_string(200U), "unknown error") != 0) {
+        record_failure(test_name, "an unrecognised reason should still say something");
+        return;
+    }
+
+    record_success(test_name);
+}
+
 static const struct test_case k_test_cases[] = {
     {"config_defaults", "unit", test_config_defaults},
     {"version_compare", "unit", test_version_compare},
@@ -9527,6 +9586,7 @@ static const struct test_case k_test_cases[] = {
     {"proto_varint_roundtrip", "unit", test_proto_varint_roundtrip},
     {"proto_frame_encode_decode", "unit", test_proto_frame_encode_decode},
     {"message_encode_text_golden", "unit", test_message_encode_text_golden},
+    {"message_routing_failure_reason", "unit", test_message_routing_failure_reason},
     {"message_encode_text_roundtrip", "unit", test_message_encode_text_roundtrip},
     {"message_encode_text_limits", "unit", test_message_encode_text_limits},
     {"message_log_ring", "unit", test_message_log_ring},

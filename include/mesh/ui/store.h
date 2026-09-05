@@ -329,6 +329,9 @@ struct mesh_ui_message {
     uint8_t channel;
     uint8_t direction; /* enum mesh_message_direction */
     uint8_t ack;       /* enum mesh_message_ack */
+    /* meshtastic_Routing_Error behind an ack of FAILED, so the row can say why rather than
+       just marking it failed. Meaningless for anything else. */
+    uint8_t ack_error;
     bool broadcast;
 };
 

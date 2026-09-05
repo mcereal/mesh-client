@@ -677,17 +677,21 @@ static void fb_render_thread(const struct mesh_ui_backend_fb_state *state,
     const uint32_t first = fb_first_visible(cursor, count, list_rows);
 
     int y = layout->body_y;
-    char line[300];
+    /* Text (233 bytes at most), the peer, and now a failure reason; fb_fit clips it after. */
+    char line[400];
     for (uint32_t i = first; i < count && i < first + list_rows; ++i) {
         const struct mesh_ui_message *message = &messages->entries[indices[i]];
         const bool outbound = (message->direction == MESH_MESSAGE_OUTBOUND);
         const char *peer = message->peer_name[0] != '\0' ? message->peer_name : "?";
-        char tag[8] = "";
-        if (outbound && message->ack != MESH_MESSAGE_ACK_NONE) {
+        /* A failed message says why: "!!" alone leaves the user with no idea whether to move,
+           retry, or fix a key, and those are different problems. */
+        char tag[48] = "";
+        if (outbound && message->ack == MESH_MESSAGE_ACK_FAILED) {
+            snprintf(tag, sizeof tag, " !! %s",
+                     mesh_message_ack_error_to_string(message->ack_error));
+        } else if (outbound && message->ack != MESH_MESSAGE_ACK_NONE) {
             snprintf(tag, sizeof tag, " %s",
-                     message->ack == MESH_MESSAGE_ACK_DELIVERED ? "ok"
-                     : message->ack == MESH_MESSAGE_ACK_FAILED  ? "!!"
-                                                                : "..");
+                     message->ack == MESH_MESSAGE_ACK_DELIVERED ? "ok" : "..");
         }
         /* In the inbox, say where a line belongs; inside a conversation that is the title. */
         char where[16] = "";

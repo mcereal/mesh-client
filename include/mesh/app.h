@@ -68,6 +68,16 @@ struct mesh_app {
        connect() returned 0, so the reason is collected later from the transport; this keeps
        auto-connect's own retries from toasting the same failure on every backoff. */
     bool ui_report_link_error;
+    /*
+     * Messages sent this session whose delivery result has not been announced yet. A failed
+     * DM is otherwise only a "!!" on a row the user may not be looking at, and the reason for
+     * it (no ack, no route, a key problem) never reaches them at all.
+     */
+    struct mesh_app_sent_watch {
+        uint32_t packet_id;
+        char peer[MESH_UI_NAV_TARGET_NAME_MAX];
+    } ui_sent_watch[8];
+    size_t ui_sent_watch_count;
     /* A Settings save in flight: the write counters seen when it was queued, so its ack or
        rejection can be announced once; see mesh_app_track_settings_save(). */
     bool settings_save_pending;

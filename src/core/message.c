@@ -131,6 +131,57 @@ int mesh_message_encode_text(const struct mesh_message_text_request *request, ui
     return 0;
 }
 
+/*
+ * The Routing_Error a failed delivery came back with, in words. Without this a failed message
+ * is just "!!" on the screen and "failed" in the log, which says nothing about whether to try
+ * again, move the node, or fix a key - and those are entirely different problems.
+ */
+const char *mesh_message_ack_error_to_string(uint8_t error) {
+    switch ((meshtastic_Routing_Error)error) {
+    case meshtastic_Routing_Error_NONE:
+        return "delivered";
+    case meshtastic_Routing_Error_NO_ROUTE:
+        return "no route to that node";
+    case meshtastic_Routing_Error_GOT_NAK:
+        return "rejected by the mesh";
+    case meshtastic_Routing_Error_TIMEOUT:
+        return "timed out";
+    case meshtastic_Routing_Error_NO_INTERFACE:
+        return "no radio interface";
+    case meshtastic_Routing_Error_MAX_RETRANSMIT:
+        /* The common one: the packet went out and nothing acked it. Out of range, on another
+           LoRa config, or off. */
+        return "no ack after retries";
+    case meshtastic_Routing_Error_NO_CHANNEL:
+        return "no matching channel";
+    case meshtastic_Routing_Error_TOO_LARGE:
+        return "message too large";
+    case meshtastic_Routing_Error_NO_RESPONSE:
+        return "no response";
+    case meshtastic_Routing_Error_DUTY_CYCLE_LIMIT:
+        return "duty cycle limit";
+    case meshtastic_Routing_Error_BAD_REQUEST:
+        return "bad request";
+    case meshtastic_Routing_Error_NOT_AUTHORIZED:
+        return "not authorized";
+    case meshtastic_Routing_Error_PKI_FAILED:
+        return "encryption failed";
+    case meshtastic_Routing_Error_PKI_UNKNOWN_PUBKEY:
+        return "no public key for that node";
+    case meshtastic_Routing_Error_ADMIN_BAD_SESSION_KEY:
+        return "admin session expired";
+    case meshtastic_Routing_Error_ADMIN_PUBLIC_KEY_UNAUTHORIZED:
+        return "admin key not authorized";
+    case meshtastic_Routing_Error_RATE_LIMIT_EXCEEDED:
+        return "rate limited";
+    case meshtastic_Routing_Error_PKI_SEND_FAIL_PUBLIC_KEY:
+        return "public key send failed";
+    default:
+        break;
+    }
+    return "unknown error";
+}
+
 /* Routing replies carry the id of the message they are answering in Data.request_id. */
 static int mesh_message_handle_routing(struct mesh_message_log *log, const meshtastic_Data *data) {
     if (data->request_id == 0U) {
@@ -153,8 +204,13 @@ static int mesh_message_handle_routing(struct mesh_message_log *log, const mesht
     if (mesh_message_log_mark_ack(log, data->request_id,
                                   delivered ? MESH_MESSAGE_ACK_DELIVERED : MESH_MESSAGE_ACK_FAILED,
                                   (uint8_t)routing.error_reason)) {
-        mesh_log_info("message", "Message %u %s%s", data->request_id,
-                      delivered ? "delivered" : "failed", delivered ? "" : " (see error reason)");
+        if (delivered) {
+            mesh_log_info("message", "Message %u delivered", data->request_id);
+        } else {
+            mesh_log_warn("message", "Message %u failed: %s (Routing_Error %u)", data->request_id,
+                          mesh_message_ack_error_to_string((uint8_t)routing.error_reason),
+                          (unsigned)routing.error_reason);
+        }
     }
     return 0;
 }

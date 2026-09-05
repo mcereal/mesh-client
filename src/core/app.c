@@ -680,6 +680,8 @@ static void mesh_app_track_settings_save(struct mesh_app *app,
 static void mesh_app_format_peer_name(const struct mesh_handshake_status *status, uint32_t node_id,
                                       char *out, size_t out_len);
 
+static void mesh_app_watch_sent(struct mesh_app *app, uint32_t packet_id, const char *peer);
+
 static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) {
     struct mesh_app *app = (struct mesh_app *)userdata;
     if (app == NULL || action == NULL) {
@@ -733,6 +735,7 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
             snprintf(toast, sizeof toast, "Sent to %s", app->ui_store.nav.target_name);
             mesh_log_info("ui", "Sent \"%s\" to %s (packet %u)", action->text,
                           app->ui_store.nav.target_name, packet_id);
+            mesh_app_watch_sent(app, packet_id, app->ui_store.nav.target_name);
         } else if (result == -ENOTCONN) {
             snprintf(toast, sizeof toast, "%s", "Not connected to a node");
         } else {
@@ -1197,6 +1200,7 @@ static void mesh_app_publish_messages(struct mesh_app *app,
         target->channel = source->channel;
         target->direction = source->direction;
         target->ack = source->ack;
+        target->ack_error = source->ack_error;
         target->broadcast = (source->to == MESH_MESSAGE_BROADCAST_ADDR);
         mesh_app_format_peer_name(status, target->peer, target->peer_name,
                                   sizeof(target->peer_name));
@@ -1415,12 +1419,72 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
     }
 }
 
+/*
+ * Watching a message the user just sent, so its delivery result reaches them. Only a DM with
+ * want_ack has one to wait for; a broadcast is fire-and-forget and is never watched.
+ */
+static void mesh_app_watch_sent(struct mesh_app *app, uint32_t packet_id, const char *peer) {
+    if (app == NULL || packet_id == 0U) {
+        return;
+    }
+    const size_t capacity = sizeof app->ui_sent_watch / sizeof app->ui_sent_watch[0];
+    if (app->ui_sent_watch_count >= capacity) {
+        /* Drop the oldest: a result nobody has seen in eight messages is not news any more. */
+        memmove(&app->ui_sent_watch[0], &app->ui_sent_watch[1],
+                (capacity - 1U) * sizeof app->ui_sent_watch[0]);
+        app->ui_sent_watch_count = capacity - 1U;
+    }
+    struct mesh_app_sent_watch *slot = &app->ui_sent_watch[app->ui_sent_watch_count++];
+    slot->packet_id = packet_id;
+    snprintf(slot->peer, sizeof slot->peer, "%s", peer != NULL ? peer : "");
+}
+
+/* Announces the delivery result of anything being watched, once. Failures only: a delivered
+   message already shows "ok" on its row, and a toast per message would be noise. */
+static void mesh_app_report_delivery(struct mesh_app *app) {
+    if (app == NULL || app->ui_sent_watch_count == 0U) {
+        return;
+    }
+    const struct mesh_message_log *log = mesh_session_messages(&app->session);
+    if (log == NULL) {
+        return;
+    }
+
+    size_t kept = 0U;
+    for (size_t i = 0; i < app->ui_sent_watch_count; ++i) {
+        struct mesh_app_sent_watch *watch = &app->ui_sent_watch[i];
+        const struct mesh_message *message = NULL;
+        for (size_t j = 0; j < log->count; ++j) {
+            const struct mesh_message *entry = mesh_message_log_at(log, j);
+            if (entry != NULL && entry->packet_id == watch->packet_id) {
+                message = entry;
+                break;
+            }
+        }
+        if (message == NULL) {
+            continue; /* evicted from the ring; nothing left to report */
+        }
+        if (message->ack == MESH_MESSAGE_ACK_PENDING) {
+            app->ui_sent_watch[kept++] = *watch;
+            continue;
+        }
+        if (message->ack == MESH_MESSAGE_ACK_FAILED) {
+            char toast[MESH_UI_NAV_TOAST_MAX];
+            snprintf(toast, sizeof toast, "Not delivered to %.16s: %s", watch->peer,
+                     mesh_message_ack_error_to_string(message->ack_error));
+            mesh_ui_store_set_toast(&app->ui_store, mesh_app_now_ms(), toast);
+        }
+    }
+    app->ui_sent_watch_count = kept;
+}
+
 void mesh_app_publish_ui_state(struct mesh_app *app) {
     if (app == NULL) {
         return;
     }
 
     mesh_ui_store_tick(&app->ui_store, mesh_app_now_ms());
+    mesh_app_report_delivery(app);
 
     struct mesh_transport *ble = mesh_ble_transport();
     if (ble == NULL) {
