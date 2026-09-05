@@ -1,3 +1,17 @@
+## [2.1.0](https://github.com/mcereal/mesh-client/compare/v2.0.3...v2.1.0) (2026-09-05)
+
+### Features
+
+* **settings:** put the modules behind their own list and complete the three shipped ones ([22041a6](https://github.com/mcereal/mesh-client/commit/22041a6aee1ca5df76ef885756d56e1778428d5c))
+
+### Bug Fixes
+
+* **settings:** expose the air-quality screen toggle and label the Modules footer ([eb6cbc2](https://github.com/mcereal/mesh-client/commit/eb6cbc2988767fe1e72f0c2cba46c22911d6c4ff)), closes [#53](https://github.com/mcereal/mesh-client/issues/53)
+
+### Documentation
+
+* **settings:** plan phases 9-12 for the remaining ModuleConfig sections ([cc11797](https://github.com/mcereal/mesh-client/commit/cc11797effbea2012732127f41816b4bbcc7a8bb))
+
 ## [2.0.3](https://github.com/mcereal/mesh-client/compare/v2.0.2...v2.0.3) (2026-09-05)
 
 ### Bug Fixes
