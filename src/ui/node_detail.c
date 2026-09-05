@@ -120,6 +120,15 @@ static void node_rows_identity(struct node_rows *rows, const struct mesh_ui_node
         rows_info(rows, "User ID", "!%08x", node->node_id);
     }
     rows_info(rows, "Node number", "%" PRIu32, node->node_id);
+    /* Two things the row above cannot say on its own. A derived name is not a name the node
+       chose, and a node the radio's NodeDB no longer carries is one this client remembers
+       alone - it is still on the mesh, but a message to it has no stored key to travel with. */
+    if (!node->has_user) {
+        rows_info(rows, "Name", "derived, no NodeInfo yet");
+    }
+    if (!node->in_nodedb) {
+        rows_info(rows, "NodeDB", "not on the radio");
+    }
 
     if (node->role != 0U || node->hw_model != 0U) {
         rows_info(rows, "Role", "%s", mesh_radio_role_name(node->role));

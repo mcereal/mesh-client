@@ -104,6 +104,112 @@ static void mesh_app_copy_node_detail(const struct mesh_node_summary *src,
     dst->environment.current = src->environment.current;
 }
 
+/*
+ * The same copy the other way, for the roster the last run left on disk. Only the fields the
+ * cache actually persists are restored - position, metrics and environment come back through
+ * their own keys - so a node returns as what we knew, not as a blank with a name.
+ */
+static void mesh_app_restore_node(const struct mesh_ui_node_summary *src,
+                                  struct mesh_node_summary *dst) {
+    memset(dst, 0, sizeof *dst);
+    dst->node_id = src->node_id;
+    (void)mesh_str_copy(dst->long_name, sizeof dst->long_name, src->long_name);
+    (void)mesh_str_copy(dst->short_name, sizeof dst->short_name, src->short_name);
+    (void)mesh_str_copy(dst->user_id, sizeof dst->user_id, src->user_id);
+    dst->has_user = src->has_user;
+    dst->in_nodedb = src->in_nodedb;
+    dst->last_heard = src->last_heard;
+    dst->snr = src->snr;
+    dst->via_mqtt = src->via_mqtt;
+    dst->has_hops_away = src->has_hops_away;
+    dst->hops_away = src->hops_away;
+    dst->hw_model = src->hw_model;
+    dst->role = src->role;
+    dst->is_licensed = src->is_licensed;
+    dst->is_unmessagable = src->is_unmessagable;
+    dst->public_key_len = src->public_key_len > sizeof dst->public_key
+                              ? (uint8_t)sizeof dst->public_key
+                              : src->public_key_len;
+    memcpy(dst->public_key, src->public_key, dst->public_key_len);
+    dst->is_favorite = src->is_favorite;
+    dst->is_ignored = src->is_ignored;
+    dst->is_muted = src->is_muted;
+    dst->channel = src->channel;
+
+    dst->position.valid = src->position.valid;
+    dst->position.latitude_i = src->position.latitude_i;
+    dst->position.longitude_i = src->position.longitude_i;
+    dst->position.has_altitude = src->position.has_altitude;
+    dst->position.altitude = src->position.altitude;
+    dst->position.time = src->position.time;
+    dst->position.sats_in_view = src->position.sats_in_view;
+    dst->position.precision_bits = src->position.precision_bits;
+
+    dst->metrics.valid = src->metrics.valid;
+    dst->metrics.time = src->metrics.time;
+    dst->metrics.has_battery = src->metrics.has_battery;
+    dst->metrics.battery_level = src->metrics.battery_level;
+    dst->metrics.has_voltage = src->metrics.has_voltage;
+    dst->metrics.voltage = src->metrics.voltage;
+    dst->metrics.has_channel_utilization = src->metrics.has_channel_utilization;
+    dst->metrics.channel_utilization = src->metrics.channel_utilization;
+    dst->metrics.has_air_util_tx = src->metrics.has_air_util_tx;
+    dst->metrics.air_util_tx = src->metrics.air_util_tx;
+    dst->metrics.has_uptime = src->metrics.has_uptime;
+    dst->metrics.uptime_seconds = src->metrics.uptime_seconds;
+
+    dst->environment.valid = src->environment.valid;
+    dst->environment.time = src->environment.time;
+    dst->environment.has_temperature = src->environment.has_temperature;
+    dst->environment.temperature = src->environment.temperature;
+    dst->environment.has_humidity = src->environment.has_humidity;
+    dst->environment.relative_humidity = src->environment.relative_humidity;
+    dst->environment.has_pressure = src->environment.has_pressure;
+    dst->environment.barometric_pressure = src->environment.barometric_pressure;
+    dst->environment.has_iaq = src->environment.has_iaq;
+    dst->environment.iaq = src->environment.iaq;
+    dst->environment.has_lux = src->environment.has_lux;
+    dst->environment.lux = src->environment.lux;
+    dst->environment.has_voltage = src->environment.has_voltage;
+    dst->environment.voltage = src->environment.voltage;
+    dst->environment.has_current = src->environment.has_current;
+    dst->environment.current = src->environment.current;
+}
+
+/*
+ * Hands the roster the last run persisted to the session, before any radio is attached. Without
+ * it the roster would outlive a reconnect but not a restart, and the client would still forget
+ * a node the moment the radio's 80-entry NodeDB did. The radio's own replay lands on top of
+ * this a few seconds later and corrects whatever has changed since.
+ */
+void mesh_app_seed_nodes_from_cache(struct mesh_app *app) {
+    if (app == NULL || !app->ui_store.handshake_valid) {
+        return;
+    }
+    const struct mesh_ui_handshake_state *cached = &app->ui_store.handshake;
+    /* Whose roster this is, before the nodes themselves: a radio other than this one must clear
+       it on its first MyNodeInfo rather than merge its mesh into ours. */
+    if (cached->roster_owner != 0U) {
+        mesh_session_set_roster_owner(&app->session, cached->roster_owner);
+    } else if (cached->has_my_info) {
+        mesh_session_set_roster_owner(&app->session, cached->my_info.node_num);
+    }
+    uint32_t seeded = 0U;
+    for (uint32_t i = 0; i < cached->node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+        if (cached->nodes[i].node_id == 0U) {
+            continue;
+        }
+        struct mesh_node_summary node;
+        mesh_app_restore_node(&cached->nodes[i], &node);
+        mesh_session_seed_node(&app->session, &node);
+        ++seeded;
+    }
+    if (seeded > 0U) {
+        mesh_log_info("app", "Restored %u node%s from the cached roster", seeded,
+                      seeded == 1U ? "" : "s");
+    }
+}
+
 /* Lower is more important; see the ranking comment in mesh_app_publish_ui_state(). */
 unsigned mesh_app_node_rank(const struct mesh_node_summary *node, uint32_t my_node,
                             const struct mesh_message_log *log,
@@ -717,7 +823,11 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         ui_handshake.config_complete_id = status.config_complete_id;
         ui_handshake.has_my_info = status.has_my_info;
         ui_handshake.has_config = status.has_config;
-        ui_handshake.cached = false;
+        /* The roster outlives the connection, so a node list on screen is not proof of a live
+           sync: what makes it live is something from this connection having arrived. */
+        ui_handshake.roster_owner = mesh_session_roster_owner(&app->session);
+        ui_handshake.cached = !status.config_complete && !status.has_my_info &&
+                              !status.request_in_flight && !status.has_config;
         if (status.has_my_info) {
             const uint32_t my_node = status.my_info.my_node_num;
             /* Remember this radio as one of ours. Pins live in the radio's own NodeDB, so
@@ -784,6 +894,8 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             dst->has_hops_away = src->has_hops_away;
             dst->hops_away = src->hops_away;
             snprintf(dst->user_id, sizeof(dst->user_id), "%s", src->user_id);
+            dst->has_user = src->has_user;
+            dst->in_nodedb = src->in_nodedb;
             dst->hw_model = src->hw_model;
             dst->role = src->role;
             dst->is_licensed = src->is_licensed;

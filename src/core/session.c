@@ -21,13 +21,38 @@
 #include <time.h>
 #include <unistd.h>
 
+/*
+ * Everything the connection that just ended told us about itself. The node roster is the one
+ * thing kept: it belongs to the client, not to the radio. The radio's NodeDB holds 80 entries
+ * on this hardware and evicts as soon as it fills, so wiping our copy on every reconnect threw
+ * away nodes that by then existed nowhere else - you would walk home from a mesh and find the
+ * list back to whatever the radio still happened to remember.
+ */
 static void mesh_session_reset_handshake(struct mesh_session *session) {
-    memset(&session->handshake, 0, sizeof session->handshake);
+    struct mesh_handshake_status *handshake = &session->handshake;
+    handshake->request_in_flight = false;
+    handshake->request_id = 0U;
+    handshake->config_complete = false;
+    handshake->config_complete_id = 0U;
+    handshake->has_my_info = false;
+    memset(&handshake->my_info, 0, sizeof handshake->my_info);
+    handshake->has_config = false;
+    memset(&handshake->config, 0, sizeof handshake->config);
+    handshake->channel_count = 0U;
+    memset(handshake->channels, 0, sizeof handshake->channels);
+
     memset(&session->stats, 0, sizeof session->stats);
     memset(&session->traceroute, 0, sizeof session->traceroute);
     session->node_cache_warned = false;
     mesh_radio_settings_reset(&session->settings);
     session->admin_probe_queued = false;
+}
+
+/* Drops the roster outright. Only for a radio swap: another radio is another NodeDB, and its
+   idea of who is on the air is not this one's. */
+static void mesh_session_clear_nodes(struct mesh_session *session) {
+    session->handshake.node_count = 0U;
+    memset(session->handshake.nodes, 0, sizeof session->handshake.nodes);
 }
 
 void mesh_session_init(struct mesh_session *session) {
@@ -106,6 +131,11 @@ int mesh_session_begin_handshake(struct mesh_session *session) {
     }
 
     mesh_session_reset_handshake(session);
+    /* A fresh epoch, so nodes the coming replay does not mention can be told apart from the
+       ones it does. Zero means "no sync has ever carried this node", so it is never an epoch. */
+    if (++session->sync_epoch == 0U) {
+        session->sync_epoch = 1U;
+    }
     session->handshake.request_in_flight = true;
     session->handshake.request_id = request_id;
 
@@ -142,7 +172,58 @@ static bool mesh_session_node_known(const struct mesh_session *session, uint32_t
     return false;
 }
 
-/* The node's entry in the cache, adding it if it is new. NULL only when the cache is full. */
+/*
+ * The identity Meshtastic's own clients show for a node whose User has never reached them: all
+ * three strings are derived from the node number, which is also how the firmware names a radio
+ * that has never been given a name. Without it a node heard before its NodeInfo - and there are
+ * plenty, since the firmware replays its database once and the mesh keeps moving - draws as a
+ * row of dashes with nothing beside it, while the phone in your other hand shows
+ * "Meshtastic e54c". Overwritten the moment a real User arrives.
+ */
+static void mesh_session_default_identity(struct mesh_node_summary *summary) {
+    const unsigned suffix = (unsigned)(summary->node_id & 0xffffU);
+    snprintf(summary->user_id, sizeof summary->user_id, "!%08x", summary->node_id);
+    snprintf(summary->short_name, sizeof summary->short_name, "%04x", suffix);
+    snprintf(summary->long_name, sizeof summary->long_name, "Meshtastic %04x", suffix);
+    summary->has_user = false;
+}
+
+/*
+ * The entry to drop when the roster is full. It fills for real now that it outlives the
+ * connection, so "full" has to mean "make room" rather than "stop listening": the least useful
+ * entry goes, which is a node the radio has already forgotten before one it still carries, and
+ * within either group the one heard longest ago. Ourselves and pinned nodes are never victims -
+ * a pin is the user saying keep this one - so NULL is possible in theory and means every slot
+ * is spoken for.
+ */
+static struct mesh_node_summary *mesh_session_evict_candidate(struct mesh_session *session) {
+    struct mesh_handshake_status *handshake = &session->handshake;
+    const uint32_t my_node = handshake->has_my_info ? handshake->my_info.my_node_num : 0U;
+    struct mesh_node_summary *victim = NULL;
+    for (size_t i = 0; i < handshake->node_count; ++i) {
+        struct mesh_node_summary *node = &handshake->nodes[i];
+        if (node->is_favorite || (my_node != 0U && node->node_id == my_node)) {
+            continue;
+        }
+        if (victim == NULL) {
+            victim = node;
+            continue;
+        }
+        if (victim->in_nodedb != node->in_nodedb) {
+            if (!node->in_nodedb) {
+                victim = node;
+            }
+            continue;
+        }
+        if (node->last_heard < victim->last_heard) {
+            victim = node;
+        }
+    }
+    return victim;
+}
+
+/* The node's entry in the roster, adding it if it is new. NULL only when every slot holds a
+   node worth more than this one. */
 static struct mesh_node_summary *mesh_session_node_slot(struct mesh_session *session,
                                                         uint32_t node_id) {
     struct mesh_handshake_status *handshake = &session->handshake;
@@ -156,19 +237,77 @@ static struct mesh_node_summary *mesh_session_node_slot(struct mesh_session *ses
         }
     }
 
+    struct mesh_node_summary *summary = NULL;
     if (handshake->node_count >= MESH_SESSION_MAX_NODES) {
-        if (!session->node_cache_warned) {
-            mesh_log_warn("session", "Node cache full (%u); further nodes dropped for this sync",
-                          (unsigned)MESH_SESSION_MAX_NODES);
-            session->node_cache_warned = true;
+        summary = mesh_session_evict_candidate(session);
+        if (summary == NULL) {
+            if (!session->node_cache_warned) {
+                mesh_log_warn("session",
+                              "Node roster full (%u) and nothing evictable; 0x%08x "
+                              "and any further nodes dropped",
+                              (unsigned)MESH_SESSION_MAX_NODES, node_id);
+                session->node_cache_warned = true;
+            }
+            return NULL;
         }
-        return NULL;
+        mesh_log_debug("session", "Roster full; node 0x%08x makes room for 0x%08x",
+                       summary->node_id, node_id);
+    } else {
+        summary = &handshake->nodes[handshake->node_count++];
     }
 
-    struct mesh_node_summary *summary = &handshake->nodes[handshake->node_count++];
     memset(summary, 0, sizeof *summary);
     summary->node_id = node_id;
+    mesh_session_default_identity(summary);
     return summary;
+}
+
+uint32_t mesh_session_roster_owner(const struct mesh_session *session) {
+    return session != NULL ? session->roster_node : 0U;
+}
+
+void mesh_session_set_roster_owner(struct mesh_session *session, uint32_t node_num) {
+    if (session != NULL) {
+        session->roster_node = node_num;
+    }
+}
+
+/* Whether a name is one the node chose or the one we derived from its number. Used to read an
+   older cache, written before the roster carried the answer: the names are all it has. A node
+   whose real short name happens to be its factory default reads as derived, which costs one
+   informational row on the detail screen and nothing else. */
+static bool mesh_session_identity_is_derived(const struct mesh_node_summary *node) {
+    struct mesh_node_summary derived;
+    memset(&derived, 0, sizeof derived);
+    derived.node_id = node->node_id;
+    mesh_session_default_identity(&derived);
+    return strcmp(node->short_name, derived.short_name) == 0 &&
+           strcmp(node->long_name, derived.long_name) == 0;
+}
+
+void mesh_session_seed_node(struct mesh_session *session, const struct mesh_node_summary *node) {
+    if (session == NULL || node == NULL || node->node_id == 0U) {
+        return;
+    }
+    if (mesh_session_node_known(session, node->node_id)) {
+        return;
+    }
+    struct mesh_node_summary *slot = mesh_session_node_slot(session, node->node_id);
+    if (slot == NULL) {
+        return;
+    }
+    *slot = *node;
+    /* Restored, not replayed: no sync of ours has carried it, so the first one to complete
+       decides whether the radio still knows it. */
+    slot->sync_epoch = 0U;
+    if (slot->short_name[0] == '\0' && slot->long_name[0] == '\0') {
+        mesh_session_default_identity(slot);
+    } else if (!slot->has_user && !mesh_session_identity_is_derived(slot)) {
+        /* A cache written before has_user existed. The node carries a name nobody derived, so
+           it came from a User; without this, a node the radio has since evicted - the whole
+           reason the cache is worth restoring - would claim a derived name forever. */
+        slot->has_user = true;
+    }
 }
 
 /*
@@ -184,9 +323,24 @@ static void mesh_session_apply_user(struct mesh_node_summary *summary,
        or serialise them. A plain snprintf would also happily cut a multi-byte character in
        half at the field boundary, which matters because Meshtastic short names are routinely a
        single four-byte emoji. */
-    mesh_text_sanitise_str(user->long_name, summary->long_name, sizeof summary->long_name);
-    mesh_text_sanitise_str(user->short_name, summary->short_name, sizeof summary->short_name);
-    mesh_text_sanitise_str(user->id, summary->user_id, sizeof summary->user_id);
+    char long_name[sizeof summary->long_name];
+    char short_name[sizeof summary->short_name];
+    char user_id[sizeof summary->user_id];
+    mesh_text_sanitise_str(user->long_name, long_name, sizeof long_name);
+    mesh_text_sanitise_str(user->short_name, short_name, sizeof short_name);
+    mesh_text_sanitise_str(user->id, user_id, sizeof user_id);
+
+    /* A NodeInfo can carry a User the radio has nothing to put in - it knows the node exists
+       and no more. Blanking a name we derived from the node number for that is a step
+       backwards, so an empty record leaves the derived identity standing. */
+    if (long_name[0] != '\0' || short_name[0] != '\0') {
+        (void)mesh_str_copy(summary->long_name, sizeof summary->long_name, long_name);
+        (void)mesh_str_copy(summary->short_name, sizeof summary->short_name, short_name);
+        summary->has_user = true;
+    }
+    if (user_id[0] != '\0') {
+        (void)mesh_str_copy(summary->user_id, sizeof summary->user_id, user_id);
+    }
     summary->hw_model = (uint32_t)user->hw_model;
     summary->role = (uint32_t)user->role;
     summary->is_licensed = user->is_licensed;
@@ -310,6 +464,9 @@ static void mesh_session_store_node_summary(struct mesh_session *session,
     summary->is_ignored = info->is_ignored;
     summary->is_muted = info->is_muted;
     summary->channel = (uint8_t)info->channel;
+    /* Stamped whether or not this NodeInfo told us anything new: what it proves is that the
+       radio's database still carries the node, which is what the stamp is read for. */
+    summary->sync_epoch = session->sync_epoch;
 
     if (info->has_user) {
         mesh_session_apply_user(summary, &info->user);
@@ -322,8 +479,30 @@ static void mesh_session_store_node_summary(struct mesh_session *session,
     }
 
     mesh_log_debug("session", "Cached node %u (%s) last_heard=%u%s", summary->node_id,
-                   summary->short_name[0] != '\0' ? summary->short_name : summary->long_name,
-                   summary->last_heard, summary->via_mqtt ? " via_mqtt" : "");
+                   summary->has_user ? summary->short_name : "unnamed", summary->last_heard,
+                   summary->via_mqtt ? " via_mqtt" : "");
+}
+
+/*
+ * The sync just ended, so the roster divides in two: the nodes the radio still carries, and the
+ * ones only we remember. The second group is worth keeping - they are on the mesh, the radio's
+ * small database simply pushed them out - but the Nodes screen says which is which, because a
+ * message to a node the radio has forgotten has no key to encrypt with and may never leave.
+ */
+static void mesh_session_resolve_nodedb_membership(struct mesh_session *session) {
+    struct mesh_handshake_status *handshake = &session->handshake;
+    size_t remembered = 0U;
+    for (size_t i = 0; i < handshake->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+        struct mesh_node_summary *node = &handshake->nodes[i];
+        node->in_nodedb = node->sync_epoch == session->sync_epoch;
+        if (!node->in_nodedb) {
+            ++remembered;
+        }
+    }
+    if (remembered > 0U) {
+        mesh_log_info("session", "Roster holds %zu node%s the radio's NodeDB no longer carries",
+                      remembered, remembered == 1U ? "" : "s");
+    }
 }
 
 /*
@@ -424,7 +603,7 @@ static void mesh_session_apply_packet_details(struct mesh_session *session,
         }
         mesh_session_apply_user(summary, &user);
         mesh_log_debug("session", "Node 0x%08x introduced itself as %s", packet->from,
-                       summary->short_name[0] != '\0' ? summary->short_name : summary->long_name);
+                       summary->short_name);
         break;
     }
     case meshtastic_PortNum_POSITION_APP: {
@@ -611,6 +790,15 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
     struct mesh_handshake_status *handshake = &session->handshake;
     switch (message.which_payload_variant) {
     case meshtastic_FromRadio_my_info_tag:
+        /* The roster survives a reconnect, but not a move to another radio: that radio's
+           NodeDB is a different view of the mesh, and half of what we remember may not be
+           reachable through it. */
+        if (session->roster_node != 0U && session->roster_node != message.my_info.my_node_num) {
+            mesh_log_info("session", "Radio changed (0x%08x -> 0x%08x); dropping the roster",
+                          session->roster_node, message.my_info.my_node_num);
+            mesh_session_clear_nodes(session);
+        }
+        session->roster_node = message.my_info.my_node_num;
         handshake->has_my_info = true;
         handshake->my_info = message.my_info;
         mesh_log_info("session", "MyNodeInfo: node=%u, node_count=%u", message.my_info.my_node_num,
@@ -649,6 +837,7 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
         if (handshake->request_in_flight && message.config_complete_id == handshake->request_id) {
             handshake->request_in_flight = false;
             handshake->config_complete = true;
+            mesh_session_resolve_nodedb_membership(session);
             mesh_log_info("session", "Config sync complete for request %u",
                           message.config_complete_id);
         } else {

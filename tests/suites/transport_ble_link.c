@@ -468,8 +468,10 @@ MESH_TEST_CASE(ble_transport_connect_mock, unit) {
         return;
     }
 
+    /* The connection's own state goes; the node roster does not, because the radio's NodeDB is
+       small enough to have evicted half of it by the next connect. */
     handshake = mesh_ble_transport_handshake_status(ble);
-    if (handshake.request_in_flight || handshake.node_count != 0U || handshake.has_my_info ||
+    if (handshake.request_in_flight || handshake.node_count == 0U || handshake.has_my_info ||
         handshake.config_complete) {
         ble->ops->stop(ble);
         mesh_event_loop_shutdown(&loop);

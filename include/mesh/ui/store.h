@@ -112,6 +112,11 @@ struct mesh_ui_node_summary {
     bool has_hops_away;
     uint8_t hops_away;
     char user_id[16];
+    /* False while the name is the one derived from the node number rather than one the node
+       gave; see mesh_session_default_identity(). */
+    bool has_user;
+    /* False for a node we remember that the radio's NodeDB no longer carries. */
+    bool in_nodedb;
     uint32_t hw_model;
     uint32_t role;
     bool is_licensed;
@@ -414,6 +419,10 @@ struct mesh_ui_handshake_state {
     /* Channel table by slot; disabled slots are present with role 0. */
     uint32_t channel_count;
     struct mesh_ui_channel channels[MESH_UI_MAX_CHANNELS];
+    /* The radio the roster belongs to, carried so a restart can hand it back to the session.
+       Not my_info.node_num: that one goes with the connection and is 0 while disconnected,
+       which is exactly when the cache tends to be written. */
+    uint32_t roster_owner;
     bool cached;
 };
 

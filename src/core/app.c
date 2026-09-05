@@ -540,6 +540,10 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
 
     /* One conversation for both links, so switching between them keeps the message log. */
     mesh_session_init(&app->session);
+    /* The roster goes back into the session, which owns it: the first publish after a connect
+       replaces the store's copy wholesale, so anything left only in the store would be lost.
+       After mesh_session_init, which clears the session it is seeding. */
+    mesh_app_seed_nodes_from_cache(app);
     mesh_transport_registry_set_session(&app->transport_registry, &app->session);
 
     return 0;
