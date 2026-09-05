@@ -10,6 +10,7 @@
 #include "mesh/ui/backends/cli.h"
 #include "mesh/ui/backends/minui.h"
 #include "mesh/ui/backends/stub.h"
+#include "mesh/ui/node_detail.h"
 #include "mesh/ui/preferences.h"
 
 #include <errno.h>
@@ -256,9 +257,6 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
         break;
     case MESH_UI_FIELD_POSITION_SMART_INTERVAL:
         position->broadcast_smart_minimum_interval_secs = edit->number;
-        break;
-    case MESH_UI_FIELD_POSITION_FIXED:
-        position->fixed_position = on;
         break;
     case MESH_UI_FIELD_POSITION_GPS_INTERVAL:
         position->gps_update_interval = edit->number;
@@ -671,9 +669,13 @@ int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
         return -ENOTSUP;
     }
     for (uint8_t i = 0; i < action->edit_count && i < MESH_UI_SETTINGS_EDITS_MAX; ++i) {
-        if (mesh_ui_settings_field_section((enum mesh_ui_setting_field)action->edits[i].field) !=
+        const enum mesh_ui_setting_field field = (enum mesh_ui_setting_field)action->edits[i].field;
+        if (mesh_ui_settings_field_section(field) !=
             (enum mesh_ui_settings_section)action->section) {
             continue; /* an edit from another section has no business in this write */
+        }
+        if (mesh_ui_settings_field_consumer(field) != MESH_UI_SETTING_CONSUMER_SECTION) {
+            continue; /* in this section but written by its own row, not by Y */
         }
         const int result = mesh_app_apply_setting_edit(out, &action->edits[i]);
         if (result < 0) {
@@ -702,6 +704,95 @@ int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
     return 0;
 }
 
+/*
+ * "Set fixed position" and "Clear fixed position". Not a section save - the firmware takes
+ * these through set_fixed_position rather than set_config, and sets PositionConfig's own
+ * `fixed_position` flag itself - but announced like one, because from where the user is
+ * standing it is the same press with the same ack behind it.
+ *
+ * A coordinate row the user did not touch keeps what the radio reported, so pinning a GPS fix
+ * down is opening the section and pressing one row.
+ */
+static void mesh_app_save_fixed_position(struct mesh_app *app, const struct mesh_ui_action *action,
+                                         uint64_t now) {
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    const bool clearing = ((enum mesh_ui_settings_action)action->number ==
+                           MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION);
+    const struct mesh_ui_settings *ui = &app->ui_store.settings;
+    int result = 0;
+
+    if (clearing) {
+        result = mesh_session_clear_fixed_position(&app->session);
+    } else {
+        int32_t latitude = ui->has_own_position ? ui->own_latitude_i : 0;
+        int32_t longitude = ui->has_own_position ? ui->own_longitude_i : 0;
+        bool has_altitude = ui->has_own_altitude;
+        int32_t altitude = ui->has_own_altitude ? ui->own_altitude : 0;
+        bool bad = false;
+        for (uint8_t i = 0; i < action->edit_count && i < MESH_UI_SETTINGS_EDITS_MAX; ++i) {
+            const struct mesh_ui_setting_edit *edit = &action->edits[i];
+            switch ((enum mesh_ui_setting_field)edit->field) {
+            case MESH_UI_FIELD_POSITION_LATITUDE:
+                bad = bad || !mesh_ui_settings_coord_parse(edit->text, 90, &latitude);
+                break;
+            case MESH_UI_FIELD_POSITION_LONGITUDE:
+                bad = bad || !mesh_ui_settings_coord_parse(edit->text, 180, &longitude);
+                break;
+            case MESH_UI_FIELD_POSITION_ALTITUDE: {
+                /* Metres, and a plain integer: the one coordinate row that is not degrees. */
+                char *end = NULL;
+                const long metres = strtol(edit->text, &end, 10);
+                if (end == edit->text || (end != NULL && *end != '\0') || metres < -12000L ||
+                    metres > 12000L) {
+                    bad = true;
+                } else {
+                    has_altitude = true;
+                    altitude = (int32_t)metres;
+                }
+                break;
+            }
+            default:
+                /* Everything else in this section is saved with Y, not with this row. */
+                break;
+            }
+        }
+        if (bad) {
+            mesh_ui_store_set_toast(&app->ui_store, now,
+                                    "Latitude, longitude and altitude must be numbers");
+            return;
+        }
+        if (latitude == 0 && longitude == 0) {
+            /* Null Island is where an empty form lands, not where anybody is. */
+            mesh_ui_store_set_toast(&app->ui_store, now, "Set a latitude and longitude first");
+            return;
+        }
+        result = mesh_session_set_fixed_position(&app->session, latitude, longitude, has_altitude,
+                                                 altitude);
+    }
+
+    if (result > 0) {
+        const struct mesh_radio_settings *radio = mesh_session_settings(&app->session);
+        app->settings_save_pending = true;
+        app->settings_writes_acked_seen = radio != NULL ? radio->writes_acked : 0U;
+        app->settings_writes_failed_seen = radio != NULL ? radio->writes_failed : 0U;
+        snprintf(app->settings_save_section, sizeof app->settings_save_section, "%s",
+                 clearing ? "Fixed position" : "Position");
+        /* The GPS rows are saved with Y and stay pending until it is pressed. */
+        mesh_ui_store_settings_edits_consumed(&app->ui_store,
+                                              MESH_UI_SETTING_CONSUMER_FIXED_POSITION);
+        snprintf(toast, sizeof toast, "%s...",
+                 clearing ? "Clearing fixed position" : "Pinning position");
+    } else if (result == -ENOTCONN) {
+        snprintf(toast, sizeof toast, "%s", "Not connected to a node; edits kept");
+    } else if (result == -EINVAL) {
+        snprintf(toast, sizeof toast, "%s", "That is not a place on Earth");
+    } else {
+        snprintf(toast, sizeof toast, "Failed (%d); edits kept", result);
+        mesh_log_warn("ui", "Fixed position write failed: %d", result);
+    }
+    mesh_ui_store_set_toast(&app->ui_store, now, toast);
+}
+
 static void mesh_app_save_settings(struct mesh_app *app, const struct mesh_ui_action *action,
                                    uint64_t now) {
     char toast[MESH_UI_NAV_TOAST_MAX];
@@ -726,7 +817,9 @@ static void mesh_app_save_settings(struct mesh_app *app, const struct mesh_ui_ac
         app->settings_writes_acked_seen = radio != NULL ? radio->writes_acked : 0U;
         app->settings_writes_failed_seen = radio != NULL ? radio->writes_failed : 0U;
         snprintf(app->settings_save_section, sizeof app->settings_save_section, "%s", section_name);
-        mesh_ui_store_settings_edits_clear(&app->ui_store);
+        /* Only the edits this write carried: a coordinate typed in the Position section is
+           written by its own row, and clearing it here would drop it unsaved. */
+        mesh_ui_store_settings_edits_consumed(&app->ui_store, MESH_UI_SETTING_CONSUMER_SECTION);
         snprintf(toast, sizeof toast, "Saving %s...", section_name);
         mesh_log_info("ui", "Saving %s: %u edits, %d admin requests", section_name,
                       (unsigned)action->edit_count, result);
@@ -889,6 +982,62 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
         mesh_app_save_settings(app, action, now);
         return;
     }
+    case MESH_UI_ACTION_RADIO_ACTION: {
+        /*
+         * Reboot, shutdown and the three resets. Nothing here waits for an answer: the radio
+         * acts a few seconds after acking and takes the link with it, so the toast says what
+         * was asked for. A shutdown in particular has no reconnect to promise - the radio has
+         * to be switched on by hand - so it says so rather than leaving auto-connect to look
+         * broken while it retries a node that is off.
+         */
+        /* The two fixed-position rows are radio actions but not destructive ones: they are a
+           save the user pressed for, they read the coordinate rows above them, and they are
+           announced through the same "Saving ..." machinery a section save uses. */
+        if ((enum mesh_ui_settings_action)action->number ==
+                MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION ||
+            (enum mesh_ui_settings_action)action->number ==
+                MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION) {
+            mesh_app_save_fixed_position(app, action, now);
+            return;
+        }
+        enum mesh_admin_request_kind kind = MESH_ADMIN_REBOOT;
+        const char *asked = "Rebooting; reconnecting shortly";
+        switch ((enum mesh_ui_settings_action)action->number) {
+        case MESH_UI_SETTINGS_ACTION_REBOOT:
+            break;
+        case MESH_UI_SETTINGS_ACTION_SHUTDOWN:
+            kind = MESH_ADMIN_SHUTDOWN;
+            asked = "Shutting down; switch it on by hand";
+            break;
+        case MESH_UI_SETTINGS_ACTION_RESET_NODEDB:
+            kind = MESH_ADMIN_RESET_NODEDB;
+            asked = "Node database reset; favorites kept";
+            break;
+        case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG:
+            kind = MESH_ADMIN_FACTORY_RESET_CONFIG;
+            asked = "Factory reset sent; radio restarting";
+            break;
+        case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE:
+            kind = MESH_ADMIN_FACTORY_RESET_DEVICE;
+            asked = "Factory reset sent; forget it in Devices";
+            break;
+        default:
+            return; /* a row the nav should never have confirmed */
+        }
+        const int result = mesh_session_radio_action(&app->session, kind);
+        if (result > 0) {
+            snprintf(toast, sizeof toast, "%s", asked);
+        } else if (result == 0) {
+            snprintf(toast, sizeof toast, "%s", "Already requested");
+        } else if (result == -ENOTCONN) {
+            snprintf(toast, sizeof toast, "%s", "Not connected to a node");
+        } else {
+            snprintf(toast, sizeof toast, "Request failed (%d)", result);
+            mesh_log_warn("ui", "Radio action %u failed: %d", (unsigned)action->number, result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
     case MESH_UI_ACTION_TOGGLE_FAVORITE: {
         const bool favorite = (action->number != 0U);
         char name[MESH_UI_NAV_TARGET_NAME_MAX];
@@ -961,6 +1110,56 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
         } else {
             snprintf(toast, sizeof toast, "Ignore failed (%d)", result);
             mesh_log_warn("ui", "Ignore for 0x%08x failed: %d", action->dest, result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
+    case MESH_UI_ACTION_TOGGLE_MUTE: {
+        char name[MESH_UI_NAV_TARGET_NAME_MAX];
+        mesh_app_format_peer_name(mesh_session_handshake(&app->session), action->dest, name,
+                                  sizeof name);
+        const int result = mesh_session_toggle_node_muted(&app->session, action->dest);
+        if (result == 0) {
+            /* Already on its way. Two local flips for one toggle on the wire would leave the
+               row stating the opposite of what the radio is about to do. */
+            snprintf(toast, sizeof toast, "%s", "Mute already requested");
+        } else if (result > 0) {
+            /* The session flipped the cached flag on the way through, so what it now holds is
+               what we asked the radio for. */
+            const struct mesh_ui_node_summary *node =
+                mesh_ui_node_detail_find(&app->ui_store.handshake, action->dest);
+            const bool muted = node != NULL ? node->is_muted : true;
+            snprintf(toast, sizeof toast, "%s %.20s", muted ? "Muted" : "Unmuted", name);
+        } else if (result == -ENOTCONN) {
+            snprintf(toast, sizeof toast, "%s", "Not connected to a node");
+        } else if (result == -ENOENT) {
+            snprintf(toast, sizeof toast, "%s", "That node is no longer in the list");
+        } else {
+            snprintf(toast, sizeof toast, "Mute failed (%d)", result);
+            mesh_log_warn("ui", "Mute for 0x%08x failed: %d", action->dest, result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
+    case MESH_UI_ACTION_REMOVE_NODE: {
+        char name[MESH_UI_NAV_TARGET_NAME_MAX];
+        mesh_app_format_peer_name(mesh_session_handshake(&app->session), action->dest, name,
+                                  sizeof name);
+        const int result = mesh_session_remove_node(&app->session, action->dest);
+        if (result > 0) {
+            /* Says how it comes back, because the row that would have undone it has gone with
+               the node. */
+            snprintf(toast, sizeof toast, "Removed %.14s; back when it speaks", name);
+            mesh_log_info("ui", "Removed node 0x%08x from the Nodes tab", action->dest);
+        } else if (result == -ENOTCONN) {
+            snprintf(toast, sizeof toast, "%s", "Not connected to a node");
+        } else if (result == -ENOENT) {
+            snprintf(toast, sizeof toast, "%s", "That node is no longer in the list");
+        } else if (result == -EINVAL) {
+            snprintf(toast, sizeof toast, "%s", "That is the radio you are connected to");
+        } else {
+            snprintf(toast, sizeof toast, "Remove failed (%d)", result);
+            mesh_log_warn("ui", "Remove of 0x%08x failed: %d", action->dest, result);
         }
         mesh_ui_store_set_toast(&app->ui_store, now, toast);
         return;
@@ -2041,6 +2240,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             memcpy(dst->public_key, src->public_key, dst->public_key_len);
             dst->is_favorite = src->is_favorite;
             dst->is_ignored = src->is_ignored;
+            dst->is_muted = src->is_muted;
             dst->channel = src->channel;
             mesh_app_copy_node_detail(src, dst);
         }
@@ -2098,6 +2298,24 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     mesh_app_flatten_settings(radio_settings, &ui_settings);
     /* flatten_settings() zeroes the struct, so the client's own facts go in after it. */
     mesh_app_flatten_client_info(app, &ui_settings.client);
+    /* Where the radio says it is, which is not part of PositionConfig: it comes from our own
+       node's record, and it is what the Position section's coordinate rows start from. */
+    if (status.has_my_info) {
+        const struct mesh_node_summary *self = NULL;
+        for (size_t i = 0; i < status.node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+            if (status.nodes[i].node_id == status.my_info.my_node_num) {
+                self = &status.nodes[i];
+                break;
+            }
+        }
+        if (self != NULL && self->position.valid) {
+            ui_settings.has_own_position = true;
+            ui_settings.own_latitude_i = self->position.latitude_i;
+            ui_settings.own_longitude_i = self->position.longitude_i;
+            ui_settings.has_own_altitude = self->position.has_altitude;
+            ui_settings.own_altitude = self->position.altitude;
+        }
+    }
     mesh_app_flatten_radio_stats(mesh_session_radio_stats(&app->session), &ui_settings.stats);
     mesh_ui_store_set_settings(&app->ui_store, &ui_settings);
     mesh_app_track_settings_save(app, radio_settings, link_connected);

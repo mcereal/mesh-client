@@ -277,6 +277,7 @@ static bool mesh_ui_nav_close_node_detail(struct mesh_ui_nav *nav) {
     }
     nav->node_detail_open = false;
     nav->node_detail_node = 0U;
+    nav->node_remove_armed = false;
     nav->cursor[MESH_UI_SCREEN_NODES] = nav->node_list_cursor;
     return true;
 }
@@ -1182,6 +1183,26 @@ static void mesh_ui_nav_fill_save(const struct mesh_ui_nav *nav, struct mesh_ui_
     memcpy(action->edits, nav->settings_edits, sizeof action->edits);
 }
 
+static void mesh_ui_nav_confirm_close(struct mesh_ui_nav *nav) {
+    nav->confirm_open = false;
+    nav->confirm_action = (uint8_t)MESH_UI_SETTINGS_ACTION_NONE;
+}
+
+/* A radio action carries the open section's pending edits for the same reason a save does:
+   "Set fixed position" is a row that reads the three rows above it. */
+static void mesh_ui_nav_fill_radio_action(const struct mesh_ui_nav *nav,
+                                          enum mesh_ui_settings_action which,
+                                          struct mesh_ui_action *action) {
+    if (action == NULL) {
+        return;
+    }
+    action->type = MESH_UI_ACTION_RADIO_ACTION;
+    action->section = nav->settings_section;
+    action->number = (uint32_t)which;
+    action->edit_count = nav->settings_edit_count;
+    memcpy(action->edits, nav->settings_edits, sizeof action->edits);
+}
+
 static bool mesh_ui_nav_confirm_key(struct mesh_ui_nav *nav, enum mesh_ui_key key,
                                     struct mesh_ui_action *action) {
     switch (key) {
@@ -1194,12 +1215,19 @@ static bool mesh_ui_nav_confirm_key(struct mesh_ui_nav *nav, enum mesh_ui_key ke
     case MESH_UI_KEY_A:
     case MESH_UI_KEY_START:
         if (nav->confirm_cursor == 0U) {
-            mesh_ui_nav_fill_save(nav, action);
+            /* Two things stand behind this overlay: a section save, and a radio action that
+               keeps no state and so has no edits to carry. */
+            if (nav->confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_NONE) {
+                mesh_ui_nav_fill_radio_action(
+                    nav, (enum mesh_ui_settings_action)nav->confirm_action, action);
+            } else {
+                mesh_ui_nav_fill_save(nav, action);
+            }
         }
-        nav->confirm_open = false;
+        mesh_ui_nav_confirm_close(nav);
         return true;
     case MESH_UI_KEY_B:
-        nav->confirm_open = false;
+        mesh_ui_nav_confirm_close(nav);
         return true;
     default:
         return false;
@@ -1519,9 +1547,9 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             return false;
         }
         struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-        const uint32_t count =
-            mesh_ui_node_detail_build(node, mesh_ui_nav_node_is_self(store, node), 0U,
-                                      &store->traceroute, items, MESH_UI_NODE_ITEMS_MAX);
+        const uint32_t count = mesh_ui_node_detail_build(
+            node, mesh_ui_nav_node_is_self(store, node), 0U, &store->traceroute,
+            nav->node_remove_armed, items, MESH_UI_NODE_ITEMS_MAX);
         if (cursor >= count || items[cursor].kind != MESH_UI_NODE_ROW_ACTION) {
             return false;
         }
@@ -1556,6 +1584,27 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
                 action->number = node->is_ignored ? 0U : 1U;
             }
             return false; /* the row redraws when the app flips the flag */
+        }
+        if (items[cursor].action == MESH_UI_NODE_ACTION_MUTE) {
+            if (action != NULL) {
+                /* No wanted state to send: toggle_muted_node is all the firmware offers. */
+                action->type = MESH_UI_ACTION_TOGGLE_MUTE;
+                action->dest = node->node_id;
+            }
+            return false; /* the row redraws when the app flips the flag */
+        }
+        if (items[cursor].action == MESH_UI_NODE_ACTION_REMOVE) {
+            if (!nav->node_remove_armed) {
+                nav->node_remove_armed = true; /* the row now says "A again to remove" */
+                return true;
+            }
+            nav->node_remove_armed = false;
+            if (action != NULL) {
+                action->type = MESH_UI_ACTION_REMOVE_NODE;
+                action->dest = node->node_id;
+            }
+            /* The detail closes on the next clamp, when the node is gone from the list. */
+            return false;
         }
         return false;
     }
@@ -1595,6 +1644,21 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             struct mesh_ui_settings_item item;
             if (mesh_ui_nav_settings_current(nav, store, true, &item) &&
                 item.kind == MESH_UI_SETTING_ACTION && item.field == MESH_UI_FIELD_NONE) {
+                /* A destructive radio action is never done on the press that selected it: the
+                   row opens the question, and the answer to that is what goes out. The rest go
+                   straight through. */
+                const enum mesh_ui_settings_action which =
+                    (enum mesh_ui_settings_action)item.number;
+                if (mesh_ui_settings_action_needs_confirm(which)) {
+                    nav->confirm_open = true;
+                    nav->confirm_cursor = 1U; /* Cancel, so a repeated press changes nothing */
+                    nav->confirm_action = (uint8_t)which;
+                    return true;
+                }
+                if (mesh_ui_settings_action_is_radio(which)) {
+                    mesh_ui_nav_fill_radio_action(nav, which, action);
+                    return false; /* the rows redraw when the read-back lands */
+                }
                 if (action != NULL) {
                     if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_UPDATE) {
                         action->type = MESH_UI_ACTION_CHECK_UPDATE;
@@ -1662,6 +1726,7 @@ static bool mesh_ui_nav_settings_section_key(struct mesh_ui_nav *nav,
                 (enum mesh_ui_settings_section)nav->settings_section)) {
             nav->confirm_open = true;
             nav->confirm_cursor = 1U; /* Cancel, so a repeated press changes nothing */
+            nav->confirm_action = (uint8_t)MESH_UI_SETTINGS_ACTION_NONE;
             return true;
         }
         mesh_ui_nav_fill_save(nav, action);
@@ -1712,6 +1777,14 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
     if (nav->devices_forget_armed &&
         (key != MESH_UI_KEY_Y || nav->screen != MESH_UI_SCREEN_DEVICES)) {
         nav->devices_forget_armed = false;
+        changed = true;
+    }
+    /* The same for the node detail's remove row, which only A on that row may re-arm. Moving
+       the cursor off it is enough to stand it down, so the arming cannot outlive the row the
+       user was looking at. */
+    if (nav->node_remove_armed &&
+        (key != MESH_UI_KEY_A || nav->screen != MESH_UI_SCREEN_NODES || !nav->node_detail_open)) {
+        nav->node_remove_armed = false;
         changed = true;
     }
 

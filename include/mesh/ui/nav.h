@@ -58,6 +58,19 @@ enum mesh_ui_screen {
 /* Long enough for a 32-byte key typed as hex. */
 #define MESH_UI_SETTING_TEXT_MAX 72U
 
+/*
+ * Which press writes an edit. The Position section is the one with two: Y writes
+ * PositionConfig with a set_config, and "Set fixed position" writes the coordinate rows with
+ * set_fixed_position, because the firmware only takes them that way. Every other field belongs
+ * to its section's own save. An edit has to say which press owns it so that neither one clears
+ * the other's pending work off the screen when it fires.
+ * mesh_ui_settings_field_consumer() (settings.h) answers it for a field.
+ */
+enum mesh_ui_setting_consumer {
+    MESH_UI_SETTING_CONSUMER_SECTION = 0,
+    MESH_UI_SETTING_CONSUMER_FIXED_POSITION,
+};
+
 /* One edited setting. `field` is an enum mesh_ui_setting_field (settings.h); NONE marks an
    empty slot. Toggles and enums use `number`, numbers use `number`, text uses `text`. */
 struct mesh_ui_setting_edit {
@@ -141,6 +154,10 @@ struct mesh_ui_nav {
     bool node_detail_open;
     uint32_t node_detail_node; /* the open node's id: the list is re-ranked under us */
     uint32_t node_list_cursor;
+    /* "Remove from radio" is armed by one press and acts on the second, the same way Y on the
+       Devices tab is: it is the one node row that takes its own row away, so a press that
+       lands on it by accident should cost nothing. Any other press stands it down. */
+    bool node_remove_armed;
     /* Settings tab: the open section (enum mesh_ui_settings_section) or NO_SECTION for the
        section list. cursor[SETTINGS] indexes whichever list is showing; the section list's
        position is parked here while a section is open. */
@@ -150,10 +167,14 @@ struct mesh_ui_nav {
        position is parked in settings_channel_list_cursor while a channel is open. */
     uint8_t settings_channel;
     uint32_t settings_channel_list_cursor;
-    /* "Save <section>?" overlay for sections whose write can cut this client off (Bluetooth,
-       Channels). Row 0 saves, row 1 cancels. */
+    /* The confirm overlay: "Save <section>?" for sections whose write can cut this client off
+       (Bluetooth, Channels, LoRa, Security, Power), and every row in the Radio actions
+       section. Row 0 goes ahead, row 1 cancels. `confirm_action` says which of the two it is
+       standing in front of: MESH_UI_SETTINGS_ACTION_NONE is the section save, anything else is
+       that radio action. */
     bool confirm_open;
     uint8_t confirm_cursor;
+    uint8_t confirm_action; /* enum mesh_ui_settings_action */
     /* Edits made in the open section and not yet saved. Y sends them as one
        MESH_UI_ACTION_SAVE_SETTINGS; B asks once (discard_armed) and discards on the second
        press. The app clears them through mesh_ui_store_settings_edits_clear() once queued. */
@@ -193,12 +214,20 @@ enum mesh_ui_action_type {
     MESH_UI_ACTION_TRACEROUTE,        /* dest = node to trace the route to */
     MESH_UI_ACTION_REQUEST_NODE_INFO, /* dest = node to ask for a NodeInfo */
     MESH_UI_ACTION_TOGGLE_IGNORE,     /* dest = node; `number` is 1 to start ignoring it */
+    /* dest = node. Mute is a bare toggle rather than a wanted state, because the admin verb
+       behind it (toggle_muted_node) offers nothing else. */
+    MESH_UI_ACTION_TOGGLE_MUTE,
+    MESH_UI_ACTION_REMOVE_NODE,
     /* About section: ask GitHub what the newest release is, and install the one a check
        found. Two actions rather than one because installing replaces the running binary. */
     MESH_UI_ACTION_CHECK_UPDATE,
     MESH_UI_ACTION_INSTALL_UPDATE,
     MESH_UI_ACTION_CYCLE_UPDATE_CHANNEL,
     MESH_UI_ACTION_TOGGLE_DEV_UPDATES,
+    /* Radio actions section: `number` is the enum mesh_ui_settings_action the user confirmed.
+       One action type rather than five because the nav has nothing to say about any of them
+       beyond which row it was - the app owns what each one means. */
+    MESH_UI_ACTION_RADIO_ACTION,
     /* Devices tab. DISCONNECT with an empty identifier means "whatever link is up": only one
        radio is ever connected, so the row the cursor happens to be on does not decide it. */
     MESH_UI_ACTION_DISCONNECT,
@@ -218,7 +247,8 @@ struct mesh_ui_action {
     uint32_t dest;
     uint8_t channel;
     /* TOGGLE_FAVORITE: 1 to pin, 0 to unpin. The nav reads the node's current flag and sends
-       the state it wants, so a press that races a NodeInfo cannot end up as a no-op toggle. */
+       the state it wants, so a press that races a NodeInfo cannot end up as a no-op toggle.
+       RADIO_ACTION: the enum mesh_ui_settings_action that was confirmed. */
     uint32_t number;
     char text[MESH_UI_DRAFT_MAX];
     /* SAVE_SETTINGS: the section (enum mesh_ui_settings_section), the channel slot for the

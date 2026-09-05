@@ -43,6 +43,8 @@ enum mesh_ui_node_action {
     MESH_UI_NODE_ACTION_TRACEROUTE,   /* ask the mesh which way it reaches this node */
     MESH_UI_NODE_ACTION_REQUEST_INFO, /* ask the node to introduce itself */
     MESH_UI_NODE_ACTION_IGNORE,       /* have the radio drop this node's packets */
+    MESH_UI_NODE_ACTION_MUTE,         /* stop this node raising notifications on the radio */
+    MESH_UI_NODE_ACTION_REMOVE,       /* drop this node from the radio's NodeDB */
 };
 
 struct mesh_ui_node_item {
@@ -60,10 +62,15 @@ struct mesh_ui_node_item {
  * `trace` is the client's one traceroute slot and may be NULL. Its rows are emitted only when
  * it is a trace of *this* node, so opening a different node after a trace shows that node's
  * own state rather than somebody else's route.
+ *
+ * `remove_armed` is the nav's "the next press really does it" state for the remove row, which
+ * is the one row here whose consequence the user cannot walk back from - the node leaves the
+ * list and takes its own row with it. It only changes what that row's value column says.
  */
 uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool is_self,
                                    uint32_t now, const struct mesh_ui_traceroute *trace,
-                                   struct mesh_ui_node_item *out, uint32_t capacity);
+                                   bool remove_armed, struct mesh_ui_node_item *out,
+                                   uint32_t capacity);
 
 /* Rows the node would produce. The nav needs nothing else from this module. */
 uint32_t mesh_ui_node_detail_count(const struct mesh_ui_node_summary *node, bool is_self,

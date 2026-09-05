@@ -155,6 +155,7 @@ struct mesh_node_summary {
     /* NodeDB flags the radio keeps for us. */
     bool is_favorite;
     bool is_ignored;
+    bool is_muted;
     uint8_t channel; /* the channel index the radio last heard this node on */
     struct mesh_node_position position;
     struct mesh_node_metrics metrics;
@@ -303,6 +304,49 @@ int mesh_session_write_settings(struct mesh_session *session,
  * my_info, -ENOENT when the node is not in the cache, -ENOSPC when the queue is full.
  */
 int mesh_session_set_node_favorite(struct mesh_session *session, uint32_t node_id, bool favorite);
+
+/*
+ * Tells the radio to reboot, shut down, or reset itself (mesh_radio_settings_queue_action).
+ * Nothing here can confirm that it happened: the radio acts a few seconds after answering and
+ * the link drops with it, so the caller announces what was asked for, not what was done.
+ *
+ * Returns the number of admin requests queued, -ENOTCONN before the handshake has my_info,
+ * -EINVAL for a kind that is not an action, -ENOSPC when the queue is full.
+ */
+int mesh_session_radio_action(struct mesh_session *session, enum mesh_admin_request_kind kind);
+
+/*
+ * Flips a node's muted flag in the radio's NodeDB. `toggle_muted_node` is a toggle on the
+ * wire - there is no way to state the flag we want, the way the favorite and ignore pair let
+ * us - so the cached flag is flipped to match and a press that races an incoming NodeInfo can
+ * land on the value it started from. Same returns as mesh_session_set_node_favorite.
+ */
+int mesh_session_toggle_node_muted(struct mesh_session *session, uint32_t node_id);
+
+/*
+ * Drops a node from the radio's NodeDB, and from our cached list with it: there is nothing to
+ * read back and the entry would otherwise sit there looking removed-but-present until the
+ * next connection. The node returns the moment it transmits anything.
+ *
+ * Returns the number of admin requests queued, -ENOTCONN before the handshake has my_info,
+ * -ENOENT when the node is not in the cache, -EINVAL for our own node, -ENOSPC when the
+ * queue is full.
+ */
+int mesh_session_remove_node(struct mesh_session *session, uint32_t node_id);
+
+/*
+ * The radio's own location, set by hand: `set_fixed_position` stores the coordinates and turns
+ * `PositionConfig.fixed_position` on, `remove_fixed_position` clears both. Neither goes
+ * through set_config - a client that only flipped the config flag would turn fixed position on
+ * with nothing behind it - and both are followed by a get_config POSITION, so the section
+ * shows what the radio kept. Coordinates are Meshtastic's fixed-point 1e-7 degrees.
+ *
+ * Returns the number of admin requests queued, -ENOTCONN before the handshake has my_info,
+ * -EINVAL for coordinates outside their range, -ENOSPC when the queue is full.
+ */
+int mesh_session_set_fixed_position(struct mesh_session *session, int32_t latitude_i,
+                                    int32_t longitude_i, bool has_altitude, int32_t altitude);
+int mesh_session_clear_fixed_position(struct mesh_session *session);
 
 /*
  * Adds or removes a node from the radio's ignore list. Same shape and same caveat as

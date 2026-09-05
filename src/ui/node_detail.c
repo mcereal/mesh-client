@@ -337,7 +337,8 @@ static void node_rows_route(struct node_rows *rows, const struct mesh_ui_node_su
 
 uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool is_self,
                                    uint32_t now, const struct mesh_ui_traceroute *trace,
-                                   struct mesh_ui_node_item *out, uint32_t capacity) {
+                                   bool remove_armed, struct mesh_ui_node_item *out,
+                                   uint32_t capacity) {
     if (node == NULL) {
         return 0U;
     }
@@ -360,10 +361,21 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
         /* The one row that answers "who is this?" for a node that joined after the NodeDB
            replay and has been sitting in the list as a bare id ever since. */
         rows_action(&rows, "Ask for its name", "press A", MESH_UI_NODE_ACTION_REQUEST_INFO);
-        /* Last, and stated as what the radio will do rather than as a preference: an ignored
+        /* Muting is the gentle one of the three below: the node's traffic still arrives and
+           still shows in its conversation, the radio just stops announcing it. The wire verb
+           is a toggle rather than a set, so this row states the flag and flips it. */
+        rows_action(&rows, "Mute this node", node->is_muted ? "yes" : "no",
+                    MESH_UI_NODE_ACTION_MUTE);
+        /* Then, stated as what the radio will do rather than as a preference: an ignored
            node's packets are dropped before they reach us. */
         rows_action(&rows, "Ignore this node", node->is_ignored ? "yes" : "no",
                     MESH_UI_NODE_ACTION_IGNORE);
+        /* Last, because it is the only row here that takes its own row away with it: the node
+           leaves the list and there is nothing left to press to undo it. It comes back on its
+           own when the node next transmits, which is why this is an arming press rather than
+           the confirm overlay - the cost is a wait, not a loss. */
+        rows_action(&rows, "Remove from radio", remove_armed ? "A again to remove" : "press A",
+                    MESH_UI_NODE_ACTION_REMOVE);
     }
     node_rows_identity(&rows, node);
     node_rows_signal(&rows, node, is_self, now);
@@ -376,7 +388,7 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
 
 uint32_t mesh_ui_node_detail_count(const struct mesh_ui_node_summary *node, bool is_self,
                                    const struct mesh_ui_traceroute *trace) {
-    return mesh_ui_node_detail_build(node, is_self, 0U, trace, NULL, 0U);
+    return mesh_ui_node_detail_build(node, is_self, 0U, trace, false, NULL, 0U);
 }
 
 static uint32_t node_list_count(const struct mesh_ui_handshake_state *handshake) {

@@ -120,6 +120,7 @@ struct mesh_ui_node_summary {
     uint8_t public_key_len;
     bool is_favorite;
     bool is_ignored;
+    bool is_muted;
     uint8_t channel;
     struct mesh_ui_node_position position;
     struct mesh_ui_node_metrics metrics;
@@ -329,7 +330,15 @@ struct mesh_ui_settings {
     uint8_t packet_signature_policy;
 
     bool has_position;
-    uint8_t gps_mode; /* 0 disabled, 1 enabled, 2 not present */
+    /* Where the radio says it is. Not part of PositionConfig - it comes from our own node's
+       NodeInfo - but it lives here because the Position section is where it is shown and set,
+       and because `set_fixed_position` is the one write in that section that carries it. */
+    bool has_own_position;
+    int32_t own_latitude_i; /* fixed-point 1e-7 degrees, as the wire carries them */
+    int32_t own_longitude_i;
+    bool has_own_altitude;
+    int32_t own_altitude; /* metres above sea level */
+    uint8_t gps_mode;     /* 0 disabled, 1 enabled, 2 not present */
     uint32_t position_broadcast_secs;
     bool position_broadcast_smart_enabled;
     bool fixed_position;
@@ -537,6 +546,13 @@ void mesh_ui_store_open_passkey_prompt(struct mesh_ui_store *store, const char *
 void mesh_ui_store_close_passkey_prompt(struct mesh_ui_store *store);
 /* Drops the pending Settings edits: the app calls this once a save has been queued. */
 void mesh_ui_store_settings_edits_clear(struct mesh_ui_store *store);
+
+/* Clears only the edits `consumer` has just written and keeps the rest, because the Position
+   section has two submission paths: a latitude typed but not yet pinned has to survive a Y
+   that saves the GPS rows, and the GPS rows have to survive a "Set fixed position". Every
+   other section has one path, so clearing SECTION there clears the lot. */
+void mesh_ui_store_settings_edits_consumed(struct mesh_ui_store *store,
+                                           enum mesh_ui_setting_consumer consumer);
 /* Time-based housekeeping (toast expiry). Call once per loop turn. */
 void mesh_ui_store_tick(struct mesh_ui_store *store, uint64_t now_ms);
 

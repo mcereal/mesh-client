@@ -37,6 +37,8 @@ const char *mesh_ui_settings_section_name(enum mesh_ui_settings_section section)
         return "Store & Forward";
     case MESH_UI_SETTINGS_TELEMETRY:
         return "Telemetry";
+    case MESH_UI_SETTINGS_ACTIONS:
+        return "Radio actions";
     default:
         return "?";
     }
@@ -79,6 +81,10 @@ bool mesh_ui_settings_section_loaded(const struct mesh_ui_settings *settings,
         return settings->has_store_forward;
     case MESH_UI_SETTINGS_TELEMETRY:
         return settings->has_telemetry;
+    case MESH_UI_SETTINGS_ACTIONS:
+        /* Nothing is read for this section, so what it waits on is not a config fragment but
+           the one thing an AdminMessage cannot be addressed without: our own node number. */
+        return handshake != NULL && handshake->has_my_info;
     default:
         return false;
     }
@@ -319,12 +325,18 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                                MESH_UI_SETTINGS_POSITION, 0U, NULL,
                                                PRESETS(k_smart_interval_presets), "default", NULL,
                                                0U},
-    [MESH_UI_FIELD_POSITION_FIXED] = {"Fixed position", MESH_UI_SETTING_TOGGLE,
-                                      MESH_UI_SETTINGS_POSITION, 0U, NULL, NO_PRESETS, NULL, NULL,
-                                      0U},
     [MESH_UI_FIELD_POSITION_GPS_INTERVAL] = {"GPS interval", MESH_UI_SETTING_NUMBER,
                                              MESH_UI_SETTINGS_POSITION, 0U, NULL,
                                              PRESETS(k_gps_interval_presets), "default", NULL, 0U},
+    [MESH_UI_FIELD_POSITION_LATITUDE] = {"Latitude", MESH_UI_SETTING_TEXT,
+                                         MESH_UI_SETTINGS_POSITION, 15U, NULL, NULL, 0U, NULL, NULL,
+                                         0U},
+    [MESH_UI_FIELD_POSITION_LONGITUDE] = {"Longitude", MESH_UI_SETTING_TEXT,
+                                          MESH_UI_SETTINGS_POSITION, 15U, NULL, NULL, 0U, NULL,
+                                          NULL, 0U},
+    [MESH_UI_FIELD_POSITION_ALTITUDE] = {"Altitude (m)", MESH_UI_SETTING_TEXT,
+                                         MESH_UI_SETTINGS_POSITION, 7U, NULL, NULL, 0U, NULL, NULL,
+                                         0U},
     [MESH_UI_FIELD_POWER_SAVING] = {"Power saving", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_POWER,
                                     0U, NULL, NO_PRESETS, NULL, NULL, 0U},
     [MESH_UI_FIELD_POWER_LS_SECS] = {"Light sleep", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_POWER,
@@ -561,10 +573,124 @@ bool mesh_ui_settings_section_needs_confirm(enum mesh_ui_settings_section sectio
            section == MESH_UI_SETTINGS_POWER;
 }
 
-void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section, char *out,
-                                   size_t out_len) {
+/* The fixed-position pair are the exception: setting a location is undone by setting another
+   one and clearing it by setting it again, so a question in front of either would be a press
+   the user has to make twice for nothing. */
+enum mesh_ui_setting_consumer mesh_ui_settings_field_consumer(enum mesh_ui_setting_field field) {
+    switch (field) {
+    case MESH_UI_FIELD_POSITION_LATITUDE:
+    case MESH_UI_FIELD_POSITION_LONGITUDE:
+    case MESH_UI_FIELD_POSITION_ALTITUDE:
+        return MESH_UI_SETTING_CONSUMER_FIXED_POSITION;
+    default:
+        return MESH_UI_SETTING_CONSUMER_SECTION;
+    }
+}
+
+bool mesh_ui_settings_action_needs_confirm(enum mesh_ui_settings_action action) {
+    return action == MESH_UI_SETTINGS_ACTION_REBOOT || action == MESH_UI_SETTINGS_ACTION_SHUTDOWN ||
+           action == MESH_UI_SETTINGS_ACTION_RESET_NODEDB ||
+           action == MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG ||
+           action == MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE;
+}
+
+bool mesh_ui_settings_action_is_radio(enum mesh_ui_settings_action action) {
+    return mesh_ui_settings_action_needs_confirm(action) ||
+           action == MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION ||
+           action == MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION;
+}
+
+void mesh_ui_settings_confirm_title(enum mesh_ui_settings_section section, uint8_t channel,
+                                    enum mesh_ui_settings_action action, char *out,
+                                    size_t out_len) {
     if (out == NULL || out_len == 0U) {
         return;
+    }
+    switch (action) {
+    case MESH_UI_SETTINGS_ACTION_REBOOT:
+        snprintf(out, out_len, "%s", "Reboot the radio?");
+        return;
+    case MESH_UI_SETTINGS_ACTION_SHUTDOWN:
+        snprintf(out, out_len, "%s", "Shut the radio down?");
+        return;
+    case MESH_UI_SETTINGS_ACTION_RESET_NODEDB:
+        snprintf(out, out_len, "%s", "Reset the node database?");
+        return;
+    case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG:
+        snprintf(out, out_len, "%s", "Factory reset the config?");
+        return;
+    case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE:
+        snprintf(out, out_len, "%s", "Factory reset everything?");
+        return;
+    default:
+        break;
+    }
+    if (section == MESH_UI_SETTINGS_CHANNELS && channel != MESH_UI_SETTINGS_NO_CHANNEL) {
+        snprintf(out, out_len, "Save channel %u?", (unsigned)channel);
+        return;
+    }
+    snprintf(out, out_len, "Save %s?", mesh_ui_settings_section_name(section));
+}
+
+const char *mesh_ui_settings_confirm_accept(enum mesh_ui_settings_action action) {
+    switch (action) {
+    case MESH_UI_SETTINGS_ACTION_REBOOT:
+        return "Reboot now";
+    case MESH_UI_SETTINGS_ACTION_SHUTDOWN:
+        return "Shut down now";
+    case MESH_UI_SETTINGS_ACTION_RESET_NODEDB:
+        return "Reset the node database";
+    case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG:
+        return "Factory reset config";
+    case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE:
+        return "Factory reset device";
+    default:
+        return "Save to radio";
+    }
+}
+
+void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section,
+                                   enum mesh_ui_settings_action action, char *out, size_t out_len) {
+    if (out == NULL || out_len == 0U) {
+        return;
+    }
+    /*
+     * The actions first: they are the only rows here that cannot be undone by pressing the
+     * opposite one, so each says what is lost rather than only what happens. A reset that
+     * spares something says so too - "favorites excepted" is the difference between a press
+     * the user regrets and one they do not.
+     */
+    switch (action) {
+    case MESH_UI_SETTINGS_ACTION_REBOOT:
+        snprintf(out, out_len, "%s",
+                 "The radio restarts in a few seconds. The link drops with it and auto-connect "
+                 "brings it back; anything sent to this node meanwhile is lost.");
+        return;
+    case MESH_UI_SETTINGS_ACTION_SHUTDOWN:
+        snprintf(out, out_len, "%s",
+                 "The radio powers off in a few seconds and nothing here can wake it again: "
+                 "that takes its own button. Everything it has stored survives.");
+        return;
+    case MESH_UI_SETTINGS_ACTION_RESET_NODEDB:
+        snprintf(out, out_len, "%s",
+                 "The radio forgets every node it has heard, favorites excepted. Names and "
+                 "positions return only as each node speaks again, which on a quiet mesh is "
+                 "hours. This client's own cached list is left alone.");
+        return;
+    case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG:
+        snprintf(out, out_len, "%s",
+                 "Every setting on this radio returns to its factory default, the Bluetooth "
+                 "bond excepted. Channels and their keys go with them: the node leaves your "
+                 "mesh until it is set up again.");
+        return;
+    case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE:
+        snprintf(out, out_len, "%s",
+                 "Every setting and the node database return to factory defaults and the "
+                 "Bluetooth bond is cleared, so this node has to be forgotten in Devices (Y) "
+                 "and paired again. Its identity key changes.");
+        return;
+    default:
+        break;
     }
     switch (section) {
     case MESH_UI_SETTINGS_BLUETOOTH:
@@ -600,6 +726,87 @@ void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section, char *
         snprintf(out, out_len, "%s", "The radio will reboot to apply this.");
         break;
     }
+}
+
+void mesh_ui_settings_coord_text(int32_t value_i, char *out, size_t out_len) {
+    if (out == NULL || out_len == 0U) {
+        return;
+    }
+    /* Five decimals is about a metre, which is finer than anything a LoRa node reports and
+       short enough to type back in on a ten-column keyboard. The sign is carried by the whole
+       degrees, so the fraction is always taken from the magnitude. */
+    const int32_t whole = value_i / 10000000;
+    int32_t fraction = value_i % 10000000;
+    if (fraction < 0) {
+        fraction = -fraction;
+    }
+    const char *const sign = (value_i < 0 && whole == 0) ? "-" : "";
+    snprintf(out, out_len, "%s%d.%05d", sign, (int)whole, (int)(fraction / 100));
+}
+
+bool mesh_ui_settings_coord_parse(const char *text, int32_t limit_degrees, int32_t *out_i) {
+    if (text == NULL || out_i == NULL || limit_degrees <= 0) {
+        return false;
+    }
+    const char *p = text;
+    while (*p == ' ') {
+        ++p;
+    }
+    bool negative = false;
+    if (*p == '+' || *p == '-') {
+        negative = (*p == '-');
+        ++p;
+    }
+    if (*p != '.' && (*p < '0' || *p > '9')) {
+        return false; /* empty, or something that is not a number at all */
+    }
+
+    /* Parsed as integers rather than through strtod: the wire wants exactly seven decimal
+       places, and a double would round the last one somewhere the user cannot see. */
+    int64_t whole = 0;
+    bool any_digit = false;
+    while (*p >= '0' && *p <= '9') {
+        whole = whole * 10 + (*p - '0');
+        any_digit = true;
+        if (whole > 1000) {
+            return false; /* far past any coordinate; stop before this can overflow */
+        }
+        ++p;
+    }
+    int64_t fraction = 0;
+    int digits = 0;
+    if (*p == '.') {
+        ++p;
+        while (*p >= '0' && *p <= '9') {
+            if (digits < 7) {
+                fraction = fraction * 10 + (*p - '0');
+                ++digits;
+            }
+            any_digit = true;
+            ++p;
+        }
+    }
+    if (!any_digit) {
+        /* A bare "." or "-." got past the first check and would otherwise read as zero, which
+           the (0, 0) guard downstream cannot catch when the other coordinate is real. */
+        return false;
+    }
+    while (*p == ' ') {
+        ++p;
+    }
+    if (*p != '\0') {
+        return false; /* trailing rubbish: "44.6N" is not a coordinate we will guess at */
+    }
+    for (; digits < 7; ++digits) {
+        fraction *= 10;
+    }
+
+    int64_t value = whole * 10000000 + fraction;
+    if (value > (int64_t)limit_degrees * 10000000) {
+        return false;
+    }
+    *out_i = (int32_t)(negative ? -value : value);
+    return true;
 }
 
 void mesh_ui_settings_key_hex(const uint8_t *key, size_t len, char *out, size_t out_len) {
@@ -1278,8 +1485,32 @@ static void build_position(const struct mesh_ui_settings *s, struct item_list *l
        smart broadcast is being turned on and off; the same rule the LoRa trio follows. */
     item_field(list, MESH_UI_FIELD_POSITION_SMART_DISTANCE, s->smart_minimum_distance, NULL);
     item_field(list, MESH_UI_FIELD_POSITION_SMART_INTERVAL, s->smart_minimum_interval_secs, NULL);
-    item_field(list, MESH_UI_FIELD_POSITION_FIXED, s->fixed_position ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_POSITION_GPS_INTERVAL, s->gps_update_interval, NULL);
+
+    /*
+     * Fixed position. The flag is shown rather than offered: the firmware sets it itself as
+     * part of set_fixed_position, and a toggle here could only turn it on with no coordinates
+     * behind it - which leaves the radio broadcasting whatever it last had.
+     *
+     * The three coordinate rows are edited like any other text, but they are not saved with
+     * the section: Y writes PositionConfig, and these go out through the action row below
+     * them. They are pre-filled with where the radio says it is, so a fix that came from a
+     * GPS can be pinned down by opening the section and pressing one row.
+     */
+    item_toggle(list, "Fixed position", s->fixed_position);
+    char coord[MESH_UI_SETTINGS_VALUE_MAX];
+    mesh_ui_settings_coord_text(s->has_own_position ? s->own_latitude_i : 0, coord, sizeof coord);
+    item_field(list, MESH_UI_FIELD_POSITION_LATITUDE, 0U, coord);
+    mesh_ui_settings_coord_text(s->has_own_position ? s->own_longitude_i : 0, coord, sizeof coord);
+    item_field(list, MESH_UI_FIELD_POSITION_LONGITUDE, 0U, coord);
+    snprintf(coord, sizeof coord, "%d", s->has_own_altitude ? (int)s->own_altitude : 0);
+    item_field(list, MESH_UI_FIELD_POSITION_ALTITUDE, 0U, coord);
+    item_action(list, "Set fixed position", "press A", MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION);
+    /* Only offered when there is one to clear; the row would otherwise do nothing twice. */
+    if (s->fixed_position) {
+        item_action(list, "Clear fixed position", "press A",
+                    MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION);
+    }
 }
 
 static void build_power(const struct mesh_ui_settings *s, struct item_list *list) {
@@ -1328,6 +1559,32 @@ static void build_telemetry(const struct mesh_ui_settings *s, struct item_list *
                s->environment_display_fahrenheit ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_TELEMETRY_AIR_QUALITY, s->air_quality_enabled ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_TELEMETRY_POWER, s->power_measurement_enabled ? 1U : 0U, NULL);
+}
+
+/*
+ * Radio actions: the rows that make the radio do something rather than keep something. None of
+ * them is a setting, so there is no Y to press and nothing to read back - A on a row opens the
+ * confirm overlay and the answer goes out on its own.
+ *
+ * Ordered least to most destructive, so a cursor arriving at the top of the list is on the one
+ * press here that costs nothing but a reconnect, and the two that cannot be undone are the
+ * furthest to travel to.
+ */
+static void build_actions(const struct mesh_ui_settings *s, struct item_list *list) {
+    item_action(list, "Reboot", "press A", MESH_UI_SETTINGS_ACTION_REBOOT);
+    /* DeviceMetadata says whether the hardware can cut its own power; on a board that cannot,
+       the request is simply ignored, so the row says so rather than lying about what A does.
+       Until the metadata arrives the row is offered: the radio is the authority, not us. */
+    if (s->has_metadata && !s->can_shutdown) {
+        item_text(list, "Shutdown", MESH_UI_SETTING_INFO, "not supported");
+    } else {
+        item_action(list, "Shutdown", "press A", MESH_UI_SETTINGS_ACTION_SHUTDOWN);
+    }
+    item_action(list, "Reset node database", "press A", MESH_UI_SETTINGS_ACTION_RESET_NODEDB);
+    item_action(list, "Factory reset config", "press A",
+                MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG);
+    item_action(list, "Factory reset device", "press A",
+                MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE);
 }
 
 static void build_section(const struct mesh_ui_settings *settings,
@@ -1387,6 +1644,9 @@ static void build_section(const struct mesh_ui_settings *settings,
         break;
     case MESH_UI_SETTINGS_TELEMETRY:
         build_telemetry(settings, list);
+        break;
+    case MESH_UI_SETTINGS_ACTIONS:
+        build_actions(settings, list);
         break;
     default:
         break;

@@ -761,8 +761,9 @@ static void fb_render_node_detail(const struct mesh_ui_backend_fb_state *state,
     fb_draw_title(state, layout, title);
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    const uint32_t count = mesh_ui_node_detail_build(
-        node, is_self, (uint32_t)time(NULL), &snapshot->traceroute, items, MESH_UI_NODE_ITEMS_MAX);
+    const uint32_t count =
+        mesh_ui_node_detail_build(node, is_self, (uint32_t)time(NULL), &snapshot->traceroute,
+                                  nav->node_remove_armed, items, MESH_UI_NODE_ITEMS_MAX);
     if (count == 0U) {
         fb_draw_empty(state, layout, "Nothing reported for this node yet.");
         return;
@@ -1324,31 +1325,30 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
     }
 }
 
-/* "Save <section>?" for the sections whose write can cut this client off. */
+/* "Save <section>?" for the sections whose write can cut this client off, and "Reboot the
+   radio?" and its siblings for the Radio actions section. Which of the two it is standing in
+   front of is nav->confirm_action; all three strings come from settings.c. */
 static void fb_render_confirm(const struct mesh_ui_backend_fb_state *state,
                               const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     const enum mesh_ui_settings_section section =
         (enum mesh_ui_settings_section)nav->settings_section;
+    const enum mesh_ui_settings_action confirmed =
+        (enum mesh_ui_settings_action)nav->confirm_action;
     char title[96];
-    if (section == MESH_UI_SETTINGS_CHANNELS &&
-        nav->settings_channel != MESH_UI_SETTINGS_NO_CHANNEL) {
-        snprintf(title, sizeof title, "Save channel %u?", (unsigned)nav->settings_channel);
-    } else {
-        snprintf(title, sizeof title, "Save %s?", mesh_ui_settings_section_name(section));
-    }
+    mesh_ui_settings_confirm_title(section, nav->settings_channel, confirmed, title, sizeof title);
     fb_draw_title(state, layout, title);
 
     char text[256];
-    mesh_ui_settings_confirm_text(section, text, sizeof text);
+    mesh_ui_settings_confirm_text(section, confirmed, text, sizeof text);
     int y = layout->body_y;
     const int text_lines = 4;
     fb_draw_wrapped(state, y, text, layout->cols, text_lines, k_text);
     y += text_lines * layout->line + layout->line / 2;
 
-    static const char *const k_rows[] = {"Save to radio", "Cancel"};
+    const char *const rows[] = {mesh_ui_settings_confirm_accept(confirmed), "Cancel"};
     for (unsigned i = 0; i < 2U; ++i) {
-        fb_draw_row(state, y, k_rows[i], i == 0U ? k_accent : k_text, nav->confirm_cursor == i);
+        fb_draw_row(state, y, rows[i], i == 0U ? k_accent : k_text, nav->confirm_cursor == i);
         y += layout->line;
     }
 }
@@ -1502,8 +1502,9 @@ static void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
         }
         break;
     case MESH_UI_SCREEN_NODES:
-        hint = snapshot->nav.node_detail_open ? "A select  B back  X pin  Y write  L/R tabs"
-                                              : "A open node  X pin  Y write  L/R tabs";
+        hint = snapshot->nav.node_remove_armed  ? "A again to remove this node  B cancel"
+               : snapshot->nav.node_detail_open ? "A select  B back  X pin  Y write  L/R tabs"
+                                                : "A open node  X pin  Y write  L/R tabs";
         fb_render_nodes(state, snapshot, &layout);
         break;
     case MESH_UI_SCREEN_DEVICES:

@@ -44,7 +44,32 @@ enum mesh_admin_request_kind {
     MESH_ADMIN_REMOVE_FAVORITE,   /* type = node number to unpin */
     MESH_ADMIN_SET_IGNORED,       /* type = node number the radio should drop packets from */
     MESH_ADMIN_REMOVE_IGNORED,    /* type = node number to stop ignoring */
+    /* Radio actions: things the radio *does* once rather than settings it keeps. `type` is the
+       delay in seconds for REBOOT and SHUTDOWN and is ignored by the three resets. Nothing is
+       read back - there is no state to re-read, and by the time an answer could be built the
+       radio is on its way down. */
+    MESH_ADMIN_REBOOT,
+    MESH_ADMIN_SHUTDOWN,
+    MESH_ADMIN_RESET_NODEDB,
+    MESH_ADMIN_FACTORY_RESET_CONFIG, /* config to defaults, BLE bonds kept */
+    MESH_ADMIN_FACTORY_RESET_DEVICE, /* everything to defaults, BLE bonds cleared */
+    /* The radio's own location, set by hand. Unlike the rest of the Position section these do
+       not go through set_config: the firmware stores the coordinates *and* sets
+       `position.fixed_position` itself, so a client that only flipped the config flag would
+       turn fixed position on with no position behind it. Both are read back with a
+       get_config POSITION, which is why `type` carries the ConfigType. */
+    MESH_ADMIN_SET_FIXED_POSITION,    /* payload.position */
+    MESH_ADMIN_REMOVE_FIXED_POSITION, /* no payload */
+    /* NodeDB entries, addressed by node number in `type`, alongside the favorite and ignore
+       pair above. */
+    MESH_ADMIN_REMOVE_NODE,  /* drop this node from the radio's NodeDB */
+    MESH_ADMIN_TOGGLE_MUTED, /* flip this node's muted flag; the verb is a toggle, not a set */
 };
+
+/* How long the radio is told to wait before a reboot or a shutdown. Not zero: the firmware
+   answers before it acts, and the Routing ack has to get out of the door while the radio is
+   still listening. It is also just long enough to notice a mistake. */
+#define MESH_RADIO_ACTION_DELAY_SECONDS 5U
 
 struct mesh_admin_request {
     enum mesh_admin_request_kind kind;
@@ -58,6 +83,7 @@ struct mesh_admin_request {
         meshtastic_Config config;
         meshtastic_ModuleConfig module_config;
         meshtastic_Channel channel;
+        meshtastic_Position position;
     } payload;
 };
 
@@ -67,8 +93,13 @@ struct mesh_admin_request {
    owns. It is still acked by a Routing reply like any other set_*; that reply just releases
    the queue without touching the counters. The favorite kinds are out for the same reason -
    they are a press on the Nodes tab, not a settings section, and must not make the Settings
-   tab claim an unsaved write is in flight. */
+   tab claim an unsaved write is in flight. The radio actions are out for a sharper version of
+   the same reason: a rebooting or powered-off radio stops answering mid-request, and a missing
+   ack there is the action working, not a save being rejected. */
 bool mesh_admin_request_is_write(enum mesh_admin_request_kind kind);
+
+/* True for the kinds that make the radio do something rather than keep something. */
+bool mesh_admin_request_is_action(enum mesh_admin_request_kind kind);
 
 /* last_write_error when the radio never answered a set_*. Routing errors are positive. */
 #define MESH_RADIO_SETTINGS_WRITE_TIMEOUT (-1)
@@ -200,6 +231,22 @@ int mesh_radio_settings_queue_favorite(struct mesh_radio_settings *settings, uin
    its own copy of the flag in step. */
 int mesh_radio_settings_queue_ignored(struct mesh_radio_settings *settings, uint32_t node_id,
                                       bool ignored);
+
+/* Drops a node from the radio's NodeDB, and flips a node's muted flag. The same shape again -
+   a passkey refresh then the verb, nothing to read back. `toggle_muted_node` really is a
+   toggle on the wire: unlike the favorite and ignore pair there is no way to state the wanted
+   flag, so a press that races an incoming NodeInfo can land on the value it started from. */
+int mesh_radio_settings_queue_remove_node(struct mesh_radio_settings *settings, uint32_t node_id);
+int mesh_radio_settings_queue_toggle_muted(struct mesh_radio_settings *settings, uint32_t node_id);
+
+/* Queues one radio action, the same shape again: a get_owner for a fresh passkey (the firmware
+   rejects these without one exactly as it rejects a set_*), then the action itself. `seconds`
+   is the delay for MESH_ADMIN_REBOOT and MESH_ADMIN_SHUTDOWN and is ignored by the resets.
+   Returns the number of requests queued, -EINVAL for a kind that is not an action, -ENOSPC
+   when the queue cannot take both. A second press before the first has gone out is the same
+   request and is not queued twice. */
+int mesh_radio_settings_queue_action(struct mesh_radio_settings *settings,
+                                     enum mesh_admin_request_kind kind, uint32_t seconds);
 
 /* True while a set_* is queued or awaiting its reply. */
 bool mesh_radio_settings_write_pending(const struct mesh_radio_settings *settings);

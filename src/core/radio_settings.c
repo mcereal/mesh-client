@@ -7,6 +7,7 @@
 #include <pb_encode.h>
 
 #include <errno.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -136,9 +137,19 @@ void mesh_radio_settings_apply_channel(struct mesh_radio_settings *settings,
 /* ---- admin replies ------------------------------------------------------------------------ */
 
 bool mesh_admin_request_is_write(enum mesh_admin_request_kind kind) {
-    /* MESH_ADMIN_SET_TIME is a set_* on the wire but not here: see the header. */
+    /* MESH_ADMIN_SET_TIME is a set_* on the wire but not here: see the header. The two
+       fixed-position kinds *are* writes: they are a save the user pressed for, they are acked
+       like any other, and the get_config POSITION behind them makes the row show what the
+       radio actually kept. */
     return kind == MESH_ADMIN_SET_OWNER || kind == MESH_ADMIN_SET_CONFIG ||
-           kind == MESH_ADMIN_SET_MODULE_CONFIG || kind == MESH_ADMIN_SET_CHANNEL;
+           kind == MESH_ADMIN_SET_MODULE_CONFIG || kind == MESH_ADMIN_SET_CHANNEL ||
+           kind == MESH_ADMIN_SET_FIXED_POSITION || kind == MESH_ADMIN_REMOVE_FIXED_POSITION;
+}
+
+bool mesh_admin_request_is_action(enum mesh_admin_request_kind kind) {
+    return kind == MESH_ADMIN_REBOOT || kind == MESH_ADMIN_SHUTDOWN ||
+           kind == MESH_ADMIN_RESET_NODEDB || kind == MESH_ADMIN_FACTORY_RESET_CONFIG ||
+           kind == MESH_ADMIN_FACTORY_RESET_DEVICE;
 }
 
 static void mesh_radio_settings_record_write_result(struct mesh_radio_settings *settings,
@@ -362,6 +373,65 @@ int mesh_radio_settings_encode_request(const struct mesh_radio_settings *setting
         admin.which_payload_variant = meshtastic_AdminMessage_remove_ignored_node_tag;
         admin.remove_ignored_node = request->type;
         break;
+    /* The actions. A negative second count means "cancel a pending reboot" upstream, which is
+       not something this client offers, so `type` is unsigned here and a zero delay - act at
+       once, before the ack is out - is refused. */
+    case MESH_ADMIN_REBOOT:
+        if (request->type == 0U || request->type > INT32_MAX) {
+            return -EINVAL;
+        }
+        admin.which_payload_variant = meshtastic_AdminMessage_reboot_seconds_tag;
+        admin.reboot_seconds = (int32_t)request->type;
+        break;
+    case MESH_ADMIN_SHUTDOWN:
+        if (request->type == 0U || request->type > INT32_MAX) {
+            return -EINVAL;
+        }
+        admin.which_payload_variant = meshtastic_AdminMessage_shutdown_seconds_tag;
+        admin.shutdown_seconds = (int32_t)request->type;
+        break;
+    case MESH_ADMIN_RESET_NODEDB:
+        admin.which_payload_variant = meshtastic_AdminMessage_nodedb_reset_tag;
+        admin.nodedb_reset = true;
+        break;
+    /* The reset pair carry an int the firmware only tests for truth; 1 is what the phone
+       apps send. */
+    case MESH_ADMIN_FACTORY_RESET_CONFIG:
+        admin.which_payload_variant = meshtastic_AdminMessage_factory_reset_config_tag;
+        admin.factory_reset_config = 1;
+        break;
+    case MESH_ADMIN_FACTORY_RESET_DEVICE:
+        admin.which_payload_variant = meshtastic_AdminMessage_factory_reset_device_tag;
+        admin.factory_reset_device = 1;
+        break;
+    case MESH_ADMIN_SET_FIXED_POSITION:
+        /* A position with no coordinates would set fixed position on and leave the radio
+           broadcasting whatever it had before. */
+        if (!request->payload.position.has_latitude_i ||
+            !request->payload.position.has_longitude_i) {
+            return -EINVAL;
+        }
+        admin.which_payload_variant = meshtastic_AdminMessage_set_fixed_position_tag;
+        admin.set_fixed_position = request->payload.position;
+        break;
+    case MESH_ADMIN_REMOVE_FIXED_POSITION:
+        admin.which_payload_variant = meshtastic_AdminMessage_remove_fixed_position_tag;
+        admin.remove_fixed_position = true;
+        break;
+    case MESH_ADMIN_REMOVE_NODE:
+        if (request->type == 0U) {
+            return -EINVAL;
+        }
+        admin.which_payload_variant = meshtastic_AdminMessage_remove_by_nodenum_tag;
+        admin.remove_by_nodenum = request->type;
+        break;
+    case MESH_ADMIN_TOGGLE_MUTED:
+        if (request->type == 0U) {
+            return -EINVAL;
+        }
+        admin.which_payload_variant = meshtastic_AdminMessage_toggle_muted_node_tag;
+        admin.toggle_muted_node = request->type;
+        break;
     default:
         return -EINVAL;
     }
@@ -459,6 +529,15 @@ int mesh_radio_settings_queue_write(struct mesh_radio_settings *settings,
         }
         readback = MESH_ADMIN_GET_CHANNEL;
         break;
+    case MESH_ADMIN_SET_FIXED_POSITION:
+    case MESH_ADMIN_REMOVE_FIXED_POSITION:
+        /* The firmware sets `position.fixed_position` itself, so the section this did not
+           write is exactly the one that has to be re-read. */
+        if (write->type != (uint32_t)meshtastic_AdminMessage_ConfigType_POSITION_CONFIG) {
+            return -EINVAL;
+        }
+        readback = MESH_ADMIN_GET_CONFIG;
+        break;
     default:
         return -EINVAL;
     }
@@ -484,15 +563,18 @@ int mesh_radio_settings_queue_write(struct mesh_radio_settings *settings,
     return (int)added;
 }
 
-int mesh_radio_settings_queue_ignored(struct mesh_radio_settings *settings, uint32_t node_id,
-                                      bool ignored) {
+/*
+ * The NodeDB verbs all have one shape: a get_owner first, for a passkey the firmware will
+ * still accept, then the verb itself. None of them has a get_* to read back with - the flags
+ * come home with that node's next NodeInfo, which on a quiet mesh is hours away - so the
+ * caller keeps its own copy in step. The node id rides in `type`, which is what keeps two
+ * different nodes from looking like a duplicate of one request.
+ */
+static int mesh_radio_settings_queue_node_op(struct mesh_radio_settings *settings,
+                                             enum mesh_admin_request_kind kind, uint32_t node_id) {
     if (settings == NULL || node_id == 0U) {
         return -EINVAL;
     }
-    const enum mesh_admin_request_kind kind =
-        ignored ? MESH_ADMIN_SET_IGNORED : MESH_ADMIN_REMOVE_IGNORED;
-    /* The favorite pair's shape exactly: a get_owner for a passkey the firmware will still
-       accept, then the set, and nothing to read back. */
     const size_t needed =
         (mesh_radio_settings_queued(settings, MESH_ADMIN_GET_OWNER, 0U) ? 0U : 1U) +
         (mesh_radio_settings_queued(settings, kind, node_id) ? 0U : 1U);
@@ -504,25 +586,48 @@ int mesh_radio_settings_queue_ignored(struct mesh_radio_settings *settings, uint
     return (int)added;
 }
 
+int mesh_radio_settings_queue_ignored(struct mesh_radio_settings *settings, uint32_t node_id,
+                                      bool ignored) {
+    return mesh_radio_settings_queue_node_op(
+        settings, ignored ? MESH_ADMIN_SET_IGNORED : MESH_ADMIN_REMOVE_IGNORED, node_id);
+}
+
 int mesh_radio_settings_queue_favorite(struct mesh_radio_settings *settings, uint32_t node_id,
                                        bool favorite) {
-    if (settings == NULL || node_id == 0U) {
+    return mesh_radio_settings_queue_node_op(
+        settings, favorite ? MESH_ADMIN_SET_FAVORITE : MESH_ADMIN_REMOVE_FAVORITE, node_id);
+}
+
+int mesh_radio_settings_queue_remove_node(struct mesh_radio_settings *settings, uint32_t node_id) {
+    return mesh_radio_settings_queue_node_op(settings, MESH_ADMIN_REMOVE_NODE, node_id);
+}
+
+int mesh_radio_settings_queue_toggle_muted(struct mesh_radio_settings *settings, uint32_t node_id) {
+    return mesh_radio_settings_queue_node_op(settings, MESH_ADMIN_TOGGLE_MUTED, node_id);
+}
+
+int mesh_radio_settings_queue_action(struct mesh_radio_settings *settings,
+                                     enum mesh_admin_request_kind kind, uint32_t seconds) {
+    if (settings == NULL || !mesh_admin_request_is_action(kind)) {
         return -EINVAL;
     }
-    const enum mesh_admin_request_kind kind =
-        favorite ? MESH_ADMIN_SET_FAVORITE : MESH_ADMIN_REMOVE_FAVORITE;
-    /* Same shape as the clock push: a get_owner first for a passkey the firmware will still
-       accept, then the set. Nothing to read back - there is no get_favorite, and the flag
-       returns with the node's next NodeInfo. The node id rides in `type`, so pinning two
-       different nodes queues two requests rather than looking like a duplicate. */
+    /* Only the reboot and the shutdown have a delay; the resets carry nothing, and pinning
+       their `type` at zero keeps two presses of one reset a single queued request. */
+    const uint32_t type = (kind == MESH_ADMIN_REBOOT || kind == MESH_ADMIN_SHUTDOWN) ? seconds : 0U;
+    if ((kind == MESH_ADMIN_REBOOT || kind == MESH_ADMIN_SHUTDOWN) && type == 0U) {
+        return -EINVAL;
+    }
+    /* The NodeDB verbs' shape once more, minus the node id: a passkey the firmware will still
+       accept, then the action. There is nothing to read back - a rebooting radio has no state
+       to re-read, and a factory-reset one has none we would recognise. */
     const size_t needed =
         (mesh_radio_settings_queued(settings, MESH_ADMIN_GET_OWNER, 0U) ? 0U : 1U) +
-        (mesh_radio_settings_queued(settings, kind, node_id) ? 0U : 1U);
+        (mesh_radio_settings_queued(settings, kind, type) ? 0U : 1U);
     if (settings->queue_len + needed > MESH_RADIO_SETTINGS_FETCH_MAX) {
         return -ENOSPC;
     }
     size_t added = mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_OWNER, 0U);
-    added += mesh_radio_settings_enqueue(settings, kind, node_id);
+    added += mesh_radio_settings_enqueue(settings, kind, type);
     return (int)added;
 }
 
