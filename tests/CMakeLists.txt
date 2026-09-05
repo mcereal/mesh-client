@@ -28,6 +28,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/transport_ble_pairing.c
     suites/transport_serial.c
     suites/ui_input.c
+    suites/ui_layout.c
     suites/ui_nav_messaging.c
     suites/ui_nav_nodes.c
     suites/ui_nav_settings.c

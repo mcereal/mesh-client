@@ -21,6 +21,11 @@ evdev -> mesh_ui_input -> mesh_ui_controller_handle_key -> mesh_ui_store_handle_
   `stub.c` (tests). **Backends are stateless** — they draw the cursor from
   `snapshot->nav`. A new platform implements the backend interface and leaves the store and
   controller untouched.
+- **`src/ui/layout.c`** holds the two backend-agnostic layout primitives every list-and-rows UI
+  needs: `struct mesh_ui_line`, a string builder that only ever measures in drawn cells, and
+  `struct mesh_ui_list`, the cursor-clamp-and-scroll-window arithmetic. Neither touches a
+  framebuffer, a font or a snapshot, so both are unit tested directly
+  (`tests/suites/ui_layout.c`) and both are as useful to a new backend as to the fb one.
 - **`src/ui/nav*.c`** own the tab/cursor/compose-target model (`struct mesh_ui_nav`, carried
   inside every snapshot and clamped against the lists on each consume) and return a
   `mesh_ui_action` the controller hands to `mesh_app_on_ui_action`. `nav.c` is the router;
@@ -241,6 +246,50 @@ shoulder, revealed in the one place you went to change it.
 
 ## The framebuffer backend
 
+### The three layers
+
+`src/ui/backends/` stacks, and calls only ever go downward:
+
+| File | Layer | What belongs there |
+|---|---|---|
+| `fb_draw.c` | ink | pixels, glyphs, the palette, cell metrics (`fb_internal.h`) |
+| `fb_widgets.c` | components | buttons, chips, list rows, field rows, rules (`fb_widgets.h`) |
+| `fb_screens.c` | screens | one renderer per screen, plus the tab strip and footer |
+| `fb.c` | device | `/dev/fb0`, the page flip, the backend vtable |
+
+**A screen renderer should read as a description of its content** — what the list holds, what
+each row says, which rows are actions. If it is computing a pixel coordinate, a scroll offset or
+a padding width, that belongs in a component instead. Those were the three things all nine
+renderers used to re-derive, each subtly differently.
+
+The list is the component that earns the most. Every screen is the same shape:
+
+```c
+struct fb_list list = fb_list_begin(layout, count, nav->cursor[MESH_UI_SCREEN_NODES]);
+uint32_t i;
+while (fb_list_next(&list, &i)) {
+    mesh_ui_line_reset(&line);
+    mesh_ui_line_printf(&line, "%s", node_name(i));
+    mesh_ui_line_right(&line, layout->cols, metrics);   /* right-aligned, in cells */
+    fb_list_row_line(state, &list, i, &line, FB_TONE_NORMAL);
+}
+```
+
+`fb_list_begin_rows()` is the variant for an item that spends more than one row (the
+conversation list spends two, a name and a preview, and adds a `fb_list_sub_row()`);
+`fb_list_begin_visible()` is for a screen that reserves body rows for something else, like the
+thread's detail pane.
+
+Screens name a **tone** (`FB_TONE_ACCENT`, `FB_TONE_BAD`, …) rather than a palette constant, so
+re-theming is one function — `fb_tone_color()` — rather than a hunt for `k_fb_accent` across
+nine renderers. Same idea as a stylesheet with a token called `danger` instead of a hex value.
+
+`struct fb_button` is one component covering the on-screen keyboard's character keys, its action
+row, and (sized to its own label, via `fb_draw_chip`) the tab strip: a filled cell with a label
+centred **in cells**, so an emoji label sits where it looks centred.
+
+### Drawing
+
 `src/ui/backends/fb*.c` draw into **page 0** of the Brick's 1024x16384 framebuffer, then
 `FBIOPAN_DISPLAY`s to it and mirrors the frame into page 1, because the Allwinner display engine
 keeps showing the page NextUI's SDL last flipped to (page 1 in practice). The layer blends with
@@ -250,13 +299,18 @@ the screen is black.**
 ### Text is measured in cells, not bytes
 
 `fb_draw_text` walks `mesh_ui_text_cell_next` and spends one cell per character or emoji.
-`fb_fit`/`fb_width` (over `mesh_ui_text_cell_truncate`/`mesh_ui_text_cells`) are the only right
-way to clip or right-align a line.
 
 **A `strlen` in layout code is a bug.** It used to mean an emoji name counted four columns and
 drew four question marks, and it still means padding computed from bytes pushes right-aligned
-metrics off the edge. `%-Ns` has the same problem, and is why the Nodes tab pads its short-name
-field by hand.
+metrics off the edge. `%-Ns` has exactly the same problem.
+
+`struct mesh_ui_line` exists so the mistake is no longer expressible: it has no byte-counting
+entry point, and its three layout calls are the ones the screens used to hand-roll —
+`mesh_ui_line_column()` (a label column: `%-*.*s` done in cells), `mesh_ui_line_right()` (a
+metric flush against the right edge) and `mesh_ui_line_pad_to()`. It also trims a partial UTF-8
+sequence off an append that overflowed, so a line in hand is always valid UTF-8 and can be
+drawn, measured, logged or serialised interchangeably. `fb_fit`/`fb_width` remain for the few
+places still working on a bare `char[]`.
 
 `fb_draw_emoji` draws a sprite across the full character advance rather than the glyph's five
 columns, so an emoji stands as tall as the capitals next to it; the sprites' own transparent

@@ -71,11 +71,13 @@ add_library(meshclient_core
     src/ui/backends/cli.c
     src/ui/backends/fb.c
     src/ui/backends/fb_draw.c
+    src/ui/backends/fb_widgets.c
     src/ui/backends/fb_screens.c
     src/ui/font5x7.c
     src/ui/emoji.c
     src/ui/emoji_glyphs.c
     src/ui/preferences.c
+    src/ui/layout.c
 )
 
 target_include_directories(meshclient_core

@@ -4,15 +4,19 @@
 /*
  * The seams inside the framebuffer backend.
  *
- * fb.c was 1700 lines spanning three layers that stack cleanly:
+ * fb.c was 1700 lines spanning layers that stack cleanly:
  *
  *   fb_draw.c     pixels, glyphs, rows, the palette and the page geometry
+ *   fb_widgets.c  the components screens are assembled from (fb_widgets.h)
  *   fb_screens.c  one renderer per screen, drawn out of a snapshot
  *   fb.c          opening /dev/fb0, the page flip, the backend vtable
  *
- * Calls only ever go downward, so this header is the drawing toolkit the layer above uses. It
- * is not public - include/mesh/ui/backends/fb.h is - and nothing here should be reached for
- * outside src/ui/backends/.
+ * Calls only ever go downward, so this header is the drawing toolkit the layers above use, and
+ * fb_widgets.h is the component set above that. Neither is public - include/mesh/ui/backends/fb.h
+ * is - and nothing here should be reached for outside src/ui/backends/.
+ *
+ * Only fb_draw.c's own primitives live here. Anything that composes several of them into a
+ * thing with a name - a button, a list, a field row - belongs in fb_widgets.h.
  */
 
 #include "mesh/ui/store.h"
@@ -59,7 +63,7 @@ extern const struct fb_rgb k_fb_bad;
 #define FB_MIN_SCALE 2
 #define FB_MAX_SCALE 6
 
-/* Where the chrome ends and the body begins, in cells. Filled by fb_draw_tabs(). */
+/* Where the chrome ends and the body begins. Filled in by fb_render_snapshot(). */
 struct fb_layout {
     int body_y;    /* first body row */
     int footer_y;  /* top of the two footer lines */
@@ -75,26 +79,16 @@ int fb_char_adv(int scale);
 int fb_line_adv(int scale);
 void fb_clear(const struct mesh_ui_backend_fb_state *state, struct fb_rgb color);
 size_t fb_cols(const struct mesh_ui_backend_fb_state *state, int scale);
-void fb_draw_empty(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
-                   const char *text);
-void fb_draw_footer(const struct mesh_ui_backend_fb_state *state,
-                    const struct mesh_ui_snapshot *snapshot, const struct fb_layout *layout,
-                    const char *hint);
 void fb_draw_glyph(const struct mesh_ui_backend_fb_state *state, int x, int y, uint32_t codepoint,
                    int scale, struct fb_rgb color);
 void fb_draw_row(const struct mesh_ui_backend_fb_state *state, int y, const char *text,
                  struct fb_rgb color, bool selected);
-void fb_draw_tabs(const struct mesh_ui_backend_fb_state *state,
-                  const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
 void fb_draw_text(const struct mesh_ui_backend_fb_state *state, int x, int y, const char *text,
                   int scale, struct fb_rgb color);
-void fb_draw_title(const struct mesh_ui_backend_fb_state *state, struct fb_layout *layout,
-                   const char *title);
 int fb_draw_wrapped(const struct mesh_ui_backend_fb_state *state, int y, const char *text,
                     size_t cols, int max_lines, struct fb_rgb color);
 void fb_fill_rect(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h,
                   struct fb_rgb color);
-uint32_t fb_first_visible(uint32_t cursor, uint32_t count, uint32_t visible);
 void fb_fit(char *line, size_t cols);
 void fb_format_age(uint32_t last_heard, char *out, size_t out_len);
 void fb_format_clock(uint32_t rx_time, char *out, size_t out_len);
