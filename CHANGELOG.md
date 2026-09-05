@@ -1,3 +1,10 @@
+## [2.3.2](https://github.com/mcereal/mesh-client/compare/v2.3.1...v2.3.2) (2026-09-05)
+
+### Performance Improvements
+
+* **ui:** pack framebuffer colours once and fill spans ([6a2017f](https://github.com/mcereal/mesh-client/commit/6a2017fa1044b5ab1f3361a905bea4bba493587b))
+* **ui:** store framebuffer pixels through memcpy ([cc91314](https://github.com/mcereal/mesh-client/commit/cc91314a0e4aef57365e1a8d6344681cc5419301))
+
 ## [2.3.1](https://github.com/mcereal/mesh-client/compare/v2.3.0...v2.3.1) (2026-09-05)
 
 ### Code Refactoring
