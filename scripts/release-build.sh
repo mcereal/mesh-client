@@ -21,7 +21,7 @@ fi
 # CMake's project(VERSION) accepts numeric components only - it errors outright on a SemVer
 # prerelease - but the beta and rc channels release exactly those (1.13.0-beta.1). So the
 # project() line gets the numeric part and the full tag is passed to the build separately, as
-# MESHCLIENT_VERSION_FULL. Keeping CMakeLists.txt numeric also keeps this rewrite idempotent:
+# MESHCLIENT_VERSION_OVERRIDE. Keeping CMakeLists.txt numeric also keeps this rewrite idempotent:
 # a suffix left in the file would not match the pattern on the next release and the version
 # would compound instead of being replaced.
 NUMERIC="${VERSION%%-*}"   # drop any -beta.1 / -rc.2
@@ -73,7 +73,7 @@ cmake -S . -B build/release \
     -DCMAKE_EXE_LINKER_FLAGS="-static ${DBUS_LDFLAGS:-}" \
     -DCMAKE_C_FLAGS="-Os ${DBUS_CFLAGS:-}" \
     -DPython3_EXECUTABLE="${SYSTEM_PYTHON}" \
-    -DMESHCLIENT_VERSION_FULL="${VERSION}" \
+    -DMESHCLIENT_VERSION_OVERRIDE="${VERSION}" \
     -DMESHCLIENT_RELEASE_BUILD=ON
 cmake --build build/release
 

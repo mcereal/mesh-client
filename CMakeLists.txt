@@ -83,8 +83,24 @@ target_include_directories(meshclient_core
 #    unconditionally would make every `make debug` and `make brick` binary claim to be an
 #    official release, and the updater would then happily replace a developer's own build with
 #    whatever is on GitHub. Local builds report "<version>-dev" and are never updatable.
-set(MESHCLIENT_VERSION_FULL "${PROJECT_VERSION}" CACHE STRING
-    "Full SemVer version to report, including any prerelease suffix")
+# The version the binary reports. project(VERSION) by default; MESHCLIENT_VERSION_OVERRIDE only
+# exists for release-build.sh, which has to pass the whole tag because project(VERSION) accepts
+# numeric components only and cannot hold a "-beta.1" suffix.
+#
+# The override defaults to empty rather than to PROJECT_VERSION, and that is the whole point.
+# Seeding a cache entry with the project version freezes it: `set(... CACHE STRING)` writes on
+# the *first* configure of a build tree and never again, so an existing build/ went on reporting
+# the version it was created at. Every incremental `make debug` / `make brick` between 1.13.0 and
+# 1.16.0 stamped 1.13.0-dev, and the About screen and the updater's version comparison believed
+# it. An empty default cannot go stale, so a bump always takes - including in build trees that
+# already exist, since nothing has ever written this name.
+set(MESHCLIENT_VERSION_OVERRIDE "" CACHE STRING
+    "Full SemVer version to report, prerelease suffix included; empty means project(VERSION)")
+if(MESHCLIENT_VERSION_OVERRIDE)
+    set(MESHCLIENT_VERSION_FULL "${MESHCLIENT_VERSION_OVERRIDE}")
+else()
+    set(MESHCLIENT_VERSION_FULL "${PROJECT_VERSION}")
+endif()
 option(MESHCLIENT_RELEASE_BUILD "Stamp this build as an official release" OFF)
 
 if(MESHCLIENT_RELEASE_BUILD)
