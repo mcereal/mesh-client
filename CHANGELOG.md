@@ -1,3 +1,19 @@
+## [1.18.0](https://github.com/mcereal/mesh-client/compare/v1.17.0...v1.18.0) (2026-09-05)
+
+### Features
+
+* **nodes:** ask a node for its name, or have the radio ignore it ([e84c5c7](https://github.com/mcereal/mesh-client/commit/e84c5c7162175a35ba756e7e54481976308225f8))
+* **nodes:** trace the route to a node ([df24f3c](https://github.com/mcereal/mesh-client/commit/df24f3c9e4012c6c2154e7349078c1f76a75a9cf))
+* **settings:** make the Device, Position and Power sections editable ([4136712](https://github.com/mcereal/mesh-client/commit/41367123e816a299ea0c2a64a387ddea3b6f582f))
+* **settings:** make the MQTT section editable ([55b6a60](https://github.com/mcereal/mesh-client/commit/55b6a60705570003eb679deca5e7db189620bd07))
+* **status:** show the mesh health the radio already reports ([01619e9](https://github.com/mcereal/mesh-client/commit/01619e960f02b1b2166d8cfcd2b089292a52d641))
+
+### Bug Fixes
+
+* **nodes:** never send a placeholder User when asking a node for its name ([ea2afbf](https://github.com/mcereal/mesh-client/commit/ea2afbf8e0bf40dc0ef9a828f249895cd5d944b5))
+* **settings:** mask the MQTT password in its row ([0c8c7c2](https://github.com/mcereal/mesh-client/commit/0c8c7c263c29af1b5d0db8ecc5520f8daeb50629))
+* **status:** take the radio's uptime from LocalStats too ([40d878a](https://github.com/mcereal/mesh-client/commit/40d878af636c5efae58f2456b251e8588245b22a))
+
 ## [1.17.0](https://github.com/mcereal/mesh-client/compare/v1.16.0...v1.17.0) (2026-09-05)
 
 ### Features
