@@ -4,6 +4,7 @@
 #include "mesh/transport/ble.h"
 #include "mesh/transport/serial.h"
 #include "mesh/utils/log.h"
+#include "mesh/utils/text.h"
 
 #include <errno.h>
 #include <getopt.h>
@@ -189,9 +190,8 @@ int main(int argc, char **argv) {
             break;
         case 'p':
             if (optarg != NULL) {
-                strncpy(config.preferred_ble_device, optarg,
-                        sizeof(config.preferred_ble_device) - 1U);
-                config.preferred_ble_device[sizeof(config.preferred_ble_device) - 1U] = '\0';
+                mesh_str_copy(config.preferred_ble_device, sizeof config.preferred_ble_device,
+                              optarg);
             }
             break;
         case 't':

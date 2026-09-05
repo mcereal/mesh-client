@@ -2,6 +2,8 @@
 
 #include "mesh/core/radio_settings.h"
 #include "mesh/core/updater.h"
+#include "mesh/utils/array.h"
+#include "mesh/utils/text.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -274,7 +276,7 @@ struct field_spec {
 #define ADMIN_KEY_CHOICES                                                                          \
     (MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_KEEP) | MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_NONE))
 
-#define PRESETS(array) (array), (sizeof(array) / sizeof((array)[0]))
+#define PRESETS(array) (array), MESH_ARRAY_LEN(array)
 #define NO_PRESETS NULL, 0U
 
 /* User.long_name is 39 bytes on the wire but the firmware truncates to 24 (mesh.proto). */
@@ -1014,7 +1016,7 @@ static void item_text(struct item_list *list, const char *label, enum mesh_ui_se
                       const char *value) {
     struct mesh_ui_settings_item *item = item_add(list, label, kind);
     if (item != NULL) {
-        snprintf(item->value, sizeof item->value, "%.*s", (int)(sizeof item->value - 1U), value);
+        mesh_str_copy(item->value, sizeof item->value, value);
     }
 }
 
@@ -1090,8 +1092,7 @@ static void item_field(struct item_list *list, enum mesh_ui_setting_field field,
         } else if (field_is_secret(field)) {
             snprintf(item->value, sizeof item->value, "%s", "********");
         } else {
-            snprintf(item->value, sizeof item->value, "%.*s", (int)(sizeof item->value - 1U),
-                     item->text);
+            mesh_str_copy(item->value, sizeof item->value, item->text);
         }
         break;
     default:

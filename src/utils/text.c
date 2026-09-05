@@ -220,3 +220,20 @@ void mesh_text_sanitise_str(const char *in, char *out, size_t out_len) {
     }
     mesh_text_sanitise((const uint8_t *)in, strlen(in), out, out_len);
 }
+
+bool mesh_str_copy(char *out, size_t out_len, const char *in) {
+    if (out == NULL || out_len == 0U) {
+        return false;
+    }
+    if (in == NULL) {
+        out[0] = '\0';
+        return true;
+    }
+    size_t copied = 0U;
+    while (copied + 1U < out_len && in[copied] != '\0') {
+        out[copied] = in[copied];
+        copied++;
+    }
+    out[copied] = '\0';
+    return in[copied] == '\0';
+}

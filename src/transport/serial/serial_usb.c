@@ -4,6 +4,7 @@
 #include "mesh/transport/serial_usb.h"
 
 #include "mesh/utils/log.h"
+#include "mesh/utils/text.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -135,7 +136,7 @@ static bool sysfs_driver(const char *dir, char *out, size_t out_len) {
     target[len] = '\0';
     const char *base = strrchr(target, '/');
     /* Explicit precision: sysfs paths are PATH_MAX, the field they land in is not. */
-    snprintf(out, out_len, "%.*s", (int)(out_len - 1U), base != NULL ? base + 1 : target);
+    mesh_str_copy(out, out_len, base != NULL ? base + 1 : target);
     return true;
 }
 
@@ -301,7 +302,7 @@ size_t mesh_serial_usb_scan(struct mesh_serial_device_info *out, size_t capacity
 
         struct mesh_serial_device_info *info = &out[count];
         memset(info, 0, sizeof *info);
-        snprintf(info->id, sizeof info->id, "%.*s", (int)(sizeof info->id - 1U), entry->d_name);
+        mesh_str_copy(info->id, sizeof info->id, entry->d_name);
         info->bound = find_interface_tty(iface_dir, info->path, sizeof info->path);
         info->control_interface = find_control_interface(device_name);
         info->needs_line_state =

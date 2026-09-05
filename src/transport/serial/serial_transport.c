@@ -6,6 +6,7 @@
 #include "mesh/core/config.h"
 #include "mesh/proto/stream_framing.h"
 #include "mesh/utils/log.h"
+#include "mesh/utils/time.h"
 
 #include <errno.h>
 #include <stdarg.h>
@@ -100,14 +101,6 @@ static const char *mesh_serial_state_to_string(enum mesh_serial_state state) {
         return "running";
     }
     return "unknown";
-}
-
-static uint64_t mesh_serial_now_ms(void) {
-    struct timespec ts;
-    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
-        return 0U;
-    }
-    return (uint64_t)ts.tv_sec * 1000U + (uint64_t)ts.tv_nsec / 1000000U;
 }
 
 static void mesh_serial_reset_link(struct mesh_serial_transport_state *state, const char *reason);
@@ -459,7 +452,7 @@ int mesh_serial_transport_connect(struct mesh_transport *transport, const char *
     }
 
     state->link_state = MESH_SERIAL_LINK_WAKING;
-    state->wake_done_at_ms = mesh_serial_now_ms() + MESH_SERIAL_WAKE_SETTLE_MS;
+    state->wake_done_at_ms = mesh_time_monotonic_ms() + MESH_SERIAL_WAKE_SETTLE_MS;
     mesh_log_info("serial", "Opened %s (%s); waking the radio", device->path, device->name);
     return 0;
 }
@@ -467,7 +460,7 @@ int mesh_serial_transport_connect(struct mesh_transport *transport, const char *
 /* Runs while WAKING: once the radio has had its moment, start the conversation. */
 static void mesh_serial_finish_wake(struct mesh_serial_transport_state *state) {
     if (state->link_state != MESH_SERIAL_LINK_WAKING ||
-        mesh_serial_now_ms() < state->wake_done_at_ms) {
+        mesh_time_monotonic_ms() < state->wake_done_at_ms) {
         return;
     }
 
@@ -512,7 +505,7 @@ size_t mesh_serial_transport_refresh_devices(struct mesh_transport *transport) {
     }
     struct mesh_serial_transport_state *state =
         (struct mesh_serial_transport_state *)transport->state;
-    state->last_scan_ms = mesh_serial_now_ms();
+    state->last_scan_ms = mesh_time_monotonic_ms();
     return mesh_serial_scan_internal(state);
 }
 
@@ -564,7 +557,7 @@ static void mesh_serial_tick(struct mesh_transport *transport) {
         return;
     }
 
-    const uint64_t now = mesh_serial_now_ms();
+    const uint64_t now = mesh_time_monotonic_ms();
 
     if (state->link_state == MESH_SERIAL_LINK_WAKING) {
         mesh_serial_finish_wake(state);
@@ -614,7 +607,7 @@ static int mesh_serial_start(struct mesh_transport *transport, const struct mesh
 
     state->state = MESH_SERIAL_STATE_IDLE;
     const size_t found = mesh_serial_scan_internal(state);
-    state->last_scan_ms = mesh_serial_now_ms();
+    state->last_scan_ms = mesh_time_monotonic_ms();
     if (found == 0U) {
         mesh_log_info("serial", "No USB serial ports found; watching for a node to be plugged in");
     } else {

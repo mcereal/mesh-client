@@ -7,6 +7,8 @@
 
 #include "mesh/core/message.h"
 #include "mesh/ui/store.h"
+#include "mesh/utils/array.h"
+#include "mesh/utils/text.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -33,8 +35,7 @@ static bool s_canned_loaded;
 
 static void mesh_ui_canned_defaults(void) {
     s_canned_count = 0U;
-    for (size_t i = 0; i < sizeof(k_default_canned) / sizeof(k_default_canned[0]) &&
-                       s_canned_count < MESH_UI_CANNED_MAX;
+    for (size_t i = 0; i < MESH_ARRAY_LEN(k_default_canned) && s_canned_count < MESH_UI_CANNED_MAX;
          ++i) {
         snprintf(s_canned[s_canned_count], sizeof s_canned[0], "%s", k_default_canned[i]);
         s_canned_count++;
@@ -87,8 +88,7 @@ int mesh_ui_canned_load(const char *path) {
         if (!clean || line[0] == '\0' || line[0] == '#') {
             continue;
         }
-        snprintf(staged[count], sizeof staged[0], "%.*s", (int)(MESH_UI_CANNED_TEXT_MAX - 1U),
-                 line);
+        mesh_str_copy(staged[count], sizeof staged[0], line);
         count++;
     }
     fclose(file);
@@ -758,8 +758,7 @@ static void mesh_ui_nav_conversation_summarise(const struct mesh_ui_store *store
         conversation->message_count++;
         /* Oldest first, so the last match seen is the newest. The preview is one list row;
            anything longer is the thread's business. */
-        snprintf(conversation->preview, sizeof conversation->preview, "%.*s",
-                 (int)(sizeof conversation->preview - 1U), message->text);
+        mesh_str_copy(conversation->preview, sizeof conversation->preview, message->text);
         conversation->last_time = message->rx_time;
         conversation->preview_outbound = (message->direction == MESH_MESSAGE_OUTBOUND);
 
@@ -1144,7 +1143,7 @@ static bool mesh_ui_nav_settings_commit_text(struct mesh_ui_nav *nav,
                                              const struct mesh_ui_store *store) {
     const enum mesh_ui_setting_field field = (enum mesh_ui_setting_field)nav->keyboard_field;
     char text[MESH_UI_SETTING_TEXT_MAX];
-    snprintf(text, sizeof text, "%.*s", (int)(sizeof text - 1U), nav->draft);
+    mesh_str_copy(text, sizeof text, nav->draft);
     size_t cap = mesh_ui_settings_text_max(field);
     if (cap >= sizeof text) {
         cap = sizeof text - 1U;

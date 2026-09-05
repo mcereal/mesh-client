@@ -4,6 +4,7 @@
 
 #include "mesh/core/event_loop.h"
 #include "mesh/core/version.h"
+#include "mesh/utils/env.h"
 #include "mesh/utils/log.h"
 #include "mesh/utils/sha256.h"
 
@@ -743,9 +744,8 @@ int mesh_updater_init(struct mesh_updater *updater, struct mesh_event_loop *loop
     /* Needs install_path, so it has to come after the readlink above. */
     updater_resolve_ca_bundle(updater);
 
-    const char *const allow_dev = getenv("MESHCLIENT_UPDATE_ALLOW_DEV");
     updater->allow_dev_from_env =
-        allow_dev != NULL && allow_dev[0] != '\0' && strcmp(allow_dev, "0") != 0;
+        mesh_env_bool("MESHCLIENT_UPDATE_ALLOW_DEV", "dev updates", false);
     updater->allow_dev = updater->allow_dev_from_env;
 
     if (updater->fetcher == NULL) {

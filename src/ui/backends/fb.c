@@ -11,6 +11,7 @@
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
+#include "mesh/utils/env.h"
 #include "mesh/utils/log.h"
 #include "mesh/utils/text.h"
 
@@ -1542,18 +1543,7 @@ static void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
 }
 
 static int fb_scale_from_env(void) {
-    const char *value = getenv("MESHCLIENT_FB_SCALE");
-    if (value == NULL || value[0] == '\0') {
-        return FB_DEFAULT_SCALE;
-    }
-    char *end = NULL;
-    const long parsed = strtol(value, &end, 10);
-    if (end == value || parsed < FB_MIN_SCALE || parsed > FB_MAX_SCALE) {
-        mesh_log_warn("ui", "MESHCLIENT_FB_SCALE='%s' out of range %d..%d; using %d", value,
-                      FB_MIN_SCALE, FB_MAX_SCALE, FB_DEFAULT_SCALE);
-        return FB_DEFAULT_SCALE;
-    }
-    return (int)parsed;
+    return (int)mesh_env_int("MESHCLIENT_FB_SCALE", FB_MIN_SCALE, FB_MAX_SCALE, FB_DEFAULT_SCALE);
 }
 
 static int mesh_ui_backend_fb_init(void **state_out, void *userdata) {

@@ -9,8 +9,10 @@
 #include "mesh/ui/backends/stub.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/preferences.h"
+#include "mesh/utils/env.h"
 #include "mesh/utils/log.h"
 #include "mesh/utils/text.h"
+#include "mesh/utils/time.h"
 
 #include <errno.h>
 #include <limits.h>
@@ -129,8 +131,6 @@ static void mesh_app_on_ui_key(void *userdata, enum mesh_ui_key key) {
     mesh_ui_controller_handle_key(&app->ui_controller, key);
 }
 
-static uint64_t mesh_app_now_ms(void);
-
 /* ---- settings writes ---------------------------------------------------------------------- */
 
 /* A fresh channel key. getrandom() blocks until the kernel pool is seeded, which on the Brick
@@ -174,12 +174,10 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
 
     switch ((enum mesh_ui_setting_field)edit->field) {
     case MESH_UI_FIELD_USER_LONG_NAME:
-        snprintf(owner->long_name, sizeof owner->long_name, "%.*s",
-                 (int)(sizeof owner->long_name - 1U), edit->text);
+        mesh_str_copy(owner->long_name, sizeof owner->long_name, edit->text);
         break;
     case MESH_UI_FIELD_USER_SHORT_NAME:
-        snprintf(owner->short_name, sizeof owner->short_name, "%.*s",
-                 (int)(sizeof owner->short_name - 1U), edit->text);
+        mesh_str_copy(owner->short_name, sizeof owner->short_name, edit->text);
         break;
     case MESH_UI_FIELD_USER_LICENSED:
         owner->is_licensed = on;
@@ -192,8 +190,7 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
         device->role = (meshtastic_Config_DeviceConfig_Role)edit->number;
         break;
     case MESH_UI_FIELD_DEVICE_TZDEF:
-        snprintf(device->tzdef, sizeof device->tzdef, "%.*s", (int)(sizeof device->tzdef - 1U),
-                 edit->text);
+        mesh_str_copy(device->tzdef, sizeof device->tzdef, edit->text);
         break;
     case MESH_UI_FIELD_DEVICE_REBROADCAST:
         device->rebroadcast_mode = (meshtastic_Config_DeviceConfig_RebroadcastMode)edit->number;
@@ -264,19 +261,16 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
         mqtt->enabled = on;
         break;
     case MESH_UI_FIELD_MQTT_ADDRESS:
-        snprintf(mqtt->address, sizeof mqtt->address, "%.*s", (int)(sizeof mqtt->address - 1U),
-                 edit->text);
+        mesh_str_copy(mqtt->address, sizeof mqtt->address, edit->text);
         break;
     case MESH_UI_FIELD_MQTT_USERNAME:
-        snprintf(mqtt->username, sizeof mqtt->username, "%.*s", (int)(sizeof mqtt->username - 1U),
-                 edit->text);
+        mesh_str_copy(mqtt->username, sizeof mqtt->username, edit->text);
         break;
     case MESH_UI_FIELD_MQTT_PASSWORD:
-        snprintf(mqtt->password, sizeof mqtt->password, "%.*s", (int)(sizeof mqtt->password - 1U),
-                 edit->text);
+        mesh_str_copy(mqtt->password, sizeof mqtt->password, edit->text);
         break;
     case MESH_UI_FIELD_MQTT_ROOT:
-        snprintf(mqtt->root, sizeof mqtt->root, "%.*s", (int)(sizeof mqtt->root - 1U), edit->text);
+        mesh_str_copy(mqtt->root, sizeof mqtt->root, edit->text);
         break;
     case MESH_UI_FIELD_MQTT_ENCRYPTION:
         mqtt->encryption_enabled = on;
@@ -318,8 +312,7 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
         telemetry->power_measurement_enabled = on;
         break;
     case MESH_UI_FIELD_CHANNEL_NAME:
-        snprintf(channel->name, sizeof channel->name, "%.*s", (int)(sizeof channel->name - 1U),
-                 edit->text);
+        mesh_str_copy(channel->name, sizeof channel->name, edit->text);
         break;
     case MESH_UI_FIELD_CHANNEL_ROLE:
         write->payload.channel.role =
@@ -812,7 +805,7 @@ static void mesh_app_track_settings_save(struct mesh_app *app,
         return;
     }
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_app_now_ms();
+    const uint64_t now = mesh_time_monotonic_ms();
     if (radio != NULL && radio->writes_failed > app->settings_writes_failed_seen) {
         switch (radio->last_write_error) {
         case meshtastic_Routing_Error_ADMIN_BAD_SESSION_KEY:
@@ -863,7 +856,7 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
 
     struct mesh_transport *ble = mesh_ble_transport();
     char toast[MESH_UI_NAV_TOAST_MAX];
-    const uint64_t now = mesh_app_now_ms();
+    const uint64_t now = mesh_time_monotonic_ms();
 
     switch (action->type) {
     case MESH_UI_ACTION_CONNECT: {
@@ -1277,9 +1270,9 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
         if (result == 0) {
             snprintf(toast, sizeof toast, "%s", "Checking for updates");
         } else if (result == -ENOTSUP) {
-            snprintf(toast, sizeof toast, "%.*s", (int)(sizeof toast - 1U),
-                     app->updater.message[0] != '\0' ? app->updater.message
-                                                     : "Updates are unavailable here");
+            mesh_str_copy(toast, sizeof toast,
+                          app->updater.message[0] != '\0' ? app->updater.message
+                                                          : "Updates are unavailable here");
         } else if (result == -EBUSY) {
             snprintf(toast, sizeof toast, "%s", "Already checking");
         } else {
@@ -1670,8 +1663,7 @@ static void mesh_app_flatten_client_info(const struct mesh_app *app,
     if (app->ui_preferences_path[0] != '\0') {
         /* A path longer than the display field is clipped rather than refused: it is shown
            for orientation, not used to open anything. */
-        snprintf(dst->data_dir, sizeof dst->data_dir, "%.*s", (int)(sizeof dst->data_dir - 1U),
-                 app->ui_preferences_path);
+        mesh_str_copy(dst->data_dir, sizeof dst->data_dir, app->ui_preferences_path);
         char *slash = strrchr(dst->data_dir, '/');
         if (slash != NULL && slash != dst->data_dir) {
             *slash = '\0';
@@ -1917,7 +1909,7 @@ static void mesh_app_report_delivery(struct mesh_app *app) {
             char toast[MESH_UI_NAV_TOAST_MAX];
             snprintf(toast, sizeof toast, "Not delivered to %.16s: %s", watch->peer,
                      mesh_message_ack_error_to_string(message->ack_error));
-            mesh_ui_store_set_toast(&app->ui_store, mesh_app_now_ms(), toast);
+            mesh_ui_store_set_toast(&app->ui_store, mesh_time_monotonic_ms(), toast);
         }
     }
     app->ui_sent_watch_count = kept;
@@ -1928,7 +1920,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         return;
     }
 
-    mesh_ui_store_tick(&app->ui_store, mesh_app_now_ms());
+    mesh_ui_store_tick(&app->ui_store, mesh_time_monotonic_ms());
     mesh_app_report_delivery(app);
 
     struct mesh_transport *ble = mesh_ble_transport();
@@ -1956,7 +1948,8 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     const bool link_connected = (connected_address != NULL && connected_address[0] != '\0');
     if (app->ui_link_was_connected && !link_connected &&
         app->config.run_mode == MESH_APP_RUN_FOREGROUND) {
-        mesh_ui_store_set_toast(&app->ui_store, mesh_app_now_ms(), "Radio link lost; reconnecting");
+        mesh_ui_store_set_toast(&app->ui_store, mesh_time_monotonic_ms(),
+                                "Radio link lost; reconnecting");
     }
     app->ui_link_was_connected = link_connected;
 
@@ -2044,8 +2037,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
                 if (ui_devices[i].kind == (uint8_t)MESH_UI_DEVICE_BLE &&
                     ui_devices[i].name[0] != '\0' &&
                     strcmp(ui_devices[i].identifier, request.address) == 0) {
-                    snprintf(label, sizeof label, "%.*s", (int)(sizeof label - 1U),
-                             ui_devices[i].name);
+                    mesh_str_copy(label, sizeof label, ui_devices[i].name);
                     break;
                 }
             }
@@ -2283,24 +2275,6 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
 /* How long a saved preferred node gets to show up in discovery before another node is used. */
 #define MESH_APP_AUTOCONNECT_PREFERRED_GRACE_MS 30000U
 
-static uint64_t mesh_app_now_ms(void) {
-    struct timespec ts;
-    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
-        return 0U;
-    }
-    return (uint64_t)ts.tv_sec * 1000U + (uint64_t)ts.tv_nsec / 1000000U;
-}
-
-/* "0", "off", "false" and "no" disable; anything else (including unset) leaves the default. */
-static bool mesh_app_env_disabled(const char *name) {
-    const char *value = getenv(name);
-    if (value == NULL || value[0] == '\0') {
-        return false;
-    }
-    return strcasecmp(value, "0") == 0 || strcasecmp(value, "off") == 0 ||
-           strcasecmp(value, "false") == 0 || strcasecmp(value, "no") == 0;
-}
-
 /* Exponential backoff, shared by the two ways a connect can fail: the errno connect() handed
    back, and the failure that only surfaces later from tick(). Returns the delay it scheduled. */
 static uint64_t mesh_app_backoff_autoconnect(struct mesh_app *app) {
@@ -2311,7 +2285,7 @@ static uint64_t mesh_app_backoff_autoconnect(struct mesh_app *app) {
     if (delay > MESH_APP_AUTOCONNECT_MAX_BACKOFF_MS) {
         delay = MESH_APP_AUTOCONNECT_MAX_BACKOFF_MS;
     }
-    app->autoconnect_retry_at_ms = mesh_app_now_ms() + delay;
+    app->autoconnect_retry_at_ms = mesh_time_monotonic_ms() + delay;
     return delay;
 }
 
@@ -2332,7 +2306,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
         return;
     }
 
-    uint64_t now = mesh_app_now_ms();
+    uint64_t now = mesh_time_monotonic_ms();
     if (app->autoconnect_started_ms == 0U) {
         app->autoconnect_started_ms = now;
     }
@@ -2450,7 +2424,7 @@ bool mesh_app_report_link_errors(struct mesh_app *app) {
 
     if (app->ui_report_link_error && app->config.run_mode == MESH_APP_RUN_FOREGROUND) {
         mesh_log_info("ui", "Link failure shown to the user: %s", link_error);
-        mesh_ui_store_set_toast(&app->ui_store, mesh_app_now_ms(), link_error);
+        mesh_ui_store_set_toast(&app->ui_store, mesh_time_monotonic_ms(), link_error);
     } else {
         mesh_log_debug("ui", "Link failure not shown (auto-connect): %s", link_error);
     }
@@ -2500,7 +2474,7 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     app->autoconnect_waiting_logged = false;
     app->ui_link_was_connected = false;
     app->ui_report_link_error = false;
-    app->autoconnect_disabled = mesh_app_env_disabled("MESHCLIENT_AUTOCONNECT");
+    app->autoconnect_disabled = !mesh_env_bool("MESHCLIENT_AUTOCONNECT", "auto-connect", true);
     if (app->autoconnect_disabled) {
         mesh_log_info("app", "Auto-connect disabled by MESHCLIENT_AUTOCONNECT");
     }
@@ -2696,7 +2670,7 @@ int mesh_app_run(struct mesh_app *app) {
             mesh_transport_registry_tick(&app->transport_registry);
             /* The updater's child is watched by the event loop; this only enforces its
                timeout and reaps a child whose exit the loop did not see. */
-            mesh_updater_tick(&app->updater, mesh_app_now_ms());
+            mesh_updater_tick(&app->updater, mesh_time_monotonic_ms());
             /* Before auto-connect, not after: a retry starts the link over and clears the
                reason the last attempt failed. */
             (void)mesh_app_report_link_errors(app);

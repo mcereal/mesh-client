@@ -47,9 +47,11 @@ add_library(meshclient_core
     src/transport/serial/serial_transport.c
     src/transport/serial/serial_usb.c
     src/proto/stream_framing.c
+    src/utils/env.c
     src/utils/log.c
     src/utils/sha256.c
     src/utils/text.c
+    src/utils/time.c
     src/ui/store.c
     src/ui/controller.c
     src/ui/input.c

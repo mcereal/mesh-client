@@ -4,6 +4,7 @@
 
 #include "mesh/utils/log.h"
 #include "mesh/utils/text.h"
+#include "mesh/utils/time.h"
 
 #include <pb_decode.h>
 #include <pb_encode.h>
@@ -19,14 +20,6 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-
-static uint64_t mesh_session_now_ms(void) {
-    struct timespec ts;
-    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
-        return 0U;
-    }
-    return (uint64_t)ts.tv_sec * 1000U + (uint64_t)ts.tv_nsec / 1000000U;
-}
 
 static void mesh_session_reset_handshake(struct mesh_session *session) {
     memset(&session->handshake, 0, sizeof session->handshake);
@@ -889,7 +882,7 @@ int mesh_session_request_node_info(struct mesh_session *session, uint32_t dest) 
  */
 uint32_t mesh_session_next_packet_id(struct mesh_session *session) {
     if (session->next_packet_id == 0U) {
-        uint32_t seed = (uint32_t)mesh_session_now_ms();
+        uint32_t seed = (uint32_t)mesh_time_monotonic_ms();
         if (session->handshake.has_my_info) {
             seed ^= session->handshake.my_info.my_node_num;
         }
@@ -1242,7 +1235,7 @@ int mesh_session_send_traceroute(struct mesh_session *session, uint32_t dest) {
     trace->state = MESH_TRACEROUTE_PENDING;
     trace->target = dest;
     trace->packet_id = packet->id;
-    trace->sent_ms = mesh_session_now_ms();
+    trace->sent_ms = mesh_time_monotonic_ms();
 
     const int result = mesh_session_send_raw(session, payload, stream.bytes_written, 0U);
     if (result < 0) {

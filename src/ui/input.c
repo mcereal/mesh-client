@@ -3,6 +3,7 @@
 #include "mesh/ui/input.h"
 
 #include "mesh/core/event_loop.h"
+#include "mesh/utils/array.h"
 #include "mesh/utils/log.h"
 
 #include <errno.h>
@@ -68,7 +69,7 @@ static void mesh_ui_input_load_quit_keys(void) {
                       override);
     }
 
-    for (size_t i = 0; i < sizeof(k_default_quit_keys) / sizeof(k_default_quit_keys[0]); ++i) {
+    for (size_t i = 0; i < MESH_ARRAY_LEN(k_default_quit_keys); ++i) {
         s_quit_keys[s_quit_key_count++] = k_default_quit_keys[i];
     }
     snprintf(s_quit_hint, sizeof s_quit_hint, "Press MENU to quit");
