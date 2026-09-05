@@ -17,6 +17,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/fb.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -760,8 +761,8 @@ static void fb_render_node_detail(const struct mesh_ui_backend_fb_state *state,
     fb_draw_title(state, layout, title);
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    const uint32_t count = mesh_ui_node_detail_build(node, is_self, (uint32_t)time(NULL), items,
-                                                     MESH_UI_NODE_ITEMS_MAX);
+    const uint32_t count = mesh_ui_node_detail_build(
+        node, is_self, (uint32_t)time(NULL), &snapshot->traceroute, items, MESH_UI_NODE_ITEMS_MAX);
     if (count == 0U) {
         fb_draw_empty(state, layout, "Nothing reported for this node yet.");
         return;
@@ -1110,19 +1111,68 @@ static void fb_render_devices(const struct mesh_ui_backend_fb_state *state,
     }
 }
 
+/* "3d 4h", "5h 12m", "40m" - a radio's uptime, which is a duration rather than an age. */
+static void fb_format_uptime(uint32_t seconds, char *out, size_t out_len) {
+    if (seconds >= 86400U) {
+        snprintf(out, out_len, "%ud %uh", seconds / 86400U, (seconds % 86400U) / 3600U);
+    } else if (seconds >= 3600U) {
+        snprintf(out, out_len, "%uh %um", seconds / 3600U, (seconds % 3600U) / 60U);
+    } else {
+        snprintf(out, out_len, "%um", seconds / 60U);
+    }
+}
+
+/*
+ * One Status row, dropped silently once the body is full. The screen packs a variable number
+ * of lines - the mesh-health block only exists once the radio has reported - and the body fits
+ * eleven rows at the largest scale, so the alternative to clipping here is a layout that
+ * overwrites its own footer on somebody's device.
+ */
+static void fb_status_line(const struct mesh_ui_backend_fb_state *state,
+                           const struct fb_layout *layout, int *y, struct fb_rgb color,
+                           const char *label, const char *fmt, ...) {
+    if (*y + layout->line > layout->footer_y) {
+        return;
+    }
+    char line[192];
+    int used = snprintf(line, sizeof line, "%-11s ", label);
+    if (used < 0 || (size_t)used >= sizeof line) {
+        return;
+    }
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(line + used, sizeof line - (size_t)used, fmt, args);
+    va_end(args);
+    fb_fit(line, layout->cols);
+    fb_draw_text(state, FB_MARGIN, *y, line, state->scale, color);
+    *y += layout->line;
+}
+
+/* Our own node's record, which is where the connected radio's battery and airtime live: those
+   arrive as ordinary DeviceMetrics telemetry, not in LocalStats. NULL before the sync. */
+static const struct mesh_ui_node_summary *fb_self_node(const struct mesh_ui_snapshot *snapshot) {
+    const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
+    if (!snapshot->handshake_valid || !hs->has_my_info) {
+        return NULL;
+    }
+    for (uint32_t i = 0; i < hs->node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+        if (hs->nodes[i].node_id == hs->my_info.node_num) {
+            return &hs->nodes[i];
+        }
+    }
+    return NULL;
+}
+
 static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
                              const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     fb_draw_title(state, layout, "Status");
 
     int y = layout->body_y;
-    char line[160];
-    const int adv = layout->line;
+    char buffer[64];
+    char second[64];
 
-    snprintf(line, sizeof line, "Transport   %s",
-             snapshot->transport_status[0] != '\0' ? snapshot->transport_status : "starting");
-    fb_fit(line, layout->cols);
-    fb_draw_text(state, FB_MARGIN, y, line, state->scale, k_text);
-    y += adv;
+    fb_status_line(state, layout, &y, k_text, "Transport", "%s",
+                   snapshot->transport_status[0] != '\0' ? snapshot->transport_status : "starting");
 
     const struct mesh_ui_device *connected = NULL;
     for (size_t i = 0; i < snapshot->device_count; ++i) {
@@ -1131,63 +1181,147 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
             break;
         }
     }
-    snprintf(line, sizeof line, "Radio       %s",
-             connected != NULL
-                 ? (connected->name[0] != '\0' ? connected->name : connected->identifier)
-                 : "not connected");
-    fb_fit(line, layout->cols);
-    fb_draw_text(state, FB_MARGIN, y, line, state->scale, connected != NULL ? k_good : k_bad);
-    y += adv;
+    fb_status_line(state, layout, &y, connected != NULL ? k_good : k_bad, "Radio", "%s",
+                   connected != NULL
+                       ? (connected->name[0] != '\0' ? connected->name : connected->identifier)
+                       : "not connected");
 
     if (snapshot->handshake_valid) {
         const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
-        snprintf(line, sizeof line, "Sync        %s%s",
-                 hs->config_complete ? "complete"
-                                     : (hs->request_in_flight ? "in progress" : "idle"),
-                 hs->cached ? " (cached)" : "");
-        fb_fit(line, layout->cols);
-        fb_draw_text(state, FB_MARGIN, y, line, state->scale, k_text);
-        y += adv;
-
+        fb_status_line(state, layout, &y, k_text, "Sync", "%s%s",
+                       hs->config_complete ? "complete"
+                                           : (hs->request_in_flight ? "in progress" : "idle"),
+                       hs->cached ? " (cached)" : "");
         if (hs->has_my_info) {
-            snprintf(line, sizeof line, "My node     %s !%08x", hs->my_short_name,
-                     hs->my_info.node_num);
-            fb_fit(line, layout->cols);
-            fb_draw_text(state, FB_MARGIN, y, line, state->scale, k_text);
-            y += adv;
-            snprintf(line, sizeof line, "NodeDB      %u nodes, %u reboots",
-                     hs->my_info.nodedb_entries, hs->my_info.reboot_count);
-            fb_fit(line, layout->cols);
-            fb_draw_text(state, FB_MARGIN, y, line, state->scale, k_text);
-            y += adv;
+            fb_status_line(state, layout, &y, k_text, "My node", "%s !%08x", hs->my_short_name,
+                           hs->my_info.node_num);
+        }
+        /* One line for the NodeDB, and LocalStats' online count when the radio has sent it:
+           "132 nodes" alone says nothing about how much of that mesh is still alive. */
+        const struct mesh_ui_radio_stats *stats = &snapshot->settings.stats;
+        if (hs->has_my_info && stats->valid && stats->num_online_nodes > 0U) {
+            fb_status_line(state, layout, &y, k_text, "NodeDB", "%u nodes, %u online",
+                           hs->my_info.nodedb_entries, stats->num_online_nodes);
+        } else if (hs->has_my_info) {
+            fb_status_line(state, layout, &y, k_text, "NodeDB", "%u nodes, %u reboots",
+                           hs->my_info.nodedb_entries, hs->my_info.reboot_count);
         }
         if (hs->primary_channel[0] != '\0') {
-            snprintf(line, sizeof line, "Channel     %s", hs->primary_channel);
-            fb_fit(line, layout->cols);
-            fb_draw_text(state, FB_MARGIN, y, line, state->scale, k_text);
-            y += adv;
+            fb_status_line(state, layout, &y, k_text, "Channel", "%s", hs->primary_channel);
         }
     } else {
-        fb_draw_text(state, FB_MARGIN, y, "Sync        waiting for a radio", state->scale, k_dim);
-        y += adv;
+        fb_status_line(state, layout, &y, k_dim, "Sync", "%s", "waiting for a radio");
     }
 
-    snprintf(line, sizeof line, "Messages    %u kept, %u dropped",
-             (unsigned)snapshot->messages.count, (unsigned)snapshot->messages.dropped);
-    fb_fit(line, layout->cols);
-    fb_draw_text(state, FB_MARGIN, y, line, state->scale, k_text);
-    y += adv;
+    /*
+     * Mesh health, from the two sources that carry it. LocalStats is the radio's own live
+     * view, sent to the attached client on its own schedule; DeviceMetrics is what our node
+     * last *broadcast* about itself, on the telemetry interval, which is half an hour by
+     * default. Both carry the airtime pair, so LocalStats wins it when it has arrived and
+     * DeviceMetrics only fills the gap before the first report - reading the broadcast copy
+     * by preference means the row can sit on a half-hour-old 0.0% while the radio is busy.
+     * Battery and uptime have only the one source: LocalStats has no battery at all.
+     */
+    const struct mesh_ui_node_summary *self = fb_self_node(snapshot);
+    const struct mesh_ui_node_metrics *metrics =
+        (self != NULL && self->metrics.valid) ? &self->metrics : NULL;
+    const struct mesh_ui_radio_stats *stats = &snapshot->settings.stats;
 
-    snprintf(line, sizeof line, "Devices     %zu in range", snapshot->device_count);
-    fb_fit(line, layout->cols);
-    fb_draw_text(state, FB_MARGIN, y, line, state->scale, k_text);
-    y += adv + adv / 2;
+    if (metrics != NULL || stats->valid) {
+        y += layout->line / 2;
+    }
 
-    fb_draw_text(state, FB_MARGIN, y, "Left/Right or L1/R1 switch tabs.", state->scale, k_dim);
-    y += adv;
-    fb_draw_text(state, FB_MARGIN, y, "Up/Down move, A selects, B backs out.", state->scale, k_dim);
-    y += adv;
-    fb_draw_text(state, FB_MARGIN, y, mesh_ui_input_quit_hint(), state->scale, k_dim);
+    /* LocalStats' airtime fields are plain scalars the firmware always fills, so `valid` is
+       the whole test; DeviceMetrics' are optional and carry their own has_*. */
+    const bool air_from_stats = stats->valid;
+    const bool have_util = air_from_stats || (metrics != NULL && metrics->has_channel_utilization);
+    const bool have_tx = air_from_stats || (metrics != NULL && metrics->has_air_util_tx);
+    if (have_util || have_tx) {
+        const float util_value = air_from_stats
+                                     ? stats->channel_utilization
+                                     : (metrics != NULL ? metrics->channel_utilization : 0.0f);
+        const float tx_value =
+            air_from_stats ? stats->air_util_tx : (metrics != NULL ? metrics->air_util_tx : 0.0f);
+        /* Above ~25% channel utilization the mesh is saturated and hop delivery collapses, so
+           the number is coloured rather than left as one more figure to interpret. */
+        struct fb_rgb air_color = k_text;
+        if (have_util) {
+            air_color = util_value >= 50.0f ? k_bad : util_value >= 25.0f ? k_accent : k_good;
+        }
+        char util[32] = "?";
+        if (have_util) {
+            snprintf(util, sizeof util, "%.1f%%", (double)util_value);
+        }
+        char tx[32] = "?";
+        if (have_tx) {
+            snprintf(tx, sizeof tx, "%.1f%%", (double)tx_value);
+        }
+        if (stats->valid && stats->has_noise_floor) {
+            fb_status_line(state, layout, &y, air_color, "Airtime", "%s busy, %s tx, %d dBm floor",
+                           util, tx, stats->noise_floor);
+        } else {
+            fb_status_line(state, layout, &y, air_color, "Airtime", "%s busy, %s tx", util, tx);
+        }
+    }
+
+    /* Uptime is in both, like the airtime pair above, so LocalStats wins it for the same
+       reason - and without this the row vanishes entirely when LocalStats has arrived but our
+       node has not broadcast DeviceMetrics yet. Battery really does have only the one source. */
+    const bool have_battery = metrics != NULL && metrics->has_battery;
+    const bool have_uptime = stats->valid || (metrics != NULL && metrics->has_uptime);
+    const uint32_t uptime_value = stats->valid        ? stats->uptime_seconds
+                                  : (metrics != NULL) ? metrics->uptime_seconds
+                                                      : 0U;
+    if (have_battery || have_uptime) {
+        buffer[0] = '\0';
+        if (have_battery) {
+            /* 101 is upstream's "running off USB", not a 101% battery. */
+            if (metrics->battery_level > 100U) {
+                snprintf(buffer, sizeof buffer, "plugged in");
+            } else {
+                snprintf(buffer, sizeof buffer, "%u%%", (unsigned)metrics->battery_level);
+            }
+        }
+        second[0] = '\0';
+        if (have_uptime) {
+            char uptime[32];
+            fb_format_uptime(uptime_value, uptime, sizeof uptime);
+            snprintf(second, sizeof second, "%sup %s", buffer[0] != '\0' ? ", " : "", uptime);
+        }
+        struct fb_rgb battery_color =
+            (have_battery && metrics->battery_level <= 20U) ? k_bad : k_text;
+        fb_status_line(state, layout, &y, battery_color, "Battery", "%s%s",
+                       buffer[0] != '\0' ? buffer : "unknown", second);
+    }
+
+    if (stats->valid) {
+        fb_status_line(state, layout, &y, k_text, "Packets", "%u tx, %u rx, %u relayed",
+                       stats->num_packets_tx, stats->num_packets_rx, stats->num_tx_relay);
+        /* Bad and dropped packets are the two numbers that explain a mesh that "works but
+           loses messages", so they get their own row instead of being folded into Packets. */
+        const bool losing = stats->num_packets_rx_bad > 0U || stats->num_tx_dropped > 0U;
+        fb_status_line(state, layout, &y, losing ? k_accent : k_dim, "Dropped",
+                       "%u bad rx, %u dupe, %u tx", stats->num_packets_rx_bad, stats->num_rx_dupe,
+                       stats->num_tx_dropped);
+        if (stats->has_heap) {
+            fb_status_line(state, layout, &y, stats->heap_free_bytes < 20480U ? k_accent : k_dim,
+                           "Heap", "%u KB free of %u KB", stats->heap_free_bytes / 1024U,
+                           stats->heap_total_bytes / 1024U);
+        }
+    } else if (snapshot->handshake_valid) {
+        fb_status_line(state, layout, &y, k_dim, "Mesh", "%s",
+                       "waiting for the radio's first report");
+    }
+
+    y += layout->line / 2;
+    fb_status_line(state, layout, &y, k_text, "Messages", "%u kept, %u dropped",
+                   (unsigned)snapshot->messages.count, (unsigned)snapshot->messages.dropped);
+    fb_status_line(state, layout, &y, k_text, "Devices", "%zu in range", snapshot->device_count);
+
+    y += layout->line / 2;
+    if (y + layout->line <= layout->footer_y) {
+        fb_draw_text(state, FB_MARGIN, y, mesh_ui_input_quit_hint(), state->scale, k_dim);
+    }
 }
 
 /* "Save <section>?" for the sections whose write can cut this client off. */

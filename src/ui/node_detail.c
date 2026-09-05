@@ -1,9 +1,14 @@
 #include "mesh/ui/node_detail.h"
 
+/* session.h for the traceroute state enum: the UI struct carries it as a byte so store.h
+   stays plain, but this file already pulls nanopb in through radio_settings.h, so naming the
+   real enum here beats keeping a second copy of it in step. */
 #include "mesh/radio_settings.h"
+#include "mesh/session.h"
 #include "mesh/ui/settings.h"
 
 #include <inttypes.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -269,8 +274,70 @@ static void node_rows_environment(struct node_rows *rows, const struct mesh_ui_n
     rows_info(rows, "Reported", "%s", age);
 }
 
+/*
+ * The traced route, if the one trace slot is holding this node's. Two paths of stops, each
+ * row a node and the SNR of the link that reached it - the first stop of a path is the sender
+ * and has no incoming link, so it carries no reading rather than a zero.
+ *
+ * The action row is emitted whatever the state, because it is also how a trace is started and
+ * re-run; the path rows only when there is a path. A trace of some *other* node shows nothing
+ * here beyond a plain "press A", so opening a second node never appears to describe it with
+ * the first one's route.
+ */
+static void node_rows_route(struct node_rows *rows, const struct mesh_ui_node_summary *node,
+                            const struct mesh_ui_traceroute *trace, uint32_t now) {
+    const bool ours = trace != NULL && trace->target == node->node_id;
+    const char *value = "press A";
+    if (ours) {
+        switch ((enum mesh_traceroute_state)trace->state) {
+        case MESH_TRACEROUTE_PENDING:
+            value = "tracing...";
+            break;
+        case MESH_TRACEROUTE_TIMEOUT:
+            value = "no reply; press A";
+            break;
+        default:
+            break;
+        }
+    }
+    rows_action(rows, "Trace route", value, MESH_UI_NODE_ACTION_TRACEROUTE);
+
+    if (!ours || trace->state != MESH_TRACEROUTE_DONE) {
+        return;
+    }
+
+    for (unsigned direction = 0; direction < 2U; ++direction) {
+        const struct mesh_ui_traceroute_hop *path = direction == 0U ? trace->forward : trace->back;
+        const uint8_t count = direction == 0U ? trace->forward_count : trace->back_count;
+        if (count == 0U) {
+            continue;
+        }
+        rows_heading(rows, direction == 0U ? "Route out" : "Route back");
+        for (uint8_t i = 0; i < count && i < MESH_UI_TRACEROUTE_MAX_HOPS; ++i) {
+            const struct mesh_ui_traceroute_hop *hop = &path[i];
+            char label[MESH_UI_NODE_LABEL_MAX];
+            /* An arrow would be two bytes the framebuffer font has no glyph for. */
+            snprintf(label, sizeof label, "%s%s", i == 0U ? "" : "-> ", hop->name);
+            /* INT8_MIN is the firmware's "this link was not measured", not a -32 dB link. */
+            if (hop->has_snr && hop->snr_quarter_db != INT8_MIN) {
+                rows_info(rows, label, "%.2f dB", (double)hop->snr_quarter_db / 4.0);
+            } else {
+                rows_info(rows, label, "%s", i == 0U ? "start" : "no reading");
+            }
+        }
+    }
+
+    /* A route is only true for as long as the mesh holds still, so the section closes with
+       when it was measured rather than presenting it as a standing fact - the same trailing
+       stamp the metrics and position groups carry. */
+    char age[24];
+    format_age(trace->completed, now, age, sizeof age);
+    rows_info(rows, "Measured", "%s", age);
+}
+
 uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool is_self,
-                                   uint32_t now, struct mesh_ui_node_item *out, uint32_t capacity) {
+                                   uint32_t now, const struct mesh_ui_traceroute *trace,
+                                   struct mesh_ui_node_item *out, uint32_t capacity) {
     if (node == NULL) {
         return 0U;
     }
@@ -288,6 +355,15 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
         /* Pinning our own node would be meaningless - it already ranks above everything. */
         rows_action(&rows, "Pinned to top", node->is_favorite ? "yes" : "no",
                     MESH_UI_NODE_ACTION_FAVORITE);
+        /* Tracing the route to ourselves is a question with no links in it. */
+        node_rows_route(&rows, node, trace, now);
+        /* The one row that answers "who is this?" for a node that joined after the NodeDB
+           replay and has been sitting in the list as a bare id ever since. */
+        rows_action(&rows, "Ask for its name", "press A", MESH_UI_NODE_ACTION_REQUEST_INFO);
+        /* Last, and stated as what the radio will do rather than as a preference: an ignored
+           node's packets are dropped before they reach us. */
+        rows_action(&rows, "Ignore this node", node->is_ignored ? "yes" : "no",
+                    MESH_UI_NODE_ACTION_IGNORE);
     }
     node_rows_identity(&rows, node);
     node_rows_signal(&rows, node, is_self, now);
@@ -298,8 +374,9 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
     return rows.count;
 }
 
-uint32_t mesh_ui_node_detail_count(const struct mesh_ui_node_summary *node, bool is_self) {
-    return mesh_ui_node_detail_build(node, is_self, 0U, NULL, 0U);
+uint32_t mesh_ui_node_detail_count(const struct mesh_ui_node_summary *node, bool is_self,
+                                   const struct mesh_ui_traceroute *trace) {
+    return mesh_ui_node_detail_build(node, is_self, 0U, trace, NULL, 0U);
 }
 
 static uint32_t node_list_count(const struct mesh_ui_handshake_state *handshake) {

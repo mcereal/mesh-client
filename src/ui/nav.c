@@ -395,7 +395,8 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
         }
         const struct mesh_ui_node_summary *node =
             mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node);
-        return mesh_ui_node_detail_count(node, mesh_ui_nav_node_is_self(store, node));
+        return mesh_ui_node_detail_count(node, mesh_ui_nav_node_is_self(store, node),
+                                         &store->traceroute);
     }
     case MESH_UI_SCREEN_DEVICES:
         return (uint32_t)store->device_count;
@@ -1518,8 +1519,9 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             return false;
         }
         struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-        const uint32_t count = mesh_ui_node_detail_build(
-            node, mesh_ui_nav_node_is_self(store, node), 0U, items, MESH_UI_NODE_ITEMS_MAX);
+        const uint32_t count =
+            mesh_ui_node_detail_build(node, mesh_ui_nav_node_is_self(store, node), 0U,
+                                      &store->traceroute, items, MESH_UI_NODE_ITEMS_MAX);
         if (cursor >= count || items[cursor].kind != MESH_UI_NODE_ROW_ACTION) {
             return false;
         }
@@ -1529,6 +1531,30 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         }
         if (items[cursor].action == MESH_UI_NODE_ACTION_FAVORITE) {
             mesh_ui_nav_fill_favorite(action, node);
+            return false; /* the row redraws when the app flips the flag */
+        }
+        if (items[cursor].action == MESH_UI_NODE_ACTION_TRACEROUTE) {
+            if (action != NULL) {
+                action->type = MESH_UI_ACTION_TRACEROUTE;
+                action->dest = node->node_id;
+            }
+            return false; /* the rows redraw when the app publishes the trace */
+        }
+        if (items[cursor].action == MESH_UI_NODE_ACTION_REQUEST_INFO) {
+            if (action != NULL) {
+                action->type = MESH_UI_ACTION_REQUEST_NODE_INFO;
+                action->dest = node->node_id;
+            }
+            return false; /* the row redraws if and when the node answers */
+        }
+        if (items[cursor].action == MESH_UI_NODE_ACTION_IGNORE) {
+            if (action != NULL) {
+                /* The wanted state, not a bare "toggle": a press that races an incoming
+                   NodeInfo must not cancel itself out, same as the pin. */
+                action->type = MESH_UI_ACTION_TOGGLE_IGNORE;
+                action->dest = node->node_id;
+                action->number = node->is_ignored ? 0U : 1U;
+            }
             return false; /* the row redraws when the app flips the flag */
         }
         return false;

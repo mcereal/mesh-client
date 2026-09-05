@@ -123,6 +123,16 @@ unsigned mesh_app_node_rank(const struct mesh_node_summary *node, uint32_t my_no
                             const struct mesh_message_log *log,
                             const struct mesh_ui_preferences *prefs);
 
+/* Turns the session's traceroute into the two ready-to-draw paths the UI carries: the ends
+   stitched on (us going out, the target coming back), every hop resolved to a name, and each
+   stop paired with the SNR of the link that reached it. Exposed for tests. */
+struct mesh_handshake_status;
+struct mesh_traceroute;
+struct mesh_ui_traceroute;
+void mesh_app_flatten_traceroute(const struct mesh_handshake_status *status,
+                                 const struct mesh_traceroute *src, uint32_t my_node,
+                                 struct mesh_ui_traceroute *dst);
+
 /* Builds the admin write for a MESH_UI_ACTION_SAVE_SETTINGS: the radio's own copy of the
    section with the action's edits applied, since the firmware replaces sections whole.
    -ENOENT when the radio has not sent that section yet, -ENOTSUP for a section that is still

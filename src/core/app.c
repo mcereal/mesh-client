@@ -194,10 +194,13 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
     meshtastic_Config_DeviceConfig *device = &write->payload.config.payload_variant.device;
     meshtastic_Config_DisplayConfig *display = &write->payload.config.payload_variant.display;
     meshtastic_Config_BluetoothConfig *bluetooth = &write->payload.config.payload_variant.bluetooth;
+    meshtastic_ModuleConfig_MQTTConfig *mqtt = &write->payload.module_config.payload_variant.mqtt;
     meshtastic_ModuleConfig_StoreForwardConfig *sf =
         &write->payload.module_config.payload_variant.store_forward;
     meshtastic_ModuleConfig_TelemetryConfig *telemetry =
         &write->payload.module_config.payload_variant.telemetry;
+    meshtastic_Config_PositionConfig *position = &write->payload.config.payload_variant.position;
+    meshtastic_Config_PowerConfig *power = &write->payload.config.payload_variant.power;
     meshtastic_ChannelSettings *channel = &write->payload.channel.settings;
     meshtastic_Config_LoRaConfig *lora = &write->payload.config.payload_variant.lora;
     meshtastic_Config_SecurityConfig *security = &write->payload.config.payload_variant.security;
@@ -219,9 +222,61 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
         owner->has_is_unmessagable = true;
         owner->is_unmessagable = on;
         break;
+    case MESH_UI_FIELD_DEVICE_ROLE:
+        device->role = (meshtastic_Config_DeviceConfig_Role)edit->number;
+        break;
     case MESH_UI_FIELD_DEVICE_TZDEF:
         snprintf(device->tzdef, sizeof device->tzdef, "%.*s", (int)(sizeof device->tzdef - 1U),
                  edit->text);
+        break;
+    case MESH_UI_FIELD_DEVICE_REBROADCAST:
+        device->rebroadcast_mode = (meshtastic_Config_DeviceConfig_RebroadcastMode)edit->number;
+        break;
+    case MESH_UI_FIELD_DEVICE_NODEINFO_SECS:
+        device->node_info_broadcast_secs = edit->number;
+        break;
+    case MESH_UI_FIELD_DEVICE_LED_HEARTBEAT:
+        /* The row is the plain statement; the protobuf field is the negation of it. */
+        device->led_heartbeat_disabled = !on;
+        break;
+    case MESH_UI_FIELD_DEVICE_DOUBLE_TAP:
+        device->double_tap_as_button_press = on;
+        break;
+    case MESH_UI_FIELD_POSITION_GPS_MODE:
+        position->gps_mode = (meshtastic_Config_PositionConfig_GpsMode)edit->number;
+        break;
+    case MESH_UI_FIELD_POSITION_BROADCAST_SECS:
+        position->position_broadcast_secs = edit->number;
+        break;
+    case MESH_UI_FIELD_POSITION_SMART:
+        position->position_broadcast_smart_enabled = on;
+        break;
+    case MESH_UI_FIELD_POSITION_SMART_DISTANCE:
+        position->broadcast_smart_minimum_distance = edit->number;
+        break;
+    case MESH_UI_FIELD_POSITION_SMART_INTERVAL:
+        position->broadcast_smart_minimum_interval_secs = edit->number;
+        break;
+    case MESH_UI_FIELD_POSITION_FIXED:
+        position->fixed_position = on;
+        break;
+    case MESH_UI_FIELD_POSITION_GPS_INTERVAL:
+        position->gps_update_interval = edit->number;
+        break;
+    case MESH_UI_FIELD_POWER_SAVING:
+        power->is_power_saving = on;
+        break;
+    case MESH_UI_FIELD_POWER_LS_SECS:
+        power->ls_secs = edit->number;
+        break;
+    case MESH_UI_FIELD_POWER_MIN_WAKE:
+        power->min_wake_secs = edit->number;
+        break;
+    case MESH_UI_FIELD_POWER_WAIT_BT:
+        power->wait_bluetooth_secs = edit->number;
+        break;
+    case MESH_UI_FIELD_POWER_SHUTDOWN:
+        power->on_battery_shutdown_after_secs = edit->number;
         break;
     case MESH_UI_FIELD_DISPLAY_SCREEN_ON:
         display->screen_on_secs = edit->number;
@@ -241,6 +296,33 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
         break;
     case MESH_UI_FIELD_DISPLAY_FLIP:
         display->flip_screen = on;
+        break;
+    case MESH_UI_FIELD_MQTT_ENABLED:
+        mqtt->enabled = on;
+        break;
+    case MESH_UI_FIELD_MQTT_ADDRESS:
+        snprintf(mqtt->address, sizeof mqtt->address, "%.*s", (int)(sizeof mqtt->address - 1U),
+                 edit->text);
+        break;
+    case MESH_UI_FIELD_MQTT_USERNAME:
+        snprintf(mqtt->username, sizeof mqtt->username, "%.*s", (int)(sizeof mqtt->username - 1U),
+                 edit->text);
+        break;
+    case MESH_UI_FIELD_MQTT_PASSWORD:
+        snprintf(mqtt->password, sizeof mqtt->password, "%.*s", (int)(sizeof mqtt->password - 1U),
+                 edit->text);
+        break;
+    case MESH_UI_FIELD_MQTT_ROOT:
+        snprintf(mqtt->root, sizeof mqtt->root, "%.*s", (int)(sizeof mqtt->root - 1U), edit->text);
+        break;
+    case MESH_UI_FIELD_MQTT_ENCRYPTION:
+        mqtt->encryption_enabled = on;
+        break;
+    case MESH_UI_FIELD_MQTT_TLS:
+        mqtt->tls_enabled = on;
+        break;
+    case MESH_UI_FIELD_MQTT_MAP_REPORTING:
+        mqtt->map_reporting_enabled = on;
         break;
     case MESH_UI_FIELD_SF_ENABLED:
         sf->enabled = on;
@@ -492,6 +574,24 @@ int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
         out->payload.config.which_payload_variant = meshtastic_Config_device_tag;
         out->payload.config.payload_variant.device = radio->device;
         break;
+    case MESH_UI_SETTINGS_POSITION:
+        if (!radio->has_position) {
+            return -ENOENT;
+        }
+        out->kind = MESH_ADMIN_SET_CONFIG;
+        out->type = meshtastic_AdminMessage_ConfigType_POSITION_CONFIG;
+        out->payload.config.which_payload_variant = meshtastic_Config_position_tag;
+        out->payload.config.payload_variant.position = radio->position;
+        break;
+    case MESH_UI_SETTINGS_POWER:
+        if (!radio->has_power) {
+            return -ENOENT;
+        }
+        out->kind = MESH_ADMIN_SET_CONFIG;
+        out->type = meshtastic_AdminMessage_ConfigType_POWER_CONFIG;
+        out->payload.config.which_payload_variant = meshtastic_Config_power_tag;
+        out->payload.config.payload_variant.power = radio->power;
+        break;
     case MESH_UI_SETTINGS_DISPLAY:
         if (!radio->has_display) {
             return -ENOENT;
@@ -500,6 +600,15 @@ int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
         out->type = meshtastic_AdminMessage_ConfigType_DISPLAY_CONFIG;
         out->payload.config.which_payload_variant = meshtastic_Config_display_tag;
         out->payload.config.payload_variant.display = radio->display;
+        break;
+    case MESH_UI_SETTINGS_MQTT:
+        if (!radio->has_mqtt) {
+            return -ENOENT;
+        }
+        out->kind = MESH_ADMIN_SET_MODULE_CONFIG;
+        out->type = meshtastic_AdminMessage_ModuleConfigType_MQTT_CONFIG;
+        out->payload.module_config.which_payload_variant = meshtastic_ModuleConfig_mqtt_tag;
+        out->payload.module_config.payload_variant.mqtt = radio->mqtt;
         break;
     case MESH_UI_SETTINGS_STORE_FORWARD:
         if (!radio->has_store_forward) {
@@ -800,6 +909,80 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
         } else {
             snprintf(toast, sizeof toast, "Pin failed (%d)", result);
             mesh_log_warn("ui", "Favorite for 0x%08x failed: %d", action->dest, result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
+    case MESH_UI_ACTION_REQUEST_NODE_INFO: {
+        char name[MESH_UI_NAV_TARGET_NAME_MAX];
+        mesh_app_format_peer_name(mesh_session_handshake(&app->session), action->dest, name,
+                                  sizeof name);
+        const int result = mesh_session_request_node_info(&app->session, action->dest);
+        if (result == 0) {
+            /* Nothing here can promise an answer: the node may be out of range, asleep, or
+               simply slow, and no ack comes back for the request itself. */
+            snprintf(toast, sizeof toast, "Asked %.20s to introduce itself", name);
+        } else if (result == -ENOTCONN) {
+            snprintf(toast, sizeof toast, "%s", "Not connected to a node");
+        } else if (result == -EAGAIN) {
+            /* Our own owner record has not landed yet, and sending a placeholder would erase
+               this node's name on whoever received it. */
+            snprintf(toast, sizeof toast, "%s", "Still syncing; try again in a moment");
+        } else if (result == -EINVAL) {
+            snprintf(toast, sizeof toast, "%s", "Cannot ask this node");
+        } else {
+            snprintf(toast, sizeof toast, "Request failed (%d)", result);
+            mesh_log_warn("ui", "NodeInfo request for 0x%08x failed: %d", action->dest, result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
+    case MESH_UI_ACTION_TOGGLE_IGNORE: {
+        const bool ignored = (action->number != 0U);
+        char name[MESH_UI_NAV_TARGET_NAME_MAX];
+        mesh_app_format_peer_name(mesh_session_handshake(&app->session), action->dest, name,
+                                  sizeof name);
+        const int result = mesh_session_set_node_ignored(&app->session, action->dest, ignored);
+        if (result > 0) {
+            /* Said as what it does to the traffic, not as a preference that was recorded. */
+            snprintf(toast, sizeof toast,
+                     ignored ? "Dropping packets from %.20s" : "Hearing %.20s again", name);
+            mesh_log_info("ui", "%s node 0x%08x from the Nodes tab",
+                          ignored ? "Ignoring" : "Unignoring", action->dest);
+        } else if (result == 0) {
+            snprintf(toast, sizeof toast, "%.20s is already %s", name,
+                     ignored ? "ignored" : "not ignored");
+        } else if (result == -ENOTCONN) {
+            snprintf(toast, sizeof toast, "%s", "Not connected to a node");
+        } else if (result == -ENOENT) {
+            snprintf(toast, sizeof toast, "%s", "That node is no longer in the list");
+        } else if (result == -EINVAL) {
+            snprintf(toast, sizeof toast, "%s", "Cannot ignore this node");
+        } else {
+            snprintf(toast, sizeof toast, "Ignore failed (%d)", result);
+            mesh_log_warn("ui", "Ignore for 0x%08x failed: %d", action->dest, result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
+    case MESH_UI_ACTION_TRACEROUTE: {
+        char name[MESH_UI_NAV_TARGET_NAME_MAX];
+        mesh_app_format_peer_name(mesh_session_handshake(&app->session), action->dest, name,
+                                  sizeof name);
+        const int result = mesh_session_send_traceroute(&app->session, action->dest);
+        if (result == 0) {
+            snprintf(toast, sizeof toast, "Tracing route to %.20s", name);
+            mesh_log_info("ui", "Traceroute to 0x%08x from the Nodes tab", action->dest);
+        } else if (result == -ENOTCONN) {
+            snprintf(toast, sizeof toast, "%s", "Not connected to a node");
+        } else if (result == -EBUSY) {
+            /* One trace at a time is this client's half of the firmware's rate limit. */
+            snprintf(toast, sizeof toast, "%s", "A traceroute is already running");
+        } else if (result == -EINVAL) {
+            snprintf(toast, sizeof toast, "%s", "Cannot trace a route to this node");
+        } else {
+            snprintf(toast, sizeof toast, "Traceroute failed (%d)", result);
+            mesh_log_warn("ui", "Traceroute to 0x%08x failed: %d", action->dest, result);
         }
         mesh_ui_store_set_toast(&app->ui_store, now, toast);
         return;
@@ -1255,6 +1438,98 @@ static void mesh_app_publish_messages(struct mesh_app *app,
     }
 }
 
+/*
+ * A traceroute, from the protobuf's shape into the one the UI draws. RouteDiscovery gives the
+ * *intermediate* nodes and a parallel array of link SNRs; what a reader wants is the whole
+ * path with a reading against each stop it reached. So this stitches the ends on - us at the
+ * front going out, the target at the front coming back - resolves every hop to a name, and
+ * pairs hop i with snr[i - 1], the link that got the packet there.
+ *
+ * The SNR array is normally one longer than the route (one reading per link, not per node),
+ * but a firmware that disagrees must not make us read off the end, so each pairing is bounds
+ * checked rather than assumed.
+ */
+static uint8_t mesh_app_flatten_route(const struct mesh_handshake_status *status,
+                                      uint32_t first_node, const uint32_t *route,
+                                      uint8_t route_count, const int8_t *snr, uint8_t snr_count,
+                                      uint32_t last_node, struct mesh_ui_traceroute_hop *out) {
+    uint8_t count = 0U;
+    /* The path is first_node, then every node that forwarded it, then the far end. */
+    uint32_t path[MESH_UI_TRACEROUTE_MAX_HOPS];
+    path[count++] = first_node;
+    for (uint8_t i = 0; i < route_count && count < MESH_UI_TRACEROUTE_MAX_HOPS - 1U; ++i) {
+        path[count++] = route[i];
+    }
+    path[count++] = last_node;
+
+    for (uint8_t i = 0; i < count; ++i) {
+        struct mesh_ui_traceroute_hop *hop = &out[i];
+        memset(hop, 0, sizeof *hop);
+        hop->node_id = path[i];
+        mesh_app_format_peer_name(status, path[i], hop->name, sizeof hop->name);
+        /* The first stop is the sender: nothing carried the packet *to* it. */
+        if (i > 0U && (uint8_t)(i - 1U) < snr_count) {
+            hop->has_snr = true;
+            hop->snr_quarter_db = snr[i - 1U];
+        }
+    }
+    return count;
+}
+
+void mesh_app_flatten_traceroute(const struct mesh_handshake_status *status,
+                                 const struct mesh_traceroute *src, uint32_t my_node,
+                                 struct mesh_ui_traceroute *dst) {
+    memset(dst, 0, sizeof *dst);
+    if (src == NULL || src->state == MESH_TRACEROUTE_IDLE) {
+        return;
+    }
+    dst->state = src->state;
+    dst->target = src->target;
+    dst->completed = src->completed;
+    if (src->state != MESH_TRACEROUTE_DONE) {
+        return;
+    }
+    dst->forward_count =
+        mesh_app_flatten_route(status, my_node, src->route, src->route_count, src->snr,
+                               src->snr_count, src->target, dst->forward);
+    /* The way back is only drawn when the firmware measured it; an empty route_back with no
+       readings would otherwise render as a bare two-stop path that says nothing. */
+    if (src->snr_back_count > 0U || src->back_count > 0U) {
+        dst->back_count =
+            mesh_app_flatten_route(status, src->target, src->route_back, src->back_count,
+                                   src->snr_back, src->snr_back_count, my_node, dst->back);
+    }
+}
+
+/* Mesh health, copied field by field for the same reason everything else here is: nothing
+   keeps the session's declaration and the UI's in step but this function. */
+static void mesh_app_flatten_radio_stats(const struct mesh_radio_stats *src,
+                                         struct mesh_ui_radio_stats *dst) {
+    memset(dst, 0, sizeof *dst);
+    if (src == NULL || !src->valid) {
+        return;
+    }
+    dst->valid = true;
+    dst->time = src->time;
+    dst->uptime_seconds = src->uptime_seconds;
+    dst->channel_utilization = src->channel_utilization;
+    dst->air_util_tx = src->air_util_tx;
+    dst->num_packets_tx = src->num_packets_tx;
+    dst->num_packets_rx = src->num_packets_rx;
+    dst->num_packets_rx_bad = src->num_packets_rx_bad;
+    dst->num_rx_dupe = src->num_rx_dupe;
+    dst->num_tx_relay = src->num_tx_relay;
+    dst->num_tx_relay_canceled = src->num_tx_relay_canceled;
+    dst->num_tx_dropped = src->num_tx_dropped;
+    dst->num_online_nodes = src->num_online_nodes;
+    dst->num_total_nodes = src->num_total_nodes;
+    dst->has_heap = src->has_heap;
+    dst->heap_total_bytes = src->heap_total_bytes;
+    dst->heap_free_bytes = src->heap_free_bytes;
+    dst->has_noise_floor = src->has_noise_floor;
+    dst->noise_floor = src->noise_floor;
+}
+
 /* Flattens the transport's protobuf-typed view into the UI's plain struct. */
 /* The About section's data: this client rather than the radio. The updater's state is copied
    across as a byte and a line of text so store.h stays free of the updater, the same way the
@@ -1323,6 +1598,7 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
         snprintf(dst->tzdef, sizeof dst->tzdef, "%s", src->device.tzdef);
         dst->led_heartbeat_disabled = src->device.led_heartbeat_disabled;
         dst->double_tap_as_button_press = src->device.double_tap_as_button_press;
+        dst->node_info_broadcast_secs = src->device.node_info_broadcast_secs;
     }
     if (src->has_display) {
         dst->has_display = true;
@@ -1389,6 +1665,9 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
         dst->position_broadcast_secs = src->position.position_broadcast_secs;
         dst->position_broadcast_smart_enabled = src->position.position_broadcast_smart_enabled;
         dst->fixed_position = src->position.fixed_position;
+        dst->gps_update_interval = src->position.gps_update_interval;
+        dst->smart_minimum_distance = src->position.broadcast_smart_minimum_distance;
+        dst->smart_minimum_interval_secs = src->position.broadcast_smart_minimum_interval_secs;
     }
     if (src->has_power) {
         dst->has_power = true;
@@ -1396,14 +1675,18 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
         dst->ls_secs = src->power.ls_secs;
         dst->min_wake_secs = src->power.min_wake_secs;
         dst->on_battery_shutdown_after_secs = src->power.on_battery_shutdown_after_secs;
+        dst->wait_bluetooth_secs = src->power.wait_bluetooth_secs;
     }
     if (src->has_mqtt) {
         dst->has_mqtt = true;
         dst->mqtt_enabled = src->mqtt.enabled;
         snprintf(dst->mqtt_address, sizeof dst->mqtt_address, "%s", src->mqtt.address);
+        snprintf(dst->mqtt_username, sizeof dst->mqtt_username, "%s", src->mqtt.username);
+        snprintf(dst->mqtt_password, sizeof dst->mqtt_password, "%s", src->mqtt.password);
         snprintf(dst->mqtt_root, sizeof dst->mqtt_root, "%s", src->mqtt.root);
         dst->mqtt_encryption_enabled = src->mqtt.encryption_enabled;
         dst->mqtt_tls_enabled = src->mqtt.tls_enabled;
+        dst->mqtt_map_reporting_enabled = src->mqtt.map_reporting_enabled;
         dst->mqtt_proxy_to_client_enabled = src->mqtt.proxy_to_client_enabled;
     }
     if (src->has_store_forward) {
@@ -1815,8 +2098,15 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     mesh_app_flatten_settings(radio_settings, &ui_settings);
     /* flatten_settings() zeroes the struct, so the client's own facts go in after it. */
     mesh_app_flatten_client_info(app, &ui_settings.client);
+    mesh_app_flatten_radio_stats(mesh_session_radio_stats(&app->session), &ui_settings.stats);
     mesh_ui_store_set_settings(&app->ui_store, &ui_settings);
     mesh_app_track_settings_save(app, radio_settings, link_connected);
+
+    struct mesh_ui_traceroute ui_traceroute;
+    mesh_app_flatten_traceroute(&status, mesh_session_traceroute(&app->session),
+                                status.has_my_info ? status.my_info.my_node_num : 0U,
+                                &ui_traceroute);
+    mesh_ui_store_set_traceroute(&app->ui_store, &ui_traceroute);
 
     if (preferences_modified && app->ui_preferences_path[0] != '\0') {
         if (mesh_ui_preferences_save(&app->ui_preferences, app->ui_preferences_path) == 0) {

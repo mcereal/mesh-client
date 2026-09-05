@@ -30,6 +30,7 @@ enum mesh_ui_update_flag {
     MESH_UI_UPDATE_MESSAGES = 1U << 3,
     MESH_UI_UPDATE_NAV = 1U << 4,
     MESH_UI_UPDATE_SETTINGS = 1U << 5,
+    MESH_UI_UPDATE_TRACEROUTE = 1U << 6,
 };
 typedef uint32_t mesh_ui_update_flags;
 
@@ -198,10 +199,74 @@ struct mesh_ui_client_info {
  * section has arrived this connection; `loaded` is any of them. Read-only in phase 1 of
  * docs/settings-roadmap.md; the same fields become the edit targets later.
  */
+/* Us, plus RouteDiscovery's eight intermediate slots, plus the far end. */
+#define MESH_UI_TRACEROUTE_MAX_HOPS 10U
+#define MESH_UI_TRACEROUTE_NAME_MAX 16U
+
+/*
+ * One stop on a traced route, already resolved for drawing: the node's name if the client
+ * knows it and its id if not, and the SNR of the link *into* it. The first hop of a path is
+ * the sender and so has no incoming link, which is what `has_snr` false means there.
+ */
+struct mesh_ui_traceroute_hop {
+    uint32_t node_id;
+    char name[MESH_UI_TRACEROUTE_NAME_MAX];
+    bool has_snr;
+    int8_t snr_quarter_db; /* the wire scale: dB * 4 */
+};
+
+/*
+ * The last traceroute as the UI needs it: two ready-made paths rather than the protobuf's
+ * intermediate-nodes-and-parallel-SNR-arrays. `app.c` resolves the names and stitches us and
+ * the target onto the ends, so the renderer only walks a list - the same division the node
+ * summary follows, and the only place that knows a route's shape.
+ *
+ * Not persisted: a route is true for about as long as the mesh holds still.
+ */
+struct mesh_ui_traceroute {
+    uint8_t state; /* enum mesh_traceroute_state, carried as a byte */
+    uint32_t target;
+    uint32_t completed; /* our clock when the reply landed; 0 while pending */
+    uint8_t forward_count;
+    struct mesh_ui_traceroute_hop forward[MESH_UI_TRACEROUTE_MAX_HOPS];
+    uint8_t back_count;
+    struct mesh_ui_traceroute_hop back[MESH_UI_TRACEROUTE_MAX_HOPS];
+};
+
+/*
+ * What the connected radio reports about itself and the air around it (LocalStats telemetry).
+ * Lives beside the radio's configuration because it has the same lifetime - it describes the
+ * radio that is connected right now - and is likewise never persisted.
+ */
+struct mesh_ui_radio_stats {
+    bool valid;
+    uint32_t time; /* our clock when it arrived */
+    uint32_t uptime_seconds;
+    float channel_utilization;
+    float air_util_tx;
+    uint32_t num_packets_tx;
+    uint32_t num_packets_rx;
+    uint32_t num_packets_rx_bad;
+    uint32_t num_rx_dupe;
+    uint32_t num_tx_relay;
+    uint32_t num_tx_relay_canceled;
+    uint32_t num_tx_dropped;
+    uint32_t num_online_nodes;
+    uint32_t num_total_nodes;
+    bool has_heap;
+    uint32_t heap_total_bytes;
+    uint32_t heap_free_bytes;
+    bool has_noise_floor;
+    int32_t noise_floor;
+};
+
 struct mesh_ui_settings {
     /* The client's own facts. Always populated, radio or no radio - the About section is the
        one part of this tab that does not need a connection. */
     struct mesh_ui_client_info client;
+    /* Mesh health, from LocalStats telemetry rather than from the config handshake, so it
+       fills in on its own schedule and is absent until the radio's first report. */
+    struct mesh_ui_radio_stats stats;
     bool loaded;
     bool admin_ok;      /* at least one AdminMessage reply came back this connection */
     bool admin_busy;    /* a refresh is in flight */
@@ -220,6 +285,7 @@ struct mesh_ui_settings {
     char tzdef[65];
     bool led_heartbeat_disabled;
     bool double_tap_as_button_press;
+    uint32_t node_info_broadcast_secs;
 
     bool has_display;
     uint32_t screen_on_secs;
@@ -267,19 +333,28 @@ struct mesh_ui_settings {
     uint32_t position_broadcast_secs;
     bool position_broadcast_smart_enabled;
     bool fixed_position;
+    uint32_t gps_update_interval;
+    uint32_t smart_minimum_distance; /* metres */
+    uint32_t smart_minimum_interval_secs;
 
     bool has_power;
     bool is_power_saving;
     uint32_t ls_secs;
     uint32_t min_wake_secs;
     uint32_t on_battery_shutdown_after_secs;
+    uint32_t wait_bluetooth_secs;
 
     bool has_mqtt;
     bool mqtt_enabled;
     char mqtt_address[64];
+    char mqtt_username[64];
+    char mqtt_password[32];
     char mqtt_root[32];
     bool mqtt_encryption_enabled;
     bool mqtt_tls_enabled;
+    bool mqtt_map_reporting_enabled;
+    /* Read-only on purpose: with this on the radio hands its MQTT traffic to the attached
+       client to relay, and this client does not implement MqttClientProxyMessage. */
     bool mqtt_proxy_to_client_enabled;
 
     bool has_store_forward;
@@ -397,6 +472,8 @@ struct mesh_ui_snapshot {
     /* Radio configuration for the Settings tab. Not persisted: it describes the radio that
        is connected right now. */
     struct mesh_ui_settings settings;
+    /* The last traceroute, running or finished. Not persisted. */
+    struct mesh_ui_traceroute traceroute;
     mesh_ui_update_flags update_flags;
 };
 
@@ -410,6 +487,7 @@ struct mesh_ui_store {
     char transport_status[MESH_UI_TRANSPORT_STATUS_MAX];
     struct mesh_ui_nav nav;
     struct mesh_ui_settings settings;
+    struct mesh_ui_traceroute traceroute;
     int event_fd;
     mesh_ui_update_flags pending_flags;
 };
@@ -430,6 +508,9 @@ void mesh_ui_store_set_messages(struct mesh_ui_store *store,
 /* Replaces the radio settings view; quiet when nothing changed. */
 void mesh_ui_store_set_settings(struct mesh_ui_store *store,
                                 const struct mesh_ui_settings *settings);
+/* Replaces the traceroute view; quiet when nothing changed. */
+void mesh_ui_store_set_traceroute(struct mesh_ui_store *store,
+                                  const struct mesh_ui_traceroute *traceroute);
 
 /* Combines persisted history with this session's live messages into the newest
    MESH_UI_MAX_MESSAGES, cached entries first. A cached entry whose packet id also appears in

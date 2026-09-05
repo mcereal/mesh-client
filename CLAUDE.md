@@ -84,7 +84,18 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   `TELEMETRY_APP` packets are the only reason a node that joins mid-session ever gets a name
   and the only source of environment telemetry at all (the NodeDB has none). A resync therefore
   overwrites only what the NodeInfo actually carries rather than rebuilding the record, or it
-  would empty the detail screen every time. A link
+  would empty the detail screen every time. `struct mesh_radio_stats` is the one telemetry
+  that is *not* about a node: `LocalStats` is the connected radio describing itself and the
+  air around it (packet counters, dupes, relays, online node count, heap, noise floor), so it
+  lands on the session and is cleared with the handshake. The firmware sends it to the
+  attached client alone, never over LoRa, so it is only taken from a packet whose `from` is
+  our own node number - and its fields are plain proto3 scalars, so a zero heap size or a
+  zero noise floor is "not reported", not a reading, which is why those two carry a flag and
+  the counters do not. Battery is not in it at all - that arrives only as our own node's
+  ordinary `DeviceMetrics`, which is why the Status screen reads it from the node cache. The
+  airtime pair is in *both*, and LocalStats wins it: DeviceMetrics is what our node last
+  broadcast about itself on the telemetry interval (half an hour by default), so preferring
+  it leaves the row on a stale 0.0% while the radio is busy. A link
   calls `mesh_session_attach(send_fn)` when its connection is usable, hands every FromRadio
   protobuf to `mesh_session_handle_from_radio`, calls `mesh_session_tick` each turn, and
   `mesh_session_detach`es when the link drops (handshake and settings reset, messages survive).
@@ -202,7 +213,50 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   - `mesh_ui_preferences_note_radio` records every `my_node_num` we connect to in a small MRU
   in `ui_prefs` (`known_radios=`), and `mesh_ui_preferences_knows_radio` lifts those above
   message peers. It is client-side on purpose: no admin write, and nothing that could disagree
-  with what "favorite" means on the radio. The open node is remembered by
+  with what "favorite" means on the radio.
+  A on the detail's **"Trace route"** row measures the mesh itself rather than repeating what
+  a node said about itself - `hops_away` is a count, not a route, and never says which nodes
+  are carrying you. `mesh_session_send_traceroute` puts an empty `RouteDiscovery` on
+  `TRACEROUTE_APP` with `want_response`; every node that forwards it appends itself and the
+  target answers with both directions and the SNR of every link. The reply is matched on
+  `Data.request_id` against our packet id, because a trace between two *other* nodes crosses
+  our radio wearing the same portnum, and a RouteDiscovery never reaches the message log
+  either way. One trace at a time (`-EBUSY`) - the client's half of the firmware's own rate
+  limit, and the reason a finished result is kept rather than re-run, since a screen that
+  traced on every repaint would be refused and would flood the mesh. Nothing reports a trace
+  dropped on the way out or back, so `mesh_session_tick` times it out at 60 s ahead of the
+  link guards. `mesh_app_flatten_traceroute` turns the protobuf's shape - intermediate nodes
+  plus a parallel array of link SNRs - into the two paths the UI draws, every stop carrying
+  the reading of the link that reached it: the ends are stitched on (us going out, the target
+  coming back), each hop resolves to a name, and hop `i` takes `snr[i - 1]`. That array is
+  normally one longer than the route, one reading per *link* rather than per node, but every
+  pairing is bounds checked rather than assumed. `INT8_MIN` is the firmware's "not measured"
+  and draws as "no reading", not a -32 dB link.
+  Two more rows talk to the radio *about* the node. **"Ask for its name"**
+  (`mesh_session_request_node_info`) sends our own `User` on `NODEINFO_APP` with
+  `want_response`; the node answers with its NodeInfo, and this is the only way to name a node
+  that joined after the NodeDB replay, since the firmware replays its database exactly once
+  per connection and a node heard afterwards sits as a bare id until it happens to broadcast.
+  It returns `-EAGAIN` until our own owner record has arrived, and there is deliberately **no
+  placeholder**: a NodeInfo is applied by overwriting the record whole -
+  `mesh_session_apply_user` blanks the names and drops the public key when the incoming `User`
+  lacks them, and the firmware's NodeDB does the same - so a `User` carrying only an id would
+  erase *this* node's identity on every peer that received it, the exact opposite of what the
+  row is for.
+  **"Ignore this node"** (`mesh_session_set_node_ignored` -> `set_ignored_node` /
+  `remove_ignored_node`) is the favorite path in every respect including its caveat: no
+  `get_ignored` exists either, so the cached flag is flipped here rather than waited for. It
+  is refused for the radio we are connected through, which would drop our own traffic. Three
+  neighbouring admin verbs are deliberately *not* rows: `toggle_muted_node` means "no
+  notifications" and we have none, so the row would do nothing observable; `remove_by_nodenum`
+  is undone by the node's next packet, so it would often look broken; and a position request
+  duplicates what the NodeInfo exchange already brings back. Five actions is already a lot to
+  walk past with a d-pad before reaching the readings.
+  A TEXT settings row naming a credential (`field_is_secret` in `settings.c`, the MQTT
+  password today) draws a fixed-width mask instead of its value - fixed so it does not leak
+  the length - while the keyboard still opens on the real text. That is the KEY rows' rule
+  exactly: redacted where it is read over somebody's shoulder, revealed in the one place you
+  went to change it. The open node is remembered by
   **id** (`nav.node_detail_node`), not by row: `app.c` re-ranks the node list on every publish,
   so an index would slide onto a different node while the user was reading one; `nav.c`'s clamp
   closes the detail when that id leaves the list. `mesh_ui_node_summary` in `store.h` is the
@@ -280,14 +334,28 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   item builder renders them in place marked `dirty`, and `mesh_app_build_settings_write` in
   `app.c` maps each field back onto the nanopb section. Adding an editable field means: the
   enum + table row here, the flatten in `app.c`, the `mesh_app_apply_setting_edit` case, and
-  the `item_field` call in the section builder. Sections without fields stay read-only.
+  the `item_field` call in the section builder. Every radio section is editable now except the
+  parts noted below. Device, Position, Power and MQTT became editable in phases 5 and 6; `LED heartbeat` is
+  the one row shown inverted, because the protobuf field is `led_heartbeat_disabled` and
+  `app.c` negates it on the way back. The Device role lists all thirteen values with the two
+  deprecated ones labelled "(retired)" rather than hidden - a radio already set to one has to
+  be able to show it, and the nav steps enums as `(value + 1) % count`, so a hole in the range
+  would be unreachable rather than skipped.
   Channels are a two-level list (`nav.settings_channel` is the open slot or
   `MESH_UI_SETTINGS_NO_CHANNEL`; `mesh_ui_settings_channel_at_row` maps a list row to a slot)
   and the Key row is kind `KEY`: `number` is an `enum mesh_ui_psk_choice` (keep, default,
   random 128/256, none, typed hex in `text`), resolved to bytes in `app.c`. Sections named by
   `mesh_ui_settings_section_needs_confirm` (Bluetooth, Channels) get the `confirm_open`
-  overlay between Y and the write; the action's `channel` carries the slot. LoRa and Security
-  are behind it too. Keys are shown and typed as base64 (`mesh_ui_settings_key_text`/`_parse`,
+  overlay between Y and the write; the action's `channel` carries the slot. LoRa, Security and
+  Power are behind it too - Power because saving mode plus a short light-sleep or minimum-wake
+  leaves the radio's Bluetooth off for most of every cycle, and auto-connect cannot reconnect
+  to a radio that is asleep. Device and Position only reboot, which the link poller already
+  handles, so they are not. MQTT is not behind it either, but one of its rows stays read-only:
+  `proxy_to_client_enabled` makes the radio hand its MQTT traffic to the attached client as
+  `MqttClientProxyMessage` (FromRadio tag 14) instead of reaching the broker itself, and this
+  client ignores that variant, so a toggle there would silently take the radio's MQTT off the
+  air. It is still *shown*, because it is the explanation when a phone left it on and MQTT
+  stopped working. Keys are shown and typed as base64 (`mesh_ui_settings_key_text`/`_parse`,
   hex accepted); each KEY field has a choice mask (`mesh_ui_settings_key_choices`) and a length
   rule (`_key_len_ok`). A new private key is clamped in `app.c` and sent with the public key
   cleared, which the firmware fills in; admin keys are compacted before the write.

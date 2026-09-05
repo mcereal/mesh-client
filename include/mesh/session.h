@@ -32,6 +32,15 @@ extern "C" {
    index stays meaningful (MeshPacket.channel is this index for broadcasts). */
 #define MESH_SESSION_MAX_CHANNELS 8U
 
+/* RouteDiscovery's arrays are capped at 8 upstream (proto/meshtastic/mesh.options), so a
+   trace can cross at most that many intermediate nodes in each direction. */
+#define MESH_TRACEROUTE_MAX_HOPS 8U
+
+/* How long a traceroute waits before it is called lost. A reply has to cross the mesh twice,
+   and the firmware answers only after the request has reached the far end, so this is much
+   longer than an admin round trip on the local link. */
+#define MESH_TRACEROUTE_TIMEOUT_MS 60000U
+
 /* Largest ToRadio/FromRadio protobuf the session encodes or accepts. */
 #define MESH_SESSION_MAX_PACKET 512U
 
@@ -92,6 +101,40 @@ struct mesh_node_environment {
     float current;
 };
 
+/*
+ * LocalStats: the connected radio talking about itself and the air around it, delivered as a
+ * TELEMETRY_APP packet from our own node rather than through the config handshake. Nothing
+ * else tells us how busy the channel is, how many packets the radio dropped, or how many of
+ * the nodes in its database it still considers online, so without this the Status screen can
+ * only report our own bookkeeping.
+ *
+ * Every field is a plain proto3 scalar (no has_*), so "not reported" and zero are the same
+ * value on the wire. That is fine for the counters, where zero is a real answer; the two
+ * where it is not - noise floor and heap size - carry their own flag, set from whether the
+ * radio sent anything plausible.
+ */
+struct mesh_radio_stats {
+    bool valid;
+    uint32_t time; /* our clock when this arrived, not the radio's */
+    uint32_t uptime_seconds;
+    float channel_utilization; /* percent of airtime busy, all senders */
+    float air_util_tx;         /* percent of airtime this radio transmitted in */
+    uint32_t num_packets_tx;
+    uint32_t num_packets_rx;
+    uint32_t num_packets_rx_bad;
+    uint32_t num_rx_dupe;
+    uint32_t num_tx_relay;
+    uint32_t num_tx_relay_canceled;
+    uint32_t num_tx_dropped;
+    uint32_t num_online_nodes;
+    uint32_t num_total_nodes;
+    bool has_heap;
+    uint32_t heap_total_bytes;
+    uint32_t heap_free_bytes;
+    bool has_noise_floor;
+    int32_t noise_floor; /* dBm */
+};
+
 struct mesh_node_summary {
     uint32_t node_id;
     char long_name[40];
@@ -116,6 +159,44 @@ struct mesh_node_summary {
     struct mesh_node_position position;
     struct mesh_node_metrics metrics;
     struct mesh_node_environment environment;
+};
+
+enum mesh_traceroute_state {
+    MESH_TRACEROUTE_IDLE = 0,
+    MESH_TRACEROUTE_PENDING,
+    MESH_TRACEROUTE_DONE,
+    MESH_TRACEROUTE_TIMEOUT,
+};
+
+/*
+ * One traceroute: the path a packet took to a node and the path its answer took back, with
+ * the SNR of every link on the way. This is the only thing in the client that measures the
+ * mesh between two nodes rather than reporting what a node said about itself - `hops_away` on
+ * a node record is a count, not a route, and says nothing about which nodes are carrying you.
+ *
+ * `route` holds the *intermediate* nodes only: the full path towards the target is us, then
+ * `route`, then the target, which is why `snr_count` is normally `route_count + 1` - one
+ * reading per link rather than per node. The firmware sends SNR scaled by 4 and uses INT8_MIN
+ * for a link it could not measure; both are kept raw here and resolved for display.
+ *
+ * One trace at a time, and the result is kept after it completes so the node detail can show
+ * the last known route without re-running it - the firmware rate-limits traceroutes, and a
+ * screen that re-traced on every repaint would be refused and would flood the mesh.
+ */
+struct mesh_traceroute {
+    uint8_t state; /* enum mesh_traceroute_state */
+    uint32_t target;
+    uint32_t packet_id; /* the request, echoed back as Data.request_id */
+    uint64_t sent_ms;
+    uint32_t completed; /* our clock when the reply landed, 0 while pending */
+    uint8_t route_count;
+    uint32_t route[MESH_TRACEROUTE_MAX_HOPS];
+    uint8_t snr_count;
+    int8_t snr[MESH_TRACEROUTE_MAX_HOPS + 1U];
+    uint8_t back_count;
+    uint32_t route_back[MESH_TRACEROUTE_MAX_HOPS];
+    uint8_t snr_back_count;
+    int8_t snr_back[MESH_TRACEROUTE_MAX_HOPS + 1U];
 };
 
 struct mesh_channel_summary {
@@ -152,10 +233,14 @@ typedef int (*mesh_session_send_fn)(void *ctx, const uint8_t *packet, size_t len
 
 struct mesh_session {
     struct mesh_handshake_status handshake;
+    /* Describes the radio that is connected right now; cleared with the handshake. */
+    struct mesh_radio_stats stats;
     /* Survives reconnects: a NodeDB resync must not wipe the conversation. */
     struct mesh_message_log messages;
     /* The radio's configuration and the admin session; reset with the handshake. */
     struct mesh_radio_settings settings;
+    /* The last traceroute, running or finished; reset with the handshake. */
+    struct mesh_traceroute traceroute;
     mesh_session_send_fn send;
     void *send_ctx;
     uint32_t next_config_request_id;
@@ -219,6 +304,29 @@ int mesh_session_write_settings(struct mesh_session *session,
  */
 int mesh_session_set_node_favorite(struct mesh_session *session, uint32_t node_id, bool favorite);
 
+/*
+ * Adds or removes a node from the radio's ignore list. Same shape and same caveat as
+ * favorite: there is no get_ignored, so the cached flag is flipped here rather than waiting
+ * for the node's next NodeInfo - which for a node you are ignoring precisely because it is
+ * quiet, or precisely because it is not, may never be a useful wait.
+ *
+ * Unlike a pin this changes what the radio *does*: an ignored node's packets are dropped
+ * before they reach us, so its messages stop arriving and its position stops updating.
+ */
+int mesh_session_set_node_ignored(struct mesh_session *session, uint32_t node_id, bool ignored);
+
+/*
+ * Asks a node to introduce itself: our own User goes out on NODEINFO_APP with want_response,
+ * and the node answers with its NodeInfo. This is the only way to put a name to a node that
+ * joined after the NodeDB replay - the firmware replays its database exactly once per
+ * connection, so a node heard afterwards sits in the list as a bare id until it happens to
+ * broadcast, which on a quiet mesh is hours.
+ *
+ * Returns 0, -ENOTCONN without a link or before the handshake, -EINVAL for a broadcast or for
+ * our own node.
+ */
+int mesh_session_request_node_info(struct mesh_session *session, uint32_t dest);
+
 /* Meshtastic packet ids only need to be unique per sender for a few minutes. Never zero. */
 uint32_t mesh_session_next_packet_id(struct mesh_session *session);
 
@@ -226,6 +334,22 @@ uint32_t mesh_session_next_packet_id(struct mesh_session *session);
 const struct mesh_handshake_status *mesh_session_handshake(const struct mesh_session *session);
 const struct mesh_message_log *mesh_session_messages(const struct mesh_session *session);
 const struct mesh_radio_settings *mesh_session_settings(const struct mesh_session *session);
+/* The connected radio's own LocalStats, or a record with `valid` false before one arrives. */
+const struct mesh_radio_stats *mesh_session_radio_stats(const struct mesh_session *session);
+
+/*
+ * Asks the mesh which way it reaches `dest`, replacing whatever the last trace found. Sends an
+ * empty RouteDiscovery on TRACEROUTE_APP with want_response set; every node that forwards it
+ * appends itself, and the target answers with both directions filled in.
+ *
+ * Returns 0, -ENOTCONN without a link, -EINVAL for a broadcast or for our own node, and
+ * -EBUSY while a trace is already outstanding. The firmware rate-limits traceroutes, so a
+ * caller should not retry on a whim; -EBUSY is the client's own half of that.
+ */
+int mesh_session_send_traceroute(struct mesh_session *session, uint32_t dest);
+
+/* The last traceroute, running or finished. Never NULL for a live session. */
+const struct mesh_traceroute *mesh_session_traceroute(const struct mesh_session *session);
 
 #ifdef __cplusplus
 }

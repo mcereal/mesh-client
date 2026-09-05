@@ -30,6 +30,8 @@ static uint64_t mesh_session_now_ms(void) {
 
 static void mesh_session_reset_handshake(struct mesh_session *session) {
     memset(&session->handshake, 0, sizeof session->handshake);
+    memset(&session->stats, 0, sizeof session->stats);
+    memset(&session->traceroute, 0, sizeof session->traceroute);
     session->node_cache_warned = false;
     mesh_radio_settings_reset(&session->settings);
     session->admin_probe_queued = false;
@@ -262,6 +264,36 @@ static void mesh_session_apply_environment(struct mesh_node_summary *summary,
     summary->environment.current = env->current;
 }
 
+/*
+ * LocalStats is the radio describing itself, so it lands on the session rather than on a node
+ * record. Two fields get a flag rather than being trusted at face value: heap_total_bytes of
+ * zero means the firmware did not fill it in (no radio has no heap), and a noise floor of
+ * exactly 0 dBm is not a reading any LoRa front end produces.
+ */
+static void mesh_session_apply_local_stats(struct mesh_session *session,
+                                           const meshtastic_LocalStats *stats, uint32_t stamp) {
+    struct mesh_radio_stats *out = &session->stats;
+    out->valid = true;
+    out->time = stamp;
+    out->uptime_seconds = stats->uptime_seconds;
+    out->channel_utilization = stats->channel_utilization;
+    out->air_util_tx = stats->air_util_tx;
+    out->num_packets_tx = stats->num_packets_tx;
+    out->num_packets_rx = stats->num_packets_rx;
+    out->num_packets_rx_bad = stats->num_packets_rx_bad;
+    out->num_rx_dupe = stats->num_rx_dupe;
+    out->num_tx_relay = stats->num_tx_relay;
+    out->num_tx_relay_canceled = stats->num_tx_relay_canceled;
+    out->num_tx_dropped = stats->num_tx_dropped;
+    out->num_online_nodes = stats->num_online_nodes;
+    out->num_total_nodes = stats->num_total_nodes;
+    out->has_heap = stats->heap_total_bytes > 0U;
+    out->heap_total_bytes = stats->heap_total_bytes;
+    out->heap_free_bytes = stats->heap_free_bytes;
+    out->has_noise_floor = stats->noise_floor != 0;
+    out->noise_floor = stats->noise_floor;
+}
+
 static void mesh_session_store_node_summary(struct mesh_session *session,
                                             const meshtastic_NodeInfo *info) {
     struct mesh_node_summary *summary = mesh_session_node_slot(session, info->num);
@@ -380,10 +412,9 @@ static void mesh_session_apply_packet_details(struct mesh_session *session,
         }
     }
 
+    /* LocalStats below is about the radio rather than about a node, so a full node cache
+       must not cost us the one telemetry that has nowhere else to go. */
     struct mesh_node_summary *summary = mesh_session_node_slot(session, packet->from);
-    if (summary == NULL) {
-        return;
-    }
 
     pb_istream_t stream = pb_istream_from_buffer(data->payload.bytes, data->payload.size);
     switch (data->portnum) {
@@ -392,6 +423,9 @@ static void mesh_session_apply_packet_details(struct mesh_session *session,
         if (!pb_decode(&stream, meshtastic_User_fields, &user)) {
             mesh_log_debug("session", "Bad NODEINFO_APP from 0x%08x: %s", packet->from,
                            PB_GET_ERROR(&stream));
+            return;
+        }
+        if (summary == NULL) {
             return;
         }
         mesh_session_apply_user(summary, &user);
@@ -406,6 +440,9 @@ static void mesh_session_apply_packet_details(struct mesh_session *session,
                            PB_GET_ERROR(&stream));
             return;
         }
+        if (summary == NULL) {
+            return;
+        }
         mesh_session_apply_position(summary, &position);
         break;
     }
@@ -417,6 +454,18 @@ static void mesh_session_apply_packet_details(struct mesh_session *session,
             return;
         }
         const uint32_t stamp = telemetry.time != 0U ? telemetry.time : heard;
+        /* LocalStats never crosses the mesh: the firmware sends it to the attached client
+           only, from its own node number. Anything else claiming to be ours is not. */
+        if (telemetry.which_variant == meshtastic_Telemetry_local_stats_tag) {
+            if (session->handshake.has_my_info &&
+                packet->from == session->handshake.my_info.my_node_num) {
+                mesh_session_apply_local_stats(session, &telemetry.variant.local_stats, heard);
+            }
+            break;
+        }
+        if (summary == NULL) {
+            return;
+        }
         if (telemetry.which_variant == meshtastic_Telemetry_device_metrics_tag) {
             mesh_session_apply_device_metrics(summary, &telemetry.variant.device_metrics, stamp);
         } else if (telemetry.which_variant == meshtastic_Telemetry_environment_metrics_tag) {
@@ -427,6 +476,71 @@ static void mesh_session_apply_packet_details(struct mesh_session *session,
     default:
         break;
     }
+}
+
+/*
+ * A TRACEROUTE_APP packet answering the request we sent. The firmware replies from the target
+ * with `Data.request_id` set to our packet id, which is what tells our trace from somebody
+ * else's crossing the same radio - a node relaying a trace between two other nodes sees the
+ * same portnum.
+ *
+ * Returns true when the packet was ours, so the caller can keep it out of everything else.
+ */
+static bool mesh_session_handle_traceroute(struct mesh_session *session,
+                                           const meshtastic_MeshPacket *packet) {
+    const meshtastic_Data *data = &packet->decoded;
+    if (data->portnum != meshtastic_PortNum_TRACEROUTE_APP) {
+        return false;
+    }
+    struct mesh_traceroute *trace = &session->traceroute;
+    if (trace->state != MESH_TRACEROUTE_PENDING || data->request_id == 0U ||
+        data->request_id != trace->packet_id) {
+        /* Not an answer to ours: a trace passing through, or one we have already given up on.
+           Claimed anyway - a RouteDiscovery is not a message and has no business in the log. */
+        mesh_log_debug("session", "Ignoring TRACEROUTE_APP from 0x%08x (request %u)", packet->from,
+                       data->request_id);
+        return true;
+    }
+
+    meshtastic_RouteDiscovery route = meshtastic_RouteDiscovery_init_default;
+    pb_istream_t stream = pb_istream_from_buffer(data->payload.bytes, data->payload.size);
+    if (!pb_decode(&stream, meshtastic_RouteDiscovery_fields, &route)) {
+        mesh_log_warn("session", "Bad TRACEROUTE_APP reply: %s", PB_GET_ERROR(&stream));
+        trace->state = MESH_TRACEROUTE_TIMEOUT;
+        return true;
+    }
+
+    trace->route_count =
+        (uint8_t)(route.route_count > MESH_TRACEROUTE_MAX_HOPS ? MESH_TRACEROUTE_MAX_HOPS
+                                                               : route.route_count);
+    for (uint8_t i = 0; i < trace->route_count; ++i) {
+        trace->route[i] = route.route[i];
+    }
+    trace->snr_count = (uint8_t)(route.snr_towards_count > MESH_TRACEROUTE_MAX_HOPS + 1U
+                                     ? MESH_TRACEROUTE_MAX_HOPS + 1U
+                                     : route.snr_towards_count);
+    for (uint8_t i = 0; i < trace->snr_count; ++i) {
+        trace->snr[i] = route.snr_towards[i];
+    }
+    trace->back_count =
+        (uint8_t)(route.route_back_count > MESH_TRACEROUTE_MAX_HOPS ? MESH_TRACEROUTE_MAX_HOPS
+                                                                    : route.route_back_count);
+    for (uint8_t i = 0; i < trace->back_count; ++i) {
+        trace->route_back[i] = route.route_back[i];
+    }
+    trace->snr_back_count = (uint8_t)(route.snr_back_count > MESH_TRACEROUTE_MAX_HOPS + 1U
+                                          ? MESH_TRACEROUTE_MAX_HOPS + 1U
+                                          : route.snr_back_count);
+    for (uint8_t i = 0; i < trace->snr_back_count; ++i) {
+        trace->snr_back[i] = route.snr_back[i];
+    }
+
+    const time_t now = time(NULL);
+    trace->completed = now > 1600000000 ? (uint32_t)now : 0U;
+    trace->state = MESH_TRACEROUTE_DONE;
+    mesh_log_info("session", "Traceroute to 0x%08x: %u hops out, %u back", trace->target,
+                  (unsigned)trace->route_count, (unsigned)trace->back_count);
+    return true;
 }
 
 static void mesh_session_handle_log_record(const meshtastic_LogRecord *record) {
@@ -554,6 +668,14 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
         if (mesh_radio_settings_ingest(&session->settings, &message.packet) == 1) {
             break;
         }
+        /* A RouteDiscovery is not a message either, and the node it came from is already
+           being touched below - so claim it after the touch, not before. */
+        if (message.packet.which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
+            message.packet.decoded.portnum == meshtastic_PortNum_TRACEROUTE_APP) {
+            mesh_session_touch_node_from_packet(session, &message.packet);
+            (void)mesh_session_handle_traceroute(session, &message.packet);
+            break;
+        }
         mesh_session_touch_node_from_packet(session, &message.packet);
         mesh_session_apply_packet_details(session, &message.packet);
         mesh_message_ingest(&session->messages, &message.packet,
@@ -602,7 +724,20 @@ static void mesh_session_sync_clock(struct mesh_session *session) {
  * radio, then send whatever else is queued, one request at a time.
  */
 void mesh_session_tick(struct mesh_session *session, uint64_t now_ms) {
-    if (session == NULL || session->send == NULL || !session->handshake.has_my_info) {
+    if (session == NULL) {
+        return;
+    }
+    /* Nothing on the mesh reports a traceroute that was dropped on the way out or on the way
+       back, so the clock is the only thing that can end a lost one. Checked before the link
+       guards below: a trace outlives a momentary stall, and a row reading "tracing" forever
+       is worse than one that says it gave up. */
+    struct mesh_traceroute *trace = &session->traceroute;
+    if (trace->state == MESH_TRACEROUTE_PENDING && now_ms > trace->sent_ms &&
+        now_ms - trace->sent_ms > MESH_TRACEROUTE_TIMEOUT_MS) {
+        trace->state = MESH_TRACEROUTE_TIMEOUT;
+        mesh_log_info("session", "Traceroute to 0x%08x timed out", trace->target);
+    }
+    if (session->send == NULL || !session->handshake.has_my_info) {
         return;
     }
     if (session->handshake.config_complete && !session->admin_probe_queued) {
@@ -641,6 +776,104 @@ void mesh_session_tick(struct mesh_session *session, uint64_t now_ms) {
 
 int mesh_session_send_packet(struct mesh_session *session, const uint8_t *packet, size_t len) {
     return mesh_session_send_raw(session, packet, len, 0U);
+}
+
+int mesh_session_set_node_ignored(struct mesh_session *session, uint32_t node_id, bool ignored) {
+    if (session == NULL || node_id == 0U) {
+        return -EINVAL;
+    }
+    if (session->send == NULL || !session->handshake.has_my_info) {
+        return -ENOTCONN;
+    }
+    /* Ignoring the radio we are talking through would drop our own traffic. */
+    if (node_id == session->handshake.my_info.my_node_num) {
+        return -EINVAL;
+    }
+
+    struct mesh_node_summary *summary = NULL;
+    for (size_t i = 0; i < session->handshake.node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+        if (session->handshake.nodes[i].node_id == node_id) {
+            summary = &session->handshake.nodes[i];
+            break;
+        }
+    }
+    if (summary == NULL) {
+        return -ENOENT;
+    }
+    if (summary->is_ignored == ignored) {
+        return 0; /* already what the user asked for; nothing to send */
+    }
+
+    const int queued = mesh_radio_settings_queue_ignored(&session->settings, node_id, ignored);
+    if (queued < 0) {
+        return queued;
+    }
+    summary->is_ignored = ignored;
+    mesh_log_info("session", "%s node 0x%08x in the NodeDB (%d requests)",
+                  ignored ? "Ignoring" : "No longer ignoring", node_id, queued);
+    return queued;
+}
+
+int mesh_session_request_node_info(struct mesh_session *session, uint32_t dest) {
+    if (session == NULL || dest == 0U || dest == MESH_MESSAGE_BROADCAST_ADDR) {
+        return -EINVAL;
+    }
+    if (session->send == NULL || !session->handshake.has_my_info) {
+        return -ENOTCONN;
+    }
+    if (dest == session->handshake.my_info.my_node_num) {
+        return -EINVAL;
+    }
+
+    /*
+     * The firmware answers a NODEINFO_APP carrying want_response with its own NodeInfo. What
+     * we send is our own User record, which is also how the far end learns *our* name - the
+     * exchange the phone apps offer is the same packet travelling in both directions.
+     *
+     * Which is exactly why there is no fallback here. A NodeInfo is applied by overwriting
+     * the record wholesale - our own mesh_session_apply_user() blanks the names and drops the
+     * public key when the incoming User does not carry them, and the firmware's NodeDB does
+     * the same - so sending a placeholder User with nothing but an id in it would erase this
+     * node's identity on every peer that received it. The owner arrives with our own NodeInfo
+     * during the handshake, moments after config_complete, so refusing until then costs a
+     * retry at worst.
+     */
+    if (!session->settings.has_owner) {
+        return -EAGAIN;
+    }
+    const meshtastic_User user = session->settings.owner;
+
+    uint8_t body[192];
+    pb_ostream_t body_stream = pb_ostream_from_buffer(body, sizeof body);
+    if (!pb_encode(&body_stream, meshtastic_User_fields, &user)) {
+        mesh_log_error("session", "Failed to encode our User: %s", PB_GET_ERROR(&body_stream));
+        return -EIO;
+    }
+
+    meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_default;
+    to_radio.which_payload_variant = meshtastic_ToRadio_packet_tag;
+    meshtastic_MeshPacket *packet = &to_radio.packet;
+    packet->to = dest;
+    packet->id = mesh_session_next_packet_id(session);
+    packet->want_ack = false; /* the NodeInfo coming back is the answer */
+    packet->which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    packet->decoded.portnum = meshtastic_PortNum_NODEINFO_APP;
+    packet->decoded.want_response = true;
+    memcpy(packet->decoded.payload.bytes, body, body_stream.bytes_written);
+    packet->decoded.payload.size = (pb_size_t)body_stream.bytes_written;
+
+    uint8_t payload[MESH_SESSION_MAX_PACKET];
+    pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof payload);
+    if (!pb_encode(&stream, meshtastic_ToRadio_fields, &to_radio)) {
+        mesh_log_error("session", "Failed to encode NodeInfo request: %s", PB_GET_ERROR(&stream));
+        return -EIO;
+    }
+
+    const int result = mesh_session_send_raw(session, payload, stream.bytes_written, 0U);
+    if (result == 0) {
+        mesh_log_info("session", "Asked node 0x%08x to introduce itself", dest);
+    }
+    return result;
 }
 
 /*
@@ -796,4 +1029,75 @@ const struct mesh_message_log *mesh_session_messages(const struct mesh_session *
 
 const struct mesh_radio_settings *mesh_session_settings(const struct mesh_session *session) {
     return session != NULL ? &session->settings : NULL;
+}
+
+const struct mesh_radio_stats *mesh_session_radio_stats(const struct mesh_session *session) {
+    return session != NULL ? &session->stats : NULL;
+}
+
+int mesh_session_send_traceroute(struct mesh_session *session, uint32_t dest) {
+    if (session == NULL) {
+        return -EINVAL;
+    }
+    if (session->send == NULL) {
+        return -ENOTCONN;
+    }
+    /* A broadcast trace would ask the whole mesh to answer at once, and tracing the route to
+       ourselves is a question with no links in it. */
+    if (dest == 0U || dest == MESH_MESSAGE_BROADCAST_ADDR ||
+        (session->handshake.has_my_info && dest == session->handshake.my_info.my_node_num)) {
+        return -EINVAL;
+    }
+    if (session->traceroute.state == MESH_TRACEROUTE_PENDING) {
+        return -EBUSY;
+    }
+
+    /* An empty RouteDiscovery: every node that forwards it appends itself, so what we send is
+       the question and what comes back is the answer. */
+    meshtastic_RouteDiscovery route = meshtastic_RouteDiscovery_init_default;
+    uint8_t body[64];
+    pb_ostream_t body_stream = pb_ostream_from_buffer(body, sizeof body);
+    if (!pb_encode(&body_stream, meshtastic_RouteDiscovery_fields, &route)) {
+        mesh_log_error("session", "Failed to encode RouteDiscovery: %s",
+                       PB_GET_ERROR(&body_stream));
+        return -EIO;
+    }
+
+    meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_default;
+    to_radio.which_payload_variant = meshtastic_ToRadio_packet_tag;
+    meshtastic_MeshPacket *packet = &to_radio.packet;
+    packet->to = dest;
+    packet->id = mesh_session_next_packet_id(session);
+    packet->want_ack = false; /* the reply is the ack; a Routing ack as well is just airtime */
+    packet->which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    packet->decoded.portnum = meshtastic_PortNum_TRACEROUTE_APP;
+    packet->decoded.want_response = true;
+    memcpy(packet->decoded.payload.bytes, body, body_stream.bytes_written);
+    packet->decoded.payload.size = (pb_size_t)body_stream.bytes_written;
+
+    uint8_t payload[MESH_SESSION_MAX_PACKET];
+    pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof payload);
+    if (!pb_encode(&stream, meshtastic_ToRadio_fields, &to_radio)) {
+        mesh_log_error("session", "Failed to encode traceroute: %s", PB_GET_ERROR(&stream));
+        return -EIO;
+    }
+
+    struct mesh_traceroute *trace = &session->traceroute;
+    memset(trace, 0, sizeof *trace);
+    trace->state = MESH_TRACEROUTE_PENDING;
+    trace->target = dest;
+    trace->packet_id = packet->id;
+    trace->sent_ms = mesh_session_now_ms();
+
+    const int result = mesh_session_send_raw(session, payload, stream.bytes_written, 0U);
+    if (result < 0) {
+        trace->state = MESH_TRACEROUTE_TIMEOUT;
+        return result;
+    }
+    mesh_log_info("session", "Traceroute to 0x%08x sent (id %u)", dest, trace->packet_id);
+    return 0;
+}
+
+const struct mesh_traceroute *mesh_session_traceroute(const struct mesh_session *session) {
+    return session != NULL ? &session->traceroute : NULL;
 }

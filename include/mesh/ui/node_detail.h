@@ -26,9 +26,9 @@ extern "C" {
 
 #define MESH_UI_NODE_LABEL_MAX 20U
 #define MESH_UI_NODE_VALUE_MAX 48U
-/* Every row every node can produce: five headings, the action, and the widest set of
-   readings a sensor node reports. */
-#define MESH_UI_NODE_ITEMS_MAX 48U
+/* Every row every node can produce: the headings, the actions, the widest set of readings a
+   sensor node reports, and a traced route of up to ten stops in each direction. */
+#define MESH_UI_NODE_ITEMS_MAX 72U
 
 enum mesh_ui_node_row_kind {
     MESH_UI_NODE_ROW_INFO = 0, /* label and value */
@@ -38,8 +38,11 @@ enum mesh_ui_node_row_kind {
 
 enum mesh_ui_node_action {
     MESH_UI_NODE_ACTION_NONE = 0,
-    MESH_UI_NODE_ACTION_MESSAGE,  /* open this node's conversation */
-    MESH_UI_NODE_ACTION_FAVORITE, /* pin or unpin the node in the radio's NodeDB */
+    MESH_UI_NODE_ACTION_MESSAGE,      /* open this node's conversation */
+    MESH_UI_NODE_ACTION_FAVORITE,     /* pin or unpin the node in the radio's NodeDB */
+    MESH_UI_NODE_ACTION_TRACEROUTE,   /* ask the mesh which way it reaches this node */
+    MESH_UI_NODE_ACTION_REQUEST_INFO, /* ask the node to introduce itself */
+    MESH_UI_NODE_ACTION_IGNORE,       /* have the radio drop this node's packets */
 };
 
 struct mesh_ui_node_item {
@@ -53,12 +56,18 @@ struct mesh_ui_node_item {
  * Fills `out` with the node's rows and returns how many were written (at most `capacity`).
  * `is_self` drops the rows that make no sense for our own node. `now` is the wall clock used
  * to age timestamps; pass 0 to leave ages out, which is what a Brick with no clock wants.
+ *
+ * `trace` is the client's one traceroute slot and may be NULL. Its rows are emitted only when
+ * it is a trace of *this* node, so opening a different node after a trace shows that node's
+ * own state rather than somebody else's route.
  */
 uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool is_self,
-                                   uint32_t now, struct mesh_ui_node_item *out, uint32_t capacity);
+                                   uint32_t now, const struct mesh_ui_traceroute *trace,
+                                   struct mesh_ui_node_item *out, uint32_t capacity);
 
 /* Rows the node would produce. The nav needs nothing else from this module. */
-uint32_t mesh_ui_node_detail_count(const struct mesh_ui_node_summary *node, bool is_self);
+uint32_t mesh_ui_node_detail_count(const struct mesh_ui_node_summary *node, bool is_self,
+                                   const struct mesh_ui_traceroute *trace);
 
 /*
  * The node with that id, or NULL when it is not in the list. The open detail is remembered by
