@@ -307,13 +307,9 @@ static void mesh_bluez_apply_mock_devices(struct mesh_bluez_device_info *devices
     *count = to_copy;
 }
 
-void mesh_bluez_client_mock_enable(const struct mesh_bluez_mock_config *config) {
-    g_mock_state.enabled = true;
-    if (config != NULL) {
-        g_mock_state.config = *config;
-    } else {
-        memset(&g_mock_state.config, 0, sizeof(g_mock_state.config));
-    }
+/* Everything but `enabled` and `config`: the per-run counters a test would otherwise see carried
+   over from the test before it. Both entry points reset the same set, so they share one. */
+static void mesh_bluez_mock_reset_counters(void) {
     g_mock_state.client = NULL;
     g_mock_state.read_cursor = 0U;
     g_mock_state.services_resolved_polls = 0U;
@@ -325,18 +321,20 @@ void mesh_bluez_client_mock_enable(const struct mesh_bluez_mock_config *config) 
     g_mock_state.paired_count = 0U;
 }
 
+void mesh_bluez_client_mock_enable(const struct mesh_bluez_mock_config *config) {
+    g_mock_state.enabled = true;
+    if (config != NULL) {
+        g_mock_state.config = *config;
+    } else {
+        memset(&g_mock_state.config, 0, sizeof(g_mock_state.config));
+    }
+    mesh_bluez_mock_reset_counters();
+}
+
 void mesh_bluez_client_mock_disable(void) {
     g_mock_state.enabled = false;
     memset(&g_mock_state.config, 0, sizeof(g_mock_state.config));
-    g_mock_state.client = NULL;
-    g_mock_state.read_cursor = 0U;
-    g_mock_state.services_resolved_polls = 0U;
-    g_mock_state.connect_polls = 0U;
-    g_mock_state.connected_polls = 0U;
-    g_mock_state.write_calls = 0U;
-    g_mock_state.pair_polls = 0U;
-    memset(g_mock_state.paired_addresses, 0, sizeof(g_mock_state.paired_addresses));
-    g_mock_state.paired_count = 0U;
+    mesh_bluez_mock_reset_counters();
 }
 
 int mesh_bluez_client_init(struct mesh_bluez_client *client) {
