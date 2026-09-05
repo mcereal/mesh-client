@@ -500,6 +500,7 @@ MESH_TEST_CASE(app_small_module_write_build, unit) {
     MESH_TEST_FAIL_IF(
         mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
             write.type != meshtastic_AdminMessage_ModuleConfigType_TAK_CONFIG ||
+            write.payload.module_config.which_payload_variant != meshtastic_ModuleConfig_tak_tag ||
             write.payload.module_config.payload_variant.tak.team != meshtastic_Team_Green ||
             write.payload.module_config.payload_variant.tak.role != meshtastic_MemberRole_Medic,
         "set_tak should carry the team and role");

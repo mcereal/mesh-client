@@ -181,6 +181,53 @@ MESH_TEST_CASE(radio_module_table, unit) {
     const size_t count = mesh_radio_module_count();
     MESH_TEST_FAIL_IF(count == 0U, "the module table should not be empty");
 
+    /*
+     * What each row must actually say, written out here from meshtastic/module_config.proto and
+     * meshtastic/admin.proto rather than read back out of the table under test - the same rule
+     * message_encode_text_golden follows. A round trip that takes its input from the row and
+     * compares the output to that same row proves only that the table is used consistently; it
+     * passes a row whose tag is wrong but unique, which is the mistake worth catching.
+     *
+     * Numbers are spelled out beside the symbols so a row can be checked against the .proto by
+     * eye: the ModuleConfigType enum counts from 0 and the ModuleConfig field numbers from 1.
+     */
+    static const struct {
+        uint32_t admin_type;
+        uint32_t variant_tag;
+    } k_expected[] = {
+        {0U, 1U},   /* MQTT_CONFIG            <-> mqtt = 1 */
+        {3U, 4U},   /* STOREFORWARD_CONFIG    <-> store_forward = 4 */
+        {5U, 6U},   /* TELEMETRY_CONFIG       <-> telemetry = 6 */
+        {9U, 10U},  /* NEIGHBORINFO_CONFIG    <-> neighbor_info = 10 */
+        {4U, 5U},   /* RANGETEST_CONFIG       <-> range_test = 5 */
+        {12U, 13U}, /* PAXCOUNTER_CONFIG      <-> paxcounter = 13 */
+        {15U, 16U}, /* TAK_CONFIG             <-> tak = 16 */
+        {10U, 11U}, /* AMBIENTLIGHTING_CONFIG <-> ambient_lighting = 11 */
+        {13U, 14U}, /* STATUSMESSAGE_CONFIG   <-> statusmessage = 14 */
+    };
+    MESH_TEST_FAIL_IF(count != sizeof k_expected / sizeof k_expected[0],
+                      "a module was added or removed without updating the expected pairs");
+    for (size_t i = 0; i < count; ++i) {
+        const uint32_t admin = k_expected[i].admin_type;
+        const struct mesh_module_binding *row = mesh_radio_module_for_type(admin);
+        MESH_TEST_FAIL_IF(row == NULL, "an expected module has no row");
+        MESH_TEST_FAIL_IF(row->variant_tag != k_expected[i].variant_tag,
+                          "a module row pairs its admin type with the wrong union tag");
+    }
+
+    /*
+     * And a cross-check that costs nothing and covers a row added later without this test being
+     * updated: upstream orders the ModuleConfigType enum to match the ModuleConfig field numbers,
+     * so the tag is always the admin type plus one, for all seventeen modules - not only the ones
+     * kept here. It is an ordering convention rather than a guarantee, so if it ever fires the
+     * answer is to check the new module against the .proto by hand, not to delete this.
+     */
+    for (size_t i = 0; i < count; ++i) {
+        const struct mesh_module_binding *row = mesh_radio_module_at(i);
+        MESH_TEST_FAIL_IF(row->variant_tag != row->admin_type + 1U,
+                          "a module row breaks the upstream admin-type/field-number ordering");
+    }
+
     /* No two rows may claim the same admin type or the same union tag: either would make one
        module unreachable and silently shadow it with another. */
     for (size_t i = 0; i < count; ++i) {
