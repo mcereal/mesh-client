@@ -176,7 +176,13 @@ Transport-agnostic messaging: builds `TEXT_MESSAGE_APP` packets into a `ToRadio`
 the outbound message they ack. Message text is untrusted radio input, so `mesh_message_ingest`
 sanitises control bytes and backends can draw it directly.
 
-### `src/core/app.c`
+### `src/core/app*.c`
+
+Four files around one `struct mesh_app`, with `src/core/app_internal.h` as the seam between
+them: `app.c` owns the loop, the two links and the process lifecycle; `app_actions.c` is the
+`mesh_ui_action` dispatch; `app_publish.c` copies session state into the UI store;
+`app_settings.c` turns the UI's pending edits into admin writes.
+
 
 `mesh_app_publish_ui_state()` copies discovery/handshake state into the UI store every loop
 iteration and persists the handshake cache and preferences under `$HOME`

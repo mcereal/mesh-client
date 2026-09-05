@@ -78,6 +78,11 @@ stop it.
 | `MESHCLIENT_UPDATE_REPO`, `MESHCLIENT_UPDATE_ASSET` | where the self-updater looks |
 | `MESHCLIENT_UPDATE_ALLOW_DEV` | let a `-dev` build install what it finds; same switch as Settings → About → Dev updates |
 
+The boolean knobs above (`MESHCLIENT_DISABLE_*`, `MESHCLIENT_AUTOCONNECT`,
+`MESHCLIENT_UPDATE_ALLOW_DEV`) all read the same vocabulary, case-insensitively: `1`/`true`/
+`yes`/`on` and `0`/`false`/`no`/`off`. Anything else logs a warning and leaves the default in
+place, rather than being read as one or the other.
+
 Build-time only: `MESHCLIENT_RELEASE_BUILD`, `MESHCLIENT_VERSION` and
 `MESHCLIENT_VERSION_OVERRIDE` (see [`semantic-release.md`](semantic-release.md)).
 
