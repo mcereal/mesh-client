@@ -34,10 +34,12 @@ outputs land in `build/linux/{debug,release}` and never share a CMake cache with
 configure.
 
 ```bash
-make docker-test / docker-debug           # the same, in the dev container
+make docker-test                          # the same, in the dev container
+make docker-debug                         # debug build only, in the dev container
 make docker-shell                         # bash in the dev container
 make docker-pak                           # cross container -> dist/MeshClient.pak.zip
-make docker-image / docker-cross-image    # force image rebuild after editing docker/
+make docker-image                         # force dev image rebuild after editing docker/
+make docker-cross-image                   # force cross image rebuild
 ```
 
 Device deploys go over SSH via `scripts/deploy-device.sh` (dropbear "SSH Server" pak, busybox
@@ -47,7 +49,9 @@ only: transfers are `tar | ssh tar`, no rsync/scp). Host settings live in the gi
 
 ```bash
 make brick                                # docker-pak + push to the Brick
-make deploy / deploy-logs / deploy-check  # push only / tail log / report BlueZ, D-Bus, fb0
+make deploy                               # push only
+make deploy-logs                          # tail the device log
+make deploy-check                         # report BlueZ, D-Bus and fb0 state on device
 make deploy-shot ARGS="-d 10 -o x.png"    # screenshot /dev/fb0 (page 0; -P 1 is the launcher)
 make deploy-run ARGS="--list-devices"     # run launch.sh on device headless, streaming output
 ```

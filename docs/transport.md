@@ -148,13 +148,17 @@ glibc, so both need narrowing.
 - With both in place, a `want_config_id` over the tty was answered with the full config stream:
   125 frames in 10 s.
 
+A USB node is fully selectable on the device: `mesh_app_publish_ui_state()` prepends serial
+ports to the Devices list (`paired = true` — a cable has nothing to bond) so they are the default
+cursor row, `MESH_UI_ACTION_CONNECT` routes those rows to `mesh_serial_transport_connect()`, and
+`mesh_app_autoconnect()` tries a plugged-in port before any BLE candidate. Forget
+(`MESH_UI_ACTION_FORGET`) is the one action still BLE-only, which is correct — there is no bond
+to remove.
+
 ### Known gaps
 
-- The app and UI still reach for `mesh_ble_transport()` directly in about 30 places, so the
-  Devices tab lists BLE advertisers only and auto-connect is BLE-only. Lifting that to an
-  "active link" the app holds is what makes a USB node selectable on the device.
-- Nothing picks a serial port automatically; `--serial` and `MESHCLIENT_PREFERRED_SERIAL_DEVICE`
-  are the only ways in.
+- The app and UI still reach for `mesh_ble_transport()` directly in about 30 places. Lifting that
+  to an "active link" the app holds would remove a good deal of per-kind branching.
 
 ## HTTP
 

@@ -45,13 +45,23 @@ first port found is used.
 
 ## Auto-connect
 
-In foreground mode the app connects by itself: to the preferred node (`--preferred-device`,
-`MESHCLIENT_PREFERRED_BLE_DEVICE`, or the last node it connected to) when it is in range,
-otherwise to the strongest Meshtastic advertiser after a 30 s grace period. Failed attempts back
-off from 2 s to 60 s; only an established link clears the backoff. `--status`, `--list-devices`
-and `--send-text` are unaffected.
+In foreground mode the app connects by itself, and **a plugged-in node wins over anything on the
+air** — it needs no pairing, has no range to lose, and is almost certainly why the cable is
+there.
 
-Set `MESHCLIENT_AUTOCONNECT=0` to stop it.
+1. **USB first.** If any port is discovered, it takes the preferred one
+   (`MESHCLIENT_PREFERRED_SERIAL_DEVICE`) or the first found, with no grace period. Only if that
+   connect fails outright does it fall through to Bluetooth.
+2. **Then BLE.** The preferred node (`--preferred-device`, `MESHCLIENT_PREFERRED_BLE_DEVICE`, or
+   the last node it connected to) when it is in range, otherwise the strongest Meshtastic
+   advertiser after a 30 s grace period.
+
+Failed attempts back off from 2 s to 60 s; only an established link clears the backoff. The two
+preferences are kept apart, so unplugging a USB node does not erase which radio to look for over
+the air.
+
+`--status`, `--list-devices` and `--send-text` are unaffected. Set `MESHCLIENT_AUTOCONNECT=0` to
+stop it.
 
 ## Environment variables
 
@@ -109,9 +119,11 @@ position, environment — rows appear only for what the node has actually report
 you can message it, trace the route to it, ask for its name, pin it to the top of the list, or
 ignore it.
 
-**Devices** lists BLE advertisers. A connects — and bonds, prompting for the six digits a PIN-mode
-node shows on its own screen. X disconnects the current radio and holds auto-connect off so it
-stays disconnected; Y, pressed twice, forgets a bond.
+**Devices** lists USB ports first — they need no pairing, so they sort to the top and are the
+default cursor row — then BLE advertisers. A connects either kind; on a BLE row it also bonds,
+prompting for the six digits a PIN-mode node shows on its own screen, while a cable has nothing
+to bond. X disconnects the current radio and holds auto-connect off so it stays disconnected. Y,
+pressed twice, forgets a bond, and applies to BLE rows only.
 
 **Settings** shows the radio's configuration read over the Meshtastic admin protocol and edits it
 in place: Left/Right or A change a row, the keyboard handles names and hex keys, Y saves, B
