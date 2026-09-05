@@ -1,59 +1,49 @@
-# Testing Strategy
+# Testing
 
-The project currently groups tests into categories so we can tell at a glance
-what is covered and run focused suites when iterating locally or on CI.
+The whole suite is **one binary with a name filter**, not per-test CTest entries. Every case
+lives in `tests/test_main.c` and is registered in the `k_test_cases` table with a category tag.
 
-## Test Categories
+As of 2026-09-05: **94 unit tests, all passing**, zero compiler warnings.
 
-| Category     | Scope                                                                           |
-|--------------|----------------------------------------------------------------------------------|
-| `unit`       | Pure C units compiled into `meshclient_core_tests` that exercise transports,
-|              | event-loop helpers, UI store/controller, preferences, and MinUI JSON glue.      |
-| `integration`| Reserved for cross-module/system tests (e.g., BlueZ-on-device, MinUI E2E).       |
-| `hardware`   | Placeholder for tests that require TrimUI hardware; these will be tagged so CI   |
-|              | can skip them via `ctest -E HARDWARE`.                                           |
+## Categories
 
-All currently implemented scenarios land in the `unit` bucket. As we grow the
-suite we can add new categories without changing the existing harness.
+| Category | Scope |
+|---|---|
+| `unit` | Everything today: transports, event-loop helpers, session and message handling, UI store/controller/nav, preferences, MinUI JSON glue |
+| `integration` | Reserved for cross-module tests (BlueZ-on-device, MinUI end-to-end) |
+| `hardware` | Reserved for tests needing a real Brick; tagged so CI can skip them (`ctest -E HARDWARE`) |
 
-## Running Tests
+## Running
 
 ```bash
-# Default: run the unit suite (same as `make test`)
-ctest -L unit
+make test                                                    # debug build + ctest
+ctest -L unit                                                # the same suite directly
 
-# List available test cases with their categories
-./build/debug/tests/meshclient_core_tests --list
-
-# Run a single category (e.g., future integration tests)
-./build/debug/tests/meshclient_core_tests --category integration
-
-# Filter by test name substring
+./build/debug/tests/meshclient_core_tests --list             # names and categories
 ./build/debug/tests/meshclient_core_tests --filter ble_transport
+./build/debug/tests/meshclient_core_tests --category unit
 ```
 
-The test driver now prints a concise `[RUN]` line for each case, followed by a
-summary table with pass/fail counts. Non-zero failures cause a non-zero exit
-code for CI compatibility.
+The driver prints a `[RUN]` line per case and a pass/fail summary; a non-zero failure count is a
+non-zero exit code.
 
-## Adding New Tests
+## Adding a test
 
-1. Implement the test in `tests/test_main.c` (or a new file) and register it in
-   the `k_test_cases` table with the correct category tag.
-2. Use `record_failure` / `record_success` helpers so failures surface in the
-   summary output.
-3. If the test is not part of the default unit suite, add a new `add_test`
-   stanza in `tests/CMakeLists.txt` and label it appropriately.
+1. Implement it in `tests/test_main.c` and register it in `k_test_cases` with the right category
+   tag.
+2. Use the `record_failure` / `record_success` helpers so failures reach the summary.
+3. If it is not part of the default unit suite, add an `add_test` stanza in
+   `tests/CMakeLists.txt` and label it.
 
-## Coverage & Next Steps
+## Rules
 
-- **Code coverage:** we plan to add a `make coverage` helper that wraps `gcovr`
-  once more modules land; the new test harness already supports filtering so we
-  can scope coverage reports by category.
-- **Integration hooks:** as BLE/MinUI end-to-end flows come online, mark them as
-  `integration` or `hardware` to keep CI fast while still documenting coverage.
-- **CI reporting:** use `ctest --output-junit` in automation to feed results into
-  dashboards; the category labels map cleanly to CI job names.
-
-Refer back to this document when adding transports or UI flows so we keep the
-suite balanced across layers.
+- **Never touch real BlueZ.** There is none in CI. Use `mesh_bluez_client_mock_enable` to script
+  results and capture writes; `mesh_serial_usb_mock_enable` does the same for sysfs and usbfs,
+  and its `open_fd` lets a test hand the link one end of a socketpair.
+- **Prefer deterministic fixtures over live radio calls.**
+- **Cover the error paths** — BLE reconnection and protobuf parsing especially — before calling a
+  feature done.
+- **A new transport needs a golden protobuf frame test.** `message_encode_text_golden` is the
+  model: it pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte vector rather
+  than against our own encoder, so a protobuf regeneration that changes field numbers or wire
+  types fails loudly instead of silently agreeing with itself.

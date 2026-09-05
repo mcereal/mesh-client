@@ -173,7 +173,8 @@ pointed at a scratch repo to test against releases you control.
 
 When semantic-release runs, it automatically:
 
-1. **CMakeLists.txt**: Updates `project(meshclient VERSION x.y.z ...)`
+1. **CMakeLists.txt**: Updates `project(meshclient VERSION x.y.z ...)`. The `version` field in
+   `package.json` is unused and is not touched.
 2. **pak.json**: Updates `version` to the release tag, which the NextUI Pak Store requires to
    match. Skipped for prereleases, so the file only ever carries the last stable `vX.Y.Z`.
 3. **CHANGELOG.md**: Generates release notes from commit messages
@@ -194,6 +195,34 @@ When semantic-release runs, it automatically:
    Renaming or dropping the binary asset breaks self-update for every installed client, so
    keep its name in step with `MESHCLIENT_UPDATE_ASSET` in `src/core/updater.c`.
 
+## How the release artifact is built
+
+`scripts/release-build.sh` cross-compiles with the Bootlin `aarch64--musl` toolchain and
+statically links a from-source libdbus, built with meson and `message_bus=false` (library only,
+no daemon, no expat). Everything else the client needs is already static.
+
+Version pins for the toolchain and for dbus live in **two** places —
+`.github/workflows/semantic-release.yml` and `docker/setup-cross.sh`. **Bump them together**, or
+a local pak build and a released one stop matching.
+
+CI (`ci.yml`) is host-only gcc/clang on ubuntu-24.04 and does **not** cross-compile, so a
+toolchain break only shows up at release time. `make docker-pak` is the local reproduction: it
+runs `scripts/cross-build.sh`, which emits the same two artifacts `release-build.sh` does. On an
+arm64 host the `cross` image uses native `musl-gcc` (exposed as `aarch64-linux-musl-gcc`) instead
+of downloading Bootlin.
+
+`scripts/package.sh` then assembles the pak: `$BUILD_ROOT/release/meshclient` into
+`dist/MeshClient.pak/bin/shared/`, plus everything under
+`Tools/tg5040/MeshClient.pak/bin/{shared,tg5040}/`, the CA bundle, and `launch.sh`. **`launch.sh`
+must stay POSIX sh**; it sets `HOME` to the pak userdata dir, points `DBUS_SYSTEM_BUS_ADDRESS` at
+the system socket, and tees output to `/.userdata/tg5040/logs/MeshClient.txt`.
+
+### Dependency pins
+
+Keep `conventional-changelog-conventionalcommits` on **9.x** until semantic-release's notes
+generator ships `conventional-changelog-writer` 10. On 10.x, `generateNotes` fails with
+"Missing helper". Dependabot is configured to ignore it.
+
 ## Testing Locally
 
 You can test what version would be released without actually releasing:
@@ -201,6 +230,13 @@ You can test what version would be released without actually releasing:
 ```bash
 npm install
 npx semantic-release --dry-run --no-ci
+```
+
+Dry runs need **Node 24.10+**. If your host is older:
+
+```bash
+docker run --rm -v "$PWD":/src -w /src -e GITHUB_TOKEN=$(gh auth token) node:24 bash -c \
+  'npm install && npx semantic-release --dry-run --branches <pushed-branch>'
 ```
 
 ## Initial Release
