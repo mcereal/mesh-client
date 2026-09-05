@@ -133,8 +133,8 @@ static void fb_draw_block(const struct mesh_ui_backend_fb_state *state, int x, i
     }
 }
 
-void fb_draw_glyph(const struct mesh_ui_backend_fb_state *state, int x, int y,
-                          uint32_t codepoint, int scale, struct fb_rgb color) {
+void fb_draw_glyph(const struct mesh_ui_backend_fb_state *state, int x, int y, uint32_t codepoint,
+                   int scale, struct fb_rgb color) {
     struct mesh_font_glyph glyph;
     (void)mesh_font5x7_glyph(codepoint, &glyph);
 
@@ -196,8 +196,8 @@ static void fb_draw_emoji(const struct mesh_ui_backend_fb_state *state, int x, i
  * ASCII range separately. Everything below measures with the same walker, so a line is always
  * as wide as it draws.
  */
-void fb_draw_text(const struct mesh_ui_backend_fb_state *state, int x, int y,
-                         const char *text, int scale, struct fb_rgb color) {
+void fb_draw_text(const struct mesh_ui_backend_fb_state *state, int x, int y, const char *text,
+                  int scale, struct fb_rgb color) {
     int cursor = x;
     size_t offset = 0;
     for (;;) {
@@ -221,7 +221,7 @@ void fb_draw_text(const struct mesh_ui_backend_fb_state *state, int x, int y,
 }
 
 void fb_fill_rect(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h,
-                         struct fb_rgb color) {
+                  struct fb_rgb color) {
     if (w <= 0 || h <= 0) {
         return;
     }
@@ -299,7 +299,7 @@ size_t fb_width(const char *line) { return mesh_ui_text_cells(line); }
 /* Draw one list row, highlighting it when it is the cursor. `x` is the text origin; the
    highlight spans the full width so the eye finds it without reading. */
 void fb_draw_row(const struct mesh_ui_backend_fb_state *state, int y, const char *text,
-                        struct fb_rgb color, bool selected) {
+                 struct fb_rgb color, bool selected) {
     const int line = fb_line_adv(state->scale);
     if (selected) {
         fb_fill_rect(state, FB_MARGIN / 2, y - state->scale, (int)state->var.xres - FB_MARGIN, line,
@@ -363,7 +363,7 @@ uint32_t fb_first_visible(uint32_t cursor, uint32_t count, uint32_t visible) {
 }
 
 void fb_draw_tabs(const struct mesh_ui_backend_fb_state *state,
-                         const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+                  const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const int small = layout->small;
     const int adv = fb_char_adv(small);
     const int line = fb_line_adv(small);
@@ -389,8 +389,8 @@ void fb_draw_tabs(const struct mesh_ui_backend_fb_state *state,
 }
 
 void fb_draw_footer(const struct mesh_ui_backend_fb_state *state,
-                           const struct mesh_ui_snapshot *snapshot, const struct fb_layout *layout,
-                           const char *hint) {
+                    const struct mesh_ui_snapshot *snapshot, const struct fb_layout *layout,
+                    const char *hint) {
     const int small = layout->small;
     const int line = fb_line_adv(small);
     const size_t cols = fb_cols(state, small);
@@ -430,7 +430,7 @@ void fb_draw_footer(const struct mesh_ui_backend_fb_state *state,
 }
 
 void fb_draw_title(const struct mesh_ui_backend_fb_state *state, struct fb_layout *layout,
-                          const char *title) {
+                   const char *title) {
     char text[128];
     snprintf(text, sizeof text, "%s", title);
     fb_fit(text, layout->cols);
@@ -441,14 +441,14 @@ void fb_draw_title(const struct mesh_ui_backend_fb_state *state, struct fb_layou
     }
 }
 
-void fb_draw_empty(const struct mesh_ui_backend_fb_state *state,
-                          const struct fb_layout *layout, const char *text) {
+void fb_draw_empty(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                   const char *text) {
     fb_draw_text(state, FB_MARGIN, layout->body_y, text, state->scale, k_fb_dim);
 }
 
 /* Wraps `text` into at most `max_lines` lines of `cols` columns, drawing each. */
 int fb_draw_wrapped(const struct mesh_ui_backend_fb_state *state, int y, const char *text,
-                           size_t cols, int max_lines, struct fb_rgb color) {
+                    size_t cols, int max_lines, struct fb_rgb color) {
     int lines = 0;
     const char *cursor = text;
     char line[160];

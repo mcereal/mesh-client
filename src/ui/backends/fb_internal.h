@@ -75,15 +75,25 @@ int fb_char_adv(int scale);
 int fb_line_adv(int scale);
 void fb_clear(const struct mesh_ui_backend_fb_state *state, struct fb_rgb color);
 size_t fb_cols(const struct mesh_ui_backend_fb_state *state, int scale);
-void fb_draw_empty(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout, const char *text);
-void fb_draw_footer(const struct mesh_ui_backend_fb_state *state, const struct mesh_ui_snapshot *snapshot, const struct fb_layout *layout, const char *hint);
-void fb_draw_glyph(const struct mesh_ui_backend_fb_state *state, int x, int y, uint32_t codepoint, int scale, struct fb_rgb color);
-void fb_draw_row(const struct mesh_ui_backend_fb_state *state, int y, const char *text, struct fb_rgb color, bool selected);
-void fb_draw_tabs(const struct mesh_ui_backend_fb_state *state, const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
-void fb_draw_text(const struct mesh_ui_backend_fb_state *state, int x, int y, const char *text, int scale, struct fb_rgb color);
-void fb_draw_title(const struct mesh_ui_backend_fb_state *state, struct fb_layout *layout, const char *title);
-int fb_draw_wrapped(const struct mesh_ui_backend_fb_state *state, int y, const char *text, size_t cols, int max_lines, struct fb_rgb color);
-void fb_fill_rect(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h, struct fb_rgb color);
+void fb_draw_empty(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                   const char *text);
+void fb_draw_footer(const struct mesh_ui_backend_fb_state *state,
+                    const struct mesh_ui_snapshot *snapshot, const struct fb_layout *layout,
+                    const char *hint);
+void fb_draw_glyph(const struct mesh_ui_backend_fb_state *state, int x, int y, uint32_t codepoint,
+                   int scale, struct fb_rgb color);
+void fb_draw_row(const struct mesh_ui_backend_fb_state *state, int y, const char *text,
+                 struct fb_rgb color, bool selected);
+void fb_draw_tabs(const struct mesh_ui_backend_fb_state *state,
+                  const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
+void fb_draw_text(const struct mesh_ui_backend_fb_state *state, int x, int y, const char *text,
+                  int scale, struct fb_rgb color);
+void fb_draw_title(const struct mesh_ui_backend_fb_state *state, struct fb_layout *layout,
+                   const char *title);
+int fb_draw_wrapped(const struct mesh_ui_backend_fb_state *state, int y, const char *text,
+                    size_t cols, int max_lines, struct fb_rgb color);
+void fb_fill_rect(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h,
+                  struct fb_rgb color);
 uint32_t fb_first_visible(uint32_t cursor, uint32_t count, uint32_t visible);
 void fb_fit(char *line, size_t cols);
 void fb_format_age(uint32_t last_heard, char *out, size_t out_len);
@@ -93,6 +103,7 @@ size_t fb_width(const char *line);
 /* ---- fb_screens.c ------------------------------------------------------------------------ */
 
 /* Draws one whole frame: chrome, then whichever screen the snapshot says is up. */
-void fb_render_snapshot(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_snapshot *snapshot);
+void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
+                        const struct mesh_ui_snapshot *snapshot);
 
 #endif /* MESH_UI_BACKENDS_FB_INTERNAL_H */

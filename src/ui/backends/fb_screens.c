@@ -10,20 +10,19 @@
 
 #include "fb_internal.h"
 
+#include "mesh/core/message.h"
 #include "mesh/ui/emoji.h"
 #include "mesh/ui/font5x7.h"
 #include "mesh/ui/input.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/node_detail.h"
 #include "mesh/ui/settings.h"
 #include "mesh/utils/text.h"
 
-#include <stdio.h>
-#include <string.h>
-#include "mesh/core/message.h"
-#include "mesh/ui/node_detail.h"
-
 #include <stdarg.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 static void fb_store_view(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_store *view) {
@@ -750,7 +749,9 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
            the number is coloured rather than left as one more figure to interpret. */
         struct fb_rgb air_color = k_fb_text;
         if (have_util) {
-            air_color = util_value >= 50.0f ? k_fb_bad : util_value >= 25.0f ? k_fb_accent : k_fb_good;
+            air_color = util_value >= 50.0f   ? k_fb_bad
+                        : util_value >= 25.0f ? k_fb_accent
+                                              : k_fb_good;
         }
         char util[32] = "?";
         if (have_util) {
@@ -808,8 +809,9 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
                        "%u bad rx, %u dupe, %u tx", stats->num_packets_rx_bad, stats->num_rx_dupe,
                        stats->num_tx_dropped);
         if (stats->has_heap) {
-            fb_status_line(state, layout, &y, stats->heap_free_bytes < 20480U ? k_fb_accent : k_fb_dim,
-                           "Heap", "%u KB free of %u KB", stats->heap_free_bytes / 1024U,
+            fb_status_line(state, layout, &y,
+                           stats->heap_free_bytes < 20480U ? k_fb_accent : k_fb_dim, "Heap",
+                           "%u KB free of %u KB", stats->heap_free_bytes / 1024U,
                            stats->heap_total_bytes / 1024U);
         }
     } else if (snapshot->handshake_valid) {
@@ -945,7 +947,7 @@ static void fb_render_settings(const struct mesh_ui_backend_fb_state *state,
 }
 
 void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
-                               const struct mesh_ui_snapshot *snapshot) {
+                        const struct mesh_ui_snapshot *snapshot) {
     fb_clear(state, k_fb_bg);
 
     struct fb_layout layout;
