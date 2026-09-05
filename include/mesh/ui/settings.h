@@ -113,6 +113,13 @@ enum mesh_ui_settings_action {
     MESH_UI_SETTINGS_ACTION_NONE = 0,
     MESH_UI_SETTINGS_ACTION_CHECK_UPDATE,
     MESH_UI_SETTINGS_ACTION_INSTALL_UPDATE,
+    /* Steps the update channel to the next one and saves it. An ACTION rather than an
+       editable ENUM field because About is not a radio section: there is nothing for Y to
+       write, so a pending edit waiting on a save would never be applied. */
+    MESH_UI_SETTINGS_ACTION_CYCLE_UPDATE_CHANNEL,
+    /* Lets a build that is not a release install what it finds. Only emitted on such a build:
+       the guard it lifts does not exist on a release, so neither does the row. */
+    MESH_UI_SETTINGS_ACTION_TOGGLE_DEV_UPDATES,
 };
 
 /* What a KEY edit asks for. KEEP is the radio's current key (no edit); TYPED carries hex in

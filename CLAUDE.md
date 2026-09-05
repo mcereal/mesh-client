@@ -232,17 +232,27 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   installed before it has to reinstall the pak once; curl's exit 60 is mapped to
   "No CA certificates; reinstall the pak" so the About screen says so.
   What makes downloading an executable safe is not the transport but the digest: the
-  release metadata comes from `api.github.com` - `releases/latest` for a stable build, but
-  `releases?per_page=1` for one off the beta or rc channel, because `latest` deliberately skips
-  prereleases and a beta client polling it would never see the next beta (the `per_page=1` cap
-  also keeps the reply a single release object, so the scanner cannot pair one release's tag
-  with another's asset) - the asset URL is refused unless it sits under
+  release metadata comes from `api.github.com` - `releases/latest` on the Stable channel, but
+  `releases?per_page=1` on Prerelease, because `latest` deliberately skips prereleases and a
+  beta client polling it would never see the next beta (the `per_page=1` cap also keeps the
+  reply a single release object, so the scanner cannot pair one release's tag with another's
+  asset) - the asset URL is refused unless it sits under
   *this* repository's `releases/download/` path, and the bytes must hash (`src/utils/sha256.c`,
   self-contained so the one check that matters does not depend on busybox) to the `digest` that
   metadata carried. A release with no digest is refused rather than installed unverified. The
   install is `rename()` within one directory, so it is atomic, and Linux keeps the running
   image alive off its inode - which is why the last state is READY ("relaunch to run it")
   rather than a restart the app performs on itself.
+  Which of those two questions to ask is `enum mesh_update_channel`, an About-screen setting
+  persisted as `update_channel=` in `ui_prefs`, rather than something inferred from the running
+  build: a stable install had no way to opt into beta and a beta install no way back out.
+  DEFAULT keeps the old inference (a prerelease build follows prereleases), so a prefs file
+  written before the setting reads as "no change". There are two channels and not one per
+  release branch on purpose - telling beta from rc would mean parsing an array of releases
+  instead of the single object `per_page=1` guarantees, and the SemVer ordering already offers
+  a beta user the stable that supersedes their beta. `mesh_updater_set_channel` forgets
+  whatever the last check found, so an asset fetched on one channel can never be installed
+  after switching to the other.
 - `src/ui/settings.c` — the Settings tab as data: sections → items (label, formatted value,
   kind, and for editable rows a `field` id). `MESH_UI_SETTINGS_ABOUT` is first and is the odd
   one out: it describes *this client* (version, UI backend, data dir, update state) rather
@@ -250,11 +260,16 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   backend lets it through the "connect to a radio" guard - it is the one section that means
   anything with nothing connected. Its rows come from `mesh_ui_client_info` in `store.h`,
   filled by `mesh_app_flatten_client_info()` in `app.c` the same way the radio's settings
-  are flattened, so neither the nav nor the backends ever see the updater. Its two ACTION
+  are flattened, so neither the nav nor the backends ever see the updater. Its ACTION
   rows carry an `enum mesh_ui_settings_action` in `number`, which is how `nav.c` turns A
-  into `MESH_UI_ACTION_CHECK_UPDATE`/`INSTALL_UPDATE` without knowing what a section means;
+  into `MESH_UI_ACTION_CHECK_UPDATE`/`INSTALL_UPDATE`/`CYCLE_UPDATE_CHANNEL` without knowing
+  what a section means;
   check and install are deliberately separate presses because install replaces the running
-  binary. Backends draw the list; `nav.c` walks it
+  binary. The update channel is an ACTION and not an editable ENUM field because About has no
+  Y-save behind it - a pending edit there would sit unwritten forever - so A steps it and
+  `app.c` persists it immediately. An ACTION row's value column carries a verb (`press A`) or
+  the setting it holds, never a bare button letter: `Check for updates > A` read as a row
+  whose value was the letter A. Backends draw the list; `nav.c` walks it
   (`settings_section` open or `MESH_UI_SETTINGS_NO_SECTION`, X yields
   `MESH_UI_ACTION_REFRESH_SETTINGS`). The UI's `struct mesh_ui_settings` in `store.h` is a
   flattened copy without nanopb types, filled by `mesh_app_flatten_settings` in `app.c`.
@@ -404,14 +419,30 @@ via Python3 (needs `pip install protobuf grpcio-tools`).
 - **`project(VERSION)` stays numeric; the full tag rides beside it.** CMake accepts only numeric
   components there and errors outright on `1.13.0-beta.1`, which is exactly what the `beta` and
   `rc` channels release. So `release-build.sh` seds in `${version%%-*}` and passes the whole tag
-  as `-DMESHCLIENT_VERSION_FULL`. Keeping the file numeric also keeps the rewrite idempotent - a
+  as `-DMESHCLIENT_VERSION_OVERRIDE` (empty by default, so a build tree that already exists
+  still picks up a version bump - seeding that cache entry with `PROJECT_VERSION` froze it at
+  whatever the project was when the tree was first configured, and `make brick` stamped
+  1.13.0-dev for three releases). Keeping the file numeric also keeps the rewrite idempotent - a
   suffix left behind would not match the pattern next time and the version would compound.
 - **Only the release build is a release.** `-DMESHCLIENT_RELEASE_BUILD=ON` (set by
   `release-build.sh`, nothing else) is what defines `MESHCLIENT_RELEASE_BUILD` and makes
   `mesh_version_is_release()` true. Every other build - `make debug`, `make release`,
   `make brick` - reports `<version>-dev` and is never offered an update, so a binary you just
-  deployed cannot be replaced by whatever is on GitHub. Do not stamp a local build to "test the
-  updater"; point `MESHCLIENT_UPDATE_REPO` somewhere instead. Keep `conventional-changelog-conventionalcommits` on 9.x until semantic-release's
+  deployed cannot be replaced by whatever is on GitHub; the About screen says
+  "Dev build; updates disabled" and shows no install row rather than naming a release it will
+  not install. Do not stamp a local build to "test the updater". To exercise the real
+  download/verify/install path on hardware, lift the guard for that run instead
+  (`mesh_updater_can_install()`): the **Dev updates** row in Settings > About, or
+  `MESHCLIENT_UPDATE_ALLOW_DEV=1`. Both exist on purpose - the env var suits a run started
+  from a shell, and the About row is what a handheld with no computer nearby actually has,
+  which is the whole reason it is not env-only. The row is emitted only on a non-release
+  build (there is no guard to lift on a release) and shows `on (environment)` as a plain fact
+  when the env var is holding it, since a toggle that sprang back would read as broken; the
+  choice persists as `update_allow_dev=` in `ui_prefs`, and the env var wins over the file for
+  that run. A `-dev` build under it compares its own `<version>-dev` string, which SemVer
+  sorts below the release of the same number, so it is offered exactly the release its working
+  tree is based on. Point `MESHCLIENT_UPDATE_REPO` at a scratch repo to test against releases
+  you control. Keep `conventional-changelog-conventionalcommits` on 9.x until semantic-release's
   notes generator ships `conventional-changelog-writer` 9; 10.x fails `generateNotes` with
   "Missing helper" (Dependabot is told to ignore it). Local dry runs need Node 24.10+, e.g.
   `docker run --rm -v "$PWD":/src -w /src -e GITHUB_TOKEN=$(gh auth token) node:24 bash -c

@@ -846,6 +846,10 @@ static void item_action(struct item_list *list, const char *label, const char *v
  * About: what this client is, and the self-update rows. The only section that renders with no
  * radio connected, and the only one whose values come from the app rather than the air.
  *
+ * Every row that responds to A carries a verb in its value column, not a bare "A". The button
+ * hint on its own read as data - "Check for updates > A" looks like a setting whose value is
+ * the letter A - and left no clue that anything would happen.
+ *
  * The update rows are deliberately a check and a separate install rather than one button. The
  * install downloads and replaces the running binary, so it is worth a second, deliberate press
  * once the user can see which version they are about to move to.
@@ -867,15 +871,49 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
         return;
     }
 
+    /*
+     * The channel is a setting, so its value column is the setting rather than a verb; that it
+     * responds to A is what the marker says. It comes before the status because it decides
+     * which question a check will ask.
+     *
+     * While a child is running it drops to a plain fact: switching channel mid-download would
+     * pull the asset out from under it, so the updater refuses, and a row that refuses is
+     * worse than one that never invited the press.
+     */
+    const char *const channel = client->update_channel[0] != '\0' ? client->update_channel : "?";
+    if (client->update_busy) {
+        item_text(list, "Update channel", MESH_UI_SETTING_INFO, channel);
+    } else {
+        item_action(list, "Update channel", channel, MESH_UI_SETTINGS_ACTION_CYCLE_UPDATE_CHANNEL);
+    }
+
+    /*
+     * The dev-updates switch, on a build that is not a release. It exists because the guard it
+     * lifts is the only thing standing between a hand-deployed build and the install path, and
+     * the alternative way in - an environment variable - needs a computer and an ssh session,
+     * which is exactly what a handheld does not have. A release build never sees this row:
+     * there is no guard on it to lift.
+     */
+    if (!client->update_is_release) {
+        if (client->update_allow_dev_from_env) {
+            /* Held on by MESHCLIENT_UPDATE_ALLOW_DEV. Shown as a fact rather than a switch,
+               because a toggle that sprang back would look broken. */
+            item_text(list, "Dev updates", MESH_UI_SETTING_INFO, "on (environment)");
+        } else if (client->update_busy) {
+            item_text(list, "Dev updates", MESH_UI_SETTING_INFO,
+                      client->update_allow_dev ? "on" : "off");
+        } else {
+            item_action(list, "Dev updates", client->update_allow_dev ? "on" : "off",
+                        MESH_UI_SETTINGS_ACTION_TOGGLE_DEV_UPDATES);
+        }
+    }
+
     const enum mesh_update_state state = (enum mesh_update_state)client->update_state;
     item_text(list, "Update status", MESH_UI_SETTING_INFO,
               client->update_message[0] != '\0' ? client->update_message
                                                 : mesh_update_state_name(state));
-    if (client->update_latest[0] != '\0') {
-        item_text(list, "Latest release", MESH_UI_SETTING_INFO, client->update_latest);
-    }
 
-    /* While a child is running neither row does anything, so both say so rather than
+    /* While a child is running neither update row does anything, so both say so rather than
        inviting a press that would be swallowed. */
     if (client->update_busy) {
         item_text(list, "Working", MESH_UI_SETTING_INFO,
@@ -886,13 +924,20 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
         item_text(list, "Installed", MESH_UI_SETTING_INFO, "quit and relaunch");
         return;
     }
-    item_action(list, "Check for updates", "A", MESH_UI_SETTINGS_ACTION_CHECK_UPDATE);
+
+    item_action(list, "Check for updates", "press A", MESH_UI_SETTINGS_ACTION_CHECK_UPDATE);
     if (state == MESH_UPDATE_AVAILABLE) {
-        /* The version is bounded by the value column, not by what the release named itself. */
-        char label[MESH_UI_SETTINGS_VALUE_MAX];
-        snprintf(label, sizeof label, "install %.*s", (int)(sizeof label - 9U),
+        /* The version goes in the label so the value column can say how to act on it: the row
+           the user has to find is the one that names what it will install. The label is
+           bounded by its own column, not by what the release named itself. */
+        char label[MESH_UI_SETTINGS_LABEL_MAX];
+        snprintf(label, sizeof label, "Install %.*s", (int)(sizeof label - 9U),
                  client->update_latest);
-        item_action(list, "Download and install", label, MESH_UI_SETTINGS_ACTION_INSTALL_UPDATE);
+        item_action(list, label, "press A", MESH_UI_SETTINGS_ACTION_INSTALL_UPDATE);
+    } else if (!client->update_can_install) {
+        /* Nothing here will offer an install, so say so once - and name the row that changes
+           it, rather than leaving the user hunting for one that is never coming. */
+        item_text(list, "Installing", MESH_UI_SETTING_INFO, "turn on Dev updates");
     }
 }
 

@@ -129,20 +129,45 @@ CMake's `project(VERSION)` accepts only numeric components — it errors outrigh
 - `CMakeLists.txt` gets the numeric part (`1.13.0`), which also keeps the rewrite idempotent:
   a suffix left in the file would not match the pattern next time and the version would
   compound rather than be replaced.
-- the whole tag goes to the build as `-DMESHCLIENT_VERSION_FULL=1.13.0-beta.1`, and that is
-  what `meshclient --version` and the About screen report.
+- the whole tag goes to the build as `-DMESHCLIENT_VERSION_OVERRIDE=1.13.0-beta.1`, and that
+  is what `meshclient --version` and the About screen report. It defaults to empty, not to the
+  project version: a cache entry seeded with `PROJECT_VERSION` is written on a build tree's
+  first configure and never again, which silently pinned every incremental local build to the
+  version its `build/` directory was created at.
 
 A prerelease client also asks GitHub a different question. `releases/latest` skips prereleases
-by design, so a beta build polls `releases?per_page=1` instead and is offered the newest
-release of any kind; a stable build keeps using `releases/latest` and is never offered a beta.
+by design, so the Prerelease channel polls `releases?per_page=1` instead and is offered the
+newest release of any kind; the Stable channel uses `releases/latest` and is never offered a
+beta.
+
+Which one a client uses is the **Update channel** row in Settings → About: `Automatic`
+(prerelease builds follow prereleases, everything else follows stable — what the updater did
+before the setting existed), `Stable`, or `Prerelease`. A cycles it, and it is saved to
+`update_channel=` in `ui_prefs` straight away. Switching forgets whatever the last check
+found, so an asset fetched on one channel is never installed after moving to the other.
 
 ### Only the release build is a release
 
 `scripts/release-build.sh` is the only thing that passes `-DMESHCLIENT_RELEASE_BUILD=ON`. Every
 other build — `make debug`, `make release`, `make brick` — reports `<version>-dev` and the
 updater refuses to touch it. That is what stops a build you just deployed to a Brick from being
-replaced by whatever is on GitHub, so do not stamp a local build to try the updater out; point
-`MESHCLIENT_UPDATE_REPO` at a scratch repo instead.
+replaced by whatever is on GitHub. About says `Dev build; updates disabled`, a check still
+reports what is out there (`Latest is 1.16.0; dev build, not installing`) and no install row is
+offered.
+
+Do not stamp a local build to try the updater out. Lift the guard for that run instead, either
+way round:
+
+- **Settings → About → Dev updates**, on the device. The row appears only on a non-release
+  build, A toggles it, and it is saved to `update_allow_dev=` in `ui_prefs` — so a Brick with
+  no computer nearby can still exercise the update path.
+- **`MESHCLIENT_UPDATE_ALLOW_DEV=1`** for a run started from a shell. It wins over the saved
+  preference for that run, and About shows the row as `on (environment)` rather than as a
+  switch that would spring back.
+
+A `-dev` build under either sorts below the release of the same version number, so it is
+offered exactly the release its working tree is based on. Combine with `MESHCLIENT_UPDATE_REPO`
+pointed at a scratch repo to test against releases you control.
 
 ## What Gets Updated
 

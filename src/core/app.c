@@ -896,6 +896,35 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
         mesh_ui_store_set_toast(&app->ui_store, now, "Pairing cancelled");
         return;
     }
+    case MESH_UI_ACTION_CYCLE_UPDATE_CHANNEL: {
+        /* Steps DEFAULT -> STABLE -> PRERELEASE -> DEFAULT. Saved immediately rather than
+           collected as a pending edit: About has no Y-save, because there is no radio write
+           behind it. */
+        const enum mesh_update_channel next = (enum mesh_update_channel)(
+            ((unsigned)app->updater.channel + 1U) % (unsigned)MESH_UPDATE_CHANNEL_COUNT);
+        if (!mesh_updater_set_channel(&app->updater, next)) {
+            mesh_ui_store_set_toast(&app->ui_store, now, "Busy; try again in a moment");
+            return;
+        }
+        app->ui_preferences.update_channel = (uint8_t)app->updater.channel;
+        app->ui_preferences_dirty = true;
+        snprintf(toast, sizeof toast, "Update channel: %.*s", (int)(sizeof toast - 18U),
+                 mesh_update_channel_name(app->updater.channel));
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
+    case MESH_UI_ACTION_TOGGLE_DEV_UPDATES: {
+        if (!mesh_updater_set_allow_dev(&app->updater, !app->updater.allow_dev)) {
+            mesh_ui_store_set_toast(&app->ui_store, now, "Busy; try again in a moment");
+            return;
+        }
+        app->ui_preferences.update_allow_dev = app->updater.allow_dev;
+        app->ui_preferences_dirty = true;
+        mesh_ui_store_set_toast(&app->ui_store, now,
+                                app->updater.allow_dev ? "Dev updates on; check again"
+                                                       : "Dev updates off");
+        return;
+    }
     case MESH_UI_ACTION_CHECK_UPDATE: {
         const int result = mesh_updater_check(&app->updater, now);
         if (result == 0) {
@@ -1258,8 +1287,14 @@ static void mesh_app_flatten_client_info(const struct mesh_app *app,
     dst->update_supported = mesh_updater_available(updater);
     dst->update_busy =
         updater->state == MESH_UPDATE_CHECKING || updater->state == MESH_UPDATE_DOWNLOADING;
+    dst->update_can_install = mesh_updater_can_install(updater);
+    dst->update_is_release = mesh_version_is_release();
+    dst->update_allow_dev = updater->allow_dev;
+    dst->update_allow_dev_from_env = updater->allow_dev_from_env;
     snprintf(dst->update_message, sizeof dst->update_message, "%s", updater->message);
     snprintf(dst->update_latest, sizeof dst->update_latest, "%s", updater->latest);
+    snprintf(dst->update_channel, sizeof dst->update_channel, "%s",
+             mesh_update_channel_name(updater->channel));
 }
 
 static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
@@ -2111,6 +2146,15 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     /* Never fatal: a client that cannot update itself is still a working client, and the
        About section says why rather than offering a row that would do nothing. */
     (void)mesh_updater_init(&app->updater, &app->loop);
+    /* After init, which zeroes the struct. A prefs file written before the setting existed
+       reads as DEFAULT, so this is a no-op for anyone who has never picked a channel. */
+    (void)mesh_updater_set_channel(&app->updater,
+                                   (enum mesh_update_channel)app->ui_preferences.update_channel);
+    /* Skipped when the environment already asked: an explicit override on the command line
+       should not be quietly undone by a file written on some earlier run. */
+    if (!app->updater.allow_dev_from_env) {
+        (void)mesh_updater_set_allow_dev(&app->updater, app->ui_preferences.update_allow_dev);
+    }
 
     /* Optional canned.txt next to the preferences file replaces the built-in quick replies. */
     if (app->ui_preferences_path[0] != '\0') {

@@ -48,6 +48,34 @@ enum mesh_update_state {
     MESH_UPDATE_STATE_COUNT,
 };
 
+/*
+ * Which releases this client is willing to be offered.
+ *
+ * `releases/latest` deliberately skips prereleases, so a stable client asking it can never see
+ * a beta and a beta client asking it would be dragged back to stable. Which of the two
+ * questions to ask used to be inferred from the running build's own version, which meant the
+ * user had no say: a stable install could not opt into the beta channel and a beta install
+ * could not opt back out without reinstalling the pak. This is that choice, made explicit and
+ * remembered in ui_prefs.
+ *
+ * DEFAULT keeps the old inference (a prerelease build follows prereleases, anything else
+ * follows stable) and is what an install that has never chosen gets, so the setting appearing
+ * changes nothing for anyone who does not touch it.
+ *
+ * There are two real channels rather than one per release branch because the prerelease query
+ * is `releases?per_page=1` - the newest release of any kind - and the cap is load-bearing: it
+ * keeps the reply a single release object, so the scanner in this file cannot pair one
+ * release's tag with another release's asset. Filtering a list by tag suffix to tell beta from
+ * rc would mean parsing an array of releases, and the ordering already does the right thing -
+ * a beta user is offered the stable that supersedes their beta.
+ */
+enum mesh_update_channel {
+    MESH_UPDATE_CHANNEL_DEFAULT = 0, /* follow the running build */
+    MESH_UPDATE_CHANNEL_STABLE,      /* releases/latest: stable releases only */
+    MESH_UPDATE_CHANNEL_PRERELEASE,  /* the newest release of any kind, beta and rc included */
+    MESH_UPDATE_CHANNEL_COUNT,
+};
+
 #define MESH_UPDATE_VERSION_MAX 32U
 #define MESH_UPDATE_URL_MAX 256U
 #define MESH_UPDATE_MESSAGE_MAX 96U
@@ -57,6 +85,31 @@ enum mesh_update_state {
 
 struct mesh_updater {
     enum mesh_update_state state;
+    /* What the user asked to be offered. Changing it drops any release the last check found,
+       so a beta asset can never be installed after switching back to stable. */
+    enum mesh_update_channel channel;
+    /*
+     * MESHCLIENT_UPDATE_ALLOW_DEV: let a build that is not an official release compare itself
+     * against GitHub and install what it finds.
+     *
+     * Off by default, and deliberately not a setting anyone can reach from the device: the
+     * guard exists so a binary someone just built with `make brick` is never silently replaced
+     * by whatever is on GitHub. But it also makes the whole download/verify/install path
+     * untestable on real hardware without cutting a release first, which is why the escape
+     * hatch is separate from the build: it opts a run in without stamping the binary as a
+     * release (see mesh_version_is_release()).
+     *
+     * It is reachable two ways, because one of them is not enough. MESHCLIENT_UPDATE_ALLOW_DEV
+     * suits a run started from a shell; the About screen's own toggle is what a handheld with
+     * no computer nearby actually has. The row only exists on a build that is not a release,
+     * so nobody who installed from the Pak Store is offered a switch that would mean nothing
+     * to them.
+     */
+    bool allow_dev;
+    /* The environment asked for it, so it is this run's answer whatever the saved preference
+       says - an explicit override on the command line should not be silently overruled by a
+       file. Without it the preference is restored at startup as usual. */
+    bool allow_dev_from_env;
     /* One line for the UI: the failure reason, or what is happening. Always NUL-terminated. */
     char message[MESH_UPDATE_MESSAGE_MAX];
     /* The newest release's tag, without its leading 'v'. Empty until a check succeeds. */
@@ -107,6 +160,33 @@ int mesh_updater_install(struct mesh_updater *updater, uint64_t now_ms);
 void mesh_updater_tick(struct mesh_updater *updater, uint64_t now_ms);
 
 const char *mesh_update_state_name(enum mesh_update_state state);
+
+/* The channel as the About screen names it. DEFAULT reads as "Automatic (stable)" or
+   "Automatic (prerelease)" so the row says what the inference actually resolved to. */
+const char *mesh_update_channel_name(enum mesh_update_channel channel);
+/* DEFAULT resolved against the running build; never returns DEFAULT. */
+enum mesh_update_channel mesh_updater_effective_channel(const struct mesh_updater *updater);
+/*
+ * Selects the channel and forgets whatever the last check found, dropping back to IDLE so the
+ * About screen asks for a fresh check rather than offering a release from the other channel.
+ * No-op while a child is running (a download must not have its asset pulled out from under
+ * it); returns true when the channel actually changed.
+ */
+bool mesh_updater_set_channel(struct mesh_updater *updater, enum mesh_update_channel channel);
+
+/*
+ * Lets a build that is not an official release install what it finds, or stops it again.
+ * Forgets the last check the same way a channel change does: "1.16.0, not installing" and
+ * "1.16.0 available" are different answers to the same question, and only one of them is
+ * true at a time. No-op while a child is running, or when nothing changes; returns true when
+ * the setting actually moved.
+ */
+bool mesh_updater_set_allow_dev(struct mesh_updater *updater, bool allow);
+
+/* True when this build is allowed to install what it finds: an official release, or any build
+   when MESHCLIENT_UPDATE_ALLOW_DEV is set. False means check still works and reports what is
+   out there, but the install row is never offered. */
+bool mesh_updater_can_install(const struct mesh_updater *updater);
 
 /*
  * Parses a GitHub "releases/latest" response for the tag and the asset named `asset_name`.
