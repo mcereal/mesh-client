@@ -1,3 +1,21 @@
+## [2.0.0](https://github.com/mcereal/mesh-client/compare/v1.19.0...v2.0.0) (2026-09-05)
+
+### ⚠ BREAKING CHANGES
+
+* **pak:** lead the entry regardless of its type. The footer's own
+wording is preferred over the subject, with its wrapped lines rejoined:
+bodies here wrap at 72 characters, so reading one line would cut the
+description mid-sentence.
+
+Found by Codex review on #48.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GodvRJ1uaskwwdQYuiPmpU
+
+### Bug Fixes
+
+* **pak:** read breaking-change footers into the store changelog ([f7a787a](https://github.com/mcereal/mesh-client/commit/f7a787a98cee45ea513bb535388d3374b69b7dd5))
+
 ## [1.19.0](https://github.com/mcereal/mesh-client/compare/v1.18.0...v1.19.0) (2026-09-05)
 
 ### Features
