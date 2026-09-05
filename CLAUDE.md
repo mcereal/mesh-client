@@ -60,13 +60,25 @@ Sanitizers: `make debug CMAKE_ARGS="-- -DMESHCLIENT_ENABLE_ASAN=ON"` (or `UBSAN`
 
 ### Tests
 
-One binary with a name filter, not per-test CTest entries. Register new cases in the
-`k_test_cases` table in `tests/test_main.c`; new CTest labels need a matching `add_test` in
-`tests/CMakeLists.txt`. **Tests must not touch real BlueZ** — use `mesh_bluez_client_mock_enable`.
+One binary with a name filter, not per-test CTest entries. Cases live in
+`tests/suites/<area>.c` and **register themselves** — write one with `MESH_TEST_CASE(name,
+category)` and it runs; there is no table to update. A new suite file goes in
+`MESHCLIENT_TEST_SUITES` in `tests/CMakeLists.txt`, and new CTest labels still need a matching
+`add_test` there. **Tests must not touch real BlueZ** — use `mesh_bluez_client_mock_enable`.
+
+| Path | What lives there |
+|---|---|
+| `tests/framework/` | `MESH_TEST_CASE`, the guard macros, the registry and `main` |
+| `tests/support/` | fixtures shared by more than one suite, prefixed `mesh_test_` |
+| `tests/suites/` | the cases themselves, one file per subject area |
+
+A helper used by one suite stays `static` in that suite; it moves to `support/` when a second
+suite needs it.
 
 ```bash
 ./build/debug/tests/meshclient_core_tests --list
 ./build/debug/tests/meshclient_core_tests --filter ble_transport
+./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
 Verified 2026-09-05: 98 unit tests, all passing, zero compiler warnings.
