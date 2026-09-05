@@ -128,9 +128,37 @@ bool mesh_emoji_is_zero_width(uint32_t codepoint) {
            (codepoint >= 0x20D0U && codepoint <= 0x20F0U);     /* combining symbols, keycap */
 }
 
+/*
+ * Is this byte a plain printable ASCII character that cannot begin an emoji?
+ *
+ * '#', '*' and the digits are excluded because they lead the keycap sequences, which is the
+ * only way ASCII appears at the head of the emoji table. Everything else in 0x20-0x7E is a
+ * character the 5x7 font draws, so the full walk below would match nothing and hand back
+ * exactly this - one codepoint, one byte.
+ */
+static inline bool emoji_plain_ascii(unsigned char byte) {
+    return byte >= 0x20U && byte <= 0x7EU && (byte < '0' || byte > '9') && byte != '#' &&
+           byte != '*';
+}
+
 struct mesh_ui_text_cell mesh_ui_text_cell_next(const char *text) {
     struct mesh_ui_text_cell cell = {0};
     if (text == NULL || *text == '\0') {
+        return cell;
+    }
+
+    /*
+     * Fast path for plain ASCII, which is nearly every character on screen.
+     *
+     * The general walk below decodes sixteen codepoints of lookahead and binary-searches two
+     * tables for every cell, and it does that per character on every draw, measure, fit and
+     * truncate. When this character cannot start an emoji and the next byte is also ASCII -
+     * so no combining mark, variation selector, ZWJ or skin tone can attach to it, all of
+     * which live at U+0300 and above - the answer is settled without any of that.
+     */
+    if (emoji_plain_ascii((unsigned char)text[0]) && (unsigned char)text[1] < 0x80U) {
+        cell.codepoint = (uint32_t)(unsigned char)text[0];
+        cell.bytes = 1U;
         return cell;
     }
 

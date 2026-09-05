@@ -85,34 +85,80 @@ static inline uint32_t compose_color(const struct mesh_ui_backend_fb_state *stat
     return color;
 }
 
-static void fb_draw_pixel(const struct mesh_ui_backend_fb_state *state, int x, int y, uint8_t r,
-                          uint8_t g, uint8_t b) {
-    if (x < 0 || y < 0 || x >= (int)state->var.xres || y >= (int)state->var.yres) {
+/*
+ * Fill a clipped, axis-aligned span with an already-packed pixel value.
+ *
+ * This is the one place that touches the mapping. Everything above it packs its colour once
+ * and then describes rectangles, because compose_color() is far too much arithmetic to run per
+ * pixel: a full screen of text is ~200k scaled sub-pixels, and packing each one separately was
+ * about a third of the frame.
+ */
+static void fb_fill_packed(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h,
+                           uint32_t packed) {
+    if (w <= 0 || h <= 0) {
+        return;
+    }
+    if (x < 0) {
+        w += x;
+        x = 0;
+    }
+    if (y < 0) {
+        h += y;
+        y = 0;
+    }
+    if (x + w > (int)state->var.xres) {
+        w = (int)state->var.xres - x;
+    }
+    if (y + h > (int)state->var.yres) {
+        h = (int)state->var.yres - y;
+    }
+    if (w <= 0 || h <= 0) {
         return;
     }
 
-    uint32_t color = compose_color(state, r, g, b);
-    size_t offset = (size_t)y * state->fix.line_length + (size_t)x * state->bytes_per_pixel;
-    if (offset + state->bytes_per_pixel > state->fb_size) {
-        return;
-    }
-    uint8_t *row = state->fb_ptr + offset;
+    const size_t bpp = state->bytes_per_pixel;
+    const size_t stride = state->fix.line_length;
+    uint8_t *row = state->fb_ptr + (size_t)y * stride + (size_t)x * bpp;
 
-    switch (state->bytes_per_pixel) {
-    case 4:
-        *(uint32_t *)row = color;
-        break;
-    case 3:
-        row[0] = color & 0xFF;
-        row[1] = (color >> 8) & 0xFF;
-        row[2] = (color >> 16) & 0xFF;
-        break;
-    case 2:
-        *(uint16_t *)row = (uint16_t)color;
-        break;
-    default:
-        row[0] = color & 0xFF;
-        break;
+    /* The pixel format is fixed for the life of the mapping, so the switch belongs out here
+       rather than inside the column loop it used to sit in. */
+    for (int r = 0; r < h; ++r, row += stride) {
+        if ((size_t)(row - state->fb_ptr) + (size_t)w * bpp > state->fb_size) {
+            return;
+        }
+        /* The stores go through memcpy rather than a cast to uint32_t*: the compiler emits the same
+           single instruction, but a row pointer is only as aligned as fix.line_length makes it, and
+           casting one to a wider type is undefined where the hardware is strict about it. */
+        switch (bpp) {
+        case 4: {
+            uint8_t *px = row;
+            for (int col = 0; col < w; ++col, px += 4) {
+                memcpy(px, &packed, 4U);
+            }
+            break;
+        }
+        case 3: {
+            uint8_t *px = row;
+            for (int col = 0; col < w; ++col) {
+                px[0] = (uint8_t)(packed & 0xFFU);
+                px[1] = (uint8_t)((packed >> 8) & 0xFFU);
+                px[2] = (uint8_t)((packed >> 16) & 0xFFU);
+                px += 3;
+            }
+            break;
+        }
+        case 2: {
+            const uint16_t narrow = (uint16_t)packed;
+            uint8_t *px = row;
+            for (int col = 0; col < w; ++col, px += 2) {
+                memcpy(px, &narrow, 2U);
+            }
+            break;
+        }
+        default:
+            memset(row, (int)(packed & 0xFFU), (size_t)w);
+            break;
+        }
     }
 }
 
@@ -120,32 +166,106 @@ static void fb_draw_pixel(const struct mesh_ui_backend_fb_state *state, int x, i
 int fb_char_adv(int scale) { return MESH_FONT_WIDTH * scale + scale; }
 int fb_line_adv(int scale) { return MESH_FONT_HEIGHT * scale + 2 * scale; }
 
-/* One scaled pixel of a glyph. */
-static void fb_draw_block(const struct mesh_ui_backend_fb_state *state, int x, int y, int scale,
-                          struct fb_rgb color) {
-    for (int sx = 0; sx < scale; ++sx) {
-        for (int sy = 0; sy < scale; ++sy) {
-            fb_draw_pixel(state, x + sx, y + sy, color.r, color.g, color.b);
-        }
-    }
-}
-
 void fb_draw_glyph(const struct mesh_ui_backend_fb_state *state, int x, int y, uint32_t codepoint,
                    int scale, struct fb_rgb color) {
     struct mesh_font_glyph glyph;
     (void)mesh_font5x7_glyph(codepoint, &glyph);
 
-    for (int col = 0; col < MESH_FONT_WIDTH; ++col) {
-        for (int row = 0; row < MESH_FONT_HEIGHT; ++row) {
-            if (glyph.columns[col] & (1U << row)) {
-                fb_draw_block(state, x + col * scale, y + row * scale, scale, color);
+    const uint32_t packed = compose_color(state, color.r, color.g, color.b);
+
+    /*
+     * The glyph is stored column-major and the framebuffer is row-major, so walk rows and emit
+     * each horizontal run of lit columns as one span. A typical glyph row is one or two runs,
+     * where the old per-pixel loop was up to MESH_FONT_WIDTH * scale separate clipped writes.
+     */
+    for (int row = 0; row < MESH_FONT_HEIGHT; ++row) {
+        const uint8_t bit = (uint8_t)(1U << row);
+        int col = 0;
+        while (col < MESH_FONT_WIDTH) {
+            if ((glyph.columns[col] & bit) == 0U) {
+                ++col;
+                continue;
             }
-        }
-        /* An accent that would not fit in the cell hangs in the gap above the line. */
-        if (glyph.above[col] & 0x01U) {
-            fb_draw_block(state, x + col * scale, y - scale, scale, color);
+            int end = col;
+            while (end < MESH_FONT_WIDTH && (glyph.columns[end] & bit) != 0U) {
+                ++end;
+            }
+            fb_fill_packed(state, x + col * scale, y + row * scale, (end - col) * scale, scale,
+                           packed);
+            col = end;
         }
     }
+
+    /* An accent that would not fit in the cell hangs in the gap above the line. */
+    int col = 0;
+    while (col < MESH_FONT_WIDTH) {
+        if ((glyph.above[col] & 0x01U) == 0U) {
+            ++col;
+            continue;
+        }
+        int end = col;
+        while (end < MESH_FONT_WIDTH && (glyph.above[end] & 0x01U) != 0U) {
+            ++end;
+        }
+        fb_fill_packed(state, x + col * scale, y - scale, (end - col) * scale, scale, packed);
+        col = end;
+    }
+}
+
+/*
+ * The emoji palette, packed into framebuffer pixels once.
+ *
+ * compose_color() depends only on the mapping's pixel format, which never changes while fb0 is
+ * open, so the 255 palette entries are packed on first use and reused. The signature guards the
+ * case of a second open with a different format - the tests do exactly that.
+ */
+static uint64_t fb_format_signature(const struct mesh_ui_backend_fb_state *state) {
+    const struct fb_var_screeninfo *var = &state->var;
+    uint64_t sig = var->bits_per_pixel;
+    const struct fb_bitfield *fields[4] = {&var->red, &var->green, &var->blue, &var->transp};
+    for (size_t i = 0; i < 4U; ++i) {
+        sig = sig * 131U + fields[i]->offset;
+        sig = sig * 131U + fields[i]->length;
+    }
+    return sig;
+}
+
+#define FB_EMOJI_PALETTE_SLOTS 256
+
+static const uint32_t *fb_emoji_palette(const struct mesh_ui_backend_fb_state *state,
+                                        const bool **opaque_out) {
+    static uint32_t packed[FB_EMOJI_PALETTE_SLOTS];
+    static bool opaque[FB_EMOJI_PALETTE_SLOTS];
+    static uint64_t signature;
+    static bool valid;
+
+    const uint64_t sig = fb_format_signature(state);
+    if (!valid || sig != signature) {
+        for (size_t i = 0; i < FB_EMOJI_PALETTE_SLOTS; ++i) {
+            uint8_t rgb[3];
+            opaque[i] = mesh_emoji_color((uint8_t)i, rgb);
+            packed[i] = opaque[i] ? compose_color(state, rgb[0], rgb[1], rgb[2]) : 0U;
+        }
+        signature = sig;
+        valid = true;
+    }
+    *opaque_out = opaque;
+    return packed;
+}
+
+/* Decoding a sprite is a run-length expansion into 256 bytes. A row of identical reactions or a
+   repeated node emoji redraws the same sprite many times per frame, so keep the last one. */
+static const uint8_t *fb_emoji_pixels(uint16_t sprite) {
+    static uint8_t pixels[MESH_EMOJI_SIZE * MESH_EMOJI_SIZE];
+    static uint16_t cached_sprite;
+    static bool valid;
+
+    if (!valid || cached_sprite != sprite) {
+        mesh_emoji_decode(sprite, pixels);
+        cached_sprite = sprite;
+        valid = true;
+    }
+    return pixels;
 }
 
 /*
@@ -163,23 +283,41 @@ void fb_draw_glyph(const struct mesh_ui_backend_fb_state *state, int x, int y, u
  */
 static void fb_draw_emoji(const struct mesh_ui_backend_fb_state *state, int x, int y,
                           uint16_t sprite, int scale) {
-    uint8_t pixels[MESH_EMOJI_SIZE * MESH_EMOJI_SIZE];
-    mesh_emoji_decode(sprite, pixels);
-
     /* The box is the full character advance rather than the glyph's five columns: at the
        advance an emoji stands as tall as the capitals beside it, and the sprites carry their
        own transparent margin, so neighbours still separate. */
     const int box = fb_char_adv(scale);
     const int top = y + (MESH_FONT_HEIGHT * scale - box) / 2;
 
+    /* Nearest-neighbour source column per destination column. Identical for every row, so the
+       division runs once per column instead of once per pixel. */
+    int sx_map[MESH_FONT_WIDTH * FB_MAX_SCALE + FB_MAX_SCALE];
+    if (box <= 0 || box > (int)(sizeof sx_map / sizeof sx_map[0])) {
+        return;
+    }
+    for (int dx = 0; dx < box; ++dx) {
+        sx_map[dx] = dx * MESH_EMOJI_SIZE / box;
+    }
+
+    const uint8_t *pixels = fb_emoji_pixels(sprite);
+    const bool *opaque = NULL;
+    const uint32_t *palette = fb_emoji_palette(state, &opaque);
+
+    /* Emoji are mostly flat fills, so coalescing equal-index neighbours into one span turns
+       most rows into a handful of writes. */
     for (int dy = 0; dy < box; ++dy) {
-        const int sy = dy * MESH_EMOJI_SIZE / box;
-        for (int dx = 0; dx < box; ++dx) {
-            const int sx = dx * MESH_EMOJI_SIZE / box;
-            uint8_t rgb[3];
-            if (mesh_emoji_color(pixels[sy * MESH_EMOJI_SIZE + sx], rgb)) {
-                fb_draw_pixel(state, x + dx, top + dy, rgb[0], rgb[1], rgb[2]);
+        const uint8_t *src_row = &pixels[(dy * MESH_EMOJI_SIZE / box) * MESH_EMOJI_SIZE];
+        int dx = 0;
+        while (dx < box) {
+            const uint8_t index = src_row[sx_map[dx]];
+            int end = dx + 1;
+            while (end < box && src_row[sx_map[end]] == index) {
+                ++end;
             }
+            if (opaque[index]) {
+                fb_fill_packed(state, x + dx, top + dy, end - dx, 1, palette[index]);
+            }
+            dx = end;
         }
     }
 }
@@ -219,56 +357,7 @@ void fb_draw_text(const struct mesh_ui_backend_fb_state *state, int x, int y, co
 
 void fb_fill_rect(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h,
                   struct fb_rgb color) {
-    if (w <= 0 || h <= 0) {
-        return;
-    }
-    if (x < 0) {
-        w += x;
-        x = 0;
-    }
-    if (y < 0) {
-        h += y;
-        y = 0;
-    }
-    if (x + w > (int)state->var.xres) {
-        w = (int)state->var.xres - x;
-    }
-    if (y + h > (int)state->var.yres) {
-        h = (int)state->var.yres - y;
-    }
-    if (w <= 0 || h <= 0) {
-        return;
-    }
-
-    const uint32_t packed = compose_color(state, color.r, color.g, color.b);
-    for (int row = y; row < y + h; ++row) {
-        uint8_t *px = state->fb_ptr + (size_t)row * state->fix.line_length +
-                      (size_t)x * state->bytes_per_pixel;
-        if ((size_t)(px - state->fb_ptr) + (size_t)w * state->bytes_per_pixel > state->fb_size) {
-            return;
-        }
-        for (int col = 0; col < w; ++col) {
-            switch (state->bytes_per_pixel) {
-            case 4:
-                *(uint32_t *)px = packed;
-                px += 4;
-                continue;
-            case 3:
-                px[0] = packed & 0xFF;
-                px[1] = (packed >> 8) & 0xFF;
-                px[2] = (packed >> 16) & 0xFF;
-                px += 3;
-                continue;
-            case 2:
-                *(uint16_t *)px = (uint16_t)packed;
-                px += 2;
-                continue;
-            default:
-                *px++ = packed & 0xFF;
-                continue;
-            }
-        }
-    }
+    fb_fill_packed(state, x, y, w, h, compose_color(state, color.r, color.g, color.b));
 }
 
 void fb_clear(const struct mesh_ui_backend_fb_state *state, struct fb_rgb color) {

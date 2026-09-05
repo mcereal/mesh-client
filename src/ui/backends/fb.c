@@ -102,10 +102,12 @@ static void mesh_ui_backend_fb_shutdown(void *state_ptr, void *userdata) {
  * invisible. Pan the display back to page 0 after each frame and, in case the driver ignores
  * the pan, mirror the frame into page 1 as well - a 3 MB copy per HUD update is nothing.
  */
-static void fb_show_page0(struct mesh_ui_backend_fb_state *state) {
+static size_t fb_show_page0(struct mesh_ui_backend_fb_state *state) {
     const size_t page_bytes = (size_t)state->line_bytes * state->var.yres;
+    size_t written = page_bytes;
     if (state->var.yres_virtual >= 2U * state->var.yres && 2U * page_bytes <= state->fb_size) {
         memcpy(state->fb_ptr + page_bytes, state->fb_ptr, page_bytes);
+        written = 2U * page_bytes;
     }
 
     struct fb_var_screeninfo var = state->var;
@@ -118,6 +120,7 @@ static void fb_show_page0(struct mesh_ui_backend_fb_state *state) {
             state->pan_failed_logged = true;
         }
     }
+    return written > state->fb_size ? state->fb_size : written;
 }
 
 static void mesh_ui_backend_fb_present(void *state_ptr, const struct mesh_ui_snapshot *snapshot,
@@ -129,8 +132,13 @@ static void mesh_ui_backend_fb_present(void *state_ptr, const struct mesh_ui_sna
     }
 
     fb_render_snapshot(state, snapshot);
-    fb_show_page0(state);
-    msync(state->fb_ptr, state->fb_size, MS_ASYNC);
+    /*
+     * Flush only the pages the frame actually wrote. fb0 on the Brick is 1024x16384 - a 64 MB
+     * mapping - but a frame touches page 0 and its mirror, 6 MB in all, so syncing the whole
+     * mapping walked ten times the page tables the frame dirtied.
+     */
+    const size_t dirty_bytes = fb_show_page0(state);
+    msync(state->fb_ptr, dirty_bytes, MS_ASYNC);
 }
 
 static const struct mesh_ui_backend k_fb_backend = {
