@@ -33,6 +33,9 @@ endif()
 
 add_library(meshclient_core
     src/core/app.c
+    src/core/app_actions.c
+    src/core/app_publish.c
+    src/core/app_settings.c
     src/core/config.c
     src/core/event_loop.c
     src/core/message.c
