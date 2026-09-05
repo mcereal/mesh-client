@@ -469,6 +469,51 @@ MESH_TEST_CASE(ui_settings_large_modules, unit) {
                           strcmp(item.value, "off") != 0,
                       "an unset traffic limit should read as off");
 
+    /*
+     * The three count rows carry both a zero_label and a formatter. The formatter used to win,
+     * so they read "default" under a section whose stated convention is that 0 is off - checked
+     * on all three, since one of them passing says nothing about the others.
+     */
+    static const enum mesh_ui_setting_field k_traffic_counts[] = {
+        MESH_UI_FIELD_TRAFFIC_NODEINFO_HOPS,
+        MESH_UI_FIELD_TRAFFIC_RATE_PACKETS,
+        MESH_UI_FIELD_TRAFFIC_UNKNOWN_THRESHOLD,
+    };
+    const uint32_t traffic_rows = mesh_ui_settings_item_count(
+        &settings, NULL, MESH_UI_SETTINGS_TRAFFIC, MESH_UI_SETTINGS_NO_CHANNEL);
+    for (size_t f = 0; f < sizeof k_traffic_counts / sizeof k_traffic_counts[0]; ++f) {
+        bool seen = false;
+        for (uint32_t row = 0; row < traffic_rows; ++row) {
+            struct mesh_ui_settings_item r;
+            if (!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_TRAFFIC,
+                                       MESH_UI_SETTINGS_NO_CHANNEL, row, &r) ||
+                r.field != k_traffic_counts[f]) {
+                continue;
+            }
+            seen = true;
+            MESH_TEST_FAIL_IF(strcmp(r.value, "off") != 0,
+                              "a traffic count row at 0 should read off, not default");
+        }
+        MESH_TEST_FAIL_IF(!seen, "a traffic count row is missing");
+    }
+
+    /*
+     * GPIO rows step through every number in the range rather than a curated subset. The first
+     * version of the list was an ESP32 pin map, which made 9, 10 and 28 - all usable output on
+     * a RAK4631 - unreachable, so those three are checked by name along with contiguity.
+     */
+    static const uint32_t k_omitted_before[] = {9U, 10U, 28U};
+    for (size_t i = 0; i < sizeof k_omitted_before / sizeof k_omitted_before[0]; ++i) {
+        const uint32_t pin = k_omitted_before[i];
+        MESH_TEST_FAIL_IF(mesh_ui_settings_number_step(MESH_UI_FIELD_DETECT_PIN, pin - 1U, +1) !=
+                              pin,
+                          "a GPIO row should be able to reach every pin in the range");
+    }
+    MESH_TEST_FAIL_IF(
+        mesh_ui_settings_number_step(MESH_UI_FIELD_EXTNOTIF_PIN_VIBRA, 0U, -1) != 0U ||
+            mesh_ui_settings_number_step(MESH_UI_FIELD_EXTNOTIF_PIN_VIBRA, 48U, +1) != 48U,
+        "a GPIO row should stop at both ends of the range");
+
     /* Detection sensor: a contiguous trigger enum and a pin that reads as unset at 0. */
     MESH_TEST_FAIL_IF(mesh_ui_settings_enum_count(MESH_UI_FIELD_DETECT_TRIGGER) != 6U ||
                           strcmp(mesh_ui_settings_enum_name(MESH_UI_FIELD_DETECT_TRIGGER, 2U),

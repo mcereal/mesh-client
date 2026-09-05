@@ -431,12 +431,23 @@ static const uint32_t k_range_test_presets[] = {0U, 30U, 60U, 120U, 300U, 600U, 
 static const uint32_t k_rssi_presets[] = {RSSI(-100), RSSI(-95), RSSI(-90), RSSI(-85), RSSI(-80),
                                           RSSI(-75),  RSSI(-70), RSSI(-65), RSSI(-60)};
 
-/* GPIO pins. Which pins a board actually exposes is its own business and nothing on the wire
-   says, so the row offers the range an ESP32 or nRF52 could plausibly expose: a pin outside it
-   is certainly wrong, one inside it merely might be. 0 is what the firmware reads as unset. */
-static const uint32_t k_gpio_presets[] = {0U,  1U,  2U,  3U,  4U,  5U,  6U,  12U, 13U,
-                                          14U, 15U, 16U, 17U, 18U, 19U, 21U, 22U, 23U,
-                                          25U, 26U, 27U, 32U, 33U, 34U, 35U, 36U, 39U};
+/*
+ * GPIO pins: every number in the range, not a curated subset.
+ *
+ * The first version of this list was the pins an ESP32 typically exposes, which is exactly the
+ * board-specific assumption there is no way to make here - nothing on the wire says what board
+ * this is, and a RAK4631 puts usable output on 9, 10 and 28, all of which that list omitted and
+ * so made unreachable. A contiguous range covers nRF52840 (P0.00-P1.15, flat 0-47) and ESP32-S3
+ * (0-48) alike, and stepping it is not tedious because the d-pad autorepeats (mesh_ui_input
+ * honours repeat for the navigation keys).
+ *
+ * Whether a pin is wired to anything remains the radio's business and unanswerable here; this
+ * only rules out numbers no board has.
+ */
+static const uint32_t k_gpio_presets[] = {
+    0U,  1U,  2U,  3U,  4U,  5U,  6U,  7U,  8U,  9U,  10U, 11U, 12U, 13U, 14U, 15U, 16U,
+    17U, 18U, 19U, 20U, 21U, 22U, 23U, 24U, 25U, 26U, 27U, 28U, 29U, 30U, 31U, 32U, 33U,
+    34U, 35U, 36U, 37U, 38U, 39U, 40U, 41U, 42U, 43U, 44U, 45U, 46U, 47U, 48U};
 
 /* External notification's on-time and repeat: output_ms is milliseconds, nag_timeout seconds. */
 static const uint32_t k_output_ms_presets[] = {100U, 250U, 500U, 1000U, 2000U, 5000U};

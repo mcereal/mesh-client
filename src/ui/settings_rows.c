@@ -139,7 +139,13 @@ static void item_field(struct item_list *list, enum mesh_ui_setting_field field,
         snprintf(item->value, sizeof item->value, "%s", mesh_ui_settings_enum_name(field, number));
         break;
     case MESH_UI_SETTING_NUMBER:
-        if (spec->format != NULL) {
+        /* A zero_label, where the field sets one, wins over the formatter: it is the field
+           table's way of saying what 0 means for this row, and a formatter that also had an
+           opinion silently overrode it - three Traffic management rows read "default" under a
+           section whose whole convention is that 0 is off. */
+        if (number == 0U && spec->zero_label != NULL) {
+            snprintf(item->value, sizeof item->value, "%s", spec->zero_label);
+        } else if (spec->format != NULL) {
             spec->format(number, item->value, sizeof item->value);
         } else {
             format_seconds(item->value, sizeof item->value, number,
