@@ -4,6 +4,7 @@
 
 #include "framework/mesh_test.h"
 
+#include "mesh/core/radio_settings.h"
 #include "mesh/core/updater.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
@@ -334,6 +335,42 @@ MESH_TEST_CASE(ui_settings_small_modules, unit) {
     MESH_TEST_FAIL_IF(mesh_ui_settings_text_max(MESH_UI_FIELD_STATUS_TEXT) != 79U ||
                           MESH_UI_SETTING_TEXT_MAX < 80U,
                       "a status message should not be truncated by the edit buffer");
+
+    /*
+     * A module fragment is a section like any other: holding only one has to read as "we have
+     * something from the radio". mesh_radio_settings_loaded() enumerates the flags by hand, so
+     * a module added without being listed there reads as no radio at all - checked here for
+     * every phase 10 module, one at a time, because the bug only shows when its flag is the
+     * only one set.
+     */
+    struct mesh_radio_settings radio;
+    for (size_t i = 0; i < sizeof k_added / sizeof k_added[0]; ++i) {
+        mesh_radio_settings_reset(&radio);
+        switch (k_added[i]) {
+        case MESH_UI_SETTINGS_NEIGHBOR_INFO:
+            radio.has_neighbor_info = true;
+            break;
+        case MESH_UI_SETTINGS_RANGE_TEST:
+            radio.has_range_test = true;
+            break;
+        case MESH_UI_SETTINGS_PAXCOUNTER:
+            radio.has_paxcounter = true;
+            break;
+        case MESH_UI_SETTINGS_TAK:
+            radio.has_tak = true;
+            break;
+        case MESH_UI_SETTINGS_AMBIENT:
+            radio.has_ambient_lighting = true;
+            break;
+        case MESH_UI_SETTINGS_STATUS_MESSAGE:
+            radio.has_status_message = true;
+            break;
+        default:
+            break;
+        }
+        MESH_TEST_FAIL_IF(!mesh_radio_settings_loaded(&radio),
+                          "one module fragment on its own should count as loaded");
+    }
 
     /* Range test says what its transmitter does, and only listens at 0. */
     settings.has_range_test = true;

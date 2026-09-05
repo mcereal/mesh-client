@@ -22,10 +22,16 @@ bool mesh_radio_settings_loaded(const struct mesh_radio_settings *settings) {
     if (settings == NULL) {
         return false;
     }
+    /* Every section, not a chosen few: the contract is "anything has arrived", and a module
+       missing from this list reads as no radio at all when its fragment is the one we hold.
+       One line per module, which is a list that has to grow with every phase - the consolidation
+       that folds it into the module table is the next thing after phase 10. */
     if (settings->has_device || settings->has_position || settings->has_power ||
         settings->has_network || settings->has_display || settings->has_lora ||
         settings->has_bluetooth || settings->has_security || settings->has_mqtt ||
-        settings->has_store_forward || settings->has_telemetry || settings->has_owner ||
+        settings->has_store_forward || settings->has_telemetry || settings->has_neighbor_info ||
+        settings->has_range_test || settings->has_paxcounter || settings->has_tak ||
+        settings->has_ambient_lighting || settings->has_status_message || settings->has_owner ||
         settings->has_metadata) {
         return true;
     }
