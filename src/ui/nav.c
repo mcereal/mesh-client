@@ -903,6 +903,10 @@ static bool mesh_ui_nav_open_conversation(struct mesh_ui_nav *nav,
 /* The most bytes the draft may hold: the message limit, or the field's cap when the keyboard
    is editing a setting. */
 static size_t mesh_ui_nav_draft_cap(const struct mesh_ui_nav *nav) {
+    if (nav->keyboard_passkey) {
+        /* A seventh digit could only ever be a passkey BlueZ rejects out of range. */
+        return MESH_UI_PASSKEY_DIGITS;
+    }
     if (nav->keyboard_field != MESH_UI_FIELD_NONE) {
         const uint32_t cap =
             mesh_ui_settings_text_max((enum mesh_ui_setting_field)nav->keyboard_field);
@@ -948,6 +952,14 @@ static void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
         nav->pairing_label[0] = '\0';
         snprintf(nav->draft, sizeof nav->draft, "%s", nav->draft_saved);
         nav->draft_saved[0] = '\0';
+        /* The prompt landed on an open keyboard: give it back rather than dropping the user
+           out of what they were editing. */
+        if (nav->keyboard_field_displaced != MESH_UI_FIELD_NONE) {
+            nav->keyboard_field = nav->keyboard_field_displaced;
+            nav->keyboard_field_displaced = MESH_UI_FIELD_NONE;
+            nav->keyboard_open = true;
+            nav->screen = MESH_UI_SCREEN_SETTINGS;
+        }
         return;
     }
     if (nav->keyboard_field != MESH_UI_FIELD_NONE) {
@@ -1216,9 +1228,9 @@ static bool mesh_ui_nav_send_draft(struct mesh_ui_nav *nav, struct mesh_ui_actio
    that is not a digit is dropped rather than refused, because the prompt is blocking a bond
    and a second chance costs another 30 s of BlueZ. */
 static bool mesh_ui_nav_submit_passkey(struct mesh_ui_nav *nav, struct mesh_ui_action *action) {
-    char digits[8];
+    char digits[MESH_UI_PASSKEY_DIGITS + 1U];
     size_t len = 0U;
-    for (const char *c = nav->draft; *c != '\0' && len + 1U < sizeof digits; ++c) {
+    for (const char *c = nav->draft; *c != '\0' && len < MESH_UI_PASSKEY_DIGITS; ++c) {
         if (*c >= '0' && *c <= '9') {
             digits[len++] = *c;
         }
@@ -1819,10 +1831,10 @@ bool mesh_ui_nav_open_passkey(struct mesh_ui_nav *nav, const char *label, uint32
     }
 
     /* Whatever the keyboard was doing is parked, not lost: the prompt arrives in the middle of
-       whatever the user was typing and BlueZ will not wait for them to finish. */
-    if (!nav->keyboard_open) {
-        snprintf(nav->draft_saved, sizeof nav->draft_saved, "%s", nav->draft);
-    }
+       whatever the user was typing and BlueZ will not wait for them to finish. That includes a
+       keyboard that is already open - its text and its target both come back on close. */
+    snprintf(nav->draft_saved, sizeof nav->draft_saved, "%s", nav->draft);
+    nav->keyboard_field_displaced = nav->keyboard_open ? nav->keyboard_field : MESH_UI_FIELD_NONE;
     nav->keyboard_field = MESH_UI_FIELD_NONE;
     nav->keyboard_passkey = true;
     nav->pairing_confirm = confirm;

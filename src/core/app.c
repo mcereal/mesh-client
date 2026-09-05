@@ -46,7 +46,8 @@ struct mesh_transport *mesh_app_active_transport(void) {
     if (serial != NULL && mesh_serial_transport_is_connecting(serial)) {
         return serial;
     }
-    if (ble != NULL && mesh_ble_transport_is_connecting(ble)) {
+    if (ble != NULL &&
+        (mesh_ble_transport_is_connecting(ble) || mesh_ble_transport_is_pairing(ble))) {
         return ble;
     }
     return ble;
@@ -62,7 +63,10 @@ const char *mesh_app_connected_identifier(void) {
 }
 
 bool mesh_app_link_connecting(void) {
+    /* Pairing counts: it is the first half of a connect the user asked for, and auto-connect
+       taking the serial link up underneath it would leave two transports on one session. */
     return mesh_ble_transport_is_connecting(mesh_ble_transport()) ||
+           mesh_ble_transport_is_pairing(mesh_ble_transport()) ||
            mesh_serial_transport_is_connecting(mesh_serial_transport());
 }
 
@@ -70,8 +74,10 @@ bool mesh_app_link_connecting(void) {
 static void mesh_app_release_other_link(const struct mesh_transport *keep) {
     struct mesh_transport *ble = mesh_ble_transport();
     struct mesh_transport *serial = mesh_serial_transport();
-    if (ble != keep && (mesh_ble_transport_connected_address(ble) != NULL ||
-                        mesh_ble_transport_is_connecting(ble))) {
+    if (ble != keep &&
+        (mesh_ble_transport_connected_address(ble) != NULL ||
+         mesh_ble_transport_is_connecting(ble) || mesh_ble_transport_is_pairing(ble))) {
+        /* A pairing left running would finish and then connect BLE on top of this link. */
         mesh_ble_transport_disconnect(ble);
     }
     if (serial != keep && (mesh_serial_transport_connected_port(serial) != NULL ||
@@ -105,7 +111,7 @@ static int mesh_app_link_connect(struct mesh_app *app, const char *identifier, u
     snprintf(app->config.preferred_ble_device, sizeof app->config.preferred_ble_device, "%s",
              identifier);
     if (mesh_ble_transport_connected_address(transport) != NULL ||
-        mesh_ble_transport_is_connecting(transport)) {
+        mesh_ble_transport_is_connecting(transport) || mesh_ble_transport_is_pairing(transport)) {
         mesh_ble_transport_disconnect(transport);
     }
     /* A connect the user asked for pairs the node when it needs it; auto-connect's own

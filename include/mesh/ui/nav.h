@@ -172,6 +172,11 @@ struct mesh_ui_nav {
     bool keyboard_passkey;
     bool pairing_confirm;
     char pairing_label[MESH_UI_NAV_TARGET_NAME_MAX];
+    /* The keyboard target the prompt displaced, restored when it closes. The prompt can land
+       on top of an open keyboard, and the text being typed is parked in `draft_saved` like any
+       other. (A settings keyboard that had itself parked a compose draft loses that one: there
+       is a single parking slot, and the text in front of the user is the one worth keeping.) */
+    uint8_t keyboard_field_displaced;
     /* Devices tab: Y is armed by one press and forgets the node on the second, because a
        bond dropped by accident costs the user a re-pair with the PIN. */
     bool devices_forget_armed;
@@ -219,6 +224,9 @@ struct mesh_ui_action {
 };
 
 void mesh_ui_nav_init(struct mesh_ui_nav *nav);
+
+/* The PIN a passkey prompt accepts: BlueZ passkeys are 0-999999. */
+#define MESH_UI_PASSKEY_DIGITS 6U
 
 /* Opens (or closes) the PIN prompt over whatever the user was doing. Driven by the app from
    the pairing agent, not by a key press, so it lives outside mesh_ui_nav_handle_key(). For a

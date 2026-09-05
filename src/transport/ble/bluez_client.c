@@ -718,7 +718,38 @@ static bool mesh_bluez_client_handle_agent_call(struct mesh_bluez_client *client
         return true;
     }
     if (strcmp(member, "RequestAuthorization") == 0 || strcmp(member, "AuthorizeService") == 0) {
-        /* Only ever reached for a pairing the user started from the Devices tab. */
+        /*
+         * Being the *default* agent means these also arrive for pairings someone else started
+         * (a remote device pairing to the Brick) and for services on other devices entirely.
+         * Acknowledging those would authorize them silently, so only the bond this client has
+         * in flight is answered; anything else is refused.
+         */
+        /* The two carry different argument lists, and get_args fails on a mismatch - which
+           would leave `device` NULL and refuse the legitimate case along with the rest. */
+        if (strcmp(member, "AuthorizeService") == 0) {
+            const char *uuid = NULL;
+            dbus_message_get_args(message, NULL, DBUS_TYPE_OBJECT_PATH, &device, DBUS_TYPE_STRING,
+                                  &uuid, DBUS_TYPE_INVALID);
+        } else {
+            dbus_message_get_args(message, NULL, DBUS_TYPE_OBJECT_PATH, &device, DBUS_TYPE_INVALID);
+        }
+        const bool ours = (client->pair_state == 1 && device != NULL &&
+                           strcmp(device, client->pair_device_path) == 0);
+        if (!ours) {
+            mesh_log_warn("bluez", "Refusing %s for %s: no pairing of ours is in flight", member,
+                          device != NULL ? device : "?");
+            DBusConnection *connection = (DBusConnection *)client->connection;
+            DBusMessage *reply =
+                dbus_message_new_error(message, "org.bluez.Error.Rejected", "Not requested");
+            if (reply != NULL) {
+                if (connection != NULL) {
+                    (void)dbus_connection_send(connection, reply, NULL);
+                    dbus_connection_flush(connection);
+                }
+                dbus_message_unref(reply);
+            }
+            return true;
+        }
         mesh_bluez_agent_ack(client, message);
         return true;
     }
@@ -1092,15 +1123,8 @@ static int call_adapter_method(struct mesh_bluez_client *client, const char *ada
 
     DBusError error;
     dbus_error_init(&error);
-    /*
-     * Deliberately not the 25 s default. StartNotify on an encrypted characteristic can make
-     * BlueZ start a pairing, and BlueZ then calls our agent - which we cannot answer from
-     * inside a blocking call, because the loop that pops messages is this thread. Bonding is
-     * done up front (mesh_ble_transport_pair) precisely so this does not happen; the timeout
-     * bounds the stall for the case it still can, a bond that has gone stale on the node.
-     */
-    DBusMessage *reply =
-        dbus_connection_send_with_reply_and_block(connection, message, 8000, &error);
+    DBusMessage *reply = dbus_connection_send_with_reply_and_block(
+        connection, message, DBUS_TIMEOUT_USE_DEFAULT, &error);
     dbus_message_unref(message);
 
     if (reply == NULL) {
@@ -1913,8 +1937,15 @@ int mesh_bluez_client_subscribe(struct mesh_bluez_client *client, const char *de
 
     DBusError error;
     dbus_error_init(&error);
-    DBusMessage *reply = dbus_connection_send_with_reply_and_block(
-        connection, message, DBUS_TIMEOUT_USE_DEFAULT, &error);
+    /*
+     * Deliberately not the 25 s default. StartNotify on an encrypted characteristic can make
+     * BlueZ start a pairing, and BlueZ then calls our agent - which we cannot answer from
+     * inside a blocking call, because the loop that pops messages is this thread. Bonding is
+     * done up front (mesh_ble_transport_pair) precisely so this does not happen; the timeout
+     * bounds the stall for the case it still can, a bond that has gone stale on the node.
+     */
+    DBusMessage *reply =
+        dbus_connection_send_with_reply_and_block(connection, message, 8000, &error);
     dbus_message_unref(message);
 
     if (reply == NULL) {

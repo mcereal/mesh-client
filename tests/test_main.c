@@ -9219,6 +9219,10 @@ static void test_ble_transport_pair_then_connect(void) {
         PAIR_TEST_FAIL("nothing is connected while pairing");
     }
 
+    if (!mesh_app_link_connecting()) {
+        PAIR_TEST_FAIL("a bond in flight has to count as a link coming up");
+    }
+
     struct mesh_ble_pairing_request request;
     if (!mesh_ble_transport_pairing_request(ble, &request)) {
         PAIR_TEST_FAIL("the agent should be waiting for a PIN");
@@ -9447,6 +9451,46 @@ static void test_ui_nav_passkey_prompt(void) {
         record_failure(test_name, "the parked compose draft should come back");
         return;
     }
+
+    /* A seventh digit is refused: BlueZ passkeys stop at 999999, so it could only produce a
+       pairing failure the user cannot see the cause of. */
+    mesh_ui_store_open_passkey_prompt(&store, "NodePin", 0U, false);
+    for (int i = 0; i < 8; ++i) {
+        store.nav.kb_row = 0U;
+        store.nav.kb_col = 0U; /* "1" */
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    }
+    if (strcmp(store.nav.draft, "111111") != 0) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "the prompt should stop at six digits");
+        return;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    if (action.type != MESH_UI_ACTION_SUBMIT_PASSKEY || strcmp(action.text, "111111") != 0) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "six digits should be what is submitted");
+        return;
+    }
+
+    /* Landing on top of an open keyboard gives it back afterwards, text and target both. */
+    store.nav.keyboard_open = true;
+    store.nav.keyboard_field = MESH_UI_FIELD_USER_LONG_NAME;
+    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "Base Camp");
+    mesh_ui_store_open_passkey_prompt(&store, "NodePin", 0U, false);
+    if (store.nav.keyboard_field != MESH_UI_FIELD_NONE || store.nav.draft[0] != '\0') {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "the prompt should take the keyboard over cleanly");
+        return;
+    }
+    mesh_ui_store_close_passkey_prompt(&store);
+    if (!store.nav.keyboard_open ||
+        store.nav.keyboard_field != (uint8_t)MESH_UI_FIELD_USER_LONG_NAME ||
+        strcmp(store.nav.draft, "Base Camp") != 0) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "the displaced keyboard should come back");
+        return;
+    }
+    mesh_ui_nav_init(&store.nav);
 
     /* B with nothing typed abandons the bond rather than silently leaving BlueZ waiting. */
     mesh_ui_store_open_passkey_prompt(&store, "NodePin", 0U, false);
