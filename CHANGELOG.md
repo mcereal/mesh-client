@@ -1,3 +1,13 @@
+## [2.3.0](https://github.com/mcereal/mesh-client/compare/v2.2.1...v2.3.0) (2026-09-05)
+
+### Features
+
+* **settings:** add the three large modules (roadmap phase 11) ([01ab213](https://github.com/mcereal/mesh-client/commit/01ab2135ac9c30463ad6a3554c9aaa0a29d08dd2))
+
+### Bug Fixes
+
+* **settings:** reach every GPIO, and let zero_label mean what it says ([36c03bd](https://github.com/mcereal/mesh-client/commit/36c03bdc08bb92b98d79cd2a3450e73daec61dcc))
+
 ## [2.2.1](https://github.com/mcereal/mesh-client/compare/v2.2.0...v2.2.1) (2026-09-05)
 
 ### Code Refactoring

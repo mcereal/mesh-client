@@ -1,17 +1,17 @@
 {
   "name": "MeshClient",
-  "version": "v2.2.1",
+  "version": "v2.3.0",
   "type": "TOOL",
   "description": "A Meshtastic client for your handheld: read and send messages, browse the mesh, and edit your radio's settings over Bluetooth LE or USB.",
   "author": "mcereal",
   "repo_url": "https://github.com/mcereal/mesh-client",
   "release_filename": "MeshClient.pak.zip",
   "changelog": {
+    "v2.3.0": "Add the three large modules (roadmap phase 11); Reach every GPIO, and let zero_label mean what it says.",
     "v2.2.0": "Add the six small modules (roadmap phase 10); Count the new module sections as loaded.",
     "v2.1.0": "Put the modules behind their own list and complete the three shipped ones; Expose the air-quality screen toggle and label the Modules footer.",
     "v2.0.3": "Keep the roster's owning radio across a restart; Keep the node roster across syncs and name userless nodes.",
-    "v2.0.0": "Read breaking-change footers into the store changelog.",
-    "v1.19.0": "Set the radio's position, mute and remove nodes; Reboot, shut down and reset the radio; Keep both classes of Position edit, and mute once per press."
+    "v2.0.0": "Read breaking-change footers into the store changelog."
   },
   "screenshots": [
     ".github/resources/screenshots/nodes.png",
