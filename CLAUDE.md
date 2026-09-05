@@ -237,6 +237,12 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   `want_response`; the node answers with its NodeInfo, and this is the only way to name a node
   that joined after the NodeDB replay, since the firmware replays its database exactly once
   per connection and a node heard afterwards sits as a bare id until it happens to broadcast.
+  It returns `-EAGAIN` until our own owner record has arrived, and there is deliberately **no
+  placeholder**: a NodeInfo is applied by overwriting the record whole -
+  `mesh_session_apply_user` blanks the names and drops the public key when the incoming `User`
+  lacks them, and the firmware's NodeDB does the same - so a `User` carrying only an id would
+  erase *this* node's identity on every peer that received it, the exact opposite of what the
+  row is for.
   **"Ignore this node"** (`mesh_session_set_node_ignored` -> `set_ignored_node` /
   `remove_ignored_node`) is the favorite path in every respect including its caveat: no
   `get_ignored` exists either, so the cached flag is flipped here rather than waited for. It
@@ -245,7 +251,12 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   notifications" and we have none, so the row would do nothing observable; `remove_by_nodenum`
   is undone by the node's next packet, so it would often look broken; and a position request
   duplicates what the NodeInfo exchange already brings back. Five actions is already a lot to
-  walk past with a d-pad before reaching the readings. The open node is remembered by
+  walk past with a d-pad before reaching the readings.
+  A TEXT settings row naming a credential (`field_is_secret` in `settings.c`, the MQTT
+  password today) draws a fixed-width mask instead of its value - fixed so it does not leak
+  the length - while the keyboard still opens on the real text. That is the KEY rows' rule
+  exactly: redacted where it is read over somebody's shoulder, revealed in the one place you
+  went to change it. The open node is remembered by
   **id** (`nav.node_detail_node`), not by row: `app.c` re-ranks the node list on every publish,
   so an index would slide onto a different node while the user was reading one; `nav.c`'s clamp
   closes the detail when that id leaves the list. `mesh_ui_node_summary` in `store.h` is the

@@ -825,15 +825,23 @@ int mesh_session_request_node_info(struct mesh_session *session, uint32_t dest) 
         return -EINVAL;
     }
 
-    /* The firmware answers a NODEINFO_APP carrying want_response with its own NodeInfo. What
-       we send is our own User record, which is also how the far end learns our name - the
-       exchange the phone apps offer is the same packet travelling in both directions. */
-    meshtastic_User user = meshtastic_User_init_default;
-    if (session->settings.has_owner) {
-        user = session->settings.owner;
-    } else {
-        snprintf(user.id, sizeof user.id, "!%08x", session->handshake.my_info.my_node_num);
+    /*
+     * The firmware answers a NODEINFO_APP carrying want_response with its own NodeInfo. What
+     * we send is our own User record, which is also how the far end learns *our* name - the
+     * exchange the phone apps offer is the same packet travelling in both directions.
+     *
+     * Which is exactly why there is no fallback here. A NodeInfo is applied by overwriting
+     * the record wholesale - our own mesh_session_apply_user() blanks the names and drops the
+     * public key when the incoming User does not carry them, and the firmware's NodeDB does
+     * the same - so sending a placeholder User with nothing but an id in it would erase this
+     * node's identity on every peer that received it. The owner arrives with our own NodeInfo
+     * during the handshake, moments after config_complete, so refusing until then costs a
+     * retry at worst.
+     */
+    if (!session->settings.has_owner) {
+        return -EAGAIN;
     }
+    const meshtastic_User user = session->settings.owner;
 
     uint8_t body[192];
     pb_ostream_t body_stream = pb_ostream_from_buffer(body, sizeof body);

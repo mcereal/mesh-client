@@ -924,6 +924,10 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
             snprintf(toast, sizeof toast, "Asked %.20s to introduce itself", name);
         } else if (result == -ENOTCONN) {
             snprintf(toast, sizeof toast, "%s", "Not connected to a node");
+        } else if (result == -EAGAIN) {
+            /* Our own owner record has not landed yet, and sending a placeholder would erase
+               this node's name on whoever received it. */
+            snprintf(toast, sizeof toast, "%s", "Still syncing; try again in a moment");
         } else if (result == -EINVAL) {
             snprintf(toast, sizeof toast, "%s", "Cannot ask this node");
         } else {

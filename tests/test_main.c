@@ -8092,6 +8092,28 @@ static void test_session_node_actions(void) {
         record_failure(test_name, "asking ourselves or everyone should be refused");
         return;
     }
+
+    /*
+     * Before our own owner record arrives there is nothing truthful to send. A NodeInfo is
+     * applied by overwriting the record wholesale, so a placeholder User carrying only an id
+     * would blank this node's name and public key on every peer that received it.
+     */
+    if (mesh_session_request_node_info(&session, 0x2222U) != -EAGAIN || capture.calls != 0U) {
+        record_failure(test_name, "a request without our owner record should be refused");
+        return;
+    }
+
+    meshtastic_FromRadio owner = meshtastic_FromRadio_init_default;
+    owner.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+    owner.node_info.num = 0x1111U;
+    owner.node_info.has_user = true;
+    snprintf(owner.node_info.user.long_name, sizeof owner.node_info.user.long_name, "Brick");
+    snprintf(owner.node_info.user.short_name, sizeof owner.node_info.user.short_name, "BRIK");
+    if (!session_feed_from_radio(&session, &owner)) {
+        record_failure(test_name, "encode our own node_info failed");
+        return;
+    }
+
     if (mesh_session_request_node_info(&session, 0x2222U) != 0 || capture.calls != 1U) {
         record_failure(test_name, "the NodeInfo request was not sent");
         return;
@@ -8103,6 +8125,15 @@ static void test_session_node_actions(void) {
         sent.packet.decoded.portnum != meshtastic_PortNum_NODEINFO_APP ||
         !sent.packet.decoded.want_response) {
         record_failure(test_name, "the request should be a NODEINFO_APP asking for a reply");
+        return;
+    }
+    /* And it carries our real name, which is the half of the exchange the far end keeps. */
+    meshtastic_User sent_user = meshtastic_User_init_default;
+    pb_istream_t user_in =
+        pb_istream_from_buffer(sent.packet.decoded.payload.bytes, sent.packet.decoded.payload.size);
+    if (!pb_decode(&user_in, meshtastic_User_fields, &sent_user) ||
+        strcmp(sent_user.short_name, "BRIK") != 0) {
+        record_failure(test_name, "the request should carry our own owner record");
         return;
     }
 
