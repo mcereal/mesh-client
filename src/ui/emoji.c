@@ -1,7 +1,7 @@
 #include "mesh/ui/emoji.h"
 
-#include "mesh/text.h"
 #include "mesh/ui/font5x7.h"
+#include "mesh/utils/text.h"
 
 #include <string.h>
 

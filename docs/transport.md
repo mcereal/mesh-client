@@ -27,8 +27,8 @@ Per the [Meshtastic client API](https://meshtastic.org/docs/development/device/c
 on FromNum, and on each notification `ReadValue` FromRadio until it returns empty.
 
 **One bare protobuf per write/read — there is no length framing on BLE.** BlueZ handles ATT long
-writes, so there is no client-side chunking either; packets are capped at 512 bytes.
-(`src/proto/framing.c` is a homegrown varint prefix used by nothing on the wire.)
+writes, so there is no client-side chunking either; packets are capped at 512 bytes. Framing is a
+serial-only concern; see `src/proto/stream_framing.c` below.
 
 ### `src/transport/ble/bluez_client.c`
 

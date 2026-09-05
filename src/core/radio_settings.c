@@ -1,6 +1,6 @@
-#include "mesh/radio_settings.h"
+#include "mesh/core/radio_settings.h"
 
-#include "mesh/log.h"
+#include "mesh/utils/log.h"
 #include "meshtastic/portnums.pb.h"
 
 #include <pb_decode.h>

@@ -3,9 +3,9 @@
 
 #include "mesh/transport/serial.h"
 
-#include "mesh/config.h"
-#include "mesh/log.h"
+#include "mesh/core/config.h"
 #include "mesh/proto/stream_framing.h"
+#include "mesh/utils/log.h"
 
 #include <errno.h>
 #include <stdarg.h>
@@ -749,14 +749,6 @@ mesh_serial_transport_handshake_status(struct mesh_transport *transport) {
         status.channel_count = MESH_SESSION_MAX_CHANNELS;
     }
     return status;
-}
-
-const struct mesh_message_log *mesh_serial_transport_messages(struct mesh_transport *transport) {
-    return mesh_session_messages(mesh_serial_transport_session(transport));
-}
-
-const struct mesh_radio_settings *mesh_serial_transport_settings(struct mesh_transport *transport) {
-    return mesh_session_settings(mesh_serial_transport_session(transport));
 }
 
 struct mesh_transport *mesh_serial_transport(void) {

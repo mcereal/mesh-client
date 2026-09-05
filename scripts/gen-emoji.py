@@ -2,8 +2,7 @@
 """Rasterise Noto Color Emoji into the C table the framebuffer backend draws from.
 
 This is not part of the build. Run it by hand when the emoji set should change and commit
-the generated file, the same way the aarch64 minui helpers under Tools/ are committed - the
-build stays dependency-free and CI never reaches the network.
+the generated file, so the build stays dependency-free and CI never reaches the network.
 
     python3 -m venv .venv && .venv/bin/pip install fonttools pillow
     curl -sSLo NotoColorEmoji.ttf \

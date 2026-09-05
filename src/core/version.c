@@ -1,4 +1,4 @@
-#include "mesh/version.h"
+#include "mesh/core/version.h"
 
 #include <ctype.h>
 #include <string.h>

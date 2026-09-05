@@ -99,19 +99,18 @@ if [[ "${VERSION_HITS}" -eq 0 ]]; then
     exit 1
 fi
 
-# The same two steps `make package` would run, called directly: going through the make target
-# would re-enter cmake and rebuild, and the configure above is the one that matters.
-export CROSS_COMPILE PLATFORM
-./scripts/build_minui_helpers.sh
+# The same step `make package` would run, called directly: going through the make target would
+# re-enter cmake and rebuild, and the configure above is the one that matters.
+export PLATFORM
 ./scripts/package.sh release
 
 # Two assets, for two different jobs. The pak zip is a fresh install: it holds the contents of
-# the pak (launch.sh, pak.json and the minui helpers alongside the binary), unpacked into a
+# the pak (launch.sh, pak.json and the CA bundle alongside the binary), unpacked into a
 # Tools/<platform>/MeshClient.pak/ the installer creates - which is what the Pak Store does with
 # it, and what installing by hand has to do too. The bare
 # binary is what the in-app updater downloads - one file it can verify and rename into place,
 # with no unzip on the device and no way for an interrupted download to leave a half-populated
-# pak. Anything outside the binary (launch.sh, the helpers) still needs the zip.
+# pak. Anything outside the binary (launch.sh, the CA bundle) still needs the zip.
 ASSET_NAME="meshclient-${PLATFORM}-aarch64"
 cp build/release/meshclient "dist/${ASSET_NAME}"
 chmod +x "dist/${ASSET_NAME}"

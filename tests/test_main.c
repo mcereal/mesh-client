@@ -1,22 +1,20 @@
 #define _POSIX_C_SOURCE 200809L
 
-#include "mesh/app.h"
-#include "mesh/config.h"
-#include "mesh/event_loop.h"
-#include "mesh/mesh_message.h"
-#include "mesh/proto/framing.h"
+#include "mesh/core/app.h"
+#include "mesh/core/config.h"
+#include "mesh/core/event_loop.h"
+#include "mesh/core/message.h"
+#include "mesh/core/radio_settings.h"
+#include "mesh/core/session.h"
+#include "mesh/core/updater.h"
+#include "mesh/core/version.h"
 #include "mesh/proto/stream_framing.h"
-#include "mesh/radio_settings.h"
-#include "mesh/session.h"
-#include "mesh/sha256.h"
-#include "mesh/text.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/serial.h"
 #include "mesh/transport/serial_usb.h"
 #include "mesh/transport/transport.h"
 #include "mesh/ui/backends/cli.h"
-#include "mesh/ui/backends/minui.h"
 #include "mesh/ui/backends/stub.h"
 #include "mesh/ui/controller.h"
 #include "mesh/ui/emoji.h"
@@ -27,8 +25,8 @@
 #include "mesh/ui/preferences.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
-#include "mesh/updater.h"
-#include "mesh/version.h"
+#include "mesh/utils/sha256.h"
+#include "mesh/utils/text.h"
 
 #include <pb_decode.h>
 #include <pb_encode.h>
@@ -1344,145 +1342,6 @@ static void test_ui_preferences_roundtrip(void) {
     }
 
     unlink(prefab_path);
-    record_success(test_name);
-}
-
-static void test_minui_format_menu(void) {
-    const char *test_name = "minui_format_menu";
-
-    struct mesh_ui_snapshot snapshot;
-    memset(&snapshot, 0, sizeof snapshot);
-
-    snapshot.device_count = 2U;
-    snprintf(snapshot.devices[0].identifier, sizeof snapshot.devices[0].identifier, "%s",
-             "AA:BB:CC:DD:EE:01");
-    snprintf(snapshot.devices[0].name, sizeof snapshot.devices[0].name, "%s", "NodeOne");
-    snapshot.devices[0].rssi = -42;
-    snapshot.devices[0].connected = true;
-
-    snprintf(snapshot.devices[1].identifier, sizeof snapshot.devices[1].identifier, "%s",
-             "AA:BB:CC:DD:EE:02");
-    snprintf(snapshot.devices[1].name, sizeof snapshot.devices[1].name, "%s", "NodeTwo");
-    snapshot.devices[1].rssi = -60;
-    snapshot.devices[1].connected = false;
-
-    snapshot.handshake_valid = true;
-    snapshot.handshake.request_in_flight = false;
-    snapshot.handshake.request_id = 5U;
-    snapshot.handshake.config_complete = true;
-    snapshot.handshake.config_complete_id = 5U;
-    snapshot.handshake.node_count = 2U;
-    snprintf(snapshot.handshake.my_short_name, sizeof snapshot.handshake.my_short_name, "%s",
-             "ABCD");
-    snapshot.handshake.nodes[0].node_id = 101U;
-    snprintf(snapshot.handshake.nodes[0].long_name, sizeof snapshot.handshake.nodes[0].long_name,
-             "%s", "BaseStation");
-    snprintf(snapshot.handshake.nodes[0].short_name, sizeof snapshot.handshake.nodes[0].short_name,
-             "%s", "BASE");
-    snapshot.handshake.nodes[0].snr = 8.5f;
-    snapshot.handshake.nodes[1].node_id = 202U;
-    snprintf(snapshot.handshake.nodes[1].long_name, sizeof snapshot.handshake.nodes[1].long_name,
-             "%s", "FieldUnit");
-    snprintf(snapshot.handshake.nodes[1].short_name, sizeof snapshot.handshake.nodes[1].short_name,
-             "%s", "FILD");
-    snapshot.handshake.nodes[1].snr = 4.0f;
-
-    char buffer[1024];
-    int result = mesh_ui_backend_minui_format_menu(&snapshot, buffer, sizeof buffer);
-    if (result != 0) {
-        record_failure(test_name, "formatting returned error");
-        return;
-    }
-
-    if (strstr(buffer, "NodeOne") == NULL || strstr(buffer, "NodeTwo") == NULL) {
-        record_failure(test_name, "device names missing from JSON");
-        return;
-    }
-
-    if (strstr(buffer, "\"Status\"") == NULL) {
-        record_failure(test_name, "status block missing expected fields");
-        return;
-    }
-
-    if (strstr(buffer, "\"selected\":0") == NULL) {
-        record_failure(test_name, "expected connected device to be selected");
-        return;
-    }
-
-    if (strstr(buffer, "\"Nodes\"") == NULL || strstr(buffer, "BaseStation") == NULL) {
-        record_failure(test_name, "nodes section missing from JSON");
-        return;
-    }
-
-    record_success(test_name);
-}
-
-static void test_proto_varint_roundtrip(void) {
-    const char *test_name = "proto_varint_roundtrip";
-    struct {
-        uint32_t value;
-        size_t expected_len;
-    } cases[] = {
-        {0U, 1U}, {1U, 1U}, {127U, 1U}, {128U, 2U}, {16384U, 3U}, {268435455U, 4U},
-    };
-
-    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
-        uint8_t buffer[8];
-        size_t written = 0;
-        if (mesh_proto_varint_encode(cases[i].value, buffer, sizeof buffer, &written) != 0) {
-            record_failure(test_name, "varint encode failed");
-            return;
-        }
-        if (written != cases[i].expected_len) {
-            record_failure(test_name, "unexpected encoded length");
-            return;
-        }
-
-        uint32_t decoded = 0;
-        size_t consumed = 0;
-        if (mesh_proto_varint_decode(buffer, written, &decoded, &consumed) != 0) {
-            record_failure(test_name, "varint decode failed");
-            return;
-        }
-        if (decoded != cases[i].value || consumed != written) {
-            record_failure(test_name, "varint roundtrip mismatch");
-            return;
-        }
-    }
-
-    record_success(test_name);
-}
-
-static void test_proto_frame_encode_decode(void) {
-    const char *test_name = "proto_frame_encode_decode";
-    const uint8_t payload[] = {0x08U, 0x96U, 0x01U};
-    uint8_t frame[16];
-    size_t written = 0;
-
-    if (mesh_proto_frame_encode(payload, sizeof payload, frame, sizeof frame, &written) != 0) {
-        record_failure(test_name, "frame encode failed");
-        return;
-    }
-
-    size_t header_len = 0;
-    size_t payload_len = 0;
-    if (mesh_proto_frame_decode(frame, written, &header_len, &payload_len) != 0) {
-        record_failure(test_name, "frame decode failed");
-        return;
-    }
-
-    if (payload_len != sizeof payload) {
-        record_failure(test_name, "decoded payload length mismatch");
-        return;
-    }
-
-    for (size_t i = 0; i < payload_len; ++i) {
-        if (frame[header_len + i] != payload[i]) {
-            record_failure(test_name, "payload content mismatch");
-            return;
-        }
-    }
-
     record_success(test_name);
 }
 
@@ -11208,9 +11067,6 @@ static const struct test_case k_test_cases[] = {
     {"ui_canned_load", "unit", test_ui_canned_load},
     {"ui_input_key_mapping", "unit", test_ui_input_key_mapping},
     {"ui_preferences_roundtrip", "unit", test_ui_preferences_roundtrip},
-    {"minui_format_menu", "unit", test_minui_format_menu},
-    {"proto_varint_roundtrip", "unit", test_proto_varint_roundtrip},
-    {"proto_frame_encode_decode", "unit", test_proto_frame_encode_decode},
     {"message_encode_text_golden", "unit", test_message_encode_text_golden},
     {"message_routing_failure_reason", "unit", test_message_routing_failure_reason},
     {"message_encode_text_roundtrip", "unit", test_message_encode_text_roundtrip},

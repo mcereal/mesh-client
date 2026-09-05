@@ -42,7 +42,7 @@ fi
 # Pass through env vars that the build/package scripts honour.
 ENV_FLAGS=()
 for var in MESHCLIENT_UI_BACKEND MESHCLIENT_RUN_MODE MESHCLIENT_DISABLE_BLE MESHCLIENT_PREFERRED_BLE_DEVICE \
-           MESHCLIENT_MINUI_SELECTION CMAKE_ARGS PLATFORM; do
+           CMAKE_ARGS PLATFORM; do
     if [[ -n "${!var:-}" ]]; then
         ENV_FLAGS+=(-e "$var=${!var}")
     fi

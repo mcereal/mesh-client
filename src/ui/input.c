@@ -2,8 +2,8 @@
 
 #include "mesh/ui/input.h"
 
-#include "mesh/event_loop.h"
-#include "mesh/log.h"
+#include "mesh/core/event_loop.h"
+#include "mesh/utils/log.h"
 
 #include <errno.h>
 #include <fcntl.h>

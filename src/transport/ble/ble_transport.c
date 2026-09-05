@@ -3,8 +3,8 @@
 
 #include "mesh/transport/ble.h"
 
-#include "mesh/config.h"
-#include "mesh/log.h"
+#include "mesh/core/config.h"
+#include "mesh/utils/log.h"
 
 #include "mesh/transport/ble_bluez.h"
 

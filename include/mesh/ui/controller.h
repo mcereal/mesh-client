@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mesh/event_loop.h"
+#include "mesh/core/event_loop.h"
 #include "mesh/ui/store.h"
 
 #ifdef __cplusplus

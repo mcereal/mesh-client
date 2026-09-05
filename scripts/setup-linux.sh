@@ -4,7 +4,7 @@
 # The core is Linux-only (epoll/timerfd/eventfd), so on macOS everything goes through
 # scripts/docker.sh. On a Linux host the same build works natively once these are present:
 #
-#   - git submodules      nanopb, meshtastic/protobufs, NextUI (CMake FATAL_ERRORs without them)
+#   - git submodules      nanopb, meshtastic/protobufs (CMake FATAL_ERRORs without them)
 #   - libdbus-1-dev       sets MESH_HAVE_DBUS; without it the BLE transport compiles out
 #   - python protobuf     needed by nanopb_generator to regenerate the .pb.c/.pb.h sources
 #

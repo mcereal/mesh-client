@@ -1,6 +1,6 @@
-#include "mesh/event_loop.h"
+#include "mesh/core/event_loop.h"
 
-#include "mesh/log.h"
+#include "mesh/utils/log.h"
 
 #include <errno.h>
 #include <stdint.h>

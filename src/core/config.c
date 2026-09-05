@@ -1,6 +1,6 @@
-#include "mesh/config.h"
+#include "mesh/core/config.h"
 
-#include "mesh/log.h"
+#include "mesh/utils/log.h"
 
 #include <ctype.h>
 #include <stdio.h>

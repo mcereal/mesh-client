@@ -2,9 +2,9 @@
 
 #include "mesh/ui/store.h"
 
-#include "mesh/log.h"
+#include "mesh/utils/log.h"
 
-#include "mesh/mesh_message.h"
+#include "mesh/core/message.h"
 #include "mesh/ui/settings.h"
 
 #include <errno.h>
@@ -64,18 +64,6 @@ void mesh_ui_store_shutdown(struct mesh_ui_store *store) {
     store->device_count = 0U;
     store->handshake_valid = false;
     memset(&store->messages, 0, sizeof store->messages);
-}
-
-void mesh_ui_store_reset(struct mesh_ui_store *store) {
-    if (store == NULL) {
-        return;
-    }
-
-    struct mesh_ui_store preserved = *store;
-    memset(store, 0, sizeof *store);
-    mesh_ui_nav_init(&store->nav);
-    store->event_fd = preserved.event_fd;
-    store->pending_flags = preserved.pending_flags;
 }
 
 bool mesh_ui_store_handle_key(struct mesh_ui_store *store, enum mesh_ui_key key,

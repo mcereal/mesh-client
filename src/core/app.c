@@ -1,17 +1,16 @@
 #define _POSIX_C_SOURCE 200809L
 
-#include "mesh/app.h"
-#include "mesh/version.h"
+#include "mesh/core/app.h"
+#include "mesh/core/version.h"
 
-#include "mesh/log.h"
-#include "mesh/text.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/serial.h"
 #include "mesh/ui/backends/cli.h"
-#include "mesh/ui/backends/minui.h"
 #include "mesh/ui/backends/stub.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/preferences.h"
+#include "mesh/utils/log.h"
+#include "mesh/utils/text.h"
 
 #include <errno.h>
 #include <limits.h>
@@ -118,40 +117,6 @@ static int mesh_app_link_connect(struct mesh_app *app, const char *identifier, u
     /* A connect the user asked for pairs the node when it needs it; auto-connect's own
        attempts go through mesh_ble_transport_connect() and never raise a PIN prompt. */
     return mesh_ble_transport_connect_and_pair(transport, identifier);
-}
-
-static void mesh_app_minui_on_device_selected(void *userdata, const char *identifier) {
-    if (userdata == NULL || identifier == NULL || identifier[0] == '\0') {
-        return;
-    }
-
-    struct mesh_app *app = (struct mesh_app *)userdata;
-
-    /* MinUI hands back a row label, not a kind; ask the serial transport whether the identifier
-       is one of its ports and fall back to BLE. */
-    uint8_t kind = (uint8_t)MESH_UI_DEVICE_BLE;
-    struct mesh_serial_device_info ports[MESH_SERIAL_MAX_DEVICES];
-    const size_t port_count =
-        mesh_serial_transport_get_devices(mesh_serial_transport(), ports, MESH_SERIAL_MAX_DEVICES);
-    for (size_t i = 0; i < port_count; ++i) {
-        if (strcmp(ports[i].id, identifier) == 0 ||
-            (ports[i].path[0] != '\0' && strcmp(ports[i].path, identifier) == 0)) {
-            kind = (uint8_t)MESH_UI_DEVICE_SERIAL;
-            break;
-        }
-    }
-
-    mesh_log_info("ui", "MinUI selection requested connect to %s", identifier);
-    snprintf(app->ui_preferences.preferred_device, sizeof app->ui_preferences.preferred_device,
-             "%s", identifier);
-    app->ui_preferences.preferred_device_kind = kind;
-    app->ui_preferences_dirty = true;
-
-    int connect_result = mesh_app_link_connect(app, identifier, kind);
-    app->ui_report_link_error = true;
-    if (connect_result < 0 && connect_result != -EALREADY) {
-        mesh_log_warn("ui", "Failed to connect to %s via MinUI (%d)", identifier, connect_result);
-    }
 }
 
 /* Button presses arrive here from the evdev reader and go straight into the UI store's
@@ -1349,27 +1314,6 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
     }
 }
 
-static bool mesh_app_select_minui(struct mesh_app *app, const struct mesh_ui_backend **backend,
-                                  void **userdata, bool log_on_missing) {
-    if (!mesh_ui_backend_minui_is_available()) {
-        if (log_on_missing) {
-            mesh_log_warn("ui", "MinUI helpers not found; falling back to CLI backend");
-        }
-        return false;
-    }
-
-    if (backend != NULL) {
-        *backend = mesh_ui_backend_minui();
-    }
-    if (userdata != NULL) {
-        *userdata = &app->ui_minui_context;
-    }
-    app->ui_minui_context.loop = &app->loop;
-    app->ui_minui_context.on_device_selected = mesh_app_minui_on_device_selected;
-    app->ui_minui_context.callback_userdata = app;
-    return true;
-}
-
 static void mesh_app_select_cli(struct mesh_app *app, const struct mesh_ui_backend **backend,
                                 void **userdata) {
     if (backend != NULL) {
@@ -1419,42 +1363,20 @@ static const struct mesh_ui_backend *mesh_app_select_backend(struct mesh_app *ap
     const struct mesh_ui_backend *backend = NULL;
     void *backend_userdata = NULL;
 
-    if (requested != NULL) {
-        if (strcasecmp(requested, "minui") == 0) {
-            if (!mesh_app_select_minui(app, &backend, &backend_userdata, true) &&
-                !mesh_app_select_fb(app, &backend, &backend_userdata)) {
-                mesh_app_select_cli(app, &backend, &backend_userdata);
-            }
-        } else if (strcasecmp(requested, "fb") == 0) {
-            if (!mesh_app_select_fb(app, &backend, &backend_userdata)) {
-                mesh_app_select_cli(app, &backend, &backend_userdata);
-            }
-        } else if (strcasecmp(requested, "cli") == 0) {
-            mesh_app_select_cli(app, &backend, &backend_userdata);
-        } else if (strcasecmp(requested, "stub") == 0) {
-            mesh_app_select_stub(&backend, &backend_userdata);
-        } else if (strcasecmp(requested, "auto") == 0) {
-            if (!mesh_app_select_minui(app, &backend, &backend_userdata, false) &&
-                !mesh_app_select_fb(app, &backend, &backend_userdata)) {
-                mesh_app_select_cli(app, &backend, &backend_userdata);
-            }
-        } else {
-            mesh_log_warn("ui", "Unknown UI backend '%s'; defaulting to CLI", requested);
-            mesh_app_select_cli(app, &backend, &backend_userdata);
-        }
+    /* "cli" and "stub" are asked for explicitly; everything else - including no request at all -
+       resolves to the framebuffer, which is what the pak runs, and falls back to the CLI backend
+       only where there is no /dev/fb0 to draw on (a container, or a dev host). */
+    if (requested != NULL && strcasecmp(requested, "cli") == 0) {
+        mesh_app_select_cli(app, &backend, &backend_userdata);
+    } else if (requested != NULL && strcasecmp(requested, "stub") == 0) {
+        mesh_app_select_stub(&backend, &backend_userdata);
     } else {
-        const char *platform = getenv("PLATFORM");
-        bool prefer_minui = (platform != NULL && strcasecmp(platform, "tg5040") == 0);
-
-        if (prefer_minui) {
-            if (!mesh_app_select_minui(app, &backend, &backend_userdata, false) &&
-                !mesh_app_select_fb(app, &backend, &backend_userdata)) {
-                mesh_app_select_cli(app, &backend, &backend_userdata);
-            }
-        } else {
-            if (!mesh_app_select_fb(app, &backend, &backend_userdata)) {
-                mesh_app_select_cli(app, &backend, &backend_userdata);
-            }
+        if (requested != NULL && strcasecmp(requested, "fb") != 0 &&
+            strcasecmp(requested, "auto") != 0) {
+            mesh_log_warn("ui", "Unknown UI backend '%s'; using the default", requested);
+        }
+        if (!mesh_app_select_fb(app, &backend, &backend_userdata)) {
+            mesh_app_select_cli(app, &backend, &backend_userdata);
         }
     }
 
@@ -2564,7 +2486,6 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
         return result;
     }
 
-    memset(&app->ui_minui_context, 0, sizeof app->ui_minui_context);
     memset(&app->ui_fb_context, 0, sizeof app->ui_fb_context);
     memset(&app->ui_input, 0, sizeof app->ui_input);
     memset(&app->signals, 0, sizeof app->signals);

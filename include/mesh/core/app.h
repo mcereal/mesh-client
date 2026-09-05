@@ -1,19 +1,18 @@
 #pragma once
 
-#include "mesh/config.h"
-#include "mesh/event_loop.h"
-#include "mesh/session.h"
-#include "mesh/signals.h"
+#include "mesh/core/config.h"
+#include "mesh/core/event_loop.h"
+#include "mesh/core/session.h"
+#include "mesh/core/signals.h"
+#include "mesh/core/updater.h"
 #include "mesh/transport/transport.h"
 #include "mesh/ui/backends/cli.h"
 #include "mesh/ui/backends/fb.h"
-#include "mesh/ui/backends/minui.h"
 #include "mesh/ui/controller.h"
 #include "mesh/ui/input.h"
 #include "mesh/ui/preferences.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
-#include "mesh/updater.h"
 
 #include <stdint.h>
 
@@ -32,7 +31,6 @@ struct mesh_app {
     struct mesh_ui_store ui_store;
     struct mesh_ui_controller ui_controller;
     struct mesh_ui_backend_cli_context ui_cli_context;
-    struct mesh_ui_backend_minui_context ui_minui_context;
     struct mesh_ui_backend_fb_context ui_fb_context;
     struct mesh_ui_preferences ui_preferences;
     /* Conversation loaded from the cache at startup. The transport's log starts empty every

@@ -37,7 +37,7 @@ Pak conventions the code depends on:
 ### `src/core/event_loop.c`
 
 An epoll loop over a fixed table of 32 fd sources. Everything registers here: D-Bus watches, the
-timerfd discovery refresh, the UI store eventfd, the serial tty, `minui-list` child stdout.
+timerfd discovery refresh, the UI store eventfd, the serial tty, the updater's curl child stdout.
 
 **No threads anywhere. Do not add them.**
 
@@ -207,8 +207,8 @@ SemVer precedence including prerelease ordering, so a `dev` build never offers t
 to a release — which is what keeps a working tree from replacing its own binary.
 
 The updater has **no TLS of its own**: it forks the device's `curl` (then `wget`) and reads its
-stdout through the event loop, the same shape `minui.c` uses for `minui-list`, because the
-release build is static musl with libdbus as its only dependency. One child at a time, states
+stdout through the event loop, because the release build is static musl with libdbus as its
+only dependency. One child at a time, states
 strictly sequential, `tick()` enforcing the timeout.
 
 **It has to bring its own CA bundle.** The Brick has no system CA store at all — no `/etc/ssl` —
@@ -277,8 +277,7 @@ Things that look like bugs, are not, and have each cost a debugging round alread
 
 - **No threads.** Everything is the one epoll loop.
 - **BLE is not Nordic UART** and has no length framing: one bare protobuf per GATT write/read.
-  `src/proto/framing.c` is a homegrown varint prefix that nothing on the wire uses; serial
-  framing is `src/proto/stream_framing.c`.
+  Serial does have framing, and it is `src/proto/stream_framing.c`.
 - **The Brick's face buttons do not report by position.** A is `BTN_EAST` (305), B is `BTN_SOUTH`
   (304), the button printed **Y (on the left) is `BTN_NORTH` (307)**, so X on the top is
   `BTN_WEST` (308). All four verified from the device log; `input_brick_face_buttons` pins them.

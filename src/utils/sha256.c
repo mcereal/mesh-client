@@ -1,4 +1,4 @@
-#include "mesh/sha256.h"
+#include "mesh/utils/sha256.h"
 
 #include <errno.h>
 #include <stdio.h>

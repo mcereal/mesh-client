@@ -3,8 +3,8 @@
 /* session.h for the traceroute state enum: the UI struct carries it as a byte so store.h
    stays plain, but this file already pulls nanopb in through radio_settings.h, so naming the
    real enum here beats keeping a second copy of it in step. */
-#include "mesh/radio_settings.h"
-#include "mesh/session.h"
+#include "mesh/core/radio_settings.h"
+#include "mesh/core/session.h"
 #include "mesh/ui/settings.h"
 
 #include <inttypes.h>

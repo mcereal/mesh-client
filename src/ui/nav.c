@@ -5,7 +5,7 @@
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/settings.h"
 
-#include "mesh/mesh_message.h"
+#include "mesh/core/message.h"
 #include "mesh/ui/store.h"
 
 #include <errno.h>
