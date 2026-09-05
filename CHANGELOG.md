@@ -1,3 +1,9 @@
+## [2.2.1](https://github.com/mcereal/mesh-client/compare/v2.2.0...v2.2.1) (2026-09-05)
+
+### Code Refactoring
+
+* **settings:** give the modules one table instead of four lists ([fda8407](https://github.com/mcereal/mesh-client/commit/fda84074fa1ff194250f2e41768fcb8735f96b60))
+
 ## [2.2.0](https://github.com/mcereal/mesh-client/compare/v2.1.0...v2.2.0) (2026-09-05)
 
 ### Features
