@@ -1264,9 +1264,17 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
         }
     }
 
-    if (metrics != NULL && (metrics->has_battery || metrics->has_uptime)) {
+    /* Uptime is in both, like the airtime pair above, so LocalStats wins it for the same
+       reason - and without this the row vanishes entirely when LocalStats has arrived but our
+       node has not broadcast DeviceMetrics yet. Battery really does have only the one source. */
+    const bool have_battery = metrics != NULL && metrics->has_battery;
+    const bool have_uptime = stats->valid || (metrics != NULL && metrics->has_uptime);
+    const uint32_t uptime_value = stats->valid        ? stats->uptime_seconds
+                                  : (metrics != NULL) ? metrics->uptime_seconds
+                                                      : 0U;
+    if (have_battery || have_uptime) {
         buffer[0] = '\0';
-        if (metrics->has_battery) {
+        if (have_battery) {
             /* 101 is upstream's "running off USB", not a 101% battery. */
             if (metrics->battery_level > 100U) {
                 snprintf(buffer, sizeof buffer, "plugged in");
@@ -1275,13 +1283,13 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
             }
         }
         second[0] = '\0';
-        if (metrics->has_uptime) {
+        if (have_uptime) {
             char uptime[32];
-            fb_format_uptime(metrics->uptime_seconds, uptime, sizeof uptime);
+            fb_format_uptime(uptime_value, uptime, sizeof uptime);
             snprintf(second, sizeof second, "%sup %s", buffer[0] != '\0' ? ", " : "", uptime);
         }
         struct fb_rgb battery_color =
-            (metrics->has_battery && metrics->battery_level <= 20U) ? k_bad : k_text;
+            (have_battery && metrics->battery_level <= 20U) ? k_bad : k_text;
         fb_status_line(state, layout, &y, battery_color, "Battery", "%s%s",
                        buffer[0] != '\0' ? buffer : "unknown", second);
     }
