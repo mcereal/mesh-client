@@ -95,6 +95,26 @@ static const char *compass_name(uint32_t orientation) {
 
 static const char *units_name(uint32_t units) { return units == 1U ? "Imperial" : "Metric"; }
 
+static const char *rebroadcast_name(uint32_t mode) {
+    static const char *const k_names[] = {
+        "All", "All skip decoding", "Local only", "Known only", "None", "Core portnums only",
+    };
+    return mode < 6U ? k_names[mode] : "?";
+}
+
+static const char *gps_mode_name(uint32_t mode) {
+    switch (mode) {
+    case 0U:
+        return "Disabled";
+    case 1U:
+        return "Enabled";
+    case 2U:
+        return "Not present";
+    default:
+        return "?";
+    }
+}
+
 static const char *channel_role_name(uint32_t value) {
     return value == 1U ? "Secondary" : "Disabled";
 }
@@ -126,6 +146,35 @@ static void format_precision(uint32_t bits, char *out, size_t out_len) {
         snprintf(out, out_len, "%s", k_distance[bits - 10U]);
     } else {
         snprintf(out, out_len, "%u bits", (unsigned)bits);
+    }
+}
+
+/* Metres, which is what PositionConfig's smart-broadcast threshold is in. */
+static void format_metres(uint32_t metres, char *out, size_t out_len) {
+    if (metres == 0U) {
+        snprintf(out, out_len, "%s", "default");
+    } else if (metres >= 1000U && metres % 1000U == 0U) {
+        snprintf(out, out_len, "%u km", (unsigned)(metres / 1000U));
+    } else {
+        snprintf(out, out_len, "%u m", (unsigned)metres);
+    }
+}
+
+/*
+ * The role names as a *chooser* shows them. ROUTER_CLIENT and REPEATER are still in the
+ * protobuf and still what an older radio reports, so they have to be steppable - the row
+ * could not otherwise display the setting a node already has - but they are marked so nobody
+ * picks one on purpose. mesh_radio_role_name() stays unmarked: reading another node's role in
+ * the Nodes tab is not making a choice.
+ */
+static const char *role_enum_name(uint32_t role) {
+    switch (role) {
+    case 3U:
+        return "Router Client (retired)";
+    case 4U:
+        return "Repeater (retired)";
+    default:
+        return mesh_radio_role_name(role);
     }
 }
 
@@ -185,6 +234,18 @@ static const uint32_t k_carousel_presets[] = {0U, 10U, 15U, 30U, 60U, 120U, 300U
 static const uint32_t k_interval_presets[] = {0U,    60U,   300U,   900U,   1800U,
                                               3600U, 7200U, 14400U, 43200U, 86400U};
 
+/* Device, Position and Power intervals. Each list starts at 0, which every one of these
+   fields reads as "the firmware's own default" rather than as zero seconds. */
+static const uint32_t k_nodeinfo_presets[] = {0U, 3600U, 7200U, 10800U, 21600U, 43200U, 86400U};
+static const uint32_t k_gps_interval_presets[] = {0U, 30U, 60U, 120U, 300U, 600U, 900U, 1800U};
+static const uint32_t k_smart_distance_presets[] = {0U, 10U, 25U, 50U, 100U, 250U, 500U, 1000U};
+static const uint32_t k_smart_interval_presets[] = {0U, 30U, 60U, 120U, 300U, 600U};
+static const uint32_t k_sleep_presets[] = {0U, 60U, 300U, 600U, 900U, 1800U, 3600U};
+static const uint32_t k_wake_presets[] = {0U, 5U, 10U, 30U, 60U, 120U, 300U};
+static const uint32_t k_wait_bt_presets[] = {0U, 10U, 30U, 60U, 120U, 300U};
+static const uint32_t k_shutdown_presets[] = {0U,    300U,   1800U,  3600U,
+                                              7200U, 21600U, 43200U, 86400U};
+
 struct field_spec {
     const char *label;
     enum mesh_ui_setting_kind kind;
@@ -223,10 +284,59 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
     [MESH_UI_FIELD_USER_UNMESSAGEABLE] = {"Unmessageable", MESH_UI_SETTING_TOGGLE,
                                           MESH_UI_SETTINGS_USER, 0U, NULL, NO_PRESETS, NULL, NULL,
                                           0U},
+    /* Thirteen values, two of them retired but still steppable: see role_enum_name(). */
+    [MESH_UI_FIELD_DEVICE_ROLE] = {"Role", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_DEVICE, 13U,
+                                   role_enum_name, NO_PRESETS, NULL, NULL, 0U},
     /* tzdef is 64 bytes on the wire. The radio applies it to its own clock only; it has no
        bearing on what this client shows, which follows the Brick's own TZ. */
     [MESH_UI_FIELD_DEVICE_TZDEF] = {"Time zone", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_DEVICE, 64U,
                                     NULL, NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_DEVICE_REBROADCAST] = {"Rebroadcast", MESH_UI_SETTING_ENUM,
+                                          MESH_UI_SETTINGS_DEVICE, 6U, rebroadcast_name, NO_PRESETS,
+                                          NULL, NULL, 0U},
+    [MESH_UI_FIELD_DEVICE_NODEINFO_SECS] = {"NodeInfo every", MESH_UI_SETTING_NUMBER,
+                                            MESH_UI_SETTINGS_DEVICE, 0U, NULL,
+                                            PRESETS(k_nodeinfo_presets), "default", NULL, 0U},
+    [MESH_UI_FIELD_DEVICE_LED_HEARTBEAT] = {"LED heartbeat", MESH_UI_SETTING_TOGGLE,
+                                            MESH_UI_SETTINGS_DEVICE, 0U, NULL, NO_PRESETS, NULL,
+                                            NULL, 0U},
+    [MESH_UI_FIELD_DEVICE_DOUBLE_TAP] = {"Double tap = button", MESH_UI_SETTING_TOGGLE,
+                                         MESH_UI_SETTINGS_DEVICE, 0U, NULL, NO_PRESETS, NULL, NULL,
+                                         0U},
+    [MESH_UI_FIELD_POSITION_GPS_MODE] = {"GPS", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_POSITION, 3U,
+                                         gps_mode_name, NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_POSITION_BROADCAST_SECS] = {"Broadcast every", MESH_UI_SETTING_NUMBER,
+                                               MESH_UI_SETTINGS_POSITION, 0U, NULL,
+                                               PRESETS(k_interval_presets), "default", NULL, 0U},
+    [MESH_UI_FIELD_POSITION_SMART] = {"Smart broadcast", MESH_UI_SETTING_TOGGLE,
+                                      MESH_UI_SETTINGS_POSITION, 0U, NULL, NO_PRESETS, NULL, NULL,
+                                      0U},
+    [MESH_UI_FIELD_POSITION_SMART_DISTANCE] = {"Smart distance", MESH_UI_SETTING_NUMBER,
+                                               MESH_UI_SETTINGS_POSITION, 0U, NULL,
+                                               PRESETS(k_smart_distance_presets), NULL,
+                                               format_metres, 0U},
+    [MESH_UI_FIELD_POSITION_SMART_INTERVAL] = {"Smart interval", MESH_UI_SETTING_NUMBER,
+                                               MESH_UI_SETTINGS_POSITION, 0U, NULL,
+                                               PRESETS(k_smart_interval_presets), "default", NULL,
+                                               0U},
+    [MESH_UI_FIELD_POSITION_FIXED] = {"Fixed position", MESH_UI_SETTING_TOGGLE,
+                                      MESH_UI_SETTINGS_POSITION, 0U, NULL, NO_PRESETS, NULL, NULL,
+                                      0U},
+    [MESH_UI_FIELD_POSITION_GPS_INTERVAL] = {"GPS interval", MESH_UI_SETTING_NUMBER,
+                                             MESH_UI_SETTINGS_POSITION, 0U, NULL,
+                                             PRESETS(k_gps_interval_presets), "default", NULL, 0U},
+    [MESH_UI_FIELD_POWER_SAVING] = {"Power saving", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_POWER,
+                                    0U, NULL, NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_POWER_LS_SECS] = {"Light sleep", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_POWER,
+                                     0U, NULL, PRESETS(k_sleep_presets), "default", NULL, 0U},
+    [MESH_UI_FIELD_POWER_MIN_WAKE] = {"Min wake", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_POWER,
+                                      0U, NULL, PRESETS(k_wake_presets), "default", NULL, 0U},
+    [MESH_UI_FIELD_POWER_WAIT_BT] = {"Wait for Bluetooth", MESH_UI_SETTING_NUMBER,
+                                     MESH_UI_SETTINGS_POWER, 0U, NULL, PRESETS(k_wait_bt_presets),
+                                     "default", NULL, 0U},
+    [MESH_UI_FIELD_POWER_SHUTDOWN] = {"Shutdown on battery", MESH_UI_SETTING_NUMBER,
+                                      MESH_UI_SETTINGS_POWER, 0U, NULL, PRESETS(k_shutdown_presets),
+                                      "off", NULL, 0U},
     [MESH_UI_FIELD_DISPLAY_SCREEN_ON] = {"Screen on", MESH_UI_SETTING_NUMBER,
                                          MESH_UI_SETTINGS_DISPLAY, 0U, NULL,
                                          PRESETS(k_screen_on_presets), "default", NULL, 0U},
@@ -428,7 +538,8 @@ bool mesh_ui_settings_key_len_ok(enum mesh_ui_setting_field field, size_t len) {
 
 bool mesh_ui_settings_section_needs_confirm(enum mesh_ui_settings_section section) {
     return section == MESH_UI_SETTINGS_BLUETOOTH || section == MESH_UI_SETTINGS_CHANNELS ||
-           section == MESH_UI_SETTINGS_LORA || section == MESH_UI_SETTINGS_SECURITY;
+           section == MESH_UI_SETTINGS_LORA || section == MESH_UI_SETTINGS_SECURITY ||
+           section == MESH_UI_SETTINGS_POWER;
 }
 
 void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section, char *out,
@@ -459,6 +570,12 @@ void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section, char *
                  "A new private key changes this node's identity: peers must learn it again "
                  "and old direct messages stay unreadable. Managed mode locks out every "
                  "client whose key is not an admin key, this one included.");
+        break;
+    case MESH_UI_SETTINGS_POWER:
+        snprintf(out, out_len, "%s",
+                 "The radio will reboot. Power saving puts the radio to sleep between "
+                 "packets, and a short light-sleep or wake time can leave too little "
+                 "Bluetooth on for this client to reconnect on its own.");
         break;
     default:
         snprintf(out, out_len, "%s", "The radio will reboot to apply this.");
@@ -692,14 +809,6 @@ static void format_seconds(char *out, size_t out_len, uint32_t seconds, const ch
     }
 }
 
-static void item_seconds(struct item_list *list, const char *label, uint32_t seconds,
-                         const char *zero) {
-    struct mesh_ui_settings_item *item = item_add(list, label, MESH_UI_SETTING_NUMBER);
-    if (item != NULL) {
-        format_seconds(item->value, sizeof item->value, seconds, zero);
-    }
-}
-
 /* An editable row: the field's spec supplies label and kind; a pending edit replaces the
    radio's value and marks the row dirty. `text` is only read for TEXT fields. */
 static void item_field(struct item_list *list, enum mesh_ui_setting_field field, uint32_t number,
@@ -809,26 +918,6 @@ static void item_key(struct item_list *list, const char *label, const uint8_t *k
         snprintf(hex + 2U * i, sizeof hex - 2U * i, "%02x", key[i]);
     }
     snprintf(item->value, sizeof item->value, "%s... (%u bytes)", hex, (unsigned)len);
-}
-
-static const char *rebroadcast_name(uint8_t mode) {
-    static const char *const k_names[] = {
-        "All", "All skip decoding", "Local only", "Known only", "None", "Core portnums only",
-    };
-    return mode < 6U ? k_names[mode] : "?";
-}
-
-static const char *gps_mode_name(uint8_t mode) {
-    switch (mode) {
-    case 0U:
-        return "Disabled";
-    case 1U:
-        return "Enabled";
-    case 2U:
-        return "Not present";
-    default:
-        return "?";
-    }
 }
 
 /* An ACTION row: drawn like an editable one and activated with A, carrying what it does in
@@ -985,11 +1074,14 @@ static void build_user(const struct mesh_ui_settings *s, struct item_list *list)
 }
 
 static void build_device(const struct mesh_ui_settings *s, struct item_list *list) {
-    item_text(list, "Role", MESH_UI_SETTING_ENUM, mesh_radio_role_name(s->role));
+    item_field(list, MESH_UI_FIELD_DEVICE_ROLE, s->role, NULL);
     item_field(list, MESH_UI_FIELD_DEVICE_TZDEF, 0U, s->tzdef);
-    item_text(list, "Rebroadcast", MESH_UI_SETTING_ENUM, rebroadcast_name(s->rebroadcast_mode));
-    item_toggle(list, "LED heartbeat", !s->led_heartbeat_disabled);
-    item_toggle(list, "Double tap = button", s->double_tap_as_button_press);
+    item_field(list, MESH_UI_FIELD_DEVICE_REBROADCAST, s->rebroadcast_mode, NULL);
+    item_field(list, MESH_UI_FIELD_DEVICE_NODEINFO_SECS, s->node_info_broadcast_secs, NULL);
+    /* The protobuf field is led_heartbeat_disabled; the row is the plain statement. */
+    item_field(list, MESH_UI_FIELD_DEVICE_LED_HEARTBEAT, s->led_heartbeat_disabled ? 0U : 1U, NULL);
+    item_field(list, MESH_UI_FIELD_DEVICE_DOUBLE_TAP, s->double_tap_as_button_press ? 1U : 0U,
+               NULL);
 }
 
 static void build_display(const struct mesh_ui_settings *s, struct item_list *list) {
@@ -1138,17 +1230,24 @@ static void build_security(const struct mesh_ui_settings *s, struct item_list *l
 }
 
 static void build_position(const struct mesh_ui_settings *s, struct item_list *list) {
-    item_text(list, "GPS", MESH_UI_SETTING_ENUM, gps_mode_name(s->gps_mode));
-    item_seconds(list, "Broadcast every", s->position_broadcast_secs, "default");
-    item_toggle(list, "Smart broadcast", s->position_broadcast_smart_enabled);
-    item_toggle(list, "Fixed position", s->fixed_position);
+    item_field(list, MESH_UI_FIELD_POSITION_GPS_MODE, s->gps_mode, NULL);
+    item_field(list, MESH_UI_FIELD_POSITION_BROADCAST_SECS, s->position_broadcast_secs, NULL);
+    item_field(list, MESH_UI_FIELD_POSITION_SMART, s->position_broadcast_smart_enabled ? 1U : 0U,
+               NULL);
+    /* Listed whatever the toggle says, so the row count does not move under the cursor while
+       smart broadcast is being turned on and off; the same rule the LoRa trio follows. */
+    item_field(list, MESH_UI_FIELD_POSITION_SMART_DISTANCE, s->smart_minimum_distance, NULL);
+    item_field(list, MESH_UI_FIELD_POSITION_SMART_INTERVAL, s->smart_minimum_interval_secs, NULL);
+    item_field(list, MESH_UI_FIELD_POSITION_FIXED, s->fixed_position ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_POSITION_GPS_INTERVAL, s->gps_update_interval, NULL);
 }
 
 static void build_power(const struct mesh_ui_settings *s, struct item_list *list) {
-    item_toggle(list, "Power saving", s->is_power_saving);
-    item_seconds(list, "Light sleep", s->ls_secs, "default");
-    item_seconds(list, "Min wake", s->min_wake_secs, "default");
-    item_seconds(list, "Shutdown on battery", s->on_battery_shutdown_after_secs, "off");
+    item_field(list, MESH_UI_FIELD_POWER_SAVING, s->is_power_saving ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_POWER_LS_SECS, s->ls_secs, NULL);
+    item_field(list, MESH_UI_FIELD_POWER_MIN_WAKE, s->min_wake_secs, NULL);
+    item_field(list, MESH_UI_FIELD_POWER_WAIT_BT, s->wait_bluetooth_secs, NULL);
+    item_field(list, MESH_UI_FIELD_POWER_SHUTDOWN, s->on_battery_shutdown_after_secs, NULL);
 }
 
 static void build_mqtt(const struct mesh_ui_settings *s, struct item_list *list) {

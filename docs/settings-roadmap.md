@@ -46,7 +46,7 @@ fragment, and uses the admin path for refreshes and as proof that writes will wo
 |---|---|---|
 | Short / long name, licensed operator, unmessageable | `User.short_name` (4 bytes), `long_name` (39 on the wire, 24 kept by the firmware), `is_licensed`, `is_unmessagable` (optional, so `has_is_unmessagable` must be set); written with `set_owner` | The firmware ignores empty names and rejects all-whitespace ones with `BAD_REQUEST`. |
 | Bluetooth PIN mode | `BluetoothConfig.mode` (`RANDOM_PIN`, `FIXED_PIN`, `NO_PIN`), `fixed_pin` | Changing it invalidates the BlueZ bond. The UI says so and points at Devices → Y (forget), then connect again to pair with the new PIN. |
-| Device role | `DeviceConfig.role`: CLIENT, CLIENT_MUTE, ROUTER, ROUTER_CLIENT (deprecated), REPEATER (deprecated), TRACKER, SENSOR, TAK, CLIENT_HIDDEN, LOST_AND_FOUND, TAK_TRACKER, ROUTER_LATE, CLIENT_BASE | Hide the deprecated two. |
+| Device role | `DeviceConfig.role`: CLIENT, CLIENT_MUTE, ROUTER, ROUTER_CLIENT (deprecated), REPEATER (deprecated), TRACKER, SENSOR, TAK, CLIENT_HIDDEN, LOST_AND_FOUND, TAK_TRACKER, ROUTER_LATE, CLIENT_BASE | Shipped in phase 5. The deprecated two are *marked*, not hidden: they are still in the protobuf and still what an older radio reports, so a hidden value would leave the row unable to show the setting the node already has. |
 | Time zone | `DeviceConfig.tzdef`, a POSIX TZ string (65 bytes) | Shipped as free text on the keyboard; a preset list would still be kinder. |
 | Compass, 12 h clock, units, screen on, carousel | `DisplayConfig.compass_orientation`, `use_12h_clock`, `units`, `screen_on_secs`, `auto_screen_carousel_secs` | Plain enums, toggles and number steppers. |
 | Store and Forward | `ModuleConfig.store_forward.enabled` (+ `heartbeat`, `is_server`) | |
@@ -164,12 +164,38 @@ Brick can be entered in the app and vice versa; hex is accepted when typing too.
   phone app; the private key revealed on the Brick matches the app's; an admin key typed from
   the app's public key lets that phone administer the node.
 
+### Phase 5 - Device, Position and Power (this branch)
+
+The three sections that were listed read-only become editable through the same field table,
+with no new UI primitives: `Device` gains role (all thirteen values, the two deprecated ones
+labelled "(retired)" rather than hidden - a radio already set to one has to be able to show
+it), rebroadcast mode, NodeInfo broadcast interval, the LED heartbeat and the double-tap
+toggle; `Position` gains GPS mode, broadcast interval, smart broadcast with its distance and
+interval thresholds, fixed position and the GPS update interval; `Power` gains power saving,
+light sleep, minimum wake, the Bluetooth wait and the shutdown-on-battery timer.
+
+`LED heartbeat` is the one row shown inverted: the protobuf field is
+`led_heartbeat_disabled`, and a row reading "LED heartbeat off = on" would be nonsense, so
+`app.c` negates it on the way back. The smart-broadcast thresholds stay listed whether or not
+smart broadcast is on, the same rule the LoRa trio follows, so the row count does not move
+under the cursor mid-edit.
+
+`Power` joins the sections behind the **confirm overlay**. It is the only one of the three
+that can cut this client off: power saving and a short light-sleep or minimum-wake leave the
+radio's Bluetooth off for most of every cycle, and auto-connect cannot fix a radio that is
+asleep. Device and Position only reboot, which the link poller and auto-connect already
+handle.
+
+- Exit criteria: on the Brick, a role change survives the reboot and shows in the phone app;
+  turning smart broadcast on with a 250 m threshold reads back with the threshold intact and
+  the position fields we do not show untouched.
+
 ### Later, maybe never
 
-Firmware install. Also `tzdef` presets beyond typing the POSIX string by hand, the rest of
-`Device` (role, rebroadcast mode), `Position` and `Power` sections (shown read-only, not
-edited), `Network` (WiFi credentials on a device with no WiFi of its own is a poor fit), and
-closing channel gaps the way the phone apps do when a middle slot is removed.
+Firmware install. Also `tzdef` presets beyond typing the POSIX string by hand, `MQTT`
+(shown read-only, not edited), `Network` (WiFi credentials on a device with no WiFi of its
+own is a poor fit), and closing channel gaps the way the phone apps do when a middle slot is
+removed.
 
 ### Done outside the phases
 

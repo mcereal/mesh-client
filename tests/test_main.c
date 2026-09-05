@@ -5771,6 +5771,73 @@ static void test_app_settings_write_build(void) {
         return;
     }
 
+    /* Role is an ordinary enum edit, and the LED row is the one field the UI shows inverted:
+       "LED heartbeat on" has to become led_heartbeat_disabled = false. */
+    radio.device.led_heartbeat_disabled = true;
+    action.edit_count = 2U;
+    action.edits[0].field = MESH_UI_FIELD_DEVICE_ROLE;
+    action.edits[0].number = (uint32_t)meshtastic_Config_DeviceConfig_Role_ROUTER_LATE;
+    action.edits[1].field = MESH_UI_FIELD_DEVICE_LED_HEARTBEAT;
+    action.edits[1].number = 1U;
+    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+        write.payload.config.payload_variant.device.role !=
+            meshtastic_Config_DeviceConfig_Role_ROUTER_LATE ||
+        write.payload.config.payload_variant.device.led_heartbeat_disabled) {
+        record_failure(test_name, "the device role or the inverted LED row was not applied");
+        return;
+    }
+
+    radio.has_position = true;
+    radio.position.position_broadcast_secs = 900U;
+    radio.position.gps_update_interval = 120U;
+    radio.position.position_flags = 811U; /* not shown; must survive the write */
+    action.section = MESH_UI_SETTINGS_POSITION;
+    action.edit_count = 2U;
+    memset(action.edits, 0, sizeof action.edits);
+    action.edits[0].field = MESH_UI_FIELD_POSITION_GPS_MODE;
+    action.edits[0].number = (uint32_t)meshtastic_Config_PositionConfig_GpsMode_DISABLED;
+    action.edits[1].field = MESH_UI_FIELD_POSITION_SMART_DISTANCE;
+    action.edits[1].number = 250U;
+    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+        write.kind != MESH_ADMIN_SET_CONFIG ||
+        write.type != meshtastic_AdminMessage_ConfigType_POSITION_CONFIG ||
+        write.payload.config.which_payload_variant != meshtastic_Config_position_tag ||
+        write.payload.config.payload_variant.position.gps_mode !=
+            meshtastic_Config_PositionConfig_GpsMode_DISABLED ||
+        write.payload.config.payload_variant.position.broadcast_smart_minimum_distance != 250U ||
+        write.payload.config.payload_variant.position.position_broadcast_secs != 900U ||
+        write.payload.config.payload_variant.position.position_flags != 811U) {
+        record_failure(test_name, "set_position_config should carry the edits and keep the rest");
+        return;
+    }
+
+    radio.has_power = true;
+    radio.power.ls_secs = 300U;
+    radio.power.adc_multiplier_override = 2.5f; /* not shown; must survive the write */
+    action.section = MESH_UI_SETTINGS_POWER;
+    action.edit_count = 2U;
+    memset(action.edits, 0, sizeof action.edits);
+    action.edits[0].field = MESH_UI_FIELD_POWER_SAVING;
+    action.edits[0].number = 1U;
+    action.edits[1].field = MESH_UI_FIELD_POWER_WAIT_BT;
+    action.edits[1].number = 30U;
+    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+        write.type != meshtastic_AdminMessage_ConfigType_POWER_CONFIG ||
+        write.payload.config.which_payload_variant != meshtastic_Config_power_tag ||
+        !write.payload.config.payload_variant.power.is_power_saving ||
+        write.payload.config.payload_variant.power.wait_bluetooth_secs != 30U ||
+        write.payload.config.payload_variant.power.ls_secs != 300U ||
+        write.payload.config.payload_variant.power.adc_multiplier_override < 2.4f) {
+        record_failure(test_name, "set_power_config should carry the edits and keep the rest");
+        return;
+    }
+
+    /* Power can leave too little Bluetooth on to reconnect, so it asks before it writes. */
+    if (!mesh_ui_settings_section_needs_confirm(MESH_UI_SETTINGS_POWER)) {
+        record_failure(test_name, "the Power section should be behind the confirm overlay");
+        return;
+    }
+
     action.section = MESH_UI_SETTINGS_DISPLAY;
     if (mesh_app_build_settings_write(&radio, &action, &write) != -ENOENT) {
         record_failure(test_name, "a section the radio has not sent cannot be written");

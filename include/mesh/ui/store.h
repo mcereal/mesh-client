@@ -250,6 +250,7 @@ struct mesh_ui_settings {
     char tzdef[65];
     bool led_heartbeat_disabled;
     bool double_tap_as_button_press;
+    uint32_t node_info_broadcast_secs;
 
     bool has_display;
     uint32_t screen_on_secs;
@@ -297,12 +298,16 @@ struct mesh_ui_settings {
     uint32_t position_broadcast_secs;
     bool position_broadcast_smart_enabled;
     bool fixed_position;
+    uint32_t gps_update_interval;
+    uint32_t smart_minimum_distance; /* metres */
+    uint32_t smart_minimum_interval_secs;
 
     bool has_power;
     bool is_power_saving;
     uint32_t ls_secs;
     uint32_t min_wake_secs;
     uint32_t on_battery_shutdown_after_secs;
+    uint32_t wait_bluetooth_secs;
 
     bool has_mqtt;
     bool mqtt_enabled;

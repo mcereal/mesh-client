@@ -198,6 +198,8 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
         &write->payload.module_config.payload_variant.store_forward;
     meshtastic_ModuleConfig_TelemetryConfig *telemetry =
         &write->payload.module_config.payload_variant.telemetry;
+    meshtastic_Config_PositionConfig *position = &write->payload.config.payload_variant.position;
+    meshtastic_Config_PowerConfig *power = &write->payload.config.payload_variant.power;
     meshtastic_ChannelSettings *channel = &write->payload.channel.settings;
     meshtastic_Config_LoRaConfig *lora = &write->payload.config.payload_variant.lora;
     meshtastic_Config_SecurityConfig *security = &write->payload.config.payload_variant.security;
@@ -219,9 +221,61 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
         owner->has_is_unmessagable = true;
         owner->is_unmessagable = on;
         break;
+    case MESH_UI_FIELD_DEVICE_ROLE:
+        device->role = (meshtastic_Config_DeviceConfig_Role)edit->number;
+        break;
     case MESH_UI_FIELD_DEVICE_TZDEF:
         snprintf(device->tzdef, sizeof device->tzdef, "%.*s", (int)(sizeof device->tzdef - 1U),
                  edit->text);
+        break;
+    case MESH_UI_FIELD_DEVICE_REBROADCAST:
+        device->rebroadcast_mode = (meshtastic_Config_DeviceConfig_RebroadcastMode)edit->number;
+        break;
+    case MESH_UI_FIELD_DEVICE_NODEINFO_SECS:
+        device->node_info_broadcast_secs = edit->number;
+        break;
+    case MESH_UI_FIELD_DEVICE_LED_HEARTBEAT:
+        /* The row is the plain statement; the protobuf field is the negation of it. */
+        device->led_heartbeat_disabled = !on;
+        break;
+    case MESH_UI_FIELD_DEVICE_DOUBLE_TAP:
+        device->double_tap_as_button_press = on;
+        break;
+    case MESH_UI_FIELD_POSITION_GPS_MODE:
+        position->gps_mode = (meshtastic_Config_PositionConfig_GpsMode)edit->number;
+        break;
+    case MESH_UI_FIELD_POSITION_BROADCAST_SECS:
+        position->position_broadcast_secs = edit->number;
+        break;
+    case MESH_UI_FIELD_POSITION_SMART:
+        position->position_broadcast_smart_enabled = on;
+        break;
+    case MESH_UI_FIELD_POSITION_SMART_DISTANCE:
+        position->broadcast_smart_minimum_distance = edit->number;
+        break;
+    case MESH_UI_FIELD_POSITION_SMART_INTERVAL:
+        position->broadcast_smart_minimum_interval_secs = edit->number;
+        break;
+    case MESH_UI_FIELD_POSITION_FIXED:
+        position->fixed_position = on;
+        break;
+    case MESH_UI_FIELD_POSITION_GPS_INTERVAL:
+        position->gps_update_interval = edit->number;
+        break;
+    case MESH_UI_FIELD_POWER_SAVING:
+        power->is_power_saving = on;
+        break;
+    case MESH_UI_FIELD_POWER_LS_SECS:
+        power->ls_secs = edit->number;
+        break;
+    case MESH_UI_FIELD_POWER_MIN_WAKE:
+        power->min_wake_secs = edit->number;
+        break;
+    case MESH_UI_FIELD_POWER_WAIT_BT:
+        power->wait_bluetooth_secs = edit->number;
+        break;
+    case MESH_UI_FIELD_POWER_SHUTDOWN:
+        power->on_battery_shutdown_after_secs = edit->number;
         break;
     case MESH_UI_FIELD_DISPLAY_SCREEN_ON:
         display->screen_on_secs = edit->number;
@@ -491,6 +545,24 @@ int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
         out->type = meshtastic_AdminMessage_ConfigType_DEVICE_CONFIG;
         out->payload.config.which_payload_variant = meshtastic_Config_device_tag;
         out->payload.config.payload_variant.device = radio->device;
+        break;
+    case MESH_UI_SETTINGS_POSITION:
+        if (!radio->has_position) {
+            return -ENOENT;
+        }
+        out->kind = MESH_ADMIN_SET_CONFIG;
+        out->type = meshtastic_AdminMessage_ConfigType_POSITION_CONFIG;
+        out->payload.config.which_payload_variant = meshtastic_Config_position_tag;
+        out->payload.config.payload_variant.position = radio->position;
+        break;
+    case MESH_UI_SETTINGS_POWER:
+        if (!radio->has_power) {
+            return -ENOENT;
+        }
+        out->kind = MESH_ADMIN_SET_CONFIG;
+        out->type = meshtastic_AdminMessage_ConfigType_POWER_CONFIG;
+        out->payload.config.which_payload_variant = meshtastic_Config_power_tag;
+        out->payload.config.payload_variant.power = radio->power;
         break;
     case MESH_UI_SETTINGS_DISPLAY:
         if (!radio->has_display) {
@@ -1352,6 +1424,7 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
         snprintf(dst->tzdef, sizeof dst->tzdef, "%s", src->device.tzdef);
         dst->led_heartbeat_disabled = src->device.led_heartbeat_disabled;
         dst->double_tap_as_button_press = src->device.double_tap_as_button_press;
+        dst->node_info_broadcast_secs = src->device.node_info_broadcast_secs;
     }
     if (src->has_display) {
         dst->has_display = true;
@@ -1418,6 +1491,9 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
         dst->position_broadcast_secs = src->position.position_broadcast_secs;
         dst->position_broadcast_smart_enabled = src->position.position_broadcast_smart_enabled;
         dst->fixed_position = src->position.fixed_position;
+        dst->gps_update_interval = src->position.gps_update_interval;
+        dst->smart_minimum_distance = src->position.broadcast_smart_minimum_distance;
+        dst->smart_minimum_interval_secs = src->position.broadcast_smart_minimum_interval_secs;
     }
     if (src->has_power) {
         dst->has_power = true;
@@ -1425,6 +1501,7 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
         dst->ls_secs = src->power.ls_secs;
         dst->min_wake_secs = src->power.min_wake_secs;
         dst->on_battery_shutdown_after_secs = src->power.on_battery_shutdown_after_secs;
+        dst->wait_bluetooth_secs = src->power.wait_bluetooth_secs;
     }
     if (src->has_mqtt) {
         dst->has_mqtt = true;
