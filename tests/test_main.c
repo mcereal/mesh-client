@@ -8450,6 +8450,13 @@ static void test_updater_lifecycle(void) {
         channel_failure = "a fresh updater should be on the default channel";
     } else if (mesh_updater_effective_channel(&updater) == MESH_UPDATE_CHANNEL_DEFAULT) {
         channel_failure = "the default channel should resolve to a real one";
+    } else if ((strstr(mesh_update_channel_name(MESH_UPDATE_CHANNEL_DEFAULT), "prerelease") !=
+                NULL) !=
+               (mesh_updater_effective_channel(&updater) == MESH_UPDATE_CHANNEL_PRERELEASE)) {
+        /* The label has to name the endpoint the check will actually use. It did not: a `-dev`
+           suffix makes mesh_version_is_prerelease() true by itself, so every local build read
+           "Automatic (prerelease)" while querying the stable endpoint. */
+        channel_failure = "the default channel's label should name the channel it resolves to";
     } else if (mesh_updater_set_channel(&updater, MESH_UPDATE_CHANNEL_DEFAULT)) {
         channel_failure = "setting the channel it already has should be a no-op";
     } else if (!mesh_updater_set_channel(&updater, MESH_UPDATE_CHANNEL_PRERELEASE) ||

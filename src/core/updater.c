@@ -72,8 +72,15 @@ const char *mesh_update_channel_name(enum mesh_update_channel channel) {
     case MESH_UPDATE_CHANNEL_PRERELEASE:
         return "Prerelease";
     case MESH_UPDATE_CHANNEL_DEFAULT:
-        /* Say what the inference resolved to, or the row would read as a shrug. */
-        return mesh_version_is_prerelease() ? "Automatic (prerelease)" : "Automatic (stable)";
+        /* Say what the inference resolved to, or the row would read as a shrug - and ask the
+           function that does the resolving rather than repeating its rule. Spelling the rule
+           out a second time here is how the label came to say "prerelease" on every -dev build
+           while the check went to the stable endpoint: a `-dev` suffix makes
+           mesh_version_is_prerelease() true on its own, but the inference also requires the
+           build to be a release. NULL is the updater on the default channel, by definition. */
+        return mesh_updater_effective_channel(NULL) == MESH_UPDATE_CHANNEL_PRERELEASE
+                   ? "Automatic (prerelease)"
+                   : "Automatic (stable)";
     default:
         return "?";
     }
