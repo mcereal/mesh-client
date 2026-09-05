@@ -81,7 +81,7 @@ suite needs it.
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Verified 2026-09-05: 109 unit tests, all passing, zero compiler warnings.
+Verified 2026-09-05: 115 unit tests, all passing, zero compiler warnings.
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
 vector — not against our own encoder — so a protobuf regeneration that changes field numbers or
 wire types fails loudly.
@@ -116,7 +116,8 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | Messaging | `src/core/message.c` | text packets, message ring, ack correlation |
 | App glue | `src/core/app*.c` | `app` lifecycle/link, `_actions` UI actions, `_publish` to store, `_settings` writes |
 | Self-update | `src/core/updater.c`, `version.c` | forks curl, SemVer, digest-verified install |
-| UI | `src/ui/` | store/controller + `nav*.c` + `settings*.c` + `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
+| UI | `src/ui/` | store/controller + `nav*.c` + `settings*.c` + `layout.c` + `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
+| UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window; buttons, list rows, field rows |
 | Text | `src/utils/text.c`, `src/ui/{font5x7,emoji}.c` | UTF-8 sanitising, cell-based measurement |
 | Shared utils | `src/utils/` | `text` (UTF-8 + `mesh_str_copy`), `time` (`mesh_time_monotonic_ms`), `env` (`mesh_env_bool`/`_int`), `log`, `sha256`, `array` |
 
@@ -129,6 +130,12 @@ Four subsystems are split across several files sharing one `*_internal.h` next t
 would still be `static` if the group were one file, and nothing outside the group should include
 one. A symbol added to an internal header is a seam widened; prefer keeping the call inside the
 file that owns the state.
+
+`src/ui/backends/fb_widgets.h` is the one exception, and it is deliberate: it is a **component
+set**, not a seam. The fb backend stacks `fb_draw.c` (ink) → `fb_widgets.c` (buttons, list rows,
+field rows) → `fb_screens.c` (one renderer per screen), so a screen renderer describes its
+content and never computes a pixel coordinate, a scroll offset or a padding width. Adding a
+widget there is intended; see [`docs/ui.md`](docs/ui.md).
 
 **The full design rationale lives in [`docs/architecture.md`](docs/architecture.md)** — read it
 before changing session, settings, updater or node-cache behaviour. Transports are in
