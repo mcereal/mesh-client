@@ -59,6 +59,10 @@ add_library(meshclient_core
     src/ui/controller.c
     src/ui/input.c
     src/ui/nav.c
+    src/ui/nav_canned.c
+    src/ui/nav_conversations.c
+    src/ui/nav_keyboard.c
+    src/ui/nav_settings.c
     src/ui/settings.c
     src/ui/node_detail.c
     src/ui/backends/stub.c

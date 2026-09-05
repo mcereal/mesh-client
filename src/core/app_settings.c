@@ -561,7 +561,7 @@ int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
  * down is opening the section and pressing one row.
  */
 void mesh_app_save_fixed_position(struct mesh_app *app, const struct mesh_ui_action *action,
-                                         uint64_t now) {
+                                  uint64_t now) {
     char toast[MESH_UI_NAV_TOAST_MAX];
     const bool clearing = ((enum mesh_ui_settings_action)action->number ==
                            MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION);
@@ -641,7 +641,7 @@ void mesh_app_save_fixed_position(struct mesh_app *app, const struct mesh_ui_act
 }
 
 void mesh_app_save_settings(struct mesh_app *app, const struct mesh_ui_action *action,
-                                   uint64_t now) {
+                            uint64_t now) {
     char toast[MESH_UI_NAV_TOAST_MAX];
     char section_label[MESH_UI_SETTINGS_LABEL_MAX];
     if ((enum mesh_ui_settings_section)action->section == MESH_UI_SETTINGS_CHANNELS &&
@@ -687,9 +687,8 @@ void mesh_app_save_settings(struct mesh_app *app, const struct mesh_ui_action *a
 
 /* Announces the outcome of a save once: the ack, the rejection, or the radio dropping the
    link to reboot with the new settings (most sections do; auto-connect brings it back). */
-void mesh_app_track_settings_save(struct mesh_app *app,
-                                         const struct mesh_radio_settings *radio,
-                                         bool link_connected) {
+void mesh_app_track_settings_save(struct mesh_app *app, const struct mesh_radio_settings *radio,
+                                  bool link_connected) {
     if (!app->settings_save_pending) {
         return;
     }

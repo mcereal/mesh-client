@@ -27,7 +27,7 @@
 /* Resolves a node number to something a human can read, preferring the short name the NodeDB
    gave us and falling back to the Meshtastic-style "!hex" id. */
 void mesh_app_format_peer_name(const struct mesh_handshake_status *status, uint32_t node_id,
-                                      char *out, size_t out_len) {
+                               char *out, size_t out_len) {
     if (out == NULL || out_len == 0U) {
         return;
     }
