@@ -870,12 +870,16 @@ static void fb_render_settings(const struct mesh_ui_backend_fb_state *state,
     const enum mesh_ui_settings_section section =
         (enum mesh_ui_settings_section)nav->settings_section;
 
+    /* The breadcrumb names every level that is open, so a module reads
+       "Settings > Modules > Telemetry" and B has a visible target. */
+    const char *const trail = nav->settings_parent == MESH_UI_SETTINGS_MODULES ? "Modules > " : "";
     char title[96];
     if (section_open && nav->settings_channel != MESH_UI_SETTINGS_NO_CHANNEL) {
         snprintf(title, sizeof title, "Settings > Channel %u%s", (unsigned)nav->settings_channel,
                  nav->settings_edit_count > 0U ? " (unsaved)" : "");
     } else if (section_open) {
-        snprintf(title, sizeof title, "Settings > %s%s", mesh_ui_settings_section_name(section),
+        snprintf(title, sizeof title, "Settings > %s%s%s", trail,
+                 mesh_ui_settings_section_name(section),
                  nav->settings_edit_count > 0U ? " (unsaved)" : "");
     } else {
         snprintf(title, sizeof title, "%s", "Settings");
@@ -884,16 +888,18 @@ static void fb_render_settings(const struct mesh_ui_backend_fb_state *state,
 
     /* Every other section describes the radio, but About describes this client, so the tab
        stays usable with nothing connected: the section list still draws (About is the only
-       row not greyed out) and opening About still works. */
+       row not greyed out) and opening About still works. Modules is let through for the
+       reason the section list itself is - it is a list of what exists, not a read of the
+       radio, and each of its rows says "not loaded" on its own. */
     if (!settings->loaded && (handshake == NULL || !handshake->has_my_info) && section_open &&
-        section != MESH_UI_SETTINGS_ABOUT) {
+        section != MESH_UI_SETTINGS_ABOUT && section != MESH_UI_SETTINGS_MODULES) {
         fb_draw_empty(state, layout, "Connect to a radio to read its settings");
         return;
     }
 
     const uint32_t count = section_open ? mesh_ui_settings_item_count(settings, handshake, section,
                                                                       nav->settings_channel)
-                                        : (uint32_t)MESH_UI_SETTINGS_SECTION_COUNT;
+                                        : mesh_ui_settings_root_count();
     if (count == 0U) {
         fb_draw_empty(state, layout, "Not sent by the radio yet; X to refresh");
         return;
@@ -920,6 +926,15 @@ static void fb_render_settings(const struct mesh_ui_backend_fb_state *state,
                                        &item)) {
                 break;
             }
+            /* A heading names the group below it: dimmed, no marker, and no value column -
+               the same row the node detail draws, so the two screens stay identical. */
+            if (item.kind == MESH_UI_SETTING_HEADING) {
+                snprintf(line, sizeof line, "%s", item.label);
+                fb_fit(line, layout->cols);
+                fb_draw_row(state, y, line, k_fb_dim, i == cursor);
+                y += layout->line;
+                continue;
+            }
             /* Editable rows carry a marker so the eye can tell what Left/Right will act on;
                channel rows open with A. */
             const char *marker = item.dirty                            ? "* "
@@ -932,7 +947,7 @@ static void fb_render_settings(const struct mesh_ui_backend_fb_state *state,
                 color = k_fb_white;
             }
         } else {
-            const enum mesh_ui_settings_section row = (enum mesh_ui_settings_section)i;
+            const enum mesh_ui_settings_section row = mesh_ui_settings_root_at(i);
             const bool loaded = mesh_ui_settings_section_loaded(settings, handshake, row);
             snprintf(line, sizeof line, "%-*.*s %s", (int)label_cols, (int)label_cols,
                      mesh_ui_settings_section_name(row), loaded ? "" : "not loaded");

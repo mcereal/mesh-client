@@ -35,22 +35,18 @@ MESH_TEST_CASE(ui_nav_settings, unit) {
     if (store.nav.screen != MESH_UI_SCREEN_SETTINGS ||
         store.nav.settings_section != MESH_UI_SETTINGS_NO_SECTION ||
         mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) !=
-            MESH_UI_SETTINGS_SECTION_COUNT) {
+            mesh_ui_settings_root_count()) {
         failure = "Settings tab should open on the section list";
         goto cleanup;
     }
-    for (int i = 0; i < MESH_UI_SETTINGS_LORA; ++i) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    }
-    if (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != MESH_UI_SETTINGS_LORA) {
-        failure = "cursor should sit on LoRa";
+    /* The list is a curated order rather than the enum's, so the row is looked up rather than
+       counted to - and no module is on it at all. */
+    if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_LORA)) {
+        failure = "cursor should reach LoRa";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     const uint32_t lora_rows = mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS);
-    if (store.nav.settings_section != MESH_UI_SETTINGS_LORA ||
-        store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 0U || lora_rows == 0U ||
-        action.type != MESH_UI_ACTION_NONE) {
+    if (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 0U || lora_rows == 0U) {
         failure = "A should open the LoRa section";
         goto cleanup;
     }
@@ -82,17 +78,115 @@ MESH_TEST_CASE(ui_nav_settings, unit) {
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
     if (store.nav.settings_section != MESH_UI_SETTINGS_NO_SECTION ||
-        store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != MESH_UI_SETTINGS_LORA ||
+        mesh_ui_settings_root_at(store.nav.cursor[MESH_UI_SCREEN_SETTINGS]) !=
+            MESH_UI_SETTINGS_LORA ||
         store.nav.screen != MESH_UI_SCREEN_SETTINGS) {
         failure = "B should return to the section list at the same row";
         goto cleanup;
     }
-    /* An unloaded section opens empty rather than refusing; the backend explains. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    if (store.nav.settings_section != MESH_UI_SETTINGS_DISPLAY ||
+    /* An unloaded section opens empty rather than refusing; the backend explains. Only LoRa
+       was loaded above, so Display is one of the several that have nothing to show. */
+    if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_DISPLAY) ||
         mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 0U) {
         failure = "unloaded section should open with no rows";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+/*
+ * The third level phase 9 added: Modules opens a list, a row on it opens that module, and B
+ * unwinds one level at a time with each cursor where it was left.
+ */
+MESH_TEST_CASE(ui_nav_modules, unit) {
+    const char *failure = NULL;
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_telemetry = true;
+    settings.device_telemetry_enabled = true;
+    settings.device_update_interval = 900U;
+    mesh_ui_store_set_settings(&store, &settings);
+
+    struct mesh_ui_action action;
+    for (int i = 0; i < 4; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    }
+    if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_MODULES) ||
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) !=
+            mesh_ui_settings_module_count()) {
+        failure = "Modules should open on the module list";
+        goto cleanup;
+    }
+    const uint32_t modules_row = store.nav.settings_list_cursor;
+
+    /* Walk to Telemetry and open it. A on a module row is intercepted before the ordinary
+       ACTION handling, so it must not have reached the app as a radio action. */
+    uint32_t telemetry_row = 0U;
+    while (telemetry_row < mesh_ui_settings_module_count() &&
+           mesh_ui_settings_module_at(telemetry_row) != MESH_UI_SETTINGS_TELEMETRY) {
+        telemetry_row++;
+    }
+    for (uint32_t i = 0; i < telemetry_row; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.settings_section != MESH_UI_SETTINGS_TELEMETRY ||
+        store.nav.settings_parent != MESH_UI_SETTINGS_MODULES ||
+        store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 0U || action.type != MESH_UI_ACTION_NONE) {
+        failure = "A on a module row should open that module";
+        goto cleanup;
+    }
+
+    /* An edit inside the module still belongs to the module's own section, not to Modules. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* Enabled */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* Interval */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    if (store.nav.settings_edit_count != 1U ||
+        store.nav.settings_edits[0].field != MESH_UI_FIELD_TELEMETRY_INTERVAL) {
+        failure = "Right should edit the interval row inside the module";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    if (action.type != MESH_UI_ACTION_SAVE_SETTINGS ||
+        action.section != MESH_UI_SETTINGS_TELEMETRY) {
+        failure = "Y should save the module's own section";
+        goto cleanup;
+    }
+
+    /* Nothing cleared the edits - that is the app's job once the write is queued, and no app
+       is running here - so the first B arms the discard question and the second acts on it.
+       The level it then unwinds to is the module row it came from. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (!store.nav.settings_discard_armed ||
+        store.nav.settings_section != MESH_UI_SETTINGS_TELEMETRY) {
+        failure = "B with edits pending should ask before discarding";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (store.nav.settings_section != MESH_UI_SETTINGS_MODULES ||
+        store.nav.settings_parent != MESH_UI_SETTINGS_NO_SECTION ||
+        store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != telemetry_row) {
+        failure = "B should return to the Modules list at the module's row";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (store.nav.settings_section != MESH_UI_SETTINGS_NO_SECTION ||
+        store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != modules_row ||
+        mesh_ui_settings_root_at(store.nav.cursor[MESH_UI_SCREEN_SETTINGS]) !=
+            MESH_UI_SETTINGS_MODULES) {
+        failure = "a second B should return to the top level at the Modules row";
         goto cleanup;
     }
 
@@ -134,11 +228,7 @@ MESH_TEST_CASE(ui_nav_settings_edit, unit) {
     for (int i = 0; i < 4; ++i) { /* right to the Settings tab */
         mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
     }
-    for (int i = 0; i < MESH_UI_SETTINGS_DISPLAY; ++i) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    if (store.nav.settings_section != MESH_UI_SETTINGS_DISPLAY) {
+    if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_DISPLAY)) {
         failure = "Display should open";
         goto cleanup;
     }
@@ -225,10 +315,7 @@ MESH_TEST_CASE(ui_nav_settings_edit, unit) {
     /* Text: A on Short name opens the keyboard on that field with the value preloaded, the
        Compose draft parked; typing is capped at four bytes; done records the edit. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
-    for (int i = 0; i < MESH_UI_SETTINGS_DISPLAY - MESH_UI_SETTINGS_USER; ++i) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
-    }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_test_settings_open(&store, MESH_UI_SETTINGS_USER);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     if (!store.nav.keyboard_open || store.nav.keyboard_field != MESH_UI_FIELD_USER_SHORT_NAME ||
@@ -332,10 +419,7 @@ MESH_TEST_CASE(ui_nav_channel_edit, unit) {
     for (int i = 0; i < 4; ++i) { /* right to the Settings tab */
         mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
     }
-    for (int i = 0; i < MESH_UI_SETTINGS_CHANNELS; ++i) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_test_settings_open(&store, MESH_UI_SETTINGS_CHANNELS);
     if (store.nav.settings_section != MESH_UI_SETTINGS_CHANNELS ||
         mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 3U ||
         mesh_ui_settings_channel_at_row(&store.settings, NULL, 1U) != 1 ||
@@ -535,10 +619,7 @@ MESH_TEST_CASE(ui_nav_radio_actions, unit) {
     for (int i = 0; i < 4; ++i) {
         mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
     }
-    for (int i = 0; i < MESH_UI_SETTINGS_ACTIONS; ++i) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_test_settings_open(&store, MESH_UI_SETTINGS_ACTIONS);
     if (store.nav.settings_section != MESH_UI_SETTINGS_ACTIONS ||
         mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 5U) {
         failure = "the Radio actions section should open with five rows";
@@ -708,10 +789,7 @@ MESH_TEST_CASE(ui_nav_fixed_position, unit) {
     for (int i = 0; i < 4; ++i) {
         mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
     }
-    for (int i = 0; i < MESH_UI_SETTINGS_POSITION; ++i) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_test_settings_open(&store, MESH_UI_SETTINGS_POSITION);
     if (store.nav.settings_section != MESH_UI_SETTINGS_POSITION) {
         failure = "the Position section should open";
         goto cleanup;

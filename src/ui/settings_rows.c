@@ -78,6 +78,13 @@ static void item_toggle(struct item_list *list, const char *label, bool value) {
     item_text(list, label, MESH_UI_SETTING_TOGGLE, value ? "on" : "off");
 }
 
+/* A group title. No value, no field, nothing happens when A lands on it. Headings are emitted
+   unconditionally - never behind the group's own Enabled toggle - so an edit can never change
+   the row count under the cursor. */
+static void item_heading(struct item_list *list, const char *label) {
+    item_add(list, label, MESH_UI_SETTING_HEADING);
+}
+
 /* "30s", "5m", "2h"; `zero` says what 0 means for this field ("off", "default"). */
 static void format_seconds(char *out, size_t out_len, uint32_t seconds, const char *zero) {
     if (seconds == 0U) {
@@ -576,6 +583,51 @@ static void build_power(const struct mesh_ui_settings *s, struct item_list *list
     item_field(list, MESH_UI_FIELD_POWER_SHUTDOWN, s->on_battery_shutdown_after_secs, NULL);
 }
 
+/*
+ * The Modules list: every ModuleConfig variant this client keeps, with its enabled state as
+ * the value, and A on a row opening that module's own section.
+ *
+ * ACTION rows carrying the target section in `number`, which is the shape the channel list
+ * already uses - the nav intercepts A on them ahead of the radio-action handling rather than
+ * either list needing a screen of its own. A module the radio has not sent says so instead of
+ * being hidden: "which of these has not arrived" is most of what this screen is for.
+ */
+static void build_modules(const struct mesh_ui_settings *s,
+                          const struct mesh_ui_handshake_state *hs, struct item_list *list) {
+    const uint32_t count = mesh_ui_settings_module_count();
+    for (uint32_t i = 0; i < count; ++i) {
+        const enum mesh_ui_settings_section section = mesh_ui_settings_module_at(i);
+        struct mesh_ui_settings_item *item =
+            item_add(list, mesh_ui_settings_section_name(section), MESH_UI_SETTING_ACTION);
+        if (item == NULL) {
+            continue;
+        }
+        item->number = (uint32_t)section;
+        if (!mesh_ui_settings_section_loaded(s, hs, section)) {
+            mesh_str_copy(item->value, sizeof item->value, "not loaded");
+            continue;
+        }
+        bool enabled = false;
+        switch (section) {
+        case MESH_UI_SETTINGS_MQTT:
+            enabled = s->mqtt_enabled;
+            break;
+        case MESH_UI_SETTINGS_STORE_FORWARD:
+            enabled = s->store_forward_enabled;
+            break;
+        case MESH_UI_SETTINGS_TELEMETRY:
+            /* Telemetry has no single enabled flag; it is on when it is reporting anything. */
+            enabled = s->device_telemetry_enabled || s->environment_measurement_enabled ||
+                      s->air_quality_enabled || s->power_measurement_enabled ||
+                      s->health_measurement_enabled;
+            break;
+        default:
+            break;
+        }
+        mesh_str_copy(item->value, sizeof item->value, enabled ? "on" : "off");
+    }
+}
+
 static void build_mqtt(const struct mesh_ui_settings *s, struct item_list *list) {
     item_field(list, MESH_UI_FIELD_MQTT_ENABLED, s->mqtt_enabled ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_MQTT_ADDRESS, 0U, s->mqtt_address);
@@ -585,6 +637,14 @@ static void build_mqtt(const struct mesh_ui_settings *s, struct item_list *list)
     item_field(list, MESH_UI_FIELD_MQTT_ENCRYPTION, s->mqtt_encryption_enabled ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_MQTT_TLS, s->mqtt_tls_enabled ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_MQTT_MAP_REPORTING, s->mqtt_map_reporting_enabled ? 1U : 0U,
+               NULL);
+    /* MapReportSettings, the one submessage in this section. Listed under the toggle that
+       decides whether the radio reads them at all, and listed whether or not it is on - the
+       heading rule. */
+    item_heading(list, "Map report");
+    item_field(list, MESH_UI_FIELD_MQTT_MAP_INTERVAL, s->mqtt_map_publish_interval_secs, NULL);
+    item_field(list, MESH_UI_FIELD_MQTT_MAP_PRECISION, s->mqtt_map_position_precision, NULL);
+    item_field(list, MESH_UI_FIELD_MQTT_MAP_LOCATION, s->mqtt_map_should_report_location ? 1U : 0U,
                NULL);
     /*
      * The one row here that stays read-only. With proxying on, the radio stops talking to the
@@ -601,19 +661,44 @@ static void build_store_forward(const struct mesh_ui_settings *s, struct item_li
     item_field(list, MESH_UI_FIELD_SF_ENABLED, s->store_forward_enabled ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_SF_HEARTBEAT, s->store_forward_heartbeat ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_SF_SERVER, s->store_forward_is_server ? 1U : 0U, NULL);
+    /* The three the radio only reads as a server. Shown regardless: a node is set up to be a
+       server by filling these in and then turning the row above on. */
+    item_heading(list, "Server");
+    item_field(list, MESH_UI_FIELD_SF_RECORDS, s->store_forward_records, NULL);
+    item_field(list, MESH_UI_FIELD_SF_HISTORY_MAX, s->store_forward_history_return_max, NULL);
+    item_field(list, MESH_UI_FIELD_SF_HISTORY_WINDOW, s->store_forward_history_return_window, NULL);
 }
 
+/*
+ * Telemetry is five near-identical groups - a toggle, an interval, sometimes a screen flag -
+ * and fifteen fields of that in a flat run is unreadable. The headings are what phase 9 added
+ * them for, and they are why the rows inside a group are named "Enabled" and "Interval"
+ * rather than repeating the group in every label.
+ */
 static void build_telemetry(const struct mesh_ui_settings *s, struct item_list *list) {
+    item_heading(list, "Device");
     item_field(list, MESH_UI_FIELD_TELEMETRY_DEVICE, s->device_telemetry_enabled ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_TELEMETRY_INTERVAL, s->device_update_interval, NULL);
+    item_heading(list, "Environment");
     item_field(list, MESH_UI_FIELD_TELEMETRY_ENVIRONMENT,
                s->environment_measurement_enabled ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_TELEMETRY_ENV_INTERVAL, s->environment_update_interval, NULL);
     item_field(list, MESH_UI_FIELD_TELEMETRY_ENV_SCREEN, s->environment_screen_enabled ? 1U : 0U,
                NULL);
     item_field(list, MESH_UI_FIELD_TELEMETRY_ENV_FAHRENHEIT,
                s->environment_display_fahrenheit ? 1U : 0U, NULL);
+    item_heading(list, "Air quality");
     item_field(list, MESH_UI_FIELD_TELEMETRY_AIR_QUALITY, s->air_quality_enabled ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_TELEMETRY_AIR_INTERVAL, s->air_quality_interval, NULL);
+    item_heading(list, "Power");
     item_field(list, MESH_UI_FIELD_TELEMETRY_POWER, s->power_measurement_enabled ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_TELEMETRY_POWER_INTERVAL, s->power_update_interval, NULL);
+    item_field(list, MESH_UI_FIELD_TELEMETRY_POWER_SCREEN, s->power_screen_enabled ? 1U : 0U, NULL);
+    item_heading(list, "Health");
+    item_field(list, MESH_UI_FIELD_TELEMETRY_HEALTH, s->health_measurement_enabled ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_TELEMETRY_HEALTH_INTERVAL, s->health_update_interval, NULL);
+    item_field(list, MESH_UI_FIELD_TELEMETRY_HEALTH_SCREEN, s->health_screen_enabled ? 1U : 0U,
+               NULL);
 }
 
 /*
@@ -702,6 +787,9 @@ static void build_section(const struct mesh_ui_settings *settings,
         break;
     case MESH_UI_SETTINGS_ACTIONS:
         build_actions(settings, list);
+        break;
+    case MESH_UI_SETTINGS_MODULES:
+        build_modules(settings, handshake, list);
         break;
     default:
         break;

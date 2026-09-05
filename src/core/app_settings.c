@@ -170,6 +170,20 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
     case MESH_UI_FIELD_MQTT_MAP_REPORTING:
         mqtt->map_reporting_enabled = on;
         break;
+    /* map_report_settings is a submessage, so its presence flag has to be set: nanopb would
+       otherwise drop the whole thing from the wire and the firmware would keep its old copy. */
+    case MESH_UI_FIELD_MQTT_MAP_INTERVAL:
+        mqtt->has_map_report_settings = true;
+        mqtt->map_report_settings.publish_interval_secs = edit->number;
+        break;
+    case MESH_UI_FIELD_MQTT_MAP_PRECISION:
+        mqtt->has_map_report_settings = true;
+        mqtt->map_report_settings.position_precision = edit->number;
+        break;
+    case MESH_UI_FIELD_MQTT_MAP_LOCATION:
+        mqtt->has_map_report_settings = true;
+        mqtt->map_report_settings.should_report_location = on;
+        break;
     case MESH_UI_FIELD_SF_ENABLED:
         sf->enabled = on;
         break;
@@ -178,6 +192,15 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
         break;
     case MESH_UI_FIELD_SF_SERVER:
         sf->is_server = on;
+        break;
+    case MESH_UI_FIELD_SF_RECORDS:
+        sf->records = edit->number;
+        break;
+    case MESH_UI_FIELD_SF_HISTORY_MAX:
+        sf->history_return_max = edit->number;
+        break;
+    case MESH_UI_FIELD_SF_HISTORY_WINDOW:
+        sf->history_return_window = edit->number;
         break;
     case MESH_UI_FIELD_TELEMETRY_DEVICE:
         telemetry->device_telemetry_enabled = on;
@@ -188,6 +211,9 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
     case MESH_UI_FIELD_TELEMETRY_ENVIRONMENT:
         telemetry->environment_measurement_enabled = on;
         break;
+    case MESH_UI_FIELD_TELEMETRY_ENV_INTERVAL:
+        telemetry->environment_update_interval = edit->number;
+        break;
     case MESH_UI_FIELD_TELEMETRY_ENV_SCREEN:
         telemetry->environment_screen_enabled = on;
         break;
@@ -197,8 +223,26 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
     case MESH_UI_FIELD_TELEMETRY_AIR_QUALITY:
         telemetry->air_quality_enabled = on;
         break;
+    case MESH_UI_FIELD_TELEMETRY_AIR_INTERVAL:
+        telemetry->air_quality_interval = edit->number;
+        break;
     case MESH_UI_FIELD_TELEMETRY_POWER:
         telemetry->power_measurement_enabled = on;
+        break;
+    case MESH_UI_FIELD_TELEMETRY_POWER_INTERVAL:
+        telemetry->power_update_interval = edit->number;
+        break;
+    case MESH_UI_FIELD_TELEMETRY_POWER_SCREEN:
+        telemetry->power_screen_enabled = on;
+        break;
+    case MESH_UI_FIELD_TELEMETRY_HEALTH:
+        telemetry->health_measurement_enabled = on;
+        break;
+    case MESH_UI_FIELD_TELEMETRY_HEALTH_INTERVAL:
+        telemetry->health_update_interval = edit->number;
+        break;
+    case MESH_UI_FIELD_TELEMETRY_HEALTH_SCREEN:
+        telemetry->health_screen_enabled = on;
         break;
     case MESH_UI_FIELD_CHANNEL_NAME:
         mesh_str_copy(channel->name, sizeof channel->name, edit->text);

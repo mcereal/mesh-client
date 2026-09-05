@@ -151,9 +151,16 @@ MESH_TEST_CASE(ui_settings_edits, unit) {
                 MESH_UI_SETTING_NUMBER ||
             strcmp(mesh_ui_settings_field_label(MESH_UI_FIELD_USER_SHORT_NAME), "Short name") != 0,
         "field descriptions are wrong");
-    /* A read-only row has no field. */
+    /* Telemetry's groups sit under headings, so the device interval is row 2: heading,
+       Enabled, Interval. The heading itself carries no field and no value. */
     MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_TELEMETRY,
-                                             MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
+                          item.kind != MESH_UI_SETTING_HEADING ||
+                          item.field != MESH_UI_FIELD_NONE || item.value[0] != '\0' ||
+                          strcmp(item.label, "Device") != 0,
+                      "telemetry should open on a heading");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_TELEMETRY,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 2U, &item) ||
                           item.field != MESH_UI_FIELD_TELEMETRY_INTERVAL ||
                           strcmp(item.value, "1234s") != 0,
                       "telemetry interval row is wrong");
@@ -183,6 +190,71 @@ MESH_TEST_CASE(ui_settings_edits, unit) {
                               &edits[1] ||
                           mesh_ui_settings_find_edit(edits, 2U, MESH_UI_FIELD_DISPLAY_FLIP) != NULL,
                       "find_edit is wrong");
+    record_success(test_name);
+}
+
+/*
+ * The two lists phase 9 split the Settings tab into: the top level, which no longer contains a
+ * module, and the Modules list, which contains nothing else.
+ */
+MESH_TEST_CASE(ui_settings_modules, unit) {
+    /* Nothing on the top level is a module, and Modules itself is on it exactly once. */
+    uint32_t modules_rows = 0U;
+    for (uint32_t i = 0; i < mesh_ui_settings_root_count(); ++i) {
+        const enum mesh_ui_settings_section section = mesh_ui_settings_root_at(i);
+        MESH_TEST_FAIL_IF(mesh_ui_settings_section_is_module(section),
+                          "a module should not be on the top-level list");
+        modules_rows += (section == MESH_UI_SETTINGS_MODULES) ? 1U : 0U;
+    }
+    MESH_TEST_FAIL_IF(modules_rows != 1U, "the top level should carry one Modules row");
+    MESH_TEST_FAIL_IF(mesh_ui_settings_module_count() == 0U,
+                      "the Modules list should not be empty");
+    for (uint32_t i = 0; i < mesh_ui_settings_module_count(); ++i) {
+        MESH_TEST_FAIL_IF(!mesh_ui_settings_section_is_module(mesh_ui_settings_module_at(i)),
+                          "every Modules row should be a module");
+    }
+
+    /* The list itself: a folder, so it renders with no radio, and each row says whether the
+       radio has sent that module rather than hiding the ones it has not. */
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_section_loaded(&settings, NULL, MESH_UI_SETTINGS_MODULES),
+                      "the Modules list should render without a radio");
+    MESH_TEST_FAIL_IF(mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_MODULES,
+                                                  MESH_UI_SETTINGS_NO_CHANNEL) !=
+                          mesh_ui_settings_module_count(),
+                      "the Modules list should have a row per module");
+
+    struct mesh_ui_settings_item item;
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_MODULES,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
+                          item.kind != MESH_UI_SETTING_ACTION ||
+                          item.number != (uint32_t)mesh_ui_settings_module_at(0U) ||
+                          strcmp(item.value, "not loaded") != 0,
+                      "a module the radio has not sent should say so");
+
+    /* Once the radio has sent one, the value is its enabled state. Telemetry has no single
+       flag, so it counts as on when any of its five groups is measuring. */
+    settings.has_store_forward = true;
+    settings.store_forward_enabled = true;
+    settings.has_telemetry = true;
+    for (uint32_t i = 0; i < mesh_ui_settings_module_count(); ++i) {
+        MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U,
+                                                 MESH_UI_SETTINGS_MODULES,
+                                                 MESH_UI_SETTINGS_NO_CHANNEL, i, &item),
+                          "every Modules row should build");
+        const enum mesh_ui_settings_section section = mesh_ui_settings_module_at(i);
+        const char *expect = section == MESH_UI_SETTINGS_STORE_FORWARD ? "on"
+                             : section == MESH_UI_SETTINGS_TELEMETRY   ? "off"
+                                                                       : "not loaded";
+        MESH_TEST_FAIL_IF(strcmp(item.value, expect) != 0, "a module row shows the wrong state");
+    }
+    settings.health_measurement_enabled = true;
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_MODULES,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 2U, &item) ||
+                          strcmp(item.value, "on") != 0,
+                      "telemetry should read as on once any group measures");
     record_success(test_name);
 }
 

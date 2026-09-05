@@ -286,6 +286,14 @@ bool mesh_ui_nav_settings_back(struct mesh_ui_nav *nav) {
         nav->cursor[MESH_UI_SCREEN_SETTINGS] = nav->settings_channel_list_cursor;
         return true;
     }
+    /* A module was opened from the Modules list, so B goes back there rather than all the way
+       out; the second B leaves Modules the ordinary way. */
+    if (nav->settings_parent == MESH_UI_SETTINGS_MODULES) {
+        nav->settings_parent = MESH_UI_SETTINGS_NO_SECTION;
+        nav->settings_section = MESH_UI_SETTINGS_MODULES;
+        nav->cursor[MESH_UI_SCREEN_SETTINGS] = nav->settings_module_list_cursor;
+        return true;
+    }
     nav->settings_section = MESH_UI_SETTINGS_NO_SECTION;
     nav->cursor[MESH_UI_SCREEN_SETTINGS] = nav->settings_list_cursor;
     return true;

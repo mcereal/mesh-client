@@ -40,8 +40,28 @@ enum mesh_ui_settings_section {
     /* Things the radio does rather than keeps: reboot, shutdown, the resets. Last because a
        cursor that overshoots the list should land on nothing worse than the row above it. */
     MESH_UI_SETTINGS_ACTIONS,
+    /* Not a config section: the list of the ones that are modules, with each module's enabled
+       state as its value. A row here opens that module the way a Channels row opens a slot.
+       Declared last so every value above it keeps the number it had; where it *sits* in the
+       list is mesh_ui_settings_root_at()'s business, not the enum's. */
+    MESH_UI_SETTINGS_MODULES,
     MESH_UI_SETTINGS_SECTION_COUNT,
 };
+
+/*
+ * The two lists the Settings tab draws, as tables rather than as enum ranges.
+ *
+ * The section list stopped being 0..SECTION_COUNT in phase 9: modules sit one level down, so
+ * the top level is a curated order and the Modules list is another. Keeping them as accessors
+ * lets the enum above stay in declaration order - which is what every switch in the client is
+ * written against - while the rows are ordered for the person reading them.
+ */
+uint32_t mesh_ui_settings_root_count(void);
+enum mesh_ui_settings_section mesh_ui_settings_root_at(uint32_t row);
+uint32_t mesh_ui_settings_module_count(void);
+enum mesh_ui_settings_section mesh_ui_settings_module_at(uint32_t row);
+/* True for a section that lives under Modules rather than at the top level. */
+bool mesh_ui_settings_section_is_module(enum mesh_ui_settings_section section);
 
 enum mesh_ui_setting_kind {
     MESH_UI_SETTING_INFO = 0, /* read-only fact */
@@ -51,6 +71,11 @@ enum mesh_ui_setting_kind {
     MESH_UI_SETTING_NUMBER,
     MESH_UI_SETTING_KEY,
     MESH_UI_SETTING_ACTION,
+    /* A group title inside a long section: dimmed, no value column, and A on it does nothing.
+       The same row mesh_ui_node_item has drawn since the node detail existed. A heading is
+       never added or removed by an edit - a row count that moves under the cursor mid-edit
+       moves the cursor, which is the rule the LoRa trio is always listed for. */
+    MESH_UI_SETTING_HEADING,
 };
 
 /* Editable settings. Each is one protobuf field; app.c turns an edit back into the protobuf
@@ -102,16 +127,31 @@ enum mesh_ui_setting_field {
     MESH_UI_FIELD_MQTT_ENCRYPTION,
     MESH_UI_FIELD_MQTT_TLS,
     MESH_UI_FIELD_MQTT_MAP_REPORTING,
+    /* MQTTConfig.map_report_settings, a submessage rather than a flat field. Listed under the
+       toggle it belongs to; the firmware ignores them with map reporting off. */
+    MESH_UI_FIELD_MQTT_MAP_INTERVAL,
+    MESH_UI_FIELD_MQTT_MAP_PRECISION, /* the same precision presets a channel's position uses */
+    MESH_UI_FIELD_MQTT_MAP_LOCATION,
     MESH_UI_FIELD_SF_ENABLED,
     MESH_UI_FIELD_SF_HEARTBEAT,
     MESH_UI_FIELD_SF_SERVER,
+    MESH_UI_FIELD_SF_RECORDS,
+    MESH_UI_FIELD_SF_HISTORY_MAX,
+    MESH_UI_FIELD_SF_HISTORY_WINDOW,
     MESH_UI_FIELD_TELEMETRY_DEVICE,
     MESH_UI_FIELD_TELEMETRY_INTERVAL,
     MESH_UI_FIELD_TELEMETRY_ENVIRONMENT,
+    MESH_UI_FIELD_TELEMETRY_ENV_INTERVAL,
     MESH_UI_FIELD_TELEMETRY_ENV_SCREEN,
     MESH_UI_FIELD_TELEMETRY_ENV_FAHRENHEIT,
     MESH_UI_FIELD_TELEMETRY_AIR_QUALITY,
+    MESH_UI_FIELD_TELEMETRY_AIR_INTERVAL,
     MESH_UI_FIELD_TELEMETRY_POWER,
+    MESH_UI_FIELD_TELEMETRY_POWER_INTERVAL,
+    MESH_UI_FIELD_TELEMETRY_POWER_SCREEN,
+    MESH_UI_FIELD_TELEMETRY_HEALTH,
+    MESH_UI_FIELD_TELEMETRY_HEALTH_INTERVAL,
+    MESH_UI_FIELD_TELEMETRY_HEALTH_SCREEN,
     MESH_UI_FIELD_CHANNEL_NAME,
     MESH_UI_FIELD_CHANNEL_ROLE, /* enum: 0 disabled, 1 secondary; the primary slot is read-only */
     MESH_UI_FIELD_CHANNEL_KEY,  /* kind KEY: number is an enum mesh_ui_psk_choice */
@@ -196,7 +236,10 @@ enum mesh_ui_psk_choice {
 
 #define MESH_UI_SETTINGS_LABEL_MAX 24U
 #define MESH_UI_SETTINGS_VALUE_MAX 48U
-#define MESH_UI_SETTINGS_ITEMS_MAX 16U
+/* Telemetry is fifteen fields plus four headings; External notification will be worse. The
+   list is built onto the stack every frame, so this is ~4.9 KB in a loop that has no threads
+   to share it with. */
+#define MESH_UI_SETTINGS_ITEMS_MAX 32U
 
 struct mesh_ui_settings_item {
     char label[MESH_UI_SETTINGS_LABEL_MAX];
