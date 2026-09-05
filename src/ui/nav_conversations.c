@@ -35,7 +35,7 @@ static const struct mesh_ui_channel *mesh_ui_nav_channel(const struct mesh_ui_st
 }
 
 void mesh_ui_nav_channel_name(const struct mesh_ui_store *store, uint8_t index, char *out,
-                                     size_t out_len) {
+                              size_t out_len) {
     const struct mesh_ui_channel *channel = mesh_ui_nav_channel(store, index);
     if (channel != NULL && channel->name[0] != '\0') {
         snprintf(out, out_len, "#%s", channel->name);
@@ -49,7 +49,7 @@ void mesh_ui_nav_channel_name(const struct mesh_ui_store *store, uint8_t index, 
 }
 
 void mesh_ui_nav_node_name(const struct mesh_ui_store *store, uint32_t node_id, char *out,
-                                  size_t out_len) {
+                           size_t out_len) {
     if (store != NULL && store->handshake_valid) {
         const struct mesh_ui_handshake_state *hs = &store->handshake;
         for (uint32_t i = 0; i < hs->node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
@@ -154,7 +154,7 @@ bool mesh_ui_nav_picker_row(const struct mesh_ui_store *store, uint32_t index, u
 }
 
 void mesh_ui_nav_picker_open(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
-                                    bool then_compose) {
+                             bool then_compose) {
     nav->picker_open = true;
     nav->picker_to_compose = then_compose;
     nav->picker_cursor = 0U;
@@ -175,7 +175,7 @@ void mesh_ui_nav_picker_open(struct mesh_ui_nav *nav, const struct mesh_ui_store
 }
 
 bool mesh_ui_nav_picker_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
-                                   enum mesh_ui_key key) {
+                            enum mesh_ui_key key) {
     const uint32_t count = mesh_ui_nav_picker_count(store);
     if (nav->picker_cursor >= count && count > 0U) {
         nav->picker_cursor = count - 1U;
@@ -440,9 +440,8 @@ bool mesh_ui_nav_conversation_is_open(const struct mesh_ui_nav *nav,
 }
 
 /* A on a conversation row. Returns true when the frame changed. */
-bool mesh_ui_nav_open_conversation(struct mesh_ui_nav *nav,
-                                          const struct mesh_ui_store *store, uint32_t index,
-                                          bool then_compose) {
+bool mesh_ui_nav_open_conversation(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                   uint32_t index, bool then_compose) {
     struct mesh_ui_conversation conversation;
     if (!mesh_ui_nav_conversation_at(store, index, &conversation)) {
         return false;

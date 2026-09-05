@@ -19,15 +19,13 @@
 
 /* ---- settings edits ----------------------------------------------------------------------- */
 
-const struct mesh_ui_handshake_state *
-mesh_ui_nav_handshake(const struct mesh_ui_store *store) {
+const struct mesh_ui_handshake_state *mesh_ui_nav_handshake(const struct mesh_ui_store *store) {
     return store->handshake_valid ? &store->handshake : NULL;
 }
 
 /* The row under the cursor in the open section, with (or without) the pending edits. */
-bool mesh_ui_nav_settings_current(const struct mesh_ui_nav *nav,
-                                         const struct mesh_ui_store *store, bool with_edits,
-                                         struct mesh_ui_settings_item *out) {
+bool mesh_ui_nav_settings_current(const struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                  bool with_edits, struct mesh_ui_settings_item *out) {
     if (nav->screen != MESH_UI_SCREEN_SETTINGS ||
         nav->settings_section == MESH_UI_SETTINGS_NO_SECTION) {
         return false;
@@ -126,8 +124,8 @@ static void mesh_ui_nav_open_field_keyboard(struct mesh_ui_nav *nav,
 
 /* A, Left or Right on a row of an open section. Toggles flip, enums cycle, numbers step
    through their presets, text opens the keyboard. Read-only rows ignore the press. */
-bool mesh_ui_nav_settings_edit_key(struct mesh_ui_nav *nav,
-                                          const struct mesh_ui_store *store, enum mesh_ui_key key) {
+bool mesh_ui_nav_settings_edit_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                   enum mesh_ui_key key) {
     struct mesh_ui_settings_item item;
     if (!mesh_ui_nav_settings_current(nav, store, true, &item) ||
         item.field == MESH_UI_FIELD_NONE) {
@@ -185,8 +183,7 @@ bool mesh_ui_nav_settings_edit_key(struct mesh_ui_nav *nav,
 }
 
 /* Done on the keyboard while it edits a setting: the draft becomes the pending edit. */
-bool mesh_ui_nav_settings_commit_text(struct mesh_ui_nav *nav,
-                                             const struct mesh_ui_store *store) {
+bool mesh_ui_nav_settings_commit_text(struct mesh_ui_nav *nav, const struct mesh_ui_store *store) {
     const enum mesh_ui_setting_field field = (enum mesh_ui_setting_field)nav->keyboard_field;
     char text[MESH_UI_SETTING_TEXT_MAX];
     mesh_str_copy(text, sizeof text, nav->draft);
@@ -236,8 +233,8 @@ static void mesh_ui_nav_confirm_close(struct mesh_ui_nav *nav) {
 /* A radio action carries the open section's pending edits for the same reason a save does:
    "Set fixed position" is a row that reads the three rows above it. */
 void mesh_ui_nav_fill_radio_action(const struct mesh_ui_nav *nav,
-                                          enum mesh_ui_settings_action which,
-                                          struct mesh_ui_action *action) {
+                                   enum mesh_ui_settings_action which,
+                                   struct mesh_ui_action *action) {
     if (action == NULL) {
         return;
     }
@@ -249,7 +246,7 @@ void mesh_ui_nav_fill_radio_action(const struct mesh_ui_nav *nav,
 }
 
 bool mesh_ui_nav_confirm_key(struct mesh_ui_nav *nav, enum mesh_ui_key key,
-                                    struct mesh_ui_action *action) {
+                             struct mesh_ui_action *action) {
     switch (key) {
     case MESH_UI_KEY_UP:
     case MESH_UI_KEY_DOWN:
@@ -297,10 +294,9 @@ bool mesh_ui_nav_settings_back(struct mesh_ui_nav *nav) {
 /* Keys that mean something different while a Settings section is open: Left/Right edit the
    row instead of switching tabs (L1/R1 still do), Y saves, B asks before discarding edits.
    Returns false to let the ordinary handling run. */
-bool mesh_ui_nav_settings_section_key(struct mesh_ui_nav *nav,
-                                             const struct mesh_ui_store *store,
-                                             enum mesh_ui_key key, struct mesh_ui_action *action,
-                                             bool *handled) {
+bool mesh_ui_nav_settings_section_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                      enum mesh_ui_key key, struct mesh_ui_action *action,
+                                      bool *handled) {
     *handled = true;
     switch (key) {
     case MESH_UI_KEY_LEFT:

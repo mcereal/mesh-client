@@ -183,7 +183,7 @@ static bool mesh_ui_nav_cancel_passkey(struct mesh_ui_nav *nav, struct mesh_ui_a
 }
 
 bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
-                                     enum mesh_ui_key key, struct mesh_ui_action *action) {
+                              enum mesh_ui_key key, struct mesh_ui_action *action) {
     const bool for_passkey = nav->keyboard_passkey;
     const bool for_setting = (!for_passkey && nav->keyboard_field != MESH_UI_FIELD_NONE);
     switch (key) {
