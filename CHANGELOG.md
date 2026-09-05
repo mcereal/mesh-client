@@ -1,3 +1,13 @@
+## [2.2.0](https://github.com/mcereal/mesh-client/compare/v2.1.0...v2.2.0) (2026-09-05)
+
+### Features
+
+* **settings:** add the six small modules (roadmap phase 10) ([e7710bd](https://github.com/mcereal/mesh-client/commit/e7710bd06dd3867afd08309b11fceb8a0ce1727b))
+
+### Bug Fixes
+
+* **settings:** count the new module sections as loaded ([d6c2296](https://github.com/mcereal/mesh-client/commit/d6c229650c94e651a9224377091f9cbc7898a367))
+
 ## [2.1.0](https://github.com/mcereal/mesh-client/compare/v2.0.3...v2.1.0) (2026-09-05)
 
 ### Features
