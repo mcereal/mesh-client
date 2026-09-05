@@ -54,6 +54,10 @@ enum mesh_ui_settings_section {
     MESH_UI_SETTINGS_TAK,
     MESH_UI_SETTINGS_AMBIENT,
     MESH_UI_SETTINGS_STATUS_MESSAGE,
+    /* Phase 11's three: large enough to need the heading rows, still no new row model. */
+    MESH_UI_SETTINGS_DETECTION,
+    MESH_UI_SETTINGS_EXT_NOTIFICATION,
+    MESH_UI_SETTINGS_TRAFFIC,
     MESH_UI_SETTINGS_SECTION_COUNT,
 };
 
@@ -216,6 +220,41 @@ enum mesh_ui_setting_field {
     MESH_UI_FIELD_AMBIENT_GREEN,
     MESH_UI_FIELD_AMBIENT_BLUE,
     MESH_UI_FIELD_STATUS_TEXT,
+    MESH_UI_FIELD_DETECT_ENABLED,
+    MESH_UI_FIELD_DETECT_NAME, /* text: 19 bytes; the firmware formats "<name> detected" */
+    MESH_UI_FIELD_DETECT_MIN_BROADCAST,
+    MESH_UI_FIELD_DETECT_STATE_BROADCAST,
+    MESH_UI_FIELD_DETECT_SEND_BELL,
+    /* A GPIO pin number. Offered as a number row over the plausible range rather than as free
+       text: the radio's own wiring decides what is valid and we cannot know it, but a pin
+       outside the range is certainly wrong. */
+    MESH_UI_FIELD_DETECT_PIN,
+    MESH_UI_FIELD_DETECT_TRIGGER,
+    MESH_UI_FIELD_DETECT_PULLUP,
+    MESH_UI_FIELD_EXTNOTIF_ENABLED,
+    MESH_UI_FIELD_EXTNOTIF_ACTIVE,
+    MESH_UI_FIELD_EXTNOTIF_OUTPUT_MS,
+    MESH_UI_FIELD_EXTNOTIF_NAG,
+    MESH_UI_FIELD_EXTNOTIF_PWM,
+    MESH_UI_FIELD_EXTNOTIF_I2S,
+    /* Three outputs, each a pin plus the two alerts that drive it. Grouped under headings
+       rather than run flat: the six alert flags are otherwise unreadable. */
+    MESH_UI_FIELD_EXTNOTIF_PIN,
+    MESH_UI_FIELD_EXTNOTIF_ALERT_MSG,
+    MESH_UI_FIELD_EXTNOTIF_ALERT_BELL,
+    MESH_UI_FIELD_EXTNOTIF_PIN_VIBRA,
+    MESH_UI_FIELD_EXTNOTIF_ALERT_MSG_VIBRA,
+    MESH_UI_FIELD_EXTNOTIF_ALERT_BELL_VIBRA,
+    MESH_UI_FIELD_EXTNOTIF_PIN_BUZZER,
+    MESH_UI_FIELD_EXTNOTIF_ALERT_MSG_BUZZER,
+    MESH_UI_FIELD_EXTNOTIF_ALERT_BELL_BUZZER,
+    /* Traffic management has no enabled flag at all: upstream removed the bool toggles in
+       favour of "a non-zero value implicitly enables it", so 0 is off on every row. */
+    MESH_UI_FIELD_TRAFFIC_POSITION_INTERVAL,
+    MESH_UI_FIELD_TRAFFIC_NODEINFO_HOPS,
+    MESH_UI_FIELD_TRAFFIC_RATE_WINDOW,
+    MESH_UI_FIELD_TRAFFIC_RATE_PACKETS,
+    MESH_UI_FIELD_TRAFFIC_UNKNOWN_THRESHOLD,
     MESH_UI_FIELD_COUNT,
 };
 

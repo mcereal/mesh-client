@@ -382,6 +382,111 @@ MESH_TEST_CASE(ui_settings_small_modules, unit) {
     record_success(test_name);
 }
 
+/*
+ * Phase 11's three: the modules the heading row was added for, and the one with no enabled
+ * flag at all.
+ */
+MESH_TEST_CASE(ui_settings_large_modules, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_detection_sensor = true;
+    settings.has_external_notification = true;
+    settings.has_traffic_management = true;
+
+    /*
+     * External notification is three near-identical output groups. Every group must have the
+     * same three-row shape under its own heading, and no row may be shared between them - a
+     * copy-paste that pointed two groups at one field would show as the same value twice and
+     * write one pin where the user set two.
+     */
+    static const struct {
+        const char *heading;
+        enum mesh_ui_setting_field pin;
+        enum mesh_ui_setting_field message;
+        enum mesh_ui_setting_field bell;
+    } k_groups[] = {
+        {"Output", MESH_UI_FIELD_EXTNOTIF_PIN, MESH_UI_FIELD_EXTNOTIF_ALERT_MSG,
+         MESH_UI_FIELD_EXTNOTIF_ALERT_BELL},
+        {"Vibra", MESH_UI_FIELD_EXTNOTIF_PIN_VIBRA, MESH_UI_FIELD_EXTNOTIF_ALERT_MSG_VIBRA,
+         MESH_UI_FIELD_EXTNOTIF_ALERT_BELL_VIBRA},
+        {"Buzzer", MESH_UI_FIELD_EXTNOTIF_PIN_BUZZER, MESH_UI_FIELD_EXTNOTIF_ALERT_MSG_BUZZER,
+         MESH_UI_FIELD_EXTNOTIF_ALERT_BELL_BUZZER},
+    };
+    const uint32_t ext_rows = mesh_ui_settings_item_count(
+        &settings, NULL, MESH_UI_SETTINGS_EXT_NOTIFICATION, MESH_UI_SETTINGS_NO_CHANNEL);
+    MESH_TEST_FAIL_IF(ext_rows != 18U, "external notify should be 15 fields under 3 headings");
+    for (size_t g = 0; g < sizeof k_groups / sizeof k_groups[0]; ++g) {
+        /* The heading, then pin / message / bell, in that order. */
+        bool found = false;
+        for (uint32_t row = 0; row + 3U < ext_rows && !found; ++row) {
+            struct mesh_ui_settings_item head;
+            if (!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_EXT_NOTIFICATION,
+                                       MESH_UI_SETTINGS_NO_CHANNEL, row, &head) ||
+                head.kind != MESH_UI_SETTING_HEADING ||
+                strcmp(head.label, k_groups[g].heading) != 0) {
+                continue;
+            }
+            found = true;
+            const enum mesh_ui_setting_field expect[3] = {k_groups[g].pin, k_groups[g].message,
+                                                          k_groups[g].bell};
+            for (uint32_t i = 0; i < 3U; ++i) {
+                struct mesh_ui_settings_item item;
+                MESH_TEST_FAIL_IF(!mesh_ui_settings_item(
+                                      &settings, NULL, NULL, 0U, MESH_UI_SETTINGS_EXT_NOTIFICATION,
+                                      MESH_UI_SETTINGS_NO_CHANNEL, row + 1U + i, &item) ||
+                                      item.field != expect[i],
+                                  "an output group has the wrong rows under its heading");
+            }
+        }
+        MESH_TEST_FAIL_IF(!found, "an output group is missing its heading");
+    }
+
+    /*
+     * Fifteen editable fields in one section, against MESH_UI_SETTINGS_EDITS_MAX. Over the cap
+     * mesh_ui_nav_edit_set() returns false and the press silently does nothing, which is how
+     * the old cap of 8 hid - so this is asserted rather than assumed.
+     */
+    uint32_t editable = 0U;
+    for (uint32_t row = 0; row < ext_rows; ++row) {
+        struct mesh_ui_settings_item item;
+        if (mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_EXT_NOTIFICATION,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, row, &item) &&
+            item.field != MESH_UI_FIELD_NONE) {
+            editable++;
+        }
+    }
+    MESH_TEST_FAIL_IF(editable != 15U, "external notify should offer all fifteen wire fields");
+    MESH_TEST_FAIL_IF(editable > MESH_UI_SETTINGS_EDITS_MAX,
+                      "a section must not have more editable rows than an edit list can hold");
+
+    /* Traffic management has no enabled toggle: every row is off at 0 by the module's own
+       convention, and the section says so on its first row. */
+    struct mesh_ui_settings_item item;
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_TRAFFIC,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
+                          item.field != MESH_UI_FIELD_TRAFFIC_POSITION_INTERVAL ||
+                          strcmp(item.value, "off") != 0,
+                      "an unset traffic limit should read as off");
+
+    /* Detection sensor: a contiguous trigger enum and a pin that reads as unset at 0. */
+    MESH_TEST_FAIL_IF(mesh_ui_settings_enum_count(MESH_UI_FIELD_DETECT_TRIGGER) != 6U ||
+                          strcmp(mesh_ui_settings_enum_name(MESH_UI_FIELD_DETECT_TRIGGER, 2U),
+                                 "Falling edge") != 0,
+                      "the detection trigger enum is wrong");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_DETECTION,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 6U, &item) ||
+                          item.field != MESH_UI_FIELD_DETECT_PIN ||
+                          strcmp(item.value, "unset") != 0,
+                      "an unset monitor pin should say so rather than reading as GPIO 0");
+    settings.detection_monitor_pin = 17U;
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_DETECTION,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 6U, &item) ||
+                          strcmp(item.value, "GPIO 17") != 0,
+                      "a set monitor pin should name the GPIO");
+    record_success(test_name);
+}
+
 /* Keys as text: base64 out, base64 or hex in, per-field lengths and choices. */
 MESH_TEST_CASE(ui_settings_key_text, unit) {
     static const uint8_t k_default[16] = {0xd4, 0xf1, 0xbb, 0x3a, 0x20, 0x29, 0x07, 0x59,

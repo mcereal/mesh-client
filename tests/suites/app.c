@@ -545,6 +545,96 @@ MESH_TEST_CASE(app_small_module_write_build, unit) {
     record_success(test_name);
 }
 
+/* Phase 11's three through the write path, each pinning its own union tag. */
+MESH_TEST_CASE(app_large_module_write_build, unit) {
+    struct mesh_radio_settings radio;
+    mesh_radio_settings_reset(&radio);
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    struct mesh_admin_request write;
+
+    radio.has_detection_sensor = true;
+    radio.detection_sensor.use_pullup = true; /* not edited; must survive */
+    action.section = MESH_UI_SETTINGS_DETECTION;
+    action.edit_count = 3U;
+    action.edits[0].field = MESH_UI_FIELD_DETECT_ENABLED;
+    action.edits[0].number = 1U;
+    action.edits[1].field = MESH_UI_FIELD_DETECT_PIN;
+    action.edits[1].number = 17U;
+    action.edits[2].field = MESH_UI_FIELD_DETECT_NAME;
+    snprintf(action.edits[2].text, sizeof action.edits[2].text, "%s", "Motion");
+    MESH_TEST_FAIL_IF(
+        mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+            write.type != meshtastic_AdminMessage_ModuleConfigType_DETECTIONSENSOR_CONFIG ||
+            write.payload.module_config.which_payload_variant !=
+                meshtastic_ModuleConfig_detection_sensor_tag ||
+            !write.payload.module_config.payload_variant.detection_sensor.enabled ||
+            write.payload.module_config.payload_variant.detection_sensor.monitor_pin != 17U ||
+            strcmp(write.payload.module_config.payload_variant.detection_sensor.name, "Motion") !=
+                0 ||
+            !write.payload.module_config.payload_variant.detection_sensor.use_pullup,
+        "set_detection_sensor should carry the edits and keep the rest");
+
+    /*
+     * External notification's three output groups must reach three different fields. A
+     * copy-paste in the apply switch would land two of these on one pin and the wire would
+     * carry a config the user never asked for, so all three go out at once with distinct
+     * values and all three are checked.
+     */
+    radio.has_external_notification = true;
+    action.section = MESH_UI_SETTINGS_EXT_NOTIFICATION;
+    action.edit_count = 6U;
+    memset(action.edits, 0, sizeof action.edits);
+    action.edits[0].field = MESH_UI_FIELD_EXTNOTIF_PIN;
+    action.edits[0].number = 13U;
+    action.edits[1].field = MESH_UI_FIELD_EXTNOTIF_PIN_VIBRA;
+    action.edits[1].number = 19U;
+    action.edits[2].field = MESH_UI_FIELD_EXTNOTIF_PIN_BUZZER;
+    action.edits[2].number = 25U;
+    action.edits[3].field = MESH_UI_FIELD_EXTNOTIF_ALERT_MSG;
+    action.edits[3].number = 1U;
+    action.edits[4].field = MESH_UI_FIELD_EXTNOTIF_ALERT_BELL_VIBRA;
+    action.edits[4].number = 1U;
+    action.edits[5].field = MESH_UI_FIELD_EXTNOTIF_NAG;
+    action.edits[5].number = 60U;
+    MESH_TEST_FAIL_IF(
+        mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+            write.type != meshtastic_AdminMessage_ModuleConfigType_EXTNOTIF_CONFIG ||
+            write.payload.module_config.which_payload_variant !=
+                meshtastic_ModuleConfig_external_notification_tag ||
+            write.payload.module_config.payload_variant.external_notification.output != 13U ||
+            write.payload.module_config.payload_variant.external_notification.output_vibra != 19U ||
+            write.payload.module_config.payload_variant.external_notification.output_buzzer !=
+                25U ||
+            !write.payload.module_config.payload_variant.external_notification.alert_message ||
+            write.payload.module_config.payload_variant.external_notification.alert_message_vibra ||
+            !write.payload.module_config.payload_variant.external_notification.alert_bell_vibra ||
+            write.payload.module_config.payload_variant.external_notification.nag_timeout != 60U,
+        "each external-notify output group should reach its own field");
+
+    /* Traffic management has no enabled flag; a zero is a real value meaning off. */
+    radio.has_traffic_management = true;
+    radio.traffic_management.rate_limit_window_secs = 300U;
+    action.section = MESH_UI_SETTINGS_TRAFFIC;
+    action.edit_count = 2U;
+    memset(action.edits, 0, sizeof action.edits);
+    action.edits[0].field = MESH_UI_FIELD_TRAFFIC_NODEINFO_HOPS;
+    action.edits[0].number = 3U;
+    action.edits[1].field = MESH_UI_FIELD_TRAFFIC_RATE_WINDOW;
+    action.edits[1].number = 0U; /* turning a limit off is a write, not a no-op */
+    MESH_TEST_FAIL_IF(
+        mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+            write.type != meshtastic_AdminMessage_ModuleConfigType_TRAFFICMANAGEMENT_CONFIG ||
+            write.payload.module_config.which_payload_variant !=
+                meshtastic_ModuleConfig_traffic_management_tag ||
+            write.payload.module_config.payload_variant.traffic_management
+                    .nodeinfo_direct_response_max_hops != 3U ||
+            write.payload.module_config.payload_variant.traffic_management.rate_limit_window_secs !=
+                0U,
+        "set_traffic_management should carry a zero as a value");
+    record_success(test_name);
+}
+
 /* Key choices become bytes, roles map back, and a bad PIN never reaches the radio. */
 MESH_TEST_CASE(app_channel_write_build, unit) {
     struct mesh_radio_settings radio;

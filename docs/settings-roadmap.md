@@ -465,31 +465,67 @@ typed on one line where the two halves can be read against each other.
   turning Neighbor info on and setting its interval survives the reboot; Range test with a
   sender interval set does not appear in the phone app as an unknown-field write.
 
-### Phase 11 - the four large modules (this branch)
+### Phase 11 - the three large modules (this branch)
 
-**Detection sensor** (8 fields), **External notification** (15), **Mesh beacon** (7) and
-**Traffic management** (5). These are the modules phase 9's headings were built for; External
-notification in particular is three near-identical groups (message, bell, vibra) that are
-unreadable in a flat run and obvious under three headings.
+**Detection sensor** (8 fields), **External notification** (15) and **Traffic management** (5).
+These are the modules phase 9's headings were built for; External notification in particular is
+three near-identical groups - a pin, an alert on a message, an alert on a bell, once each for
+the plain output, the vibra motor and the buzzer - which are nine indistinguishable rows flat
+and three copies of one shape under three headings.
 
-The judgement in this phase is which fields to offer at all. Detection sensor and External
+**Mesh beacon was moved out of this phase**, to phase 12. The plan put it here on a field count,
+which was the wrong measure: reading the proto, it needs at least two row models this client
+does not have. `flags` is a *bitfield* packing three booleans into one `uint32`;
+`broadcast_targets` is a **repeated submessage** of up to four `{preset, region, channel_index}`
+records, which is a two-level list like Channels rather than a section; `broadcast_offer_channel`
+embeds a whole `ChannelSettings` (name and PSK); and `broadcast_message` is 100 bytes, over the
+80 that `MESH_UI_SETTING_TEXT_MAX` was raised to in phase 10. None of that is large-but-
+mechanical, which is what this phase is for.
+
+The judgement that stayed is which fields to offer at all. Detection sensor and External
 notification both carry **GPIO pin numbers** (`monitor_pin`, `output`, `output_vibra`,
-`output_buzzer`), and a wrong pin does not fail loudly - it drives a pin that is wired to
-something else. They are shown, and they are editable, because a module whose pin cannot be
-set is a module that cannot be used; but they are number rows over the plausible range rather
-than free text, and the section carries a line saying the radio's own wiring decides what is
-valid.
+`output_buzzer`), and a wrong pin does not fail loudly - it drives whatever is wired to that
+pin. They are shown and they are editable, because a module whose pin cannot be set is a module
+that cannot be used; but they are number rows over the range a board could plausibly expose
+rather than free text, and they sit under a `Wiring` heading. A pin outside the range is
+certainly wrong; one inside it merely might be, and nothing on the wire can tell us which.
 
-**Mesh beacon** is the one with a mesh-wide cost: `broadcast_interval_secs` with a low value on
-a shared channel is the same antisocial-transmitter problem Range test has, one order of
-magnitude worse because the beacon carries a channel offer. Its presets start where the
-firmware's default is and do not go below it.
+**Traffic management** turned out to have no enabled toggle at all. Upstream removed the bool
+flags in favour of "a non-zero value implicitly enables it" and reserved their tags, so every
+row is off at 0 and the section says so on its first row rather than leaving a reader hunting
+for the switch.
 
-- Exit criteria: on the Brick, External notification's three groups read as three groups;
-  a detection-sensor name and monitor pin set from the Brick read back after the reboot; a
-  beacon interval below the firmware default cannot be selected.
+- Exit criteria: on the Brick, External notification's three groups read as three groups and a
+  pin set in one of them does not appear in another; a detection-sensor name and monitor pin set
+  from the Brick read back after the reboot; a traffic limit set to 0 reads back as off rather
+  than as unset.
 
-### Phase 12 - the four hardware modules, or not at all
+### Phase 12 - Mesh beacon
+
+The module phase 11 handed back, and the only one of the seventeen that needs new UI rather than
+new rows. Four things, in the order they would have to be built:
+
+- **`flags` is a bitfield** (`FLAG_LISTEN_ENABLED`, `FLAG_BROADCAST_ENABLED`, `FLAG_LEGACY_SPLIT`).
+  Three toggle rows over one `uint32` - the first field in the client whose rows are bits rather
+  than the whole value. The field table has no way to say "bit 2 of this field" yet.
+- **`broadcast_message` is 100 bytes**, against a `MESH_UI_SETTING_TEXT_MAX` of 80. That cap has
+  now been raised twice, once per module that outgrew it; a third bump is the moment to ask
+  whether the edit buffer should be sized from the field table instead of from a constant.
+- **`broadcast_offer_channel`** embeds a `ChannelSettings` - a name and a PSK, with the key rows
+  the Channels section already has, but inside another section.
+- **`broadcast_targets` is a repeated submessage**, up to four `{preset, region, channel_index}`
+  records. That is a list of records inside a section: the Channels shape, one level deeper.
+
+A beacon also has a **mesh-wide cost** that none of the phase 10 or 11 modules has:
+`broadcast_interval_secs` with a low value on a shared channel is Range test's antisocial-
+transmitter problem, worse because the beacon carries a channel offer that other nodes act on.
+Its presets start at the firmware's own floor (3600) and do not go below it, and the section is
+a candidate for the confirm overlay - the first module that would need one.
+
+Worth doing on its own, after the hardware modules are decided rather than before: it is the one
+place where the settings UI grows a new capability instead of another list of rows.
+
+### Phase 13 - the four hardware modules, or not at all
 
 **Serial**, **Audio**, **Remote hardware** and **Canned message**. What these four have in
 common is that they configure *wiring* - UART pins and baud, i2s pins and a codec2 bitrate,
@@ -517,7 +553,7 @@ Firmware install. Also `tzdef` presets beyond typing the POSIX string by hand, `
 (WiFi credentials on a device with no WiFi of its own is a poor fit), MQTT client proxying,
 and closing channel gaps the way the phone apps do when a middle slot is removed.
 
-The four hardware modules in phase 12 may land here instead; that is what phase 12 says it is
+The four hardware modules in phase 13 may land here instead; that is what phase 13 says it is
 deciding. `ModuleConfig.statusmessage` and `ModuleConfig.mesh_beacon` are recent enough
 upstream that an older radio will not report them - the Modules list shows a module the radio
 never sent as `not loaded`, the same way the section list already does, rather than hiding it.

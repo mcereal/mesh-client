@@ -152,6 +152,12 @@ struct mesh_radio_settings {
     meshtastic_ModuleConfig_AmbientLightingConfig ambient_lighting;
     bool has_status_message;
     meshtastic_ModuleConfig_StatusMessageConfig status_message;
+    bool has_detection_sensor;
+    meshtastic_ModuleConfig_DetectionSensorConfig detection_sensor;
+    bool has_external_notification;
+    meshtastic_ModuleConfig_ExternalNotificationConfig external_notification;
+    bool has_traffic_management;
+    meshtastic_ModuleConfig_TrafficManagementConfig traffic_management;
     bool has_owner;
     meshtastic_User owner;
     bool has_metadata;

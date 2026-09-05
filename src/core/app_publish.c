@@ -616,6 +616,45 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
         mesh_str_copy(dst->status_message, sizeof dst->status_message,
                       src->status_message.node_status);
     }
+    if (src->has_detection_sensor) {
+        dst->has_detection_sensor = true;
+        dst->detection_enabled = src->detection_sensor.enabled;
+        dst->detection_minimum_broadcast_secs = src->detection_sensor.minimum_broadcast_secs;
+        dst->detection_state_broadcast_secs = src->detection_sensor.state_broadcast_secs;
+        dst->detection_send_bell = src->detection_sensor.send_bell;
+        mesh_str_copy(dst->detection_name, sizeof dst->detection_name, src->detection_sensor.name);
+        dst->detection_monitor_pin = src->detection_sensor.monitor_pin;
+        dst->detection_trigger_type = (uint8_t)src->detection_sensor.detection_trigger_type;
+        dst->detection_use_pullup = src->detection_sensor.use_pullup;
+    }
+    if (src->has_external_notification) {
+        const meshtastic_ModuleConfig_ExternalNotificationConfig *ext = &src->external_notification;
+        dst->has_external_notification = true;
+        dst->extnotif_enabled = ext->enabled;
+        dst->extnotif_output_ms = ext->output_ms;
+        dst->extnotif_nag_timeout = ext->nag_timeout;
+        dst->extnotif_active = ext->active;
+        dst->extnotif_use_pwm = ext->use_pwm;
+        dst->extnotif_use_i2s_as_buzzer = ext->use_i2s_as_buzzer;
+        dst->extnotif_output = (uint8_t)ext->output;
+        dst->extnotif_output_vibra = ext->output_vibra;
+        dst->extnotif_output_buzzer = ext->output_buzzer;
+        dst->extnotif_alert_message = ext->alert_message;
+        dst->extnotif_alert_message_vibra = ext->alert_message_vibra;
+        dst->extnotif_alert_message_buzzer = ext->alert_message_buzzer;
+        dst->extnotif_alert_bell = ext->alert_bell;
+        dst->extnotif_alert_bell_vibra = ext->alert_bell_vibra;
+        dst->extnotif_alert_bell_buzzer = ext->alert_bell_buzzer;
+    }
+    if (src->has_traffic_management) {
+        const meshtastic_ModuleConfig_TrafficManagementConfig *tm = &src->traffic_management;
+        dst->has_traffic_management = true;
+        dst->traffic_position_min_interval_secs = tm->position_min_interval_secs;
+        dst->traffic_nodeinfo_max_hops = tm->nodeinfo_direct_response_max_hops;
+        dst->traffic_rate_limit_window_secs = tm->rate_limit_window_secs;
+        dst->traffic_rate_limit_max_packets = tm->rate_limit_max_packets;
+        dst->traffic_unknown_packet_threshold = tm->unknown_packet_threshold;
+    }
     for (size_t i = 0; i < MESH_RADIO_SETTINGS_MAX_CHANNELS && i < MESH_UI_MAX_CHANNELS; ++i) {
         if (!src->has_channel[i]) {
             continue;

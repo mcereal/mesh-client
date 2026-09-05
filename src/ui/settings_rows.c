@@ -642,6 +642,21 @@ static void build_modules(const struct mesh_ui_settings *s,
                untouched state, which is as close to "off" as this module gets. */
             enabled = s->tak_team != 0U || s->tak_role != 0U;
             break;
+        case MESH_UI_SETTINGS_DETECTION:
+            enabled = s->detection_enabled;
+            break;
+        case MESH_UI_SETTINGS_EXT_NOTIFICATION:
+            enabled = s->extnotif_enabled;
+            break;
+        case MESH_UI_SETTINGS_TRAFFIC:
+            /* No enabled flag: upstream removed the bool toggles for "non-zero implies
+               enabled", so this module is on when any of its five rows is set. */
+            enabled = s->traffic_position_min_interval_secs != 0U ||
+                      s->traffic_nodeinfo_max_hops != 0U ||
+                      s->traffic_rate_limit_window_secs != 0U ||
+                      s->traffic_rate_limit_max_packets != 0U ||
+                      s->traffic_unknown_packet_threshold != 0U;
+            break;
         default:
             break;
         }
@@ -783,6 +798,70 @@ static void build_status_message(const struct mesh_ui_settings *s, struct item_l
     item_field(list, MESH_UI_FIELD_STATUS_TEXT, 0U, s->status_message);
 }
 
+static void build_detection(const struct mesh_ui_settings *s, struct item_list *list) {
+    item_field(list, MESH_UI_FIELD_DETECT_ENABLED, s->detection_enabled ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_DETECT_NAME, 0U, s->detection_name);
+    item_field(list, MESH_UI_FIELD_DETECT_MIN_BROADCAST, s->detection_minimum_broadcast_secs, NULL);
+    item_field(list, MESH_UI_FIELD_DETECT_STATE_BROADCAST, s->detection_state_broadcast_secs, NULL);
+    item_field(list, MESH_UI_FIELD_DETECT_SEND_BELL, s->detection_send_bell ? 1U : 0U, NULL);
+    /* The pin and how it is read. Which pins a board exposes is its own business and nothing
+       on the wire says, so the rows are offered and the heading says whose problem it is. */
+    item_heading(list, "Wiring");
+    item_field(list, MESH_UI_FIELD_DETECT_PIN, s->detection_monitor_pin, NULL);
+    item_field(list, MESH_UI_FIELD_DETECT_TRIGGER, s->detection_trigger_type, NULL);
+    item_field(list, MESH_UI_FIELD_DETECT_PULLUP, s->detection_use_pullup ? 1U : 0U, NULL);
+}
+
+/*
+ * External notification: fifteen fields, of which nine are three near-identical groups - a
+ * pin, an alert on a message, an alert on a bell, once each for the plain output, the vibra
+ * motor and the buzzer. Flat, that is nine rows whose labels differ by one word and which
+ * cannot be told apart at a glance; under three headings it is three copies of the same
+ * three-row shape. This is the module the heading row was added for.
+ */
+static void build_ext_notification(const struct mesh_ui_settings *s, struct item_list *list) {
+    item_field(list, MESH_UI_FIELD_EXTNOTIF_ENABLED, s->extnotif_enabled ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_EXTNOTIF_OUTPUT_MS, s->extnotif_output_ms, NULL);
+    item_field(list, MESH_UI_FIELD_EXTNOTIF_NAG, s->extnotif_nag_timeout, NULL);
+    item_field(list, MESH_UI_FIELD_EXTNOTIF_ACTIVE, s->extnotif_active ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_EXTNOTIF_PWM, s->extnotif_use_pwm ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_EXTNOTIF_I2S, s->extnotif_use_i2s_as_buzzer ? 1U : 0U, NULL);
+    item_heading(list, "Output");
+    item_field(list, MESH_UI_FIELD_EXTNOTIF_PIN, s->extnotif_output, NULL);
+    item_field(list, MESH_UI_FIELD_EXTNOTIF_ALERT_MSG, s->extnotif_alert_message ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_EXTNOTIF_ALERT_BELL, s->extnotif_alert_bell ? 1U : 0U, NULL);
+    item_heading(list, "Vibra");
+    item_field(list, MESH_UI_FIELD_EXTNOTIF_PIN_VIBRA, s->extnotif_output_vibra, NULL);
+    item_field(list, MESH_UI_FIELD_EXTNOTIF_ALERT_MSG_VIBRA,
+               s->extnotif_alert_message_vibra ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_EXTNOTIF_ALERT_BELL_VIBRA,
+               s->extnotif_alert_bell_vibra ? 1U : 0U, NULL);
+    item_heading(list, "Buzzer");
+    item_field(list, MESH_UI_FIELD_EXTNOTIF_PIN_BUZZER, s->extnotif_output_buzzer, NULL);
+    item_field(list, MESH_UI_FIELD_EXTNOTIF_ALERT_MSG_BUZZER,
+               s->extnotif_alert_message_buzzer ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_EXTNOTIF_ALERT_BELL_BUZZER,
+               s->extnotif_alert_bell_buzzer ? 1U : 0U, NULL);
+}
+
+/*
+ * Traffic management is the one module with no enabled toggle: upstream removed the bool
+ * flags in favour of "a non-zero value implicitly enables it", and reserved their tags so
+ * nobody puts them back. Every row here is therefore off at 0, and the section says so rather
+ * than leaving a reader to wonder where the switch is.
+ */
+static void build_traffic(const struct mesh_ui_settings *s, struct item_list *list) {
+    item_text(list, "Each limit", MESH_UI_SETTING_INFO, "is off when it is 0");
+    item_field(list, MESH_UI_FIELD_TRAFFIC_POSITION_INTERVAL, s->traffic_position_min_interval_secs,
+               NULL);
+    item_field(list, MESH_UI_FIELD_TRAFFIC_NODEINFO_HOPS, s->traffic_nodeinfo_max_hops, NULL);
+    item_heading(list, "Rate limit");
+    item_field(list, MESH_UI_FIELD_TRAFFIC_RATE_WINDOW, s->traffic_rate_limit_window_secs, NULL);
+    item_field(list, MESH_UI_FIELD_TRAFFIC_RATE_PACKETS, s->traffic_rate_limit_max_packets, NULL);
+    item_field(list, MESH_UI_FIELD_TRAFFIC_UNKNOWN_THRESHOLD, s->traffic_unknown_packet_threshold,
+               NULL);
+}
+
 /*
  * Radio actions: the rows that make the radio do something rather than keep something. None of
  * them is a setting, so there is no Y to press and nothing to read back - A on a row opens the
@@ -890,6 +969,15 @@ static void build_section(const struct mesh_ui_settings *settings,
         break;
     case MESH_UI_SETTINGS_STATUS_MESSAGE:
         build_status_message(settings, list);
+        break;
+    case MESH_UI_SETTINGS_DETECTION:
+        build_detection(settings, list);
+        break;
+    case MESH_UI_SETTINGS_EXT_NOTIFICATION:
+        build_ext_notification(settings, list);
+        break;
+    case MESH_UI_SETTINGS_TRAFFIC:
+        build_traffic(settings, list);
         break;
     default:
         break;
