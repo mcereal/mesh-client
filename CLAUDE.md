@@ -147,7 +147,8 @@ means adding it there.** Headers are included as `meshtastic/<name>.pb.h`. The g
 semantic-release on `main`/`beta`/`rc`, driven by Conventional Commits. The version rewrite, the
 prerelease/`VERSION_OVERRIDE` split, `pak.json`, the four release assets and the release-build
 guard are all in [`docs/semantic-release.md`](docs/semantic-release.md). Do not bump versions by
-hand.
+hand. Both fields the Pak Store reads out of `pak.json` — `version` and `changelog` — are
+generated during the release; hand edits to either are overwritten.
 
 ## Docs map
 
