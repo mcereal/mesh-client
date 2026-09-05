@@ -549,8 +549,10 @@ MESH_TEST_CASE(ble_transport_packet_touches_node, unit) {
         failure = "packet did not refresh the known node";
         goto cleanup;
     }
+    /* No NodeInfo for this one yet, so it carries the identity the apps derive from the node
+       number rather than an empty name. */
     if (status.nodes[1].node_id != 0x0badf00dU || status.nodes[1].last_heard != 6000U ||
-        status.nodes[1].short_name[0] != '\0') {
+        strcmp(status.nodes[1].short_name, "f00d") != 0 || status.nodes[1].has_user) {
         failure = "unknown sender should be added by id";
         goto cleanup;
     }

@@ -59,7 +59,7 @@ protobuf to `mesh_session_handle_from_radio`, calls `mesh_session_tick` each tur
 `mesh_session_detach`es when the link drops (handshake and settings reset, messages survive).
 **The session never sees GATT, ttys or framing; a link never decodes a protobuf.**
 
-#### The node cache
+#### The node roster
 
 `struct mesh_node_summary` is the whole node record, not just a name: identity from
 `NodeInfo.user` (id, hw model, role, public key, licensed/unmessagable), the NodeDB flags, and
@@ -76,6 +76,28 @@ rest:
 - A resync therefore overwrites only what the NodeInfo actually carries rather than rebuilding
   the record — otherwise every resync would empty the detail screen.
 
+**The roster is the client's, not the radio's.** The radio's NodeDB is small — 80 entries on the
+hardware this targets — and evicts as soon as it fills, so mirroring it meant losing nodes that
+by then existed nowhere else: a walk with the radio would fill its database with new neighbours,
+and the walk home would replace them again. So:
+
+- `mesh_session_reset_handshake` clears the connection's state and **keeps the nodes**. They are
+  dropped only when `MyNodeInfo` reports a different radio, whose NodeDB is another view of the
+  mesh.
+- Each `want_config` bumps `session->sync_epoch`; a NodeInfo stamps the node with it, and
+  `config_complete` turns that into `in_nodedb`. A node with `in_nodedb == false` is one we
+  remember and the radio does not — still on the mesh, but with no stored key for a DM, which is
+  why the Nodes detail screen says so.
+- Full now means evict rather than refuse: the victim is a node the radio has already forgotten
+  before one it still carries, oldest `last_heard` first, never ourselves and never a pinned node.
+- `mesh_session_seed_node` restores the roster the last run persisted (`mesh_app_seed_nodes_from_cache`,
+  from the UI handshake cache) before any radio is attached, so a restart is not a reset either.
+
+**A node with no `User` still has a name.** `mesh_session_default_identity` derives the same
+placeholder the phone apps show — `!b2a7e54c` / `Meshtastic e54c` / `e54c`, all from the node
+number — the moment a slot is created, and `has_user` stays false until a real `User` arrives.
+Without it, every node heard before its NodeInfo drew as `----` with a blank line beside it.
+
 #### `LocalStats` vs. `DeviceMetrics`
 
 `struct mesh_radio_stats` is the one telemetry that is *not* about a node: `LocalStats` is the
@@ -87,7 +109,7 @@ node count, heap, noise floor). It lands on the session and is cleared with the 
 - Its fields are plain proto3 scalars, so a zero heap size or a zero noise floor is "not
   reported", not a reading — which is why those two carry a flag and the counters do not.
 - Battery is not in it at all. That arrives only as our own node's ordinary `DeviceMetrics`,
-  which is why the Status screen reads it from the node cache.
+  which is why the Status screen reads it from the node roster.
 - The airtime pair is in *both*, and LocalStats wins it: `DeviceMetrics` is what our node last
   broadcast about itself on the telemetry interval (half an hour by default), so preferring it
   leaves the row on a stale 0.0% while the radio is busy.

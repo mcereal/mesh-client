@@ -56,6 +56,10 @@ void mesh_app_track_settings_save(struct mesh_app *app,
 void mesh_app_format_peer_name(const struct mesh_handshake_status *status, uint32_t node_id,
                                char *out, size_t out_len);
 
+/* Seeds the session's node roster from the handshake cache the last run left on disk. Call
+   once at startup, after the store has been loaded and before the first connect. */
+void mesh_app_seed_nodes_from_cache(struct mesh_app *app);
+
 /* Starts watching a sent packet so its delivery result can be announced once. */
 void mesh_app_watch_sent(struct mesh_app *app, uint32_t packet_id, const char *peer);
 

@@ -112,6 +112,11 @@ struct mesh_ui_node_summary {
     bool has_hops_away;
     uint8_t hops_away;
     char user_id[16];
+    /* False while the name is the one derived from the node number rather than one the node
+       gave; see mesh_session_default_identity(). */
+    bool has_user;
+    /* False for a node we remember that the radio's NodeDB no longer carries. */
+    bool in_nodedb;
     uint32_t hw_model;
     uint32_t role;
     bool is_licensed;

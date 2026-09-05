@@ -569,6 +569,11 @@ static int mesh_ui_store_save_handshake(FILE *file,
         fprintf(file, "node_ident[%u]=%u,%u,%u,%u,%u,%u,%u\n", i, node->hw_model, node->role,
                 node->is_licensed ? 1U : 0U, node->is_unmessagable ? 1U : 0U,
                 node->is_favorite ? 1U : 0U, node->is_ignored ? 1U : 0U, (unsigned)node->channel);
+        /* What the roster knows that the radio did not tell us this run: whether the name is
+           real and whether the radio still carried the node. Both are why a restored roster is
+           worth more than a re-sync. */
+        fprintf(file, "node_state[%u]=%u,%u\n", i, node->has_user ? 1U : 0U,
+                node->in_nodedb ? 1U : 0U);
         if (node->public_key_len > 0U) {
             char pubkey[2U * sizeof node->public_key + 1U];
             mesh_ui_settings_key_hex(node->public_key, node->public_key_len, pubkey, sizeof pubkey);
@@ -846,6 +851,15 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                 node->is_favorite = (favorite != 0U);
                 node->is_ignored = (ignored != 0U);
                 node->channel = (uint8_t)channel;
+            }
+        } else if (strncmp(key, "node_state[", 11) == 0) {
+            unsigned int index = 0U;
+            unsigned int has_user = 0U;
+            unsigned int in_nodedb = 0U;
+            if (sscanf(key, "node_state[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES &&
+                sscanf(value, "%u,%u", &has_user, &in_nodedb) == 2) {
+                handshake.nodes[index].has_user = (has_user != 0U);
+                handshake.nodes[index].in_nodedb = (in_nodedb != 0U);
             }
         } else if (strncmp(key, "node_key[", 9) == 0) {
             unsigned int index = 0U;

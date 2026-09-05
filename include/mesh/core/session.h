@@ -146,12 +146,25 @@ struct mesh_node_summary {
     uint8_t hops_away;
     /* Identity, from NodeInfo.user. `user_id` is the "!0a1b2c3d" form the apps show. */
     char user_id[16];
+    /* False while the only identity we have is the one derived from the node number; true once
+       a real User has arrived, in a NodeInfo or in a NODEINFO_APP packet. */
+    bool has_user;
     uint32_t hw_model; /* meshtastic_HardwareModel */
     uint32_t role;     /* meshtastic_Config_DeviceConfig_Role */
     bool is_licensed;
     bool is_unmessagable;
     uint8_t public_key[32];
     uint8_t public_key_len;
+    /*
+     * Whether the radio's NodeDB still carries this node. The radio's database is small (80
+     * entries on the hardware this client targets) and evicts once it fills, while the roster
+     * here outlives both the sync and the connection - so a node can be ours to show and a
+     * stranger to the radio at the same time, which is also why a message to it may not get
+     * out. Resolved every time a config sync completes.
+     */
+    bool in_nodedb;
+    /* Which NodeDB replay last carried this node; bookkeeping for in_nodedb, not display. */
+    uint32_t sync_epoch;
     /* NodeDB flags the radio keeps for us. */
     bool is_favorite;
     bool is_ignored;
@@ -246,6 +259,12 @@ struct mesh_session {
     void *send_ctx;
     uint32_t next_config_request_id;
     uint32_t next_packet_id;
+    /* Counts config syncs, so a node the current NodeDB replay carried can be told from one
+       left over from the replay before it. Never 0 once a handshake has started. */
+    uint32_t sync_epoch;
+    /* The radio the roster describes. Nodes survive a reconnect to the same radio; a different
+       radio is a different NodeDB and a different view of the mesh, so the roster is dropped. */
+    uint32_t roster_node;
     bool node_cache_warned;
     bool admin_probe_queued; /* the post-handshake probe has been queued this connection */
 };
@@ -262,6 +281,11 @@ bool mesh_session_attached(const struct mesh_session *session);
 /* Sends want_config_id with a fresh nonce and resets the handshake state for the reply.
    Returns 0, -ENOTCONN without a link, or the send error. */
 int mesh_session_begin_handshake(struct mesh_session *session);
+
+/* Folds one node record into the roster with no radio in the loop: used at startup to restore
+   what the last run knew, so a node the radio has since evicted is not lost with it. Does
+   nothing when the node is already known. */
+void mesh_session_seed_node(struct mesh_session *session, const struct mesh_node_summary *node);
 
 /* Decodes one FromRadio protobuf and folds it into the handshake, node cache, settings or
    message log. Admin replies never reach the message log. */

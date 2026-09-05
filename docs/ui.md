@@ -126,8 +126,13 @@ node list on every publish, so an index would slide onto a different node while 
 reading one. `nav.c`'s clamp closes the detail when that id leaves the list.
 
 The whole detail rides in the handshake cache as its own `node_user[i]` / `node_ident[i]` /
-`node_key[i]` / `node_pos[i]` / `node_metrics[i]` / `node_env[i]` key lines, so it is both
-browsable offline and compatible in either direction with a build that knows nothing about it.
+`node_state[i]` / `node_key[i]` / `node_pos[i]` / `node_metrics[i]` / `node_env[i]` key lines, so
+it is both browsable offline and compatible in either direction with a build that knows nothing
+about it. That cache is also what seeds the session's roster at startup
+([`architecture.md`](architecture.md#the-node-roster)), which is why it carries `node_state`: a
+name is either the node's own or derived from its number, and the node is either one the radio
+still has or one only we remember. The detail says so in two rows, because both change what a
+message to that node will do.
 
 ### Settings — `src/ui/settings*.c`
 

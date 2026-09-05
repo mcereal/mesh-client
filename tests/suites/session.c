@@ -551,3 +551,198 @@ MESH_TEST_CASE(session_node_actions, unit) {
 
     record_success(test_name);
 }
+
+/* Helper: runs a full want_config cycle, replaying `nodes` as the radio's NodeDB. */
+static bool session_test_sync(struct mesh_session *session, uint32_t my_node, const uint32_t *nodes,
+                              size_t node_count) {
+    if (mesh_session_begin_handshake(session) != 0) {
+        return false;
+    }
+    const uint32_t request_id = session->handshake.request_id;
+
+    meshtastic_FromRadio my_info = meshtastic_FromRadio_init_default;
+    my_info.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    my_info.my_info.my_node_num = my_node;
+    my_info.my_info.nodedb_count = (uint16_t)node_count;
+    if (!mesh_test_session_feed_from_radio(session, &my_info)) {
+        return false;
+    }
+
+    for (size_t i = 0; i < node_count; ++i) {
+        meshtastic_FromRadio info = meshtastic_FromRadio_init_default;
+        info.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+        info.node_info.num = nodes[i];
+        info.node_info.has_user = true;
+        snprintf(info.node_info.user.short_name, sizeof info.node_info.user.short_name, "N%03u",
+                 (unsigned)(i % 1000U));
+        if (!mesh_test_session_feed_from_radio(session, &info)) {
+            return false;
+        }
+    }
+
+    meshtastic_FromRadio done = meshtastic_FromRadio_init_default;
+    done.which_payload_variant = meshtastic_FromRadio_config_complete_id_tag;
+    done.config_complete_id = request_id;
+    return mesh_test_session_feed_from_radio(session, &done);
+}
+
+/*
+ * A node with no User is the normal case out in the field, not an error: the firmware replays
+ * its database once and a node heard afterwards is a number until it introduces itself. The
+ * phone shows "Meshtastic e54c" for one of those, derived from the node number, and so must
+ * this - a row of dashes with an empty line beside it reads as a broken client.
+ */
+MESH_TEST_CASE(session_node_default_identity, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+
+    /* Straight out of the NodeDB with nothing in it but a number. */
+    meshtastic_FromRadio bare = meshtastic_FromRadio_init_default;
+    bare.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+    bare.node_info.num = 0xb2a7e54cU;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &bare), "encode node_info");
+
+    const struct mesh_node_summary *node = mesh_test_session_find_node(&session, 0xb2a7e54cU);
+    MESH_TEST_FAIL_IF(node == NULL, "the userless node was not cached");
+    MESH_TEST_FAIL_IF(strcmp(node->short_name, "e54c") != 0 ||
+                          strcmp(node->long_name, "Meshtastic e54c") != 0 ||
+                          strcmp(node->user_id, "!b2a7e54c") != 0 || node->has_user,
+                      "the derived identity is not what the apps show");
+
+    /* A real User replaces it, and says so. */
+    meshtastic_FromRadio named = meshtastic_FromRadio_init_default;
+    named.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+    named.node_info.num = 0xb2a7e54cU;
+    named.node_info.has_user = true;
+    snprintf(named.node_info.user.long_name, sizeof named.node_info.user.long_name,
+             "Hill Repeater");
+    snprintf(named.node_info.user.short_name, sizeof named.node_info.user.short_name, "HILL");
+    snprintf(named.node_info.user.id, sizeof named.node_info.user.id, "!b2a7e54c");
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &named), "encode named");
+    node = mesh_test_session_find_node(&session, 0xb2a7e54cU);
+    MESH_TEST_FAIL_IF(node == NULL || strcmp(node->short_name, "HILL") != 0 || !node->has_user,
+                      "a real name did not replace the derived one");
+
+    /* An empty User is the radio saying it knows nothing; it must not blank what we have. */
+    meshtastic_FromRadio empty = meshtastic_FromRadio_init_default;
+    empty.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+    empty.node_info.num = 0xb2a7e54cU;
+    empty.node_info.has_user = true;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &empty), "encode empty user");
+    node = mesh_test_session_find_node(&session, 0xb2a7e54cU);
+    MESH_TEST_FAIL_IF(node == NULL || strcmp(node->short_name, "HILL") != 0,
+                      "an empty User blanked a name we already had");
+
+    /* Same for a node that arrives as a bare packet rather than through the database. */
+    const uint8_t payload[] = {0x01};
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_app_packet(&session, 0x0a1b2c3dU,
+                                                         meshtastic_PortNum_TEXT_MESSAGE_APP,
+                                                         payload, sizeof payload),
+                      "feed text packet");
+    node = mesh_test_session_find_node(&session, 0x0a1b2c3dU);
+    MESH_TEST_FAIL_IF(node == NULL || strcmp(node->short_name, "2c3d") != 0 ||
+                          strcmp(node->user_id, "!0a1b2c3d") != 0,
+                      "a node heard before its NodeInfo has no derived identity");
+
+    record_success(test_name);
+}
+
+/*
+ * The roster outlives the connection. The radio's NodeDB is small - 80 entries on the hardware
+ * this targets - and evicts as it fills, so a resync that reset the cache to whatever the radio
+ * still held lost nodes that existed nowhere else. What the resync does decide is which of them
+ * the radio can still reach.
+ */
+MESH_TEST_CASE(session_roster_survives_resync, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+    struct mesh_test_trace_capture capture;
+    memset(&capture, 0, sizeof capture);
+    mesh_session_attach(&session, mesh_test_trace_capture_fn, &capture);
+
+    const uint32_t first[] = {0x2222U, 0x3333U};
+    MESH_TEST_FAIL_IF(!session_test_sync(&session, 0x1111U, first, 2U), "first sync");
+    const struct mesh_node_summary *kept = mesh_test_session_find_node(&session, 0x3333U);
+    MESH_TEST_FAIL_IF(kept == NULL || !kept->in_nodedb, "a synced node is not marked in-NodeDB");
+
+    /* Reconnect. The radio has since forgotten 0x3333. */
+    mesh_session_detach(&session);
+    mesh_session_attach(&session, mesh_test_trace_capture_fn, &capture);
+    const uint32_t second[] = {0x2222U};
+    MESH_TEST_FAIL_IF(!session_test_sync(&session, 0x1111U, second, 1U), "second sync");
+
+    kept = mesh_test_session_find_node(&session, 0x3333U);
+    MESH_TEST_FAIL_IF(kept == NULL, "the roster forgot a node the radio evicted");
+    MESH_TEST_FAIL_IF(kept->in_nodedb, "an evicted node is still marked in-NodeDB");
+    MESH_TEST_FAIL_IF(strcmp(kept->short_name, "N001") != 0, "the evicted node lost its name");
+    const struct mesh_node_summary *still = mesh_test_session_find_node(&session, 0x2222U);
+    MESH_TEST_FAIL_IF(still == NULL || !still->in_nodedb, "a resynced node is not in-NodeDB");
+
+    /* Another radio is another mesh's view: that roster is not this one's. */
+    const uint32_t third[] = {0x4444U};
+    MESH_TEST_FAIL_IF(!session_test_sync(&session, 0x9999U, third, 1U), "third sync");
+    MESH_TEST_FAIL_IF(mesh_test_session_find_node(&session, 0x2222U) != NULL ||
+                          mesh_test_session_find_node(&session, 0x3333U) != NULL,
+                      "the roster survived a radio swap");
+    MESH_TEST_FAIL_IF(mesh_test_session_find_node(&session, 0x4444U) == NULL,
+                      "the new radio's nodes are missing");
+
+    record_success(test_name);
+}
+
+/*
+ * Full is no longer a wall. A roster that outlives connections does reach its cap on a busy
+ * mesh, and the entry that goes is the least useful one: a node the radio has already forgotten
+ * before one it still carries, oldest first, and never a node the user pinned.
+ */
+MESH_TEST_CASE(session_roster_eviction, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+
+    for (uint32_t i = 0; i < MESH_SESSION_MAX_NODES; ++i) {
+        struct mesh_node_summary node;
+        memset(&node, 0, sizeof node);
+        node.node_id = 0x10000U + i;
+        node.last_heard = 2000U + i;
+        node.in_nodedb = true;
+        /* One pinned node, and it is the oldest thing in the roster - exactly the entry a
+           last_heard-only rule would take first. */
+        if (i == 0U) {
+            node.is_favorite = true;
+            node.last_heard = 1U;
+        }
+        /* One the radio no longer carries, but heard more recently than most. */
+        if (i == 1U) {
+            node.in_nodedb = false;
+            node.last_heard = 9000U;
+        }
+        mesh_session_seed_node(&session, &node);
+    }
+    MESH_TEST_FAIL_IF(session.handshake.node_count != MESH_SESSION_MAX_NODES,
+                      "the roster did not fill");
+
+    const uint8_t payload[] = {0x01};
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_app_packet(&session, 0xfeedU,
+                                                         meshtastic_PortNum_TEXT_MESSAGE_APP,
+                                                         payload, sizeof payload),
+                      "feed text packet");
+
+    MESH_TEST_FAIL_IF(mesh_test_session_find_node(&session, 0xfeedU) == NULL,
+                      "a full roster refused a new node");
+    MESH_TEST_FAIL_IF(mesh_test_session_find_node(&session, 0x10001U) != NULL,
+                      "the node the radio had forgotten was not the one evicted");
+    MESH_TEST_FAIL_IF(mesh_test_session_find_node(&session, 0x10000U) == NULL,
+                      "a pinned node was evicted");
+    MESH_TEST_FAIL_IF(session.handshake.node_count != MESH_SESSION_MAX_NODES,
+                      "eviction changed the roster size");
+
+    /* A seed for a node already in the roster is a no-op, not a duplicate. */
+    struct mesh_node_summary again;
+    memset(&again, 0, sizeof again);
+    again.node_id = 0xfeedU;
+    mesh_session_seed_node(&session, &again);
+    MESH_TEST_FAIL_IF(session.handshake.node_count != MESH_SESSION_MAX_NODES,
+                      "re-seeding a known node grew the roster");
+
+    record_success(test_name);
+}
