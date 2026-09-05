@@ -176,7 +176,8 @@ When semantic-release runs, it automatically:
 1. **CMakeLists.txt**: Updates `project(meshclient VERSION x.y.z ...)`. The `version` field in
    `package.json` is unused and is not touched.
 2. **pak.json**: Updates `version` to the release tag, which the NextUI Pak Store requires to
-   match. Skipped for prereleases, so the file only ever carries the last stable `vX.Y.Z`.
+   match, and adds this version's `changelog` entry. Both are skipped for prereleases, so the
+   file only ever carries the last stable `vX.Y.Z`. See [Store changelog](#store-changelog).
 3. **CHANGELOG.md**: Generates release notes from commit messages
 4. **Git tags**: Creates a new tag (e.g., `v1.2.3`)
 5. **GitHub Releases**: Creates a release with:
@@ -194,6 +195,42 @@ When semantic-release runs, it automatically:
    against the `.sha256` file; that file is published for people checking a manual download.
    Renaming or dropping the binary asset breaks self-update for every installed client, so
    keep its name in step with `MESHCLIENT_UPDATE_ASSET` in `src/core/updater.c`.
+
+## Store changelog
+
+The Pak Store reads `changelog` from `pak.json` as a `{version: text}` map and shows it twice: a
+"What's new in vX.Y.Z?" panel when an installed pak is out of date, and a combined Changelog
+section on the listing. Both look the entry up by the version string in the same file, so a map
+that misses the current version renders nothing at all — which is what a hand-maintained one
+does the first time a release forgets it.
+
+`scripts/pak-changelog.py` therefore generates the entry, from the same Conventional Commit
+subjects semantic-release turns into the release notes, and `release-build.sh` runs it right
+after the version stamp. **Do not write `changelog` by hand**; a release overwrites its entry.
+
+- Only `feat`, `fix`, `perf`, `revert` and breaking changes are summarised. `refactor` bumps a
+  patch but describes internals, so it stays out along with `docs`, `chore`, `test` and `ci`.
+- A breaking change is included whatever its type, and leads the entry. Both spellings count:
+  `feat(cli)!:` in the header and a `BREAKING CHANGE:` footer, which is what a `refactor` that
+  triggers a major release looks like. The footer's own wording is used when it has any, wrapped
+  lines rejoined, since it describes the break where the subject only describes the change.
+- The entry is one plain-text line, features first, capped at 6 items and 300 characters. The
+  store renders it as a paragraph with no markdown on a handheld, so bullets and commit links
+  would only be noise.
+- Double quotes and non-ASCII are stripped. The quotes matter: both `release-build.sh` and the
+  on-device stamp in `src/core/updater.c` find the version field by searching for the first
+  `"version"` in the file, so `changelog` also has to stay *below* it.
+- Only the newest 5 versions are kept, and prereleases never get an entry. Note the store sorts
+  the combined section by string, not SemVer, so `v1.9.0` would sort above `v1.18.0` — another
+  reason to keep the window short.
+- A release with nothing user-facing in it gets no entry, and a failure to generate one is
+  logged and does not fail the release.
+
+Backfilling an already-shipped tag takes a second argument:
+
+```bash
+scripts/pak-changelog.py 1.18.0 v1.18.0
+```
 
 ## How the release artifact is built
 

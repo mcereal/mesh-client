@@ -47,6 +47,12 @@ fi
 # and the beta and rc channels release 1.14.0-beta.1. Leaving those alone means pak.json only
 # ever carries the last stable tag, on every branch, so a beta merging into main cannot put a
 # prerelease version in front of the store even for the minute before the stable stamp lands.
+
+# nanopb's generator runs on the host, so this must not be the cross toolchain's python3. The
+# changelog stamp just below is a host script too, which is why the choice happens up here
+# rather than next to the cmake configure that also uses it.
+SYSTEM_PYTHON=$(which -a python3 | grep -v aarch64 | head -n1)
+
 if [[ "${VERSION}" == "${NUMERIC}" ]]; then
     sed -i -E "s/(\"version\"[[:space:]]*:[[:space:]]*)\"[^\"]*\"/\1\"v${VERSION}\"/" pak.json
     PAK_VERSION=$(sed -n -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p' pak.json)
@@ -54,6 +60,11 @@ if [[ "${VERSION}" == "${NUMERIC}" ]]; then
         echo "pak.json says ${PAK_VERSION:-<none>} but the release is v${VERSION}." >&2
         exit 1
     fi
+    # And the store's changelog entry for this version, from the same commits semantic-release
+    # turns into the release notes. Best effort: a missing entry costs the listing its "What's
+    # new" panel, which is not worth failing a release over.
+    "${SYSTEM_PYTHON}" scripts/pak-changelog.py "${VERSION}" ||
+        echo "Could not write the pak.json changelog for v${VERSION}; continuing." >&2
 else
     echo "Prerelease ${VERSION}: leaving pak.json on its last stable version."
 fi
@@ -61,8 +72,6 @@ fi
 PLATFORM="${PLATFORM:-tg5040}"
 CC_BIN="${CROSS_COMPILE:-}gcc"
 CXX_BIN="${CROSS_COMPILE:-}g++"
-# nanopb's generator runs on the host, so it must not be the cross toolchain's python3.
-SYSTEM_PYTHON=$(which -a python3 | grep -v aarch64 | head -n1)
 
 cmake -S . -B build/release \
     -DCMAKE_BUILD_TYPE=Release \

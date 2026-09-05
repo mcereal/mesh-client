@@ -108,8 +108,10 @@ One-time setup and troubleshooting are in [`docs/device.md`](docs/device.md).
 
 `pak.json` at the repo root is the [NextUI Pak Store](https://github.com/LoveRetro/nextui-pak-store)
 listing. Its `version` must match the release tag, so `scripts/release-build.sh` stamps it and
-`@semantic-release/git` commits it — **do not bump it by hand**. Its `screenshots` are real
-captures off a Brick's framebuffer (`make deploy-shot`).
+`@semantic-release/git` commits it — **do not bump it by hand**. The same step regenerates the
+`changelog` entry for the release from its commit subjects (`scripts/pak-changelog.py`), so that
+is not hand-maintained either. Its `screenshots` are real captures off a Brick's framebuffer
+(`make deploy-shot`).
 
 The pak ships Mozilla's CA roots at `certs/certificates.crt`, from
 [curl.se/ca](https://curl.se/ca/cacert.pem). The Brick has no system CA store, so without it the
