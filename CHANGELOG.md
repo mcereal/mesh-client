@@ -1,3 +1,19 @@
+## [1.19.0](https://github.com/mcereal/mesh-client/compare/v1.18.0...v1.19.0) (2026-09-05)
+
+### Features
+
+* **settings:** reboot, shut down and reset the radio ([d108784](https://github.com/mcereal/mesh-client/commit/d10878465bad64d49aa2d697e1b6bc77a9ac72df))
+* **settings:** set the radio's position, mute and remove nodes ([f9f0a84](https://github.com/mcereal/mesh-client/commit/f9f0a84e23edf1d6b2841e1a50bee0f2de68d86e))
+
+### Bug Fixes
+
+* **settings:** keep both classes of Position edit, and mute once per press ([b08dcd7](https://github.com/mcereal/mesh-client/commit/b08dcd7035c3ca2c93b2350cdfa807a59911d388))
+
+### Documentation
+
+* correct USB auto-connect and Devices tab, split make goals ([92cd4aa](https://github.com/mcereal/mesh-client/commit/92cd4aa59bcd3ae38385196cade25a8e783b6356)), closes [#46](https://github.com/mcereal/mesh-client/issues/46)
+* restructure CLAUDE.md and README, consolidate docs/ ([a1b8f33](https://github.com/mcereal/mesh-client/commit/a1b8f331c36fb93138e4339e367d9f381aa1bf9c))
+
 ## [1.18.0](https://github.com/mcereal/mesh-client/compare/v1.17.0...v1.18.0) (2026-09-05)
 
 ### Features
