@@ -578,6 +578,44 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
         dst->health_update_interval = src->telemetry.health_update_interval;
         dst->health_screen_enabled = src->telemetry.health_screen_enabled;
     }
+    if (src->has_neighbor_info) {
+        dst->has_neighbor_info = true;
+        dst->neighbor_info_enabled = src->neighbor_info.enabled;
+        dst->neighbor_info_interval = src->neighbor_info.update_interval;
+        dst->neighbor_info_over_lora = src->neighbor_info.transmit_over_lora;
+    }
+    if (src->has_range_test) {
+        dst->has_range_test = true;
+        dst->range_test_enabled = src->range_test.enabled;
+        dst->range_test_sender = src->range_test.sender;
+        dst->range_test_save = src->range_test.save;
+        dst->range_test_clear_on_reboot = src->range_test.clear_on_reboot;
+    }
+    if (src->has_paxcounter) {
+        dst->has_paxcounter = true;
+        dst->paxcounter_enabled = src->paxcounter.enabled;
+        dst->paxcounter_interval = src->paxcounter.paxcounter_update_interval;
+        dst->paxcounter_wifi_threshold = src->paxcounter.wifi_threshold;
+        dst->paxcounter_ble_threshold = src->paxcounter.ble_threshold;
+    }
+    if (src->has_tak) {
+        dst->has_tak = true;
+        dst->tak_team = (uint8_t)src->tak.team;
+        dst->tak_role = (uint8_t)src->tak.role;
+    }
+    if (src->has_ambient_lighting) {
+        dst->has_ambient_lighting = true;
+        dst->ambient_led_state = src->ambient_lighting.led_state;
+        dst->ambient_current = src->ambient_lighting.current;
+        dst->ambient_red = src->ambient_lighting.red;
+        dst->ambient_green = src->ambient_lighting.green;
+        dst->ambient_blue = src->ambient_lighting.blue;
+    }
+    if (src->has_status_message) {
+        dst->has_status_message = true;
+        mesh_str_copy(dst->status_message, sizeof dst->status_message,
+                      src->status_message.node_status);
+    }
     for (size_t i = 0; i < MESH_RADIO_SETTINGS_MAX_CHANNELS && i < MESH_UI_MAX_CHANNELS; ++i) {
         if (!src->has_channel[i]) {
             continue;

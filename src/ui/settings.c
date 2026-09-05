@@ -64,6 +64,18 @@ const char *mesh_ui_settings_section_name(enum mesh_ui_settings_section section)
         return "Radio actions";
     case MESH_UI_SETTINGS_MODULES:
         return "Modules";
+    case MESH_UI_SETTINGS_NEIGHBOR_INFO:
+        return "Neighbor info";
+    case MESH_UI_SETTINGS_RANGE_TEST:
+        return "Range test";
+    case MESH_UI_SETTINGS_PAXCOUNTER:
+        return "Paxcounter";
+    case MESH_UI_SETTINGS_TAK:
+        return "TAK";
+    case MESH_UI_SETTINGS_AMBIENT:
+        return "Ambient lighting";
+    case MESH_UI_SETTINGS_STATUS_MESSAGE:
+        return "Status message";
     default:
         return "?";
     }
@@ -88,9 +100,9 @@ static const enum mesh_ui_settings_section k_root[] = {
 /* Every ModuleConfig variant this client keeps. Grows by one row per module as the phases
    land; the order is the protobuf's field order, which is as good as any and is stable. */
 static const enum mesh_ui_settings_section k_modules[] = {
-    MESH_UI_SETTINGS_MQTT,
-    MESH_UI_SETTINGS_STORE_FORWARD,
-    MESH_UI_SETTINGS_TELEMETRY,
+    MESH_UI_SETTINGS_MQTT,       MESH_UI_SETTINGS_STORE_FORWARD,  MESH_UI_SETTINGS_TELEMETRY,
+    MESH_UI_SETTINGS_RANGE_TEST, MESH_UI_SETTINGS_NEIGHBOR_INFO,  MESH_UI_SETTINGS_AMBIENT,
+    MESH_UI_SETTINGS_PAXCOUNTER, MESH_UI_SETTINGS_STATUS_MESSAGE, MESH_UI_SETTINGS_TAK,
 };
 
 uint32_t mesh_ui_settings_root_count(void) { return (uint32_t)MESH_ARRAY_LEN(k_root); }
@@ -159,6 +171,18 @@ bool mesh_ui_settings_section_loaded(const struct mesh_ui_settings *settings,
         /* A folder, not a fragment. It lists every module whether or not the radio has sent
            one, because "which of these has not arrived" is exactly what the list is for. */
         return true;
+    case MESH_UI_SETTINGS_NEIGHBOR_INFO:
+        return settings->has_neighbor_info;
+    case MESH_UI_SETTINGS_RANGE_TEST:
+        return settings->has_range_test;
+    case MESH_UI_SETTINGS_PAXCOUNTER:
+        return settings->has_paxcounter;
+    case MESH_UI_SETTINGS_TAK:
+        return settings->has_tak;
+    case MESH_UI_SETTINGS_AMBIENT:
+        return settings->has_ambient_lighting;
+    case MESH_UI_SETTINGS_STATUS_MESSAGE:
+        return settings->has_status_message;
     default:
         return false;
     }
@@ -174,6 +198,28 @@ static const char *compass_name(uint32_t orientation) {
 }
 
 static const char *units_name(uint32_t units) { return units == 1U ? "Imperial" : "Metric"; }
+
+/* meshtastic_Team and meshtastic_MemberRole, from atak.proto. Both are contiguous from 0, which
+   is what the nav's (value + 1) % count stepping needs; value 0 is "Unspecifed" upstream (their
+   spelling), shown here as what the firmware actually does with it.
+
+   Named as the phone apps name them - "RTO", not its expansion - for the reason keys are shown
+   as base64: a setting read off the Brick should be recognisable in the app and back. */
+static const char *tak_team_name(uint32_t team) {
+    static const char *const k_names[] = {
+        "Default (cyan)", "White", "Yellow", "Orange", "Magenta", "Red",        "Maroon", "Purple",
+        "Dark blue",      "Blue",  "Cyan",   "Teal",   "Green",   "Dark green", "Brown",
+    };
+    return team < MESH_ARRAY_LEN(k_names) ? k_names[team] : "?";
+}
+
+static const char *tak_role_name(uint32_t role) {
+    static const char *const k_names[] = {
+        "Default (member)", "Team member", "Team lead", "HQ", "Sniper", "Medic",
+        "Forward observer", "RTO",         "K9",
+    };
+    return role < MESH_ARRAY_LEN(k_names) ? k_names[role] : "?";
+}
 
 static const char *rebroadcast_name(uint32_t mode) {
     static const char *const k_names[] = {
@@ -339,6 +385,35 @@ static const uint32_t k_sf_window_presets[] = {0U, 300U, 900U, 1800U, 3600U, 720
    rather than offering a value the server will not honour. */
 static const uint32_t k_map_interval_presets[] = {3600U, 7200U, 10800U, 21600U, 43200U, 86400U};
 
+/* Neighbor info. The firmware floors the interval at 14400 (4 hours) and quietly raises
+   anything under it, so the presets start there instead of showing a value that will not
+   survive the read-back. */
+static const uint32_t k_neighbor_presets[] = {14400U, 21600U, 43200U, 86400U};
+
+/* Range test's sender interval. A sender transmits to everyone on the channel on this timer,
+   so the list starts at 0 (receive only, which is what the module is for most of the time) and
+   then at 30s - fast enough to walk a link out, slow enough not to swamp the channel. */
+static const uint32_t k_range_test_presets[] = {0U, 30U, 60U, 120U, 300U, 600U, 1800U};
+
+/*
+ * Paxcounter's two RSSI floors, which are the only NUMBER rows in the client over a signed
+ * value. They are stored as uint32_t like every other preset, through a cast.
+ *
+ * That works because they are all negative: two's-complement negatives cast to uint32_t all
+ * land in the top half of the range and keep their relative order (-100 -> 0xFFFFFF9C is below
+ * -80 -> 0xFFFFFFB0), so mesh_ui_settings_number_step() walks them correctly without knowing
+ * they are signed. A list mixing signs would not step correctly, and there is no reason for one
+ * here: an RSSI threshold above 0 dBm is not a threshold.
+ */
+#define RSSI(dbm) ((uint32_t)(int32_t)(dbm))
+static const uint32_t k_rssi_presets[] = {RSSI(-100), RSSI(-95), RSSI(-90), RSSI(-85), RSSI(-80),
+                                          RSSI(-75),  RSSI(-70), RSSI(-65), RSSI(-60)};
+
+/* Ambient lighting: an LED current in mA (the firmware's default is 10) and three 0-255
+   channels. Three number rows rather than a colour picker, which a d-pad cannot do well. */
+static const uint32_t k_led_current_presets[] = {0U, 5U, 10U, 15U, 20U, 25U, 30U};
+static const uint32_t k_led_level_presets[] = {0U, 32U, 64U, 96U, 128U, 160U, 192U, 224U, 255U};
+
 #define CHANNEL_KEY_CHOICES                                                                        \
     (MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_KEEP) | MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_DEFAULT) |      \
      MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_RANDOM_128) |                                              \
@@ -347,6 +422,21 @@ static const uint32_t k_map_interval_presets[] = {3600U, 7200U, 10800U, 21600U, 
     (MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_KEEP) | MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_RANDOM_256))
 #define ADMIN_KEY_CHOICES                                                                          \
     (MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_KEEP) | MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_NONE))
+
+/* Signed dBm, read back out of the uint32_t the preset table stores it in. */
+static void format_rssi(uint32_t value, char *out, size_t out_len) {
+    snprintf(out, out_len, "%d dBm", (int)(int32_t)value);
+}
+
+/* A plain 0-255 level, so an LED channel does not read as a duration. */
+static void format_level(uint32_t value, char *out, size_t out_len) {
+    snprintf(out, out_len, "%u", (unsigned)value);
+}
+
+/* Milliamps, for the LED current row. */
+static void format_milliamps(uint32_t value, char *out, size_t out_len) {
+    snprintf(out, out_len, "%u mA", (unsigned)value);
+}
 
 /* NUMBER fields whose value is a count rather than a duration; without this the seconds
    formatter would render 100 records as "1m40s". */
@@ -612,6 +702,56 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
     [MESH_UI_FIELD_SECURITY_DEBUG_LOG] = {"Debug log API", MESH_UI_SETTING_TOGGLE,
                                           MESH_UI_SETTINGS_SECURITY, 0U, NULL, NO_PRESETS, NULL,
                                           NULL, 0U},
+    [MESH_UI_FIELD_NEIGHBOR_ENABLED] = {"Neighbor info", MESH_UI_SETTING_TOGGLE,
+                                        MESH_UI_SETTINGS_NEIGHBOR_INFO, 0U, NULL, NO_PRESETS, NULL,
+                                        NULL, 0U},
+    [MESH_UI_FIELD_NEIGHBOR_INTERVAL] = {"Interval", MESH_UI_SETTING_NUMBER,
+                                         MESH_UI_SETTINGS_NEIGHBOR_INFO, 0U, NULL,
+                                         PRESETS(k_neighbor_presets), NULL, NULL, 0U},
+    [MESH_UI_FIELD_NEIGHBOR_OVER_LORA] = {"Send over LoRa", MESH_UI_SETTING_TOGGLE,
+                                          MESH_UI_SETTINGS_NEIGHBOR_INFO, 0U, NULL, NO_PRESETS,
+                                          NULL, NULL, 0U},
+    [MESH_UI_FIELD_RANGE_TEST_ENABLED] = {"Range test", MESH_UI_SETTING_TOGGLE,
+                                          MESH_UI_SETTINGS_RANGE_TEST, 0U, NULL, NO_PRESETS, NULL,
+                                          NULL, 0U},
+    [MESH_UI_FIELD_RANGE_TEST_SENDER] = {"Send every", MESH_UI_SETTING_NUMBER,
+                                         MESH_UI_SETTINGS_RANGE_TEST, 0U, NULL,
+                                         PRESETS(k_range_test_presets), "never", NULL, 0U},
+    [MESH_UI_FIELD_RANGE_TEST_SAVE] = {"Save CSV", MESH_UI_SETTING_TOGGLE,
+                                       MESH_UI_SETTINGS_RANGE_TEST, 0U, NULL, NO_PRESETS, NULL,
+                                       NULL, 0U},
+    [MESH_UI_FIELD_RANGE_TEST_CLEAR] = {"Clear CSV on boot", MESH_UI_SETTING_TOGGLE,
+                                        MESH_UI_SETTINGS_RANGE_TEST, 0U, NULL, NO_PRESETS, NULL,
+                                        NULL, 0U},
+    [MESH_UI_FIELD_PAX_ENABLED] = {"Paxcounter", MESH_UI_SETTING_TOGGLE,
+                                   MESH_UI_SETTINGS_PAXCOUNTER, 0U, NULL, NO_PRESETS, NULL, NULL,
+                                   0U},
+    [MESH_UI_FIELD_PAX_INTERVAL] = {"Interval", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_PAXCOUNTER,
+                                    0U, NULL, PRESETS(k_interval_presets), "default", NULL, 0U},
+    [MESH_UI_FIELD_PAX_WIFI_THRESHOLD] = {"WiFi floor", MESH_UI_SETTING_NUMBER,
+                                          MESH_UI_SETTINGS_PAXCOUNTER, 0U, NULL,
+                                          PRESETS(k_rssi_presets), NULL, format_rssi, 0U},
+    [MESH_UI_FIELD_PAX_BLE_THRESHOLD] = {"BLE floor", MESH_UI_SETTING_NUMBER,
+                                         MESH_UI_SETTINGS_PAXCOUNTER, 0U, NULL,
+                                         PRESETS(k_rssi_presets), NULL, format_rssi, 0U},
+    [MESH_UI_FIELD_TAK_TEAM] = {"Team", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_TAK, 15U,
+                                tak_team_name, NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_TAK_ROLE] = {"Role", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_TAK, 9U,
+                                tak_role_name, NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_AMBIENT_LED] = {"LED", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_AMBIENT, 0U,
+                                   NULL, NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_AMBIENT_CURRENT] = {"Current", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_AMBIENT,
+                                       0U, NULL, PRESETS(k_led_current_presets), NULL,
+                                       format_milliamps, 0U},
+    [MESH_UI_FIELD_AMBIENT_RED] = {"Red", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_AMBIENT, 0U,
+                                   NULL, PRESETS(k_led_level_presets), NULL, format_level, 0U},
+    [MESH_UI_FIELD_AMBIENT_GREEN] = {"Green", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_AMBIENT, 0U,
+                                     NULL, PRESETS(k_led_level_presets), NULL, format_level, 0U},
+    [MESH_UI_FIELD_AMBIENT_BLUE] = {"Blue", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_AMBIENT, 0U,
+                                    NULL, PRESETS(k_led_level_presets), NULL, format_level, 0U},
+    /* 79 bytes on the wire; MESH_UI_SETTING_TEXT_MAX was raised to 80 to hold it. */
+    [MESH_UI_FIELD_STATUS_TEXT] = {"Status", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_STATUS_MESSAGE,
+                                   79U, NULL, NO_PRESETS, NULL, NULL, 0U},
     [MESH_UI_FIELD_SECURITY_SIGNATURE_POLICY] = {"Packet signing", MESH_UI_SETTING_ENUM,
                                                  MESH_UI_SETTINGS_SECURITY, 3U,
                                                  signature_policy_name, NO_PRESETS, NULL, NULL, 0U},

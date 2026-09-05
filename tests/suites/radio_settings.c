@@ -200,9 +200,18 @@ MESH_TEST_CASE(radio_settings_fetch_queue, unit) {
                           strcmp(settings.owner.short_name, "0ad8") != 0,
                       "owner reply should release the queue");
 
-    /* Everything: the probe pair plus eight configs and three module configs, no repeats. */
-    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_all(&settings) != 21U || settings.queue_len != 21U,
-                      "queue_all should add thirteen requests");
+    /* Everything, and each thing once: the probe pair, then one per Config section, one per
+       ModuleConfig section this client keeps, and one per channel slot. Spelled out as the sum
+       rather than as a bare number, because the module count is what every phase moves. */
+    const size_t expected = 2U   /* metadata + owner */
+                            + 8U /* Config sections */
+                            + 9U /* ModuleConfig sections */
+                            + MESH_RADIO_SETTINGS_MAX_CHANNELS;
+    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_all(&settings) != expected ||
+                          settings.queue_len != expected,
+                      "queue_all should add one request per section and channel");
+    MESH_TEST_FAIL_IF(expected > MESH_RADIO_SETTINGS_FETCH_MAX,
+                      "a full refresh must fit the queue: enqueue drops silently when it is full");
     MESH_TEST_FAIL_IF(mesh_radio_settings_queue_all(&settings) != 0U,
                       "queue_all again should add nothing");
     record_success(test_name);

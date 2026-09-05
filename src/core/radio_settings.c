@@ -101,6 +101,30 @@ void mesh_radio_settings_apply_module_config(struct mesh_radio_settings *setting
         settings->has_telemetry = true;
         settings->telemetry = config->payload_variant.telemetry;
         break;
+    case meshtastic_ModuleConfig_neighbor_info_tag:
+        settings->has_neighbor_info = true;
+        settings->neighbor_info = config->payload_variant.neighbor_info;
+        break;
+    case meshtastic_ModuleConfig_range_test_tag:
+        settings->has_range_test = true;
+        settings->range_test = config->payload_variant.range_test;
+        break;
+    case meshtastic_ModuleConfig_paxcounter_tag:
+        settings->has_paxcounter = true;
+        settings->paxcounter = config->payload_variant.paxcounter;
+        break;
+    case meshtastic_ModuleConfig_tak_tag:
+        settings->has_tak = true;
+        settings->tak = config->payload_variant.tak;
+        break;
+    case meshtastic_ModuleConfig_ambient_lighting_tag:
+        settings->has_ambient_lighting = true;
+        settings->ambient_lighting = config->payload_variant.ambient_lighting;
+        break;
+    case meshtastic_ModuleConfig_statusmessage_tag:
+        settings->has_status_message = true;
+        settings->status_message = config->payload_variant.statusmessage;
+        break;
     default:
         break;
     }
@@ -706,6 +730,12 @@ size_t mesh_radio_settings_queue_all(struct mesh_radio_settings *settings) {
         meshtastic_AdminMessage_ModuleConfigType_MQTT_CONFIG,
         meshtastic_AdminMessage_ModuleConfigType_STOREFORWARD_CONFIG,
         meshtastic_AdminMessage_ModuleConfigType_TELEMETRY_CONFIG,
+        meshtastic_AdminMessage_ModuleConfigType_NEIGHBORINFO_CONFIG,
+        meshtastic_AdminMessage_ModuleConfigType_RANGETEST_CONFIG,
+        meshtastic_AdminMessage_ModuleConfigType_PAXCOUNTER_CONFIG,
+        meshtastic_AdminMessage_ModuleConfigType_TAK_CONFIG,
+        meshtastic_AdminMessage_ModuleConfigType_AMBIENTLIGHTING_CONFIG,
+        meshtastic_AdminMessage_ModuleConfigType_STATUSMESSAGE_CONFIG,
     };
 
     size_t added = mesh_radio_settings_queue_probe(settings);

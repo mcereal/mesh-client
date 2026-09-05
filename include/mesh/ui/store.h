@@ -400,6 +400,38 @@ struct mesh_ui_settings {
     uint32_t health_update_interval;
     bool health_screen_enabled;
 
+    bool has_neighbor_info;
+    bool neighbor_info_enabled;
+    uint32_t neighbor_info_interval;
+    bool neighbor_info_over_lora;
+
+    bool has_range_test;
+    bool range_test_enabled;
+    uint32_t range_test_sender; /* seconds between test packets; 0 = receive only */
+    bool range_test_save;
+    bool range_test_clear_on_reboot;
+
+    bool has_paxcounter;
+    bool paxcounter_enabled;
+    uint32_t paxcounter_interval;
+    /* RSSI floors, so negative. Kept signed here and cast at the row, the way LoRa tx power is. */
+    int32_t paxcounter_wifi_threshold;
+    int32_t paxcounter_ble_threshold;
+
+    bool has_tak;
+    uint8_t tak_team; /* meshtastic_Team, 0..14 */
+    uint8_t tak_role; /* meshtastic_MemberRole, 0..8 */
+
+    bool has_ambient_lighting;
+    bool ambient_led_state;
+    uint8_t ambient_current;
+    uint8_t ambient_red;
+    uint8_t ambient_green;
+    uint8_t ambient_blue;
+
+    bool has_status_message;
+    char status_message[80];
+
     bool has_channels; /* any slot present */
     struct mesh_ui_channel_detail channels[MESH_UI_MAX_CHANNELS];
 

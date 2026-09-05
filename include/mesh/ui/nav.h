@@ -58,7 +58,10 @@ enum mesh_ui_screen {
    mesh_ui_nav_edit_set() returns false and the press silently does nothing. */
 #define MESH_UI_SETTINGS_EDITS_MAX 16U
 /* Long enough for a 32-byte key typed as hex. */
-#define MESH_UI_SETTING_TEXT_MAX 72U
+/* The longest TEXT field plus its NUL: StatusMessageConfig.node_status is char[80], so
+   anything smaller would truncate a status the radio accepts (mesh_ui_nav_settings_commit_text
+   caps at this, silently). Was 72, sized for DeviceConfig.tzdef's 65. */
+#define MESH_UI_SETTING_TEXT_MAX 80U
 
 /*
  * Which press writes an edit. The Position section is the one with two: Y writes
