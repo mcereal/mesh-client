@@ -270,8 +270,7 @@ static void node_rows_environment(struct node_rows *rows, const struct mesh_ui_n
 }
 
 uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool is_self,
-                                   uint32_t now, struct mesh_ui_node_item *out,
-                                   uint32_t capacity) {
+                                   uint32_t now, struct mesh_ui_node_item *out, uint32_t capacity) {
     if (node == NULL) {
         return 0U;
     }

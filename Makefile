@@ -73,8 +73,26 @@ proto: debug
 run: debug
 	./$(BUILD_ROOT)/debug/meshclient --foreground --log-level debug
 
+# clang-format 18 is what ubuntu:24.04 ships, so the dev container and CI agree on it. A
+# different major reflows code that is already normalised - trailing-comment alignment and how
+# brace initialisers pack, mostly - which lands as churn that reads like a real diff and drifts
+# the tree every time it is run on a host with a different version. Refuse rather than rewrite:
+# the container always has the right one, and the override is there for when you mean it.
+CLANG_FORMAT ?= clang-format
+CLANG_FORMAT_MAJOR ?= 18
+
 format:
-	clang-format -i $$(git ls-files '*.[ch]')
+	@command -v $(CLANG_FORMAT) >/dev/null 2>&1 || { \
+	    echo "$(CLANG_FORMAT) not found. Run './scripts/docker.sh make format' instead." >&2; \
+	    exit 1; }
+	@have=$$($(CLANG_FORMAT) --version | sed -n 's/.*version \([0-9][0-9]*\).*/\1/p'); \
+	if [ "$$have" != "$(CLANG_FORMAT_MAJOR)" ] && [ -z "$$CLANG_FORMAT_ANY_VERSION" ]; then \
+	    echo "clang-format $$have found; this tree is normalised with $(CLANG_FORMAT_MAJOR)." >&2; \
+	    echo "Formatting with another major rewrites files that are already correct." >&2; \
+	    echo "Run './scripts/docker.sh make format', or set CLANG_FORMAT_ANY_VERSION=1." >&2; \
+	    exit 1; \
+	fi
+	$(CLANG_FORMAT) -i $$(git ls-files '*.[ch]')
 
 clean:
 	rm -rf $(BUILD_ROOT)/debug $(BUILD_ROOT)/release $(BUILD_ROOT)/relwithdebinfo

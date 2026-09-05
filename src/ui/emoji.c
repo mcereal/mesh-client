@@ -120,12 +120,12 @@ bool mesh_emoji_color(uint8_t index, uint8_t rgb[3]) {
 }
 
 bool mesh_emoji_is_zero_width(uint32_t codepoint) {
-    return codepoint == 0x200DU ||                              /* zero-width joiner */
-           (codepoint >= 0x200BU && codepoint <= 0x200FU) ||     /* zero-width space, marks */
-           (codepoint >= 0xFE00U && codepoint <= 0xFE0FU) ||     /* variation selectors */
-           (codepoint >= 0x1F3FBU && codepoint <= 0x1F3FFU) ||   /* skin tone modifiers */
-           (codepoint >= 0x0300U && codepoint <= 0x036FU) ||     /* combining diacritics */
-           (codepoint >= 0x20D0U && codepoint <= 0x20F0U);       /* combining symbols, keycap */
+    return codepoint == 0x200DU ||                             /* zero-width joiner */
+           (codepoint >= 0x200BU && codepoint <= 0x200FU) ||   /* zero-width space, marks */
+           (codepoint >= 0xFE00U && codepoint <= 0xFE0FU) ||   /* variation selectors */
+           (codepoint >= 0x1F3FBU && codepoint <= 0x1F3FFU) || /* skin tone modifiers */
+           (codepoint >= 0x0300U && codepoint <= 0x036FU) ||   /* combining diacritics */
+           (codepoint >= 0x20D0U && codepoint <= 0x20F0U);     /* combining symbols, keycap */
 }
 
 struct mesh_ui_text_cell mesh_ui_text_cell_next(const char *text) {
