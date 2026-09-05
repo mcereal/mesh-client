@@ -1,3 +1,9 @@
+## [2.3.1](https://github.com/mcereal/mesh-client/compare/v2.3.0...v2.3.1) (2026-09-05)
+
+### Code Refactoring
+
+* **ui:** extract a reusable component layer for the fb backend ([f1fcd73](https://github.com/mcereal/mesh-client/commit/f1fcd734935316ae4f3afbd5a5d3ecafca2ed6f9))
+
 ## [2.3.0](https://github.com/mcereal/mesh-client/compare/v2.2.1...v2.3.0) (2026-09-05)
 
 ### Features
