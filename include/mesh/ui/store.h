@@ -30,6 +30,7 @@ enum mesh_ui_update_flag {
     MESH_UI_UPDATE_MESSAGES = 1U << 3,
     MESH_UI_UPDATE_NAV = 1U << 4,
     MESH_UI_UPDATE_SETTINGS = 1U << 5,
+    MESH_UI_UPDATE_TRACEROUTE = 1U << 6,
 };
 typedef uint32_t mesh_ui_update_flags;
 
@@ -198,6 +199,40 @@ struct mesh_ui_client_info {
  * section has arrived this connection; `loaded` is any of them. Read-only in phase 1 of
  * docs/settings-roadmap.md; the same fields become the edit targets later.
  */
+/* Us, plus RouteDiscovery's eight intermediate slots, plus the far end. */
+#define MESH_UI_TRACEROUTE_MAX_HOPS 10U
+#define MESH_UI_TRACEROUTE_NAME_MAX 16U
+
+/*
+ * One stop on a traced route, already resolved for drawing: the node's name if the client
+ * knows it and its id if not, and the SNR of the link *into* it. The first hop of a path is
+ * the sender and so has no incoming link, which is what `has_snr` false means there.
+ */
+struct mesh_ui_traceroute_hop {
+    uint32_t node_id;
+    char name[MESH_UI_TRACEROUTE_NAME_MAX];
+    bool has_snr;
+    int8_t snr_quarter_db; /* the wire scale: dB * 4 */
+};
+
+/*
+ * The last traceroute as the UI needs it: two ready-made paths rather than the protobuf's
+ * intermediate-nodes-and-parallel-SNR-arrays. `app.c` resolves the names and stitches us and
+ * the target onto the ends, so the renderer only walks a list - the same division the node
+ * summary follows, and the only place that knows a route's shape.
+ *
+ * Not persisted: a route is true for about as long as the mesh holds still.
+ */
+struct mesh_ui_traceroute {
+    uint8_t state; /* enum mesh_traceroute_state, carried as a byte */
+    uint32_t target;
+    uint32_t completed; /* our clock when the reply landed; 0 while pending */
+    uint8_t forward_count;
+    struct mesh_ui_traceroute_hop forward[MESH_UI_TRACEROUTE_MAX_HOPS];
+    uint8_t back_count;
+    struct mesh_ui_traceroute_hop back[MESH_UI_TRACEROUTE_MAX_HOPS];
+};
+
 /*
  * What the connected radio reports about itself and the air around it (LocalStats telemetry).
  * Lives beside the radio's configuration because it has the same lifetime - it describes the
@@ -437,6 +472,8 @@ struct mesh_ui_snapshot {
     /* Radio configuration for the Settings tab. Not persisted: it describes the radio that
        is connected right now. */
     struct mesh_ui_settings settings;
+    /* The last traceroute, running or finished. Not persisted. */
+    struct mesh_ui_traceroute traceroute;
     mesh_ui_update_flags update_flags;
 };
 
@@ -450,6 +487,7 @@ struct mesh_ui_store {
     char transport_status[MESH_UI_TRANSPORT_STATUS_MAX];
     struct mesh_ui_nav nav;
     struct mesh_ui_settings settings;
+    struct mesh_ui_traceroute traceroute;
     int event_fd;
     mesh_ui_update_flags pending_flags;
 };
@@ -470,6 +508,9 @@ void mesh_ui_store_set_messages(struct mesh_ui_store *store,
 /* Replaces the radio settings view; quiet when nothing changed. */
 void mesh_ui_store_set_settings(struct mesh_ui_store *store,
                                 const struct mesh_ui_settings *settings);
+/* Replaces the traceroute view; quiet when nothing changed. */
+void mesh_ui_store_set_traceroute(struct mesh_ui_store *store,
+                                  const struct mesh_ui_traceroute *traceroute);
 
 /* Combines persisted history with this session's live messages into the newest
    MESH_UI_MAX_MESSAGES, cached entries first. A cached entry whose packet id also appears in

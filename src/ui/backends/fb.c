@@ -761,8 +761,8 @@ static void fb_render_node_detail(const struct mesh_ui_backend_fb_state *state,
     fb_draw_title(state, layout, title);
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    const uint32_t count = mesh_ui_node_detail_build(node, is_self, (uint32_t)time(NULL), items,
-                                                     MESH_UI_NODE_ITEMS_MAX);
+    const uint32_t count = mesh_ui_node_detail_build(
+        node, is_self, (uint32_t)time(NULL), &snapshot->traceroute, items, MESH_UI_NODE_ITEMS_MAX);
     if (count == 0U) {
         fb_draw_empty(state, layout, "Nothing reported for this node yet.");
         return;

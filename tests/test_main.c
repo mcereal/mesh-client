@@ -40,6 +40,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <linux/input.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -7857,6 +7858,178 @@ static void test_session_local_stats(void) {
     record_success(test_name);
 }
 
+/* A send path that keeps the last ToRadio the session handed it. */
+struct trace_send_capture {
+    uint8_t packet[MESH_SESSION_MAX_PACKET];
+    size_t len;
+    unsigned calls;
+};
+
+static int trace_send_capture_fn(void *ctx, const uint8_t *packet, size_t len, uint32_t packet_id) {
+    (void)packet_id;
+    struct trace_send_capture *capture = (struct trace_send_capture *)ctx;
+    if (len > sizeof capture->packet) {
+        return -EMSGSIZE;
+    }
+    memcpy(capture->packet, packet, len);
+    capture->len = len;
+    capture->calls++;
+    return 0;
+}
+
+/*
+ * Traceroute end to end: the question we put on the air, the reply matched to it, and the
+ * shape the UI is handed. The last part is the one worth pinning - RouteDiscovery carries the
+ * intermediate nodes and a parallel array of link SNRs, and turning that into "each stop and
+ * the reading of the link that reached it" is an off-by-one waiting to happen in both
+ * directions.
+ */
+static void test_session_traceroute(void) {
+    const char *test_name = "session_traceroute";
+
+    struct mesh_session session;
+    mesh_session_init(&session);
+    struct trace_send_capture capture;
+    memset(&capture, 0, sizeof capture);
+    mesh_session_attach(&session, trace_send_capture_fn, &capture);
+
+    meshtastic_FromRadio my_info = meshtastic_FromRadio_init_default;
+    my_info.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    my_info.my_info.my_node_num = 0x1111U;
+    if (!session_feed_from_radio(&session, &my_info)) {
+        record_failure(test_name, "encode my_info failed");
+        return;
+    }
+
+    /* Tracing a route to ourselves has no links in it, and a broadcast would ask the whole
+       mesh to answer at once. */
+    if (mesh_session_send_traceroute(&session, 0x1111U) != -EINVAL ||
+        mesh_session_send_traceroute(&session, MESH_MESSAGE_BROADCAST_ADDR) != -EINVAL) {
+        record_failure(test_name, "self and broadcast traces should be refused");
+        return;
+    }
+
+    if (mesh_session_send_traceroute(&session, 0x3333U) != 0 || capture.calls != 1U) {
+        record_failure(test_name, "the traceroute was not sent");
+        return;
+    }
+
+    meshtastic_ToRadio sent = meshtastic_ToRadio_init_default;
+    pb_istream_t in = pb_istream_from_buffer(capture.packet, capture.len);
+    if (!pb_decode(&in, meshtastic_ToRadio_fields, &sent) ||
+        sent.which_payload_variant != meshtastic_ToRadio_packet_tag || sent.packet.to != 0x3333U ||
+        sent.packet.decoded.portnum != meshtastic_PortNum_TRACEROUTE_APP ||
+        !sent.packet.decoded.want_response) {
+        record_failure(test_name, "the request should be a TRACEROUTE_APP asking for a reply");
+        return;
+    }
+    const uint32_t request_id = sent.packet.id;
+
+    if (mesh_session_traceroute(&session)->state != MESH_TRACEROUTE_PENDING) {
+        record_failure(test_name, "the trace should be pending after the send");
+        return;
+    }
+    /* One at a time: this client's half of the firmware's traceroute rate limit. */
+    if (mesh_session_send_traceroute(&session, 0x4444U) != -EBUSY || capture.calls != 1U) {
+        record_failure(test_name, "a second trace should be refused while one is running");
+        return;
+    }
+
+    /* One node in the middle each way. snr_towards has one more entry than route: a reading
+       per link, us->relay and relay->target. */
+    meshtastic_RouteDiscovery route = meshtastic_RouteDiscovery_init_default;
+    route.route_count = 1U;
+    route.route[0] = 0x2222U;
+    route.snr_towards_count = 2U;
+    route.snr_towards[0] = 26; /* 6.5 dB */
+    route.snr_towards[1] = 16; /* 4.0 dB */
+    route.route_back_count = 1U;
+    route.route_back[0] = 0x2222U;
+    route.snr_back_count = 2U;
+    route.snr_back[0] = 20;       /* 5.0 dB */
+    route.snr_back[1] = INT8_MIN; /* the firmware's "not measured" */
+
+    uint8_t payload[256];
+    pb_ostream_t out = pb_ostream_from_buffer(payload, sizeof payload);
+    if (!pb_encode(&out, meshtastic_RouteDiscovery_fields, &route)) {
+        record_failure(test_name, "encode RouteDiscovery failed");
+        return;
+    }
+
+    /* A reply that quotes a different request is somebody else's trace crossing our radio. */
+    meshtastic_FromRadio stray = meshtastic_FromRadio_init_default;
+    stray.which_payload_variant = meshtastic_FromRadio_packet_tag;
+    stray.packet.from = 0x3333U;
+    stray.packet.id = 0x9001U;
+    stray.packet.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    stray.packet.decoded.portnum = meshtastic_PortNum_TRACEROUTE_APP;
+    stray.packet.decoded.request_id = request_id ^ 0xFFFFU;
+    memcpy(stray.packet.decoded.payload.bytes, payload, out.bytes_written);
+    stray.packet.decoded.payload.size = (pb_size_t)out.bytes_written;
+    if (!session_feed_from_radio(&session, &stray)) {
+        record_failure(test_name, "encode stray traceroute failed");
+        return;
+    }
+    if (mesh_session_traceroute(&session)->state != MESH_TRACEROUTE_PENDING) {
+        record_failure(test_name, "another node's trace was taken as our reply");
+        return;
+    }
+    /* And it is not a message, however it is addressed. */
+    if (mesh_session_messages(&session)->count != 0U) {
+        record_failure(test_name, "a RouteDiscovery reached the message log");
+        return;
+    }
+
+    meshtastic_FromRadio reply = stray;
+    reply.packet.decoded.request_id = request_id;
+    if (!session_feed_from_radio(&session, &reply)) {
+        record_failure(test_name, "encode traceroute reply failed");
+        return;
+    }
+
+    const struct mesh_traceroute *trace = mesh_session_traceroute(&session);
+    if (trace->state != MESH_TRACEROUTE_DONE || trace->route_count != 1U ||
+        trace->route[0] != 0x2222U || trace->snr_count != 2U || trace->snr[0] != 26 ||
+        trace->back_count != 1U || trace->snr_back_count != 2U) {
+        record_failure(test_name, "the reply was not kept");
+        return;
+    }
+
+    /* The shape the UI draws: us, the relay, the target - with each stop carrying the reading
+       of the link that got the packet to it, and the first stop carrying none. */
+    struct mesh_ui_traceroute ui;
+    mesh_app_flatten_traceroute(mesh_session_handshake(&session), trace, 0x1111U, &ui);
+    if (ui.forward_count != 3U || ui.forward[0].node_id != 0x1111U ||
+        ui.forward[1].node_id != 0x2222U || ui.forward[2].node_id != 0x3333U) {
+        record_failure(test_name, "the forward path should be us, the relay, then the target");
+        return;
+    }
+    if (ui.forward[0].has_snr || !ui.forward[1].has_snr || ui.forward[1].snr_quarter_db != 26 ||
+        !ui.forward[2].has_snr || ui.forward[2].snr_quarter_db != 16) {
+        record_failure(test_name, "forward hops carry the wrong link SNR");
+        return;
+    }
+    if (ui.back_count != 3U || ui.back[0].node_id != 0x3333U || ui.back[2].node_id != 0x1111U ||
+        !ui.back[1].has_snr || ui.back[1].snr_quarter_db != 20 ||
+        ui.back[2].snr_quarter_db != INT8_MIN) {
+        record_failure(test_name, "the return path is wrong");
+        return;
+    }
+
+    /* Finished, so the slot is free again - and a dropped link forgets the route entirely. */
+    if (mesh_session_send_traceroute(&session, 0x4444U) != 0) {
+        record_failure(test_name, "a finished trace should not block the next one");
+        return;
+    }
+    mesh_session_detach(&session);
+    if (mesh_session_traceroute(&session)->state != MESH_TRACEROUTE_IDLE) {
+        record_failure(test_name, "the trace survived the link dropping");
+        return;
+    }
+
+    record_success(test_name);
+}
+
 /* The Nodes tab's detail rows: which ones a node produces, and that the count the nav walks
    agrees with the list the backend draws. */
 static void test_ui_node_detail_items(void) {
@@ -7872,8 +8045,8 @@ static void test_ui_node_detail_items(void) {
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     uint32_t count =
-        mesh_ui_node_detail_build(&node, false, 1750000600U, items, MESH_UI_NODE_ITEMS_MAX);
-    if (count != mesh_ui_node_detail_count(&node, false)) {
+        mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, items, MESH_UI_NODE_ITEMS_MAX);
+    if (count != mesh_ui_node_detail_count(&node, false, NULL)) {
         record_failure(test_name, "the count the nav walks disagrees with the built list");
         return;
     }
@@ -7904,9 +8077,9 @@ static void test_ui_node_detail_items(void) {
     }
 
     /* Our own node cannot be messaged and its SNR against itself means nothing. */
-    const uint32_t self_count = mesh_ui_node_detail_count(&node, true);
+    const uint32_t self_count = mesh_ui_node_detail_count(&node, true, NULL);
     struct mesh_ui_node_item self_items[MESH_UI_NODE_ITEMS_MAX];
-    mesh_ui_node_detail_build(&node, true, 1750000600U, self_items, MESH_UI_NODE_ITEMS_MAX);
+    mesh_ui_node_detail_build(&node, true, 1750000600U, NULL, self_items, MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0; i < self_count; ++i) {
         if (self_items[i].kind == MESH_UI_NODE_ROW_ACTION ||
             strcmp(self_items[i].label, "SNR") == 0) {
@@ -7927,7 +8100,8 @@ static void test_ui_node_detail_items(void) {
     node.environment.has_temperature = true;
     node.environment.temperature = 20.0f;
 
-    count = mesh_ui_node_detail_build(&node, false, 1750000600U, items, MESH_UI_NODE_ITEMS_MAX);
+    count =
+        mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, items, MESH_UI_NODE_ITEMS_MAX);
     bool battery_ok = false;
     bool latitude_ok = false;
     bool temperature_ok = false;
@@ -7948,7 +8122,7 @@ static void test_ui_node_detail_items(void) {
         record_failure(test_name, "a reported value was missing or misformatted");
         return;
     }
-    if (count != mesh_ui_node_detail_count(&node, false)) {
+    if (count != mesh_ui_node_detail_count(&node, false, NULL)) {
         record_failure(test_name, "the count disagrees once the sections appear");
         return;
     }
@@ -8281,8 +8455,8 @@ static void test_ui_nav_node_favorite(void) {
         return;
     }
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    const uint32_t count = mesh_ui_node_detail_build(&store.handshake.nodes[1], false, 0U, items,
-                                                     MESH_UI_NODE_ITEMS_MAX);
+    const uint32_t count = mesh_ui_node_detail_build(&store.handshake.nodes[1], false, 0U, NULL,
+                                                     items, MESH_UI_NODE_ITEMS_MAX);
     uint32_t favorite_row = count;
     for (uint32_t i = 0; i < count; ++i) {
         if (items[i].action == MESH_UI_NODE_ACTION_FAVORITE) {
@@ -10088,6 +10262,7 @@ static const struct test_case k_test_cases[] = {
     {"app_link_routing", "unit", test_app_link_routing},
     {"session_node_detail_ingest", "unit", test_session_node_detail_ingest},
     {"session_local_stats", "unit", test_session_local_stats},
+    {"session_traceroute", "unit", test_session_traceroute},
     {"ui_node_detail_items", "unit", test_ui_node_detail_items},
     {"radio_settings_favorite_queue", "unit", test_radio_settings_favorite_queue},
     {"ui_preferences_known_radios", "unit", test_ui_preferences_known_radios},

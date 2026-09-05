@@ -913,6 +913,28 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
         mesh_ui_store_set_toast(&app->ui_store, now, toast);
         return;
     }
+    case MESH_UI_ACTION_TRACEROUTE: {
+        char name[MESH_UI_NAV_TARGET_NAME_MAX];
+        mesh_app_format_peer_name(mesh_session_handshake(&app->session), action->dest, name,
+                                  sizeof name);
+        const int result = mesh_session_send_traceroute(&app->session, action->dest);
+        if (result == 0) {
+            snprintf(toast, sizeof toast, "Tracing route to %.20s", name);
+            mesh_log_info("ui", "Traceroute to 0x%08x from the Nodes tab", action->dest);
+        } else if (result == -ENOTCONN) {
+            snprintf(toast, sizeof toast, "%s", "Not connected to a node");
+        } else if (result == -EBUSY) {
+            /* One trace at a time is this client's half of the firmware's rate limit. */
+            snprintf(toast, sizeof toast, "%s", "A traceroute is already running");
+        } else if (result == -EINVAL) {
+            snprintf(toast, sizeof toast, "%s", "Cannot trace a route to this node");
+        } else {
+            snprintf(toast, sizeof toast, "Traceroute failed (%d)", result);
+            mesh_log_warn("ui", "Traceroute to 0x%08x failed: %d", action->dest, result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
     case MESH_UI_ACTION_DISCONNECT: {
         struct mesh_transport *transport = mesh_app_active_transport();
         const char *identifier = mesh_app_connected_identifier();
@@ -1361,6 +1383,69 @@ static void mesh_app_publish_messages(struct mesh_app *app,
         (app->ui_store.pending_flags & MESH_UI_UPDATE_MESSAGES) != 0U &&
         (prev_flags & MESH_UI_UPDATE_MESSAGES) == 0U) {
         app->ui_handshake_cache_dirty = true;
+    }
+}
+
+/*
+ * A traceroute, from the protobuf's shape into the one the UI draws. RouteDiscovery gives the
+ * *intermediate* nodes and a parallel array of link SNRs; what a reader wants is the whole
+ * path with a reading against each stop it reached. So this stitches the ends on - us at the
+ * front going out, the target at the front coming back - resolves every hop to a name, and
+ * pairs hop i with snr[i - 1], the link that got the packet there.
+ *
+ * The SNR array is normally one longer than the route (one reading per link, not per node),
+ * but a firmware that disagrees must not make us read off the end, so each pairing is bounds
+ * checked rather than assumed.
+ */
+static uint8_t mesh_app_flatten_route(const struct mesh_handshake_status *status,
+                                      uint32_t first_node, const uint32_t *route,
+                                      uint8_t route_count, const int8_t *snr, uint8_t snr_count,
+                                      uint32_t last_node, struct mesh_ui_traceroute_hop *out) {
+    uint8_t count = 0U;
+    /* The path is first_node, then every node that forwarded it, then the far end. */
+    uint32_t path[MESH_UI_TRACEROUTE_MAX_HOPS];
+    path[count++] = first_node;
+    for (uint8_t i = 0; i < route_count && count < MESH_UI_TRACEROUTE_MAX_HOPS - 1U; ++i) {
+        path[count++] = route[i];
+    }
+    path[count++] = last_node;
+
+    for (uint8_t i = 0; i < count; ++i) {
+        struct mesh_ui_traceroute_hop *hop = &out[i];
+        memset(hop, 0, sizeof *hop);
+        hop->node_id = path[i];
+        mesh_app_format_peer_name(status, path[i], hop->name, sizeof hop->name);
+        /* The first stop is the sender: nothing carried the packet *to* it. */
+        if (i > 0U && (uint8_t)(i - 1U) < snr_count) {
+            hop->has_snr = true;
+            hop->snr_quarter_db = snr[i - 1U];
+        }
+    }
+    return count;
+}
+
+void mesh_app_flatten_traceroute(const struct mesh_handshake_status *status,
+                                 const struct mesh_traceroute *src, uint32_t my_node,
+                                 struct mesh_ui_traceroute *dst) {
+    memset(dst, 0, sizeof *dst);
+    if (src == NULL || src->state == MESH_TRACEROUTE_IDLE) {
+        return;
+    }
+    dst->state = src->state;
+    dst->target = src->target;
+    dst->completed = src->completed;
+    if (src->state != MESH_TRACEROUTE_DONE) {
+        return;
+    }
+    dst->forward_count =
+        mesh_app_flatten_route(status, my_node, src->route, src->route_count, src->snr,
+                               src->snr_count, src->target, dst->forward);
+    /* The way back is only drawn when the firmware measured it; an empty route_back with no
+       readings would otherwise render as a bare two-stop path that says nothing. */
+    if (src->snr_back_count > 0U || src->back_count > 0U) {
+        dst->back_count =
+            mesh_app_flatten_route(status, src->target, src->route_back, src->back_count,
+                                   src->snr_back, src->snr_back_count, my_node, dst->back);
     }
 }
 
@@ -1964,6 +2049,12 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     mesh_app_flatten_radio_stats(mesh_session_radio_stats(&app->session), &ui_settings.stats);
     mesh_ui_store_set_settings(&app->ui_store, &ui_settings);
     mesh_app_track_settings_save(app, radio_settings, link_connected);
+
+    struct mesh_ui_traceroute ui_traceroute;
+    mesh_app_flatten_traceroute(&status, mesh_session_traceroute(&app->session),
+                                status.has_my_info ? status.my_info.my_node_num : 0U,
+                                &ui_traceroute);
+    mesh_ui_store_set_traceroute(&app->ui_store, &ui_traceroute);
 
     if (preferences_modified && app->ui_preferences_path[0] != '\0') {
         if (mesh_ui_preferences_save(&app->ui_preferences, app->ui_preferences_path) == 0) {

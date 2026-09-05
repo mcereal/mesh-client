@@ -213,7 +213,25 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   - `mesh_ui_preferences_note_radio` records every `my_node_num` we connect to in a small MRU
   in `ui_prefs` (`known_radios=`), and `mesh_ui_preferences_knows_radio` lifts those above
   message peers. It is client-side on purpose: no admin write, and nothing that could disagree
-  with what "favorite" means on the radio. The open node is remembered by
+  with what "favorite" means on the radio.
+  A on the detail's **"Trace route"** row measures the mesh itself rather than repeating what
+  a node said about itself - `hops_away` is a count, not a route, and never says which nodes
+  are carrying you. `mesh_session_send_traceroute` puts an empty `RouteDiscovery` on
+  `TRACEROUTE_APP` with `want_response`; every node that forwards it appends itself and the
+  target answers with both directions and the SNR of every link. The reply is matched on
+  `Data.request_id` against our packet id, because a trace between two *other* nodes crosses
+  our radio wearing the same portnum, and a RouteDiscovery never reaches the message log
+  either way. One trace at a time (`-EBUSY`) - the client's half of the firmware's own rate
+  limit, and the reason a finished result is kept rather than re-run, since a screen that
+  traced on every repaint would be refused and would flood the mesh. Nothing reports a trace
+  dropped on the way out or back, so `mesh_session_tick` times it out at 60 s ahead of the
+  link guards. `mesh_app_flatten_traceroute` turns the protobuf's shape - intermediate nodes
+  plus a parallel array of link SNRs - into the two paths the UI draws, every stop carrying
+  the reading of the link that reached it: the ends are stitched on (us going out, the target
+  coming back), each hop resolves to a name, and hop `i` takes `snr[i - 1]`. That array is
+  normally one longer than the route, one reading per *link* rather than per node, but every
+  pairing is bounds checked rather than assumed. `INT8_MIN` is the firmware's "not measured"
+  and draws as "no reading", not a -32 dB link. The open node is remembered by
   **id** (`nav.node_detail_node`), not by row: `app.c` re-ranks the node list on every publish,
   so an index would slide onto a different node while the user was reading one; `nav.c`'s clamp
   closes the detail when that id leaves the list. `mesh_ui_node_summary` in `store.h` is the

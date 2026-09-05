@@ -190,6 +190,7 @@ enum mesh_ui_action_type {
     MESH_UI_ACTION_REFRESH_SETTINGS, /* re-read the radio's configuration */
     MESH_UI_ACTION_SAVE_SETTINGS,    /* section + edits: write one section to the radio */
     MESH_UI_ACTION_TOGGLE_FAVORITE,  /* dest = node to pin/unpin; `number` is 1 to pin */
+    MESH_UI_ACTION_TRACEROUTE,       /* dest = node to trace the route to */
     /* About section: ask GitHub what the newest release is, and install the one a check
        found. Two actions rather than one because installing replaces the running binary. */
     MESH_UI_ACTION_CHECK_UPDATE,

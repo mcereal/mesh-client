@@ -31,6 +31,7 @@ static uint64_t mesh_session_now_ms(void) {
 static void mesh_session_reset_handshake(struct mesh_session *session) {
     memset(&session->handshake, 0, sizeof session->handshake);
     memset(&session->stats, 0, sizeof session->stats);
+    memset(&session->traceroute, 0, sizeof session->traceroute);
     session->node_cache_warned = false;
     mesh_radio_settings_reset(&session->settings);
     session->admin_probe_queued = false;
@@ -477,6 +478,71 @@ static void mesh_session_apply_packet_details(struct mesh_session *session,
     }
 }
 
+/*
+ * A TRACEROUTE_APP packet answering the request we sent. The firmware replies from the target
+ * with `Data.request_id` set to our packet id, which is what tells our trace from somebody
+ * else's crossing the same radio - a node relaying a trace between two other nodes sees the
+ * same portnum.
+ *
+ * Returns true when the packet was ours, so the caller can keep it out of everything else.
+ */
+static bool mesh_session_handle_traceroute(struct mesh_session *session,
+                                           const meshtastic_MeshPacket *packet) {
+    const meshtastic_Data *data = &packet->decoded;
+    if (data->portnum != meshtastic_PortNum_TRACEROUTE_APP) {
+        return false;
+    }
+    struct mesh_traceroute *trace = &session->traceroute;
+    if (trace->state != MESH_TRACEROUTE_PENDING || data->request_id == 0U ||
+        data->request_id != trace->packet_id) {
+        /* Not an answer to ours: a trace passing through, or one we have already given up on.
+           Claimed anyway - a RouteDiscovery is not a message and has no business in the log. */
+        mesh_log_debug("session", "Ignoring TRACEROUTE_APP from 0x%08x (request %u)", packet->from,
+                       data->request_id);
+        return true;
+    }
+
+    meshtastic_RouteDiscovery route = meshtastic_RouteDiscovery_init_default;
+    pb_istream_t stream = pb_istream_from_buffer(data->payload.bytes, data->payload.size);
+    if (!pb_decode(&stream, meshtastic_RouteDiscovery_fields, &route)) {
+        mesh_log_warn("session", "Bad TRACEROUTE_APP reply: %s", PB_GET_ERROR(&stream));
+        trace->state = MESH_TRACEROUTE_TIMEOUT;
+        return true;
+    }
+
+    trace->route_count =
+        (uint8_t)(route.route_count > MESH_TRACEROUTE_MAX_HOPS ? MESH_TRACEROUTE_MAX_HOPS
+                                                               : route.route_count);
+    for (uint8_t i = 0; i < trace->route_count; ++i) {
+        trace->route[i] = route.route[i];
+    }
+    trace->snr_count = (uint8_t)(route.snr_towards_count > MESH_TRACEROUTE_MAX_HOPS + 1U
+                                     ? MESH_TRACEROUTE_MAX_HOPS + 1U
+                                     : route.snr_towards_count);
+    for (uint8_t i = 0; i < trace->snr_count; ++i) {
+        trace->snr[i] = route.snr_towards[i];
+    }
+    trace->back_count =
+        (uint8_t)(route.route_back_count > MESH_TRACEROUTE_MAX_HOPS ? MESH_TRACEROUTE_MAX_HOPS
+                                                                    : route.route_back_count);
+    for (uint8_t i = 0; i < trace->back_count; ++i) {
+        trace->route_back[i] = route.route_back[i];
+    }
+    trace->snr_back_count = (uint8_t)(route.snr_back_count > MESH_TRACEROUTE_MAX_HOPS + 1U
+                                          ? MESH_TRACEROUTE_MAX_HOPS + 1U
+                                          : route.snr_back_count);
+    for (uint8_t i = 0; i < trace->snr_back_count; ++i) {
+        trace->snr_back[i] = route.snr_back[i];
+    }
+
+    const time_t now = time(NULL);
+    trace->completed = now > 1600000000 ? (uint32_t)now : 0U;
+    trace->state = MESH_TRACEROUTE_DONE;
+    mesh_log_info("session", "Traceroute to 0x%08x: %u hops out, %u back", trace->target,
+                  (unsigned)trace->route_count, (unsigned)trace->back_count);
+    return true;
+}
+
 static void mesh_session_handle_log_record(const meshtastic_LogRecord *record) {
     char message[sizeof(record->message) + 1U];
     memcpy(message, record->message, sizeof record->message);
@@ -602,6 +668,14 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
         if (mesh_radio_settings_ingest(&session->settings, &message.packet) == 1) {
             break;
         }
+        /* A RouteDiscovery is not a message either, and the node it came from is already
+           being touched below - so claim it after the touch, not before. */
+        if (message.packet.which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
+            message.packet.decoded.portnum == meshtastic_PortNum_TRACEROUTE_APP) {
+            mesh_session_touch_node_from_packet(session, &message.packet);
+            (void)mesh_session_handle_traceroute(session, &message.packet);
+            break;
+        }
         mesh_session_touch_node_from_packet(session, &message.packet);
         mesh_session_apply_packet_details(session, &message.packet);
         mesh_message_ingest(&session->messages, &message.packet,
@@ -650,7 +724,20 @@ static void mesh_session_sync_clock(struct mesh_session *session) {
  * radio, then send whatever else is queued, one request at a time.
  */
 void mesh_session_tick(struct mesh_session *session, uint64_t now_ms) {
-    if (session == NULL || session->send == NULL || !session->handshake.has_my_info) {
+    if (session == NULL) {
+        return;
+    }
+    /* Nothing on the mesh reports a traceroute that was dropped on the way out or on the way
+       back, so the clock is the only thing that can end a lost one. Checked before the link
+       guards below: a trace outlives a momentary stall, and a row reading "tracing" forever
+       is worse than one that says it gave up. */
+    struct mesh_traceroute *trace = &session->traceroute;
+    if (trace->state == MESH_TRACEROUTE_PENDING && now_ms > trace->sent_ms &&
+        now_ms - trace->sent_ms > MESH_TRACEROUTE_TIMEOUT_MS) {
+        trace->state = MESH_TRACEROUTE_TIMEOUT;
+        mesh_log_info("session", "Traceroute to 0x%08x timed out", trace->target);
+    }
+    if (session->send == NULL || !session->handshake.has_my_info) {
         return;
     }
     if (session->handshake.config_complete && !session->admin_probe_queued) {
@@ -848,4 +935,71 @@ const struct mesh_radio_settings *mesh_session_settings(const struct mesh_sessio
 
 const struct mesh_radio_stats *mesh_session_radio_stats(const struct mesh_session *session) {
     return session != NULL ? &session->stats : NULL;
+}
+
+int mesh_session_send_traceroute(struct mesh_session *session, uint32_t dest) {
+    if (session == NULL) {
+        return -EINVAL;
+    }
+    if (session->send == NULL) {
+        return -ENOTCONN;
+    }
+    /* A broadcast trace would ask the whole mesh to answer at once, and tracing the route to
+       ourselves is a question with no links in it. */
+    if (dest == 0U || dest == MESH_MESSAGE_BROADCAST_ADDR ||
+        (session->handshake.has_my_info && dest == session->handshake.my_info.my_node_num)) {
+        return -EINVAL;
+    }
+    if (session->traceroute.state == MESH_TRACEROUTE_PENDING) {
+        return -EBUSY;
+    }
+
+    /* An empty RouteDiscovery: every node that forwards it appends itself, so what we send is
+       the question and what comes back is the answer. */
+    meshtastic_RouteDiscovery route = meshtastic_RouteDiscovery_init_default;
+    uint8_t body[64];
+    pb_ostream_t body_stream = pb_ostream_from_buffer(body, sizeof body);
+    if (!pb_encode(&body_stream, meshtastic_RouteDiscovery_fields, &route)) {
+        mesh_log_error("session", "Failed to encode RouteDiscovery: %s",
+                       PB_GET_ERROR(&body_stream));
+        return -EIO;
+    }
+
+    meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_default;
+    to_radio.which_payload_variant = meshtastic_ToRadio_packet_tag;
+    meshtastic_MeshPacket *packet = &to_radio.packet;
+    packet->to = dest;
+    packet->id = mesh_session_next_packet_id(session);
+    packet->want_ack = false; /* the reply is the ack; a Routing ack as well is just airtime */
+    packet->which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    packet->decoded.portnum = meshtastic_PortNum_TRACEROUTE_APP;
+    packet->decoded.want_response = true;
+    memcpy(packet->decoded.payload.bytes, body, body_stream.bytes_written);
+    packet->decoded.payload.size = (pb_size_t)body_stream.bytes_written;
+
+    uint8_t payload[MESH_SESSION_MAX_PACKET];
+    pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof payload);
+    if (!pb_encode(&stream, meshtastic_ToRadio_fields, &to_radio)) {
+        mesh_log_error("session", "Failed to encode traceroute: %s", PB_GET_ERROR(&stream));
+        return -EIO;
+    }
+
+    struct mesh_traceroute *trace = &session->traceroute;
+    memset(trace, 0, sizeof *trace);
+    trace->state = MESH_TRACEROUTE_PENDING;
+    trace->target = dest;
+    trace->packet_id = packet->id;
+    trace->sent_ms = mesh_session_now_ms();
+
+    const int result = mesh_session_send_raw(session, payload, stream.bytes_written, 0U);
+    if (result < 0) {
+        trace->state = MESH_TRACEROUTE_TIMEOUT;
+        return result;
+    }
+    mesh_log_info("session", "Traceroute to 0x%08x sent (id %u)", dest, trace->packet_id);
+    return 0;
+}
+
+const struct mesh_traceroute *mesh_session_traceroute(const struct mesh_session *session) {
+    return session != NULL ? &session->traceroute : NULL;
 }
