@@ -1,6 +1,7 @@
 #include "mesh/transport/ble_bluez.h"
 
 #include "mesh/core/event_loop.h"
+#include "mesh/utils/array.h"
 #include "mesh/utils/log.h"
 
 #include <ctype.h>
@@ -87,7 +88,7 @@ static int mesh_bluez_dbus_error_to_errno(const DBusError *error) {
 static int mesh_bluez_watch_fd_callback(int fd, uint32_t events, void *userdata);
 
 static int mesh_bluez_watch_sync(struct mesh_bluez_client *client, size_t index) {
-    if (client == NULL || index >= sizeof(client->watches) / sizeof(client->watches[0])) {
+    if (client == NULL || index >= MESH_ARRAY_LEN(client->watches)) {
         return -EINVAL;
     }
 
@@ -130,8 +131,7 @@ static int mesh_bluez_watch_sync(struct mesh_bluez_client *client, size_t index)
 }
 
 static void mesh_bluez_watch_unregister(struct mesh_bluez_client *client, size_t index) {
-    if (client == NULL || client->loop == NULL ||
-        index >= sizeof(client->watches) / sizeof(client->watches[0])) {
+    if (client == NULL || client->loop == NULL || index >= MESH_ARRAY_LEN(client->watches)) {
         return;
     }
 
@@ -149,7 +149,7 @@ static ssize_t mesh_bluez_watch_find(struct mesh_bluez_client *client, DBusWatch
         return -1;
     }
 
-    for (size_t i = 0; i < sizeof(client->watches) / sizeof(client->watches[0]); ++i) {
+    for (size_t i = 0; i < MESH_ARRAY_LEN(client->watches); ++i) {
         if (client->watches[i].watch == watch) {
             return (ssize_t)i;
         }
@@ -163,7 +163,7 @@ static dbus_bool_t mesh_bluez_watch_add(DBusWatch *watch, void *userdata) {
         return FALSE;
     }
 
-    for (size_t i = 0; i < sizeof(client->watches) / sizeof(client->watches[0]); ++i) {
+    for (size_t i = 0; i < MESH_ARRAY_LEN(client->watches); ++i) {
         if (client->watches[i].watch == NULL) {
             client->watches[i].watch = watch;
             client->watches[i].registered = false;
@@ -307,13 +307,9 @@ static void mesh_bluez_apply_mock_devices(struct mesh_bluez_device_info *devices
     *count = to_copy;
 }
 
-void mesh_bluez_client_mock_enable(const struct mesh_bluez_mock_config *config) {
-    g_mock_state.enabled = true;
-    if (config != NULL) {
-        g_mock_state.config = *config;
-    } else {
-        memset(&g_mock_state.config, 0, sizeof(g_mock_state.config));
-    }
+/* Everything but `enabled` and `config`: the per-run counters a test would otherwise see carried
+   over from the test before it. Both entry points reset the same set, so they share one. */
+static void mesh_bluez_mock_reset_counters(void) {
     g_mock_state.client = NULL;
     g_mock_state.read_cursor = 0U;
     g_mock_state.services_resolved_polls = 0U;
@@ -325,18 +321,20 @@ void mesh_bluez_client_mock_enable(const struct mesh_bluez_mock_config *config) 
     g_mock_state.paired_count = 0U;
 }
 
+void mesh_bluez_client_mock_enable(const struct mesh_bluez_mock_config *config) {
+    g_mock_state.enabled = true;
+    if (config != NULL) {
+        g_mock_state.config = *config;
+    } else {
+        memset(&g_mock_state.config, 0, sizeof(g_mock_state.config));
+    }
+    mesh_bluez_mock_reset_counters();
+}
+
 void mesh_bluez_client_mock_disable(void) {
     g_mock_state.enabled = false;
     memset(&g_mock_state.config, 0, sizeof(g_mock_state.config));
-    g_mock_state.client = NULL;
-    g_mock_state.read_cursor = 0U;
-    g_mock_state.services_resolved_polls = 0U;
-    g_mock_state.connect_polls = 0U;
-    g_mock_state.connected_polls = 0U;
-    g_mock_state.write_calls = 0U;
-    g_mock_state.pair_polls = 0U;
-    memset(g_mock_state.paired_addresses, 0, sizeof(g_mock_state.paired_addresses));
-    g_mock_state.paired_count = 0U;
+    mesh_bluez_mock_reset_counters();
 }
 
 int mesh_bluez_client_init(struct mesh_bluez_client *client) {
@@ -893,7 +891,7 @@ int mesh_bluez_client_attach_loop(struct mesh_bluez_client *client, struct mesh_
 
 #ifdef MESH_HAVE_DBUS
     if (loop != NULL) {
-        for (size_t i = 0; i < sizeof(client->watches) / sizeof(client->watches[0]); ++i) {
+        for (size_t i = 0; i < MESH_ARRAY_LEN(client->watches); ++i) {
             if (client->watches[i].watch != NULL) {
                 mesh_bluez_watch_sync(client, i);
             }
@@ -913,7 +911,7 @@ void mesh_bluez_client_detach_loop(struct mesh_bluez_client *client) {
 
 #ifdef MESH_HAVE_DBUS
     if (client->loop != NULL) {
-        for (size_t i = 0; i < sizeof(client->watches) / sizeof(client->watches[0]); ++i) {
+        for (size_t i = 0; i < MESH_ARRAY_LEN(client->watches); ++i) {
             if (client->watches[i].registered) {
                 mesh_event_loop_remove_fd(client->loop, client->watches[i].fd);
             }

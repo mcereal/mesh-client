@@ -33,6 +33,9 @@ endif()
 
 add_library(meshclient_core
     src/core/app.c
+    src/core/app_actions.c
+    src/core/app_publish.c
+    src/core/app_settings.c
     src/core/config.c
     src/core/event_loop.c
     src/core/message.c
@@ -47,18 +50,28 @@ add_library(meshclient_core
     src/transport/serial/serial_transport.c
     src/transport/serial/serial_usb.c
     src/proto/stream_framing.c
+    src/utils/env.c
     src/utils/log.c
     src/utils/sha256.c
     src/utils/text.c
+    src/utils/time.c
     src/ui/store.c
     src/ui/controller.c
     src/ui/input.c
     src/ui/nav.c
+    src/ui/nav_canned.c
+    src/ui/nav_conversations.c
+    src/ui/nav_keyboard.c
+    src/ui/nav_settings.c
     src/ui/settings.c
+    src/ui/settings_codec.c
+    src/ui/settings_rows.c
     src/ui/node_detail.c
     src/ui/backends/stub.c
     src/ui/backends/cli.c
     src/ui/backends/fb.c
+    src/ui/backends/fb_draw.c
+    src/ui/backends/fb_screens.c
     src/ui/font5x7.c
     src/ui/emoji.c
     src/ui/emoji_glyphs.c

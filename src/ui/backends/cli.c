@@ -1,6 +1,7 @@
 #include "mesh/ui/backends/cli.h"
 
 #include "mesh/core/message.h"
+#include "mesh/utils/array.h"
 #include "mesh/utils/log.h"
 
 #include <errno.h>
@@ -163,7 +164,7 @@ static int mesh_ui_backend_cli_init(void **state, void *userdata) {
     }
     if (context != NULL) {
         const char *console_candidates[] = {"/dev/tty0", "/dev/tty1", "/dev/tty", "/dev/console"};
-        for (size_t i = 0; i < sizeof(console_candidates) / sizeof(console_candidates[0]); ++i) {
+        for (size_t i = 0; i < MESH_ARRAY_LEN(console_candidates); ++i) {
             const char *path = console_candidates[i];
             FILE *stream = fopen(path, "w");
             if (stream != NULL) {

@@ -1,7 +1,7 @@
 # UI layer
 
 The UI is deliberately thin and data-driven: one store holds the state, one navigation model
-turns key presses into actions, and backends only draw. Nothing in `src/ui/nav.c` touches an fd
+turns key presses into actions, and backends only draw. Nothing in `src/ui/nav*.c` touches an fd
 or a device, so it is testable directly.
 
 ## Shape
@@ -21,9 +21,11 @@ evdev -> mesh_ui_input -> mesh_ui_controller_handle_key -> mesh_ui_store_handle_
   `stub.c` (tests). **Backends are stateless** — they draw the cursor from
   `snapshot->nav`. A new platform implements the backend interface and leaves the store and
   controller untouched.
-- **`src/ui/nav.c`** owns the tab/cursor/compose-target model (`struct mesh_ui_nav`, carried
-  inside every snapshot and clamped against the lists on each consume) and returns a
-  `mesh_ui_action` the controller hands to `mesh_app_on_ui_action`.
+- **`src/ui/nav*.c`** own the tab/cursor/compose-target model (`struct mesh_ui_nav`, carried
+  inside every snapshot and clamped against the lists on each consume) and return a
+  `mesh_ui_action` the controller hands to `mesh_app_on_ui_action`. `nav.c` is the router;
+  `nav_canned.c`, `nav_keyboard.c`, `nav_conversations.c` and `nav_settings.c` are the subjects
+  it dispatches into, over the seams in `nav_internal.h`.
 
 The UI-side structs in `store.h` (`mesh_ui_node_summary`, `mesh_ui_settings`,
 `mesh_ui_client_info`) are nanopb-free twins of the core records, filled field by field in
@@ -127,7 +129,11 @@ The whole detail rides in the handshake cache as its own `node_user[i]` / `node_
 `node_key[i]` / `node_pos[i]` / `node_metrics[i]` / `node_env[i]` key lines, so it is both
 browsable offline and compatible in either direction with a build that knows nothing about it.
 
-### Settings — `src/ui/settings.c`
+### Settings — `src/ui/settings*.c`
+
+`settings.c` is the `k_fields` table and everything derived from it, `settings_codec.c` converts
+coordinates and channel keys between bytes and text, and `settings_rows.c` builds the rows a
+screen draws.
 
 The tab as data: sections -> items (label, formatted value, kind, and for editable rows a `field`
 id). Backends draw the list; `nav.c` walks it (`settings_section` open or
@@ -195,7 +201,7 @@ shoulder, revealed in the one place you went to change it.
 
 ## The framebuffer backend
 
-`src/ui/backends/fb.c` draws into **page 0** of the Brick's 1024x16384 framebuffer, then
+`src/ui/backends/fb*.c` draw into **page 0** of the Brick's 1024x16384 framebuffer, then
 `FBIOPAN_DISPLAY`s to it and mirrors the frame into page 1, because the Allwinner display engine
 keeps showing the page NextUI's SDL last flipped to (page 1 in practice). The layer blends with
 per-pixel alpha, so `compose_color` always writes an opaque alpha byte. **Drop any of these and

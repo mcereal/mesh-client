@@ -1,8 +1,11 @@
 #include "mesh/core/config.h"
 
+#include "mesh/utils/env.h"
 #include "mesh/utils/log.h"
+#include "mesh/utils/text.h"
 
 #include <ctype.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,44 +21,16 @@ struct mesh_app_config mesh_app_config_default(void) {
     return config;
 }
 
-static int parse_int(const char *value, int fallback) {
-    if (value == NULL || *value == '\0') {
-        return fallback;
-    }
-
-    char *endptr = NULL;
-    long parsed = strtol(value, &endptr, 10);
-    if (endptr == value || *endptr != '\0') {
-        mesh_log_warn("config", "Invalid integer '%s', keeping %d", value, fallback);
-        return fallback;
-    }
-    return (int)parsed;
-}
-
 static void lowercase(char *buffer) {
     for (; *buffer != '\0'; ++buffer) {
         *buffer = (char)tolower((unsigned char)*buffer);
     }
 }
 
-/* MESHCLIENT_DISABLE_<X>: truthy turns the transport off, falsy turns it back on. */
+/* MESHCLIENT_DISABLE_<X>: truthy turns the transport off, so the flag is the negation of the
+   `enable_*` field it lands in. */
 static void apply_disable_override(const char *env_name, const char *label, bool *enabled) {
-    const char *raw = getenv(env_name);
-    if (raw == NULL || raw[0] == '\0') {
-        return;
-    }
-
-    char value[8];
-    snprintf(value, sizeof value, "%s", raw);
-    lowercase(value);
-    if (strcmp(value, "1") == 0 || strcmp(value, "true") == 0 || strcmp(value, "yes") == 0) {
-        *enabled = false;
-    } else if (strcmp(value, "0") == 0 || strcmp(value, "false") == 0 || strcmp(value, "no") == 0) {
-        *enabled = true;
-    } else {
-        mesh_log_warn("config", "Unknown boolean '%s', keeping %s %s", raw, label,
-                      *enabled ? "enabled" : "disabled");
-    }
+    *enabled = !mesh_env_bool(env_name, label, !*enabled);
 }
 
 void mesh_app_config_apply_env_overrides(struct mesh_app_config *config) {
@@ -66,7 +41,7 @@ void mesh_app_config_apply_env_overrides(struct mesh_app_config *config) {
     const char *run_mode_env = getenv("MESHCLIENT_RUN_MODE");
     if (run_mode_env != NULL && run_mode_env[0] != '\0') {
         char mode[32];
-        snprintf(mode, sizeof mode, "%s", run_mode_env);
+        mesh_str_copy(mode, sizeof mode, run_mode_env);
         lowercase(mode);
         if (strcmp(mode, "foreground") == 0) {
             config->run_mode = MESH_APP_RUN_FOREGROUND;
@@ -77,25 +52,21 @@ void mesh_app_config_apply_env_overrides(struct mesh_app_config *config) {
         }
     }
 
-    const char *timeout_env = getenv("MESHCLIENT_IDLE_TIMEOUT_MS");
-    if (timeout_env != NULL) {
-        config->idle_timeout_ms = parse_int(timeout_env, config->idle_timeout_ms);
-    }
+    config->idle_timeout_ms =
+        (int)mesh_env_int("MESHCLIENT_IDLE_TIMEOUT_MS", INT_MIN, INT_MAX, config->idle_timeout_ms);
 
     apply_disable_override("MESHCLIENT_DISABLE_BLE", "BLE", &config->enable_ble);
     apply_disable_override("MESHCLIENT_DISABLE_SERIAL", "serial", &config->enable_serial);
 
     const char *preferred_env = getenv("MESHCLIENT_PREFERRED_BLE_DEVICE");
     if (preferred_env != NULL) {
-        strncpy(config->preferred_ble_device, preferred_env,
-                sizeof(config->preferred_ble_device) - 1U);
-        config->preferred_ble_device[sizeof(config->preferred_ble_device) - 1U] = '\0';
+        mesh_str_copy(config->preferred_ble_device, sizeof config->preferred_ble_device,
+                      preferred_env);
     }
 
     const char *preferred_serial_env = getenv("MESHCLIENT_PREFERRED_SERIAL_DEVICE");
     if (preferred_serial_env != NULL) {
-        strncpy(config->preferred_serial_device, preferred_serial_env,
-                sizeof(config->preferred_serial_device) - 1U);
-        config->preferred_serial_device[sizeof(config->preferred_serial_device) - 1U] = '\0';
+        mesh_str_copy(config->preferred_serial_device, sizeof config->preferred_serial_device,
+                      preferred_serial_env);
     }
 }

@@ -61,6 +61,20 @@ void mesh_text_sanitise(const uint8_t *payload, size_t len, char *out, size_t ou
 /* mesh_text_sanitise for a NUL-terminated source. `in` may be NULL, which yields "". */
 void mesh_text_sanitise_str(const char *in, char *out, size_t out_len);
 
+/*
+ * Bounded copy: at most `out_len - 1` bytes of `in` into `out`, always NUL-terminated. `in` may
+ * be NULL, which yields "". Returns true when the whole source fitted, false when it was cut.
+ *
+ * This replaces the `snprintf(out, sizeof out, "%.*s", (int)(sizeof out - 1U), in)` incantation
+ * that had grown in a dozen places: the precision argument is what makes it safe against a
+ * source that is a fixed-size protobuf array rather than a NUL-terminated string, and it was
+ * being recomputed by hand - with the cast and the off-by-one - at every site.
+ *
+ * Truncation cuts at a byte, not a character. Callers rendering UTF-8 want mesh_text_sanitise()
+ * or a mesh_text_utf8_truncate() afterwards.
+ */
+bool mesh_str_copy(char *out, size_t out_len, const char *in);
+
 #ifdef __cplusplus
 }
 #endif

@@ -114,13 +114,21 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | Session | `src/core/session.c` | handshake, node cache, channels, message log, packet ids |
 | Admin protocol | `src/core/radio_settings.c` | `AdminMessage` get/set queue, passkeys, radio actions, NodeDB verbs |
 | Messaging | `src/core/message.c` | text packets, message ring, ack correlation |
-| App glue | `src/core/app.c` | publish to UI, persistence, auto-connect, UI actions |
+| App glue | `src/core/app*.c` | `app` lifecycle/link, `_actions` UI actions, `_publish` to store, `_settings` writes |
 | Self-update | `src/core/updater.c`, `version.c` | forks curl, SemVer, digest-verified install |
-| UI | `src/ui/` | store/controller/nav + `backends/{fb,cli,stub}.c`; **`fb` is the device UI** |
+| UI | `src/ui/` | store/controller + `nav*.c` + `settings*.c` + `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
 | Text | `src/utils/text.c`, `src/ui/{font5x7,emoji}.c` | UTF-8 sanitising, cell-based measurement |
+| Shared utils | `src/utils/` | `text` (UTF-8 + `mesh_str_copy`), `time` (`mesh_time_monotonic_ms`), `env` (`mesh_env_bool`/`_int`), `log`, `sha256`, `array` |
 
 `include/mesh/` mirrors `src/` one-for-one — `core/`, `transport/`, `ui/`, `proto/`, `utils/` —
 so a header always sits in the directory named after the source file that defines it.
+
+Four subsystems are split across several files sharing one `*_internal.h` next to them
+(`src/core/app_internal.h`, `src/ui/nav_internal.h`, `src/ui/settings_internal.h`,
+`src/ui/backends/fb_internal.h`). Those headers are **not** public API — they declare only what
+would still be `static` if the group were one file, and nothing outside the group should include
+one. A symbol added to an internal header is a seam widened; prefer keeping the call inside the
+file that owns the state.
 
 **The full design rationale lives in [`docs/architecture.md`](docs/architecture.md)** — read it
 before changing session, settings, updater or node-cache behaviour. Transports are in

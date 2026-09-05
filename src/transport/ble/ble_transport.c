@@ -7,6 +7,8 @@
 #include "mesh/utils/log.h"
 
 #include "mesh/transport/ble_bluez.h"
+#include "mesh/utils/array.h"
+#include "mesh/utils/time.h"
 
 #include <errno.h>
 #include <inttypes.h>
@@ -202,21 +204,13 @@ static int mesh_ble_complete_connect(struct mesh_ble_transport_state *state);
 static int mesh_ble_do_connect(struct mesh_ble_transport_state *state, const char *address,
                                bool allow_pair);
 
-static uint64_t mesh_ble_now_ms(void) {
-    struct timespec ts;
-    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
-        return 0U;
-    }
-    return (uint64_t)ts.tv_sec * 1000U + (uint64_t)ts.tv_nsec / 1000000U;
-}
-
 static void mesh_ble_tick(struct mesh_transport *transport) {
     if (transport == NULL) {
         return;
     }
 
     struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
-    uint64_t now = mesh_ble_now_ms();
+    uint64_t now = mesh_time_monotonic_ms();
     if (state != NULL && state->client_initialised) {
         mesh_bluez_client_process(&state->bluez);
         /* Before anything else: a question from the pairing agent that nothing is waiting on
@@ -261,7 +255,8 @@ static int mesh_ble_drain_wake_callback(int fd, uint32_t events, void *userdata)
         mesh_log_warn("ble", "drain wake read failed: %s", strerror(errno));
     }
     struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
-    if (state != NULL && state->drain_pending && mesh_ble_now_ms() >= state->drain_retry_at_ms) {
+    if (state != NULL && state->drain_pending &&
+        mesh_time_monotonic_ms() >= state->drain_retry_at_ms) {
         mesh_ble_drain_from_radio(state);
     }
     return 0;
@@ -301,7 +296,7 @@ static void mesh_ble_teardown_drain_wake(struct mesh_ble_transport_state *state)
 
 static void mesh_ble_schedule_drain(struct mesh_ble_transport_state *state, uint64_t delay_ms) {
     state->drain_pending = true;
-    state->drain_retry_at_ms = delay_ms == 0U ? 0U : mesh_ble_now_ms() + delay_ms;
+    state->drain_retry_at_ms = delay_ms == 0U ? 0U : mesh_time_monotonic_ms() + delay_ms;
     if (delay_ms == 0U && state->drain_wake_fd >= 0) {
         uint64_t one = 1U;
         if (write(state->drain_wake_fd, &one, sizeof(one)) < 0 && errno != EAGAIN) {
@@ -676,8 +671,7 @@ static size_t mesh_ble_reload_devices(struct mesh_ble_transport_state *state) {
 
     size_t device_count = 0;
     int list_result = mesh_bluez_client_list_meshtastic(
-        &state->bluez, state->devices, sizeof(state->devices) / sizeof(state->devices[0]),
-        &device_count);
+        &state->bluez, state->devices, MESH_ARRAY_LEN(state->devices), &device_count);
     if (list_result < 0) {
         mesh_log_debug("ble", "Device enumeration failed: %s", strerror(-list_result));
         state->device_count = 0;
@@ -951,7 +945,7 @@ static int mesh_ble_do_connect(struct mesh_ble_transport_state *state, const cha
     snprintf(state->connected_address, sizeof(state->connected_address), "%s", address);
     snprintf(state->connected_device_path, sizeof(state->connected_device_path), "%s", device_path);
     state->connect_pending = true;
-    state->connect_started_ms = mesh_ble_now_ms();
+    state->connect_started_ms = mesh_time_monotonic_ms();
     state->next_services_poll_ms = 0U;
     state->services_wait_logged = false;
 
@@ -969,7 +963,7 @@ static void mesh_ble_poll_connecting(struct mesh_ble_transport_state *state) {
         return;
     }
 
-    uint64_t now = mesh_ble_now_ms();
+    uint64_t now = mesh_time_monotonic_ms();
 
     if (state->connect_pending) {
         int connect_result = 0;
@@ -1172,7 +1166,7 @@ static int mesh_ble_begin_pair(struct mesh_ble_transport_state *state, const cha
     state->pair_then_connect = then_connect;
     state->pair_attended = attended;
     state->pair_refused_pin = false;
-    state->pair_started_ms = mesh_ble_now_ms();
+    state->pair_started_ms = mesh_time_monotonic_ms();
     snprintf(state->pairing_address, sizeof(state->pairing_address), "%s", address);
     mesh_log_info("ble", "Pairing with %s", address);
     /* With the mock (and with a node that needs no PIN) this can already be done. */
@@ -1240,10 +1234,10 @@ static void mesh_ble_poll_pairing(struct mesh_ble_transport_state *state) {
            clock is stopped, or a PIN prompt left on screen would cancel itself. */
         struct mesh_bluez_agent_request request;
         if (mesh_bluez_client_agent_request(&state->bluez, &request)) {
-            state->pair_started_ms = mesh_ble_now_ms();
+            state->pair_started_ms = mesh_time_monotonic_ms();
             return;
         }
-        if (mesh_ble_now_ms() - state->pair_started_ms >= MESH_BLE_PAIR_TIMEOUT_MS) {
+        if (mesh_time_monotonic_ms() - state->pair_started_ms >= MESH_BLE_PAIR_TIMEOUT_MS) {
             mesh_log_warn("ble", "Pairing with %s timed out", state->pairing_address);
             mesh_ble_set_error(state, "%s: pairing timed out",
                                mesh_ble_short_label(state->pairing_address));
@@ -1288,7 +1282,7 @@ static void mesh_ble_poll_pairing(struct mesh_ble_transport_state *state) {
     /* The Paired flag the UI shows comes from BlueZ, so re-read the list rather than guessing
        at it - and the connect below needs the node to still be in that list. */
     (void)mesh_ble_reload_devices(state);
-    state->last_refresh_ms = mesh_ble_now_ms();
+    state->last_refresh_ms = mesh_time_monotonic_ms();
 
     if (then_connect) {
         int result = mesh_ble_do_connect(state, address, false);
@@ -1351,7 +1345,7 @@ int mesh_ble_transport_forget(struct mesh_transport *transport, const char *addr
     mesh_log_info("ble", "Forgot %s", address);
     /* BlueZ has dropped its record; the node reappears on the next advertisement, unpaired. */
     (void)mesh_ble_reload_devices(state);
-    state->last_refresh_ms = mesh_ble_now_ms();
+    state->last_refresh_ms = mesh_time_monotonic_ms();
     return 0;
 }
 
@@ -1413,7 +1407,7 @@ int mesh_ble_transport_submit_passkey(struct mesh_transport *transport, uint32_t
     if (result == 0) {
         /* BlueZ can take several seconds from here; the clock restarts now that it is its turn
            to work again. */
-        state->pair_started_ms = mesh_ble_now_ms();
+        state->pair_started_ms = mesh_time_monotonic_ms();
         mesh_ble_poll_pairing(state);
     }
     return result;
