@@ -370,20 +370,35 @@ struct mesh_ui_settings {
     /* Read-only on purpose: with this on the radio hands its MQTT traffic to the attached
        client to relay, and this client does not implement MqttClientProxyMessage. */
     bool mqtt_proxy_to_client_enabled;
+    /* MQTTConfig.map_report_settings. Only read by the radio with map reporting on. */
+    uint32_t mqtt_map_publish_interval_secs;
+    uint32_t mqtt_map_position_precision;
+    bool mqtt_map_should_report_location;
 
     bool has_store_forward;
     bool store_forward_enabled;
     bool store_forward_heartbeat;
     bool store_forward_is_server;
+    uint32_t store_forward_records;
+    uint32_t store_forward_history_return_max;
+    uint32_t store_forward_history_return_window;
 
     bool has_telemetry;
     uint32_t device_update_interval;
     bool device_telemetry_enabled;
     bool environment_measurement_enabled;
+    uint32_t environment_update_interval;
     bool environment_screen_enabled;
     bool environment_display_fahrenheit;
     bool air_quality_enabled;
+    uint32_t air_quality_interval;
+    bool air_quality_screen_enabled;
     bool power_measurement_enabled;
+    uint32_t power_update_interval;
+    bool power_screen_enabled;
+    bool health_measurement_enabled;
+    uint32_t health_update_interval;
+    bool health_screen_enabled;
 
     bool has_channels; /* any slot present */
     struct mesh_ui_channel_detail channels[MESH_UI_MAX_CHANNELS];

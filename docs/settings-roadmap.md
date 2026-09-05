@@ -63,10 +63,14 @@ fragment, and uses the admin path for refreshes and as proof that writes will wo
 Twelve hand-drawn screens is the wrong shape. The Settings tab is one generic form renderer
 over a static description of each section:
 
-- A **section list** (Radio, User, Device, Display, LoRa, Bluetooth, Channels, Security,
-  Modules). A opens a section, B returns.
+- A **section list**: About, Radio, User, Device, Display, Position, Power, LoRa, Bluetooth,
+  Channels, Security, Modules, Radio actions. A opens a section, B returns. Two of those rows
+  open a *list* rather than a section - Channels lists the radio's slots, Modules lists every
+  `ModuleConfig` variant with its enabled state - so the tab is two levels deep in general and
+  three under those two. `nav.settings_parent` is what B reads to know which it is coming back
+  to (phase 9).
 - Each section is a list of **items**: label, current value, and a kind. Kinds are `info`
-  (read-only), `toggle`, `enum`, `text`, `number`, `key`, `action`. An editable item names
+  (read-only), `toggle`, `enum`, `text`, `number`, `key`, `action`, `heading`. An editable item names
   its `field`; a table in `src/ui/settings.c` describes every field (kind, enum names, number
   presets, text cap) so the nav edits blind: Left/Right/A flip toggles, cycle enums and step
   numbers through presets; A on text opens the on-screen keyboard retargeted at the field.
@@ -78,9 +82,15 @@ over a static description of each section:
   states what will happen, and after commit the HUD shows "radio rebooting, reconnecting"
   until the link poller and auto-connect bring it back.
 
+A **heading** groups the rows under it in a section long enough to need it (Telemetry,
+External notification). It is dimmed, has no value column, and A on it does nothing - the same
+row the node detail has drawn since it existed. Headings never appear or disappear with an
+edit, for the reason the LoRa trio is always listed: a row count that moves under the cursor
+mid-edit moves the cursor.
+
 New primitives this needed beyond what existed: confirm overlay, number presets, hex key
 entry through the keyboard, and per-field pending values in the nav (all in place as of
-phase 3).
+phase 3); heading rows and a generic sub-list level (phase 9).
 
 ## Phases
 
@@ -305,11 +315,168 @@ get a question in front of them. Setting a location is undone by setting another
   it turns the flag back off; muting a node shows as muted in the app; removing one takes it
   out of both lists and it returns when it next transmits.
 
+### Phase 9 - the Modules level (this branch)
+
+The first phase that moves rows rather than adding them. `ModuleConfig` carries **seventeen**
+variants and phases 1-8 shipped three (MQTT, Store & Forward, Telemetry); the other fourteen
+arrive in the `want_config_id` handshake and fall off the end of the switch in
+`mesh_radio_settings_apply_module_config`. Before any of them is worth keeping, the Settings
+tab has to have somewhere to put them.
+
+A flat list will not do it. Fifteen sections already scroll on the Brick, and every module
+added to the top level pushes LoRa and Channels - the two a person actually opens - further
+under the fold. So the modules go behind **one row**, exactly the shape the Channels section
+has had since phase 3: a row that opens a list that opens rows.
+
+```
+Settings                  Settings > Modules            Settings > Telemetry
+  About                     MQTT            off           Device
+  Radio                     Store & fwd     off             Enabled       on
+  User                      Telemetry       on              Interval      15m
+  Device                    ...                           Environment
+  ...                                                       Enabled       off
+  Modules        >                                          ...
+  Radio actions
+```
+
+Three things follow from that and are the whole of the design:
+
+- **The top level gets shorter, not longer.** Thirteen rows instead of fifteen, because the
+  three module sections move down a level. It fits one screen with no scroll, and everything
+  that is not a module stays exactly one press deep, where it already was.
+- **The Modules list is worth having on its own.** Every module is listed with its enabled
+  state in the value column, so the screen answers "what is this radio actually running?" -
+  which is a question that otherwise takes seventeen drill-downs.
+- **`MESH_UI_SETTINGS_MODULES` is a real section, not a new kind of screen.** Its rows are
+  built by `build_modules()` like any other section's, each an ACTION row carrying the target
+  section in `number`, and the nav intercepts A on them ahead of the ACTION handling the same
+  way it already intercepts the channel list. `nav.settings_parent` remembers where B goes
+  back to; `settings_module_list_cursor` parks the position, next to the one the channel list
+  already parks.
+
+The section list therefore stops being `0..MESH_UI_SETTINGS_SECTION_COUNT`. Two accessors -
+`mesh_ui_settings_root_at()` and `mesh_ui_settings_module_at()` - answer what row *n* of each
+list is, so the enum can keep its declaration order (which the persisted cursor and the tests
+both depend on) while the lists are ordered for the person reading them.
+
+**Headings.** Telemetry has fifteen fields on the wire and External notification fifteen more;
+a flat run of that many label/value rows is unreadable whatever list it is in. A new row kind,
+`MESH_UI_SETTING_HEADING`, groups them - dimmed, no value column, nothing happens when A lands
+on it. It is a copy of `MESH_UI_NODE_ROW_HEADING`, which the node detail has drawn since it
+existed, so the two screens keep rendering identically.
+
+A heading is **not** allowed to appear or disappear with an edit, for the reason the LoRa trio
+and the smart-broadcast thresholds are always listed: a row count that moves under the cursor
+mid-edit moves the cursor. In particular the rows under a module's `Enabled` toggle stay listed
+when it is off. A module that is off is a module you are about to configure.
+
+**The two caps both had to move.** `MESH_UI_SETTINGS_ITEMS_MAX` was 16, which Telemetry's
+fifteen fields plus five headings blow straight through; it is 32. `MESH_UI_SETTINGS_EDITS_MAX`
+was 8, so a fifteen-field section could not have all of it edited before Y - `mesh_ui_nav_edit_set`
+returned false and the press did nothing, silently. It is 16. Both are copied per frame (the
+item list onto the stack, the edits into the snapshot), which is what kept them small; at 32
+items the list is 4.9 KB of stack in a loop that has no threads to share it with, and the edit
+array grows `struct mesh_ui_nav` by 640 bytes.
+
+**The three shipped modules are completed while they are being moved,** because a phase that
+reorganises rows is the cheapest one in which to find out whether the reorganisation holds:
+
+- Store & Forward gains `records`, `history_return_max` and `history_return_window`.
+- Telemetry gains the environment, air-quality and power update intervals, the air-quality and
+  power screen toggles, and the three health rows - all fifteen wire fields, under the five
+  headings that make the result readable.
+- MQTT gains the `map_report_settings` trio under a heading, listed under the map-reporting
+  toggle they belong to.
+
+`json_enabled` stays skipped (the firmware removed JSON support and ignores the field) and
+`proxy_to_client_enabled` stays read-only, both for the reasons phase 6 gives.
+
+- Exit criteria: on the Brick, the Settings list fits one screen with no scrolling; Modules
+  lists all shipped modules with their enabled state; a Telemetry health interval set from the
+  Brick reads back after the reboot and shows in the phone app; B from a module returns to the
+  Modules list and B again to the top, with each cursor where it was left.
+
+### Phase 10 - the six small modules (this branch)
+
+The first fourteen-module phase takes the six that need no new UI primitive and no judgement
+about what a field means: **Neighbor info**, **Range test**, **Paxcounter**, **TAK**, **Ambient
+lighting** and **Status message**. Nineteen fields between them, every one a bool, a `uint32`,
+an enum or one short string.
+
+They are first because they are the test of whether phase 9's shape actually carries a module.
+Each one needs a `has_*` and a copy in `mesh_radio_settings_apply_module_config`, an arm in the
+refresh queue's `k_module_types`, a flattening in `app_publish.c`, a `build_*` in
+`settings_rows.c`, its rows in `k_fields`, and its `set_module_config` in
+`mesh_app_build_settings_write`. Six times through that list is what tells us whether the
+seventh should be written differently.
+
+Two are not quite mechanical. **Ambient lighting** is an RGB triple plus a current in
+milliamps; three 0-255 number rows are honest and a colour picker on a d-pad is not.
+**Range test** is a transmitter that floods the mesh on a timer - `sender` is seconds between
+packets, and a low value on a busy channel is antisocial rather than dangerous, so the row's
+presets start at 30s and the section says what it does rather than offering a confirm overlay
+it does not need.
+
+- Exit criteria: on the Brick, each of the six reads back the values the phone app shows;
+  turning Neighbor info on and setting its interval survives the reboot; Range test with a
+  sender interval set does not appear in the phone app as an unknown-field write.
+
+### Phase 11 - the four large modules (this branch)
+
+**Detection sensor** (8 fields), **External notification** (15), **Mesh beacon** (7) and
+**Traffic management** (5). These are the modules phase 9's headings were built for; External
+notification in particular is three near-identical groups (message, bell, vibra) that are
+unreadable in a flat run and obvious under three headings.
+
+The judgement in this phase is which fields to offer at all. Detection sensor and External
+notification both carry **GPIO pin numbers** (`monitor_pin`, `output`, `output_vibra`,
+`output_buzzer`), and a wrong pin does not fail loudly - it drives a pin that is wired to
+something else. They are shown, and they are editable, because a module whose pin cannot be
+set is a module that cannot be used; but they are number rows over the plausible range rather
+than free text, and the section carries a line saying the radio's own wiring decides what is
+valid.
+
+**Mesh beacon** is the one with a mesh-wide cost: `broadcast_interval_secs` with a low value on
+a shared channel is the same antisocial-transmitter problem Range test has, one order of
+magnitude worse because the beacon carries a channel offer. Its presets start where the
+firmware's default is and do not go below it.
+
+- Exit criteria: on the Brick, External notification's three groups read as three groups;
+  a detection-sensor name and monitor pin set from the Brick read back after the reboot; a
+  beacon interval below the firmware default cannot be selected.
+
+### Phase 12 - the four hardware modules, or not at all
+
+**Serial**, **Audio**, **Remote hardware** and **Canned message**. What these four have in
+common is that they configure *wiring* - UART pins and baud, i2s pins and a codec2 bitrate,
+GPIO pins exposed to the mesh, and a rotary-encoder input broker - on a radio attached to a
+handheld that has none of it.
+
+The case for shipping them read-only is the same one the MQTT proxy row makes: the setting is
+the answer to "why is this radio behaving strangely", and a row that shows it is worth having
+even when the row cannot be pressed. The case for skipping them is that four sections of pin
+numbers is a lot of list for a screen nobody opens.
+
+Note that the radio's `CannedMessageConfig` has nothing to do with this client's canned
+replies in `src/ui/nav_canned.c` - that is a local list loaded from disk, and the radio's own
+message list is a separate pair of admin verbs (`get_canned_message_module_messages_request` /
+`set_canned_message_module_messages`) which is not `ModuleConfig` at all. If any part of this
+phase is worth doing, that pair is: editing the radio's canned list from the Brick is a real
+feature, and it is not what `CannedMessageConfig` holds.
+
+Deliberately undecided until phases 10 and 11 have been on a device. The decision to record
+here is that they are last, and that shipping nothing is an acceptable outcome for all four.
+
 ### Later, maybe never
 
 Firmware install. Also `tzdef` presets beyond typing the POSIX string by hand, `Network`
 (WiFi credentials on a device with no WiFi of its own is a poor fit), MQTT client proxying,
 and closing channel gaps the way the phone apps do when a middle slot is removed.
+
+The four hardware modules in phase 12 may land here instead; that is what phase 12 says it is
+deciding. `ModuleConfig.statusmessage` and `ModuleConfig.mesh_beacon` are recent enough
+upstream that an older radio will not report them - the Modules list shows a module the radio
+never sent as `not loaded`, the same way the section list already does, rather than hiding it.
 
 The admin verbs still left out: `enter_dfu_mode_request` and `ota_request` (firmware install,
 above), `exit_simulator`, and `reboot_ota_seconds` (deprecated upstream in favour of

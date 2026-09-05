@@ -149,6 +149,7 @@ void mesh_ui_nav_init(struct mesh_ui_nav *nav) {
     nav->inbox = false;
     snprintf(nav->target_name, sizeof nav->target_name, "%s", "#Primary");
     nav->settings_section = MESH_UI_SETTINGS_NO_SECTION;
+    nav->settings_parent = MESH_UI_SETTINGS_NO_SECTION;
     nav->settings_channel = MESH_UI_SETTINGS_NO_CHANNEL;
 }
 
@@ -239,7 +240,7 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
         return (uint32_t)store->device_count;
     case MESH_UI_SCREEN_SETTINGS:
         if (nav->settings_section == MESH_UI_SETTINGS_NO_SECTION) {
-            return MESH_UI_SETTINGS_SECTION_COUNT;
+            return mesh_ui_settings_root_count();
         }
         return mesh_ui_settings_item_count(
             &store->settings, store->handshake_valid ? &store->handshake : NULL,
@@ -578,6 +579,21 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             nav->cursor[MESH_UI_SCREEN_SETTINGS] = 0U;
             return true;
         }
+        if (nav->settings_section == MESH_UI_SETTINGS_MODULES) {
+            /* A on a module row opens that module, exactly as a channel row opens a slot. The
+               row carries its section in `number`, so this needs to know no more about what a
+               module is than the channel branch above knows about a channel. */
+            struct mesh_ui_settings_item row;
+            if (!mesh_ui_nav_settings_current(nav, store, true, &row) ||
+                row.kind != MESH_UI_SETTING_ACTION) {
+                return false;
+            }
+            nav->settings_module_list_cursor = cursor;
+            nav->settings_parent = MESH_UI_SETTINGS_MODULES;
+            nav->settings_section = (uint8_t)row.number;
+            nav->cursor[MESH_UI_SCREEN_SETTINGS] = 0U;
+            return true;
+        }
         if (nav->settings_section != MESH_UI_SETTINGS_NO_SECTION) {
             /* An ACTION row asks the app to do something rather than editing a value, so it
                is answered here where out_action is in hand. It carries what it does in
@@ -618,11 +634,12 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             }
             return mesh_ui_nav_settings_edit_key(nav, store, MESH_UI_KEY_A);
         }
-        if (cursor >= MESH_UI_SETTINGS_SECTION_COUNT) {
+        if (cursor >= mesh_ui_settings_root_count()) {
             return false;
         }
         nav->settings_list_cursor = cursor;
-        nav->settings_section = (uint8_t)cursor;
+        nav->settings_parent = MESH_UI_SETTINGS_NO_SECTION;
+        nav->settings_section = (uint8_t)mesh_ui_settings_root_at(cursor);
         nav->cursor[MESH_UI_SCREEN_SETTINGS] = 0U;
         return true;
     }

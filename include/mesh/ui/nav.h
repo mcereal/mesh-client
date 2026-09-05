@@ -54,7 +54,9 @@ enum mesh_ui_screen {
 /* Upstream Data.payload caps at 233 bytes; the draft and action text hold that plus a NUL. */
 #define MESH_UI_DRAFT_MAX 234U
 /* Pending Settings edits held until Save, and the longest text a setting can take. */
-#define MESH_UI_SETTINGS_EDITS_MAX 8U
+/* A section with fifteen editable fields has to be able to carry fifteen edits: below that,
+   mesh_ui_nav_edit_set() returns false and the press silently does nothing. */
+#define MESH_UI_SETTINGS_EDITS_MAX 16U
 /* Long enough for a 32-byte key typed as hex. */
 #define MESH_UI_SETTING_TEXT_MAX 72U
 
@@ -163,6 +165,12 @@ struct mesh_ui_nav {
        position is parked here while a section is open. */
     uint8_t settings_section;
     uint32_t settings_list_cursor;
+    /* Which list B goes back to from the open section: NO_SECTION for the top-level list,
+       MESH_UI_SETTINGS_MODULES for a module opened from the Modules list. The Modules list's
+       own position is parked here while one of its sections is open, the same way the channel
+       list's is. */
+    uint8_t settings_parent;
+    uint32_t settings_module_list_cursor;
     /* Channels section: the open channel slot or NO_CHANNEL for the channel list, whose
        position is parked in settings_channel_list_cursor while a channel is open. */
     uint8_t settings_channel;

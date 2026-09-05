@@ -336,6 +336,95 @@ MESH_TEST_CASE(app_settings_write_build, unit) {
     record_success(test_name);
 }
 
+/*
+ * The module writes phase 9 completed: the fields that were being dropped, the submessage that
+ * needs its presence flag set, and the Modules list refusing to be a write at all.
+ */
+MESH_TEST_CASE(app_module_write_build, unit) {
+    struct mesh_radio_settings radio;
+    mesh_radio_settings_reset(&radio);
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    struct mesh_admin_request write;
+
+    /* Store & Forward: the three server fields that were dropped before phase 9, with the
+       heartbeat the UI does show left untouched by the write. */
+    radio.has_store_forward = true;
+    radio.store_forward.heartbeat = true;
+    action.section = MESH_UI_SETTINGS_STORE_FORWARD;
+    action.edit_count = 3U;
+    action.edits[0].field = MESH_UI_FIELD_SF_RECORDS;
+    action.edits[0].number = 250U;
+    action.edits[1].field = MESH_UI_FIELD_SF_HISTORY_MAX;
+    action.edits[1].number = 50U;
+    action.edits[2].field = MESH_UI_FIELD_SF_HISTORY_WINDOW;
+    action.edits[2].number = 3600U;
+    MESH_TEST_FAIL_IF(
+        mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+            write.kind != MESH_ADMIN_SET_MODULE_CONFIG ||
+            write.type != meshtastic_AdminMessage_ModuleConfigType_STOREFORWARD_CONFIG ||
+            write.payload.module_config.payload_variant.store_forward.records != 250U ||
+            write.payload.module_config.payload_variant.store_forward.history_return_max != 50U ||
+            write.payload.module_config.payload_variant.store_forward.history_return_window !=
+                3600U ||
+            !write.payload.module_config.payload_variant.store_forward.heartbeat,
+        "set_store_forward should carry the server fields and keep the rest");
+
+    /* Telemetry: the health trio and the intervals that had no rows before. */
+    radio.has_telemetry = true;
+    radio.telemetry.device_update_interval = 900U;
+    action.section = MESH_UI_SETTINGS_TELEMETRY;
+    action.edit_count = 4U;
+    memset(action.edits, 0, sizeof action.edits);
+    action.edits[0].field = MESH_UI_FIELD_TELEMETRY_HEALTH;
+    action.edits[0].number = 1U;
+    action.edits[1].field = MESH_UI_FIELD_TELEMETRY_HEALTH_INTERVAL;
+    action.edits[1].number = 1800U;
+    action.edits[2].field = MESH_UI_FIELD_TELEMETRY_POWER_SCREEN;
+    action.edits[2].number = 1U;
+    action.edits[3].field = MESH_UI_FIELD_TELEMETRY_AIR_INTERVAL;
+    action.edits[3].number = 3600U;
+    action.edits[4].field = MESH_UI_FIELD_TELEMETRY_AIR_SCREEN;
+    action.edits[4].number = 1U;
+    action.edit_count = 5U;
+    MESH_TEST_FAIL_IF(
+        mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+            write.type != meshtastic_AdminMessage_ModuleConfigType_TELEMETRY_CONFIG ||
+            !write.payload.module_config.payload_variant.telemetry.health_measurement_enabled ||
+            write.payload.module_config.payload_variant.telemetry.health_update_interval != 1800U ||
+            !write.payload.module_config.payload_variant.telemetry.power_screen_enabled ||
+            write.payload.module_config.payload_variant.telemetry.air_quality_interval != 3600U ||
+            !write.payload.module_config.payload_variant.telemetry.air_quality_screen_enabled ||
+            write.payload.module_config.payload_variant.telemetry.device_update_interval != 900U,
+        "set_telemetry should carry the health rows and keep the rest");
+
+    /* MapReportSettings is a submessage: without has_map_report_settings nanopb drops it from
+       the wire entirely and the firmware keeps whatever it had. */
+    radio.has_mqtt = true;
+    action.section = MESH_UI_SETTINGS_MQTT;
+    action.edit_count = 2U;
+    memset(action.edits, 0, sizeof action.edits);
+    action.edits[0].field = MESH_UI_FIELD_MQTT_MAP_INTERVAL;
+    action.edits[0].number = 7200U;
+    action.edits[1].field = MESH_UI_FIELD_MQTT_MAP_LOCATION;
+    action.edits[1].number = 1U;
+    MESH_TEST_FAIL_IF(
+        mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+            !write.payload.module_config.payload_variant.mqtt.has_map_report_settings ||
+            write.payload.module_config.payload_variant.mqtt.map_report_settings
+                    .publish_interval_secs != 7200U ||
+            !write.payload.module_config.payload_variant.mqtt.map_report_settings
+                 .should_report_location,
+        "a map-report edit should mark the submessage present");
+
+    /* The Modules list is a folder, not a section: there is nothing there for Y to write. */
+    action.section = MESH_UI_SETTINGS_MODULES;
+    action.edit_count = 0U;
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != -ENOTSUP,
+                      "the Modules list cannot be written");
+    record_success(test_name);
+}
+
 /* Key choices become bytes, roles map back, and a bad PIN never reaches the radio. */
 MESH_TEST_CASE(app_channel_write_build, unit) {
     struct mesh_radio_settings radio;

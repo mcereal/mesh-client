@@ -62,9 +62,56 @@ const char *mesh_ui_settings_section_name(enum mesh_ui_settings_section section)
         return "Telemetry";
     case MESH_UI_SETTINGS_ACTIONS:
         return "Radio actions";
+    case MESH_UI_SETTINGS_MODULES:
+        return "Modules";
     default:
         return "?";
     }
+}
+
+/*
+ * The two lists, as tables.
+ *
+ * k_root is the top level in the order it is read, which is roughly "this client, then what
+ * the radio is, then how it talks, then everything optional, then the things that are not
+ * settings at all". It is thirteen rows, which fits the Brick's screen without scrolling -
+ * that is the point of Modules being one row rather than seventeen.
+ */
+static const enum mesh_ui_settings_section k_root[] = {
+    MESH_UI_SETTINGS_ABOUT,    MESH_UI_SETTINGS_RADIO,    MESH_UI_SETTINGS_USER,
+    MESH_UI_SETTINGS_DEVICE,   MESH_UI_SETTINGS_DISPLAY,  MESH_UI_SETTINGS_POSITION,
+    MESH_UI_SETTINGS_POWER,    MESH_UI_SETTINGS_LORA,     MESH_UI_SETTINGS_BLUETOOTH,
+    MESH_UI_SETTINGS_CHANNELS, MESH_UI_SETTINGS_SECURITY, MESH_UI_SETTINGS_MODULES,
+    MESH_UI_SETTINGS_ACTIONS,
+};
+
+/* Every ModuleConfig variant this client keeps. Grows by one row per module as the phases
+   land; the order is the protobuf's field order, which is as good as any and is stable. */
+static const enum mesh_ui_settings_section k_modules[] = {
+    MESH_UI_SETTINGS_MQTT,
+    MESH_UI_SETTINGS_STORE_FORWARD,
+    MESH_UI_SETTINGS_TELEMETRY,
+};
+
+uint32_t mesh_ui_settings_root_count(void) { return (uint32_t)MESH_ARRAY_LEN(k_root); }
+
+enum mesh_ui_settings_section mesh_ui_settings_root_at(uint32_t row) {
+    return row < MESH_ARRAY_LEN(k_root) ? k_root[row] : MESH_UI_SETTINGS_ABOUT;
+}
+
+uint32_t mesh_ui_settings_module_count(void) { return (uint32_t)MESH_ARRAY_LEN(k_modules); }
+
+enum mesh_ui_settings_section mesh_ui_settings_module_at(uint32_t row) {
+    return row < MESH_ARRAY_LEN(k_modules) ? k_modules[row] : MESH_UI_SETTINGS_MQTT;
+}
+
+bool mesh_ui_settings_section_is_module(enum mesh_ui_settings_section section) {
+    for (size_t i = 0; i < MESH_ARRAY_LEN(k_modules); ++i) {
+        if (k_modules[i] == section) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool mesh_ui_settings_section_loaded(const struct mesh_ui_settings *settings,
@@ -108,6 +155,10 @@ bool mesh_ui_settings_section_loaded(const struct mesh_ui_settings *settings,
         /* Nothing is read for this section, so what it waits on is not a config fragment but
            the one thing an AdminMessage cannot be addressed without: our own node number. */
         return handshake != NULL && handshake->has_my_info;
+    case MESH_UI_SETTINGS_MODULES:
+        /* A folder, not a fragment. It lists every module whether or not the radio has sent
+           one, because "which of these has not arrived" is exactly what the list is for. */
+        return true;
     default:
         return false;
     }
@@ -275,6 +326,19 @@ static const uint32_t k_wait_bt_presets[] = {0U, 10U, 30U, 60U, 120U, 300U};
 static const uint32_t k_shutdown_presets[] = {0U,    300U,   1800U,  3600U,
                                               7200U, 21600U, 43200U, 86400U};
 
+/* Store & Forward. The firmware sizes its own ring when `records` is 0, which on an ESP32
+   with PSRAM is larger than a hand-picked number would be, so 0 stays the first preset and
+   the rest are for a node deliberately kept small. `history_return_window` is seconds of
+   backlog a client may ask for; the other two are counts, not seconds, which is why they
+   carry format_count rather than the seconds default. */
+static const uint32_t k_sf_records_presets[] = {0U, 25U, 50U, 100U, 250U, 500U, 1000U};
+static const uint32_t k_sf_history_presets[] = {0U, 10U, 25U, 50U, 100U, 250U};
+static const uint32_t k_sf_window_presets[] = {0U, 300U, 900U, 1800U, 3600U, 7200U, 86400U};
+
+/* Map reporting. The public map drops anything under an hour, so the presets start there
+   rather than offering a value the server will not honour. */
+static const uint32_t k_map_interval_presets[] = {3600U, 7200U, 10800U, 21600U, 43200U, 86400U};
+
 #define CHANNEL_KEY_CHOICES                                                                        \
     (MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_KEEP) | MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_DEFAULT) |      \
      MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_RANDOM_128) |                                              \
@@ -283,6 +347,16 @@ static const uint32_t k_shutdown_presets[] = {0U,    300U,   1800U,  3600U,
     (MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_KEEP) | MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_RANDOM_256))
 #define ADMIN_KEY_CHOICES                                                                          \
     (MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_KEEP) | MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_NONE))
+
+/* NUMBER fields whose value is a count rather than a duration; without this the seconds
+   formatter would render 100 records as "1m40s". */
+static void format_count(uint32_t value, char *out, size_t out_len) {
+    if (value == 0U) {
+        snprintf(out, out_len, "%s", "default");
+    } else {
+        snprintf(out, out_len, "%u", (unsigned)value);
+    }
+}
 
 #define PRESETS(array) (array), MESH_ARRAY_LEN(array)
 #define NO_PRESETS NULL, 0U
@@ -392,6 +466,16 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
     [MESH_UI_FIELD_MQTT_MAP_REPORTING] = {"Report to public map", MESH_UI_SETTING_TOGGLE,
                                           MESH_UI_SETTINGS_MQTT, 0U, NULL, NO_PRESETS, NULL, NULL,
                                           0U},
+    [MESH_UI_FIELD_MQTT_MAP_INTERVAL] = {"Map interval", MESH_UI_SETTING_NUMBER,
+                                         MESH_UI_SETTINGS_MQTT, 0U, NULL,
+                                         PRESETS(k_map_interval_presets), NULL, NULL, 0U},
+    [MESH_UI_FIELD_MQTT_MAP_PRECISION] = {"Map precision", MESH_UI_SETTING_NUMBER,
+                                          MESH_UI_SETTINGS_MQTT, 0U, NULL,
+                                          PRESETS(k_precision_presets), "off", format_precision,
+                                          0U},
+    [MESH_UI_FIELD_MQTT_MAP_LOCATION] = {"Map my location", MESH_UI_SETTING_TOGGLE,
+                                         MESH_UI_SETTINGS_MQTT, 0U, NULL, NO_PRESETS, NULL, NULL,
+                                         0U},
     [MESH_UI_FIELD_SF_ENABLED] = {"Store & Forward", MESH_UI_SETTING_TOGGLE,
                                   MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL, NO_PRESETS, NULL, NULL,
                                   0U},
@@ -401,27 +485,64 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
     [MESH_UI_FIELD_SF_SERVER] = {"Act as server", MESH_UI_SETTING_TOGGLE,
                                  MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL, NO_PRESETS, NULL, NULL,
                                  0U},
-    [MESH_UI_FIELD_TELEMETRY_DEVICE] = {"Device metrics", MESH_UI_SETTING_TOGGLE,
+    [MESH_UI_FIELD_SF_RECORDS] = {"Records kept", MESH_UI_SETTING_NUMBER,
+                                  MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL,
+                                  PRESETS(k_sf_records_presets), NULL, format_count, 0U},
+    [MESH_UI_FIELD_SF_HISTORY_MAX] = {"History max", MESH_UI_SETTING_NUMBER,
+                                      MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL,
+                                      PRESETS(k_sf_history_presets), NULL, format_count, 0U},
+    [MESH_UI_FIELD_SF_HISTORY_WINDOW] = {"History window", MESH_UI_SETTING_NUMBER,
+                                         MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL,
+                                         PRESETS(k_sf_window_presets), "default", NULL, 0U},
+    /* The five telemetry groups each sit under a heading, so their rows are named for what
+       they are inside the group rather than repeating it ("Enabled", not "Env enabled"). The
+       only consumer of a field label outside the row list is the keyboard title, and none of
+       these is a TEXT field. */
+    [MESH_UI_FIELD_TELEMETRY_DEVICE] = {"Enabled", MESH_UI_SETTING_TOGGLE,
                                         MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS, NULL,
                                         NULL, 0U},
-    [MESH_UI_FIELD_TELEMETRY_INTERVAL] = {"Device interval", MESH_UI_SETTING_NUMBER,
+    [MESH_UI_FIELD_TELEMETRY_INTERVAL] = {"Interval", MESH_UI_SETTING_NUMBER,
                                           MESH_UI_SETTINGS_TELEMETRY, 0U, NULL,
                                           PRESETS(k_interval_presets), "default", NULL, 0U},
-    [MESH_UI_FIELD_TELEMETRY_ENVIRONMENT] = {"Environment", MESH_UI_SETTING_TOGGLE,
+    [MESH_UI_FIELD_TELEMETRY_ENVIRONMENT] = {"Enabled", MESH_UI_SETTING_TOGGLE,
                                              MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS, NULL,
                                              NULL, 0U},
-    [MESH_UI_FIELD_TELEMETRY_ENV_SCREEN] = {"Env on screen", MESH_UI_SETTING_TOGGLE,
+    [MESH_UI_FIELD_TELEMETRY_ENV_INTERVAL] = {"Interval", MESH_UI_SETTING_NUMBER,
+                                              MESH_UI_SETTINGS_TELEMETRY, 0U, NULL,
+                                              PRESETS(k_interval_presets), "default", NULL, 0U},
+    [MESH_UI_FIELD_TELEMETRY_ENV_SCREEN] = {"Show on screen", MESH_UI_SETTING_TOGGLE,
                                             MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS, NULL,
                                             NULL, 0U},
-    [MESH_UI_FIELD_TELEMETRY_ENV_FAHRENHEIT] = {"Env in Fahrenheit", MESH_UI_SETTING_TOGGLE,
+    [MESH_UI_FIELD_TELEMETRY_ENV_FAHRENHEIT] = {"Fahrenheit", MESH_UI_SETTING_TOGGLE,
                                                 MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS,
                                                 NULL, NULL, 0U},
-    [MESH_UI_FIELD_TELEMETRY_AIR_QUALITY] = {"Air quality", MESH_UI_SETTING_TOGGLE,
+    [MESH_UI_FIELD_TELEMETRY_AIR_QUALITY] = {"Enabled", MESH_UI_SETTING_TOGGLE,
                                              MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS, NULL,
                                              NULL, 0U},
-    [MESH_UI_FIELD_TELEMETRY_POWER] = {"Power metrics", MESH_UI_SETTING_TOGGLE,
+    [MESH_UI_FIELD_TELEMETRY_AIR_INTERVAL] = {"Interval", MESH_UI_SETTING_NUMBER,
+                                              MESH_UI_SETTINGS_TELEMETRY, 0U, NULL,
+                                              PRESETS(k_interval_presets), "default", NULL, 0U},
+    [MESH_UI_FIELD_TELEMETRY_AIR_SCREEN] = {"Show on screen", MESH_UI_SETTING_TOGGLE,
+                                            MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS, NULL,
+                                            NULL, 0U},
+    [MESH_UI_FIELD_TELEMETRY_POWER] = {"Enabled", MESH_UI_SETTING_TOGGLE,
                                        MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS, NULL, NULL,
                                        0U},
+    [MESH_UI_FIELD_TELEMETRY_POWER_INTERVAL] = {"Interval", MESH_UI_SETTING_NUMBER,
+                                                MESH_UI_SETTINGS_TELEMETRY, 0U, NULL,
+                                                PRESETS(k_interval_presets), "default", NULL, 0U},
+    [MESH_UI_FIELD_TELEMETRY_POWER_SCREEN] = {"Show on screen", MESH_UI_SETTING_TOGGLE,
+                                              MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS,
+                                              NULL, NULL, 0U},
+    [MESH_UI_FIELD_TELEMETRY_HEALTH] = {"Enabled", MESH_UI_SETTING_TOGGLE,
+                                        MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS, NULL,
+                                        NULL, 0U},
+    [MESH_UI_FIELD_TELEMETRY_HEALTH_INTERVAL] = {"Interval", MESH_UI_SETTING_NUMBER,
+                                                 MESH_UI_SETTINGS_TELEMETRY, 0U, NULL,
+                                                 PRESETS(k_interval_presets), "default", NULL, 0U},
+    [MESH_UI_FIELD_TELEMETRY_HEALTH_SCREEN] = {"Show on screen", MESH_UI_SETTING_TOGGLE,
+                                               MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS,
+                                               NULL, NULL, 0U},
     [MESH_UI_FIELD_CHANNEL_NAME] = {"Name", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_CHANNELS, 11U,
                                     NULL, NO_PRESETS, NULL, NULL, 0U},
     [MESH_UI_FIELD_CHANNEL_ROLE] = {"Role", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_CHANNELS, 2U,

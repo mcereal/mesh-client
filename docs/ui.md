@@ -144,6 +144,27 @@ The tab as data: sections -> items (label, formatted value, kind, and for editab
 id). Backends draw the list; `nav.c` walks it (`settings_section` open or
 `MESH_UI_SETTINGS_NO_SECTION`, X yields `MESH_UI_ACTION_REFRESH_SETTINGS`).
 
+**The section list is a table, not an enum range.** `mesh_ui_settings_root_at()` says what row
+*n* of the top level is and `mesh_ui_settings_module_at()` does the same for the Modules list, so
+`enum mesh_ui_settings_section` stays in declaration order — which every switch in the client is
+written against — while the rows are ordered for the person reading them. Nothing may reach a
+section by counting Down presses; tests go through `mesh_test_settings_open()`.
+
+**Modules (`MESH_UI_SETTINGS_MODULES`) is a folder.** `ModuleConfig` has seventeen variants, and
+putting them on the top level would push LoRa and Channels under the fold, so they sit one level
+down behind a single row — the same two-level shape Channels has. Its rows are ACTION rows
+carrying their target section in `number`, `nav.c` intercepts A on them ahead of the ordinary
+ACTION handling, and `nav.settings_parent` is what B reads to know it goes back to the Modules
+list rather than to the top. It reports itself loaded with no radio attached, because a module
+the radio has not sent is listed as `not loaded` rather than hidden — "which of these has not
+arrived" is most of what the screen is for.
+
+**Headings** (kind `MESH_UI_SETTING_HEADING`) group the rows in a section long enough to need it;
+Telemetry is five groups of a toggle, an interval and sometimes a screen flag. They are dimmed,
+carry no value, and A on one does nothing — the same row `node_detail.c` draws. A heading is
+never emitted conditionally, and neither is a row under one: a row count that moves under the
+cursor mid-edit moves the cursor, which is the rule the LoRa trio is always listed for.
+
 **About (`MESH_UI_SETTINGS_ABOUT`) is first and is the odd one out.** It describes *this
 client* (version, UI backend, data dir, update state) rather than the radio, so `mesh_ui_settings_section_loaded()` always reports
 it loaded and the fb backend lets it through the "connect to a radio" guard — it is the one
@@ -167,7 +188,10 @@ the nanopb section.
 
 > Adding an editable field means four edits: the enum plus table row in `settings.c`, the flatten
 > in `app.c`, the `mesh_app_apply_setting_edit` case, and the `item_field` call in the section
-> builder.
+> builder. Adding a whole *module* means those four plus a `has_*` and a copy in
+> `mesh_radio_settings_apply_module_config`, an entry in the refresh queue's `k_module_types`, a
+> row in `k_modules` in `settings.c`, and its `set_module_config` arm in
+> `mesh_app_build_settings_write`. See [`settings-roadmap.md`](settings-roadmap.md) phases 10-12.
 
 Every radio section is editable now, with these exceptions and quirks:
 

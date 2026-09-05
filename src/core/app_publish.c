@@ -547,22 +547,36 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
         dst->mqtt_tls_enabled = src->mqtt.tls_enabled;
         dst->mqtt_map_reporting_enabled = src->mqtt.map_reporting_enabled;
         dst->mqtt_proxy_to_client_enabled = src->mqtt.proxy_to_client_enabled;
+        dst->mqtt_map_publish_interval_secs = src->mqtt.map_report_settings.publish_interval_secs;
+        dst->mqtt_map_position_precision = src->mqtt.map_report_settings.position_precision;
+        dst->mqtt_map_should_report_location = src->mqtt.map_report_settings.should_report_location;
     }
     if (src->has_store_forward) {
         dst->has_store_forward = true;
         dst->store_forward_enabled = src->store_forward.enabled;
         dst->store_forward_heartbeat = src->store_forward.heartbeat;
         dst->store_forward_is_server = src->store_forward.is_server;
+        dst->store_forward_records = src->store_forward.records;
+        dst->store_forward_history_return_max = src->store_forward.history_return_max;
+        dst->store_forward_history_return_window = src->store_forward.history_return_window;
     }
     if (src->has_telemetry) {
         dst->has_telemetry = true;
         dst->device_update_interval = src->telemetry.device_update_interval;
         dst->device_telemetry_enabled = src->telemetry.device_telemetry_enabled;
         dst->environment_measurement_enabled = src->telemetry.environment_measurement_enabled;
+        dst->environment_update_interval = src->telemetry.environment_update_interval;
         dst->environment_screen_enabled = src->telemetry.environment_screen_enabled;
         dst->environment_display_fahrenheit = src->telemetry.environment_display_fahrenheit;
         dst->air_quality_enabled = src->telemetry.air_quality_enabled;
+        dst->air_quality_interval = src->telemetry.air_quality_interval;
+        dst->air_quality_screen_enabled = src->telemetry.air_quality_screen_enabled;
         dst->power_measurement_enabled = src->telemetry.power_measurement_enabled;
+        dst->power_update_interval = src->telemetry.power_update_interval;
+        dst->power_screen_enabled = src->telemetry.power_screen_enabled;
+        dst->health_measurement_enabled = src->telemetry.health_measurement_enabled;
+        dst->health_update_interval = src->telemetry.health_update_interval;
+        dst->health_screen_enabled = src->telemetry.health_screen_enabled;
     }
     for (size_t i = 0; i < MESH_RADIO_SETTINGS_MAX_CHANNELS && i < MESH_UI_MAX_CHANNELS; ++i) {
         if (!src->has_channel[i]) {
