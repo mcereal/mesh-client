@@ -1,17 +1,17 @@
 {
   "name": "MeshClient",
-  "version": "v2.0.2",
+  "version": "v2.0.3",
   "type": "TOOL",
   "description": "A Meshtastic client for your handheld: read and send messages, browse the mesh, and edit your radio's settings over Bluetooth LE or USB.",
   "author": "mcereal",
   "repo_url": "https://github.com/mcereal/mesh-client",
   "release_filename": "MeshClient.pak.zip",
   "changelog": {
+    "v2.0.3": "Keep the roster's owning radio across a restart; Keep the node roster across syncs and name userless nodes.",
     "v2.0.0": "Read breaking-change footers into the store changelog.",
     "v1.19.0": "Set the radio's position, mute and remove nodes; Reboot, shut down and reset the radio; Keep both classes of Position edit, and mute once per press.",
     "v1.18.0": "Ask a node for its name, or have the radio ignore it; Trace the route to a node; Make the MQTT section editable; Make the Device, Position and Power sections editable; Show the mesh health the radio already reports; Never send a placeholder User when asking a node for its name (and 2 more).",
-    "v1.17.0": "Pick an update channel and install from the About screen; Name the channel Automatic actually resolves to; Report the version project(VERSION) actually says.",
-    "v1.16.0": "Pair PIN-mode nodes and manage the link from the Devices tab; Address review findings on the pairing path; Say why a message failed instead of just marking it failed."
+    "v1.17.0": "Pick an update channel and install from the About screen; Name the channel Automatic actually resolves to; Report the version project(VERSION) actually says."
   },
   "screenshots": [
     ".github/resources/screenshots/nodes.png",

@@ -1,3 +1,10 @@
+## [2.0.3](https://github.com/mcereal/mesh-client/compare/v2.0.2...v2.0.3) (2026-09-05)
+
+### Bug Fixes
+
+* **session:** keep the node roster across syncs and name userless nodes ([03dfdb9](https://github.com/mcereal/mesh-client/commit/03dfdb9c2de49c8b77f69b86cd0265c98f7124b6))
+* **session:** keep the roster's owning radio across a restart ([8551158](https://github.com/mcereal/mesh-client/commit/85511584421aead9ba0537113e30a6307e51109c))
+
 ## [2.0.2](https://github.com/mcereal/mesh-client/compare/v2.0.1...v2.0.2) (2026-09-05)
 
 ### Documentation
