@@ -4,6 +4,7 @@
 
 #include "framework/mesh_test.h"
 
+#include "mesh/core/radio_settings.h"
 #include "mesh/core/updater.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
@@ -261,6 +262,123 @@ MESH_TEST_CASE(ui_settings_modules, unit) {
                                              MESH_UI_SETTINGS_NO_CHANNEL, 2U, &item) ||
                           strcmp(item.value, "on") != 0,
                       "telemetry should read as on once any group measures");
+    record_success(test_name);
+}
+
+/*
+ * Phase 10's six modules: the rows they build, and the one row model none of the others use -
+ * a NUMBER over a signed value.
+ */
+MESH_TEST_CASE(ui_settings_small_modules, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+
+    /* Every phase 10 section is a module, and none of them reached the top level. */
+    const enum mesh_ui_settings_section k_added[] = {
+        MESH_UI_SETTINGS_NEIGHBOR_INFO, MESH_UI_SETTINGS_RANGE_TEST,
+        MESH_UI_SETTINGS_PAXCOUNTER,    MESH_UI_SETTINGS_TAK,
+        MESH_UI_SETTINGS_AMBIENT,       MESH_UI_SETTINGS_STATUS_MESSAGE,
+    };
+    for (size_t i = 0; i < sizeof k_added / sizeof k_added[0]; ++i) {
+        MESH_TEST_FAIL_IF(!mesh_ui_settings_section_is_module(k_added[i]),
+                          "a phase 10 section should be a module");
+        MESH_TEST_FAIL_IF(mesh_ui_settings_section_loaded(&settings, NULL, k_added[i]),
+                          "a module the radio has not sent should not report loaded");
+    }
+
+    /*
+     * The RSSI rows. Their presets are negative dBm stored through a cast to uint32_t, which
+     * only steps correctly because every preset shares a sign - so this is the assertion that
+     * would catch a positive value being added to the list later.
+     */
+    settings.has_paxcounter = true;
+    settings.paxcounter_enabled = true;
+    settings.paxcounter_wifi_threshold = -80;
+    settings.paxcounter_ble_threshold = -90;
+    MESH_TEST_FAIL_IF(
+        mesh_ui_settings_number_step(MESH_UI_FIELD_PAX_WIFI_THRESHOLD, (uint32_t)(int32_t)-80,
+                                     +1) != (uint32_t)(int32_t)-75 ||
+            mesh_ui_settings_number_step(MESH_UI_FIELD_PAX_WIFI_THRESHOLD, (uint32_t)(int32_t)-80,
+                                         -1) != (uint32_t)(int32_t)-85,
+        "an RSSI row should step towards zero on Right and away on Left");
+    MESH_TEST_FAIL_IF(
+        mesh_ui_settings_number_step(MESH_UI_FIELD_PAX_WIFI_THRESHOLD, (uint32_t)(int32_t)-100,
+                                     -1) != (uint32_t)(int32_t)-100 ||
+            mesh_ui_settings_number_step(MESH_UI_FIELD_PAX_WIFI_THRESHOLD, (uint32_t)(int32_t)-60,
+                                         +1) != (uint32_t)(int32_t)-60,
+        "an RSSI row should stop at both ends rather than wrapping");
+
+    struct mesh_ui_settings_item item;
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_PAXCOUNTER,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 3U, &item) ||
+                          item.field != MESH_UI_FIELD_PAX_WIFI_THRESHOLD ||
+                          strcmp(item.value, "-80 dBm") != 0,
+                      "the WiFi floor should render as signed dBm");
+    /* A radio that never had these set reports 0, which is not a floor the module uses; the
+       row shows the firmware's own default instead of "0 dBm". */
+    settings.paxcounter_wifi_threshold = 0;
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_PAXCOUNTER,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 3U, &item) ||
+                          strcmp(item.value, "-80 dBm") != 0,
+                      "an unset RSSI floor should show the firmware default");
+
+    /* TAK is two contiguous enums, which is what the nav's (value + 1) % count stepping needs. */
+    MESH_TEST_FAIL_IF(
+        mesh_ui_settings_enum_count(MESH_UI_FIELD_TAK_TEAM) != 15U ||
+            mesh_ui_settings_enum_count(MESH_UI_FIELD_TAK_ROLE) != 9U ||
+            strcmp(mesh_ui_settings_enum_name(MESH_UI_FIELD_TAK_TEAM, 5U), "Red") != 0 ||
+            strcmp(mesh_ui_settings_enum_name(MESH_UI_FIELD_TAK_ROLE, 5U), "Medic") != 0,
+        "the TAK enum tables are wrong");
+
+    /* node_status is 79 bytes on the wire and the edit buffer has to hold all of them. */
+    MESH_TEST_FAIL_IF(mesh_ui_settings_text_max(MESH_UI_FIELD_STATUS_TEXT) != 79U ||
+                          MESH_UI_SETTING_TEXT_MAX < 80U,
+                      "a status message should not be truncated by the edit buffer");
+
+    /*
+     * A module fragment is a section like any other: holding only one has to read as "we have
+     * something from the radio". mesh_radio_settings_loaded() enumerates the flags by hand, so
+     * a module added without being listed there reads as no radio at all - checked here for
+     * every phase 10 module, one at a time, because the bug only shows when its flag is the
+     * only one set.
+     */
+    struct mesh_radio_settings radio;
+    for (size_t i = 0; i < sizeof k_added / sizeof k_added[0]; ++i) {
+        mesh_radio_settings_reset(&radio);
+        switch (k_added[i]) {
+        case MESH_UI_SETTINGS_NEIGHBOR_INFO:
+            radio.has_neighbor_info = true;
+            break;
+        case MESH_UI_SETTINGS_RANGE_TEST:
+            radio.has_range_test = true;
+            break;
+        case MESH_UI_SETTINGS_PAXCOUNTER:
+            radio.has_paxcounter = true;
+            break;
+        case MESH_UI_SETTINGS_TAK:
+            radio.has_tak = true;
+            break;
+        case MESH_UI_SETTINGS_AMBIENT:
+            radio.has_ambient_lighting = true;
+            break;
+        case MESH_UI_SETTINGS_STATUS_MESSAGE:
+            radio.has_status_message = true;
+            break;
+        default:
+            break;
+        }
+        MESH_TEST_FAIL_IF(!mesh_radio_settings_loaded(&radio),
+                          "one module fragment on its own should count as loaded");
+    }
+
+    /* Range test says what its transmitter does, and only listens at 0. */
+    settings.has_range_test = true;
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RANGE_TEST,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 3U, &item) ||
+                          item.field != MESH_UI_FIELD_RANGE_TEST_SENDER ||
+                          strcmp(item.value, "never") != 0,
+                      "an unset range-test sender should read as never");
     record_success(test_name);
 }
 

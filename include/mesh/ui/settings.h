@@ -45,6 +45,15 @@ enum mesh_ui_settings_section {
        Declared last so every value above it keeps the number it had; where it *sits* in the
        list is mesh_ui_settings_root_at()'s business, not the enum's. */
     MESH_UI_SETTINGS_MODULES,
+    /* Phase 10's six: no new UI primitive between them, and every field a bool, a number, an
+       enum or one short string. Declared after MODULES for the reason MODULES was declared
+       last - the list order is mesh_ui_settings_module_at()'s, not the enum's. */
+    MESH_UI_SETTINGS_NEIGHBOR_INFO,
+    MESH_UI_SETTINGS_RANGE_TEST,
+    MESH_UI_SETTINGS_PAXCOUNTER,
+    MESH_UI_SETTINGS_TAK,
+    MESH_UI_SETTINGS_AMBIENT,
+    MESH_UI_SETTINGS_STATUS_MESSAGE,
     MESH_UI_SETTINGS_SECTION_COUNT,
 };
 
@@ -182,6 +191,31 @@ enum mesh_ui_setting_field {
     MESH_UI_FIELD_SECURITY_SERIAL,
     MESH_UI_FIELD_SECURITY_DEBUG_LOG,
     MESH_UI_FIELD_SECURITY_SIGNATURE_POLICY,
+    MESH_UI_FIELD_NEIGHBOR_ENABLED,
+    /* The firmware floors this at 4 hours; the presets say so rather than offering a value it
+       would quietly raise. */
+    MESH_UI_FIELD_NEIGHBOR_INTERVAL,
+    MESH_UI_FIELD_NEIGHBOR_OVER_LORA,
+    MESH_UI_FIELD_RANGE_TEST_ENABLED,
+    /* Seconds between test packets, 0 for receive-only. A test sender transmits to everyone on
+       the channel on a timer, so the presets start where that is merely rude. */
+    MESH_UI_FIELD_RANGE_TEST_SENDER,
+    MESH_UI_FIELD_RANGE_TEST_SAVE,
+    MESH_UI_FIELD_RANGE_TEST_CLEAR,
+    MESH_UI_FIELD_PAX_ENABLED,
+    MESH_UI_FIELD_PAX_INTERVAL,
+    /* NUMBER rows over a signed value: the presets are all negative dBm, stored through a cast
+       to uint32_t. See k_rssi_presets in settings.c for why that steps correctly. */
+    MESH_UI_FIELD_PAX_WIFI_THRESHOLD,
+    MESH_UI_FIELD_PAX_BLE_THRESHOLD,
+    MESH_UI_FIELD_TAK_TEAM,
+    MESH_UI_FIELD_TAK_ROLE,
+    MESH_UI_FIELD_AMBIENT_LED,
+    MESH_UI_FIELD_AMBIENT_CURRENT,
+    MESH_UI_FIELD_AMBIENT_RED,
+    MESH_UI_FIELD_AMBIENT_GREEN,
+    MESH_UI_FIELD_AMBIENT_BLUE,
+    MESH_UI_FIELD_STATUS_TEXT,
     MESH_UI_FIELD_COUNT,
 };
 

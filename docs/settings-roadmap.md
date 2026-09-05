@@ -417,6 +417,33 @@ packets, and a low value on a busy channel is antisocial rather than dangerous, 
 presets start at 30s and the section says what it does rather than offering a confirm overlay
 it does not need.
 
+Three things this actually needed that the plan did not anticipate:
+
+- **A NUMBER row over a signed value.** Paxcounter's two RSSI floors are `int32` and negative;
+  every other number in the client is unsigned. They are stored in the preset table through a
+  cast (`RSSI(-80)`) and cast back at the write, which steps correctly *only* because every
+  preset shares a sign - negatives cast to `uint32_t` all land in the top half of the range and
+  keep their order. A list mixing signs would step wrongly, so the comment on `k_rssi_presets`
+  says so and a test pins it.
+- **`MESH_UI_SETTING_TEXT_MAX` had to grow.** It was 72, sized for `DeviceConfig.tzdef`'s 65.
+  `StatusMessageConfig.node_status` is `char[80]`, and `mesh_ui_nav_settings_commit_text` caps
+  at the buffer *silently*, so anything smaller would have truncated a status the radio accepts
+  without saying it had. It is 80.
+- **`MESH_RADIO_SETTINGS_FETCH_MAX` had to grow.** A full refresh is the probe pair, eight
+  Config sections, one per module and one per channel slot: 21 before this phase, 27 after,
+  against a cap of 32. `mesh_radio_settings_enqueue` drops silently when the queue is full, so
+  phase 11 would have reached 31 and phase 12 would have started losing channel reads with no
+  error anywhere. It is 48, and the queue test now asserts the sum fits.
+
+And the answer to the question phase 10 was meant to settle - whether the add-a-module path
+needs the table-driven `offsetof` treatment before the rest - is **no, not for the reason
+expected**. Nineteen fields is nineteen one-line arms in `mesh_app_apply_setting_edit`, and
+those arms were the easy part: they are mechanical, and a wrong one fails loudly in a test.
+What actually cost attention was the part a field table would not touch - pairing each section's
+`ModuleConfigType` with the matching union tag in two different places, where a mismatch writes
+correct bytes into the wrong module and the radio accepts it without complaint. If anything is
+worth collapsing before phase 11 it is that pairing, not the field arms.
+
 - Exit criteria: on the Brick, each of the six reads back the values the phone app shows;
   turning Neighbor info on and setting its interval survives the reboot; Range test with a
   sender interval set does not appear in the phone app as an unknown-field write.

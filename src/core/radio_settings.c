@@ -22,10 +22,16 @@ bool mesh_radio_settings_loaded(const struct mesh_radio_settings *settings) {
     if (settings == NULL) {
         return false;
     }
+    /* Every section, not a chosen few: the contract is "anything has arrived", and a module
+       missing from this list reads as no radio at all when its fragment is the one we hold.
+       One line per module, which is a list that has to grow with every phase - the consolidation
+       that folds it into the module table is the next thing after phase 10. */
     if (settings->has_device || settings->has_position || settings->has_power ||
         settings->has_network || settings->has_display || settings->has_lora ||
         settings->has_bluetooth || settings->has_security || settings->has_mqtt ||
-        settings->has_store_forward || settings->has_telemetry || settings->has_owner ||
+        settings->has_store_forward || settings->has_telemetry || settings->has_neighbor_info ||
+        settings->has_range_test || settings->has_paxcounter || settings->has_tak ||
+        settings->has_ambient_lighting || settings->has_status_message || settings->has_owner ||
         settings->has_metadata) {
         return true;
     }
@@ -100,6 +106,30 @@ void mesh_radio_settings_apply_module_config(struct mesh_radio_settings *setting
     case meshtastic_ModuleConfig_telemetry_tag:
         settings->has_telemetry = true;
         settings->telemetry = config->payload_variant.telemetry;
+        break;
+    case meshtastic_ModuleConfig_neighbor_info_tag:
+        settings->has_neighbor_info = true;
+        settings->neighbor_info = config->payload_variant.neighbor_info;
+        break;
+    case meshtastic_ModuleConfig_range_test_tag:
+        settings->has_range_test = true;
+        settings->range_test = config->payload_variant.range_test;
+        break;
+    case meshtastic_ModuleConfig_paxcounter_tag:
+        settings->has_paxcounter = true;
+        settings->paxcounter = config->payload_variant.paxcounter;
+        break;
+    case meshtastic_ModuleConfig_tak_tag:
+        settings->has_tak = true;
+        settings->tak = config->payload_variant.tak;
+        break;
+    case meshtastic_ModuleConfig_ambient_lighting_tag:
+        settings->has_ambient_lighting = true;
+        settings->ambient_lighting = config->payload_variant.ambient_lighting;
+        break;
+    case meshtastic_ModuleConfig_statusmessage_tag:
+        settings->has_status_message = true;
+        settings->status_message = config->payload_variant.statusmessage;
         break;
     default:
         break;
@@ -706,6 +736,12 @@ size_t mesh_radio_settings_queue_all(struct mesh_radio_settings *settings) {
         meshtastic_AdminMessage_ModuleConfigType_MQTT_CONFIG,
         meshtastic_AdminMessage_ModuleConfigType_STOREFORWARD_CONFIG,
         meshtastic_AdminMessage_ModuleConfigType_TELEMETRY_CONFIG,
+        meshtastic_AdminMessage_ModuleConfigType_NEIGHBORINFO_CONFIG,
+        meshtastic_AdminMessage_ModuleConfigType_RANGETEST_CONFIG,
+        meshtastic_AdminMessage_ModuleConfigType_PAXCOUNTER_CONFIG,
+        meshtastic_AdminMessage_ModuleConfigType_TAK_CONFIG,
+        meshtastic_AdminMessage_ModuleConfigType_AMBIENTLIGHTING_CONFIG,
+        meshtastic_AdminMessage_ModuleConfigType_STATUSMESSAGE_CONFIG,
     };
 
     size_t added = mesh_radio_settings_queue_probe(settings);

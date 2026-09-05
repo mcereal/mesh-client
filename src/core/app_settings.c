@@ -54,6 +54,17 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
         &write->payload.module_config.payload_variant.store_forward;
     meshtastic_ModuleConfig_TelemetryConfig *telemetry =
         &write->payload.module_config.payload_variant.telemetry;
+    meshtastic_ModuleConfig_NeighborInfoConfig *neighbor =
+        &write->payload.module_config.payload_variant.neighbor_info;
+    meshtastic_ModuleConfig_RangeTestConfig *range_test =
+        &write->payload.module_config.payload_variant.range_test;
+    meshtastic_ModuleConfig_PaxcounterConfig *pax =
+        &write->payload.module_config.payload_variant.paxcounter;
+    meshtastic_ModuleConfig_TAKConfig *tak = &write->payload.module_config.payload_variant.tak;
+    meshtastic_ModuleConfig_AmbientLightingConfig *ambient =
+        &write->payload.module_config.payload_variant.ambient_lighting;
+    meshtastic_ModuleConfig_StatusMessageConfig *status =
+        &write->payload.module_config.payload_variant.statusmessage;
     meshtastic_Config_PositionConfig *position = &write->payload.config.payload_variant.position;
     meshtastic_Config_PowerConfig *power = &write->payload.config.payload_variant.power;
     meshtastic_ChannelSettings *channel = &write->payload.channel.settings;
@@ -246,6 +257,64 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
         break;
     case MESH_UI_FIELD_TELEMETRY_HEALTH_SCREEN:
         telemetry->health_screen_enabled = on;
+        break;
+    case MESH_UI_FIELD_NEIGHBOR_ENABLED:
+        neighbor->enabled = on;
+        break;
+    case MESH_UI_FIELD_NEIGHBOR_INTERVAL:
+        neighbor->update_interval = edit->number;
+        break;
+    case MESH_UI_FIELD_NEIGHBOR_OVER_LORA:
+        neighbor->transmit_over_lora = on;
+        break;
+    case MESH_UI_FIELD_RANGE_TEST_ENABLED:
+        range_test->enabled = on;
+        break;
+    case MESH_UI_FIELD_RANGE_TEST_SENDER:
+        range_test->sender = edit->number;
+        break;
+    case MESH_UI_FIELD_RANGE_TEST_SAVE:
+        range_test->save = on;
+        break;
+    case MESH_UI_FIELD_RANGE_TEST_CLEAR:
+        range_test->clear_on_reboot = on;
+        break;
+    case MESH_UI_FIELD_PAX_ENABLED:
+        pax->enabled = on;
+        break;
+    case MESH_UI_FIELD_PAX_INTERVAL:
+        pax->paxcounter_update_interval = edit->number;
+        break;
+    /* Back through the cast the preset table stores these in; the wire field is int32. */
+    case MESH_UI_FIELD_PAX_WIFI_THRESHOLD:
+        pax->wifi_threshold = (int32_t)edit->number;
+        break;
+    case MESH_UI_FIELD_PAX_BLE_THRESHOLD:
+        pax->ble_threshold = (int32_t)edit->number;
+        break;
+    case MESH_UI_FIELD_TAK_TEAM:
+        tak->team = (meshtastic_Team)edit->number;
+        break;
+    case MESH_UI_FIELD_TAK_ROLE:
+        tak->role = (meshtastic_MemberRole)edit->number;
+        break;
+    case MESH_UI_FIELD_AMBIENT_LED:
+        ambient->led_state = on;
+        break;
+    case MESH_UI_FIELD_AMBIENT_CURRENT:
+        ambient->current = (uint8_t)edit->number;
+        break;
+    case MESH_UI_FIELD_AMBIENT_RED:
+        ambient->red = (uint8_t)edit->number;
+        break;
+    case MESH_UI_FIELD_AMBIENT_GREEN:
+        ambient->green = (uint8_t)edit->number;
+        break;
+    case MESH_UI_FIELD_AMBIENT_BLUE:
+        ambient->blue = (uint8_t)edit->number;
+        break;
+    case MESH_UI_FIELD_STATUS_TEXT:
+        mesh_str_copy(status->node_status, sizeof status->node_status, edit->text);
         break;
     case MESH_UI_FIELD_CHANNEL_NAME:
         mesh_str_copy(channel->name, sizeof channel->name, edit->text);
@@ -520,6 +589,63 @@ int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
         out->type = meshtastic_AdminMessage_ModuleConfigType_TELEMETRY_CONFIG;
         out->payload.module_config.which_payload_variant = meshtastic_ModuleConfig_telemetry_tag;
         out->payload.module_config.payload_variant.telemetry = radio->telemetry;
+        break;
+    case MESH_UI_SETTINGS_NEIGHBOR_INFO:
+        if (!radio->has_neighbor_info) {
+            return -ENOENT;
+        }
+        out->kind = MESH_ADMIN_SET_MODULE_CONFIG;
+        out->type = meshtastic_AdminMessage_ModuleConfigType_NEIGHBORINFO_CONFIG;
+        out->payload.module_config.which_payload_variant =
+            meshtastic_ModuleConfig_neighbor_info_tag;
+        out->payload.module_config.payload_variant.neighbor_info = radio->neighbor_info;
+        break;
+    case MESH_UI_SETTINGS_RANGE_TEST:
+        if (!radio->has_range_test) {
+            return -ENOENT;
+        }
+        out->kind = MESH_ADMIN_SET_MODULE_CONFIG;
+        out->type = meshtastic_AdminMessage_ModuleConfigType_RANGETEST_CONFIG;
+        out->payload.module_config.which_payload_variant = meshtastic_ModuleConfig_range_test_tag;
+        out->payload.module_config.payload_variant.range_test = radio->range_test;
+        break;
+    case MESH_UI_SETTINGS_PAXCOUNTER:
+        if (!radio->has_paxcounter) {
+            return -ENOENT;
+        }
+        out->kind = MESH_ADMIN_SET_MODULE_CONFIG;
+        out->type = meshtastic_AdminMessage_ModuleConfigType_PAXCOUNTER_CONFIG;
+        out->payload.module_config.which_payload_variant = meshtastic_ModuleConfig_paxcounter_tag;
+        out->payload.module_config.payload_variant.paxcounter = radio->paxcounter;
+        break;
+    case MESH_UI_SETTINGS_TAK:
+        if (!radio->has_tak) {
+            return -ENOENT;
+        }
+        out->kind = MESH_ADMIN_SET_MODULE_CONFIG;
+        out->type = meshtastic_AdminMessage_ModuleConfigType_TAK_CONFIG;
+        out->payload.module_config.which_payload_variant = meshtastic_ModuleConfig_tak_tag;
+        out->payload.module_config.payload_variant.tak = radio->tak;
+        break;
+    case MESH_UI_SETTINGS_AMBIENT:
+        if (!radio->has_ambient_lighting) {
+            return -ENOENT;
+        }
+        out->kind = MESH_ADMIN_SET_MODULE_CONFIG;
+        out->type = meshtastic_AdminMessage_ModuleConfigType_AMBIENTLIGHTING_CONFIG;
+        out->payload.module_config.which_payload_variant =
+            meshtastic_ModuleConfig_ambient_lighting_tag;
+        out->payload.module_config.payload_variant.ambient_lighting = radio->ambient_lighting;
+        break;
+    case MESH_UI_SETTINGS_STATUS_MESSAGE:
+        if (!radio->has_status_message) {
+            return -ENOENT;
+        }
+        out->kind = MESH_ADMIN_SET_MODULE_CONFIG;
+        out->type = meshtastic_AdminMessage_ModuleConfigType_STATUSMESSAGE_CONFIG;
+        out->payload.module_config.which_payload_variant =
+            meshtastic_ModuleConfig_statusmessage_tag;
+        out->payload.module_config.payload_variant.statusmessage = radio->status_message;
         break;
     case MESH_UI_SETTINGS_BLUETOOTH:
         if (!radio->has_bluetooth) {

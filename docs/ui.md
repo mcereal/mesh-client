@@ -192,6 +192,9 @@ the nanopb section.
 > `mesh_radio_settings_apply_module_config`, an entry in the refresh queue's `k_module_types`, a
 > row in `k_modules` in `settings.c`, and its `set_module_config` arm in
 > `mesh_app_build_settings_write`. See [`settings-roadmap.md`](settings-roadmap.md) phases 10-12.
+> The one that bites: the `ModuleConfigType` and the `which_payload_variant` tag are named in
+> two different places and must agree — a mismatch writes the right bytes into the wrong module
+> and the radio takes it without an error.
 
 Every radio section is editable now, with these exceptions and quirks:
 

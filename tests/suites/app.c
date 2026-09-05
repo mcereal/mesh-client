@@ -425,6 +425,125 @@ MESH_TEST_CASE(app_module_write_build, unit) {
     record_success(test_name);
 }
 
+/*
+ * Phase 10's six modules through the write path. Each is a section that has to pick the right
+ * ModuleConfigType and the right union tag; getting either wrong writes the correct bytes into
+ * the wrong module, which the radio accepts without complaint.
+ */
+MESH_TEST_CASE(app_small_module_write_build, unit) {
+    struct mesh_radio_settings radio;
+    mesh_radio_settings_reset(&radio);
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    struct mesh_admin_request write;
+
+    radio.has_neighbor_info = true;
+    radio.neighbor_info.transmit_over_lora = true; /* not edited; must survive */
+    action.section = MESH_UI_SETTINGS_NEIGHBOR_INFO;
+    action.edit_count = 2U;
+    action.edits[0].field = MESH_UI_FIELD_NEIGHBOR_ENABLED;
+    action.edits[0].number = 1U;
+    action.edits[1].field = MESH_UI_FIELD_NEIGHBOR_INTERVAL;
+    action.edits[1].number = 21600U;
+    MESH_TEST_FAIL_IF(
+        mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+            write.kind != MESH_ADMIN_SET_MODULE_CONFIG ||
+            write.type != meshtastic_AdminMessage_ModuleConfigType_NEIGHBORINFO_CONFIG ||
+            write.payload.module_config.which_payload_variant !=
+                meshtastic_ModuleConfig_neighbor_info_tag ||
+            !write.payload.module_config.payload_variant.neighbor_info.enabled ||
+            write.payload.module_config.payload_variant.neighbor_info.update_interval != 21600U ||
+            !write.payload.module_config.payload_variant.neighbor_info.transmit_over_lora,
+        "set_neighbor_info should carry the edits and keep the rest");
+
+    radio.has_range_test = true;
+    action.section = MESH_UI_SETTINGS_RANGE_TEST;
+    action.edit_count = 2U;
+    memset(action.edits, 0, sizeof action.edits);
+    action.edits[0].field = MESH_UI_FIELD_RANGE_TEST_ENABLED;
+    action.edits[0].number = 1U;
+    action.edits[1].field = MESH_UI_FIELD_RANGE_TEST_SENDER;
+    action.edits[1].number = 60U;
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+                          write.type != meshtastic_AdminMessage_ModuleConfigType_RANGETEST_CONFIG ||
+                          write.payload.module_config.which_payload_variant !=
+                              meshtastic_ModuleConfig_range_test_tag ||
+                          !write.payload.module_config.payload_variant.range_test.enabled ||
+                          write.payload.module_config.payload_variant.range_test.sender != 60U,
+                      "set_range_test should carry the sender interval");
+
+    /* The signed pair: the UI carries an RSSI as a cast uint32_t and this is where it has to
+       come back out as the negative int32 the wire wants. */
+    radio.has_paxcounter = true;
+    action.section = MESH_UI_SETTINGS_PAXCOUNTER;
+    action.edit_count = 2U;
+    memset(action.edits, 0, sizeof action.edits);
+    action.edits[0].field = MESH_UI_FIELD_PAX_WIFI_THRESHOLD;
+    action.edits[0].number = (uint32_t)(int32_t)-90;
+    action.edits[1].field = MESH_UI_FIELD_PAX_BLE_THRESHOLD;
+    action.edits[1].number = (uint32_t)(int32_t)-65;
+    MESH_TEST_FAIL_IF(
+        mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+            write.type != meshtastic_AdminMessage_ModuleConfigType_PAXCOUNTER_CONFIG ||
+            write.payload.module_config.payload_variant.paxcounter.wifi_threshold != -90 ||
+            write.payload.module_config.payload_variant.paxcounter.ble_threshold != -65,
+        "an RSSI edit should reach the wire as a negative int32");
+
+    radio.has_tak = true;
+    action.section = MESH_UI_SETTINGS_TAK;
+    action.edit_count = 2U;
+    memset(action.edits, 0, sizeof action.edits);
+    action.edits[0].field = MESH_UI_FIELD_TAK_TEAM;
+    action.edits[0].number = (uint32_t)meshtastic_Team_Green;
+    action.edits[1].field = MESH_UI_FIELD_TAK_ROLE;
+    action.edits[1].number = (uint32_t)meshtastic_MemberRole_Medic;
+    MESH_TEST_FAIL_IF(
+        mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+            write.type != meshtastic_AdminMessage_ModuleConfigType_TAK_CONFIG ||
+            write.payload.module_config.payload_variant.tak.team != meshtastic_Team_Green ||
+            write.payload.module_config.payload_variant.tak.role != meshtastic_MemberRole_Medic,
+        "set_tak should carry the team and role");
+
+    radio.has_ambient_lighting = true;
+    action.section = MESH_UI_SETTINGS_AMBIENT;
+    action.edit_count = 3U;
+    memset(action.edits, 0, sizeof action.edits);
+    action.edits[0].field = MESH_UI_FIELD_AMBIENT_LED;
+    action.edits[0].number = 1U;
+    action.edits[1].field = MESH_UI_FIELD_AMBIENT_RED;
+    action.edits[1].number = 255U;
+    action.edits[2].field = MESH_UI_FIELD_AMBIENT_CURRENT;
+    action.edits[2].number = 15U;
+    MESH_TEST_FAIL_IF(
+        mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+            write.type != meshtastic_AdminMessage_ModuleConfigType_AMBIENTLIGHTING_CONFIG ||
+            !write.payload.module_config.payload_variant.ambient_lighting.led_state ||
+            write.payload.module_config.payload_variant.ambient_lighting.red != 255U ||
+            write.payload.module_config.payload_variant.ambient_lighting.current != 15U,
+        "set_ambient_lighting should carry the level and the current");
+
+    radio.has_status_message = true;
+    action.section = MESH_UI_SETTINGS_STATUS_MESSAGE;
+    action.edit_count = 1U;
+    memset(action.edits, 0, sizeof action.edits);
+    action.edits[0].field = MESH_UI_FIELD_STATUS_TEXT;
+    snprintf(action.edits[0].text, sizeof action.edits[0].text, "%s", "on the ridge until dark");
+    MESH_TEST_FAIL_IF(
+        mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+            write.type != meshtastic_AdminMessage_ModuleConfigType_STATUSMESSAGE_CONFIG ||
+            strcmp(write.payload.module_config.payload_variant.statusmessage.node_status,
+                   "on the ridge until dark") != 0,
+        "set_status_message should carry the text");
+
+    /* And a section the radio has not sent still cannot be written. */
+    mesh_radio_settings_reset(&radio);
+    action.section = MESH_UI_SETTINGS_TAK;
+    action.edit_count = 0U;
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != -ENOENT,
+                      "a module the radio has not sent cannot be written");
+    record_success(test_name);
+}
+
 /* Key choices become bytes, roles map back, and a bad PIN never reaches the radio. */
 MESH_TEST_CASE(app_channel_write_build, unit) {
     struct mesh_radio_settings radio;

@@ -105,7 +105,11 @@ bool mesh_admin_request_is_action(enum mesh_admin_request_kind kind);
 #define MESH_RADIO_SETTINGS_WRITE_TIMEOUT (-1)
 
 /* Queue depth: a full refresh is 13 sections plus every channel slot, and a save adds three. */
-#define MESH_RADIO_SETTINGS_FETCH_MAX 32U
+/* A full refresh queues the probe pair, every Config section, every ModuleConfig section and
+   every channel slot - 27 with the modules phase 10 keeps, and one per module after that. A
+   full queue drops silently, so this is sized well clear of the phases still to come rather
+   than to what fits today. */
+#define MESH_RADIO_SETTINGS_FETCH_MAX 48U
 #define MESH_RADIO_SETTINGS_MAX_CHANNELS 8U
 /* A reply that has not arrived after this long is given up on and the queue moves on. */
 #define MESH_RADIO_SETTINGS_REPLY_TIMEOUT_MS 5000U
@@ -137,6 +141,18 @@ struct mesh_radio_settings {
     meshtastic_ModuleConfig_StoreForwardConfig store_forward;
     bool has_telemetry;
     meshtastic_ModuleConfig_TelemetryConfig telemetry;
+    bool has_neighbor_info;
+    meshtastic_ModuleConfig_NeighborInfoConfig neighbor_info;
+    bool has_range_test;
+    meshtastic_ModuleConfig_RangeTestConfig range_test;
+    bool has_paxcounter;
+    meshtastic_ModuleConfig_PaxcounterConfig paxcounter;
+    bool has_tak;
+    meshtastic_ModuleConfig_TAKConfig tak;
+    bool has_ambient_lighting;
+    meshtastic_ModuleConfig_AmbientLightingConfig ambient_lighting;
+    bool has_status_message;
+    meshtastic_ModuleConfig_StatusMessageConfig status_message;
     bool has_owner;
     meshtastic_User owner;
     bool has_metadata;

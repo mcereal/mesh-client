@@ -621,6 +621,27 @@ static void build_modules(const struct mesh_ui_settings *s,
                       s->air_quality_enabled || s->power_measurement_enabled ||
                       s->health_measurement_enabled;
             break;
+        case MESH_UI_SETTINGS_NEIGHBOR_INFO:
+            enabled = s->neighbor_info_enabled;
+            break;
+        case MESH_UI_SETTINGS_RANGE_TEST:
+            enabled = s->range_test_enabled;
+            break;
+        case MESH_UI_SETTINGS_PAXCOUNTER:
+            enabled = s->paxcounter_enabled;
+            break;
+        case MESH_UI_SETTINGS_AMBIENT:
+            enabled = s->ambient_led_state;
+            break;
+        case MESH_UI_SETTINGS_STATUS_MESSAGE:
+            /* No enabled flag: the module is doing something exactly when there is a status. */
+            enabled = s->status_message[0] != '\0';
+            break;
+        case MESH_UI_SETTINGS_TAK:
+            /* Nor here - TAKConfig is two enums with no switch. Unspecifed/Unspecifed is the
+               untouched state, which is as close to "off" as this module gets. */
+            enabled = s->tak_team != 0U || s->tak_role != 0U;
+            break;
         default:
             break;
         }
@@ -701,6 +722,65 @@ static void build_telemetry(const struct mesh_ui_settings *s, struct item_list *
     item_field(list, MESH_UI_FIELD_TELEMETRY_HEALTH_INTERVAL, s->health_update_interval, NULL);
     item_field(list, MESH_UI_FIELD_TELEMETRY_HEALTH_SCREEN, s->health_screen_enabled ? 1U : 0U,
                NULL);
+}
+
+static void build_neighbor_info(const struct mesh_ui_settings *s, struct item_list *list) {
+    item_field(list, MESH_UI_FIELD_NEIGHBOR_ENABLED, s->neighbor_info_enabled ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_NEIGHBOR_INTERVAL, s->neighbor_info_interval, NULL);
+    item_field(list, MESH_UI_FIELD_NEIGHBOR_OVER_LORA, s->neighbor_info_over_lora ? 1U : 0U, NULL);
+}
+
+/*
+ * Range test. The module is two different things depending on one row: with `sender` at 0 it
+ * only listens, and with anything else this node transmits to the whole channel on that timer.
+ * The heading says so, because a row reading "Send every  30s" does not convey that the traffic
+ * lands on everyone else's radio too.
+ */
+static void build_range_test(const struct mesh_ui_settings *s, struct item_list *list) {
+    item_field(list, MESH_UI_FIELD_RANGE_TEST_ENABLED, s->range_test_enabled ? 1U : 0U, NULL);
+    item_heading(list, "Transmitter");
+    item_text(list, "Test packets", MESH_UI_SETTING_INFO, "go to everyone on the channel");
+    item_field(list, MESH_UI_FIELD_RANGE_TEST_SENDER, s->range_test_sender, NULL);
+    /* ESP32-only in the firmware; shown anyway, because the radio ignoring a flag is quieter
+       than the row not being there when a phone app shows it. */
+    item_heading(list, "Log (ESP32 only)");
+    item_field(list, MESH_UI_FIELD_RANGE_TEST_SAVE, s->range_test_save ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_RANGE_TEST_CLEAR, s->range_test_clear_on_reboot ? 1U : 0U, NULL);
+}
+
+static void build_paxcounter(const struct mesh_ui_settings *s, struct item_list *list) {
+    item_field(list, MESH_UI_FIELD_PAX_ENABLED, s->paxcounter_enabled ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_PAX_INTERVAL, s->paxcounter_interval, NULL);
+    /* Signed on the wire and signed in the store; the cast is the row model's, not the value's
+       (see k_rssi_presets). A radio that has never had these set reports 0, which is not a
+       threshold the module uses - the firmware substitutes -80. */
+    item_heading(list, "Count above");
+    item_field(list, MESH_UI_FIELD_PAX_WIFI_THRESHOLD,
+               (uint32_t)(s->paxcounter_wifi_threshold != 0 ? s->paxcounter_wifi_threshold : -80),
+               NULL);
+    item_field(list, MESH_UI_FIELD_PAX_BLE_THRESHOLD,
+               (uint32_t)(s->paxcounter_ble_threshold != 0 ? s->paxcounter_ble_threshold : -80),
+               NULL);
+}
+
+static void build_tak(const struct mesh_ui_settings *s, struct item_list *list) {
+    item_field(list, MESH_UI_FIELD_TAK_TEAM, s->tak_team, NULL);
+    item_field(list, MESH_UI_FIELD_TAK_ROLE, s->tak_role, NULL);
+}
+
+static void build_ambient(const struct mesh_ui_settings *s, struct item_list *list) {
+    item_field(list, MESH_UI_FIELD_AMBIENT_LED, s->ambient_led_state ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_AMBIENT_CURRENT, s->ambient_current, NULL);
+    /* Three channels rather than a colour picker: a d-pad steps numbers well and picks colours
+       badly. Listed under a heading so the trio reads as one setting. */
+    item_heading(list, "Colour");
+    item_field(list, MESH_UI_FIELD_AMBIENT_RED, s->ambient_red, NULL);
+    item_field(list, MESH_UI_FIELD_AMBIENT_GREEN, s->ambient_green, NULL);
+    item_field(list, MESH_UI_FIELD_AMBIENT_BLUE, s->ambient_blue, NULL);
+}
+
+static void build_status_message(const struct mesh_ui_settings *s, struct item_list *list) {
+    item_field(list, MESH_UI_FIELD_STATUS_TEXT, 0U, s->status_message);
 }
 
 /*
@@ -792,6 +872,24 @@ static void build_section(const struct mesh_ui_settings *settings,
         break;
     case MESH_UI_SETTINGS_MODULES:
         build_modules(settings, handshake, list);
+        break;
+    case MESH_UI_SETTINGS_NEIGHBOR_INFO:
+        build_neighbor_info(settings, list);
+        break;
+    case MESH_UI_SETTINGS_RANGE_TEST:
+        build_range_test(settings, list);
+        break;
+    case MESH_UI_SETTINGS_PAXCOUNTER:
+        build_paxcounter(settings, list);
+        break;
+    case MESH_UI_SETTINGS_TAK:
+        build_tak(settings, list);
+        break;
+    case MESH_UI_SETTINGS_AMBIENT:
+        build_ambient(settings, list);
+        break;
+    case MESH_UI_SETTINGS_STATUS_MESSAGE:
+        build_status_message(settings, list);
         break;
     default:
         break;
