@@ -511,6 +511,48 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
 /* Builds the set_* for a section from what the radio last reported plus the edits. The
    firmware replaces the whole section, so the base must be the radio's own copy: -ENOENT
    when that has not arrived yet, -ENOTSUP for a section this phase does not write. */
+/*
+ * Which module a settings section is, as an admin ModuleConfigType.
+ *
+ * This is the one place the UI's sections meet the wire's module ids, and it is all that is
+ * left of what used to be nine write arms: the union tag, the storage and its size come from
+ * the module table in radio_settings.c, so the type and the tag can no longer be typed apart
+ * and disagree. A section that is not a module answers 0 and falls through to the switch.
+ */
+static bool module_admin_type(enum mesh_ui_settings_section section, uint32_t *out_type) {
+    switch (section) {
+    case MESH_UI_SETTINGS_MQTT:
+        *out_type = meshtastic_AdminMessage_ModuleConfigType_MQTT_CONFIG;
+        return true;
+    case MESH_UI_SETTINGS_STORE_FORWARD:
+        *out_type = meshtastic_AdminMessage_ModuleConfigType_STOREFORWARD_CONFIG;
+        return true;
+    case MESH_UI_SETTINGS_TELEMETRY:
+        *out_type = meshtastic_AdminMessage_ModuleConfigType_TELEMETRY_CONFIG;
+        return true;
+    case MESH_UI_SETTINGS_NEIGHBOR_INFO:
+        *out_type = meshtastic_AdminMessage_ModuleConfigType_NEIGHBORINFO_CONFIG;
+        return true;
+    case MESH_UI_SETTINGS_RANGE_TEST:
+        *out_type = meshtastic_AdminMessage_ModuleConfigType_RANGETEST_CONFIG;
+        return true;
+    case MESH_UI_SETTINGS_PAXCOUNTER:
+        *out_type = meshtastic_AdminMessage_ModuleConfigType_PAXCOUNTER_CONFIG;
+        return true;
+    case MESH_UI_SETTINGS_TAK:
+        *out_type = meshtastic_AdminMessage_ModuleConfigType_TAK_CONFIG;
+        return true;
+    case MESH_UI_SETTINGS_AMBIENT:
+        *out_type = meshtastic_AdminMessage_ModuleConfigType_AMBIENTLIGHTING_CONFIG;
+        return true;
+    case MESH_UI_SETTINGS_STATUS_MESSAGE:
+        *out_type = meshtastic_AdminMessage_ModuleConfigType_STATUSMESSAGE_CONFIG;
+        return true;
+    default:
+        return false;
+    }
+}
+
 int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
                                   const struct mesh_ui_action *action,
                                   struct mesh_admin_request *out) {
@@ -518,175 +560,107 @@ int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
         return -EINVAL;
     }
     memset(out, 0, sizeof *out);
-    switch ((enum mesh_ui_settings_section)action->section) {
-    case MESH_UI_SETTINGS_USER:
-        if (!radio->has_owner) {
-            return -ENOENT;
+
+    /* Every module goes out the same way: the section names the type, the table supplies the
+       tag and the bytes. -ENOENT when the radio has not sent that section, exactly as the
+       hand-written arms reported it. */
+    uint32_t admin_type = 0U;
+    if (module_admin_type((enum mesh_ui_settings_section)action->section, &admin_type)) {
+        const struct mesh_module_binding *binding = mesh_radio_module_for_type(admin_type);
+        if (binding == NULL) {
+            return -ENOTSUP;
         }
-        out->kind = MESH_ADMIN_SET_OWNER;
-        out->payload.owner = radio->owner;
-        break;
-    case MESH_UI_SETTINGS_DEVICE:
-        if (!radio->has_device) {
-            return -ENOENT;
-        }
-        out->kind = MESH_ADMIN_SET_CONFIG;
-        out->type = meshtastic_AdminMessage_ConfigType_DEVICE_CONFIG;
-        out->payload.config.which_payload_variant = meshtastic_Config_device_tag;
-        out->payload.config.payload_variant.device = radio->device;
-        break;
-    case MESH_UI_SETTINGS_POSITION:
-        if (!radio->has_position) {
-            return -ENOENT;
-        }
-        out->kind = MESH_ADMIN_SET_CONFIG;
-        out->type = meshtastic_AdminMessage_ConfigType_POSITION_CONFIG;
-        out->payload.config.which_payload_variant = meshtastic_Config_position_tag;
-        out->payload.config.payload_variant.position = radio->position;
-        break;
-    case MESH_UI_SETTINGS_POWER:
-        if (!radio->has_power) {
-            return -ENOENT;
-        }
-        out->kind = MESH_ADMIN_SET_CONFIG;
-        out->type = meshtastic_AdminMessage_ConfigType_POWER_CONFIG;
-        out->payload.config.which_payload_variant = meshtastic_Config_power_tag;
-        out->payload.config.payload_variant.power = radio->power;
-        break;
-    case MESH_UI_SETTINGS_DISPLAY:
-        if (!radio->has_display) {
-            return -ENOENT;
-        }
-        out->kind = MESH_ADMIN_SET_CONFIG;
-        out->type = meshtastic_AdminMessage_ConfigType_DISPLAY_CONFIG;
-        out->payload.config.which_payload_variant = meshtastic_Config_display_tag;
-        out->payload.config.payload_variant.display = radio->display;
-        break;
-    case MESH_UI_SETTINGS_MQTT:
-        if (!radio->has_mqtt) {
+        if (!mesh_radio_module_load(radio, binding, &out->payload.module_config)) {
             return -ENOENT;
         }
         out->kind = MESH_ADMIN_SET_MODULE_CONFIG;
-        out->type = meshtastic_AdminMessage_ModuleConfigType_MQTT_CONFIG;
-        out->payload.module_config.which_payload_variant = meshtastic_ModuleConfig_mqtt_tag;
-        out->payload.module_config.payload_variant.mqtt = radio->mqtt;
-        break;
-    case MESH_UI_SETTINGS_STORE_FORWARD:
-        if (!radio->has_store_forward) {
-            return -ENOENT;
+        out->type = admin_type;
+    } else {
+        switch ((enum mesh_ui_settings_section)action->section) {
+        case MESH_UI_SETTINGS_USER:
+            if (!radio->has_owner) {
+                return -ENOENT;
+            }
+            out->kind = MESH_ADMIN_SET_OWNER;
+            out->payload.owner = radio->owner;
+            break;
+        case MESH_UI_SETTINGS_DEVICE:
+            if (!radio->has_device) {
+                return -ENOENT;
+            }
+            out->kind = MESH_ADMIN_SET_CONFIG;
+            out->type = meshtastic_AdminMessage_ConfigType_DEVICE_CONFIG;
+            out->payload.config.which_payload_variant = meshtastic_Config_device_tag;
+            out->payload.config.payload_variant.device = radio->device;
+            break;
+        case MESH_UI_SETTINGS_POSITION:
+            if (!radio->has_position) {
+                return -ENOENT;
+            }
+            out->kind = MESH_ADMIN_SET_CONFIG;
+            out->type = meshtastic_AdminMessage_ConfigType_POSITION_CONFIG;
+            out->payload.config.which_payload_variant = meshtastic_Config_position_tag;
+            out->payload.config.payload_variant.position = radio->position;
+            break;
+        case MESH_UI_SETTINGS_POWER:
+            if (!radio->has_power) {
+                return -ENOENT;
+            }
+            out->kind = MESH_ADMIN_SET_CONFIG;
+            out->type = meshtastic_AdminMessage_ConfigType_POWER_CONFIG;
+            out->payload.config.which_payload_variant = meshtastic_Config_power_tag;
+            out->payload.config.payload_variant.power = radio->power;
+            break;
+        case MESH_UI_SETTINGS_DISPLAY:
+            if (!radio->has_display) {
+                return -ENOENT;
+            }
+            out->kind = MESH_ADMIN_SET_CONFIG;
+            out->type = meshtastic_AdminMessage_ConfigType_DISPLAY_CONFIG;
+            out->payload.config.which_payload_variant = meshtastic_Config_display_tag;
+            out->payload.config.payload_variant.display = radio->display;
+            break;
+        case MESH_UI_SETTINGS_BLUETOOTH:
+            if (!radio->has_bluetooth) {
+                return -ENOENT;
+            }
+            out->kind = MESH_ADMIN_SET_CONFIG;
+            out->type = meshtastic_AdminMessage_ConfigType_BLUETOOTH_CONFIG;
+            out->payload.config.which_payload_variant = meshtastic_Config_bluetooth_tag;
+            out->payload.config.payload_variant.bluetooth = radio->bluetooth;
+            break;
+        case MESH_UI_SETTINGS_LORA:
+            if (!radio->has_lora) {
+                return -ENOENT;
+            }
+            out->kind = MESH_ADMIN_SET_CONFIG;
+            out->type = meshtastic_AdminMessage_ConfigType_LORA_CONFIG;
+            out->payload.config.which_payload_variant = meshtastic_Config_lora_tag;
+            out->payload.config.payload_variant.lora = radio->lora;
+            break;
+        case MESH_UI_SETTINGS_SECURITY:
+            if (!radio->has_security) {
+                return -ENOENT;
+            }
+            out->kind = MESH_ADMIN_SET_CONFIG;
+            out->type = meshtastic_AdminMessage_ConfigType_SECURITY_CONFIG;
+            out->payload.config.which_payload_variant = meshtastic_Config_security_tag;
+            out->payload.config.payload_variant.security = radio->security;
+            break;
+        case MESH_UI_SETTINGS_CHANNELS:
+            if (action->channel >= MESH_RADIO_SETTINGS_MAX_CHANNELS ||
+                !radio->has_channel[action->channel]) {
+                return -ENOENT;
+            }
+            out->kind = MESH_ADMIN_SET_CHANNEL;
+            out->type = action->channel;
+            out->payload.channel = radio->channels[action->channel];
+            out->payload.channel.index = (int8_t)action->channel;
+            out->payload.channel.has_settings = true;
+            break;
+        default:
+            return -ENOTSUP;
         }
-        out->kind = MESH_ADMIN_SET_MODULE_CONFIG;
-        out->type = meshtastic_AdminMessage_ModuleConfigType_STOREFORWARD_CONFIG;
-        out->payload.module_config.which_payload_variant =
-            meshtastic_ModuleConfig_store_forward_tag;
-        out->payload.module_config.payload_variant.store_forward = radio->store_forward;
-        break;
-    case MESH_UI_SETTINGS_TELEMETRY:
-        if (!radio->has_telemetry) {
-            return -ENOENT;
-        }
-        out->kind = MESH_ADMIN_SET_MODULE_CONFIG;
-        out->type = meshtastic_AdminMessage_ModuleConfigType_TELEMETRY_CONFIG;
-        out->payload.module_config.which_payload_variant = meshtastic_ModuleConfig_telemetry_tag;
-        out->payload.module_config.payload_variant.telemetry = radio->telemetry;
-        break;
-    case MESH_UI_SETTINGS_NEIGHBOR_INFO:
-        if (!radio->has_neighbor_info) {
-            return -ENOENT;
-        }
-        out->kind = MESH_ADMIN_SET_MODULE_CONFIG;
-        out->type = meshtastic_AdminMessage_ModuleConfigType_NEIGHBORINFO_CONFIG;
-        out->payload.module_config.which_payload_variant =
-            meshtastic_ModuleConfig_neighbor_info_tag;
-        out->payload.module_config.payload_variant.neighbor_info = radio->neighbor_info;
-        break;
-    case MESH_UI_SETTINGS_RANGE_TEST:
-        if (!radio->has_range_test) {
-            return -ENOENT;
-        }
-        out->kind = MESH_ADMIN_SET_MODULE_CONFIG;
-        out->type = meshtastic_AdminMessage_ModuleConfigType_RANGETEST_CONFIG;
-        out->payload.module_config.which_payload_variant = meshtastic_ModuleConfig_range_test_tag;
-        out->payload.module_config.payload_variant.range_test = radio->range_test;
-        break;
-    case MESH_UI_SETTINGS_PAXCOUNTER:
-        if (!radio->has_paxcounter) {
-            return -ENOENT;
-        }
-        out->kind = MESH_ADMIN_SET_MODULE_CONFIG;
-        out->type = meshtastic_AdminMessage_ModuleConfigType_PAXCOUNTER_CONFIG;
-        out->payload.module_config.which_payload_variant = meshtastic_ModuleConfig_paxcounter_tag;
-        out->payload.module_config.payload_variant.paxcounter = radio->paxcounter;
-        break;
-    case MESH_UI_SETTINGS_TAK:
-        if (!radio->has_tak) {
-            return -ENOENT;
-        }
-        out->kind = MESH_ADMIN_SET_MODULE_CONFIG;
-        out->type = meshtastic_AdminMessage_ModuleConfigType_TAK_CONFIG;
-        out->payload.module_config.which_payload_variant = meshtastic_ModuleConfig_tak_tag;
-        out->payload.module_config.payload_variant.tak = radio->tak;
-        break;
-    case MESH_UI_SETTINGS_AMBIENT:
-        if (!radio->has_ambient_lighting) {
-            return -ENOENT;
-        }
-        out->kind = MESH_ADMIN_SET_MODULE_CONFIG;
-        out->type = meshtastic_AdminMessage_ModuleConfigType_AMBIENTLIGHTING_CONFIG;
-        out->payload.module_config.which_payload_variant =
-            meshtastic_ModuleConfig_ambient_lighting_tag;
-        out->payload.module_config.payload_variant.ambient_lighting = radio->ambient_lighting;
-        break;
-    case MESH_UI_SETTINGS_STATUS_MESSAGE:
-        if (!radio->has_status_message) {
-            return -ENOENT;
-        }
-        out->kind = MESH_ADMIN_SET_MODULE_CONFIG;
-        out->type = meshtastic_AdminMessage_ModuleConfigType_STATUSMESSAGE_CONFIG;
-        out->payload.module_config.which_payload_variant =
-            meshtastic_ModuleConfig_statusmessage_tag;
-        out->payload.module_config.payload_variant.statusmessage = radio->status_message;
-        break;
-    case MESH_UI_SETTINGS_BLUETOOTH:
-        if (!radio->has_bluetooth) {
-            return -ENOENT;
-        }
-        out->kind = MESH_ADMIN_SET_CONFIG;
-        out->type = meshtastic_AdminMessage_ConfigType_BLUETOOTH_CONFIG;
-        out->payload.config.which_payload_variant = meshtastic_Config_bluetooth_tag;
-        out->payload.config.payload_variant.bluetooth = radio->bluetooth;
-        break;
-    case MESH_UI_SETTINGS_LORA:
-        if (!radio->has_lora) {
-            return -ENOENT;
-        }
-        out->kind = MESH_ADMIN_SET_CONFIG;
-        out->type = meshtastic_AdminMessage_ConfigType_LORA_CONFIG;
-        out->payload.config.which_payload_variant = meshtastic_Config_lora_tag;
-        out->payload.config.payload_variant.lora = radio->lora;
-        break;
-    case MESH_UI_SETTINGS_SECURITY:
-        if (!radio->has_security) {
-            return -ENOENT;
-        }
-        out->kind = MESH_ADMIN_SET_CONFIG;
-        out->type = meshtastic_AdminMessage_ConfigType_SECURITY_CONFIG;
-        out->payload.config.which_payload_variant = meshtastic_Config_security_tag;
-        out->payload.config.payload_variant.security = radio->security;
-        break;
-    case MESH_UI_SETTINGS_CHANNELS:
-        if (action->channel >= MESH_RADIO_SETTINGS_MAX_CHANNELS ||
-            !radio->has_channel[action->channel]) {
-            return -ENOENT;
-        }
-        out->kind = MESH_ADMIN_SET_CHANNEL;
-        out->type = action->channel;
-        out->payload.channel = radio->channels[action->channel];
-        out->payload.channel.index = (int8_t)action->channel;
-        out->payload.channel.has_settings = true;
-        break;
-    default:
-        return -ENOTSUP;
     }
     for (uint8_t i = 0; i < action->edit_count && i < MESH_UI_SETTINGS_EDITS_MAX; ++i) {
         const enum mesh_ui_setting_field field = (enum mesh_ui_setting_field)action->edits[i].field;

@@ -22,18 +22,20 @@ bool mesh_radio_settings_loaded(const struct mesh_radio_settings *settings) {
     if (settings == NULL) {
         return false;
     }
-    /* Every section, not a chosen few: the contract is "anything has arrived", and a module
-       missing from this list reads as no radio at all when its fragment is the one we hold.
-       One line per module, which is a list that has to grow with every phase - the consolidation
-       that folds it into the module table is the next thing after phase 10. */
+    /* The contract is "anything has arrived". The Config sections are still listed by hand -
+       there are eight of them and they do not grow - but the modules come from the table, so a
+       new one counts here the moment its row exists. Forgetting this list is what made a radio
+       read as absent while we held its config. */
     if (settings->has_device || settings->has_position || settings->has_power ||
         settings->has_network || settings->has_display || settings->has_lora ||
-        settings->has_bluetooth || settings->has_security || settings->has_mqtt ||
-        settings->has_store_forward || settings->has_telemetry || settings->has_neighbor_info ||
-        settings->has_range_test || settings->has_paxcounter || settings->has_tak ||
-        settings->has_ambient_lighting || settings->has_status_message || settings->has_owner ||
+        settings->has_bluetooth || settings->has_security || settings->has_owner ||
         settings->has_metadata) {
         return true;
+    }
+    for (size_t i = 0; i < mesh_radio_module_count(); ++i) {
+        if (mesh_radio_module_held(settings, mesh_radio_module_at(i))) {
+            return true;
+        }
     }
     for (size_t i = 0; i < MESH_RADIO_SETTINGS_MAX_CHANNELS; ++i) {
         if (settings->has_channel[i]) {
@@ -89,50 +91,106 @@ void mesh_radio_settings_apply_config(struct mesh_radio_settings *settings,
     }
 }
 
+/*
+ * One row per ModuleConfig section this client keeps. The admin type and the union tag sit
+ * together because they are the pair that used to be typed apart and had to agree; `size` is
+ * taken from the member itself so a row cannot claim a length its storage does not have.
+ *
+ * Adding a module is this row plus its storage in the struct - the apply, the loaded predicate
+ * and the refresh queue all read it from here.
+ */
+#define MODULE_BINDING(admin, tag, flag, member)                                                   \
+    {                                                                                              \
+        (uint32_t)(admin), (uint32_t)(tag), offsetof(struct mesh_radio_settings, flag),            \
+            offsetof(struct mesh_radio_settings, member),                                          \
+            sizeof(((struct mesh_radio_settings *)0)->member)                                      \
+    }
+
+static const struct mesh_module_binding k_modules[] = {
+    MODULE_BINDING(meshtastic_AdminMessage_ModuleConfigType_MQTT_CONFIG,
+                   meshtastic_ModuleConfig_mqtt_tag, has_mqtt, mqtt),
+    MODULE_BINDING(meshtastic_AdminMessage_ModuleConfigType_STOREFORWARD_CONFIG,
+                   meshtastic_ModuleConfig_store_forward_tag, has_store_forward, store_forward),
+    MODULE_BINDING(meshtastic_AdminMessage_ModuleConfigType_TELEMETRY_CONFIG,
+                   meshtastic_ModuleConfig_telemetry_tag, has_telemetry, telemetry),
+    MODULE_BINDING(meshtastic_AdminMessage_ModuleConfigType_NEIGHBORINFO_CONFIG,
+                   meshtastic_ModuleConfig_neighbor_info_tag, has_neighbor_info, neighbor_info),
+    MODULE_BINDING(meshtastic_AdminMessage_ModuleConfigType_RANGETEST_CONFIG,
+                   meshtastic_ModuleConfig_range_test_tag, has_range_test, range_test),
+    MODULE_BINDING(meshtastic_AdminMessage_ModuleConfigType_PAXCOUNTER_CONFIG,
+                   meshtastic_ModuleConfig_paxcounter_tag, has_paxcounter, paxcounter),
+    MODULE_BINDING(meshtastic_AdminMessage_ModuleConfigType_TAK_CONFIG,
+                   meshtastic_ModuleConfig_tak_tag, has_tak, tak),
+    MODULE_BINDING(meshtastic_AdminMessage_ModuleConfigType_AMBIENTLIGHTING_CONFIG,
+                   meshtastic_ModuleConfig_ambient_lighting_tag, has_ambient_lighting,
+                   ambient_lighting),
+    MODULE_BINDING(meshtastic_AdminMessage_ModuleConfigType_STATUSMESSAGE_CONFIG,
+                   meshtastic_ModuleConfig_statusmessage_tag, has_status_message, status_message),
+};
+
+size_t mesh_radio_module_count(void) { return sizeof k_modules / sizeof k_modules[0]; }
+
+const struct mesh_module_binding *mesh_radio_module_at(size_t index) {
+    return index < mesh_radio_module_count() ? &k_modules[index] : NULL;
+}
+
+const struct mesh_module_binding *mesh_radio_module_for_type(uint32_t admin_type) {
+    for (size_t i = 0; i < mesh_radio_module_count(); ++i) {
+        if (k_modules[i].admin_type == admin_type) {
+            return &k_modules[i];
+        }
+    }
+    return NULL;
+}
+
+/* The has_* flag and the kept section, reached through the row's offsets. Separate helpers
+   because everything below wants one or the other and none of them should be doing pointer
+   arithmetic of its own. */
+static bool *module_flag(struct mesh_radio_settings *settings,
+                         const struct mesh_module_binding *binding) {
+    return (bool *)((char *)settings + binding->has_offset);
+}
+
+static void *module_store(struct mesh_radio_settings *settings,
+                          const struct mesh_module_binding *binding) {
+    return (char *)settings + binding->store_offset;
+}
+
+bool mesh_radio_module_held(const struct mesh_radio_settings *settings,
+                            const struct mesh_module_binding *binding) {
+    if (settings == NULL || binding == NULL) {
+        return false;
+    }
+    return *(const bool *)((const char *)settings + binding->has_offset);
+}
+
+bool mesh_radio_module_load(const struct mesh_radio_settings *settings,
+                            const struct mesh_module_binding *binding,
+                            meshtastic_ModuleConfig *out) {
+    if (out == NULL || !mesh_radio_module_held(settings, binding)) {
+        return false;
+    }
+    memset(out, 0, sizeof *out);
+    out->which_payload_variant = (pb_size_t)binding->variant_tag;
+    memcpy(&out->payload_variant, (const char *)settings + binding->store_offset, binding->size);
+    return true;
+}
+
 void mesh_radio_settings_apply_module_config(struct mesh_radio_settings *settings,
                                              const meshtastic_ModuleConfig *config) {
     if (settings == NULL || config == NULL) {
         return;
     }
-    switch (config->which_payload_variant) {
-    case meshtastic_ModuleConfig_mqtt_tag:
-        settings->has_mqtt = true;
-        settings->mqtt = config->payload_variant.mqtt;
-        break;
-    case meshtastic_ModuleConfig_store_forward_tag:
-        settings->has_store_forward = true;
-        settings->store_forward = config->payload_variant.store_forward;
-        break;
-    case meshtastic_ModuleConfig_telemetry_tag:
-        settings->has_telemetry = true;
-        settings->telemetry = config->payload_variant.telemetry;
-        break;
-    case meshtastic_ModuleConfig_neighbor_info_tag:
-        settings->has_neighbor_info = true;
-        settings->neighbor_info = config->payload_variant.neighbor_info;
-        break;
-    case meshtastic_ModuleConfig_range_test_tag:
-        settings->has_range_test = true;
-        settings->range_test = config->payload_variant.range_test;
-        break;
-    case meshtastic_ModuleConfig_paxcounter_tag:
-        settings->has_paxcounter = true;
-        settings->paxcounter = config->payload_variant.paxcounter;
-        break;
-    case meshtastic_ModuleConfig_tak_tag:
-        settings->has_tak = true;
-        settings->tak = config->payload_variant.tak;
-        break;
-    case meshtastic_ModuleConfig_ambient_lighting_tag:
-        settings->has_ambient_lighting = true;
-        settings->ambient_lighting = config->payload_variant.ambient_lighting;
-        break;
-    case meshtastic_ModuleConfig_statusmessage_tag:
-        settings->has_status_message = true;
-        settings->status_message = config->payload_variant.statusmessage;
-        break;
-    default:
-        break;
+    /* Every payload_variant member shares the union's address, so the tag alone says which
+       section this is and the row says where it goes and how much of it there is. */
+    for (size_t i = 0; i < mesh_radio_module_count(); ++i) {
+        const struct mesh_module_binding *binding = &k_modules[i];
+        if (binding->variant_tag != (uint32_t)config->which_payload_variant) {
+            continue;
+        }
+        *module_flag(settings, binding) = true;
+        memcpy(module_store(settings, binding), &config->payload_variant, binding->size);
+        return;
     }
 }
 
@@ -732,25 +790,16 @@ size_t mesh_radio_settings_queue_all(struct mesh_radio_settings *settings) {
         meshtastic_AdminMessage_ConfigType_POWER_CONFIG,
         meshtastic_AdminMessage_ConfigType_NETWORK_CONFIG,
     };
-    static const uint32_t k_module_types[] = {
-        meshtastic_AdminMessage_ModuleConfigType_MQTT_CONFIG,
-        meshtastic_AdminMessage_ModuleConfigType_STOREFORWARD_CONFIG,
-        meshtastic_AdminMessage_ModuleConfigType_TELEMETRY_CONFIG,
-        meshtastic_AdminMessage_ModuleConfigType_NEIGHBORINFO_CONFIG,
-        meshtastic_AdminMessage_ModuleConfigType_RANGETEST_CONFIG,
-        meshtastic_AdminMessage_ModuleConfigType_PAXCOUNTER_CONFIG,
-        meshtastic_AdminMessage_ModuleConfigType_TAK_CONFIG,
-        meshtastic_AdminMessage_ModuleConfigType_AMBIENTLIGHTING_CONFIG,
-        meshtastic_AdminMessage_ModuleConfigType_STATUSMESSAGE_CONFIG,
-    };
 
     size_t added = mesh_radio_settings_queue_probe(settings);
     for (size_t i = 0; i < sizeof k_config_types / sizeof k_config_types[0]; ++i) {
         added += mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_CONFIG, k_config_types[i]);
     }
-    for (size_t i = 0; i < sizeof k_module_types / sizeof k_module_types[0]; ++i) {
-        added +=
-            mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_MODULE_CONFIG, k_module_types[i]);
+    /* One per module, from the table rather than a list kept beside it: a module whose row
+       exists is refreshed, and one that is not kept is not asked for. */
+    for (size_t i = 0; i < mesh_radio_module_count(); ++i) {
+        added += mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_MODULE_CONFIG,
+                                             mesh_radio_module_at(i)->admin_type);
     }
     for (uint32_t slot = 0; slot < MESH_RADIO_SETTINGS_MAX_CHANNELS; ++slot) {
         added += mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_CHANNEL, slot);

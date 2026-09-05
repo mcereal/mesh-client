@@ -167,6 +167,134 @@ MESH_TEST_CASE(radio_settings_admin_roundtrip, unit) {
     record_success(test_name);
 }
 
+/*
+ * The module table: one row per ModuleConfig section, each pairing an admin ModuleConfigType
+ * with the union tag and the storage it belongs to.
+ *
+ * The pairing is what this guards. Before the table, a section's type and its tag were typed
+ * out separately in the write builder, and a mismatched pair wrote correct bytes into the wrong
+ * module - which the radio accepts without an error, so nothing downstream would have caught
+ * it. Every row is round-tripped here: bytes in through apply, bytes out through load, with the
+ * tag checked on the way out and every other module checked to have stayed empty.
+ */
+MESH_TEST_CASE(radio_module_table, unit) {
+    const size_t count = mesh_radio_module_count();
+    MESH_TEST_FAIL_IF(count == 0U, "the module table should not be empty");
+
+    /*
+     * What each row must actually say, written out here from meshtastic/module_config.proto and
+     * meshtastic/admin.proto rather than read back out of the table under test - the same rule
+     * message_encode_text_golden follows. A round trip that takes its input from the row and
+     * compares the output to that same row proves only that the table is used consistently; it
+     * passes a row whose tag is wrong but unique, which is the mistake worth catching.
+     *
+     * Numbers are spelled out beside the symbols so a row can be checked against the .proto by
+     * eye: the ModuleConfigType enum counts from 0 and the ModuleConfig field numbers from 1.
+     */
+    static const struct {
+        uint32_t admin_type;
+        uint32_t variant_tag;
+    } k_expected[] = {
+        {0U, 1U},   /* MQTT_CONFIG            <-> mqtt = 1 */
+        {3U, 4U},   /* STOREFORWARD_CONFIG    <-> store_forward = 4 */
+        {5U, 6U},   /* TELEMETRY_CONFIG       <-> telemetry = 6 */
+        {9U, 10U},  /* NEIGHBORINFO_CONFIG    <-> neighbor_info = 10 */
+        {4U, 5U},   /* RANGETEST_CONFIG       <-> range_test = 5 */
+        {12U, 13U}, /* PAXCOUNTER_CONFIG      <-> paxcounter = 13 */
+        {15U, 16U}, /* TAK_CONFIG             <-> tak = 16 */
+        {10U, 11U}, /* AMBIENTLIGHTING_CONFIG <-> ambient_lighting = 11 */
+        {13U, 14U}, /* STATUSMESSAGE_CONFIG   <-> statusmessage = 14 */
+    };
+    MESH_TEST_FAIL_IF(count != sizeof k_expected / sizeof k_expected[0],
+                      "a module was added or removed without updating the expected pairs");
+    for (size_t i = 0; i < count; ++i) {
+        const uint32_t admin = k_expected[i].admin_type;
+        const struct mesh_module_binding *row = mesh_radio_module_for_type(admin);
+        MESH_TEST_FAIL_IF(row == NULL, "an expected module has no row");
+        MESH_TEST_FAIL_IF(row->variant_tag != k_expected[i].variant_tag,
+                          "a module row pairs its admin type with the wrong union tag");
+    }
+
+    /*
+     * And a cross-check that costs nothing and covers a row added later without this test being
+     * updated: upstream orders the ModuleConfigType enum to match the ModuleConfig field numbers,
+     * so the tag is always the admin type plus one, for all seventeen modules - not only the ones
+     * kept here. It is an ordering convention rather than a guarantee, so if it ever fires the
+     * answer is to check the new module against the .proto by hand, not to delete this.
+     */
+    for (size_t i = 0; i < count; ++i) {
+        const struct mesh_module_binding *row = mesh_radio_module_at(i);
+        MESH_TEST_FAIL_IF(row->variant_tag != row->admin_type + 1U,
+                          "a module row breaks the upstream admin-type/field-number ordering");
+    }
+
+    /* No two rows may claim the same admin type or the same union tag: either would make one
+       module unreachable and silently shadow it with another. */
+    for (size_t i = 0; i < count; ++i) {
+        const struct mesh_module_binding *a = mesh_radio_module_at(i);
+        MESH_TEST_FAIL_IF(a == NULL || a->size == 0U, "a module row should name real storage");
+        MESH_TEST_FAIL_IF(mesh_radio_module_for_type(a->admin_type) != a,
+                          "a module row should be the one found for its own admin type");
+        for (size_t j = i + 1U; j < count; ++j) {
+            const struct mesh_module_binding *b = mesh_radio_module_at(j);
+            MESH_TEST_FAIL_IF(a->admin_type == b->admin_type,
+                              "two module rows share an admin ModuleConfigType");
+            MESH_TEST_FAIL_IF(a->variant_tag == b->variant_tag,
+                              "two module rows share a payload_variant tag");
+            MESH_TEST_FAIL_IF(a->has_offset == b->has_offset || a->store_offset == b->store_offset,
+                              "two module rows share storage");
+        }
+    }
+
+    /* Each row, one at a time: a recognisable payload in, the same payload and tag back out,
+       and nothing else in the struct touched. */
+    for (size_t i = 0; i < count; ++i) {
+        const struct mesh_module_binding *binding = mesh_radio_module_at(i);
+        struct mesh_radio_settings radio;
+        mesh_radio_settings_reset(&radio);
+
+        meshtastic_ModuleConfig config;
+        memset(&config, 0, sizeof config);
+        config.which_payload_variant = (pb_size_t)binding->variant_tag;
+        uint8_t pattern[sizeof config.payload_variant];
+        for (size_t b = 0; b < binding->size; ++b) {
+            pattern[b] = (uint8_t)(0x40U + i + b);
+        }
+        memcpy(&config.payload_variant, pattern, binding->size);
+
+        mesh_radio_settings_apply_module_config(&radio, &config);
+        MESH_TEST_FAIL_IF(!mesh_radio_module_held(&radio, binding),
+                          "applying a module config should mark that module held");
+        MESH_TEST_FAIL_IF(!mesh_radio_settings_loaded(&radio),
+                          "one module on its own should count as loaded");
+        for (size_t j = 0; j < count; ++j) {
+            if (j == i) {
+                continue;
+            }
+            MESH_TEST_FAIL_IF(mesh_radio_module_held(&radio, mesh_radio_module_at(j)),
+                              "applying one module should not mark another held");
+        }
+
+        meshtastic_ModuleConfig out;
+        MESH_TEST_FAIL_IF(!mesh_radio_module_load(&radio, binding, &out),
+                          "a held module should load back");
+        MESH_TEST_FAIL_IF((uint32_t)out.which_payload_variant != binding->variant_tag,
+                          "a module should load back under its own tag");
+        MESH_TEST_FAIL_IF(memcmp(&out.payload_variant, pattern, binding->size) != 0,
+                          "a module should load back the bytes it was given");
+    }
+
+    /* And a module nobody has sent does not load, which is the -ENOENT a save reports. */
+    struct mesh_radio_settings empty;
+    mesh_radio_settings_reset(&empty);
+    meshtastic_ModuleConfig out;
+    MESH_TEST_FAIL_IF(mesh_radio_module_load(&empty, mesh_radio_module_at(0U), &out),
+                      "a module the radio has not sent should not load");
+    MESH_TEST_FAIL_IF(mesh_radio_module_for_type(0xFFFFU) != NULL,
+                      "an admin type this client does not keep should have no row");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(radio_settings_fetch_queue, unit) {
     struct mesh_radio_settings settings;
     mesh_radio_settings_reset(&settings);

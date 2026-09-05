@@ -188,13 +188,21 @@ the nanopb section.
 
 > Adding an editable field means four edits: the enum plus table row in `settings.c`, the flatten
 > in `app.c`, the `mesh_app_apply_setting_edit` case, and the `item_field` call in the section
-> builder. Adding a whole *module* means those four plus a `has_*` and a copy in
-> `mesh_radio_settings_apply_module_config`, an entry in the refresh queue's `k_module_types`, a
-> row in `k_modules` in `settings.c`, and its `set_module_config` arm in
-> `mesh_app_build_settings_write`. See [`settings-roadmap.md`](settings-roadmap.md) phases 10-12.
-> The one that bites: the `ModuleConfigType` and the `which_payload_variant` tag are named in
-> two different places and must agree — a mismatch writes the right bytes into the wrong module
-> and the radio takes it without an error.
+> builder. Adding a whole *module* means those four plus its storage in
+> `struct mesh_radio_settings`, one row in `k_modules` in `radio_settings.c`, one arm in
+> `module_admin_type()` in `app_settings.c`, one row in `k_modules` in `settings.c` (the UI
+> list order), and its `has_*` in `mesh_ui_settings_section_loaded`.
+> See [`settings-roadmap.md`](settings-roadmap.md) phases 11-12.
+
+**The module table** (`struct mesh_module_binding`, `radio_settings.c`) is what a module's
+protobuf identity lives in: its admin `ModuleConfigType`, its `which_payload_variant` tag, and
+where its section is kept, with the size taken from the member so a row cannot claim a length
+its storage does not have. The apply, the loaded predicate, the refresh queue and the write
+builder all read it, so the type and the tag are named once, together, rather than typed apart
+in places that had to agree — a mismatch there wrote correct bytes into the *wrong module*,
+which the radio accepts without an error. Copies are `memcpy` rather than assignment only
+because the section is picked at runtime; every `payload_variant` member shares the union's
+address, so no offset into the `ModuleConfig` is needed.
 
 Every radio section is editable now, with these exceptions and quirks:
 
