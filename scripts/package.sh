@@ -38,6 +38,18 @@ chmod +x "${OUTPUT_DIR}/bin/shared/meshclient"
 cp Tools/tg5040/MeshClient.pak/launch.sh "${OUTPUT_DIR}/launch.sh"
 chmod +x "${OUTPUT_DIR}/launch.sh"
 
+# pak.json rides inside the pak as well as sitting at the repo root: the root copy is what the
+# Pak Store reads when it lists us, the packaged copy is how it knows which version is actually
+# installed on the device. scripts/release-build.sh stamps both from the release tag.
+cp pak.json "${OUTPUT_DIR}/pak.json"
+
+# The CA bundle the updater verifies GitHub against. The Brick has no system CA store at all, so
+# without this every HTTPS fetch fails with curl exit 60 and self-update cannot work; see the
+# updater section of CLAUDE.md. It ships in the pak rather than through self-update, which is why
+# a device that predates it has to reinstall the pak once to get updates working.
+mkdir -p "${OUTPUT_DIR}/certs"
+cp Tools/tg5040/MeshClient.pak/certs/certificates.crt "${OUTPUT_DIR}/certs/certificates.crt"
+
 if [[ -d Tools/tg5040/MeshClient.pak/bin/shared ]]; then
     while IFS= read -r -d '' file; do
         dest="${OUTPUT_DIR}/bin/shared/$(basename "$file")"
@@ -54,6 +66,12 @@ if [[ -d Tools/tg5040/MeshClient.pak/bin/tg5040 ]]; then
 fi
 
 mkdir -p "${DIST_DIR}"
-( cd "${DIST_DIR}" && zip -qr "MeshClient.pak.zip" "$(basename "${OUTPUT_DIR}")" )
+# The zip holds the *contents* of the pak, not the pak folder itself. That is what the NextUI
+# Pak Store requires - it creates `Tools/<platform>/MeshClient.pak/` and unpacks into it, so a
+# zip with the folder nested inside would install as MeshClient.pak/MeshClient.pak/launch.sh,
+# a pak with no launcher. Installing by hand therefore means making the folder first; see the
+# packaging section of README.md.
+rm -f "${DIST_DIR}/MeshClient.pak.zip"
+( cd "${OUTPUT_DIR}" && zip -qr "../MeshClient.pak.zip" . )
 
 echo "Created package at ${DIST_DIR}/MeshClient.pak.zip"

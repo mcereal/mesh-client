@@ -149,10 +149,14 @@ replaced by whatever is on GitHub, so do not stamp a local build to try the upda
 When semantic-release runs, it automatically:
 
 1. **CMakeLists.txt**: Updates `project(meshclient VERSION x.y.z ...)`
-2. **CHANGELOG.md**: Generates release notes from commit messages
-3. **Git tags**: Creates a new tag (e.g., `v1.2.3`)
-4. **GitHub Releases**: Creates a release with:
-   - `MeshClient.pak.zip` - The packaged TrimUI pak, for a fresh install
+2. **pak.json**: Updates `version` to the release tag, which the NextUI Pak Store requires to
+   match. Skipped for prereleases, so the file only ever carries the last stable `vX.Y.Z`.
+3. **CHANGELOG.md**: Generates release notes from commit messages
+4. **Git tags**: Creates a new tag (e.g., `v1.2.3`)
+5. **GitHub Releases**: Creates a release with:
+   - `MeshClient.pak.zip` - The packaged TrimUI pak, for a fresh install. It holds the pak's
+     contents rather than the `MeshClient.pak` folder, which is what the Pak Store unpacks
+     into the folder it creates; renaming it breaks the `release_filename` in `pak.json`.
    - `MeshClient.pak.zip.sha256` - Checksum file
    - `meshclient-tg5040-aarch64` - The bare static binary, which is what the in-app updater
      downloads (Settings > About MeshClient). One file it can verify and rename into place,

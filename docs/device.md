@@ -13,7 +13,8 @@ The SD card comes out of the device exactly once, for step 2. After that everyth
    POWER. If the screen flashes on and off, keep charging.
 2. **Install NextUI** if the card does not already have it: <https://nextui.loveretro.games/getting-started/installation/>.
    While the card is in the Mac, drop `dist/MeshClient.pak/` into `Tools/tg5040/` so the first
-   boot already has a build to test.
+   boot already has a build to test. (That folder, not `dist/MeshClient.pak.zip`, whose
+   contents unpack *inside* a `MeshClient.pak/` you make yourself.)
 3. **Join WiFi** from the NextUI Settings pak. Note the IP it shows; the Brick will keep it on
    most home routers, but a DHCP reservation saves grief later.
 4. **Install the SSH Server pak** from Tools > Pak Store (preinstalled with NextUI). It wraps
@@ -45,6 +46,12 @@ What it needs:
 - **WiFi**, and either `curl` or `wget` on the device. Without one the About section says so
   instead of offering the rows; NextUI ships a downloader for its own Pak Store, so this is
   normally already there.
+- **The CA bundle in the pak** (`certs/certificates.crt`). The Brick has no system CA store, so
+  curl cannot verify github.com without it and every check fails; the About screen says "No CA
+  certificates; reinstall the pak" when it is missing. It ships in the pak rather than through
+  self-update, so a client installed before this existed needs one pak reinstall (from the Pak
+  Store, or `make brick`) before updates start working. Set `SSL_CERT_FILE` or `CURL_CA_BUNDLE`
+  to override it.
 - A **release build**. Anything you build yourself reports `<version>-dev` (e.g. `1.12.0-dev`)
   and is never offered an update, which is what stops a `make brick` deploy from being replaced
   by whatever is on GitHub. Only the release workflow stamps a build as a release.
@@ -53,9 +60,12 @@ A client built from the `beta` or `rc` channel tracks that channel: it is offere
 release of any kind, so `1.13.0-beta.1` will be offered `1.13.0-beta.2`. A stable build is only
 ever offered stable releases.
 
-It only replaces the `meshclient` binary. `launch.sh` and the `Tools/` helper binaries ship in
-the pak zip, so a release that changes either still needs the zip unpacked into
-`Tools/tg5040/` by hand. The release notes say when that is the case.
+It only replaces the `meshclient` binary (and the `version` line in the pak's own `pak.json`,
+so the Pak Store stops offering an update the device already has). `launch.sh` and the
+`Tools/` helper binaries ship in the pak zip, so a release that changes either still needs the
+zip unpacked into `Tools/tg5040/MeshClient.pak/` by hand - the zip holds the pak's contents,
+not the folder, so unzip *into* the pak directory rather than next to it. The release notes
+say when that is the case. Installing through the Pak Store does the whole pak either way.
 
 `meshclient --version` prints the same number from a shell, e.g. over SSH:
 
@@ -129,6 +139,39 @@ menu; the log shows discovery, `Auto-connecting to ...`, the handshake, and ever
 `make deploy-shell` drops you into a shell on the device. The pak lives at
 `/mnt/SDCARD/Tools/tg5040/MeshClient.pak`, its `$HOME` (prefs, handshake cache) at
 `/mnt/SDCARD/.userdata/tg5040/MeshClient/`.
+
+## Screenshots
+
+NextUI's own screenshot shortcut is part of `minarch`, the emulator runtime, and captures that
+process's GL surface - so it cannot see a pak like ours, which draws straight to `/dev/fb0`.
+`make deploy-shot` reads the framebuffer over SSH instead, which catches whatever is actually
+on the panel: our HUD, the launcher, a crash. Nothing extra is needed on the device.
+
+```bash
+make deploy-shot                                   # grab now -> shot-<timestamp>.png
+make deploy-shot ARGS="-d 10 -o nodes.png"         # 10 s to navigate there first
+make deploy-shot ARGS="-n 5 -d 3 -o tour.png"      # five, 3 s apart -> tour-1.png ...
+make deploy-shot ARGS="-P 1 -o launcher.png"       # the other page (see below)
+```
+
+Output is a 1024x768 PNG written where you ran the command, converted on the host with nothing
+but the Python standard library - no Pillow, no ffmpeg. This is how the screenshots for the Pak
+Store listing get made.
+
+**Launch MeshClient from the Tools menu, not over SSH.** Started with `nohup ./launch.sh` from
+an SSH session, the client does draw - but NextUI's launcher is still the foreground app and
+keeps repainting `fb0` over it, so every shot comes back as the launcher's menu on both pages.
+Opening the pak from Tools is what suspends that repaint. (The client itself runs fine either
+way; this only affects what is on the panel.)
+
+Two things to know when a shot looks wrong:
+
+- **`fb0` is 1024x16384**, a stack of 768-row pages the display engine flips between. The fb
+  backend draws page 0 and mirrors into page 1, so page 0 is MeshClient. NextUI's SDL usually
+  leaves the panel on page 1, so `-P 1` is what catches the launcher.
+- **Colours are read as little-endian XRGB8888** (`B,G,R,X` in memory), which is what the Brick
+  reports. If red and blue ever come out swapped, that assumption is what to change - the
+  channel assignment is four lines in `cmd_shot`.
 
 ## What `make deploy-check` tells you
 

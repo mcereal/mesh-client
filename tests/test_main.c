@@ -8636,6 +8636,65 @@ static bool updater_wait_past(struct mesh_event_loop *loop, struct mesh_updater 
  * in the seams - a child reaped before its output was drained, a blocking waitpid in the
  * loop's own thread - and none of those show up when the fetch is stubbed out.
  */
+/*
+ * The CA bundle the fetcher is pointed at.
+ *
+ * Worth pinning because getting it wrong is invisible until it is on hardware: the Brick has no
+ * system CA store, so a build that resolves nothing here fails every check with curl exit 60 and
+ * self-update simply never works. The environment override is the one branch a test can drive
+ * deterministically - the pak lookup needs the binary to live in a pak, and the system paths
+ * differ per distro - and it is also the branch that documents the precedence.
+ */
+static void test_updater_ca_bundle(void) {
+    const char *test_name = "updater_ca_bundle";
+    char bundle_path[] = "/tmp/meshclient_ca_XXXXXX";
+    const int fd = mkstemp(bundle_path);
+    if (fd < 0) {
+        record_failure(test_name, "could not create a stand-in CA bundle");
+        return;
+    }
+    (void)!write(fd, "# not a real bundle\n", 20U);
+    close(fd);
+
+    struct mesh_event_loop loop;
+    if (mesh_event_loop_init(&loop) != 0) {
+        unlink(bundle_path);
+        record_failure(test_name, "event loop init failed");
+        return;
+    }
+
+    /* SSL_CERT_FILE wins over everything: whatever the host has in /etc/ssl, an operator who
+       names a bundle gets that bundle. */
+    setenv("SSL_CERT_FILE", bundle_path, 1);
+    struct mesh_updater updater;
+    mesh_updater_init(&updater, &loop);
+    const bool honoured = strcmp(updater.ca_bundle, bundle_path) == 0;
+    mesh_updater_shutdown(&updater);
+    unsetenv("SSL_CERT_FILE");
+    if (!honoured) {
+        mesh_event_loop_shutdown(&loop);
+        unlink(bundle_path);
+        record_failure(test_name, "SSL_CERT_FILE should be the bundle the fetcher is given");
+        return;
+    }
+
+    /* A path that does not exist is ignored rather than passed to curl, which would turn a
+       stale environment variable into a failed update with a confusing message. */
+    setenv("CURL_CA_BUNDLE", "/nonexistent/meshclient/ca.crt", 1);
+    mesh_updater_init(&updater, &loop);
+    const bool ignored = strcmp(updater.ca_bundle, "/nonexistent/meshclient/ca.crt") != 0;
+    mesh_updater_shutdown(&updater);
+    unsetenv("CURL_CA_BUNDLE");
+    mesh_event_loop_shutdown(&loop);
+    unlink(bundle_path);
+    if (!ignored) {
+        record_failure(test_name, "an unreadable CA bundle should not be used");
+        return;
+    }
+
+    record_success(test_name);
+}
+
 static void test_updater_fetch_and_install(void) {
     const char *test_name = "updater_fetch_and_install";
     char dir[] = "/tmp/meshclient_update_XXXXXX";
@@ -8654,10 +8713,30 @@ static void test_updater_fetch_and_install(void) {
     char json_path[256];
     char curl_path[256];
     char install_path[256];
+    char bin_dir[256];
+    char shared_dir[256];
+    char pak_json_path[256];
     snprintf(payload_path, sizeof payload_path, "%s/payload", dir);
     snprintf(json_path, sizeof json_path, "%s/release.json", dir);
     snprintf(curl_path, sizeof curl_path, "%s/curl", dir);
-    snprintf(install_path, sizeof install_path, "%s/meshclient", dir);
+    /* The pak layout, because the install stamps the pak.json two directories above the
+       binary and would find nothing in a flat one. */
+    snprintf(bin_dir, sizeof bin_dir, "%s/bin", dir);
+    snprintf(shared_dir, sizeof shared_dir, "%s/bin/shared", dir);
+    snprintf(install_path, sizeof install_path, "%s/bin/shared/meshclient", dir);
+    snprintf(pak_json_path, sizeof pak_json_path, "%s/pak.json", dir);
+    if (mkdir(bin_dir, 0755) != 0 || mkdir(shared_dir, 0755) != 0) {
+        record_failure(test_name, "could not create the pak layout");
+        return;
+    }
+    FILE *pak_json = fopen(pak_json_path, "wb");
+    if (pak_json == NULL) {
+        record_failure(test_name, "could not write pak.json");
+        return;
+    }
+    fprintf(pak_json, "{\n  \"name\": \"MeshClient\",\n  \"version\": \"v1.0.0\",\n"
+                      "  \"type\": \"TOOL\"\n}\n");
+    fclose(pak_json);
 
     /* The "new binary", and the digest the release will claim for it. */
     static const char k_payload[] = "#!/bin/sh\nexit 0\n";
@@ -8801,6 +8880,23 @@ static void test_updater_fetch_and_install(void) {
         goto cleanup;
     }
 
+    /* The pak's own version has moved with the binary. Without this the Pak Store would read
+       a pak.json still claiming the old version and offer an update the device already has -
+       and only the `version` value changes, so the rest of the file survives untouched. */
+    char pak_body[512];
+    FILE *reread = fopen(pak_json_path, "rb");
+    size_t pak_len = reread != NULL ? fread(pak_body, 1U, sizeof pak_body - 1U, reread) : 0U;
+    if (reread != NULL) {
+        fclose(reread);
+    }
+    pak_body[pak_len] = '\0';
+    if (strstr(pak_body, "\"version\": \"v999.0.0\"") == NULL ||
+        strstr(pak_body, "\"name\": \"MeshClient\"") == NULL ||
+        strstr(pak_body, "\"type\": \"TOOL\"") == NULL) {
+        failure = "the install should stamp the pak.json version and leave the rest alone";
+        goto cleanup;
+    }
+
     /*
      * Now the case that matters most: a release whose digest does not match what arrives. The
      * download must be discarded and the installed binary left exactly as it was, because this
@@ -8845,6 +8941,17 @@ static void test_updater_fetch_and_install(void) {
         failure = "a rejected download must leave the installed binary alone";
         goto cleanup;
     }
+    /* And so is the version it advertises - nothing was installed to advertise. */
+    reread = fopen(pak_json_path, "rb");
+    pak_len = reread != NULL ? fread(pak_body, 1U, sizeof pak_body - 1U, reread) : 0U;
+    if (reread != NULL) {
+        fclose(reread);
+    }
+    pak_body[pak_len] = '\0';
+    if (strstr(pak_body, "\"version\": \"v999.0.0\"") == NULL) {
+        failure = "a rejected download must leave pak.json alone";
+        goto cleanup;
+    }
 
 cleanup:
     if (updater_up) {
@@ -8861,6 +8968,9 @@ cleanup:
     unlink(json_path);
     unlink(curl_path);
     unlink(install_path);
+    unlink(pak_json_path);
+    rmdir(shared_dir);
+    rmdir(bin_dir);
     rmdir(dir);
     if (failure != NULL) {
         record_failure(test_name, failure);
@@ -9013,6 +9123,7 @@ static const struct test_case k_test_cases[] = {
     {"updater_parse_release", "unit", test_updater_parse_release},
     {"updater_lifecycle", "unit", test_updater_lifecycle},
     {"updater_fetch_and_install", "unit", test_updater_fetch_and_install},
+    {"updater_ca_bundle", "unit", test_updater_ca_bundle},
     {"updater_child_outlives_stdout", "unit", test_updater_child_outlives_stdout},
     {"version_build_stamp", "unit", test_version_build_stamp},
     {"ui_settings_about", "unit", test_ui_settings_about},

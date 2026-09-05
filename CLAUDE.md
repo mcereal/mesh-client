@@ -29,6 +29,7 @@ make docker-image / docker-cross-image    # force image rebuild after editing do
 make format                               # clang-format all tracked .c/.h (runs fine on the host)
 make brick                                # docker-pak + push to the Brick over SSH (needs .brick.env, see docs/device.md)
 make deploy / deploy-logs / deploy-check  # push only / tail device log / report BlueZ, D-Bus, fb0 state on device
+make deploy-shot ARGS="-d 10 -o x.png"    # screenshot the device's screen off /dev/fb0 (page 0; -P 1 is the launcher)
 make deploy-run ARGS="--list-devices"     # run launch.sh on the device headless, streaming output
 ```
 
@@ -206,7 +207,18 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   device's `curl` (then `wget`) and reads its stdout through the event loop, the same shape
   `minui.c` uses for `minui-list`, because the release build is static musl with libdbus as its
   only dependency. One child at a time, states strictly sequential, `tick()` enforcing the
-  timeout. What makes downloading an executable safe is not the transport but the digest: the
+  timeout. **It also has to bring its own CA bundle**: the Brick has no system CA store at all
+  - no `/etc/ssl` - so a bare `curl` fails every HTTPS request with exit 60, and busybox `wget`
+  there has no HTTPS support whatever. So the pak ships Mozilla's roots at `certs/certificates.crt`
+  (the same thing Pak Store does) and `updater_resolve_ca_bundle()` picks one: `SSL_CERT_FILE`
+  or `CURL_CA_BUNDLE` first, then our bundle via `updater_pak_file()`, then the usual distro
+  paths so a desktop build keeps using the system's. `--insecure` is **not** an alternative and
+  must not be added - the release metadata is what carries the digest every download is checked
+  against, so trusting it unauthenticated would defeat the verification rather than route around
+  a missing file. Because the bundle ships in the pak and not through self-update, a device
+  installed before it has to reinstall the pak once; curl's exit 60 is mapped to
+  "No CA certificates; reinstall the pak" so the About screen says so.
+  What makes downloading an executable safe is not the transport but the digest: the
   release metadata comes from `api.github.com` - `releases/latest` for a stable build, but
   `releases?per_page=1` for one off the beta or rc channel, because `latest` deliberately skips
   prereleases and a beta client polling it would never see the next beta (the `per_page=1` cap
@@ -407,6 +419,19 @@ via Python3 (needs `pip install protobuf grpcio-tools`).
   consequence is that `launch.sh` and the `Tools/` helpers do **not** ship through self-update;
   changing either means the user reinstalls the pak, so treat those two as a compatibility
   boundary rather than something to edit freely.
+- **`pak.json` is the NextUI Pak Store listing**, and the store's rules shape two things here.
+  Its `version` must match the release tag, so `release-build.sh` stamps it (`v${VERSION}`)
+  beside the CMakeLists rewrite and `@semantic-release/git` commits it; prereleases are
+  skipped, so the file only ever carries the last stable `vX.Y.Z` and a beta merging into
+  `main` cannot put one in front of the store. And the zip holds the **contents** of the pak,
+  not the `MeshClient.pak` folder - the store creates that folder and unpacks into it, so a
+  nested zip would install as `MeshClient.pak/MeshClient.pak/launch.sh`. Installing by hand
+  means unzipping *into* the pak directory. `pak.json` also ships inside the pak, because that
+  copy is how the store knows the installed version - which is why `updater.c` rewrites its
+  `version` line after a self-update (best effort; the binary is already installed by then).
+  The store folder is named from the submitted display name, and `launch.sh` derives `$HOME`
+  from the folder name, so the listing must stay **MeshClient** or every user's prefs and
+  message cache move.
 - `scripts/build_minui_helpers.sh` stages the helper binaries into the tracked
   `Tools/tg5040/MeshClient.pak/bin/tg5040/` tree, which holds committed **aarch64** artifacts.
   Without a cross toolchain it falls back to the host compiler, so every install is checked

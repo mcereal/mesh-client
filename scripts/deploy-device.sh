@@ -14,6 +14,8 @@
 #                      Extra args go to meshclient, e.g. `run -- --list-devices`.
 #   logs               Tail the on-device log (<sdcard>/.userdata/<platform>/logs/MeshClient.txt)
 #   check              Report what the device has: SD card, BlueZ, D-Bus socket, adapter, fb0, RAM
+#   shot [-- args]     Screenshot whatever is on the screen, straight off /dev/fb0, as a PNG.
+#                      Args: -o FILE, -d SECS (delay before each), -n COUNT, -P PAGE.
 #   shell              Interactive shell on the device
 #   setup-key          Install ~/.ssh/id_*.pub into the device's authorized_keys (asks password once)
 #
@@ -28,6 +30,9 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Everything below runs from the repo root, so remember where the user actually was: a file
+# they name on the command line belongs in their directory, not in the tree.
+INVOKE_DIR="${PWD}"
 cd "${REPO_ROOT}"
 
 # .brick.env supplies defaults only: values already in the environment win, flags win over both.
@@ -230,6 +235,120 @@ r ip "$(ip -4 -o addr show 2>/dev/null | awk "!/ lo /{print \$4}" | tr "\n" " ")
     ssh_cmd "${remote_script}"
 }
 
+# Screenshot the device's screen by reading its framebuffer.
+#
+# NextUI's own screenshot shortcut lives inside minarch and captures that process's GL surface,
+# so it cannot see a pak like ours drawing straight to /dev/fb0. Reading fb0 catches whatever is
+# actually on the panel - our HUD, the launcher, a crash - and needs nothing on the device
+# beyond the SSH server that is already there.
+#
+# fb0 on a Brick is 1024x16384: a stack of 768-row pages the display engine flips between. The
+# fb backend draws page 0 and mirrors into page 1 (see src/ui/backends/fb.c), so page 0 is what
+# MeshClient drew; -P 1 is for catching something else, like the launcher.
+cmd_shot() {
+    local out="" delay=0 count=1 page=0
+    local args=(${PASSTHRU[@]+"${PASSTHRU[@]}"})
+    local i=0
+    while [[ ${i} -lt ${#args[@]} ]]; do
+        case "${args[${i}]}" in
+            -o|--out) out="${args[$((i + 1))]:-}"; i=$((i + 2)) ;;
+            -d|--delay) delay="${args[$((i + 1))]:-0}"; i=$((i + 2)) ;;
+            -n|--count) count="${args[$((i + 1))]:-1}"; i=$((i + 2)) ;;
+            -P|--page) page="${args[$((i + 1))]:-0}"; i=$((i + 2)) ;;
+            *) die "shot: unknown argument: ${args[${i}]} (-o FILE, -d SECS, -n COUNT, -P PAGE)" ;;
+        esac
+    done
+    [[ -n "${out}" ]] || out="shot-$(date +%Y%m%d-%H%M%S).png"
+    [[ "${out}" == /* ]] || out="${INVOKE_DIR}/${out}"
+    command -v python3 >/dev/null 2>&1 || die "shot needs python3 on the host to write the PNG"
+
+    # Geometry from the device rather than hardcoded; `check` reads the same two files.
+    local geometry width bpp
+    if [[ ${DRY_RUN} -eq 1 ]]; then
+        ssh_cmd "cat /sys/class/graphics/fb0/virtual_size /sys/class/graphics/fb0/bits_per_pixel"
+        width=1024
+        bpp=32
+    else
+        geometry="$(ssh "${SSH_OPTS[@]}" "${TARGET}" \
+            "cat /sys/class/graphics/fb0/virtual_size /sys/class/graphics/fb0/bits_per_pixel" |
+            tr '\n' ' ')"
+        # "1024,16384" and "32" on their own lines; splitting on whitespace beats trimming
+        # a trailing newline out of a suffix match.
+        local fields=(${geometry})
+        width="${fields[0]%%,*}"
+        bpp="${fields[1]:-}"
+    fi
+    [[ "${bpp}" == "32" ]] || die "fb0 reports '${bpp}' bits per pixel; shot only converts 32"
+    local height="${BRICK_FB_HEIGHT:-768}"
+    local page_bytes=$((width * 4 * height))
+    echo "fb0 ${width}x${height} @ ${bpp}bpp, page ${page}"
+
+    local raw shot_index target_out
+    raw="$(mktemp)"
+    trap 'rm -f "${raw}"' RETURN
+    for ((shot_index = 1; shot_index <= count; shot_index++)); do
+        if [[ "${delay}" != "0" ]]; then
+            echo "shot ${shot_index}/${count} in ${delay}s - set the screen up now..."
+            sleep "${delay}"
+        fi
+        if [[ ${count} -gt 1 ]]; then
+            target_out="${out%.png}-${shot_index}.png"
+        else
+            target_out="${out}"
+        fi
+
+        local remote_script="dd if=/dev/fb0 bs=${page_bytes} skip=${page} count=1 2>/dev/null"
+        if [[ ${DRY_RUN} -eq 1 ]]; then
+            ssh_cmd "${remote_script}"
+            printf '  ... > %s\n' "${target_out}"
+            continue
+        fi
+        ssh "${SSH_OPTS[@]}" "${TARGET}" "${remote_script}" > "${raw}"
+
+        local read_bytes
+        read_bytes="$(wc -c < "${raw}" | tr -d ' ')"
+        [[ "${read_bytes}" == "${page_bytes}" ]] ||
+            die "read ${read_bytes} bytes of ${page_bytes}; can ${BRICK_USER} read /dev/fb0?"
+
+        # Little-endian XRGB8888 (B,G,R,X in memory) to a PNG, with nothing but the Python
+        # standard library so a stock macOS host needs no Pillow and no ffmpeg.
+        MESH_SHOT_W="${width}" MESH_SHOT_H="${height}" MESH_SHOT_RAW="${raw}" \
+            MESH_SHOT_OUT="${target_out}" python3 - <<'PYSHOT'
+import os, struct, zlib
+
+width = int(os.environ["MESH_SHOT_W"])
+height = int(os.environ["MESH_SHOT_H"])
+out = os.environ["MESH_SHOT_OUT"]
+raw = open(os.environ["MESH_SHOT_RAW"], "rb").read()
+stride = width * 4
+
+rows = bytearray()
+for y in range(height):
+    row = raw[y * stride:(y + 1) * stride]
+    rows.append(0)  # PNG filter type 0 (none), one byte per scanline
+    pixels = bytearray(width * 3)
+    pixels[0::3] = row[2::4]  # R
+    pixels[1::3] = row[1::4]  # G
+    pixels[2::3] = row[0::4]  # B
+    rows += pixels
+
+
+def chunk(tag, payload):
+    return (struct.pack(">I", len(payload)) + tag + payload +
+            struct.pack(">I", zlib.crc32(tag + payload) & 0xFFFFFFFF))
+
+
+png = b"\x89PNG\r\n\x1a\n"
+png += chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+png += chunk(b"IDAT", zlib.compress(bytes(rows), 9))
+png += chunk(b"IEND", b"")
+with open(out, "wb") as handle:
+    handle.write(png)
+print(f"wrote {out} ({width}x{height})")
+PYSHOT
+    done
+}
+
 cmd_shell() {
     ssh_tty
 }
@@ -256,6 +375,7 @@ case "${COMMAND}" in
     run) cmd_run ;;
     logs) cmd_logs ;;
     check) cmd_check ;;
+    shot) cmd_shot ;;
     shell) cmd_shell ;;
     setup-key) cmd_setup_key ;;
     *) die "unknown command: ${COMMAND} (see --help)" ;;
