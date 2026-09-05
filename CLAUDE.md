@@ -81,7 +81,7 @@ suite needs it.
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Verified 2026-09-05: 106 unit tests, all passing, zero compiler warnings.
+Verified 2026-09-05: 107 unit tests, all passing, zero compiler warnings.
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
 vector — not against our own encoder — so a protobuf regeneration that changes field numbers or
 wire types fails loudly.
@@ -112,7 +112,7 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | Event loop | `src/core/event_loop.c` | epoll, 32 fd sources, **no threads** |
 | Transports | `src/transport/` | registry + BLE (BlueZ/D-Bus) + serial (USB) |
 | Session | `src/core/session.c` | handshake, node roster, channels, message log, packet ids |
-| Admin protocol | `src/core/radio_settings.c` | `AdminMessage` get/set queue, passkeys, radio actions, NodeDB verbs |
+| Admin protocol | `src/core/radio_settings.c` | `AdminMessage` get/set queue, passkeys, radio actions, NodeDB verbs, the module table |
 | Messaging | `src/core/message.c` | text packets, message ring, ack correlation |
 | App glue | `src/core/app*.c` | `app` lifecycle/link, `_actions` UI actions, `_publish` to store, `_settings` writes |
 | Self-update | `src/core/updater.c`, `version.c` | forks curl, SemVer, digest-verified install |

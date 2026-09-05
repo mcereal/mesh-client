@@ -436,13 +436,30 @@ Three things this actually needed that the plan did not anticipate:
   error anywhere. It is 48, and the queue test now asserts the sum fits.
 
 And the answer to the question phase 10 was meant to settle - whether the add-a-module path
-needs the table-driven `offsetof` treatment before the rest - is **no, not for the reason
-expected**. Nineteen fields is nineteen one-line arms in `mesh_app_apply_setting_edit`, and
-those arms were the easy part: they are mechanical, and a wrong one fails loudly in a test.
-What actually cost attention was the part a field table would not touch - pairing each section's
-`ModuleConfigType` with the matching union tag in two different places, where a mismatch writes
-correct bytes into the wrong module and the radio accepts it without complaint. If anything is
-worth collapsing before phase 11 it is that pairing, not the field arms.
+needs consolidating before the rest - is **yes, but not the part that was proposed**. Nineteen
+fields is nineteen one-line arms in `mesh_app_apply_setting_edit`, and those arms were the easy
+part: they are mechanical, and a wrong one fails loudly in a test. What cost attention was that
+a module had to be remembered in four *separate hand-kept lists* that nothing linked - the apply
+switch, the refresh queue's type list, the write builder's type-and-tag pair, and
+`mesh_radio_settings_loaded()`. The last of those was duly forgotten, and it was the one with no
+per-module code to prompt for it: a radio whose only held fragment was one of the six read as no
+radio at all. That is what the module table (below) collapses, and it is why it comes before
+phase 11 rather than after phase 12.
+
+### Interlude - the module table
+
+Not a phase: the consolidation phase 10 argued for, done before phase 11 so its four modules
+land on the safer path. `struct mesh_module_binding` in `radio_settings.c` is one row per
+ModuleConfig section - admin `ModuleConfigType`, `which_payload_variant` tag, where the section
+is kept and how big it is, with the size taken from the member itself. The apply, the loaded
+predicate, the refresh queue and the write builder all read that row instead of restating parts
+of it, so the type and the tag are named once and together.
+
+Adding a module is now its storage in `struct mesh_radio_settings`, one row in that table, and
+one arm in `module_admin_type()` where the UI's section meets the wire's module id - plus the
+UI-side rows any section needs. `radio_module_table` walks every row and round-trips it, which
+is what would catch a mispaired type and tag; the pairing is still typed by hand, but it is
+typed on one line where the two halves can be read against each other.
 
 - Exit criteria: on the Brick, each of the six reads back the values the phone app shows;
   turning Neighbor info on and setting its interval survives the reboot; Range test with a

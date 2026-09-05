@@ -104,7 +104,6 @@ bool mesh_admin_request_is_action(enum mesh_admin_request_kind kind);
 /* last_write_error when the radio never answered a set_*. Routing errors are positive. */
 #define MESH_RADIO_SETTINGS_WRITE_TIMEOUT (-1)
 
-/* Queue depth: a full refresh is 13 sections plus every channel slot, and a save adds three. */
 /* A full refresh queues the probe pair, every Config section, every ModuleConfig section and
    every channel slot - 27 with the modules phase 10 keeps, and one per module after that. A
    full queue drops silently, so this is sized well clear of the phases still to come rather
@@ -184,6 +183,43 @@ struct mesh_radio_settings {
     int32_t last_write_error; /* meshtastic_Routing_Error, MESH_RADIO_SETTINGS_WRITE_TIMEOUT,
                                  or a negative errno from the transport */
 };
+
+/*
+ * The ModuleConfig sections this client keeps, as one table instead of four hand-kept lists.
+ *
+ * A module used to have to be remembered in four places that nothing linked: the apply switch,
+ * the loaded predicate, the refresh queue's type list, and - worst - the write builder, where
+ * its `ModuleConfigType` and its `which_payload_variant` tag were typed out separately and had
+ * to agree. A mismatch there wrote correct bytes into the wrong module, which the radio accepts
+ * without an error; forgetting the loaded predicate made a radio look absent while we held its
+ * config (both really happened, in phases 9 and 10).
+ *
+ * Now the pair sits on one line and every consumer reads both from it. The copies are a memcpy
+ * rather than an assignment because the section is chosen at runtime: `store_offset` locates it
+ * in struct mesh_radio_settings and `size` is derived from that member, so the two cannot
+ * disagree. Every payload_variant member shares the union's address, which is why one offset
+ * into the ModuleConfig is not needed here at all.
+ */
+struct mesh_module_binding {
+    uint32_t admin_type;  /* meshtastic_AdminMessage_ModuleConfigType */
+    uint32_t variant_tag; /* meshtastic_ModuleConfig_<name>_tag */
+    size_t has_offset;    /* offsetof the has_* flag in struct mesh_radio_settings */
+    size_t store_offset;  /* offsetof the kept config in struct mesh_radio_settings */
+    size_t size;          /* sizeof that member, so a row cannot claim the wrong length */
+};
+
+size_t mesh_radio_module_count(void);
+const struct mesh_module_binding *mesh_radio_module_at(size_t index);
+/* The binding for an admin ModuleConfigType, or NULL for one this client does not keep. */
+const struct mesh_module_binding *mesh_radio_module_for_type(uint32_t admin_type);
+/* Whether the radio has sent this module's section. */
+bool mesh_radio_module_held(const struct mesh_radio_settings *settings,
+                            const struct mesh_module_binding *binding);
+/* Copies the kept section into `out`, a meshtastic_ModuleConfig, tag included. False when the
+   radio has not sent it - which is the -ENOENT a save reports. */
+bool mesh_radio_module_load(const struct mesh_radio_settings *settings,
+                            const struct mesh_module_binding *binding,
+                            meshtastic_ModuleConfig *out);
 
 void mesh_radio_settings_reset(struct mesh_radio_settings *settings);
 
