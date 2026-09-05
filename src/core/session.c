@@ -30,6 +30,7 @@ static uint64_t mesh_session_now_ms(void) {
 
 static void mesh_session_reset_handshake(struct mesh_session *session) {
     memset(&session->handshake, 0, sizeof session->handshake);
+    memset(&session->stats, 0, sizeof session->stats);
     session->node_cache_warned = false;
     mesh_radio_settings_reset(&session->settings);
     session->admin_probe_queued = false;
@@ -262,6 +263,36 @@ static void mesh_session_apply_environment(struct mesh_node_summary *summary,
     summary->environment.current = env->current;
 }
 
+/*
+ * LocalStats is the radio describing itself, so it lands on the session rather than on a node
+ * record. Two fields get a flag rather than being trusted at face value: heap_total_bytes of
+ * zero means the firmware did not fill it in (no radio has no heap), and a noise floor of
+ * exactly 0 dBm is not a reading any LoRa front end produces.
+ */
+static void mesh_session_apply_local_stats(struct mesh_session *session,
+                                           const meshtastic_LocalStats *stats, uint32_t stamp) {
+    struct mesh_radio_stats *out = &session->stats;
+    out->valid = true;
+    out->time = stamp;
+    out->uptime_seconds = stats->uptime_seconds;
+    out->channel_utilization = stats->channel_utilization;
+    out->air_util_tx = stats->air_util_tx;
+    out->num_packets_tx = stats->num_packets_tx;
+    out->num_packets_rx = stats->num_packets_rx;
+    out->num_packets_rx_bad = stats->num_packets_rx_bad;
+    out->num_rx_dupe = stats->num_rx_dupe;
+    out->num_tx_relay = stats->num_tx_relay;
+    out->num_tx_relay_canceled = stats->num_tx_relay_canceled;
+    out->num_tx_dropped = stats->num_tx_dropped;
+    out->num_online_nodes = stats->num_online_nodes;
+    out->num_total_nodes = stats->num_total_nodes;
+    out->has_heap = stats->heap_total_bytes > 0U;
+    out->heap_total_bytes = stats->heap_total_bytes;
+    out->heap_free_bytes = stats->heap_free_bytes;
+    out->has_noise_floor = stats->noise_floor != 0;
+    out->noise_floor = stats->noise_floor;
+}
+
 static void mesh_session_store_node_summary(struct mesh_session *session,
                                             const meshtastic_NodeInfo *info) {
     struct mesh_node_summary *summary = mesh_session_node_slot(session, info->num);
@@ -380,10 +411,9 @@ static void mesh_session_apply_packet_details(struct mesh_session *session,
         }
     }
 
+    /* LocalStats below is about the radio rather than about a node, so a full node cache
+       must not cost us the one telemetry that has nowhere else to go. */
     struct mesh_node_summary *summary = mesh_session_node_slot(session, packet->from);
-    if (summary == NULL) {
-        return;
-    }
 
     pb_istream_t stream = pb_istream_from_buffer(data->payload.bytes, data->payload.size);
     switch (data->portnum) {
@@ -392,6 +422,9 @@ static void mesh_session_apply_packet_details(struct mesh_session *session,
         if (!pb_decode(&stream, meshtastic_User_fields, &user)) {
             mesh_log_debug("session", "Bad NODEINFO_APP from 0x%08x: %s", packet->from,
                            PB_GET_ERROR(&stream));
+            return;
+        }
+        if (summary == NULL) {
             return;
         }
         mesh_session_apply_user(summary, &user);
@@ -406,6 +439,9 @@ static void mesh_session_apply_packet_details(struct mesh_session *session,
                            PB_GET_ERROR(&stream));
             return;
         }
+        if (summary == NULL) {
+            return;
+        }
         mesh_session_apply_position(summary, &position);
         break;
     }
@@ -417,6 +453,18 @@ static void mesh_session_apply_packet_details(struct mesh_session *session,
             return;
         }
         const uint32_t stamp = telemetry.time != 0U ? telemetry.time : heard;
+        /* LocalStats never crosses the mesh: the firmware sends it to the attached client
+           only, from its own node number. Anything else claiming to be ours is not. */
+        if (telemetry.which_variant == meshtastic_Telemetry_local_stats_tag) {
+            if (session->handshake.has_my_info &&
+                packet->from == session->handshake.my_info.my_node_num) {
+                mesh_session_apply_local_stats(session, &telemetry.variant.local_stats, heard);
+            }
+            break;
+        }
+        if (summary == NULL) {
+            return;
+        }
         if (telemetry.which_variant == meshtastic_Telemetry_device_metrics_tag) {
             mesh_session_apply_device_metrics(summary, &telemetry.variant.device_metrics, stamp);
         } else if (telemetry.which_variant == meshtastic_Telemetry_environment_metrics_tag) {
@@ -796,4 +844,8 @@ const struct mesh_message_log *mesh_session_messages(const struct mesh_session *
 
 const struct mesh_radio_settings *mesh_session_settings(const struct mesh_session *session) {
     return session != NULL ? &session->settings : NULL;
+}
+
+const struct mesh_radio_stats *mesh_session_radio_stats(const struct mesh_session *session) {
+    return session != NULL ? &session->stats : NULL;
 }

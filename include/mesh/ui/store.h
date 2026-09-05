@@ -198,10 +198,40 @@ struct mesh_ui_client_info {
  * section has arrived this connection; `loaded` is any of them. Read-only in phase 1 of
  * docs/settings-roadmap.md; the same fields become the edit targets later.
  */
+/*
+ * What the connected radio reports about itself and the air around it (LocalStats telemetry).
+ * Lives beside the radio's configuration because it has the same lifetime - it describes the
+ * radio that is connected right now - and is likewise never persisted.
+ */
+struct mesh_ui_radio_stats {
+    bool valid;
+    uint32_t time; /* our clock when it arrived */
+    uint32_t uptime_seconds;
+    float channel_utilization;
+    float air_util_tx;
+    uint32_t num_packets_tx;
+    uint32_t num_packets_rx;
+    uint32_t num_packets_rx_bad;
+    uint32_t num_rx_dupe;
+    uint32_t num_tx_relay;
+    uint32_t num_tx_relay_canceled;
+    uint32_t num_tx_dropped;
+    uint32_t num_online_nodes;
+    uint32_t num_total_nodes;
+    bool has_heap;
+    uint32_t heap_total_bytes;
+    uint32_t heap_free_bytes;
+    bool has_noise_floor;
+    int32_t noise_floor;
+};
+
 struct mesh_ui_settings {
     /* The client's own facts. Always populated, radio or no radio - the About section is the
        one part of this tab that does not need a connection. */
     struct mesh_ui_client_info client;
+    /* Mesh health, from LocalStats telemetry rather than from the config handshake, so it
+       fills in on its own schedule and is absent until the radio's first report. */
+    struct mesh_ui_radio_stats stats;
     bool loaded;
     bool admin_ok;      /* at least one AdminMessage reply came back this connection */
     bool admin_busy;    /* a refresh is in flight */

@@ -7655,6 +7655,119 @@ static void test_session_node_detail_ingest(void) {
     record_success(test_name);
 }
 
+/*
+ * LocalStats: the radio's own report about the mesh. It is the one telemetry that belongs to
+ * the session rather than to a node, and it only counts when it comes from our own node - the
+ * firmware sends it to the attached client alone, so anything else wearing that variant is a
+ * peer we should not be reading our own packet counters out of.
+ */
+static void test_session_local_stats(void) {
+    const char *test_name = "session_local_stats";
+
+    struct mesh_session session;
+    mesh_session_init(&session);
+
+    if (mesh_session_radio_stats(&session)->valid) {
+        record_failure(test_name, "stats claimed to be valid before any report");
+        return;
+    }
+
+    meshtastic_FromRadio my_info = meshtastic_FromRadio_init_default;
+    my_info.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    my_info.my_info.my_node_num = 0x7001U;
+    if (!session_feed_from_radio(&session, &my_info)) {
+        record_failure(test_name, "encode my_info failed");
+        return;
+    }
+
+    meshtastic_Telemetry telemetry = meshtastic_Telemetry_init_default;
+    telemetry.time = 1750000000U;
+    telemetry.which_variant = meshtastic_Telemetry_local_stats_tag;
+    telemetry.variant.local_stats.uptime_seconds = 90061U;
+    telemetry.variant.local_stats.channel_utilization = 12.5f;
+    telemetry.variant.local_stats.air_util_tx = 1.75f;
+    telemetry.variant.local_stats.num_packets_tx = 412U;
+    telemetry.variant.local_stats.num_packets_rx = 8210U;
+    telemetry.variant.local_stats.num_packets_rx_bad = 23U;
+    telemetry.variant.local_stats.num_rx_dupe = 114U;
+    telemetry.variant.local_stats.num_tx_relay = 96U;
+    telemetry.variant.local_stats.num_tx_dropped = 2U;
+    telemetry.variant.local_stats.num_online_nodes = 37U;
+    telemetry.variant.local_stats.num_total_nodes = 132U;
+    telemetry.variant.local_stats.heap_total_bytes = 200704U;
+    telemetry.variant.local_stats.heap_free_bytes = 63488U;
+    telemetry.variant.local_stats.noise_floor = -98;
+
+    uint8_t payload[256];
+    pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof payload);
+    if (!pb_encode(&stream, meshtastic_Telemetry_fields, &telemetry)) {
+        record_failure(test_name, "encode local stats failed");
+        return;
+    }
+    const size_t payload_len = stream.bytes_written;
+
+    /* A peer's packet wearing the same variant must not become our counters. */
+    if (!session_feed_app_packet(&session, 0x7002U, meshtastic_PortNum_TELEMETRY_APP, payload,
+                                 payload_len)) {
+        record_failure(test_name, "feed peer local stats failed");
+        return;
+    }
+    if (mesh_session_radio_stats(&session)->valid) {
+        record_failure(test_name, "a peer's LocalStats was taken as the radio's own");
+        return;
+    }
+
+    if (!session_feed_app_packet(&session, 0x7001U, meshtastic_PortNum_TELEMETRY_APP, payload,
+                                 payload_len)) {
+        record_failure(test_name, "feed local stats failed");
+        return;
+    }
+
+    const struct mesh_radio_stats *stats = mesh_session_radio_stats(&session);
+    if (!stats->valid || stats->uptime_seconds != 90061U || stats->num_packets_tx != 412U ||
+        stats->num_packets_rx != 8210U || stats->num_packets_rx_bad != 23U ||
+        stats->num_rx_dupe != 114U || stats->num_tx_relay != 96U || stats->num_tx_dropped != 2U ||
+        stats->num_online_nodes != 37U || stats->num_total_nodes != 132U) {
+        record_failure(test_name, "LocalStats counters were not kept");
+        return;
+    }
+    if (!stats->has_heap || stats->heap_free_bytes != 63488U || !stats->has_noise_floor ||
+        stats->noise_floor != -98) {
+        record_failure(test_name, "LocalStats heap or noise floor was not kept");
+        return;
+    }
+    if (stats->channel_utilization < 12.4f || stats->channel_utilization > 12.6f) {
+        record_failure(test_name, "LocalStats channel utilization was not kept");
+        return;
+    }
+
+    /* Zero is a real answer for a counter but not for a heap size or a noise floor, and those
+       two are the ones a bare zero would show as a confident reading of nothing. */
+    telemetry.variant.local_stats.heap_total_bytes = 0U;
+    telemetry.variant.local_stats.noise_floor = 0;
+    stream = pb_ostream_from_buffer(payload, sizeof payload);
+    if (!pb_encode(&stream, meshtastic_Telemetry_fields, &telemetry) ||
+        !session_feed_app_packet(&session, 0x7001U, meshtastic_PortNum_TELEMETRY_APP, payload,
+                                 stream.bytes_written)) {
+        record_failure(test_name, "re-encode local stats failed");
+        return;
+    }
+    stats = mesh_session_radio_stats(&session);
+    if (stats->has_heap || stats->has_noise_floor) {
+        record_failure(test_name, "an unreported heap or noise floor was shown as a reading");
+        return;
+    }
+
+    /* The stats describe the radio that is connected, so a dropped link must forget them. */
+    mesh_session_detach(&session);
+    if (mesh_session_radio_stats(&session)->valid) {
+        record_failure(test_name, "stats survived the link dropping");
+        return;
+    }
+
+    record_success(test_name);
+}
+
 /* The Nodes tab's detail rows: which ones a node produces, and that the count the nav walks
    agrees with the list the backend draws. */
 static void test_ui_node_detail_items(void) {
@@ -9885,6 +9998,7 @@ static const struct test_case k_test_cases[] = {
     {"serial_transport_link_drop", "unit", test_serial_transport_link_drop},
     {"app_link_routing", "unit", test_app_link_routing},
     {"session_node_detail_ingest", "unit", test_session_node_detail_ingest},
+    {"session_local_stats", "unit", test_session_local_stats},
     {"ui_node_detail_items", "unit", test_ui_node_detail_items},
     {"radio_settings_favorite_queue", "unit", test_radio_settings_favorite_queue},
     {"ui_preferences_known_radios", "unit", test_ui_preferences_known_radios},

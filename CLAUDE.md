@@ -84,7 +84,18 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   `TELEMETRY_APP` packets are the only reason a node that joins mid-session ever gets a name
   and the only source of environment telemetry at all (the NodeDB has none). A resync therefore
   overwrites only what the NodeInfo actually carries rather than rebuilding the record, or it
-  would empty the detail screen every time. A link
+  would empty the detail screen every time. `struct mesh_radio_stats` is the one telemetry
+  that is *not* about a node: `LocalStats` is the connected radio describing itself and the
+  air around it (packet counters, dupes, relays, online node count, heap, noise floor), so it
+  lands on the session and is cleared with the handshake. The firmware sends it to the
+  attached client alone, never over LoRa, so it is only taken from a packet whose `from` is
+  our own node number - and its fields are plain proto3 scalars, so a zero heap size or a
+  zero noise floor is "not reported", not a reading, which is why those two carry a flag and
+  the counters do not. Battery is not in it at all - that arrives only as our own node's
+  ordinary `DeviceMetrics`, which is why the Status screen reads it from the node cache. The
+  airtime pair is in *both*, and LocalStats wins it: DeviceMetrics is what our node last
+  broadcast about itself on the telemetry interval (half an hour by default), so preferring
+  it leaves the row on a stale 0.0% while the radio is busy. A link
   calls `mesh_session_attach(send_fn)` when its connection is usable, hands every FromRadio
   protobuf to `mesh_session_handle_from_radio`, calls `mesh_session_tick` each turn, and
   `mesh_session_detach`es when the link drops (handshake and settings reset, messages survive).

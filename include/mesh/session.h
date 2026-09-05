@@ -92,6 +92,40 @@ struct mesh_node_environment {
     float current;
 };
 
+/*
+ * LocalStats: the connected radio talking about itself and the air around it, delivered as a
+ * TELEMETRY_APP packet from our own node rather than through the config handshake. Nothing
+ * else tells us how busy the channel is, how many packets the radio dropped, or how many of
+ * the nodes in its database it still considers online, so without this the Status screen can
+ * only report our own bookkeeping.
+ *
+ * Every field is a plain proto3 scalar (no has_*), so "not reported" and zero are the same
+ * value on the wire. That is fine for the counters, where zero is a real answer; the two
+ * where it is not - noise floor and heap size - carry their own flag, set from whether the
+ * radio sent anything plausible.
+ */
+struct mesh_radio_stats {
+    bool valid;
+    uint32_t time; /* our clock when this arrived, not the radio's */
+    uint32_t uptime_seconds;
+    float channel_utilization; /* percent of airtime busy, all senders */
+    float air_util_tx;         /* percent of airtime this radio transmitted in */
+    uint32_t num_packets_tx;
+    uint32_t num_packets_rx;
+    uint32_t num_packets_rx_bad;
+    uint32_t num_rx_dupe;
+    uint32_t num_tx_relay;
+    uint32_t num_tx_relay_canceled;
+    uint32_t num_tx_dropped;
+    uint32_t num_online_nodes;
+    uint32_t num_total_nodes;
+    bool has_heap;
+    uint32_t heap_total_bytes;
+    uint32_t heap_free_bytes;
+    bool has_noise_floor;
+    int32_t noise_floor; /* dBm */
+};
+
 struct mesh_node_summary {
     uint32_t node_id;
     char long_name[40];
@@ -152,6 +186,8 @@ typedef int (*mesh_session_send_fn)(void *ctx, const uint8_t *packet, size_t len
 
 struct mesh_session {
     struct mesh_handshake_status handshake;
+    /* Describes the radio that is connected right now; cleared with the handshake. */
+    struct mesh_radio_stats stats;
     /* Survives reconnects: a NodeDB resync must not wipe the conversation. */
     struct mesh_message_log messages;
     /* The radio's configuration and the admin session; reset with the handshake. */
@@ -226,6 +262,8 @@ uint32_t mesh_session_next_packet_id(struct mesh_session *session);
 const struct mesh_handshake_status *mesh_session_handshake(const struct mesh_session *session);
 const struct mesh_message_log *mesh_session_messages(const struct mesh_session *session);
 const struct mesh_radio_settings *mesh_session_settings(const struct mesh_session *session);
+/* The connected radio's own LocalStats, or a record with `valid` false before one arrives. */
+const struct mesh_radio_stats *mesh_session_radio_stats(const struct mesh_session *session);
 
 #ifdef __cplusplus
 }

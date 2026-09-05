@@ -1255,6 +1255,35 @@ static void mesh_app_publish_messages(struct mesh_app *app,
     }
 }
 
+/* Mesh health, copied field by field for the same reason everything else here is: nothing
+   keeps the session's declaration and the UI's in step but this function. */
+static void mesh_app_flatten_radio_stats(const struct mesh_radio_stats *src,
+                                         struct mesh_ui_radio_stats *dst) {
+    memset(dst, 0, sizeof *dst);
+    if (src == NULL || !src->valid) {
+        return;
+    }
+    dst->valid = true;
+    dst->time = src->time;
+    dst->uptime_seconds = src->uptime_seconds;
+    dst->channel_utilization = src->channel_utilization;
+    dst->air_util_tx = src->air_util_tx;
+    dst->num_packets_tx = src->num_packets_tx;
+    dst->num_packets_rx = src->num_packets_rx;
+    dst->num_packets_rx_bad = src->num_packets_rx_bad;
+    dst->num_rx_dupe = src->num_rx_dupe;
+    dst->num_tx_relay = src->num_tx_relay;
+    dst->num_tx_relay_canceled = src->num_tx_relay_canceled;
+    dst->num_tx_dropped = src->num_tx_dropped;
+    dst->num_online_nodes = src->num_online_nodes;
+    dst->num_total_nodes = src->num_total_nodes;
+    dst->has_heap = src->has_heap;
+    dst->heap_total_bytes = src->heap_total_bytes;
+    dst->heap_free_bytes = src->heap_free_bytes;
+    dst->has_noise_floor = src->has_noise_floor;
+    dst->noise_floor = src->noise_floor;
+}
+
 /* Flattens the transport's protobuf-typed view into the UI's plain struct. */
 /* The About section's data: this client rather than the radio. The updater's state is copied
    across as a byte and a line of text so store.h stays free of the updater, the same way the
@@ -1815,6 +1844,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     mesh_app_flatten_settings(radio_settings, &ui_settings);
     /* flatten_settings() zeroes the struct, so the client's own facts go in after it. */
     mesh_app_flatten_client_info(app, &ui_settings.client);
+    mesh_app_flatten_radio_stats(mesh_session_radio_stats(&app->session), &ui_settings.stats);
     mesh_ui_store_set_settings(&app->ui_store, &ui_settings);
     mesh_app_track_settings_save(app, radio_settings, link_connected);
 
