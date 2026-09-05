@@ -312,9 +312,14 @@ struct mesh_ui_settings {
     bool has_mqtt;
     bool mqtt_enabled;
     char mqtt_address[64];
+    char mqtt_username[64];
+    char mqtt_password[32];
     char mqtt_root[32];
     bool mqtt_encryption_enabled;
     bool mqtt_tls_enabled;
+    bool mqtt_map_reporting_enabled;
+    /* Read-only on purpose: with this on the radio hands its MQTT traffic to the attached
+       client to relay, and this client does not implement MqttClientProxyMessage. */
     bool mqtt_proxy_to_client_enabled;
 
     bool has_store_forward;

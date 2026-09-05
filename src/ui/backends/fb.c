@@ -1237,18 +1237,16 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
     const bool have_util = air_from_stats || (metrics != NULL && metrics->has_channel_utilization);
     const bool have_tx = air_from_stats || (metrics != NULL && metrics->has_air_util_tx);
     if (have_util || have_tx) {
-        const float util_value =
-            air_from_stats ? stats->channel_utilization
-                           : (metrics != NULL ? metrics->channel_utilization : 0.0f);
+        const float util_value = air_from_stats
+                                     ? stats->channel_utilization
+                                     : (metrics != NULL ? metrics->channel_utilization : 0.0f);
         const float tx_value =
             air_from_stats ? stats->air_util_tx : (metrics != NULL ? metrics->air_util_tx : 0.0f);
         /* Above ~25% channel utilization the mesh is saturated and hop delivery collapses, so
            the number is coloured rather than left as one more figure to interpret. */
         struct fb_rgb air_color = k_text;
         if (have_util) {
-            air_color = util_value >= 50.0f   ? k_bad
-                        : util_value >= 25.0f ? k_accent
-                                              : k_good;
+            air_color = util_value >= 50.0f ? k_bad : util_value >= 25.0f ? k_accent : k_good;
         }
         char util[32] = "?";
         if (have_util) {

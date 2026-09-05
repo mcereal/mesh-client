@@ -194,6 +194,7 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
     meshtastic_Config_DeviceConfig *device = &write->payload.config.payload_variant.device;
     meshtastic_Config_DisplayConfig *display = &write->payload.config.payload_variant.display;
     meshtastic_Config_BluetoothConfig *bluetooth = &write->payload.config.payload_variant.bluetooth;
+    meshtastic_ModuleConfig_MQTTConfig *mqtt = &write->payload.module_config.payload_variant.mqtt;
     meshtastic_ModuleConfig_StoreForwardConfig *sf =
         &write->payload.module_config.payload_variant.store_forward;
     meshtastic_ModuleConfig_TelemetryConfig *telemetry =
@@ -295,6 +296,33 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
         break;
     case MESH_UI_FIELD_DISPLAY_FLIP:
         display->flip_screen = on;
+        break;
+    case MESH_UI_FIELD_MQTT_ENABLED:
+        mqtt->enabled = on;
+        break;
+    case MESH_UI_FIELD_MQTT_ADDRESS:
+        snprintf(mqtt->address, sizeof mqtt->address, "%.*s", (int)(sizeof mqtt->address - 1U),
+                 edit->text);
+        break;
+    case MESH_UI_FIELD_MQTT_USERNAME:
+        snprintf(mqtt->username, sizeof mqtt->username, "%.*s", (int)(sizeof mqtt->username - 1U),
+                 edit->text);
+        break;
+    case MESH_UI_FIELD_MQTT_PASSWORD:
+        snprintf(mqtt->password, sizeof mqtt->password, "%.*s", (int)(sizeof mqtt->password - 1U),
+                 edit->text);
+        break;
+    case MESH_UI_FIELD_MQTT_ROOT:
+        snprintf(mqtt->root, sizeof mqtt->root, "%.*s", (int)(sizeof mqtt->root - 1U), edit->text);
+        break;
+    case MESH_UI_FIELD_MQTT_ENCRYPTION:
+        mqtt->encryption_enabled = on;
+        break;
+    case MESH_UI_FIELD_MQTT_TLS:
+        mqtt->tls_enabled = on;
+        break;
+    case MESH_UI_FIELD_MQTT_MAP_REPORTING:
+        mqtt->map_reporting_enabled = on;
         break;
     case MESH_UI_FIELD_SF_ENABLED:
         sf->enabled = on;
@@ -572,6 +600,15 @@ int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
         out->type = meshtastic_AdminMessage_ConfigType_DISPLAY_CONFIG;
         out->payload.config.which_payload_variant = meshtastic_Config_display_tag;
         out->payload.config.payload_variant.display = radio->display;
+        break;
+    case MESH_UI_SETTINGS_MQTT:
+        if (!radio->has_mqtt) {
+            return -ENOENT;
+        }
+        out->kind = MESH_ADMIN_SET_MODULE_CONFIG;
+        out->type = meshtastic_AdminMessage_ModuleConfigType_MQTT_CONFIG;
+        out->payload.module_config.which_payload_variant = meshtastic_ModuleConfig_mqtt_tag;
+        out->payload.module_config.payload_variant.mqtt = radio->mqtt;
         break;
     case MESH_UI_SETTINGS_STORE_FORWARD:
         if (!radio->has_store_forward) {
@@ -1507,9 +1544,12 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
         dst->has_mqtt = true;
         dst->mqtt_enabled = src->mqtt.enabled;
         snprintf(dst->mqtt_address, sizeof dst->mqtt_address, "%s", src->mqtt.address);
+        snprintf(dst->mqtt_username, sizeof dst->mqtt_username, "%s", src->mqtt.username);
+        snprintf(dst->mqtt_password, sizeof dst->mqtt_password, "%s", src->mqtt.password);
         snprintf(dst->mqtt_root, sizeof dst->mqtt_root, "%s", src->mqtt.root);
         dst->mqtt_encryption_enabled = src->mqtt.encryption_enabled;
         dst->mqtt_tls_enabled = src->mqtt.tls_enabled;
+        dst->mqtt_map_reporting_enabled = src->mqtt.map_reporting_enabled;
         dst->mqtt_proxy_to_client_enabled = src->mqtt.proxy_to_client_enabled;
     }
     if (src->has_store_forward) {

@@ -351,6 +351,25 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                      units_name, NO_PRESETS, NULL, NULL, 0U},
     [MESH_UI_FIELD_DISPLAY_FLIP] = {"Flip screen", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_DISPLAY,
                                     0U, NULL, NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_MQTT_ENABLED] = {"MQTT", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_MQTT, 0U, NULL,
+                                    NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_MQTT_ADDRESS] = {"Server", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_MQTT, 63U,
+                                    NULL, NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_MQTT_USERNAME] = {"Username", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_MQTT, 63U,
+                                     NULL, NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_MQTT_PASSWORD] = {"Password", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_MQTT, 31U,
+                                     NULL, NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_MQTT_ROOT] = {"Root topic", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_MQTT, 31U,
+                                 NULL, NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_MQTT_ENCRYPTION] = {"Encryption", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_MQTT,
+                                       0U, NULL, NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_MQTT_TLS] = {"TLS", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_MQTT, 0U, NULL,
+                                NO_PRESETS, NULL, NULL, 0U},
+    /* Spelled out: this one publishes the node's position to a public map, which is not what
+       "map reporting" reads as to somebody stepping through toggles. */
+    [MESH_UI_FIELD_MQTT_MAP_REPORTING] = {"Report to public map", MESH_UI_SETTING_TOGGLE,
+                                          MESH_UI_SETTINGS_MQTT, 0U, NULL, NO_PRESETS, NULL, NULL,
+                                          0U},
     [MESH_UI_FIELD_SF_ENABLED] = {"Store & Forward", MESH_UI_SETTING_TOGGLE,
                                   MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL, NO_PRESETS, NULL, NULL,
                                   0U},
@@ -1251,13 +1270,23 @@ static void build_power(const struct mesh_ui_settings *s, struct item_list *list
 }
 
 static void build_mqtt(const struct mesh_ui_settings *s, struct item_list *list) {
-    item_toggle(list, "MQTT", s->mqtt_enabled);
-    item_text(list, "Server", MESH_UI_SETTING_TEXT,
-              s->mqtt_address[0] != '\0' ? s->mqtt_address : "default");
-    item_text(list, "Root topic", MESH_UI_SETTING_TEXT,
-              s->mqtt_root[0] != '\0' ? s->mqtt_root : "default");
-    item_toggle(list, "Encryption", s->mqtt_encryption_enabled);
-    item_toggle(list, "TLS", s->mqtt_tls_enabled);
+    item_field(list, MESH_UI_FIELD_MQTT_ENABLED, s->mqtt_enabled ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_MQTT_ADDRESS, 0U, s->mqtt_address);
+    item_field(list, MESH_UI_FIELD_MQTT_USERNAME, 0U, s->mqtt_username);
+    item_field(list, MESH_UI_FIELD_MQTT_PASSWORD, 0U, s->mqtt_password);
+    item_field(list, MESH_UI_FIELD_MQTT_ROOT, 0U, s->mqtt_root);
+    item_field(list, MESH_UI_FIELD_MQTT_ENCRYPTION, s->mqtt_encryption_enabled ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_MQTT_TLS, s->mqtt_tls_enabled ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_MQTT_MAP_REPORTING, s->mqtt_map_reporting_enabled ? 1U : 0U,
+               NULL);
+    /*
+     * The one row here that stays read-only. With proxying on, the radio stops talking to the
+     * broker itself and hands every MQTT message to the attached client as a
+     * MqttClientProxyMessage for it to relay - and this client ignores that FromRadio variant
+     * entirely. Offering the toggle would let the Brick silently take the radio's MQTT off
+     * the air; showing the setting still tells you why MQTT is not working if a phone left it
+     * on. Editable once we speak the proxy protocol, not before.
+     */
     item_toggle(list, "Proxy via client", s->mqtt_proxy_to_client_enabled);
 }
 

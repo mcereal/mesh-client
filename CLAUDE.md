@@ -291,8 +291,8 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   item builder renders them in place marked `dirty`, and `mesh_app_build_settings_write` in
   `app.c` maps each field back onto the nanopb section. Adding an editable field means: the
   enum + table row here, the flatten in `app.c`, the `mesh_app_apply_setting_edit` case, and
-  the `item_field` call in the section builder. Sections without fields stay read-only (MQTT
-  is the last one). Device, Position and Power became editable in phase 5; `LED heartbeat` is
+  the `item_field` call in the section builder. Every radio section is editable now except the
+  parts noted below. Device, Position, Power and MQTT became editable in phases 5 and 6; `LED heartbeat` is
   the one row shown inverted, because the protobuf field is `led_heartbeat_disabled` and
   `app.c` negates it on the way back. The Device role lists all thirteen values with the two
   deprecated ones labelled "(retired)" rather than hidden - a radio already set to one has to
@@ -307,7 +307,12 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   Power are behind it too - Power because saving mode plus a short light-sleep or minimum-wake
   leaves the radio's Bluetooth off for most of every cycle, and auto-connect cannot reconnect
   to a radio that is asleep. Device and Position only reboot, which the link poller already
-  handles, so they are not. Keys are shown and typed as base64 (`mesh_ui_settings_key_text`/`_parse`,
+  handles, so they are not. MQTT is not behind it either, but one of its rows stays read-only:
+  `proxy_to_client_enabled` makes the radio hand its MQTT traffic to the attached client as
+  `MqttClientProxyMessage` (FromRadio tag 14) instead of reaching the broker itself, and this
+  client ignores that variant, so a toggle there would silently take the radio's MQTT off the
+  air. It is still *shown*, because it is the explanation when a phone left it on and MQTT
+  stopped working. Keys are shown and typed as base64 (`mesh_ui_settings_key_text`/`_parse`,
   hex accepted); each KEY field has a choice mask (`mesh_ui_settings_key_choices`) and a length
   rule (`_key_len_ok`). A new private key is clamped in `app.c` and sent with the public key
   cleared, which the firmware fills in; admin keys are compacted before the write.

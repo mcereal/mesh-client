@@ -5838,6 +5838,28 @@ static void test_app_settings_write_build(void) {
         return;
     }
 
+    radio.has_mqtt = true;
+    snprintf(radio.mqtt.address, sizeof radio.mqtt.address, "%s", "mqtt.example.org");
+    radio.mqtt.proxy_to_client_enabled = true; /* read-only row; must survive the write */
+    action.section = MESH_UI_SETTINGS_MQTT;
+    action.edit_count = 2U;
+    memset(action.edits, 0, sizeof action.edits);
+    action.edits[0].field = MESH_UI_FIELD_MQTT_USERNAME;
+    snprintf(action.edits[0].text, sizeof action.edits[0].text, "%s", "brick");
+    action.edits[1].field = MESH_UI_FIELD_MQTT_MAP_REPORTING;
+    action.edits[1].number = 1U;
+    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+        write.kind != MESH_ADMIN_SET_MODULE_CONFIG ||
+        write.type != meshtastic_AdminMessage_ModuleConfigType_MQTT_CONFIG ||
+        write.payload.module_config.which_payload_variant != meshtastic_ModuleConfig_mqtt_tag ||
+        strcmp(write.payload.module_config.payload_variant.mqtt.username, "brick") != 0 ||
+        !write.payload.module_config.payload_variant.mqtt.map_reporting_enabled ||
+        strcmp(write.payload.module_config.payload_variant.mqtt.address, "mqtt.example.org") != 0 ||
+        !write.payload.module_config.payload_variant.mqtt.proxy_to_client_enabled) {
+        record_failure(test_name, "set_mqtt_config should carry the edits and keep the rest");
+        return;
+    }
+
     action.section = MESH_UI_SETTINGS_DISPLAY;
     if (mesh_app_build_settings_write(&radio, &action, &write) != -ENOENT) {
         record_failure(test_name, "a section the radio has not sent cannot be written");

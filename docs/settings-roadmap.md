@@ -190,12 +190,32 @@ handle.
   turning smart broadcast on with a 250 m threshold reads back with the threshold intact and
   the position fields we do not show untouched.
 
+### Phase 6 - MQTT (this branch)
+
+The last read-only section. Enabled, server, username, password, root topic, encryption, TLS
+and map reporting all become editable through the field table; `json_enabled` is skipped
+because the firmware removed JSON support and ignores the field.
+
+Two rows are not what the protobuf suggests. `map_reporting_enabled` is labelled **Report to
+public map**, because that is what it does and "map reporting" is not what a person stepping
+through toggles would read it as. And `proxy_to_client_enabled` stays **read-only**: with it
+on the radio stops talking to the broker itself and hands every message to the attached
+client as a `MqttClientProxyMessage` (`FromRadio` tag 14) to relay, and this client ignores
+that variant entirely - so offering the toggle would let the Brick silently take the radio's
+MQTT off the air. It is still shown, because it is the answer when a phone left it on and
+MQTT stopped working. It becomes editable if we ever speak the proxy protocol.
+
+MQTT is not behind the confirm overlay. It reboots the radio, which auto-connect handles, and
+it cannot cut this client off or take the radio off the mesh - the rule the overlay follows.
+
+- Exit criteria: on the Brick, a username and root topic typed on the keyboard read back
+  after the reboot with the server and the proxy flag untouched.
+
 ### Later, maybe never
 
-Firmware install. Also `tzdef` presets beyond typing the POSIX string by hand, `MQTT`
-(shown read-only, not edited), `Network` (WiFi credentials on a device with no WiFi of its
-own is a poor fit), and closing channel gaps the way the phone apps do when a middle slot is
-removed.
+Firmware install. Also `tzdef` presets beyond typing the POSIX string by hand, `Network`
+(WiFi credentials on a device with no WiFi of its own is a poor fit), MQTT client proxying,
+and closing channel gaps the way the phone apps do when a middle slot is removed.
 
 ### Done outside the phases
 
