@@ -1,3 +1,14 @@
+## [1.16.0](https://github.com/mcereal/mesh-client/compare/v1.15.0...v1.16.0) (2026-09-05)
+
+### Features
+
+* **ble:** pair PIN-mode nodes and manage the link from the Devices tab ([a7176ad](https://github.com/mcereal/mesh-client/commit/a7176ad317f139e6bf80e37ccbc43b38f05c3e1a))
+
+### Bug Fixes
+
+* **ble:** address review findings on the pairing path ([af9d0a7](https://github.com/mcereal/mesh-client/commit/af9d0a7b1203452fe32f1b79c8258da111da4c2f))
+* **message:** say why a message failed instead of just marking it failed ([65605c1](https://github.com/mcereal/mesh-client/commit/65605c18f71615d0cc7f7532e3c2f0034d197bef))
+
 ## [1.15.0](https://github.com/mcereal/mesh-client/compare/v1.14.0...v1.15.0) (2026-09-05)
 
 ### Features
