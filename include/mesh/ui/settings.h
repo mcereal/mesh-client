@@ -146,6 +146,7 @@ enum mesh_ui_setting_field {
     MESH_UI_FIELD_TELEMETRY_ENV_FAHRENHEIT,
     MESH_UI_FIELD_TELEMETRY_AIR_QUALITY,
     MESH_UI_FIELD_TELEMETRY_AIR_INTERVAL,
+    MESH_UI_FIELD_TELEMETRY_AIR_SCREEN,
     MESH_UI_FIELD_TELEMETRY_POWER,
     MESH_UI_FIELD_TELEMETRY_POWER_INTERVAL,
     MESH_UI_FIELD_TELEMETRY_POWER_SCREEN,
@@ -236,7 +237,7 @@ enum mesh_ui_psk_choice {
 
 #define MESH_UI_SETTINGS_LABEL_MAX 24U
 #define MESH_UI_SETTINGS_VALUE_MAX 48U
-/* Telemetry is fifteen fields plus four headings; External notification will be worse. The
+/* Telemetry is fifteen fields plus five headings; External notification will be worse. The
    list is built onto the stack every frame, so this is ~4.9 KB in a loop that has no threads
    to share it with. */
 #define MESH_UI_SETTINGS_ITEMS_MAX 32U

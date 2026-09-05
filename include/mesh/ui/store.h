@@ -392,6 +392,7 @@ struct mesh_ui_settings {
     bool environment_display_fahrenheit;
     bool air_quality_enabled;
     uint32_t air_quality_interval;
+    bool air_quality_screen_enabled;
     bool power_measurement_enabled;
     uint32_t power_update_interval;
     bool power_screen_enabled;

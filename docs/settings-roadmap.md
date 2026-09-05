@@ -371,7 +371,7 @@ mid-edit moves the cursor. In particular the rows under a module's `Enabled` tog
 when it is off. A module that is off is a module you are about to configure.
 
 **The two caps both had to move.** `MESH_UI_SETTINGS_ITEMS_MAX` was 16, which Telemetry's
-fifteen fields plus four headings blow straight through; it is 32. `MESH_UI_SETTINGS_EDITS_MAX`
+fifteen fields plus five headings blow straight through; it is 32. `MESH_UI_SETTINGS_EDITS_MAX`
 was 8, so a fifteen-field section could not have all of it edited before Y - `mesh_ui_nav_edit_set`
 returned false and the press did nothing, silently. It is 16. Both are copied per frame (the
 item list onto the stack, the edits into the snapshot), which is what kept them small; at 32
@@ -382,9 +382,9 @@ array grows `struct mesh_ui_nav` by 640 bytes.
 reorganises rows is the cheapest one in which to find out whether the reorganisation holds:
 
 - Store & Forward gains `records`, `history_return_max` and `history_return_window`.
-- Telemetry gains the environment, air-quality and power update intervals, the power screen
-  toggle, and the three health rows - and grows the four headings that make the result
-  readable.
+- Telemetry gains the environment, air-quality and power update intervals, the air-quality and
+  power screen toggles, and the three health rows - all fifteen wire fields, under the five
+  headings that make the result readable.
 - MQTT gains the `map_report_settings` trio under a heading, listed under the map-reporting
   toggle they belong to.
 

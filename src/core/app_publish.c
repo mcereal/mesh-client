@@ -570,6 +570,7 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
         dst->environment_display_fahrenheit = src->telemetry.environment_display_fahrenheit;
         dst->air_quality_enabled = src->telemetry.air_quality_enabled;
         dst->air_quality_interval = src->telemetry.air_quality_interval;
+        dst->air_quality_screen_enabled = src->telemetry.air_quality_screen_enabled;
         dst->power_measurement_enabled = src->telemetry.power_measurement_enabled;
         dst->power_update_interval = src->telemetry.power_update_interval;
         dst->power_screen_enabled = src->telemetry.power_screen_enabled;

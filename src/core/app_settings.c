@@ -226,6 +226,9 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
     case MESH_UI_FIELD_TELEMETRY_AIR_INTERVAL:
         telemetry->air_quality_interval = edit->number;
         break;
+    case MESH_UI_FIELD_TELEMETRY_AIR_SCREEN:
+        telemetry->air_quality_screen_enabled = on;
+        break;
     case MESH_UI_FIELD_TELEMETRY_POWER:
         telemetry->power_measurement_enabled = on;
         break;

@@ -384,6 +384,9 @@ MESH_TEST_CASE(app_module_write_build, unit) {
     action.edits[2].number = 1U;
     action.edits[3].field = MESH_UI_FIELD_TELEMETRY_AIR_INTERVAL;
     action.edits[3].number = 3600U;
+    action.edits[4].field = MESH_UI_FIELD_TELEMETRY_AIR_SCREEN;
+    action.edits[4].number = 1U;
+    action.edit_count = 5U;
     MESH_TEST_FAIL_IF(
         mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
             write.type != meshtastic_AdminMessage_ModuleConfigType_TELEMETRY_CONFIG ||
@@ -391,6 +394,7 @@ MESH_TEST_CASE(app_module_write_build, unit) {
             write.payload.module_config.payload_variant.telemetry.health_update_interval != 1800U ||
             !write.payload.module_config.payload_variant.telemetry.power_screen_enabled ||
             write.payload.module_config.payload_variant.telemetry.air_quality_interval != 3600U ||
+            !write.payload.module_config.payload_variant.telemetry.air_quality_screen_enabled ||
             write.payload.module_config.payload_variant.telemetry.device_update_interval != 900U,
         "set_telemetry should carry the health rows and keep the rest");
 

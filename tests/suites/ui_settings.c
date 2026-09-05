@@ -151,6 +151,12 @@ MESH_TEST_CASE(ui_settings_edits, unit) {
                 MESH_UI_SETTING_NUMBER ||
             strcmp(mesh_ui_settings_field_label(MESH_UI_FIELD_USER_SHORT_NAME), "Short name") != 0,
         "field descriptions are wrong");
+    /* All fifteen TelemetryConfig wire fields have a row, under five headings. Pinned as a
+       count because the section is meant to be complete: a field added upstream, or one left
+       out of a builder, moves this number. */
+    MESH_TEST_FAIL_IF(mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_TELEMETRY,
+                                                  MESH_UI_SETTINGS_NO_CHANNEL) != 20U,
+                      "telemetry should be fifteen fields under five headings");
     /* Telemetry's groups sit under headings, so the device interval is row 2: heading,
        Enabled, Interval. The heading itself carries no field and no value. */
     MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_TELEMETRY,

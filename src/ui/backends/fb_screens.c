@@ -1042,6 +1042,10 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
         } else if (snapshot->nav.settings_section == MESH_UI_SETTINGS_CHANNELS &&
                    snapshot->nav.settings_channel == MESH_UI_SETTINGS_NO_CHANNEL) {
             hint = "A open channel  B back  X refresh  L1/R1 tabs";
+        } else if (snapshot->nav.settings_section == MESH_UI_SETTINGS_MODULES) {
+            /* A list, not a section: nothing on it is editable, so the edit keys would be
+               advertising a press that does nothing. The same branch the channel list has. */
+            hint = "A open module  B back  X refresh  L1/R1 tabs";
         } else if (snapshot->nav.settings_section == MESH_UI_SETTINGS_ABOUT) {
             /* Nothing here is editable and nothing here comes from the radio, so neither the
                edit keys nor X mean anything. */
