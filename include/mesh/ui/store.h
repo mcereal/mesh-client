@@ -546,6 +546,13 @@ void mesh_ui_store_open_passkey_prompt(struct mesh_ui_store *store, const char *
 void mesh_ui_store_close_passkey_prompt(struct mesh_ui_store *store);
 /* Drops the pending Settings edits: the app calls this once a save has been queued. */
 void mesh_ui_store_settings_edits_clear(struct mesh_ui_store *store);
+
+/* Clears only the edits `consumer` has just written and keeps the rest, because the Position
+   section has two submission paths: a latitude typed but not yet pinned has to survive a Y
+   that saves the GPS rows, and the GPS rows have to survive a "Set fixed position". Every
+   other section has one path, so clearing SECTION there clears the lot. */
+void mesh_ui_store_settings_edits_consumed(struct mesh_ui_store *store,
+                                           enum mesh_ui_setting_consumer consumer);
 /* Time-based housekeeping (toast expiry). Call once per loop turn. */
 void mesh_ui_store_tick(struct mesh_ui_store *store, uint64_t now_ms);
 

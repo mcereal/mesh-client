@@ -10678,6 +10678,18 @@ static void test_radio_settings_node_ops(void) {
         return;
     }
 
+    /* Pressed again before the first has gone out: the queue deduplicates it, so the cached
+       flag must not move a second time. One toggle on the wire, one flip here. */
+    if (mesh_session_toggle_node_muted(&session, 0x2222U) != 0) {
+        record_failure(test_name, "a repeated mute should deduplicate rather than queue again");
+        return;
+    }
+    node = session_find_node(&session, 0x2222U);
+    if (node == NULL || node->is_muted) {
+        record_failure(test_name, "a deduplicated mute should leave the cached flag alone");
+        return;
+    }
+
     if (mesh_session_remove_node(&session, 0x1111U) != -EINVAL ||
         mesh_session_remove_node(&session, 0x9999U) != -ENOENT) {
         record_failure(test_name, "removing ourselves or an unknown node should be refused");
@@ -10865,7 +10877,12 @@ static void test_ui_settings_coords(void) {
         return;
     }
 
-    if (mesh_ui_settings_coord_parse("", 90, &value) ||
+    /* A bare dot, with or without a sign, would otherwise read as zero - and a zero the
+       (0, 0) guard downstream cannot catch, because the other coordinate is real. */
+    if (mesh_ui_settings_coord_parse(".", 90, &value) ||
+        mesh_ui_settings_coord_parse("-.", 90, &value) ||
+        mesh_ui_settings_coord_parse("+.", 90, &value) ||
+        mesh_ui_settings_coord_parse("", 90, &value) ||
         mesh_ui_settings_coord_parse("44.6N", 90, &value) ||
         mesh_ui_settings_coord_parse("north", 90, &value) ||
         mesh_ui_settings_coord_parse("91", 90, &value) ||
@@ -11105,6 +11122,41 @@ static void test_ui_nav_fixed_position(void) {
         action.edits[0].field != MESH_UI_FIELD_POSITION_LATITUDE ||
         strcmp(action.edits[0].text, "45.0") != 0) {
         failure = "the action should carry the coordinate rows it reads";
+        goto cleanup;
+    }
+
+    /*
+     * The section has two presses that write, and each must leave the other's pending work
+     * alone. Y saves PositionConfig and the typed latitude stays waiting for its own row;
+     * the row fires and the GPS edit stays waiting for Y.
+     */
+    if (mesh_ui_settings_field_consumer(MESH_UI_FIELD_POSITION_LATITUDE) !=
+            MESH_UI_SETTING_CONSUMER_FIXED_POSITION ||
+        mesh_ui_settings_field_consumer(MESH_UI_FIELD_POSITION_GPS_MODE) !=
+            MESH_UI_SETTING_CONSUMER_SECTION) {
+        failure = "the coordinate rows and the GPS rows are written by different presses";
+        goto cleanup;
+    }
+    /* Add a GPS-mode edit beside the latitude one, then consume each side in turn. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    while (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] > 0U) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    if (store.nav.settings_edit_count != 2U) {
+        failure = "the GPS row should record an edit beside the latitude one";
+        goto cleanup;
+    }
+    mesh_ui_store_settings_edits_consumed(&store, MESH_UI_SETTING_CONSUMER_SECTION);
+    if (store.nav.settings_edit_count != 1U ||
+        store.nav.settings_edits[0].field != MESH_UI_FIELD_POSITION_LATITUDE ||
+        strcmp(store.nav.settings_edits[0].text, "45.0") != 0) {
+        failure = "a section save should leave the typed latitude pending";
+        goto cleanup;
+    }
+    mesh_ui_store_settings_edits_consumed(&store, MESH_UI_SETTING_CONSUMER_FIXED_POSITION);
+    if (store.nav.settings_edit_count != 0U) {
+        failure = "the fixed-position row should consume the coordinate edits";
         goto cleanup;
     }
 

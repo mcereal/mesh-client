@@ -576,6 +576,17 @@ bool mesh_ui_settings_section_needs_confirm(enum mesh_ui_settings_section sectio
 /* The fixed-position pair are the exception: setting a location is undone by setting another
    one and clearing it by setting it again, so a question in front of either would be a press
    the user has to make twice for nothing. */
+enum mesh_ui_setting_consumer mesh_ui_settings_field_consumer(enum mesh_ui_setting_field field) {
+    switch (field) {
+    case MESH_UI_FIELD_POSITION_LATITUDE:
+    case MESH_UI_FIELD_POSITION_LONGITUDE:
+    case MESH_UI_FIELD_POSITION_ALTITUDE:
+        return MESH_UI_SETTING_CONSUMER_FIXED_POSITION;
+    default:
+        return MESH_UI_SETTING_CONSUMER_SECTION;
+    }
+}
+
 bool mesh_ui_settings_action_needs_confirm(enum mesh_ui_settings_action action) {
     return action == MESH_UI_SETTINGS_ACTION_REBOOT || action == MESH_UI_SETTINGS_ACTION_SHUTDOWN ||
            action == MESH_UI_SETTINGS_ACTION_RESET_NODEDB ||
@@ -753,8 +764,10 @@ bool mesh_ui_settings_coord_parse(const char *text, int32_t limit_degrees, int32
     /* Parsed as integers rather than through strtod: the wire wants exactly seven decimal
        places, and a double would round the last one somewhere the user cannot see. */
     int64_t whole = 0;
+    bool any_digit = false;
     while (*p >= '0' && *p <= '9') {
         whole = whole * 10 + (*p - '0');
+        any_digit = true;
         if (whole > 1000) {
             return false; /* far past any coordinate; stop before this can overflow */
         }
@@ -769,8 +782,14 @@ bool mesh_ui_settings_coord_parse(const char *text, int32_t limit_degrees, int32
                 fraction = fraction * 10 + (*p - '0');
                 ++digits;
             }
+            any_digit = true;
             ++p;
         }
+    }
+    if (!any_digit) {
+        /* A bare "." or "-." got past the first check and would otherwise read as zero, which
+           the (0, 0) guard downstream cannot catch when the other coordinate is real. */
+        return false;
     }
     while (*p == ' ') {
         ++p;

@@ -1031,7 +1031,11 @@ int mesh_session_toggle_node_muted(struct mesh_session *session, uint32_t node_i
         return -ENOENT;
     }
     const int queued = mesh_radio_settings_queue_toggle_muted(&session->settings, node_id);
-    if (queued < 0) {
+    if (queued <= 0) {
+        /* 0 is the same toggle already queued and deduplicated. The favorite and ignore pair
+           can flip their cached flag anyway, because they send the state they want and a
+           second request for it is a no-op; a toggle cannot. Flipping twice here for one
+           toggle on the wire would leave the row stating the opposite of the truth. */
         return queued;
     }
     /* The wire verb is a toggle, so there is no wanted state to send and none to assume: the

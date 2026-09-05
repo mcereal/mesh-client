@@ -171,6 +171,9 @@ enum mesh_ui_settings_action {
     MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION,
 };
 
+/* Which press writes this field (mesh/ui/nav.h). */
+enum mesh_ui_setting_consumer mesh_ui_settings_field_consumer(enum mesh_ui_setting_field field);
+
 /* True for the rows above that ask the radio to do something rather than the client: they all
    reach the app as MESH_UI_ACTION_RADIO_ACTION. */
 bool mesh_ui_settings_action_is_radio(enum mesh_ui_settings_action action);

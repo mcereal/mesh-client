@@ -142,6 +142,36 @@ void mesh_ui_store_settings_edits_clear(struct mesh_ui_store *store) {
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
 }
 
+void mesh_ui_store_settings_edits_consumed(struct mesh_ui_store *store,
+                                           enum mesh_ui_setting_consumer consumer) {
+    if (store == NULL) {
+        return;
+    }
+    struct mesh_ui_nav *nav = &store->nav;
+    uint8_t kept = 0U;
+    for (uint8_t i = 0; i < nav->settings_edit_count && i < MESH_UI_SETTINGS_EDITS_MAX; ++i) {
+        if (mesh_ui_settings_field_consumer(
+                (enum mesh_ui_setting_field)nav->settings_edits[i].field) == consumer) {
+            continue; /* written by the press that just fired */
+        }
+        if (kept != i) {
+            nav->settings_edits[kept] = nav->settings_edits[i];
+        }
+        ++kept;
+    }
+    if (kept == nav->settings_edit_count && !nav->settings_discard_armed) {
+        return;
+    }
+    for (uint8_t i = kept; i < MESH_UI_SETTINGS_EDITS_MAX; ++i) {
+        memset(&nav->settings_edits[i], 0, sizeof nav->settings_edits[i]);
+    }
+    nav->settings_edit_count = kept;
+    /* The question B asked was about the edits that have just gone; whatever is left is work
+       the user has not been asked about yet. */
+    nav->settings_discard_armed = false;
+    mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
+}
+
 void mesh_ui_store_tick(struct mesh_ui_store *store, uint64_t now_ms) {
     if (store == NULL) {
         return;

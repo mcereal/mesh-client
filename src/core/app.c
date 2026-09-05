@@ -669,9 +669,13 @@ int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
         return -ENOTSUP;
     }
     for (uint8_t i = 0; i < action->edit_count && i < MESH_UI_SETTINGS_EDITS_MAX; ++i) {
-        if (mesh_ui_settings_field_section((enum mesh_ui_setting_field)action->edits[i].field) !=
+        const enum mesh_ui_setting_field field = (enum mesh_ui_setting_field)action->edits[i].field;
+        if (mesh_ui_settings_field_section(field) !=
             (enum mesh_ui_settings_section)action->section) {
             continue; /* an edit from another section has no business in this write */
+        }
+        if (mesh_ui_settings_field_consumer(field) != MESH_UI_SETTING_CONSUMER_SECTION) {
+            continue; /* in this section but written by its own row, not by Y */
         }
         const int result = mesh_app_apply_setting_edit(out, &action->edits[i]);
         if (result < 0) {
@@ -773,7 +777,9 @@ static void mesh_app_save_fixed_position(struct mesh_app *app, const struct mesh
         app->settings_writes_failed_seen = radio != NULL ? radio->writes_failed : 0U;
         snprintf(app->settings_save_section, sizeof app->settings_save_section, "%s",
                  clearing ? "Fixed position" : "Position");
-        mesh_ui_store_settings_edits_clear(&app->ui_store);
+        /* The GPS rows are saved with Y and stay pending until it is pressed. */
+        mesh_ui_store_settings_edits_consumed(&app->ui_store,
+                                              MESH_UI_SETTING_CONSUMER_FIXED_POSITION);
         snprintf(toast, sizeof toast, "%s...",
                  clearing ? "Clearing fixed position" : "Pinning position");
     } else if (result == -ENOTCONN) {
@@ -811,7 +817,9 @@ static void mesh_app_save_settings(struct mesh_app *app, const struct mesh_ui_ac
         app->settings_writes_acked_seen = radio != NULL ? radio->writes_acked : 0U;
         app->settings_writes_failed_seen = radio != NULL ? radio->writes_failed : 0U;
         snprintf(app->settings_save_section, sizeof app->settings_save_section, "%s", section_name);
-        mesh_ui_store_settings_edits_clear(&app->ui_store);
+        /* Only the edits this write carried: a coordinate typed in the Position section is
+           written by its own row, and clearing it here would drop it unsaved. */
+        mesh_ui_store_settings_edits_consumed(&app->ui_store, MESH_UI_SETTING_CONSUMER_SECTION);
         snprintf(toast, sizeof toast, "Saving %s...", section_name);
         mesh_log_info("ui", "Saving %s: %u edits, %d admin requests", section_name,
                       (unsigned)action->edit_count, result);
@@ -1111,7 +1119,11 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
         mesh_app_format_peer_name(mesh_session_handshake(&app->session), action->dest, name,
                                   sizeof name);
         const int result = mesh_session_toggle_node_muted(&app->session, action->dest);
-        if (result > 0) {
+        if (result == 0) {
+            /* Already on its way. Two local flips for one toggle on the wire would leave the
+               row stating the opposite of what the radio is about to do. */
+            snprintf(toast, sizeof toast, "%s", "Mute already requested");
+        } else if (result > 0) {
             /* The session flipped the cached flag on the way through, so what it now holds is
                what we asked the radio for. */
             const struct mesh_ui_node_summary *node =

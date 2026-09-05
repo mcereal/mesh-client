@@ -58,6 +58,19 @@ enum mesh_ui_screen {
 /* Long enough for a 32-byte key typed as hex. */
 #define MESH_UI_SETTING_TEXT_MAX 72U
 
+/*
+ * Which press writes an edit. The Position section is the one with two: Y writes
+ * PositionConfig with a set_config, and "Set fixed position" writes the coordinate rows with
+ * set_fixed_position, because the firmware only takes them that way. Every other field belongs
+ * to its section's own save. An edit has to say which press owns it so that neither one clears
+ * the other's pending work off the screen when it fires.
+ * mesh_ui_settings_field_consumer() (settings.h) answers it for a field.
+ */
+enum mesh_ui_setting_consumer {
+    MESH_UI_SETTING_CONSUMER_SECTION = 0,
+    MESH_UI_SETTING_CONSUMER_FIXED_POSITION,
+};
+
 /* One edited setting. `field` is an enum mesh_ui_setting_field (settings.h); NONE marks an
    empty slot. Toggles and enums use `number`, numbers use `number`, text uses `text`. */
 struct mesh_ui_setting_edit {
