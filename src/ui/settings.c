@@ -828,6 +828,21 @@ static void format_seconds(char *out, size_t out_len, uint32_t seconds, const ch
     }
 }
 
+/*
+ * TEXT fields holding a credential. The row shows a fixed-width mask rather than the value -
+ * a settings screen on a handheld is read over your shoulder, and the section is opened to
+ * change one of the other rows far more often than to look at this one. The mask is a fixed
+ * length so it does not leak how long the secret is.
+ *
+ * The keyboard still opens on the real text, exactly as the KEY rows do: it is the one place
+ * a secret is revealed, and a credential you cannot see is a credential you cannot correct a
+ * typo in. A predicate rather than another column in k_fields, the same way
+ * mesh_ui_settings_section_needs_confirm() is a predicate.
+ */
+static bool field_is_secret(enum mesh_ui_setting_field field) {
+    return field == MESH_UI_FIELD_MQTT_PASSWORD;
+}
+
 /* An editable row: the field's spec supplies label and kind; a pending edit replaces the
    radio's value and marks the row dirty. `text` is only read for TEXT fields. */
 static void item_field(struct item_list *list, enum mesh_ui_setting_field field, uint32_t number,
@@ -863,8 +878,14 @@ static void item_field(struct item_list *list, enum mesh_ui_setting_field field,
         break;
     case MESH_UI_SETTING_TEXT:
         snprintf(item->text, sizeof item->text, "%s", text != NULL ? text : "");
-        snprintf(item->value, sizeof item->value, "%.*s", (int)(sizeof item->value - 1U),
-                 item->text[0] != '\0' ? item->text : "-");
+        if (item->text[0] == '\0') {
+            snprintf(item->value, sizeof item->value, "%s", "-");
+        } else if (field_is_secret(field)) {
+            snprintf(item->value, sizeof item->value, "%s", "********");
+        } else {
+            snprintf(item->value, sizeof item->value, "%.*s", (int)(sizeof item->value - 1U),
+                     item->text);
+        }
         break;
     default:
         break;
