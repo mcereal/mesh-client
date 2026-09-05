@@ -231,7 +231,21 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   coming back), each hop resolves to a name, and hop `i` takes `snr[i - 1]`. That array is
   normally one longer than the route, one reading per *link* rather than per node, but every
   pairing is bounds checked rather than assumed. `INT8_MIN` is the firmware's "not measured"
-  and draws as "no reading", not a -32 dB link. The open node is remembered by
+  and draws as "no reading", not a -32 dB link.
+  Two more rows talk to the radio *about* the node. **"Ask for its name"**
+  (`mesh_session_request_node_info`) sends our own `User` on `NODEINFO_APP` with
+  `want_response`; the node answers with its NodeInfo, and this is the only way to name a node
+  that joined after the NodeDB replay, since the firmware replays its database exactly once
+  per connection and a node heard afterwards sits as a bare id until it happens to broadcast.
+  **"Ignore this node"** (`mesh_session_set_node_ignored` -> `set_ignored_node` /
+  `remove_ignored_node`) is the favorite path in every respect including its caveat: no
+  `get_ignored` exists either, so the cached flag is flipped here rather than waited for. It
+  is refused for the radio we are connected through, which would drop our own traffic. Three
+  neighbouring admin verbs are deliberately *not* rows: `toggle_muted_node` means "no
+  notifications" and we have none, so the row would do nothing observable; `remove_by_nodenum`
+  is undone by the node's next packet, so it would often look broken; and a position request
+  duplicates what the NodeInfo exchange already brings back. Five actions is already a lot to
+  walk past with a d-pad before reaching the readings. The open node is remembered by
   **id** (`nav.node_detail_node`), not by row: `app.c` re-ranks the node list on every publish,
   so an index would slide onto a different node while the user was reading one; `nav.c`'s clamp
   closes the detail when that id leaves the list. `mesh_ui_node_summary` in `store.h` is the

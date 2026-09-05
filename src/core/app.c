@@ -913,6 +913,54 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
         mesh_ui_store_set_toast(&app->ui_store, now, toast);
         return;
     }
+    case MESH_UI_ACTION_REQUEST_NODE_INFO: {
+        char name[MESH_UI_NAV_TARGET_NAME_MAX];
+        mesh_app_format_peer_name(mesh_session_handshake(&app->session), action->dest, name,
+                                  sizeof name);
+        const int result = mesh_session_request_node_info(&app->session, action->dest);
+        if (result == 0) {
+            /* Nothing here can promise an answer: the node may be out of range, asleep, or
+               simply slow, and no ack comes back for the request itself. */
+            snprintf(toast, sizeof toast, "Asked %.20s to introduce itself", name);
+        } else if (result == -ENOTCONN) {
+            snprintf(toast, sizeof toast, "%s", "Not connected to a node");
+        } else if (result == -EINVAL) {
+            snprintf(toast, sizeof toast, "%s", "Cannot ask this node");
+        } else {
+            snprintf(toast, sizeof toast, "Request failed (%d)", result);
+            mesh_log_warn("ui", "NodeInfo request for 0x%08x failed: %d", action->dest, result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
+    case MESH_UI_ACTION_TOGGLE_IGNORE: {
+        const bool ignored = (action->number != 0U);
+        char name[MESH_UI_NAV_TARGET_NAME_MAX];
+        mesh_app_format_peer_name(mesh_session_handshake(&app->session), action->dest, name,
+                                  sizeof name);
+        const int result = mesh_session_set_node_ignored(&app->session, action->dest, ignored);
+        if (result > 0) {
+            /* Said as what it does to the traffic, not as a preference that was recorded. */
+            snprintf(toast, sizeof toast,
+                     ignored ? "Dropping packets from %.20s" : "Hearing %.20s again", name);
+            mesh_log_info("ui", "%s node 0x%08x from the Nodes tab",
+                          ignored ? "Ignoring" : "Unignoring", action->dest);
+        } else if (result == 0) {
+            snprintf(toast, sizeof toast, "%.20s is already %s", name,
+                     ignored ? "ignored" : "not ignored");
+        } else if (result == -ENOTCONN) {
+            snprintf(toast, sizeof toast, "%s", "Not connected to a node");
+        } else if (result == -ENOENT) {
+            snprintf(toast, sizeof toast, "%s", "That node is no longer in the list");
+        } else if (result == -EINVAL) {
+            snprintf(toast, sizeof toast, "%s", "Cannot ignore this node");
+        } else {
+            snprintf(toast, sizeof toast, "Ignore failed (%d)", result);
+            mesh_log_warn("ui", "Ignore for 0x%08x failed: %d", action->dest, result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
     case MESH_UI_ACTION_TRACEROUTE: {
         char name[MESH_UI_NAV_TARGET_NAME_MAX];
         mesh_app_format_peer_name(mesh_session_handshake(&app->session), action->dest, name,

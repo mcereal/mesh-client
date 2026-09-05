@@ -42,6 +42,8 @@ enum mesh_admin_request_kind {
     MESH_ADMIN_SET_TIME,          /* type = UTC epoch seconds; no payload, nothing to read back */
     MESH_ADMIN_SET_FAVORITE,      /* type = node number to pin in the radio's NodeDB */
     MESH_ADMIN_REMOVE_FAVORITE,   /* type = node number to unpin */
+    MESH_ADMIN_SET_IGNORED,       /* type = node number the radio should drop packets from */
+    MESH_ADMIN_REMOVE_IGNORED,    /* type = node number to stop ignoring */
 };
 
 struct mesh_admin_request {
@@ -192,6 +194,12 @@ int mesh_radio_settings_queue_time(struct mesh_radio_settings *settings, uint32_
    comes home on the next NodeInfo for that node, so the caller updates its own copy. */
 int mesh_radio_settings_queue_favorite(struct mesh_radio_settings *settings, uint32_t node_id,
                                        bool favorite);
+
+/* Adds or removes a node from the radio's ignore list. Identical in shape to the favorite
+   pair above, and identical in consequence: no get_ignored exists either, so the caller keeps
+   its own copy of the flag in step. */
+int mesh_radio_settings_queue_ignored(struct mesh_radio_settings *settings, uint32_t node_id,
+                                      bool ignored);
 
 /* True while a set_* is queued or awaiting its reply. */
 bool mesh_radio_settings_write_pending(const struct mesh_radio_settings *settings);

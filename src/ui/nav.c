@@ -1540,6 +1540,23 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             }
             return false; /* the rows redraw when the app publishes the trace */
         }
+        if (items[cursor].action == MESH_UI_NODE_ACTION_REQUEST_INFO) {
+            if (action != NULL) {
+                action->type = MESH_UI_ACTION_REQUEST_NODE_INFO;
+                action->dest = node->node_id;
+            }
+            return false; /* the row redraws if and when the node answers */
+        }
+        if (items[cursor].action == MESH_UI_NODE_ACTION_IGNORE) {
+            if (action != NULL) {
+                /* The wanted state, not a bare "toggle": a press that races an incoming
+                   NodeInfo must not cancel itself out, same as the pin. */
+                action->type = MESH_UI_ACTION_TOGGLE_IGNORE;
+                action->dest = node->node_id;
+                action->number = node->is_ignored ? 0U : 1U;
+            }
+            return false; /* the row redraws when the app flips the flag */
+        }
         return false;
     }
     case MESH_UI_SCREEN_DEVICES: {

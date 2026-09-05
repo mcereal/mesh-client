@@ -38,9 +38,11 @@ enum mesh_ui_node_row_kind {
 
 enum mesh_ui_node_action {
     MESH_UI_NODE_ACTION_NONE = 0,
-    MESH_UI_NODE_ACTION_MESSAGE,    /* open this node's conversation */
-    MESH_UI_NODE_ACTION_FAVORITE,   /* pin or unpin the node in the radio's NodeDB */
-    MESH_UI_NODE_ACTION_TRACEROUTE, /* ask the mesh which way it reaches this node */
+    MESH_UI_NODE_ACTION_MESSAGE,      /* open this node's conversation */
+    MESH_UI_NODE_ACTION_FAVORITE,     /* pin or unpin the node in the radio's NodeDB */
+    MESH_UI_NODE_ACTION_TRACEROUTE,   /* ask the mesh which way it reaches this node */
+    MESH_UI_NODE_ACTION_REQUEST_INFO, /* ask the node to introduce itself */
+    MESH_UI_NODE_ACTION_IGNORE,       /* have the radio drop this node's packets */
 };
 
 struct mesh_ui_node_item {

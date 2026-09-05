@@ -8030,6 +8030,85 @@ static void test_session_traceroute(void) {
     record_success(test_name);
 }
 
+/*
+ * The two Nodes-tab actions that talk to the radio about another node. Ignore is an admin
+ * write with no read-back, so the cached flag has to move here or the row would lie until the
+ * node's next NodeInfo; asking for a name is a plain packet with want_response.
+ */
+static void test_session_node_actions(void) {
+    const char *test_name = "session_node_actions";
+
+    struct mesh_session session;
+    mesh_session_init(&session);
+    struct trace_send_capture capture;
+    memset(&capture, 0, sizeof capture);
+    mesh_session_attach(&session, trace_send_capture_fn, &capture);
+
+    meshtastic_FromRadio my_info = meshtastic_FromRadio_init_default;
+    my_info.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    my_info.my_info.my_node_num = 0x1111U;
+    if (!session_feed_from_radio(&session, &my_info)) {
+        record_failure(test_name, "encode my_info failed");
+        return;
+    }
+
+    meshtastic_FromRadio peer = meshtastic_FromRadio_init_default;
+    peer.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+    peer.node_info.num = 0x2222U;
+    peer.node_info.has_user = true;
+    snprintf(peer.node_info.user.short_name, sizeof peer.node_info.user.short_name, "NOSY");
+    if (!session_feed_from_radio(&session, &peer)) {
+        record_failure(test_name, "encode node_info failed");
+        return;
+    }
+
+    /* Ignoring the radio we talk through would drop our own traffic, and a node we have never
+       heard of has no cached flag to move. */
+    if (mesh_session_set_node_ignored(&session, 0x1111U, true) != -EINVAL ||
+        mesh_session_set_node_ignored(&session, 0x9999U, true) != -ENOENT) {
+        record_failure(test_name, "ignoring ourselves or an unknown node should be refused");
+        return;
+    }
+
+    if (mesh_session_set_node_ignored(&session, 0x2222U, true) <= 0) {
+        record_failure(test_name, "the ignore was not queued");
+        return;
+    }
+    const struct mesh_node_summary *node = session_find_node(&session, 0x2222U);
+    if (node == NULL || !node->is_ignored) {
+        record_failure(test_name, "the cached ignore flag did not move");
+        return;
+    }
+    /* There is no get_ignored, so asking again for what is already true sends nothing. */
+    if (mesh_session_set_node_ignored(&session, 0x2222U, true) != 0) {
+        record_failure(test_name, "a redundant ignore should send nothing");
+        return;
+    }
+
+    /* Asking a node for its name: our own User out on NODEINFO_APP, wanting a response. */
+    capture.calls = 0U;
+    if (mesh_session_request_node_info(&session, 0x1111U) != -EINVAL ||
+        mesh_session_request_node_info(&session, MESH_MESSAGE_BROADCAST_ADDR) != -EINVAL) {
+        record_failure(test_name, "asking ourselves or everyone should be refused");
+        return;
+    }
+    if (mesh_session_request_node_info(&session, 0x2222U) != 0 || capture.calls != 1U) {
+        record_failure(test_name, "the NodeInfo request was not sent");
+        return;
+    }
+    meshtastic_ToRadio sent = meshtastic_ToRadio_init_default;
+    pb_istream_t in = pb_istream_from_buffer(capture.packet, capture.len);
+    if (!pb_decode(&in, meshtastic_ToRadio_fields, &sent) ||
+        sent.which_payload_variant != meshtastic_ToRadio_packet_tag || sent.packet.to != 0x2222U ||
+        sent.packet.decoded.portnum != meshtastic_PortNum_NODEINFO_APP ||
+        !sent.packet.decoded.want_response) {
+        record_failure(test_name, "the request should be a NODEINFO_APP asking for a reply");
+        return;
+    }
+
+    record_success(test_name);
+}
+
 /* The Nodes tab's detail rows: which ones a node produces, and that the count the nav walks
    agrees with the list the backend draws. */
 static void test_ui_node_detail_items(void) {
@@ -10263,6 +10342,7 @@ static const struct test_case k_test_cases[] = {
     {"session_node_detail_ingest", "unit", test_session_node_detail_ingest},
     {"session_local_stats", "unit", test_session_local_stats},
     {"session_traceroute", "unit", test_session_traceroute},
+    {"session_node_actions", "unit", test_session_node_actions},
     {"ui_node_detail_items", "unit", test_ui_node_detail_items},
     {"radio_settings_favorite_queue", "unit", test_radio_settings_favorite_queue},
     {"ui_preferences_known_radios", "unit", test_ui_preferences_known_radios},

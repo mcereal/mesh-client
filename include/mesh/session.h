@@ -304,6 +304,29 @@ int mesh_session_write_settings(struct mesh_session *session,
  */
 int mesh_session_set_node_favorite(struct mesh_session *session, uint32_t node_id, bool favorite);
 
+/*
+ * Adds or removes a node from the radio's ignore list. Same shape and same caveat as
+ * favorite: there is no get_ignored, so the cached flag is flipped here rather than waiting
+ * for the node's next NodeInfo - which for a node you are ignoring precisely because it is
+ * quiet, or precisely because it is not, may never be a useful wait.
+ *
+ * Unlike a pin this changes what the radio *does*: an ignored node's packets are dropped
+ * before they reach us, so its messages stop arriving and its position stops updating.
+ */
+int mesh_session_set_node_ignored(struct mesh_session *session, uint32_t node_id, bool ignored);
+
+/*
+ * Asks a node to introduce itself: our own User goes out on NODEINFO_APP with want_response,
+ * and the node answers with its NodeInfo. This is the only way to put a name to a node that
+ * joined after the NodeDB replay - the firmware replays its database exactly once per
+ * connection, so a node heard afterwards sits in the list as a bare id until it happens to
+ * broadcast, which on a quiet mesh is hours.
+ *
+ * Returns 0, -ENOTCONN without a link or before the handshake, -EINVAL for a broadcast or for
+ * our own node.
+ */
+int mesh_session_request_node_info(struct mesh_session *session, uint32_t dest);
+
 /* Meshtastic packet ids only need to be unique per sender for a few minutes. Never zero. */
 uint32_t mesh_session_next_packet_id(struct mesh_session *session);
 

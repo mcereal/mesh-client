@@ -185,12 +185,14 @@ struct mesh_ui_nav {
 
 enum mesh_ui_action_type {
     MESH_UI_ACTION_NONE = 0,
-    MESH_UI_ACTION_CONNECT,          /* identifier = BLE address */
-    MESH_UI_ACTION_SEND_TEXT,        /* dest/channel/text */
-    MESH_UI_ACTION_REFRESH_SETTINGS, /* re-read the radio's configuration */
-    MESH_UI_ACTION_SAVE_SETTINGS,    /* section + edits: write one section to the radio */
-    MESH_UI_ACTION_TOGGLE_FAVORITE,  /* dest = node to pin/unpin; `number` is 1 to pin */
-    MESH_UI_ACTION_TRACEROUTE,       /* dest = node to trace the route to */
+    MESH_UI_ACTION_CONNECT,           /* identifier = BLE address */
+    MESH_UI_ACTION_SEND_TEXT,         /* dest/channel/text */
+    MESH_UI_ACTION_REFRESH_SETTINGS,  /* re-read the radio's configuration */
+    MESH_UI_ACTION_SAVE_SETTINGS,     /* section + edits: write one section to the radio */
+    MESH_UI_ACTION_TOGGLE_FAVORITE,   /* dest = node to pin/unpin; `number` is 1 to pin */
+    MESH_UI_ACTION_TRACEROUTE,        /* dest = node to trace the route to */
+    MESH_UI_ACTION_REQUEST_NODE_INFO, /* dest = node to ask for a NodeInfo */
+    MESH_UI_ACTION_TOGGLE_IGNORE,     /* dest = node; `number` is 1 to start ignoring it */
     /* About section: ask GitHub what the newest release is, and install the one a check
        found. Two actions rather than one because installing replaces the running binary. */
     MESH_UI_ACTION_CHECK_UPDATE,

@@ -357,6 +357,13 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
                     MESH_UI_NODE_ACTION_FAVORITE);
         /* Tracing the route to ourselves is a question with no links in it. */
         node_rows_route(&rows, node, trace, now);
+        /* The one row that answers "who is this?" for a node that joined after the NodeDB
+           replay and has been sitting in the list as a bare id ever since. */
+        rows_action(&rows, "Ask for its name", "press A", MESH_UI_NODE_ACTION_REQUEST_INFO);
+        /* Last, and stated as what the radio will do rather than as a preference: an ignored
+           node's packets are dropped before they reach us. */
+        rows_action(&rows, "Ignore this node", node->is_ignored ? "yes" : "no",
+                    MESH_UI_NODE_ACTION_IGNORE);
     }
     node_rows_identity(&rows, node);
     node_rows_signal(&rows, node, is_self, now);

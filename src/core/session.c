@@ -778,6 +778,96 @@ int mesh_session_send_packet(struct mesh_session *session, const uint8_t *packet
     return mesh_session_send_raw(session, packet, len, 0U);
 }
 
+int mesh_session_set_node_ignored(struct mesh_session *session, uint32_t node_id, bool ignored) {
+    if (session == NULL || node_id == 0U) {
+        return -EINVAL;
+    }
+    if (session->send == NULL || !session->handshake.has_my_info) {
+        return -ENOTCONN;
+    }
+    /* Ignoring the radio we are talking through would drop our own traffic. */
+    if (node_id == session->handshake.my_info.my_node_num) {
+        return -EINVAL;
+    }
+
+    struct mesh_node_summary *summary = NULL;
+    for (size_t i = 0; i < session->handshake.node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+        if (session->handshake.nodes[i].node_id == node_id) {
+            summary = &session->handshake.nodes[i];
+            break;
+        }
+    }
+    if (summary == NULL) {
+        return -ENOENT;
+    }
+    if (summary->is_ignored == ignored) {
+        return 0; /* already what the user asked for; nothing to send */
+    }
+
+    const int queued = mesh_radio_settings_queue_ignored(&session->settings, node_id, ignored);
+    if (queued < 0) {
+        return queued;
+    }
+    summary->is_ignored = ignored;
+    mesh_log_info("session", "%s node 0x%08x in the NodeDB (%d requests)",
+                  ignored ? "Ignoring" : "No longer ignoring", node_id, queued);
+    return queued;
+}
+
+int mesh_session_request_node_info(struct mesh_session *session, uint32_t dest) {
+    if (session == NULL || dest == 0U || dest == MESH_MESSAGE_BROADCAST_ADDR) {
+        return -EINVAL;
+    }
+    if (session->send == NULL || !session->handshake.has_my_info) {
+        return -ENOTCONN;
+    }
+    if (dest == session->handshake.my_info.my_node_num) {
+        return -EINVAL;
+    }
+
+    /* The firmware answers a NODEINFO_APP carrying want_response with its own NodeInfo. What
+       we send is our own User record, which is also how the far end learns our name - the
+       exchange the phone apps offer is the same packet travelling in both directions. */
+    meshtastic_User user = meshtastic_User_init_default;
+    if (session->settings.has_owner) {
+        user = session->settings.owner;
+    } else {
+        snprintf(user.id, sizeof user.id, "!%08x", session->handshake.my_info.my_node_num);
+    }
+
+    uint8_t body[192];
+    pb_ostream_t body_stream = pb_ostream_from_buffer(body, sizeof body);
+    if (!pb_encode(&body_stream, meshtastic_User_fields, &user)) {
+        mesh_log_error("session", "Failed to encode our User: %s", PB_GET_ERROR(&body_stream));
+        return -EIO;
+    }
+
+    meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_default;
+    to_radio.which_payload_variant = meshtastic_ToRadio_packet_tag;
+    meshtastic_MeshPacket *packet = &to_radio.packet;
+    packet->to = dest;
+    packet->id = mesh_session_next_packet_id(session);
+    packet->want_ack = false; /* the NodeInfo coming back is the answer */
+    packet->which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    packet->decoded.portnum = meshtastic_PortNum_NODEINFO_APP;
+    packet->decoded.want_response = true;
+    memcpy(packet->decoded.payload.bytes, body, body_stream.bytes_written);
+    packet->decoded.payload.size = (pb_size_t)body_stream.bytes_written;
+
+    uint8_t payload[MESH_SESSION_MAX_PACKET];
+    pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof payload);
+    if (!pb_encode(&stream, meshtastic_ToRadio_fields, &to_radio)) {
+        mesh_log_error("session", "Failed to encode NodeInfo request: %s", PB_GET_ERROR(&stream));
+        return -EIO;
+    }
+
+    const int result = mesh_session_send_raw(session, payload, stream.bytes_written, 0U);
+    if (result == 0) {
+        mesh_log_info("session", "Asked node 0x%08x to introduce itself", dest);
+    }
+    return result;
+}
+
 /*
  * Meshtastic packet ids only need to be unique per sender for a few minutes, so a cheap
  * xorshift seeded from the monotonic clock is enough. Zero is reserved by the protocol to mean
