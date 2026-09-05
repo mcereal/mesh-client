@@ -158,6 +158,12 @@ Output is a 1024x768 PNG written where you ran the command, converted on the hos
 but the Python standard library - no Pillow, no ffmpeg. This is how the screenshots for the Pak
 Store listing get made.
 
+**Launch MeshClient from the Tools menu, not over SSH.** Started with `nohup ./launch.sh` from
+an SSH session, the client does draw - but NextUI's launcher is still the foreground app and
+keeps repainting `fb0` over it, so every shot comes back as the launcher's menu on both pages.
+Opening the pak from Tools is what suspends that repaint. (The client itself runs fine either
+way; this only affects what is on the panel.)
+
 Two things to know when a shot looks wrong:
 
 - **`fb0` is 1024x16384**, a stack of 768-row pages the display engine flips between. The fb

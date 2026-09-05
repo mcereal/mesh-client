@@ -6,6 +6,12 @@
   "author": "mcereal",
   "repo_url": "https://github.com/mcereal/mesh-client",
   "release_filename": "MeshClient.pak.zip",
+  "screenshots": [
+    ".github/resources/screenshots/nodes.png",
+    ".github/resources/screenshots/messages.png",
+    ".github/resources/screenshots/status.png",
+    ".github/resources/screenshots/settings.png"
+  ],
   "platforms": [
     "tg5040"
   ]
