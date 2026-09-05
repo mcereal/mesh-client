@@ -6,8 +6,9 @@ Keep platform-agnostic client code in `src/` (subfolders such as `core/`, `trans
 `transport/serial`, `proto/`, `ui/`, `utils/`) with shared headers under `include/`.
 Device-facing assets live in `Tools/tg5040/MeshClient.pak/`: `bin/shared/` for utilities bundled
 across platforms, `bin/tg5040/` for committed aarch64 binaries. Reusable scripts go under
-`scripts/`, and protocol or UX references under `docs/`. Tests all live in `tests/test_main.c`
-today; see [`docs/testing.md`](docs/testing.md).
+`scripts/`, and protocol or UX references under `docs/`. Tests are split across
+`tests/suites/<area>.c` over a small framework in `tests/framework/` and shared fixtures in
+`tests/support/`; see [`docs/testing.md`](docs/testing.md).
 
 ## Build, Test, and Development Commands
 
@@ -39,8 +40,9 @@ small static helpers over macros.
 
 ## Testing Guidelines
 
-Register new cases in the `k_test_cases` table in `tests/test_main.c` with a category tag, and
-use `record_failure` / `record_success` so failures reach the summary. Tests must never touch
+Write new cases with `MESH_TEST_CASE(name, category)` in the `tests/suites/` file for the area —
+that macro is the registration, so there is no table to update — and finish every path with
+`record_failure` / `record_success` so failures reach the summary. Tests must never touch
 real BlueZ — use `mesh_bluez_client_mock_enable`. Prefer deterministic fixtures over live radio
 calls; tag anything needing hardware `HARDWARE` so CI can skip it. Cover the error paths,
 especially BLE reconnection and protobuf parsing, and give any new transport a golden protobuf

@@ -1,9 +1,21 @@
 # Testing
 
-The whole suite is **one binary with a name filter**, not per-test CTest entries. Every case
-lives in `tests/test_main.c` and is registered in the `k_test_cases` table with a category tag.
+The whole suite is **one binary with a name filter**, not per-test CTest entries. Cases live in
+`tests/suites/<area>.c`, one file per subject area, and **register themselves** — there is no
+central table to keep in sync.
 
 As of 2026-09-05: **98 unit tests, all passing**, zero compiler warnings.
+
+## Layout
+
+| Path | What lives there |
+|---|---|
+| `tests/framework/` | `MESH_TEST_CASE`, the guard macros, the registry and `main` |
+| `tests/support/` | fixtures shared by more than one suite, prefixed `mesh_test_` |
+| `tests/suites/` | the cases themselves, one file per area |
+
+A helper used by a single suite stays `static` in that suite. It only moves to `support/` once a
+second suite needs it — that is the whole rule.
 
 ## Categories
 
@@ -19,9 +31,10 @@ As of 2026-09-05: **98 unit tests, all passing**, zero compiler warnings.
 make test                                                    # debug build + ctest
 ctest -L unit                                                # the same suite directly
 
-./build/debug/tests/meshclient_core_tests --list             # names and categories
+./build/debug/tests/meshclient_core_tests --list             # names, categories and suites
 ./build/debug/tests/meshclient_core_tests --filter ble_transport
 ./build/debug/tests/meshclient_core_tests --category unit
+./build/debug/tests/meshclient_core_tests --suite ui_nav      # everything from ui_nav_*.c
 ```
 
 The driver prints a `[RUN]` line per case and a pass/fail summary; a non-zero failure count is a
@@ -29,11 +42,27 @@ non-zero exit code.
 
 ## Adding a test
 
-1. Implement it in `tests/test_main.c` and register it in `k_test_cases` with the right category
-   tag.
-2. Use the `record_failure` / `record_success` helpers so failures reach the summary.
-3. If it is not part of the default unit suite, add an `add_test` stanza in
+1. Open the `tests/suites/` file for the area, or add a new one and list it in
+   `MESHCLIENT_TEST_SUITES` in `tests/CMakeLists.txt`.
+2. Write the case with `MESH_TEST_CASE(name, category)`. That is the whole registration — the
+   macro defines the function and hooks it into the runner, and `test_name` is already in scope.
+3. End every path with `record_success(test_name)` or a failure, so the case reaches the summary.
+   `MESH_TEST_FAIL_IF` is the short form; `MESH_TEST_FAIL_IF_CLEANUP` is for a case holding a
+   loop, a mock or an fd it has to release first.
+4. If it is not part of the default unit suite, add an `add_test` stanza in
    `tests/CMakeLists.txt` and label it.
+
+```c
+MESH_TEST_CASE(config_defaults, unit) {
+    struct mesh_app_config config = mesh_app_config_default();
+    MESH_TEST_FAIL_IF(config.idle_timeout_ms != 1000, "idle timeout should default to 1000 ms");
+    record_success(test_name);
+}
+```
+
+Cases are found through constructors, which is why the suite files are compiled straight into the
+executable rather than through a static library — a linker may drop library members nothing
+references, and every case inside them would go quiet. `tests/CMakeLists.txt` says so too.
 
 ## Rules
 
