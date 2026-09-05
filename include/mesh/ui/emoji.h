@@ -33,9 +33,9 @@ struct mesh_emoji_single {
 };
 
 struct mesh_emoji_sequence {
-    uint32_t first;      /* leading codepoint, the key this table is sorted on */
-    uint16_t tail;       /* offset into sequence_tail of the codepoints after the first */
-    uint8_t length;      /* codepoints in the whole sequence, including the first */
+    uint32_t first; /* leading codepoint, the key this table is sorted on */
+    uint16_t tail;  /* offset into sequence_tail of the codepoints after the first */
+    uint8_t length; /* codepoints in the whole sequence, including the first */
     uint16_t sprite;
 };
 
@@ -86,7 +86,7 @@ bool mesh_emoji_is_zero_width(uint32_t codepoint);
  * draws.
  */
 struct mesh_ui_text_cell {
-    size_t bytes;       /* source bytes consumed; 0 at the end of the string */
+    size_t bytes; /* source bytes consumed; 0 at the end of the string */
     bool is_emoji;
     uint16_t sprite;    /* when is_emoji */
     uint32_t codepoint; /* when not */

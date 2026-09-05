@@ -458,6 +458,10 @@ so a protobuf regeneration that changes field numbers or wire types fails loudly
 `make format` rewrites every tracked `.c`/`.h` using `.clang-format`, and the tree is kept
 normalised against it - on a clean tree the command is a no-op. It is normalised with
 **clang-format 18** (what `ubuntu:24.04` ships, so the dev container and CI agree); a
-different major version reflows things and produces spurious churn, so run `make format`
-inside `make docker-shell` if your host's clang-format is a different major. Nothing gates on
+different major version reflows things and produces spurious churn. `make format` therefore
+**refuses to run** unless `clang-format --version` reports that major - use
+`./scripts/docker.sh make format` (or `make docker-shell`) from a host with a different one,
+or set `CLANG_FORMAT_ANY_VERSION=1` if you mean it. That guard exists because the tree did
+drift this way once: `src/ui/font5x7.c`, `src/ui/emoji.c`, `include/mesh/ui/emoji.h` and
+`src/ui/node_detail.c` were committed from a host running clang-format 17. Nothing gates on
 formatting in CI, precisely because host versions vary.
