@@ -1,3 +1,15 @@
+## [1.15.0](https://github.com/mcereal/mesh-client/compare/v1.14.0...v1.15.0) (2026-09-05)
+
+### Features
+
+* **device:** screenshot the Brick's screen with make deploy-shot ([89dc6ea](https://github.com/mcereal/mesh-client/commit/89dc6ea27bfa771c2ac3c826a03bd5f2c293d120))
+* **pak:** add Pak Store screenshots taken off the device ([8ba789e](https://github.com/mcereal/mesh-client/commit/8ba789e56df07709c88c7891e580902f67115ab8))
+* **pak:** publish MeshClient through the NextUI Pak Store ([e5069e4](https://github.com/mcereal/mesh-client/commit/e5069e420f52489ab5194fa373caf60fe02278c8))
+
+### Bug Fixes
+
+* **update:** ship a CA bundle so self-update works on the Brick ([a06d1cb](https://github.com/mcereal/mesh-client/commit/a06d1cb68acc82022b0ed9a0c821971ec8b7b545))
+
 ## [1.14.0](https://github.com/mcereal/mesh-client/compare/v1.13.0...v1.14.0) (2026-09-04)
 
 ### Features
