@@ -1,3 +1,14 @@
+## [1.17.0](https://github.com/mcereal/mesh-client/compare/v1.16.0...v1.17.0) (2026-09-05)
+
+### Features
+
+* **update:** pick an update channel and install from the About screen ([9ee221e](https://github.com/mcereal/mesh-client/commit/9ee221e85c73bd28bb160a7367c70c01474c0d5c))
+
+### Bug Fixes
+
+* **build:** report the version project(VERSION) actually says ([93260f8](https://github.com/mcereal/mesh-client/commit/93260f8154aa2adad2cbdef477bfc1ab55737497))
+* **update:** name the channel Automatic actually resolves to ([5c308bb](https://github.com/mcereal/mesh-client/commit/5c308bbbaf8b77f285694cf3803195933a4fe64e))
+
 ## [1.16.0](https://github.com/mcereal/mesh-client/compare/v1.15.0...v1.16.0) (2026-09-05)
 
 ### Features
