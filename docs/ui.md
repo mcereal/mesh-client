@@ -192,7 +192,7 @@ the nanopb section.
 > `struct mesh_radio_settings`, one row in `k_modules` in `radio_settings.c`, one arm in
 > `module_admin_type()` in `app_settings.c`, one row in `k_modules` in `settings.c` (the UI
 > list order), and its `has_*` in `mesh_ui_settings_section_loaded`.
-> See [`settings-roadmap.md`](settings-roadmap.md) phases 11-12.
+> See [`settings-roadmap.md`](settings-roadmap.md) phases 12-13.
 
 **The module table** (`struct mesh_module_binding`, `radio_settings.c`) is what a module's
 protobuf identity lives in: its admin `ModuleConfigType`, its `which_payload_variant` tag, and

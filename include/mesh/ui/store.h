@@ -432,6 +432,43 @@ struct mesh_ui_settings {
     bool has_status_message;
     char status_message[80];
 
+    bool has_detection_sensor;
+    bool detection_enabled;
+    uint32_t detection_minimum_broadcast_secs;
+    uint32_t detection_state_broadcast_secs;
+    bool detection_send_bell;
+    char detection_name[20];
+    uint8_t detection_monitor_pin;
+    uint8_t detection_trigger_type; /* 0..5, TriggerType */
+    bool detection_use_pullup;
+
+    bool has_external_notification;
+    bool extnotif_enabled;
+    uint32_t extnotif_output_ms;
+    uint32_t extnotif_nag_timeout;
+    bool extnotif_active;
+    bool extnotif_use_pwm;
+    bool extnotif_use_i2s_as_buzzer;
+    /* Three outputs, each with its own pin and its own pair of alert flags. */
+    uint8_t extnotif_output;
+    uint8_t extnotif_output_vibra;
+    uint8_t extnotif_output_buzzer;
+    bool extnotif_alert_message;
+    bool extnotif_alert_message_vibra;
+    bool extnotif_alert_message_buzzer;
+    bool extnotif_alert_bell;
+    bool extnotif_alert_bell_vibra;
+    bool extnotif_alert_bell_buzzer;
+
+    /* No enabled flag anywhere in this one: upstream removed the bool toggles in favour of
+       "a non-zero value implicitly enables it", so 0 is off for every row. */
+    bool has_traffic_management;
+    uint32_t traffic_position_min_interval_secs;
+    uint32_t traffic_nodeinfo_max_hops;
+    uint32_t traffic_rate_limit_window_secs;
+    uint32_t traffic_rate_limit_max_packets;
+    uint32_t traffic_unknown_packet_threshold;
+
     bool has_channels; /* any slot present */
     struct mesh_ui_channel_detail channels[MESH_UI_MAX_CHANNELS];
 

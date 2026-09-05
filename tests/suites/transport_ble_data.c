@@ -795,7 +795,7 @@ MESH_TEST_CASE(ble_transport_admin_probe, unit) {
     /* A manual refresh re-reads everything (the probe pair included, since they have left
        the queue); nothing goes out until the owner reply lands or times out. */
     const int queued = mesh_ble_transport_refresh_settings(ble);
-    if (queued != 2 + 8 + 9 + (int)MESH_RADIO_SETTINGS_MAX_CHANNELS) {
+    if (queued != 2 + 8 + (int)mesh_radio_module_count() + (int)MESH_RADIO_SETTINGS_MAX_CHANNELS) {
         failure = "refresh should queue every section and every channel slot";
         goto cleanup;
     }

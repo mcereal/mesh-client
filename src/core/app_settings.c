@@ -65,6 +65,12 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
         &write->payload.module_config.payload_variant.ambient_lighting;
     meshtastic_ModuleConfig_StatusMessageConfig *status =
         &write->payload.module_config.payload_variant.statusmessage;
+    meshtastic_ModuleConfig_DetectionSensorConfig *detect =
+        &write->payload.module_config.payload_variant.detection_sensor;
+    meshtastic_ModuleConfig_ExternalNotificationConfig *ext =
+        &write->payload.module_config.payload_variant.external_notification;
+    meshtastic_ModuleConfig_TrafficManagementConfig *traffic =
+        &write->payload.module_config.payload_variant.traffic_management;
     meshtastic_Config_PositionConfig *position = &write->payload.config.payload_variant.position;
     meshtastic_Config_PowerConfig *power = &write->payload.config.payload_variant.power;
     meshtastic_ChannelSettings *channel = &write->payload.channel.settings;
@@ -316,6 +322,91 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
     case MESH_UI_FIELD_STATUS_TEXT:
         mesh_str_copy(status->node_status, sizeof status->node_status, edit->text);
         break;
+    case MESH_UI_FIELD_DETECT_ENABLED:
+        detect->enabled = on;
+        break;
+    case MESH_UI_FIELD_DETECT_NAME:
+        mesh_str_copy(detect->name, sizeof detect->name, edit->text);
+        break;
+    case MESH_UI_FIELD_DETECT_MIN_BROADCAST:
+        detect->minimum_broadcast_secs = edit->number;
+        break;
+    case MESH_UI_FIELD_DETECT_STATE_BROADCAST:
+        detect->state_broadcast_secs = edit->number;
+        break;
+    case MESH_UI_FIELD_DETECT_SEND_BELL:
+        detect->send_bell = on;
+        break;
+    case MESH_UI_FIELD_DETECT_PIN:
+        detect->monitor_pin = (uint8_t)edit->number;
+        break;
+    case MESH_UI_FIELD_DETECT_TRIGGER:
+        detect->detection_trigger_type =
+            (meshtastic_ModuleConfig_DetectionSensorConfig_TriggerType)edit->number;
+        break;
+    case MESH_UI_FIELD_DETECT_PULLUP:
+        detect->use_pullup = on;
+        break;
+    case MESH_UI_FIELD_EXTNOTIF_ENABLED:
+        ext->enabled = on;
+        break;
+    case MESH_UI_FIELD_EXTNOTIF_ACTIVE:
+        ext->active = on;
+        break;
+    case MESH_UI_FIELD_EXTNOTIF_OUTPUT_MS:
+        ext->output_ms = edit->number;
+        break;
+    case MESH_UI_FIELD_EXTNOTIF_NAG:
+        ext->nag_timeout = (uint16_t)edit->number;
+        break;
+    case MESH_UI_FIELD_EXTNOTIF_PWM:
+        ext->use_pwm = on;
+        break;
+    case MESH_UI_FIELD_EXTNOTIF_I2S:
+        ext->use_i2s_as_buzzer = on;
+        break;
+    case MESH_UI_FIELD_EXTNOTIF_PIN:
+        ext->output = edit->number;
+        break;
+    case MESH_UI_FIELD_EXTNOTIF_ALERT_MSG:
+        ext->alert_message = on;
+        break;
+    case MESH_UI_FIELD_EXTNOTIF_ALERT_BELL:
+        ext->alert_bell = on;
+        break;
+    case MESH_UI_FIELD_EXTNOTIF_PIN_VIBRA:
+        ext->output_vibra = (uint8_t)edit->number;
+        break;
+    case MESH_UI_FIELD_EXTNOTIF_ALERT_MSG_VIBRA:
+        ext->alert_message_vibra = on;
+        break;
+    case MESH_UI_FIELD_EXTNOTIF_ALERT_BELL_VIBRA:
+        ext->alert_bell_vibra = on;
+        break;
+    case MESH_UI_FIELD_EXTNOTIF_PIN_BUZZER:
+        ext->output_buzzer = (uint8_t)edit->number;
+        break;
+    case MESH_UI_FIELD_EXTNOTIF_ALERT_MSG_BUZZER:
+        ext->alert_message_buzzer = on;
+        break;
+    case MESH_UI_FIELD_EXTNOTIF_ALERT_BELL_BUZZER:
+        ext->alert_bell_buzzer = on;
+        break;
+    case MESH_UI_FIELD_TRAFFIC_POSITION_INTERVAL:
+        traffic->position_min_interval_secs = edit->number;
+        break;
+    case MESH_UI_FIELD_TRAFFIC_NODEINFO_HOPS:
+        traffic->nodeinfo_direct_response_max_hops = edit->number;
+        break;
+    case MESH_UI_FIELD_TRAFFIC_RATE_WINDOW:
+        traffic->rate_limit_window_secs = edit->number;
+        break;
+    case MESH_UI_FIELD_TRAFFIC_RATE_PACKETS:
+        traffic->rate_limit_max_packets = edit->number;
+        break;
+    case MESH_UI_FIELD_TRAFFIC_UNKNOWN_THRESHOLD:
+        traffic->unknown_packet_threshold = edit->number;
+        break;
     case MESH_UI_FIELD_CHANNEL_NAME:
         mesh_str_copy(channel->name, sizeof channel->name, edit->text);
         break;
@@ -547,6 +638,15 @@ static bool module_admin_type(enum mesh_ui_settings_section section, uint32_t *o
         return true;
     case MESH_UI_SETTINGS_STATUS_MESSAGE:
         *out_type = meshtastic_AdminMessage_ModuleConfigType_STATUSMESSAGE_CONFIG;
+        return true;
+    case MESH_UI_SETTINGS_DETECTION:
+        *out_type = meshtastic_AdminMessage_ModuleConfigType_DETECTIONSENSOR_CONFIG;
+        return true;
+    case MESH_UI_SETTINGS_EXT_NOTIFICATION:
+        *out_type = meshtastic_AdminMessage_ModuleConfigType_EXTNOTIF_CONFIG;
+        return true;
+    case MESH_UI_SETTINGS_TRAFFIC:
+        *out_type = meshtastic_AdminMessage_ModuleConfigType_TRAFFICMANAGEMENT_CONFIG;
         return true;
     default:
         return false;

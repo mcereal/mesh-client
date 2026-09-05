@@ -76,6 +76,12 @@ const char *mesh_ui_settings_section_name(enum mesh_ui_settings_section section)
         return "Ambient lighting";
     case MESH_UI_SETTINGS_STATUS_MESSAGE:
         return "Status message";
+    case MESH_UI_SETTINGS_DETECTION:
+        return "Detection sensor";
+    case MESH_UI_SETTINGS_EXT_NOTIFICATION:
+        return "External notify";
+    case MESH_UI_SETTINGS_TRAFFIC:
+        return "Traffic management";
     default:
         return "?";
     }
@@ -100,9 +106,10 @@ static const enum mesh_ui_settings_section k_root[] = {
 /* Every ModuleConfig variant this client keeps. Grows by one row per module as the phases
    land; the order is the protobuf's field order, which is as good as any and is stable. */
 static const enum mesh_ui_settings_section k_modules[] = {
-    MESH_UI_SETTINGS_MQTT,       MESH_UI_SETTINGS_STORE_FORWARD,  MESH_UI_SETTINGS_TELEMETRY,
-    MESH_UI_SETTINGS_RANGE_TEST, MESH_UI_SETTINGS_NEIGHBOR_INFO,  MESH_UI_SETTINGS_AMBIENT,
-    MESH_UI_SETTINGS_PAXCOUNTER, MESH_UI_SETTINGS_STATUS_MESSAGE, MESH_UI_SETTINGS_TAK,
+    MESH_UI_SETTINGS_MQTT,       MESH_UI_SETTINGS_STORE_FORWARD,    MESH_UI_SETTINGS_TELEMETRY,
+    MESH_UI_SETTINGS_RANGE_TEST, MESH_UI_SETTINGS_NEIGHBOR_INFO,    MESH_UI_SETTINGS_AMBIENT,
+    MESH_UI_SETTINGS_PAXCOUNTER, MESH_UI_SETTINGS_STATUS_MESSAGE,   MESH_UI_SETTINGS_TAK,
+    MESH_UI_SETTINGS_DETECTION,  MESH_UI_SETTINGS_EXT_NOTIFICATION, MESH_UI_SETTINGS_TRAFFIC,
 };
 
 uint32_t mesh_ui_settings_root_count(void) { return (uint32_t)MESH_ARRAY_LEN(k_root); }
@@ -183,6 +190,12 @@ bool mesh_ui_settings_section_loaded(const struct mesh_ui_settings *settings,
         return settings->has_ambient_lighting;
     case MESH_UI_SETTINGS_STATUS_MESSAGE:
         return settings->has_status_message;
+    case MESH_UI_SETTINGS_DETECTION:
+        return settings->has_detection_sensor;
+    case MESH_UI_SETTINGS_EXT_NOTIFICATION:
+        return settings->has_external_notification;
+    case MESH_UI_SETTINGS_TRAFFIC:
+        return settings->has_traffic_management;
     default:
         return false;
     }
@@ -198,6 +211,15 @@ static const char *compass_name(uint32_t orientation) {
 }
 
 static const char *units_name(uint32_t units) { return units == 1U ? "Imperial" : "Metric"; }
+
+/* DetectionSensorConfig.TriggerType, 0..5 and contiguous. Named for what the pin does rather
+   than for the constant: "Low" says more than "LOGIC_LOW" next to the word Trigger. */
+static const char *trigger_name(uint32_t trigger) {
+    static const char *const k_names[] = {
+        "Low", "High", "Falling edge", "Rising edge", "Any edge, low", "Any edge, high",
+    };
+    return trigger < MESH_ARRAY_LEN(k_names) ? k_names[trigger] : "?";
+}
 
 /* meshtastic_Team and meshtastic_MemberRole, from atak.proto. Both are contiguous from 0, which
    is what the nav's (value + 1) % count stepping needs; value 0 is "Unspecifed" upstream (their
@@ -409,6 +431,39 @@ static const uint32_t k_range_test_presets[] = {0U, 30U, 60U, 120U, 300U, 600U, 
 static const uint32_t k_rssi_presets[] = {RSSI(-100), RSSI(-95), RSSI(-90), RSSI(-85), RSSI(-80),
                                           RSSI(-75),  RSSI(-70), RSSI(-65), RSSI(-60)};
 
+/*
+ * GPIO pins: every number in the range, not a curated subset.
+ *
+ * The first version of this list was the pins an ESP32 typically exposes, which is exactly the
+ * board-specific assumption there is no way to make here - nothing on the wire says what board
+ * this is, and a RAK4631 puts usable output on 9, 10 and 28, all of which that list omitted and
+ * so made unreachable. A contiguous range covers nRF52840 (P0.00-P1.15, flat 0-47) and ESP32-S3
+ * (0-48) alike, and stepping it is not tedious because the d-pad autorepeats (mesh_ui_input
+ * honours repeat for the navigation keys).
+ *
+ * Whether a pin is wired to anything remains the radio's business and unanswerable here; this
+ * only rules out numbers no board has.
+ */
+static const uint32_t k_gpio_presets[] = {
+    0U,  1U,  2U,  3U,  4U,  5U,  6U,  7U,  8U,  9U,  10U, 11U, 12U, 13U, 14U, 15U, 16U,
+    17U, 18U, 19U, 20U, 21U, 22U, 23U, 24U, 25U, 26U, 27U, 28U, 29U, 30U, 31U, 32U, 33U,
+    34U, 35U, 36U, 37U, 38U, 39U, 40U, 41U, 42U, 43U, 44U, 45U, 46U, 47U, 48U};
+
+/* External notification's on-time and repeat: output_ms is milliseconds, nag_timeout seconds. */
+static const uint32_t k_output_ms_presets[] = {100U, 250U, 500U, 1000U, 2000U, 5000U};
+static const uint32_t k_nag_presets[] = {0U, 10U, 30U, 60U, 120U, 300U};
+
+/* Detection sensor's two intervals: a floor between messages, and a heartbeat the proto says
+   is off at 0. */
+static const uint32_t k_detect_min_presets[] = {0U, 10U, 30U, 60U, 300U, 900U};
+static const uint32_t k_detect_state_presets[] = {0U, 60U, 300U, 900U, 1800U, 3600U};
+
+/* Traffic management. Every row is off at 0 by the module's own convention, so each list
+   starts there; hops and packet counts are counts rather than seconds. */
+static const uint32_t k_traffic_interval_presets[] = {0U, 30U, 60U, 120U, 300U, 600U, 1800U};
+static const uint32_t k_traffic_hops_presets[] = {0U, 1U, 2U, 3U, 4U, 5U, 6U, 7U};
+static const uint32_t k_traffic_packets_presets[] = {0U, 5U, 10U, 20U, 50U, 100U, 200U};
+
 /* Ambient lighting: an LED current in mA (the firmware's default is 10) and three 0-255
    channels. Three number rows rather than a colour picker, which a d-pad cannot do well. */
 static const uint32_t k_led_current_presets[] = {0U, 5U, 10U, 15U, 20U, 25U, 30U};
@@ -422,6 +477,25 @@ static const uint32_t k_led_level_presets[] = {0U, 32U, 64U, 96U, 128U, 160U, 19
     (MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_KEEP) | MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_RANDOM_256))
 #define ADMIN_KEY_CHOICES                                                                          \
     (MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_KEEP) | MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_NONE))
+
+/* Milliseconds, for the notification's on-time: the seconds formatter would call 500 ms
+   "500s". */
+static void format_millis(uint32_t value, char *out, size_t out_len) {
+    if (value % 1000U == 0U && value != 0U) {
+        snprintf(out, out_len, "%us", (unsigned)(value / 1000U));
+    } else {
+        snprintf(out, out_len, "%ums", (unsigned)value);
+    }
+}
+
+/* A GPIO pin, or nothing at all. */
+static void format_pin(uint32_t value, char *out, size_t out_len) {
+    if (value == 0U) {
+        snprintf(out, out_len, "%s", "unset");
+    } else {
+        snprintf(out, out_len, "GPIO %u", (unsigned)value);
+    }
+}
 
 /* Signed dBm, read back out of the uint32_t the preset table stores it in. */
 static void format_rssi(uint32_t value, char *out, size_t out_len) {
@@ -752,6 +826,93 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
     /* 79 bytes on the wire; MESH_UI_SETTING_TEXT_MAX was raised to 80 to hold it. */
     [MESH_UI_FIELD_STATUS_TEXT] = {"Status", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_STATUS_MESSAGE,
                                    79U, NULL, NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_DETECT_ENABLED] = {"Detection sensor", MESH_UI_SETTING_TOGGLE,
+                                      MESH_UI_SETTINGS_DETECTION, 0U, NULL, NO_PRESETS, NULL, NULL,
+                                      0U},
+    /* 20 bytes on the wire including the NUL, so 19 typed. */
+    [MESH_UI_FIELD_DETECT_NAME] = {"Name", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_DETECTION, 19U,
+                                   NULL, NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_DETECT_MIN_BROADCAST] = {"Min interval", MESH_UI_SETTING_NUMBER,
+                                            MESH_UI_SETTINGS_DETECTION, 0U, NULL,
+                                            PRESETS(k_detect_min_presets), "none", NULL, 0U},
+    [MESH_UI_FIELD_DETECT_STATE_BROADCAST] = {"Heartbeat", MESH_UI_SETTING_NUMBER,
+                                              MESH_UI_SETTINGS_DETECTION, 0U, NULL,
+                                              PRESETS(k_detect_state_presets), "off", NULL, 0U},
+    [MESH_UI_FIELD_DETECT_SEND_BELL] = {"Send bell", MESH_UI_SETTING_TOGGLE,
+                                        MESH_UI_SETTINGS_DETECTION, 0U, NULL, NO_PRESETS, NULL,
+                                        NULL, 0U},
+    [MESH_UI_FIELD_DETECT_PIN] = {"Monitor pin", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_DETECTION,
+                                  0U, NULL, PRESETS(k_gpio_presets), NULL, format_pin, 0U},
+    [MESH_UI_FIELD_DETECT_TRIGGER] = {"Trigger", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_DETECTION,
+                                      6U, trigger_name, NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_DETECT_PULLUP] = {"Pull-up", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_DETECTION,
+                                     0U, NULL, NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_ENABLED] = {"External notify", MESH_UI_SETTING_TOGGLE,
+                                        MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL, NO_PRESETS,
+                                        NULL, NULL, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_ACTIVE] = {"Active high", MESH_UI_SETTING_TOGGLE,
+                                       MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL, NO_PRESETS,
+                                       NULL, NULL, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_OUTPUT_MS] = {"On for", MESH_UI_SETTING_NUMBER,
+                                          MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
+                                          PRESETS(k_output_ms_presets), NULL, format_millis, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_NAG] = {"Repeat for", MESH_UI_SETTING_NUMBER,
+                                    MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
+                                    PRESETS(k_nag_presets), "once", NULL, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_PWM] = {"Use PWM", MESH_UI_SETTING_TOGGLE,
+                                    MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL, NO_PRESETS, NULL,
+                                    NULL, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_I2S] = {"I2S as buzzer", MESH_UI_SETTING_TOGGLE,
+                                    MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL, NO_PRESETS, NULL,
+                                    NULL, 0U},
+    /* The three output groups. Each row is named for what it is inside its group, the way the
+       telemetry groups are, because the heading above it says which output it belongs to. */
+    [MESH_UI_FIELD_EXTNOTIF_PIN] = {"Pin", MESH_UI_SETTING_NUMBER,
+                                    MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
+                                    PRESETS(k_gpio_presets), NULL, format_pin, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_ALERT_MSG] = {"On message", MESH_UI_SETTING_TOGGLE,
+                                          MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL, NO_PRESETS,
+                                          NULL, NULL, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_ALERT_BELL] = {"On bell", MESH_UI_SETTING_TOGGLE,
+                                           MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL, NO_PRESETS,
+                                           NULL, NULL, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_PIN_VIBRA] = {"Pin", MESH_UI_SETTING_NUMBER,
+                                          MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
+                                          PRESETS(k_gpio_presets), NULL, format_pin, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_ALERT_MSG_VIBRA] = {"On message", MESH_UI_SETTING_TOGGLE,
+                                                MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
+                                                NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_ALERT_BELL_VIBRA] = {"On bell", MESH_UI_SETTING_TOGGLE,
+                                                 MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
+                                                 NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_PIN_BUZZER] = {"Pin", MESH_UI_SETTING_NUMBER,
+                                           MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
+                                           PRESETS(k_gpio_presets), NULL, format_pin, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_ALERT_MSG_BUZZER] = {"On message", MESH_UI_SETTING_TOGGLE,
+                                                 MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
+                                                 NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_ALERT_BELL_BUZZER] = {"On bell", MESH_UI_SETTING_TOGGLE,
+                                                  MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
+                                                  NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_TRAFFIC_POSITION_INTERVAL] = {"Position min gap", MESH_UI_SETTING_NUMBER,
+                                                 MESH_UI_SETTINGS_TRAFFIC, 0U, NULL,
+                                                 PRESETS(k_traffic_interval_presets), "off", NULL,
+                                                 0U},
+    [MESH_UI_FIELD_TRAFFIC_NODEINFO_HOPS] = {"NodeInfo max hops", MESH_UI_SETTING_NUMBER,
+                                             MESH_UI_SETTINGS_TRAFFIC, 0U, NULL,
+                                             PRESETS(k_traffic_hops_presets), "off", format_count,
+                                             0U},
+    [MESH_UI_FIELD_TRAFFIC_RATE_WINDOW] = {"Rate window", MESH_UI_SETTING_NUMBER,
+                                           MESH_UI_SETTINGS_TRAFFIC, 0U, NULL,
+                                           PRESETS(k_traffic_interval_presets), "off", NULL, 0U},
+    [MESH_UI_FIELD_TRAFFIC_RATE_PACKETS] = {"Rate max packets", MESH_UI_SETTING_NUMBER,
+                                            MESH_UI_SETTINGS_TRAFFIC, 0U, NULL,
+                                            PRESETS(k_traffic_packets_presets), "off", format_count,
+                                            0U},
+    [MESH_UI_FIELD_TRAFFIC_UNKNOWN_THRESHOLD] = {"Unknown limit", MESH_UI_SETTING_NUMBER,
+                                                 MESH_UI_SETTINGS_TRAFFIC, 0U, NULL,
+                                                 PRESETS(k_traffic_packets_presets), "off",
+                                                 format_count, 0U},
     [MESH_UI_FIELD_SECURITY_SIGNATURE_POLICY] = {"Packet signing", MESH_UI_SETTING_ENUM,
                                                  MESH_UI_SETTINGS_SECURITY, 3U,
                                                  signature_policy_name, NO_PRESETS, NULL, NULL, 0U},

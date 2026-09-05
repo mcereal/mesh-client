@@ -204,6 +204,9 @@ MESH_TEST_CASE(radio_module_table, unit) {
         {15U, 16U}, /* TAK_CONFIG             <-> tak = 16 */
         {10U, 11U}, /* AMBIENTLIGHTING_CONFIG <-> ambient_lighting = 11 */
         {13U, 14U}, /* STATUSMESSAGE_CONFIG   <-> statusmessage = 14 */
+        {11U, 12U}, /* DETECTIONSENSOR_CONFIG <-> detection_sensor = 12 */
+        {2U, 3U},   /* EXTNOTIF_CONFIG        <-> external_notification = 3 */
+        {14U, 15U}, /* TRAFFICMANAGEMENT_CONFIG <-> traffic_management = 15 */
     };
     MESH_TEST_FAIL_IF(count != sizeof k_expected / sizeof k_expected[0],
                       "a module was added or removed without updating the expected pairs");
@@ -331,9 +334,9 @@ MESH_TEST_CASE(radio_settings_fetch_queue, unit) {
     /* Everything, and each thing once: the probe pair, then one per Config section, one per
        ModuleConfig section this client keeps, and one per channel slot. Spelled out as the sum
        rather than as a bare number, because the module count is what every phase moves. */
-    const size_t expected = 2U   /* metadata + owner */
-                            + 8U /* Config sections */
-                            + 9U /* ModuleConfig sections */
+    const size_t expected = 2U                          /* metadata + owner */
+                            + 8U                        /* Config sections */
+                            + mesh_radio_module_count() /* one per module, from the table */
                             + MESH_RADIO_SETTINGS_MAX_CHANNELS;
     MESH_TEST_FAIL_IF(mesh_radio_settings_queue_all(&settings) != expected ||
                           settings.queue_len != expected,

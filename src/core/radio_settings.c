@@ -126,6 +126,15 @@ static const struct mesh_module_binding k_modules[] = {
                    ambient_lighting),
     MODULE_BINDING(meshtastic_AdminMessage_ModuleConfigType_STATUSMESSAGE_CONFIG,
                    meshtastic_ModuleConfig_statusmessage_tag, has_status_message, status_message),
+    MODULE_BINDING(meshtastic_AdminMessage_ModuleConfigType_DETECTIONSENSOR_CONFIG,
+                   meshtastic_ModuleConfig_detection_sensor_tag, has_detection_sensor,
+                   detection_sensor),
+    MODULE_BINDING(meshtastic_AdminMessage_ModuleConfigType_EXTNOTIF_CONFIG,
+                   meshtastic_ModuleConfig_external_notification_tag, has_external_notification,
+                   external_notification),
+    MODULE_BINDING(meshtastic_AdminMessage_ModuleConfigType_TRAFFICMANAGEMENT_CONFIG,
+                   meshtastic_ModuleConfig_traffic_management_tag, has_traffic_management,
+                   traffic_management),
 };
 
 size_t mesh_radio_module_count(void) { return sizeof k_modules / sizeof k_modules[0]; }

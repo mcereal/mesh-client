@@ -81,7 +81,7 @@ suite needs it.
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Verified 2026-09-05: 107 unit tests, all passing, zero compiler warnings.
+Verified 2026-09-05: 109 unit tests, all passing, zero compiler warnings.
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
 vector — not against our own encoder — so a protobuf regeneration that changes field numbers or
 wire types fails loudly.
