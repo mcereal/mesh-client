@@ -18,10 +18,7 @@ MESH_TEST_CASE(ui_preferences_roundtrip, unit) {
     char prefab_path[128];
     snprintf(prefab_path, sizeof prefab_path, "/tmp/meshclient_prefs_%ld", (long)getpid());
     FILE *temp = fopen(prefab_path, "w");
-    if (temp == NULL) {
-        record_failure(test_name, "failed to create temp file");
-        return;
-    }
+    MESH_TEST_FAIL_IF(temp == NULL, "failed to create temp file");
     fclose(temp);
 
     struct mesh_ui_preferences prefs;
@@ -107,27 +104,23 @@ MESH_TEST_CASE(ui_preferences_known_radios, unit) {
         record_failure(test_name, "node 0 is not a node");
         return;
     }
-    if (!mesh_ui_preferences_note_radio(&prefs, 0xABC123U) || prefs.known_radio_count != 1U ||
-        !mesh_ui_preferences_knows_radio(&prefs, 0xABC123U)) {
-        record_failure(test_name, "the first radio should be recorded");
-        return;
-    }
+    MESH_TEST_FAIL_IF(!mesh_ui_preferences_note_radio(&prefs, 0xABC123U) ||
+                          prefs.known_radio_count != 1U ||
+                          !mesh_ui_preferences_knows_radio(&prefs, 0xABC123U),
+                      "the first radio should be recorded");
     /* Every publish notes the connected radio again; only a change is worth a file write. */
-    if (mesh_ui_preferences_note_radio(&prefs, 0xABC123U) || prefs.known_radio_count != 1U) {
-        record_failure(test_name, "re-noting the most recent radio should not dirty the file");
-        return;
-    }
-    if (!mesh_ui_preferences_note_radio(&prefs, 0xDEF456U) || prefs.known_radio_count != 2U ||
-        prefs.known_radios[0] != 0xDEF456U || prefs.known_radios[1] != 0xABC123U) {
-        record_failure(test_name, "the newly connected radio should lead, the old one survive");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_preferences_note_radio(&prefs, 0xABC123U) ||
+                          prefs.known_radio_count != 1U,
+                      "re-noting the most recent radio should not dirty the file");
+    MESH_TEST_FAIL_IF(!mesh_ui_preferences_note_radio(&prefs, 0xDEF456U) ||
+                          prefs.known_radio_count != 2U || prefs.known_radios[0] != 0xDEF456U ||
+                          prefs.known_radios[1] != 0xABC123U,
+                      "the newly connected radio should lead, the old one survive");
     /* Switching back moves it to the front rather than adding it twice. */
-    if (!mesh_ui_preferences_note_radio(&prefs, 0xABC123U) || prefs.known_radio_count != 2U ||
-        prefs.known_radios[0] != 0xABC123U || prefs.known_radios[1] != 0xDEF456U) {
-        record_failure(test_name, "an already-known radio should move to the front");
-        return;
-    }
+    MESH_TEST_FAIL_IF(!mesh_ui_preferences_note_radio(&prefs, 0xABC123U) ||
+                          prefs.known_radio_count != 2U || prefs.known_radios[0] != 0xABC123U ||
+                          prefs.known_radios[1] != 0xDEF456U,
+                      "an already-known radio should move to the front");
 
     /* Past the cap the oldest radio falls off; the recent ones stay. */
     for (uint32_t i = 0; i < MESH_UI_MAX_KNOWN_RADIOS; ++i) {

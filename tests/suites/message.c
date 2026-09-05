@@ -46,20 +46,14 @@ MESH_TEST_CASE(message_encode_text_golden, unit) {
 
     uint8_t buffer[64];
     size_t written = 0U;
-    if (mesh_message_encode_text(&request, buffer, sizeof buffer, &written) != 0) {
-        record_failure(test_name, "encode failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_message_encode_text(&request, buffer, sizeof buffer, &written) != 0,
+                      "encode failed");
 
-    if (written != sizeof k_expected) {
-        record_failure(test_name, "encoded length does not match the golden frame");
-        return;
-    }
+    MESH_TEST_FAIL_IF(written != sizeof k_expected,
+                      "encoded length does not match the golden frame");
 
-    if (memcmp(buffer, k_expected, sizeof k_expected) != 0) {
-        record_failure(test_name, "encoded bytes do not match the golden frame");
-        return;
-    }
+    MESH_TEST_FAIL_IF(memcmp(buffer, k_expected, sizeof k_expected) != 0,
+                      "encoded bytes do not match the golden frame");
 
     record_success(test_name);
 }
@@ -76,48 +70,33 @@ MESH_TEST_CASE(message_encode_text_roundtrip, unit) {
 
     uint8_t buffer[256];
     size_t written = 0U;
-    if (mesh_message_encode_text(&request, buffer, sizeof buffer, &written) != 0) {
-        record_failure(test_name, "encode failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_message_encode_text(&request, buffer, sizeof buffer, &written) != 0,
+                      "encode failed");
 
     meshtastic_ToRadio decoded = meshtastic_ToRadio_init_default;
     pb_istream_t stream = pb_istream_from_buffer(buffer, written);
-    if (!pb_decode(&stream, meshtastic_ToRadio_fields, &decoded)) {
-        record_failure(test_name, "decode failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(!pb_decode(&stream, meshtastic_ToRadio_fields, &decoded), "decode failed");
 
-    if (decoded.which_payload_variant != meshtastic_ToRadio_packet_tag) {
-        record_failure(test_name, "expected a packet variant");
-        return;
-    }
+    MESH_TEST_FAIL_IF(decoded.which_payload_variant != meshtastic_ToRadio_packet_tag,
+                      "expected a packet variant");
 
     const meshtastic_MeshPacket *packet = &decoded.packet;
-    if (packet->to != request.dest || packet->id != request.packet_id ||
-        packet->channel != request.channel || packet->hop_limit != request.hop_limit ||
-        !packet->want_ack) {
-        record_failure(test_name, "packet header fields did not survive the roundtrip");
-        return;
-    }
+    MESH_TEST_FAIL_IF(packet->to != request.dest || packet->id != request.packet_id ||
+                          packet->channel != request.channel ||
+                          packet->hop_limit != request.hop_limit || !packet->want_ack,
+                      "packet header fields did not survive the roundtrip");
 
     /* The firmware stamps `from` itself; a client must not claim a node number. */
-    if (packet->from != 0U) {
-        record_failure(test_name, "from should be left for the firmware to fill in");
-        return;
-    }
+    MESH_TEST_FAIL_IF(packet->from != 0U, "from should be left for the firmware to fill in");
 
-    if (packet->which_payload_variant != meshtastic_MeshPacket_decoded_tag ||
-        packet->decoded.portnum != meshtastic_PortNum_TEXT_MESSAGE_APP) {
-        record_failure(test_name, "expected a decoded TEXT_MESSAGE_APP payload");
-        return;
-    }
+    MESH_TEST_FAIL_IF(packet->which_payload_variant != meshtastic_MeshPacket_decoded_tag ||
+                          packet->decoded.portnum != meshtastic_PortNum_TEXT_MESSAGE_APP,
+                      "expected a decoded TEXT_MESSAGE_APP payload");
 
-    if (packet->decoded.payload.size != strlen(request.text) ||
-        memcmp(packet->decoded.payload.bytes, request.text, strlen(request.text)) != 0) {
-        record_failure(test_name, "payload text mismatch");
-        return;
-    }
+    MESH_TEST_FAIL_IF(
+        packet->decoded.payload.size != strlen(request.text) ||
+            memcmp(packet->decoded.payload.bytes, request.text, strlen(request.text)) != 0,
+        "payload text mismatch");
 
     record_success(test_name);
 }
@@ -135,19 +114,17 @@ MESH_TEST_CASE(message_encode_text_limits, unit) {
         .want_ack = false,
     };
 
-    if (mesh_message_encode_text(&request, buffer, sizeof buffer, &written) != -EINVAL) {
-        record_failure(test_name, "empty text should be rejected");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_message_encode_text(&request, buffer, sizeof buffer, &written) !=
+                          -EINVAL,
+                      "empty text should be rejected");
 
     char oversized[MESH_MESSAGE_TEXT_MAX + 8U];
     memset(oversized, 'a', sizeof oversized - 1U);
     oversized[sizeof oversized - 1U] = '\0';
     request.text = oversized;
-    if (mesh_message_encode_text(&request, buffer, sizeof buffer, &written) != -EMSGSIZE) {
-        record_failure(test_name, "oversized text should be rejected with -EMSGSIZE");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_message_encode_text(&request, buffer, sizeof buffer, &written) !=
+                          -EMSGSIZE,
+                      "oversized text should be rejected with -EMSGSIZE");
 
     record_success(test_name);
 }
@@ -163,44 +140,26 @@ MESH_TEST_CASE(message_log_ring, unit) {
         memset(&message, 0, sizeof(message));
         message.packet_id = (uint32_t)(i + 1U);
         snprintf(message.text, sizeof(message.text), "message %zu", i);
-        if (mesh_message_log_append(&log, &message) == NULL) {
-            record_failure(test_name, "append failed");
-            return;
-        }
+        MESH_TEST_FAIL_IF(mesh_message_log_append(&log, &message) == NULL, "append failed");
     }
 
-    if (log.count != MESH_MESSAGE_LOG_CAPACITY) {
-        record_failure(test_name, "log should saturate at capacity");
-        return;
-    }
+    MESH_TEST_FAIL_IF(log.count != MESH_MESSAGE_LOG_CAPACITY, "log should saturate at capacity");
 
-    if (log.dropped != 4U) {
-        record_failure(test_name, "dropped counter should report the evicted entries");
-        return;
-    }
+    MESH_TEST_FAIL_IF(log.dropped != 4U, "dropped counter should report the evicted entries");
 
     /* Index 0 is the oldest surviving entry, which is the fifth one we appended. */
     const struct mesh_message *oldest = mesh_message_log_at(&log, 0U);
-    if (oldest == NULL || oldest->packet_id != 5U) {
-        record_failure(test_name, "oldest surviving entry is wrong");
-        return;
-    }
+    MESH_TEST_FAIL_IF(oldest == NULL || oldest->packet_id != 5U, "oldest surviving entry is wrong");
 
     const struct mesh_message *newest = mesh_message_log_at(&log, log.count - 1U);
-    if (newest == NULL || newest->packet_id != (uint32_t)total) {
-        record_failure(test_name, "newest entry is wrong");
-        return;
-    }
+    MESH_TEST_FAIL_IF(newest == NULL || newest->packet_id != (uint32_t)total,
+                      "newest entry is wrong");
 
-    if (mesh_message_log_at(&log, log.count) != NULL) {
-        record_failure(test_name, "out-of-range index should return NULL");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_message_log_at(&log, log.count) != NULL,
+                      "out-of-range index should return NULL");
 
-    if (mesh_message_log_find(&log, 1U) != NULL) {
-        record_failure(test_name, "an evicted packet id should not be found");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_message_log_find(&log, 1U) != NULL,
+                      "an evicted packet id should not be found");
 
     record_success(test_name);
 }
@@ -219,32 +178,22 @@ MESH_TEST_CASE(message_ingest_text, unit) {
     packet.rx_time = 1234U;
     packet.rx_snr = 5.5F;
 
-    if (mesh_message_ingest(&log, &packet, 0x22222222U) != 1) {
-        record_failure(test_name, "a text packet should be appended");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_message_ingest(&log, &packet, 0x22222222U) != 1,
+                      "a text packet should be appended");
 
     const struct mesh_message *message = mesh_message_log_at(&log, 0U);
-    if (message == NULL) {
-        record_failure(test_name, "appended message not readable");
-        return;
-    }
+    MESH_TEST_FAIL_IF(message == NULL, "appended message not readable");
 
-    if (message->direction != MESH_MESSAGE_INBOUND) {
-        record_failure(test_name, "a packet from another node is inbound");
-        return;
-    }
+    MESH_TEST_FAIL_IF(message->direction != MESH_MESSAGE_INBOUND,
+                      "a packet from another node is inbound");
 
-    if (message->from != 0x11111111U || message->to != 0x22222222U || message->channel != 3U ||
-        message->packet_id != 77U || message->rx_time != 1234U) {
-        record_failure(test_name, "packet metadata did not survive ingest");
-        return;
-    }
+    MESH_TEST_FAIL_IF(message->from != 0x11111111U || message->to != 0x22222222U ||
+                          message->channel != 3U || message->packet_id != 77U ||
+                          message->rx_time != 1234U,
+                      "packet metadata did not survive ingest");
 
-    if (strcmp(message->text, "hi there?!") != 0) {
-        record_failure(test_name, "control bytes should be folded to space and '?'");
-        return;
-    }
+    MESH_TEST_FAIL_IF(strcmp(message->text, "hi there?!") != 0,
+                      "control bytes should be folded to space and '?'");
 
     record_success(test_name);
 }
@@ -255,10 +204,8 @@ MESH_TEST_CASE(message_ingest_ignores_other_payloads, unit) {
 
     meshtastic_MeshPacket position = mesh_test_make_decoded_packet(
         1U, 2U, 0U, 5U, meshtastic_PortNum_POSITION_APP, "\x01\x02", 2U);
-    if (mesh_message_ingest(&log, &position, 2U) != 0 || log.count != 0U) {
-        record_failure(test_name, "a non-text portnum should add nothing");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_message_ingest(&log, &position, 2U) != 0 || log.count != 0U,
+                      "a non-text portnum should add nothing");
 
     /* We hold no channel keys, so an encrypted packet is opaque and must be skipped rather
        than parsed as though its bytes were a Data message. */
@@ -266,16 +213,12 @@ MESH_TEST_CASE(message_ingest_ignores_other_payloads, unit) {
     encrypted.which_payload_variant = meshtastic_MeshPacket_encrypted_tag;
     encrypted.encrypted.size = 4U;
     memcpy(encrypted.encrypted.bytes, "\xDE\xAD\xBE\xEF", 4U);
-    if (mesh_message_ingest(&log, &encrypted, 2U) != 0 || log.count != 0U) {
-        record_failure(test_name, "an encrypted packet should add nothing");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_message_ingest(&log, &encrypted, 2U) != 0 || log.count != 0U,
+                      "an encrypted packet should add nothing");
 
-    if (mesh_message_ingest(NULL, &position, 2U) != -EINVAL ||
-        mesh_message_ingest(&log, NULL, 2U) != -EINVAL) {
-        record_failure(test_name, "NULL arguments should be rejected");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_message_ingest(NULL, &position, 2U) != -EINVAL ||
+                          mesh_message_ingest(&log, NULL, 2U) != -EINVAL,
+                      "NULL arguments should be rejected");
 
     record_success(test_name);
 }
@@ -303,26 +246,17 @@ MESH_TEST_CASE(message_ingest_echo_is_not_duplicated, unit) {
     echo.has_rx_time = true;
     echo.rx_time = 4242U;
 
-    if (mesh_message_ingest(&log, &echo, my_node) != 0) {
-        record_failure(test_name, "an echo should not be reported as a new message");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_message_ingest(&log, &echo, my_node) != 0,
+                      "an echo should not be reported as a new message");
 
-    if (log.count != 1U) {
-        record_failure(test_name, "the echo should not create a second entry");
-        return;
-    }
+    MESH_TEST_FAIL_IF(log.count != 1U, "the echo should not create a second entry");
 
     const struct mesh_message *message = mesh_message_log_at(&log, 0U);
-    if (message == NULL || message->rx_time != 4242U) {
-        record_failure(test_name, "the echo should refresh the existing entry");
-        return;
-    }
+    MESH_TEST_FAIL_IF(message == NULL || message->rx_time != 4242U,
+                      "the echo should refresh the existing entry");
 
-    if (message->ack != MESH_MESSAGE_ACK_PENDING) {
-        record_failure(test_name, "an echo is not a delivery confirmation");
-        return;
-    }
+    MESH_TEST_FAIL_IF(message->ack != MESH_MESSAGE_ACK_PENDING,
+                      "an echo is not a delivery confirmation");
 
     record_success(test_name);
 }
@@ -340,16 +274,12 @@ MESH_TEST_CASE(message_routing_ack, unit) {
     mesh_message_log_append(&log, &sent);
 
     meshtastic_MeshPacket ack = mesh_test_make_routing_reply(321U, meshtastic_Routing_Error_NONE);
-    if (mesh_message_ingest(&log, &ack, 2U) != 0) {
-        record_failure(test_name, "a routing reply adds no message of its own");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_message_ingest(&log, &ack, 2U) != 0,
+                      "a routing reply adds no message of its own");
 
     const struct mesh_message *message = mesh_message_log_at(&log, 0U);
-    if (message == NULL || message->ack != MESH_MESSAGE_ACK_DELIVERED) {
-        record_failure(test_name, "a NONE error reason means delivered");
-        return;
-    }
+    MESH_TEST_FAIL_IF(message == NULL || message->ack != MESH_MESSAGE_ACK_DELIVERED,
+                      "a NONE error reason means delivered");
 
     /* And a failure reason marks the same message failed, carrying the reason through. */
     struct mesh_message second;
@@ -362,25 +292,19 @@ MESH_TEST_CASE(message_routing_ack, unit) {
 
     meshtastic_MeshPacket nak =
         mesh_test_make_routing_reply(322U, meshtastic_Routing_Error_NO_RESPONSE);
-    if (mesh_message_ingest(&log, &nak, 2U) != 0) {
-        record_failure(test_name, "a routing failure adds no message of its own");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_message_ingest(&log, &nak, 2U) != 0,
+                      "a routing failure adds no message of its own");
 
     const struct mesh_message *failed = mesh_message_log_at(&log, 1U);
-    if (failed == NULL || failed->ack != MESH_MESSAGE_ACK_FAILED ||
-        failed->ack_error != (uint8_t)meshtastic_Routing_Error_NO_RESPONSE) {
-        record_failure(test_name, "an error reason should mark the message failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(failed == NULL || failed->ack != MESH_MESSAGE_ACK_FAILED ||
+                          failed->ack_error != (uint8_t)meshtastic_Routing_Error_NO_RESPONSE,
+                      "an error reason should mark the message failed");
 
     /* A reply naming a message we never sent must not disturb anything. */
     meshtastic_MeshPacket stray =
         mesh_test_make_routing_reply(9999U, meshtastic_Routing_Error_NONE);
-    if (mesh_message_ingest(&log, &stray, 2U) != 0 || log.count != 2U) {
-        record_failure(test_name, "an unmatched routing reply should be ignored");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_message_ingest(&log, &stray, 2U) != 0 || log.count != 2U,
+                      "an unmatched routing reply should be ignored");
 
     record_success(test_name);
 }
@@ -423,16 +347,11 @@ MESH_TEST_CASE(message_ingest_invalid_utf8, unit) {
             1U, 2U, 0U, (uint32_t)(i + 1U), meshtastic_PortNum_TEXT_MESSAGE_APP, cases[i].payload,
             cases[i].payload_len);
 
-        if (mesh_message_ingest(&log, &packet, 2U) != 1) {
-            record_failure(test_name, cases[i].label);
-            return;
-        }
+        MESH_TEST_FAIL_IF(mesh_message_ingest(&log, &packet, 2U) != 1, cases[i].label);
 
         const struct mesh_message *message = mesh_message_log_at(&log, 0U);
-        if (message == NULL || strcmp(message->text, cases[i].expected) != 0) {
-            record_failure(test_name, cases[i].label);
-            return;
-        }
+        MESH_TEST_FAIL_IF(message == NULL || strcmp(message->text, cases[i].expected) != 0,
+                          cases[i].label);
     }
 
     record_success(test_name);
@@ -465,32 +384,23 @@ MESH_TEST_CASE(message_routing_failure_reason, unit) {
     packet.decoded.request_id = 4242U;
     pb_ostream_t stream =
         pb_ostream_from_buffer(packet.decoded.payload.bytes, sizeof packet.decoded.payload.bytes);
-    if (!pb_encode(&stream, meshtastic_Routing_fields, &routing)) {
-        record_failure(test_name, "failed to encode the routing reply");
-        return;
-    }
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_Routing_fields, &routing),
+                      "failed to encode the routing reply");
     packet.decoded.payload.size = (pb_size_t)stream.bytes_written;
 
     mesh_message_ingest(&log, &packet, 0x11111111U);
 
     const struct mesh_message *entry = mesh_message_log_find(&log, 4242U);
-    if (entry == NULL || entry->ack != (uint8_t)MESH_MESSAGE_ACK_FAILED) {
-        record_failure(test_name, "the message should be marked failed");
-        return;
-    }
-    if (entry->ack_error != (uint8_t)meshtastic_Routing_Error_MAX_RETRANSMIT) {
-        record_failure(test_name, "the routing error should be kept");
-        return;
-    }
-    if (strcmp(mesh_message_ack_error_to_string(entry->ack_error), "no ack after retries") != 0) {
-        record_failure(test_name, "the reason should be named");
-        return;
-    }
+    MESH_TEST_FAIL_IF(entry == NULL || entry->ack != (uint8_t)MESH_MESSAGE_ACK_FAILED,
+                      "the message should be marked failed");
+    MESH_TEST_FAIL_IF(entry->ack_error != (uint8_t)meshtastic_Routing_Error_MAX_RETRANSMIT,
+                      "the routing error should be kept");
+    MESH_TEST_FAIL_IF(
+        strcmp(mesh_message_ack_error_to_string(entry->ack_error), "no ack after retries") != 0,
+        "the reason should be named");
     /* An unknown code from a newer firmware still has to render as something. */
-    if (strcmp(mesh_message_ack_error_to_string(200U), "unknown error") != 0) {
-        record_failure(test_name, "an unrecognised reason should still say something");
-        return;
-    }
+    MESH_TEST_FAIL_IF(strcmp(mesh_message_ack_error_to_string(200U), "unknown error") != 0,
+                      "an unrecognised reason should still say something");
 
     record_success(test_name);
 }

@@ -362,10 +362,8 @@ MESH_TEST_CASE(ble_transport_channel_decode, unit) {
     snprintf(from_radio.channel.settings.name, sizeof from_radio.channel.settings.name, "%s",
              "Team");
     pb_ostream_t stream = pb_ostream_from_buffer(read_buffers[0], sizeof read_buffers[0]);
-    if (!pb_encode(&stream, meshtastic_FromRadio_fields, &from_radio)) {
-        record_failure(test_name, "encode channel 1 failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_FromRadio_fields, &from_radio),
+                      "encode channel 1 failed");
     read_payload_lengths[0] = stream.bytes_written;
 
     from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
@@ -374,10 +372,8 @@ MESH_TEST_CASE(ble_transport_channel_decode, unit) {
     from_radio.channel.role = meshtastic_Channel_Role_PRIMARY;
     from_radio.channel.has_settings = true; /* unnamed: the default primary */
     stream = pb_ostream_from_buffer(read_buffers[1], sizeof read_buffers[1]);
-    if (!pb_encode(&stream, meshtastic_FromRadio_fields, &from_radio)) {
-        record_failure(test_name, "encode channel 0 failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_FromRadio_fields, &from_radio),
+                      "encode channel 0 failed");
     read_payload_lengths[1] = stream.bytes_written;
 
     struct mesh_bluez_mock_config mock_config = {
@@ -489,10 +485,8 @@ MESH_TEST_CASE(ble_transport_packet_touches_node, unit) {
     from_radio.packet.decoded.payload.size = 2U;
     memcpy(from_radio.packet.decoded.payload.bytes, "hi", 2U);
     stream = pb_ostream_from_buffer(read_buffers[1], sizeof read_buffers[1]);
-    if (!pb_encode(&stream, meshtastic_FromRadio_fields, &from_radio)) {
-        record_failure(test_name, "encode packet failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_FromRadio_fields, &from_radio),
+                      "encode packet failed");
     read_payload_lengths[1] = stream.bytes_written;
 
     /* A position packet from a node we never got NodeInfo for. */
@@ -506,10 +500,8 @@ MESH_TEST_CASE(ble_transport_packet_touches_node, unit) {
     from_radio.packet.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
     from_radio.packet.decoded.portnum = meshtastic_PortNum_POSITION_APP;
     stream = pb_ostream_from_buffer(read_buffers[2], sizeof read_buffers[2]);
-    if (!pb_encode(&stream, meshtastic_FromRadio_fields, &from_radio)) {
-        record_failure(test_name, "encode position failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_FromRadio_fields, &from_radio),
+                      "encode position failed");
     read_payload_lengths[2] = stream.bytes_written;
 
     struct mesh_bluez_mock_config mock_config = {

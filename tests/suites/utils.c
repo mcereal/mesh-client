@@ -21,16 +21,12 @@ MESH_TEST_CASE(text_utf8_helpers, unit) {
     /* One four-byte emoji is one character. This is the bug the whole change is about: the
        framebuffer used to walk bytes, so a node named with a single emoji drew four cells. */
     const char *emoji = "\xF0\x9F\x93\xA1";
-    if (mesh_text_utf8_length(emoji) != 1U) {
-        record_failure(test_name, "a four-byte emoji should be one character");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_text_utf8_length(emoji) != 1U,
+                      "a four-byte emoji should be one character");
 
     uint32_t codepoint = 0U;
-    if (mesh_text_utf8_next(emoji, &codepoint) != 4U || codepoint != 0x1F4E1U) {
-        record_failure(test_name, "emoji did not decode to U+1F4E1");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_text_utf8_next(emoji, &codepoint) != 4U || codepoint != 0x1F4E1U,
+                      "emoji did not decode to U+1F4E1");
 
     struct {
         const char *label;
@@ -48,29 +44,23 @@ MESH_TEST_CASE(text_utf8_helpers, unit) {
          4U},
     };
     for (size_t i = 0; i < sizeof lengths / sizeof lengths[0]; ++i) {
-        if (mesh_text_utf8_length(lengths[i].text) != lengths[i].chars) {
-            record_failure(test_name, lengths[i].label);
-            return;
-        }
+        MESH_TEST_FAIL_IF(mesh_text_utf8_length(lengths[i].text) != lengths[i].chars,
+                          lengths[i].label);
     }
 
     /* Truncation lands on a character boundary, never inside a sequence. */
     char line[32];
     snprintf(line, sizeof line, "%s", "\xF0\x9F\x8C\xB2\xF0\x9F\x8F\xA0\xF0\x9F\x9A\x97");
     mesh_text_utf8_truncate(line, 2U);
-    if (strcmp(line, "\xF0\x9F\x8C\xB2\xF0\x9F\x8F\xA0") != 0) {
-        record_failure(test_name, "truncate split a character");
-        return;
-    }
+    MESH_TEST_FAIL_IF(strcmp(line, "\xF0\x9F\x8C\xB2\xF0\x9F\x8F\xA0") != 0,
+                      "truncate split a character");
 
     /* And a copy into a buffer too small for the next character stops before it, rather than
        leaving a half sequence behind. */
     char narrow[6];
     mesh_text_sanitise_str("\xF0\x9F\x8C\xB2\xF0\x9F\x8F\xA0", narrow, sizeof narrow);
-    if (strcmp(narrow, "\xF0\x9F\x8C\xB2") != 0) {
-        record_failure(test_name, "sanitise split a character at the buffer boundary");
-        return;
-    }
+    MESH_TEST_FAIL_IF(strcmp(narrow, "\xF0\x9F\x8C\xB2") != 0,
+                      "sanitise split a character at the buffer boundary");
 
     record_success(test_name);
 }
@@ -94,10 +84,7 @@ MESH_TEST_CASE(sha256_vectors, unit) {
         mesh_sha256_update(&ctx, k_vectors[i].input, strlen(k_vectors[i].input));
         mesh_sha256_final(&ctx, digest);
         mesh_sha256_hex(digest, hex, sizeof hex);
-        if (strcmp(hex, k_vectors[i].expected) != 0) {
-            record_failure(test_name, hex);
-            return;
-        }
+        MESH_TEST_FAIL_IF(strcmp(hex, k_vectors[i].expected) != 0, hex);
     }
 
     /* A message longer than one block, fed in awkward pieces: the streaming path and the
@@ -122,18 +109,13 @@ MESH_TEST_CASE(sha256_vectors, unit) {
         offset += take;
     }
     mesh_sha256_final(&pieces, pieces_digest);
-    if (memcmp(whole_digest, pieces_digest, sizeof whole_digest) != 0) {
-        record_failure(test_name, "streamed and one-shot hashes should agree");
-        return;
-    }
+    MESH_TEST_FAIL_IF(memcmp(whole_digest, pieces_digest, sizeof whole_digest) != 0,
+                      "streamed and one-shot hashes should agree");
 
     /* And the file path, which is what actually verifies a download. */
     char path[] = "/tmp/meshclient_sha256_XXXXXX";
     const int fd = mkstemp(path);
-    if (fd < 0) {
-        record_failure(test_name, "could not create a temporary file");
-        return;
-    }
+    MESH_TEST_FAIL_IF(fd < 0, "could not create a temporary file");
     if (write(fd, "abc", 3U) != 3) {
         close(fd);
         unlink(path);
@@ -151,9 +133,7 @@ MESH_TEST_CASE(sha256_vectors, unit) {
         record_failure(test_name, "hashing a file should match the same bytes in memory");
         return;
     }
-    if (mesh_sha256_file("/nonexistent/meshclient", file_digest) == 0) {
-        record_failure(test_name, "hashing a missing file should fail");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_sha256_file("/nonexistent/meshclient", file_digest) == 0,
+                      "hashing a missing file should fail");
     record_success(test_name);
 }

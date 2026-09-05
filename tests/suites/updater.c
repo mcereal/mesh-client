@@ -65,14 +65,10 @@ MESH_TEST_CASE(version_compare, unit) {
         {"garbage", "1.0.0"},           /* unparseable can never look newer */
     };
     for (size_t i = 0; i < sizeof k_ordered / sizeof k_ordered[0]; ++i) {
-        if (mesh_version_compare(k_ordered[i].lower, k_ordered[i].higher) >= 0) {
-            record_failure(test_name, k_ordered[i].lower);
-            return;
-        }
-        if (mesh_version_compare(k_ordered[i].higher, k_ordered[i].lower) <= 0) {
-            record_failure(test_name, "the reverse comparison should be positive");
-            return;
-        }
+        MESH_TEST_FAIL_IF(mesh_version_compare(k_ordered[i].lower, k_ordered[i].higher) >= 0,
+                          k_ordered[i].lower);
+        MESH_TEST_FAIL_IF(mesh_version_compare(k_ordered[i].higher, k_ordered[i].lower) <= 0,
+                          "the reverse comparison should be positive");
     }
 
     /* Equality, including the forms a GitHub tag and CMake spell differently. */
@@ -86,30 +82,22 @@ MESH_TEST_CASE(version_compare, unit) {
         {"1.2.3-rc.1+build7", "1.2.3-rc.1"},
     };
     for (size_t i = 0; i < sizeof k_equal / sizeof k_equal[0]; ++i) {
-        if (mesh_version_compare(k_equal[i][0], k_equal[i][1]) != 0) {
-            record_failure(test_name, k_equal[i][0]);
-            return;
-        }
+        MESH_TEST_FAIL_IF(mesh_version_compare(k_equal[i][0], k_equal[i][1]) != 0, k_equal[i][0]);
     }
 
-    if (mesh_version_compare(NULL, NULL) != 0 || mesh_version_compare("1.0.0", NULL) <= 0 ||
-        mesh_version_compare(NULL, "1.0.0") >= 0) {
-        record_failure(test_name, "NULL should be handled and sort below a real version");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_version_compare(NULL, NULL) != 0 ||
+                          mesh_version_compare("1.0.0", NULL) <= 0 ||
+                          mesh_version_compare(NULL, "1.0.0") >= 0,
+                      "NULL should be handled and sort below a real version");
 
     /* The build under test always reports something, release-stamped or not. Whether it is
      *offered* an update is a separate question, covered by version_build_stamp. */
-    if (mesh_version_string()[0] == '\0') {
-        record_failure(test_name, "the test build should carry a baked-in version");
-        return;
-    }
-    if (mesh_version_is_newer_than_running(mesh_version_string()) ||
-        mesh_version_is_newer_than_running("0.0.1") ||
-        mesh_version_is_newer_than_running("not-a-version")) {
-        record_failure(test_name, "nothing at or below the running version is an update");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_version_string()[0] == '\0',
+                      "the test build should carry a baked-in version");
+    MESH_TEST_FAIL_IF(mesh_version_is_newer_than_running(mesh_version_string()) ||
+                          mesh_version_is_newer_than_running("0.0.1") ||
+                          mesh_version_is_newer_than_running("not-a-version"),
+                      "nothing at or below the running version is an update");
     record_success(test_name);
 }
 
@@ -122,37 +110,25 @@ MESH_TEST_CASE(updater_parse_release, unit) {
     char sha[65];
     uint64_t size = 0U;
 
-    if (!mesh_updater_parse_release(k_release_json, repo, asset, tag, sizeof tag, url, sizeof url,
-                                    sha, sizeof sha, &size)) {
-        record_failure(test_name, "a well-formed release should parse");
-        return;
-    }
+    MESH_TEST_FAIL_IF(!mesh_updater_parse_release(k_release_json, repo, asset, tag, sizeof tag, url,
+                                                  sizeof url, sha, sizeof sha, &size),
+                      "a well-formed release should parse");
     /* The tag loses its leading v so it can be compared against the baked-in version. */
-    if (strcmp(tag, "1.13.0") != 0) {
-        record_failure(test_name, tag);
-        return;
-    }
+    MESH_TEST_FAIL_IF(strcmp(tag, "1.13.0") != 0, tag);
     /* The second asset's URL, not the first one's: the scanner must follow the matched name. */
-    if (strcmp(url, "https://github.com/mcereal/mesh-client/releases/download/v1.13.0/"
-                    "meshclient-tg5040-aarch64") != 0) {
-        record_failure(test_name, url);
-        return;
-    }
-    if (strcmp(sha, "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789") != 0) {
-        record_failure(test_name, sha);
-        return;
-    }
-    if (size != 874112U) {
-        record_failure(test_name, "the asset size should come from the matched asset");
-        return;
-    }
+    MESH_TEST_FAIL_IF(strcmp(url,
+                             "https://github.com/mcereal/mesh-client/releases/download/v1.13.0/"
+                             "meshclient-tg5040-aarch64") != 0,
+                      url);
+    MESH_TEST_FAIL_IF(
+        strcmp(sha, "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789") != 0, sha);
+    MESH_TEST_FAIL_IF(size != 874112U, "the asset size should come from the matched asset");
 
     /* An asset the release does not carry is not an error to paper over. */
-    if (mesh_updater_parse_release(k_release_json, repo, "meshclient-nonesuch", tag, sizeof tag,
-                                   url, sizeof url, sha, sizeof sha, &size)) {
-        record_failure(test_name, "a missing asset should not parse");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_updater_parse_release(k_release_json, repo, "meshclient-nonesuch", tag,
+                                                 sizeof tag, url, sizeof url, sha, sizeof sha,
+                                                 &size),
+                      "a missing asset should not parse");
 
     /*
      * The security-relevant case: the download URL is only accepted when it is under this
@@ -173,11 +149,9 @@ MESH_TEST_CASE(updater_parse_release, unit) {
                  "{\"tag_name\":\"v9.9.9\",\"assets\":[{\"name\":\"%s\",\"size\":10,"
                  "\"browser_download_url\":\"%s\",\"digest\":\"sha256:%064d\"}]}",
                  asset, k_bad_urls[i], 0);
-        if (mesh_updater_parse_release(json, repo, asset, tag, sizeof tag, url, sizeof url, sha,
-                                       sizeof sha, &size)) {
-            record_failure(test_name, k_bad_urls[i]);
-            return;
-        }
+        MESH_TEST_FAIL_IF(mesh_updater_parse_release(json, repo, asset, tag, sizeof tag, url,
+                                                     sizeof url, sha, sizeof sha, &size),
+                          k_bad_urls[i]);
     }
 
     /* A malformed digest is dropped rather than carried through; the updater refuses to
@@ -188,33 +162,26 @@ MESH_TEST_CASE(updater_parse_release, unit) {
              "\"browser_download_url\":\"https://github.com/%s/releases/download/v9.9.9/%s\","
              "\"digest\":\"md5:deadbeef\"}]}",
              asset, repo, asset);
-    if (!mesh_updater_parse_release(json, repo, asset, tag, sizeof tag, url, sizeof url, sha,
-                                    sizeof sha, &size) ||
-        sha[0] != '\0') {
-        record_failure(test_name, "a non-sha256 digest should be dropped");
-        return;
-    }
+    MESH_TEST_FAIL_IF(!mesh_updater_parse_release(json, repo, asset, tag, sizeof tag, url,
+                                                  sizeof url, sha, sizeof sha, &size) ||
+                          sha[0] != '\0',
+                      "a non-sha256 digest should be dropped");
 
     /* Truncated and empty payloads must fail rather than read past the end. */
     static const char *const k_broken[] = {
         "", "{", "{\"tag_name\":", "{\"tag_name\":\"v1.0.0\"}", "not json at all",
     };
     for (size_t i = 0; i < sizeof k_broken / sizeof k_broken[0]; ++i) {
-        if (mesh_updater_parse_release(k_broken[i], repo, asset, tag, sizeof tag, url, sizeof url,
-                                       sha, sizeof sha, &size)) {
-            record_failure(test_name, "a broken payload should not parse");
-            return;
-        }
+        MESH_TEST_FAIL_IF(mesh_updater_parse_release(k_broken[i], repo, asset, tag, sizeof tag, url,
+                                                     sizeof url, sha, sizeof sha, &size),
+                          "a broken payload should not parse");
     }
     record_success(test_name);
 }
 
 MESH_TEST_CASE(updater_lifecycle, unit) {
     struct mesh_event_loop loop;
-    if (mesh_event_loop_init(&loop) != 0) {
-        record_failure(test_name, "event loop init failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_event_loop_init(&loop) != 0, "event loop init failed");
 
     struct mesh_updater updater;
     if (mesh_updater_init(&updater, &loop) != 0) {
@@ -436,10 +403,7 @@ MESH_TEST_CASE(updater_ca_bundle, unit) {
 
 MESH_TEST_CASE(updater_fetch_and_install, unit) {
     char dir[] = "/tmp/meshclient_update_XXXXXX";
-    if (mkdtemp(dir) == NULL) {
-        record_failure(test_name, "could not create a temporary directory");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mkdtemp(dir) == NULL, "could not create a temporary directory");
     const char *failure = NULL;
     char *saved_path = NULL;
     struct mesh_event_loop loop;
@@ -463,15 +427,10 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
     snprintf(shared_dir, sizeof shared_dir, "%s/bin/shared", dir);
     snprintf(install_path, sizeof install_path, "%s/bin/shared/meshclient", dir);
     snprintf(pak_json_path, sizeof pak_json_path, "%s/pak.json", dir);
-    if (mkdir(bin_dir, 0755) != 0 || mkdir(shared_dir, 0755) != 0) {
-        record_failure(test_name, "could not create the pak layout");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mkdir(bin_dir, 0755) != 0 || mkdir(shared_dir, 0755) != 0,
+                      "could not create the pak layout");
     FILE *pak_json = fopen(pak_json_path, "wb");
-    if (pak_json == NULL) {
-        record_failure(test_name, "could not write pak.json");
-        return;
-    }
+    MESH_TEST_FAIL_IF(pak_json == NULL, "could not write pak.json");
     fprintf(pak_json, "{\n  \"name\": \"MeshClient\",\n  \"version\": \"v1.0.0\",\n"
                       "  \"type\": \"TOOL\"\n}\n");
     fclose(pak_json);
@@ -728,10 +687,7 @@ cleanup:
  */
 MESH_TEST_CASE(updater_child_outlives_stdout, unit) {
     char dir[] = "/tmp/meshclient_hang_XXXXXX";
-    if (mkdtemp(dir) == NULL) {
-        record_failure(test_name, "could not create a temporary directory");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mkdtemp(dir) == NULL, "could not create a temporary directory");
     const char *failure = NULL;
     char *saved_path = NULL;
     struct mesh_event_loop loop;
@@ -824,29 +780,20 @@ MESH_TEST_CASE(version_build_stamp, unit) {
     record_failure(test_name, "the test build should not be stamped as a release");
     return;
 #else
-    if (mesh_version_is_release()) {
-        record_failure(test_name, "an unstamped build must not report itself as a release");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_version_is_release(),
+                      "an unstamped build must not report itself as a release");
     /* It still reports a useful number, suffixed so it is obvious on screen. */
     const char *version = mesh_version_string();
     const size_t len = strlen(version);
-    if (len < 4U || strcmp(version + len - 4U, "-dev") != 0) {
-        record_failure(test_name, version);
-        return;
-    }
+    MESH_TEST_FAIL_IF(len < 4U || strcmp(version + len - 4U, "-dev") != 0, version);
     /* And "-dev" is a prerelease of the version it names, so it sorts below the real thing. */
     char base[MESH_UPDATE_VERSION_MAX];
     snprintf(base, sizeof base, "%.*s", (int)(len - 4U), version);
-    if (mesh_version_compare(version, base) >= 0) {
-        record_failure(test_name, "a -dev build should sort below the release it precedes");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_version_compare(version, base) >= 0,
+                      "a -dev build should sort below the release it precedes");
     /* No release, however new, is ever offered to an unstamped build. */
-    if (mesh_version_is_newer_than_running("999.0.0")) {
-        record_failure(test_name, "an unstamped build must never be offered an update");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_version_is_newer_than_running("999.0.0"),
+                      "an unstamped build must never be offered an update");
     record_success(test_name);
 #endif
 }

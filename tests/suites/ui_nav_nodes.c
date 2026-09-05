@@ -19,10 +19,7 @@
    it wants rather than a bare toggle, so a press that races a NodeInfo cannot cancel itself. */
 MESH_TEST_CASE(ui_nav_node_favorite, unit) {
     struct mesh_ui_store store;
-    if (mesh_ui_store_init(&store) != 0) {
-        record_failure(test_name, "store init failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
 
     struct mesh_ui_handshake_state handshake;
     memset(&handshake, 0, sizeof handshake);

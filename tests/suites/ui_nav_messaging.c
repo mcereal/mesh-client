@@ -20,10 +20,7 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
     mesh_ui_canned_reset();
 
     struct mesh_ui_store store;
-    if (mesh_ui_store_init(&store) != 0) {
-        record_failure(test_name, "store init failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     mesh_test_nav_populate(&store);
 
     struct mesh_ui_snapshot snapshot;

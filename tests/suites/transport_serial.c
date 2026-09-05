@@ -61,31 +61,24 @@ MESH_TEST_CASE(stream_frame_encode, unit) {
         record_failure(test_name, "encode failed");
         return;
     }
-    if (written != MESH_STREAM_FRAME_HEADER_LEN + sizeof payload) {
-        record_failure(test_name, "unexpected frame length");
-        return;
-    }
-    if (frame[0] != MESH_STREAM_FRAME_START1 || frame[1] != MESH_STREAM_FRAME_START2 ||
-        frame[2] != 0x00U || frame[3] != (uint8_t)sizeof payload) {
-        record_failure(test_name, "header is not 0x94 0xC3 with a big-endian length");
-        return;
-    }
-    if (memcmp(frame + MESH_STREAM_FRAME_HEADER_LEN, payload, sizeof payload) != 0) {
-        record_failure(test_name, "payload was not copied verbatim");
-        return;
-    }
+    MESH_TEST_FAIL_IF(written != MESH_STREAM_FRAME_HEADER_LEN + sizeof payload,
+                      "unexpected frame length");
+    MESH_TEST_FAIL_IF(frame[0] != MESH_STREAM_FRAME_START1 ||
+                          frame[1] != MESH_STREAM_FRAME_START2 || frame[2] != 0x00U ||
+                          frame[3] != (uint8_t)sizeof payload,
+                      "header is not 0x94 0xC3 with a big-endian length");
+    MESH_TEST_FAIL_IF(memcmp(frame + MESH_STREAM_FRAME_HEADER_LEN, payload, sizeof payload) != 0,
+                      "payload was not copied verbatim");
 
     uint8_t big[MESH_STREAM_FRAME_MAX_PAYLOAD + 1U];
     memset(big, 0, sizeof big);
     uint8_t sink[MESH_STREAM_FRAME_HEADER_LEN + sizeof big];
-    if (mesh_stream_frame_encode(big, sizeof big, sink, sizeof sink, &written) != -EMSGSIZE) {
-        record_failure(test_name, "oversized payload should be rejected");
-        return;
-    }
-    if (mesh_stream_frame_encode(payload, sizeof payload, frame, 4U, &written) != -ENOSPC) {
-        record_failure(test_name, "a short output buffer should return -ENOSPC");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_stream_frame_encode(big, sizeof big, sink, sizeof sink, &written) !=
+                          -EMSGSIZE,
+                      "oversized payload should be rejected");
+    MESH_TEST_FAIL_IF(mesh_stream_frame_encode(payload, sizeof payload, frame, 4U, &written) !=
+                          -ENOSPC,
+                      "a short output buffer should return -ENOSPC");
 
     record_success(test_name);
 }
@@ -108,19 +101,14 @@ MESH_TEST_CASE(stream_parser_resync, unit) {
 
     const uint8_t log_line[] = {'I', 'N', 'F', 'O', ' ', 'b', 'o', 'o', 't', '\n'};
     mesh_stream_parser_push(&parser, log_line, sizeof log_line, &callbacks);
-    if (capture.frame_count != 0U || capture.text_bytes != sizeof log_line) {
-        record_failure(test_name, "log text should be reported as text, not frames");
-        return;
-    }
+    MESH_TEST_FAIL_IF(capture.frame_count != 0U || capture.text_bytes != sizeof log_line,
+                      "log text should be reported as text, not frames");
 
     /* A 0x94 0xC3 inside a log line, with a length no frame could have. */
     const uint8_t false_start[] = {MESH_STREAM_FRAME_START1, MESH_STREAM_FRAME_START2, 0xFFU, 0xFFU,
                                    'x'};
     mesh_stream_parser_push(&parser, false_start, sizeof false_start, &callbacks);
-    if (capture.frame_count != 0U) {
-        record_failure(test_name, "an impossible length should not produce a frame");
-        return;
-    }
+    MESH_TEST_FAIL_IF(capture.frame_count != 0U, "an impossible length should not produce a frame");
 
     const uint8_t payload_a[] = {0x01U, 0x02U, 0x03U};
     const uint8_t payload_b[] = {0x0AU, 0x0BU};
@@ -140,21 +128,15 @@ MESH_TEST_CASE(stream_parser_resync, unit) {
         mesh_stream_parser_push(&parser, &stream[i], 1U, &callbacks);
     }
 
-    if (capture.frame_count != 2U) {
-        record_failure(test_name, "expected both frames to survive a byte-at-a-time feed");
-        return;
-    }
-    if (capture.frame_len[0] != sizeof payload_a ||
-        memcmp(capture.frames[0], payload_a, sizeof payload_a) != 0 ||
-        capture.frame_len[1] != sizeof payload_b ||
-        memcmp(capture.frames[1], payload_b, sizeof payload_b) != 0) {
-        record_failure(test_name, "frame payloads did not round-trip");
-        return;
-    }
-    if (parser.frames != 2U || parser.dropped_bytes == 0U) {
-        record_failure(test_name, "parser counters did not track frames and junk");
-        return;
-    }
+    MESH_TEST_FAIL_IF(capture.frame_count != 2U,
+                      "expected both frames to survive a byte-at-a-time feed");
+    MESH_TEST_FAIL_IF(capture.frame_len[0] != sizeof payload_a ||
+                          memcmp(capture.frames[0], payload_a, sizeof payload_a) != 0 ||
+                          capture.frame_len[1] != sizeof payload_b ||
+                          memcmp(capture.frames[1], payload_b, sizeof payload_b) != 0,
+                      "frame payloads did not round-trip");
+    MESH_TEST_FAIL_IF(parser.frames != 2U || parser.dropped_bytes == 0U,
+                      "parser counters did not track frames and junk");
 
     record_success(test_name);
 }
@@ -166,10 +148,7 @@ MESH_TEST_CASE(stream_parser_resync, unit) {
  */
 MESH_TEST_CASE(serial_transport_connect_mock, unit) {
     int pair[2] = {-1, -1};
-    if (socketpair(AF_UNIX, SOCK_STREAM, 0, pair) != 0) {
-        record_failure(test_name, "socketpair failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) != 0, "socketpair failed");
     (void)fcntl(pair[0], F_SETFL, O_NONBLOCK);
     (void)fcntl(pair[1], F_SETFL, O_NONBLOCK);
 

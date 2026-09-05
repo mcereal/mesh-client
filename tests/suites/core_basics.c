@@ -13,18 +13,10 @@
 
 MESH_TEST_CASE(config_defaults, unit) {
     struct mesh_app_config config = mesh_app_config_default();
-    if (config.run_mode != MESH_APP_RUN_SINGLE_POLL) {
-        record_failure(test_name, "run_mode should default to single poll");
-        return;
-    }
-    if (!config.enable_ble) {
-        record_failure(test_name, "BLE should be enabled by default");
-        return;
-    }
-    if (config.idle_timeout_ms != 1000) {
-        record_failure(test_name, "idle timeout should default to 1000 ms");
-        return;
-    }
+    MESH_TEST_FAIL_IF(config.run_mode != MESH_APP_RUN_SINGLE_POLL,
+                      "run_mode should default to single poll");
+    MESH_TEST_FAIL_IF(!config.enable_ble, "BLE should be enabled by default");
+    MESH_TEST_FAIL_IF(config.idle_timeout_ms != 1000, "idle timeout should default to 1000 ms");
     record_success(test_name);
 }
 
@@ -34,16 +26,10 @@ MESH_TEST_CASE(transport_registry_registration, unit) {
 
     struct mesh_transport *ble = mesh_ble_transport();
     int result = mesh_transport_registry_register(&registry, ble);
-    if (result != 0) {
-        record_failure(test_name, "expected first BLE registration to succeed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(result != 0, "expected first BLE registration to succeed");
 
     result = mesh_transport_registry_register(&registry, ble);
-    if (result != -EEXIST) {
-        record_failure(test_name, "duplicate registration should return -EEXIST");
-        return;
-    }
+    MESH_TEST_FAIL_IF(result != -EEXIST, "duplicate registration should return -EEXIST");
 
     record_success(test_name);
 }
@@ -51,10 +37,7 @@ MESH_TEST_CASE(transport_registry_registration, unit) {
 MESH_TEST_CASE(event_loop_init_shutdown, unit) {
     struct mesh_event_loop loop;
     int result = mesh_event_loop_init(&loop);
-    if (result < 0) {
-        record_failure(test_name, "mesh_event_loop_init failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(result < 0, "mesh_event_loop_init failed");
 
     result = mesh_event_loop_run(&loop, 0);
     if (result < 0) {

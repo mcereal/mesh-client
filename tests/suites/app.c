@@ -196,15 +196,15 @@ MESH_TEST_CASE(app_settings_write_build, unit) {
     action.edits[2].number = 1U;
 
     struct mesh_admin_request write;
-    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
-        write.kind != MESH_ADMIN_SET_OWNER || strcmp(write.payload.owner.long_name, "Brick") != 0 ||
-        strcmp(write.payload.owner.short_name, "OLDN") != 0 ||
-        !write.payload.owner.has_is_unmessagable || !write.payload.owner.is_unmessagable ||
-        write.payload.owner.public_key.size != 32U ||
-        write.payload.owner.public_key.bytes[0] != 0x42U) {
-        record_failure(test_name, "set_owner should be the radio's user plus the edits");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+                          write.kind != MESH_ADMIN_SET_OWNER ||
+                          strcmp(write.payload.owner.long_name, "Brick") != 0 ||
+                          strcmp(write.payload.owner.short_name, "OLDN") != 0 ||
+                          !write.payload.owner.has_is_unmessagable ||
+                          !write.payload.owner.is_unmessagable ||
+                          write.payload.owner.public_key.size != 32U ||
+                          write.payload.owner.public_key.bytes[0] != 0x42U,
+                      "set_owner should be the radio's user plus the edits");
 
     action.section = MESH_UI_SETTINGS_TELEMETRY;
     action.edit_count = 2U;
@@ -212,18 +212,18 @@ MESH_TEST_CASE(app_settings_write_build, unit) {
     action.edits[0].number = 3600U;
     action.edits[1].field = MESH_UI_FIELD_TELEMETRY_DEVICE;
     action.edits[1].number = 1U;
-    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
-        write.kind != MESH_ADMIN_SET_MODULE_CONFIG ||
-        write.type != meshtastic_AdminMessage_ModuleConfigType_TELEMETRY_CONFIG ||
-        write.payload.module_config.which_payload_variant !=
-            meshtastic_ModuleConfig_telemetry_tag ||
-        write.payload.module_config.payload_variant.telemetry.device_update_interval != 3600U ||
-        !write.payload.module_config.payload_variant.telemetry.device_telemetry_enabled ||
-        !write.payload.module_config.payload_variant.telemetry.environment_measurement_enabled ||
-        write.payload.module_config.payload_variant.telemetry.power_update_interval != 777U) {
-        record_failure(test_name, "set_module_config should keep the fields we do not show");
-        return;
-    }
+    MESH_TEST_FAIL_IF(
+        mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+            write.kind != MESH_ADMIN_SET_MODULE_CONFIG ||
+            write.type != meshtastic_AdminMessage_ModuleConfigType_TELEMETRY_CONFIG ||
+            write.payload.module_config.which_payload_variant !=
+                meshtastic_ModuleConfig_telemetry_tag ||
+            write.payload.module_config.payload_variant.telemetry.device_update_interval != 3600U ||
+            !write.payload.module_config.payload_variant.telemetry.device_telemetry_enabled ||
+            !write.payload.module_config.payload_variant.telemetry
+                 .environment_measurement_enabled ||
+            write.payload.module_config.payload_variant.telemetry.power_update_interval != 777U,
+        "set_module_config should keep the fields we do not show");
 
     radio.has_device = true;
     radio.device.role = meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE;
@@ -232,17 +232,16 @@ MESH_TEST_CASE(app_settings_write_build, unit) {
     action.edit_count = 1U;
     action.edits[0].field = MESH_UI_FIELD_DEVICE_TZDEF;
     snprintf(action.edits[0].text, sizeof action.edits[0].text, "%s", "AST4");
-    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
-        write.kind != MESH_ADMIN_SET_CONFIG ||
-        write.type != meshtastic_AdminMessage_ConfigType_DEVICE_CONFIG ||
-        write.payload.config.which_payload_variant != meshtastic_Config_device_tag ||
-        strcmp(write.payload.config.payload_variant.device.tzdef, "AST4") != 0 ||
-        write.payload.config.payload_variant.device.role !=
-            meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE ||
-        write.payload.config.payload_variant.device.node_info_broadcast_secs != 10800U) {
-        record_failure(test_name, "set_device_config should carry the timezone and the rest");
-        return;
-    }
+    MESH_TEST_FAIL_IF(
+        mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+            write.kind != MESH_ADMIN_SET_CONFIG ||
+            write.type != meshtastic_AdminMessage_ConfigType_DEVICE_CONFIG ||
+            write.payload.config.which_payload_variant != meshtastic_Config_device_tag ||
+            strcmp(write.payload.config.payload_variant.device.tzdef, "AST4") != 0 ||
+            write.payload.config.payload_variant.device.role !=
+                meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE ||
+            write.payload.config.payload_variant.device.node_info_broadcast_secs != 10800U,
+        "set_device_config should carry the timezone and the rest");
 
     /* Role is an ordinary enum edit, and the LED row is the one field the UI shows inverted:
        "LED heartbeat on" has to become led_heartbeat_disabled = false. */
@@ -252,13 +251,11 @@ MESH_TEST_CASE(app_settings_write_build, unit) {
     action.edits[0].number = (uint32_t)meshtastic_Config_DeviceConfig_Role_ROUTER_LATE;
     action.edits[1].field = MESH_UI_FIELD_DEVICE_LED_HEARTBEAT;
     action.edits[1].number = 1U;
-    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
-        write.payload.config.payload_variant.device.role !=
-            meshtastic_Config_DeviceConfig_Role_ROUTER_LATE ||
-        write.payload.config.payload_variant.device.led_heartbeat_disabled) {
-        record_failure(test_name, "the device role or the inverted LED row was not applied");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+                          write.payload.config.payload_variant.device.role !=
+                              meshtastic_Config_DeviceConfig_Role_ROUTER_LATE ||
+                          write.payload.config.payload_variant.device.led_heartbeat_disabled,
+                      "the device role or the inverted LED row was not applied");
 
     radio.has_position = true;
     radio.position.position_broadcast_secs = 900U;
@@ -271,18 +268,18 @@ MESH_TEST_CASE(app_settings_write_build, unit) {
     action.edits[0].number = (uint32_t)meshtastic_Config_PositionConfig_GpsMode_DISABLED;
     action.edits[1].field = MESH_UI_FIELD_POSITION_SMART_DISTANCE;
     action.edits[1].number = 250U;
-    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
-        write.kind != MESH_ADMIN_SET_CONFIG ||
-        write.type != meshtastic_AdminMessage_ConfigType_POSITION_CONFIG ||
-        write.payload.config.which_payload_variant != meshtastic_Config_position_tag ||
-        write.payload.config.payload_variant.position.gps_mode !=
-            meshtastic_Config_PositionConfig_GpsMode_DISABLED ||
-        write.payload.config.payload_variant.position.broadcast_smart_minimum_distance != 250U ||
-        write.payload.config.payload_variant.position.position_broadcast_secs != 900U ||
-        write.payload.config.payload_variant.position.position_flags != 811U) {
-        record_failure(test_name, "set_position_config should carry the edits and keep the rest");
-        return;
-    }
+    MESH_TEST_FAIL_IF(
+        mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+            write.kind != MESH_ADMIN_SET_CONFIG ||
+            write.type != meshtastic_AdminMessage_ConfigType_POSITION_CONFIG ||
+            write.payload.config.which_payload_variant != meshtastic_Config_position_tag ||
+            write.payload.config.payload_variant.position.gps_mode !=
+                meshtastic_Config_PositionConfig_GpsMode_DISABLED ||
+            write.payload.config.payload_variant.position.broadcast_smart_minimum_distance !=
+                250U ||
+            write.payload.config.payload_variant.position.position_broadcast_secs != 900U ||
+            write.payload.config.payload_variant.position.position_flags != 811U,
+        "set_position_config should carry the edits and keep the rest");
 
     radio.has_power = true;
     radio.power.ls_secs = 300U;
@@ -294,22 +291,19 @@ MESH_TEST_CASE(app_settings_write_build, unit) {
     action.edits[0].number = 1U;
     action.edits[1].field = MESH_UI_FIELD_POWER_WAIT_BT;
     action.edits[1].number = 30U;
-    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
-        write.type != meshtastic_AdminMessage_ConfigType_POWER_CONFIG ||
-        write.payload.config.which_payload_variant != meshtastic_Config_power_tag ||
-        !write.payload.config.payload_variant.power.is_power_saving ||
-        write.payload.config.payload_variant.power.wait_bluetooth_secs != 30U ||
-        write.payload.config.payload_variant.power.ls_secs != 300U ||
-        write.payload.config.payload_variant.power.adc_multiplier_override < 2.4f) {
-        record_failure(test_name, "set_power_config should carry the edits and keep the rest");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+                          write.type != meshtastic_AdminMessage_ConfigType_POWER_CONFIG ||
+                          write.payload.config.which_payload_variant !=
+                              meshtastic_Config_power_tag ||
+                          !write.payload.config.payload_variant.power.is_power_saving ||
+                          write.payload.config.payload_variant.power.wait_bluetooth_secs != 30U ||
+                          write.payload.config.payload_variant.power.ls_secs != 300U ||
+                          write.payload.config.payload_variant.power.adc_multiplier_override < 2.4f,
+                      "set_power_config should carry the edits and keep the rest");
 
     /* Power can leave too little Bluetooth on to reconnect, so it asks before it writes. */
-    if (!mesh_ui_settings_section_needs_confirm(MESH_UI_SETTINGS_POWER)) {
-        record_failure(test_name, "the Power section should be behind the confirm overlay");
-        return;
-    }
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_section_needs_confirm(MESH_UI_SETTINGS_POWER),
+                      "the Power section should be behind the confirm overlay");
 
     radio.has_mqtt = true;
     snprintf(radio.mqtt.address, sizeof radio.mqtt.address, "%s", "mqtt.example.org");
@@ -321,28 +315,24 @@ MESH_TEST_CASE(app_settings_write_build, unit) {
     snprintf(action.edits[0].text, sizeof action.edits[0].text, "%s", "brick");
     action.edits[1].field = MESH_UI_FIELD_MQTT_MAP_REPORTING;
     action.edits[1].number = 1U;
-    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
-        write.kind != MESH_ADMIN_SET_MODULE_CONFIG ||
-        write.type != meshtastic_AdminMessage_ModuleConfigType_MQTT_CONFIG ||
-        write.payload.module_config.which_payload_variant != meshtastic_ModuleConfig_mqtt_tag ||
-        strcmp(write.payload.module_config.payload_variant.mqtt.username, "brick") != 0 ||
-        !write.payload.module_config.payload_variant.mqtt.map_reporting_enabled ||
-        strcmp(write.payload.module_config.payload_variant.mqtt.address, "mqtt.example.org") != 0 ||
-        !write.payload.module_config.payload_variant.mqtt.proxy_to_client_enabled) {
-        record_failure(test_name, "set_mqtt_config should carry the edits and keep the rest");
-        return;
-    }
+    MESH_TEST_FAIL_IF(
+        mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+            write.kind != MESH_ADMIN_SET_MODULE_CONFIG ||
+            write.type != meshtastic_AdminMessage_ModuleConfigType_MQTT_CONFIG ||
+            write.payload.module_config.which_payload_variant != meshtastic_ModuleConfig_mqtt_tag ||
+            strcmp(write.payload.module_config.payload_variant.mqtt.username, "brick") != 0 ||
+            !write.payload.module_config.payload_variant.mqtt.map_reporting_enabled ||
+            strcmp(write.payload.module_config.payload_variant.mqtt.address, "mqtt.example.org") !=
+                0 ||
+            !write.payload.module_config.payload_variant.mqtt.proxy_to_client_enabled,
+        "set_mqtt_config should carry the edits and keep the rest");
 
     action.section = MESH_UI_SETTINGS_DISPLAY;
-    if (mesh_app_build_settings_write(&radio, &action, &write) != -ENOENT) {
-        record_failure(test_name, "a section the radio has not sent cannot be written");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != -ENOENT,
+                      "a section the radio has not sent cannot be written");
     action.section = MESH_UI_SETTINGS_RADIO;
-    if (mesh_app_build_settings_write(&radio, &action, &write) != -ENOTSUP) {
-        record_failure(test_name, "the Radio section is read-only");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != -ENOTSUP,
+                      "the Radio section is read-only");
     record_success(test_name);
 }
 
@@ -377,50 +367,39 @@ MESH_TEST_CASE(app_channel_write_build, unit) {
     action.edits[3].number = 16U;
 
     struct mesh_admin_request write;
-    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
-        write.kind != MESH_ADMIN_SET_CHANNEL || write.type != 1U ||
-        write.payload.channel.index != 1 ||
-        write.payload.channel.role != meshtastic_Channel_Role_DISABLED ||
-        strcmp(write.payload.channel.settings.name, "Hikers") != 0 ||
-        write.payload.channel.settings.psk.size != 32U ||
-        write.payload.channel.settings.id != 77U ||
-        !write.payload.channel.settings.has_module_settings ||
-        write.payload.channel.settings.module_settings.position_precision != 16U) {
-        record_failure(test_name, "the channel write should carry the edits over the radio's copy");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+                          write.kind != MESH_ADMIN_SET_CHANNEL || write.type != 1U ||
+                          write.payload.channel.index != 1 ||
+                          write.payload.channel.role != meshtastic_Channel_Role_DISABLED ||
+                          strcmp(write.payload.channel.settings.name, "Hikers") != 0 ||
+                          write.payload.channel.settings.psk.size != 32U ||
+                          write.payload.channel.settings.id != 77U ||
+                          !write.payload.channel.settings.has_module_settings ||
+                          write.payload.channel.settings.module_settings.position_precision != 16U,
+                      "the channel write should carry the edits over the radio's copy");
     bool all_zero = true;
     for (unsigned i = 0; i < 32U; ++i) {
         if (write.payload.channel.settings.psk.bytes[i] != 0U) {
             all_zero = false;
         }
     }
-    if (all_zero) {
-        record_failure(test_name, "a random key should not be all zeroes");
-        return;
-    }
+    MESH_TEST_FAIL_IF(all_zero, "a random key should not be all zeroes");
     action.edit_count = 1U;
     action.edits[0].number = MESH_UI_PSK_TYPED;
     snprintf(action.edits[0].text, sizeof action.edits[0].text, "%s",
              "d4f1bb3a20290759f0bcffabcf4e6901");
-    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
-        write.payload.channel.settings.psk.size != 16U ||
-        write.payload.channel.settings.psk.bytes[0] != 0xD4U ||
-        write.payload.channel.settings.psk.bytes[15] != 0x01U) {
-        record_failure(test_name, "a typed key should be parsed as hex");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+                          write.payload.channel.settings.psk.size != 16U ||
+                          write.payload.channel.settings.psk.bytes[0] != 0xD4U ||
+                          write.payload.channel.settings.psk.bytes[15] != 0x01U,
+                      "a typed key should be parsed as hex");
     action.edits[0].number = MESH_UI_PSK_NONE;
-    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
-        write.payload.channel.settings.psk.size != 0U) {
-        record_failure(test_name, "no encryption is an empty key");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+                          write.payload.channel.settings.psk.size != 0U,
+                      "no encryption is an empty key");
     action.channel = 3U;
-    if (mesh_app_build_settings_write(&radio, &action, &write) != -ENOENT) {
-        record_failure(test_name, "a slot the radio never sent cannot be written");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != -ENOENT,
+                      "a slot the radio never sent cannot be written");
 
     action.section = MESH_UI_SETTINGS_BLUETOOTH;
     action.channel = MESH_UI_SETTINGS_NO_CHANNEL;
@@ -429,22 +408,19 @@ MESH_TEST_CASE(app_channel_write_build, unit) {
     action.edits[0].number = 1U;
     action.edits[1].field = MESH_UI_FIELD_BT_PIN;
     snprintf(action.edits[1].text, sizeof action.edits[1].text, "%s", "123456");
-    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
-        write.kind != MESH_ADMIN_SET_CONFIG ||
-        write.type != meshtastic_AdminMessage_ConfigType_BLUETOOTH_CONFIG ||
-        write.payload.config.which_payload_variant != meshtastic_Config_bluetooth_tag ||
-        write.payload.config.payload_variant.bluetooth.mode !=
-            meshtastic_Config_BluetoothConfig_PairingMode_FIXED_PIN ||
-        write.payload.config.payload_variant.bluetooth.fixed_pin != 123456U ||
-        !write.payload.config.payload_variant.bluetooth.enabled) {
-        record_failure(test_name, "the Bluetooth write is wrong");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+                          write.kind != MESH_ADMIN_SET_CONFIG ||
+                          write.type != meshtastic_AdminMessage_ConfigType_BLUETOOTH_CONFIG ||
+                          write.payload.config.which_payload_variant !=
+                              meshtastic_Config_bluetooth_tag ||
+                          write.payload.config.payload_variant.bluetooth.mode !=
+                              meshtastic_Config_BluetoothConfig_PairingMode_FIXED_PIN ||
+                          write.payload.config.payload_variant.bluetooth.fixed_pin != 123456U ||
+                          !write.payload.config.payload_variant.bluetooth.enabled,
+                      "the Bluetooth write is wrong");
     snprintf(action.edits[1].text, sizeof action.edits[1].text, "%s", "12ab56");
-    if (mesh_app_build_settings_write(&radio, &action, &write) != -EINVAL) {
-        record_failure(test_name, "a PIN that is not six digits must be refused");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != -EINVAL,
+                      "a PIN that is not six digits must be refused");
     record_success(test_name);
 }
 
@@ -491,37 +467,35 @@ MESH_TEST_CASE(app_lora_security_write_build, unit) {
     memset(settings.admin_keys[0], 0x33, 32U);
     settings.admin_key_lens[1] = 32U;
     struct mesh_ui_settings_item item;
-    if (mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_LORA,
+    MESH_TEST_FAIL_IF(
+        mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_LORA,
                                     MESH_UI_SETTINGS_NO_CHANNEL) != 11U ||
-        !mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_LORA,
-                               MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
-        item.field != MESH_UI_FIELD_LORA_REGION || strcmp(item.value, "US") != 0 ||
-        mesh_ui_settings_enum_count(MESH_UI_FIELD_LORA_REGION) != 38U ||
-        strcmp(mesh_ui_settings_enum_name(MESH_UI_FIELD_LORA_REGION, 37U), "ITU2 1.25m") != 0 ||
-        !mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_LORA,
-                               MESH_UI_SETTINGS_NO_CHANNEL, 8U, &item) ||
-        item.field != MESH_UI_FIELD_LORA_TX_POWER || strcmp(item.value, "max") != 0 ||
-        mesh_ui_settings_number_step(MESH_UI_FIELD_LORA_TX_POWER, 0U, +1) != 2U ||
-        !mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_LORA,
-                               MESH_UI_SETTINGS_NO_CHANNEL, 5U, &item) ||
-        strcmp(item.value, "4/0") != 0) {
-        record_failure(test_name, "LoRa rows are wrong");
-        return;
-    }
-    if (mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_SECURITY,
+            !mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_LORA,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
+            item.field != MESH_UI_FIELD_LORA_REGION || strcmp(item.value, "US") != 0 ||
+            mesh_ui_settings_enum_count(MESH_UI_FIELD_LORA_REGION) != 38U ||
+            strcmp(mesh_ui_settings_enum_name(MESH_UI_FIELD_LORA_REGION, 37U), "ITU2 1.25m") != 0 ||
+            !mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_LORA,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, 8U, &item) ||
+            item.field != MESH_UI_FIELD_LORA_TX_POWER || strcmp(item.value, "max") != 0 ||
+            mesh_ui_settings_number_step(MESH_UI_FIELD_LORA_TX_POWER, 0U, +1) != 2U ||
+            !mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_LORA,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, 5U, &item) ||
+            strcmp(item.value, "4/0") != 0,
+        "LoRa rows are wrong");
+    MESH_TEST_FAIL_IF(
+        mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_SECURITY,
                                     MESH_UI_SETTINGS_NO_CHANNEL) != 10U ||
-        !mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_SECURITY,
-                               MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
-        item.field != MESH_UI_FIELD_SECURITY_PRIVATE_KEY || item.kind != MESH_UI_SETTING_KEY ||
-        strlen(item.text) != 44U || strstr(item.value, "256-bit") == NULL ||
-        !mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_SECURITY,
-                               MESH_UI_SETTINGS_NO_CHANNEL, 4U, &item) ||
-        item.field != MESH_UI_FIELD_SECURITY_ADMIN_KEY_2 || strcmp(item.value, "none") != 0 ||
-        !mesh_ui_settings_section_needs_confirm(MESH_UI_SETTINGS_LORA) ||
-        !mesh_ui_settings_section_needs_confirm(MESH_UI_SETTINGS_SECURITY)) {
-        record_failure(test_name, "Security rows are wrong");
-        return;
-    }
+            !mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_SECURITY,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
+            item.field != MESH_UI_FIELD_SECURITY_PRIVATE_KEY || item.kind != MESH_UI_SETTING_KEY ||
+            strlen(item.text) != 44U || strstr(item.value, "256-bit") == NULL ||
+            !mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_SECURITY,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, 4U, &item) ||
+            item.field != MESH_UI_FIELD_SECURITY_ADMIN_KEY_2 || strcmp(item.value, "none") != 0 ||
+            !mesh_ui_settings_section_needs_confirm(MESH_UI_SETTINGS_LORA) ||
+            !mesh_ui_settings_section_needs_confirm(MESH_UI_SETTINGS_SECURITY),
+        "Security rows are wrong");
 
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
@@ -536,19 +510,18 @@ MESH_TEST_CASE(app_lora_security_write_build, unit) {
     action.edits[2].field = MESH_UI_FIELD_LORA_TX_POWER;
     action.edits[2].number = 20U;
     struct mesh_admin_request write;
-    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
-        write.kind != MESH_ADMIN_SET_CONFIG ||
-        write.type != meshtastic_AdminMessage_ConfigType_LORA_CONFIG ||
-        write.payload.config.which_payload_variant != meshtastic_Config_lora_tag ||
-        write.payload.config.payload_variant.lora.region !=
-            meshtastic_Config_LoRaConfig_RegionCode_EU_868 ||
-        write.payload.config.payload_variant.lora.hop_limit != 5U ||
-        write.payload.config.payload_variant.lora.tx_power != 20 ||
-        !write.payload.config.payload_variant.lora.use_preset ||
-        write.payload.config.payload_variant.lora.frequency_offset != 1.5f) {
-        record_failure(test_name, "the LoRa write should carry the edits over the radio's copy");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+                          write.kind != MESH_ADMIN_SET_CONFIG ||
+                          write.type != meshtastic_AdminMessage_ConfigType_LORA_CONFIG ||
+                          write.payload.config.which_payload_variant !=
+                              meshtastic_Config_lora_tag ||
+                          write.payload.config.payload_variant.lora.region !=
+                              meshtastic_Config_LoRaConfig_RegionCode_EU_868 ||
+                          write.payload.config.payload_variant.lora.hop_limit != 5U ||
+                          write.payload.config.payload_variant.lora.tx_power != 20 ||
+                          !write.payload.config.payload_variant.lora.use_preset ||
+                          write.payload.config.payload_variant.lora.frequency_offset != 1.5f,
+                      "the LoRa write should carry the edits over the radio's copy");
 
     /* Security: a new private key is clamped and the public key cleared for the firmware to
        derive; clearing admin key 1 compacts the list. */
@@ -560,25 +533,22 @@ MESH_TEST_CASE(app_lora_security_write_build, unit) {
     action.edits[1].number = MESH_UI_PSK_NONE;
     action.edits[2].field = MESH_UI_FIELD_SECURITY_MANAGED;
     action.edits[2].number = 1U;
-    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
-        write.type != meshtastic_AdminMessage_ConfigType_SECURITY_CONFIG ||
-        write.payload.config.which_payload_variant != meshtastic_Config_security_tag) {
-        record_failure(test_name, "the Security write should build");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+                          write.type != meshtastic_AdminMessage_ConfigType_SECURITY_CONFIG ||
+                          write.payload.config.which_payload_variant !=
+                              meshtastic_Config_security_tag,
+                      "the Security write should build");
     const meshtastic_Config_SecurityConfig *sec = &write.payload.config.payload_variant.security;
-    if (sec->private_key.size != 32U || (sec->private_key.bytes[0] & 7U) != 0U ||
-        (sec->private_key.bytes[31] & 0x80U) != 0U || (sec->private_key.bytes[31] & 0x40U) == 0U ||
-        memcmp(sec->private_key.bytes, radio.security.private_key.bytes, 32U) == 0 ||
-        sec->public_key.size != 0U || !sec->is_managed) {
-        record_failure(test_name, "a new private key should be clamped and the public key cleared");
-        return;
-    }
-    if (sec->admin_key_count != 1U || sec->admin_key[0].size != 32U ||
-        sec->admin_key[0].bytes[0] != 0x44U || sec->admin_key[1].size != 0U) {
-        record_failure(test_name, "clearing an admin key should compact the list");
-        return;
-    }
+    MESH_TEST_FAIL_IF(sec->private_key.size != 32U || (sec->private_key.bytes[0] & 7U) != 0U ||
+                          (sec->private_key.bytes[31] & 0x80U) != 0U ||
+                          (sec->private_key.bytes[31] & 0x40U) == 0U ||
+                          memcmp(sec->private_key.bytes, radio.security.private_key.bytes, 32U) ==
+                              0 ||
+                          sec->public_key.size != 0U || !sec->is_managed,
+                      "a new private key should be clamped and the public key cleared");
+    MESH_TEST_FAIL_IF(sec->admin_key_count != 1U || sec->admin_key[0].size != 32U ||
+                          sec->admin_key[0].bytes[0] != 0x44U || sec->admin_key[1].size != 0U,
+                      "clearing an admin key should compact the list");
     /* Restoring a backed-up private key and adding an admin key by text. */
     action.edit_count = 2U;
     action.edits[0].field = MESH_UI_FIELD_SECURITY_PRIVATE_KEY;
@@ -590,18 +560,14 @@ MESH_TEST_CASE(app_lora_security_write_build, unit) {
     action.edits[1].number = MESH_UI_PSK_TYPED;
     memset(restore, 0x66, 32U);
     mesh_ui_settings_key_text(restore, 32U, action.edits[1].text, sizeof action.edits[1].text);
-    if (mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
-        sec->private_key.bytes[0] != 0x5AU || sec->private_key.size != 32U ||
-        sec->public_key.size != 0U || sec->admin_key_count != 3U ||
-        sec->admin_key[2].bytes[0] != 0x66U) {
-        record_failure(test_name, "typed keys should be restored as given");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+                          sec->private_key.bytes[0] != 0x5AU || sec->private_key.size != 32U ||
+                          sec->public_key.size != 0U || sec->admin_key_count != 3U ||
+                          sec->admin_key[2].bytes[0] != 0x66U,
+                      "typed keys should be restored as given");
     snprintf(action.edits[0].text, sizeof action.edits[0].text, "%s", "AQ=="); /* 1 byte */
-    if (mesh_app_build_settings_write(&radio, &action, &write) != -EINVAL) {
-        record_failure(test_name, "a private key must be 32 bytes");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != -EINVAL,
+                      "a private key must be 32 bytes");
     record_success(test_name);
 }
 
@@ -617,10 +583,7 @@ MESH_TEST_CASE(app_link_routing, unit) {
     struct mesh_app app;
     memset(&app, 0, sizeof app);
 
-    if (socketpair(AF_UNIX, SOCK_STREAM, 0, pair) != 0) {
-        record_failure(test_name, "socketpair failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) != 0, "socketpair failed");
     (void)fcntl(pair[0], F_SETFL, O_NONBLOCK);
     (void)fcntl(pair[1], F_SETFL, O_NONBLOCK);
 
@@ -960,30 +923,22 @@ MESH_TEST_CASE(app_node_rank_known_radio, unit) {
        so the flag is gone - and ABC123 is nobody's favorite over here. */
     mesh_ui_preferences_note_radio(&prefs, def);
     nodes[1].is_favorite = false;
-    if (mesh_app_node_rank(&nodes[1], def, &log, &prefs) != 0U) {
-        record_failure(test_name, "the radio we are now on is us, pinned or not");
-        return;
-    }
-    if (mesh_app_node_rank(&nodes[0], def, &log, &prefs) != 2U) {
-        record_failure(test_name, "the radio we just unplugged should rank as one of ours");
-        return;
-    }
-    if (mesh_app_node_rank(&nodes[2], def, &log, &prefs) != 3U ||
-        mesh_app_node_rank(&nodes[3], def, &log, &prefs) != 5U) {
-        record_failure(test_name, "everyone else should keep their tier");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_app_node_rank(&nodes[1], def, &log, &prefs) != 0U,
+                      "the radio we are now on is us, pinned or not");
+    MESH_TEST_FAIL_IF(mesh_app_node_rank(&nodes[0], def, &log, &prefs) != 2U,
+                      "the radio we just unplugged should rank as one of ours");
+    MESH_TEST_FAIL_IF(mesh_app_node_rank(&nodes[2], def, &log, &prefs) != 3U ||
+                          mesh_app_node_rank(&nodes[3], def, &log, &prefs) != 5U,
+                      "everyone else should keep their tier");
 
     /* Without the memory - a fresh install, or a radio we have never connected to - ABC123 is
        an ordinary node heard over RF, which is the behaviour this tier exists to avoid. */
     struct mesh_ui_preferences empty;
     memset(&empty, 0, sizeof empty);
-    if (mesh_app_node_rank(&nodes[0], def, &log, &empty) != 3U ||
-        mesh_app_node_rank(&nodes[0], def, NULL, &empty) != 4U ||
-        mesh_app_node_rank(&nodes[0], def, NULL, NULL) != 4U) {
-        record_failure(test_name, "an unknown radio should fall back to the ordinary tiers");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_app_node_rank(&nodes[0], def, &log, &empty) != 3U ||
+                          mesh_app_node_rank(&nodes[0], def, NULL, &empty) != 4U ||
+                          mesh_app_node_rank(&nodes[0], def, NULL, NULL) != 4U,
+                      "an unknown radio should fall back to the ordinary tiers");
 
     record_success(test_name);
 }

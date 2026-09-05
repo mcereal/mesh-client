@@ -134,15 +134,10 @@ MESH_TEST_CASE(ui_input_quit_keys, unit) {
     }
 
     /* BTN_START stays free for the menu work still to come. */
-    if (mesh_ui_input_is_quit_key(BTN_START)) {
-        record_failure(test_name, "BTN_START should not quit by default");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_input_is_quit_key(BTN_START), "BTN_START should not quit by default");
 
-    if (mesh_ui_input_quit_hint() == NULL || mesh_ui_input_quit_hint()[0] == '\0') {
-        record_failure(test_name, "quit hint should not be empty");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_input_quit_hint() == NULL || mesh_ui_input_quit_hint()[0] == '\0',
+                      "quit hint should not be empty");
 
     setenv("MESHCLIENT_QUIT_KEYS", "300, 301", 1);
     mesh_ui_input_reload_quit_keys();
@@ -191,10 +186,7 @@ MESH_TEST_CASE(ui_cli_transport_update, unit) {
 
     /* present() also writes to stderr; tty_stream is the part we can capture. */
     FILE *capture = tmpfile();
-    if (capture == NULL) {
-        record_failure(test_name, "tmpfile failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(capture == NULL, "tmpfile failed");
     context.tty_stream = capture;
 
     struct mesh_ui_snapshot snapshot;
@@ -211,10 +203,8 @@ MESH_TEST_CASE(ui_cli_transport_update, unit) {
     buffer[read_bytes] = '\0';
     fclose(capture);
 
-    if (strstr(buffer, "waiting-for-adapter") == NULL) {
-        record_failure(test_name, "transport-only update should still print the transport line");
-        return;
-    }
+    MESH_TEST_FAIL_IF(strstr(buffer, "waiting-for-adapter") == NULL,
+                      "transport-only update should still print the transport line");
 
     record_success(test_name);
 }
@@ -225,10 +215,7 @@ MESH_TEST_CASE(ui_input_key_mapping, unit) {
     mesh_ui_input_reload_quit_keys();
 
     struct mesh_event_loop loop;
-    if (mesh_event_loop_init(&loop) != 0) {
-        record_failure(test_name, "event loop init failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_event_loop_init(&loop) != 0, "event loop init failed");
 
     struct test_key_capture capture;
     memset(&capture, 0, sizeof capture);

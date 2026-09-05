@@ -17,10 +17,7 @@
 
 MESH_TEST_CASE(ui_store_basic, unit) {
     struct mesh_ui_store store;
-    if (mesh_ui_store_init(&store) != 0) {
-        record_failure(test_name, "store init failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
 
     struct mesh_ui_device devices[2] = {
         {.identifier = "AA:BB:CC:DD:EE:01", .name = "NodeOne", .rssi = -45, .connected = false},
@@ -364,27 +361,19 @@ MESH_TEST_CASE(ui_store_messages, unit) {
 
     struct mesh_ui_snapshot snapshot;
     memset(&snapshot, 0, sizeof(snapshot));
-    if (!mesh_ui_store_consume_updates(&store, &snapshot)) {
-        record_failure(test_name, "setting messages should raise an update");
-        return;
-    }
-    if ((snapshot.update_flags & MESH_UI_UPDATE_MESSAGES) == 0U) {
-        record_failure(test_name, "the messages flag should be set");
-        return;
-    }
-    if (snapshot.messages.count != 2U || snapshot.messages.dropped != 7U) {
-        record_failure(test_name, "message list did not reach the snapshot");
-        return;
-    }
+    MESH_TEST_FAIL_IF(!mesh_ui_store_consume_updates(&store, &snapshot),
+                      "setting messages should raise an update");
+    MESH_TEST_FAIL_IF((snapshot.update_flags & MESH_UI_UPDATE_MESSAGES) == 0U,
+                      "the messages flag should be set");
+    MESH_TEST_FAIL_IF(snapshot.messages.count != 2U || snapshot.messages.dropped != 7U,
+                      "message list did not reach the snapshot");
 
     /* Setting the same list again is not a change and must not wake the UI. */
     mesh_ui_store_set_messages(&store, &list);
     struct mesh_ui_snapshot repeat;
     memset(&repeat, 0, sizeof(repeat));
-    if (mesh_ui_store_consume_updates(&store, &repeat)) {
-        record_failure(test_name, "an unchanged message list should not raise an update");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_store_consume_updates(&store, &repeat),
+                      "an unchanged message list should not raise an update");
 
     char cache_path[] = "/tmp/mesh_ui_messagesXXXXXX";
     int fd = mkstemp(cache_path);
@@ -430,10 +419,7 @@ MESH_TEST_CASE(ui_store_messages, unit) {
     mesh_ui_store_shutdown(&loaded);
     mesh_ui_store_shutdown(&store);
 
-    if (!ok) {
-        record_failure(test_name, "messages did not survive the save/load roundtrip");
-        return;
-    }
+    MESH_TEST_FAIL_IF(!ok, "messages did not survive the save/load roundtrip");
 
     record_success(test_name);
 }
@@ -457,36 +443,27 @@ MESH_TEST_CASE(ui_message_list_merge, unit) {
     /* An empty live list must leave the history intact - this is the actual bug. */
     struct mesh_ui_message_list merged;
     mesh_ui_message_list_merge(&cached, &live, &merged);
-    if (merged.count != 2U || strcmp(merged.entries[0].text, "older") != 0 ||
-        strcmp(merged.entries[1].text, "newer") != 0) {
-        record_failure(test_name, "an empty live list should preserve cached history");
-        return;
-    }
-    if (merged.dropped != 1U) {
-        record_failure(test_name, "the cached dropped count should carry through");
-        return;
-    }
+    MESH_TEST_FAIL_IF(merged.count != 2U || strcmp(merged.entries[0].text, "older") != 0 ||
+                          strcmp(merged.entries[1].text, "newer") != 0,
+                      "an empty live list should preserve cached history");
+    MESH_TEST_FAIL_IF(merged.dropped != 1U, "the cached dropped count should carry through");
 
     /* Live messages append after the history, newest last. */
     live.count = 1U;
     live.entries[0].packet_id = 200U;
     snprintf(live.entries[0].text, sizeof(live.entries[0].text), "live");
     mesh_ui_message_list_merge(&cached, &live, &merged);
-    if (merged.count != 3U || strcmp(merged.entries[0].text, "older") != 0 ||
-        strcmp(merged.entries[2].text, "live") != 0) {
-        record_failure(test_name, "live messages should append after cached history");
-        return;
-    }
+    MESH_TEST_FAIL_IF(merged.count != 3U || strcmp(merged.entries[0].text, "older") != 0 ||
+                          strcmp(merged.entries[2].text, "live") != 0,
+                      "live messages should append after cached history");
 
     /* A message re-received after a restart must not appear twice. */
     live.entries[0].packet_id = 101U;
     snprintf(live.entries[0].text, sizeof(live.entries[0].text), "newer");
     mesh_ui_message_list_merge(&cached, &live, &merged);
-    if (merged.count != 2U || strcmp(merged.entries[0].text, "older") != 0 ||
-        merged.entries[1].packet_id != 101U) {
-        record_failure(test_name, "a cached entry re-received live should not be duplicated");
-        return;
-    }
+    MESH_TEST_FAIL_IF(merged.count != 2U || strcmp(merged.entries[0].text, "older") != 0 ||
+                          merged.entries[1].packet_id != 101U,
+                      "a cached entry re-received live should not be duplicated");
 
     /* Packet id 0 means "no id", so it must never be treated as a duplicate key. */
     struct mesh_ui_message_list unidentified;
@@ -498,10 +475,7 @@ MESH_TEST_CASE(ui_message_list_merge, unit) {
     zero_live.count = 1U;
     snprintf(zero_live.entries[0].text, sizeof(zero_live.entries[0].text), "also no id");
     mesh_ui_message_list_merge(&unidentified, &zero_live, &merged);
-    if (merged.count != 2U) {
-        record_failure(test_name, "packet id 0 should not collapse distinct messages");
-        return;
-    }
+    MESH_TEST_FAIL_IF(merged.count != 2U, "packet id 0 should not collapse distinct messages");
 
     /* When live traffic fills every slot, the oldest history is dropped and counted. */
     struct mesh_ui_message_list full_live;
@@ -511,14 +485,10 @@ MESH_TEST_CASE(ui_message_list_merge, unit) {
         full_live.entries[i].packet_id = 1000U + i;
     }
     mesh_ui_message_list_merge(&cached, &full_live, &merged);
-    if (merged.count != MESH_UI_MAX_MESSAGES || merged.entries[0].packet_id != 1000U) {
-        record_failure(test_name, "live messages should win every slot when the list is full");
-        return;
-    }
-    if (merged.dropped != 1U + 2U) {
-        record_failure(test_name, "squeezed-out history should be added to the dropped count");
-        return;
-    }
+    MESH_TEST_FAIL_IF(merged.count != MESH_UI_MAX_MESSAGES || merged.entries[0].packet_id != 1000U,
+                      "live messages should win every slot when the list is full");
+    MESH_TEST_FAIL_IF(merged.dropped != 1U + 2U,
+                      "squeezed-out history should be added to the dropped count");
 
     record_success(test_name);
 }
@@ -528,10 +498,7 @@ MESH_TEST_CASE(ui_canned_load, unit) {
 
     char path[] = "/tmp/meshclient-canned-XXXXXX";
     int fd = mkstemp(path);
-    if (fd < 0) {
-        record_failure(test_name, "mkstemp failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(fd < 0, "mkstemp failed");
     const char *content = "# quick replies\n\nAck\n  \nBe there in 5\nbad\x01line\n";
     if (write(fd, content, strlen(content)) < 0) {
         close(fd);

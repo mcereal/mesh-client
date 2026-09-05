@@ -49,61 +49,51 @@ MESH_TEST_CASE(ui_settings_items, unit) {
     handshake.channels[1].uplink_enabled = true;
     snprintf(handshake.channels[1].name, sizeof handshake.channels[1].name, "%s", "Team");
 
-    if (!mesh_ui_settings_section_loaded(&settings, &handshake, MESH_UI_SETTINGS_LORA) ||
-        mesh_ui_settings_section_loaded(&settings, &handshake, MESH_UI_SETTINGS_DISPLAY) ||
-        mesh_ui_settings_item_count(&settings, &handshake, MESH_UI_SETTINGS_DISPLAY,
-                                    MESH_UI_SETTINGS_NO_CHANNEL) != 0U) {
-        record_failure(test_name, "section loaded flags are wrong");
-        return;
-    }
+    MESH_TEST_FAIL_IF(
+        !mesh_ui_settings_section_loaded(&settings, &handshake, MESH_UI_SETTINGS_LORA) ||
+            mesh_ui_settings_section_loaded(&settings, &handshake, MESH_UI_SETTINGS_DISPLAY) ||
+            mesh_ui_settings_item_count(&settings, &handshake, MESH_UI_SETTINGS_DISPLAY,
+                                        MESH_UI_SETTINGS_NO_CHANNEL) != 0U,
+        "section loaded flags are wrong");
 
     struct mesh_ui_settings_item item;
-    if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_LORA,
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_LORA,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
+                          strcmp(item.label, "Region") != 0 || strcmp(item.value, "US") != 0 ||
+                          item.kind != MESH_UI_SETTING_ENUM,
+                      "LoRa region row is wrong");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_LORA,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 2U, &item) ||
+                          strcmp(item.label, "Preset") != 0 ||
+                          strcmp(item.value, "Long Range - Moderate") != 0,
+                      "LoRa preset row is wrong");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, &handshake, NULL, 0U,
+                                             MESH_UI_SETTINGS_DEVICE, MESH_UI_SETTINGS_NO_CHANNEL,
+                                             0U, &item) ||
+                          strcmp(item.value, "Router Late") != 0,
+                      "device role row is wrong");
+    MESH_TEST_FAIL_IF(
+        !mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_SECURITY,
                                MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
-        strcmp(item.label, "Region") != 0 || strcmp(item.value, "US") != 0 ||
-        item.kind != MESH_UI_SETTING_ENUM) {
-        record_failure(test_name, "LoRa region row is wrong");
-        return;
-    }
-    if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_LORA,
-                               MESH_UI_SETTINGS_NO_CHANNEL, 2U, &item) ||
-        strcmp(item.label, "Preset") != 0 || strcmp(item.value, "Long Range - Moderate") != 0) {
-        record_failure(test_name, "LoRa preset row is wrong");
-        return;
-    }
-    if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_DEVICE,
-                               MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
-        strcmp(item.value, "Router Late") != 0) {
-        record_failure(test_name, "device role row is wrong");
-        return;
-    }
-    if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_SECURITY,
-                               MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
-        item.kind != MESH_UI_SETTING_KEY || strncmp(item.value, "deadbeef...", 11U) != 0 ||
-        strstr(item.value, "32 bytes") == NULL) {
-        record_failure(test_name, "public key fingerprint is wrong");
-        return;
-    }
-    if (mesh_ui_settings_item_count(&settings, &handshake, MESH_UI_SETTINGS_CHANNELS,
+            item.kind != MESH_UI_SETTING_KEY || strncmp(item.value, "deadbeef...", 11U) != 0 ||
+            strstr(item.value, "32 bytes") == NULL,
+        "public key fingerprint is wrong");
+    MESH_TEST_FAIL_IF(
+        mesh_ui_settings_item_count(&settings, &handshake, MESH_UI_SETTINGS_CHANNELS,
                                     MESH_UI_SETTINGS_NO_CHANNEL) != 2U ||
+            !mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_CHANNELS,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
+            strcmp(item.label, "1 Team") != 0 || strstr(item.value, "AES-128") == NULL ||
+            strstr(item.value, "up on") == NULL || strstr(item.value, "down off") == NULL,
+        "channel row is wrong");
+    MESH_TEST_FAIL_IF(
         !mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_CHANNELS,
-                               MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
-        strcmp(item.label, "1 Team") != 0 || strstr(item.value, "AES-128") == NULL ||
-        strstr(item.value, "up on") == NULL || strstr(item.value, "down off") == NULL) {
-        record_failure(test_name, "channel row is wrong");
-        return;
-    }
-    if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_CHANNELS,
                                MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
-        strcmp(item.label, "0 Primary") != 0 || strstr(item.value, "default key") == NULL) {
-        record_failure(test_name, "primary channel row is wrong");
-        return;
-    }
-    if (mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_LORA,
-                              MESH_UI_SETTINGS_NO_CHANNEL, 99U, &item)) {
-        record_failure(test_name, "out-of-range row should fail");
-        return;
-    }
+            strcmp(item.label, "0 Primary") != 0 || strstr(item.value, "default key") == NULL,
+        "primary channel row is wrong");
+    MESH_TEST_FAIL_IF(mesh_ui_settings_item(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_LORA,
+                                            MESH_UI_SETTINGS_NO_CHANNEL, 99U, &item),
+                      "out-of-range row should fail");
     record_success(test_name);
 }
 
@@ -123,57 +113,50 @@ MESH_TEST_CASE(ui_settings_edits, unit) {
     settings.device_update_interval = 1234U; /* not a preset */
 
     struct mesh_ui_settings_item item;
-    if (!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_USER,
-                               MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
-        item.field != MESH_UI_FIELD_USER_LONG_NAME || item.kind != MESH_UI_SETTING_TEXT ||
-        item.dirty || strcmp(item.text, "Meshtastic 0ad8") != 0 ||
-        strcmp(item.value, "Meshtastic 0ad8") != 0) {
-        record_failure(test_name, "long name row is wrong");
-        return;
-    }
-    if (mesh_ui_settings_text_max(MESH_UI_FIELD_USER_LONG_NAME) != 24U ||
-        mesh_ui_settings_text_max(MESH_UI_FIELD_USER_SHORT_NAME) != 4U ||
-        mesh_ui_settings_text_max(MESH_UI_FIELD_DISPLAY_12H) != 0U) {
-        record_failure(test_name, "text caps are wrong");
-        return;
-    }
-    if (!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_DISPLAY,
-                               MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
-        item.field != MESH_UI_FIELD_DISPLAY_SCREEN_ON || item.kind != MESH_UI_SETTING_NUMBER ||
-        item.number != 60U || strcmp(item.value, "1m") != 0) {
-        record_failure(test_name, "screen-on row is wrong");
-        return;
-    }
-    if (mesh_ui_settings_number_step(MESH_UI_FIELD_DISPLAY_SCREEN_ON, 60U, +1) != 120U ||
-        mesh_ui_settings_number_step(MESH_UI_FIELD_DISPLAY_SCREEN_ON, 60U, -1) != 30U ||
-        mesh_ui_settings_number_step(MESH_UI_FIELD_DISPLAY_SCREEN_ON, 3600U, +1) != 3600U ||
-        mesh_ui_settings_number_step(MESH_UI_FIELD_DISPLAY_SCREEN_ON, 0U, -1) != 0U ||
-        mesh_ui_settings_number_step(MESH_UI_FIELD_TELEMETRY_INTERVAL, 1234U, +1) != 1800U ||
-        mesh_ui_settings_number_step(MESH_UI_FIELD_TELEMETRY_INTERVAL, 1234U, -1) != 900U) {
-        record_failure(test_name, "number presets step wrong");
-        return;
-    }
-    if (mesh_ui_settings_enum_count(MESH_UI_FIELD_DISPLAY_COMPASS) != 8U ||
-        mesh_ui_settings_enum_count(MESH_UI_FIELD_DISPLAY_UNITS) != 2U ||
-        mesh_ui_settings_enum_count(MESH_UI_FIELD_DISPLAY_FLIP) != 0U ||
-        strcmp(mesh_ui_settings_enum_name(MESH_UI_FIELD_DISPLAY_UNITS, 1U), "Imperial") != 0 ||
-        strcmp(mesh_ui_settings_enum_name(MESH_UI_FIELD_DISPLAY_COMPASS, 7U), "270 flip") != 0) {
-        record_failure(test_name, "enum tables are wrong");
-        return;
-    }
-    if (mesh_ui_settings_field_section(MESH_UI_FIELD_SF_SERVER) != MESH_UI_SETTINGS_STORE_FORWARD ||
-        mesh_ui_settings_field_kind(MESH_UI_FIELD_TELEMETRY_INTERVAL) != MESH_UI_SETTING_NUMBER ||
-        strcmp(mesh_ui_settings_field_label(MESH_UI_FIELD_USER_SHORT_NAME), "Short name") != 0) {
-        record_failure(test_name, "field descriptions are wrong");
-        return;
-    }
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_USER,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
+                          item.field != MESH_UI_FIELD_USER_LONG_NAME ||
+                          item.kind != MESH_UI_SETTING_TEXT || item.dirty ||
+                          strcmp(item.text, "Meshtastic 0ad8") != 0 ||
+                          strcmp(item.value, "Meshtastic 0ad8") != 0,
+                      "long name row is wrong");
+    MESH_TEST_FAIL_IF(mesh_ui_settings_text_max(MESH_UI_FIELD_USER_LONG_NAME) != 24U ||
+                          mesh_ui_settings_text_max(MESH_UI_FIELD_USER_SHORT_NAME) != 4U ||
+                          mesh_ui_settings_text_max(MESH_UI_FIELD_DISPLAY_12H) != 0U,
+                      "text caps are wrong");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_DISPLAY,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
+                          item.field != MESH_UI_FIELD_DISPLAY_SCREEN_ON ||
+                          item.kind != MESH_UI_SETTING_NUMBER || item.number != 60U ||
+                          strcmp(item.value, "1m") != 0,
+                      "screen-on row is wrong");
+    MESH_TEST_FAIL_IF(
+        mesh_ui_settings_number_step(MESH_UI_FIELD_DISPLAY_SCREEN_ON, 60U, +1) != 120U ||
+            mesh_ui_settings_number_step(MESH_UI_FIELD_DISPLAY_SCREEN_ON, 60U, -1) != 30U ||
+            mesh_ui_settings_number_step(MESH_UI_FIELD_DISPLAY_SCREEN_ON, 3600U, +1) != 3600U ||
+            mesh_ui_settings_number_step(MESH_UI_FIELD_DISPLAY_SCREEN_ON, 0U, -1) != 0U ||
+            mesh_ui_settings_number_step(MESH_UI_FIELD_TELEMETRY_INTERVAL, 1234U, +1) != 1800U ||
+            mesh_ui_settings_number_step(MESH_UI_FIELD_TELEMETRY_INTERVAL, 1234U, -1) != 900U,
+        "number presets step wrong");
+    MESH_TEST_FAIL_IF(
+        mesh_ui_settings_enum_count(MESH_UI_FIELD_DISPLAY_COMPASS) != 8U ||
+            mesh_ui_settings_enum_count(MESH_UI_FIELD_DISPLAY_UNITS) != 2U ||
+            mesh_ui_settings_enum_count(MESH_UI_FIELD_DISPLAY_FLIP) != 0U ||
+            strcmp(mesh_ui_settings_enum_name(MESH_UI_FIELD_DISPLAY_UNITS, 1U), "Imperial") != 0 ||
+            strcmp(mesh_ui_settings_enum_name(MESH_UI_FIELD_DISPLAY_COMPASS, 7U), "270 flip") != 0,
+        "enum tables are wrong");
+    MESH_TEST_FAIL_IF(
+        mesh_ui_settings_field_section(MESH_UI_FIELD_SF_SERVER) != MESH_UI_SETTINGS_STORE_FORWARD ||
+            mesh_ui_settings_field_kind(MESH_UI_FIELD_TELEMETRY_INTERVAL) !=
+                MESH_UI_SETTING_NUMBER ||
+            strcmp(mesh_ui_settings_field_label(MESH_UI_FIELD_USER_SHORT_NAME), "Short name") != 0,
+        "field descriptions are wrong");
     /* A read-only row has no field. */
-    if (!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_TELEMETRY,
-                               MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
-        item.field != MESH_UI_FIELD_TELEMETRY_INTERVAL || strcmp(item.value, "1234s") != 0) {
-        record_failure(test_name, "telemetry interval row is wrong");
-        return;
-    }
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_TELEMETRY,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
+                          item.field != MESH_UI_FIELD_TELEMETRY_INTERVAL ||
+                          strcmp(item.value, "1234s") != 0,
+                      "telemetry interval row is wrong");
 
     /* Pending edits show in place, marked. */
     struct mesh_ui_setting_edit edits[2];
@@ -182,30 +165,24 @@ MESH_TEST_CASE(ui_settings_edits, unit) {
     edits[0].number = 0U;
     edits[1].field = MESH_UI_FIELD_USER_SHORT_NAME;
     snprintf(edits[1].text, sizeof edits[1].text, "%s", "BRCK");
-    if (!mesh_ui_settings_item(&settings, NULL, edits, 2U, MESH_UI_SETTINGS_DISPLAY,
-                               MESH_UI_SETTINGS_NO_CHANNEL, 4U, &item) ||
-        item.field != MESH_UI_FIELD_DISPLAY_UNITS || !item.dirty || item.number != 0U ||
-        strcmp(item.value, "Metric") != 0) {
-        record_failure(test_name, "an enum edit should render in place");
-        return;
-    }
-    if (!mesh_ui_settings_item(&settings, NULL, edits, 2U, MESH_UI_SETTINGS_USER,
-                               MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
-        !item.dirty || strcmp(item.text, "BRCK") != 0 || strcmp(item.value, "BRCK") != 0) {
-        record_failure(test_name, "a text edit should render in place");
-        return;
-    }
-    if (!mesh_ui_settings_item(&settings, NULL, edits, 2U, MESH_UI_SETTINGS_DISPLAY,
-                               MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
-        item.dirty || item.number != 60U) {
-        record_failure(test_name, "rows without an edit stay clean");
-        return;
-    }
-    if (mesh_ui_settings_find_edit(edits, 2U, MESH_UI_FIELD_USER_SHORT_NAME) != &edits[1] ||
-        mesh_ui_settings_find_edit(edits, 2U, MESH_UI_FIELD_DISPLAY_FLIP) != NULL) {
-        record_failure(test_name, "find_edit is wrong");
-        return;
-    }
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, edits, 2U, MESH_UI_SETTINGS_DISPLAY,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 4U, &item) ||
+                          item.field != MESH_UI_FIELD_DISPLAY_UNITS || !item.dirty ||
+                          item.number != 0U || strcmp(item.value, "Metric") != 0,
+                      "an enum edit should render in place");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, edits, 2U, MESH_UI_SETTINGS_USER,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
+                          !item.dirty || strcmp(item.text, "BRCK") != 0 ||
+                          strcmp(item.value, "BRCK") != 0,
+                      "a text edit should render in place");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, edits, 2U, MESH_UI_SETTINGS_DISPLAY,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
+                          item.dirty || item.number != 60U,
+                      "rows without an edit stay clean");
+    MESH_TEST_FAIL_IF(mesh_ui_settings_find_edit(edits, 2U, MESH_UI_FIELD_USER_SHORT_NAME) !=
+                              &edits[1] ||
+                          mesh_ui_settings_find_edit(edits, 2U, MESH_UI_FIELD_DISPLAY_FLIP) != NULL,
+                      "find_edit is wrong");
     record_success(test_name);
 }
 
@@ -215,64 +192,51 @@ MESH_TEST_CASE(ui_settings_key_text, unit) {
                                           0xf0, 0xbc, 0xff, 0xab, 0xcf, 0x4e, 0x69, 0x01};
     char text[64];
     mesh_ui_settings_key_text(k_default, sizeof k_default, text, sizeof text);
-    if (strcmp(text, "1PG7OiApB1nwvP+rz05pAQ==") != 0) {
-        record_failure(test_name, "base64 of the default key is wrong");
-        return;
-    }
+    MESH_TEST_FAIL_IF(strcmp(text, "1PG7OiApB1nwvP+rz05pAQ==") != 0,
+                      "base64 of the default key is wrong");
     uint8_t parsed[32];
     size_t len = 0U;
-    if (!mesh_ui_settings_key_parse("1PG7OiApB1nwvP+rz05pAQ==", parsed, sizeof parsed, &len) ||
-        len != 16U || memcmp(parsed, k_default, 16U) != 0) {
-        record_failure(test_name, "base64 should parse back");
-        return;
-    }
-    if (!mesh_ui_settings_key_parse("d4f1bb3a20290759f0bcffabcf4e6901", parsed, sizeof parsed,
-                                    &len) ||
-        len != 16U || memcmp(parsed, k_default, 16U) != 0) {
-        record_failure(test_name, "hex should parse too");
-        return;
-    }
-    if (!mesh_ui_settings_key_parse("AQ==", parsed, sizeof parsed, &len) || len != 1U ||
-        parsed[0] != 1U || !mesh_ui_settings_key_parse("", parsed, sizeof parsed, &len) ||
-        len != 0U) {
-        record_failure(test_name, "one-byte and empty keys should parse");
-        return;
-    }
-    if (mesh_ui_settings_key_parse("1PG7OiApB1nwvP+rz05pAQ=", parsed, sizeof parsed, &len) ||
-        mesh_ui_settings_key_parse("1PG7Oi=pB1nwvP+rz05pAQ==", parsed, sizeof parsed, &len) ||
-        mesh_ui_settings_key_parse("not a key!", parsed, sizeof parsed, &len) ||
-        mesh_ui_settings_key_parse("abc", parsed, sizeof parsed, &len)) {
-        record_failure(test_name, "bad text must be refused");
-        return;
-    }
+    MESH_TEST_FAIL_IF(
+        !mesh_ui_settings_key_parse("1PG7OiApB1nwvP+rz05pAQ==", parsed, sizeof parsed, &len) ||
+            len != 16U || memcmp(parsed, k_default, 16U) != 0,
+        "base64 should parse back");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_key_parse("d4f1bb3a20290759f0bcffabcf4e6901", parsed,
+                                                  sizeof parsed, &len) ||
+                          len != 16U || memcmp(parsed, k_default, 16U) != 0,
+                      "hex should parse too");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_key_parse("AQ==", parsed, sizeof parsed, &len) ||
+                          len != 1U || parsed[0] != 1U ||
+                          !mesh_ui_settings_key_parse("", parsed, sizeof parsed, &len) || len != 0U,
+                      "one-byte and empty keys should parse");
+    MESH_TEST_FAIL_IF(
+        mesh_ui_settings_key_parse("1PG7OiApB1nwvP+rz05pAQ=", parsed, sizeof parsed, &len) ||
+            mesh_ui_settings_key_parse("1PG7Oi=pB1nwvP+rz05pAQ==", parsed, sizeof parsed, &len) ||
+            mesh_ui_settings_key_parse("not a key!", parsed, sizeof parsed, &len) ||
+            mesh_ui_settings_key_parse("abc", parsed, sizeof parsed, &len),
+        "bad text must be refused");
     uint8_t all[32];
     for (unsigned i = 0; i < 32U; ++i) {
         all[i] = (uint8_t)(i * 7U);
     }
     mesh_ui_settings_key_text(all, 32U, text, sizeof text);
-    if (strlen(text) != 44U || !mesh_ui_settings_key_parse(text, parsed, sizeof parsed, &len) ||
-        len != 32U || memcmp(parsed, all, 32U) != 0) {
-        record_failure(test_name, "a 32-byte key should round-trip");
-        return;
-    }
-    if (!mesh_ui_settings_key_len_ok(MESH_UI_FIELD_CHANNEL_KEY, 1U) ||
-        mesh_ui_settings_key_len_ok(MESH_UI_FIELD_CHANNEL_KEY, 8U) ||
-        !mesh_ui_settings_key_len_ok(MESH_UI_FIELD_SECURITY_PRIVATE_KEY, 32U) ||
-        mesh_ui_settings_key_len_ok(MESH_UI_FIELD_SECURITY_PRIVATE_KEY, 16U) ||
-        !mesh_ui_settings_key_len_ok(MESH_UI_FIELD_SECURITY_ADMIN_KEY_1, 0U) ||
-        mesh_ui_settings_key_len_ok(MESH_UI_FIELD_DISPLAY_FLIP, 0U)) {
-        record_failure(test_name, "key length rules are wrong");
-        return;
-    }
-    if (mesh_ui_settings_key_choices(MESH_UI_FIELD_SECURITY_PRIVATE_KEY) !=
-            (MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_KEEP) |
-             MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_RANDOM_256)) ||
-        (mesh_ui_settings_key_choices(MESH_UI_FIELD_CHANNEL_KEY) &
-         MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_DEFAULT)) == 0U ||
-        mesh_ui_settings_key_choices(MESH_UI_FIELD_LORA_HOPS) != 0U) {
-        record_failure(test_name, "key choices are wrong");
-        return;
-    }
+    MESH_TEST_FAIL_IF(strlen(text) != 44U ||
+                          !mesh_ui_settings_key_parse(text, parsed, sizeof parsed, &len) ||
+                          len != 32U || memcmp(parsed, all, 32U) != 0,
+                      "a 32-byte key should round-trip");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_key_len_ok(MESH_UI_FIELD_CHANNEL_KEY, 1U) ||
+                          mesh_ui_settings_key_len_ok(MESH_UI_FIELD_CHANNEL_KEY, 8U) ||
+                          !mesh_ui_settings_key_len_ok(MESH_UI_FIELD_SECURITY_PRIVATE_KEY, 32U) ||
+                          mesh_ui_settings_key_len_ok(MESH_UI_FIELD_SECURITY_PRIVATE_KEY, 16U) ||
+                          !mesh_ui_settings_key_len_ok(MESH_UI_FIELD_SECURITY_ADMIN_KEY_1, 0U) ||
+                          mesh_ui_settings_key_len_ok(MESH_UI_FIELD_DISPLAY_FLIP, 0U),
+                      "key length rules are wrong");
+    MESH_TEST_FAIL_IF(mesh_ui_settings_key_choices(MESH_UI_FIELD_SECURITY_PRIVATE_KEY) !=
+                              (MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_KEEP) |
+                               MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_RANDOM_256)) ||
+                          (mesh_ui_settings_key_choices(MESH_UI_FIELD_CHANNEL_KEY) &
+                           MESH_UI_PSK_CHOICE_BIT(MESH_UI_PSK_DEFAULT)) == 0U ||
+                          mesh_ui_settings_key_choices(MESH_UI_FIELD_LORA_HOPS) != 0U,
+                      "key choices are wrong");
     record_success(test_name);
 }
 
@@ -290,23 +254,18 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, items,
                                                MESH_UI_NODE_ITEMS_MAX);
-    if (count != mesh_ui_node_detail_count(&node, false, NULL)) {
-        record_failure(test_name, "the count the nav walks disagrees with the built list");
-        return;
-    }
-    if (count == 0U || items[0].kind != MESH_UI_NODE_ROW_ACTION ||
-        items[0].action != MESH_UI_NODE_ACTION_MESSAGE) {
-        record_failure(test_name, "the first row should be the message action");
-        return;
-    }
+    MESH_TEST_FAIL_IF(count != mesh_ui_node_detail_count(&node, false, NULL),
+                      "the count the nav walks disagrees with the built list");
+    MESH_TEST_FAIL_IF(count == 0U || items[0].kind != MESH_UI_NODE_ROW_ACTION ||
+                          items[0].action != MESH_UI_NODE_ACTION_MESSAGE,
+                      "the first row should be the message action");
 
     /* A bare node has no metrics, position or environment to show. */
     for (uint32_t i = 0; i < count; ++i) {
-        if (strcmp(items[i].label, "Position") == 0 || strcmp(items[i].label, "Environment") == 0 ||
-            strcmp(items[i].label, "Device metrics") == 0) {
-            record_failure(test_name, "a bare node should not show an empty section");
-            return;
-        }
+        MESH_TEST_FAIL_IF(strcmp(items[i].label, "Position") == 0 ||
+                              strcmp(items[i].label, "Environment") == 0 ||
+                              strcmp(items[i].label, "Device metrics") == 0,
+                          "a bare node should not show an empty section");
     }
     /* But it does say when we last heard it, in the same shorthand the list uses. */
     bool saw_age = false;
@@ -363,14 +322,10 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
             temperature_ok = true;
         }
     }
-    if (!battery_ok || !latitude_ok || !temperature_ok) {
-        record_failure(test_name, "a reported value was missing or misformatted");
-        return;
-    }
-    if (count != mesh_ui_node_detail_count(&node, false, NULL)) {
-        record_failure(test_name, "the count disagrees once the sections appear");
-        return;
-    }
+    MESH_TEST_FAIL_IF(!battery_ok || !latitude_ok || !temperature_ok,
+                      "a reported value was missing or misformatted");
+    MESH_TEST_FAIL_IF(count != mesh_ui_node_detail_count(&node, false, NULL),
+                      "the count disagrees once the sections appear");
 
     record_success(test_name);
 }
@@ -382,10 +337,7 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
  */
 MESH_TEST_CASE(ui_settings_about, unit) {
     struct mesh_ui_store store;
-    if (mesh_ui_store_init(&store) != 0) {
-        record_failure(test_name, "store init failed");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
     const char *failure = NULL;
 
     /* Deliberately nothing from a radio: no handshake, no loaded sections. */
@@ -676,63 +628,44 @@ MESH_TEST_CASE(ui_settings_coords, unit) {
     char text[32];
 
     mesh_ui_settings_coord_text(446488000, text, sizeof text);
-    if (strcmp(text, "44.64880") != 0) {
-        record_failure(test_name, "a positive coordinate formats wrong");
-        return;
-    }
+    MESH_TEST_FAIL_IF(strcmp(text, "44.64880") != 0, "a positive coordinate formats wrong");
     mesh_ui_settings_coord_text(-635752000, text, sizeof text);
-    if (strcmp(text, "-63.57520") != 0) {
-        record_failure(test_name, "a negative coordinate formats wrong");
-        return;
-    }
+    MESH_TEST_FAIL_IF(strcmp(text, "-63.57520") != 0, "a negative coordinate formats wrong");
     /* Between -1 and 0 the whole degrees are zero, so the sign has nowhere else to live. */
     mesh_ui_settings_coord_text(-5000000, text, sizeof text);
-    if (strcmp(text, "-0.50000") != 0) {
-        record_failure(test_name, "a coordinate inside the first degree loses its sign");
-        return;
-    }
+    MESH_TEST_FAIL_IF(strcmp(text, "-0.50000") != 0,
+                      "a coordinate inside the first degree loses its sign");
 
     int32_t value = 0;
-    if (!mesh_ui_settings_coord_parse("44.6488", 90, &value) || value != 446488000) {
-        record_failure(test_name, "a plain coordinate should parse");
-        return;
-    }
-    if (!mesh_ui_settings_coord_parse("-63.57520", 180, &value) || value != -635752000) {
-        record_failure(test_name, "a negative coordinate should parse");
-        return;
-    }
-    if (!mesh_ui_settings_coord_parse("7", 90, &value) || value != 70000000) {
-        record_failure(test_name, "a whole number of degrees should parse");
-        return;
-    }
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_coord_parse("44.6488", 90, &value) || value != 446488000,
+                      "a plain coordinate should parse");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_coord_parse("-63.57520", 180, &value) ||
+                          value != -635752000,
+                      "a negative coordinate should parse");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_coord_parse("7", 90, &value) || value != 70000000,
+                      "a whole number of degrees should parse");
     /* Round trip, which is the property that actually matters: what the row showed is what
        the radio gets back when nobody edits it. */
     mesh_ui_settings_coord_text(-5000000, text, sizeof text);
-    if (!mesh_ui_settings_coord_parse(text, 90, &value) || value != -5000000) {
-        record_failure(test_name, "a formatted coordinate should parse back to itself");
-        return;
-    }
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_coord_parse(text, 90, &value) || value != -5000000,
+                      "a formatted coordinate should parse back to itself");
 
     /* A bare dot, with or without a sign, would otherwise read as zero - and a zero the
        (0, 0) guard downstream cannot catch, because the other coordinate is real. */
-    if (mesh_ui_settings_coord_parse(".", 90, &value) ||
-        mesh_ui_settings_coord_parse("-.", 90, &value) ||
-        mesh_ui_settings_coord_parse("+.", 90, &value) ||
-        mesh_ui_settings_coord_parse("", 90, &value) ||
-        mesh_ui_settings_coord_parse("44.6N", 90, &value) ||
-        mesh_ui_settings_coord_parse("north", 90, &value) ||
-        mesh_ui_settings_coord_parse("91", 90, &value) ||
-        mesh_ui_settings_coord_parse("-90.5", 90, &value) ||
-        mesh_ui_settings_coord_parse("181", 180, &value)) {
-        record_failure(test_name, "rubbish and out-of-range coordinates should be refused");
-        return;
-    }
+    MESH_TEST_FAIL_IF(mesh_ui_settings_coord_parse(".", 90, &value) ||
+                          mesh_ui_settings_coord_parse("-.", 90, &value) ||
+                          mesh_ui_settings_coord_parse("+.", 90, &value) ||
+                          mesh_ui_settings_coord_parse("", 90, &value) ||
+                          mesh_ui_settings_coord_parse("44.6N", 90, &value) ||
+                          mesh_ui_settings_coord_parse("north", 90, &value) ||
+                          mesh_ui_settings_coord_parse("91", 90, &value) ||
+                          mesh_ui_settings_coord_parse("-90.5", 90, &value) ||
+                          mesh_ui_settings_coord_parse("181", 180, &value),
+                      "rubbish and out-of-range coordinates should be refused");
     /* A longitude is not a latitude: the same number passes one and fails the other. */
-    if (!mesh_ui_settings_coord_parse("120.0", 180, &value) ||
-        mesh_ui_settings_coord_parse("120.0", 90, &value)) {
-        record_failure(test_name, "the range limit is not being applied");
-        return;
-    }
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_coord_parse("120.0", 180, &value) ||
+                          mesh_ui_settings_coord_parse("120.0", 90, &value),
+                      "the range limit is not being applied");
 
     record_success(test_name);
 }
