@@ -126,28 +126,32 @@ static void fb_fill_packed(const struct mesh_ui_backend_fb_state *state, int x, 
         if ((size_t)(row - state->fb_ptr) + (size_t)w * bpp > state->fb_size) {
             return;
         }
+        /* The stores go through memcpy rather than a cast to uint32_t*: the compiler emits the same
+           single instruction, but a row pointer is only as aligned as fix.line_length makes it, and
+           casting one to a wider type is undefined where the hardware is strict about it. */
         switch (bpp) {
         case 4: {
-            uint32_t *px = (uint32_t *)row;
-            for (int col = 0; col < w; ++col) {
-                px[col] = packed;
+            uint8_t *px = row;
+            for (int col = 0; col < w; ++col, px += 4) {
+                memcpy(px, &packed, 4U);
             }
             break;
         }
         case 3: {
             uint8_t *px = row;
             for (int col = 0; col < w; ++col) {
-                px[0] = packed & 0xFF;
-                px[1] = (packed >> 8) & 0xFF;
-                px[2] = (packed >> 16) & 0xFF;
+                px[0] = (uint8_t)(packed & 0xFFU);
+                px[1] = (uint8_t)((packed >> 8) & 0xFFU);
+                px[2] = (uint8_t)((packed >> 16) & 0xFFU);
                 px += 3;
             }
             break;
         }
         case 2: {
-            uint16_t *px = (uint16_t *)row;
-            for (int col = 0; col < w; ++col) {
-                px[col] = (uint16_t)packed;
+            const uint16_t narrow = (uint16_t)packed;
+            uint8_t *px = row;
+            for (int col = 0; col < w; ++col, px += 2) {
+                memcpy(px, &narrow, 2U);
             }
             break;
         }
