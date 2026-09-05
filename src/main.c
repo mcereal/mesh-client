@@ -70,7 +70,8 @@ static void list_all_devices(void) {
     const struct mesh_bluez_device_info *devices = mesh_ble_transport_devices(ble, &count);
     printf("Meshtastic BLE devices (%zu)\n", count);
     for (size_t i = 0; i < count; ++i) {
-        printf("- %s (%s) RSSI=%d\n", devices[i].name, devices[i].address, (int)devices[i].rssi);
+        printf("- %s (%s) RSSI=%d%s\n", devices[i].name, devices[i].address, (int)devices[i].rssi,
+               devices[i].paired ? "" : " [needs pairing]");
     }
 
     struct mesh_transport *serial = mesh_serial_transport();

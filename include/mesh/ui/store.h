@@ -45,6 +45,12 @@ struct mesh_ui_device {
     char name[64];
     int8_t rssi; /* BLE only; 0 for a USB port */
     bool connected;
+    /* BLE only: BlueZ holds a bond for this node. A node in PIN mode that is not paired
+       connects and then fails, so the row says so before the user presses A. Always true for
+       a USB port, which has nothing to pair. */
+    bool paired;
+    /* The link this row is being brought up on right now (connecting, or bonding). */
+    bool busy;
     uint8_t kind; /* enum mesh_ui_device_kind */
 };
 
@@ -425,6 +431,11 @@ bool mesh_ui_store_handle_key(struct mesh_ui_store *store, enum mesh_ui_key key,
                               struct mesh_ui_action *out_action);
 /* Show a transient one-line notice on the backends ("Sent to ABCD"). */
 void mesh_ui_store_set_toast(struct mesh_ui_store *store, uint64_t now_ms, const char *text);
+/* Raises (or takes down) the BLE pairing prompt. Called from the app when the BlueZ agent has
+   a question outstanding, not from the key handler; see mesh_ui_nav_open_passkey(). */
+void mesh_ui_store_open_passkey_prompt(struct mesh_ui_store *store, const char *label,
+                                       uint32_t passkey, bool confirm);
+void mesh_ui_store_close_passkey_prompt(struct mesh_ui_store *store);
 /* Drops the pending Settings edits: the app calls this once a save has been queued. */
 void mesh_ui_store_settings_edits_clear(struct mesh_ui_store *store);
 /* Time-based housekeeping (toast expiry). Call once per loop turn. */

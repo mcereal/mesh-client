@@ -164,6 +164,18 @@ struct mesh_ui_nav {
        (NONE for Compose) and the Compose draft parked while it is open. */
     uint8_t keyboard_field;
     char draft_saved[MESH_UI_DRAFT_MAX];
+    /* BLE pairing prompt. The keyboard is retargeted for it the same way a setting's text
+       retargets it, except that this one is opened by the app rather than by a key press:
+       BlueZ asks for the PIN somewhere in the middle of a connect and blocks until it is
+       answered. `pairing_confirm` marks the numeric-comparison case, where the digits are
+       pre-filled and Send means "yes, that is what the node is showing". */
+    bool keyboard_passkey;
+    bool pairing_confirm;
+    char pairing_label[MESH_UI_NAV_TARGET_NAME_MAX];
+    /* Devices tab: Y is armed by one press and forgets the node on the second, because a
+       bond dropped by accident costs the user a re-pair with the PIN. */
+    bool devices_forget_armed;
+    uint32_t devices_forget_row;
 };
 
 enum mesh_ui_action_type {
@@ -177,6 +189,13 @@ enum mesh_ui_action_type {
        found. Two actions rather than one because installing replaces the running binary. */
     MESH_UI_ACTION_CHECK_UPDATE,
     MESH_UI_ACTION_INSTALL_UPDATE,
+    /* Devices tab. DISCONNECT with an empty identifier means "whatever link is up": only one
+       radio is ever connected, so the row the cursor happens to be on does not decide it. */
+    MESH_UI_ACTION_DISCONNECT,
+    MESH_UI_ACTION_FORGET, /* identifier = BLE address to unpair */
+    /* Answers the BlueZ pairing agent: `text` holds the digits typed into the prompt. */
+    MESH_UI_ACTION_SUBMIT_PASSKEY,
+    MESH_UI_ACTION_CANCEL_PAIRING,
 };
 
 struct mesh_ui_action {
@@ -200,6 +219,14 @@ struct mesh_ui_action {
 };
 
 void mesh_ui_nav_init(struct mesh_ui_nav *nav);
+
+/* Opens (or closes) the PIN prompt over whatever the user was doing. Driven by the app from
+   the pairing agent, not by a key press, so it lives outside mesh_ui_nav_handle_key(). For a
+   numeric comparison (`confirm`) the digits are pre-filled and Send accepts them. Returns
+   true when the frame needs repainting. */
+bool mesh_ui_nav_open_passkey(struct mesh_ui_nav *nav, const char *label, uint32_t passkey,
+                              bool confirm);
+bool mesh_ui_nav_close_passkey(struct mesh_ui_nav *nav);
 
 /* Applies one button press. Returns true when the visible state changed. When the press
    asks the app to do something, *out_action is filled in (may be NULL to discard). The store

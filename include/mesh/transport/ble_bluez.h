@@ -44,6 +44,26 @@ struct mesh_bluez_watch_entry {
 };
 #endif
 
+/*
+ * What BlueZ is asking the user for while a Pair is in flight. We register an org.bluez.Agent1
+ * with KeyboardDisplay capability, so a Meshtastic node in PIN mode (its own IO capability is
+ * DisplayOnly) picks passkey entry: BlueZ calls RequestPasskey and blocks the pairing until we
+ * answer. The reply is deferred - the call message is held until the user has typed the digits
+ * the node is showing - which is the whole reason pairing can happen inside the app.
+ */
+enum mesh_bluez_agent_request_kind {
+    MESH_BLUEZ_AGENT_REQUEST_NONE = 0,
+    MESH_BLUEZ_AGENT_REQUEST_PASSKEY, /* six digits, entered by us */
+    MESH_BLUEZ_AGENT_REQUEST_PINCODE, /* legacy BR/EDR string PIN */
+    MESH_BLUEZ_AGENT_REQUEST_CONFIRM, /* numeric comparison: `passkey` is shown on both ends */
+};
+
+struct mesh_bluez_agent_request {
+    enum mesh_bluez_agent_request_kind kind;
+    char device_path[128];
+    uint32_t passkey; /* CONFIRM only: the number the node is displaying */
+};
+
 typedef void (*mesh_bluez_notification_callback)(const uint8_t *data, size_t len, void *userdata);
 
 struct mesh_bluez_client {
@@ -57,6 +77,16 @@ struct mesh_bluez_client {
     uint32_t connect_serial;
     int connect_state; /* 0 idle, 1 pending, 2 done (see connect_result) */
     int connect_result;
+    /* In-flight Device1.Pair, tracked the same way. Pairing takes as long as the user needs to
+       read a PIN off the node and type it in, so it can never be a blocking call. */
+    uint32_t pair_serial;
+    int pair_state; /* 0 idle, 1 pending, 2 done (see pair_result) */
+    int pair_result;
+    char pair_device_path[128];
+    /* org.bluez.Agent1 registration and the request it is currently blocked on. */
+    bool agent_registered;
+    struct mesh_bluez_agent_request agent_request;
+    void *agent_pending_message; /* DBusMessage* held until the user answers */
 #ifdef MESH_HAVE_DBUS
     struct mesh_bluez_watch_entry watches[8];
 #endif
@@ -66,6 +96,9 @@ struct mesh_bluez_device_info {
     char address[32];
     char name[64];
     int16_t rssi;
+    /* Device1.Paired. A node in PIN mode answers StartNotify with "Not paired" until it is
+       bonded, so the UI has to be able to say so before the user presses connect. */
+    bool paired;
 };
 
 struct mesh_bluez_mock_config {
@@ -77,6 +110,15 @@ struct mesh_bluez_mock_config {
     int stop_discovery_result;
     int connect_result;
     int disconnect_result;
+    int pair_result;
+    int remove_device_result;
+    /* Pair reply polls that stay pending before the mock completes with pair_result. */
+    unsigned pair_pending_polls;
+    /* When set, the mock raises a RequestPasskey the way BlueZ would once Pair is sent, so a
+       test can drive the whole PIN flow without a bus. */
+    bool pair_requests_passkey;
+    /* The passkey the caller answered with, for the test to assert on. */
+    uint32_t *pair_passkey_capture;
     int write_result;
     int subscribe_result;
     /* Device1.ServicesResolved polls that report false before the mock flips to true
@@ -134,6 +176,37 @@ int mesh_bluez_client_connect_poll(struct mesh_bluez_client *client, int *out_re
 /* Forget an in-flight Connect (a late reply is then ignored). Safe when none is pending. */
 void mesh_bluez_client_connect_cancel(struct mesh_bluez_client *client);
 int mesh_bluez_client_disconnect(struct mesh_bluez_client *client, const char *device_path);
+
+/* Sends Device1.Pair and returns at once. -EBUSY if one is already in flight. Pairing is the
+   one BlueZ call that can sit for a minute waiting on a human, so it is never blocking. */
+int mesh_bluez_client_pair_begin(struct mesh_bluez_client *client, const char *device_path);
+/* 1 when the reply has arrived (*out_result 0 or a negative errno), 0 while pending, -EINVAL
+   if nothing is in flight. Replies are picked up by mesh_bluez_client_process(). */
+int mesh_bluez_client_pair_poll(struct mesh_bluez_client *client, int *out_result);
+/* Abandons an in-flight Pair: rejects whatever the agent is holding and asks BlueZ to cancel. */
+void mesh_bluez_client_pair_cancel(struct mesh_bluez_client *client);
+/* Device1.Trusted. Set after a successful pair so BlueZ reconnects without asking again. */
+int mesh_bluez_client_set_trusted(struct mesh_bluez_client *client, const char *device_path,
+                                  bool trusted);
+/* Adapter1.RemoveDevice: drops the bond and BlueZ's cached record of the node entirely. */
+int mesh_bluez_client_remove_device(struct mesh_bluez_client *client, const char *adapter_path,
+                                    const char *device_path);
+
+/* Registers our org.bluez.Agent1 (idempotent) so PIN-mode pairing can be answered from the
+   app. Safe to call when BlueZ has no agent manager; failures are reported, not fatal. */
+int mesh_bluez_client_register_agent(struct mesh_bluez_client *client);
+void mesh_bluez_client_unregister_agent(struct mesh_bluez_client *client);
+/* What the agent is blocked on, if anything. Returns true and fills *out when a request is
+   pending. */
+bool mesh_bluez_client_agent_request(const struct mesh_bluez_client *client,
+                                     struct mesh_bluez_agent_request *out);
+/* Answers a pending PASSKEY (or PINCODE, formatted as digits) request. -ENOENT when nothing is
+   waiting. */
+int mesh_bluez_client_agent_submit_passkey(struct mesh_bluez_client *client, uint32_t passkey);
+/* Accepts a pending CONFIRM request. -ENOENT when nothing is waiting. */
+int mesh_bluez_client_agent_confirm(struct mesh_bluez_client *client);
+/* Rejects whatever is pending with org.bluez.Error.Rejected. */
+int mesh_bluez_client_agent_reject(struct mesh_bluez_client *client);
 /* Device1.ServicesResolved. BlueZ's Connect returns once the link is up, but the GATT
    characteristics only appear on the bus after service discovery, which can take several
    seconds when nothing is cached. Callers poll this before looking them up. */

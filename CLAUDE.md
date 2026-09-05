@@ -97,7 +97,20 @@ Data flows one direction: link (transport) → `mesh_session` → `mesh_app` →
   FromRadio-read drain loop. BLE is **not** Nordic UART and has no length
   framing: one bare protobuf per GATT write/read. `src/proto/framing.c` is a homegrown varint
   prefix that nothing on the wire uses; serial framing is `src/proto/stream_framing.c`.
-  Nodes in PIN mode must be paired with BlueZ out of band (`bluetoothctl pair`) before connect.
+  Pairing happens in the app: `bluez_client.c` registers an `org.bluez.Agent1` at
+  `/org/meshclient/agent` with **KeyboardDisplay** capability, which is what makes a PIN-mode
+  node (its own IO capability is DisplayOnly) choose passkey entry and ask *us* for the six
+  digits on its screen. The agent's reply is **deferred** - the D-Bus call message is held
+  (`agent_pending_message`) until the user has typed them - which is the whole reason a bond
+  can span several event-loop turns without blocking. `Device1.Pair` is sent the same
+  non-blocking way `Connect` is, and `Trusted` is set afterwards so the next connect needs
+  neither. Two rules keep it predictable: only a connect the user asked for bonds
+  (`mesh_ble_transport_connect_and_pair`, the Devices tab), because auto-connect's plain
+  `mesh_ble_transport_connect` raising a PIN prompt over whatever the user was doing would be
+  worse than the connect failing; and the pairing timeout stops while the agent is holding a
+  question, or the prompt would cancel itself out from under the person reading the node's
+  screen. `mesh_ble_transport_forget` is `Adapter1.RemoveDevice` - the fix when a node's PIN
+  has changed under a bond BlueZ still believes in.
   `mesh_ble_transport_connect` sends `Device1.Connect` without blocking (reply matched by
   serial in `bluez_client.c`, 30 s cap) and returns 0 with the link in `connecting`; `tick()`
   then waits for `ServicesResolved` (250 ms polls, 20 s cap) before wiring the characteristics.

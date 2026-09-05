@@ -104,6 +104,28 @@ void mesh_ui_store_set_toast(struct mesh_ui_store *store, uint64_t now_ms, const
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
 }
 
+/* The pairing agent's question, pushed in from the app rather than raised by a key press:
+   BlueZ blocks the bond until it is answered, so it takes over the screen wherever the user
+   happens to be. */
+void mesh_ui_store_open_passkey_prompt(struct mesh_ui_store *store, const char *label,
+                                       uint32_t passkey, bool confirm) {
+    if (store == NULL) {
+        return;
+    }
+    if (mesh_ui_nav_open_passkey(&store->nav, label, passkey, confirm)) {
+        mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
+    }
+}
+
+void mesh_ui_store_close_passkey_prompt(struct mesh_ui_store *store) {
+    if (store == NULL) {
+        return;
+    }
+    if (mesh_ui_nav_close_passkey(&store->nav)) {
+        mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
+    }
+}
+
 void mesh_ui_store_settings_edits_clear(struct mesh_ui_store *store) {
     if (store == NULL) {
         return;

@@ -58,6 +58,10 @@ struct mesh_app {
     unsigned autoconnect_failures;
     bool autoconnect_disabled;
     bool autoconnect_waiting_logged;
+    /* Set by an explicit disconnect from the Devices tab and cleared by the next explicit
+       connect. Without it auto-connect would take the radio straight back and there would be
+       no way to stand the link down at all. Session-only: a restart connects as usual. */
+    bool autoconnect_held;
     /* Last published link state, so a drop can be announced once on the HUD. */
     bool ui_link_was_connected;
     /* Set while a connect the user asked for is in flight. A link can fail seconds after its
