@@ -171,6 +171,8 @@ MESH_TEST_CASE(ui_store_persistence, unit) {
        sync if both come back. */
     handshake.nodes[0].has_user = true;
     handshake.nodes[0].in_nodedb = false;
+    /* Whose roster this is; the session is handed it back at startup. */
+    handshake.roster_owner = 0x1234U;
     handshake.cached = true;
     mesh_ui_store_set_handshake(&store, &handshake);
 
@@ -246,6 +248,11 @@ MESH_TEST_CASE(ui_store_persistence, unit) {
         node->public_key[31] != 0x5AU) {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "node identity did not survive the cache");
+        return;
+    }
+    if (store.handshake.roster_owner != 0x1234U) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "the roster owner did not survive the cache");
         return;
     }
     if (!node->has_user || node->in_nodedb) {

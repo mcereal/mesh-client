@@ -536,6 +536,7 @@ static int mesh_ui_store_save_handshake(FILE *file,
     fprintf(file, "handshake_mynode=%u,%u,%u,%u\n", handshake->has_my_info ? 1U : 0U,
             handshake->my_info.node_num, handshake->my_info.nodedb_entries,
             handshake->my_info.reboot_count);
+    fprintf(file, "handshake_roster=%u\n", handshake->roster_owner);
     mesh_ui_store_escape_and_write(file, "handshake_channel", handshake->primary_channel);
     mesh_ui_store_escape_and_write(file, "handshake_my_short", handshake->my_short_name);
     fprintf(file, "handshake_cached=%u\n", handshake->cached ? 1U : 0U);
@@ -768,6 +769,8 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
         } else if (strcmp(key, "handshake_nodes") == 0) {
             nodes_expected = (uint32_t)strtoul(value, NULL, 10);
             nodes_expected_set = true;
+        } else if (strcmp(key, "handshake_roster") == 0) {
+            handshake.roster_owner = (uint32_t)strtoul(value, NULL, 10);
         } else if (strcmp(key, "handshake_cached") == 0) {
             handshake.cached = (strtoul(value, NULL, 10) != 0U);
         } else if (strcmp(key, "handshake_channels") == 0) {

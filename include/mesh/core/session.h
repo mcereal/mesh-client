@@ -282,6 +282,13 @@ bool mesh_session_attached(const struct mesh_session *session);
    Returns 0, -ENOTCONN without a link, or the send error. */
 int mesh_session_begin_handshake(struct mesh_session *session);
 
+/* The radio the roster describes, 0 before any radio has claimed it. Persisted with the roster
+   and handed back through mesh_session_set_roster_owner() at startup: without it a restart
+   forgets whose nodes these are, and the next radio - a different one, on a different mesh -
+   inherits them instead of replacing them. */
+uint32_t mesh_session_roster_owner(const struct mesh_session *session);
+void mesh_session_set_roster_owner(struct mesh_session *session, uint32_t node_num);
+
 /* Folds one node record into the roster with no radio in the loop: used at startup to restore
    what the last run knew, so a node the radio has since evicted is not lost with it. Does
    nothing when the node is already known. */

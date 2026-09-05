@@ -262,6 +262,29 @@ static struct mesh_node_summary *mesh_session_node_slot(struct mesh_session *ses
     return summary;
 }
 
+uint32_t mesh_session_roster_owner(const struct mesh_session *session) {
+    return session != NULL ? session->roster_node : 0U;
+}
+
+void mesh_session_set_roster_owner(struct mesh_session *session, uint32_t node_num) {
+    if (session != NULL) {
+        session->roster_node = node_num;
+    }
+}
+
+/* Whether a name is one the node chose or the one we derived from its number. Used to read an
+   older cache, written before the roster carried the answer: the names are all it has. A node
+   whose real short name happens to be its factory default reads as derived, which costs one
+   informational row on the detail screen and nothing else. */
+static bool mesh_session_identity_is_derived(const struct mesh_node_summary *node) {
+    struct mesh_node_summary derived;
+    memset(&derived, 0, sizeof derived);
+    derived.node_id = node->node_id;
+    mesh_session_default_identity(&derived);
+    return strcmp(node->short_name, derived.short_name) == 0 &&
+           strcmp(node->long_name, derived.long_name) == 0;
+}
+
 void mesh_session_seed_node(struct mesh_session *session, const struct mesh_node_summary *node) {
     if (session == NULL || node == NULL || node->node_id == 0U) {
         return;
@@ -279,6 +302,11 @@ void mesh_session_seed_node(struct mesh_session *session, const struct mesh_node
     slot->sync_epoch = 0U;
     if (slot->short_name[0] == '\0' && slot->long_name[0] == '\0') {
         mesh_session_default_identity(slot);
+    } else if (!slot->has_user && !mesh_session_identity_is_derived(slot)) {
+        /* A cache written before has_user existed. The node carries a name nobody derived, so
+           it came from a User; without this, a node the radio has since evicted - the whole
+           reason the cache is worth restoring - would claim a derived name forever. */
+        slot->has_user = true;
     }
 }
 

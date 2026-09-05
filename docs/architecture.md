@@ -92,6 +92,11 @@ and the walk home would replace them again. So:
   before one it still carries, oldest `last_heard` first, never ourselves and never a pinned node.
 - `mesh_session_seed_node` restores the roster the last run persisted (`mesh_app_seed_nodes_from_cache`,
   from the UI handshake cache) before any radio is attached, so a restart is not a reset either.
+  The owning radio travels with it as its own `handshake_roster` line rather than as
+  `my_info.node_num`, which is 0 while disconnected — which is exactly when the cache gets
+  written, and without it the next radio would inherit a roster instead of replacing it.
+  A cache written before `node_state` existed has its `has_user` inferred from the names: one
+  nobody could have derived came from a `User`.
 
 **A node with no `User` still has a name.** `mesh_session_default_identity` derives the same
 placeholder the phone apps show — `!b2a7e54c` / `Meshtastic e54c` / `e54c`, all from the node

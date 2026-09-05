@@ -678,6 +678,46 @@ MESH_TEST_CASE(session_roster_survives_resync, unit) {
     const struct mesh_node_summary *still = mesh_test_session_find_node(&session, 0x2222U);
     MESH_TEST_FAIL_IF(still == NULL || !still->in_nodedb, "a resynced node is not in-NodeDB");
 
+    /* A restart loses the session but not the cache, so the owner is handed back the same way
+       the nodes are; without it the next radio - any radio - inherits this roster. */
+    struct mesh_session restarted;
+    mesh_session_init(&restarted);
+    mesh_session_set_roster_owner(&restarted, 0x1111U);
+    MESH_TEST_FAIL_IF(mesh_session_roster_owner(&restarted) != 0x1111U, "owner not restored");
+    struct mesh_node_summary restored;
+    memset(&restored, 0, sizeof restored);
+    restored.node_id = 0x3333U;
+    (void)mesh_str_copy(restored.short_name, sizeof restored.short_name, "N001");
+    mesh_session_seed_node(&restarted, &restored);
+    mesh_session_attach(&restarted, mesh_test_trace_capture_fn, &capture);
+    const uint32_t elsewhere[] = {0x5555U};
+    MESH_TEST_FAIL_IF(!session_test_sync(&restarted, 0x9999U, elsewhere, 1U), "restarted sync");
+    MESH_TEST_FAIL_IF(mesh_test_session_find_node(&restarted, 0x3333U) != NULL,
+                      "a restored roster survived a radio it does not belong to");
+
+    /* A name nobody could have derived came from a User, whatever an older cache failed to
+       record; a derived one stays derived. */
+    struct mesh_node_summary legacy;
+    memset(&legacy, 0, sizeof legacy);
+    legacy.node_id = 0xb2a7e54cU;
+    (void)mesh_str_copy(legacy.short_name, sizeof legacy.short_name, "HILL");
+    (void)mesh_str_copy(legacy.long_name, sizeof legacy.long_name, "Hill Repeater");
+    mesh_session_seed_node(&restarted, &legacy);
+    const struct mesh_node_summary *seeded = mesh_test_session_find_node(&restarted, 0xb2a7e54cU);
+    MESH_TEST_FAIL_IF(seeded == NULL || !seeded->has_user,
+                      "a stored name from before has_user reads as derived");
+
+    struct mesh_node_summary plain;
+    memset(&plain, 0, sizeof plain);
+    plain.node_id = 0x0a1b2c3dU;
+    (void)mesh_str_copy(plain.short_name, sizeof plain.short_name, "2c3d");
+    (void)mesh_str_copy(plain.long_name, sizeof plain.long_name, "Meshtastic 2c3d");
+    mesh_session_seed_node(&restarted, &plain);
+    seeded = mesh_test_session_find_node(&restarted, 0x0a1b2c3dU);
+    MESH_TEST_FAIL_IF(seeded == NULL || seeded->has_user,
+                      "a derived name was mistaken for the node's own");
+    mesh_session_detach(&restarted);
+
     /* Another radio is another mesh's view: that roster is not this one's. */
     const uint32_t third[] = {0x4444U};
     MESH_TEST_FAIL_IF(!session_test_sync(&session, 0x9999U, third, 1U), "third sync");

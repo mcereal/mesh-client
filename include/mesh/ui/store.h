@@ -419,6 +419,10 @@ struct mesh_ui_handshake_state {
     /* Channel table by slot; disabled slots are present with role 0. */
     uint32_t channel_count;
     struct mesh_ui_channel channels[MESH_UI_MAX_CHANNELS];
+    /* The radio the roster belongs to, carried so a restart can hand it back to the session.
+       Not my_info.node_num: that one goes with the connection and is 0 while disconnected,
+       which is exactly when the cache tends to be written. */
+    uint32_t roster_owner;
     bool cached;
 };
 

@@ -187,6 +187,13 @@ void mesh_app_seed_nodes_from_cache(struct mesh_app *app) {
         return;
     }
     const struct mesh_ui_handshake_state *cached = &app->ui_store.handshake;
+    /* Whose roster this is, before the nodes themselves: a radio other than this one must clear
+       it on its first MyNodeInfo rather than merge its mesh into ours. */
+    if (cached->roster_owner != 0U) {
+        mesh_session_set_roster_owner(&app->session, cached->roster_owner);
+    } else if (cached->has_my_info) {
+        mesh_session_set_roster_owner(&app->session, cached->my_info.node_num);
+    }
     uint32_t seeded = 0U;
     for (uint32_t i = 0; i < cached->node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
         if (cached->nodes[i].node_id == 0U) {
@@ -818,6 +825,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         ui_handshake.has_config = status.has_config;
         /* The roster outlives the connection, so a node list on screen is not proof of a live
            sync: what makes it live is something from this connection having arrived. */
+        ui_handshake.roster_owner = mesh_session_roster_owner(&app->session);
         ui_handshake.cached = !status.config_complete && !status.has_my_info &&
                               !status.request_in_flight && !status.has_config;
         if (status.has_my_info) {
