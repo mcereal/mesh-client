@@ -58,12 +58,26 @@ struct mesh_app {
     unsigned autoconnect_failures;
     bool autoconnect_disabled;
     bool autoconnect_waiting_logged;
+    /* Set by an explicit disconnect from the Devices tab and cleared by the next explicit
+       connect. Without it auto-connect would take the radio straight back and there would be
+       no way to stand the link down at all. Session-only: a restart connects as usual. */
+    bool autoconnect_held;
     /* Last published link state, so a drop can be announced once on the HUD. */
     bool ui_link_was_connected;
     /* Set while a connect the user asked for is in flight. A link can fail seconds after its
        connect() returned 0, so the reason is collected later from the transport; this keeps
        auto-connect's own retries from toasting the same failure on every backoff. */
     bool ui_report_link_error;
+    /*
+     * Messages sent this session whose delivery result has not been announced yet. A failed
+     * DM is otherwise only a "!!" on a row the user may not be looking at, and the reason for
+     * it (no ack, no route, a key problem) never reaches them at all.
+     */
+    struct mesh_app_sent_watch {
+        uint32_t packet_id;
+        char peer[MESH_UI_NAV_TARGET_NAME_MAX];
+    } ui_sent_watch[8];
+    size_t ui_sent_watch_count;
     /* A Settings save in flight: the write counters seen when it was queued, so its ack or
        rejection can be announced once; see mesh_app_track_settings_save(). */
     bool settings_save_pending;

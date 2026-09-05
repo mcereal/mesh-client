@@ -190,8 +190,8 @@ static void test_ble_transport_discovery_mock(void) {
     struct mesh_transport *ble = mesh_ble_transport();
 
     struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:01", .name = "NodeOne", .rssi = -45},
-        {.address = "AA:BB:CC:DD:EE:02", .name = "NodeTwo", .rssi = -60},
+        {.address = "AA:BB:CC:DD:EE:01", .name = "NodeOne", .rssi = -45, .paired = true},
+        {.address = "AA:BB:CC:DD:EE:02", .name = "NodeTwo", .rssi = -60, .paired = true},
     };
 
     struct mesh_bluez_mock_config mock_config = {
@@ -264,7 +264,7 @@ static void test_ble_transport_connect_mock(void) {
     struct mesh_transport *ble = mesh_ble_transport();
 
     struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:03", .name = "NodeThree", .rssi = -40},
+        {.address = "AA:BB:CC:DD:EE:03", .name = "NodeThree", .rssi = -40, .paired = true},
     };
 
     uint8_t write_capture[64];
@@ -611,7 +611,7 @@ static void test_ble_transport_connect_deferred_services(void) {
     struct mesh_transport *ble = mesh_ble_transport();
 
     struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:05", .name = "NodeFive", .rssi = -50},
+        {.address = "AA:BB:CC:DD:EE:05", .name = "NodeFive", .rssi = -50, .paired = true},
     };
 
     uint8_t write_capture[64];
@@ -715,7 +715,7 @@ static void test_ble_transport_connect_async_reply(void) {
 
     struct mesh_transport *ble = mesh_ble_transport();
     struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:08", .name = "NodeEight", .rssi = -50},
+        {.address = "AA:BB:CC:DD:EE:08", .name = "NodeEight", .rssi = -50, .paired = true},
     };
     uint8_t write_capture[64];
     size_t write_len = 0U;
@@ -811,8 +811,8 @@ static void test_app_autoconnect_policy(void) {
     const char *failure = NULL;
 
     struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:06", .name = "NodeSix", .rssi = -30},
-        {.address = "AA:BB:CC:DD:EE:07", .name = "NodeSeven", .rssi = -70},
+        {.address = "AA:BB:CC:DD:EE:06", .name = "NodeSix", .rssi = -30, .paired = true},
+        {.address = "AA:BB:CC:DD:EE:07", .name = "NodeSeven", .rssi = -70, .paired = true},
     };
 
     uint8_t write_capture[64];
@@ -2178,7 +2178,7 @@ static void test_ble_transport_messaging_mock(void) {
     struct mesh_transport *ble = mesh_ble_transport();
 
     struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:04", .name = "NodeFour", .rssi = -35},
+        {.address = "AA:BB:CC:DD:EE:04", .name = "NodeFour", .rssi = -35, .paired = true},
     };
 
     uint8_t write_capture[256];
@@ -3838,7 +3838,7 @@ static void test_ble_transport_channel_decode(void) {
 
     struct mesh_transport *ble = mesh_ble_transport();
     struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:09", .name = "NodeNine", .rssi = -50},
+        {.address = "AA:BB:CC:DD:EE:09", .name = "NodeNine", .rssi = -50, .paired = true},
     };
     uint8_t write_capture[64];
     size_t write_len = 0U;
@@ -4170,7 +4170,7 @@ static void test_ble_transport_link_drop(void) {
 
     struct mesh_transport *ble = mesh_ble_transport();
     struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:0A", .name = "NodeTen", .rssi = -50},
+        {.address = "AA:BB:CC:DD:EE:0A", .name = "NodeTen", .rssi = -50, .paired = true},
     };
     uint8_t write_capture[64];
     size_t write_len = 0U;
@@ -4255,7 +4255,7 @@ static void test_ble_transport_write_failure(void) {
 
     struct mesh_transport *ble = mesh_ble_transport();
     struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:0B", .name = "NodeEleven", .rssi = -50},
+        {.address = "AA:BB:CC:DD:EE:0B", .name = "NodeEleven", .rssi = -50, .paired = true},
     };
     uint8_t write_capture[64];
     size_t write_len = 0U;
@@ -4331,7 +4331,7 @@ static void test_ble_transport_packet_touches_node(void) {
 
     struct mesh_transport *ble = mesh_ble_transport();
     struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:0C", .name = "NodeTwelve", .rssi = -50},
+        {.address = "AA:BB:CC:DD:EE:0C", .name = "NodeTwelve", .rssi = -50, .paired = true},
     };
     uint8_t write_capture[64];
     size_t write_len = 0U;
@@ -4859,7 +4859,7 @@ static void test_ble_transport_admin_probe(void) {
 
     struct mesh_transport *ble = mesh_ble_transport();
     struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:0A", .name = "NodeAdmin", .rssi = -40},
+        {.address = "AA:BB:CC:DD:EE:0A", .name = "NodeAdmin", .rssi = -40, .paired = true},
     };
     uint8_t write_capture[256];
     size_t write_len = 0U;
@@ -5843,7 +5843,7 @@ static void test_ble_transport_settings_write(void) {
 
     struct mesh_transport *ble = mesh_ble_transport();
     struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:0B", .name = "NodeWrite", .rssi = -40},
+        {.address = "AA:BB:CC:DD:EE:0B", .name = "NodeWrite", .rssi = -40, .paired = true},
     };
     uint8_t write_capture[512];
     size_t write_len = 0U;
@@ -7149,7 +7149,7 @@ static void test_app_link_routing(void) {
     (void)fcntl(pair[1], F_SETFL, O_NONBLOCK);
 
     struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:06", .name = "NodeSix", .rssi = -30},
+        {.address = "AA:BB:CC:DD:EE:06", .name = "NodeSix", .rssi = -30, .paired = true},
     };
     struct mesh_bluez_mock_config mock_config = {
         .adapter_path = "/org/bluez/hci0",
@@ -7315,7 +7315,7 @@ static void test_app_connect_failure_toast(void) {
     memset(&app, 0, sizeof app);
 
     struct mesh_bluez_device_info mock_devices[] = {
-        {.address = "AA:BB:CC:DD:EE:07", .name = "NodeSeven", .rssi = -40},
+        {.address = "AA:BB:CC:DD:EE:07", .name = "NodeSeven", .rssi = -40, .paired = true},
     };
     struct mesh_bluez_mock_config mock_config = {
         .adapter_path = "/org/bluez/hci0",
@@ -9116,6 +9116,477 @@ static void test_version_build_stamp(void) {
 #endif
 }
 
+/*
+ * The whole PIN-mode path with no bus: an unpaired node connects by pairing first, the agent's
+ * question reaches the caller, the digits go back to BlueZ, and the connect follows on its own.
+ */
+static void test_ble_transport_pair_then_connect(void) {
+    const char *test_name = "ble_transport_pair_then_connect";
+
+    struct mesh_transport *ble = mesh_ble_transport();
+
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:0C", .name = "NodePin", .rssi = -55, .paired = false},
+    };
+
+    uint32_t submitted_passkey = 0U;
+    uint8_t write_capture[64];
+    memset(write_capture, 0, sizeof(write_capture));
+    size_t write_len = 0U;
+    size_t read_index = 0U;
+
+    struct mesh_bluez_mock_config mock_config = {
+        .init_result = 0,
+        .check_ready_result = 0,
+        .find_adapter_result = 0,
+        .adapter_path = "/org/bluez/hci0",
+        .start_discovery_result = 0,
+        .stop_discovery_result = 0,
+        .connect_result = 0,
+        .disconnect_result = 0,
+        .pair_result = 0,
+        .pair_requests_passkey = true,
+        .pair_passkey_capture = &submitted_passkey,
+        .subscribe_result = 0,
+        .write_result = 0,
+        .toradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_0C/service000a/char000b",
+        .fromradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_0C/service000a/char000d",
+        .fromnum_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_0C/service000a/char000f",
+        .read_index = &read_index,
+        .devices = mock_devices,
+        .device_count = sizeof(mock_devices) / sizeof(mock_devices[0]),
+        .list_result = 0,
+        .write_capture_buffer = write_capture,
+        .write_capture_capacity = sizeof(write_capture),
+        .write_capture_length = &write_len,
+    };
+
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    struct mesh_app_config config = mesh_app_config_default();
+    struct mesh_event_loop loop;
+    mesh_event_loop_init(&loop);
+
+    if (ble->ops->start(ble, &config, &loop) != 0) {
+        mesh_bluez_client_mock_disable();
+        mesh_event_loop_shutdown(&loop);
+        record_failure(test_name, "ble start failed");
+        return;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+
+#define PAIR_TEST_FAIL(reason)                                                                     \
+    do {                                                                                           \
+        ble->ops->stop(ble);                                                                       \
+        mesh_event_loop_shutdown(&loop);                                                           \
+        mesh_bluez_client_mock_disable();                                                          \
+        record_failure(test_name, (reason));                                                       \
+        return;                                                                                    \
+    } while (0)
+
+    /*
+     * Auto-connect bonds too - leaving it to StartNotify deadlocks, since that is a blocking
+     * call and BlueZ answers it by asking our agent - but it is unattended: a node that wants
+     * a PIN is refused rather than prompting over whatever the user was doing.
+     */
+    (void)mesh_ble_transport_connect(ble, mock_devices[0].address);
+    ble->ops->tick(ble);
+    if (mesh_ble_transport_pairing_request(ble, NULL)) {
+        PAIR_TEST_FAIL("an automatic connect must not raise a PIN prompt");
+    }
+    if (mesh_ble_transport_is_pairing(ble) || mesh_ble_transport_connected_address(ble) != NULL) {
+        PAIR_TEST_FAIL("a refused bond should leave nothing up");
+    }
+    if (submitted_passkey != 0U) {
+        PAIR_TEST_FAIL("no PIN should have been sent");
+    }
+    /* And it does not try again on a timer: every attempt is a failed pairing at the node. */
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != -EACCES) {
+        PAIR_TEST_FAIL("auto-connect should stop bonding a node that wants a PIN");
+    }
+
+    /* A connect the user asked for bonds first rather than failing on StartNotify later. */
+    if (mesh_ble_transport_connect_and_pair(ble, mock_devices[0].address) != 0) {
+        PAIR_TEST_FAIL("connect should start the pairing");
+    }
+    if (!mesh_ble_transport_is_pairing(ble)) {
+        PAIR_TEST_FAIL("the link should be pairing");
+    }
+    if (strcmp(ble->ops->status(ble), "pairing") != 0) {
+        PAIR_TEST_FAIL("status should report pairing");
+    }
+    if (mesh_ble_transport_connected_address(ble) != NULL) {
+        PAIR_TEST_FAIL("nothing is connected while pairing");
+    }
+
+    if (!mesh_app_link_connecting()) {
+        PAIR_TEST_FAIL("a bond in flight has to count as a link coming up");
+    }
+
+    struct mesh_ble_pairing_request request;
+    if (!mesh_ble_transport_pairing_request(ble, &request)) {
+        PAIR_TEST_FAIL("the agent should be waiting for a PIN");
+    }
+    if (request.kind != (uint8_t)MESH_BLUEZ_AGENT_REQUEST_PASSKEY ||
+        strcmp(request.address, mock_devices[0].address) != 0) {
+        PAIR_TEST_FAIL("the request should name the node it is bonding");
+    }
+
+    /* Ticking with the prompt up must not time the pairing out or complete it behind the user. */
+    ble->ops->tick(ble);
+    if (!mesh_ble_transport_is_pairing(ble)) {
+        PAIR_TEST_FAIL("pairing should wait for the PIN");
+    }
+
+    if (mesh_ble_transport_submit_passkey(ble, 632090U) != 0) {
+        PAIR_TEST_FAIL("submitting the PIN should be accepted");
+    }
+    if (submitted_passkey != 632090U) {
+        PAIR_TEST_FAIL("the PIN did not reach BlueZ");
+    }
+    if (mesh_ble_transport_pairing_request(ble, &request)) {
+        PAIR_TEST_FAIL("the request should be gone once answered");
+    }
+
+    /* The pair completing carries straight on into the connect the user actually asked for. */
+    const char *connected = mesh_ble_transport_connected_address(ble);
+    if (connected == NULL || strcmp(connected, mock_devices[0].address) != 0) {
+        PAIR_TEST_FAIL("the connect should follow the pairing");
+    }
+    if (write_len == 0U) {
+        PAIR_TEST_FAIL("expected the want_config handshake write");
+    }
+
+    /* And a second connect to a node BlueZ now holds a bond for pairs nothing. */
+    mesh_ble_transport_disconnect(ble);
+    if (mesh_ble_transport_connect_and_pair(ble, mock_devices[0].address) != 0 ||
+        mesh_ble_transport_is_pairing(ble)) {
+        PAIR_TEST_FAIL("a bonded node should connect without pairing again");
+    }
+
+#undef PAIR_TEST_FAIL
+
+    ble->ops->stop(ble);
+    mesh_event_loop_shutdown(&loop);
+    mesh_bluez_client_mock_disable();
+    record_success(test_name);
+}
+
+/* A cancelled prompt abandons the bond instead of leaving the link half up. */
+static void test_ble_transport_pair_cancel(void) {
+    const char *test_name = "ble_transport_pair_cancel";
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:0D", .name = "NodeCancel", .rssi = -55, .paired = false},
+    };
+    struct mesh_bluez_mock_config mock_config = {
+        .init_result = 0,
+        .check_ready_result = 0,
+        .find_adapter_result = 0,
+        .adapter_path = "/org/bluez/hci0",
+        .connect_result = 0,
+        .pair_result = 0,
+        .pair_requests_passkey = true,
+        .devices = mock_devices,
+        .device_count = sizeof(mock_devices) / sizeof(mock_devices[0]),
+        .list_result = 0,
+    };
+
+    mesh_bluez_client_mock_enable(&mock_config);
+    struct mesh_app_config config = mesh_app_config_default();
+    struct mesh_event_loop loop;
+    mesh_event_loop_init(&loop);
+
+    if (ble->ops->start(ble, &config, &loop) != 0) {
+        mesh_bluez_client_mock_disable();
+        mesh_event_loop_shutdown(&loop);
+        record_failure(test_name, "ble start failed");
+        return;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+    (void)mesh_ble_transport_connect_and_pair(ble, mock_devices[0].address);
+
+    const char *failure = NULL;
+    if (!mesh_ble_transport_is_pairing(ble)) {
+        failure = "the link should be pairing";
+    } else if (mesh_ble_transport_cancel_pairing(ble) != 0) {
+        failure = "cancel should be accepted";
+    } else if (mesh_ble_transport_is_pairing(ble)) {
+        failure = "cancel should end the pairing";
+    } else if (mesh_ble_transport_pairing_request(ble, NULL)) {
+        failure = "cancel should drop the agent request";
+    } else if (mesh_ble_transport_connected_address(ble) != NULL) {
+        failure = "a cancelled pairing must not leave a link up";
+    }
+
+    ble->ops->stop(ble);
+    mesh_event_loop_shutdown(&loop);
+    mesh_bluez_client_mock_disable();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}
+
+/* X and Y on the Devices tab: drop the link, and forget a bond on the second press. */
+static void test_ui_nav_devices_disconnect_forget(void) {
+    const char *test_name = "ui_nav_devices_disconnect_forget";
+
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        record_failure(test_name, "store init failed");
+        return;
+    }
+
+    const struct mesh_ui_device devices[] = {
+        {.identifier = "AA:BB:CC:DD:EE:01",
+         .name = "NodeOne",
+         .rssi = -45,
+         .connected = true,
+         .paired = true,
+         .kind = (uint8_t)MESH_UI_DEVICE_BLE},
+        {.identifier = "/dev/ttyUSB0",
+         .name = "USB node",
+         .connected = false,
+         .paired = true,
+         .kind = (uint8_t)MESH_UI_DEVICE_SERIAL},
+    };
+    mesh_ui_store_set_discovery(&store, devices, sizeof devices / sizeof devices[0]);
+    mesh_ui_store_consume_updates(&store, NULL);
+    store.nav.screen = MESH_UI_SCREEN_DEVICES;
+
+    struct mesh_ui_action action;
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    if (action.type != MESH_UI_ACTION_DISCONNECT ||
+        strcmp(action.identifier, devices[0].identifier) != 0) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "X should drop the connected link");
+        return;
+    }
+
+    /* One press of Y only arms it: a bond dropped by accident costs a re-pair. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    if (action.type != MESH_UI_ACTION_NONE || !store.nav.devices_forget_armed) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "the first Y should only arm the forget");
+        return;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    if (action.type != MESH_UI_ACTION_FORGET ||
+        strcmp(action.identifier, devices[0].identifier) != 0 || store.nav.devices_forget_armed) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "the second Y should forget the node");
+        return;
+    }
+
+    /* Anything else stands it down, and a USB port has no bond to forget at all. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    if (store.nav.devices_forget_armed) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "moving the cursor should stand the forget down");
+        return;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    if (action.type != MESH_UI_ACTION_NONE) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "a USB port has nothing to forget");
+        return;
+    }
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/* The PIN prompt: raised by the app mid-connect, answered (or cancelled) from the keyboard. */
+static void test_ui_nav_passkey_prompt(void) {
+    const char *test_name = "ui_nav_passkey_prompt";
+
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        record_failure(test_name, "store init failed");
+        return;
+    }
+
+    /* Something half-written in the compose draft must survive a prompt landing on top of it. */
+    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "half a message");
+    mesh_ui_store_open_passkey_prompt(&store, "NodePin", 0U, false);
+    if (!store.nav.keyboard_open || !store.nav.keyboard_passkey || store.nav.draft[0] != '\0') {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "the prompt should open an empty keyboard");
+        return;
+    }
+
+    /* Row 0 of every layer is the digits, so the cursor starts on one. */
+    struct mesh_ui_action action;
+    const char *pin = "632090";
+    for (const char *c = pin; *c != '\0'; ++c) {
+        const uint8_t col = (uint8_t)((*c == '0') ? 9 : (*c - '1'));
+        store.nav.kb_row = 0U;
+        store.nav.kb_col = col;
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    }
+    if (strcmp(store.nav.draft, pin) != 0) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "the digits should land in the draft");
+        return;
+    }
+
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    if (action.type != MESH_UI_ACTION_SUBMIT_PASSKEY || strcmp(action.text, pin) != 0) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "Send should submit the PIN");
+        return;
+    }
+    if (store.nav.keyboard_open || store.nav.keyboard_passkey) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "the prompt should close once answered");
+        return;
+    }
+    if (strcmp(store.nav.draft, "half a message") != 0) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "the parked compose draft should come back");
+        return;
+    }
+
+    /* A seventh digit is refused: BlueZ passkeys stop at 999999, so it could only produce a
+       pairing failure the user cannot see the cause of. */
+    mesh_ui_store_open_passkey_prompt(&store, "NodePin", 0U, false);
+    for (int i = 0; i < 8; ++i) {
+        store.nav.kb_row = 0U;
+        store.nav.kb_col = 0U; /* "1" */
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    }
+    if (strcmp(store.nav.draft, "111111") != 0) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "the prompt should stop at six digits");
+        return;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    if (action.type != MESH_UI_ACTION_SUBMIT_PASSKEY || strcmp(action.text, "111111") != 0) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "six digits should be what is submitted");
+        return;
+    }
+
+    /* Landing on top of an open keyboard gives it back afterwards, text and target both. */
+    store.nav.keyboard_open = true;
+    store.nav.keyboard_field = MESH_UI_FIELD_USER_LONG_NAME;
+    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "Base Camp");
+    mesh_ui_store_open_passkey_prompt(&store, "NodePin", 0U, false);
+    if (store.nav.keyboard_field != MESH_UI_FIELD_NONE || store.nav.draft[0] != '\0') {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "the prompt should take the keyboard over cleanly");
+        return;
+    }
+    mesh_ui_store_close_passkey_prompt(&store);
+    if (!store.nav.keyboard_open ||
+        store.nav.keyboard_field != (uint8_t)MESH_UI_FIELD_USER_LONG_NAME ||
+        strcmp(store.nav.draft, "Base Camp") != 0) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "the displaced keyboard should come back");
+        return;
+    }
+    mesh_ui_nav_init(&store.nav);
+
+    /* B with nothing typed abandons the bond rather than silently leaving BlueZ waiting. */
+    mesh_ui_store_open_passkey_prompt(&store, "NodePin", 0U, false);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (action.type != MESH_UI_ACTION_CANCEL_PAIRING || store.nav.keyboard_passkey) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "B should cancel the pairing");
+        return;
+    }
+
+    /* Numeric comparison: the number is pre-filled, so Send is the whole answer. */
+    mesh_ui_store_open_passkey_prompt(&store, "NodePin", 123456U, true);
+    if (!store.nav.pairing_confirm || strcmp(store.nav.draft, "123456") != 0) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "a confirmation should pre-fill its digits");
+        return;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    if (action.type != MESH_UI_ACTION_SUBMIT_PASSKEY || strcmp(action.text, "123456") != 0) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "Send should confirm the displayed number");
+        return;
+    }
+
+    /* And the app taking the prompt down (BlueZ gave up, say) leaves nothing behind. */
+    mesh_ui_store_open_passkey_prompt(&store, "NodePin", 0U, false);
+    mesh_ui_store_close_passkey_prompt(&store);
+    if (store.nav.keyboard_open || store.nav.keyboard_passkey) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "closing the prompt should close the keyboard");
+        return;
+    }
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/* A failed delivery has to say which failure it was: "!!" alone sends the user looking in the
+   wrong place, and the reasons call for completely different fixes. */
+static void test_message_routing_failure_reason(void) {
+    const char *test_name = "message_routing_failure_reason";
+
+    struct mesh_message_log log;
+    mesh_message_log_reset(&log);
+
+    struct mesh_message sent;
+    memset(&sent, 0, sizeof sent);
+    sent.packet_id = 4242U;
+    sent.direction = MESH_MESSAGE_OUTBOUND;
+    sent.to = 0x9E9D0AD8U;
+    sent.ack = (uint8_t)MESH_MESSAGE_ACK_PENDING;
+    snprintf(sent.text, sizeof sent.text, "%s", "test54");
+    mesh_message_log_append(&log, &sent);
+
+    /* What the firmware sends back when nothing acked the packet. */
+    meshtastic_Routing routing = meshtastic_Routing_init_default;
+    routing.which_variant = meshtastic_Routing_error_reason_tag;
+    routing.error_reason = meshtastic_Routing_Error_MAX_RETRANSMIT;
+
+    meshtastic_MeshPacket packet = meshtastic_MeshPacket_init_default;
+    packet.from = 0x9E9D0AD8U;
+    packet.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    packet.decoded.portnum = meshtastic_PortNum_ROUTING_APP;
+    packet.decoded.request_id = 4242U;
+    pb_ostream_t stream =
+        pb_ostream_from_buffer(packet.decoded.payload.bytes, sizeof packet.decoded.payload.bytes);
+    if (!pb_encode(&stream, meshtastic_Routing_fields, &routing)) {
+        record_failure(test_name, "failed to encode the routing reply");
+        return;
+    }
+    packet.decoded.payload.size = (pb_size_t)stream.bytes_written;
+
+    mesh_message_ingest(&log, &packet, 0x11111111U);
+
+    const struct mesh_message *entry = mesh_message_log_find(&log, 4242U);
+    if (entry == NULL || entry->ack != (uint8_t)MESH_MESSAGE_ACK_FAILED) {
+        record_failure(test_name, "the message should be marked failed");
+        return;
+    }
+    if (entry->ack_error != (uint8_t)meshtastic_Routing_Error_MAX_RETRANSMIT) {
+        record_failure(test_name, "the routing error should be kept");
+        return;
+    }
+    if (strcmp(mesh_message_ack_error_to_string(entry->ack_error), "no ack after retries") != 0) {
+        record_failure(test_name, "the reason should be named");
+        return;
+    }
+    /* An unknown code from a newer firmware still has to render as something. */
+    if (strcmp(mesh_message_ack_error_to_string(200U), "unknown error") != 0) {
+        record_failure(test_name, "an unrecognised reason should still say something");
+        return;
+    }
+
+    record_success(test_name);
+}
+
 static const struct test_case k_test_cases[] = {
     {"config_defaults", "unit", test_config_defaults},
     {"version_compare", "unit", test_version_compare},
@@ -9159,6 +9630,7 @@ static const struct test_case k_test_cases[] = {
     {"proto_varint_roundtrip", "unit", test_proto_varint_roundtrip},
     {"proto_frame_encode_decode", "unit", test_proto_frame_encode_decode},
     {"message_encode_text_golden", "unit", test_message_encode_text_golden},
+    {"message_routing_failure_reason", "unit", test_message_routing_failure_reason},
     {"message_encode_text_roundtrip", "unit", test_message_encode_text_roundtrip},
     {"message_encode_text_limits", "unit", test_message_encode_text_limits},
     {"message_log_ring", "unit", test_message_log_ring},
@@ -9204,6 +9676,10 @@ static const struct test_case k_test_cases[] = {
     {"ui_preferences_known_radios", "unit", test_ui_preferences_known_radios},
     {"app_node_rank_known_radio", "unit", test_app_node_rank_known_radio},
     {"ui_nav_node_favorite", "unit", test_ui_nav_node_favorite},
+    {"ble_transport_pair_then_connect", "unit", test_ble_transport_pair_then_connect},
+    {"ble_transport_pair_cancel", "unit", test_ble_transport_pair_cancel},
+    {"ui_nav_devices_disconnect_forget", "unit", test_ui_nav_devices_disconnect_forget},
+    {"ui_nav_passkey_prompt", "unit", test_ui_nav_passkey_prompt},
 };
 
 struct test_options {

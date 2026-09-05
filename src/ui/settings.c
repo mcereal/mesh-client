@@ -440,8 +440,8 @@ void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section, char *
     case MESH_UI_SETTINGS_BLUETOOTH:
         snprintf(out, out_len, "%s",
                  "The radio will reboot. Changing the pairing mode or PIN invalidates the "
-                 "Brick's pairing: run bluetoothctl pair again before it can reconnect. "
-                 "Turning Bluetooth off cuts this client off until re-enabled elsewhere.");
+                 "Brick's bond: forget the node in Devices (Y) and connect again to pair "
+                 "with the new PIN. Turning Bluetooth off cuts this client off entirely.");
         break;
     case MESH_UI_SETTINGS_CHANNELS:
         snprintf(out, out_len, "%s",

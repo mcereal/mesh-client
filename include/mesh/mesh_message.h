@@ -104,6 +104,8 @@ int mesh_message_ingest(struct mesh_message_log *log, const meshtastic_MeshPacke
 
 /* "delivered", "pending", ... for status output. */
 const char *mesh_message_ack_to_string(enum mesh_message_ack ack);
+/* Plain English for the Routing_Error in `ack_error`, so a failed message says why. */
+const char *mesh_message_ack_error_to_string(uint8_t error);
 
 #ifdef __cplusplus
 }

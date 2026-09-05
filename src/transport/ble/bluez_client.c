@@ -13,6 +13,8 @@
 
 #define MESH_BLUEZ_READ_TIMEOUT_MS 3000
 #define MESH_BLUEZ_PROPERTY_TIMEOUT_MS 1000
+/* Our org.bluez.Agent1 object. BlueZ calls back on this path to ask for a PIN. */
+#define MESH_BLUEZ_AGENT_PATH "/org/meshclient/agent"
 
 #ifdef MESH_HAVE_DBUS
 #include <dbus/dbus.h>
@@ -248,9 +250,40 @@ struct mesh_bluez_mock_state {
     unsigned connect_polls;
     unsigned connected_polls;
     unsigned write_calls;
+    unsigned pair_polls;
+    /* Addresses the mock has bonded, so a device reads back Paired the way BlueZ would once
+       the pairing completed. */
+    char paired_addresses[4][32];
+    size_t paired_count;
 };
 
 static struct mesh_bluez_mock_state g_mock_state;
+
+/* "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_0C" -> "AA:BB:CC:DD:EE:0C" */
+static void mesh_bluez_mock_note_paired(const char *device_path) {
+    const char *dev = (device_path != NULL) ? strstr(device_path, "/dev_") : NULL;
+    if (dev == NULL || g_mock_state.paired_count >= 4U) {
+        return;
+    }
+    dev += 5;
+    char *out = g_mock_state.paired_addresses[g_mock_state.paired_count];
+    size_t written = 0U;
+    while (*dev != '\0' && *dev != '/' && written + 1U < 32U) {
+        out[written++] = (*dev == '_') ? ':' : *dev;
+        dev++;
+    }
+    out[written] = '\0';
+    g_mock_state.paired_count++;
+}
+
+static bool mesh_bluez_mock_is_paired(const char *address) {
+    for (size_t i = 0; i < g_mock_state.paired_count; ++i) {
+        if (strcmp(g_mock_state.paired_addresses[i], address) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
 
 static void mesh_bluez_apply_mock_devices(struct mesh_bluez_device_info *devices, size_t capacity,
                                           size_t *count) {
@@ -267,6 +300,9 @@ static void mesh_bluez_apply_mock_devices(struct mesh_bluez_device_info *devices
     }
     for (size_t i = 0; i < to_copy; ++i) {
         devices[i] = g_mock_state.config.devices[i];
+        if (!devices[i].paired && mesh_bluez_mock_is_paired(devices[i].address)) {
+            devices[i].paired = true;
+        }
     }
     *count = to_copy;
 }
@@ -284,6 +320,9 @@ void mesh_bluez_client_mock_enable(const struct mesh_bluez_mock_config *config) 
     g_mock_state.connect_polls = 0U;
     g_mock_state.connected_polls = 0U;
     g_mock_state.write_calls = 0U;
+    g_mock_state.pair_polls = 0U;
+    memset(g_mock_state.paired_addresses, 0, sizeof(g_mock_state.paired_addresses));
+    g_mock_state.paired_count = 0U;
 }
 
 void mesh_bluez_client_mock_disable(void) {
@@ -295,6 +334,9 @@ void mesh_bluez_client_mock_disable(void) {
     g_mock_state.connect_polls = 0U;
     g_mock_state.connected_polls = 0U;
     g_mock_state.write_calls = 0U;
+    g_mock_state.pair_polls = 0U;
+    memset(g_mock_state.paired_addresses, 0, sizeof(g_mock_state.paired_addresses));
+    g_mock_state.paired_count = 0U;
 }
 
 int mesh_bluez_client_init(struct mesh_bluez_client *client) {
@@ -308,6 +350,13 @@ int mesh_bluez_client_init(struct mesh_bluez_client *client) {
     client->notification_callback = NULL;
     client->notification_userdata = NULL;
     client->notify_characteristic_path[0] = '\0';
+    client->pair_state = 0;
+    client->pair_serial = 0U;
+    client->pair_result = 0;
+    client->pair_device_path[0] = '\0';
+    client->agent_registered = false;
+    client->agent_pending_message = NULL;
+    memset(&client->agent_request, 0, sizeof(client->agent_request));
 #ifdef MESH_HAVE_DBUS
     memset(client->watches, 0, sizeof(client->watches));
 #endif
@@ -386,6 +435,13 @@ void mesh_bluez_client_shutdown(struct mesh_bluez_client *client) {
     if (client == NULL) {
         return;
     }
+
+    /* Give BlueZ its agent back before the connection goes: a registration left behind on a
+       name that has vanished blocks the next one with AlreadyExists. */
+    mesh_bluez_client_unregister_agent(client);
+    client->pair_state = 0;
+    client->pair_serial = 0U;
+    client->pair_device_path[0] = '\0';
 
 #ifdef MESH_HAVE_DBUS
     if (client->loop != NULL) {
@@ -548,9 +604,201 @@ static void mesh_bluez_client_handle_properties_changed(struct mesh_bluez_client
     }
 }
 
+/* Answers one org.bluez.Agent1 call with no return values. */
+static void mesh_bluez_agent_ack(struct mesh_bluez_client *client, DBusMessage *call) {
+    DBusConnection *connection = (DBusConnection *)client->connection;
+    DBusMessage *reply = dbus_message_new_method_return(call);
+    if (reply == NULL || connection == NULL) {
+        if (reply != NULL) {
+            dbus_message_unref(reply);
+        }
+        return;
+    }
+    (void)dbus_connection_send(connection, reply, NULL);
+    dbus_connection_flush(connection);
+    dbus_message_unref(reply);
+}
+
+/* Holds an agent call that needs an answer from the user. The reply goes out later, from
+   mesh_bluez_client_agent_submit_passkey() or _reject(); BlueZ blocks the pairing until then
+   (its own request timeout is a minute, which is plenty to read a PIN off a node and type it). */
+static void mesh_bluez_agent_defer(struct mesh_bluez_client *client, DBusMessage *call,
+                                   enum mesh_bluez_agent_request_kind kind, const char *device_path,
+                                   uint32_t passkey) {
+    /* One at a time: a stale request can only be one BlueZ has already given up on. */
+    if (client->agent_request.kind != MESH_BLUEZ_AGENT_REQUEST_NONE) {
+        (void)mesh_bluez_client_agent_reject(client);
+    }
+    client->agent_pending_message = dbus_message_ref(call);
+    client->agent_request.kind = kind;
+    client->agent_request.passkey = passkey;
+    snprintf(client->agent_request.device_path, sizeof(client->agent_request.device_path), "%s",
+             device_path != NULL ? device_path : "");
+}
+
+/* org.bluez.Agent1, dispatched by hand: mesh_bluez_client_process() pops messages off the
+   connection itself, so libdbus' object tree would never see them. */
+static bool mesh_bluez_client_handle_agent_call(struct mesh_bluez_client *client,
+                                                DBusMessage *message) {
+    const char *path = dbus_message_get_path(message);
+    if (path == NULL || strcmp(path, MESH_BLUEZ_AGENT_PATH) != 0) {
+        return false;
+    }
+
+    const char *member = dbus_message_get_member(message);
+    if (member == NULL) {
+        return true;
+    }
+
+    if (dbus_message_is_method_call(message, "org.freedesktop.DBus.Introspectable", "Introspect")) {
+        DBusConnection *connection = (DBusConnection *)client->connection;
+        DBusMessage *reply = dbus_message_new_method_return(message);
+        if (reply != NULL && connection != NULL) {
+            const char *xml =
+                "<!DOCTYPE node PUBLIC \"-//freedesktop//DTD D-BUS Object Introspection 1.0//EN\" "
+                "\"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd\">\n"
+                "<node><interface name=\"org.bluez.Agent1\">"
+                "<method name=\"Release\"/>"
+                "<method name=\"RequestPinCode\"><arg type=\"o\" direction=\"in\"/>"
+                "<arg type=\"s\" direction=\"out\"/></method>"
+                "<method name=\"DisplayPinCode\"><arg type=\"o\" direction=\"in\"/>"
+                "<arg type=\"s\" direction=\"in\"/></method>"
+                "<method name=\"RequestPasskey\"><arg type=\"o\" direction=\"in\"/>"
+                "<arg type=\"u\" direction=\"out\"/></method>"
+                "<method name=\"DisplayPasskey\"><arg type=\"o\" direction=\"in\"/>"
+                "<arg type=\"u\" direction=\"in\"/><arg type=\"q\" direction=\"in\"/></method>"
+                "<method name=\"RequestConfirmation\"><arg type=\"o\" direction=\"in\"/>"
+                "<arg type=\"u\" direction=\"in\"/></method>"
+                "<method name=\"RequestAuthorization\"><arg type=\"o\" direction=\"in\"/></method>"
+                "<method name=\"AuthorizeService\"><arg type=\"o\" direction=\"in\"/>"
+                "<arg type=\"s\" direction=\"in\"/></method>"
+                "<method name=\"Cancel\"/></interface></node>";
+            dbus_message_append_args(reply, DBUS_TYPE_STRING, &xml, DBUS_TYPE_INVALID);
+            (void)dbus_connection_send(connection, reply, NULL);
+            dbus_connection_flush(connection);
+        }
+        if (reply != NULL) {
+            dbus_message_unref(reply);
+        }
+        return true;
+    }
+
+    if (!dbus_message_has_interface(message, "org.bluez.Agent1")) {
+        return true;
+    }
+
+    const char *device = NULL;
+    dbus_uint32_t passkey = 0U;
+
+    if (strcmp(member, "RequestPasskey") == 0) {
+        dbus_message_get_args(message, NULL, DBUS_TYPE_OBJECT_PATH, &device, DBUS_TYPE_INVALID);
+        mesh_log_info("bluez", "Pairing: %s is asking for its PIN", device != NULL ? device : "?");
+        mesh_bluez_agent_defer(client, message, MESH_BLUEZ_AGENT_REQUEST_PASSKEY, device, 0U);
+        return true;
+    }
+    if (strcmp(member, "RequestPinCode") == 0) {
+        dbus_message_get_args(message, NULL, DBUS_TYPE_OBJECT_PATH, &device, DBUS_TYPE_INVALID);
+        mesh_bluez_agent_defer(client, message, MESH_BLUEZ_AGENT_REQUEST_PINCODE, device, 0U);
+        return true;
+    }
+    if (strcmp(member, "RequestConfirmation") == 0) {
+        dbus_message_get_args(message, NULL, DBUS_TYPE_OBJECT_PATH, &device, DBUS_TYPE_UINT32,
+                              &passkey, DBUS_TYPE_INVALID);
+        /* Numeric comparison, which a node with no PIN set ends up in. The number is shown to
+           the user rather than accepted blind: it is the only thing that says the bond is with
+           the node in your hand and not something else that answered the pairing. */
+        mesh_bluez_agent_defer(client, message, MESH_BLUEZ_AGENT_REQUEST_CONFIRM, device,
+                               (uint32_t)passkey);
+        return true;
+    }
+    if (strcmp(member, "DisplayPasskey") == 0 || strcmp(member, "DisplayPinCode") == 0) {
+        /* The node is the one entering; nothing for us to do but say so in the log. */
+        mesh_log_info("bluez", "Pairing: %s wants a code entered on it", member);
+        mesh_bluez_agent_ack(client, message);
+        return true;
+    }
+    if (strcmp(member, "RequestAuthorization") == 0 || strcmp(member, "AuthorizeService") == 0) {
+        /*
+         * Being the *default* agent means these also arrive for pairings someone else started
+         * (a remote device pairing to the Brick) and for services on other devices entirely.
+         * Acknowledging those would authorize them silently, so only the bond this client has
+         * in flight is answered; anything else is refused.
+         */
+        /* The two carry different argument lists, and get_args fails on a mismatch - which
+           would leave `device` NULL and refuse the legitimate case along with the rest. */
+        if (strcmp(member, "AuthorizeService") == 0) {
+            const char *uuid = NULL;
+            dbus_message_get_args(message, NULL, DBUS_TYPE_OBJECT_PATH, &device, DBUS_TYPE_STRING,
+                                  &uuid, DBUS_TYPE_INVALID);
+        } else {
+            dbus_message_get_args(message, NULL, DBUS_TYPE_OBJECT_PATH, &device, DBUS_TYPE_INVALID);
+        }
+        const bool ours = (client->pair_state == 1 && device != NULL &&
+                           strcmp(device, client->pair_device_path) == 0);
+        if (!ours) {
+            mesh_log_warn("bluez", "Refusing %s for %s: no pairing of ours is in flight", member,
+                          device != NULL ? device : "?");
+            DBusConnection *connection = (DBusConnection *)client->connection;
+            DBusMessage *reply =
+                dbus_message_new_error(message, "org.bluez.Error.Rejected", "Not requested");
+            if (reply != NULL) {
+                if (connection != NULL) {
+                    (void)dbus_connection_send(connection, reply, NULL);
+                    dbus_connection_flush(connection);
+                }
+                dbus_message_unref(reply);
+            }
+            return true;
+        }
+        mesh_bluez_agent_ack(client, message);
+        return true;
+    }
+    if (strcmp(member, "Cancel") == 0) {
+        /* BlueZ gave up on the request; the held call must not be answered any more. */
+        if (client->agent_pending_message != NULL) {
+            dbus_message_unref((DBusMessage *)client->agent_pending_message);
+            client->agent_pending_message = NULL;
+        }
+        memset(&client->agent_request, 0, sizeof(client->agent_request));
+        mesh_log_warn("bluez", "Pairing request cancelled by BlueZ");
+        mesh_bluez_agent_ack(client, message);
+        return true;
+    }
+    if (strcmp(member, "Release") == 0) {
+        client->agent_registered = false;
+        mesh_bluez_agent_ack(client, message);
+        return true;
+    }
+
+    mesh_bluez_agent_ack(client, message);
+    return true;
+}
+
 static void mesh_bluez_client_handle_message(struct mesh_bluez_client *client,
                                              DBusMessage *message) {
     if (client == NULL || message == NULL) {
+        return;
+    }
+
+    if (dbus_message_get_type(message) == DBUS_MESSAGE_TYPE_METHOD_CALL &&
+        mesh_bluez_client_handle_agent_call(client, message)) {
+        return;
+    }
+
+    if (client->pair_state == 1 && client->pair_serial != 0U &&
+        dbus_message_get_reply_serial(message) == client->pair_serial) {
+        int type = dbus_message_get_type(message);
+        if (type == DBUS_MESSAGE_TYPE_METHOD_RETURN) {
+            client->pair_result = 0;
+        } else {
+            const char *error_name = dbus_message_get_error_name(message);
+            char *text = NULL;
+            dbus_message_get_args(message, NULL, DBUS_TYPE_STRING, &text, DBUS_TYPE_INVALID);
+            mesh_log_warn("bluez", "Pair failed: %s%s%s", error_name != NULL ? error_name : "?",
+                          text != NULL ? ": " : "", text != NULL ? text : "");
+            client->pair_result = mesh_bluez_error_to_errno(error_name, text);
+        }
+        client->pair_state = 2;
         return;
     }
 
@@ -1050,6 +1298,462 @@ void mesh_bluez_client_connect_cancel(struct mesh_bluez_client *client) {
     client->connect_result = 0;
 }
 
+/* ---- pairing -------------------------------------------------------------------------------
+ *
+ * Everything a node in PIN mode needs, so the user never has to leave the app for bluetoothctl.
+ * Two halves that only make sense together: Device1.Pair, sent without blocking because it does
+ * not answer until the bond is done, and an org.bluez.Agent1 that BlueZ calls back on to ask for
+ * the six digits the node is showing. The agent's reply is deferred - we hold the call message
+ * until the user has typed them - which is why the pair can outlive several event-loop turns.
+ */
+
+int mesh_bluez_client_pair_begin(struct mesh_bluez_client *client, const char *device_path) {
+    if (client == NULL || device_path == NULL) {
+        return -EINVAL;
+    }
+    if (client->pair_state == 1) {
+        return -EBUSY;
+    }
+
+    snprintf(client->pair_device_path, sizeof(client->pair_device_path), "%s", device_path);
+
+    if (g_mock_state.enabled) {
+        g_mock_state.pair_polls = 0U;
+        client->pair_state = 1;
+        client->pair_serial = 1U;
+        client->pair_result = g_mock_state.config.pair_result;
+        if (g_mock_state.config.pair_requests_passkey) {
+            client->agent_request.kind = MESH_BLUEZ_AGENT_REQUEST_PASSKEY;
+            snprintf(client->agent_request.device_path, sizeof(client->agent_request.device_path),
+                     "%s", device_path);
+            client->agent_request.passkey = 0U;
+        }
+        return 0;
+    }
+
+#ifdef MESH_HAVE_DBUS
+    DBusConnection *connection = (DBusConnection *)client->connection;
+    if (connection == NULL) {
+        return -ENOTCONN;
+    }
+
+    DBusMessage *message =
+        dbus_message_new_method_call("org.bluez", device_path, "org.bluez.Device1", "Pair");
+    if (message == NULL) {
+        return -ENOMEM;
+    }
+
+    dbus_uint32_t serial = 0U;
+    dbus_bool_t sent = dbus_connection_send(connection, message, &serial);
+    dbus_message_unref(message);
+    if (!sent) {
+        return -EIO;
+    }
+    dbus_connection_flush(connection);
+
+    client->pair_serial = serial;
+    client->pair_state = 1;
+    client->pair_result = 0;
+    mesh_log_info("bluez", "Pairing with %s", device_path);
+    return 0;
+#else
+    return -ENOSYS;
+#endif
+}
+
+int mesh_bluez_client_pair_poll(struct mesh_bluez_client *client, int *out_result) {
+    if (client == NULL || out_result == NULL) {
+        return -EINVAL;
+    }
+    if (client->pair_state == 0) {
+        return -EINVAL;
+    }
+
+    if (g_mock_state.enabled && client->pair_state == 1) {
+        /* BlueZ does not answer Pair while its agent is waiting on the user, and neither does
+           the mock: a test that never submits a passkey sees the pair stay pending. */
+        if (client->agent_request.kind == MESH_BLUEZ_AGENT_REQUEST_NONE) {
+            g_mock_state.pair_polls++;
+            if (g_mock_state.pair_polls > g_mock_state.config.pair_pending_polls) {
+                client->pair_state = 2;
+                if (client->pair_result == 0) {
+                    /* BlueZ would now report the device Paired; so does the device list. */
+                    mesh_bluez_mock_note_paired(client->pair_device_path);
+                }
+            }
+        }
+    }
+
+    if (client->pair_state != 2) {
+        return 0;
+    }
+
+    *out_result = client->pair_result;
+    client->pair_state = 0;
+    client->pair_serial = 0U;
+    return 1;
+}
+
+void mesh_bluez_client_pair_cancel(struct mesh_bluez_client *client) {
+    if (client == NULL) {
+        return;
+    }
+
+    (void)mesh_bluez_client_agent_reject(client);
+
+#ifdef MESH_HAVE_DBUS
+    if (!g_mock_state.enabled && client->pair_state == 1 && client->pair_device_path[0] != '\0') {
+        DBusConnection *connection = (DBusConnection *)client->connection;
+        if (connection != NULL) {
+            DBusMessage *message = dbus_message_new_method_call(
+                "org.bluez", client->pair_device_path, "org.bluez.Device1", "CancelPairing");
+            if (message != NULL) {
+                (void)dbus_connection_send(connection, message, NULL);
+                dbus_message_unref(message);
+                dbus_connection_flush(connection);
+            }
+        }
+    }
+#endif
+
+    client->pair_state = 0;
+    client->pair_serial = 0U;
+    client->pair_result = 0;
+    client->pair_device_path[0] = '\0';
+}
+
+int mesh_bluez_client_set_trusted(struct mesh_bluez_client *client, const char *device_path,
+                                  bool trusted) {
+    if (client == NULL || device_path == NULL) {
+        return -EINVAL;
+    }
+    if (g_mock_state.enabled) {
+        return 0;
+    }
+
+#ifdef MESH_HAVE_DBUS
+    DBusConnection *connection = (DBusConnection *)client->connection;
+    if (connection == NULL) {
+        return -ENOTCONN;
+    }
+
+    DBusMessage *message = dbus_message_new_method_call("org.bluez", device_path,
+                                                        "org.freedesktop.DBus.Properties", "Set");
+    if (message == NULL) {
+        return -ENOMEM;
+    }
+
+    const char *interface = "org.bluez.Device1";
+    const char *property = "Trusted";
+    dbus_bool_t value = trusted ? TRUE : FALSE;
+
+    DBusMessageIter iter;
+    dbus_message_iter_init_append(message, &iter);
+    dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &interface);
+    dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &property);
+    DBusMessageIter variant;
+    dbus_message_iter_open_container(&iter, DBUS_TYPE_VARIANT, DBUS_TYPE_BOOLEAN_AS_STRING,
+                                     &variant);
+    dbus_message_iter_append_basic(&variant, DBUS_TYPE_BOOLEAN, &value);
+    dbus_message_iter_close_container(&iter, &variant);
+
+    DBusError error;
+    dbus_error_init(&error);
+    DBusMessage *reply =
+        dbus_connection_send_with_reply_and_block(connection, message, 2000, &error);
+    dbus_message_unref(message);
+    if (reply == NULL) {
+        int mapped = -EIO;
+        if (dbus_error_is_set(&error)) {
+            mesh_log_warn("bluez", "Set Trusted failed: %s", error.message);
+            mapped = mesh_bluez_dbus_error_to_errno(&error);
+            dbus_error_free(&error);
+        }
+        return mapped;
+    }
+    dbus_message_unref(reply);
+    return 0;
+#else
+    (void)trusted;
+    return -ENOSYS;
+#endif
+}
+
+int mesh_bluez_client_remove_device(struct mesh_bluez_client *client, const char *adapter_path,
+                                    const char *device_path) {
+    if (client == NULL || adapter_path == NULL || device_path == NULL) {
+        return -EINVAL;
+    }
+    if (g_mock_state.enabled) {
+        return g_mock_state.config.remove_device_result;
+    }
+
+#ifdef MESH_HAVE_DBUS
+    DBusConnection *connection = (DBusConnection *)client->connection;
+    if (connection == NULL) {
+        return -ENOTCONN;
+    }
+
+    DBusMessage *message = dbus_message_new_method_call("org.bluez", adapter_path,
+                                                        "org.bluez.Adapter1", "RemoveDevice");
+    if (message == NULL) {
+        return -ENOMEM;
+    }
+    dbus_message_append_args(message, DBUS_TYPE_OBJECT_PATH, &device_path, DBUS_TYPE_INVALID);
+
+    DBusError error;
+    dbus_error_init(&error);
+    DBusMessage *reply =
+        dbus_connection_send_with_reply_and_block(connection, message, 5000, &error);
+    dbus_message_unref(message);
+    if (reply == NULL) {
+        int mapped = -EIO;
+        if (dbus_error_is_set(&error)) {
+            mesh_log_warn("bluez", "RemoveDevice failed: %s", error.message);
+            mapped = mesh_bluez_dbus_error_to_errno(&error);
+            dbus_error_free(&error);
+        }
+        return mapped;
+    }
+    dbus_message_unref(reply);
+    mesh_log_info("bluez", "Removed %s", device_path);
+    return 0;
+#else
+    return -ENOSYS;
+#endif
+}
+
+/* ---- pairing agent -------------------------------------------------------------------------- */
+
+int mesh_bluez_client_register_agent(struct mesh_bluez_client *client) {
+    if (client == NULL) {
+        return -EINVAL;
+    }
+    if (client->agent_registered) {
+        return 0;
+    }
+    if (g_mock_state.enabled) {
+        client->agent_registered = true;
+        return 0;
+    }
+
+#ifdef MESH_HAVE_DBUS
+    DBusConnection *connection = (DBusConnection *)client->connection;
+    if (connection == NULL) {
+        return -ENOTCONN;
+    }
+
+    DBusMessage *message = dbus_message_new_method_call("org.bluez", "/org/bluez",
+                                                        "org.bluez.AgentManager1", "RegisterAgent");
+    if (message == NULL) {
+        return -ENOMEM;
+    }
+
+    const char *path = MESH_BLUEZ_AGENT_PATH;
+    /* KeyboardDisplay is what makes a PIN-mode node choose passkey entry: its own capability is
+       DisplayOnly, so BlueZ asks us for the number rather than the other way round. */
+    const char *capability = "KeyboardDisplay";
+    dbus_message_append_args(message, DBUS_TYPE_OBJECT_PATH, &path, DBUS_TYPE_STRING, &capability,
+                             DBUS_TYPE_INVALID);
+
+    DBusError error;
+    dbus_error_init(&error);
+    DBusMessage *reply =
+        dbus_connection_send_with_reply_and_block(connection, message, 2000, &error);
+    dbus_message_unref(message);
+    if (reply == NULL) {
+        int mapped = -EIO;
+        if (dbus_error_is_set(&error)) {
+            /* An agent left behind by a previous run of this same process name is the common
+               case; treat it as registered rather than losing pairing for the session. */
+            const bool exists =
+                (error.name != NULL && strcmp(error.name, "org.bluez.Error.AlreadyExists") == 0);
+            if (exists) {
+                dbus_error_free(&error);
+                client->agent_registered = true;
+                return 0;
+            }
+            mesh_log_warn("bluez", "RegisterAgent failed: %s", error.message);
+            mapped = mesh_bluez_dbus_error_to_errno(&error);
+            dbus_error_free(&error);
+        }
+        return mapped;
+    }
+    dbus_message_unref(reply);
+
+    /* Being the default agent is what routes requests here on a device with no bluetoothctl
+       running. It is not fatal if something else already claimed it. */
+    DBusMessage *request = dbus_message_new_method_call(
+        "org.bluez", "/org/bluez", "org.bluez.AgentManager1", "RequestDefaultAgent");
+    if (request != NULL) {
+        dbus_message_append_args(request, DBUS_TYPE_OBJECT_PATH, &path, DBUS_TYPE_INVALID);
+        dbus_error_init(&error);
+        DBusMessage *default_reply =
+            dbus_connection_send_with_reply_and_block(connection, request, 2000, &error);
+        dbus_message_unref(request);
+        if (default_reply != NULL) {
+            dbus_message_unref(default_reply);
+        } else if (dbus_error_is_set(&error)) {
+            mesh_log_warn("bluez", "RequestDefaultAgent failed: %s", error.message);
+            dbus_error_free(&error);
+        }
+    }
+
+    client->agent_registered = true;
+    mesh_log_info("bluez", "Pairing agent registered at %s", path);
+    return 0;
+#else
+    return -ENOSYS;
+#endif
+}
+
+void mesh_bluez_client_unregister_agent(struct mesh_bluez_client *client) {
+    if (client == NULL || !client->agent_registered) {
+        return;
+    }
+    (void)mesh_bluez_client_agent_reject(client);
+    client->agent_registered = false;
+
+    if (g_mock_state.enabled) {
+        return;
+    }
+
+#ifdef MESH_HAVE_DBUS
+    DBusConnection *connection = (DBusConnection *)client->connection;
+    if (connection == NULL) {
+        return;
+    }
+    DBusMessage *message = dbus_message_new_method_call(
+        "org.bluez", "/org/bluez", "org.bluez.AgentManager1", "UnregisterAgent");
+    if (message == NULL) {
+        return;
+    }
+    const char *path = MESH_BLUEZ_AGENT_PATH;
+    dbus_message_append_args(message, DBUS_TYPE_OBJECT_PATH, &path, DBUS_TYPE_INVALID);
+    (void)dbus_connection_send(connection, message, NULL);
+    dbus_message_unref(message);
+    dbus_connection_flush(connection);
+#endif
+}
+
+bool mesh_bluez_client_agent_request(const struct mesh_bluez_client *client,
+                                     struct mesh_bluez_agent_request *out) {
+    if (client == NULL || client->agent_request.kind == MESH_BLUEZ_AGENT_REQUEST_NONE) {
+        return false;
+    }
+    if (out != NULL) {
+        *out = client->agent_request;
+    }
+    return true;
+}
+
+/* Sends the reply BlueZ is blocked on and forgets the request. `reply` is consumed. */
+static void mesh_bluez_agent_finish(struct mesh_bluez_client *client, void *reply) {
+#ifdef MESH_HAVE_DBUS
+    DBusConnection *connection = (DBusConnection *)client->connection;
+    if (reply != NULL) {
+        if (connection != NULL) {
+            (void)dbus_connection_send(connection, (DBusMessage *)reply, NULL);
+            dbus_connection_flush(connection);
+        }
+        dbus_message_unref((DBusMessage *)reply);
+    }
+    if (client->agent_pending_message != NULL) {
+        dbus_message_unref((DBusMessage *)client->agent_pending_message);
+    }
+#else
+    (void)reply;
+#endif
+    client->agent_pending_message = NULL;
+    memset(&client->agent_request, 0, sizeof(client->agent_request));
+}
+
+int mesh_bluez_client_agent_submit_passkey(struct mesh_bluez_client *client, uint32_t passkey) {
+    if (client == NULL) {
+        return -EINVAL;
+    }
+    const enum mesh_bluez_agent_request_kind kind = client->agent_request.kind;
+    if (kind == MESH_BLUEZ_AGENT_REQUEST_NONE) {
+        return -ENOENT;
+    }
+
+    if (g_mock_state.enabled) {
+        if (g_mock_state.config.pair_passkey_capture != NULL) {
+            *g_mock_state.config.pair_passkey_capture = passkey;
+        }
+        mesh_bluez_agent_finish(client, NULL);
+        return 0;
+    }
+
+#ifdef MESH_HAVE_DBUS
+    DBusMessage *call = (DBusMessage *)client->agent_pending_message;
+    if (call == NULL) {
+        memset(&client->agent_request, 0, sizeof(client->agent_request));
+        return -ENOENT;
+    }
+    DBusMessage *reply = dbus_message_new_method_return(call);
+    if (reply == NULL) {
+        return -ENOMEM;
+    }
+    if (kind == MESH_BLUEZ_AGENT_REQUEST_PASSKEY) {
+        dbus_uint32_t value = (dbus_uint32_t)passkey;
+        dbus_message_append_args(reply, DBUS_TYPE_UINT32, &value, DBUS_TYPE_INVALID);
+    } else if (kind == MESH_BLUEZ_AGENT_REQUEST_PINCODE) {
+        /* The legacy PIN is a string, and Meshtastic's is always the six digits it displays. */
+        char digits[16];
+        snprintf(digits, sizeof(digits), "%06u", (unsigned)passkey);
+        const char *text = digits;
+        dbus_message_append_args(reply, DBUS_TYPE_STRING, &text, DBUS_TYPE_INVALID);
+    }
+    /* CONFIRM takes an empty reply: sending it *is* the confirmation. */
+    mesh_log_info("bluez", "Answered pairing request for %s", client->agent_request.device_path);
+    mesh_bluez_agent_finish(client, reply);
+    return 0;
+#else
+    (void)passkey;
+    return -ENOSYS;
+#endif
+}
+
+int mesh_bluez_client_agent_confirm(struct mesh_bluez_client *client) {
+    if (client == NULL) {
+        return -EINVAL;
+    }
+    if (client->agent_request.kind != MESH_BLUEZ_AGENT_REQUEST_CONFIRM) {
+        return -ENOENT;
+    }
+    return mesh_bluez_client_agent_submit_passkey(client, client->agent_request.passkey);
+}
+
+int mesh_bluez_client_agent_reject(struct mesh_bluez_client *client) {
+    if (client == NULL) {
+        return -EINVAL;
+    }
+    if (client->agent_request.kind == MESH_BLUEZ_AGENT_REQUEST_NONE) {
+        return -ENOENT;
+    }
+
+    if (g_mock_state.enabled) {
+        /* Refusing the question is refusing the bond, which is what BlueZ does with it. */
+        if (client->pair_state == 1) {
+            client->pair_result = -EACCES;
+        }
+        mesh_bluez_agent_finish(client, NULL);
+        return 0;
+    }
+
+#ifdef MESH_HAVE_DBUS
+    DBusMessage *call = (DBusMessage *)client->agent_pending_message;
+    DBusMessage *reply = (call != NULL)
+                             ? dbus_message_new_error(call, "org.bluez.Error.Rejected", "Cancelled")
+                             : NULL;
+    mesh_bluez_agent_finish(client, reply);
+    return 0;
+#else
+    return -ENOSYS;
+#endif
+}
+
 #ifdef MESH_HAVE_DBUS
 /* Properties.Get on org.bluez.Device1 for a boolean property, with a short timeout: this is
    polled from the loop, so it must never sit on a 25 s default. */
@@ -1233,8 +1937,15 @@ int mesh_bluez_client_subscribe(struct mesh_bluez_client *client, const char *de
 
     DBusError error;
     dbus_error_init(&error);
-    DBusMessage *reply = dbus_connection_send_with_reply_and_block(
-        connection, message, DBUS_TIMEOUT_USE_DEFAULT, &error);
+    /*
+     * Deliberately not the 25 s default. StartNotify on an encrypted characteristic can make
+     * BlueZ start a pairing, and BlueZ then calls our agent - which we cannot answer from
+     * inside a blocking call, because the loop that pops messages is this thread. Bonding is
+     * done up front (mesh_ble_transport_pair) precisely so this does not happen; the timeout
+     * bounds the stall for the case it still can, a bond that has gone stale on the node.
+     */
+    DBusMessage *reply =
+        dbus_connection_send_with_reply_and_block(connection, message, 8000, &error);
     dbus_message_unref(message);
 
     if (reply == NULL) {
@@ -1827,6 +2538,11 @@ int mesh_bluez_client_list_meshtastic(struct mesh_bluez_client *client,
                     if (name != NULL) {
                         snprintf(info.name, sizeof(info.name), "%s", name);
                     }
+                } else if (strcmp(property_name, "Paired") == 0 &&
+                           variant_type == DBUS_TYPE_BOOLEAN) {
+                    dbus_bool_t paired = FALSE;
+                    dbus_message_iter_get_basic(&variant_iter, &paired);
+                    info.paired = (paired != FALSE);
                 } else if (strcmp(property_name, "RSSI") == 0 && variant_type == DBUS_TYPE_INT16) {
                     int16_t rssi = 0;
                     dbus_message_iter_get_basic(&variant_iter, &rssi);

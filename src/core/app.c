@@ -46,7 +46,8 @@ struct mesh_transport *mesh_app_active_transport(void) {
     if (serial != NULL && mesh_serial_transport_is_connecting(serial)) {
         return serial;
     }
-    if (ble != NULL && mesh_ble_transport_is_connecting(ble)) {
+    if (ble != NULL &&
+        (mesh_ble_transport_is_connecting(ble) || mesh_ble_transport_is_pairing(ble))) {
         return ble;
     }
     return ble;
@@ -62,7 +63,10 @@ const char *mesh_app_connected_identifier(void) {
 }
 
 bool mesh_app_link_connecting(void) {
+    /* Pairing counts: it is the first half of a connect the user asked for, and auto-connect
+       taking the serial link up underneath it would leave two transports on one session. */
     return mesh_ble_transport_is_connecting(mesh_ble_transport()) ||
+           mesh_ble_transport_is_pairing(mesh_ble_transport()) ||
            mesh_serial_transport_is_connecting(mesh_serial_transport());
 }
 
@@ -70,8 +74,10 @@ bool mesh_app_link_connecting(void) {
 static void mesh_app_release_other_link(const struct mesh_transport *keep) {
     struct mesh_transport *ble = mesh_ble_transport();
     struct mesh_transport *serial = mesh_serial_transport();
-    if (ble != keep && (mesh_ble_transport_connected_address(ble) != NULL ||
-                        mesh_ble_transport_is_connecting(ble))) {
+    if (ble != keep &&
+        (mesh_ble_transport_connected_address(ble) != NULL ||
+         mesh_ble_transport_is_connecting(ble) || mesh_ble_transport_is_pairing(ble))) {
+        /* A pairing left running would finish and then connect BLE on top of this link. */
         mesh_ble_transport_disconnect(ble);
     }
     if (serial != keep && (mesh_serial_transport_connected_port(serial) != NULL ||
@@ -105,10 +111,12 @@ static int mesh_app_link_connect(struct mesh_app *app, const char *identifier, u
     snprintf(app->config.preferred_ble_device, sizeof app->config.preferred_ble_device, "%s",
              identifier);
     if (mesh_ble_transport_connected_address(transport) != NULL ||
-        mesh_ble_transport_is_connecting(transport)) {
+        mesh_ble_transport_is_connecting(transport) || mesh_ble_transport_is_pairing(transport)) {
         mesh_ble_transport_disconnect(transport);
     }
-    return mesh_ble_transport_connect(transport, identifier);
+    /* A connect the user asked for pairs the node when it needs it; auto-connect's own
+       attempts go through mesh_ble_transport_connect() and never raise a PIN prompt. */
+    return mesh_ble_transport_connect_and_pair(transport, identifier);
 }
 
 static void mesh_app_minui_on_device_selected(void *userdata, const char *identifier) {
@@ -678,6 +686,8 @@ static void mesh_app_track_settings_save(struct mesh_app *app,
 static void mesh_app_format_peer_name(const struct mesh_handshake_status *status, uint32_t node_id,
                                       char *out, size_t out_len);
 
+static void mesh_app_watch_sent(struct mesh_app *app, uint32_t packet_id, const char *peer);
+
 static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) {
     struct mesh_app *app = (struct mesh_app *)userdata;
     if (app == NULL || action == NULL) {
@@ -696,6 +706,10 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
                  "%s", action->identifier);
         app->ui_preferences.preferred_device_kind = action->kind;
         app->ui_preferences_dirty = true;
+        /* Asking for a radio lifts a hold an earlier disconnect put on auto-connect. */
+        app->autoconnect_held = false;
+        app->autoconnect_failures = 0U;
+        app->autoconnect_retry_at_ms = 0U;
 
         /* A user pick beats whatever auto-connect is doing or has done, on either link. */
         const int result = mesh_app_link_connect(app, action->identifier, action->kind);
@@ -727,6 +741,7 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
             snprintf(toast, sizeof toast, "Sent to %s", app->ui_store.nav.target_name);
             mesh_log_info("ui", "Sent \"%s\" to %s (packet %u)", action->text,
                           app->ui_store.nav.target_name, packet_id);
+            mesh_app_watch_sent(app, packet_id, app->ui_store.nav.target_name);
         } else if (result == -ENOTCONN) {
             snprintf(toast, sizeof toast, "%s", "Not connected to a node");
         } else {
@@ -787,6 +802,98 @@ static void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *a
             mesh_log_warn("ui", "Favorite for 0x%08x failed: %d", action->dest, result);
         }
         mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
+    case MESH_UI_ACTION_DISCONNECT: {
+        struct mesh_transport *transport = mesh_app_active_transport();
+        const char *identifier = mesh_app_connected_identifier();
+        char name[64];
+        snprintf(name, sizeof name, "%s",
+                 action->identifier[0] != '\0' ? action->identifier
+                                               : (identifier != NULL ? identifier : ""));
+
+        int result = -ENOTCONN;
+        if (transport == mesh_serial_transport()) {
+            result = mesh_serial_transport_disconnect(transport);
+        } else if (transport != NULL) {
+            result = mesh_ble_transport_disconnect(transport);
+        }
+
+        if (result == 0) {
+            /* Holding auto-connect is the point of the press: without it the next loop turn
+               takes the same radio straight back. */
+            app->autoconnect_held = true;
+            app->ui_report_link_error = false;
+            if (name[0] != '\0') {
+                snprintf(toast, sizeof toast, "Disconnected from %.30s", name);
+            } else {
+                snprintf(toast, sizeof toast, "%s", "Disconnected");
+            }
+            mesh_log_info("ui", "Disconnect requested from the device (%s)",
+                          name[0] != '\0' ? name : "active link");
+        } else if (result == -ENOTCONN) {
+            snprintf(toast, sizeof toast, "%s", "Nothing is connected");
+        } else {
+            snprintf(toast, sizeof toast, "Disconnect failed (%d)", result);
+            mesh_log_warn("ui", "Disconnect failed: %d", result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
+    case MESH_UI_ACTION_FORGET: {
+        if (ble == NULL || action->kind != (uint8_t)MESH_UI_DEVICE_BLE) {
+            mesh_ui_store_set_toast(&app->ui_store, now, "Only Bluetooth nodes are paired");
+            return;
+        }
+        const bool was_connected =
+            (mesh_app_connected_identifier() != NULL &&
+             strcmp(mesh_app_connected_identifier(), action->identifier) == 0);
+        const int result = mesh_ble_transport_forget(ble, action->identifier);
+        if (result == 0) {
+            /* The bond is gone, so a reconnect would only fail on StartNotify until the user
+               pairs again; do not let auto-connect spend the next minute proving it. */
+            if (was_connected) {
+                app->autoconnect_held = true;
+            }
+            snprintf(toast, sizeof toast, "Forgot %.30s; pair again to use it", action->identifier);
+            mesh_log_info("ui", "Forgot BLE node %s", action->identifier);
+        } else if (mesh_transport_registry_take_error(&app->transport_registry, toast,
+                                                      sizeof toast)) {
+            mesh_log_warn("ui", "Forget %s failed: %s (%d)", action->identifier, toast, result);
+        } else {
+            snprintf(toast, sizeof toast, "Could not forget it (%d)", result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
+    case MESH_UI_ACTION_SUBMIT_PASSKEY: {
+        if (ble == NULL) {
+            mesh_ui_store_set_toast(&app->ui_store, now, "BLE transport unavailable");
+            return;
+        }
+        const unsigned long value = strtoul(action->text, NULL, 10);
+        const int result = mesh_ble_transport_submit_passkey(ble, (uint32_t)value);
+        if (result == 0) {
+            snprintf(toast, sizeof toast, "%s", "Pairing...");
+            /* Whatever goes wrong from here is reported by the transport, not by this call. */
+            app->ui_report_link_error = true;
+        } else if (result == -ENOENT) {
+            snprintf(toast, sizeof toast, "%s", "The pairing request expired");
+        } else {
+            snprintf(toast, sizeof toast, "Pairing failed (%d)", result);
+            mesh_log_warn("ui", "Passkey submit failed: %d", result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
+    case MESH_UI_ACTION_CANCEL_PAIRING: {
+        if (ble != NULL) {
+            (void)mesh_ble_transport_cancel_pairing(ble);
+        }
+        /* A cancelled pairing is a cancelled connect: do not let auto-connect start it over. */
+        app->autoconnect_held = true;
+        app->ui_report_link_error = false;
+        mesh_ui_store_set_toast(&app->ui_store, now, "Pairing cancelled");
         return;
     }
     case MESH_UI_ACTION_CHECK_UPDATE: {
@@ -1099,6 +1206,7 @@ static void mesh_app_publish_messages(struct mesh_app *app,
         target->channel = source->channel;
         target->direction = source->direction;
         target->ack = source->ack;
+        target->ack_error = source->ack_error;
         target->broadcast = (source->to == MESH_MESSAGE_BROADCAST_ADDR);
         mesh_app_format_peer_name(status, target->peer, target->peer_name,
                                   sizeof(target->peer_name));
@@ -1317,12 +1425,72 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
     }
 }
 
+/*
+ * Watching a message the user just sent, so its delivery result reaches them. Only a DM with
+ * want_ack has one to wait for; a broadcast is fire-and-forget and is never watched.
+ */
+static void mesh_app_watch_sent(struct mesh_app *app, uint32_t packet_id, const char *peer) {
+    if (app == NULL || packet_id == 0U) {
+        return;
+    }
+    const size_t capacity = sizeof app->ui_sent_watch / sizeof app->ui_sent_watch[0];
+    if (app->ui_sent_watch_count >= capacity) {
+        /* Drop the oldest: a result nobody has seen in eight messages is not news any more. */
+        memmove(&app->ui_sent_watch[0], &app->ui_sent_watch[1],
+                (capacity - 1U) * sizeof app->ui_sent_watch[0]);
+        app->ui_sent_watch_count = capacity - 1U;
+    }
+    struct mesh_app_sent_watch *slot = &app->ui_sent_watch[app->ui_sent_watch_count++];
+    slot->packet_id = packet_id;
+    snprintf(slot->peer, sizeof slot->peer, "%s", peer != NULL ? peer : "");
+}
+
+/* Announces the delivery result of anything being watched, once. Failures only: a delivered
+   message already shows "ok" on its row, and a toast per message would be noise. */
+static void mesh_app_report_delivery(struct mesh_app *app) {
+    if (app == NULL || app->ui_sent_watch_count == 0U) {
+        return;
+    }
+    const struct mesh_message_log *log = mesh_session_messages(&app->session);
+    if (log == NULL) {
+        return;
+    }
+
+    size_t kept = 0U;
+    for (size_t i = 0; i < app->ui_sent_watch_count; ++i) {
+        struct mesh_app_sent_watch *watch = &app->ui_sent_watch[i];
+        const struct mesh_message *message = NULL;
+        for (size_t j = 0; j < log->count; ++j) {
+            const struct mesh_message *entry = mesh_message_log_at(log, j);
+            if (entry != NULL && entry->packet_id == watch->packet_id) {
+                message = entry;
+                break;
+            }
+        }
+        if (message == NULL) {
+            continue; /* evicted from the ring; nothing left to report */
+        }
+        if (message->ack == MESH_MESSAGE_ACK_PENDING) {
+            app->ui_sent_watch[kept++] = *watch;
+            continue;
+        }
+        if (message->ack == MESH_MESSAGE_ACK_FAILED) {
+            char toast[MESH_UI_NAV_TOAST_MAX];
+            snprintf(toast, sizeof toast, "Not delivered to %.16s: %s", watch->peer,
+                     mesh_message_ack_error_to_string(message->ack_error));
+            mesh_ui_store_set_toast(&app->ui_store, mesh_app_now_ms(), toast);
+        }
+    }
+    app->ui_sent_watch_count = kept;
+}
+
 void mesh_app_publish_ui_state(struct mesh_app *app) {
     if (app == NULL) {
         return;
     }
 
     mesh_ui_store_tick(&app->ui_store, mesh_app_now_ms());
+    mesh_app_report_delivery(app);
 
     struct mesh_transport *ble = mesh_ble_transport();
     if (ble == NULL) {
@@ -1371,6 +1539,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         snprintf(slot->name, sizeof slot->name, "%s", serial_devices[i].name);
         slot->kind = (uint8_t)MESH_UI_DEVICE_SERIAL;
         slot->rssi = 0;
+        slot->paired = true; /* a cable has nothing to bond */
         slot->connected = (connected_address != NULL && connected_address[0] != '\0' &&
                            strcmp(connected_address, identifier) == 0);
         if (slot->connected) {
@@ -1381,6 +1550,9 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
 
     struct mesh_bluez_device_info ble_devices[MESH_UI_MAX_DEVICES];
     const size_t ble_count = mesh_ble_transport_get_devices(ble, ble_devices, MESH_UI_MAX_DEVICES);
+    /* Which row the link is working on. Not the same as connected: a BLE connect is several
+       seconds of pairing and service discovery before it is a connection. */
+    const char *pending_address = mesh_ble_transport_pending_address(ble);
     for (size_t i = 0; i < ble_count && device_count < MESH_UI_MAX_DEVICES; ++i) {
         struct mesh_ui_device *slot = &ui_devices[device_count];
         snprintf(slot->identifier, sizeof slot->identifier, "%s", ble_devices[i].address);
@@ -1393,6 +1565,9 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             rssi = INT8_MAX;
         }
         slot->rssi = (int8_t)rssi;
+        slot->paired = ble_devices[i].paired;
+        slot->busy =
+            (pending_address != NULL && strcmp(pending_address, ble_devices[i].address) == 0);
         slot->connected = (connected_address != NULL && connected_address[0] != '\0' &&
                            strcmp(connected_address, ble_devices[i].address) == 0);
         if (slot->connected) {
@@ -1413,6 +1588,35 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     }
 
     mesh_ui_store_set_discovery(&app->ui_store, ui_devices, device_count);
+
+    /*
+     * The BlueZ pairing agent's question, if it has one. It arrives in the middle of a connect
+     * and BlueZ holds the bond open until it is answered, so the prompt is raised from here
+     * rather than by a key press - and taken down again the moment the request is gone,
+     * however it ended.
+     */
+    {
+        struct mesh_ble_pairing_request request;
+        if (mesh_ble_transport_pairing_request(ble, &request)) {
+            /* The advertised name beats a MAC on a 40-column prompt. */
+            char label[MESH_UI_NAV_TARGET_NAME_MAX];
+            snprintf(label, sizeof label, "%s", request.label);
+            for (size_t i = 0; i < device_count; ++i) {
+                if (ui_devices[i].kind == (uint8_t)MESH_UI_DEVICE_BLE &&
+                    ui_devices[i].name[0] != '\0' &&
+                    strcmp(ui_devices[i].identifier, request.address) == 0) {
+                    snprintf(label, sizeof label, "%.*s", (int)(sizeof label - 1U),
+                             ui_devices[i].name);
+                    break;
+                }
+            }
+            mesh_ui_store_open_passkey_prompt(&app->ui_store, label, request.passkey,
+                                              request.kind ==
+                                                  (uint8_t)MESH_BLUEZ_AGENT_REQUEST_CONFIRM);
+        } else {
+            mesh_ui_store_close_passkey_prompt(&app->ui_store);
+        }
+    }
 
     bool preferences_modified = false;
     if (connected_address != NULL && connected_address[0] != '\0') {
@@ -1647,7 +1851,7 @@ static uint64_t mesh_app_backoff_autoconnect(struct mesh_app *app) {
 }
 
 void mesh_app_autoconnect(struct mesh_app *app) {
-    if (app == NULL || app->autoconnect_disabled ||
+    if (app == NULL || app->autoconnect_disabled || app->autoconnect_held ||
         app->config.run_mode != MESH_APP_RUN_FOREGROUND) {
         return;
     }

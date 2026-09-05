@@ -18,8 +18,48 @@ const struct mesh_bluez_device_info *mesh_ble_transport_devices(struct mesh_tran
 size_t mesh_ble_transport_get_devices(struct mesh_transport *transport,
                                       struct mesh_bluez_device_info *out, size_t capacity);
 size_t mesh_ble_transport_refresh_devices(struct mesh_transport *transport);
+/* Connects to a node BlueZ already holds a bond for (or one that needs none). An unpaired
+   node in PIN mode gets as far as GATT and then fails on StartNotify: bonding is deliberate,
+   so it is not started from here. This is the path auto-connect uses. */
 int mesh_ble_transport_connect(struct mesh_transport *transport, const char *address);
+/* The same, but bonds first when the node is not paired - one press of connect covering both,
+   for a connect the user actually asked for. Returns 0 with the link in `pairing` when that is
+   what it started, and the PIN prompt follows from mesh_ble_transport_pairing_request(). Never
+   call it for an automatic connect: it would raise a PIN prompt nobody asked for. */
+int mesh_ble_transport_connect_and_pair(struct mesh_transport *transport, const char *address);
+/* Drops whatever is up, coming up, or pairing. -ENOTCONN when nothing was. */
 int mesh_ble_transport_disconnect(struct mesh_transport *transport);
+
+/*
+ * Pairing, from inside the app. BlueZ does the bonding; we register an org.bluez.Agent1 for it
+ * to ask questions on, and these are how the UI answers them. The one that matters on a
+ * Meshtastic node is the six-digit PIN it shows on its own screen while pairing.
+ */
+struct mesh_ble_pairing_request {
+    uint8_t kind;     /* enum mesh_bluez_agent_request_kind */
+    char address[32]; /* the node BlueZ is bonding with */
+    char label[16];   /* its short form, e.g. "6D:DA", for a one-line prompt */
+    uint32_t passkey; /* CONFIRM only: the number to check against the node's screen */
+};
+
+/* Bonds without connecting afterwards. */
+int mesh_ble_transport_pair(struct mesh_transport *transport, const char *address);
+/* Adapter1.RemoveDevice: drops the bond entirely, which is the fix when the node's PIN has
+   changed under a bond BlueZ still thinks is good. Disconnects first if it is the live link. */
+int mesh_ble_transport_forget(struct mesh_transport *transport, const char *address);
+bool mesh_ble_transport_is_pairing(struct mesh_transport *transport);
+/* The node the link is being brought up on (pairing or connecting), NULL when idle. The
+   connected address stays NULL until GATT is wired, so this is the only way for the Devices
+   tab to mark the row it is working on. */
+const char *mesh_ble_transport_pending_address(struct mesh_transport *transport);
+/* True while BlueZ is blocked on a question for the user (the PIN prompt's whole reason to
+   exist). Poll it each turn; it clears itself once answered, cancelled or timed out. */
+bool mesh_ble_transport_pairing_request(struct mesh_transport *transport,
+                                        struct mesh_ble_pairing_request *out);
+/* Answers a pending request with the digits the user typed. */
+int mesh_ble_transport_submit_passkey(struct mesh_transport *transport, uint32_t passkey);
+/* Rejects a pending request and abandons the pairing. */
+int mesh_ble_transport_cancel_pairing(struct mesh_transport *transport);
 
 struct mesh_ble_transport_stats {
     size_t frames_received;

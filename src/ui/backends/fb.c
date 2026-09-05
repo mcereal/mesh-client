@@ -677,17 +677,21 @@ static void fb_render_thread(const struct mesh_ui_backend_fb_state *state,
     const uint32_t first = fb_first_visible(cursor, count, list_rows);
 
     int y = layout->body_y;
-    char line[300];
+    /* Text (233 bytes at most), the peer, and now a failure reason; fb_fit clips it after. */
+    char line[400];
     for (uint32_t i = first; i < count && i < first + list_rows; ++i) {
         const struct mesh_ui_message *message = &messages->entries[indices[i]];
         const bool outbound = (message->direction == MESH_MESSAGE_OUTBOUND);
         const char *peer = message->peer_name[0] != '\0' ? message->peer_name : "?";
-        char tag[8] = "";
-        if (outbound && message->ack != MESH_MESSAGE_ACK_NONE) {
+        /* A failed message says why: "!!" alone leaves the user with no idea whether to move,
+           retry, or fix a key, and those are different problems. */
+        char tag[48] = "";
+        if (outbound && message->ack == MESH_MESSAGE_ACK_FAILED) {
+            snprintf(tag, sizeof tag, " !! %s",
+                     mesh_message_ack_error_to_string(message->ack_error));
+        } else if (outbound && message->ack != MESH_MESSAGE_ACK_NONE) {
             snprintf(tag, sizeof tag, " %s",
-                     message->ack == MESH_MESSAGE_ACK_DELIVERED ? "ok"
-                     : message->ack == MESH_MESSAGE_ACK_FAILED  ? "!!"
-                                                                : "..");
+                     message->ack == MESH_MESSAGE_ACK_DELIVERED ? "ok" : "..");
         }
         /* In the inbox, say where a line belongs; inside a conversation that is the title. */
         char where[16] = "";
@@ -961,17 +965,28 @@ static void fb_render_picker(const struct mesh_ui_backend_fb_state *state,
 static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
                                const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
-    const bool for_setting = (nav->keyboard_field != MESH_UI_FIELD_NONE);
+    const bool for_passkey = nav->keyboard_passkey;
+    const bool for_setting = (!for_passkey && nav->keyboard_field != MESH_UI_FIELD_NONE);
     const size_t draft_cap =
-        for_setting ? mesh_ui_settings_text_max((enum mesh_ui_setting_field)nav->keyboard_field)
-                    : MESH_UI_DRAFT_MAX - 1U;
+        for_passkey
+            ? 6U
+            : (for_setting
+                   ? mesh_ui_settings_text_max((enum mesh_ui_setting_field)nav->keyboard_field)
+                   : MESH_UI_DRAFT_MAX - 1U);
     char title[96];
-    if (for_setting) {
+    if (for_passkey) {
+        /* The one prompt the user cannot act on without being told what to look at: the digits
+           are on the node's own screen, not anywhere on this one. */
+        snprintf(title, sizeof title,
+                 nav->pairing_confirm ? "Does %s show this?" : "PIN shown on %s",
+                 nav->pairing_label[0] != '\0' ? nav->pairing_label : "the node");
+    } else if (for_setting) {
         snprintf(title, sizeof title, "%s",
                  mesh_ui_settings_field_label((enum mesh_ui_setting_field)nav->keyboard_field));
     } else {
         snprintf(title, sizeof title, "To: %s", nav->target_name);
     }
+    fb_fit(title, layout->cols);
     fb_draw_title(state, layout, title);
 
     const int scale = state->scale;
@@ -1062,16 +1077,35 @@ static void fb_render_devices(const struct mesh_ui_backend_fb_state *state,
         if (name[0] == '\0') {
             name = "<unknown>";
         }
+        /* What pressing A on this row would do. An unpaired BLE node is the case worth
+           calling out: it connects and then fails on StartNotify unless it is bonded first,
+           which is exactly what A now does for it. */
+        const char *badge = "";
+        if (device->connected) {
+            badge = "  connected";
+        } else if (device->busy) {
+            badge = "  working...";
+        } else if (device->kind == (uint8_t)MESH_UI_DEVICE_BLE && !device->paired) {
+            badge = "  needs pairing";
+        } else if (device->kind == (uint8_t)MESH_UI_DEVICE_BLE) {
+            badge = "  paired";
+        }
+
         /* A USB port has no RSSI to show; the badge is what tells the two kinds apart. */
         if (device->kind == (uint8_t)MESH_UI_DEVICE_SERIAL) {
-            snprintf(line, sizeof line, "%c %s  USB%s", device->connected ? '*' : ' ', name,
-                     device->connected ? "  connected" : "");
+            snprintf(line, sizeof line, "%c %s  USB%s", device->connected ? '*' : ' ', name, badge);
         } else {
             snprintf(line, sizeof line, "%c %s  %ddBm%s", device->connected ? '*' : ' ', name,
-                     (int)device->rssi, device->connected ? "  connected" : "");
+                     (int)device->rssi, badge);
         }
         fb_fit(line, layout->cols);
-        fb_draw_row(state, y, line, device->connected ? k_good : k_text, i == cursor);
+        struct fb_rgb colour = k_text;
+        if (device->connected) {
+            colour = k_good;
+        } else if (nav->devices_forget_armed && nav->devices_forget_row == i) {
+            colour = k_bad;
+        }
+        fb_draw_row(state, y, line, colour, i == cursor);
         y += layout->line;
     }
 }
@@ -1304,9 +1338,14 @@ static void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
         return;
     }
     if (snapshot->nav.keyboard_open) {
-        hint = snapshot->nav.keyboard_field != MESH_UI_FIELD_NONE
-                   ? "A type  B delete  X shift  Y space  START done"
-                   : "A type  B delete  X shift  Y space  START send";
+        if (snapshot->nav.keyboard_passkey) {
+            hint = snapshot->nav.pairing_confirm ? "START confirm  B cancel pairing"
+                                                 : "A type digits  START pair  B cancel";
+        } else {
+            hint = snapshot->nav.keyboard_field != MESH_UI_FIELD_NONE
+                       ? "A type  B delete  X shift  Y space  START done"
+                       : "A type  B delete  X shift  Y space  START send";
+        }
         fb_render_keyboard(state, snapshot, &layout);
         fb_draw_footer(state, snapshot, &layout, hint);
         return;
@@ -1334,7 +1373,8 @@ static void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
         fb_render_nodes(state, snapshot, &layout);
         break;
     case MESH_UI_SCREEN_DEVICES:
-        hint = "A connect  Up/Down scroll  L/R tabs";
+        hint = snapshot->nav.devices_forget_armed ? "Y again to forget this node  B cancel"
+                                                  : "A connect  X disconnect  Y forget  L/R tabs";
         fb_render_devices(state, snapshot, &layout);
         break;
     case MESH_UI_SCREEN_SETTINGS:

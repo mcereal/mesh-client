@@ -45,7 +45,7 @@ fragment, and uses the admin path for refreshes and as proof that writes will wo
 | Feature | Protobuf | Notes |
 |---|---|---|
 | Short / long name, licensed operator, unmessageable | `User.short_name` (4 bytes), `long_name` (39 on the wire, 24 kept by the firmware), `is_licensed`, `is_unmessagable` (optional, so `has_is_unmessagable` must be set); written with `set_owner` | The firmware ignores empty names and rejects all-whitespace ones with `BAD_REQUEST`. |
-| Bluetooth PIN mode | `BluetoothConfig.mode` (`RANDOM_PIN`, `FIXED_PIN`, `NO_PIN`), `fixed_pin` | Changing it invalidates the BlueZ pairing. The UI must say so and point at `bluetoothctl pair`. |
+| Bluetooth PIN mode | `BluetoothConfig.mode` (`RANDOM_PIN`, `FIXED_PIN`, `NO_PIN`), `fixed_pin` | Changing it invalidates the BlueZ bond. The UI says so and points at Devices → Y (forget), then connect again to pair with the new PIN. |
 | Device role | `DeviceConfig.role`: CLIENT, CLIENT_MUTE, ROUTER, ROUTER_CLIENT (deprecated), REPEATER (deprecated), TRACKER, SENSOR, TAK, CLIENT_HIDDEN, LOST_AND_FOUND, TAK_TRACKER, ROUTER_LATE, CLIENT_BASE | Hide the deprecated two. |
 | Time zone | `DeviceConfig.tzdef`, a POSIX TZ string (65 bytes) | Shipped as free text on the keyboard; a preset list would still be kinder. |
 | Compass, 12 h clock, units, screen on, carousel | `DisplayConfig.compass_orientation`, `use_12h_clock`, `units`, `screen_on_secs`, `auto_screen_carousel_secs` | Plain enums, toggles and number steppers. |
@@ -131,12 +131,12 @@ to type or copy one; random keys are drawn with `getrandom()` when the write is 
 Bluetooth: enabled, pairing mode, fixed PIN (six digits, validated before the write).
 
 Both sections sit behind a **confirm overlay**: Y opens "Save channel N?" / "Save Bluetooth?"
-with the consequence spelled out (reboot; re-pair with `bluetoothctl`; a new key or name moves
+with the consequence spelled out (reboot; forget and re-pair from Devices; a new key or name moves
 the radio to another channel), cursor on Cancel, A on "Save to radio" emits the write.
 
 - Exit criteria: on the Brick, a secondary channel renamed and re-keyed from the Brick shows
   the same name and key fingerprint in the phone app after the reboot; switching the pairing
-  mode to No PIN, re-pairing once with `bluetoothctl`, and reconnecting works.
+  mode to No PIN, forgetting the node in Devices and connecting again to re-pair, works.
 
 ### Phase 4 - LoRa and Security (this branch)
 

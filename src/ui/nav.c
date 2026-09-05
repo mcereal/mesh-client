@@ -903,6 +903,10 @@ static bool mesh_ui_nav_open_conversation(struct mesh_ui_nav *nav,
 /* The most bytes the draft may hold: the message limit, or the field's cap when the keyboard
    is editing a setting. */
 static size_t mesh_ui_nav_draft_cap(const struct mesh_ui_nav *nav) {
+    if (nav->keyboard_passkey) {
+        /* A seventh digit could only ever be a passkey BlueZ rejects out of range. */
+        return MESH_UI_PASSKEY_DIGITS;
+    }
     if (nav->keyboard_field != MESH_UI_FIELD_NONE) {
         const uint32_t cap =
             mesh_ui_settings_text_max((enum mesh_ui_setting_field)nav->keyboard_field);
@@ -942,6 +946,22 @@ static void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
     nav->kb_row = 0U;
     nav->kb_col = 0U;
     nav->kb_layer = MESH_UI_KB_LOWER;
+    if (nav->keyboard_passkey) {
+        nav->keyboard_passkey = false;
+        nav->pairing_confirm = false;
+        nav->pairing_label[0] = '\0';
+        snprintf(nav->draft, sizeof nav->draft, "%s", nav->draft_saved);
+        nav->draft_saved[0] = '\0';
+        /* The prompt landed on an open keyboard: give it back rather than dropping the user
+           out of what they were editing. */
+        if (nav->keyboard_field_displaced != MESH_UI_FIELD_NONE) {
+            nav->keyboard_field = nav->keyboard_field_displaced;
+            nav->keyboard_field_displaced = MESH_UI_FIELD_NONE;
+            nav->keyboard_open = true;
+            nav->screen = MESH_UI_SCREEN_SETTINGS;
+        }
+        return;
+    }
     if (nav->keyboard_field != MESH_UI_FIELD_NONE) {
         nav->keyboard_field = MESH_UI_FIELD_NONE;
         snprintf(nav->draft, sizeof nav->draft, "%s", nav->draft_saved);
@@ -1204,9 +1224,44 @@ static bool mesh_ui_nav_send_draft(struct mesh_ui_nav *nav, struct mesh_ui_actio
     return true;
 }
 
+/* Send on the PIN prompt. The digits go back to the pairing agent; anything the user typed
+   that is not a digit is dropped rather than refused, because the prompt is blocking a bond
+   and a second chance costs another 30 s of BlueZ. */
+static bool mesh_ui_nav_submit_passkey(struct mesh_ui_nav *nav, struct mesh_ui_action *action) {
+    char digits[MESH_UI_PASSKEY_DIGITS + 1U];
+    size_t len = 0U;
+    for (const char *c = nav->draft; *c != '\0' && len < MESH_UI_PASSKEY_DIGITS; ++c) {
+        if (*c >= '0' && *c <= '9') {
+            digits[len++] = *c;
+        }
+    }
+    digits[len] = '\0';
+    if (len == 0U) {
+        return false; /* nothing to answer with; leave the prompt up */
+    }
+    if (action != NULL) {
+        action->type = MESH_UI_ACTION_SUBMIT_PASSKEY;
+        snprintf(action->text, sizeof action->text, "%s", digits);
+    }
+    nav->draft[0] = '\0';
+    mesh_ui_nav_keyboard_close(nav);
+    return true;
+}
+
+/* Cancel on the PIN prompt, and B with nothing left to delete: the bond is abandoned. */
+static bool mesh_ui_nav_cancel_passkey(struct mesh_ui_nav *nav, struct mesh_ui_action *action) {
+    if (action != NULL) {
+        action->type = MESH_UI_ACTION_CANCEL_PAIRING;
+    }
+    nav->draft[0] = '\0';
+    mesh_ui_nav_keyboard_close(nav);
+    return true;
+}
+
 static bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                      enum mesh_ui_key key, struct mesh_ui_action *action) {
-    const bool for_setting = (nav->keyboard_field != MESH_UI_FIELD_NONE);
+    const bool for_passkey = nav->keyboard_passkey;
+    const bool for_setting = (!for_passkey && nav->keyboard_field != MESH_UI_FIELD_NONE);
     switch (key) {
     case MESH_UI_KEY_UP:
     case MESH_UI_KEY_DOWN: {
@@ -1262,9 +1317,15 @@ static bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_
         case MESH_UI_KB_ACTION_DELETE:
             return mesh_ui_nav_draft_delete(nav);
         case MESH_UI_KB_ACTION_SEND:
+            if (for_passkey) {
+                return mesh_ui_nav_submit_passkey(nav, action);
+            }
             return for_setting ? mesh_ui_nav_settings_commit_text(nav, store)
                                : mesh_ui_nav_send_draft(nav, action);
         case MESH_UI_KB_ACTION_CANCEL:
+            if (for_passkey) {
+                return mesh_ui_nav_cancel_passkey(nav, action);
+            }
             nav->draft[0] = '\0';
             mesh_ui_nav_keyboard_close(nav);
             return true;
@@ -1278,6 +1339,9 @@ static bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_
             return true;
         }
         if (key == MESH_UI_KEY_B) {
+            if (for_passkey) {
+                return mesh_ui_nav_cancel_passkey(nav, action);
+            }
             mesh_ui_nav_keyboard_close(nav);
             return true;
         }
@@ -1290,6 +1354,9 @@ static bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_
         mesh_ui_nav_draft_append(nav, ' ');
         return true;
     case MESH_UI_KEY_START:
+        if (for_passkey) {
+            return mesh_ui_nav_submit_passkey(nav, action);
+        }
         return for_setting ? mesh_ui_nav_settings_commit_text(nav, store)
                            : mesh_ui_nav_send_draft(nav, action);
     case MESH_UI_KEY_SELECT:
@@ -1609,6 +1676,13 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         return mesh_ui_nav_compose_key(nav, key, out_action) || changed;
     }
 
+    /* One press arms Y on the Devices tab; anything else stands it back down. */
+    if (nav->devices_forget_armed &&
+        (key != MESH_UI_KEY_Y || nav->screen != MESH_UI_SCREEN_DEVICES)) {
+        nav->devices_forget_armed = false;
+        changed = true;
+    }
+
     if (nav->screen == MESH_UI_SCREEN_SETTINGS &&
         nav->settings_section != MESH_UI_SETTINGS_NO_SECTION) {
         /* A second press of anything but B stands the discard question down. */
@@ -1652,6 +1726,22 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         }
         return changed;
     case MESH_UI_KEY_X:
+        if (nav->screen == MESH_UI_SCREEN_DEVICES) {
+            /* Only one radio is ever connected, so this does not depend on the row: it drops
+               the link that is up (or the one coming up), which is what stops auto-connect
+               taking the radio straight back. */
+            const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_DEVICES];
+            if (out_action != NULL) {
+                out_action->type = MESH_UI_ACTION_DISCONNECT;
+                if (cursor < store->device_count &&
+                    (store->devices[cursor].connected || store->devices[cursor].busy)) {
+                    snprintf(out_action->identifier, sizeof out_action->identifier, "%s",
+                             store->devices[cursor].identifier);
+                    out_action->kind = store->devices[cursor].kind;
+                }
+            }
+            return changed;
+        }
         if (nav->screen == MESH_UI_SCREEN_NODES) {
             /* The one-press version of the detail's "Pinned to top" row, from either level -
                pinning a node you can see in the list should not cost a drill-down. */
@@ -1677,6 +1767,28 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         }
         return changed;
     case MESH_UI_KEY_Y:
+        if (nav->screen == MESH_UI_SCREEN_DEVICES) {
+            /* Forgetting a bond costs a re-pair with the node's PIN, so the first press only
+               arms it and the backends say so. A press on any other row re-arms from there. */
+            const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_DEVICES];
+            if (cursor >= store->device_count ||
+                store->devices[cursor].kind != (uint8_t)MESH_UI_DEVICE_BLE) {
+                return changed; /* a USB port has no bond to forget */
+            }
+            if (!nav->devices_forget_armed || nav->devices_forget_row != cursor) {
+                nav->devices_forget_armed = true;
+                nav->devices_forget_row = cursor;
+                return true;
+            }
+            nav->devices_forget_armed = false;
+            if (out_action != NULL) {
+                out_action->type = MESH_UI_ACTION_FORGET;
+                out_action->kind = store->devices[cursor].kind;
+                snprintf(out_action->identifier, sizeof out_action->identifier, "%s",
+                         store->devices[cursor].identifier);
+            }
+            return true;
+        }
         if (nav->screen == MESH_UI_SCREEN_MESSAGES) {
             /* In a conversation, write to it. On the list (or in the all-traffic view, which
                has no single destination), pick who to write to first. */
@@ -1707,6 +1819,47 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
     default:
         return changed;
     }
+}
+
+bool mesh_ui_nav_open_passkey(struct mesh_ui_nav *nav, const char *label, uint32_t passkey,
+                              bool confirm) {
+    if (nav == NULL) {
+        return false;
+    }
+    if (nav->keyboard_passkey) {
+        return false; /* already up for this pairing */
+    }
+
+    /* Whatever the keyboard was doing is parked, not lost: the prompt arrives in the middle of
+       whatever the user was typing and BlueZ will not wait for them to finish. That includes a
+       keyboard that is already open - its text and its target both come back on close. */
+    snprintf(nav->draft_saved, sizeof nav->draft_saved, "%s", nav->draft);
+    nav->keyboard_field_displaced = nav->keyboard_open ? nav->keyboard_field : MESH_UI_FIELD_NONE;
+    nav->keyboard_field = MESH_UI_FIELD_NONE;
+    nav->keyboard_passkey = true;
+    nav->pairing_confirm = confirm;
+    snprintf(nav->pairing_label, sizeof nav->pairing_label, "%s", label != NULL ? label : "node");
+    /* A numeric comparison is answered by pressing Send on the number BlueZ handed us; a PIN
+       is typed, so it starts empty. */
+    if (confirm) {
+        snprintf(nav->draft, sizeof nav->draft, "%06u", (unsigned)passkey);
+    } else {
+        nav->draft[0] = '\0';
+    }
+    nav->keyboard_open = true;
+    nav->kb_row = 0U; /* the digit row */
+    nav->kb_col = 0U;
+    nav->kb_layer = MESH_UI_KB_LOWER;
+    return true;
+}
+
+bool mesh_ui_nav_close_passkey(struct mesh_ui_nav *nav) {
+    if (nav == NULL || !nav->keyboard_passkey) {
+        return false;
+    }
+    nav->draft[0] = '\0';
+    mesh_ui_nav_keyboard_close(nav);
+    return true;
 }
 
 void mesh_ui_nav_set_toast(struct mesh_ui_nav *nav, uint64_t now_ms, const char *text) {

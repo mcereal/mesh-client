@@ -41,6 +41,9 @@
 #define MESH_BLE_SERVICES_TIMEOUT_MS 20000U
 /* How long to wait for BlueZ to answer Device1.Connect before giving up on the attempt. */
 #define MESH_BLE_CONNECT_TIMEOUT_MS 30000U
+/* How long a Device1.Pair may run. The clock is stopped while the agent is waiting on the user,
+   so this bounds BlueZ's own work rather than how long someone takes to type six digits. */
+#define MESH_BLE_PAIR_TIMEOUT_MS 45000U
 
 enum mesh_ble_state {
     MESH_BLE_STATE_DISABLED = 0,
@@ -52,6 +55,9 @@ enum mesh_ble_state {
 
 enum mesh_ble_link_state {
     MESH_BLE_LINK_DISCONNECTED = 0,
+    /* Bonding with BlueZ before the link is even attempted. A node in PIN mode has to get
+       through this before any of its characteristics will answer. */
+    MESH_BLE_LINK_PAIRING,
     MESH_BLE_LINK_CONNECTING,
     MESH_BLE_LINK_CONNECTED,
 };
@@ -82,7 +88,22 @@ struct mesh_ble_transport_state {
     uint64_t connect_started_ms;    /* Device1.Connect returned; link_state is CONNECTING */
     uint64_t next_services_poll_ms; /* earliest next ServicesResolved poll */
     bool services_wait_logged;
-    bool connect_pending;       /* Device1.Connect sent, reply not yet seen */
+    bool connect_pending; /* Device1.Connect sent, reply not yet seen */
+    /* In-flight pairing: which node, and whether a connect should follow it (the Devices tab
+       asks for one press, so an unpaired node pairs and then connects). */
+    char pairing_address[32];
+    bool pair_then_connect;
+    /* Whether a human is watching: an attended pairing may ask for a PIN, an unattended one
+       (auto-connect reaching an unpaired node) must answer or refuse on its own. */
+    bool pair_attended;
+    /* Set when we refused a PIN request ourselves, so the failure that follows is reported as
+       "needs a human" rather than as a wrong PIN. */
+    bool pair_refused_pin;
+    /* A node that asked an unattended bond for a PIN. Auto-connect stops trying to bond it -
+       it can only ever fail, and each attempt is a failed pairing at the node - until the user
+       connects to it from the Devices tab. */
+    char pair_needs_pin_address[32];
+    uint64_t pair_started_ms;
     uint64_t next_link_poll_ms; /* earliest next Device1.Connected check while CONNECTED */
     bool drain_pending;         /* more FromRadio packets may be waiting */
     uint64_t drain_retry_at_ms; /* earliest time to run the pending drain (0 = now) */
@@ -162,6 +183,7 @@ static const char *mesh_ble_state_to_string(enum mesh_ble_state state) {
 }
 
 static size_t mesh_ble_refresh_devices_internal(struct mesh_transport *transport);
+static size_t mesh_ble_reload_devices(struct mesh_ble_transport_state *state);
 static void mesh_ble_clear_write_queue(struct mesh_ble_transport_state *state);
 static int mesh_ble_queue_packet(struct mesh_ble_transport_state *state, const uint8_t *packet,
                                  size_t len, uint32_t packet_id);
@@ -172,7 +194,13 @@ static void mesh_ble_schedule_drain(struct mesh_ble_transport_state *state, uint
 static void mesh_ble_reset_link(struct mesh_ble_transport_state *state, const char *reason);
 static void mesh_ble_notification_handler(const uint8_t *data, size_t len, void *userdata);
 static void mesh_ble_poll_connecting(struct mesh_ble_transport_state *state);
+static void mesh_ble_poll_pairing(struct mesh_ble_transport_state *state);
+static int mesh_ble_begin_pair(struct mesh_ble_transport_state *state, const char *address,
+                               bool then_connect, bool attended);
+static void mesh_ble_service_agent(struct mesh_ble_transport_state *state);
 static int mesh_ble_complete_connect(struct mesh_ble_transport_state *state);
+static int mesh_ble_do_connect(struct mesh_ble_transport_state *state, const char *address,
+                               bool allow_pair);
 
 static uint64_t mesh_ble_now_ms(void) {
     struct timespec ts;
@@ -191,8 +219,13 @@ static void mesh_ble_tick(struct mesh_transport *transport) {
     uint64_t now = mesh_ble_now_ms();
     if (state != NULL && state->client_initialised) {
         mesh_bluez_client_process(&state->bluez);
+        /* Before anything else: a question from the pairing agent that nothing is waiting on
+           has to be refused rather than left to expire on BlueZ's own timeout. */
+        mesh_ble_service_agent(state);
         (void)mesh_ble_flush_write_queue(state);
-        if (state->link_state == MESH_BLE_LINK_CONNECTING) {
+        if (state->link_state == MESH_BLE_LINK_PAIRING) {
+            mesh_ble_poll_pairing(state);
+        } else if (state->link_state == MESH_BLE_LINK_CONNECTING) {
             mesh_ble_poll_connecting(state);
         } else if (state->link_state == MESH_BLE_LINK_CONNECTED &&
                    now >= state->next_link_poll_ms) {
@@ -361,6 +394,10 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     state->link_state = MESH_BLE_LINK_DISCONNECTED;
     state->connected_address[0] = '\0';
     state->connected_device_path[0] = '\0';
+    state->pairing_address[0] = '\0';
+    state->pair_then_connect = false;
+    state->pair_needs_pin_address[0] = '\0';
+    state->pair_started_ms = 0U;
     state->notifications_enabled = false;
     memset(&state->chars, 0, sizeof(state->chars));
     state->frames_received = 0U;
@@ -443,6 +480,16 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     }
 
     snprintf(state->adapter_path, sizeof(state->adapter_path), "%s", adapter_path);
+
+    /* Registering the pairing agent is what lets a PIN-mode node be bonded from inside the app
+       instead of from bluetoothctl. Not fatal: without it, connecting to such a node still
+       fails the way it always did, with "needs pairing" on screen. */
+    int agent_result = mesh_bluez_client_register_agent(&state->bluez);
+    if (agent_result < 0) {
+        mesh_log_warn("ble", "No pairing agent (%d); PIN-mode nodes must be paired out of band",
+                      agent_result);
+    }
+
     int discovery_result = mesh_bluez_client_start_discovery(&state->bluez, state->adapter_path);
     if (discovery_result < 0) {
         mesh_log_warn("ble", "StartDiscovery failed on %s: %s", state->adapter_path,
@@ -490,6 +537,9 @@ static void mesh_ble_stop(struct mesh_transport *transport) {
     mesh_ble_teardown_drain_wake(state);
 
     if (state->client_initialised) {
+        if (state->link_state == MESH_BLE_LINK_PAIRING) {
+            mesh_bluez_client_pair_cancel(&state->bluez);
+        }
         /* A CONNECTING link is up at the controller even though setup never finished. */
         if (state->link_state != MESH_BLE_LINK_DISCONNECTED &&
             state->connected_device_path[0] != '\0') {
@@ -508,6 +558,9 @@ static void mesh_ble_stop(struct mesh_transport *transport) {
     state->link_state = MESH_BLE_LINK_DISCONNECTED;
     state->connected_address[0] = '\0';
     state->connected_device_path[0] = '\0';
+    state->pairing_address[0] = '\0';
+    state->pair_then_connect = false;
+    state->pair_needs_pin_address[0] = '\0';
     state->notifications_enabled = false;
     state->drain_pending = false;
     memset(&state->chars, 0, sizeof(state->chars));
@@ -527,6 +580,9 @@ static const char *mesh_ble_status(const struct mesh_transport *transport) {
     const struct mesh_ble_transport_state *state =
         (const struct mesh_ble_transport_state *)transport->state;
     if (state->state == MESH_BLE_STATE_READY) {
+        if (state->link_state == MESH_BLE_LINK_PAIRING) {
+            return "pairing";
+        }
         if (state->link_state == MESH_BLE_LINK_CONNECTING) {
             return "connecting";
         }
@@ -613,12 +669,11 @@ const struct mesh_bluez_device_info *mesh_ble_transport_devices(struct mesh_tran
     return state->devices;
 }
 
-static size_t mesh_ble_refresh_devices_internal(struct mesh_transport *transport) {
-    if (transport == NULL) {
+static size_t mesh_ble_reload_devices(struct mesh_ble_transport_state *state) {
+    if (state == NULL) {
         return 0U;
     }
 
-    struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
     size_t device_count = 0;
     int list_result = mesh_bluez_client_list_meshtastic(
         &state->bluez, state->devices, sizeof(state->devices) / sizeof(state->devices[0]),
@@ -638,6 +693,13 @@ static size_t mesh_ble_refresh_devices_internal(struct mesh_transport *transport
                        state->devices[i].address, (int)state->devices[i].rssi);
     }
     return state->device_count;
+}
+
+static size_t mesh_ble_refresh_devices_internal(struct mesh_transport *transport) {
+    if (transport == NULL) {
+        return 0U;
+    }
+    return mesh_ble_reload_devices((struct mesh_ble_transport_state *)transport->state);
 }
 
 /* Drops everything still queued. Messages among them never reached the radio, so their
@@ -792,8 +854,27 @@ int mesh_ble_transport_connect(struct mesh_transport *transport, const char *add
     if (transport == NULL || address == NULL) {
         return -EINVAL;
     }
+    return mesh_ble_do_connect((struct mesh_ble_transport_state *)transport->state, address, false);
+}
 
-    struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
+int mesh_ble_transport_connect_and_pair(struct mesh_transport *transport, const char *address) {
+    if (transport == NULL || address == NULL) {
+        return -EINVAL;
+    }
+    return mesh_ble_do_connect((struct mesh_ble_transport_state *)transport->state, address, true);
+}
+
+/*
+ * `allow_pair` is what keeps one press of A on an unpaired node doing the whole job: the first
+ * call bonds and comes back here with it clear once BlueZ says the bond is in place, rather
+ * than looking at a Paired flag that the device-list refresh may not have caught up with yet.
+ */
+static int mesh_ble_do_connect(struct mesh_ble_transport_state *state, const char *address,
+                               bool allow_pair) {
+    if (state == NULL || address == NULL) {
+        return -EINVAL;
+    }
+
     /* A new attempt supersedes whatever the last one failed with. */
     state->last_error[0] = '\0';
 
@@ -814,18 +895,43 @@ int mesh_ble_transport_connect(struct mesh_transport *transport, const char *add
     if (state->link_state == MESH_BLE_LINK_CONNECTING) {
         return strcmp(state->connected_address, address) == 0 ? -EINPROGRESS : -EBUSY;
     }
+    if (state->link_state == MESH_BLE_LINK_PAIRING) {
+        return strcmp(state->pairing_address, address) == 0 ? -EINPROGRESS : -EBUSY;
+    }
 
     const struct mesh_bluez_device_info *devices = state->devices;
-    bool found = false;
+    const struct mesh_bluez_device_info *device = NULL;
     for (size_t i = 0; i < state->device_count; ++i) {
         if (strcmp(devices[i].address, address) == 0) {
-            found = true;
+            device = &devices[i];
             break;
         }
     }
-    if (!found) {
+    if (device == NULL) {
         mesh_ble_set_error(state, "%s is not in range", mesh_ble_short_label(address));
         return -ENOENT;
+    }
+
+    /*
+     * An unpaired node is bonded first, whoever asked for the connect. Letting the bond happen
+     * implicitly inside StartNotify instead is what deadlocks: that is a blocking D-Bus call,
+     * BlueZ answers it by asking our agent, and the loop that would answer the agent is the
+     * one sitting in the call. An unattended bond (auto-connect) then refuses a PIN request
+     * rather than prompting for one; see mesh_ble_service_agent().
+     */
+    if (!device->paired) {
+        if (!allow_pair && strcmp(address, state->pair_needs_pin_address) == 0) {
+            /* Already established that this one wants a PIN. Retrying on a timer is a failed
+               pairing at the node every few seconds and can never end differently. */
+            mesh_ble_set_error(state, "%s needs pairing; press A on it in Devices",
+                               mesh_ble_short_label(address));
+            return -EACCES;
+        }
+        return mesh_ble_begin_pair(state, address, true, allow_pair);
+    }
+    /* Bonded: whatever it wanted before, it is not waiting on a human now. */
+    if (strcmp(address, state->pair_needs_pin_address) == 0) {
+        state->pair_needs_pin_address[0] = '\0';
     }
 
     char device_path[sizeof(state->connected_device_path)];
@@ -952,12 +1058,13 @@ static int mesh_ble_complete_connect(struct mesh_ble_transport_state *state) {
            pairing mode has to be bonded with BlueZ out of band before its characteristics will
            notify. Say so instead of printing an errno. */
         if (result == -EACCES) {
-            mesh_ble_set_error(state, "%s needs pairing (PIN mode)", mesh_ble_short_label(address));
+            mesh_ble_set_error(state, "%s needs pairing; press A on it in Devices",
+                               mesh_ble_short_label(address));
         } else if (result == -ENOTCONN) {
             /* BlueZ answers "Not Connected" instead of "Not paired" when the node has already
                torn the ACL down by the time StartNotify goes out - which is what an unpaired
                node in PIN mode does after a couple of refused attempts. Same fix either way. */
-            mesh_ble_set_error(state, "%s dropped the link; pair it first",
+            mesh_ble_set_error(state, "%s dropped the link; press A on it in Devices to pair",
                                mesh_ble_short_label(address));
         } else {
             mesh_ble_set_error(state, "%s: could not subscribe (%d)", mesh_ble_short_label(address),
@@ -1014,6 +1121,322 @@ static void mesh_ble_reset_link(struct mesh_ble_transport_state *state, const ch
     mesh_log_info("ble", "Disconnected from Meshtastic node (%s)", reason);
 }
 
+/* ---- pairing ---------------------------------------------------------------------------------
+ *
+ * BlueZ bonds; we only drive it and carry the PIN. The pairing itself is asynchronous twice
+ * over - Device1.Pair does not answer until the bond is done, and the bond does not finish
+ * until our agent has answered BlueZ's question - so both live in tick() rather than blocking
+ * the loop. `pair_then_connect` is what makes one press of A on an unpaired node pair it and
+ * then connect.
+ */
+
+/* "/org/bluez/hci0/dev_FB_17_7C_37_6D_DA" -> "FB:17:7C:37:6D:DA". The inverse of
+   mesh_ble_format_device_path(), for naming the node an agent request came in for. */
+static bool mesh_ble_address_from_path(const char *device_path, char *out, size_t out_len) {
+    if (device_path == NULL || out == NULL || out_len == 0U) {
+        return false;
+    }
+    const char *dev = strstr(device_path, "/dev_");
+    if (dev == NULL) {
+        return false;
+    }
+    dev += 5;
+    size_t written = 0U;
+    while (*dev != '\0' && *dev != '/' && written + 1U < out_len) {
+        out[written++] = (*dev == '_') ? ':' : *dev;
+        dev++;
+    }
+    out[written] = '\0';
+    return written > 0U;
+}
+
+static int mesh_ble_begin_pair(struct mesh_ble_transport_state *state, const char *address,
+                               bool then_connect, bool attended) {
+    char device_path[sizeof(state->connected_device_path)];
+    if (!mesh_ble_format_device_path(state, address, device_path, sizeof(device_path))) {
+        return -EINVAL;
+    }
+
+    if (attended) {
+        state->pair_needs_pin_address[0] = '\0';
+    }
+
+    int result = mesh_bluez_client_pair_begin(&state->bluez, device_path);
+    if (result < 0) {
+        mesh_ble_set_error(state, "%s: could not start pairing (%d)", mesh_ble_short_label(address),
+                           result);
+        return result;
+    }
+
+    state->link_state = MESH_BLE_LINK_PAIRING;
+    state->pair_then_connect = then_connect;
+    state->pair_attended = attended;
+    state->pair_refused_pin = false;
+    state->pair_started_ms = mesh_ble_now_ms();
+    snprintf(state->pairing_address, sizeof(state->pairing_address), "%s", address);
+    mesh_log_info("ble", "Pairing with %s", address);
+    /* With the mock (and with a node that needs no PIN) this can already be done. */
+    mesh_ble_poll_pairing(state);
+    return 0;
+}
+
+/* Puts the link back down after a pairing that will not be continued. */
+static void mesh_ble_end_pairing(struct mesh_ble_transport_state *state) {
+    state->link_state = MESH_BLE_LINK_DISCONNECTED;
+    state->pairing_address[0] = '\0';
+    state->pair_then_connect = false;
+    state->pair_attended = false;
+    state->pair_started_ms = 0U;
+}
+
+/*
+ * The agent's questions, answered from the loop rather than from the UI where they can be.
+ * Three cases, and the first two are why this exists at all:
+ *  - nobody asked for this bond (BlueZ started one behind a GATT operation): refuse it, or a
+ *    PIN prompt appears over whatever the user was doing for a node they never picked;
+ *  - an unattended bond (auto-connect on an unpaired node) cannot ask anyone for a PIN, so it
+ *    refuses one and accepts the questions that need no human;
+ *  - an attended bond leaves the question standing for the prompt the app raises from it.
+ */
+static void mesh_ble_service_agent(struct mesh_ble_transport_state *state) {
+    struct mesh_bluez_agent_request request;
+    if (state == NULL || !state->client_initialised ||
+        !mesh_bluez_client_agent_request(&state->bluez, &request)) {
+        return;
+    }
+    if (state->link_state != MESH_BLE_LINK_PAIRING) {
+        mesh_log_warn("ble", "Refusing a pairing request nobody asked for (%s)",
+                      request.device_path);
+        (void)mesh_bluez_client_agent_reject(&state->bluez);
+        return;
+    }
+    if (state->pair_attended) {
+        return; /* the UI is answering this one */
+    }
+    if (request.kind == MESH_BLUEZ_AGENT_REQUEST_CONFIRM) {
+        /* Just Works, which is what a node with no PIN set ends up in: nothing to ask. */
+        (void)mesh_bluez_client_agent_confirm(&state->bluez);
+        return;
+    }
+    mesh_log_info("ble", "%s wants a PIN; connect to it from the Devices tab to enter one",
+                  state->pairing_address);
+    state->pair_refused_pin = true;
+    snprintf(state->pair_needs_pin_address, sizeof(state->pair_needs_pin_address), "%s",
+             state->pairing_address);
+    (void)mesh_bluez_client_agent_reject(&state->bluez);
+}
+
+static void mesh_ble_poll_pairing(struct mesh_ble_transport_state *state) {
+    if (state == NULL || state->link_state != MESH_BLE_LINK_PAIRING) {
+        return;
+    }
+
+    mesh_ble_service_agent(state);
+
+    int pair_result = 0;
+    const int poll = mesh_bluez_client_pair_poll(&state->bluez, &pair_result);
+    if (poll == 0) {
+        /* The timeout is on BlueZ, not on the user: while the agent is holding a question the
+           clock is stopped, or a PIN prompt left on screen would cancel itself. */
+        struct mesh_bluez_agent_request request;
+        if (mesh_bluez_client_agent_request(&state->bluez, &request)) {
+            state->pair_started_ms = mesh_ble_now_ms();
+            return;
+        }
+        if (mesh_ble_now_ms() - state->pair_started_ms >= MESH_BLE_PAIR_TIMEOUT_MS) {
+            mesh_log_warn("ble", "Pairing with %s timed out", state->pairing_address);
+            mesh_ble_set_error(state, "%s: pairing timed out",
+                               mesh_ble_short_label(state->pairing_address));
+            mesh_bluez_client_pair_cancel(&state->bluez);
+            mesh_ble_end_pairing(state);
+        }
+        return;
+    }
+
+    if (poll < 0 || pair_result < 0) {
+        mesh_log_warn("ble", "Pairing with %s failed (%d)", state->pairing_address, pair_result);
+        if (state->pair_refused_pin) {
+            /* We are the ones who said no: the node wanted a PIN and nobody was there to type
+               it. Saying "wrong PIN" here would send the user looking for a typo. */
+            mesh_ble_set_error(state, "%s needs pairing; press A on it in Devices",
+                               mesh_ble_short_label(state->pairing_address));
+        } else {
+            mesh_ble_set_error(state, "%s: %s", mesh_ble_short_label(state->pairing_address),
+                               pair_result == -EACCES ? "wrong PIN" : "pairing failed");
+        }
+        mesh_bluez_client_pair_cancel(&state->bluez);
+        mesh_ble_end_pairing(state);
+        return;
+    }
+
+    char device_path[sizeof(state->connected_device_path)];
+    if (mesh_ble_format_device_path(state, state->pairing_address, device_path,
+                                    sizeof(device_path))) {
+        /* Trusted is what keeps the next connect from needing the agent (and the PIN) again. */
+        int trusted = mesh_bluez_client_set_trusted(&state->bluez, device_path, true);
+        if (trusted < 0) {
+            mesh_log_debug("ble", "Could not mark %s trusted (%d)", state->pairing_address,
+                           trusted);
+        }
+    }
+    mesh_log_info("ble", "Paired with %s", state->pairing_address);
+
+    char address[sizeof(state->pairing_address)];
+    snprintf(address, sizeof(address), "%s", state->pairing_address);
+    const bool then_connect = state->pair_then_connect;
+    mesh_ble_end_pairing(state);
+    /* The Paired flag the UI shows comes from BlueZ, so re-read the list rather than guessing
+       at it - and the connect below needs the node to still be in that list. */
+    (void)mesh_ble_reload_devices(state);
+    state->last_refresh_ms = mesh_ble_now_ms();
+
+    if (then_connect) {
+        int result = mesh_ble_do_connect(state, address, false);
+        if (result < 0 && result != -EALREADY && result != -EINPROGRESS) {
+            mesh_log_warn("ble", "Connect after pairing with %s failed (%d)", address, result);
+        }
+    }
+}
+
+int mesh_ble_transport_pair(struct mesh_transport *transport, const char *address) {
+    if (transport == NULL || transport->state == NULL || address == NULL) {
+        return -EINVAL;
+    }
+    struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
+    state->last_error[0] = '\0';
+    if (!state->client_initialised || state->state != MESH_BLE_STATE_READY) {
+        mesh_ble_set_error(state, "Bluetooth is not ready yet");
+        return -ENOTCONN;
+    }
+    if (state->link_state == MESH_BLE_LINK_PAIRING) {
+        return strcmp(state->pairing_address, address) == 0 ? -EINPROGRESS : -EBUSY;
+    }
+    return mesh_ble_begin_pair(state, address, false, true);
+}
+
+int mesh_ble_transport_forget(struct mesh_transport *transport, const char *address) {
+    if (transport == NULL || transport->state == NULL || address == NULL) {
+        return -EINVAL;
+    }
+    struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
+    if (!state->client_initialised) {
+        return -ENOTCONN;
+    }
+
+    /* Forgetting the node we are talking to would leave a link BlueZ no longer has a record
+       of, so the link goes down first. */
+    if (state->link_state != MESH_BLE_LINK_DISCONNECTED &&
+        strcmp(state->connected_address, address) == 0) {
+        (void)mesh_ble_transport_disconnect(transport);
+    }
+    if (state->link_state == MESH_BLE_LINK_PAIRING &&
+        strcmp(state->pairing_address, address) == 0) {
+        mesh_bluez_client_pair_cancel(&state->bluez);
+        mesh_ble_end_pairing(state);
+    }
+
+    char device_path[sizeof(state->connected_device_path)];
+    if (!mesh_ble_format_device_path(state, address, device_path, sizeof(device_path))) {
+        return -EINVAL;
+    }
+    int result = mesh_bluez_client_remove_device(&state->bluez, state->adapter_path, device_path);
+    if (result < 0) {
+        mesh_ble_set_error(state, "%s: could not be forgotten (%d)", mesh_ble_short_label(address),
+                           result);
+        return result;
+    }
+    if (strcmp(address, state->pair_needs_pin_address) == 0) {
+        state->pair_needs_pin_address[0] = '\0';
+    }
+    mesh_log_info("ble", "Forgot %s", address);
+    /* BlueZ has dropped its record; the node reappears on the next advertisement, unpaired. */
+    (void)mesh_ble_reload_devices(state);
+    state->last_refresh_ms = mesh_ble_now_ms();
+    return 0;
+}
+
+const char *mesh_ble_transport_pending_address(struct mesh_transport *transport) {
+    if (transport == NULL || transport->state == NULL) {
+        return NULL;
+    }
+    const struct mesh_ble_transport_state *state =
+        (const struct mesh_ble_transport_state *)transport->state;
+    if (state->link_state == MESH_BLE_LINK_PAIRING) {
+        return state->pairing_address[0] != '\0' ? state->pairing_address : NULL;
+    }
+    if (state->link_state == MESH_BLE_LINK_CONNECTING) {
+        return state->connected_address[0] != '\0' ? state->connected_address : NULL;
+    }
+    return NULL;
+}
+
+bool mesh_ble_transport_is_pairing(struct mesh_transport *transport) {
+    if (transport == NULL || transport->state == NULL) {
+        return false;
+    }
+    const struct mesh_ble_transport_state *state =
+        (const struct mesh_ble_transport_state *)transport->state;
+    return state->link_state == MESH_BLE_LINK_PAIRING;
+}
+
+bool mesh_ble_transport_pairing_request(struct mesh_transport *transport,
+                                        struct mesh_ble_pairing_request *out) {
+    if (transport == NULL || transport->state == NULL) {
+        return false;
+    }
+    struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
+    struct mesh_bluez_agent_request request;
+    if (!state->client_initialised || !mesh_bluez_client_agent_request(&state->bluez, &request)) {
+        return false;
+    }
+    if (out != NULL) {
+        memset(out, 0, sizeof(*out));
+        out->kind = (uint8_t)request.kind;
+        out->passkey = request.passkey;
+        if (!mesh_ble_address_from_path(request.device_path, out->address, sizeof(out->address))) {
+            snprintf(out->address, sizeof(out->address), "%s", state->pairing_address);
+        }
+        snprintf(out->label, sizeof(out->label), "%s", mesh_ble_short_label(out->address));
+    }
+    return true;
+}
+
+int mesh_ble_transport_submit_passkey(struct mesh_transport *transport, uint32_t passkey) {
+    if (transport == NULL || transport->state == NULL) {
+        return -EINVAL;
+    }
+    struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
+    if (!state->client_initialised) {
+        return -ENOTCONN;
+    }
+    int result = mesh_bluez_client_agent_submit_passkey(&state->bluez, passkey);
+    if (result == 0) {
+        /* BlueZ can take several seconds from here; the clock restarts now that it is its turn
+           to work again. */
+        state->pair_started_ms = mesh_ble_now_ms();
+        mesh_ble_poll_pairing(state);
+    }
+    return result;
+}
+
+int mesh_ble_transport_cancel_pairing(struct mesh_transport *transport) {
+    if (transport == NULL || transport->state == NULL) {
+        return -EINVAL;
+    }
+    struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
+    if (!state->client_initialised) {
+        return -ENOTCONN;
+    }
+    if (state->link_state != MESH_BLE_LINK_PAIRING) {
+        (void)mesh_bluez_client_agent_reject(&state->bluez);
+        return -ENOENT;
+    }
+    mesh_log_info("ble", "Pairing with %s cancelled", state->pairing_address);
+    mesh_bluez_client_pair_cancel(&state->bluez);
+    mesh_ble_end_pairing(state);
+    return 0;
+}
+
 int mesh_ble_transport_check_link(struct mesh_transport *transport) {
     if (transport == NULL || transport->state == NULL) {
         return -EINVAL;
@@ -1045,8 +1468,20 @@ int mesh_ble_transport_disconnect(struct mesh_transport *transport) {
     }
 
     struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
-    if (state->link_state != MESH_BLE_LINK_CONNECTED) {
+    if (state->link_state == MESH_BLE_LINK_PAIRING) {
+        /* Nothing is connected yet, but the user asking to stop still has to stop it. */
+        mesh_bluez_client_pair_cancel(&state->bluez);
+        mesh_ble_end_pairing(state);
+        return 0;
+    }
+    if (state->link_state == MESH_BLE_LINK_DISCONNECTED) {
         return -ENOTCONN;
+    }
+    if (state->link_state == MESH_BLE_LINK_CONNECTING) {
+        /* The ACL is up at the controller even though GATT setup never finished, so this has
+           to go through the same teardown rather than just forgetting the attempt. */
+        mesh_ble_reset_link(state, "requested");
+        return 0;
     }
 
     int result = mesh_bluez_client_disconnect(&state->bluez, state->connected_device_path);
