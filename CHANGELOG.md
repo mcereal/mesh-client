@@ -1,3 +1,17 @@
+## [2.0.2](https://github.com/mcereal/mesh-client/compare/v2.0.1...v2.0.2) (2026-09-05)
+
+### Documentation
+
+* point the file maps at the split layout ([120e360](https://github.com/mcereal/mesh-client/commit/120e360c6a5c50b2aa664a37fbfca869c4e0fa88))
+
+### Code Refactoring
+
+* **core:** split app.c into four files along its existing seams ([f9e34e7](https://github.com/mcereal/mesh-client/commit/f9e34e7e78b11f0c67e99fd01b6d7ffe5ba4486a))
+* **ui:** split fb.c into draw, screens and backend layers ([28a5de1](https://github.com/mcereal/mesh-client/commit/28a5de16959076208e59af7c87b7828545779285))
+* **ui:** split nav.c into five files, one per subject ([bfb2a15](https://github.com/mcereal/mesh-client/commit/bfb2a15c83c04f94dd3f20dcaebea651ff24617c))
+* **ui:** split settings.c into model, codec and rows ([bcedef1](https://github.com/mcereal/mesh-client/commit/bcedef1e5d481cb2713ab53cced28fa272ec0ae7))
+* **utils:** fold four duplicated primitives into shared helpers ([61aec30](https://github.com/mcereal/mesh-client/commit/61aec3020fbf407f3b37d27d75df53e0d1a453b9))
+
 ## [2.0.1](https://github.com/mcereal/mesh-client/compare/v2.0.0...v2.0.1) (2026-09-05)
 
 ### Code Refactoring
