@@ -8154,8 +8154,8 @@ static void test_ui_node_detail_items(void) {
     node.snr = -4.5f;
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    uint32_t count =
-        mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, items, MESH_UI_NODE_ITEMS_MAX);
+    uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, items,
+                                               MESH_UI_NODE_ITEMS_MAX);
     if (count != mesh_ui_node_detail_count(&node, false, NULL)) {
         record_failure(test_name, "the count the nav walks disagrees with the built list");
         return;
@@ -8189,7 +8189,8 @@ static void test_ui_node_detail_items(void) {
     /* Our own node cannot be messaged and its SNR against itself means nothing. */
     const uint32_t self_count = mesh_ui_node_detail_count(&node, true, NULL);
     struct mesh_ui_node_item self_items[MESH_UI_NODE_ITEMS_MAX];
-    mesh_ui_node_detail_build(&node, true, 1750000600U, NULL, self_items, MESH_UI_NODE_ITEMS_MAX);
+    mesh_ui_node_detail_build(&node, true, 1750000600U, NULL, false, self_items,
+                              MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0; i < self_count; ++i) {
         if (self_items[i].kind == MESH_UI_NODE_ROW_ACTION ||
             strcmp(self_items[i].label, "SNR") == 0) {
@@ -8210,8 +8211,8 @@ static void test_ui_node_detail_items(void) {
     node.environment.has_temperature = true;
     node.environment.temperature = 20.0f;
 
-    count =
-        mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, items, MESH_UI_NODE_ITEMS_MAX);
+    count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, items,
+                                      MESH_UI_NODE_ITEMS_MAX);
     bool battery_ok = false;
     bool latitude_ok = false;
     bool temperature_ok = false;
@@ -8566,7 +8567,7 @@ static void test_ui_nav_node_favorite(void) {
     }
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count = mesh_ui_node_detail_build(&store.handshake.nodes[1], false, 0U, NULL,
-                                                     items, MESH_UI_NODE_ITEMS_MAX);
+                                                     false, items, MESH_UI_NODE_ITEMS_MAX);
     uint32_t favorite_row = count;
     for (uint32_t i = 0; i < count; ++i) {
         if (items[i].action == MESH_UI_NODE_ACTION_FAVORITE) {
@@ -10293,20 +10294,19 @@ static void test_message_routing_failure_reason(void) {
  * radio stops answering in the middle of doing what it was asked, so an ack that never lands
  * must not surface as a rejected save.
  */
-static bool test_action_encodes_as(enum mesh_admin_request_kind kind,
-                                   meshtastic_AdminMessage *out_admin) {
-    struct mesh_radio_settings settings;
-    mesh_radio_settings_reset(&settings);
+static bool test_admin_encodes(const struct mesh_radio_settings *settings,
+                               enum mesh_admin_request_kind kind, uint32_t type,
+                               meshtastic_AdminMessage *out_admin) {
     struct mesh_admin_request request;
     memset(&request, 0, sizeof request);
     request.kind = kind;
-    request.type = MESH_RADIO_ACTION_DELAY_SECONDS;
+    request.type = type;
     request.my_node = 0x1234U;
     request.packet_id = 90U;
 
     uint8_t buffer[512];
     size_t written = 0U;
-    if (mesh_radio_settings_encode_request(&settings, &request, buffer, sizeof buffer, &written) !=
+    if (mesh_radio_settings_encode_request(settings, &request, buffer, sizeof buffer, &written) !=
         0) {
         return false;
     }
@@ -10321,6 +10321,13 @@ static bool test_action_encodes_as(enum mesh_admin_request_kind kind,
     in = pb_istream_from_buffer(to_radio.packet.decoded.payload.bytes,
                                 to_radio.packet.decoded.payload.size);
     return pb_decode(&in, meshtastic_AdminMessage_fields, out_admin);
+}
+
+static bool test_action_encodes_as(enum mesh_admin_request_kind kind,
+                                   meshtastic_AdminMessage *out_admin) {
+    struct mesh_radio_settings settings;
+    mesh_radio_settings_reset(&settings);
+    return test_admin_encodes(&settings, kind, MESH_RADIO_ACTION_DELAY_SECONDS, out_admin);
 }
 
 static void test_radio_settings_action_queue(void) {
@@ -10589,6 +10596,527 @@ cleanup:
     record_success(test_name);
 }
 
+/*
+ * The NodeDB verbs that arrived with mute and remove, and the pair of them at the session
+ * level. `toggle_muted_node` is the one node verb with no wanted state to send, and
+ * `remove_by_nodenum` is the one that takes the cached record with it.
+ */
+static void test_radio_settings_node_ops(void) {
+    const char *test_name = "radio_settings_node_ops";
+    struct mesh_radio_settings settings;
+    mesh_radio_settings_reset(&settings);
+
+    const uint32_t node_id = 0x2222U;
+    if (mesh_radio_settings_queue_remove_node(&settings, 0U) != -EINVAL ||
+        mesh_radio_settings_queue_toggle_muted(&settings, 0U) != -EINVAL ||
+        settings.queue_len != 0U) {
+        record_failure(test_name, "node 0 is not a node");
+        return;
+    }
+    if (mesh_radio_settings_queue_toggle_muted(&settings, node_id) != 2 ||
+        mesh_radio_settings_write_pending(&settings)) {
+        record_failure(test_name, "a mute should queue the refresh and the verb, uncounted");
+        return;
+    }
+    /* A different node is not a duplicate of the first, but the same one is. */
+    if (mesh_radio_settings_queue_toggle_muted(&settings, node_id) != 0 ||
+        mesh_radio_settings_queue_toggle_muted(&settings, node_id + 1U) != 1) {
+        record_failure(test_name, "mute deduplication is wrong");
+        return;
+    }
+
+    meshtastic_AdminMessage admin;
+    if (!test_admin_encodes(&settings, MESH_ADMIN_TOGGLE_MUTED, node_id, &admin) ||
+        admin.which_payload_variant != meshtastic_AdminMessage_toggle_muted_node_tag ||
+        admin.toggle_muted_node != node_id) {
+        record_failure(test_name, "toggle_muted_node is wrong");
+        return;
+    }
+    if (!test_admin_encodes(&settings, MESH_ADMIN_REMOVE_NODE, node_id, &admin) ||
+        admin.which_payload_variant != meshtastic_AdminMessage_remove_by_nodenum_tag ||
+        admin.remove_by_nodenum != node_id) {
+        record_failure(test_name, "remove_by_nodenum is wrong");
+        return;
+    }
+
+    /* At the session level: removing a node takes it out of the cache, because there is no
+       read-back that would ever take it out again. */
+    struct mesh_session session;
+    mesh_session_init(&session);
+    struct trace_send_capture capture;
+    memset(&capture, 0, sizeof capture);
+    mesh_session_attach(&session, trace_send_capture_fn, &capture);
+
+    meshtastic_FromRadio my_info = meshtastic_FromRadio_init_default;
+    my_info.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    my_info.my_info.my_node_num = 0x1111U;
+    meshtastic_FromRadio one = meshtastic_FromRadio_init_default;
+    one.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+    one.node_info.num = 0x2222U;
+    one.node_info.is_muted = true;
+    meshtastic_FromRadio two = meshtastic_FromRadio_init_default;
+    two.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+    two.node_info.num = 0x3333U;
+    if (!session_feed_from_radio(&session, &my_info) || !session_feed_from_radio(&session, &one) ||
+        !session_feed_from_radio(&session, &two)) {
+        record_failure(test_name, "seeding the session failed");
+        return;
+    }
+
+    const struct mesh_node_summary *node = session_find_node(&session, 0x2222U);
+    if (node == NULL || !node->is_muted) {
+        record_failure(test_name, "NodeInfo.is_muted should reach the cache");
+        return;
+    }
+    if (mesh_session_toggle_node_muted(&session, 0x2222U) <= 0) {
+        record_failure(test_name, "the mute toggle was not queued");
+        return;
+    }
+    node = session_find_node(&session, 0x2222U);
+    if (node == NULL || node->is_muted) {
+        record_failure(test_name, "the cached muted flag should follow the toggle");
+        return;
+    }
+
+    if (mesh_session_remove_node(&session, 0x1111U) != -EINVAL ||
+        mesh_session_remove_node(&session, 0x9999U) != -ENOENT) {
+        record_failure(test_name, "removing ourselves or an unknown node should be refused");
+        return;
+    }
+    const size_t before = mesh_session_handshake(&session)->node_count;
+    if (mesh_session_remove_node(&session, 0x2222U) <= 0) {
+        record_failure(test_name, "the remove was not queued");
+        return;
+    }
+    /* The one behind it moves up rather than leaving a hole in the middle of the list. */
+    if (mesh_session_handshake(&session)->node_count != before - 1U ||
+        session_find_node(&session, 0x2222U) != NULL ||
+        session_find_node(&session, 0x3333U) == NULL) {
+        record_failure(test_name, "the removed node should leave the cache compacted");
+        return;
+    }
+
+    record_success(test_name);
+}
+
+/*
+ * Fixed position. The one pair of admin verbs that is a write without being a set_config: the
+ * firmware sets PositionConfig's own flag as a side effect, which is exactly why the read-back
+ * behind them is a get_config POSITION.
+ */
+static void test_radio_settings_fixed_position(void) {
+    const char *test_name = "radio_settings_fixed_position";
+    struct mesh_radio_settings settings;
+    mesh_radio_settings_reset(&settings);
+
+    if (!mesh_admin_request_is_write(MESH_ADMIN_SET_FIXED_POSITION) ||
+        !mesh_admin_request_is_write(MESH_ADMIN_REMOVE_FIXED_POSITION) ||
+        mesh_admin_request_is_action(MESH_ADMIN_SET_FIXED_POSITION)) {
+        record_failure(test_name, "fixed position is a write, not a radio action");
+        return;
+    }
+
+    struct mesh_admin_request write;
+    memset(&write, 0, sizeof write);
+    write.kind = MESH_ADMIN_SET_FIXED_POSITION;
+    write.type = (uint32_t)meshtastic_AdminMessage_ConfigType_POSITION_CONFIG;
+    write.payload.position.has_latitude_i = true;
+    write.payload.position.latitude_i = 446488000;
+    write.payload.position.has_longitude_i = true;
+    write.payload.position.longitude_i = -635752000;
+    write.payload.position.has_altitude = true;
+    write.payload.position.altitude = 12;
+    write.payload.position.location_source = meshtastic_Position_LocSource_LOC_MANUAL;
+
+    /* A read-back for the wrong section would leave the flag the firmware just moved unread. */
+    struct mesh_admin_request wrong = write;
+    wrong.type = (uint32_t)meshtastic_AdminMessage_ConfigType_DEVICE_CONFIG;
+    if (mesh_radio_settings_queue_write(&settings, &wrong) != -EINVAL) {
+        record_failure(test_name, "the read-back must be the Position section");
+        return;
+    }
+
+    if (mesh_radio_settings_queue_write(&settings, &write) != 3 ||
+        !mesh_radio_settings_write_pending(&settings)) {
+        record_failure(test_name, "a fixed position should queue refresh, write and read-back");
+        return;
+    }
+    struct mesh_admin_request next;
+    if (!mesh_radio_settings_next_request(&settings, 1000U, &next) ||
+        next.kind != MESH_ADMIN_GET_OWNER) {
+        record_failure(test_name, "the passkey refresh should go first");
+        return;
+    }
+    mesh_radio_settings_mark_sent(&settings, 91U, 1000U);
+    meshtastic_AdminMessage reply = meshtastic_AdminMessage_init_default;
+    reply.which_payload_variant = meshtastic_AdminMessage_get_owner_response_tag;
+    reply.session_passkey.size = 8U;
+    memset(reply.session_passkey.bytes, 0x7EU, 8U);
+    meshtastic_MeshPacket packet;
+    if (!test_make_admin_reply(0x1234U, 91U, &reply, &packet) ||
+        mesh_radio_settings_ingest(&settings, &packet) != 1) {
+        record_failure(test_name, "the owner reply should release the queue");
+        return;
+    }
+    if (!mesh_radio_settings_next_request(&settings, 1100U, &next) ||
+        next.kind != MESH_ADMIN_SET_FIXED_POSITION || !settings.pending_is_write) {
+        record_failure(test_name, "the write should follow, counted as a save");
+        return;
+    }
+    next.my_node = 0x1234U;
+    next.packet_id = 92U;
+    uint8_t buffer[512];
+    size_t written = 0U;
+    meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_default;
+    meshtastic_AdminMessage admin = meshtastic_AdminMessage_init_default;
+    if (mesh_radio_settings_encode_request(&settings, &next, buffer, sizeof buffer, &written) !=
+        0) {
+        record_failure(test_name, "set_fixed_position should encode");
+        return;
+    }
+    pb_istream_t in = pb_istream_from_buffer(buffer, written);
+    if (!pb_decode(&in, meshtastic_ToRadio_fields, &to_radio)) {
+        record_failure(test_name, "the ToRadio should decode");
+        return;
+    }
+    in = pb_istream_from_buffer(to_radio.packet.decoded.payload.bytes,
+                                to_radio.packet.decoded.payload.size);
+    if (!pb_decode(&in, meshtastic_AdminMessage_fields, &admin) ||
+        admin.which_payload_variant != meshtastic_AdminMessage_set_fixed_position_tag ||
+        admin.set_fixed_position.latitude_i != 446488000 ||
+        admin.set_fixed_position.longitude_i != -635752000 ||
+        admin.set_fixed_position.altitude != 12 ||
+        admin.set_fixed_position.location_source != meshtastic_Position_LocSource_LOC_MANUAL ||
+        admin.session_passkey.size != 8U) {
+        record_failure(test_name, "set_fixed_position should carry the fix and a fresh passkey");
+        return;
+    }
+    /* Third in the queue: the section whose flag the firmware moved behind our back. */
+    mesh_radio_settings_mark_sent(&settings, 92U, 1100U);
+    meshtastic_MeshPacket ack = make_routing_reply(92U, meshtastic_Routing_Error_NONE);
+    if (mesh_radio_settings_ingest(&settings, &ack) != 1 || settings.writes_acked != 1U) {
+        record_failure(test_name, "the ack should count as a save");
+        return;
+    }
+    if (!mesh_radio_settings_next_request(&settings, 1200U, &next) ||
+        next.kind != MESH_ADMIN_GET_CONFIG ||
+        next.type != (uint32_t)meshtastic_AdminMessage_ConfigType_POSITION_CONFIG) {
+        record_failure(test_name, "the read-back should be get_config POSITION");
+        return;
+    }
+
+    /* A position with no coordinates would turn fixed position on with nothing behind it. */
+    struct mesh_admin_request empty;
+    memset(&empty, 0, sizeof empty);
+    empty.kind = MESH_ADMIN_SET_FIXED_POSITION;
+    empty.type = (uint32_t)meshtastic_AdminMessage_ConfigType_POSITION_CONFIG;
+    empty.my_node = 0x1234U;
+    empty.packet_id = 93U;
+    if (mesh_radio_settings_encode_request(&settings, &empty, buffer, sizeof buffer, &written) !=
+        -EINVAL) {
+        record_failure(test_name, "a fix with no coordinates should be refused");
+        return;
+    }
+
+    record_success(test_name);
+}
+
+/* Decimal degrees in and out. Parsed as integers rather than through a double, because the
+   wire wants exactly seven decimal places and the last one has to survive the trip. */
+static void test_ui_settings_coords(void) {
+    const char *test_name = "ui_settings_coords";
+    char text[32];
+
+    mesh_ui_settings_coord_text(446488000, text, sizeof text);
+    if (strcmp(text, "44.64880") != 0) {
+        record_failure(test_name, "a positive coordinate formats wrong");
+        return;
+    }
+    mesh_ui_settings_coord_text(-635752000, text, sizeof text);
+    if (strcmp(text, "-63.57520") != 0) {
+        record_failure(test_name, "a negative coordinate formats wrong");
+        return;
+    }
+    /* Between -1 and 0 the whole degrees are zero, so the sign has nowhere else to live. */
+    mesh_ui_settings_coord_text(-5000000, text, sizeof text);
+    if (strcmp(text, "-0.50000") != 0) {
+        record_failure(test_name, "a coordinate inside the first degree loses its sign");
+        return;
+    }
+
+    int32_t value = 0;
+    if (!mesh_ui_settings_coord_parse("44.6488", 90, &value) || value != 446488000) {
+        record_failure(test_name, "a plain coordinate should parse");
+        return;
+    }
+    if (!mesh_ui_settings_coord_parse("-63.57520", 180, &value) || value != -635752000) {
+        record_failure(test_name, "a negative coordinate should parse");
+        return;
+    }
+    if (!mesh_ui_settings_coord_parse("7", 90, &value) || value != 70000000) {
+        record_failure(test_name, "a whole number of degrees should parse");
+        return;
+    }
+    /* Round trip, which is the property that actually matters: what the row showed is what
+       the radio gets back when nobody edits it. */
+    mesh_ui_settings_coord_text(-5000000, text, sizeof text);
+    if (!mesh_ui_settings_coord_parse(text, 90, &value) || value != -5000000) {
+        record_failure(test_name, "a formatted coordinate should parse back to itself");
+        return;
+    }
+
+    if (mesh_ui_settings_coord_parse("", 90, &value) ||
+        mesh_ui_settings_coord_parse("44.6N", 90, &value) ||
+        mesh_ui_settings_coord_parse("north", 90, &value) ||
+        mesh_ui_settings_coord_parse("91", 90, &value) ||
+        mesh_ui_settings_coord_parse("-90.5", 90, &value) ||
+        mesh_ui_settings_coord_parse("181", 180, &value)) {
+        record_failure(test_name, "rubbish and out-of-range coordinates should be refused");
+        return;
+    }
+    /* A longitude is not a latitude: the same number passes one and fails the other. */
+    if (!mesh_ui_settings_coord_parse("120.0", 180, &value) ||
+        mesh_ui_settings_coord_parse("120.0", 90, &value)) {
+        record_failure(test_name, "the range limit is not being applied");
+        return;
+    }
+
+    record_success(test_name);
+}
+
+/*
+ * The node detail's two new rows. Mute is a bare toggle because the admin verb is one; remove
+ * is the only row on the tab that arms first, because it is the only one that takes its own
+ * row away with it.
+ */
+static void test_ui_nav_node_mute_remove(void) {
+    const char *test_name = "ui_nav_node_mute_remove";
+    const char *failure = NULL;
+
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    test_nav_populate(&store);
+
+    struct mesh_ui_action action;
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* Nodes */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);  /* a node that is not us */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.node_detail_open) {
+        failure = "A should open the node detail";
+        goto cleanup;
+    }
+    const struct mesh_ui_node_summary *node =
+        mesh_ui_node_detail_find(&store.handshake, store.nav.node_detail_node);
+    if (node == NULL) {
+        failure = "the open node should be findable";
+        goto cleanup;
+    }
+
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    uint32_t count =
+        mesh_ui_node_detail_build(node, false, 0U, NULL, false, items, MESH_UI_NODE_ITEMS_MAX);
+    uint32_t mute_row = count;
+    uint32_t remove_row = count;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (items[i].action == MESH_UI_NODE_ACTION_MUTE) {
+            mute_row = i;
+        }
+        if (items[i].action == MESH_UI_NODE_ACTION_REMOVE) {
+            remove_row = i;
+        }
+    }
+    if (mute_row >= count || remove_row >= count || remove_row < mute_row ||
+        strcmp(items[remove_row].value, "press A") != 0) {
+        failure = "the detail should end with mute and then remove";
+        goto cleanup;
+    }
+    /* The armed spelling is the only thing the flag changes. */
+    (void)mesh_ui_node_detail_build(node, false, 0U, NULL, true, items, MESH_UI_NODE_ITEMS_MAX);
+    if (strcmp(items[remove_row].value, "A again to remove") != 0) {
+        failure = "arming should change what the remove row says";
+        goto cleanup;
+    }
+
+    for (uint32_t i = 0; i < mute_row; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_TOGGLE_MUTE || action.dest != node->node_id) {
+        failure = "A on the mute row should emit a toggle for that node";
+        goto cleanup;
+    }
+
+    /* Remove: the first press only arms, and moving off the row stands it down again. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.node_remove_armed || action.type != MESH_UI_ACTION_NONE) {
+        failure = "the first press on remove should only arm it";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    if (store.nav.node_remove_armed) {
+        failure = "moving off the remove row should stand it down";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.node_remove_armed || action.type != MESH_UI_ACTION_REMOVE_NODE ||
+        action.dest != node->node_id) {
+        failure = "the second press should emit the removal";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}
+
+/*
+ * The Position section's fixed-position rows. They are radio actions, so they do not wait for
+ * Y - but unlike the reboot and the resets they are not destructive, so they do not go through
+ * the confirm overlay either, and they carry the section's pending edits because "Set fixed
+ * position" is a row that reads the three rows above it.
+ */
+static void test_ui_nav_fixed_position(void) {
+    const char *test_name = "ui_nav_fixed_position";
+    const char *failure = NULL;
+
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    test_nav_populate(&store);
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_position = true;
+    settings.fixed_position = false;
+    settings.has_own_position = true;
+    settings.own_latitude_i = 446488000;
+    settings.own_longitude_i = -635752000;
+    mesh_ui_store_set_settings(&store, &settings);
+
+    if (mesh_ui_settings_action_needs_confirm(MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION) ||
+        !mesh_ui_settings_action_is_radio(MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION) ||
+        !mesh_ui_settings_action_needs_confirm(MESH_UI_SETTINGS_ACTION_REBOOT)) {
+        failure = "setting a position is a radio action but not a confirmed one";
+        goto cleanup;
+    }
+
+    /* The coordinate rows start from where the radio says it is, and "Fixed position" is a
+       fact rather than a toggle: the firmware moves that flag itself. */
+    struct mesh_ui_settings_item item;
+    uint32_t count = mesh_ui_settings_item_count(
+        &store.settings, &store.handshake, MESH_UI_SETTINGS_POSITION, MESH_UI_SETTINGS_NO_CHANNEL);
+    uint32_t latitude_row = count;
+    uint32_t set_row = count;
+    uint32_t fixed_row = count;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
+                                   MESH_UI_SETTINGS_POSITION, MESH_UI_SETTINGS_NO_CHANNEL, i,
+                                   &item)) {
+            break;
+        }
+        if (item.field == MESH_UI_FIELD_POSITION_LATITUDE) {
+            latitude_row = i;
+            if (strcmp(item.text, "44.64880") != 0) {
+                failure = "the latitude row should start from the radio's own fix";
+                goto cleanup;
+            }
+        }
+        if (strcmp(item.label, "Fixed position") == 0) {
+            fixed_row = i;
+            if (item.kind != MESH_UI_SETTING_TOGGLE || item.field != MESH_UI_FIELD_NONE) {
+                failure = "Fixed position should be shown, not offered";
+                goto cleanup;
+            }
+        }
+        if (item.kind == MESH_UI_SETTING_ACTION &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION) {
+            set_row = i;
+        }
+    }
+    if (latitude_row >= count || set_row >= count || fixed_row >= count) {
+        failure = "the Position section is missing its fixed-position rows";
+        goto cleanup;
+    }
+    /* Nothing to clear while it is off, so that row is not offered. */
+    for (uint32_t i = 0; i < count; ++i) {
+        if (mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
+                                  MESH_UI_SETTINGS_POSITION, MESH_UI_SETTINGS_NO_CHANNEL, i,
+                                  &item) &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION &&
+            item.kind == MESH_UI_SETTING_ACTION) {
+            failure = "Clear fixed position should not be offered when it is off";
+            goto cleanup;
+        }
+    }
+
+    struct mesh_ui_action action;
+    for (int i = 0; i < 4; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    }
+    for (int i = 0; i < MESH_UI_SETTINGS_POSITION; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.settings_section != MESH_UI_SETTINGS_POSITION) {
+        failure = "the Position section should open";
+        goto cleanup;
+    }
+    /* Type a latitude, then press the action row: the edit rides along with it. */
+    for (uint32_t i = 0; i < latitude_row; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.keyboard_open ||
+        store.nav.keyboard_field != (uint8_t)MESH_UI_FIELD_POSITION_LATITUDE) {
+        failure = "A on the latitude row should open the keyboard on it";
+        goto cleanup;
+    }
+    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "45.0");
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    if (store.nav.settings_edit_count != 1U ||
+        store.nav.settings_edits[0].field != MESH_UI_FIELD_POSITION_LATITUDE) {
+        failure = "the typed latitude should be recorded as a pending edit";
+        goto cleanup;
+    }
+    for (uint32_t i = latitude_row; i < set_row; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.confirm_open) {
+        failure = "setting a position should not ask first";
+        goto cleanup;
+    }
+    if (action.type != MESH_UI_ACTION_RADIO_ACTION ||
+        action.number != (uint32_t)MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION ||
+        action.section != MESH_UI_SETTINGS_POSITION || action.edit_count != 1U ||
+        action.edits[0].field != MESH_UI_FIELD_POSITION_LATITUDE ||
+        strcmp(action.edits[0].text, "45.0") != 0) {
+        failure = "the action should carry the coordinate rows it reads";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}
+
 static const struct test_case k_test_cases[] = {
     {"config_defaults", "unit", test_config_defaults},
     {"version_compare", "unit", test_version_compare},
@@ -10687,6 +11215,11 @@ static const struct test_case k_test_cases[] = {
     {"ui_nav_passkey_prompt", "unit", test_ui_nav_passkey_prompt},
     {"radio_settings_action_queue", "unit", test_radio_settings_action_queue},
     {"ui_nav_radio_actions", "unit", test_ui_nav_radio_actions},
+    {"radio_settings_node_ops", "unit", test_radio_settings_node_ops},
+    {"radio_settings_fixed_position", "unit", test_radio_settings_fixed_position},
+    {"ui_settings_coords", "unit", test_ui_settings_coords},
+    {"ui_nav_node_mute_remove", "unit", test_ui_nav_node_mute_remove},
+    {"ui_nav_fixed_position", "unit", test_ui_nav_fixed_position},
 };
 
 struct test_options {

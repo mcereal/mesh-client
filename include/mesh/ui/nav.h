@@ -141,6 +141,10 @@ struct mesh_ui_nav {
     bool node_detail_open;
     uint32_t node_detail_node; /* the open node's id: the list is re-ranked under us */
     uint32_t node_list_cursor;
+    /* "Remove from radio" is armed by one press and acts on the second, the same way Y on the
+       Devices tab is: it is the one node row that takes its own row away, so a press that
+       lands on it by accident should cost nothing. Any other press stands it down. */
+    bool node_remove_armed;
     /* Settings tab: the open section (enum mesh_ui_settings_section) or NO_SECTION for the
        section list. cursor[SETTINGS] indexes whichever list is showing; the section list's
        position is parked here while a section is open. */
@@ -197,6 +201,10 @@ enum mesh_ui_action_type {
     MESH_UI_ACTION_TRACEROUTE,        /* dest = node to trace the route to */
     MESH_UI_ACTION_REQUEST_NODE_INFO, /* dest = node to ask for a NodeInfo */
     MESH_UI_ACTION_TOGGLE_IGNORE,     /* dest = node; `number` is 1 to start ignoring it */
+    /* dest = node. Mute is a bare toggle rather than a wanted state, because the admin verb
+       behind it (toggle_muted_node) offers nothing else. */
+    MESH_UI_ACTION_TOGGLE_MUTE,
+    MESH_UI_ACTION_REMOVE_NODE,
     /* About section: ask GitHub what the newest release is, and install the one a check
        found. Two actions rather than one because installing replaces the running binary. */
     MESH_UI_ACTION_CHECK_UPDATE,

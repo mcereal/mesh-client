@@ -53,6 +53,17 @@ enum mesh_admin_request_kind {
     MESH_ADMIN_RESET_NODEDB,
     MESH_ADMIN_FACTORY_RESET_CONFIG, /* config to defaults, BLE bonds kept */
     MESH_ADMIN_FACTORY_RESET_DEVICE, /* everything to defaults, BLE bonds cleared */
+    /* The radio's own location, set by hand. Unlike the rest of the Position section these do
+       not go through set_config: the firmware stores the coordinates *and* sets
+       `position.fixed_position` itself, so a client that only flipped the config flag would
+       turn fixed position on with no position behind it. Both are read back with a
+       get_config POSITION, which is why `type` carries the ConfigType. */
+    MESH_ADMIN_SET_FIXED_POSITION,    /* payload.position */
+    MESH_ADMIN_REMOVE_FIXED_POSITION, /* no payload */
+    /* NodeDB entries, addressed by node number in `type`, alongside the favorite and ignore
+       pair above. */
+    MESH_ADMIN_REMOVE_NODE,  /* drop this node from the radio's NodeDB */
+    MESH_ADMIN_TOGGLE_MUTED, /* flip this node's muted flag; the verb is a toggle, not a set */
 };
 
 /* How long the radio is told to wait before a reboot or a shutdown. Not zero: the firmware
@@ -72,6 +83,7 @@ struct mesh_admin_request {
         meshtastic_Config config;
         meshtastic_ModuleConfig module_config;
         meshtastic_Channel channel;
+        meshtastic_Position position;
     } payload;
 };
 
@@ -219,6 +231,13 @@ int mesh_radio_settings_queue_favorite(struct mesh_radio_settings *settings, uin
    its own copy of the flag in step. */
 int mesh_radio_settings_queue_ignored(struct mesh_radio_settings *settings, uint32_t node_id,
                                       bool ignored);
+
+/* Drops a node from the radio's NodeDB, and flips a node's muted flag. The same shape again -
+   a passkey refresh then the verb, nothing to read back. `toggle_muted_node` really is a
+   toggle on the wire: unlike the favorite and ignore pair there is no way to state the wanted
+   flag, so a press that races an incoming NodeInfo can land on the value it started from. */
+int mesh_radio_settings_queue_remove_node(struct mesh_radio_settings *settings, uint32_t node_id);
+int mesh_radio_settings_queue_toggle_muted(struct mesh_radio_settings *settings, uint32_t node_id);
 
 /* Queues one radio action, the same shape again: a get_owner for a fresh passkey (the firmware
    rejects these without one exactly as it rejects a set_*), then the action itself. `seconds`

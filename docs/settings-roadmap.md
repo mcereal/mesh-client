@@ -55,6 +55,7 @@ fragment, and uses the admin path for refreshes and as proof that writes will wo
 | Channels | `set_channel` with `Channel.index`, `role`, `settings.name`, `psk`, `uplink_enabled`, `downlink_enabled`, `module_settings.position_precision` | Key size is just the PSK length: 1 byte = default key index, 16 = AES-128, 32 = AES-256. Keys are typed as hex or generated; never shown in full on screen by default. |
 | Security | `SecurityConfig.public_key`, `private_key`, `admin_key[3]`, `is_managed`, `admin_channel_enabled`, `packet_signature_policy` | Regenerating the private key breaks every peer's key for you. Backup = show/export the key; do it before regenerate is offered. |
 | Firmware, show | `DeviceMetadata.firmware_version`, `hw_model`, plus `LoRaConfig.region` | Arrives in the handshake; `get_device_metadata_request` refreshes it. |
+| Fixed position | `set_fixed_position` (a `Position`), `remove_fixed_position` | Not `set_config`: the firmware sets `PositionConfig.fixed_position` itself, so writing only the flag turns it on with nothing behind it. Read back with `get_config` POSITION. |
 | Firmware, install | ESP32: `reboot_ota_mode` then a separate BLE OTA protocol. nRF52: `enter_dfu_mode_request` then Nordic DFU over BLE. | Large, hardware-specific, can brick the radio. Deferred indefinitely; we will show the version and point at the web flasher instead. |
 
 ## UI model
@@ -256,17 +257,63 @@ toast points at Devices → Y.
   node database reset empties the radio's list with favorites still in it, and the Brick's own
   cached list survives.
 
+### Phase 8 - Fixed position, and the last two NodeDB verbs (this branch)
+
+Three admin verbs that did not fit phase 7's shape, and one that changed a shipped control.
+
+**Fixed position** (`set_fixed_position`, `remove_fixed_position`). The `Fixed position` toggle
+shipped in phase 5 was wrong: `PositionConfig.fixed_position` is a flag the firmware sets
+*itself* as part of `set_fixed_position`, so a client that wrote only the flag turned fixed
+position on with no coordinates behind it and left the radio broadcasting whatever it last
+had. The row is now shown rather than offered, and three text rows - latitude, longitude,
+altitude - sit under it with a `Set fixed position` action that reads them.
+
+These two verbs are **writes** (`mesh_admin_request_is_write` returns true), unlike phase 7's
+actions: they are a save the user pressed for, the radio acks them without rebooting, and there
+is something to read back. The read-back is `get_config POSITION` - the section they did *not*
+write, and the one whose flag the firmware moved behind our back - which is why the request's
+`type` carries the ConfigType and `queue_write` refuses any other.
+
+Coordinates are decimal degrees typed on the keyboard, parsed as integers rather than through a
+double (`mesh_ui_settings_coord_parse`): the wire wants exactly seven decimal places and a
+double would round the last one somewhere the user cannot see. A row nobody edits keeps what
+the radio reported, so pinning down a GPS fix is opening the section and pressing one row.
+`Position.location_source` goes out as `LOC_MANUAL`, because that is what it is.
+
+**`toggle_muted_node`** and **`remove_by_nodenum`** join the favorite and ignore pair on the
+Nodes tab, and `NodeInfo.is_muted` - already on the wire, previously dropped - now reaches the
+node record. Mute is the one node row that sends a bare toggle rather than the state it wants:
+the firmware offers nothing else, so a press that races an incoming NodeInfo can land on the
+value it started from, and the comment in `session.c` says so. Remove takes the cached record
+with it, because there is no read-back and an entry left behind would sit in the list looking
+removed-but-present until the next connection.
+
+Remove is also the only row on that tab that **arms**: one press arms it, the second acts,
+exactly as Y on the Devices tab does for a bond. It is not behind the confirm overlay because
+the cost of a mis-press is a wait, not a loss - the node returns the moment it transmits - and
+it is not a single press because it is the one row that takes its own row away with it, leaving
+nothing to press to undo.
+
+Two smaller things fell out. `MESH_UI_ACTION_RADIO_ACTION` now carries the open section's
+pending edits, the way a save does, because `Set fixed position` is a row that reads the three
+rows above it. And `mesh_ui_settings_action_needs_confirm` splits off from
+`..._is_radio`: every radio action reaches the app the same way, but only the destructive ones
+get a question in front of them. Setting a location is undone by setting another one.
+
+- Exit criteria: on the Brick, typing a latitude and longitude and pressing `Set fixed
+  position` reads back with `Fixed position` on and the coordinates in the phone app; clearing
+  it turns the flag back off; muting a node shows as muted in the app; removing one takes it
+  out of both lists and it returns when it next transmits.
+
 ### Later, maybe never
 
 Firmware install. Also `tzdef` presets beyond typing the POSIX string by hand, `Network`
 (WiFi credentials on a device with no WiFi of its own is a poor fit), MQTT client proxying,
 and closing channel gaps the way the phone apps do when a middle slot is removed.
 
-The admin verbs deliberately left out of phase 7: `enter_dfu_mode_request` and `ota_request`
-(firmware install, above), `exit_simulator`, and `reboot_ota_seconds` (deprecated upstream in
-favour of `reboot_ota_mode`). `remove_by_nodenum` and `toggle_muted_node` belong on the Nodes
-tab beside the favorite and ignore rows rather than in a settings section, so they are not
-here either.
+The admin verbs still left out: `enter_dfu_mode_request` and `ota_request` (firmware install,
+above), `exit_simulator`, and `reboot_ota_seconds` (deprecated upstream in favour of
+`reboot_ota_mode`).
 
 ### Done outside the phases
 

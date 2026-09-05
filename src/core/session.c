@@ -315,6 +315,7 @@ static void mesh_session_store_node_summary(struct mesh_session *session,
     summary->hops_away = info->hops_away;
     summary->is_favorite = info->is_favorite;
     summary->is_ignored = info->is_ignored;
+    summary->is_muted = info->is_muted;
     summary->channel = (uint8_t)info->channel;
 
     if (info->has_user) {
@@ -778,6 +779,17 @@ int mesh_session_send_packet(struct mesh_session *session, const uint8_t *packet
     return mesh_session_send_raw(session, packet, len, 0U);
 }
 
+/* The node in the cache with this id, or NULL. */
+static struct mesh_node_summary *mesh_session_find_node(struct mesh_session *session,
+                                                        uint32_t node_id) {
+    for (size_t i = 0; i < session->handshake.node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+        if (session->handshake.nodes[i].node_id == node_id) {
+            return &session->handshake.nodes[i];
+        }
+    }
+    return NULL;
+}
+
 int mesh_session_set_node_ignored(struct mesh_session *session, uint32_t node_id, bool ignored) {
     if (session == NULL || node_id == 0U) {
         return -EINVAL;
@@ -790,13 +802,7 @@ int mesh_session_set_node_ignored(struct mesh_session *session, uint32_t node_id
         return -EINVAL;
     }
 
-    struct mesh_node_summary *summary = NULL;
-    for (size_t i = 0; i < session->handshake.node_count && i < MESH_SESSION_MAX_NODES; ++i) {
-        if (session->handshake.nodes[i].node_id == node_id) {
-            summary = &session->handshake.nodes[i];
-            break;
-        }
-    }
+    struct mesh_node_summary *summary = mesh_session_find_node(session, node_id);
     if (summary == NULL) {
         return -ENOENT;
     }
@@ -995,13 +1001,7 @@ int mesh_session_set_node_favorite(struct mesh_session *session, uint32_t node_i
         return -ENOTCONN;
     }
 
-    struct mesh_node_summary *summary = NULL;
-    for (size_t i = 0; i < session->handshake.node_count && i < MESH_SESSION_MAX_NODES; ++i) {
-        if (session->handshake.nodes[i].node_id == node_id) {
-            summary = &session->handshake.nodes[i];
-            break;
-        }
-    }
+    struct mesh_node_summary *summary = mesh_session_find_node(session, node_id);
     if (summary == NULL) {
         return -ENOENT;
     }
@@ -1016,6 +1016,120 @@ int mesh_session_set_node_favorite(struct mesh_session *session, uint32_t node_i
     summary->is_favorite = favorite;
     mesh_log_info("session", "%s node 0x%08x in the NodeDB (%d requests)",
                   favorite ? "Pinned" : "Unpinned", node_id, queued);
+    return queued;
+}
+
+int mesh_session_toggle_node_muted(struct mesh_session *session, uint32_t node_id) {
+    if (session == NULL || node_id == 0U) {
+        return -EINVAL;
+    }
+    if (session->send == NULL || !session->handshake.has_my_info) {
+        return -ENOTCONN;
+    }
+    struct mesh_node_summary *summary = mesh_session_find_node(session, node_id);
+    if (summary == NULL) {
+        return -ENOENT;
+    }
+    const int queued = mesh_radio_settings_queue_toggle_muted(&session->settings, node_id);
+    if (queued < 0) {
+        return queued;
+    }
+    /* The wire verb is a toggle, so there is no wanted state to send and none to assume: the
+       cached flag follows the request rather than leading it. */
+    summary->is_muted = !summary->is_muted;
+    mesh_log_info("session", "%s node 0x%08x in the NodeDB (%d requests)",
+                  summary->is_muted ? "Muted" : "Unmuted", node_id, queued);
+    return queued;
+}
+
+int mesh_session_remove_node(struct mesh_session *session, uint32_t node_id) {
+    if (session == NULL || node_id == 0U) {
+        return -EINVAL;
+    }
+    if (session->send == NULL || !session->handshake.has_my_info) {
+        return -ENOTCONN;
+    }
+    /* Removing the radio we are talking through would take our own record out from under
+       every screen that resolves a name through it. */
+    if (node_id == session->handshake.my_info.my_node_num) {
+        return -EINVAL;
+    }
+    struct mesh_node_summary *summary = mesh_session_find_node(session, node_id);
+    if (summary == NULL) {
+        return -ENOENT;
+    }
+    const int queued = mesh_radio_settings_queue_remove_node(&session->settings, node_id);
+    if (queued < 0) {
+        return queued;
+    }
+    /* Drop it here too. There is no read-back, and an entry left in place would sit in the
+       list looking removed-but-present until the next connection re-syncs the NodeDB. */
+    const size_t index = (size_t)(summary - session->handshake.nodes);
+    const size_t last = session->handshake.node_count - 1U;
+    if (index < last) {
+        memmove(&session->handshake.nodes[index], &session->handshake.nodes[index + 1U],
+                (last - index) * sizeof session->handshake.nodes[0]);
+    }
+    memset(&session->handshake.nodes[last], 0, sizeof session->handshake.nodes[last]);
+    session->handshake.node_count = last;
+    mesh_log_info("session", "Removed node 0x%08x from the NodeDB (%d requests)", node_id, queued);
+    return queued;
+}
+
+/* Meshtastic's fixed-point 1e-7 degrees: 90 and 180 degrees as the wire carries them. */
+#define MESH_SESSION_LATITUDE_MAX 900000000
+#define MESH_SESSION_LONGITUDE_MAX 1800000000
+
+static int mesh_session_queue_fixed_position(struct mesh_session *session,
+                                             const struct mesh_admin_request *write) {
+    if (session->send == NULL || !session->handshake.has_my_info) {
+        return -ENOTCONN;
+    }
+    return mesh_radio_settings_queue_write(&session->settings, write);
+}
+
+int mesh_session_set_fixed_position(struct mesh_session *session, int32_t latitude_i,
+                                    int32_t longitude_i, bool has_altitude, int32_t altitude) {
+    if (session == NULL) {
+        return -EINVAL;
+    }
+    if (latitude_i > MESH_SESSION_LATITUDE_MAX || latitude_i < -MESH_SESSION_LATITUDE_MAX ||
+        longitude_i > MESH_SESSION_LONGITUDE_MAX || longitude_i < -MESH_SESSION_LONGITUDE_MAX) {
+        return -EINVAL;
+    }
+    struct mesh_admin_request write;
+    memset(&write, 0, sizeof write);
+    write.kind = MESH_ADMIN_SET_FIXED_POSITION;
+    write.type = (uint32_t)meshtastic_AdminMessage_ConfigType_POSITION_CONFIG;
+    write.payload.position.has_latitude_i = true;
+    write.payload.position.latitude_i = latitude_i;
+    write.payload.position.has_longitude_i = true;
+    write.payload.position.longitude_i = longitude_i;
+    write.payload.position.has_altitude = has_altitude;
+    write.payload.position.altitude = has_altitude ? altitude : 0;
+    /* Typed in by a person, which is exactly what LOC_MANUAL means; without it the firmware
+       would report the fix as though a GPS had produced it. */
+    write.payload.position.location_source = meshtastic_Position_LocSource_LOC_MANUAL;
+    const int queued = mesh_session_queue_fixed_position(session, &write);
+    if (queued > 0) {
+        mesh_log_info("session", "Fixed position set to %d, %d (%d requests)", (int)latitude_i,
+                      (int)longitude_i, queued);
+    }
+    return queued;
+}
+
+int mesh_session_clear_fixed_position(struct mesh_session *session) {
+    if (session == NULL) {
+        return -EINVAL;
+    }
+    struct mesh_admin_request write;
+    memset(&write, 0, sizeof write);
+    write.kind = MESH_ADMIN_REMOVE_FIXED_POSITION;
+    write.type = (uint32_t)meshtastic_AdminMessage_ConfigType_POSITION_CONFIG;
+    const int queued = mesh_session_queue_fixed_position(session, &write);
+    if (queued > 0) {
+        mesh_log_info("session", "Fixed position cleared (%d requests)", queued);
+    }
     return queued;
 }
 

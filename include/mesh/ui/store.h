@@ -120,6 +120,7 @@ struct mesh_ui_node_summary {
     uint8_t public_key_len;
     bool is_favorite;
     bool is_ignored;
+    bool is_muted;
     uint8_t channel;
     struct mesh_ui_node_position position;
     struct mesh_ui_node_metrics metrics;
@@ -329,7 +330,15 @@ struct mesh_ui_settings {
     uint8_t packet_signature_policy;
 
     bool has_position;
-    uint8_t gps_mode; /* 0 disabled, 1 enabled, 2 not present */
+    /* Where the radio says it is. Not part of PositionConfig - it comes from our own node's
+       NodeInfo - but it lives here because the Position section is where it is shown and set,
+       and because `set_fixed_position` is the one write in that section that carries it. */
+    bool has_own_position;
+    int32_t own_latitude_i; /* fixed-point 1e-7 degrees, as the wire carries them */
+    int32_t own_longitude_i;
+    bool has_own_altitude;
+    int32_t own_altitude; /* metres above sea level */
+    uint8_t gps_mode;     /* 0 disabled, 1 enabled, 2 not present */
     uint32_t position_broadcast_secs;
     bool position_broadcast_smart_enabled;
     bool fixed_position;

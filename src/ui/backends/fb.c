@@ -761,8 +761,9 @@ static void fb_render_node_detail(const struct mesh_ui_backend_fb_state *state,
     fb_draw_title(state, layout, title);
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    const uint32_t count = mesh_ui_node_detail_build(
-        node, is_self, (uint32_t)time(NULL), &snapshot->traceroute, items, MESH_UI_NODE_ITEMS_MAX);
+    const uint32_t count =
+        mesh_ui_node_detail_build(node, is_self, (uint32_t)time(NULL), &snapshot->traceroute,
+                                  nav->node_remove_armed, items, MESH_UI_NODE_ITEMS_MAX);
     if (count == 0U) {
         fb_draw_empty(state, layout, "Nothing reported for this node yet.");
         return;
@@ -1501,8 +1502,9 @@ static void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
         }
         break;
     case MESH_UI_SCREEN_NODES:
-        hint = snapshot->nav.node_detail_open ? "A select  B back  X pin  Y write  L/R tabs"
-                                              : "A open node  X pin  Y write  L/R tabs";
+        hint = snapshot->nav.node_remove_armed  ? "A again to remove this node  B cancel"
+               : snapshot->nav.node_detail_open ? "A select  B back  X pin  Y write  L/R tabs"
+                                                : "A open node  X pin  Y write  L/R tabs";
         fb_render_nodes(state, snapshot, &layout);
         break;
     case MESH_UI_SCREEN_DEVICES:

@@ -325,12 +325,18 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                                MESH_UI_SETTINGS_POSITION, 0U, NULL,
                                                PRESETS(k_smart_interval_presets), "default", NULL,
                                                0U},
-    [MESH_UI_FIELD_POSITION_FIXED] = {"Fixed position", MESH_UI_SETTING_TOGGLE,
-                                      MESH_UI_SETTINGS_POSITION, 0U, NULL, NO_PRESETS, NULL, NULL,
-                                      0U},
     [MESH_UI_FIELD_POSITION_GPS_INTERVAL] = {"GPS interval", MESH_UI_SETTING_NUMBER,
                                              MESH_UI_SETTINGS_POSITION, 0U, NULL,
                                              PRESETS(k_gps_interval_presets), "default", NULL, 0U},
+    [MESH_UI_FIELD_POSITION_LATITUDE] = {"Latitude", MESH_UI_SETTING_TEXT,
+                                         MESH_UI_SETTINGS_POSITION, 15U, NULL, NULL, 0U, NULL, NULL,
+                                         0U},
+    [MESH_UI_FIELD_POSITION_LONGITUDE] = {"Longitude", MESH_UI_SETTING_TEXT,
+                                          MESH_UI_SETTINGS_POSITION, 15U, NULL, NULL, 0U, NULL,
+                                          NULL, 0U},
+    [MESH_UI_FIELD_POSITION_ALTITUDE] = {"Altitude (m)", MESH_UI_SETTING_TEXT,
+                                         MESH_UI_SETTINGS_POSITION, 7U, NULL, NULL, 0U, NULL, NULL,
+                                         0U},
     [MESH_UI_FIELD_POWER_SAVING] = {"Power saving", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_POWER,
                                     0U, NULL, NO_PRESETS, NULL, NULL, 0U},
     [MESH_UI_FIELD_POWER_LS_SECS] = {"Light sleep", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_POWER,
@@ -567,11 +573,20 @@ bool mesh_ui_settings_section_needs_confirm(enum mesh_ui_settings_section sectio
            section == MESH_UI_SETTINGS_POWER;
 }
 
-bool mesh_ui_settings_action_is_radio(enum mesh_ui_settings_action action) {
+/* The fixed-position pair are the exception: setting a location is undone by setting another
+   one and clearing it by setting it again, so a question in front of either would be a press
+   the user has to make twice for nothing. */
+bool mesh_ui_settings_action_needs_confirm(enum mesh_ui_settings_action action) {
     return action == MESH_UI_SETTINGS_ACTION_REBOOT || action == MESH_UI_SETTINGS_ACTION_SHUTDOWN ||
            action == MESH_UI_SETTINGS_ACTION_RESET_NODEDB ||
            action == MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG ||
            action == MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE;
+}
+
+bool mesh_ui_settings_action_is_radio(enum mesh_ui_settings_action action) {
+    return mesh_ui_settings_action_needs_confirm(action) ||
+           action == MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION ||
+           action == MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION;
 }
 
 void mesh_ui_settings_confirm_title(enum mesh_ui_settings_section section, uint8_t channel,
@@ -700,6 +715,79 @@ void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section,
         snprintf(out, out_len, "%s", "The radio will reboot to apply this.");
         break;
     }
+}
+
+void mesh_ui_settings_coord_text(int32_t value_i, char *out, size_t out_len) {
+    if (out == NULL || out_len == 0U) {
+        return;
+    }
+    /* Five decimals is about a metre, which is finer than anything a LoRa node reports and
+       short enough to type back in on a ten-column keyboard. The sign is carried by the whole
+       degrees, so the fraction is always taken from the magnitude. */
+    const int32_t whole = value_i / 10000000;
+    int32_t fraction = value_i % 10000000;
+    if (fraction < 0) {
+        fraction = -fraction;
+    }
+    const char *const sign = (value_i < 0 && whole == 0) ? "-" : "";
+    snprintf(out, out_len, "%s%d.%05d", sign, (int)whole, (int)(fraction / 100));
+}
+
+bool mesh_ui_settings_coord_parse(const char *text, int32_t limit_degrees, int32_t *out_i) {
+    if (text == NULL || out_i == NULL || limit_degrees <= 0) {
+        return false;
+    }
+    const char *p = text;
+    while (*p == ' ') {
+        ++p;
+    }
+    bool negative = false;
+    if (*p == '+' || *p == '-') {
+        negative = (*p == '-');
+        ++p;
+    }
+    if (*p != '.' && (*p < '0' || *p > '9')) {
+        return false; /* empty, or something that is not a number at all */
+    }
+
+    /* Parsed as integers rather than through strtod: the wire wants exactly seven decimal
+       places, and a double would round the last one somewhere the user cannot see. */
+    int64_t whole = 0;
+    while (*p >= '0' && *p <= '9') {
+        whole = whole * 10 + (*p - '0');
+        if (whole > 1000) {
+            return false; /* far past any coordinate; stop before this can overflow */
+        }
+        ++p;
+    }
+    int64_t fraction = 0;
+    int digits = 0;
+    if (*p == '.') {
+        ++p;
+        while (*p >= '0' && *p <= '9') {
+            if (digits < 7) {
+                fraction = fraction * 10 + (*p - '0');
+                ++digits;
+            }
+            ++p;
+        }
+    }
+    while (*p == ' ') {
+        ++p;
+    }
+    if (*p != '\0') {
+        return false; /* trailing rubbish: "44.6N" is not a coordinate we will guess at */
+    }
+    for (; digits < 7; ++digits) {
+        fraction *= 10;
+    }
+
+    int64_t value = whole * 10000000 + fraction;
+    if (value > (int64_t)limit_degrees * 10000000) {
+        return false;
+    }
+    *out_i = (int32_t)(negative ? -value : value);
+    return true;
 }
 
 void mesh_ui_settings_key_hex(const uint8_t *key, size_t len, char *out, size_t out_len) {
@@ -1378,8 +1466,32 @@ static void build_position(const struct mesh_ui_settings *s, struct item_list *l
        smart broadcast is being turned on and off; the same rule the LoRa trio follows. */
     item_field(list, MESH_UI_FIELD_POSITION_SMART_DISTANCE, s->smart_minimum_distance, NULL);
     item_field(list, MESH_UI_FIELD_POSITION_SMART_INTERVAL, s->smart_minimum_interval_secs, NULL);
-    item_field(list, MESH_UI_FIELD_POSITION_FIXED, s->fixed_position ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_POSITION_GPS_INTERVAL, s->gps_update_interval, NULL);
+
+    /*
+     * Fixed position. The flag is shown rather than offered: the firmware sets it itself as
+     * part of set_fixed_position, and a toggle here could only turn it on with no coordinates
+     * behind it - which leaves the radio broadcasting whatever it last had.
+     *
+     * The three coordinate rows are edited like any other text, but they are not saved with
+     * the section: Y writes PositionConfig, and these go out through the action row below
+     * them. They are pre-filled with where the radio says it is, so a fix that came from a
+     * GPS can be pinned down by opening the section and pressing one row.
+     */
+    item_toggle(list, "Fixed position", s->fixed_position);
+    char coord[MESH_UI_SETTINGS_VALUE_MAX];
+    mesh_ui_settings_coord_text(s->has_own_position ? s->own_latitude_i : 0, coord, sizeof coord);
+    item_field(list, MESH_UI_FIELD_POSITION_LATITUDE, 0U, coord);
+    mesh_ui_settings_coord_text(s->has_own_position ? s->own_longitude_i : 0, coord, sizeof coord);
+    item_field(list, MESH_UI_FIELD_POSITION_LONGITUDE, 0U, coord);
+    snprintf(coord, sizeof coord, "%d", s->has_own_altitude ? (int)s->own_altitude : 0);
+    item_field(list, MESH_UI_FIELD_POSITION_ALTITUDE, 0U, coord);
+    item_action(list, "Set fixed position", "press A", MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION);
+    /* Only offered when there is one to clear; the row would otherwise do nothing twice. */
+    if (s->fixed_position) {
+        item_action(list, "Clear fixed position", "press A",
+                    MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION);
+    }
 }
 
 static void build_power(const struct mesh_ui_settings *s, struct item_list *list) {
