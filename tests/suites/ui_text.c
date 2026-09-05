@@ -225,6 +225,63 @@ MESH_TEST_CASE(ui_text_cell_kinds, unit) {
 /* Every sprite the tables point at has to decode inside its bounds. A generated table that
    went out of sync with the runtime would otherwise read past the run array on some rare
    emoji nobody tests by hand. */
+/*
+ * The precondition behind the ASCII fast path in mesh_ui_text_cell_next().
+ *
+ * That path answers a plain-ASCII character followed by an ASCII byte without consulting the
+ * emoji tables at all, which is only sound while two things hold: nothing in the tables is led
+ * by a printable ASCII codepoint other than the digits, '#' and '*' (the keycap leads, which
+ * the fast path excludes), and nothing zero-width lives in ASCII (so no mark can attach to a
+ * character whose successor byte is ASCII).
+ *
+ * Both are properties of generated data. scripts/gen-emoji.py is run by hand against whatever
+ * Noto ships, so a future Unicode version could add a sequence led by some other ASCII
+ * character and the fast path would silently stop drawing it. Fail here instead.
+ */
+MESH_TEST_CASE(emoji_ascii_fast_path_precondition, unit) {
+    const struct mesh_emoji_table *table = &mesh_emoji_table;
+
+    for (uint32_t cp = 0x20U; cp <= 0x7EU; ++cp) {
+        const bool keycap_lead = (cp >= (uint32_t)'0' && cp <= (uint32_t)'9') ||
+                                 cp == (uint32_t)'#' || cp == (uint32_t)'*';
+        if (keycap_lead) {
+            continue;
+        }
+
+        for (uint32_t i = 0; i < table->single_count; ++i) {
+            MESH_TEST_FAIL_IF(table->singles[i].codepoint == cp,
+                              "an emoji single is led by ASCII the fast path skips");
+        }
+        for (uint32_t i = 0; i < table->sequence_count; ++i) {
+            MESH_TEST_FAIL_IF(table->sequences[i].first == cp,
+                              "an emoji sequence is led by ASCII the fast path skips");
+        }
+    }
+
+    /* A combining mark, selector, ZWJ or skin tone in ASCII would let a second cell attach to
+       a character the fast path has already answered for. */
+    for (uint32_t cp = 0U; cp < 0x80U; ++cp) {
+        MESH_TEST_FAIL_IF(mesh_emoji_is_zero_width(cp), "a zero-width codepoint lives in ASCII");
+    }
+
+    /* And the path itself: every other printable ASCII character is one non-emoji cell of one
+       byte, whatever follows it, as long as what follows is ASCII too. */
+    for (uint32_t cp = 0x20U; cp <= 0x7EU; ++cp) {
+        char text[3] = {(char)cp, 'x', '\0'};
+        const struct mesh_ui_text_cell cell = mesh_ui_text_cell_next(text);
+        if (cp >= (uint32_t)'0' && cp <= (uint32_t)'9') {
+            continue;
+        }
+        if (cp == (uint32_t)'#' || cp == (uint32_t)'*') {
+            continue;
+        }
+        MESH_TEST_FAIL_IF(cell.is_emoji || cell.bytes != 1U || cell.codepoint != cp,
+                          "printable ASCII should be one plain cell");
+    }
+
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(emoji_table_integrity, unit) {
     const struct mesh_emoji_table *table = &mesh_emoji_table;
 

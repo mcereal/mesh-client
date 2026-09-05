@@ -296,6 +296,23 @@ keeps showing the page NextUI's SDL last flipped to (page 1 in practice). The la
 per-pixel alpha, so `compose_color` always writes an opaque alpha byte. **Drop any of these and
 the screen is black.**
 
+`msync` after the flip covers page 0 and its mirror, not the whole mapping: fb0 is 64 MB of
+virtual rows and a frame dirties 6 MB of it.
+
+#### Colours are packed once, then spans are filled
+
+`fb_fill_packed()` is the only function that writes the mapping, and it takes a colour that has
+already been through `compose_color`. That is the rule worth keeping: `compose_color` reads the
+bitfields and branches on the pixel format, and a full screen of text is around 200k scaled
+sub-pixels, so running it per pixel was roughly a third of the frame.
+
+Everything above therefore packs once and then describes rectangles. `fb_draw_glyph` transposes
+the column-major font into horizontal runs of lit pixels and fills one span per run;
+`fb_draw_emoji` packs the 255-entry sprite palette once per pixel format, precomputes the
+nearest-neighbour column map so the scaling division runs per column rather than per pixel, and
+coalesces equal-index neighbours into spans. **A per-pixel drawing helper is a regression** — it
+was one, and reintroducing it costs about 5x on every text frame.
+
 ### Text is measured in cells, not bytes
 
 `fb_draw_text` walks `mesh_ui_text_cell_next` and spends one cell per character or emoji.
