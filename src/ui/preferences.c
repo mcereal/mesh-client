@@ -153,6 +153,18 @@ int mesh_ui_preferences_load(struct mesh_ui_preferences *prefs, const char *path
             prefs->preferred_device_kind = (uint8_t)(strcmp(value, "serial") == 0 ? 1 : 0);
         } else if (strncmp(line, "preferred_channel", key_len) == 0) {
             snprintf(prefs->preferred_channel, sizeof prefs->preferred_channel, "%s", value);
+        } else if (strncmp(line, "update_channel", key_len) == 0) {
+            /* Written by name so the file stays readable and an enum renumbering cannot
+               silently move someone onto the other channel. An unknown name is DEFAULT. */
+            if (strcmp(value, "stable") == 0) {
+                prefs->update_channel = 1U;
+            } else if (strcmp(value, "prerelease") == 0) {
+                prefs->update_channel = 2U;
+            } else {
+                prefs->update_channel = 0U;
+            }
+        } else if (strncmp(line, "update_allow_dev", key_len) == 0) {
+            prefs->update_allow_dev = strcmp(value, "1") == 0;
         } else if (strncmp(line, "known_radios", key_len) == 0) {
             /* One comma-separated line, most recent first - the order is the value here, so
                it is read back in file order rather than through note_radio(). */
@@ -236,6 +248,11 @@ int mesh_ui_preferences_save(const struct mesh_ui_preferences *prefs, const char
     fprintf(file, "preferred_device_kind=%s\n",
             prefs->preferred_device_kind == 1U ? "serial" : "ble");
     fprintf(file, "preferred_channel=%s\n", prefs->preferred_channel);
+    fprintf(file, "update_channel=%s\n",
+            prefs->update_channel == 1U   ? "stable"
+            : prefs->update_channel == 2U ? "prerelease"
+                                          : "default");
+    fprintf(file, "update_allow_dev=%s\n", prefs->update_allow_dev ? "1" : "0");
     fprintf(file, "known_radios=");
     for (uint8_t i = 0; i < prefs->known_radio_count && i < MESH_UI_MAX_KNOWN_RADIOS; ++i) {
         fprintf(file, "%s%u", i > 0U ? "," : "", prefs->known_radios[i]);

@@ -1280,6 +1280,8 @@ static void test_ui_preferences_roundtrip(void) {
     memset(&prefs, 0, sizeof prefs);
     snprintf(prefs.preferred_device, sizeof prefs.preferred_device, "%s", "AA:BB:CC:DD:EE:01");
     snprintf(prefs.preferred_channel, sizeof prefs.preferred_channel, "%s", "LongRange");
+    prefs.update_channel = (uint8_t)MESH_UPDATE_CHANNEL_PRERELEASE;
+    prefs.update_allow_dev = true;
 
     if (mesh_ui_preferences_save(&prefs, prefab_path) != 0) {
         unlink(prefab_path);
@@ -1296,7 +1298,9 @@ static void test_ui_preferences_roundtrip(void) {
 
     if (strcmp(loaded.preferred_device, prefs.preferred_device) != 0 ||
         strcmp(loaded.preferred_channel, prefs.preferred_channel) != 0 ||
-        loaded.preferred_device_kind != prefs.preferred_device_kind) {
+        loaded.preferred_device_kind != prefs.preferred_device_kind ||
+        loaded.update_channel != prefs.update_channel ||
+        loaded.update_allow_dev != prefs.update_allow_dev) {
         unlink(prefab_path);
         record_failure(test_name, "roundtrip mismatch");
         return;
@@ -1321,6 +1325,8 @@ static void test_ui_preferences_roundtrip(void) {
         record_failure(test_name, "failed to rewrite temp file");
         return;
     }
+    /* No update_channel line: a file written before the setting existed must read as DEFAULT,
+       so the updater keeps inferring the channel from the build rather than being moved. */
     fprintf(temp, "preferred_device=/dev/ttyUSB0\npreferred_channel=LongFast\n");
     fclose(temp);
     memset(&loaded, 0, sizeof loaded);
@@ -1328,6 +1334,11 @@ static void test_ui_preferences_roundtrip(void) {
         loaded.preferred_device_kind != (uint8_t)MESH_UI_DEVICE_SERIAL) {
         unlink(prefab_path);
         record_failure(test_name, "a legacy tty preference should migrate to serial");
+        return;
+    }
+    if (loaded.update_channel != (uint8_t)MESH_UPDATE_CHANNEL_DEFAULT || loaded.update_allow_dev) {
+        unlink(prefab_path);
+        record_failure(test_name, "a file without the settings should read as the defaults");
         return;
     }
 
@@ -8432,6 +8443,86 @@ static void test_updater_lifecycle(void) {
         return;
     }
 
+    /* A fresh updater is on DEFAULT, which resolves to one of the two real channels - never
+       back to DEFAULT, or check() would have no endpoint to pick. */
+    const char *channel_failure = NULL;
+    if (updater.channel != MESH_UPDATE_CHANNEL_DEFAULT) {
+        channel_failure = "a fresh updater should be on the default channel";
+    } else if (mesh_updater_effective_channel(&updater) == MESH_UPDATE_CHANNEL_DEFAULT) {
+        channel_failure = "the default channel should resolve to a real one";
+    } else if (mesh_updater_set_channel(&updater, MESH_UPDATE_CHANNEL_DEFAULT)) {
+        channel_failure = "setting the channel it already has should be a no-op";
+    } else if (!mesh_updater_set_channel(&updater, MESH_UPDATE_CHANNEL_PRERELEASE) ||
+               mesh_updater_effective_channel(&updater) != MESH_UPDATE_CHANNEL_PRERELEASE) {
+        channel_failure = "the channel should be settable";
+    }
+
+    /*
+     * Switching channel must drop whatever the last check found. The release held here belongs
+     * to the question that was asked, and installing a prerelease asset after switching back
+     * to stable is exactly the mismatch this guards.
+     */
+    if (channel_failure == NULL) {
+        updater.state = MESH_UPDATE_AVAILABLE;
+        snprintf(updater.latest, sizeof updater.latest, "%s", "9.9.9");
+        snprintf(updater.asset_url, sizeof updater.asset_url, "%s",
+                 "https://github.com/x/y/releases/download/v9.9.9/asset");
+        memset(updater.asset_sha256, 'a', 64);
+        updater.asset_sha256[64] = '\0';
+        updater.asset_size = 1024U;
+        if (!mesh_updater_set_channel(&updater, MESH_UPDATE_CHANNEL_STABLE)) {
+            channel_failure = "switching channel should take";
+        } else if (updater.state != MESH_UPDATE_IDLE || updater.latest[0] != '\0' ||
+                   updater.asset_url[0] != '\0' || updater.asset_sha256[0] != '\0' ||
+                   updater.asset_size != 0U) {
+            channel_failure = "switching channel should forget the release the last check found";
+        } else if (mesh_updater_install(&updater, 0U) == 0) {
+            channel_failure = "install after a channel switch should be refused";
+        }
+    }
+    if (channel_failure != NULL) {
+        mesh_updater_shutdown(&updater);
+        mesh_event_loop_shutdown(&loop);
+        record_failure(test_name, channel_failure);
+        return;
+    }
+
+    /*
+     * The dev-updates opt-in. The tests are not a release build, so can_install tracks it
+     * exactly - and flipping it has to invalidate the last check for the same reason a channel
+     * change does: "not installing" and "available" are different answers to one question.
+     */
+    const char *dev_failure = NULL;
+    if (!updater.allow_dev_from_env) {
+        if (mesh_updater_can_install(&updater)) {
+            dev_failure = "a dev build should not install by default";
+        } else if (!mesh_updater_set_allow_dev(&updater, true) ||
+                   !mesh_updater_can_install(&updater)) {
+            dev_failure = "the dev-updates opt-in should take";
+        } else if (mesh_updater_set_allow_dev(&updater, true)) {
+            dev_failure = "setting the opt-in it already has should be a no-op";
+        } else {
+            updater.state = MESH_UPDATE_AVAILABLE;
+            snprintf(updater.latest, sizeof updater.latest, "%s", "9.9.9");
+            snprintf(updater.asset_url, sizeof updater.asset_url, "%s",
+                     "https://github.com/x/y/releases/download/v9.9.9/asset");
+            if (!mesh_updater_set_allow_dev(&updater, false)) {
+                dev_failure = "turning the opt-in off should take";
+            } else if (updater.state != MESH_UPDATE_IDLE || updater.latest[0] != '\0' ||
+                       updater.asset_url[0] != '\0') {
+                dev_failure = "turning the opt-in off should forget what the last check found";
+            } else if (mesh_updater_can_install(&updater)) {
+                dev_failure = "a dev build should not install once the opt-in is off again";
+            }
+        }
+    }
+    if (dev_failure != NULL) {
+        mesh_updater_shutdown(&updater);
+        mesh_event_loop_shutdown(&loop);
+        record_failure(test_name, dev_failure);
+        return;
+    }
+
     mesh_updater_shutdown(&updater);
     mesh_event_loop_shutdown(&loop);
     record_success(test_name);
@@ -8458,7 +8549,9 @@ static void test_ui_settings_about(void) {
     snprintf(settings.client.backend, sizeof settings.client.backend, "%s", "fb");
     snprintf(settings.client.data_dir, sizeof settings.client.data_dir, "%s", "/tmp/meshclient");
     settings.client.update_supported = true;
+    settings.client.update_can_install = true;
     settings.client.update_state = (uint8_t)MESH_UPDATE_IDLE;
+    snprintf(settings.client.update_channel, sizeof settings.client.update_channel, "%s", "Stable");
     mesh_ui_store_set_settings(&store, &settings);
 
     if (!mesh_ui_settings_section_loaded(&store.settings, NULL, MESH_UI_SETTINGS_ABOUT)) {
@@ -8559,6 +8652,120 @@ static void test_ui_settings_about(void) {
     if (action.type != MESH_UI_ACTION_INSTALL_UPDATE) {
         failure = "A on the install row should ask the app to install";
         goto cleanup;
+    }
+
+    /* The channel row is a setting the user can step with A, so its value column carries the
+       channel rather than a button hint, and A on it asks the app to cycle it. */
+    uint32_t channel_row = available_rows;
+    for (uint32_t i = 0; i < available_rows; ++i) {
+        if (mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_UPDATE_CHANNEL) {
+            channel_row = i;
+        }
+    }
+    if (channel_row >= available_rows) {
+        failure = "About should offer the update channel";
+        goto cleanup;
+    }
+    if (!mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
+                               MESH_UI_SETTINGS_NO_CHANNEL, channel_row, &item) ||
+        strcmp(item.value, "Stable") != 0) {
+        failure = "the channel row should show the channel, not a button hint";
+        goto cleanup;
+    }
+    store.nav.cursor[MESH_UI_SCREEN_SETTINGS] = channel_row;
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_CYCLE_UPDATE_CHANNEL) {
+        failure = "A on the channel row should ask the app to cycle the channel";
+        goto cleanup;
+    }
+
+    /*
+     * A build that cannot install must never show an install row, even when a check has found
+     * a newer release - and it has to say so, because "here is a newer version" with no way to
+     * take it is exactly the dead end this section used to present on a dev build.
+     */
+    settings.client.update_can_install = false;
+    settings.client.update_state = (uint8_t)MESH_UPDATE_UP_TO_DATE;
+    snprintf(settings.client.update_message, sizeof settings.client.update_message, "%s",
+             "Latest is 1.13.0; dev build, not installing");
+    mesh_ui_store_set_settings(&store, &settings);
+    const uint32_t dev_rows = mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS);
+    bool pointed_at_the_switch = false;
+    uint32_t dev_toggle_row = dev_rows;
+    for (uint32_t i = 0; i < dev_rows; ++i) {
+        if (!mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, i, &item)) {
+            continue;
+        }
+        if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_INSTALL_UPDATE) {
+            failure = "a build that cannot install should offer no install row";
+            goto cleanup;
+        }
+        if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_TOGGLE_DEV_UPDATES) {
+            dev_toggle_row = i;
+        }
+        if (strcmp(item.value, "turn on Dev updates") == 0) {
+            pointed_at_the_switch = true;
+        }
+    }
+    if (!pointed_at_the_switch) {
+        failure = "a build that cannot install should name the row that changes it";
+        goto cleanup;
+    }
+    /*
+     * That row has to be reachable from the device itself. The opt-in was an environment
+     * variable first, which meant a handheld could only be let through from an ssh session on
+     * another machine - the switch is here so the About screen alone is enough.
+     */
+    if (dev_toggle_row >= dev_rows) {
+        failure = "a dev build should offer the dev-updates switch";
+        goto cleanup;
+    }
+    if (!mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
+                               MESH_UI_SETTINGS_NO_CHANNEL, dev_toggle_row, &item) ||
+        strcmp(item.value, "off") != 0) {
+        failure = "the dev-updates switch should show its own position";
+        goto cleanup;
+    }
+    store.nav.cursor[MESH_UI_SCREEN_SETTINGS] = dev_toggle_row;
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_TOGGLE_DEV_UPDATES) {
+        failure = "A on the dev-updates row should ask the app to toggle it";
+        goto cleanup;
+    }
+
+    /* Held on by MESHCLIENT_UPDATE_ALLOW_DEV it is a fact, not a switch: a toggle that sprang
+       back to where it was would read as broken. */
+    settings.client.update_allow_dev = true;
+    settings.client.update_allow_dev_from_env = true;
+    mesh_ui_store_set_settings(&store, &settings);
+    for (uint32_t i = 0; i < mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS);
+         ++i) {
+        if (mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_TOGGLE_DEV_UPDATES) {
+            failure = "an env-held dev-updates row should not be a switch";
+            goto cleanup;
+        }
+    }
+    settings.client.update_allow_dev = false;
+    settings.client.update_allow_dev_from_env = false;
+
+    /* A release build has no guard to lift, so it is never shown the switch. */
+    settings.client.update_is_release = true;
+    settings.client.update_can_install = true;
+    settings.client.update_state = (uint8_t)MESH_UPDATE_AVAILABLE;
+    mesh_ui_store_set_settings(&store, &settings);
+    for (uint32_t i = 0; i < mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS);
+         ++i) {
+        if (mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_TOGGLE_DEV_UPDATES) {
+            failure = "a release build should not offer the dev-updates switch";
+            goto cleanup;
+        }
     }
 
     /* While a child is running neither action is offered, so a second press cannot stack one. */

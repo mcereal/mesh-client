@@ -169,12 +169,27 @@ struct mesh_ui_client_info {
     uint8_t update_state;
     char update_message[MESH_UI_CLIENT_MESSAGE_MAX];
     char update_latest[MESH_UI_CLIENT_TEXT_MAX];
+    /* The update channel as the About row shows it ("Stable", "Prerelease", "Automatic
+       (stable)"). A name rather than the enum for the same reason the state is a byte: the
+       backends and the nav never include the updater. */
+    char update_channel[MESH_UI_CLIENT_TEXT_MAX];
     /* False when the device has no curl or wget, or the running binary could not be located:
        the About section then shows why instead of an update row that cannot work. */
     bool update_supported;
     /* A check or a download is in flight, so the action row reads as busy and a second press
        does not stack another child. */
     bool update_busy;
+    /* False for a build that is not an official release (and has not opted in through
+       MESHCLIENT_UPDATE_ALLOW_DEV): the check still runs and reports what is out there, but
+       no install row is offered, because pressing it could not do anything. */
+    bool update_can_install;
+    /* An official release. False means the dev-updates toggle is shown, because on a release
+       build it would be a switch with nothing behind it. */
+    bool update_is_release;
+    /* The dev-updates toggle's own position, and whether the environment is holding it on -
+       an env override the user cannot see would otherwise look like a row that ignores them. */
+    bool update_allow_dev;
+    bool update_allow_dev_from_env;
 };
 
 /*

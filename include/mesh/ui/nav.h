@@ -194,6 +194,8 @@ enum mesh_ui_action_type {
        found. Two actions rather than one because installing replaces the running binary. */
     MESH_UI_ACTION_CHECK_UPDATE,
     MESH_UI_ACTION_INSTALL_UPDATE,
+    MESH_UI_ACTION_CYCLE_UPDATE_CHANNEL,
+    MESH_UI_ACTION_TOGGLE_DEV_UPDATES,
     /* Devices tab. DISCONNECT with an empty identifier means "whatever link is up": only one
        radio is ever connected, so the row the cursor happens to be on does not decide it. */
     MESH_UI_ACTION_DISCONNECT,

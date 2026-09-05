@@ -28,6 +28,15 @@ struct mesh_ui_preferences {
        tab's budget today. */
     uint32_t known_radios[MESH_UI_MAX_KNOWN_RADIOS];
     uint8_t known_radio_count;
+    /* Which releases the self-updater is willing to be offered (enum mesh_update_channel,
+       mesh/updater.h), carried as a byte so this header does not pull the updater in. 0 is
+       DEFAULT, which is what a prefs file written before the setting existed reads as - so
+       the inference the updater used to make on its own stays in force until someone picks. */
+    uint8_t update_channel;
+    /* Whether a build that is not an official release may install what the updater finds.
+       Remembered so the choice survives a relaunch: the alternative was an environment
+       variable, which on a handheld means having a computer and an ssh session to hand. */
+    bool update_allow_dev;
 };
 
 int mesh_ui_preferences_default_path(char *buffer, size_t buffer_len);

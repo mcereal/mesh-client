@@ -1574,6 +1574,12 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
                         action->type = MESH_UI_ACTION_CHECK_UPDATE;
                     } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_INSTALL_UPDATE) {
                         action->type = MESH_UI_ACTION_INSTALL_UPDATE;
+                    } else if (item.number ==
+                               (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_UPDATE_CHANNEL) {
+                        action->type = MESH_UI_ACTION_CYCLE_UPDATE_CHANNEL;
+                    } else if (item.number ==
+                               (uint32_t)MESH_UI_SETTINGS_ACTION_TOGGLE_DEV_UPDATES) {
+                        action->type = MESH_UI_ACTION_TOGGLE_DEV_UPDATES;
                     }
                 }
                 /* The row itself does not change; the app's reply comes back as new state. */

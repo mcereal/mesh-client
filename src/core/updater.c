@@ -65,11 +65,66 @@ const char *mesh_update_state_name(enum mesh_update_state state) {
     }
 }
 
+const char *mesh_update_channel_name(enum mesh_update_channel channel) {
+    switch (channel) {
+    case MESH_UPDATE_CHANNEL_STABLE:
+        return "Stable";
+    case MESH_UPDATE_CHANNEL_PRERELEASE:
+        return "Prerelease";
+    case MESH_UPDATE_CHANNEL_DEFAULT:
+        /* Say what the inference resolved to, or the row would read as a shrug. */
+        return mesh_version_is_prerelease() ? "Automatic (prerelease)" : "Automatic (stable)";
+    default:
+        return "?";
+    }
+}
+
+enum mesh_update_channel mesh_updater_effective_channel(const struct mesh_updater *updater) {
+    const enum mesh_update_channel channel =
+        updater != NULL ? updater->channel : MESH_UPDATE_CHANNEL_DEFAULT;
+    if (channel == MESH_UPDATE_CHANNEL_STABLE || channel == MESH_UPDATE_CHANNEL_PRERELEASE) {
+        return channel;
+    }
+    /* A build off beta or rc follows prereleases; anything else follows stable. This is what
+       the updater did before the channel was a setting, so DEFAULT changes nothing. */
+    return (mesh_version_is_release() && mesh_version_is_prerelease())
+               ? MESH_UPDATE_CHANNEL_PRERELEASE
+               : MESH_UPDATE_CHANNEL_STABLE;
+}
+
+bool mesh_updater_can_install(const struct mesh_updater *updater) {
+    return updater != NULL && (updater->allow_dev || mesh_version_is_release());
+}
+
+/* Drops the release the last check found. Anything that could make it stale - a new check, a
+   channel change - goes through here so an install can never be handed an asset from a
+   question we are no longer asking. */
+static void updater_forget_release(struct mesh_updater *updater) {
+    updater->latest[0] = '\0';
+    updater->asset_url[0] = '\0';
+    updater->asset_sha256[0] = '\0';
+    updater->asset_size = 0U;
+}
+
+/* Drops whatever the last check concluded, because the question it answered has changed. An
+   updater still sitting at IDLE keeps init()'s `message` - "no curl or wget on this device" is
+   a fact about the install, not a stale result. */
+static void updater_invalidate_check(struct mesh_updater *updater, const char *why);
+
 static void updater_set(struct mesh_updater *updater, enum mesh_update_state state,
                         const char *message) {
     updater->state = state;
     snprintf(updater->message, sizeof updater->message, "%s", message != NULL ? message : "");
     updater->revision++;
+}
+
+static void updater_invalidate_check(struct mesh_updater *updater, const char *why) {
+    updater_forget_release(updater);
+    if (updater->state != MESH_UPDATE_IDLE) {
+        updater_set(updater, MESH_UPDATE_IDLE, why);
+    } else {
+        updater->revision++;
+    }
 }
 
 /* ---- release JSON ---------------------------------------------------------------------- */
@@ -681,15 +736,29 @@ int mesh_updater_init(struct mesh_updater *updater, struct mesh_event_loop *loop
     /* Needs install_path, so it has to come after the readlink above. */
     updater_resolve_ca_bundle(updater);
 
+    const char *const allow_dev = getenv("MESHCLIENT_UPDATE_ALLOW_DEV");
+    updater->allow_dev_from_env =
+        allow_dev != NULL && allow_dev[0] != '\0' && strcmp(allow_dev, "0") != 0;
+    updater->allow_dev = updater->allow_dev_from_env;
+
     if (updater->fetcher == NULL) {
         snprintf(updater->message, sizeof updater->message, "%s", "No curl or wget on this device");
+    } else if (!mesh_version_is_release() && !updater->allow_dev) {
+        /* Say the consequence, not just the fact: the old wording ("Development build") sat
+           next to a check that would go on to name a newer release it had no intention of
+           installing, which reads as a broken install button rather than a deliberate guard. */
+        snprintf(updater->message, sizeof updater->message, "%s", "Dev build; updates disabled");
     } else if (!mesh_version_is_release()) {
-        snprintf(updater->message, sizeof updater->message, "%s", "Development build");
+        snprintf(updater->message, sizeof updater->message, "%s", "Dev build; updates enabled");
     }
-    mesh_log_info("update", "Updater ready: fetcher=%s binary=%s version=%s cacert=%s",
+    mesh_log_info("update",
+                  "Updater ready: fetcher=%s binary=%s version=%s channel=%s allow_dev=%s "
+                  "cacert=%s",
                   updater->fetcher != NULL ? updater->fetcher : "none",
                   updater->install_path[0] != '\0' ? updater->install_path : "unknown",
                   mesh_version_string(),
+                  mesh_update_channel_name(mesh_updater_effective_channel(updater)),
+                  updater->allow_dev ? "yes" : "no",
                   updater->ca_bundle[0] != '\0' ? updater->ca_bundle : "(fetcher default)");
     return 0;
 }
@@ -710,6 +779,39 @@ bool mesh_updater_available(const struct mesh_updater *updater) {
            updater->loop != NULL;
 }
 
+bool mesh_updater_set_channel(struct mesh_updater *updater, enum mesh_update_channel channel) {
+    if (updater == NULL || channel >= MESH_UPDATE_CHANNEL_COUNT || updater->channel == channel) {
+        return false;
+    }
+    if (updater->child > 0) {
+        return false; /* mid-check or mid-download: the asset in flight belongs to the old one */
+    }
+    updater->channel = channel;
+    updater_invalidate_check(updater, "Channel changed; check again");
+    mesh_log_info("update", "Update channel set to %s",
+                  mesh_update_channel_name(mesh_updater_effective_channel(updater)));
+    return true;
+}
+
+bool mesh_updater_set_allow_dev(struct mesh_updater *updater, bool allow) {
+    if (updater == NULL || updater->allow_dev == allow) {
+        return false;
+    }
+    if (updater->child > 0) {
+        return false; /* mid-check or mid-download; let it finish rather than move the goalposts */
+    }
+    updater->allow_dev = allow;
+    updater_invalidate_check(updater, "Setting changed; check again");
+    /* init() put its reason in `message` when the updater was left idle, and that reason has
+       just stopped being true either way. */
+    if (updater->state == MESH_UPDATE_IDLE && !mesh_version_is_release()) {
+        snprintf(updater->message, sizeof updater->message, "%s",
+                 allow ? "Dev build; updates enabled" : "Dev build; updates disabled");
+    }
+    mesh_log_info("update", "Dev updates %s", allow ? "enabled" : "disabled");
+    return true;
+}
+
 int mesh_updater_check(struct mesh_updater *updater, uint64_t now_ms) {
     if (updater == NULL) {
         return -EINVAL;
@@ -721,20 +823,17 @@ int mesh_updater_check(struct mesh_updater *updater, uint64_t now_ms) {
         return -EBUSY;
     }
     updater_close_child(updater);
-    updater->latest[0] = '\0';
-    updater->asset_url[0] = '\0';
-    updater->asset_sha256[0] = '\0';
-    updater->asset_size = 0U;
+    updater_forget_release(updater);
 
     /*
-     * Which question to ask depends on the channel this build came from. `releases/latest`
-     * deliberately skips prereleases, so a client built from beta or rc would only ever be
-     * offered stable and would never see the next beta. `releases?per_page=1` is the newest
-     * release of any kind - and capping it at one keeps the reply a single release object, so
-     * the scanner below cannot pair one release's tag with another's asset.
+     * Which question to ask is the channel setting (mesh_update_channel). `releases/latest`
+     * deliberately skips prereleases, so a client on the stable channel is never shown a beta;
+     * `releases?per_page=1` is the newest release of any kind - and capping it at one keeps the
+     * reply a single release object, so the scanner below cannot pair one release's tag with
+     * another's asset.
      */
     char url[MESH_UPDATE_URL_MAX];
-    if (mesh_version_is_release() && mesh_version_is_prerelease()) {
+    if (mesh_updater_effective_channel(updater) == MESH_UPDATE_CHANNEL_PRERELEASE) {
         snprintf(url, sizeof url, "https://api.github.com/repos/%s/releases?per_page=1",
                  mesh_updater_repo());
     } else {
@@ -822,13 +921,25 @@ static void updater_finish_check(struct mesh_updater *updater, int exit_status) 
     mesh_log_info("update", "Latest release %s (running %s), asset %llu bytes", tag,
                   mesh_version_string(), (unsigned long long)size);
 
-    if (!mesh_version_is_release()) {
+    if (!mesh_updater_can_install(updater)) {
+        /* A check on a dev build is still useful - it says what is out there - but it must not
+           read as an offer. Naming the release and the reason in one line is what stops the
+           About screen from looking like an install button that does nothing. */
         char message[MESH_UPDATE_MESSAGE_MAX];
-        snprintf(message, sizeof message, "Latest is %s; this is a dev build", tag);
+        snprintf(message, sizeof message, "Latest is %s; dev build, not installing", tag);
         updater_set(updater, MESH_UPDATE_UP_TO_DATE, message);
         return;
     }
-    if (!mesh_version_is_newer_than_running(tag)) {
+    /*
+     * A release build compares against the release it claims to be. A build running under
+     * MESHCLIENT_UPDATE_ALLOW_DEV compares its own "<version>-dev" string, which SemVer sorts
+     * below the release of the same number - so it is offered exactly the release its working
+     * tree is based on, which is the one worth exercising the download path against.
+     */
+    const bool newer = mesh_version_is_release()
+                           ? mesh_version_is_newer_than_running(tag)
+                           : mesh_version_compare(tag, mesh_version_string()) > 0;
+    if (!newer) {
         updater_set(updater, MESH_UPDATE_UP_TO_DATE, "Running the latest release");
         return;
     }
