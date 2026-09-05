@@ -1,11 +1,11 @@
 #define _POSIX_C_SOURCE 200809L
 
-#include "mesh/updater.h"
+#include "mesh/core/updater.h"
 
-#include "mesh/event_loop.h"
-#include "mesh/log.h"
-#include "mesh/sha256.h"
-#include "mesh/version.h"
+#include "mesh/core/event_loop.h"
+#include "mesh/core/version.h"
+#include "mesh/utils/log.h"
+#include "mesh/utils/sha256.h"
 
 #include <errno.h>
 #include <fcntl.h>

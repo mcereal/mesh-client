@@ -1,7 +1,7 @@
 #pragma once
 
-#include "mesh/config.h"
-#include "mesh/event_loop.h"
+#include "mesh/core/config.h"
+#include "mesh/core/event_loop.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -57,8 +57,6 @@ int mesh_transport_registry_start_all(struct mesh_transport_registry *registry,
                                       struct mesh_event_loop *loop);
 void mesh_transport_registry_stop_all(struct mesh_transport_registry *registry);
 void mesh_transport_registry_tick(struct mesh_transport_registry *registry);
-int mesh_transport_registry_handle_command(struct mesh_transport_registry *registry,
-                                           const char *command, const char *arg);
 /* Hands `session` to every registered transport that supports it. Call before start_all(). */
 void mesh_transport_registry_set_session(struct mesh_transport_registry *registry,
                                          struct mesh_session *session);

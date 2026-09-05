@@ -223,11 +223,6 @@ echo "display:"
 if [ -c /dev/fb0 ]; then r fb0 "present"; else r fb0 "MISSING"; fi
 [ -r /sys/class/graphics/fb0/virtual_size ] && r fb0_virtual_size "$(cat /sys/class/graphics/fb0/virtual_size)"
 [ -r /sys/class/graphics/fb0/bits_per_pixel ] && r fb0_bpp "$(cat /sys/class/graphics/fb0/bits_per_pixel)"
-echo "helpers:"
-for b in minui-list minui-presenter minui-keyboard; do
-  p="$(command -v $b 2>/dev/null || ls '"${REMOTE_TOOLS}"'/*/bin/*/$b 2>/dev/null | head -n1)"
-  r "$b" "${p:-not found}"
-done
 echo "network:"
 r ip "$(ip -4 -o addr show 2>/dev/null | awk "!/ lo /{print \$4}" | tr "\n" " ")"
 '

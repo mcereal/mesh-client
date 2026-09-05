@@ -1,7 +1,7 @@
 #include "mesh/ui/settings.h"
 
-#include "mesh/radio_settings.h"
-#include "mesh/updater.h"
+#include "mesh/core/radio_settings.h"
+#include "mesh/core/updater.h"
 
 #include <ctype.h>
 #include <stdio.h>

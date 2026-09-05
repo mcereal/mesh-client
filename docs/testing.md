@@ -3,14 +3,14 @@
 The whole suite is **one binary with a name filter**, not per-test CTest entries. Every case
 lives in `tests/test_main.c` and is registered in the `k_test_cases` table with a category tag.
 
-As of 2026-09-05: **94 unit tests, all passing**, zero compiler warnings.
+As of 2026-09-05: **98 unit tests, all passing**, zero compiler warnings.
 
 ## Categories
 
 | Category | Scope |
 |---|---|
-| `unit` | Everything today: transports, event-loop helpers, session and message handling, UI store/controller/nav, preferences, MinUI JSON glue |
-| `integration` | Reserved for cross-module tests (BlueZ-on-device, MinUI end-to-end) |
+| `unit` | Everything today: transports, event-loop helpers, session and message handling, UI store/controller/nav, preferences, the updater |
+| `integration` | Reserved for cross-module tests (BlueZ-on-device, end-to-end) |
 | `hardware` | Reserved for tests needing a real Brick; tagged so CI can skip them (`ctest -E HARDWARE`) |
 
 ## Running

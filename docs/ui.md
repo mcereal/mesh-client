@@ -17,7 +17,8 @@ evdev -> mesh_ui_input -> mesh_ui_controller_handle_key -> mesh_ui_store_handle_
 - **`src/ui/controller.c`** drains the store and calls `backend->present(snapshot)`.
 - **Backends** implement the three-function `struct mesh_ui_backend` in
   `include/mesh/ui/backend.h` (`init`, `shutdown`, `present`) and live in `src/ui/backends/`:
-  `cli.c`, `fb.c`, `minui.c`, `stub.c`. **Backends are stateless** — they draw the cursor from
+  `fb.c` (the device UI), `cli.c` (a terminal fallback where there is no framebuffer), and
+  `stub.c` (tests). **Backends are stateless** — they draw the cursor from
   `snapshot->nav`. A new platform implements the backend interface and leaves the store and
   controller untouched.
 - **`src/ui/nav.c`** owns the tab/cursor/compose-target model (`struct mesh_ui_nav`, carried
@@ -249,8 +250,7 @@ Sequences always win — that is what the extra codepoints mean. Emoji ignore th
 colour; carrying their own is the point of having them.
 
 `scripts/gen-emoji.py` rasterises Noto Color Emoji into the committed table and is **not part of
-the build** — run it by hand and commit the result, the way `Tools/` holds committed aarch64
-helpers. 5626 sprites over 3963 unique 16x16 bitmaps (a third are duplicates), one shared
+the build** — run it by hand and commit the result. 5626 sprites over 3963 unique 16x16 bitmaps (a third are duplicates), one shared
 255-colour palette, run-length encoded, ~920 KB. The pixels are emitted as one string literal on
 purpose: a braced initialiser of a million integers costs minutes of compile time, the literal
 costs about two seconds. The file carries its own
@@ -258,36 +258,13 @@ costs about two seconds. The file carries its own
 
 ## Backend selection
 
-`MESHCLIENT_UI_BACKEND=auto|minui|fb|cli|stub`, resolved in `mesh_app_select_backend()`
-(`src/core/app.c`). `auto` prefers minui if the helpers are on PATH, then fb (`/dev/fb0`), then
-cli. `launch.sh` forces `fb` on device.
+`MESHCLIENT_UI_BACKEND=fb|cli|stub`, resolved in `mesh_app_select_backend()` (`src/core/app.c`).
 
-Override the helper binaries with `MESHCLIENT_MINUI_PRESENTER_CMD` / `MESHCLIENT_MINUI_LIST_CMD`.
+`fb` is the default and the only one that draws the real UI. It needs `/dev/fb0`, so anywhere
+there is no framebuffer — a container, a dev host over SSH — selection falls through to `cli`,
+which prints snapshot diffs to the terminal. `cli` and `stub` are the two you ask for by name;
+anything else, an unset variable included, means "the framebuffer, or the CLI if there isn't
+one". `launch.sh` sets `fb` explicitly on device.
 
-## MinUI helpers
-
-The repo vendors NextUI as a submodule under `third_party/nextui/`, whose
-`workspace/all/settings/{keyboardprompt,menu}.cpp` and `workspace/tg5040/platform/` are the parts
-worth reusing.
-
-`scripts/build_minui_helpers.sh` (run automatically by `make package`) stages helper binaries into
-the tracked `Tools/tg5040/MeshClient.pak/bin/tg5040/` tree, which holds committed **aarch64**
-artifacts. Without a cross toolchain it falls back to the host compiler, so every install is
-checked against the platform's expected ELF machine (`e_machine` 183 for tg5040) and skipped with
-a warning on a mismatch — a native `make package` on x86_64 leaves the committed binaries alone
-instead of replacing them with host-arch ones. `MESHCLIENT_ALLOW_HOST_HELPERS=1` overrides this.
-It warns rather than failing, so CI's host-only `make package` stays green.
-
-`src/minui_helpers/` holds tiny native fallbacks for `minui-list` / `minui-presenter`
-(`minui-keyboard` is the third helper the NextUI tree offers, still unused) for when
-the cross toolchain is not available; they honour `MESHCLIENT_MINUI_SELECTION`.
-
-The MinUI backend serialises discovery/handshake state to JSON, launches `minui-list`
-asynchronously, watches its stdout through the main event loop, and funnels the selected row back
-without blocking. It is the one backend that reads child output rather than only drawing.
-
-### Not done yet
-
-- Real MinUI screens beyond device selection: the fb backend is what the pak actually runs, and
-  `launch.sh` forces it. Switching to `minui` means building the focused NextUI helper targets
-  rather than the whole launcher, and verifying them on hardware.
+`stub` accepts snapshots and draws nothing. It is what the tests drive the controller against,
+and what `mesh_app_init` falls back to if the chosen backend's `init` fails.

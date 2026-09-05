@@ -50,21 +50,6 @@ cp pak.json "${OUTPUT_DIR}/pak.json"
 mkdir -p "${OUTPUT_DIR}/certs"
 cp Tools/tg5040/MeshClient.pak/certs/certificates.crt "${OUTPUT_DIR}/certs/certificates.crt"
 
-if [[ -d Tools/tg5040/MeshClient.pak/bin/shared ]]; then
-    while IFS= read -r -d '' file; do
-        dest="${OUTPUT_DIR}/bin/shared/$(basename "$file")"
-        cp "$file" "$dest"
-    done < <(find Tools/tg5040/MeshClient.pak/bin/shared -maxdepth 1 -type f ! -name '.gitkeep' -print0)
-fi
-
-if [[ -d Tools/tg5040/MeshClient.pak/bin/tg5040 ]]; then
-    mkdir -p "${OUTPUT_DIR}/bin/tg5040"
-    while IFS= read -r -d '' file; do
-        dest="${OUTPUT_DIR}/bin/tg5040/$(basename "$file")"
-        cp "$file" "$dest"
-    done < <(find Tools/tg5040/MeshClient.pak/bin/tg5040 -maxdepth 1 -type f ! -name '.gitkeep' -print0)
-fi
-
 mkdir -p "${DIST_DIR}"
 # The zip holds the *contents* of the pak, not the pak folder itself. That is what the NextUI
 # Pak Store requires - it creates `Tools/<platform>/MeshClient.pak/` and unpacks into it, so a

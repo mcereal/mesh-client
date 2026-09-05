@@ -2,9 +2,9 @@
 
 #include "mesh/ui/controller.h"
 
-#include "mesh/log.h"
 #include "mesh/ui/backend.h"
 #include "mesh/ui/nav.h"
+#include "mesh/utils/log.h"
 
 #include <errno.h>
 #include <stddef.h>

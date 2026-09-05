@@ -1,7 +1,7 @@
 #include "mesh/ui/backends/cli.h"
 
-#include "mesh/log.h"
-#include "mesh/mesh_message.h"
+#include "mesh/core/message.h"
+#include "mesh/utils/log.h"
 
 #include <errno.h>
 #include <inttypes.h>

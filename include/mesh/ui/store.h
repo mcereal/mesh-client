@@ -503,7 +503,6 @@ struct mesh_ui_store {
 
 int mesh_ui_store_init(struct mesh_ui_store *store);
 void mesh_ui_store_shutdown(struct mesh_ui_store *store);
-void mesh_ui_store_reset(struct mesh_ui_store *store);
 
 int mesh_ui_store_event_fd(const struct mesh_ui_store *store);
 

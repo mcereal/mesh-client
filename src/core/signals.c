@@ -1,9 +1,9 @@
 #define _POSIX_C_SOURCE 200809L
 
-#include "mesh/signals.h"
+#include "mesh/core/signals.h"
 
-#include "mesh/event_loop.h"
-#include "mesh/log.h"
+#include "mesh/core/event_loop.h"
+#include "mesh/utils/log.h"
 
 #include <errno.h>
 #include <signal.h>

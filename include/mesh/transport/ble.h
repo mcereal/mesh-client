@@ -1,8 +1,8 @@
 #pragma once
 
-#include "mesh/mesh_message.h"
-#include "mesh/radio_settings.h"
-#include "mesh/session.h"
+#include "mesh/core/message.h"
+#include "mesh/core/radio_settings.h"
+#include "mesh/core/session.h"
 #include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/transport.h"
 

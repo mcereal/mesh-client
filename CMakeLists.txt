@@ -46,7 +46,6 @@ add_library(meshclient_core
     src/transport/ble/bluez_client.c
     src/transport/serial/serial_transport.c
     src/transport/serial/serial_usb.c
-    src/proto/framing.c
     src/proto/stream_framing.c
     src/utils/log.c
     src/utils/sha256.c
@@ -59,7 +58,6 @@ add_library(meshclient_core
     src/ui/node_detail.c
     src/ui/backends/stub.c
     src/ui/backends/cli.c
-    src/ui/backends/minui.c
     src/ui/backends/fb.c
     src/ui/font5x7.c
     src/ui/emoji.c

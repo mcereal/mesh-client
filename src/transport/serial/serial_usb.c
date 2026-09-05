@@ -3,7 +3,7 @@
 
 #include "mesh/transport/serial_usb.h"
 
-#include "mesh/log.h"
+#include "mesh/utils/log.h"
 
 #include <ctype.h>
 #include <dirent.h>

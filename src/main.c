@@ -1,9 +1,9 @@
-#include "mesh/app.h"
-#include "mesh/config.h"
-#include "mesh/log.h"
+#include "mesh/core/app.h"
+#include "mesh/core/config.h"
+#include "mesh/core/version.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/serial.h"
-#include "mesh/version.h"
+#include "mesh/utils/log.h"
 
 #include <errno.h>
 #include <getopt.h>

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "mesh/mesh_message.h"
-#include "mesh/radio_settings.h"
+#include "mesh/core/message.h"
+#include "mesh/core/radio_settings.h"
 #include "meshtastic/mesh.pb.h"
 
 #include <stdbool.h>

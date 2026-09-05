@@ -1,6 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 
-#include "mesh/log.h"
+#include "mesh/utils/log.h"
 
 #include <errno.h>
 #include <stdarg.h>
@@ -72,11 +72,4 @@ void mesh_log_message_v(enum mesh_log_level level, const char *component, const 
     if (fmt[0] == '\0' || fmt[strlen(fmt) - 1] != '\n') {
         fputc('\n', stderr);
     }
-}
-
-void mesh_log_message(enum mesh_log_level level, const char *component, const char *fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    mesh_log_message_v(level, component, fmt, args);
-    va_end(args);
 }

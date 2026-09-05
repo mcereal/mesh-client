@@ -19,7 +19,7 @@ directly, no Docker needed; `.claude/hooks/session-start.sh` runs that setup aut
 remote sessions.
 
 ```bash
-git submodule update --init --recursive   # nanopb, meshtastic/protobufs, NextUI
+git submodule update --init --recursive   # nanopb, meshtastic/protobufs
                                           # CMake FATAL_ERRORs without them
 make test                                 # Debug build + ctest — the default verify step
 make debug                                # Debug build only
@@ -69,7 +69,7 @@ One binary with a name filter, not per-test CTest entries. Register new cases in
 ./build/debug/tests/meshclient_core_tests --filter ble_transport
 ```
 
-Verified 2026-09-05: 101 unit tests, all passing, zero compiler warnings.
+Verified 2026-09-05: 98 unit tests, all passing, zero compiler warnings.
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
 vector — not against our own encoder — so a protobuf regeneration that changes field numbers or
 wire types fails loudly.
@@ -104,8 +104,11 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | Messaging | `src/core/message.c` | text packets, message ring, ack correlation |
 | App glue | `src/core/app.c` | publish to UI, persistence, auto-connect, UI actions |
 | Self-update | `src/core/updater.c`, `version.c` | forks curl, SemVer, digest-verified install |
-| UI | `src/ui/` | store/controller/nav + `backends/{cli,fb,minui,stub}.c` |
+| UI | `src/ui/` | store/controller/nav + `backends/{fb,cli,stub}.c`; **`fb` is the device UI** |
 | Text | `src/utils/text.c`, `src/ui/{font5x7,emoji}.c` | UTF-8 sanitising, cell-based measurement |
+
+`include/mesh/` mirrors `src/` one-for-one — `core/`, `transport/`, `ui/`, `proto/`, `utils/` —
+so a header always sits in the directory named after the source file that defines it.
 
 **The full design rationale lives in [`docs/architecture.md`](docs/architecture.md)** — read it
 before changing session, settings, updater or node-cache behaviour. Transports are in
@@ -117,8 +120,7 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
 
 - **No threads.** Everything is the one epoll loop.
 - **BLE is not Nordic UART** and carries no length framing: one bare protobuf per GATT
-  write/read. `src/proto/framing.c` is a homegrown varint prefix nothing on the wire uses; serial
-  framing is `src/proto/stream_framing.c`.
+  write/read. Framing is a serial-only concern, and it is `src/proto/stream_framing.c`.
 - **The Brick's face buttons do not report by position.** A is `BTN_EAST` (305), B is `BTN_SOUTH`
   (304), the button printed **Y (left) is `BTN_NORTH` (307)**, so X (top) is `BTN_WEST` (308).
   Pinned in `input_brick_face_buttons`.
@@ -131,8 +133,8 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   the guard (`MESHCLIENT_UPDATE_ALLOW_DEV=1`, or Settings → About → Dev updates).
 - **Do not edit `project(meshclient VERSION x.y.z ...)`** in `CMakeLists.txt` or bump it by hand;
   the release workflow rewrites that line with `sed`.
-- **`launch.sh` and the `Tools/` helpers do not ship through self-update.** Changing either
-  forces a pak reinstall, so treat them as a compatibility boundary.
+- **`launch.sh` and the pak's CA bundle do not ship through self-update.** Only the bare binary
+  does. Changing either forces a pak reinstall, so treat them as a compatibility boundary.
 - **`scripts/gen-emoji.py` is not part of the build.** Run it by hand and commit the result.
 
 ## Protobufs

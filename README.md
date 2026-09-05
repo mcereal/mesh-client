@@ -55,7 +55,7 @@ Controls, flags and environment variables are in [`docs/cli.md`](docs/cli.md).
 The core is Linux-only (`epoll`/`timerfd`/`eventfd`). On a Linux host:
 
 ```bash
-git submodule update --init --recursive   # nanopb, Meshtastic protobufs, NextUI
+git submodule update --init --recursive   # nanopb, Meshtastic protobufs
 make setup                                # libdbus-1-dev + the Python protobuf packages
 make debug                                # needs CMake >= 3.18 and a C17 toolchain
 make test
@@ -85,12 +85,12 @@ One-time setup and troubleshooting are in [`docs/device.md`](docs/device.md).
 | Path | Contents |
 |---|---|
 | `src/` | core, event loop, transports, UI, utilities |
-| `include/` | public headers consumed by transports and tests |
+| `include/` | public headers, mirroring `src/` (`core/`, `transport/`, `ui/`, `proto/`, `utils/`) |
 | `tests/` | unit tests, one binary run via CTest |
 | `scripts/` | build/package automation, `docker.sh`, `cross-build.sh`, device deploy |
 | `docker/` | `Dockerfile` (`dev` and `cross` stages) and the cross toolchain bootstrap |
-| `Tools/tg5040/MeshClient.pak/` | pak scaffold: `launch.sh`, CA bundle, platform binaries |
-| `proto/meshtastic/`, `third_party/` | upstream protobufs, nanopb and NextUI (submodules) |
+| `Tools/tg5040/MeshClient.pak/` | pak scaffold: `launch.sh` and the updater's CA bundle |
+| `proto/meshtastic/`, `third_party/nanopb/` | upstream protobufs and nanopb (submodules) |
 | `docs/` | architecture, transports, UI, CLI, device and release documentation |
 
 ## Documentation

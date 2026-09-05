@@ -165,9 +165,6 @@ int mesh_bluez_client_stop_discovery(struct mesh_bluez_client *client, const cha
 int mesh_bluez_client_list_meshtastic(struct mesh_bluez_client *client,
                                       struct mesh_bluez_device_info *devices, size_t capacity,
                                       size_t *count);
-/* Blocking Device1.Connect (up to the 25 s D-Bus default). Kept for tools; the transport uses
-   the begin/poll pair below so the UI and buttons stay live while BlueZ works. */
-int mesh_bluez_client_connect(struct mesh_bluez_client *client, const char *device_path);
 /* Sends Device1.Connect and returns at once. -EBUSY if one is already in flight. */
 int mesh_bluez_client_connect_begin(struct mesh_bluez_client *client, const char *device_path);
 /* 1 when the reply has arrived (*out_result 0 or a negative errno), 0 while pending, -EINVAL if

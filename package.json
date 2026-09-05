@@ -1,6 +1,6 @@
 {
     "name": "mesh-client",
-    "version": "1.1.13",
+    "version": "0.0.0-semantically-released",
     "description": "A lightweight Meshtastic client targeting the TrimUI Brick and other NextUI/MinUI devices",
     "repository": {
         "type": "git",

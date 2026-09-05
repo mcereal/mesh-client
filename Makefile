@@ -9,7 +9,7 @@ export BUILD_ROOT
 
 DOCKER := ./scripts/docker.sh
 
-.PHONY: help setup debug release relwithdebinfo build test package proto clean distclean run minui format \
+.PHONY: help setup debug release relwithdebinfo build test package proto clean distclean run format \
         docker-image docker-cross-image docker-shell docker-debug docker-test docker-run docker-pak docker-clean \
         deploy deploy-run deploy-logs deploy-check deploy-shot deploy-shell deploy-key brick
 
@@ -62,11 +62,8 @@ relwithdebinfo:
 test: debug
 	ctest --test-dir $(BUILD_ROOT)/debug --output-on-failure
 
-package: release minui
+package: release
 	./scripts/package.sh release
-
-minui:
-	./scripts/build_minui_helpers.sh
 
 proto: debug
 	cmake --build $(BUILD_ROOT)/debug --target nanopb_codegen

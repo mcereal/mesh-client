@@ -1,9 +1,9 @@
 #define _POSIX_C_SOURCE 200809L
 
-#include "mesh/session.h"
+#include "mesh/core/session.h"
 
-#include "mesh/log.h"
-#include "mesh/text.h"
+#include "mesh/utils/log.h"
+#include "mesh/utils/text.h"
 
 #include <pb_decode.h>
 #include <pb_encode.h>

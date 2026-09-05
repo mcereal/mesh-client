@@ -72,17 +72,14 @@ stop it.
 | `MESHCLIENT_DISABLE_BLE`, `MESHCLIENT_DISABLE_SERIAL` | turn a transport off |
 | `MESHCLIENT_PREFERRED_BLE_DEVICE`, `MESHCLIENT_PREFERRED_SERIAL_DEVICE` | preferred node / port |
 | `MESHCLIENT_AUTOCONNECT` | `0` stops the foreground loop connecting on its own |
-| `MESHCLIENT_UI_BACKEND` | `auto\|minui\|fb\|cli\|stub` |
+| `MESHCLIENT_UI_BACKEND` | `fb\|cli\|stub`; `fb` unless there is no `/dev/fb0` |
 | `MESHCLIENT_FB_SCALE` | framebuffer font multiplier, 2–6, default 4 |
 | `MESHCLIENT_QUIT_KEYS` | override the evdev codes that quit, e.g. `"139,316"` — tunable on-device from the log without a rebuild |
-| `MESHCLIENT_MINUI_LIST_CMD`, `MESHCLIENT_MINUI_PRESENTER_CMD` | point at bundled helper scripts |
-| `MESHCLIENT_MINUI_SELECTION` | which row the placeholder helpers pick (host development) |
 | `MESHCLIENT_UPDATE_REPO`, `MESHCLIENT_UPDATE_ASSET` | where the self-updater looks |
 | `MESHCLIENT_UPDATE_ALLOW_DEV` | let a `-dev` build install what it finds; same switch as Settings → About → Dev updates |
 
-Build-time only: `MESHCLIENT_RELEASE_BUILD`, `MESHCLIENT_VERSION`,
-`MESHCLIENT_VERSION_OVERRIDE` (see [`semantic-release.md`](semantic-release.md)) and
-`MESHCLIENT_ALLOW_HOST_HELPERS` (see [`ui.md`](ui.md#minui-helpers)).
+Build-time only: `MESHCLIENT_RELEASE_BUILD`, `MESHCLIENT_VERSION` and
+`MESHCLIENT_VERSION_OVERRIDE` (see [`semantic-release.md`](semantic-release.md)).
 
 Logs stream to `stderr` locally and, on device, to the pak log `launch.sh` tees into
 `/.userdata/tg5040/logs/MeshClient.txt`. Verbosity is `--log-level trace|debug|info|warn|error`.

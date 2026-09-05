@@ -1,8 +1,8 @@
 #pragma once
 
-#include "mesh/mesh_message.h"
-#include "mesh/radio_settings.h"
-#include "mesh/session.h"
+#include "mesh/core/message.h"
+#include "mesh/core/radio_settings.h"
+#include "mesh/core/session.h"
 #include "mesh/transport/serial_usb.h"
 #include "mesh/transport/transport.h"
 
@@ -55,8 +55,6 @@ struct mesh_serial_transport_stats mesh_serial_transport_stats(struct mesh_trans
 struct mesh_session *mesh_serial_transport_session(struct mesh_transport *transport);
 struct mesh_handshake_status
 mesh_serial_transport_handshake_status(struct mesh_transport *transport);
-const struct mesh_message_log *mesh_serial_transport_messages(struct mesh_transport *transport);
-const struct mesh_radio_settings *mesh_serial_transport_settings(struct mesh_transport *transport);
 
 /* Reads whatever the port has ready and folds complete frames into the session. Called from the
    event loop; exposed so tests can drive it against a socketpair. Returns the number of bytes

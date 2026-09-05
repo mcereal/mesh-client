@@ -173,8 +173,10 @@ pointed at a scratch repo to test against releases you control.
 
 When semantic-release runs, it automatically:
 
-1. **CMakeLists.txt**: Updates `project(meshclient VERSION x.y.z ...)`. The `version` field in
-   `package.json` is unused and is not touched.
+1. **CMakeLists.txt**: Updates `project(meshclient VERSION x.y.z ...)`. This is the only place
+   the client's version is stored. `package.json` exists purely to pin the semantic-release
+   dev dependencies, so its `version` is the placeholder `0.0.0-semantically-released` — nothing
+   reads it and nothing updates it, and a real number there would only go stale.
 2. **pak.json**: Updates `version` to the release tag, which the NextUI Pak Store requires to
    match, and adds this version's `changelog` entry. Both are skipped for prereleases, so the
    file only ever carries the last stable `vX.Y.Z`. See [Store changelog](#store-changelog).

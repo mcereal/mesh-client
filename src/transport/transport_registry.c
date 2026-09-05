@@ -1,6 +1,6 @@
 #include "mesh/transport/transport.h"
 
-#include "mesh/log.h"
+#include "mesh/utils/log.h"
 
 #include <errno.h>
 #include <string.h>

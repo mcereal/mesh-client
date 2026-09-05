@@ -2,10 +2,8 @@
 
 #include "mesh/ui/backends/fb.h"
 
-#include "mesh/event_loop.h"
-#include "mesh/log.h"
-#include "mesh/mesh_message.h"
-#include "mesh/text.h"
+#include "mesh/core/event_loop.h"
+#include "mesh/core/message.h"
 #include "mesh/ui/emoji.h"
 #include "mesh/ui/font5x7.h"
 #include "mesh/ui/input.h"
@@ -13,6 +11,8 @@
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
+#include "mesh/utils/log.h"
+#include "mesh/utils/text.h"
 
 #include <errno.h>
 #include <fcntl.h>

@@ -28,8 +28,7 @@ cmake --build "$BUILD_DIR"
 
 file "$BUILD_DIR/meshclient"
 
-export CROSS_COMPILE PLATFORM
-BUILD_ROOT="$BUILD_ROOT" ./scripts/build_minui_helpers.sh
+export PLATFORM
 BUILD_ROOT="$BUILD_ROOT" ./scripts/package.sh release
 # Both assets the release publishes, so `make docker-pak` produces locally what CI uploads:
 # the pak zip for a fresh install, and the bare binary the in-app updater downloads.

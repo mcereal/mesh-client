@@ -1,7 +1,7 @@
 #include "mesh/transport/ble_bluez.h"
 
-#include "mesh/event_loop.h"
-#include "mesh/log.h"
+#include "mesh/core/event_loop.h"
+#include "mesh/utils/log.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -1163,55 +1163,6 @@ int mesh_bluez_client_start_discovery(struct mesh_bluez_client *client, const ch
 
 int mesh_bluez_client_stop_discovery(struct mesh_bluez_client *client, const char *adapter_path) {
     return call_adapter_method(client, adapter_path, "StopDiscovery");
-}
-
-int mesh_bluez_client_connect(struct mesh_bluez_client *client, const char *device_path) {
-    if (client == NULL || device_path == NULL) {
-        return -EINVAL;
-    }
-
-    if (g_mock_state.enabled) {
-        if (g_mock_state.config.connect_result == 0) {
-            g_mock_state.client = client;
-        }
-        return g_mock_state.config.connect_result;
-    }
-
-#ifdef MESH_HAVE_DBUS
-    DBusConnection *connection = (DBusConnection *)client->connection;
-    if (connection == NULL) {
-        return -ENOTCONN;
-    }
-
-    DBusMessage *message =
-        dbus_message_new_method_call("org.bluez", device_path, "org.bluez.Device1", "Connect");
-    if (message == NULL) {
-        return -ENOMEM;
-    }
-
-    DBusError error;
-    dbus_error_init(&error);
-    DBusMessage *reply = dbus_connection_send_with_reply_and_block(
-        connection, message, DBUS_TIMEOUT_USE_DEFAULT, &error);
-    dbus_message_unref(message);
-
-    if (reply == NULL) {
-        int mapped = -EIO;
-        if (dbus_error_is_set(&error)) {
-            mesh_log_warn("bluez", "Connect failed: %s", error.message);
-            mapped = mesh_bluez_dbus_error_to_errno(&error);
-            dbus_error_free(&error);
-        }
-        return mapped;
-    }
-
-    dbus_message_unref(reply);
-    return 0;
-#else
-    (void)client;
-    (void)device_path;
-    return -ENOSYS;
-#endif
 }
 
 int mesh_bluez_client_connect_begin(struct mesh_bluez_client *client, const char *device_path) {
