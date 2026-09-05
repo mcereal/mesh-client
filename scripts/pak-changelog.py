@@ -40,20 +40,54 @@ MAX_CHARS = 300
 # out along with docs, chore, test, build and ci.
 USER_FACING_TYPES = ("feat", "fix", "perf", "revert")
 
-# Features first, then everything else in commit order: the first line of the entry is what the
-# "What's new" panel leads with.
+# Breaking changes first, then features, then everything else in commit order: the front of the
+# entry is what the "What's new" panel leads with.
+BREAKING_ORDER = -1
 TYPE_ORDER = {"feat": 0, "perf": 1, "fix": 2, "revert": 3}
 
 STABLE_TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 CONVENTIONAL = re.compile(
     r"^(?P<type>[a-z]+)(?:\((?P<scope>[^)]*)\))?(?P<breaking>!)?:\s*(?P<subject>.+)$"
 )
+# A breaking change can be declared in the header with `!` or in a footer, and the footer spells
+# it either way round. commit-analyzer makes both a major release, so both have to reach here -
+# and the footer form is the one that can sit on a type this script would otherwise drop.
+BREAKING_FOOTER = re.compile(r"^BREAKING[ -]CHANGE:[ \t]*(?P<text>.*)$", re.MULTILINE)
+# What ends that footer's text: a blank line, or the token of the next footer. Commit bodies here
+# are wrapped at 72 characters, so the description almost always continues onto further lines and
+# reading only the first would cut it mid-sentence.
+FOOTER_TOKEN = re.compile(r"^(?:[A-Za-z][A-Za-z-]*: |BREAKING[ -]CHANGE:|[A-Za-z-]+ #)")
+
+# Field and record separators for `git log`, chosen so a commit body cannot contain them. The
+# format asks git for them by escape (`%x00`) rather than carrying the bytes: a NUL cannot be
+# passed in an argument.
+LOG_FORMAT = "--pretty=format:%s%x00%b%x1e"
+FIELD_SEP = "\x00"
+RECORD_SEP = "\x1e"
 
 
 def git(*args: str) -> str:
     return subprocess.run(
         ("git", *args), check=True, capture_output=True, text=True
     ).stdout.strip()
+
+
+def commits(span: str) -> list[tuple[str, str]]:
+    """The (subject, body) of every non-merge commit in `span`, newest first.
+
+    The body is read as well as the subject because a `BREAKING CHANGE:` footer is the one thing
+    that turns a commit this script ignores - a refactor, say - into the major release the entry
+    most needs to describe.
+    """
+    log = git("log", "--no-merges", LOG_FORMAT, span)
+    parsed = []
+    for record in log.split(RECORD_SEP):
+        record = record.strip("\n")
+        if not record.strip():
+            continue
+        subject, _, body = record.partition(FIELD_SEP)
+        parsed.append((subject.strip(), body))
+    return parsed
 
 
 def stable_tags() -> list[tuple[tuple[int, int, int], str]]:
@@ -88,24 +122,56 @@ def clean(text: str) -> str:
     """
     text = text.replace('"', "")
     text = "".join(char for char in text if 32 <= ord(char) < 127)
-    return " ".join(text.split())
+    text = " ".join(text.split())
+    # Items are joined with "; " and the line gets one "." at the end, so a sentence that already
+    # ends in one - a breaking-change footer usually does - loses it here.
+    return text[:-1] if text.endswith(".") else text
 
 
-def summarize(subjects: list[str]) -> str:
-    """Turn the commit subjects in a release into one line."""
+def breaking_footer(body: str) -> str | None:
+    """The description a `BREAKING CHANGE:` footer gives, or None when the body has no footer.
+
+    An empty string means the footer is there but bare, which is a real thing people write and
+    has to stay distinguishable from its absence.
+    """
+    lines = (body or "").splitlines()
+    start = None
+    text: list[str] = []
+    for index, line in enumerate(lines):
+        match = BREAKING_FOOTER.match(line.strip())
+        if match is not None:
+            start = index
+            text.append(match.group("text").strip())
+            break
+    if start is None:
+        return None
+
+    for line in lines[start + 1 :]:
+        if not line.strip() or FOOTER_TOKEN.match(line.strip()):
+            break
+        text.append(line.strip())
+    return " ".join(part for part in text if part)
+
+
+def summarize(subjects: list[tuple[str, str]]) -> str:
+    """Turn the (subject, body) pairs of a release into one line."""
     items: list[tuple[int, int, str]] = []
     seen = set()
 
-    for index, subject in enumerate(subjects):
+    for index, (subject, body) in enumerate(subjects):
         match = CONVENTIONAL.match(subject)
         if not match:
             continue
         kind = match.group("type")
-        breaking = match.group("breaking") is not None
+
+        footer = breaking_footer(body)
+        breaking = match.group("breaking") is not None or footer is not None
         if kind not in USER_FACING_TYPES and not breaking:
             continue
 
-        text = clean(match.group("subject"))
+        # The footer describes the break in its own words; the subject only describes the change
+        # that caused it. Prefer the footer, and fall back when it is the bare marker.
+        text = clean(footer if footer else match.group("subject"))
         if not text or text.lower() in seen:
             continue
         seen.add(text.lower())
@@ -113,7 +179,7 @@ def summarize(subjects: list[str]) -> str:
         text = text[0].upper() + text[1:]
         if breaking:
             text = "Breaking: " + text
-        items.append((TYPE_ORDER.get(kind, 4), index, text))
+        items.append((BREAKING_ORDER if breaking else TYPE_ORDER.get(kind, 4), index, text))
 
     if not items:
         return ""
@@ -185,9 +251,7 @@ def main() -> int:
 
     previous = previous_tag(version)
     span = f"{previous}..{args.end_ref}" if previous else args.end_ref
-    subjects = git("log", "--no-merges", "--pretty=%s", span).splitlines()
-
-    summary = summarize(subjects)
+    summary = summarize(commits(span))
     if not summary:
         # A release with nothing user-facing in it - a lone refactor, say. Leaving the entry out
         # is better than inventing one: the store just shows no "What's new" panel.

@@ -210,6 +210,10 @@ after the version stamp. **Do not write `changelog` by hand**; a release overwri
 
 - Only `feat`, `fix`, `perf`, `revert` and breaking changes are summarised. `refactor` bumps a
   patch but describes internals, so it stays out along with `docs`, `chore`, `test` and `ci`.
+- A breaking change is included whatever its type, and leads the entry. Both spellings count:
+  `feat(cli)!:` in the header and a `BREAKING CHANGE:` footer, which is what a `refactor` that
+  triggers a major release looks like. The footer's own wording is used when it has any, wrapped
+  lines rejoined, since it describes the break where the subject only describes the change.
 - The entry is one plain-text line, features first, capped at 6 items and 300 characters. The
   store renders it as a paragraph with no markdown on a handheld, so bullets and commit links
   would only be noise.
