@@ -1,6 +1,6 @@
 {
   "name": "MeshClient",
-  "version": "v2.0.0",
+  "version": "v2.0.1",
   "type": "TOOL",
   "description": "A Meshtastic client for your handheld: read and send messages, browse the mesh, and edit your radio's settings over Bluetooth LE or USB.",
   "author": "mcereal",

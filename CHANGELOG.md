@@ -1,3 +1,9 @@
+## [2.0.1](https://github.com/mcereal/mesh-client/compare/v2.0.0...v2.0.1) (2026-09-05)
+
+### Code Refactoring
+
+* drop the MinUI backend, dead code, and mirror include/ to src/ ([b384080](https://github.com/mcereal/mesh-client/commit/b38408012e35e6c58696360f71d3f9f62c6c80ae))
+
 ## [2.0.0](https://github.com/mcereal/mesh-client/compare/v1.19.0...v2.0.0) (2026-09-05)
 
 ### ⚠ BREAKING CHANGES
