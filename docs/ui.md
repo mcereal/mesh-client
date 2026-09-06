@@ -64,11 +64,15 @@ however long it is held, so a 60-node roster used to cost 60 separate presses. `
 own repeat off a timerfd on the same event loop — hold for `MESHCLIENT_KEY_REPEAT_DELAY_MS`
 (350 ms), then a row every `MESHCLIENT_KEY_REPEAT_MS` (90 ms), halving after eight rows so a long
 list is walked rather than crawled. Only the four directions repeat; a held A that confirmed
-forty times would be a trap. Ours also takes over from the kernel's repeat on a USB keyboard —
-a `value == 2` for a key we are already holding is dropped — so both devices scroll at one speed,
-and `MESHCLIENT_KEY_REPEAT_DELAY_MS=0` turns the whole thing off. Repeats reach the store one per
-event-loop turn and the store coalesces its repaints, so the framebuffer draws once per row at
-most.
+forty times would be a trap.
+
+A direction is driven by our timer or by nothing at all — a kernel `value == 2` for one is always
+dropped, so a USB keyboard cannot take two rows per step, and `MESHCLIENT_KEY_REPEAT_DELAY_MS=0`
+means off on every device rather than only on the Brick. Face buttons keep whatever the kernel
+does with them. A hold also ends when any other key is pressed, and when the device it started on
+goes away: an unplugged keyboard hangs up its fd instead of sending the key up, and a repeat with
+no release would scroll forever. Repeats reach the store one per event-loop turn and the store
+coalesces its repaints, so the framebuffer draws once per row at most.
 
 ## Tabs
 

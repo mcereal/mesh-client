@@ -31,8 +31,10 @@ struct mesh_ui_input {
     /* Software key repeat for a held direction. `repeat_timer_fd` is <= 0 when there is no
        timer - a zeroed struct (what the tests use) and a host where timerfd_create failed both
        land there, and repeat then simply never fires on its own. `repeat_type`/`repeat_code`
-       are the raw evdev event that started the hold, kept so the matching release ends it. */
+       are the raw evdev event that started the hold, kept so the matching release ends it, and
+       `repeat_source_fd` the device it came from, so a hold ends when that device goes away. */
     int repeat_timer_fd;
+    int repeat_source_fd;
     enum mesh_ui_key repeat_key;
     uint16_t repeat_type;
     uint16_t repeat_code;
@@ -52,6 +54,15 @@ void mesh_ui_input_set_handler(struct mesh_ui_input *input, mesh_ui_key_handler 
    to the handler. */
 void mesh_ui_input_handle_event(struct mesh_ui_input *input, uint16_t type, uint16_t code,
                                 int32_t value);
+
+/* The same, naming the device fd the event arrived on so a hold can be tied to it. Anything
+   that is not reading a real device passes -1, which is what the call above does. */
+void mesh_ui_input_handle_device_event(struct mesh_ui_input *input, int source_fd, uint16_t type,
+                                       uint16_t code, int32_t value);
+
+/* The device behind `source_fd` is gone - unplugged, or its fd went bad. Ends a hold that
+   started there: its release will never arrive, and a repeat with no release scrolls forever. */
+void mesh_ui_input_device_lost(struct mesh_ui_input *input, int source_fd);
 
 /* How long the next repeat of a held direction waits, given how many repeats it has already
    produced: 0 asks for the initial hold delay, and the interval ramps down after a few rows so

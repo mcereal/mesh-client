@@ -232,15 +232,18 @@ MESH_TEST_CASE(ui_input_key_mapping, unit) {
     mesh_ui_input_handle_event(&input, EV_ABS, ABS_HAT0Y, 0);  /* centre: nothing */
     mesh_ui_input_handle_event(&input, EV_ABS, ABS_HAT0X, 1);  /* right */
     mesh_ui_input_handle_event(&input, EV_KEY, BTN_TL, 1);
-    mesh_ui_input_handle_event(&input, EV_KEY, KEY_DOWN, 2); /* keyboard autorepeat counts */
+    /* A direction's kernel autorepeat is dropped - our own timer drives those, and honouring
+       both would take two rows per step. A face button's still counts. */
+    mesh_ui_input_handle_event(&input, EV_KEY, KEY_DOWN, 2);
+    mesh_ui_input_handle_event(&input, EV_KEY, KEY_ENTER, 2);
     mesh_ui_input_handle_event(&input, EV_KEY, BTN_SELECT, 1);
     mesh_ui_input_handle_event(&input, EV_SYN, 0, 0);
     mesh_ui_input_handle_event(&input, EV_KEY, KEY_F1, 1); /* unmapped: nothing */
 
     /* BTN_SOUTH is the Brick's B and BTN_EAST its A (Nintendo layout). */
     const enum mesh_ui_key expected[] = {
-        MESH_UI_KEY_B,  MESH_UI_KEY_A,    MESH_UI_KEY_UP,     MESH_UI_KEY_RIGHT,
-        MESH_UI_KEY_L1, MESH_UI_KEY_DOWN, MESH_UI_KEY_SELECT,
+        MESH_UI_KEY_B,  MESH_UI_KEY_A, MESH_UI_KEY_UP,     MESH_UI_KEY_RIGHT,
+        MESH_UI_KEY_L1, MESH_UI_KEY_A, MESH_UI_KEY_SELECT,
     };
     const size_t expected_count = sizeof(expected) / sizeof(expected[0]);
     if (capture.count != expected_count) {
@@ -329,8 +332,8 @@ MESH_TEST_CASE(ui_input_key_repeat, unit) {
         goto cleanup;
     }
 
-    /* A keyboard's arrow key repeats through the same path, and the kernel's own autorepeat for
-       a key we are already holding is dropped rather than counted twice. */
+    /* A keyboard's arrow key repeats through the same path, and the kernel's own autorepeat is
+       dropped rather than counted twice - a direction is driven by our timer or by nothing. */
     mesh_ui_input_handle_event(&input, EV_KEY, KEY_DOWN, 1);
     mesh_ui_input_handle_event(&input, EV_KEY, KEY_DOWN, 2);
     if (capture.count != 4U || mesh_ui_input_repeat_key(&input) != MESH_UI_KEY_DOWN) {
@@ -343,6 +346,20 @@ MESH_TEST_CASE(ui_input_key_repeat, unit) {
         goto cleanup;
     }
 
+    /* A device unplugged mid-hold never sends the release, so losing its fd has to end the hold
+       - otherwise the timer scrolls the list until some other button is pressed. */
+    mesh_ui_input_handle_device_event(&input, 7, EV_KEY, KEY_DOWN, 1);
+    mesh_ui_input_device_lost(&input, 9);
+    if (mesh_ui_input_repeat_key(&input) != MESH_UI_KEY_DOWN) {
+        failure = "another device going away must not end this hold";
+        goto cleanup;
+    }
+    mesh_ui_input_device_lost(&input, 7);
+    if (mesh_ui_input_repeat_key(&input) != MESH_UI_KEY_NONE) {
+        failure = "losing the device that started a hold should end it";
+        goto cleanup;
+    }
+
     /* Confirm and back never repeat: a held A that fired forty times would open forty things.
        Pressing one also ends a direction still being held. */
     mesh_ui_input_handle_event(&input, EV_ABS, ABS_HAT0Y, 1);
@@ -352,13 +369,23 @@ MESH_TEST_CASE(ui_input_key_repeat, unit) {
         goto cleanup;
     }
 
-    /* The knobs exist because the device has no console; 0 restores one row per press. */
+    /* The knobs exist because the device has no console; 0 restores one row per press. Off has
+       to mean off on a keyboard too, so the kernel's autorepeat stays dropped. */
     setenv("MESHCLIENT_KEY_REPEAT_DELAY_MS", "0", 1);
     mesh_ui_input_reload_key_repeat();
     mesh_ui_input_handle_event(&input, EV_ABS, ABS_HAT0Y, 1);
     if (mesh_ui_input_repeat_delay_ms(0U) != 0U ||
         mesh_ui_input_repeat_key(&input) != MESH_UI_KEY_NONE) {
         failure = "a zero delay should switch hold-to-scroll off";
+        goto cleanup;
+    }
+
+    const size_t before_hold = capture.count;
+    mesh_ui_input_handle_event(&input, EV_KEY, KEY_DOWN, 1);
+    mesh_ui_input_handle_event(&input, EV_KEY, KEY_DOWN, 2);
+    mesh_ui_input_handle_event(&input, EV_KEY, KEY_DOWN, 2);
+    if (capture.count != before_hold + 1U) {
+        failure = "with repeat off, holding a key should still move exactly one row";
         goto cleanup;
     }
 

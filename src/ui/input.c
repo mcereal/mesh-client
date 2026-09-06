@@ -184,6 +184,7 @@ static void mesh_ui_input_repeat_cancel(struct mesh_ui_input *input) {
     input->repeat_key = MESH_UI_KEY_NONE;
     input->repeat_type = 0U;
     input->repeat_code = 0U;
+    input->repeat_source_fd = -1;
     input->repeat_count = 0U;
     mesh_ui_input_repeat_schedule(input);
 }
@@ -192,7 +193,7 @@ static void mesh_ui_input_repeat_cancel(struct mesh_ui_input *input) {
    button, an unmapped code - also ends whatever was being held. That keeps a missed release
    from scrolling forever, and makes "press A" a definite stop rather than a maybe. */
 static void mesh_ui_input_repeat_start(struct mesh_ui_input *input, enum mesh_ui_key key,
-                                       uint16_t type, uint16_t code) {
+                                       uint16_t type, uint16_t code, int source_fd) {
     if (!mesh_ui_input_key_repeats(key) || mesh_ui_input_repeat_delay_ms(0U) == 0U) {
         mesh_ui_input_repeat_cancel(input);
         return;
@@ -201,8 +202,19 @@ static void mesh_ui_input_repeat_start(struct mesh_ui_input *input, enum mesh_ui
     input->repeat_key = key;
     input->repeat_type = type;
     input->repeat_code = code;
+    input->repeat_source_fd = source_fd;
     input->repeat_count = 0U;
     mesh_ui_input_repeat_schedule(input);
+}
+
+/* The only release that never arrives is the one from a device that is no longer there: a
+   keyboard unplugged mid-hold hangs up its fd instead of sending the key up, and without this
+   the timer would happily scroll the list until some other button was pressed. */
+void mesh_ui_input_device_lost(struct mesh_ui_input *input, int source_fd) {
+    if (input == NULL || source_fd < 0 || input->repeat_source_fd != source_fd) {
+        return;
+    }
+    mesh_ui_input_repeat_cancel(input);
 }
 
 void mesh_ui_input_repeat_tick(struct mesh_ui_input *input) {
@@ -340,6 +352,11 @@ void mesh_ui_input_set_handler(struct mesh_ui_input *input, mesh_ui_key_handler 
 
 void mesh_ui_input_handle_event(struct mesh_ui_input *input, uint16_t type, uint16_t code,
                                 int32_t value) {
+    mesh_ui_input_handle_device_event(input, -1, type, code, value);
+}
+
+void mesh_ui_input_handle_device_event(struct mesh_ui_input *input, int source_fd, uint16_t type,
+                                       uint16_t code, int32_t value) {
     if (input == NULL) {
         return;
     }
@@ -367,12 +384,14 @@ void mesh_ui_input_handle_event(struct mesh_ui_input *input, uint16_t type, uint
         } else if (value != 2) {
             return;
         }
-        /* A kernel autorepeat for a key our own timer is already holding would double every
-           step; ours wins, so the d-pad and a USB keyboard scroll at the same speed. */
-        if (value == 2 && mesh_ui_input_repeat_owns(input, type, code)) {
+        key = mesh_ui_input_map_key(code);
+        /* A direction is repeated by our timer or by nothing at all, never by the kernel: a
+           keyboard whose autorepeat we also honoured would take two rows per step, and with
+           MESHCLIENT_KEY_REPEAT_DELAY_MS=0 it would still scroll on hold after the knob
+           promised it would not. Face buttons keep whatever the kernel does with them. */
+        if (value == 2 && mesh_ui_input_key_repeats(key)) {
             return;
         }
-        key = mesh_ui_input_map_key(code);
     } else if (type == EV_ABS) {
         /* The hat back at centre: the release of whichever direction was held. */
         if (value == 0) {
@@ -388,7 +407,7 @@ void mesh_ui_input_handle_event(struct mesh_ui_input *input, uint16_t type, uint
         return;
     }
 
-    mesh_ui_input_repeat_start(input, key, type, code);
+    mesh_ui_input_repeat_start(input, key, type, code, source_fd);
     if (input->on_key != NULL) {
         input->on_key(input->key_userdata, key);
     }
@@ -396,7 +415,15 @@ void mesh_ui_input_handle_event(struct mesh_ui_input *input, uint16_t type, uint
 
 static int mesh_ui_input_event_callback(int fd, uint32_t events, void *userdata) {
     struct mesh_ui_input *input = (struct mesh_ui_input *)userdata;
-    if (input == NULL || (events & EPOLLIN) == 0U) {
+    if (input == NULL) {
+        return 0;
+    }
+
+    /* Hang-up is how an unplugged device says goodbye, and it comes with no EPOLLIN. */
+    if ((events & (EPOLLHUP | EPOLLERR)) != 0U) {
+        mesh_ui_input_device_lost(input, fd);
+    }
+    if ((events & EPOLLIN) == 0U) {
         return 0;
     }
 
@@ -411,15 +438,18 @@ static int mesh_ui_input_event_callback(int fd, uint32_t events, void *userdata)
                 continue;
             }
             mesh_log_warn("input", "read from input fd %d failed: %s", fd, strerror(errno));
+            mesh_ui_input_device_lost(input, fd);
             break;
         }
         if (bytes == 0) {
+            mesh_ui_input_device_lost(input, fd);
             break;
         }
 
         const size_t count = (size_t)bytes / sizeof(struct input_event);
         for (size_t i = 0; i < count; ++i) {
-            mesh_ui_input_handle_event(input, batch[i].type, batch[i].code, batch[i].value);
+            mesh_ui_input_handle_device_event(input, fd, batch[i].type, batch[i].code,
+                                              batch[i].value);
             if (input->loop != NULL && input->loop->stop_requested) {
                 return 0;
             }
@@ -462,6 +492,7 @@ int mesh_ui_input_init(struct mesh_ui_input *input, struct mesh_event_loop *loop
     memset(input, 0, sizeof *input);
     input->loop = loop;
     input->repeat_timer_fd = -1;
+    input->repeat_source_fd = -1;
     mesh_ui_input_load_quit_keys();
     mesh_ui_input_load_key_repeat();
     mesh_ui_input_setup_repeat_timer(input, loop);
@@ -517,6 +548,7 @@ void mesh_ui_input_shutdown(struct mesh_ui_input *input) {
         close(input->repeat_timer_fd);
     }
     input->repeat_timer_fd = -1;
+    input->repeat_source_fd = -1;
     input->repeat_key = MESH_UI_KEY_NONE;
     input->repeat_count = 0U;
 
