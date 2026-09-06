@@ -69,6 +69,11 @@ package-lock.json
 # Device deploy settings (scripts/deploy-device.sh)
 .brick.env
 
+# A leftover clone of upstream NextUI. It was a submodule until b384080 dropped the MinUI
+# backend; the directory outlives the .gitmodules entry on any tree that had it checked out,
+# and it is 1200 files of someone else's repository - never ours to commit.
+third_party/nextui/
+
 # Python helper tooling (scripts/gen-emoji.py, scripts/frames.py)
 __pycache__/
 .venv/
