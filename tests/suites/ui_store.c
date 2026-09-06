@@ -288,6 +288,14 @@ MESH_TEST_CASE(ui_store_persistence, unit) {
         record_failure(test_name, "node roster state did not survive the cache");
         return;
     }
+    /* Counted from the rows on the way in rather than stored beside them, so the Settings row
+       that offers to drop them is right the moment the cache is read - before any radio has
+       said anything. */
+    if (store.handshake.nodes_off_radio != 1U) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "the off-radio count was not recounted from the cache");
+        return;
+    }
     if (!node->position.valid || node->position.latitude_i != 447654321 ||
         node->position.longitude_i != -680012345 || !node->position.has_altitude ||
         node->position.altitude != 312 || node->position.sats_in_view != 9U) {

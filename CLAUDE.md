@@ -180,7 +180,10 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
 - **The node roster deliberately outlives the connection.** `mesh_session_reset_handshake` keeps
   `handshake.nodes` and clears everything else; it is not a missed `memset`. The radio's NodeDB
   holds 80 entries and evicts, so mirroring it loses nodes for good. The roster is dropped only
-  on a radio swap, and `in_nodedb` marks what the radio no longer carries.
+  on a radio swap, and `in_nodedb` marks what the radio no longer carries. **A NodeDB reset does
+  not clear it either** - that is why the Status screen can say 2 nodes while the Nodes tab says
+  81. Clearing it is a separate, local press (Settings > Radio actions > Forget off-radio /
+  Forget all cached, `mesh_session_forget_nodes`), which keeps our own node and every pin.
 - **A node with no `User` is named after its node number**, exactly as the phone apps do
   (`mesh_session_default_identity`). An empty `User` in a NodeInfo must not blank a name we have.
 - **A radio reboot after a settings write is expected.** The link drops and auto-connect

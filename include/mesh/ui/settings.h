@@ -280,6 +280,13 @@ enum mesh_ui_settings_action {
     MESH_UI_SETTINGS_ACTION_REBOOT,
     MESH_UI_SETTINGS_ACTION_SHUTDOWN,
     MESH_UI_SETTINGS_ACTION_RESET_NODEDB,
+    /* The two rows that sit under it and are not radio actions at all: they drop this client's
+       own roster, which a NodeDB reset deliberately leaves standing. Here rather than in About
+       because this is the section somebody who has just reset the radio's database is already
+       looking at. Both still go through the confirm sheet - a forgotten node comes back only
+       when it speaks again. */
+    MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES,
+    MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES,
     MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG,
     MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE,
     /* Position section. Not destructive, so these two are the radio actions that do *not* go
@@ -295,6 +302,10 @@ enum mesh_ui_setting_consumer mesh_ui_settings_field_consumer(enum mesh_ui_setti
 /* True for the rows above that ask the radio to do something rather than the client: they all
    reach the app as MESH_UI_ACTION_RADIO_ACTION. */
 bool mesh_ui_settings_action_is_radio(enum mesh_ui_settings_action action);
+/* True for the two that ask this client to drop cached nodes. They share the Radio actions
+   section and the confirm sheet with the rows above, and nothing else: they send nothing, so
+   they work with no link at all and reach the app as MESH_UI_ACTION_FORGET_NODES. */
+bool mesh_ui_settings_action_is_forget(enum mesh_ui_settings_action action);
 /* True for the ones that cannot be undone by pressing the opposite row, which the nav puts
    behind the confirm overlay. */
 bool mesh_ui_settings_action_needs_confirm(enum mesh_ui_settings_action action);

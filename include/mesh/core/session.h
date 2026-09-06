@@ -561,6 +561,28 @@ int mesh_session_toggle_node_muted(struct mesh_session *session, uint32_t node_i
 int mesh_session_remove_node(struct mesh_session *session, uint32_t node_id);
 
 /*
+ * Drops entries from our own roster and asks the radio for nothing. The counterpart to a
+ * NodeDB reset, which empties the radio's database and deliberately leaves ours standing: the
+ * roster is the client's, so emptying it is the client's own verb rather than a side effect of
+ * one sent over the air.
+ *
+ * `only_off_nodedb` keeps every node the last completed sync found in the radio's database and
+ * drops the rest - after a NodeDB reset that leaves exactly what the radio still carries.
+ * False empties the roster instead.
+ *
+ * Our own node and every pinned node survive either way, for the reason they are never evicted:
+ * a pin is the user saying keep this one, and dropping our own record takes the name every
+ * screen resolves through it. Works with no link at all - there is nothing to send.
+ *
+ * Returns the number of entries dropped, or -EINVAL for a NULL session.
+ */
+int mesh_session_forget_nodes(struct mesh_session *session, bool only_off_nodedb);
+
+/* How many roster entries carry `in_nodedb == false`: nodes we remember and the radio does
+   not. Survives a link drop, because so does the roster and so does the answer. */
+uint32_t mesh_session_nodes_off_nodedb(const struct mesh_session *session);
+
+/*
  * The radio's own location, set by hand: `set_fixed_position` stores the coordinates and turns
  * `PositionConfig.fixed_position` on, `remove_fixed_position` clears both. Neither goes
  * through set_config - a client that only flipped the config flag would turn fixed position on

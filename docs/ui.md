@@ -583,6 +583,7 @@ emitted before any of them. Worked examples live in `devtools/ui_capture/scenes/
 | `notice info\|warn\|error TEXT` | what the radio last said about itself, on the Status tab |
 | `queue FREE MAXLEN [refused]` | the radio's outgoing packet queue, on the Status tab. The row only appears once the queue is under pressure or has refused a send |
 | `reboots N` | times the radio has restarted under us, on the Status tab |
+| `offradio NAME\|all` | mark that node (or every node but ours) as one the radio's NodeDB no longer carries - what a NodeDB reset leaves behind. Its own verb because no press can reach it: the reset goes out over the air and the answer arrives on the next sync, and the harness has neither |
 
 `tab` walks the tabs with the buttons rather than assigning `nav.screen`, so a scene can only
 ever reach a screen the device can reach.

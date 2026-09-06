@@ -732,6 +732,106 @@ MESH_TEST_CASE(session_roster_survives_resync, unit) {
 }
 
 /*
+ * Dropping cached nodes on purpose. The roster outliving the radio's NodeDB is what makes the
+ * client worth more than a mirror of it, and it is also what leaves the Nodes tab holding
+ * eighty-one nodes the moment somebody resets the radio's database - so there has to be a way
+ * to say "drop what the radio no longer has" without sending the radio anything at all.
+ *
+ * Two things it must not drop, for the same reasons eviction never takes them: our own record,
+ * which every screen resolves a name through, and a pinned node, which is the user having said
+ * keep this one.
+ */
+MESH_TEST_CASE(session_forget_nodes, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+    struct mesh_test_trace_capture capture;
+    memset(&capture, 0, sizeof capture);
+    mesh_session_attach(&session, mesh_test_trace_capture_fn, &capture);
+
+    /* A NodeInfo is proof on arrival, not at config_complete: a list drawn mid-sync must not
+       show every node as one the radio has forgotten. */
+    MESH_TEST_FAIL_IF(mesh_session_begin_handshake(&session) != 0, "handshake");
+    meshtastic_FromRadio my_info = meshtastic_FromRadio_init_default;
+    my_info.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    my_info.my_info.my_node_num = 0x1111U;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &my_info), "my_info");
+    meshtastic_FromRadio info = meshtastic_FromRadio_init_default;
+    info.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+    info.node_info.num = 0x2222U;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &info), "node_info");
+    const struct mesh_node_summary *early = mesh_test_session_find_node(&session, 0x2222U);
+    MESH_TEST_FAIL_IF(early == NULL || !early->in_nodedb,
+                      "a node is not in the NodeDB until the sync ends");
+    MESH_TEST_FAIL_IF(mesh_session_nodes_off_nodedb(&session) != 0U,
+                      "a sync in progress counted a node as off-radio");
+
+    /* Now the real thing: four nodes, ourselves among them, as a radio replays them. */
+    const uint32_t all[] = {0x1111U, 0x2222U, 0x3333U, 0x4444U};
+    MESH_TEST_FAIL_IF(!session_test_sync(&session, 0x1111U, all, 4U), "first sync");
+    MESH_TEST_FAIL_IF(session.handshake.node_count != 4U, "the roster did not fill");
+    MESH_TEST_FAIL_IF(mesh_session_nodes_off_nodedb(&session) != 0U,
+                      "a freshly synced roster has nodes the radio does not");
+
+    /* Pin one of the two the radio is about to forget. */
+    for (size_t i = 0; i < session.handshake.node_count; ++i) {
+        if (session.handshake.nodes[i].node_id == 0x3333U) {
+            session.handshake.nodes[i].is_favorite = true;
+        }
+    }
+
+    /* The radio's database has been reset: it comes back carrying itself and one node. */
+    mesh_session_detach(&session);
+    mesh_session_attach(&session, mesh_test_trace_capture_fn, &capture);
+    const uint32_t after_reset[] = {0x1111U, 0x2222U};
+    MESH_TEST_FAIL_IF(!session_test_sync(&session, 0x1111U, after_reset, 2U), "second sync");
+    MESH_TEST_FAIL_IF(session.handshake.node_count != 4U, "the reset took the roster with it");
+    MESH_TEST_FAIL_IF(mesh_session_nodes_off_nodedb(&session) != 2U,
+                      "the two nodes the radio dropped are not counted");
+
+    /* Off-radio only: the unpinned orphan goes and nothing else does. */
+    MESH_TEST_FAIL_IF(mesh_session_forget_nodes(&session, true) != 1,
+                      "forgetting off-radio nodes dropped the wrong number");
+    MESH_TEST_FAIL_IF(mesh_test_session_find_node(&session, 0x4444U) != NULL,
+                      "the orphan is still in the roster");
+    MESH_TEST_FAIL_IF(mesh_test_session_find_node(&session, 0x3333U) == NULL,
+                      "a pinned node was forgotten");
+    MESH_TEST_FAIL_IF(mesh_test_session_find_node(&session, 0x1111U) == NULL ||
+                          mesh_test_session_find_node(&session, 0x2222U) == NULL,
+                      "a node the radio still carries was forgotten");
+    MESH_TEST_FAIL_IF(session.handshake.node_count != 3U, "the roster did not shrink by one");
+    MESH_TEST_FAIL_IF(mesh_session_forget_nodes(&session, true) != 0,
+                      "a second press found something else to drop");
+
+    /* All of them: everything but ourselves and the pin. */
+    MESH_TEST_FAIL_IF(mesh_session_forget_nodes(&session, false) != 1,
+                      "emptying the roster dropped the wrong number");
+    MESH_TEST_FAIL_IF(session.handshake.node_count != 2U ||
+                          mesh_test_session_find_node(&session, 0x1111U) == NULL ||
+                          mesh_test_session_find_node(&session, 0x3333U) == NULL,
+                      "ourselves and the pin should be what is left");
+    MESH_TEST_FAIL_IF(mesh_session_forget_nodes(&session, false) != 0,
+                      "emptying an empty roster reported work");
+    MESH_TEST_FAIL_IF(mesh_session_forget_nodes(NULL, false) != -EINVAL, "NULL session");
+
+    /* With no link at all - which is when a roster is most likely to be tidied - our own node
+       is remembered through the roster's owner rather than my_info, which the drop cleared. */
+    mesh_session_detach(&session);
+    MESH_TEST_FAIL_IF(session.handshake.has_my_info, "detach kept my_info");
+    struct mesh_node_summary stranger;
+    memset(&stranger, 0, sizeof stranger);
+    stranger.node_id = 0x5555U;
+    mesh_session_seed_node(&session, &stranger);
+    MESH_TEST_FAIL_IF(mesh_session_forget_nodes(&session, false) != 1,
+                      "an offline clear dropped the wrong number");
+    MESH_TEST_FAIL_IF(mesh_test_session_find_node(&session, 0x3333U) == NULL,
+                      "the pin did not survive an offline clear");
+    MESH_TEST_FAIL_IF(mesh_test_session_find_node(&session, 0x1111U) == NULL,
+                      "our own node went with them");
+
+    record_success(test_name);
+}
+
+/*
  * Full is no longer a wall. A roster that outlives connections does reach its cap on a busy
  * mesh, and the entry that goes is the least useful one: a node the radio has already forgotten
  * before one it still carries, oldest first, and never a node the user pinned.

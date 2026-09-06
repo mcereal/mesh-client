@@ -327,6 +327,9 @@ void mesh_app_seed_nodes_from_cache(struct mesh_app *app) {
         mesh_log_info("app", "Restored %u node%s from the cached roster", seeded,
                       seeded == 1U ? "" : "s");
     }
+    /* What the roster already knew before any radio was attached. Without this baseline the
+       first sync of every launch would read a cache full of orphans as news and say so. */
+    app->ui_nodes_off_radio_seen = mesh_session_nodes_off_nodedb(&app->session);
 }
 
 /* Lower is more important; see the ranking comment in mesh_app_publish_ui_state(). */
@@ -995,6 +998,42 @@ static void mesh_app_report_alerts(struct mesh_app *app) {
     mesh_ui_store_set_toast(&app->ui_store, mesh_time_monotonic_ms(), toast);
 }
 
+/* Nodes that have to appear on one sync before the divergence is worth interrupting for. */
+#define MESH_APP_OFF_RADIO_HINT_MIN 8U
+
+/*
+ * Announces the roster and the radio's NodeDB parting company, once per sync.
+ *
+ * The roster outliving the radio's database is the point of having one - the radio holds 80
+ * entries and evicts, so ours is often the only copy - but it makes one moment look broken:
+ * after a NodeDB reset the Status screen says two nodes and the Nodes tab says eighty-one,
+ * with nothing on either screen saying why. The Nodes tab now marks those rows, and this says
+ * it once, in front of whatever the user is looking at, with the row that clears them named.
+ *
+ * A rise since the last completed sync is the trigger, not the count: a roster that has held
+ * the same orphans for a week is not news, and the threshold below keeps an ordinary connect -
+ * where the radio has evicted a node or two since we last looked - from saying anything at all.
+ */
+static void mesh_app_report_off_radio_nodes(struct mesh_app *app) {
+    const struct mesh_handshake_status *status = mesh_session_handshake(&app->session);
+    if (status == NULL || !status->config_complete ||
+        status->config_complete_id == app->ui_nodes_off_radio_sync_id) {
+        return;
+    }
+    const uint32_t before = app->ui_nodes_off_radio_seen;
+    const uint32_t now = mesh_session_nodes_off_nodedb(&app->session);
+    app->ui_nodes_off_radio_sync_id = status->config_complete_id;
+    app->ui_nodes_off_radio_seen = now;
+    if (now <= before || now - before < MESH_APP_OFF_RADIO_HINT_MIN ||
+        app->config.run_mode != MESH_APP_RUN_FOREGROUND) {
+        return;
+    }
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    snprintf(toast, sizeof toast, "%u nodes now off radio; forget them in Settings", now);
+    mesh_ui_store_set_toast(&app->ui_store, mesh_time_monotonic_ms(), toast);
+    mesh_log_info("app", "Roster and NodeDB diverged: %u off radio, was %u", now, before);
+}
+
 void mesh_app_publish_ui_state(struct mesh_app *app) {
     if (app == NULL) {
         return;
@@ -1004,6 +1043,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     mesh_app_report_delivery(app);
     mesh_app_report_radio_notices(app);
     mesh_app_report_alerts(app);
+    mesh_app_report_off_radio_nodes(app);
 
     struct mesh_transport *ble = mesh_ble_transport();
     if (ble == NULL) {
@@ -1162,6 +1202,10 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         /* The roster outlives the connection, so a node list on screen is not proof of a live
            sync: what makes it live is something from this connection having arrived. */
         ui_handshake.roster_owner = mesh_session_roster_owner(&app->session);
+        /* Counted over the whole session roster, not the 128 that fit below: the Settings row
+           that offers to drop these says how many there are, and an answer capped by what the
+           UI happens to carry would send the user back for a second press. */
+        ui_handshake.nodes_off_radio = mesh_session_nodes_off_nodedb(&app->session);
         ui_handshake.cached = !status.config_complete && !status.has_my_info &&
                               !status.request_in_flight && !status.has_config;
         if (status.has_my_info) {

@@ -172,8 +172,10 @@ bool mesh_ui_settings_section_loaded(const struct mesh_ui_settings *settings,
         return settings->has_telemetry;
     case MESH_UI_SETTINGS_ACTIONS:
         /* Nothing is read for this section, so what it waits on is not a config fragment but
-           the one thing an AdminMessage cannot be addressed without: our own node number. */
-        return handshake != NULL && handshake->has_my_info;
+           the one thing an AdminMessage cannot be addressed without: our own node number. A
+           cached roster with no link opens it too, for the two rows that drop that roster and
+           send nothing - the rest then render as "not connected". */
+        return handshake != NULL && (handshake->has_my_info || handshake->node_count > 0U);
     case MESH_UI_SETTINGS_MODULES:
         /* A folder, not a fragment. It lists every module whether or not the radio has sent
            one, because "which of these has not arrived" is exactly what the list is for. */
@@ -1023,13 +1025,25 @@ bool mesh_ui_settings_action_needs_confirm(enum mesh_ui_settings_action action) 
     return action == MESH_UI_SETTINGS_ACTION_REBOOT || action == MESH_UI_SETTINGS_ACTION_SHUTDOWN ||
            action == MESH_UI_SETTINGS_ACTION_RESET_NODEDB ||
            action == MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG ||
-           action == MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE;
+           action == MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE ||
+           mesh_ui_settings_action_is_forget(action);
 }
 
+/* Spelled out rather than "everything that needs confirming, plus the position pair": the
+   forget rows need the sheet too and are the one thing in that section the radio never hears
+   about, so the two questions stopped having the same answer. */
 bool mesh_ui_settings_action_is_radio(enum mesh_ui_settings_action action) {
-    return mesh_ui_settings_action_needs_confirm(action) ||
+    return action == MESH_UI_SETTINGS_ACTION_REBOOT || action == MESH_UI_SETTINGS_ACTION_SHUTDOWN ||
+           action == MESH_UI_SETTINGS_ACTION_RESET_NODEDB ||
+           action == MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG ||
+           action == MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE ||
            action == MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION ||
            action == MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION;
+}
+
+bool mesh_ui_settings_action_is_forget(enum mesh_ui_settings_action action) {
+    return action == MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES ||
+           action == MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES;
 }
 
 void mesh_ui_settings_confirm_title(enum mesh_ui_settings_section section, uint8_t channel,
@@ -1047,6 +1061,12 @@ void mesh_ui_settings_confirm_title(enum mesh_ui_settings_section section, uint8
         return;
     case MESH_UI_SETTINGS_ACTION_RESET_NODEDB:
         snprintf(out, out_len, "%s", "Reset the node database?");
+        return;
+    case MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES:
+        snprintf(out, out_len, "%s", "Forget off-radio nodes?");
+        return;
+    case MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES:
+        snprintf(out, out_len, "%s", "Forget every cached node?");
         return;
     case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG:
         snprintf(out, out_len, "%s", "Factory reset the config?");
@@ -1072,6 +1092,10 @@ const char *mesh_ui_settings_confirm_accept(enum mesh_ui_settings_action action)
         return "Shut down now";
     case MESH_UI_SETTINGS_ACTION_RESET_NODEDB:
         return "Reset the node database";
+    case MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES:
+        return "Forget them";
+    case MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES:
+        return "Forget them all";
     case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG:
         return "Factory reset config";
     case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE:
@@ -1103,23 +1127,33 @@ void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section,
                  "The radio powers off in a few seconds and nothing here can wake it again: "
                  "that takes its own button. Everything it has stored survives.");
         return;
+    /* Four wrapped lines is what the sheet draws, so each of these stops inside it: a warning
+       whose last clause is cut off is worse than a shorter one. */
     case MESH_UI_SETTINGS_ACTION_RESET_NODEDB:
         snprintf(out, out_len, "%s",
-                 "The radio forgets every node it has heard, favorites excepted. Names and "
-                 "positions return only as each node speaks again, which on a quiet mesh is "
-                 "hours. This client's own cached list is left alone.");
+                 "The radio forgets every node it heard, favorites excepted. Names come back "
+                 "as each speaks again. The Brick's own list stays; the row below clears "
+                 "it.");
+        return;
+    case MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES:
+        snprintf(out, out_len, "%s",
+                 "Drops the nodes this Brick remembers and the radio no longer carries - the "
+                 "ones the Nodes tab marks \"off radio\". Pins and ourselves stay.");
+        return;
+    case MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES:
+        snprintf(out, out_len, "%s",
+                 "Empties this Brick's node list, ourselves and pins excepted. The radio's "
+                 "database is untouched; the list fills again on the next connect.");
         return;
     case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG:
         snprintf(out, out_len, "%s",
-                 "Every setting on this radio returns to its factory default, the Bluetooth "
-                 "bond excepted. Channels and their keys go with them: the node leaves your "
-                 "mesh until it is set up again.");
+                 "Every setting returns to its factory default, the Bluetooth bond excepted. "
+                 "Channels and keys go too: the node leaves your mesh until set up again.");
         return;
     case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE:
         snprintf(out, out_len, "%s",
-                 "Every setting and the node database return to factory defaults and the "
-                 "Bluetooth bond is cleared, so this node has to be forgotten in Devices (Y) "
-                 "and paired again. Its identity key changes.");
+                 "Every setting and the node database return to factory defaults, and the "
+                 "Bluetooth bond is cleared: forget the node in Devices (Y) and pair again.");
         return;
     default:
         break;

@@ -245,6 +245,11 @@ enum mesh_ui_action_type {
        One action type rather than five because the nav has nothing to say about any of them
        beyond which row it was - the app owns what each one means. */
     MESH_UI_ACTION_RADIO_ACTION,
+    /* The two rows in that section that ask *this client* to forget nodes rather than the
+       radio: `number` is 1 to empty the roster, 0 to drop only what the radio's NodeDB no
+       longer carries. Its own type rather than a sixth radio action because nothing goes over
+       the air and it works with no link at all. */
+    MESH_UI_ACTION_FORGET_NODES,
     /* Devices tab. DISCONNECT with an empty identifier means "whatever link is up": only one
        radio is ever connected, so the row the cursor happens to be on does not decide it. */
     MESH_UI_ACTION_DISCONNECT,

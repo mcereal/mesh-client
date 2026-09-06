@@ -32,6 +32,12 @@ void mesh_test_nav_populate(struct mesh_ui_store *store) {
     snprintf(handshake.nodes[1].long_name, sizeof handshake.nodes[1].long_name, "%s", "Alfa Node");
     handshake.nodes[2].node_id = 0x3000U;
     snprintf(handshake.nodes[2].short_name, sizeof handshake.nodes[2].short_name, "%s", "BRVO");
+    /* A roster straight out of a completed sync: every node is one the radio's NodeDB carries.
+       Without this the fixture would draw as three nodes the radio has forgotten, which is a
+       state a sync that just finished cannot be in. */
+    for (uint32_t i = 0; i < handshake.node_count; ++i) {
+        handshake.nodes[i].in_nodedb = true;
+    }
     mesh_ui_store_set_handshake(store, &handshake);
 
     struct mesh_ui_message_list messages;

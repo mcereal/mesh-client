@@ -8,6 +8,7 @@
 /* For enum mesh_traceroute_state, which the UI's traceroute carries as a byte. */
 #include "mesh/core/session.h"
 #include "mesh/core/updater.h"
+#include "mesh/ui/layout.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/settings.h"
@@ -535,6 +536,42 @@ MESH_TEST_CASE(ui_settings_large_modules, unit) {
 }
 
 /* Keys as text: base64 out, base64 or hex in, per-field lengths and choices. */
+/*
+ * Every warning the confirm sheet puts in front of a destructive press has to fit inside it.
+ * The sheet draws four wrapped lines and no more, so a longer one is not scrolled or shortened
+ * - it is cut, mid-sentence, and the clause that goes is the last one, which is where these
+ * put what is lost. Two of them had drifted past the limit before this test existed.
+ *
+ * 38 cells is narrower than the Brick's confirm sheet actually is, which is the point: it
+ * leaves the copy room to survive a slightly larger glyph or a slightly narrower panel.
+ */
+MESH_TEST_CASE(ui_settings_confirm_fits, unit) {
+    static const enum mesh_ui_settings_action actions[] = {
+        MESH_UI_SETTINGS_ACTION_REBOOT,
+        MESH_UI_SETTINGS_ACTION_SHUTDOWN,
+        MESH_UI_SETTINGS_ACTION_RESET_NODEDB,
+        MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES,
+        MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES,
+        MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG,
+        MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE,
+    };
+    for (size_t i = 0; i < sizeof actions / sizeof actions[0]; ++i) {
+        char text[256];
+        char message[128];
+        MESH_TEST_FAIL_IF(!mesh_ui_settings_action_needs_confirm(actions[i]),
+                          "an action in the confirm list does not ask first");
+        mesh_ui_settings_confirm_text(MESH_UI_SETTINGS_ACTIONS, actions[i], text, sizeof text);
+        const uint32_t lines = mesh_ui_wrap_lines(text, 38U);
+        snprintf(message, sizeof message, "action %u needs %u lines and the sheet draws 4",
+                 (unsigned)actions[i], lines);
+        MESH_TEST_FAIL_IF(lines > 4U, message);
+        mesh_ui_settings_confirm_title(MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL,
+                                       actions[i], text, sizeof text);
+        MESH_TEST_FAIL_IF(text[0] == '\0', "an action reached the sheet with no question on it");
+    }
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_settings_key_text, unit) {
     static const uint8_t k_default[16] = {0xd4, 0xf1, 0xbb, 0x3a, 0x20, 0x29, 0x07, 0x59,
                                           0xf0, 0xbc, 0xff, 0xab, 0xcf, 0x4e, 0x69, 0x01};

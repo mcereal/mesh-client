@@ -84,12 +84,21 @@ and the walk home would replace them again. So:
 - `mesh_session_reset_handshake` clears the connection's state and **keeps the nodes**. They are
   dropped only when `MyNodeInfo` reports a different radio, whose NodeDB is another view of the
   mesh.
-- Each `want_config` bumps `session->sync_epoch`; a NodeInfo stamps the node with it, and
-  `config_complete` turns that into `in_nodedb`. A node with `in_nodedb == false` is one we
-  remember and the radio does not — still on the mesh, but with no stored key for a DM, which is
-  why the Nodes detail screen says so.
+- Each `want_config` bumps `session->sync_epoch`; a NodeInfo stamps the node with it *and sets
+  `in_nodedb` on the spot* — the NodeInfo is the proof, so a list drawn mid-sync does not mark
+  every node as forgotten — and `config_complete` settles the other direction for the nodes no
+  NodeInfo mentioned. A node with `in_nodedb == false` is one we remember and the radio does
+  not — still on the mesh, but with no stored key for a DM, which is why the Nodes tab dims the
+  row and puts "off radio" where its signal would go, the Status screen counts them on their own
+  `Cached here` line, and the detail screen spells it out.
 - Full now means evict rather than refuse: the victim is a node the radio has already forgotten
   before one it still carries, oldest `last_heard` first, never ourselves and never a pinned node.
+- Emptying it is the client's own verb, never a side effect of one sent over the air:
+  `mesh_session_forget_nodes(only_off_nodedb)` drops either the nodes `in_nodedb == false`
+  marks or the whole roster, always keeping our own record and every pinned node, and sends
+  nothing - so it works with no link at all. Settings > Radio actions carries both as rows,
+  under the NodeDB reset that is the usual reason to want them; `mesh_session_nodes_off_nodedb`
+  is the count they show and the Nodes tab's "off radio" total.
 - `mesh_session_seed_node` restores the roster the last run persisted (`mesh_app_seed_nodes_from_cache`,
   from the UI handshake cache) before any radio is attached, so a restart is not a reset either.
   The owning radio travels with it as its own `handshake_roster` line rather than as

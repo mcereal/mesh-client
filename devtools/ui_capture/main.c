@@ -35,6 +35,8 @@
  *   notice info|warn|error TEXT   what the radio last said about itself (Status tab)
  *   queue FREE MAXLEN [refused]   the radio's outgoing packet queue (Status tab)
  *   reboots N              times the radio has restarted under us (Status tab)
+ *   offradio NAME|all      mark that node (or every node but ours) as one the radio's NodeDB
+ *                          no longer carries - what a NodeDB reset leaves behind
  *
  * Every command but the setup three emits one frame (`key ... 3` emits three), and the screen
  * the script starts on is emitted before any of them.
@@ -745,6 +747,50 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         }
         uicap_start(cap);
         uicap_append_reaction(cap, name, uicap_tail(rest));
+        return;
+    }
+
+    /* The state a NodeDB reset leaves the roster in: the nodes are still ours, and the radio
+       has stopped carrying them. Its own verb because no key press can reach it - the reset
+       goes out over the air and the answer comes back on the next sync, neither of which
+       exists behind the harness. */
+    if (strcmp(command, "offradio") == 0) {
+        char *name = uicap_word(&rest);
+        if (name == NULL) {
+            fprintf(stderr, "uicap: line %u: 'offradio' needs a short name or 'all'\n",
+                    line_number);
+            exit(1);
+        }
+        uicap_start(cap);
+        struct mesh_ui_handshake_state handshake = cap->store.handshake;
+        const bool all = strcmp(name, "all") == 0;
+        bool matched = false;
+        for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+            struct mesh_ui_node_summary *node = &handshake.nodes[i];
+            if (node->node_id == handshake.my_info.node_num) {
+                continue; /* our own radio is never a node its own database has forgotten */
+            }
+            if (all || strcmp(node->short_name, name) == 0) {
+                node->in_nodedb = false;
+                matched = true;
+            }
+        }
+        if (!matched) {
+            fprintf(stderr, "uicap: line %u: no node in the scene called '%s'\n", line_number,
+                    name);
+            exit(1);
+        }
+        handshake.nodes_off_radio = 0U;
+        for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+            if (!handshake.nodes[i].in_nodedb) {
+                ++handshake.nodes_off_radio;
+            }
+        }
+        /* The radio's own count goes with them: after a reset its database holds what it has
+           re-heard, which is what makes the Status screen and the Nodes tab disagree. */
+        handshake.my_info.nodedb_entries = handshake.node_count - handshake.nodes_off_radio;
+        mesh_ui_store_set_handshake(&cap->store, &handshake);
+        uicap_emit(cap);
         return;
     }
 

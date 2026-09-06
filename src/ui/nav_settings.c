@@ -231,11 +231,20 @@ static void mesh_ui_nav_confirm_close(struct mesh_ui_nav *nav) {
 }
 
 /* A radio action carries the open section's pending edits for the same reason a save does:
-   "Set fixed position" is a row that reads the three rows above it. */
-void mesh_ui_nav_fill_radio_action(const struct mesh_ui_nav *nav,
-                                   enum mesh_ui_settings_action which,
-                                   struct mesh_ui_action *action) {
+   "Set fixed position" is a row that reads the three rows above it. The two forget rows sit in
+   the same section and go through the same confirm sheet, but ask this client to drop its own
+   roster rather than the radio to do anything - so they leave as their own type, and `number`
+   says which of the two it was rather than which settings row. */
+void mesh_ui_nav_fill_settings_action(const struct mesh_ui_nav *nav,
+                                      enum mesh_ui_settings_action which,
+                                      struct mesh_ui_action *action) {
     if (action == NULL) {
+        return;
+    }
+    if (mesh_ui_settings_action_is_forget(which)) {
+        action->type = MESH_UI_ACTION_FORGET_NODES;
+        action->section = nav->settings_section;
+        action->number = which == MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES ? 1U : 0U;
         return;
     }
     action->type = MESH_UI_ACTION_RADIO_ACTION;
@@ -257,10 +266,11 @@ bool mesh_ui_nav_confirm_key(struct mesh_ui_nav *nav, enum mesh_ui_key key,
     case MESH_UI_KEY_A:
     case MESH_UI_KEY_START:
         if (nav->confirm_cursor == 0U) {
-            /* Two things stand behind this overlay: a section save, and a radio action that
-               keeps no state and so has no edits to carry. */
+            /* Two things stand behind this overlay: a section save, and an action row that
+               keeps no state and so has no edits to carry - a radio one, or one of the two
+               that ask this client to forget cached nodes. */
             if (nav->confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_NONE) {
-                mesh_ui_nav_fill_radio_action(
+                mesh_ui_nav_fill_settings_action(
                     nav, (enum mesh_ui_settings_action)nav->confirm_action, action);
             } else {
                 mesh_ui_nav_fill_save(nav, action);

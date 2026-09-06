@@ -76,9 +76,10 @@ bool mesh_ui_nav_settings_section_key(struct mesh_ui_nav *nav, const struct mesh
 /* One key while a confirm sheet is up. False when the key was not the sheet's to take. */
 bool mesh_ui_nav_confirm_key(struct mesh_ui_nav *nav, enum mesh_ui_key key,
                              struct mesh_ui_action *action);
-/* Fills `action` with the radio action the open confirm sheet is asking about. */
-void mesh_ui_nav_fill_radio_action(const struct mesh_ui_nav *nav,
-                                   enum mesh_ui_settings_action which,
-                                   struct mesh_ui_action *action);
+/* Fills `action` with what an ACTION row - or the confirm sheet standing in front of one -
+   is asking for. Most are radio actions; the two forget rows are the client's own. */
+void mesh_ui_nav_fill_settings_action(const struct mesh_ui_nav *nav,
+                                      enum mesh_ui_settings_action which,
+                                      struct mesh_ui_action *action);
 
 #endif /* MESH_UI_NAV_INTERNAL_H */

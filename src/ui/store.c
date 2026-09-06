@@ -1286,6 +1286,14 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
         final_count = MESH_UI_MAX_HANDSHAKE_NODES;
     }
     handshake.node_count = final_count;
+    /* Recounted rather than persisted: the flag it counts is on every node line already, and a
+       count of its own would be one more thing in the file that could disagree with them. */
+    handshake.nodes_off_radio = 0U;
+    for (uint32_t i = 0; i < final_count; ++i) {
+        if (!handshake.nodes[i].in_nodedb) {
+            ++handshake.nodes_off_radio;
+        }
+    }
 
     if (handshake_valid) {
         if (!handshake.cached) {

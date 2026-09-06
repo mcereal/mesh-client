@@ -246,6 +246,17 @@ static void item_action(struct item_list *list, const char *label, const char *v
     }
 }
 
+/* An action the radio has to be reachable for. Without a link it becomes the same row saying
+   why, so the section keeps its shape whatever the transport is doing. */
+static void item_radio_action(struct item_list *list, const char *label,
+                              enum mesh_ui_settings_action action, bool connected) {
+    if (connected) {
+        item_action(list, label, "press A", action);
+    } else {
+        item_text(list, label, MESH_UI_SETTING_INFO, "not connected");
+    }
+}
+
 /*
  * About: what this client is, and the self-update rows. The only section that renders with no
  * radio connected, and the only one whose values come from the app rather than the air.
@@ -898,22 +909,58 @@ static void build_traffic(const struct mesh_ui_settings *s, struct item_list *li
  * Ordered least to most destructive, so a cursor arriving at the top of the list is on the one
  * press here that costs nothing but a reconnect, and the two that cannot be undone are the
  * furthest to travel to.
+ *
+ * The two forget rows are the exception to the section's own name: they drop this client's
+ * cached roster and send nothing. They live here because a NodeDB reset leaves that roster
+ * standing on purpose - the radio holds 80 entries and evicts, so ours is often the only copy
+ * - and this is the screen somebody who has just reset the radio is looking at while wondering
+ * why the Nodes tab still says 81. Each says how many it would drop, so the press is not a
+ * guess, and a row with nothing to drop is an INFO row rather than a press that does nothing.
+ *
+ * The labels stop at the noun the value column supplies - the label column is 20 cells and
+ * "Forget off-radio nodes" is 22 - so the row reads across as one sentence rather than as a
+ * clipped one: "Forget off-radio > 7 nodes".
  */
-static void build_actions(const struct mesh_ui_settings *s, struct item_list *list) {
-    item_action(list, "Reboot", "press A", MESH_UI_SETTINGS_ACTION_REBOOT);
+static void build_actions(const struct mesh_ui_settings *s,
+                          const struct mesh_ui_handshake_state *handshake, struct item_list *list) {
+    /* An AdminMessage cannot be addressed without our own node number, so with no link every
+       row here but the two forget rows is unpressable. They say so rather than disappearing:
+       a section whose length changes when the radio drops moves the cursor out from under the
+       user, and "not connected" is the answer they were about to press A to find out. */
+    const bool connected = handshake != NULL && handshake->has_my_info;
+
+    item_radio_action(list, "Reboot", MESH_UI_SETTINGS_ACTION_REBOOT, connected);
     /* DeviceMetadata says whether the hardware can cut its own power; on a board that cannot,
        the request is simply ignored, so the row says so rather than lying about what A does.
        Until the metadata arrives the row is offered: the radio is the authority, not us. */
     if (s->has_metadata && !s->can_shutdown) {
         item_text(list, "Shutdown", MESH_UI_SETTING_INFO, "not supported");
     } else {
-        item_action(list, "Shutdown", "press A", MESH_UI_SETTINGS_ACTION_SHUTDOWN);
+        item_radio_action(list, "Shutdown", MESH_UI_SETTINGS_ACTION_SHUTDOWN, connected);
     }
-    item_action(list, "Reset node database", "press A", MESH_UI_SETTINGS_ACTION_RESET_NODEDB);
-    item_action(list, "Factory reset config", "press A",
-                MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG);
-    item_action(list, "Factory reset device", "press A",
-                MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE);
+    item_radio_action(list, "Reset node database", MESH_UI_SETTINGS_ACTION_RESET_NODEDB, connected);
+
+    const uint32_t cached = handshake != NULL ? handshake->node_count : 0U;
+    const uint32_t off_radio = handshake != NULL ? handshake->nodes_off_radio : 0U;
+    char count[MESH_UI_SETTINGS_VALUE_MAX];
+    if (off_radio == 0U) {
+        item_text(list, "Forget off-radio", MESH_UI_SETTING_INFO, "none cached");
+    } else {
+        snprintf(count, sizeof count, "%u node%s", off_radio, off_radio == 1U ? "" : "s");
+        item_action(list, "Forget off-radio", count,
+                    MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES);
+    }
+    if (cached == 0U) {
+        item_text(list, "Forget all cached", MESH_UI_SETTING_INFO, "none cached");
+    } else {
+        snprintf(count, sizeof count, "%u node%s", cached, cached == 1U ? "" : "s");
+        item_action(list, "Forget all cached", count, MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES);
+    }
+
+    item_radio_action(list, "Factory reset config", MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG,
+                      connected);
+    item_radio_action(list, "Factory reset device", MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE,
+                      connected);
 }
 
 static void build_section(const struct mesh_ui_settings *settings,
@@ -975,7 +1022,7 @@ static void build_section(const struct mesh_ui_settings *settings,
         build_telemetry(settings, list);
         break;
     case MESH_UI_SETTINGS_ACTIONS:
-        build_actions(settings, list);
+        build_actions(settings, handshake, list);
         break;
     case MESH_UI_SETTINGS_MODULES:
         build_modules(settings, handshake, list);

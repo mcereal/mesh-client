@@ -638,6 +638,14 @@ struct mesh_ui_handshake_state {
     struct mesh_ui_my_info my_info;
     bool has_config;
     uint32_t node_count;
+    /*
+     * How many of the roster's nodes the radio's own NodeDB no longer carries - the ones the
+     * Nodes tab marks "off radio". Counted over the *whole* session roster rather than the
+     * 128 published below, so the Settings row that offers to drop them says how many there
+     * really are; it is filled on every publish and recounted when the cache is loaded, so it
+     * is never stale against the rows beside it.
+     */
+    uint32_t nodes_off_radio;
     char primary_channel[33];
     char my_short_name[6];
     struct mesh_ui_node_summary nodes[MESH_UI_MAX_HANDSHAKE_NODES];

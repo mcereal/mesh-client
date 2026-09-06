@@ -1,0 +1,34 @@
+# What a NodeDB reset leaves behind, and how the client says so.
+#
+# The radio's database holds 80 entries and evicts; ours outlives the connection on purpose,
+# because a node pushed out of the radio's list often exists nowhere else. Reset the radio's
+# database and the two counts part company - the Status screen reads the radio's, the Nodes tab
+# reads ours - which is the moment this scene is about.
+#
+# `offradio all` stands in for the reset itself: the request goes out over the air and the
+# answer comes back on the next sync, and there is no radio behind the harness to do either.
+# The scene stops at the confirm sheet for the same reason the keyboard scenes stop at START:
+# forgetting is mesh_app's to carry out, and there is no app here to do it.
+
+scene demo
+tab nodes
+hold 900
+
+# The reset lands. Every node but our own is one only this Brick remembers now.
+offradio all
+hold 1800
+
+# Both counts on one screen: the radio's database, and what this Brick still holds.
+tab status
+hold 1800
+
+# Settings > Radio actions. The row that clears them says how many there are, and sits under
+# the reset that left them behind.
+tab settings
+key down 12
+key a
+hold 900
+key down 3
+hold 1600
+key a
+hold 2200
