@@ -1,3 +1,10 @@
+## [2.10.1](https://github.com/mcereal/mesh-client/compare/v2.10.0...v2.10.1) (2026-09-06)
+
+### Bug Fixes
+
+* **ui:** give back a message keyboard a pairing prompt displaced ([2276539](https://github.com/mcereal/mesh-client/commit/2276539d7e52b3efc6e48a804f465e4af8e57c58))
+* **ui:** make A quick-reply and Y write in a conversation ([b9aa66b](https://github.com/mcereal/mesh-client/commit/b9aa66b48935805ac5f2fc2d34051301f56719be))
+
 ## [2.10.0](https://github.com/mcereal/mesh-client/compare/v2.9.2...v2.10.0) (2026-09-06)
 
 ### Features
