@@ -1,3 +1,13 @@
+## [2.9.0](https://github.com/mcereal/mesh-client/compare/v2.8.0...v2.9.0) (2026-09-06)
+
+### Features
+
+* **ui:** say which cached nodes the radio has forgotten, and offer to drop them ([05b7ee9](https://github.com/mcereal/mesh-client/commit/05b7ee94a96272bded7847fee1be1adda5d75efe))
+
+### Bug Fixes
+
+* **ui:** count what a forget removes, not what is cached or stale ([9fe968f](https://github.com/mcereal/mesh-client/commit/9fe968f5d5921c8bf547df5e027d7d9b909df14e)), closes [#67](https://github.com/mcereal/mesh-client/issues/67)
+
 ## [2.8.0](https://github.com/mcereal/mesh-client/compare/v2.7.0...v2.8.0) (2026-09-06)
 
 ### Features
