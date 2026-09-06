@@ -1,3 +1,13 @@
+## [2.4.0](https://github.com/mcereal/mesh-client/compare/v2.3.2...v2.4.0) (2026-09-06)
+
+### Features
+
+* **ui:** draw the thread as a chat transcript ([e9851e2](https://github.com/mcereal/mesh-client/commit/e9851e214ea3737735d9978c7612b0b132294f84))
+
+### Bug Fixes
+
+* **ui:** name the sender on the first bubble on screen ([c2ff691](https://github.com/mcereal/mesh-client/commit/c2ff6918ad5eec01acb3877b8494ff6d8710c8f0))
+
 ## [2.3.2](https://github.com/mcereal/mesh-client/compare/v2.3.1...v2.3.2) (2026-09-05)
 
 ### Performance Improvements
