@@ -33,6 +33,19 @@ void fb_state_set_theme(struct mesh_ui_backend_fb_state *state, const struct mes
     }
     state->theme = theme != NULL ? theme : mesh_ui_theme_default();
     state->scale = mesh_ui_theme_clamp_scale(state->theme, scale);
+    /* Every position remembered in there is in pixels, measured against metrics this call has
+       just replaced. Keeping them would slide a knob from where it sat under the old scale. */
+    mesh_ui_anim_table_reset(&state->anim);
+}
+
+void fb_state_set_now(struct mesh_ui_backend_fb_state *state, uint64_t now_ms) {
+    if (state != NULL && now_ms > state->now_ms) {
+        state->now_ms = now_ms;
+    }
+}
+
+bool fb_state_animating(const struct mesh_ui_backend_fb_state *state) {
+    return state != NULL && mesh_ui_anim_table_active(&state->anim, state->now_ms);
 }
 
 bool fb_state_follow_snapshot(struct mesh_ui_backend_fb_state *state,

@@ -1272,7 +1272,9 @@ static void fb_render_confirm(const struct mesh_ui_backend_fb_state *state,
 
 /* Settings: the section list, or one section's label/value rows. Editable rows show a
    pending edit in place of the radio's value with a marker until Y saves it. */
-static void fb_render_settings(const struct mesh_ui_backend_fb_state *state,
+/* Takes the state mutably, unlike its neighbours: the switches on the toggle rows step an
+   animation kept on it. Nothing else here writes to the state. */
+static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                                const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     const struct mesh_ui_settings *settings = &snapshot->settings;
@@ -1347,8 +1349,32 @@ static void fb_render_settings(const struct mesh_ui_backend_fb_state *state,
                                  : item.field != MESH_UI_FIELD_NONE    ? "> "
                                  : item.kind == MESH_UI_SETTING_ACTION ? "> "
                                                                        : "  ";
-            fb_list_field_row(state, &list, i, item.label, label_cols, marker, item.value,
-                              item.dirty ? MESH_UI_TONE_STRONG : MESH_UI_TONE_NORMAL);
+            const enum mesh_ui_tone tone = item.dirty ? MESH_UI_TONE_STRONG : MESH_UI_TONE_NORMAL;
+            /*
+             * A boolean gets a switch rather than the words. The words are still what the CLI
+             * backend draws and still what item.value holds - this is the fb backend deciding
+             * how to say the same thing on a screen, which is exactly the choice a backend is
+             * for.
+             *
+             * The field id is the switch's identity, and it has to be one no other row in the
+             * frame shares: the channel rows repeat the same fields per channel, so the
+             * channel is mixed in. A read-only toggle has no field at all and is keyed on its
+             * row instead, above everything the field enum can reach.
+             */
+            if (item.kind == MESH_UI_SETTING_TOGGLE) {
+                struct fb_switch sw = {
+                    .id = item.field != MESH_UI_FIELD_NONE
+                              ? 0x01000000U | ((uint32_t)nav->settings_channel << 16) |
+                                    (uint32_t)item.field
+                              : 0x02000000U | i,
+                    .on = item.number != 0U,
+                    .dim = item.field == MESH_UI_FIELD_NONE,
+                };
+                fb_list_field_row_switch(state, &list, i, item.label, label_cols, marker, tone,
+                                         &sw);
+                continue;
+            }
+            fb_list_field_row(state, &list, i, item.label, label_cols, marker, item.value, tone);
         } else {
             const enum mesh_ui_settings_section row = mesh_ui_settings_root_at(i);
             const bool loaded = mesh_ui_settings_section_loaded(settings, handshake, row);

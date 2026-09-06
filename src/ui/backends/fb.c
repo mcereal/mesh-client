@@ -14,6 +14,7 @@
 
 #include "mesh/utils/env.h"
 #include "mesh/utils/log.h"
+#include "mesh/utils/time.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -147,6 +148,10 @@ static void mesh_ui_backend_fb_present(void *state_ptr, const struct mesh_ui_sna
         return;
     }
 
+    /* One clock reading per frame, taken here rather than inside the drawing code: a widget
+       that read the clock for itself would draw two halves of one frame at two different
+       times, and a capture could not pin either of them. */
+    fb_state_set_now(state, mesh_time_monotonic_ms());
     fb_render_snapshot(state, snapshot);
     /*
      * Flush only the pages the frame actually wrote. fb0 on the Brick is 1024x16384 - a 64 MB
@@ -157,11 +162,17 @@ static void mesh_ui_backend_fb_present(void *state_ptr, const struct mesh_ui_sna
     msync(state->fb_ptr, dirty_bytes, MS_ASYNC);
 }
 
+static bool mesh_ui_backend_fb_animating(void *state_ptr, void *userdata) {
+    (void)userdata;
+    return fb_state_animating((const struct mesh_ui_backend_fb_state *)state_ptr);
+}
+
 static const struct mesh_ui_backend k_fb_backend = {
     .name = "fb",
     .init = mesh_ui_backend_fb_init,
     .shutdown = mesh_ui_backend_fb_shutdown,
     .present = mesh_ui_backend_fb_present,
+    .animating = mesh_ui_backend_fb_animating,
 };
 
 bool mesh_ui_backend_fb_is_available(void) { return access("/dev/fb0", R_OK | W_OK) == 0; }

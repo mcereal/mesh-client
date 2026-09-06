@@ -23,6 +23,7 @@
  *                          the look, after it switches and emits one, so a single script can
  *                          show the same screen in every theme
  *   tab NAME               walk Left/Right to messages|nodes|devices|status|settings
+ *   config                 a radio that has answered the config handshake
  *   key NAME [COUNT]       up down left right a b x y l1 r1 start select
  *   hold MS                add MS to the delay of the frame just emitted
  *   frame                  emit the current screen again
@@ -327,7 +328,19 @@ static void uicap_scene_empty(struct uicap *cap) {
 
 /* ---- frames ------------------------------------------------------------------------------ */
 
-static void uicap_emit(struct uicap *cap) {
+/*
+ * Steps the clock every frame is drawn against.
+ *
+ * The scene's own clock and the renderer's are the same clock: a `hold` is the frame sitting on
+ * screen for that long, so a knob that was mid-slide when it started has moved by the time the
+ * next line runs. Anything else would film the HUD with a stopped watch.
+ */
+static void uicap_advance(struct uicap *cap, unsigned ms) {
+    cap->now_ms += ms;
+    mesh_ui_capture_advance(cap->capture, ms);
+}
+
+static void uicap_emit_delay(struct uicap *cap, unsigned delay_ms) {
     if (!mesh_ui_store_consume_updates(&cap->store, &cap->snapshot)) {
         /* Nothing changed - a press the screen ignores, say. Draw it anyway: a clip that
            silently drops the frames where nothing happened is a clip that lies about what the
@@ -355,9 +368,38 @@ static void uicap_emit(struct uicap *cap) {
         cap->delays = delays;
         cap->delay_capacity = grown;
     }
-    cap->delays[cap->frame_count - 1U] = cap->delay_ms;
+    cap->delays[cap->frame_count - 1U] = delay_ms;
     if (!cap->quiet) {
         printf("  frame %u  %s-%04u.ppm\n", cap->frame_count, cap->prefix, cap->frame_count);
+    }
+}
+
+static void uicap_emit(struct uicap *cap) { uicap_emit_delay(cap, cap->delay_ms); }
+
+/*
+ * Plays out whatever the last frame left moving.
+ *
+ * A press that flips a switch does not finish on the frame that handled it - the knob is a few
+ * pixels into a slide. The renderer says so (mesh_ui_capture_animating), so the harness keeps
+ * stepping the clock and drawing until it stops, exactly as the event loop's frame timer does
+ * on the device. That is what makes an animation reviewable in a GIF without a single scene
+ * script having to know an animation exists.
+ *
+ * These frames carry the animation's own interval rather than the scene's, so the transition
+ * plays at the speed a hand holding the device would see; the scene's delay is for the frames
+ * somebody is meant to read. The cap is a guard against a widget that never settles - a bug,
+ * but not one that should hang a capture.
+ */
+#define UICAP_FRAME_MS 33U
+#define UICAP_MAX_ANIM_FRAMES 40U
+
+static void uicap_settle(struct uicap *cap) {
+    for (unsigned i = 0U; i < UICAP_MAX_ANIM_FRAMES; ++i) {
+        if (!mesh_ui_capture_animating(cap->capture)) {
+            return;
+        }
+        uicap_advance(cap, UICAP_FRAME_MS);
+        uicap_emit_delay(cap, UICAP_FRAME_MS);
     }
 }
 
@@ -439,6 +481,7 @@ static void uicap_hold(struct uicap *cap, unsigned extra_ms) {
     /* GIF carries the delay in centiseconds in a 16-bit field, so 655350 ms is the ceiling
        anything downstream can express. */
     *delay = *delay + extra_ms > 600000U ? 600000U : *delay + extra_ms;
+    uicap_advance(cap, extra_ms);
 }
 
 /* ---- the script -------------------------------------------------------------------------- */
@@ -479,6 +522,7 @@ static void uicap_press(struct uicap *cap, enum mesh_ui_key key) {
     memset(&action, 0, sizeof action);
     (void)mesh_ui_store_handle_key(&cap->store, key, &action);
     uicap_emit(cap);
+    uicap_settle(cap);
 }
 
 /* Walks the tabs with the buttons rather than assigning nav.screen, so a scene can only ever
@@ -832,6 +876,41 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         settings.notice.seq++;
         settings.notice.received = (uint32_t)time(NULL);
         snprintf(settings.notice.text, sizeof settings.notice.text, "%s", uicap_tail(rest));
+        mesh_ui_store_set_settings(&cap->store, &settings);
+        uicap_emit(cap);
+        return;
+    }
+
+    /*
+     * A radio that has answered the config handshake.
+     *
+     * Without it every Settings section says "not loaded", because the demo scene has no radio
+     * behind it - so the one tab whose rows are all controls was the one tab a capture could
+     * not show. The values are plausible rather than meaningful: what is on show is the rows.
+     */
+    if (strcmp(command, "config") == 0) {
+        uicap_start(cap);
+        struct mesh_ui_settings settings = cap->store.settings;
+        settings.loaded = true;
+        settings.admin_ok = true;
+        settings.has_owner = true;
+        snprintf(settings.long_name, sizeof settings.long_name, "%s", "Brick");
+        snprintf(settings.short_name, sizeof settings.short_name, "%s", "BRK");
+        settings.has_device = true;
+        settings.node_info_broadcast_secs = 10800U;
+        settings.led_heartbeat_disabled = false;
+        settings.double_tap_as_button_press = true;
+        settings.has_display = true;
+        settings.screen_on_secs = 600U;
+        settings.carousel_secs = 0U;
+        settings.use_12h_clock = true;
+        settings.flip_screen = false;
+        settings.has_lora = true;
+        settings.use_preset = true;
+        settings.tx_enabled = true;
+        settings.hop_limit = 3U;
+        settings.has_bluetooth = true;
+        settings.bluetooth_enabled = true;
         mesh_ui_store_set_settings(&cap->store, &settings);
         uicap_emit(cap);
         return;

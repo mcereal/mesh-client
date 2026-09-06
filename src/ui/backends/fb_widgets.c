@@ -8,6 +8,7 @@
 
 #include "fb_widgets.h"
 
+#include "mesh/ui/anim.h"
 #include "mesh/ui/emoji.h"
 
 #include <stdarg.h>
@@ -583,4 +584,144 @@ void fb_draw_status_row(const struct mesh_ui_backend_fb_state *state,
     (void)mesh_str_vformat(text, sizeof text, value, args);
     va_end(args);
     fb_draw_status_text(state, layout, y, tone, label, text);
+}
+
+/* ---- the switch -------------------------------------------------------------------------- */
+
+/*
+ * How long a knob takes to cross, and on what curve.
+ *
+ * 140 ms is the range a control that answers a button press wants to be in: long enough that
+ * the eye follows the knob across rather than seeing it teleport, short enough that nobody
+ * waits for it. Ease-out because the press has already happened - the movement is the screen
+ * catching up, so it should leave briskly and settle, not wind up first.
+ */
+#define FB_SWITCH_MS 140U
+
+/* Shorter than the line advance, which carries the gap between rows: a control as tall as the
+   advance touches the row above it. */
+static int fb_switch_height(const struct mesh_ui_backend_fb_state *state, int scale) {
+    const int height = fb_line_adv(state, scale) - 2 * scale;
+    return height < 6 ? 6 : height;
+}
+
+/*
+ * The whole of the control's geometry, derived from the glyph metrics.
+ *
+ * A switch is a wide pill: 9:5 is close to what the phone platforms use and is what stops it
+ * reading as a circle at a small scale. Everything else - the corner radius, the ring the knob
+ * sits in, how far it travels - falls out of the height below, so a theme that asks for bigger
+ * text gets a proportionally bigger control and no renderer is touched.
+ */
+void fb_switch_size(const struct mesh_ui_backend_fb_state *state, int scale, int *w, int *h) {
+    const int height = fb_switch_height(state, scale);
+    if (h != NULL) {
+        *h = height;
+    }
+    if (w != NULL) {
+        *w = height * 9 / 5;
+    }
+}
+
+void fb_draw_switch(struct mesh_ui_backend_fb_state *state, const struct fb_switch *sw) {
+    if (sw == NULL || sw->rect.w <= 0 || sw->rect.h <= 0) {
+        return;
+    }
+
+    /*
+     * Where the knob is, which is the one thing the snapshot cannot say. The table answers
+     * with the target on first sight of this id and with a position in between afterwards -
+     * so a screen opening does not animate and a press does.
+     */
+    const int32_t position =
+        mesh_ui_anim_track(&state->anim, sw->id, state->now_ms, sw->on ? MESH_UI_ANIM_ONE : 0,
+                           FB_SWITCH_MS, MESH_UI_EASE_OUT);
+
+    const int radius = sw->rect.h / 2;
+
+    /*
+     * Its own ground under a cursor fill. Both colour pairs below are contracted against the
+     * ground rather than against the cursor fill, and on the dark and colorblind themes the
+     * cursor fill and the resting track are the same colour - so without this the control
+     * would be invisible on precisely the row being pointed at.
+     */
+    if (sw->selected) {
+        /* The ring is a fraction of the glyph scale rather than of the control, because the row
+           fill it has to stay inside is measured from the scale too - a ring sized off the
+           control overhung the highlight bar top and bottom and notched it. */
+        const int pad = state->scale / 2 > 0 ? state->scale / 2 : 1;
+        fb_fill_round_rect(state, sw->rect.x - pad, sw->rect.y - pad, sw->rect.w + 2 * pad,
+                           sw->rect.h + 2 * pad, radius + pad, fb_color(state, MESH_UI_COLOR_BG));
+    }
+
+    /*
+     * The track takes its colour from the end the knob has passed, rather than fading between
+     * the two as it travels.
+     *
+     * A fade was the first thing tried and it is wrong for a reason worth writing down: the
+     * pairs below are validated against each other, and a track halfway between two of them is
+     * not validated against either knob colour - so the one moment the eye is actually
+     * following the control is the moment its contrast is unaccounted for. It also looks bad,
+     * because on the dark theme the two ends are yellow and blue and everything between them
+     * is mud. Flipping at the midpoint keeps every frame a pair a theme was held to.
+     *
+     * A dim switch reports a state rather than offering one, so it stays muted at both ends and
+     * never takes the accent.
+     */
+    const bool past_middle = position > MESH_UI_ANIM_ONE / 2;
+    const enum mesh_ui_color track_role =
+        sw->dim ? (past_middle ? MESH_UI_COLOR_RULE_STRONG : MESH_UI_COLOR_RULE)
+                : (past_middle ? MESH_UI_COLOR_ACCENT : MESH_UI_COLOR_SURFACE_SEL);
+    const enum mesh_ui_color knob_role =
+        sw->dim ? MESH_UI_COLOR_TEXT_DIM
+                : (past_middle ? MESH_UI_COLOR_ON_ACCENT : MESH_UI_COLOR_TEXT_ON_SEL);
+    fb_fill_round_rect(state, sw->rect.x, sw->rect.y, sw->rect.w, sw->rect.h, radius,
+                       fb_color(state, track_role));
+
+    /* The knob: a disc inside a ring of track, travelling the width less that ring. */
+    const int inset = sw->rect.h / 8 + 1;
+    const int knob = sw->rect.h - 2 * inset;
+    const int travel = sw->rect.w - 2 * inset - knob;
+    const int x = sw->rect.x + inset + (travel > 0 ? (travel * position) / MESH_UI_ANIM_ONE : 0);
+    fb_fill_round_rect(state, x, sw->rect.y + inset, knob, knob, knob / 2,
+                       fb_color(state, knob_role));
+}
+
+void fb_list_field_row_switch(struct mesh_ui_backend_fb_state *state, struct fb_list *list,
+                              uint32_t index, const char *label, size_t label_cols,
+                              const char *marker, enum mesh_ui_tone tone, struct fb_switch *sw) {
+    int width = 0;
+    int height = 0;
+    fb_switch_size(state, state->scale, &width, &height);
+
+    /* Clip the text to leave the control its column, measured in cells like every other width
+       on a row - the same arithmetic the unread badge does, for the same reason. */
+    const int adv = fb_char_adv(state, state->scale);
+    const size_t control_cols = (size_t)((width + adv - 1) / adv) + 1U;
+    const size_t room = list->cols > control_cols + 1U ? list->cols - control_cols - 1U : 1U;
+
+    struct mesh_ui_line line;
+    mesh_ui_line_reset(&line);
+    mesh_ui_line_column(&line, label, label_cols);
+    mesh_ui_line_printf(&line, " %s", marker != NULL ? marker : "");
+    mesh_ui_line_fit(&line, room);
+
+    const int y = list->y;
+    const bool selected = mesh_ui_list_is_cursor(&list->model, index);
+    fb_list_row_line(state, list, index, &line, tone);
+
+    /*
+     * Centred on the row's fill - the box fb_draw_row() paints under a selected row - rather
+     * than on the glyph body. They coincide for the font that ships, but only the fill is what
+     * the control has to stay inside, and a switch that overhangs it notches the highlight bar
+     * on the one row the cursor is on.
+     */
+    const int fill_top = y - state->scale;
+    const int fill_height = fb_line_adv(state, state->scale);
+    sw->rect.w = width;
+    sw->rect.h = height;
+    sw->rect.x = (int)state->var.xres - fb_margin(state) - width;
+    sw->rect.y = fill_top + (fill_height - height) / 2;
+    sw->selected = selected;
+    fb_draw_switch(state, sw);
 }

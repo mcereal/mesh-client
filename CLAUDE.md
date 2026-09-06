@@ -133,7 +133,8 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | App glue | `src/core/app*.c` | `app` lifecycle/link, `_actions` UI actions, `_publish` to store, `_settings` writes |
 | Self-update | `src/core/updater.c`, `version.c` | forks curl, SemVer, digest-verified install |
 | UI | `src/ui/` | store/controller + `nav*.c` + `settings*.c` + `layout.c` + `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
-| UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window; buttons, list rows, field rows |
+| UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window; buttons, list rows, field rows, switches |
+| Animation | `src/ui/anim.c`, `src/ui/controller.c` | fixed-point easing + a table keyed per control; the repaint timerfd that feeds it |
 | Themes | `src/ui/theme.c`, `src/ui/font.c` | palette by role, metrics, font registry; `MESHCLIENT_THEME` or Settings > About picks one |
 | Text | `src/utils/text.c`, `src/ui/{font5x7,emoji}.c` | UTF-8 sanitising, cell-based measurement |
 | Strings | `src/i18n/strings.c`, `include/mesh/i18n/catalog.def` | the string catalog and the locale registry |

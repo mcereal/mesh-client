@@ -23,6 +23,7 @@
  * table swap the whole look.
  */
 
+#include "mesh/ui/anim.h"
 #include "mesh/ui/store.h"
 #include "mesh/ui/theme.h"
 
@@ -52,7 +53,35 @@ struct mesh_ui_backend_fb_state {
        scale through the capture API - so a theme arriving in a snapshot keeps it rather than
        swapping in that theme's default. */
     bool scale_pinned;
+    /*
+     * The clock this frame is drawn against, and what is still moving in it.
+     *
+     * A frame is otherwise a function of the snapshot alone, and a snapshot has no notion of
+     * "was": it says a switch is on, never that it has just become on. These two are what a
+     * widget that animates asks instead - the time, and where it had got to last frame, keyed
+     * by an id the screen supplies. See include/mesh/ui/anim.h for why that lives here rather
+     * than in the store.
+     *
+     * `now_ms` is set once per frame by whoever is driving: the monotonic clock on the device,
+     * a number the scene script names in a capture. Nothing below reads a clock of its own, so
+     * a capture renders the same frame every time it is asked for.
+     */
+    uint64_t now_ms;
+    struct mesh_ui_anim_table anim;
 };
+
+/*
+ * The clock for the next frame. Call before fb_render_snapshot().
+ *
+ * Time never goes backwards here: a caller that hands over an earlier reading than the last is
+ * ignored, because an animation window that starts in the future never finishes and the knob
+ * would stick.
+ */
+void fb_state_set_now(struct mesh_ui_backend_fb_state *state, uint64_t now_ms);
+
+/* Whether anything on the last frame is still moving, and so whether another frame is owed.
+   What the controller's repaint timer asks. */
+bool fb_state_animating(const struct mesh_ui_backend_fb_state *state);
 
 /*
  * Adopts the theme the snapshot names, when it names one this build knows and is not already

@@ -10,6 +10,43 @@
 #include <stddef.h>
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/timerfd.h>
+#include <unistd.h>
+
+/*
+ * Asks for one more frame in MESH_UI_FRAME_INTERVAL_MS, or stops asking.
+ *
+ * An all-zero it_value disarms, so "still moving" and "settled" are the same call with a
+ * different answer from the backend - there is no separate stop path to forget to take.
+ */
+static void mesh_ui_controller_schedule_frame(struct mesh_ui_controller *controller, bool moving) {
+    if (controller->frame_timer_fd < 0) {
+        return;
+    }
+
+    struct itimerspec spec;
+    memset(&spec, 0, sizeof spec);
+    if (moving) {
+        spec.it_value.tv_nsec = (long)MESH_UI_FRAME_INTERVAL_MS * 1000000L;
+    }
+    if (timerfd_settime(controller->frame_timer_fd, 0, &spec, NULL) < 0) {
+        mesh_log_warn("ui", "frame timerfd_settime failed: %s", strerror(errno));
+    }
+}
+
+/* Whether the backend says the frame it just drew has not finished moving. */
+static bool mesh_ui_controller_backend_moving(const struct mesh_ui_controller *controller) {
+    return controller->backend != NULL && controller->backend->animating != NULL &&
+           controller->backend->animating(controller->backend_state, controller->backend_userdata);
+}
+
+static void mesh_ui_controller_present(struct mesh_ui_controller *controller,
+                                       const struct mesh_ui_snapshot *snapshot) {
+    if (controller->backend != NULL && controller->backend->present != NULL) {
+        controller->backend->present(controller->backend_state, snapshot,
+                                     controller->backend_userdata);
+    }
+}
 
 static int mesh_ui_controller_event_callback(int fd, uint32_t events, void *userdata) {
     (void)fd;
@@ -24,13 +61,62 @@ static int mesh_ui_controller_event_callback(int fd, uint32_t events, void *user
 
     struct mesh_ui_snapshot snapshot;
     while (mesh_ui_store_consume_updates(controller->store, &snapshot)) {
-        if (controller->backend != NULL && controller->backend->present != NULL) {
-            controller->backend->present(controller->backend_state, &snapshot,
-                                         controller->backend_userdata);
-        }
+        mesh_ui_controller_present(controller, &snapshot);
     }
 
+    mesh_ui_controller_schedule_frame(controller, mesh_ui_controller_backend_moving(controller));
     return 0;
+}
+
+/*
+ * The frame timer fired: draw the same snapshot again.
+ *
+ * Nothing in the store has changed - that is the point. The snapshot is asked for again rather
+ * than cached here, because it is the store that decides what a frame is made of, and a second
+ * copy of that in the controller is a second thing to keep in step.
+ */
+static int mesh_ui_controller_frame_callback(int fd, uint32_t events, void *userdata) {
+    struct mesh_ui_controller *controller = (struct mesh_ui_controller *)userdata;
+    if (controller == NULL || (events & EPOLLIN) == 0U) {
+        return 0;
+    }
+
+    uint64_t expirations = 0U;
+    if (read(fd, &expirations, sizeof expirations) < 0 && errno != EAGAIN) {
+        mesh_log_warn("ui", "frame timer read failed: %s", strerror(errno));
+    }
+
+    struct mesh_ui_snapshot snapshot;
+    mesh_ui_store_request_refresh(controller->store);
+    if (mesh_ui_store_consume_updates(controller->store, &snapshot)) {
+        mesh_ui_controller_present(controller, &snapshot);
+    }
+
+    mesh_ui_controller_schedule_frame(controller, mesh_ui_controller_backend_moving(controller));
+    return 0;
+}
+
+/* The timer is optional: without it a switch lands on its target on the next frame something
+   else asks for, which is a UI that works and does not animate. */
+static void mesh_ui_controller_setup_frame_timer(struct mesh_ui_controller *controller,
+                                                 struct mesh_event_loop *loop) {
+    controller->frame_timer_fd = -1;
+    if (loop == NULL || controller->backend == NULL || controller->backend->animating == NULL) {
+        return;
+    }
+
+    const int fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+    if (fd < 0) {
+        mesh_log_warn("ui", "frame timerfd_create failed: %s", strerror(errno));
+        return;
+    }
+    if (mesh_event_loop_add_fd(loop, fd, EPOLLIN, mesh_ui_controller_frame_callback, controller) <
+        0) {
+        mesh_log_warn("ui", "Failed to watch the frame timer");
+        close(fd);
+        return;
+    }
+    controller->frame_timer_fd = fd;
 }
 
 int mesh_ui_controller_init(struct mesh_ui_controller *controller, struct mesh_ui_store *store,
@@ -41,6 +127,7 @@ int mesh_ui_controller_init(struct mesh_ui_controller *controller, struct mesh_u
     }
 
     memset(controller, 0, sizeof *controller);
+    controller->frame_timer_fd = -1;
     controller->store = store;
     controller->backend = backend;
     controller->backend_userdata = backend_userdata;
@@ -74,6 +161,8 @@ int mesh_ui_controller_init(struct mesh_ui_controller *controller, struct mesh_u
         }
         controller->registered = true;
     }
+
+    mesh_ui_controller_setup_frame_timer(controller, loop);
 
     /* The store only signals on change, so a client that comes up with no devices and no
        handshake would sit on an unpainted screen indefinitely. Ask for one snapshot now so
@@ -113,6 +202,14 @@ void mesh_ui_controller_shutdown(struct mesh_ui_controller *controller) {
         const int event_fd = mesh_ui_store_event_fd(controller->store);
         mesh_event_loop_remove_fd(controller->loop, event_fd);
         controller->registered = false;
+    }
+
+    if (controller->frame_timer_fd >= 0) {
+        if (controller->loop != NULL) {
+            mesh_event_loop_remove_fd(controller->loop, controller->frame_timer_fd);
+        }
+        close(controller->frame_timer_fd);
+        controller->frame_timer_fd = -1;
     }
 
     if (controller->backend != NULL && controller->backend->shutdown != NULL) {

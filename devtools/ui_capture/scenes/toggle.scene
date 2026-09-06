@@ -1,0 +1,34 @@
+# The switch on a Settings toggle row, flicked.
+#
+# Settings > Display, because it is the section with the plainest mix of rows: two switches
+# among the numbers, so the control is on show next to what it replaced. Left and Right are
+# what edit a toggle, and the knob slides rather than jumping - the frames between the presses
+# are the animation playing at its own speed, filmed by the harness rather than written here.
+scene demo
+scale 4
+delay 320
+
+config
+tab settings
+hold 500
+key down 4
+hold 400
+key a
+hold 900
+
+# 12h clock: on, off, on again - the second press catches the knob mid-slide, which is the
+# case a switch has to get right and the reason it turns round from where it is.
+key down 3
+hold 700
+key right
+hold 800
+key left
+hold 700
+key right
+hold 900
+
+# And the row below it, so two switches are visible at once with the cursor on one of them.
+key down 1
+hold 500
+key right
+hold 1200

@@ -89,8 +89,17 @@ static void item_str(struct item_list *list, enum mesh_str_id label, enum mesh_u
     item_text(list, label, kind, mesh_str(value));
 }
 
+/* A toggle the radio reports and nobody here can change. `number` is set for the same reason
+   an editable toggle sets it: it is what a renderer drawing a switch rather than the words
+   reads, and a read-only row that left it at 0 would draw every such row off. */
 static void item_toggle(struct item_list *list, enum mesh_str_id label, bool value) {
-    item_str(list, label, MESH_UI_SETTING_TOGGLE, value ? MESH_STR_COMMON_ON : MESH_STR_COMMON_OFF);
+    struct mesh_ui_settings_item *item = item_add(list, label, MESH_UI_SETTING_TOGGLE);
+    if (item == NULL) {
+        return;
+    }
+    mesh_str_copy(item->value, sizeof item->value,
+                  mesh_str(value ? MESH_STR_COMMON_ON : MESH_STR_COMMON_OFF));
+    item->number = value ? 1U : 0U;
 }
 
 /* A group title. No value, no field, nothing happens when A lands on it. Headings are emitted

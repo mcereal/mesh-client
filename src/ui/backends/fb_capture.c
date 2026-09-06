@@ -115,6 +115,20 @@ const struct mesh_ui_theme *mesh_ui_capture_theme(const struct mesh_ui_capture *
     return capture != NULL ? capture->state.theme : NULL;
 }
 
+void mesh_ui_capture_advance(struct mesh_ui_capture *capture, uint32_t ms) {
+    if (capture != NULL) {
+        fb_state_set_now(&capture->state, capture->state.now_ms + ms);
+    }
+}
+
+uint64_t mesh_ui_capture_now(const struct mesh_ui_capture *capture) {
+    return capture != NULL ? capture->state.now_ms : 0U;
+}
+
+bool mesh_ui_capture_animating(const struct mesh_ui_capture *capture) {
+    return capture != NULL && fb_state_animating(&capture->state);
+}
+
 void mesh_ui_capture_render(struct mesh_ui_capture *capture,
                             const struct mesh_ui_snapshot *snapshot) {
     if (capture == NULL || snapshot == NULL) {
