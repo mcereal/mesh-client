@@ -252,6 +252,11 @@ int mesh_message_ingest(struct mesh_message_log *log, const meshtastic_MeshPacke
         message.has_hops_away = true;
         message.hops_away = (uint8_t)(packet->hop_start - packet->hop_limit);
     }
+    message.pki_encrypted = packet->pki_encrypted;
+    message.reply_id = data->reply_id;
+    /* `emoji` is a fixed32 used as a flag: non-zero means the payload is an emoji reacting to
+       reply_id rather than something to read on its own line. */
+    message.is_reaction = (data->emoji != 0U);
     mesh_text_sanitise(data->payload.bytes, data->payload.size, message.text, sizeof(message.text));
 
     if (message.text[0] == '\0') {
@@ -272,8 +277,9 @@ int mesh_message_ingest(struct mesh_message_log *log, const meshtastic_MeshPacke
         return -ENOMEM;
     }
 
-    mesh_log_info("message", "%s text from 0x%08x on channel %u (%zu chars)",
-                  message.direction == MESH_MESSAGE_OUTBOUND ? "Echoed" : "Received", message.from,
+    mesh_log_info("message", "%s %s from 0x%08x on channel %u (%zu chars)",
+                  message.direction == MESH_MESSAGE_OUTBOUND ? "Echoed" : "Received",
+                  message.is_reaction ? "reaction" : "text", message.from,
                   (unsigned)message.channel, strlen(message.text));
     return 1;
 }

@@ -26,9 +26,18 @@ extern "C" {
 
 #define MESH_UI_NODE_LABEL_MAX 20U
 #define MESH_UI_NODE_VALUE_MAX 48U
-/* Every row every node can produce: the headings, the actions, the widest set of readings a
-   sensor node reports, and a traced route of up to ten stops in each direction. */
-#define MESH_UI_NODE_ITEMS_MAX 72U
+/*
+ * Every row every node can produce, all at once. rows_next() drops silently past this, so it
+ * has to be an upper bound rather than a guess: the arithmetic is 29 action rows (seven
+ * actions, plus a traced route of up to ten stops in each direction with its two headings and
+ * its stamp), 11 identity, 6 signal, and then one group per kind of reading - 7 device
+ * metrics, 7 position, 9 environment, 5 power, 7 air quality, 5 health, 6 host - which comes
+ * to 92 for a node that reports everything at the end of a ten-hop trace.
+ *
+ * Rounded up for headroom, and pinned by node_detail_row_budget in the ui_settings suite so a
+ * new group cannot quietly push the last one off the screen.
+ */
+#define MESH_UI_NODE_ITEMS_MAX 112U
 
 enum mesh_ui_node_row_kind {
     MESH_UI_NODE_ROW_INFO = 0, /* label and value */

@@ -177,6 +177,11 @@ static void node_rows_signal(struct node_rows *rows, const struct mesh_ui_node_s
 
     if (!is_self) {
         rows_info(rows, "SNR", "%.2f dB", (double)node->snr);
+        /* Beside it rather than instead of it: SNR is how far above the noise the packet was
+           and RSSI is how loud it was, and a link can be good on one and poor on the other. */
+        if (node->has_rssi) {
+            rows_info(rows, "RSSI", "%d dBm", (int)node->rx_rssi);
+        }
         if (node->has_hops_away) {
             rows_info(rows, "Hops away", "%u", (unsigned)node->hops_away);
         } else {
@@ -280,6 +285,131 @@ static void node_rows_environment(struct node_rows *rows, const struct mesh_ui_n
     }
     char age[24];
     format_age(env->time, now, age, sizeof age);
+    rows_info(rows, "Reported", "%s", age);
+}
+
+/*
+ * The four sensor groups beyond device metrics and environment. Each is emitted only when the
+ * node has actually reported it, so a plain handheld shows none of them and a solar-powered
+ * weather station shows two - which is the whole reason they are separate groups rather than
+ * one "Telemetry" heading with empty rows under it.
+ */
+static void node_rows_power_metrics(struct node_rows *rows, const struct mesh_ui_node_summary *node,
+                                    uint32_t now) {
+    const struct mesh_ui_node_power *power = &node->power;
+    if (!power->valid) {
+        return;
+    }
+    rows_heading(rows, "Power");
+    for (size_t ch = 0; ch < sizeof power->channel / sizeof power->channel[0]; ++ch) {
+        const struct mesh_ui_node_power_channel *channel = &power->channel[ch];
+        if (!channel->has_voltage && !channel->has_current) {
+            continue;
+        }
+        char label[MESH_UI_NODE_LABEL_MAX];
+        snprintf(label, sizeof label, "Channel %u", (unsigned)ch + 1U);
+        /* Both readings on one row: a supply is a voltage and a draw, and splitting them makes
+           a three-channel board six rows that have to be read in pairs anyway. */
+        if (channel->has_voltage && channel->has_current) {
+            rows_info(rows, label, "%.2f V, %.0f mA", (double)channel->voltage,
+                      (double)channel->current);
+        } else if (channel->has_voltage) {
+            rows_info(rows, label, "%.2f V", (double)channel->voltage);
+        } else {
+            rows_info(rows, label, "%.0f mA", (double)channel->current);
+        }
+    }
+    char age[24];
+    format_age(power->time, now, age, sizeof age);
+    rows_info(rows, "Reported", "%s", age);
+}
+
+static void node_rows_air_quality(struct node_rows *rows, const struct mesh_ui_node_summary *node,
+                                  uint32_t now) {
+    const struct mesh_ui_node_air_quality *air = &node->air_quality;
+    if (!air->valid) {
+        return;
+    }
+    rows_heading(rows, "Air quality");
+    /* PM2.5 first and on its own row: it is the number air quality is judged by, and the one a
+       person looks for. The coarser fractions share a row because they are read against it. */
+    if (air->has_pm25) {
+        rows_info(rows, "PM2.5", "%u ug/m3", (unsigned)air->pm25_standard);
+    }
+    if (air->has_pm10 && air->has_pm100) {
+        rows_info(rows, "PM1 / PM10", "%u / %u ug/m3", (unsigned)air->pm10_standard,
+                  (unsigned)air->pm100_standard);
+    } else if (air->has_pm10) {
+        rows_info(rows, "PM1", "%u ug/m3", (unsigned)air->pm10_standard);
+    } else if (air->has_pm100) {
+        rows_info(rows, "PM10", "%u ug/m3", (unsigned)air->pm100_standard);
+    }
+    if (air->has_co2) {
+        rows_info(rows, "CO2", "%u ppm", (unsigned)air->co2);
+    }
+    if (air->has_voc_index) {
+        rows_info(rows, "VOC index", "%.0f", (double)air->voc_index);
+    }
+    if (air->has_nox_index) {
+        rows_info(rows, "NOx index", "%.0f", (double)air->nox_index);
+    }
+    char age[24];
+    format_age(air->time, now, age, sizeof age);
+    rows_info(rows, "Reported", "%s", age);
+}
+
+static void node_rows_health(struct node_rows *rows, const struct mesh_ui_node_summary *node,
+                             uint32_t now) {
+    const struct mesh_ui_node_health *health = &node->health;
+    if (!health->valid) {
+        return;
+    }
+    rows_heading(rows, "Health");
+    if (health->has_heart_bpm) {
+        rows_info(rows, "Heart rate", "%u bpm", (unsigned)health->heart_bpm);
+    }
+    if (health->has_spo2) {
+        rows_info(rows, "SpO2", "%u%%", (unsigned)health->spo2);
+    }
+    if (health->has_temperature) {
+        rows_info(rows, "Temperature", "%.1f C (%.1f F)", (double)health->temperature,
+                  (double)health->temperature * 1.8 + 32.0);
+    }
+    char age[24];
+    format_age(health->time, now, age, sizeof age);
+    rows_info(rows, "Reported", "%s", age);
+}
+
+static void node_rows_host(struct node_rows *rows, const struct mesh_ui_node_summary *node,
+                           uint32_t now) {
+    const struct mesh_ui_node_host *host = &node->host;
+    if (!host->valid) {
+        return;
+    }
+    rows_heading(rows, "Host");
+    if (host->has_uptime) {
+        char uptime[32];
+        format_uptime(host->uptime_seconds, uptime, sizeof uptime);
+        rows_info(rows, "Uptime", "%s", uptime);
+    }
+    if (host->has_freemem) {
+        rows_info(rows, "Free memory", "%u MB", host->freemem_kib / 1024U);
+    }
+    if (host->has_diskfree) {
+        /* Below a gigabyte the megabyte figure is the one that matters; above it, it is noise. */
+        if (host->diskfree_mib >= 1024U) {
+            rows_info(rows, "Free disk", "%.1f GB", (double)host->diskfree_mib / 1024.0);
+        } else {
+            rows_info(rows, "Free disk", "%u MB", host->diskfree_mib);
+        }
+    }
+    if (host->has_load) {
+        /* The firmware sends the load average times 100. */
+        rows_info(rows, "Load", "%.2f %.2f %.2f", (double)host->load1 / 100.0,
+                  (double)host->load5 / 100.0, (double)host->load15 / 100.0);
+    }
+    char age[24];
+    format_age(host->time, now, age, sizeof age);
     rows_info(rows, "Reported", "%s", age);
 }
 
@@ -391,6 +521,10 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
     node_rows_power(&rows, node, now);
     node_rows_position(&rows, node, now);
     node_rows_environment(&rows, node, now);
+    node_rows_power_metrics(&rows, node, now);
+    node_rows_air_quality(&rows, node, now);
+    node_rows_health(&rows, node, now);
+    node_rows_host(&rows, node, now);
 
     return rows.count;
 }

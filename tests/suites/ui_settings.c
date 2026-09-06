@@ -5,6 +5,8 @@
 #include "framework/mesh_test.h"
 
 #include "mesh/core/radio_settings.h"
+/* For enum mesh_traceroute_state, which the UI's traceroute carries as a byte. */
+#include "mesh/core/session.h"
 #include "mesh/core/updater.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
@@ -1012,6 +1014,178 @@ MESH_TEST_CASE(ui_settings_coords, unit) {
     MESH_TEST_FAIL_IF(!mesh_ui_settings_coord_parse("120.0", 180, &value) ||
                           mesh_ui_settings_coord_parse("120.0", 90, &value),
                       "the range limit is not being applied");
+
+    record_success(test_name);
+}
+
+/*
+ * The four sensor groups a node can report beyond device metrics and environment, and the row
+ * budget they all have to fit inside.
+ *
+ * The budget is the point of the test. rows_next() drops silently past MESH_UI_NODE_ITEMS_MAX,
+ * so a group added without raising the cap does not fail - it takes the last rows of whatever
+ * group happens to be built last off the screen, which nothing would notice. Building the
+ * worst case on purpose is what turns that into a failing assertion.
+ */
+MESH_TEST_CASE(node_detail_row_budget, unit) {
+    struct mesh_ui_node_summary node;
+    memset(&node, 0, sizeof node);
+    node.node_id = 0x6001U;
+    snprintf(node.long_name, sizeof node.long_name, "Everything Sensor");
+    snprintf(node.short_name, sizeof node.short_name, "ALL");
+    node.last_heard = 1750000000U;
+    node.snr = 3.25f;
+    node.has_user = true;
+    node.has_hops_away = true;
+    node.hops_away = 3U;
+    node.hw_model = 9U;
+    node.role = 1U;
+    node.is_licensed = true;
+    node.public_key_len = 32U;
+
+    node.metrics.valid = true;
+    node.metrics.has_battery = true;
+    node.metrics.battery_level = 64U;
+    node.metrics.has_voltage = true;
+    node.metrics.has_channel_utilization = true;
+    node.metrics.has_air_util_tx = true;
+    node.metrics.has_uptime = true;
+
+    node.position.valid = true;
+    node.position.has_altitude = true;
+    node.position.sats_in_view = 9U;
+    node.position.precision_bits = 32U;
+
+    node.environment.valid = true;
+    node.environment.has_temperature = true;
+    node.environment.has_humidity = true;
+    node.environment.has_pressure = true;
+    node.environment.has_iaq = true;
+    node.environment.has_lux = true;
+    node.environment.has_voltage = true;
+    node.environment.has_current = true;
+
+    node.power.valid = true;
+    for (size_t ch = 0; ch < sizeof node.power.channel / sizeof node.power.channel[0]; ++ch) {
+        node.power.channel[ch].has_voltage = true;
+        node.power.channel[ch].voltage = 3.7f + (float)ch;
+        node.power.channel[ch].has_current = true;
+        node.power.channel[ch].current = 120.0f;
+    }
+
+    node.air_quality.valid = true;
+    node.air_quality.has_pm10 = true;
+    node.air_quality.pm10_standard = 4U;
+    node.air_quality.has_pm25 = true;
+    node.air_quality.pm25_standard = 12U;
+    node.air_quality.has_pm100 = true;
+    node.air_quality.pm100_standard = 18U;
+    node.air_quality.has_co2 = true;
+    node.air_quality.co2 = 812U;
+    node.air_quality.has_voc_index = true;
+    node.air_quality.voc_index = 103.0f;
+    node.air_quality.has_nox_index = true;
+    node.air_quality.nox_index = 1.0f;
+
+    node.health.valid = true;
+    node.health.has_heart_bpm = true;
+    node.health.heart_bpm = 62U;
+    node.health.has_spo2 = true;
+    node.health.spo2 = 98U;
+    node.health.has_temperature = true;
+    node.health.temperature = 36.6f;
+
+    node.host.valid = true;
+    node.host.has_uptime = true;
+    node.host.uptime_seconds = 90061U;
+    node.host.has_freemem = true;
+    node.host.freemem_kib = 512U * 1024U;
+    node.host.has_diskfree = true;
+    node.host.diskfree_mib = 4096U;
+    node.host.has_load = true;
+    node.host.load1 = 42U;
+    node.host.load5 = 137U;
+    node.host.load15 = 8U;
+
+    /* A completed trace to this node, at the full length RouteDiscovery allows in both
+       directions: the action rows are the largest block on the screen and they are the one
+       part that does not depend on the node's hardware. */
+    struct mesh_ui_traceroute trace;
+    memset(&trace, 0, sizeof trace);
+    trace.state = MESH_TRACEROUTE_DONE;
+    trace.target = node.node_id;
+    trace.completed = 1750000500U;
+    trace.forward_count = MESH_UI_TRACEROUTE_MAX_HOPS;
+    trace.back_count = MESH_UI_TRACEROUTE_MAX_HOPS;
+    for (uint8_t i = 0; i < MESH_UI_TRACEROUTE_MAX_HOPS; ++i) {
+        trace.forward[i].node_id = 0x7000U + i;
+        trace.forward[i].has_snr = true;
+        trace.forward[i].snr_quarter_db = 20;
+        snprintf(trace.forward[i].name, sizeof trace.forward[i].name, "hop%u", (unsigned)i);
+        trace.back[i] = trace.forward[i];
+    }
+
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    const uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, &trace, true, items,
+                                                     MESH_UI_NODE_ITEMS_MAX);
+    MESH_TEST_FAIL_IF(count >= MESH_UI_NODE_ITEMS_MAX,
+                      "a node reporting everything fills the row budget; raise it");
+    MESH_TEST_FAIL_IF(count != mesh_ui_node_detail_count(&node, false, &trace),
+                      "the count the nav walks disagrees with the built list");
+
+    /* Each group is there, and each reading is formatted the way its units are read. */
+    struct {
+        const char *label;
+        const char *value;
+        bool seen;
+    } expect[] = {
+        {"Power", NULL, false},
+        {"Channel 1", "3.70 V, 120 mA", false},
+        {"Air quality", NULL, false},
+        {"PM2.5", "12 ug/m3", false},
+        {"PM1 / PM10", "4 / 18 ug/m3", false},
+        {"CO2", "812 ppm", false},
+        {"Health", NULL, false},
+        {"SpO2", "98%", false},
+        {"Host", NULL, false},
+        {"Free disk", "4.0 GB", false},
+        {"Free memory", "512 MB", false},
+        /* The load average arrives as the real value times 100 and must not be shown raw. */
+        {"Load", "0.42 1.37 0.08", false},
+    };
+    for (uint32_t i = 0; i < count; ++i) {
+        for (size_t e = 0; e < sizeof expect / sizeof expect[0]; ++e) {
+            if (strcmp(items[i].label, expect[e].label) != 0) {
+                continue;
+            }
+            if (expect[e].value == NULL || strcmp(items[i].value, expect[e].value) == 0) {
+                expect[e].seen = true;
+            }
+        }
+    }
+    for (size_t e = 0; e < sizeof expect / sizeof expect[0]; ++e) {
+        if (!expect[e].seen) {
+            char message[128];
+            snprintf(message, sizeof message, "row '%s' is missing or misformatted",
+                     expect[e].label);
+            record_failure(test_name, message);
+            return;
+        }
+    }
+
+    /* And a node that reports none of them shows none of the headings, rather than four empty
+       groups - which is the whole reason they are separate groups. */
+    struct mesh_ui_node_summary bare;
+    memset(&bare, 0, sizeof bare);
+    bare.node_id = 0x6002U;
+    const uint32_t bare_count = mesh_ui_node_detail_build(&bare, false, 1750000600U, NULL, false,
+                                                          items, MESH_UI_NODE_ITEMS_MAX);
+    for (uint32_t i = 0; i < bare_count; ++i) {
+        MESH_TEST_FAIL_IF(
+            strcmp(items[i].label, "Power") == 0 || strcmp(items[i].label, "Air quality") == 0 ||
+                strcmp(items[i].label, "Health") == 0 || strcmp(items[i].label, "Host") == 0,
+            "a node with no sensors should show no sensor groups");
+    }
 
     record_success(test_name);
 }

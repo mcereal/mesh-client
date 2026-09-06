@@ -102,12 +102,78 @@ struct mesh_ui_node_environment {
     float current;
 };
 
+/*
+ * The four Telemetry groups beyond device metrics and environment, mirroring the session's
+ * declarations (mesh/core/session.h) without nanopb. Curated rather than complete, for the
+ * reason given there; each field carries the sender's own has_*, because on a sensor node a
+ * missing reading and a reading of zero are different statements.
+ */
+struct mesh_ui_node_power_channel {
+    bool has_voltage;
+    float voltage; /* volts */
+    bool has_current;
+    float current; /* mA */
+};
+
+struct mesh_ui_node_power {
+    bool valid;
+    uint32_t time;
+    struct mesh_ui_node_power_channel channel[3];
+};
+
+struct mesh_ui_node_air_quality {
+    bool valid;
+    uint32_t time;
+    bool has_pm10;
+    uint16_t pm10_standard; /* ug/m3 */
+    bool has_pm25;
+    uint16_t pm25_standard;
+    bool has_pm100;
+    uint16_t pm100_standard;
+    bool has_co2;
+    uint16_t co2; /* ppm */
+    bool has_voc_index;
+    float voc_index; /* Sensirion's unitless 1..500, 100 is normal */
+    bool has_nox_index;
+    float nox_index;
+};
+
+struct mesh_ui_node_health {
+    bool valid;
+    uint32_t time;
+    bool has_heart_bpm;
+    uint8_t heart_bpm;
+    bool has_spo2;
+    uint8_t spo2; /* percent */
+    bool has_temperature;
+    float temperature; /* Celsius, body rather than air */
+};
+
+struct mesh_ui_node_host {
+    bool valid;
+    uint32_t time;
+    bool has_uptime;
+    uint32_t uptime_seconds;
+    bool has_freemem;
+    uint32_t freemem_kib;
+    bool has_diskfree;
+    uint32_t diskfree_mib;
+    bool has_load;
+    uint32_t load1; /* the real load average times 100, as the firmware sends it */
+    uint32_t load5;
+    uint32_t load15;
+};
+
 struct mesh_ui_node_summary {
     uint32_t node_id;
     char long_name[40];
     char short_name[5];
     uint32_t last_heard;
     float snr;
+    /* How loud the last packet was, as opposed to how far above the noise; see the session's
+       declaration. Optional on the wire, hence the flag. */
+    bool has_rssi;
+    int16_t rx_rssi; /* dBm */
     bool via_mqtt;
     bool has_hops_away;
     uint8_t hops_away;
@@ -130,6 +196,10 @@ struct mesh_ui_node_summary {
     struct mesh_ui_node_position position;
     struct mesh_ui_node_metrics metrics;
     struct mesh_ui_node_environment environment;
+    struct mesh_ui_node_power power;
+    struct mesh_ui_node_air_quality air_quality;
+    struct mesh_ui_node_health health;
+    struct mesh_ui_node_host host;
 };
 
 struct mesh_ui_channel {
@@ -559,6 +629,15 @@ struct mesh_ui_message {
        just marking it failed. Meaningless for anything else. */
     uint8_t ack_error;
     bool broadcast;
+    /* Decrypted with our public key rather than a channel PSK: addressed to us and readable by
+       nobody else. On a default-key channel a "direct" message is not that, and the transcript
+       has no other way to say so. */
+    bool pki_encrypted;
+    /* The message this one answers, and whether it is a reaction rather than a reply. A
+       reaction is an annotation on its target, not a line of its own, so it is filtered out of
+       the thread (mesh_ui_nav_filter_messages) and drawn on the bubble it belongs to. */
+    uint32_t reply_id;
+    bool is_reaction;
 };
 
 struct mesh_ui_message_list {

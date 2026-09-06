@@ -404,3 +404,56 @@ MESH_TEST_CASE(message_routing_failure_reason, unit) {
 
     record_success(test_name);
 }
+
+/*
+ * The three Data/MeshPacket fields a text packet carries that used to be dropped: whether the
+ * radio decrypted it with our key pair, what it is a reply to, and whether it is a reaction
+ * rather than something to read.
+ *
+ * The reaction flag is the one that was actively wrong before. A tapback from a phone app is a
+ * TEXT_MESSAGE_APP packet whose payload is one emoji and whose `emoji` field is set; with the
+ * flag ignored it went into the transcript as a bubble containing "\U0001F44D" and no
+ * indication of what it was about.
+ */
+MESH_TEST_CASE(message_ingest_reaction_and_reply, unit) {
+    struct mesh_message_log log;
+    mesh_message_log_reset(&log);
+
+    meshtastic_MeshPacket original = mesh_test_make_decoded_packet(
+        0x11111111U, 0x22222222U, 0U, 500U, meshtastic_PortNum_TEXT_MESSAGE_APP, "on my way", 9U);
+    original.pki_encrypted = true;
+    MESH_TEST_FAIL_IF(mesh_message_ingest(&log, &original, 0x22222222U) != 1,
+                      "the original message should be appended");
+    const struct mesh_message *stored = mesh_message_log_find(&log, 500U);
+    MESH_TEST_FAIL_IF(stored == NULL || !stored->pki_encrypted,
+                      "a PKI-encrypted packet should be marked as one");
+    MESH_TEST_FAIL_IF(stored->is_reaction || stored->reply_id != 0U,
+                      "a plain message is neither a reply nor a reaction");
+
+    /* A threaded reply: a message in its own right that names what it answers. */
+    meshtastic_MeshPacket reply = mesh_test_make_decoded_packet(
+        0x22222222U, 0x11111111U, 0U, 501U, meshtastic_PortNum_TEXT_MESSAGE_APP, "understood", 10U);
+    reply.decoded.reply_id = 500U;
+    MESH_TEST_FAIL_IF(mesh_message_ingest(&log, &reply, 0x22222222U) != 1,
+                      "a reply is still a message and should be appended");
+    stored = mesh_message_log_find(&log, 501U);
+    MESH_TEST_FAIL_IF(stored == NULL || stored->reply_id != 500U || stored->is_reaction,
+                      "a reply should carry its target and not be a reaction");
+
+    /* And a reaction: kept, because it is traffic that happened, but flagged so the transcript
+       can attach it to its target instead of giving it a bubble. */
+    meshtastic_MeshPacket reaction =
+        mesh_test_make_decoded_packet(0x33333333U, 0x22222222U, 0U, 502U,
+                                      meshtastic_PortNum_TEXT_MESSAGE_APP, "\xF0\x9F\x91\x8D", 4U);
+    reaction.decoded.reply_id = 500U;
+    reaction.decoded.emoji = 1U;
+    MESH_TEST_FAIL_IF(mesh_message_ingest(&log, &reaction, 0x22222222U) != 1,
+                      "a reaction should be kept in the log");
+    stored = mesh_message_log_find(&log, 502U);
+    MESH_TEST_FAIL_IF(stored == NULL || !stored->is_reaction || stored->reply_id != 500U,
+                      "a reaction should be flagged and carry the message it is about");
+    MESH_TEST_FAIL_IF(strcmp(stored->text, "\xF0\x9F\x91\x8D") != 0,
+                      "the emoji itself should survive the sanitiser whole");
+
+    record_success(test_name);
+}

@@ -119,6 +119,68 @@ node count, heap, noise floor). It lands on the session and is cleared with the 
   broadcast about itself on the telemetry interval (half an hour by default), so preferring it
   leaves the row on a stale 0.0% while the radio is busy.
 
+#### The other telemetry a node can send
+
+Beyond `DeviceMetrics` and `EnvironmentMetrics`, a node can broadcast four more `Telemetry`
+variants, and each is kept as its own group on the node record: `PowerMetrics` (up to three
+monitored supplies), `AirQualityMetrics`, `HealthMetrics` and `HostMetrics` (a node that is a
+computer — meshtasticd on a Pi — with a filesystem and a load average).
+
+- They are **separate groups, not one struct**, because a node reports the ones its hardware has
+  and nothing about the others. A screen that could not tell "no sensor" from "reading of zero"
+  would show a solar repeater as having 0% humidity.
+- They are **curated rather than complete**. `AirQualityMetrics` alone has twenty-six fields,
+  most of them per-particle-size bin counts that mean nothing without a chart. The wire message
+  is decoded whole either way, so adding one later is a field here and a row in the node detail.
+- `HostMetrics` is the exception to the `has_*` rule: it has no optional fields at all, so the
+  flags are derived from what a running host cannot plausibly report — no uptime and no free
+  memory mean the sender did not fill them in. A load average of zero *is* a reading, so the
+  trio is flagged together on any of them being non-zero.
+- Each group gets its own key in the node cache, for the reason the position and metrics groups
+  do: an older build reading a newer cache skips a line it does not recognise instead of
+  dropping the node.
+
+`TrafficManagementStats` is decoded and ignored: it is seven counters about an experimental
+upstream module, and there is nothing on a handheld that would act on them.
+
+#### What the radio says about itself
+
+Three `FromRadio` variants are the radio talking to the attached client rather than carrying
+mesh traffic, and each answers something no packet can.
+
+- **`ClientNotification`** is the firmware explaining a decision to the *user*: a duty-cycle
+  limit reached, a channel key that did not match, a public key seen on two nodes. A LogRecord
+  goes to our log at its own level; this goes on the screen, because nothing else reports these
+  and a send that quietly went nowhere looks identical to a slow one. Only the newest is kept,
+  with a monotonic `seq` so two identical notifications read as two events.
+- **`QueueStatus`** reports the outgoing queue after every `ToRadio`. A refusal (`res` non-zero)
+  is the one failure that produces *no* Routing reply at all — the packet never went on the air,
+  so nothing will ever answer for it and the message would sit `PENDING` until the ring evicted
+  it. `res` is a `Routing_Error`, the scale `mesh_message_log_mark_ack` already speaks, so it
+  lands on the message with the firmware's own reason.
+- **`rebooted`** says every fact the config sync gave us describes a process that has died. The
+  session re-runs the handshake rather than serving stale config. The reboot counter is bumped
+  *after* `mesh_session_begin_handshake`, because that reset owns the counter — a detach or a
+  radio swap has to put it back to zero.
+
+All three are per-connection state and clear with the handshake, the way `stats` does. The app
+announces each exactly once by watching for the counter to **differ** rather than to grow: both
+restart at 1 on a reconnect, and a greater-than test would swallow the first notification of
+every connection after a talkative one.
+
+#### Reactions are not messages
+
+`Data.emoji` marks a packet whose payload is an emoji reacting to `Data.reply_id`. It is kept in
+the message log — it is traffic that happened — but `mesh_ui_nav_message_matches` filters it out
+of every transcript and `mesh_ui_nav_conversation_summarise` out of every preview and unread
+count, and the transcript draws it on the bubble it names instead, identical emoji counted
+rather than repeated. Read as an ordinary message it was a bubble containing one emoji with no
+indication of what it was about, which is three wrong answers from one dropped field.
+
+`MeshPacket.pki_encrypted` rides along the same path and puts a padlock on a direct message. It
+is worth saying: on a channel still using the default key every node on the mesh holds that key,
+so a DM that did *not* go out PKI-encrypted was readable by all of them.
+
 #### Traceroute
 
 `hops_away` is a count, not a route, and never says which nodes are carrying you.

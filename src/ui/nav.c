@@ -159,6 +159,18 @@ void mesh_ui_nav_init(struct mesh_ui_nav *nav) {
    the conversation list below matches on its own terms. */
 static bool mesh_ui_nav_message_matches(const struct mesh_ui_nav *nav,
                                         const struct mesh_ui_message *message) {
+    /*
+     * A reaction is an annotation on another message, not a line of its own. The transcript
+     * draws it on the bubble it names (fb_thread_row_build), so it must not also appear as a
+     * bubble containing a bare emoji - which is exactly what it looked like before the emoji
+     * flag was read at all, and is what a phone app never shows.
+     *
+     * This is the one filter every thread goes through, including all-traffic, which is why it
+     * sits here rather than in each caller.
+     */
+    if (message->is_reaction) {
+        return false;
+    }
     if (nav->inbox) {
         return true;
     }

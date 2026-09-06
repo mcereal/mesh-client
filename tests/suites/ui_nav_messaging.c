@@ -777,3 +777,93 @@ cleanup:
         record_success(test_name);
     }
 }
+
+/*
+ * A reaction is an annotation, not a message, and every place that counts or shows messages
+ * has to agree about that. Before the emoji flag was read, a tapback arrived as a bubble
+ * containing one emoji, became the conversation's preview text, and bumped its unread badge -
+ * three wrong answers from one dropped field.
+ */
+MESH_TEST_CASE(ui_nav_reactions_are_not_messages, unit) {
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_conversation conversation;
+    /* The fixture leaves BRVO's one direct message unread, with its text as the preview. */
+    if (!mesh_ui_nav_conversation_at(&store, 2U, &conversation) || conversation.unread != 1U ||
+        strcmp(conversation.preview, "just you") != 0) {
+        failure = "the fixture's direct conversation is not where the test expects it";
+        goto cleanup;
+    }
+
+    /* Two nodes react to that message. */
+    struct mesh_ui_message_list messages = store.messages;
+    for (uint32_t i = 0; i < 2U; ++i) {
+        struct mesh_ui_message *reaction = &messages.entries[messages.count++];
+        memset(reaction, 0, sizeof *reaction);
+        reaction->packet_id = 20U + i;
+        reaction->peer = 0x3000U;
+        reaction->direction = MESH_MESSAGE_INBOUND;
+        reaction->is_reaction = true;
+        reaction->reply_id = 12U;
+        snprintf(reaction->peer_name, sizeof reaction->peer_name, "%s", "BRVO");
+        snprintf(reaction->text, sizeof reaction->text, "%s", "\xF0\x9F\x91\x8D");
+    }
+    mesh_ui_store_set_messages(&store, &messages);
+
+    if (!mesh_ui_nav_conversation_at(&store, 2U, &conversation)) {
+        failure = "the direct conversation disappeared";
+        goto cleanup;
+    }
+    if (conversation.unread != 1U) {
+        failure = "reactions should not raise the unread count";
+        goto cleanup;
+    }
+    if (strcmp(conversation.preview, "just you") != 0) {
+        failure = "a reaction should not become the conversation's preview";
+        goto cleanup;
+    }
+    if (conversation.message_count != 1U) {
+        failure = "a reaction should not be counted as a message in the conversation";
+        goto cleanup;
+    }
+
+    /* And the thread itself shows the message, not the reactions. */
+    struct mesh_ui_nav nav;
+    memset(&nav, 0, sizeof nav);
+    nav.thread_open = true;
+    nav.target_node = 0x3000U;
+    uint32_t indices[MESH_UI_MAX_MESSAGES];
+    const uint32_t shown =
+        mesh_ui_nav_filter_messages(&nav, &store.messages, indices, MESH_UI_MAX_MESSAGES);
+    if (shown != 1U || store.messages.entries[indices[0]].packet_id != 12U) {
+        failure = "the thread should show the message and neither of its reactions";
+        goto cleanup;
+    }
+
+    /* All-traffic takes everything, and still not these. */
+    memset(&nav, 0, sizeof nav);
+    nav.thread_open = true;
+    nav.inbox = true;
+    const uint32_t all =
+        mesh_ui_nav_filter_messages(&nav, &store.messages, indices, MESH_UI_MAX_MESSAGES);
+    if (all != 2U) {
+        failure = "all-traffic should carry the two messages and neither reaction";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}

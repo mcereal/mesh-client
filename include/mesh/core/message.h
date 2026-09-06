@@ -45,6 +45,20 @@ struct mesh_message {
     uint8_t ack_error;  /* meshtastic_Routing_Error, meaningful when ack == FAILED */
     bool has_hops_away; /* hop_start/hop_limit were both usable */
     uint8_t hops_away;
+    /* The radio decrypted this with the sender's public key rather than with a channel PSK, so
+       it was addressed to us and to nobody else. Worth showing: on a default-key channel every
+       node on the mesh can read a "direct" message, and the two look identical without this. */
+    bool pki_encrypted;
+    /*
+     * A reaction (Data.emoji set) carries an emoji in its payload and names the message it is
+     * about in reply_id. It is kept in the log because it is traffic that happened, but it is
+     * not a message: the UI attaches it to its target rather than giving it a bubble.
+     *
+     * reply_id is also set on an ordinary message that is a threaded reply, which is why the
+     * two are separate flags rather than one.
+     */
+    uint32_t reply_id;
+    bool is_reaction;
     /* Sanitised text: control bytes are folded to spaces or '?' by mesh_message_ingest, so
        backends can draw this straight into a framebuffer without re-checking it. */
     char text[MESH_MESSAGE_TEXT_MAX + 1U];

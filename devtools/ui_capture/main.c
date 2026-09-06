@@ -28,6 +28,7 @@
  *   frame                  emit the current screen again
  *   toast TEXT             raise the transient notice backends draw in the footer
  *   message in|out NAME TEXT   append a message to the log, as if the radio had just said so
+ *   react NAME EMOJI       react to the newest message, as another node would
  *   status TEXT            set the transport status line
  *   notice info|warn|error TEXT   what the radio last said about itself (Status tab)
  *   queue FREE MAXLEN [refused]   the radio's outgoing packet queue (Status tab)
@@ -162,6 +163,65 @@ static void uicap_scene_demo(struct uicap *cap) {
         node->in_nodedb = true;
     }
 
+    /*
+     * Sensors on four of them, so the node detail's reading groups have something to draw.
+     * Each node gets the group its role would plausibly report - a solar repeater has a
+     * current monitor, a cabin has an indoor air sensor, a base station running meshtasticd
+     * has a filesystem - because a demo where every node reports everything shows the layout
+     * but not the point of splitting the groups up.
+     */
+    struct mesh_ui_node_summary *echo = &handshake.nodes[5]; /* Echo Repeater, solar */
+    echo->power.valid = true;
+    echo->power.time = now - 300U;
+    echo->power.channel[0].has_voltage = true;
+    echo->power.channel[0].voltage = 13.42F;
+    echo->power.channel[0].has_current = true;
+    echo->power.channel[0].current = -180.0F; /* charging */
+    echo->power.channel[1].has_voltage = true;
+    echo->power.channel[1].voltage = 18.9F;
+    echo->power.channel[1].has_current = true;
+    echo->power.channel[1].current = 410.0F;
+    echo->environment.valid = true;
+    echo->environment.time = now - 300U;
+    echo->environment.has_temperature = true;
+    echo->environment.temperature = 6.5F;
+
+    struct mesh_ui_node_summary *golf = &handshake.nodes[7]; /* Golf Cabin, indoor sensor */
+    golf->air_quality.valid = true;
+    golf->air_quality.time = now - 900U;
+    golf->air_quality.has_pm25 = true;
+    golf->air_quality.pm25_standard = 8U;
+    golf->air_quality.has_pm10 = true;
+    golf->air_quality.pm10_standard = 3U;
+    golf->air_quality.has_pm100 = true;
+    golf->air_quality.pm100_standard = 11U;
+    golf->air_quality.has_co2 = true;
+    golf->air_quality.co2 = 812U;
+    golf->air_quality.has_voc_index = true;
+    golf->air_quality.voc_index = 103.0F;
+
+    struct mesh_ui_node_summary *home = &handshake.nodes[0]; /* Home Base, meshtasticd on a Pi */
+    home->host.valid = true;
+    home->host.time = now - 60U;
+    home->host.has_uptime = true;
+    home->host.uptime_seconds = 806400U;
+    home->host.has_freemem = true;
+    home->host.freemem_kib = 512U * 1024U;
+    home->host.has_diskfree = true;
+    home->host.diskfree_mib = 21504U;
+    home->host.has_load = true;
+    home->host.load1 = 42U;
+    home->host.load5 = 137U;
+    home->host.load15 = 8U;
+
+    struct mesh_ui_node_summary *foxtrot = &handshake.nodes[6]; /* Foxtrot Mobile, wearable */
+    foxtrot->health.valid = true;
+    foxtrot->health.time = now - 120U;
+    foxtrot->health.has_heart_bpm = true;
+    foxtrot->health.heart_bpm = 62U;
+    foxtrot->health.has_spo2 = true;
+    foxtrot->health.spo2 = 98U;
+
     handshake.channel_count = 2U;
     handshake.channels[0].index = 0U;
     handshake.channels[0].role = 1U;
@@ -209,6 +269,9 @@ static void uicap_scene_demo(struct uicap *cap) {
             log[i].outbound ? (uint8_t)MESH_MESSAGE_OUTBOUND : (uint8_t)MESH_MESSAGE_INBOUND;
         entry->ack = log[i].ack;
         entry->broadcast = log[i].broadcast;
+        /* Direct messages in the demo went out end-to-end encrypted, which is what the modern
+           firmware does and what the padlock on the bubble reports. */
+        entry->pki_encrypted = !log[i].broadcast;
     }
     mesh_ui_store_set_messages(&cap->store, &messages);
     mesh_ui_store_set_transport_status(&cap->store, "running");
@@ -395,6 +458,60 @@ static void uicap_append_message(struct uicap *cap, bool outbound, const char *n
     uicap_emit(cap);
 }
 
+/*
+ * A reaction to the newest message in the log, which is what a person reacting to what was
+ * just said produces. It is appended like any other message and flagged; the transcript
+ * filters it out of the bubbles and draws it on the one it names.
+ */
+static void uicap_append_reaction(struct uicap *cap, const char *name, const char *emoji) {
+    struct mesh_ui_message_list messages = cap->store.messages;
+    if (messages.count == 0U || messages.count >= MESH_UI_MAX_MESSAGES) {
+        die("react: needs a message to react to, and room for it");
+    }
+
+    uint32_t peer = 0U;
+    for (uint32_t i = 0U; i < cap->store.handshake.node_count; ++i) {
+        if (strcmp(cap->store.handshake.nodes[i].short_name, name) == 0) {
+            peer = cap->store.handshake.nodes[i].node_id;
+            break;
+        }
+    }
+    if (peer == 0U) {
+        die("react: no node in the scene has that short name");
+    }
+
+    /* The newest message that is not itself a reaction: reacting to a reaction is not a thing
+       the firmware produces, and it would attach the chip to nothing on screen. */
+    const struct mesh_ui_message *target = NULL;
+    for (uint32_t i = messages.count; i > 0U; --i) {
+        if (!messages.entries[i - 1U].is_reaction) {
+            target = &messages.entries[i - 1U];
+            break;
+        }
+    }
+    if (target == NULL) {
+        die("react: nothing in the log to react to");
+    }
+
+    struct mesh_ui_message *entry = &messages.entries[messages.count++];
+    const uint32_t reply_id = target->packet_id;
+    const uint8_t channel = target->channel;
+    const bool broadcast = target->broadcast;
+    memset(entry, 0, sizeof *entry);
+    entry->packet_id = cap->next_packet_id++;
+    entry->peer = peer;
+    entry->rx_time = (uint32_t)time(NULL);
+    entry->channel = channel;
+    entry->broadcast = broadcast;
+    snprintf(entry->peer_name, sizeof entry->peer_name, "%s", name);
+    snprintf(entry->text, sizeof entry->text, "%s", emoji);
+    entry->direction = (uint8_t)MESH_MESSAGE_INBOUND;
+    entry->is_reaction = true;
+    entry->reply_id = reply_id;
+    mesh_ui_store_set_messages(&cap->store, &messages);
+    uicap_emit(cap);
+}
+
 /* Splits off the next whitespace-delimited word, leaving *rest on what follows. */
 static char *uicap_word(char **rest) {
     char *cursor = *rest;
@@ -551,6 +668,18 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
      * read-modify-write of the settings view, because the store replaces it wholesale and the
      * demo scene has already put a radio behind it.
      */
+    if (strcmp(command, "react") == 0) {
+        char *name = uicap_word(&rest);
+        if (name == NULL) {
+            fprintf(stderr, "uicap: line %u: 'react' needs a short name and an emoji\n",
+                    line_number);
+            exit(1);
+        }
+        uicap_start(cap);
+        uicap_append_reaction(cap, name, uicap_tail(rest));
+        return;
+    }
+
     if (strcmp(command, "notice") == 0) {
         char *level = uicap_word(&rest);
         if (level == NULL) {

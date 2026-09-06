@@ -152,6 +152,89 @@ struct mesh_node_environment {
 };
 
 /*
+ * The four Telemetry variants beyond DeviceMetrics and EnvironmentMetrics that a node can
+ * broadcast. Each is its own group for the same reason environment is: a node reports the ones
+ * its hardware has and nothing about the others, so folding them together would leave every
+ * screen unable to tell "no sensor" from "reading of zero".
+ *
+ * They are curated rather than complete. AirQualityMetrics alone carries twenty-six fields,
+ * most of them per-particle-size bin counts that mean nothing without a chart; what is kept is
+ * what a person reads off a sensor node. The wire message is decoded whole either way, so
+ * adding a field later is one line here and one row in the node detail.
+ */
+
+/* One monitored supply on a node with a current sensor: an INA219/INA3221 or similar has up to
+   three, and a two-channel board reports two, so each channel carries its own flags. */
+struct mesh_node_power_channel {
+    bool has_voltage;
+    float voltage; /* volts */
+    bool has_current;
+    float current; /* mA */
+};
+
+struct mesh_node_power {
+    bool valid;
+    uint32_t time;
+    struct mesh_node_power_channel channel[3];
+};
+
+struct mesh_node_air_quality {
+    bool valid;
+    uint32_t time;
+    /* Particulate mass concentrations, ug/m3, at the "standard" calibration the sensors report
+       first. The environmental pair is the same reading under a different correction and is not
+       kept: two nearly-equal numbers on one screen is a question, not an answer. */
+    bool has_pm10;
+    uint16_t pm10_standard;
+    bool has_pm25;
+    uint16_t pm25_standard;
+    bool has_pm100;
+    uint16_t pm100_standard;
+    bool has_co2;
+    uint16_t co2; /* ppm */
+    /* Sensirion's unitless indices, 1..500, where 100 is "normal for this room". */
+    bool has_voc_index;
+    float voc_index;
+    bool has_nox_index;
+    float nox_index;
+};
+
+struct mesh_node_health {
+    bool valid;
+    uint32_t time;
+    bool has_heart_bpm;
+    uint8_t heart_bpm;
+    bool has_spo2;
+    uint8_t spo2; /* percent */
+    bool has_temperature;
+    float temperature; /* Celsius, body rather than air */
+};
+
+/*
+ * HostMetrics: a node that is a computer rather than a microcontroller - meshtasticd on a Pi,
+ * say. Nothing else on a node record describes a filesystem or a load average, and a host that
+ * is out of disk stops storing anything without saying so on the air.
+ */
+struct mesh_node_host {
+    bool valid;
+    uint32_t time;
+    bool has_uptime;
+    uint32_t uptime_seconds;
+    /* The wire carries these as uint64 bytes. Kept scaled so the record stays 32-bit: a
+       kibibyte of memory resolution is finer than anything the row shows, and mebibytes keep
+       a multi-terabyte disk inside a uint32 where kibibytes would not. */
+    bool has_freemem;
+    uint32_t freemem_kib;
+    bool has_diskfree;
+    uint32_t diskfree_mib;
+    /* Load averages as the firmware sends them: the real value times 100. */
+    bool has_load;
+    uint32_t load1;
+    uint32_t load5;
+    uint32_t load15;
+};
+
+/*
  * LocalStats: the connected radio talking about itself and the air around it, delivered as a
  * TELEMETRY_APP packet from our own node rather than through the config handshake. Nothing
  * else tells us how busy the channel is, how many packets the radio dropped, or how many of
@@ -191,6 +274,12 @@ struct mesh_node_summary {
     char short_name[5];
     uint32_t last_heard;
     float snr;
+    /* Signal strength of the last packet we heard from this node. SNR says how far above the
+       noise it was; RSSI says how loud it was, and the two answer different questions - a
+       strong signal in a noisy band and a weak one in a quiet band both give a usable SNR.
+       Optional on the wire, so it carries its own flag rather than reading 0 dBm as a level. */
+    bool has_rssi;
+    int16_t rx_rssi; /* dBm */
     bool via_mqtt;
     bool has_hops_away;
     uint8_t hops_away;
@@ -223,6 +312,10 @@ struct mesh_node_summary {
     struct mesh_node_position position;
     struct mesh_node_metrics metrics;
     struct mesh_node_environment environment;
+    struct mesh_node_power power;
+    struct mesh_node_air_quality air_quality;
+    struct mesh_node_health health;
+    struct mesh_node_host host;
 };
 
 enum mesh_traceroute_state {

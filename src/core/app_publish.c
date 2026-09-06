@@ -59,7 +59,8 @@ void mesh_app_format_peer_name(const struct mesh_handshake_status *status, uint3
     snprintf(out, out_len, "!%08x", node_id);
 }
 
-/* Position, device metrics and environment, from the session's structs into the UI's twins.
+/* Position, device metrics, environment and the four sensor groups, from the session's structs
+   into the UI's twins.
    Field by field rather than a memcpy: the two declarations are deliberately independent (the
    UI half must stay free of nanopb), so nothing but this function keeps them in step. */
 static void mesh_app_copy_node_detail(const struct mesh_node_summary *src,
@@ -102,12 +103,59 @@ static void mesh_app_copy_node_detail(const struct mesh_node_summary *src,
     dst->environment.voltage = src->environment.voltage;
     dst->environment.has_current = src->environment.has_current;
     dst->environment.current = src->environment.current;
+
+    dst->power.valid = src->power.valid;
+    dst->power.time = src->power.time;
+    for (size_t ch = 0; ch < sizeof dst->power.channel / sizeof dst->power.channel[0]; ++ch) {
+        dst->power.channel[ch].has_voltage = src->power.channel[ch].has_voltage;
+        dst->power.channel[ch].voltage = src->power.channel[ch].voltage;
+        dst->power.channel[ch].has_current = src->power.channel[ch].has_current;
+        dst->power.channel[ch].current = src->power.channel[ch].current;
+    }
+
+    dst->air_quality.valid = src->air_quality.valid;
+    dst->air_quality.time = src->air_quality.time;
+    dst->air_quality.has_pm10 = src->air_quality.has_pm10;
+    dst->air_quality.pm10_standard = src->air_quality.pm10_standard;
+    dst->air_quality.has_pm25 = src->air_quality.has_pm25;
+    dst->air_quality.pm25_standard = src->air_quality.pm25_standard;
+    dst->air_quality.has_pm100 = src->air_quality.has_pm100;
+    dst->air_quality.pm100_standard = src->air_quality.pm100_standard;
+    dst->air_quality.has_co2 = src->air_quality.has_co2;
+    dst->air_quality.co2 = src->air_quality.co2;
+    dst->air_quality.has_voc_index = src->air_quality.has_voc_index;
+    dst->air_quality.voc_index = src->air_quality.voc_index;
+    dst->air_quality.has_nox_index = src->air_quality.has_nox_index;
+    dst->air_quality.nox_index = src->air_quality.nox_index;
+
+    dst->health.valid = src->health.valid;
+    dst->health.time = src->health.time;
+    dst->health.has_heart_bpm = src->health.has_heart_bpm;
+    dst->health.heart_bpm = src->health.heart_bpm;
+    dst->health.has_spo2 = src->health.has_spo2;
+    dst->health.spo2 = src->health.spo2;
+    dst->health.has_temperature = src->health.has_temperature;
+    dst->health.temperature = src->health.temperature;
+
+    dst->host.valid = src->host.valid;
+    dst->host.time = src->host.time;
+    dst->host.has_uptime = src->host.has_uptime;
+    dst->host.uptime_seconds = src->host.uptime_seconds;
+    dst->host.has_freemem = src->host.has_freemem;
+    dst->host.freemem_kib = src->host.freemem_kib;
+    dst->host.has_diskfree = src->host.has_diskfree;
+    dst->host.diskfree_mib = src->host.diskfree_mib;
+    dst->host.has_load = src->host.has_load;
+    dst->host.load1 = src->host.load1;
+    dst->host.load5 = src->host.load5;
+    dst->host.load15 = src->host.load15;
 }
 
 /*
  * The same copy the other way, for the roster the last run left on disk. Only the fields the
- * cache actually persists are restored - position, metrics and environment come back through
- * their own keys - so a node returns as what we knew, not as a blank with a name.
+ * cache actually persists are restored - position, metrics, environment and the four sensor
+ * groups come back through their own keys - so a node returns as what we knew, not as a blank
+ * with a name.
  */
 static void mesh_app_restore_node(const struct mesh_ui_node_summary *src,
                                   struct mesh_node_summary *dst) {
@@ -120,6 +168,8 @@ static void mesh_app_restore_node(const struct mesh_ui_node_summary *src,
     dst->in_nodedb = src->in_nodedb;
     dst->last_heard = src->last_heard;
     dst->snr = src->snr;
+    dst->has_rssi = src->has_rssi;
+    dst->rx_rssi = src->rx_rssi;
     dst->via_mqtt = src->via_mqtt;
     dst->has_hops_away = src->has_hops_away;
     dst->hops_away = src->hops_away;
@@ -174,6 +224,52 @@ static void mesh_app_restore_node(const struct mesh_ui_node_summary *src,
     dst->environment.voltage = src->environment.voltage;
     dst->environment.has_current = src->environment.has_current;
     dst->environment.current = src->environment.current;
+
+    dst->power.valid = src->power.valid;
+    dst->power.time = src->power.time;
+    for (size_t ch = 0; ch < sizeof dst->power.channel / sizeof dst->power.channel[0]; ++ch) {
+        dst->power.channel[ch].has_voltage = src->power.channel[ch].has_voltage;
+        dst->power.channel[ch].voltage = src->power.channel[ch].voltage;
+        dst->power.channel[ch].has_current = src->power.channel[ch].has_current;
+        dst->power.channel[ch].current = src->power.channel[ch].current;
+    }
+
+    dst->air_quality.valid = src->air_quality.valid;
+    dst->air_quality.time = src->air_quality.time;
+    dst->air_quality.has_pm10 = src->air_quality.has_pm10;
+    dst->air_quality.pm10_standard = src->air_quality.pm10_standard;
+    dst->air_quality.has_pm25 = src->air_quality.has_pm25;
+    dst->air_quality.pm25_standard = src->air_quality.pm25_standard;
+    dst->air_quality.has_pm100 = src->air_quality.has_pm100;
+    dst->air_quality.pm100_standard = src->air_quality.pm100_standard;
+    dst->air_quality.has_co2 = src->air_quality.has_co2;
+    dst->air_quality.co2 = src->air_quality.co2;
+    dst->air_quality.has_voc_index = src->air_quality.has_voc_index;
+    dst->air_quality.voc_index = src->air_quality.voc_index;
+    dst->air_quality.has_nox_index = src->air_quality.has_nox_index;
+    dst->air_quality.nox_index = src->air_quality.nox_index;
+
+    dst->health.valid = src->health.valid;
+    dst->health.time = src->health.time;
+    dst->health.has_heart_bpm = src->health.has_heart_bpm;
+    dst->health.heart_bpm = src->health.heart_bpm;
+    dst->health.has_spo2 = src->health.has_spo2;
+    dst->health.spo2 = src->health.spo2;
+    dst->health.has_temperature = src->health.has_temperature;
+    dst->health.temperature = src->health.temperature;
+
+    dst->host.valid = src->host.valid;
+    dst->host.time = src->host.time;
+    dst->host.has_uptime = src->host.has_uptime;
+    dst->host.uptime_seconds = src->host.uptime_seconds;
+    dst->host.has_freemem = src->host.has_freemem;
+    dst->host.freemem_kib = src->host.freemem_kib;
+    dst->host.has_diskfree = src->host.has_diskfree;
+    dst->host.diskfree_mib = src->host.diskfree_mib;
+    dst->host.has_load = src->host.has_load;
+    dst->host.load1 = src->host.load1;
+    dst->host.load5 = src->host.load5;
+    dst->host.load15 = src->host.load15;
 }
 
 /*
@@ -280,6 +376,9 @@ static void mesh_app_publish_messages(struct mesh_app *app,
         target->ack = source->ack;
         target->ack_error = source->ack_error;
         target->broadcast = (source->to == MESH_MESSAGE_BROADCAST_ADDR);
+        target->pki_encrypted = source->pki_encrypted;
+        target->reply_id = source->reply_id;
+        target->is_reaction = source->is_reaction;
         mesh_app_format_peer_name(status, target->peer, target->peer_name,
                                   sizeof(target->peer_name));
         snprintf(target->text, sizeof(target->text), "%s", source->text);
@@ -1043,6 +1142,8 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             snprintf(dst->short_name, sizeof(dst->short_name), "%s", src->short_name);
             dst->last_heard = src->last_heard;
             dst->snr = src->snr;
+            dst->has_rssi = src->has_rssi;
+            dst->rx_rssi = src->rx_rssi;
             dst->via_mqtt = src->via_mqtt;
             dst->has_hops_away = src->has_hops_away;
             dst->hops_away = src->hops_away;

@@ -307,6 +307,12 @@ static void mesh_ui_nav_conversation_summarise(const struct mesh_ui_store *store
 
     for (uint32_t i = 0; i < count; ++i) {
         const struct mesh_ui_message *message = &messages->entries[i];
+        /* A reaction is an annotation on a message rather than one of its own, so it is not the
+           conversation's preview and does not raise its unread count - the same rule the thread
+           filter follows. A row reading "\U0001F44D" says nothing about what was said. */
+        if (message->is_reaction) {
+            continue;
+        }
         bool belongs = false;
         switch ((enum mesh_ui_conversation_kind)conversation->kind) {
         case MESH_UI_CONVERSATION_ALL:

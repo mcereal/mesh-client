@@ -433,6 +433,82 @@ static void mesh_session_apply_environment(struct mesh_node_summary *summary,
 }
 
 /*
+ * The four variants beyond device and environment metrics. Each follows the pattern above: the
+ * whole wire message is decoded, and the fields worth a row are copied across with the sender's
+ * own has_* rather than being inferred from a zero - on a sensor node "0 ug/m3" and "no
+ * particulate sensor" are very different statements.
+ */
+static void mesh_session_apply_power_metrics(struct mesh_node_summary *summary,
+                                             const meshtastic_PowerMetrics *power, uint32_t heard) {
+    summary->power.valid = true;
+    summary->power.time = heard;
+    summary->power.channel[0].has_voltage = power->has_ch1_voltage;
+    summary->power.channel[0].voltage = power->ch1_voltage;
+    summary->power.channel[0].has_current = power->has_ch1_current;
+    summary->power.channel[0].current = power->ch1_current;
+    summary->power.channel[1].has_voltage = power->has_ch2_voltage;
+    summary->power.channel[1].voltage = power->ch2_voltage;
+    summary->power.channel[1].has_current = power->has_ch2_current;
+    summary->power.channel[1].current = power->ch2_current;
+    summary->power.channel[2].has_voltage = power->has_ch3_voltage;
+    summary->power.channel[2].voltage = power->ch3_voltage;
+    summary->power.channel[2].has_current = power->has_ch3_current;
+    summary->power.channel[2].current = power->ch3_current;
+}
+
+static void mesh_session_apply_air_quality(struct mesh_node_summary *summary,
+                                           const meshtastic_AirQualityMetrics *air,
+                                           uint32_t heard) {
+    summary->air_quality.valid = true;
+    summary->air_quality.time = heard;
+    summary->air_quality.has_pm10 = air->has_pm10_standard;
+    summary->air_quality.pm10_standard = (uint16_t)air->pm10_standard;
+    summary->air_quality.has_pm25 = air->has_pm25_standard;
+    summary->air_quality.pm25_standard = (uint16_t)air->pm25_standard;
+    summary->air_quality.has_pm100 = air->has_pm100_standard;
+    summary->air_quality.pm100_standard = (uint16_t)air->pm100_standard;
+    summary->air_quality.has_co2 = air->has_co2;
+    summary->air_quality.co2 = (uint16_t)air->co2;
+    summary->air_quality.has_voc_index = air->has_pm_voc_idx;
+    summary->air_quality.voc_index = air->pm_voc_idx;
+    summary->air_quality.has_nox_index = air->has_pm_nox_idx;
+    summary->air_quality.nox_index = air->pm_nox_idx;
+}
+
+static void mesh_session_apply_health_metrics(struct mesh_node_summary *summary,
+                                              const meshtastic_HealthMetrics *health,
+                                              uint32_t heard) {
+    summary->health.valid = true;
+    summary->health.time = heard;
+    summary->health.has_heart_bpm = health->has_heart_bpm;
+    summary->health.heart_bpm = (uint8_t)health->heart_bpm;
+    summary->health.has_spo2 = health->has_spO2;
+    summary->health.spo2 = (uint8_t)health->spO2;
+    summary->health.has_temperature = health->has_temperature;
+    summary->health.temperature = health->temperature;
+}
+
+static void mesh_session_apply_host_metrics(struct mesh_node_summary *summary,
+                                            const meshtastic_HostMetrics *host, uint32_t heard) {
+    summary->host.valid = true;
+    summary->host.time = heard;
+    /* uptime, free memory and the load averages are plain scalars with no has_* on the wire, so
+       a zero is indistinguishable from silence. Uptime and memory of zero are impossible on a
+       host that is running, which is what the flags are set from; a load average of zero is a
+       real reading, so the trio is flagged together on any of them being non-zero. */
+    summary->host.has_uptime = host->uptime_seconds > 0U;
+    summary->host.uptime_seconds = host->uptime_seconds;
+    summary->host.has_freemem = host->freemem_bytes > 0U;
+    summary->host.freemem_kib = (uint32_t)(host->freemem_bytes / 1024U);
+    summary->host.has_diskfree = host->diskfree1_bytes > 0U;
+    summary->host.diskfree_mib = (uint32_t)(host->diskfree1_bytes / (1024U * 1024U));
+    summary->host.has_load = host->load1 > 0U || host->load5 > 0U || host->load15 > 0U;
+    summary->host.load1 = host->load1;
+    summary->host.load5 = host->load5;
+    summary->host.load15 = host->load15;
+}
+
+/*
  * LocalStats is the radio describing itself, so it lands on the session rather than on a node
  * record. Two fields get a flag rather than being trusted at face value: heap_total_bytes of
  * zero means the firmware did not fill it in (no radio has no heap), and a noise floor of
@@ -563,6 +639,12 @@ static void mesh_session_touch_node_from_packet(struct mesh_session *session,
     if (packet->rx_snr != 0.0f) {
         summary->snr = packet->rx_snr;
     }
+    /* A packet that reached us over MQTT was not heard by this radio at all, so whatever RSSI
+       rides along with it describes somebody else's antenna. */
+    if (packet->has_rx_rssi && !packet->via_mqtt) {
+        summary->has_rssi = true;
+        summary->rx_rssi = (int16_t)packet->rx_rssi;
+    }
     if (packet->hop_start != 0U && packet->hop_start >= packet->hop_limit) {
         summary->has_hops_away = true;
         summary->hops_away = (uint8_t)(packet->hop_start - packet->hop_limit);
@@ -654,10 +736,29 @@ static void mesh_session_apply_packet_details(struct mesh_session *session,
         if (summary == NULL) {
             return;
         }
-        if (telemetry.which_variant == meshtastic_Telemetry_device_metrics_tag) {
+        switch (telemetry.which_variant) {
+        case meshtastic_Telemetry_device_metrics_tag:
             mesh_session_apply_device_metrics(summary, &telemetry.variant.device_metrics, stamp);
-        } else if (telemetry.which_variant == meshtastic_Telemetry_environment_metrics_tag) {
+            break;
+        case meshtastic_Telemetry_environment_metrics_tag:
             mesh_session_apply_environment(summary, &telemetry.variant.environment_metrics, stamp);
+            break;
+        case meshtastic_Telemetry_power_metrics_tag:
+            mesh_session_apply_power_metrics(summary, &telemetry.variant.power_metrics, stamp);
+            break;
+        case meshtastic_Telemetry_air_quality_metrics_tag:
+            mesh_session_apply_air_quality(summary, &telemetry.variant.air_quality_metrics, stamp);
+            break;
+        case meshtastic_Telemetry_health_metrics_tag:
+            mesh_session_apply_health_metrics(summary, &telemetry.variant.health_metrics, stamp);
+            break;
+        case meshtastic_Telemetry_host_metrics_tag:
+            mesh_session_apply_host_metrics(summary, &telemetry.variant.host_metrics, stamp);
+            break;
+        default:
+            /* TrafficManagementStats and anything upstream adds next: decoded, counted as a
+               packet from the node, and otherwise nothing we have a row for. */
+            break;
         }
         break;
     }

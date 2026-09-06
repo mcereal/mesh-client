@@ -166,6 +166,24 @@ MESH_TEST_CASE(ui_store_persistence, unit) {
     handshake.nodes[0].environment.valid = true;
     handshake.nodes[0].environment.has_temperature = true;
     handshake.nodes[0].environment.temperature = 21.5f;
+    /* One field out of each of the four sensor groups, enough to prove each has a key of its
+       own on disk and comes back through it. */
+    /* RSSI has a key of its own, so a build that predates it drops one line rather than the
+       whole node. */
+    handshake.nodes[0].has_rssi = true;
+    handshake.nodes[0].rx_rssi = -97;
+    handshake.nodes[0].power.valid = true;
+    handshake.nodes[0].power.channel[1].has_current = true;
+    handshake.nodes[0].power.channel[1].current = 250.0f;
+    handshake.nodes[0].air_quality.valid = true;
+    handshake.nodes[0].air_quality.has_pm25 = true;
+    handshake.nodes[0].air_quality.pm25_standard = 12U;
+    handshake.nodes[0].health.valid = true;
+    handshake.nodes[0].health.has_spo2 = true;
+    handshake.nodes[0].health.spo2 = 98U;
+    handshake.nodes[0].host.valid = true;
+    handshake.nodes[0].host.has_diskfree = true;
+    handshake.nodes[0].host.diskfree_mib = 4096U;
     /* The two the radio does not tell us on a resync: whether the name is the node's own, and
        whether the radio still carried it. The restored roster is only worth more than a fresh
        sync if both come back. */
@@ -277,6 +295,34 @@ MESH_TEST_CASE(ui_store_persistence, unit) {
         node->environment.temperature > 21.6f) {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "node environment did not survive the cache");
+        return;
+    }
+    if (!node->has_rssi || node->rx_rssi != -97) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "node RSSI did not survive the cache");
+        return;
+    }
+    if (!node->power.valid || !node->power.channel[1].has_current ||
+        node->power.channel[1].current < 249.0f || node->power.channel[1].current > 251.0f ||
+        node->power.channel[0].has_current) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "node power did not survive the cache, channel for channel");
+        return;
+    }
+    if (!node->air_quality.valid || node->air_quality.pm25_standard != 12U ||
+        node->air_quality.has_pm10) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "node air quality did not survive the cache");
+        return;
+    }
+    if (!node->health.valid || node->health.spo2 != 98U || node->health.has_heart_bpm) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "node health did not survive the cache");
+        return;
+    }
+    if (!node->host.valid || node->host.diskfree_mib != 4096U || node->host.has_freemem) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "node host metrics did not survive the cache");
         return;
     }
 

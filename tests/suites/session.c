@@ -3,6 +3,7 @@
 /* The session's node cache, stats, traceroute and node actions. */
 
 #include "framework/mesh_test.h"
+#include "support/proto_fixture.h"
 #include "support/session_fixture.h"
 
 #include "mesh/core/app.h"
@@ -903,6 +904,168 @@ MESH_TEST_CASE(session_radio_announcements, unit) {
     /* And a dropped link forgets the counter, so the next radio's first reboot is its first. */
     mesh_session_detach(&session);
     MESH_TEST_FAIL_IF(session.reboot_notices != 0U, "the reboot counter survived the link drop");
+
+    /*
+     * RSSI rides on the packet alongside SNR and answers a different question: how loud the
+     * signal was rather than how far above the noise. A packet that reached us over MQTT was
+     * not heard by this radio at all, so its RSSI describes somebody else's antenna and must
+     * not be recorded as ours.
+     */
+    meshtastic_MeshPacket rf = mesh_test_make_decoded_packet(
+        0x9101U, 0x9102U, 0U, 900U, meshtastic_PortNum_TEXT_MESSAGE_APP, "hi", 2U);
+    rf.has_rx_rssi = true;
+    rf.rx_rssi = -97;
+    meshtastic_FromRadio wrapper = meshtastic_FromRadio_init_default;
+    wrapper.which_payload_variant = meshtastic_FromRadio_packet_tag;
+    wrapper.packet = rf;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &wrapper),
+                      "feed an RF packet failed");
+    const struct mesh_node_summary *rf_node = mesh_test_session_find_node(&session, 0x9101U);
+    MESH_TEST_FAIL_IF(rf_node == NULL || !rf_node->has_rssi || rf_node->rx_rssi != -97,
+                      "the packet's RSSI was not recorded on the node");
+
+    wrapper.packet.from = 0x9103U;
+    wrapper.packet.via_mqtt = true;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &wrapper),
+                      "feed an MQTT packet failed");
+    const struct mesh_node_summary *mqtt_node = mesh_test_session_find_node(&session, 0x9103U);
+    MESH_TEST_FAIL_IF(mqtt_node == NULL || mqtt_node->has_rssi,
+                      "an MQTT-fed packet's RSSI was taken as this radio's reading");
+
+    record_success(test_name);
+}
+
+/*
+ * The four Telemetry variants beyond device and environment metrics, each landing on the node
+ * that broadcast it.
+ *
+ * What is worth pinning here is the has_* handling rather than the copy. Every field in these
+ * messages is optional on the wire except HostMetrics', so a sender that has one sensor and not
+ * another must not leave the node claiming a reading of zero for the one it lacks - and
+ * HostMetrics, which has no optional flags at all, must derive them from what a running host
+ * cannot plausibly report.
+ */
+MESH_TEST_CASE(session_sensor_telemetry, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+
+    const uint32_t node_id = 0x9001U;
+    uint8_t payload[512];
+
+    /* A two-channel current monitor: the third channel is absent, not zero. */
+    meshtastic_Telemetry telemetry = meshtastic_Telemetry_init_default;
+    telemetry.time = 1750000000U;
+    telemetry.which_variant = meshtastic_Telemetry_power_metrics_tag;
+    telemetry.variant.power_metrics.has_ch1_voltage = true;
+    telemetry.variant.power_metrics.ch1_voltage = 12.6f;
+    telemetry.variant.power_metrics.has_ch1_current = true;
+    telemetry.variant.power_metrics.ch1_current = 340.0f;
+    telemetry.variant.power_metrics.has_ch2_voltage = true;
+    telemetry.variant.power_metrics.ch2_voltage = 5.02f;
+    pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof payload);
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_Telemetry_fields, &telemetry) ||
+                          !mesh_test_session_feed_app_packet(&session, node_id,
+                                                             meshtastic_PortNum_TELEMETRY_APP,
+                                                             payload, stream.bytes_written),
+                      "feed power metrics failed");
+
+    const struct mesh_node_summary *node = mesh_test_session_find_node(&session, node_id);
+    MESH_TEST_FAIL_IF(node == NULL, "the power-metrics packet did not create the node");
+    MESH_TEST_FAIL_IF(!node->power.valid || !node->power.channel[0].has_voltage ||
+                          node->power.channel[0].voltage < 12.5f ||
+                          node->power.channel[0].voltage > 12.7f ||
+                          !node->power.channel[0].has_current,
+                      "channel 1 readings were not kept");
+    MESH_TEST_FAIL_IF(!node->power.channel[1].has_voltage || node->power.channel[1].has_current,
+                      "channel 2's absent current was taken as a reading");
+    MESH_TEST_FAIL_IF(node->power.channel[2].has_voltage || node->power.channel[2].has_current,
+                      "an unreported third channel was taken as a reading");
+
+    /* Air quality: a particulate sensor with no CO2 on it. */
+    telemetry = (meshtastic_Telemetry)meshtastic_Telemetry_init_default;
+    telemetry.time = 1750000100U;
+    telemetry.which_variant = meshtastic_Telemetry_air_quality_metrics_tag;
+    telemetry.variant.air_quality_metrics.has_pm25_standard = true;
+    telemetry.variant.air_quality_metrics.pm25_standard = 12U;
+    telemetry.variant.air_quality_metrics.has_pm_voc_idx = true;
+    telemetry.variant.air_quality_metrics.pm_voc_idx = 103.0f;
+    stream = pb_ostream_from_buffer(payload, sizeof payload);
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_Telemetry_fields, &telemetry) ||
+                          !mesh_test_session_feed_app_packet(&session, node_id,
+                                                             meshtastic_PortNum_TELEMETRY_APP,
+                                                             payload, stream.bytes_written),
+                      "feed air quality failed");
+    node = mesh_test_session_find_node(&session, node_id);
+    MESH_TEST_FAIL_IF(!node->air_quality.valid || node->air_quality.pm25_standard != 12U ||
+                          !node->air_quality.has_voc_index,
+                      "air quality readings were not kept");
+    MESH_TEST_FAIL_IF(node->air_quality.has_co2 || node->air_quality.has_nox_index,
+                      "an absent CO2 or NOx reading was taken as zero");
+    /* A second variant must not have wiped the first: they are separate groups. */
+    MESH_TEST_FAIL_IF(!node->power.valid, "air quality replaced the power readings");
+
+    /* Health. */
+    telemetry = (meshtastic_Telemetry)meshtastic_Telemetry_init_default;
+    telemetry.time = 1750000200U;
+    telemetry.which_variant = meshtastic_Telemetry_health_metrics_tag;
+    telemetry.variant.health_metrics.has_heart_bpm = true;
+    telemetry.variant.health_metrics.heart_bpm = 62U;
+    telemetry.variant.health_metrics.has_spO2 = true;
+    telemetry.variant.health_metrics.spO2 = 98U;
+    stream = pb_ostream_from_buffer(payload, sizeof payload);
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_Telemetry_fields, &telemetry) ||
+                          !mesh_test_session_feed_app_packet(&session, node_id,
+                                                             meshtastic_PortNum_TELEMETRY_APP,
+                                                             payload, stream.bytes_written),
+                      "feed health metrics failed");
+    node = mesh_test_session_find_node(&session, node_id);
+    MESH_TEST_FAIL_IF(!node->health.valid || node->health.heart_bpm != 62U ||
+                          node->health.spo2 != 98U || node->health.has_temperature,
+                      "health readings were not kept");
+
+    /*
+     * HostMetrics has no optional fields on the wire, so the flags come from what a running
+     * host cannot report: no uptime and no free memory mean the sender did not fill them in.
+     * A load average of zero is a real reading, so the trio is flagged together.
+     */
+    telemetry = (meshtastic_Telemetry)meshtastic_Telemetry_init_default;
+    telemetry.time = 1750000300U;
+    telemetry.which_variant = meshtastic_Telemetry_host_metrics_tag;
+    telemetry.variant.host_metrics.uptime_seconds = 90061U;
+    telemetry.variant.host_metrics.freemem_bytes = 512ULL * 1024ULL * 1024ULL;
+    telemetry.variant.host_metrics.diskfree1_bytes = 4ULL * 1024ULL * 1024ULL * 1024ULL;
+    telemetry.variant.host_metrics.load1 = 42U;
+    stream = pb_ostream_from_buffer(payload, sizeof payload);
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_Telemetry_fields, &telemetry) ||
+                          !mesh_test_session_feed_app_packet(&session, node_id,
+                                                             meshtastic_PortNum_TELEMETRY_APP,
+                                                             payload, stream.bytes_written),
+                      "feed host metrics failed");
+    node = mesh_test_session_find_node(&session, node_id);
+    MESH_TEST_FAIL_IF(!node->host.valid || !node->host.has_uptime ||
+                          node->host.uptime_seconds != 90061U,
+                      "host uptime was not kept");
+    MESH_TEST_FAIL_IF(!node->host.has_freemem || node->host.freemem_kib != 512U * 1024U,
+                      "free memory was not scaled to kibibytes");
+    MESH_TEST_FAIL_IF(!node->host.has_diskfree || node->host.diskfree_mib != 4096U,
+                      "free disk was not scaled to mebibytes");
+    MESH_TEST_FAIL_IF(!node->host.has_load || node->host.load1 != 42U || node->host.load5 != 0U,
+                      "the load trio was not flagged from the one non-zero average");
+
+    /* A host that reported nothing must not read as a host with an empty disk. */
+    telemetry = (meshtastic_Telemetry)meshtastic_Telemetry_init_default;
+    telemetry.time = 1750000400U;
+    telemetry.which_variant = meshtastic_Telemetry_host_metrics_tag;
+    stream = pb_ostream_from_buffer(payload, sizeof payload);
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_Telemetry_fields, &telemetry) ||
+                          !mesh_test_session_feed_app_packet(&session, 0x9002U,
+                                                             meshtastic_PortNum_TELEMETRY_APP,
+                                                             payload, stream.bytes_written),
+                      "feed empty host metrics failed");
+    node = mesh_test_session_find_node(&session, 0x9002U);
+    MESH_TEST_FAIL_IF(node->host.has_uptime || node->host.has_freemem || node->host.has_diskfree ||
+                          node->host.has_load,
+                      "an empty HostMetrics was read as a host reporting zeroes");
 
     record_success(test_name);
 }
