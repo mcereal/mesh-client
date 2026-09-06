@@ -28,6 +28,9 @@ void mesh_ui_nav_open_thread(struct mesh_ui_nav *nav, const struct mesh_ui_store
 void mesh_ui_nav_open_all_traffic(struct mesh_ui_nav *nav);
 /* The compose overlay over the current thread. */
 void mesh_ui_nav_open_compose(struct mesh_ui_nav *nav);
+/* Opens the keyboard on the open thread with no overlay behind it, so cancelling lands
+   back on the conversation rather than on the canned list. */
+void mesh_ui_nav_open_keyboard(struct mesh_ui_nav *nav);
 
 /* ---- nav_conversations.c ----------------------------------------------------------------- */
 
@@ -39,13 +42,14 @@ void mesh_ui_nav_node_name(const struct mesh_ui_store *store, uint32_t node_id, 
                            size_t out_len);
 /* Opens the conversation at `index` in the Messages list. False when the index is past the end. */
 bool mesh_ui_nav_open_conversation(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
-                                   uint32_t index, bool then_compose);
+                                   uint32_t index);
 /* X on a conversation row: arms the delete, or emits it when that row is already armed. */
 bool mesh_ui_nav_delete_conversation(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                      uint32_t index, struct mesh_ui_action *action);
-/* Opens the send-to picker over the current screen. */
+/* Opens the send-to picker over the current screen. `follow` is what opens over the thread
+   once a row is picked. */
 void mesh_ui_nav_picker_open(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
-                             bool then_compose);
+                             enum mesh_ui_picker_follow follow);
 /* One key while the picker is up. False when the key was not the picker's to take. */
 bool mesh_ui_nav_picker_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                             enum mesh_ui_key key);

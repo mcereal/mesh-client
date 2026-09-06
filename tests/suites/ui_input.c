@@ -445,11 +445,12 @@ MESH_TEST_CASE(ui_controller_key_dispatch, unit) {
     }
 
     /* Back to Messages, open the primary channel, and send its first canned reply: the action
-       reaches the handler once. */
+       reaches the handler once. A opens the conversation, A again the quick replies, A once
+       more sends the row the cursor starts on. */
     mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_LEFT);
     mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_DOWN);
     mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_A);
-    mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_Y);
+    mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_A);
     mesh_ui_controller_handle_key(&controller, MESH_UI_KEY_A);
     if (actions.count != 1U || actions.last.type != MESH_UI_ACTION_SEND_TEXT ||
         actions.last.dest != MESH_MESSAGE_BROADCAST_ADDR ||

@@ -94,6 +94,17 @@ void mesh_ui_nav_open_compose(struct mesh_ui_nav *nav) {
         nav->draft[0] != '\0' ? MESH_UI_COMPOSE_ROW_DRAFT : MESH_UI_COMPOSE_FIRST_CANNED;
 }
 
+/* Y's half of the split: typing, with nothing in between. Leaving `compose_open` clear is the
+   whole difference - cancelling the keyboard then lands on the thread rather than on the
+   canned list the user never asked for. The draft survives, so Y resumes an unsent one. */
+void mesh_ui_nav_open_keyboard(struct mesh_ui_nav *nav) {
+    nav->compose_open = false;
+    nav->keyboard_open = true;
+    nav->kb_row = 0U;
+    nav->kb_col = 0U;
+    nav->kb_layer = MESH_UI_KB_LOWER;
+}
+
 /* B out of a thread. Returns false when the conversation list is already showing. */
 static bool mesh_ui_nav_close_thread(struct mesh_ui_nav *nav) {
     if (!nav->thread_open) {
@@ -449,7 +460,7 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             return false;
         }
         if (!nav->thread_open) {
-            return mesh_ui_nav_open_conversation(nav, store, cursor, false);
+            return mesh_ui_nav_open_conversation(nav, store, cursor);
         }
         uint32_t indices[MESH_UI_MAX_MESSAGES];
         const uint32_t count =
@@ -469,7 +480,8 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             }
             return true;
         }
-        /* Inside a conversation there is only one thing A can mean: reply here. */
+        /* Inside a conversation A is the quick reply: the canned list, one press from sent.
+           Typing one out is Y's job. */
         mesh_ui_nav_open_compose(nav);
         return true;
     }
@@ -832,12 +844,13 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             return true;
         }
         if (nav->screen == MESH_UI_SCREEN_MESSAGES) {
-            /* In a conversation, write to it. On the list (or in the all-traffic view, which
-               has no single destination), pick who to write to first. */
+            /* In a conversation, write to it - the keyboard, not the canned list A offers.
+               On the list (or in the all-traffic view, which has no single destination), pick
+               who to write to first. */
             if (nav->thread_open && !nav->inbox) {
-                mesh_ui_nav_open_compose(nav);
+                mesh_ui_nav_open_keyboard(nav);
             } else {
-                mesh_ui_nav_picker_open(nav, store, true);
+                mesh_ui_nav_picker_open(nav, store, MESH_UI_PICKER_FOLLOW_KEYBOARD);
             }
             return true;
         }
@@ -852,7 +865,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
                 return changed;
             }
             mesh_ui_nav_open_thread(nav, store, node->node_id, 0U, NULL);
-            mesh_ui_nav_open_compose(nav);
+            mesh_ui_nav_open_keyboard(nav);
             return true;
         }
         return changed;

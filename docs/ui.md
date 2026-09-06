@@ -162,6 +162,15 @@ that detail's message row opens a conversation, rather than retargeting what Mes
 showing. Compose is an overlay (`compose_open`) over the open thread rather than a tab, so it can
 never be reached with a stale destination.
 
+**A and Y in a thread are two different answers.** A opens the compose overlay - the canned
+replies, cursor already on the first one, so the common reply is two presses on a d-pad. Y skips
+it and opens the keyboard directly, which is why `keyboard_open` can be set with `compose_open`
+clear: closing a keyboard Y opened lands back on the conversation rather than on a list the user
+never asked for. Every other "Y write" (the Nodes list, a node's detail, the conversation list)
+opens the thread and then the keyboard the same way; A on the "New message" row is the one that
+still lands on the quick replies, and `picker_follow` is how the picker remembers which was
+asked for.
+
 The on-screen keyboard is `keyboard_open` plus `kb_row/kb_col/kb_layer` and `draft`, all in the
 nav; while it is open every key goes to the keyboard handler and tabs do not switch. The
 `picker_open` overlay ("New message") works the same way; its rows come from

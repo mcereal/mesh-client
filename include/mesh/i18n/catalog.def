@@ -115,7 +115,7 @@ MESH_STR_ENTRY(HINT_CANNED,               "A send / type  B back to the conversa
 MESH_STR_ENTRY(HINT_CONVERSATION_DELETE,  "X again to delete this conversation  B cancel")
 MESH_STR_ENTRY(HINT_CONVERSATIONS,        "A open  X delete  Y new message  L/R tabs")
 MESH_STR_ENTRY(HINT_INBOX,                "A open conversation  B back  L/R tabs")
-MESH_STR_ENTRY(HINT_THREAD,               "A reply  Y write  B back  L/R tabs")
+MESH_STR_ENTRY(HINT_THREAD,               "A quick reply  Y write  B back  L/R tabs")
 MESH_STR_ENTRY(HINT_NODE_REMOVE,          "A again to remove this node  B cancel")
 MESH_STR_ENTRY(HINT_NODE_DETAIL,          "A select  B back  X pin  Y write  L/R tabs")
 MESH_STR_ENTRY(HINT_NODES,                "A open node  X pin  Y write  L/R tabs")

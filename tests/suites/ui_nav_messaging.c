@@ -90,11 +90,26 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
         goto cleanup;
     }
 
-    /* Y opens the compose overlay over the thread; it needs no destination of its own. */
+    /* Y writes: straight to the keyboard, with no overlay behind it, so B lands back on the
+       thread rather than on the canned list. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
-    if (!store.nav.compose_open || store.nav.compose_cursor != MESH_UI_COMPOSE_FIRST_CANNED ||
+    if (!store.nav.keyboard_open || store.nav.compose_open ||
         store.nav.screen != MESH_UI_SCREEN_MESSAGES) {
-        failure = "Y in a conversation should open the compose overlay";
+        failure = "Y in a conversation should open the keyboard, not the compose overlay";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (store.nav.keyboard_open || store.nav.compose_open || !store.nav.thread_open) {
+        failure = "B on an empty draft should leave the thread showing";
+        goto cleanup;
+    }
+
+    /* A replies: the canned list over the thread, which needs no destination of its own. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.compose_open || store.nav.keyboard_open ||
+        store.nav.compose_cursor != MESH_UI_COMPOSE_FIRST_CANNED ||
+        store.nav.screen != MESH_UI_SCREEN_MESSAGES) {
+        failure = "A in a conversation should open the compose overlay";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
@@ -137,9 +152,11 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
 
     /* Y on the list (and A on the New message row) opens the picker, which both retargets and
-       opens the conversation. LEFT/RIGHT page it instead of switching tabs. */
+       opens the conversation; what lands over it is whichever key asked. LEFT/RIGHT page the
+       picker instead of switching tabs. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
-    if (!store.nav.picker_open || !store.nav.picker_to_compose ||
+    if (!store.nav.picker_open ||
+        store.nav.picker_follow != (uint8_t)MESH_UI_PICKER_FOLLOW_KEYBOARD ||
         mesh_ui_nav_picker_count(&store) != 3U) {
         failure = "Y on the conversation list should open the send-to picker";
         goto cleanup;
@@ -151,7 +168,8 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
-    if (store.nav.picker_open || store.nav.picker_to_compose || store.nav.thread_open) {
+    if (store.nav.picker_open || store.nav.picker_follow != (uint8_t)MESH_UI_PICKER_FOLLOW_NONE ||
+        store.nav.thread_open) {
         failure = "B should cancel the picker and leave the list showing";
         goto cleanup;
     }
@@ -167,8 +185,8 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     if (store.nav.picker_open || store.nav.target_node != 0x2000U ||
         strcmp(store.nav.target_name, "ALFA") != 0 || !store.nav.thread_open ||
-        !store.nav.compose_open) {
-        failure = "picking a node should open its conversation ready to write";
+        !store.nav.compose_open || store.nav.keyboard_open) {
+        failure = "picking from the New message row should land on the quick replies";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action); /* close compose */
@@ -231,13 +249,14 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
         failure = "the detail's first row should open its conversation, not compose";
         goto cleanup;
     }
-    /* Y goes one step further and opens the overlay over it, from either level. */
+    /* Y goes one step further and opens the keyboard over it, from either level: the hint on
+       both screens says "write", and writing is typing. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);     /* back to the list */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* Nodes, detail still open */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
     if (store.nav.screen != MESH_UI_SCREEN_MESSAGES || !store.nav.thread_open ||
-        !store.nav.compose_open || store.nav.target_node != 0x3000U) {
-        failure = "Y in a node's detail should open its conversation ready to write";
+        !store.nav.keyboard_open || store.nav.compose_open || store.nav.target_node != 0x3000U) {
+        failure = "Y in a node's detail should open its conversation ready to type";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
@@ -245,9 +264,9 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* Nodes */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);     /* close the detail */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
-    if (store.nav.screen != MESH_UI_SCREEN_MESSAGES || !store.nav.compose_open ||
-        store.nav.target_node != 0x3000U) {
-        failure = "Y on the node list should open its conversation ready to write";
+    if (store.nav.screen != MESH_UI_SCREEN_MESSAGES || !store.nav.keyboard_open ||
+        store.nav.compose_open || store.nav.target_node != 0x3000U) {
+        failure = "Y on the node list should open its conversation ready to type";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
@@ -682,7 +701,7 @@ MESH_TEST_CASE(ui_nav_channels_and_keyboard, unit) {
     }
 
     /* A canned reply sent from the #Team thread carries channel 1, with no To: row involved. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     if (action.type != MESH_UI_ACTION_SEND_TEXT || action.dest != MESH_MESSAGE_BROADCAST_ADDR ||
         action.channel != 1U) {
@@ -690,15 +709,17 @@ MESH_TEST_CASE(ui_nav_channels_and_keyboard, unit) {
         goto cleanup;
     }
 
-    /* Keyboard: type "Hi", a space, delete it, a space again, START sends "Hi ". */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    /* Keyboard: type "Hi", a space, delete it, a space again, START sends "Hi ". The draft row
+       is the overlay's own way in, and it keeps the overlay behind it. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action); /* draft row */
     if (store.nav.compose_cursor != MESH_UI_COMPOSE_ROW_DRAFT) {
         failure = "expected the draft row";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    if (!store.nav.keyboard_open || store.nav.kb_row != 0U || store.nav.kb_col != 0U) {
+    if (!store.nav.keyboard_open || !store.nav.compose_open || store.nav.kb_row != 0U ||
+        store.nav.kb_col != 0U) {
         failure = "A on the draft row should open the keyboard at the top-left";
         goto cleanup;
     }
@@ -742,7 +763,7 @@ MESH_TEST_CASE(ui_nav_channels_and_keyboard, unit) {
     /* The action row: moving down from column 9 lands on the last (cancel) key; the mapping
        comes back to a sensible column. Cancel drops the draft and closes the keyboard. B on
        an empty draft also closes it. */
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);    /* keyboard open, row 0 col 0 */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);    /* '1' */
