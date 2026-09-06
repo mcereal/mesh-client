@@ -1483,6 +1483,9 @@ int mesh_bluez_client_register_agent(struct mesh_bluez_client *client) {
     }
     if (g_mock_state.enabled) {
         client->agent_registered = true;
+        if (g_mock_state.config.register_agent_calls != NULL) {
+            (*g_mock_state.config.register_agent_calls)++;
+        }
         return 0;
     }
 

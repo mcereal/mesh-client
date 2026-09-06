@@ -57,7 +57,9 @@ are: the first launch after the Brick wakes from sleep routinely beats it there,
 this the transport sat in `waiting-for-bluez` until the user quit and relaunched. The same poll
 watches the other direction — a `running` transport whose `org.bluez` name has gone (Bluetooth
 toggled off in NextUI) drops the link, the adapter path and the device list and goes back to
-`waiting-for-bluez`. Device enumeration only happens while `running`, so the list never
+`waiting-for-bluez`. A bond in flight is cancelled and the pairing agent registration is
+dropped as part of that: both belong to the daemon that left, and a stale one would answer
+every later `Pair` with `-EBUSY` or leave the new daemon with no agent at all. Device enumeration only happens while `running`, so the list never
 outlives the BlueZ that produced it. The reason is logged when it changes rather than on every
 retry.
 

@@ -119,6 +119,9 @@ struct mesh_bluez_mock_config {
     bool pair_requests_passkey;
     /* The passkey the caller answered with, for the test to assert on. */
     uint32_t *pair_passkey_capture;
+    /* Bumped every time an agent registration actually reaches the client, so a test can tell a
+       fresh registration from one short-circuited by a stale agent_registered flag. */
+    unsigned *register_agent_calls;
     int write_result;
     int subscribe_result;
     /* Device1.ServicesResolved polls that report false before the mock flips to true

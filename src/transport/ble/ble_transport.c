@@ -495,14 +495,28 @@ static void mesh_ble_bring_up(struct mesh_transport *transport) {
    belonged to that instance of BlueZ, so they go, and tick() brings the transport back up when
    the name reappears. */
 static void mesh_ble_demote(struct mesh_ble_transport_state *state) {
+    /* A bond in flight belonged to the daemon that is gone, and reset_link() does not know
+       about bonds: left alone, pair_state stays in-flight and every later Pair comes back
+       -EBUSY. The agent registration goes the same way - the new bluetoothd has no record of
+       it, and register_agent() short-circuits on the cached flag, so PIN-mode nodes would be
+       unpairable until the app was restarted. */
+    if (state->link_state == MESH_BLE_LINK_PAIRING) {
+        mesh_bluez_client_pair_cancel(&state->bluez);
+    }
+    mesh_bluez_client_unregister_agent(&state->bluez);
     if (state->link_state != MESH_BLE_LINK_DISCONNECTED) {
         mesh_ble_reset_link(state, "bluez stopped");
     }
     mesh_ble_set_error(state, "Bluetooth stopped");
+    state->pairing_address[0] = '\0';
+    state->pair_then_connect = false;
     state->discovery_active = false;
     state->adapter_path[0] = '\0';
     state->device_count = 0U;
     state->state = MESH_BLE_STATE_WAITING_FOR_BLUEZ;
+    /* The first attempt to come back happens on the next loop turn rather than a poll later:
+       BlueZ restarting is exactly the case where it may already be back. */
+    state->next_bluez_poll_ms = 0U;
     /* Pre-loaded so the retry that follows does not log the same thing again. */
     snprintf(state->waiting_reason, sizeof state->waiting_reason, "%s", k_ble_no_bluez);
     mesh_log_warn("ble", "BlueZ left the bus; waiting for it to come back");

@@ -971,3 +971,78 @@ cleanup:
         record_success(test_name);
     }
 }
+
+/* Everything cached about BlueZ dies with it. A bond in flight and the pairing agent are the two
+   that reset_link() does not cover: a stale pair_state answers every later Pair with -EBUSY, and
+   a stale agent registration makes register_agent() a no-op against a daemon that never saw it,
+   so PIN-mode nodes would stay unpairable until the app was restarted. */
+MESH_TEST_CASE(ble_transport_pairing_survives_a_bluez_outage, unit) {
+    struct mesh_transport *ble = mesh_ble_transport();
+    const char *failure = NULL;
+    unsigned agent_registrations = 0U;
+
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:01", .name = "NodeOne", .rssi = -45, .paired = false},
+    };
+    struct mesh_bluez_mock_config mock_config = {
+        .check_ready_result = 0,
+        .adapter_path = "/org/bluez/hci0",
+        .devices = mock_devices,
+        .device_count = 1U,
+        /* The bond never completes on its own, so it is still in flight when BlueZ goes. */
+        .pair_pending_polls = 64U,
+        .register_agent_calls = &agent_registrations,
+    };
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    struct mesh_app_config config = mesh_app_config_default();
+    struct mesh_event_loop loop;
+    mesh_event_loop_init(&loop);
+    if (ble->ops->start(ble, &config, &loop) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_connect_and_pair(ble, mock_devices[0].address) != 0) {
+        failure = "pairing should start";
+        goto cleanup;
+    }
+    if (strcmp(ble->ops->status(ble), "pairing") != 0) {
+        failure = "the link should be pairing";
+        goto cleanup;
+    }
+
+    /* bluetoothd goes away mid-bond, then comes back. */
+    mock_config.check_ready_result = -ENODEV;
+    mesh_bluez_client_mock_enable(&mock_config);
+    ble->ops->tick(ble);
+    if (strcmp(ble->ops->status(ble), "waiting-for-bluez") != 0) {
+        failure = "losing bluetoothd mid-bond should demote the transport";
+        goto cleanup;
+    }
+
+    mock_config.check_ready_result = 0;
+    mesh_bluez_client_mock_enable(&mock_config);
+    ble->ops->tick(ble);
+    if (strcmp(ble->ops->status(ble), "running") != 0) {
+        failure = "the transport should come back up";
+        goto cleanup;
+    }
+    if (agent_registrations != 2U) {
+        failure = "the pairing agent should be registered again with the new bluetoothd";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_connect_and_pair(ble, mock_devices[0].address) != 0) {
+        failure = "pairing should start again rather than report the old bond still in flight";
+        goto cleanup;
+    }
+
+cleanup:
+    ble->ops->stop(ble);
+    mesh_event_loop_shutdown(&loop);
+    mesh_bluez_client_mock_disable();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
