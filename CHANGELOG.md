@@ -1,3 +1,9 @@
+## [2.8.0](https://github.com/mcereal/mesh-client/compare/v2.7.0...v2.8.0) (2026-09-06)
+
+### Features
+
+* **ui:** give the conversation list avatars, and X to delete a thread ([5ca9a62](https://github.com/mcereal/mesh-client/commit/5ca9a6265d55f05437b017a667da55318799969f))
+
 ## [2.7.0](https://github.com/mcereal/mesh-client/compare/v2.6.0...v2.7.0) (2026-09-06)
 
 ### Features
