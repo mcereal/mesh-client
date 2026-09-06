@@ -54,10 +54,13 @@ struct fb_rect {
 struct fb_button {
     struct fb_rect rect;
     const char *label;
-    bool selected;               /* the cursor is on it */
-    bool filled;                 /* keep a resting fill when it is not selected */
-    enum mesh_ui_tone idle_tone; /* label tone when it is not selected */
-    int scale;                   /* glyph multiplier for the label */
+    bool selected; /* the cursor is on it */
+    bool filled;   /* keep a resting fill when it is not selected */
+    /* Label tone for a button with no fill at all. A filled one - resting or selected - draws
+       its label in MESH_UI_COLOR_TEXT_ON_SEL instead, because that is the pair the theme is
+       validated on; a tone chosen against the ground says nothing about a fill over it. */
+    enum mesh_ui_tone idle_tone;
+    int scale; /* glyph multiplier for the label */
 };
 
 void fb_draw_button(const struct mesh_ui_backend_fb_state *state, const struct fb_button *button);

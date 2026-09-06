@@ -35,9 +35,14 @@ void fb_draw_button(const struct mesh_ui_backend_fb_state *state, const struct f
     const int text_h = (int)fb_font(state)->height * button->scale;
     const int x = button->rect.x + (button->rect.w - text_w) / 2;
     const int y = button->rect.y + (button->rect.h - text_h) / 2;
+    /* Any fill at all - the cursor's or a resting one - means the label is drawn in the colour
+       the theme validates against that fill. Only a button with no fill is free to take its
+       idle tone: a resting fill and the text over it are exactly the pair a theme is held to,
+       and reading the tone there is how the keyboard's action row came out white on white. */
+    const bool on_fill = button->selected || button->filled;
     fb_draw_text(state, x, y, button->label, button->scale,
-                 button->selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL)
-                                  : fb_tone_color(state, button->idle_tone));
+                 on_fill ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL)
+                         : fb_tone_color(state, button->idle_tone));
 }
 
 int fb_draw_chip(const struct mesh_ui_backend_fb_state *state, int x, int y, const char *label,
@@ -179,6 +184,21 @@ static size_t fb_bubble_max_cols(const struct mesh_ui_backend_fb_state *state,
 
 static bool fb_bubble_has(const char *text) { return text != NULL && text[0] != '\0'; }
 
+/*
+ * The tone for a bubble's quieter lines - the sender on one of ours, the clock on any of them.
+ *
+ * Dim while the bubble sits at rest, and the bubble's own body colour once the cursor is on it.
+ * The selected fills are a step lighter by design, and dim over one of those is the pairing a
+ * theme has least room for: on the dark palette it measured 1.9:1, well under the 3:1 a
+ * secondary line is held to, and the body colour is a pair the theme is already validated on.
+ */
+static enum mesh_ui_tone fb_bubble_quiet_tone(const struct fb_bubble *bubble) {
+    if (!bubble->selected || bubble->failed) {
+        return MESH_UI_TONE_DIM;
+    }
+    return bubble->outbound ? MESH_UI_TONE_OUTBOUND : MESH_UI_TONE_INBOUND;
+}
+
 static struct fb_bubble_metrics fb_bubble_measure(const struct mesh_ui_backend_fb_state *state,
                                                   const struct fb_layout *layout,
                                                   const struct fb_bubble *bubble) {
@@ -315,9 +335,9 @@ void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct f
         mesh_ui_line_fit(&line, metrics.cols);
         /* Ours is dimmed and theirs is accented: on our own bubble the name is a reminder, on
            theirs it is the thing being looked for. */
-        fb_draw_text(
-            state, text_x, y, mesh_ui_line_text(&line), scale,
-            fb_tone_color(state, bubble->outbound ? MESH_UI_TONE_DIM : MESH_UI_TONE_ACCENT));
+        fb_draw_text(state, text_x, y, mesh_ui_line_text(&line), scale,
+                     fb_tone_color(state, bubble->outbound ? fb_bubble_quiet_tone(bubble)
+                                                           : MESH_UI_TONE_ACCENT));
         y += layout->line;
     }
 
@@ -343,7 +363,7 @@ void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct f
     }
     const int meta_w = (int)mesh_ui_text_cells(bubble->meta) * adv;
     const struct mesh_ui_rgb meta_color =
-        fb_tone_color(state, bubble->failed ? MESH_UI_TONE_BAD : MESH_UI_TONE_DIM);
+        fb_tone_color(state, bubble->failed ? MESH_UI_TONE_BAD : fb_bubble_quiet_tone(bubble));
     if (metrics.meta_own_line) {
         fb_draw_text(state, box_x + box_w - pad - meta_w, y, bubble->meta, scale, meta_color);
     } else {

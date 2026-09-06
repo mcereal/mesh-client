@@ -23,21 +23,42 @@
 #include <string.h>
 #include <unistd.h>
 
-/* The active theme's ground, which fb_render_snapshot() clears to before drawing anything.
-   Asked of the theme rather than spelled out, so a palette change is not a test change; the
-   themes themselves are covered in ui_theme.c. */
-static bool pixel_is_background(const uint8_t *pixel) {
-    const struct mesh_ui_rgb bg = mesh_ui_theme_color(mesh_ui_theme_default(), MESH_UI_COLOR_BG);
+/*
+ * The ground `capture` draws on, which fb_render_snapshot() clears to before anything else.
+ *
+ * Taken from the capture rather than spelled out, and rather than assumed to be the default
+ * theme's: mesh_ui_capture_open() honours MESHCLIENT_THEME exactly as the device backend does,
+ * so a developer running `MESHCLIENT_THEME=light make test` would otherwise see this file count
+ * an entire correct frame as drawn pixels and fail. A palette change is not a test change
+ * either; the themes themselves are covered in ui_theme.c.
+ */
+static bool pixel_is_background(const struct mesh_ui_capture *capture, const uint8_t *pixel) {
+    const struct mesh_ui_rgb bg =
+        mesh_ui_theme_color(mesh_ui_capture_theme(capture), MESH_UI_COLOR_BG);
     /* 32 bpp with every bitfield zero, which is what the capture fabricates: B,G,R,X. */
     return pixel[0] == bg.b && pixel[1] == bg.g && pixel[2] == bg.r;
 }
 
-static size_t count_drawn(const uint8_t *pixels, uint32_t width, uint32_t height, size_t stride) {
+/* Whether the page still holds what calloc() left, i.e. nothing has been drawn into it. */
+static bool page_is_zeroed(const uint8_t *pixels, uint32_t width, uint32_t height, size_t stride) {
+    for (uint32_t y = 0U; y < height; ++y) {
+        const uint8_t *row = pixels + (size_t)y * stride;
+        for (size_t i = 0; i < (size_t)width * 4U; ++i) {
+            if (row[i] != 0U) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static size_t count_drawn(const struct mesh_ui_capture *capture, const uint8_t *pixels,
+                          uint32_t width, uint32_t height, size_t stride) {
     size_t drawn = 0U;
     for (uint32_t y = 0U; y < height; ++y) {
         const uint8_t *row = pixels + (size_t)y * stride;
         for (uint32_t x = 0U; x < width; ++x) {
-            if (!pixel_is_background(row + (size_t)x * 4U)) {
+            if (!pixel_is_background(capture, row + (size_t)x * 4U)) {
                 drawn++;
             }
         }
@@ -71,14 +92,15 @@ MESH_TEST_CASE(ui_capture_renders_a_snapshot, unit) {
                               mesh_ui_capture_close(capture);
                               mesh_ui_store_shutdown(&store), "capture geometry is wrong");
 
-    /* A fresh page is zeroed, so nothing is background until a frame has been drawn. */
-    MESH_TEST_FAIL_IF_CLEANUP(count_drawn(pixels, width, height, stride) !=
-                                  (size_t)width * (size_t)height,
+    /* A fresh page is zeroed. Said in bytes rather than as "no pixel is the background
+       colour", because a theme whose ground is pure black makes those two opposites - the
+       assertion is that nothing has been drawn yet, not that the ground is a particular hue. */
+    MESH_TEST_FAIL_IF_CLEANUP(!page_is_zeroed(pixels, width, height, stride),
                               mesh_ui_capture_close(capture);
                               mesh_ui_store_shutdown(&store), "an unrendered page is not blank");
 
     mesh_ui_capture_render(capture, &snapshot);
-    const size_t drawn = count_drawn(pixels, width, height, stride);
+    const size_t drawn = count_drawn(capture, pixels, width, height, stride);
     MESH_TEST_FAIL_IF_CLEANUP(
         drawn == 0U || drawn > (size_t)width * (size_t)height / 2U, mesh_ui_capture_close(capture);
         mesh_ui_store_shutdown(&store), "the rendered frame is blank, or is not mostly background");

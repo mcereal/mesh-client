@@ -42,9 +42,9 @@ struct mesh_ui_rgb {
  * extra steps.
  */
 enum mesh_ui_color {
-    MESH_UI_COLOR_BG = 0,      /* the ground the whole frame is cleared to */
-    MESH_UI_COLOR_SURFACE,     /* a raised panel on the ground: the draft box */
-    MESH_UI_COLOR_SURFACE_SEL, /* the fill under the cursor, and a button at rest */
+    MESH_UI_COLOR_BG = 0,         /* the ground the whole frame is cleared to */
+    MESH_UI_COLOR_SURFACE,        /* a raised panel on the ground: the draft box */
+    MESH_UI_COLOR_SURFACE_SEL,    /* the fill under the cursor, and a button at rest */
     MESH_UI_COLOR_SURFACE_ACTIVE, /* the active tab, a pressed button */
     MESH_UI_COLOR_TEXT,           /* body text */
     MESH_UI_COLOR_TEXT_DIM,       /* headings, secondary lines, anything not yet loaded */

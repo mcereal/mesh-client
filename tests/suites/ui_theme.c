@@ -85,8 +85,7 @@ MESH_TEST_CASE(ui_theme_contrast_is_the_wcag_ratio, unit) {
     MESH_TEST_FAIL_IF(extreme < 20.9 || extreme > 21.1, "black on white is not 21:1");
     MESH_TEST_FAIL_IF(mesh_ui_theme_contrast(white, black) != extreme,
                       "the ratio depends on the order of its arguments");
-    MESH_TEST_FAIL_IF(mesh_ui_theme_contrast(white, white) != 1.0,
-                      "a colour on itself is not 1:1");
+    MESH_TEST_FAIL_IF(mesh_ui_theme_contrast(white, white) != 1.0, "a colour on itself is not 1:1");
     record_success(test_name);
 }
 
@@ -214,9 +213,8 @@ MESH_TEST_CASE(ui_theme_switch_repaints_the_frame, unit) {
     mesh_ui_capture_set_theme(capture, first);
     mesh_ui_capture_set_scale(capture, 2);
     mesh_ui_capture_render(capture, &snapshot);
-    MESH_TEST_FAIL_IF_CLEANUP(
-        !corner_is(pixels, mesh_ui_theme_color(first, MESH_UI_COLOR_BG)), THEME_CLEANUP,
-        "the frame is not drawn on the theme's background");
+    MESH_TEST_FAIL_IF_CLEANUP(!corner_is(pixels, mesh_ui_theme_color(first, MESH_UI_COLOR_BG)),
+                              THEME_CLEANUP, "the frame is not drawn on the theme's background");
     memcpy(reference, pixels, page_bytes);
 
     for (size_t i = 1U; i < mesh_ui_theme_count(); ++i) {
@@ -227,9 +225,9 @@ MESH_TEST_CASE(ui_theme_switch_repaints_the_frame, unit) {
                                   "the capture did not take the theme it was given");
         mesh_ui_capture_render(capture, &snapshot);
 
-        MESH_TEST_FAIL_IF_CLEANUP(
-            !corner_is(pixels, mesh_ui_theme_color(theme, MESH_UI_COLOR_BG)), THEME_CLEANUP,
-            "a theme's frame is not drawn on that theme's background");
+        MESH_TEST_FAIL_IF_CLEANUP(!corner_is(pixels, mesh_ui_theme_color(theme, MESH_UI_COLOR_BG)),
+                                  THEME_CLEANUP,
+                                  "a theme's frame is not drawn on that theme's background");
         MESH_TEST_FAIL_IF_CLEANUP(memcmp(reference, pixels, page_bytes) == 0, THEME_CLEANUP,
                                   "two themes rendered the same snapshot identically");
     }
@@ -282,8 +280,11 @@ MESH_TEST_CASE(ui_theme_carries_its_own_scale, unit) {
     mesh_ui_capture_close(capture);                                                                \
     mesh_ui_store_shutdown(&store)
 
-    /* Opened with scale 0, which means the theme's own. */
+    /* Named rather than inherited: mesh_ui_capture_open() honours MESHCLIENT_THEME, so a run
+       with it set would otherwise start from a different theme - and a different scale - than
+       the one this case switches back to. */
     const struct mesh_ui_theme *theme = mesh_ui_theme_default();
+    mesh_ui_capture_set_theme(capture, theme);
     mesh_ui_capture_render(capture, &snapshot);
     memcpy(at_theme_scale, pixels, page_bytes);
 
