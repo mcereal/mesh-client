@@ -289,6 +289,14 @@ MESH_TEST_CASE(ui_store_persistence, unit) {
         record_failure(test_name, "node roster state did not survive the cache");
         return;
     }
+    /* Counted from the rows themselves rather than carried beside them: a cached node the
+       radio had forgotten is still one after a restart, and a stored count would be one more
+       thing in the file that could disagree with the rows it describes. */
+    if (mesh_ui_handshake_off_radio(&store.handshake) != 1U) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "the restored roster lost track of what the radio dropped");
+        return;
+    }
     if (!node->position.valid || node->position.latitude_i != 447654321 ||
         node->position.longitude_i != -680012345 || !node->position.has_altitude ||
         node->position.altitude != 312 || node->position.sats_in_view != 9U) {

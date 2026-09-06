@@ -636,8 +636,17 @@ static void fb_render_nodes(const struct mesh_ui_backend_fb_state *state,
     const uint32_t count =
         hs->node_count > MESH_UI_MAX_HANDSHAKE_NODES ? MESH_UI_MAX_HANDSHAKE_NODES : hs->node_count;
     char title[96];
+    /* Counted from the rows this screen is about to draw, so the two numbers are always in the
+       same scope: the session roster holds twice what the UI carries, and a title reading
+       "128 nodes, 200 off radio" would be arithmetic no screen should show. */
+    const uint32_t off_radio = mesh_ui_handshake_off_radio(hs);
     if (hs->has_my_info && hs->my_info.nodedb_entries > count) {
         snprintf(title, sizeof title, "Nodes (%u of %u)", count, hs->my_info.nodedb_entries);
+    } else if (off_radio > 0U) {
+        /* The count the Status screen shows is the radio's; this one is ours, and after a
+           NodeDB reset the two are nothing alike. Saying how much of the gap is nodes only we
+           remember is what keeps "81 here, 2 there" from reading as a bug. */
+        snprintf(title, sizeof title, "Nodes (%u, %u off radio)", count, off_radio);
     } else {
         fb_title_count(title, sizeof title, "Nodes", count, 0U);
     }
@@ -655,7 +664,15 @@ static void fb_render_nodes(const struct mesh_ui_backend_fb_state *state,
         const char *long_name = node->long_name[0] != '\0' ? node->long_name : "";
         fb_format_age(node->last_heard, age, sizeof age);
 
-        if (node->has_hops_away && node->hops_away > 0U) {
+        /*
+         * A node the radio's NodeDB no longer carries says so in the column that would
+         * otherwise hold its signal, because that is the more useful fact: the SNR is from
+         * whenever we last heard it, while "off radio" is why a DM to it may never leave -
+         * there is no stored key to encrypt with. The detail screen spells the same thing out.
+         */
+        if (!node->in_nodedb) {
+            snprintf(right, sizeof right, "off radio %s", age);
+        } else if (node->has_hops_away && node->hops_away > 0U) {
             snprintf(right, sizeof right, "%uhop %s", (unsigned)node->hops_away, age);
         } else if (node->via_mqtt) {
             snprintf(right, sizeof right, "mqtt %s", age);
@@ -674,9 +691,16 @@ static void fb_render_nodes(const struct mesh_ui_backend_fb_state *state,
         mesh_ui_line_column(&line, short_name, 4U);
         mesh_ui_line_printf(&line, " %s", long_name);
         mesh_ui_line_right(&line, layout->cols, right);
-        fb_list_row_line(state, &list, i, &line,
-                         (node->node_id == nav->target_node) ? MESH_UI_TONE_ACCENT
-                                                             : MESH_UI_TONE_NORMAL);
+        /* Dim behind the words, so a list that is mostly off-radio reads as one at a glance.
+           The open thread's node keeps the accent whatever its NodeDB state: which node you
+           are talking to is the one thing the cursor colour is for. */
+        enum mesh_ui_tone tone = MESH_UI_TONE_NORMAL;
+        if (node->node_id == nav->target_node) {
+            tone = MESH_UI_TONE_ACCENT;
+        } else if (!node->in_nodedb) {
+            tone = MESH_UI_TONE_DIM;
+        }
+        fb_list_row_line(state, &list, i, &line, tone);
     }
 }
 
@@ -972,6 +996,15 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
             fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, "NodeDB",
                                "%u nodes, %u reboots", hs->my_info.nodedb_entries,
                                hs->my_info.reboot_count);
+        }
+        /* Ours, next to the radio's, and only while the two differ. The row above counts the
+           radio's database; this one counts the roster, which outlives it on purpose - so
+           after a NodeDB reset one says 2 and the other 81 with nothing to explain it. Both
+           numbers here are the published rows, so the second can never exceed the first. */
+        const uint32_t off_radio = mesh_ui_handshake_off_radio(hs);
+        if (off_radio > 0U) {
+            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_DIM, "Cached here",
+                               "%u nodes, %u off radio", hs->node_count, off_radio);
         }
         if (hs->primary_channel[0] != '\0') {
             fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, "Channel", "%s",

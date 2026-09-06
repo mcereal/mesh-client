@@ -611,7 +611,19 @@ MESH_TEST_CASE(ui_nav_radio_actions, unit) {
     if (!mesh_ui_settings_section_loaded(&store.settings, &store.handshake,
                                          MESH_UI_SETTINGS_ACTIONS) ||
         mesh_ui_settings_section_loaded(&store.settings, NULL, MESH_UI_SETTINGS_ACTIONS)) {
-        failure = "Radio actions needs our node number and nothing else";
+        failure = "Radio actions needs our node number or a roster to drop";
+        goto cleanup;
+    }
+    /* A cached roster with no link opens it too - for the forget rows, which send nothing. */
+    struct mesh_ui_handshake_state offline = store.handshake;
+    offline.has_my_info = false;
+    if (!mesh_ui_settings_section_loaded(&store.settings, &offline, MESH_UI_SETTINGS_ACTIONS)) {
+        failure = "a cached roster should open Radio actions with no link";
+        goto cleanup;
+    }
+    offline.node_count = 0U;
+    if (mesh_ui_settings_section_loaded(&store.settings, &offline, MESH_UI_SETTINGS_ACTIONS)) {
+        failure = "with no link and no roster there is nothing in Radio actions to press";
         goto cleanup;
     }
 
@@ -621,8 +633,8 @@ MESH_TEST_CASE(ui_nav_radio_actions, unit) {
     }
     mesh_test_settings_open(&store, MESH_UI_SETTINGS_ACTIONS);
     if (store.nav.settings_section != MESH_UI_SETTINGS_ACTIONS ||
-        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 5U) {
-        failure = "the Radio actions section should open with five rows";
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 7U) {
+        failure = "the Radio actions section should open with seven rows";
         goto cleanup;
     }
 
@@ -695,6 +707,175 @@ MESH_TEST_CASE(ui_nav_radio_actions, unit) {
                                MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
         item.kind != MESH_UI_SETTING_INFO || strcmp(item.value, "not supported") != 0) {
         failure = "Shutdown should be a fact on a board that cannot shut down";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}
+
+/*
+ * The two rows in Radio actions that are not radio actions: they drop this client's own cached
+ * roster and send nothing at all. They are here rather than in About because a NodeDB reset
+ * leaves that roster standing on purpose, and this is the screen the user is on when the Nodes
+ * tab keeps saying eighty-one after the radio's database says two.
+ */
+MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
+    const char *failure = NULL;
+
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_metadata = true;
+    settings.can_shutdown = true;
+    mesh_ui_store_set_settings(&store, &settings);
+
+    if (mesh_ui_settings_action_is_radio(MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES) ||
+        !mesh_ui_settings_action_is_forget(MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES) ||
+        !mesh_ui_settings_action_needs_confirm(MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES) ||
+        mesh_ui_settings_action_is_forget(MESH_UI_SETTINGS_ACTION_RESET_NODEDB)) {
+        failure = "forgetting nodes is a confirmed action the radio never hears about";
+        goto cleanup;
+    }
+
+    /* Every row here reads the count the app published for it, and that count is what the
+       press would remove - so with nothing to remove the row is a fact. The fixture publishes
+       no forget counts, which is the state before the first sync fills them. */
+    struct mesh_ui_settings_item item;
+    if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
+                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 3U, &item) ||
+        strcmp(item.label, "Forget off-radio") != 0 || item.kind != MESH_UI_SETTING_INFO ||
+        strcmp(item.value, "nothing to drop") != 0) {
+        failure = "with nothing off-radio the first forget row should be a fact";
+        goto cleanup;
+    }
+    if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
+                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 4U, &item) ||
+        strcmp(item.label, "Forget all cached") != 0 || item.kind != MESH_UI_SETTING_INFO ||
+        strcmp(item.value, "nothing to drop") != 0) {
+        failure = "an empty forget count should not draw as a press";
+        goto cleanup;
+    }
+
+    /* Now the state a NodeDB reset leaves: two of the three are only ours, and a forget would
+       take both. */
+    struct mesh_ui_handshake_state handshake = store.handshake;
+    handshake.nodes[1].in_nodedb = false;
+    handshake.nodes[2].in_nodedb = false;
+    handshake.nodes_forgettable_off_radio = 2U;
+    handshake.nodes_forgettable_all = 2U;
+    handshake.my_info.nodedb_entries = 1U;
+    mesh_ui_store_set_handshake(&store, &handshake);
+
+    if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
+                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 3U, &item) ||
+        item.kind != MESH_UI_SETTING_ACTION || strcmp(item.value, "2 nodes") != 0 ||
+        item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES) {
+        failure = "the row should say how many nodes it would forget";
+        goto cleanup;
+    }
+
+    /* The case the row must not get wrong: two nodes are off the radio and a forget keeps
+       both, so the row is a fact even though the Nodes tab still marks two rows "off radio".
+       A press that would drop nothing must never be offered. */
+    struct mesh_ui_handshake_state pinned = handshake;
+    pinned.nodes[1].is_favorite = true;
+    pinned.nodes[2].is_favorite = true;
+    pinned.nodes_forgettable_off_radio = 0U;
+    pinned.nodes_forgettable_all = 0U;
+    mesh_ui_store_set_handshake(&store, &pinned);
+    if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
+                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 3U, &item) ||
+        item.kind != MESH_UI_SETTING_INFO || strcmp(item.value, "nothing to drop") != 0) {
+        failure = "a roster of pinned orphans should offer no press at all";
+        goto cleanup;
+    }
+    /* The tab still says so: being pinned does not put a node back on the radio. */
+    if (mesh_ui_handshake_off_radio(&store.handshake) != 2U) {
+        failure = "the Nodes tab should still count a pinned node the radio has forgotten";
+        goto cleanup;
+    }
+    mesh_ui_store_set_handshake(&store, &handshake);
+
+    struct mesh_ui_action action;
+    for (int i = 0; i < 4; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    }
+    if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_ACTIONS)) {
+        failure = "Radio actions did not open";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+
+    /* A asks first, like every other row in this section: a forgotten node comes back only
+       when it speaks again. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.confirm_open || action.type != MESH_UI_ACTION_NONE ||
+        store.nav.confirm_action != (uint8_t)MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES) {
+        failure = "A on the forget row should open the confirm overlay";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.confirm_open || action.type != MESH_UI_ACTION_FORGET_NODES ||
+        action.number != 0U) {
+        failure = "confirming should ask the client to drop the off-radio nodes";
+        goto cleanup;
+    }
+
+    /* One row further down is the same press for the whole roster. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_FORGET_NODES || action.number != 1U) {
+        failure = "the second row should empty the roster rather than trim it";
+        goto cleanup;
+    }
+
+    char text[160];
+    mesh_ui_settings_confirm_title(MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL,
+                                   MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES, text,
+                                   sizeof text);
+    if (strcmp(text, "Forget off-radio nodes?") != 0) {
+        failure = "the overlay should name what it is about to forget";
+        goto cleanup;
+    }
+    mesh_ui_settings_confirm_text(MESH_UI_SETTINGS_ACTIONS,
+                                  MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES, text,
+                                  sizeof text);
+    if (strstr(text, "radio") == NULL) {
+        failure = "the overlay should say the radio's own database is untouched";
+        goto cleanup;
+    }
+
+    /* With the link gone the roster is still ours to drop, so the rows stay pressable while
+       the five that need an AdminMessage say why they cannot be. */
+    handshake.has_my_info = false;
+    mesh_ui_store_set_handshake(&store, &handshake);
+    if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
+                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
+        item.kind != MESH_UI_SETTING_INFO || strcmp(item.value, "not connected") != 0) {
+        failure = "Reboot should say why it cannot be pressed with no link";
+        goto cleanup;
+    }
+    if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
+                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 3U, &item) ||
+        item.kind != MESH_UI_SETTING_ACTION) {
+        failure = "forgetting cached nodes needs no radio";
         goto cleanup;
     }
 

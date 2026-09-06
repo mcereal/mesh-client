@@ -593,6 +593,10 @@ static void mesh_session_store_node_summary(struct mesh_session *session,
     /* Stamped whether or not this NodeInfo told us anything new: what it proves is that the
        radio's database still carries the node, which is what the stamp is read for. */
     summary->sync_epoch = session->sync_epoch;
+    /* The same proof, said in the form the UI reads. config_complete settles the *other*
+       direction below, for the nodes no NodeInfo mentioned; without this line a screen drawn
+       mid-sync would mark every node as one the radio has forgotten until the sync ended. */
+    summary->in_nodedb = true;
 
     if (info->has_user) {
         mesh_session_apply_user(summary, &info->user);
@@ -1587,6 +1591,80 @@ int mesh_session_remove_node(struct mesh_session *session, uint32_t node_id) {
     session->handshake.node_count = last;
     mesh_log_info("session", "Removed node 0x%08x from the NodeDB (%d requests)", node_id, queued);
     return queued;
+}
+
+/* Our own record is the one every screen resolves a name through, and `my_info` is gone while
+   the link is down - which is exactly when a roster is most likely to be cleared - so the
+   roster's owner stands in for it. */
+static uint32_t mesh_session_roster_self(const struct mesh_handshake_status *handshake,
+                                         const struct mesh_session *session) {
+    return handshake->has_my_info ? handshake->my_info.my_node_num : session->roster_node;
+}
+
+/*
+ * Whether a forget would take this node. The one place that decides, so the count a row
+ * advertises cannot disagree with what pressing it does: a roster whose off-radio nodes are all
+ * pinned has nothing to drop, and a row saying "3 nodes" that drops none of them is worse than
+ * no row at all.
+ */
+static bool mesh_session_node_is_forgettable(const struct mesh_node_summary *node, uint32_t my_node,
+                                             bool only_off_nodedb) {
+    if (node->is_favorite || (my_node != 0U && node->node_id == my_node)) {
+        return false;
+    }
+    return !only_off_nodedb || !node->in_nodedb;
+}
+
+static size_t mesh_session_roster_len(const struct mesh_handshake_status *handshake) {
+    return handshake->node_count > MESH_SESSION_MAX_NODES ? MESH_SESSION_MAX_NODES
+                                                          : handshake->node_count;
+}
+
+int mesh_session_forget_nodes(struct mesh_session *session, bool only_off_nodedb) {
+    if (session == NULL) {
+        return -EINVAL;
+    }
+    struct mesh_handshake_status *handshake = &session->handshake;
+    const uint32_t my_node = mesh_session_roster_self(handshake, session);
+    const size_t count = mesh_session_roster_len(handshake);
+    size_t kept = 0U;
+    for (size_t i = 0; i < count; ++i) {
+        if (mesh_session_node_is_forgettable(&handshake->nodes[i], my_node, only_off_nodedb)) {
+            continue;
+        }
+        if (kept != i) {
+            handshake->nodes[kept] = handshake->nodes[i];
+        }
+        ++kept;
+    }
+    const size_t dropped = count - kept;
+    if (dropped == 0U) {
+        return 0;
+    }
+    memset(&handshake->nodes[kept], 0, (count - kept) * sizeof handshake->nodes[0]);
+    handshake->node_count = kept;
+    /* The roster has room again, so the next node that does not fit is worth saying so about. */
+    session->node_cache_warned = false;
+    mesh_log_info(
+        "session", "Forgot %zu cached node%s (%s); %zu kept", dropped, dropped == 1U ? "" : "s",
+        only_off_nodedb ? "not in the radio's NodeDB" : "all but ourselves and pins", kept);
+    return (int)dropped;
+}
+
+uint32_t mesh_session_forgettable_nodes(const struct mesh_session *session, bool only_off_nodedb) {
+    if (session == NULL) {
+        return 0U;
+    }
+    const struct mesh_handshake_status *handshake = &session->handshake;
+    const uint32_t my_node = mesh_session_roster_self(handshake, session);
+    const size_t count = mesh_session_roster_len(handshake);
+    uint32_t forgettable = 0U;
+    for (size_t i = 0; i < count; ++i) {
+        if (mesh_session_node_is_forgettable(&handshake->nodes[i], my_node, only_off_nodedb)) {
+            ++forgettable;
+        }
+    }
+    return forgettable;
 }
 
 /* Meshtastic's fixed-point 1e-7 degrees: 90 and 180 degrees as the wire carries them. */

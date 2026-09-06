@@ -145,7 +145,10 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
             break;
         case MESH_UI_SETTINGS_ACTION_RESET_NODEDB:
             kind = MESH_ADMIN_RESET_NODEDB;
-            asked = "Node database reset; favorites kept";
+            /* Says what it did *not* touch as well: the Brick's own roster outliving the
+               reset is the difference between the Status screen's 2 nodes and the Nodes
+               tab's 81, and the row below the one just pressed is what clears it. */
+            asked = "Radio DB reset; Brick's list kept (forget it below)";
             break;
         case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG:
             kind = MESH_ADMIN_FACTORY_RESET_CONFIG;
@@ -170,6 +173,38 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
             mesh_log_warn("ui", "Radio action %u failed: %d", (unsigned)action->number, result);
         }
         mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
+    case MESH_UI_ACTION_FORGET_NODES: {
+        /*
+         * The two rows in Radio actions that ask nothing of the radio. The roster is this
+         * client's - it outlives the link on purpose, because the radio's NodeDB holds 80
+         * entries and evicts - so emptying it is a local edit, works with no link at all, and
+         * says how many went rather than leaving the user to count the list.
+         *
+         * Published here rather than on the next turn, for the reason the theme switch is:
+         * the frame this press draws is the answer, and it has to show the shorter list.
+         */
+        const bool all = (action->number != 0U);
+        const int dropped = mesh_session_forget_nodes(&app->session, !all);
+        if (dropped > 0) {
+            snprintf(toast, sizeof toast, "Forgot %d node%s; pins kept", dropped,
+                     dropped == 1 ? "" : "s");
+            mesh_log_info("ui", "Forgot %d cached node%s from Settings (%s)", dropped,
+                          dropped == 1 ? "" : "s", all ? "all" : "off-radio only");
+        } else if (dropped == 0) {
+            snprintf(toast, sizeof toast, "%s",
+                     all ? "Nothing cached to forget" : "Every cached node is on the radio");
+        } else {
+            snprintf(toast, sizeof toast, "Forget failed (%d)", dropped);
+            mesh_log_warn("ui", "Forget nodes failed: %d", dropped);
+        }
+        /* The hint that sent the user here compares each sync against the last, so the press
+           that acts on it has to move that baseline too: without this, a divergence the user
+           has just cleared would still be the number the next sync is measured against. */
+        app->ui_nodes_off_radio_seen = mesh_session_forgettable_nodes(&app->session, true);
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        mesh_app_publish_ui_state(app);
         return;
     }
     case MESH_UI_ACTION_TOGGLE_FAVORITE: {

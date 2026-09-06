@@ -561,6 +561,36 @@ int mesh_session_toggle_node_muted(struct mesh_session *session, uint32_t node_i
 int mesh_session_remove_node(struct mesh_session *session, uint32_t node_id);
 
 /*
+ * Drops entries from our own roster and asks the radio for nothing. The counterpart to a
+ * NodeDB reset, which empties the radio's database and deliberately leaves ours standing: the
+ * roster is the client's, so emptying it is the client's own verb rather than a side effect of
+ * one sent over the air.
+ *
+ * `only_off_nodedb` keeps every node the last completed sync found in the radio's database and
+ * drops the rest - after a NodeDB reset that leaves exactly what the radio still carries.
+ * False empties the roster instead.
+ *
+ * Our own node and every pinned node survive either way, for the reason they are never evicted:
+ * a pin is the user saying keep this one, and dropping our own record takes the name every
+ * screen resolves through it. Works with no link at all - there is nothing to send.
+ *
+ * Returns the number of entries dropped, or -EINVAL for a NULL session.
+ */
+int mesh_session_forget_nodes(struct mesh_session *session, bool only_off_nodedb);
+
+/*
+ * How many entries the same call would drop - the count, not the act. Shares its predicate
+ * with mesh_session_forget_nodes(), so the number a Settings row advertises is exactly what
+ * pressing it removes: a roster whose off-radio nodes are every one of them pinned answers 0
+ * here, and the row becomes a fact rather than a press that would do nothing.
+ *
+ * Not the same number as the Nodes tab's "off radio" total, which counts what is on screen
+ * and includes the pinned and our own record: those rows are still nodes the radio has
+ * forgotten, they are simply not ones this drops.
+ */
+uint32_t mesh_session_forgettable_nodes(const struct mesh_session *session, bool only_off_nodedb);
+
+/*
  * The radio's own location, set by hand: `set_fixed_position` stores the coordinates and turns
  * `PositionConfig.fixed_position` on, `remove_fixed_position` clears both. Neither goes
  * through set_config - a client that only flipped the config flag would turn fixed position on

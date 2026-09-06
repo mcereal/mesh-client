@@ -631,7 +631,7 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
                     return true;
                 }
                 if (mesh_ui_settings_action_is_radio(which)) {
-                    mesh_ui_nav_fill_radio_action(nav, which, action);
+                    mesh_ui_nav_fill_settings_action(nav, which, action);
                     return false; /* the rows redraw when the read-back lands */
                 }
                 if (action != NULL) {

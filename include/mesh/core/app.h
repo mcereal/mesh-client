@@ -95,6 +95,22 @@ struct mesh_app {
     uint32_t ui_notice_seq_seen;
     uint32_t ui_reboot_notices_seen;
     /*
+     * How many nodes the roster held that the radio's NodeDB did not, at the last sync that
+     * completed - and the id of that sync, so the comparison happens once per sync rather
+     * than once per publish.
+     *
+     * The pair exists to catch one event: the roster and the radio's database parting company
+     * in bulk, which is what a NodeDB reset does and what leaves the Nodes tab at 81 while the
+     * Status screen says 2. A *rise* is the signal, not the count itself - a roster that has
+     * held the same 79 orphans since the last run is not news, and toasting it on every launch
+     * would be. Seeded from the cache at startup for exactly that reason.
+     *
+     * Counted as what the Settings row the toast names would drop, not as every off-radio
+     * node, so a toast never sends the user to a row with nothing to do.
+     */
+    uint32_t ui_nodes_off_radio_seen;
+    uint32_t ui_nodes_off_radio_sync_id;
+    /*
      * The newest inbound ALERT_APP message already announced. A critical alert is the one
      * message the firmware expects a client to interrupt for, and the Messages tab may not be
      * the one on screen - so it toasts wherever the user is. Held as a packet id rather than a
