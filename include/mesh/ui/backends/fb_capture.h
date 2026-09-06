@@ -14,6 +14,7 @@
  */
 
 #include "mesh/ui/store.h"
+#include "mesh/ui/theme.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -25,15 +26,24 @@
 struct mesh_ui_capture;
 
 /*
- * Allocates an off-screen page. `scale` is the glyph multiplier the fb backend takes from
- * MESHCLIENT_FB_SCALE and is clamped to the range that backend accepts; pass 0 for its default.
- * Returns 0, or a negative errno.
+ * Allocates an off-screen page. The theme is the one MESHCLIENT_THEME names, as on the device;
+ * `scale` is the glyph multiplier the fb backend takes from MESHCLIENT_FB_SCALE, clamped to the
+ * range that backend accepts - pass 0 for the theme's own. Returns 0, or a negative errno.
  */
 int mesh_ui_capture_open(struct mesh_ui_capture **out, uint32_t width, uint32_t height, int scale);
 void mesh_ui_capture_close(struct mesh_ui_capture *capture);
 
 /* Same clamping as the scale passed to open(). */
 void mesh_ui_capture_set_scale(struct mesh_ui_capture *capture, int scale);
+
+/*
+ * Draws subsequent frames with `theme` - NULL meaning the default - and takes its scale.
+ *
+ * This is what makes a theme reviewable: the same scene script rendered four times is four GIFs
+ * of the same interactions in four looks, from a container with no device attached.
+ */
+void mesh_ui_capture_set_theme(struct mesh_ui_capture *capture, const struct mesh_ui_theme *theme);
+const struct mesh_ui_theme *mesh_ui_capture_theme(const struct mesh_ui_capture *capture);
 
 /* Draws one whole frame over whatever the page held before. */
 void mesh_ui_capture_render(struct mesh_ui_capture *capture,

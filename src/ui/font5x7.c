@@ -1,5 +1,7 @@
 #include "mesh/ui/font5x7.h"
 
+#include "mesh/ui/font.h"
+
 #include <stddef.h>
 #include <string.h>
 
@@ -434,4 +436,39 @@ bool mesh_font5x7_has_glyph(uint32_t codepoint) {
     }
     const struct font_composed *composed = font_find_composed(codepoint);
     return composed != NULL && font_base_glyph(composed->base, columns);
+}
+
+/* ---- the font descriptor ------------------------------------------------------------------ */
+
+/*
+ * The 5x7 font as `struct mesh_ui_font`.
+ *
+ * The widening from this font's 8-bit columns to the interface's 16-bit ones is here rather
+ * than in the table: the table is the part a human maintains, and it stays five hex bytes a
+ * character. A taller font would fill the wider columns directly.
+ */
+static bool font5x7_glyph(uint32_t codepoint, struct mesh_ui_glyph *out) {
+    struct mesh_font_glyph glyph;
+    const bool known = mesh_font5x7_glyph(codepoint, &glyph);
+    for (int col = 0; col < MESH_FONT_WIDTH; ++col) {
+        out->columns[col] = glyph.columns[col];
+        out->above[col] = glyph.above[col];
+    }
+    return known;
+}
+
+const struct mesh_ui_font *mesh_ui_font5x7(void) {
+    /* One column of gap between cells and two rows between lines, per scale step - the second
+       of those is the gap an accent hangs in, so it is not padding to be trimmed. */
+    static const struct mesh_ui_font font = {
+        .id = "5x7",
+        .name = "5x7",
+        .width = MESH_FONT_WIDTH,
+        .height = MESH_FONT_HEIGHT,
+        .advance_gap = 1U,
+        .line_gap = 2U,
+        .glyph = font5x7_glyph,
+        .has_glyph = mesh_font5x7_has_glyph,
+    };
+    return &font;
 }

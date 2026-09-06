@@ -9,41 +9,18 @@
 #include "fb_widgets.h"
 
 #include "mesh/ui/emoji.h"
-#include "mesh/ui/font5x7.h"
 
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
-struct fb_rgb fb_tone_color(enum fb_tone tone) {
-    switch (tone) {
-    case FB_TONE_DIM:
-        return k_fb_dim;
-    case FB_TONE_STRONG:
-        return k_fb_white;
-    case FB_TONE_ACCENT:
-        return k_fb_accent;
-    case FB_TONE_GOOD:
-        return k_fb_good;
-    case FB_TONE_BAD:
-        return k_fb_bad;
-    case FB_TONE_INBOUND:
-        return k_fb_inbound;
-    case FB_TONE_OUTBOUND:
-        return k_fb_outbound;
-    case FB_TONE_NORMAL:
-    default:
-        return k_fb_text;
-    }
-}
-
 void fb_draw_button(const struct mesh_ui_backend_fb_state *state, const struct fb_button *button) {
     if (button->selected) {
         fb_fill_rect(state, button->rect.x, button->rect.y, button->rect.w, button->rect.h,
-                     k_fb_tab_active_bg);
+                     fb_color(state, MESH_UI_COLOR_SURFACE_ACTIVE));
     } else if (button->filled) {
         fb_fill_rect(state, button->rect.x, button->rect.y, button->rect.w, button->rect.h,
-                     k_fb_cursor_bg);
+                     fb_color(state, MESH_UI_COLOR_SURFACE_SEL));
     }
 
     if (button->label == NULL || button->label[0] == '\0') {
@@ -54,24 +31,30 @@ void fb_draw_button(const struct mesh_ui_backend_fb_state *state, const struct f
        where its byte count says it does. Vertically it is the glyph body that is centred, not
        the line advance: the advance carries the gap that accents hang in, and counting it
        would push every label low in its box. */
-    const int text_w = (int)mesh_ui_text_cells(button->label) * fb_char_adv(button->scale);
-    const int text_h = MESH_FONT_HEIGHT * button->scale;
+    const int text_w = (int)mesh_ui_text_cells(button->label) * fb_char_adv(state, button->scale);
+    const int text_h = (int)fb_font(state)->height * button->scale;
     const int x = button->rect.x + (button->rect.w - text_w) / 2;
     const int y = button->rect.y + (button->rect.h - text_h) / 2;
+    /* Any fill at all - the cursor's or a resting one - means the label is drawn in the colour
+       the theme validates against that fill. Only a button with no fill is free to take its
+       idle tone: a resting fill and the text over it are exactly the pair a theme is held to,
+       and reading the tone there is how the keyboard's action row came out white on white. */
+    const bool on_fill = button->selected || button->filled;
     fb_draw_text(state, x, y, button->label, button->scale,
-                 button->selected ? k_fb_white : fb_tone_color(button->idle_tone));
+                 on_fill ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL)
+                         : fb_tone_color(state, button->idle_tone));
 }
 
 int fb_draw_chip(const struct mesh_ui_backend_fb_state *state, int x, int y, const char *label,
                  bool active, int scale) {
-    const int adv = fb_char_adv(scale);
+    const int adv = fb_char_adv(state, scale);
     const int width = (int)mesh_ui_text_cells(label) * adv + 2 * scale;
     const struct fb_button button = {
-        .rect = {.x = x, .y = y - scale, .w = width, .h = fb_line_adv(scale)},
+        .rect = {.x = x, .y = y - scale, .w = width, .h = fb_line_adv(state, scale)},
         .label = label,
         .selected = active,
         .filled = false,
-        .idle_tone = FB_TONE_DIM,
+        .idle_tone = MESH_UI_TONE_DIM,
         .scale = scale,
     };
     fb_draw_button(state, &button);
@@ -84,8 +67,8 @@ void fb_draw_title(const struct mesh_ui_backend_fb_state *state, struct fb_layou
     mesh_ui_line_reset(&line);
     mesh_ui_line_printf(&line, "%s", title);
     mesh_ui_line_fit(&line, layout->cols);
-    fb_draw_text(state, FB_MARGIN, layout->body_y, mesh_ui_line_text(&line), state->scale,
-                 k_fb_accent);
+    fb_draw_text(state, fb_margin(state), layout->body_y, mesh_ui_line_text(&line), state->scale,
+                 fb_tone_color(state, MESH_UI_TONE_ACCENT));
     layout->body_y += layout->line + state->scale;
     if (layout->rows > 1U) {
         layout->rows -= 1U;
@@ -96,12 +79,13 @@ void fb_draw_empty(const struct mesh_ui_backend_fb_state *state, const struct fb
                    const char *text) {
     /* Wrapped rather than drawn flat: these strings say which button to press next, and at a
        large glyph scale a flat one ran off the right edge with the verb on it. */
-    (void)fb_draw_wrapped(state, layout->body_y, text, layout->cols, (int)layout->rows, k_fb_dim);
+    (void)fb_draw_wrapped(state, layout->body_y, text, layout->cols, (int)layout->rows,
+                          fb_tone_color(state, MESH_UI_TONE_DIM));
 }
 
 void fb_draw_rule(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int scale,
-                  struct fb_rgb color) {
-    fb_fill_rect(state, x, y, w, scale / 2 > 0 ? scale / 2 : 1, color);
+                  enum mesh_ui_color role) {
+    fb_fill_rect(state, x, y, w, scale / 2 > 0 ? scale / 2 : 1, fb_color(state, role));
 }
 
 struct fb_list fb_list_begin_visible(const struct fb_layout *layout, uint32_t count,
@@ -130,20 +114,20 @@ bool fb_list_next(struct fb_list *list, uint32_t *index) {
 }
 
 void fb_list_row(const struct mesh_ui_backend_fb_state *state, struct fb_list *list, uint32_t index,
-                 const char *text, enum fb_tone tone) {
-    fb_draw_row(state, list->y, text, fb_tone_color(tone),
+                 const char *text, enum mesh_ui_tone tone) {
+    fb_draw_row(state, list->y, text, fb_tone_color(state, tone),
                 mesh_ui_list_is_cursor(&list->model, index));
     list->y += list->line;
 }
 
 void fb_list_row_line(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
-                      uint32_t index, struct mesh_ui_line *line, enum fb_tone tone) {
+                      uint32_t index, struct mesh_ui_line *line, enum mesh_ui_tone tone) {
     mesh_ui_line_fit(line, list->cols);
     fb_list_row(state, list, index, mesh_ui_line_text(line), tone);
 }
 
 void fb_list_row_line_badge(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
-                            uint32_t index, struct mesh_ui_line *line, enum fb_tone tone,
+                            uint32_t index, struct mesh_ui_line *line, enum mesh_ui_tone tone,
                             const char *badge) {
     const size_t badge_cols = (badge != NULL) ? mesh_ui_text_cells(badge) : 0U;
     if (badge_cols == 0U) {
@@ -153,7 +137,7 @@ void fb_list_row_line_badge(const struct mesh_ui_backend_fb_state *state, struct
 
     /* The row is clipped to leave the badge its own space rather than drawn under it, and the
        badge is measured in cells, so a count is a count whatever the row beside it holds. */
-    const int adv = fb_char_adv(state->scale);
+    const int adv = fb_char_adv(state, state->scale);
     const size_t room = list->cols > badge_cols + 2U ? list->cols - badge_cols - 2U : 1U;
     mesh_ui_line_fit(line, room);
 
@@ -161,16 +145,18 @@ void fb_list_row_line_badge(const struct mesh_ui_backend_fb_state *state, struct
     fb_list_row(state, list, index, mesh_ui_line_text(line), tone);
 
     const int width = (int)badge_cols * adv + adv;
-    const int x = (int)state->var.xres - FB_MARGIN - width;
-    fb_fill_rect(state, x, y - state->scale, width, fb_line_adv(state->scale) - state->scale,
-                 k_fb_accent);
-    /* Dark text on the accent fill: white on that yellow is unreadable at this glyph size. */
-    fb_draw_text(state, x + adv / 2, y, badge, state->scale, k_fb_bg);
+    const int x = (int)state->var.xres - fb_margin(state) - width;
+    fb_fill_rect(state, x, y - state->scale, width, fb_line_adv(state, state->scale) - state->scale,
+                 fb_color(state, MESH_UI_COLOR_ACCENT));
+    /* Whatever the theme says reads on its own accent fill - on the dark theme that is the
+       ground colour, because white on that yellow is unreadable at this glyph size. */
+    fb_draw_text(state, x + adv / 2, y, badge, state->scale,
+                 fb_color(state, MESH_UI_COLOR_ON_ACCENT));
 }
 
 void fb_list_sub_row(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
-                     const char *text, enum fb_tone tone) {
-    fb_draw_text(state, FB_MARGIN, list->y, text, state->scale, fb_tone_color(tone));
+                     const char *text, enum mesh_ui_tone tone) {
+    fb_draw_text(state, fb_margin(state), list->y, text, state->scale, fb_tone_color(state, tone));
     list->y += list->line;
 }
 
@@ -189,16 +175,34 @@ struct fb_bubble_metrics {
 
 /* A bubble never spans the whole panel: the gutter down the other side is what says which end
    of the conversation it came from, so three quarters is a look rather than a limit. */
-static size_t fb_bubble_max_cols(const struct fb_layout *layout) {
-    const size_t max = layout->cols > 4U ? layout->cols * 3U / 4U : layout->cols;
+static size_t fb_bubble_max_cols(const struct mesh_ui_backend_fb_state *state,
+                                 const struct fb_layout *layout) {
+    const size_t pct = fb_metrics(state)->bubble_width_pct;
+    const size_t max = layout->cols > 4U ? layout->cols * pct / 100U : layout->cols;
     return max > 0U ? max : 1U;
 }
 
 static bool fb_bubble_has(const char *text) { return text != NULL && text[0] != '\0'; }
 
-static struct fb_bubble_metrics fb_bubble_measure(const struct fb_layout *layout,
+/*
+ * The tone for a bubble's quieter lines - the sender on one of ours, the clock on any of them.
+ *
+ * Dim while the bubble sits at rest, and the bubble's own body colour once the cursor is on it.
+ * The selected fills are a step lighter by design, and dim over one of those is the pairing a
+ * theme has least room for: on the dark palette it measured 1.9:1, well under the 3:1 a
+ * secondary line is held to, and the body colour is a pair the theme is already validated on.
+ */
+static enum mesh_ui_tone fb_bubble_quiet_tone(const struct fb_bubble *bubble) {
+    if (!bubble->selected || bubble->failed) {
+        return MESH_UI_TONE_DIM;
+    }
+    return bubble->outbound ? MESH_UI_TONE_OUTBOUND : MESH_UI_TONE_INBOUND;
+}
+
+static struct fb_bubble_metrics fb_bubble_measure(const struct mesh_ui_backend_fb_state *state,
+                                                  const struct fb_layout *layout,
                                                   const struct fb_bubble *bubble) {
-    const size_t max = fb_bubble_max_cols(layout);
+    const size_t max = fb_bubble_max_cols(state, layout);
     struct fb_bubble_metrics metrics;
     memset(&metrics, 0, sizeof metrics);
 
@@ -256,34 +260,35 @@ static struct fb_bubble_metrics fb_bubble_measure(const struct fb_layout *layout
     return metrics;
 }
 
-uint32_t fb_bubble_rows(const struct fb_layout *layout, const struct fb_bubble *bubble) {
-    return fb_bubble_measure(layout, bubble).rows;
+uint32_t fb_bubble_rows(const struct mesh_ui_backend_fb_state *state,
+                        const struct fb_layout *layout, const struct fb_bubble *bubble) {
+    return fb_bubble_measure(state, layout, bubble).rows;
 }
 
 void fb_draw_separator(const struct mesh_ui_backend_fb_state *state, int y, const char *label) {
-    const int adv = fb_char_adv(state->scale);
-    const int rule_y = y + (MESH_FONT_HEIGHT * state->scale) / 2;
-    const int left = FB_MARGIN;
-    const int right = (int)state->var.xres - FB_MARGIN;
+    const int adv = fb_char_adv(state, state->scale);
+    const int rule_y = y + ((int)fb_font(state)->height * state->scale) / 2;
+    const int left = fb_margin(state);
+    const int right = (int)state->var.xres - left;
 
     if (!fb_bubble_has(label)) {
-        fb_draw_rule(state, left, rule_y, right - left, state->scale, k_fb_cursor_bg);
+        fb_draw_rule(state, left, rule_y, right - left, state->scale, MESH_UI_COLOR_RULE);
         return;
     }
 
     /* Centred in cells, so a label with an emoji in it sits where it looks centred. */
     const int width = (int)mesh_ui_text_cells(label) * adv;
     const int x = left + (right - left - width) / 2;
-    fb_draw_rule(state, left, rule_y, x - left - adv, state->scale, k_fb_cursor_bg);
+    fb_draw_rule(state, left, rule_y, x - left - adv, state->scale, MESH_UI_COLOR_RULE);
     fb_draw_rule(state, x + width + adv, rule_y, right - (x + width + adv), state->scale,
-                 k_fb_cursor_bg);
-    fb_draw_text(state, x, y, label, state->scale, k_fb_dim);
+                 MESH_UI_COLOR_RULE);
+    fb_draw_text(state, x, y, label, state->scale, fb_tone_color(state, MESH_UI_TONE_DIM));
 }
 
 void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
                     int y, const struct fb_bubble *bubble) {
-    const struct fb_bubble_metrics metrics = fb_bubble_measure(layout, bubble);
-    const int adv = fb_char_adv(state->scale);
+    const struct fb_bubble_metrics metrics = fb_bubble_measure(state, layout, bubble);
+    const int adv = fb_char_adv(state, state->scale);
     const int scale = state->scale;
 
     if (fb_bubble_has(bubble->separator)) {
@@ -296,43 +301,49 @@ void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct f
        separate messages rather than as one block. */
     const int pad = adv / 2 > 0 ? adv / 2 : 1;
     const int box_w = (int)metrics.cols * adv + 2 * pad;
-    const int box_x = bubble->outbound ? (int)state->var.xres - FB_MARGIN - box_w : FB_MARGIN;
+    const int box_x =
+        bubble->outbound ? (int)state->var.xres - fb_margin(state) - box_w : fb_margin(state);
     const uint32_t box_rows = metrics.rows - (fb_bubble_has(bubble->separator) ? 1U : 0U);
     const int box_h = (int)box_rows * layout->line - scale;
 
-    struct fb_rgb fill;
+    enum mesh_ui_color fill_role;
     if (bubble->failed) {
-        fill = k_fb_bubble_bad;
+        fill_role = MESH_UI_COLOR_BUBBLE_FAILED;
     } else if (bubble->outbound) {
-        fill = bubble->selected ? k_fb_bubble_out_sel : k_fb_bubble_out;
+        fill_role = bubble->selected ? MESH_UI_COLOR_BUBBLE_OUT_SEL : MESH_UI_COLOR_BUBBLE_OUT;
     } else {
-        fill = bubble->selected ? k_fb_bubble_in_sel : k_fb_bubble_in;
+        fill_role = bubble->selected ? MESH_UI_COLOR_BUBBLE_IN_SEL : MESH_UI_COLOR_BUBBLE_IN;
     }
+    const struct mesh_ui_rgb fill = fb_color(state, fill_role);
     fb_fill_rect(state, box_x, y - scale, box_w, box_h, fill);
 
     /* The cursor also gets a bar down its outer edge: on a small panel a fill one step lighter
        is not by itself enough to find, and a colour-blind eye gets nothing from it at all. */
     if (bubble->selected) {
         const int bar_x = bubble->outbound ? box_x + box_w - scale : box_x;
-        fb_fill_rect(state, bar_x, y - scale, scale, box_h, k_fb_accent);
+        fb_fill_rect(state, bar_x, y - scale, scale, box_h, fb_color(state, MESH_UI_COLOR_ACCENT));
     }
 
     const int text_x = box_x + pad;
-    const struct fb_rgb body = fb_tone_color(bubble->outbound ? FB_TONE_OUTBOUND : FB_TONE_INBOUND);
+    const struct mesh_ui_rgb body =
+        fb_tone_color(state, bubble->outbound ? MESH_UI_TONE_OUTBOUND : MESH_UI_TONE_INBOUND);
 
     if (fb_bubble_has(bubble->name)) {
         struct mesh_ui_line line;
         mesh_ui_line_reset(&line);
         mesh_ui_line_printf(&line, "%s", bubble->name);
         mesh_ui_line_fit(&line, metrics.cols);
+        /* Ours is dimmed and theirs is accented: on our own bubble the name is a reminder, on
+           theirs it is the thing being looked for. */
         fb_draw_text(state, text_x, y, mesh_ui_line_text(&line), scale,
-                     bubble->outbound ? k_fb_dim : k_fb_accent);
+                     fb_tone_color(state, bubble->outbound ? fb_bubble_quiet_tone(bubble)
+                                                           : MESH_UI_TONE_ACCENT));
         y += layout->line;
     }
 
     /* The same walk the measure made, so the rows painted are the rows reserved. */
     struct mesh_ui_wrap wrap;
-    mesh_ui_wrap_begin(&wrap, bubble->text, fb_bubble_max_cols(layout));
+    mesh_ui_wrap_begin(&wrap, bubble->text, fb_bubble_max_cols(state, layout));
     int last_y = y;
     size_t last_cols = 0U;
     uint32_t drawn = 0U;
@@ -351,7 +362,8 @@ void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct f
         return;
     }
     const int meta_w = (int)mesh_ui_text_cells(bubble->meta) * adv;
-    const struct fb_rgb meta_color = bubble->failed ? k_fb_bad : k_fb_dim;
+    const struct mesh_ui_rgb meta_color =
+        fb_tone_color(state, bubble->failed ? MESH_UI_TONE_BAD : fb_bubble_quiet_tone(bubble));
     if (metrics.meta_own_line) {
         fb_draw_text(state, box_x + box_w - pad - meta_w, y, bubble->meta, scale, meta_color);
     } else {
@@ -363,13 +375,18 @@ void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct f
     }
 }
 
-size_t fb_field_label_cols(const struct fb_layout *layout, size_t preferred) {
-    return layout->cols < 40U ? layout->cols / 2U : preferred;
+size_t fb_field_label_cols(const struct mesh_ui_backend_fb_state *state,
+                           const struct fb_layout *layout, size_t preferred) {
+    const struct mesh_ui_metrics *metrics = fb_metrics(state);
+    if (preferred == 0U) {
+        preferred = metrics->field_label_cols;
+    }
+    return layout->cols < metrics->narrow_cols ? layout->cols / 2U : preferred;
 }
 
 void fb_list_field_row(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
                        uint32_t index, const char *label, size_t label_cols, const char *marker,
-                       const char *value, enum fb_tone tone) {
+                       const char *value, enum mesh_ui_tone tone) {
     struct mesh_ui_line line;
     mesh_ui_line_reset(&line);
     /* The label occupies its column exactly - clipped when long, padded when short - measured
@@ -388,7 +405,7 @@ void fb_title_count(char *out, size_t out_len, const char *name, uint32_t count,
 }
 
 void fb_draw_status_row(const struct mesh_ui_backend_fb_state *state,
-                        const struct fb_layout *layout, int *y, enum fb_tone tone,
+                        const struct fb_layout *layout, int *y, enum mesh_ui_tone tone,
                         const char *label, const char *fmt, ...) {
     if (*y + layout->line > layout->footer_y) {
         return;
@@ -405,6 +422,7 @@ void fb_draw_status_row(const struct mesh_ui_backend_fb_state *state,
     va_end(args);
 
     mesh_ui_line_fit(&line, layout->cols);
-    fb_draw_text(state, FB_MARGIN, *y, mesh_ui_line_text(&line), state->scale, fb_tone_color(tone));
+    fb_draw_text(state, fb_margin(state), *y, mesh_ui_line_text(&line), state->scale,
+                 fb_tone_color(state, tone));
     *y += layout->line;
 }

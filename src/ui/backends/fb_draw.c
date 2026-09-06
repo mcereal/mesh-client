@@ -11,36 +11,49 @@
 #include "fb_internal.h"
 
 #include "mesh/ui/emoji.h"
-#include "mesh/ui/font5x7.h"
 #include "mesh/utils/text.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
 
-/* Palette. Dark ground, cool greys for chrome, one warm colour for things that need the eye. */
-const struct fb_rgb k_fb_bg = {0x0A, 0x14, 0x1E};
-const struct fb_rgb k_fb_text = {220, 230, 240};
-const struct fb_rgb k_fb_dim = {140, 150, 165};
-const struct fb_rgb k_fb_tab_active_bg = {60, 110, 170};
-const struct fb_rgb k_fb_cursor_bg = {40, 80, 120};
-const struct fb_rgb k_fb_white = {255, 255, 255};
-const struct fb_rgb k_fb_inbound = {235, 245, 255};
-/* Bright enough to read on its own bubble fill. It used to be the dim grey that said "ours" on
-   a bare row; the bubble says that now, and text this size on a filled ground needs contrast. */
-const struct fb_rgb k_fb_outbound = {228, 238, 248};
-/* Bubble fills. Theirs is the neutral ground, ours is the one with colour in it - the same
-   "you are the blue one" every messenger has trained everybody on. The selected pair are the
-   same hues lifted, so the cursor reads as a highlight rather than as a different kind of
-   message. */
-const struct fb_rgb k_fb_bubble_in = {30, 44, 60};
-const struct fb_rgb k_fb_bubble_out = {34, 66, 104};
-const struct fb_rgb k_fb_bubble_in_sel = {52, 72, 94};
-const struct fb_rgb k_fb_bubble_out_sel = {58, 104, 154};
-const struct fb_rgb k_fb_bubble_bad = {84, 40, 44};
-const struct fb_rgb k_fb_accent = {255, 220, 120};
-const struct fb_rgb k_fb_good = {120, 220, 150};
-const struct fb_rgb k_fb_bad = {240, 120, 120};
+/* ---- the theme on the state --------------------------------------------------------------- */
+
+/*
+ * Every colour, margin and glyph size a frame uses comes through these four.
+ *
+ * They are trivial on purpose: the point is that there is exactly one path from "what does
+ * this mean" to "which pixels", so a theme switch cannot leave a corner of the UI behind.
+ */
+void fb_state_set_theme(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_theme *theme,
+                        int scale) {
+    if (state == NULL) {
+        return;
+    }
+    state->theme = theme != NULL ? theme : mesh_ui_theme_default();
+    state->scale = mesh_ui_theme_clamp_scale(state->theme, scale);
+}
+
+struct mesh_ui_rgb fb_color(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_color role) {
+    return mesh_ui_theme_color(state != NULL ? state->theme : NULL, role);
+}
+
+struct mesh_ui_rgb fb_tone_color(const struct mesh_ui_backend_fb_state *state,
+                                 enum mesh_ui_tone tone) {
+    return mesh_ui_theme_tone(state != NULL ? state->theme : NULL, tone);
+}
+
+const struct mesh_ui_metrics *fb_metrics(const struct mesh_ui_backend_fb_state *state) {
+    return mesh_ui_theme_metrics(state != NULL ? state->theme : NULL);
+}
+
+const struct mesh_ui_font *fb_font(const struct mesh_ui_backend_fb_state *state) {
+    return mesh_ui_theme_font(state != NULL ? state->theme : NULL);
+}
+
+int fb_margin(const struct mesh_ui_backend_fb_state *state) {
+    return (int)fb_metrics(state)->margin;
+}
 
 /* Scale an 8-bit channel into a framebuffer bitfield and shift it into place. */
 static inline uint32_t fb_pack_channel(uint8_t value, const struct fb_bitfield *field) {
@@ -173,32 +186,38 @@ static void fb_fill_packed(const struct mesh_ui_backend_fb_state *state, int x, 
     }
 }
 
-/* Glyph metrics for a given multiplier: one pixel column of gap per scale step, two rows. */
-int fb_char_adv(int scale) { return MESH_FONT_WIDTH * scale + scale; }
-int fb_line_adv(int scale) { return MESH_FONT_HEIGHT * scale + 2 * scale; }
+/* Glyph metrics for a given multiplier. The gaps are the font's, not this file's: a taller
+   font with a different line gap changes every measurement above without touching one. */
+int fb_char_adv(const struct mesh_ui_backend_fb_state *state, int scale) {
+    return mesh_ui_font_advance(fb_font(state), scale);
+}
+int fb_line_adv(const struct mesh_ui_backend_fb_state *state, int scale) {
+    return mesh_ui_font_line(fb_font(state), scale);
+}
 
 void fb_draw_glyph(const struct mesh_ui_backend_fb_state *state, int x, int y, uint32_t codepoint,
-                   int scale, struct fb_rgb color) {
-    struct mesh_font_glyph glyph;
-    (void)mesh_font5x7_glyph(codepoint, &glyph);
+                   int scale, struct mesh_ui_rgb color) {
+    const struct mesh_ui_font *font = fb_font(state);
+    struct mesh_ui_glyph glyph;
+    (void)mesh_ui_font_glyph(font, codepoint, &glyph);
 
     const uint32_t packed = compose_color(state, color.r, color.g, color.b);
 
     /*
      * The glyph is stored column-major and the framebuffer is row-major, so walk rows and emit
      * each horizontal run of lit columns as one span. A typical glyph row is one or two runs,
-     * where the old per-pixel loop was up to MESH_FONT_WIDTH * scale separate clipped writes.
+     * where the old per-pixel loop was up to one clipped write per lit pixel.
      */
-    for (int row = 0; row < MESH_FONT_HEIGHT; ++row) {
-        const uint8_t bit = (uint8_t)(1U << row);
+    for (int row = 0; row < (int)font->height; ++row) {
+        const uint16_t bit = (uint16_t)(1U << row);
         int col = 0;
-        while (col < MESH_FONT_WIDTH) {
+        while (col < (int)font->width) {
             if ((glyph.columns[col] & bit) == 0U) {
                 ++col;
                 continue;
             }
             int end = col;
-            while (end < MESH_FONT_WIDTH && (glyph.columns[end] & bit) != 0U) {
+            while (end < (int)font->width && (glyph.columns[end] & bit) != 0U) {
                 ++end;
             }
             fb_fill_packed(state, x + col * scale, y + row * scale, (end - col) * scale, scale,
@@ -209,13 +228,13 @@ void fb_draw_glyph(const struct mesh_ui_backend_fb_state *state, int x, int y, u
 
     /* An accent that would not fit in the cell hangs in the gap above the line. */
     int col = 0;
-    while (col < MESH_FONT_WIDTH) {
+    while (col < (int)font->width) {
         if ((glyph.above[col] & 0x01U) == 0U) {
             ++col;
             continue;
         }
         int end = col;
-        while (end < MESH_FONT_WIDTH && (glyph.above[end] & 0x01U) != 0U) {
+        while (end < (int)font->width && (glyph.above[end] & 0x01U) != 0U) {
             ++end;
         }
         fb_fill_packed(state, x + col * scale, y - scale, (end - col) * scale, scale, packed);
@@ -297,12 +316,12 @@ static void fb_draw_emoji(const struct mesh_ui_backend_fb_state *state, int x, i
     /* The box is the full character advance rather than the glyph's five columns: at the
        advance an emoji stands as tall as the capitals beside it, and the sprites carry their
        own transparent margin, so neighbours still separate. */
-    const int box = fb_char_adv(scale);
-    const int top = y + (MESH_FONT_HEIGHT * scale - box) / 2;
+    const int box = fb_char_adv(state, scale);
+    const int top = y + ((int)fb_font(state)->height * scale - box) / 2;
 
     /* Nearest-neighbour source column per destination column. Identical for every row, so the
        division runs once per column instead of once per pixel. */
-    int sx_map[MESH_FONT_WIDTH * FB_MAX_SCALE + FB_MAX_SCALE];
+    int sx_map[(MESH_UI_GLYPH_MAX_WIDTH + 1) * MESH_UI_SCALE_MAX];
     if (box <= 0 || box > (int)(sizeof sx_map / sizeof sx_map[0])) {
         return;
     }
@@ -343,7 +362,7 @@ static void fb_draw_emoji(const struct mesh_ui_backend_fb_state *state, int x, i
  * as wide as it draws.
  */
 void fb_draw_text(const struct mesh_ui_backend_fb_state *state, int x, int y, const char *text,
-                  int scale, struct fb_rgb color) {
+                  int scale, struct mesh_ui_rgb color) {
     int cursor = x;
     size_t offset = 0;
     for (;;) {
@@ -356,32 +375,32 @@ void fb_draw_text(const struct mesh_ui_backend_fb_state *state, int x, int y, co
         if (cell.is_emoji) {
             fb_draw_emoji(state, cursor, y, cell.sprite, scale);
         } else if (cell.codepoint == (uint32_t)'\n') {
-            y += fb_line_adv(scale);
+            y += fb_line_adv(state, scale);
             cursor = x;
             continue;
         } else {
             fb_draw_glyph(state, cursor, y, cell.codepoint, scale, color);
         }
-        cursor += fb_char_adv(scale);
+        cursor += fb_char_adv(state, scale);
     }
 }
 
 void fb_fill_rect(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h,
-                  struct fb_rgb color) {
+                  struct mesh_ui_rgb color) {
     fb_fill_packed(state, x, y, w, h, compose_color(state, color.r, color.g, color.b));
 }
 
-void fb_clear(const struct mesh_ui_backend_fb_state *state, struct fb_rgb color) {
+void fb_clear(const struct mesh_ui_backend_fb_state *state, struct mesh_ui_rgb color) {
     fb_fill_rect(state, 0, 0, (int)state->var.xres, (int)state->var.yres, color);
 }
 
 /* Columns of text that fit between the margins at this scale. */
 size_t fb_cols(const struct mesh_ui_backend_fb_state *state, int scale) {
-    const int usable = (int)state->var.xres - 2 * FB_MARGIN;
+    const int usable = (int)state->var.xres - 2 * fb_margin(state);
     if (usable <= 0) {
         return 1U;
     }
-    return (size_t)(usable / fb_char_adv(scale));
+    return (size_t)(usable / fb_char_adv(state, scale));
 }
 
 /* Clip a line to `cols` columns. Counted in drawn cells, not bytes, so a character is never
@@ -396,14 +415,15 @@ size_t fb_width(const char *line) { return mesh_ui_text_cells(line); }
 /* Draw one list row, highlighting it when it is the cursor. `x` is the text origin; the
    highlight spans the full width so the eye finds it without reading. */
 void fb_draw_row(const struct mesh_ui_backend_fb_state *state, int y, const char *text,
-                 struct fb_rgb color, bool selected) {
-    const int line = fb_line_adv(state->scale);
+                 struct mesh_ui_rgb color, bool selected) {
+    const int margin = fb_margin(state);
+    const int line = fb_line_adv(state, state->scale);
     if (selected) {
-        fb_fill_rect(state, FB_MARGIN / 2, y - state->scale, (int)state->var.xres - FB_MARGIN, line,
-                     k_fb_cursor_bg);
-        color = k_fb_white;
+        fb_fill_rect(state, margin / 2, y - state->scale, (int)state->var.xres - margin, line,
+                     fb_color(state, MESH_UI_COLOR_SURFACE_SEL));
+        color = fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL);
     }
-    fb_draw_text(state, FB_MARGIN, y, text, state->scale, color);
+    fb_draw_text(state, margin, y, text, state->scale, color);
 }
 
 /* "3m", "2h", "5d" since a radio-reported epoch; "?" when either clock is unusable. */
@@ -445,7 +465,7 @@ void fb_format_clock(uint32_t rx_time, char *out, size_t out_len) {
 
 /* Wraps `text` into at most `max_lines` lines of `cols` columns, drawing each. */
 int fb_draw_wrapped(const struct mesh_ui_backend_fb_state *state, int y, const char *text,
-                    size_t cols, int max_lines, struct fb_rgb color) {
+                    size_t cols, int max_lines, struct mesh_ui_rgb color) {
     int lines = 0;
     const char *cursor = text;
     char line[160];
@@ -467,8 +487,8 @@ int fb_draw_wrapped(const struct mesh_ui_backend_fb_state *state, int y, const c
         }
         memcpy(line, cursor, take);
         line[take] = '\0';
-        fb_draw_text(state, FB_MARGIN, y, line, state->scale, color);
-        y += fb_line_adv(state->scale);
+        fb_draw_text(state, fb_margin(state), y, line, state->scale, color);
+        y += fb_line_adv(state, state->scale);
         lines++;
         cursor += take;
         while (*cursor == ' ') {

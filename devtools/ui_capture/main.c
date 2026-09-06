@@ -17,8 +17,11 @@
  * Scene script (one command per line, '#' starts a comment):
  *
  *   scene demo|empty       which invented radio to start from     (setup, default demo)
- *   scale N                glyph multiplier, 2..6                 (setup, default 4)
+ *   scale N                glyph multiplier, 2..6                 (setup, default the theme's)
  *   delay MS               per-frame delay written to the manifest (setup, default 140)
+ *   theme NAME             dark|light|contrast|colorblind - before the first frame it picks
+ *                          the look, after it switches and emits one, so a single script can
+ *                          show the same screen in every theme
  *   tab NAME               walk Left/Right to messages|nodes|devices|status|settings
  *   key NAME [COUNT]       up down left right a b x y l1 r1 start select
  *   hold MS                add MS to the delay of the frame just emitted
@@ -35,6 +38,7 @@
 #include "mesh/ui/backends/fb_capture.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/store.h"
+#include "mesh/ui/theme.h"
 
 #include <errno.h>
 #include <stdbool.h>
@@ -61,6 +65,7 @@ struct uicap {
     unsigned frame_count;
     unsigned delay_capacity;
     int scale;
+    const char *theme_id;
     bool started;
     bool quiet;
     const char *scene;
@@ -247,11 +252,33 @@ static void uicap_emit(struct uicap *cap) {
     }
 }
 
+/*
+ * Picks the theme by name, and re-applies the scale because a theme carries one of its own.
+ * `scale` of 0 means "whatever this theme asks for", which is what makes `theme light` alone do
+ * the right thing and `scale 5` still win when a script says both.
+ */
+static void uicap_apply_theme(struct uicap *cap, const char *name, unsigned line_number) {
+    const struct mesh_ui_theme *theme = mesh_ui_theme_by_id(name);
+    if (theme == NULL) {
+        fprintf(stderr, "uicap: line %u: no theme called '%s'. Try:", line_number, name);
+        for (size_t i = 0; i < mesh_ui_theme_count(); ++i) {
+            fprintf(stderr, " %s", mesh_ui_theme_at(i)->id);
+        }
+        fputc('\n', stderr);
+        exit(1);
+    }
+    mesh_ui_capture_set_theme(cap->capture, theme);
+    mesh_ui_capture_set_scale(cap->capture, cap->scale);
+}
+
 static void uicap_start(struct uicap *cap) {
     if (cap->started) {
         return;
     }
     cap->started = true;
+    if (cap->theme_id != NULL) {
+        uicap_apply_theme(cap, cap->theme_id, 0U);
+    }
     mesh_ui_capture_set_scale(cap->capture, cap->scale);
     if (strcmp(cap->scene, "demo") == 0) {
         uicap_scene_demo(cap);
@@ -432,6 +459,23 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         return;
     }
 
+    /* A theme before the first frame chooses the look; after it, switching is itself the thing
+       worth filming, so it emits a frame like every other command. */
+    if (strcmp(command, "theme") == 0) {
+        char *value = uicap_word(&rest);
+        if (value == NULL) {
+            fprintf(stderr, "uicap: line %u: 'theme' needs a name\n", line_number);
+            exit(1);
+        }
+        if (!cap->started) {
+            cap->theme_id = strdup(value);
+            return;
+        }
+        uicap_apply_theme(cap, value, line_number);
+        uicap_emit(cap);
+        return;
+    }
+
     if (strcmp(command, "key") == 0) {
         char *name = uicap_word(&rest);
         char *count_text = uicap_word(&rest);
@@ -522,7 +566,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
 
 static void uicap_usage(void) {
     fputs("usage: meshclient_uicap [--script FILE] [--out DIR] [--scale N] [--delay MS]\n"
-          "                        [--prefix NAME] [--quiet]\n\n"
+          "                        [--theme NAME] [--prefix NAME] [--quiet]\n\n"
           "Reads a scene script (stdin by default), writes DIR/NAME-NNNN.ppm and\n"
           "DIR/frames.txt. See devtools/ui_capture/scenes/ for examples.\n",
           stderr);
@@ -552,6 +596,8 @@ int main(int argc, char **argv) {
             cap.scale = (int)uicap_number(argv[++i], "--scale");
         } else if (strcmp(arg, "--delay") == 0 && value != NULL) {
             cap.delay_ms = uicap_number(argv[++i], "--delay");
+        } else if (strcmp(arg, "--theme") == 0 && value != NULL) {
+            cap.theme_id = argv[++i];
         } else if (strcmp(arg, "--quiet") == 0) {
             cap.quiet = true;
         } else if (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0) {

@@ -28,6 +28,9 @@ evdev -> mesh_ui_input -> mesh_ui_controller_handle_key -> mesh_ui_store_handle_
   `mesh_ui_transcript_window`, the bottom-anchored scroll window that variable-height items
   need. None of them touches a framebuffer, a font or a snapshot, so all are unit tested
   directly (`tests/suites/ui_layout.c`) and all are as useful to a new backend as to the fb one.
+- **`src/ui/theme.c`** and **`src/ui/font.c`** hold what the UI *looks* like: the palette by
+  role, the metrics, and the font registry a theme names one from. Nothing that draws holds a
+  colour or a margin of its own; see [Themes](#themes).
 - **`src/ui/nav*.c`** own the tab/cursor/compose-target model (`struct mesh_ui_nav`, carried
   inside every snapshot and clamped against the lists on each consume) and return a
   `mesh_ui_action` the controller hands to `mesh_app_on_ui_action`. `nav.c` is the router;
@@ -280,7 +283,7 @@ shoulder, revealed in the one place you went to change it.
 
 | File | Layer | What belongs there |
 |---|---|---|
-| `fb_draw.c` | ink | pixels, glyphs, the palette, cell metrics (`fb_internal.h`) |
+| `fb_draw.c` | ink | pixels, glyphs, the theme lookups, cell metrics (`fb_internal.h`) |
 | `fb_widgets.c` | components | buttons, chips, list rows, field rows, rules (`fb_widgets.h`) |
 | `fb_screens.c` | screens | one renderer per screen, plus the tab strip and footer |
 | `fb.c` | device | `/dev/fb0`, the page flip, the backend vtable |
@@ -316,9 +319,10 @@ paint over the message below it, and the transcript places the next bubble from 
 one reported. A second way of measuring the same text — a `strlen`, a second wrapper — is how
 that happens.
 
-Screens name a **tone** (`FB_TONE_ACCENT`, `FB_TONE_BAD`, …) rather than a palette constant, so
-re-theming is one function — `fb_tone_color()` — rather than a hunt for `k_fb_accent` across
-nine renderers. Same idea as a stylesheet with a token called `danger` instead of a hex value.
+Screens name a **tone** (`MESH_UI_TONE_ACCENT`, `MESH_UI_TONE_BAD`, …) rather than a colour, and
+components take a tone or a **role** (`MESH_UI_COLOR_SURFACE_SEL`) rather than an RGB — see
+[Themes](#themes) below. Same idea as a stylesheet with a token called `danger` instead of a hex
+value.
 
 `struct fb_button` is one component covering the on-screen keyboard's character keys, its action
 row, and (sized to its own label, via `fb_draw_chip`) the tab strip: a filled cell with a label
@@ -371,7 +375,8 @@ margins keep neighbours apart.
 
 ### `src/ui/font5x7.c`
 
-The framebuffer font, keyed by **codepoint** rather than by byte: ASCII plus Latin-1 Supplement
+The framebuffer font, reached through the `struct mesh_ui_font` descriptor it publishes
+(`mesh_ui_font5x7()`) and keyed by **codepoint** rather than by byte: ASCII plus Latin-1 Supplement
 and Latin Extended-A. Accented letters are **composed** from a base letter and a mark
 (`k_composed`) rather than drawn, so adding one is a line. Lowercase leaves rows 0 and 1 of the
 cell free and the mark goes there; capitals and ascenders fill all seven rows, so their mark
@@ -408,6 +413,69 @@ the build** — run it by hand and commit the result. 5626 sprites over 3963 uni
 purpose: a braced initialiser of a million integers costs minutes of compile time, the literal
 costs about two seconds. The file carries its own
 `#pragma GCC diagnostic ignored "-Woverlength-strings"` plus a `.clang-format-ignore` entry.
+
+## Themes
+
+Everything that makes the UI *look* like something — the palette, the margin, the glyph
+multiplier, the font — is one table in `src/ui/theme.c`, and nothing that draws holds an opinion
+of its own. `MESHCLIENT_THEME` picks one (`dark`, `light`, `contrast`, `colorblind`); `dark` is
+the palette the device has always drawn and is unchanged.
+
+Three vocabularies, from most abstract to least:
+
+| Layer | What it is | Who speaks it |
+|---|---|---|
+| **Tone** (`enum mesh_ui_tone`) | what a piece of content *means*: normal, dim, strong, accent, good, bad, inbound, outbound | screens, and every widget that takes text |
+| **Role** (`enum mesh_ui_color`) | what a colour *does*: the ground, the fill under the cursor, text on an accent fill, an inbound bubble | widgets, for the things that are not text |
+| **RGB** (`struct mesh_ui_rgb`) | an actual colour | `src/ui/theme.c` and `fb_fill_packed()`, nothing between |
+
+A tone resolves to a role and a role resolves to an RGB, both through the theme. `fb_color()`
+and `fb_tone_color()` on the backend state are the only path, which is what makes a switch
+total: a renderer cannot keep a colour back, because it has nowhere to put one.
+
+Geometry works the same way. `struct mesh_ui_metrics` holds the margin, the body scale, how many
+steps smaller chrome text is, how much of the body a bubble may fill, and the width below which
+the label column gives way — all of which used to be literals in drawing functions. A
+"large text" theme is that struct with a different `scale`; a roomier one is a different
+`margin`. Neither needs a renderer touched.
+
+The font is a seam too (`include/mesh/ui/font.h`). `struct mesh_ui_font` is a cell size, two
+gaps and a glyph lookup; `src/ui/font5x7.c` provides the one that ships, and a theme names it by
+id. Every measurement in the UI — columns per line, button widths, bubble heights, the scroll
+window — comes from `mesh_ui_font_advance()`/`mesh_ui_font_line()` rather than from a constant,
+so a second font is a table entry rather than a refactor. `MESH_UI_GLYPH_MAX_WIDTH`/`_HEIGHT`
+bound the buffers a glyph is decoded into; raise them when a font needs it.
+
+### Adding a theme
+
+Add an entry to `k_themes` in `src/ui/theme.c` — an id, a name, a font id, a colour per role and
+its metrics. That is the whole change. `mesh_ui_theme_validate()` then holds it to a readability
+contract, which the test suite runs over every registered theme:
+
+- body text on its ground **4.5:1**, the WCAG AA threshold;
+- secondary text — dim rows, the clock on a bubble, a status colour — **3:1**;
+- a hairline only has to be visible.
+
+Contrast is `mesh_ui_theme_contrast()`: undo the display's gamma per channel, weight the three
+by how much of our sense of brightness comes from each (green most, blue almost none), compare
+the lighter against the darker. It is a 256-entry table rather than a `pow()` because `pow()`
+would be the only thing in this tree pulling libm into the static aarch64 link.
+
+The `colorblind` theme is why roles are named for meaning. Roughly one man in twelve cannot
+separate the green of "connected" from the red of "failed"; that theme swaps the pair for the
+Okabe–Ito blue and orange and moves the accent to reddish purple, and it is a palette change
+only because no renderer ever said "green".
+
+### Seeing a theme
+
+`--theme` on `ui-capture.sh`, or a `theme NAME` line in a scene script. Before the first frame it
+picks the look; after it, it switches and emits a frame, so one script renders the same screen in
+every theme:
+
+```bash
+make ui-capture ARGS="devtools/ui_capture/scenes/themes.scene -o themes.gif"
+./scripts/ui-capture.sh -t light -o light.png -d 1 devtools/ui_capture/scenes/messages.scene
+```
 
 ## Backend selection
 
@@ -448,8 +516,8 @@ printf 'scene demo\ntab nodes\nkey down 2\nkey a\n' | ./scripts/ui-capture.sh -o
 ```
 
 A `.png` output captures a single frame; anything else is an animated GIF. The output is halved
-by default (`-d 1` keeps it at the panel's 1024x768) and `-s N` sets the glyph scale the device
-takes from `MESHCLIENT_FB_SCALE`.
+by default (`-d 1` keeps it at the panel's 1024x768), `-s N` sets the glyph scale the device
+takes from `MESHCLIENT_FB_SCALE`, and `-t NAME` the theme it takes from `MESHCLIENT_THEME`.
 
 **Scene scripts** are one command per line, `#` starts a comment, and every command but the
 first three emits a frame — `key ... 3` emits three, and the screen the scene starts on is
@@ -458,7 +526,8 @@ emitted before any of them. Worked examples live in `devtools/ui_capture/scenes/
 | Command | What it does |
 |---|---|
 | `scene demo\|empty` | which invented radio to start from: a mesh with eight nodes and a message log, or nothing connected. Setup only, and the default is `demo` |
-| `scale N` | glyph multiplier, 2..6. Setup only |
+| `scale N` | glyph multiplier, 2..6. Setup only; the default is the theme's own |
+| `theme NAME` | `dark\|light\|contrast\|colorblind`. Before the first frame it picks the look and emits nothing; after it, it switches and emits a frame |
 | `delay MS` | default per-frame delay. Setup only |
 | `tab NAME` | walk Left/Right to `messages`, `nodes`, `devices`, `status` or `settings` |
 | `key NAME [COUNT]` | `up down left right a b x y l1 r1 start select` |
