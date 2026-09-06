@@ -9,12 +9,14 @@ hold 500
 key down 4
 key a
 hold 700
-# A opens the canned list over the thread: one more press sends the row under the cursor.
+# A opens the canned list over the thread, cursor on the first reply; a second A sends it.
 key a
 hold 900
-key b
-hold 500
-# Y skips it and types instead, so B here lands back on the conversation, not on the list.
+key a
+message out BRVO OK
+toast Sent to BRVO
+hold 1200
+# Y skips the list and types instead, landing straight on the keyboard.
 key y
 hold 700
 key down

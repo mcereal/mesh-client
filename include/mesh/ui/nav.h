@@ -225,10 +225,13 @@ struct mesh_ui_nav {
     bool keyboard_passkey;
     bool pairing_confirm;
     char pairing_label[MESH_UI_NAV_TARGET_NAME_MAX];
-    /* The keyboard target the prompt displaced, restored when it closes. The prompt can land
-       on top of an open keyboard, and the text being typed is parked in `draft_saved` like any
-       other. (A settings keyboard that had itself parked a compose draft loses that one: there
-       is a single parking slot, and the text in front of the user is the one worth keeping.) */
+    /* The keyboard the prompt displaced, restored when it closes. The prompt can land on top
+       of an open keyboard, and the text being typed is parked in `draft_saved` like any other.
+       `keyboard_displaced` is what says one was open at all: `keyboard_field_displaced` cannot,
+       because NONE is what a message keyboard reads as. (A settings keyboard that had itself
+       parked a compose draft loses that one: there is a single parking slot, and the text in
+       front of the user is the one worth keeping.) */
+    bool keyboard_displaced;
     uint8_t keyboard_field_displaced;
     /* Devices tab: Y is armed by one press and forgets the node on the second, because a
        bond dropped by accident costs the user a re-pair with the PIN. */

@@ -889,6 +889,7 @@ bool mesh_ui_nav_open_passkey(struct mesh_ui_nav *nav, const char *label, uint32
        whatever the user was typing and BlueZ will not wait for them to finish. That includes a
        keyboard that is already open - its text and its target both come back on close. */
     snprintf(nav->draft_saved, sizeof nav->draft_saved, "%s", nav->draft);
+    nav->keyboard_displaced = nav->keyboard_open;
     nav->keyboard_field_displaced = nav->keyboard_open ? nav->keyboard_field : MESH_UI_FIELD_NONE;
     nav->keyboard_field = MESH_UI_FIELD_NONE;
     nav->keyboard_passkey = true;
