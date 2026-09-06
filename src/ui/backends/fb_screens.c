@@ -259,8 +259,9 @@ static void fb_format_day(uint32_t rx_time, char *out, size_t out_len) {
 /* A day apart, or a long enough silence, is a break in the conversation; anything closer is the
    same exchange and gets no furniture between the messages. */
 #define FB_THREAD_GAP_SECONDS 1800U /* 30 minutes: a new separator */
-#define FB_THREAD_RUN_SECONDS 300U  /* 5 minutes: still the same run, so the name is not repeated  \
-                                     */
+#define FB_THREAD_RUN_SECONDS                                                                      \
+    300U /* 5 minutes: still the same run, so the name is not repeated                             \
+          */
 
 static bool fb_thread_same_day(uint32_t a, uint32_t b) {
     if (a == 0U || b == 0U) {
@@ -280,9 +281,15 @@ static uint32_t fb_thread_elapsed(uint32_t earlier, uint32_t later) {
     return (earlier == 0U || later == 0U || later < earlier) ? 0U : later - earlier;
 }
 
-/* Everything the screen decides about one message: what furniture it gets and what it says. */
+/*
+ * Everything the screen decides about one message: what furniture it gets and what it says.
+ *
+ * `force_name` names the sender on a bubble that would otherwise inherit the name from the
+ * message above it - which is what the first bubble on screen has to do, because the message
+ * above it is not on screen to have said it.
+ */
 static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot, const uint32_t *indices,
-                                uint32_t position, struct fb_thread_row *row) {
+                                uint32_t position, bool force_name, struct fb_thread_row *row) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     const struct mesh_ui_message *message = &snapshot->messages.entries[indices[position]];
     const struct mesh_ui_message *previous =
@@ -318,7 +325,7 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot, const u
         previous->channel != message->channel ||
         fb_thread_elapsed(previous->rx_time, message->rx_time) >= FB_THREAD_RUN_SECONDS;
 
-    if (starts_run && (names_needed || (outbound && nav->inbox))) {
+    if ((starts_run || force_name) && (names_needed || (outbound && nav->inbox))) {
         const char *peer = message->peer_name[0] != '\0' ? message->peer_name : "?";
         struct mesh_ui_line line;
         mesh_ui_line_reset(&line);
@@ -368,6 +375,12 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot, const u
     mesh_str_copy(row->meta, sizeof row->meta, mesh_ui_line_text(&meta));
 }
 
+/* A bubble's height, clamped into the byte the transcript window measures in. */
+static uint8_t fb_thread_height(const struct fb_layout *layout, const struct fb_thread_row *row) {
+    const uint32_t rows = fb_bubble_rows(layout, &row->bubble);
+    return rows > 0xFFU ? 0xFFU : (uint8_t)rows;
+}
+
 static void fb_render_thread(const struct mesh_ui_backend_fb_state *state,
                              const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
@@ -400,21 +413,50 @@ static void fb_render_thread(const struct mesh_ui_backend_fb_state *state,
 
     /* Measure every message, then let the transcript say which of them are on screen. Heights
        come from the same component that draws them, so the window can never be a row out. */
+    const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_MESSAGES];
     uint8_t heights[MESH_UI_MAX_MESSAGES];
     struct fb_thread_row row;
     for (uint32_t i = 0; i < count; ++i) {
-        fb_thread_row_build(snapshot, indices, i, &row);
-        const uint32_t rows = fb_bubble_rows(layout, &row.bubble);
-        heights[i] = rows > 0xFFU ? 0xFFU : (uint8_t)rows;
+        fb_thread_row_build(snapshot, indices, i, false, &row);
+        heights[i] = fb_thread_height(layout, &row);
     }
+    struct mesh_ui_transcript window =
+        mesh_ui_transcript_window(heights, count, cursor, layout->rows);
 
-    const struct mesh_ui_transcript window = mesh_ui_transcript_window(
-        heights, count, nav->cursor[MESH_UI_SCREEN_MESSAGES], layout->rows);
+    /*
+     * The first bubble on screen always names its sender.
+     *
+     * A run that began above the window would otherwise arrive with its name suppressed - and so
+     * would every bubble behind it, because each one only looks at the message before it in the
+     * filtered log rather than at what is actually drawn. A channel viewport filled by one node's
+     * burst then said nothing at all about who was talking, which is the one thing a channel
+     * transcript is for.
+     *
+     * Naming it costs a row, and a taller first bubble can push the window's start later, so the
+     * window and the named bubble are settled together rather than in sequence. It terminates: a
+     * taller first item only ever moves `first` later, and the window's other two branches (the
+     * whole transcript fits; the cursor has scrolled above it) do not depend on the heights at
+     * all. Two passes is the normal case and the cap is a bound, not an expectation.
+     */
+    uint32_t named = count; /* count means "nothing forced yet" */
+    for (uint32_t pass = 0U; pass < 4U && window.first != named; ++pass) {
+        if (named < count) {
+            fb_thread_row_build(snapshot, indices, named, false, &row);
+            heights[named] = fb_thread_height(layout, &row); /* it was not the first after all */
+        }
+        named = window.first;
+        fb_thread_row_build(snapshot, indices, named, true, &row);
+        heights[named] = fb_thread_height(layout, &row);
+        window = mesh_ui_transcript_window(heights, count, cursor, layout->rows);
+    }
+    /* Only force what the heights were settled against, so the draw can never disagree with the
+       measure even if the loop ran out of passes. */
+    const bool settled = (named == window.first);
 
     int y = layout->body_y + (int)window.pad * layout->line;
     for (uint32_t i = window.first; i < window.first + window.count && i < count; ++i) {
-        fb_thread_row_build(snapshot, indices, i, &row);
-        row.bubble.selected = (i == nav->cursor[MESH_UI_SCREEN_MESSAGES]);
+        fb_thread_row_build(snapshot, indices, i, settled && i == named, &row);
+        row.bubble.selected = (i == cursor);
         fb_draw_bubble(state, layout, y, &row.bubble);
         y += (int)heights[i] * layout->line;
     }
