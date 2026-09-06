@@ -1,3 +1,10 @@
+## [2.4.3](https://github.com/mcereal/mesh-client/compare/v2.4.2...v2.4.3) (2026-09-06)
+
+### Bug Fixes
+
+* **ble:** drop the bond and the agent when BlueZ goes away ([3a48077](https://github.com/mcereal/mesh-client/commit/3a48077cb8d01a7ae2f93c7f2f398ff88a404fee))
+* **ble:** retry the BlueZ bring-up instead of parking at startup ([51a9710](https://github.com/mcereal/mesh-client/commit/51a97109fa7dd458b4dfdfdca44c9e4bfe9d6508))
+
 ## [2.4.2](https://github.com/mcereal/mesh-client/compare/v2.4.1...v2.4.2) (2026-09-06)
 
 ### Bug Fixes

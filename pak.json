@@ -1,17 +1,17 @@
 {
   "name": "MeshClient",
-  "version": "v2.4.2",
+  "version": "v2.4.3",
   "type": "TOOL",
   "description": "A Meshtastic client for your handheld: read and send messages, browse the mesh, and edit your radio's settings over Bluetooth LE or USB.",
   "author": "mcereal",
   "repo_url": "https://github.com/mcereal/mesh-client",
   "release_filename": "MeshClient.pak.zip",
   "changelog": {
+    "v2.4.3": "Drop the bond and the agent when BlueZ goes away; Retry the BlueZ bring-up instead of parking at startup.",
     "v2.4.2": "Draw on-fill text on every filled button and selected bubble.",
     "v2.4.1": "Bound the GIF palette on a high-colour screen.",
     "v2.4.0": "Draw the thread as a chat transcript; Name the sender on the first bubble on screen.",
-    "v2.3.2": "Store framebuffer pixels through memcpy; Pack framebuffer colours once and fill spans.",
-    "v2.3.0": "Add the three large modules (roadmap phase 11); Reach every GPIO, and let zero_label mean what it says."
+    "v2.3.2": "Store framebuffer pixels through memcpy; Pack framebuffer colours once and fill spans."
   },
   "screenshots": [
     ".github/resources/screenshots/nodes.png",
