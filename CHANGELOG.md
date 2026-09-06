@@ -1,3 +1,13 @@
+## [2.7.0](https://github.com/mcereal/mesh-client/compare/v2.6.0...v2.7.0) (2026-09-06)
+
+### Features
+
+* **ui:** hold the d-pad to scroll a long list ([ca1f703](https://github.com/mcereal/mesh-client/commit/ca1f703cb7a696f933c090c5c69327af5f676ca6))
+
+### Bug Fixes
+
+* **ui:** end a held direction when its device goes away ([1553c99](https://github.com/mcereal/mesh-client/commit/1553c99d7a5f236156c03ce2827c45ba8ce37441))
+
 ## [2.6.0](https://github.com/mcereal/mesh-client/compare/v2.5.0...v2.6.0) (2026-09-06)
 
 ### Features

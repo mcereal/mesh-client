@@ -1,17 +1,17 @@
 {
   "name": "MeshClient",
-  "version": "v2.6.0",
+  "version": "v2.7.0",
   "type": "TOOL",
   "description": "A Meshtastic client for your handheld: read and send messages, browse the mesh, and edit your radio's settings over Bluetooth LE or USB.",
   "author": "mcereal",
   "repo_url": "https://github.com/mcereal/mesh-client",
   "release_filename": "MeshClient.pak.zip",
   "changelog": {
+    "v2.7.0": "Hold the d-pad to scroll a long list; End a held direction when its device goes away.",
     "v2.6.0": "Keep NeighborInfo, and draw the mesh as a graph; Accept the two text ports we dropped, and ask nodes for readings; Keep the node telemetry, packet fields and reactions we were dropping; Keep the three FromRadio variants we were dropping; Four gaps in the batch that Codex review caught.",
     "v2.5.0": "Pick the theme from Settings; Keep the bypass PAT off disk during dependency setup; Repaint on the press, and keep an explicit capture scale.",
     "v2.4.3": "Drop the bond and the agent when BlueZ goes away; Retry the BlueZ bring-up instead of parking at startup.",
-    "v2.4.2": "Draw on-fill text on every filled button and selected bubble.",
-    "v2.4.1": "Bound the GIF palette on a high-colour screen."
+    "v2.4.2": "Draw on-fill text on every filled button and selected bubble."
   },
   "screenshots": [
     ".github/resources/screenshots/nodes.png",
