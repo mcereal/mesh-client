@@ -266,6 +266,34 @@ struct mesh_ui_radio_stats {
     int32_t noise_floor;
 };
 
+/*
+ * The newest thing the radio said to the user in its own words (FromRadio.clientNotification),
+ * flattened for the backends. `seq` is the session's running count, so a backend can tell one
+ * notification from a repeat of the same text and the app can announce each exactly once; 0
+ * means none has arrived on this connection.
+ */
+#define MESH_UI_RADIO_NOTICE_TEXT_MAX 128U
+
+struct mesh_ui_radio_notice {
+    uint32_t seq;
+    uint32_t time;     /* the radio's clock, epoch seconds; 0 when it has none */
+    uint32_t received; /* our clock when it landed, epoch seconds; 0 when we have none */
+    uint8_t level;     /* meshtastic_LogRecord_Level, carried as a byte */
+    char text[MESH_UI_RADIO_NOTICE_TEXT_MAX];
+};
+
+/*
+ * The radio's outgoing packet queue. `res` non-zero is the radio having refused a packet
+ * outright - it never went on the air, so no Routing reply will ever explain it - and `free`
+ * against `maxlen` is how close the link is to that happening again.
+ */
+struct mesh_ui_queue_status {
+    bool valid;
+    int8_t res;
+    uint8_t free;
+    uint8_t maxlen;
+};
+
 struct mesh_ui_settings {
     /* The client's own facts. Always populated, radio or no radio - the About section is the
        one part of this tab that does not need a connection. */
@@ -273,6 +301,12 @@ struct mesh_ui_settings {
     /* Mesh health, from LocalStats telemetry rather than from the config handshake, so it
        fills in on its own schedule and is absent until the radio's first report. */
     struct mesh_ui_radio_stats stats;
+    /* What the radio has said and how full its send queue is. Like `stats`, these arrive on
+       the radio's own schedule rather than through the handshake, and neither is persisted. */
+    struct mesh_ui_radio_notice notice;
+    struct mesh_ui_queue_status queue;
+    /* Times the radio has told us it restarted on this connection. */
+    uint32_t reboot_notices;
     bool loaded;
     bool admin_ok;      /* at least one AdminMessage reply came back this connection */
     bool admin_busy;    /* a refresh is in flight */

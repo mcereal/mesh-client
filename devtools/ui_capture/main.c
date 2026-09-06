@@ -29,6 +29,9 @@
  *   toast TEXT             raise the transient notice backends draw in the footer
  *   message in|out NAME TEXT   append a message to the log, as if the radio had just said so
  *   status TEXT            set the transport status line
+ *   notice info|warn|error TEXT   what the radio last said about itself (Status tab)
+ *   queue FREE MAXLEN [refused]   the radio's outgoing packet queue (Status tab)
+ *   reboots N              times the radio has restarted under us (Status tab)
  *
  * Every command but the setup three emits one frame (`key ... 3` emits three), and the screen
  * the script starts on is emitted before any of them.
@@ -539,6 +542,73 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
     if (strcmp(command, "status") == 0) {
         uicap_start(cap);
         mesh_ui_store_set_transport_status(&cap->store, uicap_tail(rest));
+        uicap_emit(cap);
+        return;
+    }
+
+    /*
+     * The three Status rows that describe the radio rather than the traffic. Each is a
+     * read-modify-write of the settings view, because the store replaces it wholesale and the
+     * demo scene has already put a radio behind it.
+     */
+    if (strcmp(command, "notice") == 0) {
+        char *level = uicap_word(&rest);
+        if (level == NULL) {
+            fprintf(stderr, "uicap: line %u: 'notice' needs info|warn|error and text\n",
+                    line_number);
+            exit(1);
+        }
+        uicap_start(cap);
+        struct mesh_ui_settings settings = cap->store.settings;
+        /* python logging's scale, which is what LogRecord.Level is. */
+        if (strcmp(level, "error") == 0) {
+            settings.notice.level = 40U;
+        } else if (strcmp(level, "warn") == 0) {
+            settings.notice.level = 30U;
+        } else if (strcmp(level, "info") == 0) {
+            settings.notice.level = 20U;
+        } else {
+            fprintf(stderr, "uicap: line %u: 'notice' level is info, warn or error\n", line_number);
+            exit(1);
+        }
+        settings.notice.seq++;
+        settings.notice.received = (uint32_t)time(NULL);
+        snprintf(settings.notice.text, sizeof settings.notice.text, "%s", uicap_tail(rest));
+        mesh_ui_store_set_settings(&cap->store, &settings);
+        uicap_emit(cap);
+        return;
+    }
+
+    if (strcmp(command, "queue") == 0) {
+        char *free_slots = uicap_word(&rest);
+        char *maxlen = uicap_word(&rest);
+        if (free_slots == NULL || maxlen == NULL) {
+            fprintf(stderr, "uicap: line %u: 'queue' needs FREE and MAXLEN\n", line_number);
+            exit(1);
+        }
+        const char *refused = uicap_word(&rest);
+        uicap_start(cap);
+        struct mesh_ui_settings settings = cap->store.settings;
+        settings.queue.valid = true;
+        settings.queue.free = (uint8_t)uicap_number(free_slots, "queue");
+        settings.queue.maxlen = (uint8_t)uicap_number(maxlen, "queue");
+        /* Any Routing_Error will do: the row says "refused", not which error it was. */
+        settings.queue.res = (refused != NULL && strcmp(refused, "refused") == 0) ? 1 : 0;
+        mesh_ui_store_set_settings(&cap->store, &settings);
+        uicap_emit(cap);
+        return;
+    }
+
+    if (strcmp(command, "reboots") == 0) {
+        char *count_text = uicap_word(&rest);
+        if (count_text == NULL) {
+            fprintf(stderr, "uicap: line %u: 'reboots' needs a count\n", line_number);
+            exit(1);
+        }
+        uicap_start(cap);
+        struct mesh_ui_settings settings = cap->store.settings;
+        settings.reboot_notices = uicap_number(count_text, "reboots");
+        mesh_ui_store_set_settings(&cap->store, &settings);
         uicap_emit(cap);
         return;
     }

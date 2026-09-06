@@ -76,6 +76,14 @@ struct mesh_app {
         char peer[MESH_UI_NAV_TARGET_NAME_MAX];
     } ui_sent_watch[8];
     size_t ui_sent_watch_count;
+    /*
+     * The radio's own announcements, seen once each. Both counters are session-scoped and both
+     * reset to 0 when the link is reset, so a counter that has gone *backwards* is a new
+     * connection rather than a repeat - which is what stops the first notification of every
+     * connection from being swallowed as one already announced.
+     */
+    uint32_t ui_notice_seq_seen;
+    uint32_t ui_reboot_notices_seen;
     /* A Settings save in flight: the write counters seen when it was queued, so its ack or
        rejection can be announced once; see mesh_app_track_settings_save(). */
     bool settings_save_pending;

@@ -22,6 +22,21 @@
 #include <unistd.h>
 
 /*
+ * Our own wall clock as epoch seconds, or 0 when the Brick does not have one worth quoting.
+ *
+ * The handheld has no RTC battery, so an unconfigured one boots somewhere in 1970 and a
+ * timestamp taken from it would date every packet to before Meshtastic existed. Anything
+ * earlier than the floor is treated as no clock at all, which every caller already renders as
+ * "unknown" rather than as a date.
+ */
+#define MESH_SESSION_CLOCK_MIN_EPOCH 1600000000
+
+static uint32_t mesh_session_wall_clock(void) {
+    const time_t now = time(NULL);
+    return now > MESH_SESSION_CLOCK_MIN_EPOCH ? (uint32_t)now : 0U;
+}
+
+/*
  * Everything the connection that just ended told us about itself. The node roster is the one
  * thing kept: it belongs to the client, not to the radio. The radio's NodeDB holds 80 entries
  * on this hardware and evicts as soon as it fills, so wiping our copy on every reconnect threw
@@ -43,6 +58,12 @@ static void mesh_session_reset_handshake(struct mesh_session *session) {
 
     memset(&session->stats, 0, sizeof session->stats);
     memset(&session->traceroute, 0, sizeof session->traceroute);
+    /* Both describe the radio that is connected right now, so they go the way `stats` does.
+       The reboot counter goes with them: it counts restarts of *this* link, and a reader that
+       saw it at 2 on the last radio must not read the next one's first reboot as a third. */
+    memset(&session->notification, 0, sizeof session->notification);
+    memset(&session->queue, 0, sizeof session->queue);
+    session->reboot_notices = 0U;
     session->node_cache_warned = false;
     mesh_radio_settings_reset(&session->settings);
     session->admin_probe_queued = false;
@@ -523,10 +544,7 @@ static void mesh_session_touch_node_from_packet(struct mesh_session *session,
     uint32_t heard = packet->has_rx_time ? packet->rx_time : 0U;
     if (heard == 0U) {
         /* No radio timestamp: use ours if it looks like a real clock (not 1970). */
-        const time_t now = time(NULL);
-        if (now > 1600000000) {
-            heard = (uint32_t)now;
-        }
+        heard = mesh_session_wall_clock();
     }
 
     const bool known = mesh_session_node_known(session, packet->from);
@@ -579,10 +597,7 @@ static void mesh_session_apply_packet_details(struct mesh_session *session,
 
     uint32_t heard = packet->has_rx_time ? packet->rx_time : 0U;
     if (heard == 0U) {
-        const time_t now = time(NULL);
-        if (now > 1600000000) {
-            heard = (uint32_t)now;
-        }
+        heard = mesh_session_wall_clock();
     }
 
     /* LocalStats below is about the radio rather than about a node, so a full node cache
@@ -708,8 +723,7 @@ static bool mesh_session_handle_traceroute(struct mesh_session *session,
         trace->snr_back[i] = route.snr_back[i];
     }
 
-    const time_t now = time(NULL);
-    trace->completed = now > 1600000000 ? (uint32_t)now : 0U;
+    trace->completed = mesh_session_wall_clock();
     trace->state = MESH_TRACEROUTE_DONE;
     mesh_log_info("session", "Traceroute to 0x%08x: %u hops out, %u back", trace->target,
                   (unsigned)trace->route_count, (unsigned)trace->back_count);
@@ -741,6 +755,79 @@ static void mesh_session_handle_log_record(const meshtastic_LogRecord *record) {
     default:
         mesh_log_trace(component, "%s", message);
         break;
+    }
+}
+
+/*
+ * The radio's own explanation of something it just did or refused to do. Unlike a LogRecord -
+ * which is the firmware's debug stream and goes to our log at its own level - a
+ * ClientNotification is addressed *to the user*: the firmware raises one when it has taken a
+ * decision the person holding the client needs to know about, and the phone apps show it.
+ *
+ * The message is untrusted radio text, so it is sanitised on the way in like a node name is,
+ * and the slot it lands in is smaller than the 400 bytes the wire allows.
+ */
+static void mesh_session_handle_client_notification(struct mesh_session *session,
+                                                    const meshtastic_ClientNotification *note) {
+    struct mesh_client_notification *out = &session->notification;
+    /* Monotonic for the life of the session: two identical notifications are two events, and a
+       reader watching for "something new" cannot see that in the text. */
+    out->seq++;
+    out->time = note->time;
+    out->received = mesh_session_wall_clock();
+    out->has_reply_id = note->has_reply_id;
+    out->reply_id = note->has_reply_id ? note->reply_id : 0U;
+    out->level = (uint8_t)note->level;
+    mesh_text_sanitise((const uint8_t *)note->message, strnlen(note->message, sizeof note->message),
+                       out->text, sizeof out->text);
+
+    /* Logged at the radio's own level as well as kept for the UI: the screen shows the newest
+       one and the log is where the sequence of them can be read back afterwards. */
+    const char *component = "radio.notify";
+    switch (note->level) {
+    case meshtastic_LogRecord_Level_CRITICAL:
+    case meshtastic_LogRecord_Level_ERROR:
+        mesh_log_error(component, "%s", out->text);
+        break;
+    case meshtastic_LogRecord_Level_WARNING:
+        mesh_log_warn(component, "%s", out->text);
+        break;
+    default:
+        mesh_log_info(component, "%s", out->text);
+        break;
+    }
+}
+
+/*
+ * The radio reporting its outgoing queue after every ToRadio it took or refused.
+ *
+ * A refusal (`res` non-zero) is the one failure that produces no Routing reply at all: the
+ * packet was never transmitted, so nothing in the mesh will ever answer for it, and the
+ * message would otherwise sit PENDING until the ring evicted it. Marking it here is what turns
+ * "still sending..." into a stated failure with the firmware's own reason on it.
+ */
+static void mesh_session_handle_queue_status(struct mesh_session *session,
+                                             const meshtastic_QueueStatus *status) {
+    struct mesh_queue_status *out = &session->queue;
+    out->valid = true;
+    out->time = mesh_session_wall_clock();
+    out->res = status->res;
+    out->free = status->free;
+    out->maxlen = status->maxlen;
+    out->mesh_packet_id = status->mesh_packet_id;
+
+    if (status->res == 0) {
+        return;
+    }
+    mesh_log_warn("session", "Radio refused packet %u (error %d); %u of %u queue slots free",
+                  status->mesh_packet_id, (int)status->res, (unsigned)status->free,
+                  (unsigned)status->maxlen);
+    /* `res` is a Routing_Error, the same scale mesh_message_log_mark_ack() already speaks, so
+       the message log needs no new failure vocabulary for this. A queue status with no packet
+       id is the radio reporting depth rather than refusing anything. */
+    if (status->mesh_packet_id != 0U) {
+        (void)mesh_message_log_mark_ack(&session->messages, status->mesh_packet_id,
+                                        MESH_MESSAGE_ACK_FAILED, (uint8_t)status->res);
     }
 }
 
@@ -866,6 +953,30 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
         break;
     case meshtastic_FromRadio_log_record_tag:
         mesh_session_handle_log_record(&message.log_record);
+        break;
+    case meshtastic_FromRadio_clientNotification_tag:
+        mesh_session_handle_client_notification(session, &message.clientNotification);
+        break;
+    case meshtastic_FromRadio_queueStatus_tag:
+        mesh_session_handle_queue_status(session, &message.queueStatus);
+        break;
+    case meshtastic_FromRadio_rebooted_tag:
+        /*
+         * The radio restarted underneath a link that survived it. Everything the config sync
+         * told us describes the process that just died - the NodeDB replay, the channel table,
+         * the config fragments, and the admin session passkey above all - so the only correct
+         * response is to ask for all of it again.
+         *
+         * The counter is bumped *after* the handshake restarts, not before:
+         * mesh_session_begin_handshake() resets the per-connection state, and this counter is
+         * part of that state so it clears on a detach or a radio swap. Incrementing first
+         * would hand the reset its own answer to wipe.
+         */
+        if (message.rebooted) {
+            mesh_log_info("session", "Radio reports it rebooted; re-running the config sync");
+            (void)mesh_session_begin_handshake(session);
+            session->reboot_notices++;
+        }
         break;
     default:
         mesh_log_debug("session", "Ignoring FromRadio payload tag %" PRIu32,
@@ -1370,6 +1481,15 @@ const struct mesh_radio_settings *mesh_session_settings(const struct mesh_sessio
 
 const struct mesh_radio_stats *mesh_session_radio_stats(const struct mesh_session *session) {
     return session != NULL ? &session->stats : NULL;
+}
+
+const struct mesh_client_notification *
+mesh_session_notification(const struct mesh_session *session) {
+    return session != NULL ? &session->notification : NULL;
+}
+
+const struct mesh_queue_status *mesh_session_queue_status(const struct mesh_session *session) {
+    return session != NULL ? &session->queue : NULL;
 }
 
 int mesh_session_send_traceroute(struct mesh_session *session, uint32_t dest) {

@@ -786,3 +786,123 @@ MESH_TEST_CASE(session_roster_eviction, unit) {
 
     record_success(test_name);
 }
+
+/*
+ * The three things the radio says about itself that used to fall off the end of the FromRadio
+ * switch. Each one is the answer to a question nothing else on the link can answer, which is
+ * why they are worth keeping at all:
+ *
+ * - a ClientNotification is the firmware explaining a decision to the user;
+ * - a QueueStatus refusal is the *only* report of a packet that never went on the air, so no
+ *   Routing reply will ever arrive to mark the message failed;
+ * - `rebooted` says every fact the config sync gave us now describes a dead process.
+ */
+MESH_TEST_CASE(session_radio_announcements, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+    struct mesh_test_trace_capture capture;
+    memset(&capture, 0, sizeof capture);
+    mesh_session_attach(&session, mesh_test_trace_capture_fn, &capture);
+
+    MESH_TEST_FAIL_IF(mesh_session_notification(&session)->seq != 0U,
+                      "a notification was claimed before any arrived");
+    MESH_TEST_FAIL_IF(mesh_session_queue_status(&session)->valid,
+                      "a queue status was claimed before any arrived");
+
+    /* The message is radio text like a node name, so it arrives sanitised: a control byte in
+       it must not reach the framebuffer, and the wire field is far longer than our slot. */
+    meshtastic_FromRadio note = meshtastic_FromRadio_init_default;
+    note.which_payload_variant = meshtastic_FromRadio_clientNotification_tag;
+    note.clientNotification.time = 1750000000U;
+    note.clientNotification.level = meshtastic_LogRecord_Level_WARNING;
+    note.clientNotification.has_reply_id = true;
+    note.clientNotification.reply_id = 0x1234U;
+    snprintf(note.clientNotification.message, sizeof note.clientNotification.message,
+             "Duty cycle\nlimit reached");
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &note),
+                      "encode clientNotification failed");
+
+    const struct mesh_client_notification *held = mesh_session_notification(&session);
+    MESH_TEST_FAIL_IF(held->seq != 1U, "the first notification did not take sequence 1");
+    MESH_TEST_FAIL_IF(strcmp(held->text, "Duty cycle limit reached") != 0,
+                      "the notification text was not sanitised into the slot");
+    MESH_TEST_FAIL_IF(!held->has_reply_id || held->reply_id != 0x1234U ||
+                          held->level != (uint8_t)meshtastic_LogRecord_Level_WARNING ||
+                          held->time != 1750000000U,
+                      "the notification's metadata was not kept");
+
+    /* Two identical notifications are two events. Only the counter can say so. */
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &note),
+                      "re-feed clientNotification failed");
+    MESH_TEST_FAIL_IF(mesh_session_notification(&session)->seq != 2U,
+                      "a repeated notification did not advance the sequence");
+
+    /* A queue status with no refusal in it is depth reporting and touches no message. */
+    const uint32_t packet_id = 0x5150U;
+    struct mesh_message sent;
+    memset(&sent, 0, sizeof sent);
+    sent.packet_id = packet_id;
+    sent.direction = MESH_MESSAGE_OUTBOUND;
+    sent.ack = MESH_MESSAGE_ACK_PENDING;
+    mesh_str_copy(sent.text, sizeof sent.text, "hello");
+    MESH_TEST_FAIL_IF(mesh_message_log_append(&session.messages, &sent) == NULL,
+                      "seeding the outbound message failed");
+
+    meshtastic_FromRadio queue = meshtastic_FromRadio_init_default;
+    queue.which_payload_variant = meshtastic_FromRadio_queueStatus_tag;
+    queue.queueStatus.res = 0;
+    queue.queueStatus.free = 14;
+    queue.queueStatus.maxlen = 16;
+    queue.queueStatus.mesh_packet_id = packet_id;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &queue),
+                      "encode accepted queueStatus failed");
+    MESH_TEST_FAIL_IF(!mesh_session_queue_status(&session)->valid ||
+                          mesh_session_queue_status(&session)->free != 14U ||
+                          mesh_session_queue_status(&session)->maxlen != 16U,
+                      "the queue depth was not kept");
+    MESH_TEST_FAIL_IF(mesh_message_log_find(&session.messages, packet_id)->ack !=
+                          MESH_MESSAGE_ACK_PENDING,
+                      "an accepted packet was marked failed");
+
+    /* A refusal is the packet never leaving the radio. `res` is a Routing_Error, so it lands
+       on the message as the reason without any new failure vocabulary. */
+    queue.queueStatus.res = (int8_t)meshtastic_Routing_Error_NO_INTERFACE;
+    queue.queueStatus.free = 0;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &queue),
+                      "encode refused queueStatus failed");
+    const struct mesh_message *refused = mesh_message_log_find(&session.messages, packet_id);
+    MESH_TEST_FAIL_IF(refused->ack != MESH_MESSAGE_ACK_FAILED ||
+                          refused->ack_error != (uint8_t)meshtastic_Routing_Error_NO_INTERFACE,
+                      "a refused packet was not marked failed with the radio's reason");
+
+    /* A reboot re-runs the config sync: everything the last one told us describes a process
+       that no longer exists. The want_config_id that goes out is the proof it did. */
+    const unsigned sends_before = capture.calls;
+    meshtastic_FromRadio rebooted = meshtastic_FromRadio_init_default;
+    rebooted.which_payload_variant = meshtastic_FromRadio_rebooted_tag;
+    rebooted.rebooted = true;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &rebooted),
+                      "encode rebooted failed");
+    MESH_TEST_FAIL_IF(capture.calls == sends_before,
+                      "a reported reboot did not re-run the config sync");
+    MESH_TEST_FAIL_IF(!session.handshake.request_in_flight,
+                      "the re-run handshake is not in flight");
+    MESH_TEST_FAIL_IF(session.reboot_notices != 1U,
+                      "the reboot counter did not survive the handshake reset it triggers");
+
+    /* The reboot cleared the per-connection state, notification and queue included: they
+       described the process that just died. */
+    MESH_TEST_FAIL_IF(mesh_session_notification(&session)->seq != 0U ||
+                          mesh_session_queue_status(&session)->valid,
+                      "the dead process's announcements survived its reboot");
+
+    /* But the conversation does not belong to the radio, so it is still there. */
+    MESH_TEST_FAIL_IF(mesh_message_log_find(&session.messages, packet_id) == NULL,
+                      "the reboot took the message log with it");
+
+    /* And a dropped link forgets the counter, so the next radio's first reboot is its first. */
+    mesh_session_detach(&session);
+    MESH_TEST_FAIL_IF(session.reboot_notices != 0U, "the reboot counter survived the link drop");
+
+    record_success(test_name);
+}

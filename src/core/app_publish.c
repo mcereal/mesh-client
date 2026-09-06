@@ -390,6 +390,34 @@ static void mesh_app_flatten_radio_stats(const struct mesh_radio_stats *src,
     dst->noise_floor = src->noise_floor;
 }
 
+/* The radio's own announcements, copied by hand for the reason above. Both are always copied,
+   valid or not: `seq` 0 and `valid` false are what the renderers read as "nothing yet", and
+   zeroing them here is what clears the last radio's words when a new one connects. */
+static void mesh_app_flatten_radio_notice(const struct mesh_client_notification *src,
+                                          struct mesh_ui_radio_notice *dst) {
+    memset(dst, 0, sizeof *dst);
+    if (src == NULL || src->seq == 0U) {
+        return;
+    }
+    dst->seq = src->seq;
+    dst->time = src->time;
+    dst->received = src->received;
+    dst->level = src->level;
+    mesh_str_copy(dst->text, sizeof dst->text, src->text);
+}
+
+static void mesh_app_flatten_queue_status(const struct mesh_queue_status *src,
+                                          struct mesh_ui_queue_status *dst) {
+    memset(dst, 0, sizeof *dst);
+    if (src == NULL || !src->valid) {
+        return;
+    }
+    dst->valid = true;
+    dst->res = src->res;
+    dst->free = src->free;
+    dst->maxlen = src->maxlen;
+}
+
 /* Flattens the transport's protobuf-typed view into the UI's plain struct. */
 /* The About section's data: this client rather than the radio. The updater's state is copied
    across as a byte and a line of text so store.h stays free of the updater, the same way the
@@ -752,6 +780,39 @@ static void mesh_app_report_delivery(struct mesh_app *app) {
     app->ui_sent_watch_count = kept;
 }
 
+/*
+ * Announces what the radio has said about itself since the last publish, once each.
+ *
+ * Both counters run forwards for the life of a connection and are reset to 0 with the
+ * handshake, so "seq differs from what we last saw" is the test rather than "seq is greater":
+ * a reconnect restarts the count at 1, and a greater-than test would swallow the first
+ * notification of every connection after a talkative one.
+ */
+static void mesh_app_report_radio_notices(struct mesh_app *app) {
+    const struct mesh_client_notification *notice = mesh_session_notification(&app->session);
+    if (notice != NULL && notice->seq != app->ui_notice_seq_seen) {
+        app->ui_notice_seq_seen = notice->seq;
+        if (notice->seq != 0U && notice->text[0] != '\0' &&
+            app->config.run_mode == MESH_APP_RUN_FOREGROUND) {
+            /* The radio's words verbatim: it is describing a decision the firmware took, and
+               nothing this side of the link knows how to say it better. */
+            mesh_ui_store_set_toast(&app->ui_store, mesh_time_monotonic_ms(), notice->text);
+        }
+    }
+
+    const uint32_t reboots = app->session.reboot_notices;
+    if (reboots != app->ui_reboot_notices_seen) {
+        app->ui_reboot_notices_seen = reboots;
+        /* The session has already re-run the config sync by the time this is read; the toast
+           exists so a screen that empties and refills looks like an event rather than a
+           glitch. */
+        if (reboots != 0U && app->config.run_mode == MESH_APP_RUN_FOREGROUND) {
+            mesh_ui_store_set_toast(&app->ui_store, mesh_time_monotonic_ms(),
+                                    "Radio restarted; reloading its settings");
+        }
+    }
+}
+
 void mesh_app_publish_ui_state(struct mesh_app *app) {
     if (app == NULL) {
         return;
@@ -759,6 +820,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
 
     mesh_ui_store_tick(&app->ui_store, mesh_time_monotonic_ms());
     mesh_app_report_delivery(app);
+    mesh_app_report_radio_notices(app);
 
     struct mesh_transport *ble = mesh_ble_transport();
     if (ble == NULL) {
@@ -1074,6 +1136,9 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         }
     }
     mesh_app_flatten_radio_stats(mesh_session_radio_stats(&app->session), &ui_settings.stats);
+    mesh_app_flatten_radio_notice(mesh_session_notification(&app->session), &ui_settings.notice);
+    mesh_app_flatten_queue_status(mesh_session_queue_status(&app->session), &ui_settings.queue);
+    ui_settings.reboot_notices = app->session.reboot_notices;
     mesh_ui_store_set_settings(&app->ui_store, &ui_settings);
     mesh_app_track_settings_save(app, radio_settings, link_connected);
 

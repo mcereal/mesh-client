@@ -992,8 +992,70 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
                                stats->heap_total_bytes / 1024U);
         }
     } else if (snapshot->handshake_valid) {
-        fb_draw_status_row(state, layout, &y, MESH_UI_TONE_DIM, "Mesh", "%s",
-                           "waiting for the radio's first report");
+        /* Short enough for the value gutter: the long form was cut mid-word, which reads as
+           a bug rather than as a radio that has simply not reported yet. */
+        fb_draw_status_row(state, layout, &y, MESH_UI_TONE_DIM, "Mesh", "%s", "no report yet");
+    }
+
+    /*
+     * The radio's send queue. Only worth a row once it is under pressure or has just refused
+     * something: on an idle link it reads "16 of 16 free" for ever, which is one more number
+     * to skip past. A refusal keeps the row up because it is the explanation for a message
+     * that was never transmitted at all.
+     */
+    const struct mesh_ui_queue_status *queue = &snapshot->settings.queue;
+    if (queue->valid && queue->maxlen > 0U &&
+        (queue->res != 0 || queue->free < queue->maxlen / 2U)) {
+        fb_draw_status_row(state, layout, &y,
+                           queue->res != 0 ? MESH_UI_TONE_BAD : MESH_UI_TONE_ACCENT, "TX queue",
+                           "%u/%u free%s", (unsigned)queue->free, (unsigned)queue->maxlen,
+                           queue->res != 0 ? ", send refused" : "");
+    }
+
+    /*
+     * The last thing the radio said in its own words, and how many times it has restarted
+     * under us. Both are the answers to "why is this not working" that nothing else on this
+     * screen can give: the counters above describe traffic, and a duty-cycle refusal or a
+     * key mismatch is not traffic.
+     */
+    const struct mesh_ui_radio_notice *notice = &snapshot->settings.notice;
+    if (notice->seq != 0U && notice->text[0] != '\0') {
+        y += layout->line / 2;
+        /* Levels are python logging's scale: 40 is ERROR, 30 WARNING. Anything below that is
+           the radio being informative rather than reporting a problem. */
+        const enum mesh_ui_tone notice_tone = notice->level >= 40U   ? MESH_UI_TONE_BAD
+                                              : notice->level >= 30U ? MESH_UI_TONE_ACCENT
+                                                                     : MESH_UI_TONE_NORMAL;
+        /*
+         * When and how often on the labelled row, the words themselves wrapped underneath at
+         * the full width. Every other row on this screen is a label and a short value, but a
+         * notification is a sentence the firmware wrote, and a sentence in the 22-cell value
+         * gutter is three words and a cut - which loses exactly the part that explains
+         * anything.
+         */
+        char age[24];
+        fb_format_age(notice->received, age, sizeof age);
+        if (notice->seq > 1U) {
+            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_DIM, "Radio said",
+                               "%s, %u this connection", age, notice->seq);
+        } else {
+            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_DIM, "Radio said", "%s", age);
+        }
+        /* At most three lines, and never past the footer: a long notification must not push
+           the rows below it off the screen, since they are the ones that are always there. */
+        int notice_lines = (layout->footer_y - y) / layout->line;
+        if (notice_lines > 3) {
+            notice_lines = 3;
+        }
+        if (notice_lines > 0) {
+            /* fb_draw_wrapped returns how many lines it drew, not where it left the cursor. */
+            y += layout->line * fb_draw_wrapped(state, y, notice->text, layout->cols,
+                                                notice_lines, fb_tone_color(state, notice_tone));
+        }
+    }
+    if (snapshot->settings.reboot_notices > 0U) {
+        fb_draw_status_row(state, layout, &y, MESH_UI_TONE_ACCENT, "Reboots",
+                           "%u since connecting", snapshot->settings.reboot_notices);
     }
 
     y += layout->line / 2;

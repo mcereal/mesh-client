@@ -45,6 +45,56 @@ extern "C" {
 #define MESH_SESSION_MAX_PACKET 512U
 
 /*
+ * The firmware's ClientNotification message is char[400]; nothing the radio sends is that
+ * long in practice and the Status row it lands on is one line, so it is sanitised into
+ * something a screen can hold rather than kept whole.
+ */
+#define MESH_CLIENT_NOTIFICATION_TEXT_MAX 128U
+
+/*
+ * The radio explaining itself to the attached client: a duty-cycle limit reached, a channel
+ * key that did not match, a public key seen on two different nodes. It arrives as
+ * FromRadio.clientNotification and it is the *only* route these reach a user - nothing in the
+ * mesh traffic says why a send went nowhere, and a Routing ack that never lands looks exactly
+ * like a radio that is merely slow.
+ *
+ * Only the newest is kept, because the value is in seeing it when it happens rather than in
+ * keeping a log. `seq` counts every one that has arrived, so a reader can tell a repeat of the
+ * same text from a slot that has not moved and can say how many went past unseen; it is
+ * monotonic for the life of the session, and 0 means none has arrived.
+ */
+struct mesh_client_notification {
+    uint32_t seq;
+    uint32_t time;     /* the radio's clock, epoch seconds; 0 when it does not have one */
+    uint32_t received; /* our clock when it landed, epoch seconds; 0 when we do not have one */
+    bool has_reply_id;
+    uint32_t reply_id; /* the packet it is about, when it is about one */
+    uint8_t level;     /* meshtastic_LogRecord_Level */
+    char text[MESH_CLIENT_NOTIFICATION_TEXT_MAX];
+};
+
+/*
+ * The radio's outgoing packet queue, reported after every ToRadio it accepts or refuses.
+ *
+ * This is the one thing that distinguishes "the mesh did not deliver it" from "the radio never
+ * transmitted it at all": a send that overflows the queue is refused locally, no packet is ever
+ * emitted, and so no Routing reply will ever come back to mark the message failed. Without this
+ * the message sits PENDING for ever.
+ *
+ * `res` is a meshtastic_Routing_Error - 0 is accepted, anything else is a refusal - and
+ * `mesh_packet_id` names the packet it refers to, which is what lets a refusal be attached to
+ * the message the user actually sent.
+ */
+struct mesh_queue_status {
+    bool valid;
+    uint32_t time; /* our clock when this arrived, epoch seconds */
+    int8_t res;
+    uint8_t free;
+    uint8_t maxlen;
+    uint32_t mesh_packet_id;
+};
+
+/*
  * A node's last known fix. Meshtastic carries latitude and longitude as fixed-point 1e-7
  * degrees, so they are kept in that form and only divided out for display; `time` is the
  * radio's timestamp for the fix, which is not the same thing as when we heard from the node.
@@ -255,6 +305,16 @@ struct mesh_session {
     struct mesh_radio_settings settings;
     /* The last traceroute, running or finished; reset with the handshake. */
     struct mesh_traceroute traceroute;
+    /* The newest thing the radio said about itself, and the state of its send queue. Both
+       describe the radio that is connected right now, so both are cleared with the handshake
+       for the same reason `stats` is. */
+    struct mesh_client_notification notification;
+    struct mesh_queue_status queue;
+    /* Counts the times the radio has told us it restarted (FromRadio.rebooted) on this link.
+       A reboot invalidates everything the config sync told us, so the session re-runs the
+       handshake; the counter is what lets the UI say it happened rather than silently
+       reloading. */
+    uint32_t reboot_notices;
     mesh_session_send_fn send;
     void *send_ctx;
     uint32_t next_config_request_id;
@@ -411,6 +471,11 @@ const struct mesh_message_log *mesh_session_messages(const struct mesh_session *
 const struct mesh_radio_settings *mesh_session_settings(const struct mesh_session *session);
 /* The connected radio's own LocalStats, or a record with `valid` false before one arrives. */
 const struct mesh_radio_stats *mesh_session_radio_stats(const struct mesh_session *session);
+/* The newest ClientNotification, or a record with `seq` 0 before one arrives. */
+const struct mesh_client_notification *
+mesh_session_notification(const struct mesh_session *session);
+/* The radio's send queue, or a record with `valid` false before it reports one. */
+const struct mesh_queue_status *mesh_session_queue_status(const struct mesh_session *session);
 
 /*
  * Asks the mesh which way it reaches `dest`, replacing whatever the last trace found. Sends an
