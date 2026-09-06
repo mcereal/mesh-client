@@ -1,0 +1,28 @@
+# Writing a reply: the Compose overlay, the on-screen keyboard, and the toast the send leaves
+# behind. `message out` stands in for the radio's echo - the store only raises the SEND action,
+# and there is no app or radio behind this harness to carry it out.
+scene demo
+scale 4
+delay 130
+
+hold 500
+key down 4
+key a
+hold 700
+key y
+hold 700
+key up
+key a
+hold 500
+key down
+key right 8
+key a
+hold 400
+key down
+key left
+key a
+hold 700
+key start
+message out BRVO ok
+toast Sent to BRVO
+hold 1500

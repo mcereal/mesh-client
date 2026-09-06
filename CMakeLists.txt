@@ -70,6 +70,7 @@ add_library(meshclient_core
     src/ui/backends/stub.c
     src/ui/backends/cli.c
     src/ui/backends/fb.c
+    src/ui/backends/fb_capture.c
     src/ui/backends/fb_draw.c
     src/ui/backends/fb_widgets.c
     src/ui/backends/fb_screens.c
@@ -245,6 +246,20 @@ target_include_directories(meshclient_core PUBLIC ${NANOPB_GENERATED_DIR})
 target_compile_options(meshclient PRIVATE ${MESHCLIENT_COMPILE_OPTIONS})
 if(MESHCLIENT_LINK_OPTIONS)
     target_link_options(meshclient PRIVATE ${MESHCLIENT_LINK_OPTIONS})
+endif()
+
+# Host-only development tools (devtools/README.md): they render the UI off-screen so a change
+# can be looked at without a Brick. Nothing in the pak needs them, and the cross build cannot
+# run what it produces, so it skips them by default.
+if(CMAKE_CROSSCOMPILING)
+    set(MESHCLIENT_DEVTOOLS_DEFAULT OFF)
+else()
+    set(MESHCLIENT_DEVTOOLS_DEFAULT ON)
+endif()
+option(MESHCLIENT_BUILD_DEVTOOLS "Build the host-side development tools in devtools/"
+       ${MESHCLIENT_DEVTOOLS_DEFAULT})
+if(MESHCLIENT_BUILD_DEVTOOLS)
+    add_subdirectory(devtools)
 endif()
 
 include(CTest)

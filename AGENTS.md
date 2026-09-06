@@ -6,9 +6,11 @@ Keep platform-agnostic client code in `src/` (subfolders such as `core/`, `trans
 `transport/serial`, `proto/`, `ui/`, `utils/`) with shared headers under `include/`.
 Device-facing assets live in `Tools/tg5040/MeshClient.pak/`: `bin/shared/` for utilities bundled
 across platforms, `bin/tg5040/` for committed aarch64 binaries. Reusable scripts go under
-`scripts/`, and protocol or UX references under `docs/`. Tests are split across
-`tests/suites/<area>.c` over a small framework in `tests/framework/` and shared fixtures in
-`tests/support/`; see [`docs/testing.md`](docs/testing.md).
+`scripts/`, host-side development tools under `devtools/` (never `tools/` — `Tools/` already
+exists and macOS filesystems are case-insensitive by default), and protocol or UX references
+under `docs/`. Tests are split across `tests/suites/<area>.c` over a small framework in
+`tests/framework/` and shared fixtures in `tests/support/`; see
+[`docs/testing.md`](docs/testing.md).
 
 ## Build, Test, and Development Commands
 
@@ -22,6 +24,8 @@ across platforms, `bin/tg5040/` for committed aarch64 binaries. Reusable scripts
 - `make proto` — regenerate nanopb sources after editing `proto/meshtastic/meshtastic/`.
 - `cmake --build build/debug --target meshclient` — rebuild a single target after edits.
 - `make format` — clang-format the tree. See the note below.
+- `make ui-capture ARGS="<scene> -o out.gif"` — render a UI scene off-screen, no device needed
+  (`make docker-ui-capture` on macOS). See [`docs/ui.md`](docs/ui.md#looking-at-a-ui-change).
 - Sanitizers: `make debug CMAKE_ARGS="-- -DMESHCLIENT_ENABLE_ASAN=ON"` (or `UBSAN`).
 
 Always sync submodules (`git submodule update --init --recursive`) after pulling; CMake
@@ -56,7 +60,8 @@ the release bump, so it is not cosmetic. Write subjects in imperative mood with 
 Meshtastic issue IDs where they apply. See [`docs/semantic-release.md`](docs/semantic-release.md).
 
 PRs should include a concise summary, validation notes (commands run or hardware tested),
-screenshots for UI-facing work, and any follow-up TODOs. Link to the docs in `docs/` when
+screenshots for UI-facing work — a GIF from `make ui-capture` when the change is about a
+transition rather than one screen — and any follow-up TODOs. Link to the docs in `docs/` when
 behaviour changes materially, and request review from both protocol and UI owners for
 cross-cutting updates.
 

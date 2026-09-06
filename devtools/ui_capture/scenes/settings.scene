@@ -1,0 +1,14 @@
+# Down into a Settings section and back out. Nothing is connected in this scene, so the
+# sections carry no radio values - it is the navigation and the chrome that are on show.
+scene demo
+scale 4
+delay 180
+
+tab settings
+hold 600
+key a
+hold 900
+key down 3
+hold 600
+key b
+hold 700

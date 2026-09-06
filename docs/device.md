@@ -140,7 +140,7 @@ menu; the log shows discovery, `Auto-connecting to ...`, the handshake, and ever
 `/mnt/SDCARD/Tools/tg5040/MeshClient.pak`, its `$HOME` (prefs, handshake cache) at
 `/mnt/SDCARD/.userdata/tg5040/MeshClient/`.
 
-## Screenshots
+## Screenshots and clips
 
 NextUI's own screenshot shortcut is part of `minarch`, the emulator runtime, and captures that
 process's GL surface - so it cannot see a pak like ours, which draws straight to `/dev/fb0`.
@@ -154,9 +154,34 @@ make deploy-shot ARGS="-n 5 -d 3 -o tour.png"      # five, 3 s apart -> tour-1.p
 make deploy-shot ARGS="-P 1 -o launcher.png"       # the other page (see below)
 ```
 
-Output is a 1024x768 PNG written where you ran the command, converted on the host with nothing
-but the Python standard library - no Pillow, no ffmpeg. This is how the screenshots for the Pak
-Store listing get made.
+Output is a 1024x768 PNG written where you ran the command, converted on the host by
+`scripts/frames.py` with nothing but the Python standard library - no Pillow, no ffmpeg. This is
+how the screenshots for the Pak Store listing get made. `-s N` shrinks the PNG by an integer
+factor on the way out.
+
+`make deploy-clip` films the same page instead of grabbing one, and writes an animated GIF - for
+a change that is about a transition rather than about one screen:
+
+```bash
+make deploy-clip                                   # 24 frames now -> clip-<timestamp>.gif
+make deploy-clip ARGS="-d 10 -n 40 -o open.gif"    # 10 s to get there, then 40 frames
+make deploy-clip ARGS="-n 20 -r 400 -i 0.2"        # slower playback, and a pause between frames
+```
+
+Every frame is a 3 MB page and the device has nothing to shrink it with, so the whole clip comes
+down one SSH connection (gzipped when the device has `gzip`, which busybox normally does) at a
+handful of frames a second. **It is not real time.** `-r MS` sets how fast it plays back, not how
+fast it was shot: slow it down when the capture was slow. `-s N` downscales, and defaults to 2
+because a 1024x768 GIF is four times the file for no more legibility.
+
+A GIF carries 256 colours, and the HUD uses a few dozen, so a clip of MeshClient is exact. Film
+something photographic instead - the launcher's box art, `-P 1` - and the encoder folds colours
+into buckets before choosing the palette, which is coarser and larger but finishes in seconds
+rather than minutes.
+
+To see a UI change without a Brick at all - from a container, CI, or a cloud session -
+`scripts/ui-capture.sh` renders the same screens off-screen from a scripted sequence of button
+presses. See [`docs/ui.md`](ui.md#looking-at-a-ui-change).
 
 **Launch MeshClient from the Tools menu, not over SSH.** Started with `nohup ./launch.sh` from
 an SSH session, the client does draw - but NextUI's launcher is still the foreground app and
@@ -170,8 +195,12 @@ Two things to know when a shot looks wrong:
   backend draws page 0 and mirrors into page 1, so page 0 is MeshClient. NextUI's SDL usually
   leaves the panel on page 1, so `-P 1` is what catches the launcher.
 - **Colours are read as little-endian XRGB8888** (`B,G,R,X` in memory), which is what the Brick
-  reports. If red and blue ever come out swapped, that assumption is what to change - the
-  channel assignment is four lines in `cmd_shot`.
+  reports. If red and blue ever come out swapped, that assumption is what to change - the channel
+  assignment is three lines in `read_raw()` in `scripts/frames.py`, and the off-screen renderer
+  writes the same order so both paths move together.
+- **A clip of static means a short read.** `dd` is asked for one row per block rather than one
+  page per block precisely so that cannot happen: it stops at the first short read, and one short
+  frame desynchronises every frame after it.
 
 ## What `make deploy-check` tells you
 

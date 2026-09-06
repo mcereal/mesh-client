@@ -73,12 +73,28 @@ make docker-pak      # static aarch64 build -> dist/MeshClient.pak.zip (+ .sha25
 `make help` lists the rest. Sanitizers: `make debug CMAKE_ARGS="-- -DMESHCLIENT_ENABLE_ASAN=ON"`
 (or `UBSAN`). `make format` runs clang-format over the tree.
 
+### Seeing a UI change
+
+`make ui-capture` walks the HUD through a scripted sequence of button presses and renders every
+frame off-screen — the real navigation model and the real framebuffer renderer, drawing into
+memory instead of `/dev/fb0` — so a change is reviewable as a picture with no Brick anywhere
+near. A GIF rather than a still, because most UI changes are about a transition:
+
+```bash
+make ui-capture ARGS="devtools/ui_capture/scenes/messages.scene -o messages.gif"
+make docker-ui-capture ARGS="..."    # on macOS
+```
+
+Scene scripts and the command list are in
+[`docs/ui.md`](docs/ui.md#looking-at-a-ui-change).
+
 ### Deploying to a device
 
 With the Brick on WiFi and the SSH Server pak installed, skip the SD card: set `BRICK_HOST` in
 `.brick.env` (copy `.brick.env.example`), then `make brick` (build + push), `make deploy`,
-`make deploy-logs`, `make deploy-check`, and `make deploy-shot` (a PNG of the device's screen).
-One-time setup and troubleshooting are in [`docs/device.md`](docs/device.md).
+`make deploy-logs`, `make deploy-check`, `make deploy-shot` (a PNG of the device's screen) and
+`make deploy-clip` (a GIF of it). One-time setup and troubleshooting are in
+[`docs/device.md`](docs/device.md).
 
 ## Repository layout
 
@@ -87,7 +103,8 @@ One-time setup and troubleshooting are in [`docs/device.md`](docs/device.md).
 | `src/` | core, event loop, transports, UI, utilities |
 | `include/` | public headers, mirroring `src/` (`core/`, `transport/`, `ui/`, `proto/`, `utils/`) |
 | `tests/` | unit tests, one binary run via CTest |
-| `scripts/` | build/package automation, `docker.sh`, `cross-build.sh`, device deploy |
+| `scripts/` | build/package automation, `docker.sh`, `cross-build.sh`, device deploy, frame encoding |
+| `devtools/` | host-only development tools; today the off-screen UI capture harness |
 | `docker/` | `Dockerfile` (`dev` and `cross` stages) and the cross toolchain bootstrap |
 | `Tools/tg5040/MeshClient.pak/` | pak scaffold: `launch.sh` and the updater's CA bundle |
 | `proto/meshtastic/`, `third_party/nanopb/` | upstream protobufs and nanopb (submodules) |
