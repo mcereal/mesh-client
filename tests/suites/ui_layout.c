@@ -184,3 +184,99 @@ MESH_TEST_CASE(layout_list_iterates_its_window, unit) {
     MESH_TEST_FAIL_IF(mesh_ui_list_is_cursor(&list, 0U), "an empty list has no cursor row");
     record_success(test_name);
 }
+
+/*
+ * The wrap walk. Both the measure pass and the draw pass go through it, so what it counts is
+ * literally what a bubble draws - the failure it exists to prevent is a bubble that reserves
+ * five rows and paints six over the message below it.
+ */
+MESH_TEST_CASE(layout_wrap_breaks_on_words, unit) {
+    struct mesh_ui_wrap wrap;
+    mesh_ui_wrap_begin(&wrap, "the quick brown fox", 10U);
+
+    MESH_TEST_FAIL_IF(!mesh_ui_wrap_next(&wrap), "the first line should be produced");
+    MESH_TEST_FAIL_IF(strcmp(wrap.line, "the quick") != 0,
+                      "the break should land on the space, with no trailing blank");
+    MESH_TEST_FAIL_IF(!mesh_ui_wrap_next(&wrap), "the second line should be produced");
+    MESH_TEST_FAIL_IF(strcmp(wrap.line, "brown fox") != 0, "the rest should follow whole");
+    MESH_TEST_FAIL_IF(mesh_ui_wrap_next(&wrap), "the text should be spent");
+
+    MESH_TEST_FAIL_IF(mesh_ui_wrap_lines("the quick brown fox", 10U) != 2U,
+                      "the count should agree with the walk");
+    MESH_TEST_FAIL_IF(mesh_ui_wrap_widest("the quick brown fox", 10U) != 9U,
+                      "a bubble sizes itself to its widest line, not to the window");
+    MESH_TEST_FAIL_IF(mesh_ui_wrap_lines("", 10U) != 0U, "empty text needs no rows");
+    record_success(test_name);
+}
+
+/* A word longer than the window has nowhere to break, and an emoji is one cell however many
+   bytes it is spelled with - the two ways a byte-counting wrapper goes wrong. */
+MESH_TEST_CASE(layout_wrap_measures_in_cells, unit) {
+    struct mesh_ui_wrap wrap;
+
+    mesh_ui_wrap_begin(&wrap, STAR STAR STAR STAR, 2U);
+    MESH_TEST_FAIL_IF(!mesh_ui_wrap_next(&wrap), "the first line should be produced");
+    MESH_TEST_FAIL_IF(strcmp(wrap.line, STAR STAR) != 0,
+                      "two cells should be two emoji, not two bytes");
+    MESH_TEST_FAIL_IF(mesh_ui_wrap_lines(STAR STAR STAR STAR, 2U) != 2U,
+                      "four one-cell emoji should wrap into two lines of two");
+
+    /* Nowhere to break: the word is cut at the window rather than pushed off the edge. */
+    mesh_ui_wrap_begin(&wrap, "unbreakable", 4U);
+    MESH_TEST_FAIL_IF(!mesh_ui_wrap_next(&wrap), "a long word should still produce a line");
+    MESH_TEST_FAIL_IF(strcmp(wrap.line, "unbr") != 0,
+                      "a word with no space should cut at the window");
+
+    /* A hard newline breaks wherever it falls and is never drawn. */
+    MESH_TEST_FAIL_IF(mesh_ui_wrap_lines("a\nb", 40U) != 2U, "a newline should break the line");
+    record_success(test_name);
+}
+
+/*
+ * The transcript window. A list pins the *cursor*; a transcript pins the *newest*, which is the
+ * whole difference between a screen that reads as a message log and one that reads as a chat.
+ */
+MESH_TEST_CASE(layout_transcript_anchors_to_the_newest, unit) {
+    const uint8_t heights[4] = {2U, 1U, 3U, 2U};
+
+    /* Everything fits: the slack goes above, so the newest still lands on the last row. */
+    struct mesh_ui_transcript window = mesh_ui_transcript_window(heights, 4U, 3U, 12U);
+    MESH_TEST_FAIL_IF(window.first != 0U || window.count != 4U,
+                      "a transcript that fits should show all of it");
+    MESH_TEST_FAIL_IF(window.pad != 4U, "the leftover rows belong above the oldest message");
+
+    /* Too tall: the newest is kept and the oldest scroll off, whole messages at a time. */
+    window = mesh_ui_transcript_window(heights, 4U, 3U, 6U);
+    MESH_TEST_FAIL_IF(window.first != 1U || window.count != 3U,
+                      "the window should hold the newest three (1+3+2 rows)");
+    MESH_TEST_FAIL_IF(window.pad != 0U, "a full window has no slack to pad with");
+    record_success(test_name);
+}
+
+/* Scrolling up puts the cursor at the top and fills downward, so the message being read is
+   whole rather than the one hanging off the top edge. */
+MESH_TEST_CASE(layout_transcript_follows_the_cursor_up, unit) {
+    const uint8_t heights[5] = {2U, 2U, 2U, 2U, 2U};
+
+    struct mesh_ui_transcript window = mesh_ui_transcript_window(heights, 5U, 0U, 6U);
+    MESH_TEST_FAIL_IF(window.first != 0U || window.count != 3U,
+                      "a cursor above the pinned window should top it");
+
+    /* Still inside the pinned window, so the view does not move. */
+    window = mesh_ui_transcript_window(heights, 5U, 3U, 6U);
+    MESH_TEST_FAIL_IF(window.first != 2U || window.count != 3U,
+                      "a cursor inside the pinned window should leave it pinned");
+
+    /* A single message taller than the body still draws, clipped at the bottom. */
+    const uint8_t tall[2] = {2U, 9U};
+    window = mesh_ui_transcript_window(tall, 2U, 1U, 4U);
+    MESH_TEST_FAIL_IF(window.first != 1U || window.count != 1U,
+                      "a message taller than the body should still be drawn");
+
+    /* Degenerate inputs answer with an empty window rather than dividing by zero. */
+    window = mesh_ui_transcript_window(heights, 5U, 0U, 0U);
+    MESH_TEST_FAIL_IF(window.count != 0U, "no rows means nothing is drawn");
+    window = mesh_ui_transcript_window(NULL, 5U, 0U, 6U);
+    MESH_TEST_FAIL_IF(window.count != 0U, "no heights means nothing is drawn");
+    record_success(test_name);
+}

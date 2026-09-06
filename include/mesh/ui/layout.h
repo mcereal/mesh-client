@@ -2,9 +2,9 @@
 #define MESH_UI_LAYOUT_H
 
 /*
- * Two primitives every list-and-rows UI needs, with no backend in them.
+ * The layout primitives every list-and-rows UI needs, with no backend in them.
  *
- * They exist because the same two mistakes kept being made by hand in the screen renderers:
+ * They exist because the same mistakes kept being made by hand in the screen renderers:
  *
  *   - Laying a line out in *bytes*. A node named with one emoji is four bytes and one column,
  *     so "%-4s" pads it to nothing and a right-aligned figure computed from strlen() walks off
@@ -13,6 +13,10 @@
  *   - Re-deriving the scroll window. Every screen wrote the same clamp-the-cursor,
  *     find-the-first-visible-row, loop-while-it-fits three-liner. `struct mesh_ui_list` is
  *     that arithmetic once.
+ *   - Wrapping text twice. A chat bubble measures itself and then draws itself, and the two
+ *     walks have to agree to the row or bubbles overlap. `struct mesh_ui_wrap` is the one walk
+ *     both passes make, and `mesh_ui_transcript_window` is the bottom-anchored scroll window
+ *     that variable-height items need.
  *
  * Neither touches a framebuffer, a snapshot or a font, so both are unit tested directly
  * (tests/suites/ui_layout.c) and both are as useful to the CLI backend as to the fb one.
@@ -78,6 +82,58 @@ void mesh_ui_line_fit(struct mesh_ui_line *line, size_t cols);
 size_t mesh_ui_line_width(const struct mesh_ui_line *line);
 
 const char *mesh_ui_line_text(const struct mesh_ui_line *line);
+
+/*
+ * Word wrapping, measured in cells and cut on cell boundaries.
+ *
+ * The point of the iterator shape is that measuring and drawing are the *same walk*: a chat
+ * bubble has to know how many rows it will take before it is placed, and a bubble that
+ * measured five rows and drew six would overwrite the message under it. Both passes call
+ * mesh_ui_wrap_next(), so they cannot disagree.
+ *
+ * Breaks at the last space inside the window when there is one, at a hard newline always, and
+ * mid-cell never. Leading spaces never open a line and trailing spaces never close one.
+ */
+struct mesh_ui_wrap {
+    const char *rest;            /* what has not been emitted yet */
+    size_t cols;                 /* window width in cells; 0 is read as 1 */
+    char line[MESH_UI_LINE_MAX]; /* the line the last _next() produced */
+};
+
+void mesh_ui_wrap_begin(struct mesh_ui_wrap *wrap, const char *text, size_t cols);
+
+/* Fills `wrap->line` with the next line; false once the text is spent. */
+bool mesh_ui_wrap_next(struct mesh_ui_wrap *wrap);
+
+/* Rows `text` needs at this width. Empty text needs none. */
+uint32_t mesh_ui_wrap_lines(const char *text, size_t cols);
+
+/* Cells the widest of those rows occupies - what a bubble sizes itself to, so a two-word
+   message does not draw a full-width box. */
+size_t mesh_ui_wrap_widest(const char *text, size_t cols);
+
+/*
+ * A bottom-anchored window onto items of differing heights: a transcript.
+ *
+ * struct mesh_ui_list cannot do this - it assumes every item is one row (or a fixed number of
+ * them), and a wrapped message is however many rows its text needs. The two rules that make it
+ * read like a messenger rather than like a list are here rather than in a backend:
+ *
+ *   - the newest item sits on the *bottom* row, with the slack above it, so a thread with two
+ *     messages in it opens where a thread with forty does;
+ *   - scrolling up puts the cursor at the top of the window and fills downward, so the item
+ *     being read is never the one half off the edge.
+ *
+ * `heights` is one row count per item, oldest first. Heights of 0 are legal (nothing draws).
+ */
+struct mesh_ui_transcript {
+    uint32_t first; /* first item drawn */
+    uint32_t count; /* items drawn, starting at `first` */
+    uint32_t pad;   /* blank rows above `first`, so the newest lands on the last row */
+};
+
+struct mesh_ui_transcript mesh_ui_transcript_window(const uint8_t *heights, uint32_t count,
+                                                    uint32_t cursor, uint32_t rows);
 
 /*
  * A window onto `count` items with the cursor kept on screen.

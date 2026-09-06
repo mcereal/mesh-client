@@ -26,7 +26,18 @@ const struct fb_rgb k_fb_tab_active_bg = {60, 110, 170};
 const struct fb_rgb k_fb_cursor_bg = {40, 80, 120};
 const struct fb_rgb k_fb_white = {255, 255, 255};
 const struct fb_rgb k_fb_inbound = {235, 245, 255};
-const struct fb_rgb k_fb_outbound = {170, 190, 210};
+/* Bright enough to read on its own bubble fill. It used to be the dim grey that said "ours" on
+   a bare row; the bubble says that now, and text this size on a filled ground needs contrast. */
+const struct fb_rgb k_fb_outbound = {228, 238, 248};
+/* Bubble fills. Theirs is the neutral ground, ours is the one with colour in it - the same
+   "you are the blue one" every messenger has trained everybody on. The selected pair are the
+   same hues lifted, so the cursor reads as a highlight rather than as a different kind of
+   message. */
+const struct fb_rgb k_fb_bubble_in = {30, 44, 60};
+const struct fb_rgb k_fb_bubble_out = {34, 66, 104};
+const struct fb_rgb k_fb_bubble_in_sel = {52, 72, 94};
+const struct fb_rgb k_fb_bubble_out_sel = {58, 104, 154};
+const struct fb_rgb k_fb_bubble_bad = {84, 40, 44};
 const struct fb_rgb k_fb_accent = {255, 220, 120};
 const struct fb_rgb k_fb_good = {120, 220, 150};
 const struct fb_rgb k_fb_bad = {240, 120, 120};
