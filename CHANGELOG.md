@@ -1,3 +1,18 @@
+## [2.5.0](https://github.com/mcereal/mesh-client/compare/v2.4.3...v2.5.0) (2026-09-06)
+
+### Features
+
+* **ui:** pick the theme from Settings ([ef16cc1](https://github.com/mcereal/mesh-client/commit/ef16cc172807b869de6add36963a740e1179ea45))
+
+### Bug Fixes
+
+* **ci:** keep the bypass PAT off disk during dependency setup ([0082b72](https://github.com/mcereal/mesh-client/commit/0082b72500b3398873f3346a4e05efd1ebdf6069))
+* **ui:** repaint on the press, and keep an explicit capture scale ([5b9f65d](https://github.com/mcereal/mesh-client/commit/5b9f65d4d70d7c90de02cc36b7a0126290e130b5))
+
+### Documentation
+
+* warn that a skip marker in a PR commit blocks the merge ([cc42f9b](https://github.com/mcereal/mesh-client/commit/cc42f9b28cedf60d6b70fd27a825b85b5109ee5f))
+
 ## [2.4.3](https://github.com/mcereal/mesh-client/compare/v2.4.2...v2.4.3) (2026-09-06)
 
 ### Bug Fixes
