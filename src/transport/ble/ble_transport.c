@@ -46,6 +46,9 @@
 /* How long a Device1.Pair may run. The clock is stopped while the agent is waiting on the user,
    so this bounds BlueZ's own work rather than how long someone takes to type six digits. */
 #define MESH_BLE_PAIR_TIMEOUT_MS 45000U
+/* How often the BlueZ bring-up is retried while the transport is not ready, and how often a
+   ready transport re-checks that bluetoothd is still on the bus. */
+#define MESH_BLE_BLUEZ_POLL_MS 2000U
 
 enum mesh_ble_state {
     MESH_BLE_STATE_DISABLED = 0,
@@ -106,7 +109,11 @@ struct mesh_ble_transport_state {
        connects to it from the Devices tab. */
     char pair_needs_pin_address[32];
     uint64_t pair_started_ms;
-    uint64_t next_link_poll_ms; /* earliest next Device1.Connected check while CONNECTED */
+    uint64_t next_link_poll_ms;  /* earliest next Device1.Connected check while CONNECTED */
+    uint64_t next_bluez_poll_ms; /* earliest next bring-up retry, or bluetoothd health check */
+    /* Why the transport is parked, so a retry every couple of seconds logs a change of reason
+       rather than the same line forever. */
+    char waiting_reason[256];
     bool drain_pending;         /* more FromRadio packets may be waiting */
     uint64_t drain_retry_at_ms; /* earliest time to run the pending drain (0 = now) */
     unsigned drain_failures;    /* consecutive ReadValue failures */
@@ -203,6 +210,8 @@ static void mesh_ble_service_agent(struct mesh_ble_transport_state *state);
 static int mesh_ble_complete_connect(struct mesh_ble_transport_state *state);
 static int mesh_ble_do_connect(struct mesh_ble_transport_state *state, const char *address,
                                bool allow_pair);
+static void mesh_ble_bring_up(struct mesh_transport *transport);
+static void mesh_ble_demote(struct mesh_ble_transport_state *state);
 
 static void mesh_ble_tick(struct mesh_transport *transport) {
     if (transport == NULL) {
@@ -213,7 +222,21 @@ static void mesh_ble_tick(struct mesh_transport *transport) {
     uint64_t now = mesh_time_monotonic_ms();
     if (state != NULL && state->client_initialised) {
         mesh_bluez_client_process(&state->bluez);
-        /* Before anything else: a question from the pairing agent that nothing is waiting on
+        /* bluetoothd is not a given. It can arrive after we did - the first launch after the
+           Brick wakes from sleep routinely beats it onto the bus - and it can leave under a
+           running link when Bluetooth is toggled in NextUI. Neither shows up at startup, so
+           both are watched for here. */
+        if (now >= state->next_bluez_poll_ms) {
+            state->next_bluez_poll_ms = now + MESH_BLE_BLUEZ_POLL_MS;
+            if (state->state == MESH_BLE_STATE_READY) {
+                if (mesh_bluez_client_check_ready(&state->bluez) == -ENODEV) {
+                    mesh_ble_demote(state);
+                }
+            } else {
+                mesh_ble_bring_up(transport);
+            }
+        }
+        /* Before any link work: a question from the pairing agent that nothing is waiting on
            has to be refused rather than left to expire on BlueZ's own timeout. */
         mesh_ble_service_agent(state);
         (void)mesh_ble_flush_write_queue(state);
@@ -368,6 +391,137 @@ static void mesh_ble_teardown_refresh_timer(struct mesh_ble_transport_state *sta
     }
 }
 
+static const char k_ble_no_bluez[] = "BlueZ service not present; waiting for bluetoothd";
+
+/* Parks the transport in a waiting state. The reason is logged only when it changes, because
+   tick() retries every couple of seconds and the same warning every 2 s buries the log. */
+static void mesh_ble_enter_wait(struct mesh_ble_transport_state *state,
+                                enum mesh_ble_state wait_state, const char *reason) {
+    state->state = wait_state;
+    if (strcmp(state->waiting_reason, reason) == 0) {
+        return;
+    }
+    snprintf(state->waiting_reason, sizeof state->waiting_reason, "%s", reason);
+    mesh_log_warn("ble", "%s", reason);
+}
+
+/* Everything between "BlueZ is on the bus" and "scanning": adapter, pairing agent, discovery,
+   the periodic timers. start() calls it once and tick() keeps calling it for as long as the
+   transport is not ready, so a MeshClient that launched before bluetoothd - which is what the
+   first launch after a wake from sleep does - heals itself instead of sitting in
+   waiting-for-bluez until the user restarts the app. Every step re-queries D-Bus and nothing
+   here is remembered from a previous attempt, so a retry is simply another first attempt. */
+static void mesh_ble_bring_up(struct mesh_transport *transport) {
+    struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
+    if (!state->client_initialised || state->state == MESH_BLE_STATE_DISABLED) {
+        return;
+    }
+
+    char reason[sizeof state->waiting_reason];
+    const int ready_result = mesh_bluez_client_check_ready(&state->bluez);
+    if (ready_result < 0) {
+        if (ready_result == -ENODEV) {
+            snprintf(reason, sizeof reason, "%s", k_ble_no_bluez);
+        } else if (ready_result == -ENOTCONN) {
+            snprintf(reason, sizeof reason, "BlueZ client not connected");
+        } else if (ready_result == -ENOSYS) {
+            snprintf(reason, sizeof reason, "BlueZ readiness check unsupported on this build");
+        } else {
+            snprintf(reason, sizeof reason, "Error talking to BlueZ: %s", strerror(-ready_result));
+        }
+        mesh_ble_enter_wait(state, MESH_BLE_STATE_WAITING_FOR_BLUEZ, reason);
+        return;
+    }
+
+    char adapter_path[sizeof(state->adapter_path)];
+    int adapter_result =
+        mesh_bluez_client_find_adapter(&state->bluez, adapter_path, sizeof(adapter_path));
+    if (adapter_result < 0) {
+        enum mesh_ble_state wait_state = MESH_BLE_STATE_WAITING_FOR_ADAPTER;
+        if (adapter_result == -ENODEV) {
+            snprintf(reason, sizeof reason, "No BlueZ adapters available; waiting for device");
+        } else if (adapter_result == -ENOTCONN) {
+            snprintf(reason, sizeof reason, "BlueZ client disconnected before adapter search");
+            wait_state = MESH_BLE_STATE_WAITING_FOR_BLUEZ;
+        } else if (adapter_result == -ENOSYS) {
+            snprintf(reason, sizeof reason, "Adapter search unsupported on this build");
+            wait_state = MESH_BLE_STATE_WAITING_FOR_BLUEZ;
+        } else {
+            snprintf(reason, sizeof reason, "Adapter search failed: %s", strerror(-adapter_result));
+        }
+        mesh_ble_enter_wait(state, wait_state, reason);
+        return;
+    }
+
+    snprintf(state->adapter_path, sizeof(state->adapter_path), "%s", adapter_path);
+
+    /* Registering the pairing agent is what lets a PIN-mode node be bonded from inside the app
+       instead of from bluetoothctl. Not fatal: without it, connecting to such a node still
+       fails the way it always did, with "needs pairing" on screen. */
+    int agent_result = mesh_bluez_client_register_agent(&state->bluez);
+    if (agent_result < 0) {
+        mesh_log_warn("ble", "No pairing agent (%d); PIN-mode nodes must be paired out of band",
+                      agent_result);
+    }
+
+    int discovery_result = mesh_bluez_client_start_discovery(&state->bluez, state->adapter_path);
+    if (discovery_result < 0) {
+        snprintf(reason, sizeof reason, "StartDiscovery failed on %s: %s", state->adapter_path,
+                 strerror(-discovery_result));
+        mesh_ble_enter_wait(state, MESH_BLE_STATE_WAITING_FOR_ADAPTER, reason);
+        return;
+    }
+
+    state->discovery_active = true;
+    state->state = MESH_BLE_STATE_READY;
+    state->waiting_reason[0] = '\0';
+    mesh_ble_refresh_devices_internal(transport);
+
+    /* Both outlive a BlueZ outage - they are ours, not BlueZ's - so a retry adopts the ones the
+       first attempt already made rather than leaking a second timer. */
+    if (state->refresh_timer_fd < 0 &&
+        mesh_ble_setup_refresh_timer(transport, state, state->loop) < 0) {
+        mesh_log_debug("ble", "Refresh timer unavailable; continuing without periodic updates");
+    }
+    if (state->drain_wake_fd < 0 && mesh_ble_setup_drain_wake(transport, state, state->loop) < 0) {
+        mesh_log_debug("ble", "Drain wake unavailable; FromRadio drains continue from tick()");
+    }
+
+    mesh_log_info("ble", "Scanning for Meshtastic nodes via %s", state->adapter_path);
+}
+
+/* bluetoothd left the bus under a ready transport - Bluetooth toggled off in NextUI, a resume
+   from sleep that restarted it. The adapter path, the device list and the GATT handles all
+   belonged to that instance of BlueZ, so they go, and tick() brings the transport back up when
+   the name reappears. */
+static void mesh_ble_demote(struct mesh_ble_transport_state *state) {
+    /* A bond in flight belonged to the daemon that is gone, and reset_link() does not know
+       about bonds: left alone, pair_state stays in-flight and every later Pair comes back
+       -EBUSY. The agent registration goes the same way - the new bluetoothd has no record of
+       it, and register_agent() short-circuits on the cached flag, so PIN-mode nodes would be
+       unpairable until the app was restarted. */
+    if (state->link_state == MESH_BLE_LINK_PAIRING) {
+        mesh_bluez_client_pair_cancel(&state->bluez);
+    }
+    mesh_bluez_client_unregister_agent(&state->bluez);
+    if (state->link_state != MESH_BLE_LINK_DISCONNECTED) {
+        mesh_ble_reset_link(state, "bluez stopped");
+    }
+    mesh_ble_set_error(state, "Bluetooth stopped");
+    state->pairing_address[0] = '\0';
+    state->pair_then_connect = false;
+    state->discovery_active = false;
+    state->adapter_path[0] = '\0';
+    state->device_count = 0U;
+    state->state = MESH_BLE_STATE_WAITING_FOR_BLUEZ;
+    /* The first attempt to come back happens on the next loop turn rather than a poll later:
+       BlueZ restarting is exactly the case where it may already be back. */
+    state->next_bluez_poll_ms = 0U;
+    /* Pre-loaded so the retry that follows does not log the same thing again. */
+    snprintf(state->waiting_reason, sizeof state->waiting_reason, "%s", k_ble_no_bluez);
+    mesh_log_warn("ble", "BlueZ left the bus; waiting for it to come back");
+}
+
 static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_app_config *config,
                           struct mesh_event_loop *loop) {
     if (transport == NULL || config == NULL) {
@@ -383,6 +537,8 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     state->refresh_timer_fd = -1;
     state->drain_wake_fd = -1;
     state->last_refresh_ms = 0U;
+    state->next_bluez_poll_ms = 0U;
+    state->waiting_reason[0] = '\0';
     state->drain_retry_at_ms = 0U;
     state->drain_failures = 0U;
     state->loop = loop;
@@ -439,76 +595,10 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
 
     mesh_bluez_client_set_notification_handler(&state->bluez, mesh_ble_notification_handler, state);
 
-    const int ready_result = mesh_bluez_client_check_ready(&state->bluez);
-    if (ready_result < 0) {
-        if (ready_result == -ENODEV) {
-            mesh_log_warn("ble", "BlueZ service not present; BLE transport idle");
-            state->state = MESH_BLE_STATE_WAITING_FOR_BLUEZ;
-        } else if (ready_result == -ENOTCONN) {
-            mesh_log_warn("ble", "BlueZ client not connected");
-        } else if (ready_result == -ENOSYS) {
-            mesh_log_warn("ble", "BlueZ readiness check unsupported on this build");
-        } else {
-            mesh_log_warn("ble", "Error talking to BlueZ: %s", strerror(-ready_result));
-        }
-        return 0;
-    }
-
-    char adapter_path[sizeof(state->adapter_path)];
-    int adapter_result =
-        mesh_bluez_client_find_adapter(&state->bluez, adapter_path, sizeof(adapter_path));
-    if (adapter_result < 0) {
-        if (adapter_result == -ENODEV) {
-            mesh_log_warn("ble", "No BlueZ adapters available; waiting for device");
-            state->state = MESH_BLE_STATE_WAITING_FOR_ADAPTER;
-        } else if (adapter_result == -ENOTCONN) {
-            mesh_log_warn("ble", "BlueZ client disconnected before adapter search");
-            state->state = MESH_BLE_STATE_WAITING_FOR_BLUEZ;
-        } else if (adapter_result == -ENOSYS) {
-            mesh_log_warn("ble", "Adapter search unsupported on this build");
-            state->state = MESH_BLE_STATE_WAITING_FOR_BLUEZ;
-        } else {
-            mesh_log_warn("ble", "Adapter search failed: %s", strerror(-adapter_result));
-            state->state = MESH_BLE_STATE_WAITING_FOR_ADAPTER;
-        }
-        return 0;
-    }
-
-    snprintf(state->adapter_path, sizeof(state->adapter_path), "%s", adapter_path);
-
-    /* Registering the pairing agent is what lets a PIN-mode node be bonded from inside the app
-       instead of from bluetoothctl. Not fatal: without it, connecting to such a node still
-       fails the way it always did, with "needs pairing" on screen. */
-    int agent_result = mesh_bluez_client_register_agent(&state->bluez);
-    if (agent_result < 0) {
-        mesh_log_warn("ble", "No pairing agent (%d); PIN-mode nodes must be paired out of band",
-                      agent_result);
-    }
-
-    int discovery_result = mesh_bluez_client_start_discovery(&state->bluez, state->adapter_path);
-    if (discovery_result < 0) {
-        mesh_log_warn("ble", "StartDiscovery failed on %s: %s", state->adapter_path,
-                      strerror(-discovery_result));
-        state->state = MESH_BLE_STATE_WAITING_FOR_ADAPTER;
-        return 0;
-    }
-
-    state->discovery_active = true;
-    mesh_ble_refresh_devices_internal(transport);
-
-    if (mesh_ble_setup_refresh_timer(transport, state, loop) < 0) {
-        mesh_log_debug("ble", "Refresh timer unavailable; continuing without periodic updates");
-    }
-    if (mesh_ble_setup_drain_wake(transport, state, loop) < 0) {
-        mesh_log_debug("ble", "Drain wake unavailable; FromRadio drains continue from tick()");
-    }
-
-    state->state = MESH_BLE_STATE_READY;
-    if (config->preferred_ble_device[0] != '\0') {
+    mesh_ble_bring_up(transport);
+    if (state->state == MESH_BLE_STATE_READY && config->preferred_ble_device[0] != '\0') {
         mesh_log_info("ble", "Attempting to connect to preferred device '%s'",
                       config->preferred_ble_device);
-    } else {
-        mesh_log_info("ble", "Scanning for Meshtastic nodes via %s", state->adapter_path);
     }
 
     return 0;
@@ -547,6 +637,8 @@ static void mesh_ble_stop(struct mesh_transport *transport) {
     }
 
     state->state = MESH_BLE_STATE_IDLE;
+    state->waiting_reason[0] = '\0';
+    state->next_bluez_poll_ms = 0U;
     state->discovery_active = false;
     state->adapter_path[0] = '\0';
     state->device_count = 0;
@@ -666,6 +758,13 @@ const struct mesh_bluez_device_info *mesh_ble_transport_devices(struct mesh_tran
 
 static size_t mesh_ble_reload_devices(struct mesh_ble_transport_state *state) {
     if (state == NULL) {
+        return 0U;
+    }
+
+    /* Nothing to enumerate unless BlueZ is up, and whatever was found before an outage was
+       found through a bus name that is now gone. */
+    if (state->state != MESH_BLE_STATE_READY) {
+        state->device_count = 0U;
         return 0U;
     }
 

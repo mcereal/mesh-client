@@ -50,6 +50,19 @@ functions are thin wrappers over it. `StartDiscovery`/`StopDiscovery` are driven
 automatically for the first available adapter, and a timerfd refreshes the discovery cache
 (address/name/RSSI) while the app runs.
 
+**Bring-up is retried, not assumed.** `mesh_ble_bring_up()` — readiness check, adapter,
+pairing agent, `StartDiscovery` — runs from `start()` and then from `tick()` every 2 s for as
+long as the transport is not `running`, because `bluetoothd` is not always on the bus when we
+are: the first launch after the Brick wakes from sleep routinely beats it there, and before
+this the transport sat in `waiting-for-bluez` until the user quit and relaunched. The same poll
+watches the other direction — a `running` transport whose `org.bluez` name has gone (Bluetooth
+toggled off in NextUI) drops the link, the adapter path and the device list and goes back to
+`waiting-for-bluez`. A bond in flight is cancelled and the pairing agent registration is
+dropped as part of that: both belong to the daemon that left, and a stale one would answer
+every later `Pair` with `-EBUSY` or leave the new daemon with no agent at all. Device enumeration only happens while `running`, so the list never
+outlives the BlueZ that produced it. The reason is logged when it changes rather than on every
+retry.
+
 Connect is **non-blocking**: `mesh_ble_transport_connect` sends `Device1.Connect` and returns 0
 with the link in `connecting` (the reply is matched by serial in `bluez_client.c`, 30 s cap), so
 a slow or unanswered connect never stalls the UI. `tick()` then waits for `ServicesResolved`
