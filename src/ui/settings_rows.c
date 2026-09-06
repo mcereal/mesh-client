@@ -440,6 +440,15 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
     }
 }
 
+/*
+ * About radio: what the radio *is*, as About MeshClient is what this client is. Every row is
+ * read-only, and that is the whole distinction the two names carry - a row that can be changed
+ * lives in the section that owns it, never here.
+ *
+ * Which is why the LoRa region is not on this screen although it is the one radio fact people
+ * look for. It is editable, so it belongs to LoRa, and a read-only copy here is a row that
+ * answers "what region is this radio on" in the one place that cannot answer "change it".
+ */
 static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_handshake_state *hs,
                         struct item_list *list) {
     char buffer[48];
@@ -455,10 +464,6 @@ static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_h
         item_text(list, MESH_STR_RADIO_NODE_NUMBER, MESH_UI_SETTING_INFO, buffer);
         mesh_str_format(buffer, sizeof buffer, MESH_STR_VALUE_PLAIN, hs->my_info.reboot_count);
         item_text(list, MESH_STR_RADIO_REBOOTS, MESH_UI_SETTING_INFO, buffer);
-    }
-    if (s->has_lora) {
-        item_text(list, MESH_STR_RADIO_LORA_REGION, MESH_UI_SETTING_INFO,
-                  mesh_radio_region_name(s->region));
     }
     if (s->has_metadata) {
         snprintf(buffer, sizeof buffer, "%s%s%s%s",
@@ -998,6 +1003,12 @@ static void build_traffic(const struct mesh_ui_settings *s, struct item_list *li
  * why the Nodes tab still says 81. Each says how many it would drop, so the press is not a
  * guess, and a row with nothing to drop is an INFO row rather than a press that does nothing.
  *
+ * Which is what the four headings are for. Seven bare verbs in a column give no clue that one
+ * of them empties the radio's database and the next two empty ours - the distinction that
+ * makes the Status screen say 2 nodes while the Nodes tab says 81. "Nodes on the radio" and
+ * "Nodes cached here" say whose is whose before the press rather than in the confirm text
+ * after it, and they read as a pair because the rows under them are one.
+ *
  * The labels stop at the noun the value column supplies - the label column is 20 cells and
  * "Forget off-radio nodes" is 22 - so the row reads across as one sentence rather than as a
  * clipped one: "Forget off-radio > 7 nodes".
@@ -1010,6 +1021,7 @@ static void build_actions(const struct mesh_ui_settings *s,
        user, and "not connected" is the answer they were about to press A to find out. */
     const bool connected = handshake != NULL && handshake->has_my_info;
 
+    item_heading(list, MESH_STR_HEAD_POWER);
     item_radio_action(list, MESH_STR_ACTION_REBOOT, MESH_UI_SETTINGS_ACTION_REBOOT, connected);
     /* DeviceMetadata says whether the hardware can cut its own power; on a board that cannot,
        the request is simply ignored, so the row says so rather than lying about what A does.
@@ -1021,12 +1033,14 @@ static void build_actions(const struct mesh_ui_settings *s,
         item_radio_action(list, MESH_STR_ACTION_SHUTDOWN, MESH_UI_SETTINGS_ACTION_SHUTDOWN,
                           connected);
     }
+    item_heading(list, MESH_STR_HEAD_NODES_RADIO);
     item_radio_action(list, MESH_STR_ACTION_RESET_NODEDB, MESH_UI_SETTINGS_ACTION_RESET_NODEDB,
                       connected);
 
     /* Both numbers are what the press would remove, not what is cached or stale: a forget
        keeps our own record and every pin, so a roster of eighty nodes that are all pinned has
        nothing to drop and both rows say so. */
+    item_heading(list, MESH_STR_HEAD_NODES_CACHED);
     forget_row(list, MESH_STR_ACTION_FORGET_OFF_RADIO,
                handshake != NULL ? handshake->nodes_forgettable_off_radio : 0U,
                MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES);
@@ -1034,6 +1048,7 @@ static void build_actions(const struct mesh_ui_settings *s,
                handshake != NULL ? handshake->nodes_forgettable_all : 0U,
                MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES);
 
+    item_heading(list, MESH_STR_HEAD_FACTORY_RESET);
     item_radio_action(list, MESH_STR_ACTION_FACTORY_CONFIG,
                       MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG, connected);
     item_radio_action(list, MESH_STR_ACTION_FACTORY_DEVICE,

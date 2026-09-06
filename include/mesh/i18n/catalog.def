@@ -494,7 +494,7 @@ MESH_STR_ENTRY(NODE_POWER_CHANNEL,        "Channel %u")
  * written for the phone app while holding a Brick.
  */
 MESH_STR_ENTRY(SETTINGS_SECTION_ABOUT,                    "About MeshClient")
-MESH_STR_ENTRY(SETTINGS_SECTION_RADIO,                    "Radio")
+MESH_STR_ENTRY(SETTINGS_SECTION_RADIO,                    "About radio")
 MESH_STR_ENTRY(SETTINGS_SECTION_USER,                     "User")
 MESH_STR_ENTRY(SETTINGS_SECTION_DEVICE,                   "Device")
 MESH_STR_ENTRY(SETTINGS_SECTION_DISPLAY,                  "Display")
@@ -859,7 +859,6 @@ MESH_STR_ENTRY(RADIO_FIRMWARE,            "Firmware")
 MESH_STR_ENTRY(RADIO_HARDWARE,            "Hardware")
 MESH_STR_ENTRY(RADIO_NODE_NUMBER,         "Node number")
 MESH_STR_ENTRY(RADIO_REBOOTS,             "Reboots")
-MESH_STR_ENTRY(RADIO_LORA_REGION,         "LoRa region")
 MESH_STR_ENTRY(RADIO_CAPABILITIES,        "Capabilities")
 MESH_STR_ENTRY(RADIO_CAN_SHUT_DOWN,       "Can shut down")
 /* The capability words, each with its trailing space, concatenated into one value. */
@@ -909,6 +908,9 @@ MESH_STR_ENTRY(HEAD_OUTPUT,               "Output")
 MESH_STR_ENTRY(HEAD_VIBRA,                "Vibra")
 MESH_STR_ENTRY(HEAD_BUZZER,               "Buzzer")
 MESH_STR_ENTRY(HEAD_RATE_LIMIT,           "Rate limit")
+MESH_STR_ENTRY(HEAD_NODES_RADIO,          "Nodes on the radio")
+MESH_STR_ENTRY(HEAD_NODES_CACHED,         "Nodes cached here")
+MESH_STR_ENTRY(HEAD_FACTORY_RESET,        "Factory reset")
 /* Two notes that are rows rather than headings, because they explain the rows around them. */
 MESH_STR_ENTRY(NOTE_TEST_PACKETS,         "Test packets")
 MESH_STR_ENTRY(NOTE_TEST_PACKETS_VALUE,   "go to everyone on the channel")
@@ -930,8 +932,10 @@ MESH_STR_ENTRY(ACTION_SHUTDOWN_UNSUPPORTED, "not supported")
 MESH_STR_ENTRY(ACTION_RESET_NODEDB,       "Reset node database")
 MESH_STR_ENTRY(ACTION_FORGET_OFF_RADIO,   "Forget off-radio")
 MESH_STR_ENTRY(ACTION_FORGET_ALL,         "Forget all cached")
-MESH_STR_ENTRY(ACTION_FACTORY_CONFIG,     "Factory reset config")
-MESH_STR_ENTRY(ACTION_FACTORY_DEVICE,     "Factory reset device")
+/* Under the "Factory reset" heading, so the rows name only what it does not: the
+   confirm sheet still spells both out in full. */
+MESH_STR_ENTRY(ACTION_FACTORY_CONFIG,     "Config")
+MESH_STR_ENTRY(ACTION_FACTORY_DEVICE,     "Everything")
 /* The value column of a forget row is the count the press would drop, so a row with nothing
    to drop is a fact rather than a press that does nothing. */
 MESH_STR_ENTRY(ACTION_NOTHING_TO_DROP,    "nothing to drop")

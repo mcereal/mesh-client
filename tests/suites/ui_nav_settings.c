@@ -633,20 +633,35 @@ MESH_TEST_CASE(ui_nav_radio_actions, unit) {
     }
     mesh_test_settings_open(&store, MESH_UI_SETTINGS_ACTIONS);
     if (store.nav.settings_section != MESH_UI_SETTINGS_ACTIONS ||
-        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 7U) {
-        failure = "the Radio actions section should open with seven rows";
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 11U) {
+        failure = "the Radio actions section should open with seven rows under four headings";
         goto cleanup;
     }
 
+    /* Row 0 is the "Power" heading, as Telemetry's row 0 is "Device": a section that groups
+       its rows opens with the cursor on an inert one, which here is the safest row there is. */
     struct mesh_ui_settings_item item;
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
                                MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
+        item.kind != MESH_UI_SETTING_HEADING || strcmp(item.label, "Power") != 0) {
+        failure = "the section should open on the Power heading";
+        goto cleanup;
+    }
+    if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
+                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
         item.kind != MESH_UI_SETTING_ACTION ||
         item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_REBOOT ||
         strcmp(item.label, "Reboot") != 0) {
-        failure = "Reboot should be the first row";
+        failure = "Reboot should be the first row under it";
         goto cleanup;
     }
+    /* A on the heading does nothing at all; it takes a press to reach Reboot. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.confirm_open || action.type != MESH_UI_ACTION_NONE) {
+        failure = "A on a heading should do nothing";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
 
     /* A opens the question on Cancel, and asking is not doing. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
@@ -704,7 +719,7 @@ MESH_TEST_CASE(ui_nav_radio_actions, unit) {
     settings.can_shutdown = false;
     mesh_ui_store_set_settings(&store, &settings);
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
-                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
+                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 2U, &item) ||
         item.kind != MESH_UI_SETTING_INFO || strcmp(item.value, "not supported") != 0) {
         failure = "Shutdown should be a fact on a board that cannot shut down";
         goto cleanup;
@@ -754,14 +769,14 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
        no forget counts, which is the state before the first sync fills them. */
     struct mesh_ui_settings_item item;
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
-                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 3U, &item) ||
+                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 6U, &item) ||
         strcmp(item.label, "Forget off-radio") != 0 || item.kind != MESH_UI_SETTING_INFO ||
         strcmp(item.value, "nothing to drop") != 0) {
         failure = "with nothing off-radio the first forget row should be a fact";
         goto cleanup;
     }
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
-                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 4U, &item) ||
+                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 7U, &item) ||
         strcmp(item.label, "Forget all cached") != 0 || item.kind != MESH_UI_SETTING_INFO ||
         strcmp(item.value, "nothing to drop") != 0) {
         failure = "an empty forget count should not draw as a press";
@@ -779,7 +794,7 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
     mesh_ui_store_set_handshake(&store, &handshake);
 
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
-                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 3U, &item) ||
+                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 6U, &item) ||
         item.kind != MESH_UI_SETTING_ACTION || strcmp(item.value, "2 nodes") != 0 ||
         item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES) {
         failure = "the row should say how many nodes it would forget";
@@ -796,7 +811,7 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
     pinned.nodes_forgettable_all = 0U;
     mesh_ui_store_set_handshake(&store, &pinned);
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
-                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 3U, &item) ||
+                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 6U, &item) ||
         item.kind != MESH_UI_SETTING_INFO || strcmp(item.value, "nothing to drop") != 0) {
         failure = "a roster of pinned orphans should offer no press at all";
         goto cleanup;
@@ -816,9 +831,15 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
         failure = "Radio actions did not open";
         goto cleanup;
     }
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    /* Six rows down from the "Power" heading: past Reboot and Shutdown, past "Nodes on the
+       radio" and its one row, past "Nodes cached here", onto the first forget row. */
+    for (int i = 0; i < 6; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
+    if (store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != 6U) {
+        failure = "six presses should land on the first forget row";
+        goto cleanup;
+    }
 
     /* A asks first, like every other row in this section: a forgotten node comes back only
        when it speaks again. */
@@ -867,13 +888,13 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
     handshake.has_my_info = false;
     mesh_ui_store_set_handshake(&store, &handshake);
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
-                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
+                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
         item.kind != MESH_UI_SETTING_INFO || strcmp(item.value, "not connected") != 0) {
         failure = "Reboot should say why it cannot be pressed with no link";
         goto cleanup;
     }
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
-                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 3U, &item) ||
+                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 6U, &item) ||
         item.kind != MESH_UI_SETTING_ACTION) {
         failure = "forgetting cached nodes needs no radio";
         goto cleanup;
