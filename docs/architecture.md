@@ -183,6 +183,12 @@ own answer to "who do I hear", capped upstream at ten out-edges.
   interesting state — it is what a repeater that has fallen off the mesh looks like — and
   ignoring it would leave the last non-empty list standing as though it were still true. The
   node detail says "hears no one" rather than showing a heading with nothing under it.
+- **The reverse edges are counted in full but drawn in part.** Upstream's ten-entry cap is on
+  what one node reports about *its* neighbours; it says nothing about how many nodes may report
+  hearing this one, which on a dense mesh is everyone in range. The rows stop at
+  `MESH_UI_NODE_MAX_LISTENERS` for the row budget's sake and the screen then says how many it
+  left out — stopping the count as well would make the one screen whose question is "how many
+  can hear me" answer it wrongly and silently.
 - **"Heard by" is derived, never stored.** No node reports who hears *it*; that edge exists only
   as every other node's list read backwards, which is why `mesh_ui_node_detail_build` takes the
   whole roster rather than one node. It is also the half a person holding the radio actually
@@ -231,6 +237,16 @@ indication of what it was about, which is three wrong answers from one dropped f
 `MeshPacket.pki_encrypted` rides along the same path and puts a padlock on a direct message. It
 is worth saying: on a channel still using the default key every node on the mesh holds that key,
 so a DM that did *not* go out PKI-encrypted was readable by all of them.
+
+For **our own** sends the echo is the only source of it. `mesh_session_send_text` records the
+message before the radio has done anything with it, and the radio decides per packet from
+whether it holds the recipient's public key; it tells us by echoing the packet back. The dedup
+branch in `mesh_message_ingest` therefore copies the encryption state as well as the timestamps.
+
+All four of these fields — the kind, the padlock, `reply_id` and the reaction flag — are written
+to the node cache on their own `msg_meta[]` key. Losing that line is not cosmetic: a reaction
+reloaded without its flag is a bubble containing a bare emoji that also bumps the unread count,
+which is the whole behaviour reading `Data.emoji` was meant to end, returning at every restart.
 
 #### Traceroute
 

@@ -1222,3 +1222,121 @@ MESH_TEST_CASE(node_detail_row_budget, unit) {
 
     record_success(test_name);
 }
+
+/*
+ * "Heard by" on a mesh denser than one report can describe.
+ *
+ * Upstream's ten-entry cap is on what a single node reports about its own neighbours; it says
+ * nothing about how many nodes may report hearing this one, which on a dense mesh is everyone
+ * in range. Capping the *count* at ten as well would make the one screen whose question is
+ * "how many can hear me" answer it wrongly and without saying so.
+ */
+MESH_TEST_CASE(node_detail_listener_count, unit) {
+    static struct mesh_ui_handshake_state roster;
+    memset(&roster, 0, sizeof roster);
+
+    const uint32_t subject_id = 0x7001U;
+    const uint32_t listeners = MESH_UI_NODE_MAX_LISTENERS + 4U;
+
+    roster.node_count = 1U + listeners;
+    roster.nodes[0].node_id = subject_id;
+    snprintf(roster.nodes[0].short_name, sizeof roster.nodes[0].short_name, "SUBJ");
+    for (uint32_t i = 0; i < listeners; ++i) {
+        struct mesh_ui_node_summary *peer = &roster.nodes[1U + i];
+        peer->node_id = 0x7100U + i;
+        snprintf(peer->short_name, sizeof peer->short_name, "L%u", (unsigned)i);
+        peer->neighbors.valid = true;
+        peer->neighbors.count = 1U;
+        peer->neighbors.entries[0].node_id = subject_id;
+        peer->neighbors.entries[0].snr = 2.0f;
+    }
+
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    const uint32_t count = mesh_ui_node_detail_build(&roster.nodes[0], false, 1750000600U, NULL,
+                                                     false, &roster, items, MESH_UI_NODE_ITEMS_MAX);
+    MESH_TEST_FAIL_IF(count >= MESH_UI_NODE_ITEMS_MAX, "the row budget was filled");
+
+    /* Counted from the heading onwards rather than by label shape: "Last heard" and "Load" are
+       both rows on this screen that begin with an L. */
+    uint32_t listener_rows = 0U;
+    bool saw_heading = false;
+    bool saw_remainder = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, "Heard by") == 0) {
+            saw_heading = true;
+            continue;
+        }
+        if (saw_heading && !saw_remainder && items[i].kind == MESH_UI_NODE_ROW_INFO &&
+            strcmp(items[i].label, "and more") != 0) {
+            listener_rows++;
+        }
+        if (strcmp(items[i].label, "and more") == 0) {
+            saw_remainder = true;
+            char expected[32];
+            snprintf(expected, sizeof expected, "%u not shown",
+                     (unsigned)(listeners - MESH_UI_NODE_MAX_LISTENERS));
+            MESH_TEST_FAIL_IF(strcmp(items[i].value, expected) != 0,
+                              "the remainder row does not say how many were left out");
+        }
+    }
+    MESH_TEST_FAIL_IF(!saw_heading, "the Heard by group is missing");
+    MESH_TEST_FAIL_IF(listener_rows != MESH_UI_NODE_MAX_LISTENERS,
+                      "the drawn listeners should stop at the row budget");
+    MESH_TEST_FAIL_IF(!saw_remainder,
+                      "listeners beyond the row budget were dropped without saying so");
+
+    /* And with the rows exactly filled there is nothing left over to announce. */
+    roster.node_count = 1U + MESH_UI_NODE_MAX_LISTENERS;
+    const uint32_t exact = mesh_ui_node_detail_build(&roster.nodes[0], false, 1750000600U, NULL,
+                                                     false, &roster, items, MESH_UI_NODE_ITEMS_MAX);
+    for (uint32_t i = 0; i < exact; ++i) {
+        MESH_TEST_FAIL_IF(strcmp(items[i].label, "and more") == 0,
+                          "a full but untruncated list should not claim a remainder");
+    }
+
+    record_success(test_name);
+}
+
+/*
+ * An RSSI is a measurement this radio made. A node heard over RF and then relayed to us over
+ * MQTT keeps that reading - it is still true, and clearing it would make the row flicker on a
+ * mesh whose bridge relays traffic we also hear ourselves - but the row has to stop claiming to
+ * describe the packet that just arrived.
+ */
+MESH_TEST_CASE(node_detail_rssi_is_stamped, unit) {
+    struct mesh_ui_node_summary node;
+    memset(&node, 0, sizeof node);
+    node.node_id = 0x7201U;
+    snprintf(node.short_name, sizeof node.short_name, "RS");
+    node.has_rssi = true;
+    node.rx_rssi = -97;
+    node.last_heard = 1750000000U;
+    node.rssi_time = 1750000000U;
+
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, items,
+                                               MESH_UI_NODE_ITEMS_MAX);
+    bool plain = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, "RSSI") == 0 && strcmp(items[i].value, "-97 dBm") == 0) {
+            plain = true;
+        }
+    }
+    MESH_TEST_FAIL_IF(!plain, "a reading from the newest packet should carry no age");
+
+    /* Now the node turns up over MQTT: last_heard moves on, the reading does not. */
+    node.last_heard = 1750000500U;
+    node.via_mqtt = true;
+    count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, items,
+                                      MESH_UI_NODE_ITEMS_MAX);
+    bool stamped = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, "RSSI") == 0) {
+            stamped = (strcmp(items[i].value, "-97 dBm, 10m ago") == 0);
+        }
+    }
+    MESH_TEST_FAIL_IF(!stamped,
+                      "an RSSI older than the newest packet should say when it was measured");
+
+    record_success(test_name);
+}

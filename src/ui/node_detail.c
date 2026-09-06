@@ -182,7 +182,16 @@ static void node_rows_signal(struct node_rows *rows, const struct mesh_ui_node_s
         /* Beside it rather than instead of it: SNR is how far above the noise the packet was
            and RSSI is how loud it was, and a link can be good on one and poor on the other. */
         if (node->has_rssi) {
-            rows_info(rows, "RSSI", "%d dBm", (int)node->rx_rssi);
+            /* Only this radio can measure an RSSI, so a node now reaching us over MQTT keeps
+               the reading from the last packet we heard ourselves. Saying when that was is what
+               stops the row reading as a description of the packet that just arrived. */
+            if (node->rssi_time != 0U && node->last_heard > node->rssi_time) {
+                char measured[24];
+                format_age(node->rssi_time, now, measured, sizeof measured);
+                rows_info(rows, "RSSI", "%d dBm, %s", (int)node->rx_rssi, measured);
+            } else {
+                rows_info(rows, "RSSI", "%d dBm", (int)node->rx_rssi);
+            }
         }
         if (node->has_hops_away) {
             rows_info(rows, "Hops away", "%u", (unsigned)node->hops_away);
@@ -476,14 +485,23 @@ static void node_rows_neighbors(struct node_rows *rows, const struct mesh_ui_nod
         rows_info(rows, "Reported", "%s", age);
     }
 
-    /* The reverse edges. Walked over the roster rather than stored, because it is derived from
-       data that changes under it: a node that stops hearing us drops out of its own next
-       report, and a cached answer would keep saying it still does. */
+    /*
+     * The reverse edges. Walked over the roster rather than stored, because it is derived from
+     * data that changes under it: a node that stops hearing us drops out of its own next
+     * report, and a cached answer would keep saying it still does.
+     *
+     * The ten-entry cap upstream puts on a neighbour list is a cap on what *one* node reports,
+     * not on how many nodes may report hearing this one - on a dense mesh that is every node in
+     * range. So the rows are capped for the row budget's sake but the count is not: stopping at
+     * ten silently would make the one screen whose question is "how many can hear me" answer it
+     * wrongly, and quietly.
+     */
     uint32_t listeners = 0U;
+    uint32_t shown = 0U;
     const uint32_t count = roster->node_count > MESH_UI_MAX_HANDSHAKE_NODES
                                ? MESH_UI_MAX_HANDSHAKE_NODES
                                : roster->node_count;
-    for (uint32_t i = 0; i < count && listeners < MESH_UI_MAX_NEIGHBORS; ++i) {
+    for (uint32_t i = 0; i < count; ++i) {
         const struct mesh_ui_node_summary *other = &roster->nodes[i];
         if (other->node_id == node->node_id || !other->neighbors.valid) {
             continue;
@@ -495,12 +513,20 @@ static void node_rows_neighbors(struct node_rows *rows, const struct mesh_ui_nod
             if (listeners == 0U) {
                 rows_heading(rows, "Heard by");
             }
-            char name[MESH_UI_NODE_LABEL_MAX];
-            node_rows_neighbor_name(roster, other->node_id, name, sizeof name);
-            rows_info(rows, name, "%.2f dB", (double)other->neighbors.entries[n].snr);
             listeners++;
+            /* The roster is already ordered by mesh_app_node_rank, so the first ten are the
+               ones a reader would have looked for anyway. */
+            if (shown < MESH_UI_NODE_MAX_LISTENERS) {
+                char name[MESH_UI_NODE_LABEL_MAX];
+                node_rows_neighbor_name(roster, other->node_id, name, sizeof name);
+                rows_info(rows, name, "%.2f dB", (double)other->neighbors.entries[n].snr);
+                shown++;
+            }
             break;
         }
+    }
+    if (listeners > shown) {
+        rows_info(rows, "and more", "%u not shown", listeners - shown);
     }
 }
 

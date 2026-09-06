@@ -181,6 +181,7 @@ static void mesh_app_restore_node(const struct mesh_ui_node_summary *src,
     dst->snr = src->snr;
     dst->has_rssi = src->has_rssi;
     dst->rx_rssi = src->rx_rssi;
+    dst->rssi_time = src->rssi_time;
     dst->via_mqtt = src->via_mqtt;
     dst->has_hops_away = src->has_hops_away;
     dst->hops_away = src->hops_away;
@@ -1220,6 +1221,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             dst->snr = src->snr;
             dst->has_rssi = src->has_rssi;
             dst->rx_rssi = src->rx_rssi;
+            dst->rssi_time = src->rssi_time;
             dst->via_mqtt = src->via_mqtt;
             dst->has_hops_away = src->has_hops_away;
             dst->hops_away = src->hops_away;

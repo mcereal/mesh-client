@@ -6,6 +6,7 @@
 #include "support/proto_fixture.h"
 
 #include "mesh/core/message.h"
+#include "mesh/utils/text.h"
 
 #include <pb_decode.h>
 #include <pb_encode.h>
@@ -511,6 +512,53 @@ MESH_TEST_CASE(message_ingest_alert_and_detection, unit) {
                                       meshtastic_PortNum_POSITION_APP, "\x01\x02", 2U);
     MESH_TEST_FAIL_IF(mesh_message_ingest(&log, &position, 0x22222222U) != 0,
                       "a position packet is not a message");
+
+    record_success(test_name);
+}
+
+/*
+ * The echo of our own send is the only place the radio's encryption decision can come from.
+ *
+ * mesh_session_send_text() records the message before the radio has done anything with it, so
+ * `pki_encrypted` starts false; the radio picks per packet, from whether it holds the
+ * recipient's public key, and tells us by echoing the packet back. The dedup branch that stops
+ * the echo appearing twice used to copy only the timestamps, which left every outbound direct
+ * message without its padlock however it had actually gone out.
+ */
+MESH_TEST_CASE(message_echo_carries_encryption, unit) {
+    struct mesh_message_log log;
+    mesh_message_log_reset(&log);
+
+    /* What send_text() puts in the log: no rx_time, no SNR, and no encryption state. */
+    struct mesh_message sent;
+    memset(&sent, 0, sizeof sent);
+    sent.packet_id = 800U;
+    sent.from = 0x22222222U;
+    sent.to = 0x11111111U;
+    sent.direction = MESH_MESSAGE_OUTBOUND;
+    sent.ack = MESH_MESSAGE_ACK_PENDING;
+    mesh_str_copy(sent.text, sizeof sent.text, "on my way");
+    MESH_TEST_FAIL_IF(mesh_message_log_append(&log, &sent) == NULL, "seeding the send failed");
+    MESH_TEST_FAIL_IF(mesh_message_log_find(&log, 800U)->pki_encrypted,
+                      "a message is not encrypted before the radio has sent it");
+
+    meshtastic_MeshPacket echo = mesh_test_make_decoded_packet(
+        0x22222222U, 0x11111111U, 0U, 800U, meshtastic_PortNum_TEXT_MESSAGE_APP, "on my way", 9U);
+    echo.has_rx_time = true;
+    echo.rx_time = 1750000000U;
+    echo.pki_encrypted = true;
+
+    MESH_TEST_FAIL_IF(mesh_message_ingest(&log, &echo, 0x22222222U) != 0,
+                      "the echo should refresh the entry rather than append a second one");
+    MESH_TEST_FAIL_IF(log.count != 1U, "the echo was appended as a second message");
+
+    const struct mesh_message *stored = mesh_message_log_find(&log, 800U);
+    MESH_TEST_FAIL_IF(stored->rx_time != 1750000000U,
+                      "the echo's timestamp did not reach the entry");
+    MESH_TEST_FAIL_IF(!stored->pki_encrypted,
+                      "the radio's encryption decision did not survive the echo");
+    MESH_TEST_FAIL_IF(stored->ack != MESH_MESSAGE_ACK_PENDING,
+                      "the echo should not disturb the delivery state");
 
     record_success(test_name);
 }

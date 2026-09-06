@@ -33,14 +33,22 @@ extern "C" {
  * its stamp), 11 identity, 7 signal, and then one group per kind of reading - 7 device
  * metrics, 7 position, 9 environment, 5 power, 7 air quality, 5 health, 6 host - which comes
  * to 95 for a node that reports everything at the end of a ten-hop trace - plus the two
- * neighbour groups, which upstream caps at ten out-edges each: 12 for the list the node
- * reported (heading, ten neighbours, the stamp) and 11 for the nodes that report hearing it,
- * making 118.
+ * neighbour groups: 12 for the list the node reported (heading, ten out-edges - upstream's own
+ * cap - and the stamp) and 12 for the nodes that report hearing it (heading, ten rows and the
+ * line saying how many were left out), making 119.
  *
  * Rounded up for headroom, and pinned by node_detail_row_budget in the ui_settings suite so a
  * new group cannot quietly push the last one off the screen.
  */
 #define MESH_UI_NODE_ITEMS_MAX 128U
+
+/*
+ * How many "Heard by" rows the node detail draws. Upstream's ten-entry cap is on what one node
+ * reports, not on how many nodes may report hearing this one - on a dense mesh that is everyone
+ * in range - so this is a row budget and the screen says how many it left out rather than
+ * quietly answering "how many can hear me" with the wrong number.
+ */
+#define MESH_UI_NODE_MAX_LISTENERS 10U
 
 enum mesh_ui_node_row_kind {
     MESH_UI_NODE_ROW_INFO = 0, /* label and value */

@@ -669,10 +669,13 @@ static void mesh_session_touch_node_from_packet(struct mesh_session *session,
         summary->snr = packet->rx_snr;
     }
     /* A packet that reached us over MQTT was not heard by this radio at all, so whatever RSSI
-       rides along with it describes somebody else's antenna. */
+       rides along with it describes somebody else's antenna. The reading is stamped rather
+       than cleared on the next MQTT packet: it stays a true measurement, and clearing it would
+       make the row flicker on a mesh whose bridge relays traffic we also hear ourselves. */
     if (packet->has_rx_rssi && !packet->via_mqtt) {
         summary->has_rssi = true;
         summary->rx_rssi = (int16_t)packet->rx_rssi;
+        summary->rssi_time = heard;
     }
     if (packet->hop_start != 0U && packet->hop_start >= packet->hop_limit) {
         summary->has_hops_away = true;

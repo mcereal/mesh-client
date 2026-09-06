@@ -705,6 +705,20 @@ static void mesh_ui_store_save_messages(FILE *file, const struct mesh_ui_message
                 message->rx_time, (unsigned)message->channel, (unsigned)message->direction,
                 (unsigned)message->ack, message->broadcast ? 1U : 0U);
 
+        /* What the message *is*, as opposed to where it came from. On its own key rather than
+           widened onto msg[] for the reason the node detail's groups are: the loader matches
+           msg[] on an exact field count, so a build that predates this would drop the whole
+           message rather than the part it does not know.
+
+           Losing this line is not cosmetic. A reaction reloaded without `is_reaction` is a
+           bubble containing a bare emoji that also bumps the unread count - which is precisely
+           the behaviour reading Data.emoji was meant to end, returning at every restart. */
+        char key_meta[32];
+        snprintf(key_meta, sizeof key_meta, "msg_meta[%u]", i);
+        fprintf(file, "%s=%u,%u,%u,%u\n", key_meta, (unsigned)message->kind,
+                message->pki_encrypted ? 1U : 0U, message->reply_id,
+                message->is_reaction ? 1U : 0U);
+
         char key_name[32];
         char key_text[32];
         snprintf(key_name, sizeof key_name, "msg_name[%u]", i);
@@ -969,10 +983,15 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
         } else if (strncmp(key, "node_rssi[", 10) == 0) {
             unsigned int index = 0U;
             int rssi = 0;
+            unsigned int stamp = 0U;
+            /* The stamp joined this line after the reading did, so `>= 1` rather than `== 2`:
+               a cache written without it still loads, and an unstamped reading reads as
+               current - which is exactly what it was before the stamp existed. */
             if (sscanf(key, "node_rssi[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES &&
-                sscanf(value, "%d", &rssi) == 1) {
+                sscanf(value, "%d,%u", &rssi, &stamp) >= 1) {
                 handshake.nodes[index].has_rssi = true;
                 handshake.nodes[index].rx_rssi = (int16_t)rssi;
+                handshake.nodes[index].rssi_time = stamp;
             }
         } else if (strncmp(key, "node_pos[", 9) == 0) {
             unsigned int index = 0U;
@@ -1210,6 +1229,20 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                         messages_loaded = index + 1U;
                     }
                 }
+            }
+        } else if (strncmp(key, "msg_meta[", 9) == 0) {
+            unsigned int index = 0U;
+            unsigned int kind = 0U;
+            unsigned int pki = 0U;
+            unsigned int reply_id = 0U;
+            unsigned int is_reaction = 0U;
+            if (sscanf(key, "msg_meta[%u]", &index) == 1 && index < MESH_UI_MAX_MESSAGES &&
+                sscanf(value, "%u,%u,%u,%u", &kind, &pki, &reply_id, &is_reaction) == 4) {
+                struct mesh_ui_message *message = &messages.entries[index];
+                message->kind = (uint8_t)kind;
+                message->pki_encrypted = (pki != 0U);
+                message->reply_id = reply_id;
+                message->is_reaction = (is_reaction != 0U);
             }
         } else if (strncmp(key, "msg_name[", 9) == 0) {
             unsigned int index = 0U;

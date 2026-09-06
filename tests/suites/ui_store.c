@@ -438,6 +438,19 @@ MESH_TEST_CASE(ui_store_messages, unit) {
     snprintf(list.entries[1].peer_name, sizeof(list.entries[1].peer_name), "all");
     /* '=' and a backslash both need escaping in the on-disk format. */
     snprintf(list.entries[1].text, sizeof(list.entries[1].text), "a=b\\c");
+    list.entries[1].pki_encrypted = true;
+    /* A third entry that is not a message at all. A reaction reloaded without its flag is a
+       bubble containing a bare emoji that also bumps the unread count - the exact behaviour
+       reading Data.emoji removed, coming back at every restart. */
+    list.count = 3U;
+    list.entries[2].packet_id = 13U;
+    list.entries[2].peer = 0x1234U;
+    list.entries[2].direction = MESH_MESSAGE_INBOUND;
+    list.entries[2].kind = MESH_MESSAGE_KIND_ALERT;
+    list.entries[2].is_reaction = true;
+    list.entries[2].reply_id = 11U;
+    snprintf(list.entries[2].peer_name, sizeof(list.entries[2].peer_name), "AB12");
+    snprintf(list.entries[2].text, sizeof(list.entries[2].text), "\xF0\x9F\x91\x8D");
 
     mesh_ui_store_set_messages(&store, &list);
 
@@ -447,7 +460,7 @@ MESH_TEST_CASE(ui_store_messages, unit) {
                       "setting messages should raise an update");
     MESH_TEST_FAIL_IF((snapshot.update_flags & MESH_UI_UPDATE_MESSAGES) == 0U,
                       "the messages flag should be set");
-    MESH_TEST_FAIL_IF(snapshot.messages.count != 2U || snapshot.messages.dropped != 7U,
+    MESH_TEST_FAIL_IF(snapshot.messages.count != 3U || snapshot.messages.dropped != 7U,
                       "message list did not reach the snapshot");
 
     /* Setting the same list again is not a change and must not wake the UI. */
@@ -489,13 +502,20 @@ MESH_TEST_CASE(ui_store_messages, unit) {
         return;
     }
 
-    bool ok = (loaded.messages.count == 2U) && (loaded.messages.dropped == 7U) &&
+    bool ok = (loaded.messages.count == 3U) && (loaded.messages.dropped == 7U) &&
               (strcmp(loaded.messages.entries[0].text, "hello there") == 0) &&
               (strcmp(loaded.messages.entries[0].peer_name, "AB12") == 0) &&
               (loaded.messages.entries[1].packet_id == 12U) &&
               (loaded.messages.entries[1].ack == MESH_MESSAGE_ACK_DELIVERED) &&
               loaded.messages.entries[1].broadcast &&
               (strcmp(loaded.messages.entries[1].text, "a=b\\c") == 0);
+
+    /* What a message *is*, which is carried on its own key and was being dropped entirely. */
+    ok = ok && !loaded.messages.entries[0].pki_encrypted &&
+         loaded.messages.entries[1].pki_encrypted &&
+         (loaded.messages.entries[0].kind == MESH_MESSAGE_KIND_TEXT) &&
+         (loaded.messages.entries[2].kind == MESH_MESSAGE_KIND_ALERT) &&
+         loaded.messages.entries[2].is_reaction && (loaded.messages.entries[2].reply_id == 11U);
 
     unlink(cache_path);
     mesh_ui_store_shutdown(&loaded);

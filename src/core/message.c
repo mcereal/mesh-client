@@ -281,13 +281,22 @@ int mesh_message_ingest(struct mesh_message_log *log, const meshtastic_MeshPacke
         return 0;
     }
 
-    /* The radio echoes our own sends back to us. Refresh the entry we already hold instead of
-       showing the message twice. */
+    /*
+     * The radio echoes our own sends back to us. Refresh the entry we already hold instead of
+     * showing the message twice.
+     *
+     * The echo is the only place some of this can come from. mesh_session_send_text() records
+     * the message before the radio has done anything with it, so `pki_encrypted` starts false
+     * and the radio's own decision - it picks per-packet, from whether it holds the recipient's
+     * public key - arrives only here. Copying just the timestamps left every outbound direct
+     * message without its padlock however it actually went out.
+     */
     struct mesh_message *existing = mesh_message_log_find(log, message.packet_id);
     if (existing != NULL && existing->direction == MESH_MESSAGE_OUTBOUND &&
         message.direction == MESH_MESSAGE_OUTBOUND) {
         existing->rx_time = message.rx_time;
         existing->rx_snr = message.rx_snr;
+        existing->pki_encrypted = message.pki_encrypted;
         return 0;
     }
 

@@ -305,12 +305,22 @@ struct mesh_node_summary {
     char short_name[5];
     uint32_t last_heard;
     float snr;
-    /* Signal strength of the last packet we heard from this node. SNR says how far above the
-       noise it was; RSSI says how loud it was, and the two answer different questions - a
-       strong signal in a noisy band and a weak one in a quiet band both give a usable SNR.
-       Optional on the wire, so it carries its own flag rather than reading 0 dBm as a level. */
+    /*
+     * Signal strength of the last packet this radio heard from the node *directly*. SNR says
+     * how far above the noise it was; RSSI says how loud it was, and the two answer different
+     * questions - a strong signal in a noisy band and a weak one in a quiet band both give a
+     * usable SNR. Optional on the wire, so it carries its own flag rather than reading 0 dBm
+     * as a level.
+     *
+     * `rssi_time` is when that reading was taken, and it is not always `last_heard`: a node
+     * heard over RF and then relayed to us over MQTT keeps its RF reading, because that is a
+     * true measurement and clearing it would make the row flicker on a mesh whose bridge
+     * relays traffic we also hear ourselves. The stamp is what stops the row *claiming* to
+     * describe a packet it does not.
+     */
     bool has_rssi;
-    int16_t rx_rssi; /* dBm */
+    int16_t rx_rssi;    /* dBm */
+    uint32_t rssi_time; /* epoch of the reading; equals last_heard when it is the newest */
     bool via_mqtt;
     bool has_hops_away;
     uint8_t hops_away;

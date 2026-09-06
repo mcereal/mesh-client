@@ -192,10 +192,13 @@ struct mesh_ui_node_summary {
     char short_name[5];
     uint32_t last_heard;
     float snr;
-    /* How loud the last packet was, as opposed to how far above the noise; see the session's
-       declaration. Optional on the wire, hence the flag. */
+    /* How loud the last directly-heard packet was, as opposed to how far above the noise; see
+       the session's declaration. `rssi_time` is when it was measured, which is not always
+       `last_heard` - a node relayed over MQTT keeps its last RF reading, and the stamp is what
+       stops the row claiming to describe a packet it does not. */
     bool has_rssi;
-    int16_t rx_rssi; /* dBm */
+    int16_t rx_rssi;    /* dBm */
+    uint32_t rssi_time; /* epoch of the reading; equals last_heard when it is the newest */
     bool via_mqtt;
     bool has_hops_away;
     uint8_t hops_away;
