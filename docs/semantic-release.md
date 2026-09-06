@@ -145,11 +145,31 @@ This repository uses the second: **`RELEASE_TOKEN`**, a fine-grained PAT scoped 
 repository with **Contents: write** and nothing else, added to the repository's secrets, with
 **Repository admin** on the ruleset's bypass list.
 
-It needs no other permission because the workflow keeps *two* identities apart. The token handed
-to `actions/checkout` is the one persisted into `.git/config`, so it is the one that pushes; the
-`GITHUB_TOKEN` env on the semantic-release step is what the GitHub plugin calls the API with. The
-ruleset guards the branch, not the releases, so only the pusher has to be exempt - and the
-release stays published by `github-actions[bot]`, as every earlier one was.
+It needs no other permission because the workflow keeps *two* identities apart:
+
+| | Identity | Used for |
+|---|---|---|
+| `GIT_CREDENTIALS` | `RELEASE_TOKEN` | the one push: the version bump onto `main` |
+| `GITHUB_TOKEN` | the scoped per-run token | the API: the release, its assets, its comments |
+
+semantic-release builds its authenticated remote from the first of `GIT_CREDENTIALS`,
+`GH_TOKEN`, `GITHUB_TOKEN` that can push (`lib/get-git-auth-url.js`), which is what makes
+`@semantic-release/git` use the PAT while everything else goes on using the per-run token. The
+release therefore stays published by `github-actions[bot]`, as every earlier one was.
+
+#### Why the PAT is not handed to `actions/checkout`
+
+It would be the obvious place - checkout persists whatever token it is given into `.git/config`,
+and the push would pick it up from there. That is how this was first written, and it is wrong:
+the credential would then sit on disk while the steps in between run `pip install`, build a
+downloaded tarball and execute `npm install` lifecycle scripts. All of that is third-party code,
+and a credential that **bypasses branch protection** is worth far more to a compromised
+dependency than the scoped per-run token it replaced.
+
+So checkout runs with `persist-credentials: false` and no token override, and the PAT appears
+exactly once, as an env var on the release step. That does not make it untouchable - a
+semantic-release plugin still runs with it in the environment - but it is out of reach of
+everything installed before it.
 
 #### The skip marker is the release bot's alone
 
@@ -167,9 +187,18 @@ If a message needs to talk about the marker, spell it in words, as this paragrap
 do. If a pull request has already been pushed with one, amend the message and force-push the
 branch; there is no way to ask for the skipped run back.
 
-**A fine-grained PAT expires.** When it does, releases fail exactly the way they did before it
-existed; see the GH013 entry under [Troubleshooting](#the-release-fails-with-gh013-repository-rule-violations).
-Setting a calendar reminder for the expiry is worth more than it sounds.
+**A fine-grained PAT expires**, and the two failures look different, which is worth knowing
+before reading a red run:
+
+- **no `RELEASE_TOKEN` at all** - the fallback hands the per-run token to the push, the ruleset
+  refuses it, and the run fails with GH013 (see
+  [Troubleshooting](#the-release-fails-with-gh013-repository-rule-violations));
+- **an expired or revoked `RELEASE_TOKEN`** - the secret is still there, so it is still used, and
+  the push fails on *authentication* inside the release step instead. No GH013, because the
+  credential never gets as far as the rule.
+
+Either way nothing is half-released. Setting a calendar reminder for the expiry is worth more
+than it sounds.
 
 ### Prereleases on `beta` and `rc`
 
@@ -365,8 +394,10 @@ remote: - 2 of 2 required status checks are expected.
  ! [remote rejected] HEAD -> main (push declined due to repository rule violations)
 ```
 
-The push that carries the version bump was refused by `main`'s ruleset. Either `RELEASE_TOKEN`
-is missing, or it has expired, or whoever owns it is no longer on the ruleset's bypass list. See
+The push that carries the version bump was refused by `main`'s ruleset: whoever pushed it is not
+on the bypass list. Either `RELEASE_TOKEN` is missing - the workflow then falls back to the
+per-run token, which cannot bypass anything - or its owner has been taken off the list. An
+*expired* token fails differently, on authentication rather than on the rule; see
 [`main` is protected](#main-is-protected-and-the-release-bot-has-to-be-let-through).
 
 Nothing is half-released when this happens: `@semantic-release/git` runs in *prepare*, before

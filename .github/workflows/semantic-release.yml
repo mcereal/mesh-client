@@ -16,28 +16,20 @@ jobs:
   release:
     runs-on: ubuntu-24.04
     steps:
-      # Two identities, deliberately.
+      # The release pushes to a protected branch, so it needs an identity the ruleset's bypass
+      # list names - and that identity must not be sitting in .git/config while the steps below
+      # run pip, build a downloaded tarball and execute npm lifecycle scripts. Any one of those
+      # is arbitrary third-party code, and a credential that can bypass branch protection is
+      # worth far more to it than the scoped per-run token ever was.
       #
-      # The token given to checkout is the one persisted into .git/config, so it is what
-      # @semantic-release/git pushes the version bump with - and `main` has a ruleset requiring
-      # status checks, which a direct push can never satisfy: the commit does not exist until
-      # the bot creates it, it carries [skip ci], and a push made with GITHUB_TOKEN does not
-      # trigger workflows anyway. So the pusher has to be an actor on the ruleset's bypass list.
-      # GitHub Actions is not offerable as one here, hence RELEASE_TOKEN - see
-      # docs/semantic-release.md.
-      #
-      # The API identity stays GITHUB_TOKEN below: releases and their assets are not what the
-      # ruleset guards, so RELEASE_TOKEN needs Contents: write and nothing else, and the release
-      # keeps being published by github-actions[bot] as every release before it was.
-      #
-      # The fallback keeps this workflow honest before the secret exists: it degrades to the
-      # push that the ruleset rejects, with the same error, rather than to something stranger.
+      # So checkout keeps no credentials at all, and the push identity appears exactly once: as
+      # an env var on the release step itself, below.
       - name: Checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
           submodules: recursive
-          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
@@ -106,7 +98,22 @@ jobs:
       # version being released rather than the one before it.
       - name: Run semantic-release
         env:
+          # The API identity: the release, its assets, and the comments the GitHub plugin
+          # posts. The ruleset guards the branch and not the releases, so this stays the scoped
+          # per-run token - and the release goes on being published by github-actions[bot], as
+          # every release before it was.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The push identity, and the reason this workflow works at all: `main` requires status
+          # checks that a direct push can never satisfy, so whoever pushes the version bump has
+          # to be on the ruleset's bypass list. semantic-release builds the authenticated remote
+          # from the first of GIT_CREDENTIALS, GH_TOKEN, GITHUB_TOKEN that can push
+          # (lib/get-git-auth-url.js), so naming it here is what makes @semantic-release/git use
+          # the PAT rather than the token above.
+          #
+          # The username half is ignored by GitHub; the token is the password. The fallback
+          # keeps this honest before the secret exists - the push is then refused by the ruleset
+          # exactly as it is today, rather than failing in some new way.
+          GIT_CREDENTIALS: x-access-token:${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
           GIT_AUTHOR_NAME: semantic-release-bot
           GIT_AUTHOR_EMAIL: semantic-release-bot@users.noreply.github.com
           GIT_COMMITTER_NAME: semantic-release-bot
