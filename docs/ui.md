@@ -236,6 +236,39 @@ name is either the node's own or derived from its number, and the node is either
 still has or one only we remember. The detail says so in two rows, because both change what a
 message to that node will do.
 
+### Status — cards
+
+The Status tab is the one screen with nothing to select: it is a readout, and it used to be
+eighteen label/value lines in one column on the bare ground, with a half-line of extra space
+every so often standing in for a grouping. It is now three **cards** (`struct fb_card`, below),
+which is the same information with the grouping said out loud:
+
+| Card | What it holds | What its heading colour says |
+|---|---|---|
+| **Link** | transport, radio, sync, our node, the primary channel, devices in range | good when a radio is attached, bad when none is |
+| **Mesh** | NodeDB and roster counts, airtime, packets, what the ring is holding | the airtime tone — accent past 25% channel utilization, bad past 50% |
+| **Radio** | battery and uptime, what the firmware last said, reboots, the TX queue, free heap | the worst thing on it: bad for a flat battery, a refused packet or an `ERROR` notice |
+
+The heading colour is the point. Every row on the Radio card exists only when something is
+wrong, so on a healthy link that card is small and accent-coloured and there is nothing to read;
+when it turns red, the screen has answered "is anything wrong" before a number has been.
+
+Two consequences worth knowing:
+
+- **The Radio card is ordered most-read first** — battery, then the radio's own words, then
+  reboots, then the queue, then the heap. It is the one card that can outgrow the panel, because
+  its worst case is every conditional row at once, and `fb_draw_card()` drops from the end. The
+  free-heap figure is the row a user would have scrolled past anyway.
+- **There is no screen title and no quit hint in the body.** The tab strip already says Status
+  and each card names itself, so a title would be the third time; the quit hint moved to the
+  footer, where every other screen says what the buttons do. Those two rows are what the cards
+  spend on their headings. The footer only says it while a radio is attached — the line under it
+  already ends in the quit hint when there is not.
+
+Status does not scroll. On a radio reporting everything at once the last row or two of the Radio
+card are dropped rather than drawn over the footer, which is the card's own contract; a scrolling
+Status is the obvious next step and is a nav change, not a rendering one.
+
 ### Settings — `src/ui/settings*.c`
 
 `settings.c` is the `k_fields` table and everything derived from it, `settings_codec.c` converts
@@ -354,7 +387,7 @@ shoulder, revealed in the one place you went to change it.
 | File | Layer | What belongs there |
 |---|---|---|
 | `fb_draw.c` | ink | pixels, glyphs, the theme lookups, cell metrics (`fb_internal.h`) |
-| `fb_widgets.c` | components | buttons, chips, list rows, field rows, rules (`fb_widgets.h`) |
+| `fb_widgets.c` | components | cards, buttons, chips, list rows, field rows, rules (`fb_widgets.h`) |
 | `fb_screens.c` | screens | one renderer per screen, plus the tab strip and footer |
 | `fb.c` | device | `/dev/fb0`, the page flip, the backend vtable |
 
@@ -393,6 +426,48 @@ Screens name a **tone** (`MESH_UI_TONE_ACCENT`, `MESH_UI_TONE_BAD`, …) rather 
 components take a tone or a **role** (`MESH_UI_COLOR_SURFACE_SEL`) rather than an RGB — see
 [Themes](#themes) below. Same idea as a stylesheet with a token called `danger` instead of a hex
 value.
+
+`struct fb_card` is the container the others sit in: a titled panel that groups rows belonging to
+one subject, which is what the [Status tab](#status--cards) is now made of. It is the odd one out
+here because it is **declared and then drawn**, and the framebuffer forces that — a card's fill
+has to go down before its text or it paints over it, and its height is not known until the last
+row is in:
+
+```c
+struct fb_card card;
+fb_card_begin(&card, MESH_STR_STATUS_CARD_LINK, connected ? MESH_UI_TONE_GOOD : MESH_UI_TONE_BAD);
+fb_card_row_text(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_TRANSPORT, status);
+if (handshake_valid) {
+    fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_MY_NODE,
+                MESH_STR_STATUS_MY_NODE, short_name, node_num);   /* formatted from the catalog */
+}
+fb_card_note(&card, notice_tone, notice->text);                   /* a wrapped paragraph */
+(void)fb_draw_card(state, layout, &y, &card);
+```
+
+Declaring first buys three things beyond the drawing it saves:
+
+- **A conditional row is an `if` around one call**, rather than a branch that has to remember to
+  advance a y cursor by the right amount.
+- **The label column is measured from the labels the card is actually holding**, so every value
+  starts as far left as it can. A fixed column — which is what a row-at-a-time API has to use —
+  must be wide enough for the longest label any screen might want, and leaves a card of one-word
+  labels with a gutter of nothing down the middle of it. It is still capped at half the card.
+- **The card owns the footer.** Rows that would fall past the body's bottom are dropped and the
+  card shrinks to what is left; `fb_draw_card()` returns false when not even the heading and one
+  row fit, and that is the answer for every card after it too, so a screen can stop. This was
+  the "does another row fit" test the dense screens used to write out per row — and Status wrote
+  two of them, differently.
+
+The fill is `MESH_UI_COLOR_SURFACE` and the edge is `MESH_UI_COLOR_RULE`, and the edge is not
+decoration: on every theme that ships, the surface is deliberately close to the ground — a
+surface far from it is one body text is no longer validated against — so in daylight the
+hairline is the whole of what says a card is there. `mesh_ui_theme_validate()` holds `RULE`
+against both the ground and the surface for that reason, and holds the four tones a card row can
+take against the surface as well. The inset and the corner radius are theme metrics
+(`card_pad`, `card_radius`) in glyph-scale steps, so a card grows with the text; the vertical
+inset is deliberately half the horizontal one, because a row is a line *advance* tall and the
+leading it already carries is counted twice in a stack of rows and once at either end.
 
 `struct fb_button` is one component covering the on-screen keyboard's character keys, its action
 row, and (sized to its own label, via `fb_draw_chip`) the tab strip: a filled cell with a label

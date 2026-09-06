@@ -276,6 +276,15 @@ MESH_STR_ENTRY(DEVICES_CONNECTED_NAME,    "Connected")
 
 /* ---- the Status tab -------------------------------------------------------------------------- */
 
+/* Card headings. Each names the *subject* of the rows under it rather than repeating a row
+   label, which is why these are their own ids and not reused from the labels below: "Mesh" as a
+   heading covers traffic and airtime, while "Mesh" as a row label is one line about whether the
+   radio has reported at all, and the two are one word in English and rarely one word elsewhere.
+   Short: a heading sits on a card that is already inset from both margins. */
+MESH_STR_ENTRY(STATUS_CARD_LINK,          "Link")
+MESH_STR_ENTRY(STATUS_CARD_MESH,          "Mesh")
+MESH_STR_ENTRY(STATUS_CARD_RADIO,         "Radio")
+
 /* Row labels down the left of the Status screen. They share one narrow column, so a
    translation that will not fit is better shortened than wrapped. */
 MESH_STR_ENTRY(STATUS_LABEL_TRANSPORT,    "Transport")
@@ -290,7 +299,6 @@ MESH_STR_ENTRY(STATUS_LABEL_BATTERY,      "Battery")
 MESH_STR_ENTRY(STATUS_LABEL_PACKETS,      "Packets")
 MESH_STR_ENTRY(STATUS_LABEL_DROPPED,      "Dropped")
 MESH_STR_ENTRY(STATUS_LABEL_HEAP,         "Heap")
-MESH_STR_ENTRY(STATUS_LABEL_MESH,         "Mesh")
 MESH_STR_ENTRY(STATUS_LABEL_TX_QUEUE,     "TX queue")
 MESH_STR_ENTRY(STATUS_LABEL_RADIO_SAID,   "Radio said")
 MESH_STR_ENTRY(STATUS_LABEL_REBOOTS,      "Reboots")

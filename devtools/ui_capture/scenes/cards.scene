@@ -1,0 +1,34 @@
+# The Status tab as cards.
+#
+# It used to be eighteen label/value lines on the bare ground, in one column, with a half-line
+# of space every so often standing in for a grouping. Three cards say the grouping outright, and
+# each one reports on itself in its own heading colour - so this clip is about the headings as
+# much as the panels: watch "Radio" go from the accent to the bad tone as the firmware starts
+# refusing packets, without a single row having to be read.
+
+scene demo
+config
+tab status
+hold 900
+
+# The radio comes under pressure. Each of these is a row that only exists while something is
+# wrong, which is why this card is the one that can outgrow the panel - and why it is ordered
+# most-read first, so what fb_draw_card() drops is the free-heap figure and not the battery.
+queue 6 16
+hold 700
+notice warn Duty cycle limit reached, transmit paused
+hold 900
+queue 0 16 refused
+hold 900
+reboots 2
+hold 1000
+
+# The same three cards in every theme. The fill is a role (SURFACE), the hairline is a role
+# (RULE) and the heading is a tone, so nothing here is switched by hand - and on the contrast
+# theme, where the surface is all but the ground, the hairline is the whole of the card.
+theme light
+hold 1000
+theme contrast
+hold 1000
+theme colorblind
+hold 1400

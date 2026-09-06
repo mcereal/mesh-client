@@ -282,25 +282,120 @@ void fb_list_field_row_switch(struct mesh_ui_backend_fb_state *state, struct fb_
 size_t fb_field_label_cols(const struct mesh_ui_backend_fb_state *state,
                            const struct fb_layout *layout, size_t preferred);
 
-/* "Messages (12)", or "Messages (12, +40 older)" when a ring has dropped some. */
-void fb_title_count(char *out, size_t out_len, const char *name, uint32_t count, uint32_t dropped);
+/* ---- cards --------------------------------------------------------------------------------
+ *
+ * A card: a titled panel that groups rows which belong together.
+ *
+ * Every screen that is not a list is a column of label/value lines on the bare ground, and a
+ * column of eighteen of them is a wall - nothing in it says that Transport, Radio and Sync are
+ * one subject and Packets and Dropped are another. A card says it with a fill and a heading,
+ * which is what the phone and desktop platforms settled on for the same reason.
+ *
+ * It is *declared, then drawn*, unlike every other component here, and that is forced by the
+ * framebuffer: a card's fill has to go down before its text or it paints over it, and its
+ * height is not known until the last row is in. So a screen fills a struct and hands it over:
+ *
+ *     struct fb_card card;
+ *     fb_card_begin(&card, MESH_STR_STATUS_CARD_LINK, MESH_UI_TONE_ACCENT);
+ *     fb_card_row_text(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_TRANSPORT, status);
+ *     if (connected) {
+ *         fb_card_row_text(&card, MESH_UI_TONE_GOOD, MESH_STR_STATUS_LABEL_RADIO, name);
+ *     }
+ *     fb_draw_card(state, layout, &y, &card);
+ *
+ * which is worth more than the drawing it saves: a conditional row is an `if` around one call
+ * rather than a branch that has to remember to advance a y cursor by the right amount.
+ *
+ * The card owns its own geometry - the inset, the corner radius, the label column, where the
+ * next card starts - and it owns the footer. A screen cannot lay a card over the footer: rows
+ * that do not fit are dropped and the card says how many, rather than the screen re-deriving
+ * the "does another row fit" test that was written out by hand on every dense screen.
+ *
+ * Colours are the theme's: the fill is MESH_UI_COLOR_SURFACE, which every theme already owes
+ * body text 4.5:1 and the four card tones 3:1, and the edge is MESH_UI_COLOR_RULE, which has to
+ * be visible against both. The heading takes the card's own tone, so a card reports the state
+ * of what it holds - the Link card goes bad when the radio is gone - without a second cue to
+ * invent.
+ */
+
+#define FB_CARD_ROWS_MAX 12U
+#define FB_CARD_LABEL_MAX 24U
+/* Wide enough for the longest thing a row carries whole, which is a radio notice
+   (MESH_UI_RADIO_NOTICE_TEXT_MAX). A value longer than this is clipped on a cell boundary. */
+#define FB_CARD_VALUE_MAX 132U
+/* A note is a sentence the radio wrote, not a value, and three lines is where it stops being
+   worth the rows it costs on a 3.2" panel. */
+#define FB_CARD_NOTE_LINES 3U
+
+enum fb_card_row_kind {
+    FB_CARD_ROW_FIELD = 0, /* a label column and a value, as the field rows have */
+    FB_CARD_ROW_NOTE,      /* a wrapped paragraph across the card's full width, no label */
+};
+
+struct fb_card_row {
+    enum fb_card_row_kind kind;
+    enum mesh_ui_tone tone;
+    char label[FB_CARD_LABEL_MAX];
+    char value[FB_CARD_VALUE_MAX];
+};
+
+struct fb_card {
+    char heading[FB_CARD_LABEL_MAX];
+    enum mesh_ui_tone tone; /* the heading's, and so the card's own report on itself */
+    /* Rows offered past the last are dropped. The cap is well above what any screen here fills
+       - the densest is the Status tab's Radio card at six - so reaching it means a screen has
+       outgrown one card rather than that the panel ran out, and wants two. */
+    struct fb_card_row rows[FB_CARD_ROWS_MAX];
+    uint32_t count;
+};
+
+/* Starts a card. `heading` of MESH_STR_NONE is a card with no heading - a panel, not a
+   section. Always call this first: it is what clears the row list. */
+void fb_card_begin(struct fb_card *card, enum mesh_str_id heading, enum mesh_ui_tone tone);
+
+/* A label and a value formatted from the catalog, which is the shape most rows have. */
+void fb_card_row(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_id label,
+                 enum mesh_str_id value, ...);
+
+/* The same row for a value that is already text - a device name, an age, a percentage a caller
+   has formatted. It exists so no "%s" pass-through ends up in the catalog, where it would be a
+   line for a translator to wonder about. Same split as fb_draw_status_row/_text. */
+void fb_card_row_text(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_id label,
+                      const char *value);
+
+/* A sentence, wrapped across the card's whole width with no label column. What the radio said
+   about itself goes here: a firmware sentence in the value gutter is three words and a cut. */
+void fb_card_note(struct fb_card *card, enum mesh_ui_tone tone, const char *text);
+
+/* Whether anything was added. A card with no rows is not drawn, so a screen can build one
+   unconditionally and let it disappear when the radio has reported nothing. */
+bool fb_card_is_empty(const struct fb_card *card);
+
+/* Pixels the card occupies, the gap to the next card included. What fb_draw_card() measures
+   with; exposed because a screen laying cards out against something else needs the same
+   answer, and a second way of measuring one is how the two come to disagree. */
+int fb_card_height(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                   const struct fb_card *card);
 
 /*
- * One label/value line that stops at the footer instead of drawing over it.
+ * Draws the card with its top edge at `*y` and advances `*y` past it.
  *
- * The Status screen packs a variable number of these - blocks appear as the radio reports
- * them - so the alternative to clipping here is a layout that overwrites its own footer on
- * somebody's device.
+ * Rows that would fall past the body's bottom are dropped from the end and the card shrinks to
+ * what is left, so a screen may hand over more cards than the panel holds and get the ones that
+ * fit. A *note* is the exception: when it is the row that did not fit, it keeps as many of its
+ * lines as the leftover room takes, because a note is a sentence explaining something no other
+ * row can and half of it beats none of it. A field row is never halved - a label and half a
+ * value is not half a fact - and nothing is drawn below a clipped note, since a truncated
+ * paragraph with rows under it reads as a complete one.
+ *
+ * Returns false when not even the heading and one row - or one line of a note - fit, in which
+ * case nothing is drawn and `*y` is untouched. That is also the answer for every card after it,
+ * so a screen can stop.
  */
-void fb_draw_status_row(const struct mesh_ui_backend_fb_state *state,
-                        const struct fb_layout *layout, int *y, enum mesh_ui_tone tone,
-                        enum mesh_str_id label, enum mesh_str_id value, ...);
+bool fb_draw_card(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                  int *y, const struct fb_card *card);
 
-/* The same row for a value that is already text - a device name, an age, a transport's own
-   status word. It exists so no "%s" pass-through ends up in the catalog, where it would be a
-   line for a translator to wonder about. */
-void fb_draw_status_text(const struct mesh_ui_backend_fb_state *state,
-                         const struct fb_layout *layout, int *y, enum mesh_ui_tone tone,
-                         enum mesh_str_id label, const char *value);
+/* "Messages (12)", or "Messages (12, +40 older)" when a ring has dropped some. */
+void fb_title_count(char *out, size_t out_len, const char *name, uint32_t count, uint32_t dropped);
 
 #endif /* MESH_UI_BACKENDS_FB_WIDGETS_H */

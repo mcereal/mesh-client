@@ -10,6 +10,7 @@
 
 #include "mesh/ui/anim.h"
 #include "mesh/ui/emoji.h"
+#include "mesh/utils/text.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -550,40 +551,341 @@ void fb_list_field_row(const struct mesh_ui_backend_fb_state *state, struct fb_l
     fb_list_row_line(state, list, index, &line, tone);
 }
 
+/* ---- cards -------------------------------------------------------------------------------- */
+
+/*
+ * A card's geometry, all of it derived from the theme's scale and its two card metrics.
+ *
+ * Computed once and shared by the measure and the draw, for the reason struct fb_bubble_metrics
+ * exists: a card that measured one height and painted another would either leave a gap under
+ * itself or paint over the rows below, and the screen places the next card from the height this
+ * one reported.
+ */
+struct fb_card_metrics {
+    int x, width;  /* the panel, edge included */
+    int pad;       /* the inset from the side edges to the content */
+    int pad_y;     /* the inset from the top and bottom edges */
+    int edge;      /* the hairline's thickness */
+    int radius;    /* corner radius, clamped by fb_fill_round_rect() anyway */
+    int heading_h; /* what the heading costs, 0 when there is none */
+    int content_x; /* where a row's text starts */
+    size_t cols;   /* content width in cells */
+    size_t label_cols;
+    int gap; /* to the next card */
+};
+
+static struct fb_card_metrics fb_card_measure(const struct mesh_ui_backend_fb_state *state,
+                                              const struct fb_layout *layout,
+                                              const struct fb_card *card) {
+    const struct mesh_ui_metrics *metrics = fb_metrics(state);
+    const int scale = state->scale;
+    struct fb_card_metrics m;
+    memset(&m, 0, sizeof m);
+
+    m.x = fb_margin(state);
+    m.width = (int)state->var.xres - 2 * m.x;
+    m.pad = (int)metrics->card_pad * scale;
+    /* Half as much above and below as at the sides, which is not a fudge: a row is a line
+       *advance* tall, and the advance already carries the leading that accents hang in, so the
+       full inset is counted twice at the top and bottom of a stack of rows and only once at
+       either end of one. A card padded equally all round reads bottom-heavy for that reason,
+       and on a panel with fifteen body rows it costs the better part of one per card. */
+    m.pad_y = m.pad / 2 > 0 ? m.pad / 2 : m.pad;
+    m.edge = scale / 2 > 0 ? scale / 2 : 1;
+    m.radius = (int)metrics->card_radius * scale;
+    /* A heading is drawn at the chrome scale, the size the tab strip and the footer are: a
+       section label is not something to read, it is something to find, and at the body scale it
+       costs a whole row of content on a panel that has fifteen of them. */
+    m.heading_h = card->heading[0] != '\0' ? fb_line_adv(state, layout->small) : 0;
+
+    const int inset = m.pad + m.edge;
+    m.content_x = m.x + inset;
+    const int adv = fb_char_adv(state, state->scale);
+    const int content_w = m.width - 2 * inset;
+    m.cols = content_w >= adv ? (size_t)(content_w / adv) : 1U;
+
+    /*
+     * The label column is measured from the labels the card is actually holding, rather than
+     * taken from the theme's preferred width the way a settings list takes it.
+     *
+     * That is the one thing declaring a card before drawing it buys that a row-at-a-time API
+     * cannot: every label is already in hand, so the column is exactly as wide as the widest of
+     * them and every value starts as far left as it can. A fixed column has to be wide enough
+     * for the longest label any screen might use, which leaves a card of short labels - and the
+     * Status cards are mostly one word - with a gutter of nothing in the middle of it.
+     *
+     * Still bounded: half the card is the most a label column may take, because past that a
+     * value is being squeezed to line up labels that already line up.
+     */
+    size_t widest = 0U;
+    for (uint32_t i = 0U; i < card->count; ++i) {
+        if (card->rows[i].kind != FB_CARD_ROW_FIELD) {
+            continue;
+        }
+        const size_t cells = mesh_ui_text_cells(card->rows[i].label);
+        if (cells > widest) {
+            widest = cells;
+        }
+    }
+    m.label_cols = widest + 1U;
+    if (m.label_cols > m.cols / 2U) {
+        m.label_cols = m.cols / 2U;
+    }
+    if (m.label_cols == 0U) {
+        m.label_cols = 1U;
+    }
+    /* Enough space that two stacked cards read as two, and no more: the gap is what a fill
+       needs to stop being a continuous block, which is the same job the conversation cell's
+       tighter leading does. */
+    m.gap = m.pad;
+    return m;
+}
+
+/* Body rows one row of content occupies. Only a note is ever more than one. */
+static uint32_t fb_card_row_lines(const struct fb_card_row *row, size_t cols) {
+    if (row->kind != FB_CARD_ROW_NOTE) {
+        return 1U;
+    }
+    uint32_t lines = mesh_ui_wrap_lines(row->value, cols);
+    if (lines > FB_CARD_NOTE_LINES) {
+        lines = FB_CARD_NOTE_LINES;
+    }
+    return lines > 0U ? lines : 1U;
+}
+
+/*
+ * How much of a card is being drawn: whole rows, and then however many lines of the row after
+ * them a note may keep.
+ *
+ * The second half is not a refinement. A note is a sentence the radio wrote about itself, and it
+ * is the row on the Status screen that explains something no counter can - so dropping it whole
+ * because its third line did not fit leaves the age it arrived at and none of the words. The
+ * renderer this replaced capped the paragraph to the lines it had room for, and so does this.
+ */
+struct fb_card_fit {
+    uint32_t rows;       /* rows drawn whole */
+    uint32_t tail_lines; /* lines kept of rows[rows]; 0 when that row is not drawn at all */
+};
+
+/* The painted box for that much of the card - the gap to the next card is not part of it,
+   because the last card on a screen does not spend one and a fit test that charged it anyway
+   lost a row to a card that had room for it. */
+static int fb_card_box_height(const struct fb_card_metrics *m, const struct fb_layout *layout,
+                              const struct fb_card *card, struct fb_card_fit fit) {
+    int height = 2 * (m->pad_y + m->edge) + m->heading_h;
+    for (uint32_t i = 0U; i < fit.rows && i < card->count; ++i) {
+        height += (int)fb_card_row_lines(&card->rows[i], m->cols) * layout->line;
+    }
+    return height + (int)fit.tail_lines * layout->line;
+}
+
+/*
+ * As much of the card as fits between `top` and `bottom`.
+ *
+ * Whole rows go first, dropped from the end. Then, when the row that did not fit is a note, as
+ * many of its lines as the leftover room takes - and only a note, because a field row is a label
+ * and a value and half of one is not half a fact. Nothing is drawn after a clipped note either:
+ * a truncated paragraph with rows under it reads as a complete one.
+ */
+static struct fb_card_fit fb_card_clip(const struct fb_card_metrics *m,
+                                       const struct fb_layout *layout, const struct fb_card *card,
+                                       int top, int bottom) {
+    struct fb_card_fit fit = {.rows = card->count, .tail_lines = 0U};
+    while (fit.rows > 0U && top + fb_card_box_height(m, layout, card, fit) > bottom) {
+        fit.rows -= 1U;
+    }
+    if (fit.rows < card->count && card->rows[fit.rows].kind == FB_CARD_ROW_NOTE) {
+        const uint32_t whole = fb_card_row_lines(&card->rows[fit.rows], m->cols);
+        for (uint32_t lines = whole > 0U ? whole - 1U : 0U; lines > 0U; --lines) {
+            const struct fb_card_fit probe = {.rows = fit.rows, .tail_lines = lines};
+            if (top + fb_card_box_height(m, layout, card, probe) <= bottom) {
+                fit.tail_lines = lines;
+                break;
+            }
+        }
+    }
+    return fit;
+}
+
+void fb_card_begin(struct fb_card *card, enum mesh_str_id heading, enum mesh_ui_tone tone) {
+    if (card == NULL) {
+        return;
+    }
+    memset(card, 0, sizeof *card);
+    card->tone = tone;
+    if (heading != MESH_STR_NONE) {
+        mesh_text_sanitise_str(mesh_str(heading), card->heading, sizeof card->heading);
+    }
+}
+
+/* The next free row, or NULL once the card is full. */
+static struct fb_card_row *fb_card_next_row(struct fb_card *card, enum fb_card_row_kind kind,
+                                            enum mesh_ui_tone tone) {
+    if (card == NULL || card->count >= FB_CARD_ROWS_MAX) {
+        return NULL;
+    }
+    struct fb_card_row *row = &card->rows[card->count++];
+    memset(row, 0, sizeof *row);
+    row->kind = kind;
+    row->tone = tone;
+    return row;
+}
+
+void fb_card_row_text(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_id label,
+                      const char *value) {
+    struct fb_card_row *row = fb_card_next_row(card, FB_CARD_ROW_FIELD, tone);
+    if (row == NULL) {
+        return;
+    }
+    /*
+     * Sanitised rather than copied: both of these are drawn, so a fixed buffer has to be cut on
+     * a character and not on a byte - mesh_str_copy() would leave the tail of a multi-byte
+     * sequence behind and the font would draw the pieces. It also folds control bytes away,
+     * which matters for one row in particular: what the radio last said about itself arrives
+     * off the air, and this is the last place before it becomes glyphs.
+     */
+    mesh_text_sanitise_str(mesh_str(label), row->label, sizeof row->label);
+    mesh_text_sanitise_str(value, row->value, sizeof row->value);
+}
+
+void fb_card_row(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_id label,
+                 enum mesh_str_id value, ...) {
+    char text[MESH_UI_LINE_MAX];
+    va_list args;
+    va_start(args, value);
+    (void)mesh_str_vformat(text, sizeof text, value, args);
+    va_end(args);
+    fb_card_row_text(card, tone, label, text);
+}
+
+void fb_card_note(struct fb_card *card, enum mesh_ui_tone tone, const char *text) {
+    if (text == NULL || text[0] == '\0') {
+        return;
+    }
+    struct fb_card_row *row = fb_card_next_row(card, FB_CARD_ROW_NOTE, tone);
+    if (row == NULL) {
+        return;
+    }
+    mesh_text_sanitise_str(text, row->value, sizeof row->value);
+}
+
+bool fb_card_is_empty(const struct fb_card *card) { return card == NULL || card->count == 0U; }
+
+int fb_card_height(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                   const struct fb_card *card) {
+    if (fb_card_is_empty(card)) {
+        return 0;
+    }
+    const struct fb_card_metrics m = fb_card_measure(state, layout, card);
+    const struct fb_card_fit whole = {.rows = card->count, .tail_lines = 0U};
+    return fb_card_box_height(&m, layout, card, whole) + m.gap;
+}
+
+/* One row of content, drawn at `y` and returning the rows it used. `max_lines` of 0 means the
+   row's own count; anything else is the budget a clipped note has been given. */
+static uint32_t fb_draw_card_row(const struct mesh_ui_backend_fb_state *state,
+                                 const struct fb_card_metrics *m, const struct fb_layout *layout,
+                                 int y, const struct fb_card_row *row, uint32_t max_lines) {
+    const struct mesh_ui_rgb color = fb_tone_color(state, row->tone);
+    if (row->kind == FB_CARD_ROW_NOTE) {
+        /* fb_draw_wrapped() lays out from the left margin, and a card's content starts inside
+           it, so the note is wrapped here against the card's own column. */
+        const uint32_t budget = max_lines > 0U ? max_lines : FB_CARD_NOTE_LINES;
+        struct mesh_ui_wrap wrap;
+        mesh_ui_wrap_begin(&wrap, row->value, m->cols);
+        uint32_t drawn = 0U;
+        while (drawn < budget && mesh_ui_wrap_next(&wrap)) {
+            fb_draw_text(state, m->content_x, y + (int)drawn * layout->line, wrap.line,
+                         state->scale, color);
+            drawn += 1U;
+        }
+        return drawn > 0U ? drawn : 1U;
+    }
+
+    struct mesh_ui_line line;
+    mesh_ui_line_reset(&line);
+    mesh_ui_line_column(&line, row->label, m->label_cols);
+    mesh_ui_line_printf(&line, " %s", row->value);
+    mesh_ui_line_fit(&line, m->cols);
+    fb_draw_text(state, m->content_x, y, mesh_ui_line_text(&line), state->scale, color);
+    return 1U;
+}
+
+bool fb_draw_card(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                  int *y, const struct fb_card *card) {
+    if (y == NULL || fb_card_is_empty(card)) {
+        return false;
+    }
+    const struct fb_card_metrics m = fb_card_measure(state, layout, card);
+
+    /*
+     * How much of the card there is room for - the one place the "does another row fit" test
+     * lives. Every dense screen used to write it out per row, and the notice paragraph on the
+     * Status screen wrote a second, differently. A card with nothing left but its heading is not
+     * a card, so that is the point at which it is refused outright rather than drawn as an empty
+     * box; a single clipped line of a note is content, so it is not that point.
+     *
+     * The bound is the body's bottom, not the footer's first baseline: fb_render_snapshot() keeps
+     * half a margin between the two when it counts the body rows, and a card that ran to the
+     * baseline itself would put its edge against the footer text on the one screen dense enough
+     * to reach it.
+     */
+    const int bottom = layout->footer_y - fb_margin(state) / 2;
+    const struct fb_card_fit fit = fb_card_clip(&m, layout, card, *y, bottom);
+    if (fit.rows == 0U && fit.tail_lines == 0U) {
+        return false;
+    }
+
+    const int height = fb_card_box_height(&m, layout, card, fit);
+    /*
+     * The edge first, then the fill inside it: fb_fill_round_rect() fills rather than strokes,
+     * so an outline is the larger shape with the smaller one laid over it. Two fills rather than
+     * four rectangles because the corners have to follow the radius, and a stroked round rect is
+     * a primitive nothing else here would use.
+     *
+     * The edge is not decoration. On a theme whose surface is a step off the ground - which is
+     * every one that ships, because a surface far from the ground is a surface body text is no
+     * longer validated against - the fill alone is nearly invisible in daylight, and the
+     * hairline is the whole of what says a card is there. mesh_ui_theme_validate() holds RULE
+     * against both the ground and the surface for exactly this.
+     */
+    const int top = *y;
+    fb_fill_round_rect(state, m.x, top, m.width, height, m.radius + m.edge,
+                       fb_color(state, MESH_UI_COLOR_RULE));
+    fb_fill_round_rect(state, m.x + m.edge, top + m.edge, m.width - 2 * m.edge, height - 2 * m.edge,
+                       m.radius, fb_color(state, MESH_UI_COLOR_SURFACE));
+
+    int row_y = top + m.pad_y + m.edge;
+    if (m.heading_h > 0) {
+        /* The heading takes the card's tone, which is how a card reports on what it holds
+           without a second cue: the Link card goes bad when the radio has gone. Every tone a
+           card can take is validated against the surface, so none of them can go quiet here. */
+        struct mesh_ui_line line;
+        mesh_ui_line_reset(&line);
+        mesh_ui_line_printf(&line, "%s", card->heading);
+        mesh_ui_line_fit(&line, fb_cols(state, layout->small));
+        fb_draw_text(state, m.content_x, row_y, mesh_ui_line_text(&line), layout->small,
+                     fb_tone_color(state, card->tone));
+        row_y += m.heading_h;
+    }
+
+    for (uint32_t i = 0U; i < fit.rows; ++i) {
+        row_y += (int)fb_draw_card_row(state, &m, layout, row_y, &card->rows[i], 0U) * layout->line;
+    }
+    if (fit.tail_lines > 0U) {
+        (void)fb_draw_card_row(state, &m, layout, row_y, &card->rows[fit.rows], fit.tail_lines);
+    }
+
+    *y = top + height + m.gap;
+    return true;
+}
+
 void fb_title_count(char *out, size_t out_len, const char *name, uint32_t count, uint32_t dropped) {
     if (dropped > 0U) {
         mesh_str_format(out, out_len, MESH_STR_LIST_TITLE_COUNT_OLDER, name, count, dropped);
     } else {
         mesh_str_format(out, out_len, MESH_STR_LIST_TITLE_COUNT, name, count);
     }
-}
-
-void fb_draw_status_text(const struct mesh_ui_backend_fb_state *state,
-                         const struct fb_layout *layout, int *y, enum mesh_ui_tone tone,
-                         enum mesh_str_id label, const char *value) {
-    if (*y + layout->line > layout->footer_y) {
-        return;
-    }
-
-    struct mesh_ui_line line;
-    mesh_ui_line_reset(&line);
-    mesh_ui_line_column(&line, mesh_str(label), 11U);
-    mesh_ui_line_printf(&line, " %s", value != NULL ? value : "");
-    mesh_ui_line_fit(&line, layout->cols);
-    fb_draw_text(state, fb_margin(state), *y, mesh_ui_line_text(&line), state->scale,
-                 fb_tone_color(state, tone));
-    *y += layout->line;
-}
-
-void fb_draw_status_row(const struct mesh_ui_backend_fb_state *state,
-                        const struct fb_layout *layout, int *y, enum mesh_ui_tone tone,
-                        enum mesh_str_id label, enum mesh_str_id value, ...) {
-    char text[MESH_UI_LINE_MAX];
-    va_list args;
-    va_start(args, value);
-    (void)mesh_str_vformat(text, sizeof text, value, args);
-    va_end(args);
-    fb_draw_status_text(state, layout, y, tone, label, text);
 }
 
 /* ---- the switch -------------------------------------------------------------------------- */
