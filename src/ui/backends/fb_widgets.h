@@ -191,21 +191,119 @@ void fb_list_row(const struct mesh_ui_backend_fb_state *state, struct fb_list *l
 void fb_list_row_line(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
                       uint32_t index, struct mesh_ui_line *line, enum mesh_ui_tone tone);
 
-/*
- * The same row with a filled count badge flush against the right edge - an unread count, said
- * the way every messenger says it. The line is clipped to leave the badge room rather than
- * drawn under it. `badge` of NULL or "" draws the plain row.
+/* ---- the list item ------------------------------------------------------------------------
+ *
+ * One component for every row this UI draws that is more than a line of text.
+ *
+ * There were four of these, and they were the same row four times: a settings row was a label
+ * column and a value, a toggle row was that with a control on the end, a conversation was a
+ * disc and two lines with a count after them. Each carried its own copy of the two things that
+ * are actually hard - clipping the text to leave a trailing control its room, and picking the
+ * ink for a row the cursor is on - and each got them slightly differently.
+ *
+ * So it is one item with *slots*, which is the shape the phone and desktop platforms all
+ * settled on: something optional at the leading edge, one or two lines of content, something
+ * optional at the trailing edge. A caller fills in the slots it wants and leaves the rest
+ * zeroed, and adding a new kind of row stops being a new function.
+ *
+ *     const struct fb_list_item row = {
+ *         .label = item->label,
+ *         .label_cols = label_cols,
+ *         .marker = "> ",
+ *         .value = item->value,
+ *         .tone = MESH_UI_TONE_NORMAL,
+ *     };
+ *     fb_list_item(state, &list, i, &row);
  */
-void fb_list_row_line_badge(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
-                            uint32_t index, struct mesh_ui_line *line, enum mesh_ui_tone tone,
-                            const char *badge);
+
+/* What sits against the row's trailing edge. The row is clipped to leave it room rather than
+   drawn under it, whichever of these it is. */
+enum fb_trailing_kind {
+    FB_TRAILING_NONE = 0,
+    FB_TRAILING_TEXT,   /* right-aligned and quiet: an age, a "not loaded" */
+    FB_TRAILING_BADGE,  /* a filled capsule: an unread count, said the way messengers say it */
+    FB_TRAILING_SWITCH, /* the boolean control - see struct fb_switch */
+};
+
+struct fb_trailing {
+    enum fb_trailing_kind kind;
+    const char *text;     /* TEXT and BADGE */
+    struct fb_switch *sw; /* SWITCH. Its rect is filled in by the row: where the value column
+                             ends is the row's business, not the caller's. */
+};
+
+/* What sits at the row's leading edge. */
+enum fb_leading_kind {
+    FB_LEADING_NONE = 0,
+    /* A tinted disc with one or two cells in it. What lets the eye find a row by colour and
+       two letters long before it has read a name. */
+    FB_LEADING_AVATAR,
+};
+
+struct fb_leading {
+    enum fb_leading_kind kind;
+    const char *label; /* initials, "#", "+" */
+    uint32_t tint;     /* seeds the disc's colour through the theme's avatar palette */
+    /* A stated fill instead of a tint - the accent for "all traffic", the bad tone for a row
+       armed to be deleted. MESH_UI_COLOR_COUNT means "use the tint". */
+    enum mesh_ui_color role;
+};
+
+struct fb_list_item {
+    struct fb_leading leading;
+
+    /*
+     * The headline. Two shapes, and `label_cols` is which:
+     *
+     *   0        `text` is the whole line - a plain row.
+     *   non-zero `label` occupies exactly that many cells, then `marker` and `value` - the
+     *            label/value shape the settings and node-detail rows have. Measured in cells,
+     *            so a value column lines up under a label that is not all ASCII.
+     */
+    const char *text;
+    const char *label;
+    size_t label_cols;
+    const char *marker; /* the "> " / "* " gutter that says a row is editable or edited */
+    const char *value;
+    enum mesh_ui_tone tone;
+    struct fb_trailing trailing;
+
+    /*
+     * The supporting line. Non-NULL is what makes this a two-row item.
+     *
+     * It is set closer to the headline than two separate rows would be, and the space that
+     * frees becomes the gap between items - otherwise a column of two-line items reads as one
+     * block of text with no way into it.
+     */
+    const char *supporting;
+    enum mesh_ui_tone supporting_tone;
+    /* Whether the supporting line stays secondary even under the cursor. A row's ink and its
+       cursor ink are different pairs rather than the same colour dimmed, so a line that is
+       quiet on the ground has to say whether it is still quiet on the fill: a message preview
+       is, a delete warning is not. */
+    bool supporting_quiet;
+    struct fb_trailing supporting_trailing;
+
+    /* A bar down the leading edge in the accent when the cursor is on the row. Not decoration:
+       a fill one step off the ground is not by itself findable on a small panel in sunlight,
+       and gives a colour-blind eye nothing at all. */
+    bool accent_edge;
+    /* An inset hairline below, between this item and the next. Skipped under the cursor, whose
+       fill is already doing that job, and below the last item on screen - a rule separates two
+       things, and under the last one there is nothing to separate it from. */
+    bool divider;
+};
 
 /*
- * A continuation line under the row just drawn: never highlighted and never the cursor,
- * because it is part of the item above it rather than something to select.
+ * Draws the item and advances past the row (or two) it occupies.
+ *
+ * Takes the state mutably, unlike the plain row above: a trailing switch steps an animation
+ * kept on it, keyed by the control's identity. That is the direction the whole component set
+ * is going - a meter and a progress bar want the same table - so it is the item API that
+ * carries it rather than a second entry point per animated slot.
  */
-void fb_list_sub_row(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
-                     const char *text, enum mesh_ui_tone tone);
+void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, uint32_t index,
+                  const struct fb_list_item *item);
 
 /*
  * A conversation cell: the component the Messages list is made of.
@@ -236,8 +334,10 @@ struct fb_conversation {
     enum mesh_ui_tone name_tone;
 };
 
-/* Draws one conversation into the next two rows of `list` and advances past them. */
-void fb_draw_conversation(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
+/* Draws one conversation into the next two rows of `list` and advances past them. Mutable
+   state, like every fb_list_item() caller: the item is the thing that can carry an animated
+   control, so the whole entry point takes the table it would step. */
+void fb_draw_conversation(struct mesh_ui_backend_fb_state *state, struct fb_list *list,
                           uint32_t index, const struct fb_conversation *conversation);
 
 /*
@@ -277,27 +377,6 @@ void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct f
 /* A dim centred label with a hairline either side, filling one body row. What separates one
    day - or one long silence - from the next. */
 void fb_draw_separator(const struct mesh_ui_backend_fb_state *state, int y, const char *label);
-
-/*
- * A label column and a value, which is the shape both the Settings rows and the node detail
- * rows have. `marker` is the "> " / "* " gutter that says a row is editable or edited; pass
- * "" for a plain row.
- */
-void fb_list_field_row(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
-                       uint32_t index, const char *label, size_t label_cols, const char *marker,
-                       const char *value, enum mesh_ui_tone tone);
-
-/*
- * The same row with a switch where the value would be, flush against the right edge.
- *
- * The row is clipped to leave the control its room rather than drawn under it, exactly as the
- * badge row is. Everything a switch needs beyond the row itself - identity, the two states -
- * comes in through `sw`; its rect is filled in here, because where the value column ends is
- * the row's business and not the caller's.
- */
-void fb_list_field_row_switch(struct mesh_ui_backend_fb_state *state, struct fb_list *list,
-                              uint32_t index, const char *label, size_t label_cols,
-                              const char *marker, enum mesh_ui_tone tone, struct fb_switch *sw);
 
 /* The label column width for a body this wide - narrow scales give the value more room, at the
    width the theme calls narrow. `preferred` of 0 takes the theme's own. */

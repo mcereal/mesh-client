@@ -208,6 +208,69 @@ MESH_TEST_CASE(ui_capture_draws_the_status_cards, unit) {
  * tool that rendered the same snapshot over and over - a clip of one frame repeated looks
  * plausible right up until you notice nothing moves.
  */
+/*
+ * The conversation list is drawn as two-line items with slots, not as rows of text.
+ *
+ * Same approach as the cards above - the structure, never the pixels - and the two things
+ * asked for are the two halves of what a slot *is*, so the case fails if either the leading or
+ * the trailing one is lost while the words survive:
+ *
+ *   - a filled shape in the accent, several cells across. A leading disc and a trailing unread
+ *     capsule are both that; a glyph drawn in the accent is at most a stroke wide, and so is
+ *     the bar down a selected row's edge. Only a slot puts an unbroken band of accent on a
+ *     scanline.
+ *   - a hairline of the rule colour spanning most of the width: the divider between one item
+ *     and the next, which nothing else on this screen draws.
+ *
+ * Both were the conversation cell's own geometry once and are the shared item's now, which is
+ * exactly why they are worth pinning: the next component to want a slot will be built on the
+ * same code, and a regression here would otherwise only show up on a device.
+ */
+MESH_TEST_CASE(ui_capture_draws_the_conversation_items, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    /* Messages is where the nav opens, and the list is its first level - asserted rather than
+       assumed, so this fails loudly rather than silently checking some other screen. */
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen != MESH_UI_SCREEN_MESSAGES || store.nav.thread_open,
+                              mesh_ui_store_shutdown(&store),
+                              "the nav does not open on the conversation list");
+
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_ui_store_consume_updates(&store, &snapshot),
+                              mesh_ui_store_shutdown(&store), "no snapshot to render");
+
+    struct mesh_ui_capture *capture = NULL;
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, 4) != 0,
+        mesh_ui_store_shutdown(&store), "capture open failed");
+
+    uint32_t width = 0U;
+    uint32_t height = 0U;
+    size_t stride = 0U;
+    const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+    mesh_ui_capture_render(capture, &snapshot);
+
+    const unsigned shape =
+        widest_row_run(capture, pixels, width, height, stride, MESH_UI_COLOR_ACCENT);
+    MESH_TEST_FAIL_IF_CLEANUP(shape < 2U, mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "the conversation list draws no filled accent slot");
+
+    const unsigned divider =
+        widest_row_run(capture, pixels, width, height, stride, MESH_UI_COLOR_RULE);
+    MESH_TEST_FAIL_IF_CLEANUP(divider < 50U, mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "the conversation list draws no divider between its items");
+
+    mesh_ui_capture_close(capture);
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_capture_follows_the_nav, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");

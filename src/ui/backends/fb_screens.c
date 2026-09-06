@@ -132,7 +132,7 @@ static void fb_draw_footer(const struct mesh_ui_backend_fb_state *state,
 
 /* Level one of the Messages tab: all traffic, the channels, whoever we have direct messages
    with, and the way to start a new one. One conversation cell a row - see fb_widgets.h. */
-static void fb_render_conversations(const struct mesh_ui_backend_fb_state *state,
+static void fb_render_conversations(struct mesh_ui_backend_fb_state *state,
                                     const struct mesh_ui_snapshot *snapshot,
                                     struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
@@ -598,7 +598,9 @@ static void fb_render_thread(const struct mesh_ui_backend_fb_state *state,
  * carries the "> " marker an editable settings row uses, for the same reason - it is the only
  * thing on the screen A does anything to.
  */
-static void fb_render_node_detail(const struct mesh_ui_backend_fb_state *state,
+/* Mutable state, as every screen drawing a fb_list_item is: an item may carry a control
+   that animates, and where such a control has got to is kept on the backend. */
+static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
                                   const struct mesh_ui_snapshot *snapshot,
                                   struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
@@ -648,13 +650,19 @@ static void fb_render_node_detail(const struct mesh_ui_backend_fb_state *state,
             mesh_ui_line_printf(&line, "> %s", item->label);
             fb_list_row_line(state, &list, i, &line, MESH_UI_TONE_ACCENT);
         } else {
-            fb_list_field_row(state, &list, i, item->label, label_cols, " ", item->value,
-                              MESH_UI_TONE_NORMAL);
+            const struct fb_list_item row = {
+                .label = item->label,
+                .label_cols = label_cols,
+                .marker = " ",
+                .value = item->value,
+                .tone = MESH_UI_TONE_NORMAL,
+            };
+            fb_list_item(state, &list, i, &row);
         }
     }
 }
 
-static void fb_render_nodes(const struct mesh_ui_backend_fb_state *state,
+static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
                             const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     if (nav->node_detail_open) {
@@ -1429,17 +1437,35 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                     .on = item.number != 0U,
                     .dim = item.field == MESH_UI_FIELD_NONE,
                 };
-                fb_list_field_row_switch(state, &list, i, item.label, label_cols, marker, tone,
-                                         &sw);
+                const struct fb_list_item row = {
+                    .label = item.label,
+                    .label_cols = label_cols,
+                    .marker = marker,
+                    .tone = tone,
+                    .trailing = {.kind = FB_TRAILING_SWITCH, .sw = &sw},
+                };
+                fb_list_item(state, &list, i, &row);
                 continue;
             }
-            fb_list_field_row(state, &list, i, item.label, label_cols, marker, item.value, tone);
+            const struct fb_list_item row = {
+                .label = item.label,
+                .label_cols = label_cols,
+                .marker = marker,
+                .value = item.value,
+                .tone = tone,
+            };
+            fb_list_item(state, &list, i, &row);
         } else {
-            const enum mesh_ui_settings_section row = mesh_ui_settings_root_at(i);
-            const bool loaded = mesh_ui_settings_section_loaded(settings, handshake, row);
-            fb_list_field_row(state, &list, i, mesh_ui_settings_section_name(row), label_cols, "",
-                              loaded ? "" : mesh_str(MESH_STR_SETTINGS_NOT_LOADED),
-                              loaded ? MESH_UI_TONE_NORMAL : MESH_UI_TONE_DIM);
+            const enum mesh_ui_settings_section section_row = mesh_ui_settings_root_at(i);
+            const bool loaded = mesh_ui_settings_section_loaded(settings, handshake, section_row);
+            const struct fb_list_item row = {
+                .label = mesh_ui_settings_section_name(section_row),
+                .label_cols = label_cols,
+                .marker = "",
+                .value = loaded ? "" : mesh_str(MESH_STR_SETTINGS_NOT_LOADED),
+                .tone = loaded ? MESH_UI_TONE_NORMAL : MESH_UI_TONE_DIM,
+            };
+            fb_list_item(state, &list, i, &row);
         }
     }
 }

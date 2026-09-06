@@ -125,6 +125,11 @@ carrying the correspondent's initials, then the name with the age of the last tr
 right edge, then what was last said with the unread count as a **pill**. The cell owns all of it
 and the screen renderer only says which strings go in it.
 
+Underneath it is a [`fb_list_item`](#struct-fb_list_item--one-row-with-slots) with every slot
+filled — a leading avatar, a trailing age, a supporting line with a trailing badge — so what is
+left in `fb_draw_conversation()` is the *translation*: which of a conversation's facts goes in
+which slot, and which of them change what the row says rather than how it looks.
+
 Three things make the list skimmable rather than a wall of text, and all three are in that
 component:
 
@@ -394,7 +399,7 @@ shoulder, revealed in the one place you went to change it.
 | File | Layer | What belongs there |
 |---|---|---|
 | `fb_draw.c` | ink | pixels, glyphs, the theme lookups, cell metrics (`fb_internal.h`) |
-| `fb_widgets.c` | components | cards, buttons, chips, list rows, field rows, rules, bubbles (`fb_widgets.h`) |
+| `fb_widgets.c` | components | cards, buttons, chips, list items, rules, bubbles (`fb_widgets.h`) |
 | `fb_screens.c` | screens | one renderer per screen, plus the tab strip and footer |
 | `fb.c` | device | `/dev/fb0`, the page flip, the backend vtable |
 
@@ -419,6 +424,48 @@ while (fb_list_next(&list, &i)) {
 `fb_list_begin_rows()` is the variant for an item that spends more than one row (the
 conversation list spends two, a name and a preview); `fb_list_begin_visible()` is for a screen
 that reserves body rows for something else.
+
+#### `struct fb_list_item` — one row with slots
+
+A row that is more than a line of text is a `fb_list_item`: something optional at the **leading**
+edge, one or two lines of content, something optional at the **trailing** edge. The shape every
+phone and desktop platform settled on, and for the reason they did — it is the smallest
+vocabulary that covers every row a list wants.
+
+| Slot | Kinds |
+|---|---|
+| leading | `FB_LEADING_NONE`, `FB_LEADING_AVATAR` (a tinted disc with one or two cells in it) |
+| headline | plain `text`, or a `label` column of `label_cols` cells then `marker` and `value` |
+| supporting | a second line; non-NULL is what makes the item two rows tall |
+| trailing | `FB_TRAILING_NONE` / `_TEXT` (right-aligned and quiet) / `_BADGE` (a filled capsule) / `_SWITCH` |
+
+```c
+const struct fb_list_item row = {
+    .label = item->label, .label_cols = label_cols,
+    .marker = "> ", .value = item->value, .tone = MESH_UI_TONE_NORMAL,
+    .trailing = {.kind = FB_TRAILING_SWITCH, .sw = &sw},
+};
+fb_list_item(state, &list, i, &row);
+```
+
+There were four of these functions and they were the same row four times — a settings row, a
+toggle row, a badge row, a conversation cell. Each carried its own copy of the **two things that
+are actually hard**, and each got them slightly differently:
+
+- **clipping the line to leave the trailing slot its room** rather than drawing under it, in
+  cells and not bytes;
+- **picking the ink for a row the cursor is on**, which is a *different pair* of colours rather
+  than the same one dimmed — `TEXT_ON_SEL` and `TEXT_ON_SEL_DIM`, both validated against the
+  cursor fill.
+
+`supporting_quiet` is the one piece of that worth knowing: it says whether a secondary line
+stays secondary *under the cursor*. A message preview does; a delete warning does not.
+
+`fb_list_item()` takes the state **mutably**, unlike `fb_list_row_line()`. A trailing switch
+steps an animation kept on the backend and keyed by the control's identity, and a meter or a
+progress bar will want the same table — so the item API carries it rather than growing a second
+entry point per animated slot. `fb_draw_conversation()` is a thin translation on top: which of a
+conversation's facts goes in which slot.
 
 `struct fb_bubble` is the other component that earns its keep, and it is the one place the
 thread's geometry lives. A bubble sizes itself to its own text (never past three quarters of the
