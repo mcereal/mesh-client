@@ -48,7 +48,23 @@ struct mesh_ui_backend_fb_state {
        3.2" panel is 1024 px wide, so 4 gives ~41 columns of legible text. It starts at the
        theme's own and is overridden by MESHCLIENT_FB_SCALE. */
     int scale;
+    /* Somebody named this multiplier outright - MESHCLIENT_FB_SCALE on the device, an explicit
+       scale through the capture API - so a theme arriving in a snapshot keeps it rather than
+       swapping in that theme's default. */
+    bool scale_pinned;
 };
+
+/*
+ * Adopts the theme the snapshot names, when it names one this build knows and is not already
+ * drawing. Returns true when the frame's look changed.
+ *
+ * This is how a theme switch reaches the panel: the app publishes the choice in the client
+ * info and the backend picks it up on the next frame, rather than anything reaching in here to
+ * push at it. Backends stay stateless in the way that matters - what is on screen is a
+ * function of the snapshot.
+ */
+bool fb_state_follow_snapshot(struct mesh_ui_backend_fb_state *state,
+                              const struct mesh_ui_snapshot *snapshot);
 
 /* Sets the theme and takes the scale from it. Pass 0 for `scale` to accept the theme's. */
 void fb_state_set_theme(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_theme *theme,

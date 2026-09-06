@@ -271,6 +271,10 @@ enum mesh_ui_settings_action {
     /* Lets a build that is not a release install what it finds. Only emitted on such a build:
        the guard it lifts does not exist on a release, so neither does the row. */
     MESH_UI_SETTINGS_ACTION_TOGGLE_DEV_UPDATES,
+    /* Steps to the next theme and saves it. An ACTION for the same reason the update channel
+       is one: About has no radio behind it, so there is nothing for Y to write. Not emitted
+       when MESHCLIENT_THEME is holding the choice. */
+    MESH_UI_SETTINGS_ACTION_CYCLE_THEME,
     /* Radio actions. Every one of these goes through the confirm overlay, so A on the row
        opens the question rather than doing the thing. */
     MESH_UI_SETTINGS_ACTION_REBOOT,

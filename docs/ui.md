@@ -207,13 +207,17 @@ it loaded and the fb backend lets it through the "connect to a radio" guard — 
 section that means anything with nothing connected. Its rows come from `mesh_ui_client_info` in
 `store.h`, so neither the nav nor the backends ever see the updater. Its ACTION rows carry an
 `enum mesh_ui_settings_action` in `number`, which is how `nav.c` turns A into
-`MESH_UI_ACTION_CHECK_UPDATE`/`INSTALL_UPDATE`/`CYCLE_UPDATE_CHANNEL` without knowing what a
-section means. Check and install are deliberately separate presses because install replaces the
+`MESH_UI_ACTION_CHECK_UPDATE`/`INSTALL_UPDATE`/`CYCLE_UPDATE_CHANNEL`/`CYCLE_THEME` without
+knowing what a section means. Check and install are deliberately separate presses because install replaces the
 running binary. The update channel is an ACTION and not an editable ENUM field because About has
 no Y-save behind it — a pending edit there would sit unwritten forever — so A steps it and
 `app.c` persists it immediately. An ACTION row's value column carries a verb (`press A`) or the
 setting it holds, never a bare button letter: `Check for updates > A` read as a row whose value
 was the letter A.
+
+The **theme row** sits above the update rows, and deliberately: those return early in three
+places — no updater, a check in flight, an install ready — so a row after them would disappear
+exactly when somebody standing in the sun wanted it. See [Switching a theme](#switching-a-theme).
 
 **Editing** is driven by the `k_fields` table (label, kind, enum names, number presets, text byte
 cap per `enum mesh_ui_setting_field`). The nav keeps pending edits in `nav.settings_edits`
@@ -466,6 +470,38 @@ separate the green of "connected" from the red of "failed"; that theme swaps the
 Okabe–Ito blue and orange and moves the accent to reddish purple, and it is a palette change
 only because no renderer ever said "green".
 
+### Switching a theme
+
+Settings → About → **Theme**, and A steps to the next one. Cycling rather than a submenu because
+the screen is its own preview: the frame the press draws *is* the answer, and pressing A round
+the loop comes back to `dark`, which is how somebody who has stepped into a theme they cannot
+read gets home.
+
+Nothing pushes the choice at a backend. It travels the way every other fact about this client
+does:
+
+```
+About row (ACTION)  ->  nav.c raises MESH_UI_ACTION_CYCLE_THEME
+                    ->  app_actions.c steps app->ui_theme, writes prefs.theme, marks it dirty
+                    ->  app_publish.c puts the id and name in mesh_ui_client_info
+                    ->  fb_state_follow_snapshot() adopts it at the top of the next frame
+```
+
+That last step is the whole trick, and it is why **backends stay a function of the snapshot**:
+the renderer reads the theme out of the frame it was handed, exactly as it reads the cursor. A
+backend that does not care (the CLI one) ignores the field and nothing else changes. The
+adoption happens *before* anything is measured, because a theme carries the glyph scale and the
+margin the frame is laid out against.
+
+`MESHCLIENT_THEME` outranks the saved choice, the same way `MESHCLIENT_UPDATE_ALLOW_DEV`
+outranks the dev-updates switch. When it names a theme the row becomes the fact `Theme (env)`
+with the name beside it, rather than offering a press that the next frame would undo. (The note
+goes in the label because the value column is about eighteen cells on the device, and
+`Colour-blind safe (environment)` would clip to something that reads as a bug.) The saved preference is
+`theme=` in `~/.meshclient/ui_prefs`, written by name so reordering the theme table cannot move
+anybody onto a different look, and an id this build does not know resolves to the default
+without being overwritten.
+
 ### Seeing a theme
 
 `--theme` on `ui-capture.sh`, or a `theme NAME` line in a scene script. Before the first frame it
@@ -476,6 +512,11 @@ every theme:
 make ui-capture ARGS="devtools/ui_capture/scenes/themes.scene -o themes.gif"
 ./scripts/ui-capture.sh -t light -o light.png -d 1 devtools/ui_capture/scenes/messages.scene
 ```
+
+The harness publishes its own theme as client info, so the About screen in a capture shows the
+real Theme row. It cannot *act* on the row — pressing A raises the action and there is no app
+behind the harness to carry it out, the same limit `message out ...` exists for — so a scene
+stands in for the app by following the press with its own `theme` line.
 
 ## Backend selection
 

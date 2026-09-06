@@ -73,6 +73,10 @@ int mesh_ui_capture_open(struct mesh_ui_capture **out, uint32_t width, uint32_t 
     state->line_bytes = (uint32_t)stride;
     state->bytes_per_pixel = 4U;
     fb_state_set_theme(state, mesh_ui_theme_from_env(), scale);
+    /* A scale the caller named is theirs to keep: a theme arriving later in a snapshot must
+       not quietly swap it for that theme's default. 0 meant "the theme's own", which is not a
+       choice to preserve. */
+    state->scale_pinned = (scale > 0);
 
     *out = capture;
     return 0;
@@ -91,6 +95,7 @@ void mesh_ui_capture_set_scale(struct mesh_ui_capture *capture, int scale) {
         return;
     }
     capture->state.scale = mesh_ui_theme_clamp_scale(capture->state.theme, scale);
+    capture->state.scale_pinned = (scale > 0);
 }
 
 void mesh_ui_capture_set_theme(struct mesh_ui_capture *capture, const struct mesh_ui_theme *theme) {
@@ -99,8 +104,11 @@ void mesh_ui_capture_set_theme(struct mesh_ui_capture *capture, const struct mes
     }
     /* The scale rides along: a theme carries one, and a capture that kept the previous theme's
        would render the new one at a size it never asks for. A caller that wants both says so by
-       calling set_scale() afterwards, which is what the scene script's `scale` line does. */
+       calling set_scale() afterwards, which is what the scene script's `scale` line does - and
+       which is also what re-pins it. Naming a theme outright is an instruction; a theme
+       arriving in a snapshot is not, and that one leaves a pinned scale alone. */
     fb_state_set_theme(&capture->state, theme, 0);
+    capture->state.scale_pinned = false;
 }
 
 const struct mesh_ui_theme *mesh_ui_capture_theme(const struct mesh_ui_capture *capture) {

@@ -257,6 +257,27 @@ static void uicap_emit(struct uicap *cap) {
  * `scale` of 0 means "whatever this theme asks for", which is what makes `theme light` alone do
  * the right thing and `scale 5` still win when a script says both.
  */
+/*
+ * Publishes the capture's theme as the client info a real app would.
+ *
+ * Without it the Settings > About screen in a capture has no Theme row, because the row is
+ * drawn from what the app says it is drawing with - and there is no app here. This is the one
+ * client fact the harness genuinely owns, so it fills that one and leaves the rest alone.
+ */
+static void uicap_publish_theme(struct uicap *cap) {
+    const struct mesh_ui_theme *theme = mesh_ui_capture_theme(cap->capture);
+    if (theme == NULL) {
+        return;
+    }
+    struct mesh_ui_settings settings = cap->store.settings;
+    snprintf(settings.client.theme, sizeof settings.client.theme, "%s", theme->id);
+    snprintf(settings.client.theme_name, sizeof settings.client.theme_name, "%s", theme->name);
+    /* Only when the capture really is drawing what MESHCLIENT_THEME named: a scene that picked
+       its own theme is not being held by the environment, whatever the environment says. */
+    settings.client.theme_from_env = (mesh_ui_theme_env() == theme);
+    mesh_ui_store_set_settings(&cap->store, &settings);
+}
+
 static void uicap_apply_theme(struct uicap *cap, const char *name, unsigned line_number) {
     const struct mesh_ui_theme *theme = mesh_ui_theme_by_id(name);
     if (theme == NULL) {
@@ -269,6 +290,7 @@ static void uicap_apply_theme(struct uicap *cap, const char *name, unsigned line
     }
     mesh_ui_capture_set_theme(cap->capture, theme);
     mesh_ui_capture_set_scale(cap->capture, cap->scale);
+    uicap_publish_theme(cap);
 }
 
 static void uicap_start(struct uicap *cap) {
@@ -287,6 +309,8 @@ static void uicap_start(struct uicap *cap) {
     } else {
         die("scene: expected demo or empty");
     }
+    /* After the scene, which is free to publish settings of its own. */
+    uicap_publish_theme(cap);
     mesh_ui_store_request_refresh(&cap->store);
     uicap_emit(cap);
 }

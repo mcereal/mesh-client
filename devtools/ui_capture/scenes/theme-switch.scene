@@ -1,0 +1,28 @@
+# Settings > About > Theme, stepped through every look.
+#
+# The press and the repaint are two lines, not one: A raises MESH_UI_ACTION_CYCLE_THEME and the
+# store stops there, because carrying it out is the app's job and there is no app behind this
+# harness. The `theme` line that follows each press stands in for the app's reply, exactly as
+# `message out ...` stands in for the radio's echo.
+scene demo
+scale 4
+delay 260
+
+tab settings
+key a
+hold 700
+key down
+hold 700
+
+key a
+theme light
+hold 900
+key a
+theme contrast
+hold 900
+key a
+theme colorblind
+hold 900
+key a
+theme dark
+hold 1200

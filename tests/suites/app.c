@@ -21,6 +21,7 @@
 #include "mesh/ui/preferences.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
+#include "mesh/ui/theme.h"
 
 #include "meshtastic/admin.pb.h"
 #include "meshtastic/channel.pb.h"
@@ -1239,5 +1240,235 @@ MESH_TEST_CASE(app_node_rank_known_radio, unit) {
                           mesh_app_node_rank(&nodes[0], def, NULL, NULL) != 4U,
                       "an unknown radio should fall back to the ordinary tiers");
 
+    record_success(test_name);
+}
+
+/*
+ * The theme switcher, from the button press to the file on disk.
+ *
+ * The interesting part is that no layer here knows about any other: the row raises an action,
+ * the app changes what it is drawing with and writes it down, and the backends find out through
+ * the next snapshot. This case walks that whole path with the real store, the real nav and the
+ * real controller - only the backend is the stub, because there is no framebuffer in CI.
+ */
+MESH_TEST_CASE(app_theme_switcher, unit) {
+    const char *failure = NULL;
+    bool app_ready = false;
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+
+    char home_dir[] = "/tmp/mesh_app_themeXXXXXX";
+    if (mkdtemp(home_dir) == NULL) {
+        record_failure(test_name, "mkdtemp failed");
+        return;
+    }
+    setenv("HOME", home_dir, 1);
+    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
+    unsetenv("MESHCLIENT_THEME");
+    unsetenv("MESHCLIENT_AUTOCONNECT");
+
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    config.enable_serial = false;
+    config.enable_ble = false;
+
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+
+    /* Nothing saved and nothing in the environment: the theme the device has always drawn. */
+    const struct mesh_ui_theme *const first = mesh_ui_theme_default();
+    if (app.ui_theme != first || app.ui_theme_from_env) {
+        failure = "a fresh install should start on the default theme, unpinned";
+        goto cleanup;
+    }
+
+    /* It reaches the backends as published state rather than through a call of its own. */
+    mesh_app_publish_ui_state(&app);
+    if (strcmp(app.ui_store.settings.client.theme, first->id) != 0 ||
+        strcmp(app.ui_store.settings.client.theme_name, first->name) != 0 ||
+        app.ui_store.settings.client.theme_from_env) {
+        failure = "the published client info should name the theme in use";
+        goto cleanup;
+    }
+
+    /* Settings > About, then down to the theme row, exactly as thumbs would. */
+    for (int i = 0; i < 4; ++i) {
+        mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_RIGHT);
+    }
+    mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_A);
+    if (app.ui_store.nav.settings_section != MESH_UI_SETTINGS_ABOUT) {
+        failure = "A on the first Settings row should open About";
+        goto cleanup;
+    }
+
+    const uint32_t rows =
+        mesh_ui_nav_row_count(&app.ui_store.nav, &app.ui_store, MESH_UI_SCREEN_SETTINGS);
+    uint32_t theme_row = rows;
+    struct mesh_ui_settings_item item;
+    for (uint32_t i = 0; i < rows; ++i) {
+        if (mesh_ui_settings_item(&app.ui_store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_THEME) {
+            theme_row = i;
+        }
+    }
+    if (theme_row >= rows) {
+        failure = "About should offer the theme row";
+        goto cleanup;
+    }
+    for (uint32_t i = 0; i < theme_row; ++i) {
+        mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_DOWN);
+    }
+
+    /* One press steps to the next theme, remembers it, and says so. */
+    mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_A);
+    const struct mesh_ui_theme *const second = mesh_ui_theme_next(first);
+    if (app.ui_theme != second) {
+        failure = "A on the theme row should step to the next theme";
+        goto cleanup;
+    }
+    if (strcmp(app.ui_preferences.theme, second->id) != 0) {
+        failure = "the new theme should be recorded in the preferences";
+        goto cleanup;
+    }
+    /* The publish the press does also writes the file, so the choice survives a battery pull
+       between the press and the next thing that would have saved it. */
+    struct mesh_ui_preferences after_press;
+    if (mesh_ui_preferences_load(&after_press, app.ui_preferences_path) != 0 ||
+        mesh_ui_theme_resolve(after_press.theme) != second) {
+        failure = "the press should have written the new theme to disk";
+        goto cleanup;
+    }
+    if (app.ui_store.nav.toast[0] == '\0') {
+        failure = "the press should say which theme it landed on";
+        goto cleanup;
+    }
+    /*
+     * Deliberately without publishing first. The press happens inside the event loop and the
+     * toast queues a redraw the same turn drains, so the new theme has to be in the published
+     * client info by the time this handler returns - otherwise the press's own frame draws the
+     * new toast in the old theme and the switch lands a turn later.
+     */
+    if (strcmp(app.ui_store.settings.client.theme, second->id) != 0 ||
+        strcmp(app.ui_store.settings.client.theme_name, second->name) != 0) {
+        failure = "the press should publish the new theme before it returns";
+        goto cleanup;
+    }
+
+    /* All the way round and back to where it started, which is how somebody who has stepped
+       into an unreadable theme gets home. */
+    for (size_t i = 1; i < mesh_ui_theme_count(); ++i) {
+        mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_A);
+    }
+    if (app.ui_theme != first) {
+        failure = "cycling all the way round should come back to the first theme";
+        goto cleanup;
+    }
+
+    /* And what is on disk keeps up: the file names whatever the last press landed on, which
+       is what the next run reads back. */
+    struct mesh_ui_preferences reloaded;
+    if (mesh_ui_preferences_load(&reloaded, app.ui_preferences_path) != 0 ||
+        mesh_ui_theme_resolve(reloaded.theme) != first) {
+        failure = "the saved theme should follow the last press";
+        goto cleanup;
+    }
+
+cleanup:
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}
+
+/*
+ * MESHCLIENT_THEME is the deliberate override, so it wins over the saved choice and the row
+ * stops offering a press - a switch that sprang back on the next frame would look broken.
+ */
+MESH_TEST_CASE(app_theme_environment_pin, unit) {
+    const char *failure = NULL;
+    bool app_ready = false;
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+
+    char home_dir[] = "/tmp/mesh_app_theme_envXXXXXX";
+    if (mkdtemp(home_dir) == NULL) {
+        record_failure(test_name, "mkdtemp failed");
+        return;
+    }
+    setenv("HOME", home_dir, 1);
+    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
+    unsetenv("MESHCLIENT_AUTOCONNECT");
+
+    /* A saved choice that the environment is about to overrule. */
+    struct mesh_ui_preferences saved;
+    memset(&saved, 0, sizeof saved);
+    snprintf(saved.theme, sizeof saved.theme, "%s", "colorblind");
+    char prefs_path[256];
+    snprintf(prefs_path, sizeof prefs_path, "%s/.meshclient/ui_prefs", home_dir);
+    if (mesh_ui_preferences_save(&saved, prefs_path) != 0) {
+        record_failure(test_name, "could not write the preferences file");
+        return;
+    }
+
+    setenv("MESHCLIENT_THEME", "light", 1);
+
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    config.enable_serial = false;
+    config.enable_ble = false;
+
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+
+    if (app.ui_theme != mesh_ui_theme_by_id("light") || !app.ui_theme_from_env) {
+        failure = "the environment should win over the saved theme";
+        goto cleanup;
+    }
+
+    mesh_app_publish_ui_state(&app);
+    if (!app.ui_store.settings.client.theme_from_env) {
+        failure = "the published client info should say the environment is holding it";
+        goto cleanup;
+    }
+
+    /* The row is a fact now, so there is no press to make and the saved choice is untouched. */
+    const uint32_t rows =
+        mesh_ui_nav_row_count(&app.ui_store.nav, &app.ui_store, MESH_UI_SCREEN_SETTINGS);
+    struct mesh_ui_settings_item item;
+    for (uint32_t i = 0; i < rows; ++i) {
+        if (mesh_ui_settings_item(&app.ui_store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_THEME) {
+            failure = "an environment-held theme should offer no press";
+            goto cleanup;
+        }
+    }
+    if (strcmp(app.ui_preferences.theme, "colorblind") != 0) {
+        failure = "the environment should not overwrite what the user picked";
+        goto cleanup;
+    }
+
+cleanup:
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    unsetenv("MESHCLIENT_THEME");
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
     record_success(test_name);
 }

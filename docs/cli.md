@@ -74,7 +74,7 @@ stop it.
 | `MESHCLIENT_AUTOCONNECT` | `0` stops the foreground loop connecting on its own |
 | `MESHCLIENT_UI_BACKEND` | `fb\|cli\|stub`; `fb` unless there is no `/dev/fb0` |
 | `MESHCLIENT_FB_SCALE` | framebuffer font multiplier, 2–6; default is whatever the theme asks for (4) |
-| `MESHCLIENT_THEME` | `dark\|light\|contrast\|colorblind`, default `dark`. An unknown name warns and falls back rather than leaving a handheld with no UI |
+| `MESHCLIENT_THEME` | `dark\|light\|contrast\|colorblind`. Outranks the theme picked in Settings → About, which then shows as a fact rather than a switch; unset, the saved choice applies, and an unknown name warns and falls back rather than leaving a handheld with no UI |
 | `MESHCLIENT_QUIT_KEYS` | override the evdev codes that quit, e.g. `"139,316"` — tunable on-device from the log without a rebuild |
 | `MESHCLIENT_UPDATE_REPO`, `MESHCLIENT_UPDATE_ASSET` | where the self-updater looks |
 | `MESHCLIENT_UPDATE_ALLOW_DEV` | let a `-dev` build install what it finds; same switch as Settings → About → Dev updates |

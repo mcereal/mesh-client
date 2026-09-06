@@ -235,6 +235,10 @@ enum mesh_ui_action_type {
     MESH_UI_ACTION_INSTALL_UPDATE,
     MESH_UI_ACTION_CYCLE_UPDATE_CHANNEL,
     MESH_UI_ACTION_TOGGLE_DEV_UPDATES,
+    /* Steps the UI to the next theme and remembers it. The app owns the choice because the
+       app owns the preferences file; the store finds out the same way every backend does,
+       through the client info in the next snapshot. */
+    MESH_UI_ACTION_CYCLE_THEME,
     /* Radio actions section: `number` is the enum mesh_ui_settings_action the user confirmed.
        One action type rather than five because the nav has nothing to say about any of them
        beyond which row it was - the app owns what each one means. */

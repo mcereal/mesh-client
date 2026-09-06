@@ -171,6 +171,17 @@ struct mesh_ui_client_info {
     char version[MESH_UI_CLIENT_TEXT_MAX];  /* "1.12.0", or "dev" */
     char backend[MESH_UI_CLIENT_TEXT_MAX];  /* the UI backend actually in use */
     char data_dir[MESH_UI_CLIENT_PATH_MAX]; /* where preferences and caches are kept */
+    /*
+     * The look the UI is drawn with: the theme's id for whoever draws, its name for whoever
+     * reads. It rides in the snapshot rather than being pushed at a backend, because backends
+     * are stateless by design - they draw what the snapshot says, and a theme is no different
+     * from the cursor in that respect. That is the whole of what makes the switch live.
+     */
+    char theme[MESH_UI_CLIENT_TEXT_MAX];
+    char theme_name[MESH_UI_CLIENT_TEXT_MAX];
+    /* MESHCLIENT_THEME is holding it. The row then says so instead of offering a press that
+       the environment would override on the next frame. */
+    bool theme_from_env;
     /* enum mesh_update_state (mesh/updater.h), carried as a byte so this header does not
        have to pull the updater in. */
     uint8_t update_state;

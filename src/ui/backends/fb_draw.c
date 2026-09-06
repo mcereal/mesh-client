@@ -34,6 +34,26 @@ void fb_state_set_theme(struct mesh_ui_backend_fb_state *state, const struct mes
     state->scale = mesh_ui_theme_clamp_scale(state->theme, scale);
 }
 
+bool fb_state_follow_snapshot(struct mesh_ui_backend_fb_state *state,
+                              const struct mesh_ui_snapshot *snapshot) {
+    if (state == NULL || snapshot == NULL) {
+        return false;
+    }
+    const char *const id = snapshot->settings.client.theme;
+    if (id[0] == '\0') {
+        /* Nothing published one - the capture harness has no app behind it - so keep drawing
+           with whatever this state was opened with. */
+        return false;
+    }
+    const struct mesh_ui_theme *theme = mesh_ui_theme_by_id(id);
+    if (theme == NULL || theme == state->theme) {
+        return false;
+    }
+    /* The new theme brings its own glyph scale unless the environment pinned one. */
+    fb_state_set_theme(state, theme, state->scale_pinned ? state->scale : 0);
+    return true;
+}
+
 struct mesh_ui_rgb fb_color(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_color role) {
     return mesh_ui_theme_color(state != NULL ? state->theme : NULL, role);
 }

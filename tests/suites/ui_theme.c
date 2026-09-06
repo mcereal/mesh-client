@@ -108,6 +108,89 @@ MESH_TEST_CASE(ui_theme_validate_rejects_an_unreadable_palette, unit) {
     record_success(test_name);
 }
 
+/*
+ * Cycling, which is the whole of what the Settings row does.
+ *
+ * Every theme has to be reachable by pressing A enough times, and pressing it once more from
+ * the last one has to come back to the first - a user who has stepped somewhere unreadable
+ * gets home the same way they left.
+ */
+MESH_TEST_CASE(ui_theme_cycles_through_every_theme, unit) {
+    const size_t count = mesh_ui_theme_count();
+    const struct mesh_ui_theme *theme = mesh_ui_theme_default();
+    bool seen[16];
+    memset(seen, 0, sizeof seen);
+    MESH_TEST_FAIL_IF(count > (sizeof seen / sizeof seen[0]),
+                      "more themes than this case can track; raise `seen`");
+
+    for (size_t step = 0; step < count; ++step) {
+        for (size_t i = 0; i < count; ++i) {
+            if (mesh_ui_theme_at(i) == theme) {
+                MESH_TEST_FAIL_IF(seen[i], "cycling revisited a theme before covering them all");
+                seen[i] = true;
+            }
+        }
+        theme = mesh_ui_theme_next(theme);
+        MESH_TEST_FAIL_IF(theme == NULL, "cycling ran off the end of the registry");
+    }
+    for (size_t i = 0; i < count; ++i) {
+        MESH_TEST_FAIL_IF(!seen[i], "cycling never reached one of the themes");
+    }
+    MESH_TEST_FAIL_IF(theme != mesh_ui_theme_default(),
+                      "a full cycle did not come back to where it started");
+
+    /* A theme that is not in the registry at all - a copy, say - lands somewhere usable
+       rather than nowhere. */
+    struct mesh_ui_theme stray = *mesh_ui_theme_default();
+    MESH_TEST_FAIL_IF(mesh_ui_theme_next(&stray) != mesh_ui_theme_default(),
+                      "cycling from an unregistered theme did not fall back to the default");
+    record_success(test_name);
+}
+
+/* What a saved preference is read back through, and what the environment is asked with. */
+MESH_TEST_CASE(ui_theme_resolves_ids_and_the_environment, unit) {
+    MESH_TEST_FAIL_IF(mesh_ui_theme_resolve("light") != mesh_ui_theme_by_id("light"),
+                      "a known id did not resolve to its theme");
+    MESH_TEST_FAIL_IF(mesh_ui_theme_resolve("no-such-theme") != mesh_ui_theme_default(),
+                      "an unknown id did not resolve to the default");
+    MESH_TEST_FAIL_IF(mesh_ui_theme_resolve("") != mesh_ui_theme_default(),
+                      "an empty id did not resolve to the default");
+    MESH_TEST_FAIL_IF(mesh_ui_theme_resolve(NULL) != mesh_ui_theme_default(),
+                      "a NULL id did not resolve to the default");
+
+    /* mesh_ui_theme_env() answers NULL when nobody named one, which is what tells the app the
+       choice is the user's to make rather than the environment's. */
+    char saved[64];
+    saved[0] = '\0';
+    const char *const previous = getenv("MESHCLIENT_THEME");
+    const bool had_env = (previous != NULL);
+    if (had_env) {
+        snprintf(saved, sizeof saved, "%s", previous);
+    }
+
+    (void)unsetenv("MESHCLIENT_THEME");
+    MESH_TEST_FAIL_IF(mesh_ui_theme_env() != NULL, "an unset MESHCLIENT_THEME named a theme");
+    MESH_TEST_FAIL_IF(mesh_ui_theme_from_env() != mesh_ui_theme_default(),
+                      "an unset MESHCLIENT_THEME did not fall back to the default");
+
+    (void)setenv("MESHCLIENT_THEME", "light", 1);
+    MESH_TEST_FAIL_IF(mesh_ui_theme_env() != mesh_ui_theme_by_id("light"),
+                      "MESHCLIENT_THEME did not name its theme");
+
+    /* A typo must not leave a handheld with no UI, and must not read as a deliberate pin. */
+    (void)setenv("MESHCLIENT_THEME", "not-a-theme", 1);
+    MESH_TEST_FAIL_IF(mesh_ui_theme_env() != NULL, "an unknown MESHCLIENT_THEME named a theme");
+    MESH_TEST_FAIL_IF(mesh_ui_theme_from_env() != mesh_ui_theme_default(),
+                      "an unknown MESHCLIENT_THEME did not fall back to the default");
+
+    if (had_env) {
+        (void)setenv("MESHCLIENT_THEME", saved, 1);
+    } else {
+        (void)unsetenv("MESHCLIENT_THEME");
+    }
+    record_success(test_name);
+}
+
 /* Metrics are theme data, and the scale a theme asks for is clamped rather than trusted. */
 MESH_TEST_CASE(ui_theme_scale_is_clamped, unit) {
     const struct mesh_ui_theme *theme = mesh_ui_theme_default();
@@ -242,6 +325,98 @@ MESH_TEST_CASE(ui_theme_switch_repaints_the_frame, unit) {
 
 #undef THEME_CLEANUP
     free(reference);
+    mesh_ui_capture_close(capture);
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * The switch, end to end: the app names a theme in the snapshot and the next frame is drawn in
+ * it.
+ *
+ * This is the contract the Settings row rests on. Nothing pushes at the backend - the choice
+ * rides in the client info like every other fact about this client, and the renderer picks it
+ * up, which is what keeps backends a function of the snapshot.
+ */
+MESH_TEST_CASE(ui_theme_follows_the_snapshot, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_ui_store_consume_updates(&store, &snapshot),
+                              mesh_ui_store_shutdown(&store), "no snapshot to render");
+
+    struct mesh_ui_capture *capture = NULL;
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_open(&capture, 320U, 240U, 2) != 0,
+                              mesh_ui_store_shutdown(&store), "capture open failed");
+    mesh_ui_capture_set_theme(capture, mesh_ui_theme_default());
+    mesh_ui_capture_set_scale(capture, 2);
+
+    uint32_t width = 0U;
+    uint32_t height = 0U;
+    size_t stride = 0U;
+    const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+    const size_t page_bytes = stride * (size_t)height;
+
+#define SNAPSHOT_CLEANUP                                                                           \
+    mesh_ui_capture_close(capture);                                                                \
+    mesh_ui_store_shutdown(&store)
+
+    /* A snapshot that names nothing leaves the capture drawing with what it was opened with -
+       which is what lets the capture harness, where no app fills the client info, work at all. */
+    mesh_ui_capture_render(capture, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !corner_is(pixels, mesh_ui_theme_color(mesh_ui_theme_default(), MESH_UI_COLOR_BG)),
+        SNAPSHOT_CLEANUP, "an unnamed theme did not leave the capture's own in place");
+
+    /* Now the app names one. Every other theme in the registry has to arrive this way. */
+    for (size_t i = 0; i < mesh_ui_theme_count(); ++i) {
+        const struct mesh_ui_theme *theme = mesh_ui_theme_at(i);
+        snprintf(snapshot.settings.client.theme, sizeof snapshot.settings.client.theme, "%s",
+                 theme->id);
+        mesh_ui_capture_render(capture, &snapshot);
+        MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_theme(capture) != theme, SNAPSHOT_CLEANUP,
+                                  "the renderer did not adopt the theme the snapshot named");
+        MESH_TEST_FAIL_IF_CLEANUP(!corner_is(pixels, mesh_ui_theme_color(theme, MESH_UI_COLOR_BG)),
+                                  SNAPSHOT_CLEANUP,
+                                  "the frame is not drawn on the named theme's background");
+    }
+
+    /*
+     * A scale the caller named survives all of that.
+     *
+     * A theme carries a glyph multiplier, so adopting one from a snapshot could quietly swap
+     * an explicit capture scale for that theme's default - which would silently mis-size every
+     * screenshot a caller asked for at a particular size. Proven by rendering the same theme
+     * at the pinned scale directly and comparing the pages, because the scale is not otherwise
+     * visible from out here.
+     */
+    const struct mesh_ui_theme *const last = mesh_ui_capture_theme(capture);
+    uint8_t *pinned = malloc(page_bytes);
+    MESH_TEST_FAIL_IF_CLEANUP(pinned == NULL, SNAPSHOT_CLEANUP, "out of memory");
+    memcpy(pinned, pixels, page_bytes);
+
+    mesh_ui_capture_set_theme(capture, last);
+    mesh_ui_capture_set_scale(capture, 2);
+    mesh_ui_capture_render(capture, &snapshot);
+    const bool scale_held = (memcmp(pinned, pixels, page_bytes) == 0);
+    free(pinned);
+    MESH_TEST_FAIL_IF_CLEANUP(!scale_held, SNAPSHOT_CLEANUP,
+                              "following a snapshot's theme discarded the caller's scale");
+
+    /* An id from a build that had more themes than this one is ignored rather than obeyed, and
+       the frame stays readable in whatever was already up. */
+    const struct mesh_ui_theme *before = mesh_ui_capture_theme(capture);
+    snprintf(snapshot.settings.client.theme, sizeof snapshot.settings.client.theme, "%s",
+             "solarized");
+    mesh_ui_capture_render(capture, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_theme(capture) != before, SNAPSHOT_CLEANUP,
+                              "an unknown theme id changed what the frame is drawn with");
+
+#undef SNAPSHOT_CLEANUP
     mesh_ui_capture_close(capture);
     mesh_ui_store_shutdown(&store);
     record_success(test_name);

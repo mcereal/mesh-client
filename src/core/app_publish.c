@@ -416,6 +416,13 @@ static void mesh_app_flatten_client_info(const struct mesh_app *app,
         }
     }
 
+    /* The theme every backend draws this frame with. Published like any other fact about the
+       client, so the switch needs no path of its own down to the renderer. */
+    const struct mesh_ui_theme *theme = app->ui_theme;
+    snprintf(dst->theme, sizeof dst->theme, "%s", theme != NULL ? theme->id : "");
+    snprintf(dst->theme_name, sizeof dst->theme_name, "%s", theme != NULL ? theme->name : "");
+    dst->theme_from_env = app->ui_theme_from_env;
+
     const struct mesh_updater *updater = &app->updater;
     dst->update_state = (uint8_t)updater->state;
     dst->update_supported = mesh_updater_available(updater);
