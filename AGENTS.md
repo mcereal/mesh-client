@@ -38,6 +38,11 @@ Run `make format` before pushing — not `clang-format` by hand. The repo ships 
 **clang-format 18**, so `make format` refuses to run under a different major version; from a host
 with another one use `./scripts/docker.sh make format`.
 
+User-facing text is never a literal in a renderer: add a line to
+`include/mesh/i18n/catalog.def` and use `mesh_str()`. `make test` runs
+`scripts/check-strings.py`, which fails on prose spelled out in the files that draw. See
+[`docs/i18n.md`](docs/i18n.md).
+
 Use `snake_case` for functions and locals, `PascalCase` for structs/enums, and `kCamelCase` for
 file-scope constants. Keep platform conditionals isolated in per-transport files, and favour
 small static helpers over macros.

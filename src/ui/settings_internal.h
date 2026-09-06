@@ -14,21 +14,28 @@
  * mesh_ui_settings_field_label() and friends rather than reading the table.
  */
 
+#include "mesh/i18n/strings.h"
 #include "mesh/ui/settings.h"
 
 #include <stddef.h>
 #include <stdint.h>
 
-/* What one editable field is: its label, how it is edited, and what values it will take. */
+/*
+ * What one editable field is: its label, how it is edited, and what values it will take.
+ *
+ * `label` and `zero_label` are catalog ids rather than text, so the table describes what a row
+ * *is* and src/i18n answers what it is called. MESH_STR_NONE in zero_label means the field has
+ * no special name for 0 and the seconds formatter handles it.
+ */
 struct field_spec {
-    const char *label;
+    enum mesh_str_id label;
     enum mesh_ui_setting_kind kind;
     enum mesh_ui_settings_section section;
     uint32_t limit; /* TEXT: max bytes; ENUM: value count */
     const char *(*enum_name)(uint32_t value);
     const uint32_t *presets; /* NUMBER */
     size_t preset_count;
-    const char *zero_label; /* NUMBER: what 0 means (seconds formatting) */
+    enum mesh_str_id zero_label; /* NUMBER: what 0 means (seconds formatting) */
     void (*format)(uint32_t value, char *out, size_t out_len); /* NUMBER: overrides seconds */
     uint32_t choices; /* KEY: MESH_UI_PSK_CHOICE_BIT mask Left/Right walk */
 };

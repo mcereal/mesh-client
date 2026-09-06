@@ -1,5 +1,7 @@
 #include "mesh/core/message.h"
 
+#include "mesh/i18n/strings.h"
+
 #include "mesh/utils/log.h"
 #include "mesh/utils/text.h"
 
@@ -174,54 +176,62 @@ int mesh_message_encode_text(const struct mesh_message_text_request *request, ui
 }
 
 /*
- * The Routing_Error a failed delivery came back with, in words. Without this a failed message
- * is just "!!" on the screen and "failed" in the log, which says nothing about whether to try
- * again, move the node, or fix a key - and those are entirely different problems.
+ * The Routing_Error a failed delivery came back with, as a catalog id.
+ *
+ * Two callers want two different languages out of it: a bubble wants the user's, and the log
+ * wants English, because a bug report the maintainer cannot read is worse than none. Keeping
+ * the *mapping* here and letting each caller pick the locale is what avoids a second table
+ * that would drift out of step with this one.
  */
-const char *mesh_message_ack_error_to_string(uint8_t error) {
+static enum mesh_str_id mesh_message_ack_error_id(uint8_t error) {
     switch ((meshtastic_Routing_Error)error) {
     case meshtastic_Routing_Error_NONE:
-        return "delivered";
+        return MESH_STR_ACK_DELIVERED;
     case meshtastic_Routing_Error_NO_ROUTE:
-        return "no route to that node";
+        return MESH_STR_ACK_NO_ROUTE;
     case meshtastic_Routing_Error_GOT_NAK:
-        return "rejected by the mesh";
+        return MESH_STR_ACK_GOT_NAK;
     case meshtastic_Routing_Error_TIMEOUT:
-        return "timed out";
+        return MESH_STR_ACK_TIMEOUT;
     case meshtastic_Routing_Error_NO_INTERFACE:
-        return "no radio interface";
+        return MESH_STR_ACK_NO_INTERFACE;
     case meshtastic_Routing_Error_MAX_RETRANSMIT:
         /* The common one: the packet went out and nothing acked it. Out of range, on another
            LoRa config, or off. */
-        return "no ack after retries";
+        return MESH_STR_ACK_MAX_RETRANSMIT;
     case meshtastic_Routing_Error_NO_CHANNEL:
-        return "no matching channel";
+        return MESH_STR_ACK_NO_CHANNEL;
     case meshtastic_Routing_Error_TOO_LARGE:
-        return "message too large";
+        return MESH_STR_ACK_TOO_LARGE;
     case meshtastic_Routing_Error_NO_RESPONSE:
-        return "no response";
+        return MESH_STR_ACK_NO_RESPONSE;
     case meshtastic_Routing_Error_DUTY_CYCLE_LIMIT:
-        return "duty cycle limit";
+        return MESH_STR_ACK_DUTY_CYCLE;
     case meshtastic_Routing_Error_BAD_REQUEST:
-        return "bad request";
+        return MESH_STR_ACK_BAD_REQUEST;
     case meshtastic_Routing_Error_NOT_AUTHORIZED:
-        return "not authorized";
+        return MESH_STR_ACK_NOT_AUTHORIZED;
     case meshtastic_Routing_Error_PKI_FAILED:
-        return "encryption failed";
+        return MESH_STR_ACK_PKI_FAILED;
     case meshtastic_Routing_Error_PKI_UNKNOWN_PUBKEY:
-        return "no public key for that node";
+        return MESH_STR_ACK_PKI_UNKNOWN_PUBKEY;
     case meshtastic_Routing_Error_ADMIN_BAD_SESSION_KEY:
-        return "admin session expired";
+        return MESH_STR_ACK_ADMIN_BAD_SESSION;
     case meshtastic_Routing_Error_ADMIN_PUBLIC_KEY_UNAUTHORIZED:
-        return "admin key not authorized";
+        return MESH_STR_ACK_ADMIN_UNAUTHORIZED;
     case meshtastic_Routing_Error_RATE_LIMIT_EXCEEDED:
-        return "rate limited";
+        return MESH_STR_ACK_RATE_LIMIT;
     case meshtastic_Routing_Error_PKI_SEND_FAIL_PUBLIC_KEY:
-        return "public key send failed";
+        return MESH_STR_ACK_PKI_SEND_FAIL;
     default:
         break;
     }
-    return "unknown error";
+    return MESH_STR_ACK_UNKNOWN_ERROR;
+}
+
+/* What a bubble shows, in the reader's language. */
+const char *mesh_message_ack_error_to_string(uint8_t error) {
+    return mesh_str(mesh_message_ack_error_id(error));
 }
 
 /* Routing replies carry the id of the message they are answering in Data.request_id. */
@@ -249,8 +259,12 @@ static int mesh_message_handle_routing(struct mesh_message_log *log, const mesht
         if (delivered) {
             mesh_log_info("message", "Message %u delivered", data->request_id);
         } else {
+            /* English, whatever the UI is set to: this line is read by whoever is tailing
+               the device log, and a diagnostic that changes language with the handheld's
+               settings is a diagnostic that cannot be searched for. */
             mesh_log_warn("message", "Message %u failed: %s (Routing_Error %u)", data->request_id,
-                          mesh_message_ack_error_to_string((uint8_t)routing.error_reason),
+                          mesh_str_in(mesh_i18n_locale_english(),
+                                      mesh_message_ack_error_id((uint8_t)routing.error_reason)),
                           (unsigned)routing.error_reason);
         }
     }

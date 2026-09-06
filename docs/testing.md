@@ -14,6 +14,8 @@ As of 2026-09-06: **123 unit tests, all passing**, zero compiler warnings.
 | `tests/support/` | fixtures shared by more than one suite, prefixed `mesh_test_` |
 | `tests/suites/` | the cases themselves, one file per area |
 
+Two CTest entries are not part of the suite binary at all: `meshclient_frames_codec` round-trips the GIF encoder, and `meshclient_hardcoded_strings` runs `scripts/check-strings.py`, which fails when a renderer spells out an English sentence instead of naming a catalog id ([`docs/i18n.md`](i18n.md)).
+
 A helper used by a single suite stays `static` in that suite. It only moves to `support/` once a
 second suite needs it — that is the whole rule.
 

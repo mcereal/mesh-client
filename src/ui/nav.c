@@ -24,17 +24,17 @@
 const char *mesh_ui_screen_name(enum mesh_ui_screen screen) {
     switch (screen) {
     case MESH_UI_SCREEN_MESSAGES:
-        return "Messages";
+        return mesh_str(MESH_STR_TAB_MESSAGES);
     case MESH_UI_SCREEN_NODES:
-        return "Nodes";
+        return mesh_str(MESH_STR_TAB_NODES);
     case MESH_UI_SCREEN_DEVICES:
-        return "Devices";
+        return mesh_str(MESH_STR_TAB_DEVICES);
     case MESH_UI_SCREEN_STATUS:
-        return "Status";
+        return mesh_str(MESH_STR_TAB_STATUS);
     case MESH_UI_SCREEN_SETTINGS:
-        return "Settings";
+        return mesh_str(MESH_STR_TAB_SETTINGS);
     default:
-        return "?";
+        return mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT);
     }
 }
 
@@ -122,16 +122,12 @@ void mesh_ui_nav_conversation_name(const struct mesh_ui_nav *nav, char *out, siz
     if (out == NULL || out_len == 0U) {
         return;
     }
-    if (nav == NULL) {
-        snprintf(out, out_len, "%s", "Messages");
-        return;
-    }
-    if (!nav->thread_open) {
-        snprintf(out, out_len, "%s", "Messages");
+    if (nav == NULL || !nav->thread_open) {
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_TAB_MESSAGES));
         return;
     }
     if (nav->inbox) {
-        snprintf(out, out_len, "%s", "All traffic");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_MESSAGES_ALL_TRAFFIC));
         return;
     }
     snprintf(out, out_len, "%s", nav->target_name);
@@ -147,7 +143,7 @@ void mesh_ui_nav_init(struct mesh_ui_nav *nav) {
     nav->target_channel = 0U;
     nav->thread_open = false; /* land on the conversation list, the way a phone does */
     nav->inbox = false;
-    snprintf(nav->target_name, sizeof nav->target_name, "%s", "#Primary");
+    snprintf(nav->target_name, sizeof nav->target_name, "%s", mesh_str(MESH_STR_CHANNEL_PRIMARY));
     nav->settings_section = MESH_UI_SETTINGS_NO_SECTION;
     nav->settings_parent = MESH_UI_SETTINGS_NO_SECTION;
     nav->settings_channel = MESH_UI_SETTINGS_NO_CHANNEL;
@@ -884,7 +880,8 @@ bool mesh_ui_nav_open_passkey(struct mesh_ui_nav *nav, const char *label, uint32
     nav->keyboard_field = MESH_UI_FIELD_NONE;
     nav->keyboard_passkey = true;
     nav->pairing_confirm = confirm;
-    snprintf(nav->pairing_label, sizeof nav->pairing_label, "%s", label != NULL ? label : "node");
+    snprintf(nav->pairing_label, sizeof nav->pairing_label, "%s",
+             label != NULL ? label : mesh_str(MESH_STR_PAIRING_NODE_FALLBACK));
     /* A numeric comparison is answered by pressing Send on the number BlueZ handed us; a PIN
        is typed, so it starts empty. */
     if (confirm) {

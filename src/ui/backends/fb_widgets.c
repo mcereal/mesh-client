@@ -266,7 +266,8 @@ void fb_draw_conversation(const struct mesh_ui_backend_fb_state *state, struct f
     if (conversation->armed) {
         /* The armed row says what the next press does, in place of the preview it would take
            away. Nothing else on screen changes, so the warning is on the row it is about. */
-        fb_draw_clipped(state, text_x, preview_y, "X again to delete", preview_cols,
+        fb_draw_clipped(state, text_x, preview_y, mesh_str(MESH_STR_MESSAGES_DELETE_ARMED),
+                        preview_cols,
                         selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL)
                                  : fb_tone_color(state, MESH_UI_TONE_BAD));
     } else {
@@ -278,7 +279,7 @@ void fb_draw_conversation(const struct mesh_ui_backend_fb_state *state, struct f
             mesh_ui_line_printf(&line, "%s%s", conversation->preview_outbound ? "> " : "",
                                 conversation->preview);
         } else {
-            mesh_ui_line_printf(&line, "%s", "no messages yet");
+            mesh_ui_line_printf(&line, "%s", mesh_str(MESH_STR_MESSAGES_NO_MESSAGES_YET));
         }
         /* Full weight when there is something unread and quiet when there is not, which is
            the other half of what the badge says - and the half that still reads once the
@@ -550,31 +551,36 @@ void fb_list_field_row(const struct mesh_ui_backend_fb_state *state, struct fb_l
 
 void fb_title_count(char *out, size_t out_len, const char *name, uint32_t count, uint32_t dropped) {
     if (dropped > 0U) {
-        snprintf(out, out_len, "%s (%u, +%u older)", name, count, dropped);
+        mesh_str_format(out, out_len, MESH_STR_LIST_TITLE_COUNT_OLDER, name, count, dropped);
     } else {
-        snprintf(out, out_len, "%s (%u)", name, count);
+        mesh_str_format(out, out_len, MESH_STR_LIST_TITLE_COUNT, name, count);
     }
 }
 
-void fb_draw_status_row(const struct mesh_ui_backend_fb_state *state,
-                        const struct fb_layout *layout, int *y, enum mesh_ui_tone tone,
-                        const char *label, const char *fmt, ...) {
+void fb_draw_status_text(const struct mesh_ui_backend_fb_state *state,
+                         const struct fb_layout *layout, int *y, enum mesh_ui_tone tone,
+                         enum mesh_str_id label, const char *value) {
     if (*y + layout->line > layout->footer_y) {
         return;
     }
 
     struct mesh_ui_line line;
     mesh_ui_line_reset(&line);
-    mesh_ui_line_column(&line, label, 11U);
-    mesh_ui_line_printf(&line, " ");
-
-    va_list args;
-    va_start(args, fmt);
-    mesh_ui_line_vprintf(&line, fmt, args);
-    va_end(args);
-
+    mesh_ui_line_column(&line, mesh_str(label), 11U);
+    mesh_ui_line_printf(&line, " %s", value != NULL ? value : "");
     mesh_ui_line_fit(&line, layout->cols);
     fb_draw_text(state, fb_margin(state), *y, mesh_ui_line_text(&line), state->scale,
                  fb_tone_color(state, tone));
     *y += layout->line;
+}
+
+void fb_draw_status_row(const struct mesh_ui_backend_fb_state *state,
+                        const struct fb_layout *layout, int *y, enum mesh_ui_tone tone,
+                        enum mesh_str_id label, enum mesh_str_id value, ...) {
+    char text[MESH_UI_LINE_MAX];
+    va_list args;
+    va_start(args, value);
+    (void)mesh_str_vformat(text, sizeof text, value, args);
+    va_end(args);
+    fb_draw_status_text(state, layout, y, tone, label, text);
 }

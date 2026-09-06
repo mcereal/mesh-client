@@ -11,6 +11,8 @@
 
 #include "app_internal.h"
 
+#include "mesh/i18n/strings.h"
+
 #include "mesh/utils/log.h"
 #include "mesh/utils/text.h"
 #include "mesh/utils/time.h"
@@ -852,12 +854,12 @@ void mesh_app_save_fixed_position(struct mesh_app *app, const struct mesh_ui_act
         }
         if (bad) {
             mesh_ui_store_set_toast(&app->ui_store, now,
-                                    "Latitude, longitude and altitude must be numbers");
+                                    mesh_str(MESH_STR_TOAST_COORDS_NOT_NUMBERS));
             return;
         }
         if (latitude == 0 && longitude == 0) {
             /* Null Island is where an empty form lands, not where anybody is. */
-            mesh_ui_store_set_toast(&app->ui_store, now, "Set a latitude and longitude first");
+            mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_NEED_COORDS));
             return;
         }
         result = mesh_session_set_fixed_position(&app->session, latitude, longitude, has_altitude,
@@ -869,19 +871,21 @@ void mesh_app_save_fixed_position(struct mesh_app *app, const struct mesh_ui_act
         app->settings_save_pending = true;
         app->settings_writes_acked_seen = radio != NULL ? radio->writes_acked : 0U;
         app->settings_writes_failed_seen = radio != NULL ? radio->writes_failed : 0U;
-        snprintf(app->settings_save_section, sizeof app->settings_save_section, "%s",
-                 clearing ? "Fixed position" : "Position");
+        snprintf(
+            app->settings_save_section, sizeof app->settings_save_section, "%s",
+            mesh_str(clearing ? MESH_STR_SAVE_SECTION_FIXED_POS : MESH_STR_SAVE_SECTION_POSITION));
         /* The GPS rows are saved with Y and stay pending until it is pressed. */
         mesh_ui_store_settings_edits_consumed(&app->ui_store,
                                               MESH_UI_SETTING_CONSUMER_FIXED_POSITION);
-        snprintf(toast, sizeof toast, "%s...",
-                 clearing ? "Clearing fixed position" : "Pinning position");
+        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_WORKING_ELLIPSIS,
+                        mesh_str(clearing ? MESH_STR_TOAST_CLEARING_FIXED_POS
+                                          : MESH_STR_TOAST_PINNING_POSITION));
     } else if (result == -ENOTCONN) {
-        snprintf(toast, sizeof toast, "%s", "Not connected to a node; edits kept");
+        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED_KEPT));
     } else if (result == -EINVAL) {
-        snprintf(toast, sizeof toast, "%s", "That is not a place on Earth");
+        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_ON_EARTH));
     } else {
-        snprintf(toast, sizeof toast, "Failed (%d); edits kept", result);
+        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_FAILED_KEPT, result);
         mesh_log_warn("ui", "Fixed position write failed: %d", result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
@@ -893,7 +897,8 @@ void mesh_app_save_settings(struct mesh_app *app, const struct mesh_ui_action *a
     char section_label[MESH_UI_SETTINGS_LABEL_MAX];
     if ((enum mesh_ui_settings_section)action->section == MESH_UI_SETTINGS_CHANNELS &&
         action->channel != MESH_UI_SETTINGS_NO_CHANNEL) {
-        snprintf(section_label, sizeof section_label, "Channel %u", (unsigned)action->channel);
+        mesh_str_format(section_label, sizeof section_label, MESH_STR_SAVE_SECTION_CHANNEL,
+                        (unsigned)action->channel);
     } else {
         snprintf(section_label, sizeof section_label, "%s",
                  mesh_ui_settings_section_name((enum mesh_ui_settings_section)action->section));
@@ -914,19 +919,19 @@ void mesh_app_save_settings(struct mesh_app *app, const struct mesh_ui_action *a
         /* Only the edits this write carried: a coordinate typed in the Position section is
            written by its own row, and clearing it here would drop it unsaved. */
         mesh_ui_store_settings_edits_consumed(&app->ui_store, MESH_UI_SETTING_CONSUMER_SECTION);
-        snprintf(toast, sizeof toast, "Saving %s...", section_name);
+        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_SAVING_SECTION, section_name);
         mesh_log_info("ui", "Saving %s: %u edits, %d admin requests", section_name,
                       (unsigned)action->edit_count, result);
     } else if (result == -ENOTCONN) {
-        snprintf(toast, sizeof toast, "%s", "Not connected to a node; edits kept");
+        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED_KEPT));
     } else if (result == -ENOENT) {
-        snprintf(toast, sizeof toast, "%s not loaded yet; X to refresh", section_name);
+        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_SECTION_NOT_LOADED, section_name);
     } else if (result == -ENOTSUP) {
-        snprintf(toast, sizeof toast, "%s is read-only for now", section_name);
+        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_SECTION_READ_ONLY, section_name);
     } else if (result == -EINVAL) {
-        snprintf(toast, sizeof toast, "%s", "Invalid value (PIN is 6 digits, key is hex)");
+        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_INVALID_VALUE));
     } else {
-        snprintf(toast, sizeof toast, "Save failed (%d); edits kept", result);
+        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_SAVE_FAILED_KEPT, result);
         mesh_log_warn("ui", "Saving %s failed: %d", section_name, result);
     }
     mesh_ui_store_set_toast(&app->ui_store, now, toast);
@@ -944,29 +949,30 @@ void mesh_app_track_settings_save(struct mesh_app *app, const struct mesh_radio_
     if (radio != NULL && radio->writes_failed > app->settings_writes_failed_seen) {
         switch (radio->last_write_error) {
         case meshtastic_Routing_Error_ADMIN_BAD_SESSION_KEY:
-            snprintf(toast, sizeof toast, "%s rejected: session expired, try again",
-                     app->settings_save_section);
+            mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_SAVE_SESSION_EXPIRED,
+                            app->settings_save_section);
             break;
         case meshtastic_Routing_Error_BAD_REQUEST:
-            snprintf(toast, sizeof toast, "%s rejected by the radio (bad value)",
-                     app->settings_save_section);
+            mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_SAVE_BAD_VALUE,
+                            app->settings_save_section);
             break;
         case MESH_RADIO_SETTINGS_WRITE_TIMEOUT:
-            snprintf(toast, sizeof toast, "No reply saving %s; X to check",
-                     app->settings_save_section);
+            mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_SAVE_NO_REPLY,
+                            app->settings_save_section);
             break;
         default:
-            snprintf(toast, sizeof toast, "%s rejected (error %d)", app->settings_save_section,
-                     (int)radio->last_write_error);
+            mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_SAVE_REJECTED,
+                            app->settings_save_section, (int)radio->last_write_error);
             break;
         }
         mesh_log_warn("ui", "Save of %s failed: error %d", app->settings_save_section,
                       (int)radio->last_write_error);
     } else if (radio != NULL && radio->writes_acked > app->settings_writes_acked_seen) {
-        snprintf(toast, sizeof toast, "%s saved; radio may restart", app->settings_save_section);
+        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_SAVED_MAY_RESTART,
+                        app->settings_save_section);
         mesh_log_info("ui", "Save of %s acknowledged", app->settings_save_section);
     } else if (!link_connected) {
-        snprintf(toast, sizeof toast, "%s", "Radio restarting to apply; reconnecting");
+        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_RESTARTING_APPLY));
         mesh_log_info("ui", "Link dropped while saving %s; assuming reboot",
                       app->settings_save_section);
     } else {

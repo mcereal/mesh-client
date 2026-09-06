@@ -115,6 +115,7 @@ With the Brick on WiFi and the SSH Server pak installed, skip the SD card: set `
 - [`docs/architecture.md`](docs/architecture.md) — how the client is put together and why
 - [`docs/transport.md`](docs/transport.md) — BLE and USB serial, including the Brick's USB quirks
 - [`docs/ui.md`](docs/ui.md) — UI store, navigation model, framebuffer rendering
+- [`docs/i18n.md`](docs/i18n.md) — the string catalog, adding a string, adding a language
 - [`docs/cli.md`](docs/cli.md) — flags, environment variables, on-device controls
 - [`docs/device.md`](docs/device.md) — Brick setup and the deploy loop
 - [`docs/settings-roadmap.md`](docs/settings-roadmap.md) — radio settings, phase by phase

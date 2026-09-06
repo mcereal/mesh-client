@@ -14,6 +14,7 @@
  * a seam widened, and the direction that stays clean is nav.c calling outward.
  */
 
+#include "mesh/i18n/strings.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"

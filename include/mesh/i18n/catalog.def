@@ -1,0 +1,1283 @@
+/*
+ * The catalog: every string the user reads, one line each.
+ *
+ * This file is included more than once, with the two macros defined differently each time -
+ * once to build `enum mesh_str_id`, once to build the English table, once by
+ * scripts/gen-locale.py to build a translation template. That is why it has no include guard
+ * and why it is not a .h: `make format` would reflow the table into something no translator
+ * could scan, and there is nothing here for clang-format to be right about.
+ *
+ *   MESH_STR_ENTRY(ID, "text")
+ *   MESH_STR_PLURAL_ENTRY(ID, "one", "other")   -> MESH_STR_ID_ONE and MESH_STR_ID_OTHER
+ *
+ * Rules for a good entry:
+ *
+ *   - One whole sentence or label per id, %-specifiers included. "Sent to %s" is one string.
+ *     Never build a sentence by concatenating catalog entries: the word order is the
+ *     translator's to change, and a caller that glues two halves together has taken that away.
+ *   - The id says where it is read, not what it says: TOAST_SEND_FAILED, not SEND_FAILED_TEXT.
+ *     An id is forever; the English behind it is not.
+ *   - A word that reads the same in two places still gets two ids when it is doing two jobs.
+ *     "Off" under Bluetooth and "off" as a duration are one word in English and two in most
+ *     other languages, and an id per job is what lets a translator tell them apart.
+ *   - Keep the specifiers, their order and their types identical across locales.
+ *     mesh_i18n_validate() enforces it; see docs/i18n.md.
+ *
+ * Comments here are addressed to translators as much as to the next maintainer. A string with
+ * no context is a string that gets translated wrong.
+ */
+
+/* ---- common words ------------------------------------------------------------------------- */
+
+/*
+ * Id 0, and deliberately empty.
+ *
+ * A table field that names a string - field_spec's zero_label, say - has to be able to say
+ * "nothing here", and a zero-initialised field is what a designated initialiser leaves behind.
+ * Keeping the empty string at 0 means that reads as nothing rather than as whichever entry
+ * happened to be written first.
+ */
+MESH_STR_ENTRY(NONE,                      "")
+
+/* The stand-in for a value the client cannot name: an enum the radio sent that this build
+   does not know, a timestamp in the future. Short on purpose - it shares a row with real
+   values and must not widen it. */
+MESH_STR_ENTRY(COMMON_UNKNOWN_SHORT,      "?")
+MESH_STR_ENTRY(COMMON_UNKNOWN,            "unknown")
+MESH_STR_ENTRY(COMMON_NONE,               "none")
+MESH_STR_ENTRY(COMMON_ON,                 "on")
+MESH_STR_ENTRY(COMMON_OFF,                "off")
+MESH_STR_ENTRY(COMMON_YES,                "yes")
+MESH_STR_ENTRY(COMMON_NO,                 "no")
+/* A setting left at whatever the radio firmware chooses, rather than a number we picked. */
+MESH_STR_ENTRY(COMMON_DEFAULT,            "default")
+MESH_STR_ENTRY(COMMON_CANCEL,             "Cancel")
+/* A row that offers an action and is waiting to be pressed. "A" is the button's own printed
+   label and stays as it is. */
+MESH_STR_ENTRY(COMMON_PRESS_A,            "press A")
+
+/* ---- durations and relative times --------------------------------------------------------- */
+
+/* Compact ages, drawn in the corner of a list row where there is room for about six cells.
+   The letters are unit abbreviations: seconds, minutes, hours, days. */
+MESH_STR_ENTRY(TIME_NOW,                  "now")
+MESH_STR_ENTRY(TIME_SECONDS_SHORT,        "%us")
+MESH_STR_ENTRY(TIME_MINUTES_SHORT,        "%um")
+MESH_STR_ENTRY(TIME_HOURS_SHORT,          "%uh")
+MESH_STR_ENTRY(TIME_DAYS_SHORT,           "%ud")
+/* Two-part durations, for an uptime or a gap that deserves more than one unit. */
+MESH_STR_ENTRY(TIME_DAYS_HOURS,           "%ud %uh")
+MESH_STR_ENTRY(TIME_HOURS_MINUTES,        "%uh %um")
+/* "how long ago", spelled out; these sit in a value column with room to breathe. */
+MESH_STR_ENTRY(TIME_AGO_SECONDS,          "%us ago")
+MESH_STR_ENTRY(TIME_AGO_MINUTES,          "%um ago")
+MESH_STR_ENTRY(TIME_AGO_HOURS,            "%uh ago")
+MESH_STR_ENTRY(TIME_AGO_DAYS,             "%ud ago")
+/* Date separators above a run of messages. TODAY and YESTERDAY replace the date entirely;
+   DATE is "<weekday> <day of month> <month>", and the three arguments are in that order, so a
+   language that writes the month first reorders the specifiers rather than the code. */
+MESH_STR_ENTRY(DATE_TODAY,                "Today")
+MESH_STR_ENTRY(DATE_YESTERDAY,            "Yesterday")
+MESH_STR_ENTRY(DATE_WEEKDAY_DAY_MONTH,    "%s %d %s")
+
+/* ---- tabs --------------------------------------------------------------------------------- */
+
+MESH_STR_ENTRY(TAB_MESSAGES,              "Messages")
+MESH_STR_ENTRY(TAB_NODES,                 "Nodes")
+MESH_STR_ENTRY(TAB_DEVICES,               "Devices")
+MESH_STR_ENTRY(TAB_STATUS,                "Status")
+MESH_STR_ENTRY(TAB_SETTINGS,              "Settings")
+
+/* ---- footer hints ------------------------------------------------------------------------- */
+
+/*
+ * The one line along the bottom saying what the buttons do here. A, B, X, Y, START, L1 and R1
+ * are printed on the Brick's case and stay exactly as they are in every language; the verbs
+ * after them are what a translator changes. Two spaces separate one button from the next.
+ *
+ * These are the tightest strings in the client - the footer is drawn at the chrome scale and
+ * one line only, and a hint that overruns is clipped. Prefer dropping a hint to wrapping one.
+ */
+MESH_STR_ENTRY(HINT_DEFAULT,              "A select  B back  Left/Right tabs")
+MESH_STR_ENTRY(HINT_TABS_ONLY,            "L/R tabs")
+/* How to leave, shown beside the transport state while nothing is connected. MENU is the
+   Brick's own button; the second form is what MESHCLIENT_QUIT_KEYS leaves us able to say when
+   somebody has rebound quitting to a key whose name we do not know. */
+MESH_STR_ENTRY(HINT_QUIT_MENU,            "Press MENU to quit")
+MESH_STR_ENTRY(HINT_QUIT_KEY_CODE,        "Quit: key code %u")
+MESH_STR_ENTRY(HINT_CONFIRM,              "Up/Down choose  A confirm  B cancel")
+MESH_STR_ENTRY(HINT_ENUM_PICKER,          "A choose  B cancel  Up/Down move  L/R jump 10")
+MESH_STR_ENTRY(HINT_PAIRING_CONFIRM,      "START confirm  B cancel pairing")
+MESH_STR_ENTRY(HINT_PAIRING_ENTRY,        "A type digits  START pair  B cancel")
+MESH_STR_ENTRY(HINT_KEYBOARD_FIELD,       "A type  B delete  X shift  Y space  START done")
+MESH_STR_ENTRY(HINT_KEYBOARD_MESSAGE,     "A type  B delete  X shift  Y space  START send")
+MESH_STR_ENTRY(HINT_CANNED,               "A send / type  B back to the conversation")
+MESH_STR_ENTRY(HINT_CONVERSATION_DELETE,  "X again to delete this conversation  B cancel")
+MESH_STR_ENTRY(HINT_CONVERSATIONS,        "A open  X delete  Y new message  L/R tabs")
+MESH_STR_ENTRY(HINT_INBOX,                "A open conversation  B back  L/R tabs")
+MESH_STR_ENTRY(HINT_THREAD,               "A reply  Y write  B back  L/R tabs")
+MESH_STR_ENTRY(HINT_NODE_REMOVE,          "A again to remove this node  B cancel")
+MESH_STR_ENTRY(HINT_NODE_DETAIL,          "A select  B back  X pin  Y write  L/R tabs")
+MESH_STR_ENTRY(HINT_NODES,                "A open node  X pin  Y write  L/R tabs")
+MESH_STR_ENTRY(HINT_DEVICES_FORGET,       "Y again to forget this node  B cancel")
+MESH_STR_ENTRY(HINT_DEVICES,              "A connect  X disconnect  Y forget  L/R tabs")
+MESH_STR_ENTRY(HINT_SETTINGS_ROOT,        "A open  X refresh  L/R tabs")
+MESH_STR_ENTRY(HINT_SETTINGS_DISCARD,     "B again to discard  Y save")
+MESH_STR_ENTRY(HINT_SETTINGS_EDIT_SAVE,   "Left/Right/A edit  Y save  B discard  L1/R1 tabs")
+MESH_STR_ENTRY(HINT_SETTINGS_CHANNELS,    "A open channel  B back  X refresh  L1/R1 tabs")
+MESH_STR_ENTRY(HINT_SETTINGS_MODULES,     "A open module  B back  X refresh  L1/R1 tabs")
+MESH_STR_ENTRY(HINT_SETTINGS_ACTIONS,     "A run the highlighted row  B back  L1/R1 tabs")
+MESH_STR_ENTRY(HINT_SETTINGS_SECTION,     "Left/Right/A edit  B back  X refresh  L1/R1 tabs")
+
+/* ---- the header ---------------------------------------------------------------------------- */
+
+/* The transport has not said anything yet: the very first frame after launch. */
+MESH_STR_ENTRY(HEADER_TRANSPORT_STARTING, "starting")
+/* "<transport state>: <node we are talking to>" along the top. */
+MESH_STR_ENTRY(HEADER_STATUS_CONNECTED,   "%s: %s")
+/* "<transport state> | <how to quit>", when nothing is connected. */
+MESH_STR_ENTRY(HEADER_STATUS_QUIT,        "%s | %s")
+
+/* ---- the Messages tab ---------------------------------------------------------------------- */
+
+MESH_STR_ENTRY(MESSAGES_EMPTY,            "Connect to a node to see conversations.")
+/* The placeholder row at the top of the conversation list, which opens a new message. */
+MESH_STR_ENTRY(MESSAGES_NEW,              "New message")
+MESH_STR_ENTRY(MESSAGES_NEW_PREVIEW,      "Pick a channel or a node")
+/* The pseudo-conversation carrying every channel at once. */
+MESH_STR_ENTRY(MESSAGES_ALL_TRAFFIC,      "All traffic")
+/* A channel's name on a row, which is its own name behind a '#'. Slot 0 with no name is the
+   default primary channel - the firmware shows the modem preset there, which this client does
+   not track - and a later unnamed slot is shown by its number. */
+MESH_STR_ENTRY(CHANNEL_PRIMARY,           "#Primary")
+MESH_STR_ENTRY(CHANNEL_NUMBERED,          "#Ch%u")
+MESH_STR_ENTRY(MESSAGES_NO_MESSAGES_YET,  "no messages yet")
+/* Shown over a conversation row that is one more X press from being deleted. */
+MESH_STR_ENTRY(MESSAGES_DELETE_ARMED,     "X again to delete")
+/* The unread badge, once the count stops being worth reading exactly. */
+MESH_STR_ENTRY(MESSAGES_UNREAD_OVERFLOW,  "99+")
+/* A thread with nothing in it. The first is the shared inbox, the second one conversation. */
+MESH_STR_ENTRY(THREAD_EMPTY_INBOX,        "No messages yet. B goes back to the list.")
+MESH_STR_ENTRY(THREAD_EMPTY,              "Nothing here yet. Y writes one, B goes back.")
+/* A thread's title: the conversation, then whether it is a channel or one node, then how many
+   older messages have been dropped from the ring. */
+MESH_STR_ENTRY(THREAD_TITLE,              "%s  %s")
+MESH_STR_ENTRY(THREAD_TITLE_OLDER,        "%s  %s  (+%u older)")
+MESH_STR_ENTRY(THREAD_KIND_CHANNEL,       "channel")
+MESH_STR_ENTRY(THREAD_KIND_DIRECT,        "direct")
+
+/* A message bubble's own header line. SENT is what one of ours says instead of a name. */
+MESH_STR_ENTRY(BUBBLE_SENT,               "sent")
+MESH_STR_ENTRY(BUBBLE_SENT_TO,            "to %s")
+/* The tag after the name saying where the message came in: a channel by number, a direct
+   message, an alert, or a sensor. The leading spaces separate it from the name. */
+MESH_STR_ENTRY(BUBBLE_CHANNEL,            "  #%u")
+MESH_STR_ENTRY(BUBBLE_DIRECT,             "  dm")
+MESH_STR_ENTRY(BUBBLE_ALERT,              "  \U0001F6A8 alert")
+MESH_STR_ENTRY(BUBBLE_SENSOR,             "  sensor")
+/* Delivery, in the bubble's corner. DELIVERED and PENDING are two cells wide by design. */
+MESH_STR_ENTRY(BUBBLE_DELIVERED,          "ok")
+MESH_STR_ENTRY(BUBBLE_PENDING,            "..")
+MESH_STR_ENTRY(BUBBLE_FAILED_MARK,        "!!")
+MESH_STR_ENTRY(BUBBLE_STATE_DELIVERED,    "delivered")
+MESH_STR_ENTRY(BUBBLE_STATE_FAILED,       "failed")
+
+/* ---- the Nodes tab -------------------------------------------------------------------------- */
+
+MESH_STR_ENTRY(NODES_EMPTY_WAITING,       "Waiting for the node list...")
+MESH_STR_ENTRY(NODES_EMPTY_DISCONNECTED,  "Connect to a node to see the mesh.")
+MESH_STR_ENTRY(NODES_GONE,                "That node is no longer in the list.")
+MESH_STR_ENTRY(NODES_DETAIL_EMPTY,        "Nothing reported for this node yet.")
+/* Titles: how many of the radio's NodeDB we hold, or how many we keep that it has evicted. */
+MESH_STR_ENTRY(NODES_TITLE_OF,            "Nodes (%u of %u)")
+MESH_STR_ENTRY(NODES_TITLE_OFF_RADIO,     "Nodes (%u, %u off radio)")
+MESH_STR_ENTRY(NODES_TITLE_DETAIL,        "Nodes > %s")
+/* Who a broadcast went to, where a direct message would name one node. It is a peer name, so
+   it lands wherever a name does - the bubble header reads "to all". */
+MESH_STR_ENTRY(PEER_EVERYONE,             "all")
+/* A node with no NodeInfo yet has no short name; four dashes hold the column open. */
+MESH_STR_ENTRY(NODES_NO_SHORT_NAME,       "----")
+/* The right-hand column of a node row: how it was heard, then its age. */
+MESH_STR_ENTRY(NODES_ROW_OFF_RADIO,       "off radio %s")
+MESH_STR_ENTRY(NODES_ROW_HOPS,            "%uhop %s")
+MESH_STR_ENTRY(NODES_ROW_MQTT,            "mqtt %s")
+MESH_STR_ENTRY(NODES_ROW_SNR,             "%.1fdB %s")
+
+/* ---- compose, the picker and the keyboard --------------------------------------------------- */
+
+/* A list title with its row count: "Nodes (12)", and "(+3 older)" when the ring has dropped
+   messages the count cannot show. */
+MESH_STR_ENTRY(LIST_TITLE_COUNT,          "%s (%u)")
+MESH_STR_ENTRY(LIST_TITLE_COUNT_OLDER,    "%s (%u, +%u older)")
+
+/* Who a message is being written to, and whether that is a channel or one node. */
+MESH_STR_ENTRY(COMPOSE_TO,                "To: %s")
+MESH_STR_ENTRY(COMPOSE_TO_KIND,           "To: %s%s")
+MESH_STR_ENTRY(COMPOSE_SUFFIX_CHANNEL,    "  (channel)")
+MESH_STR_ENTRY(COMPOSE_SUFFIX_DIRECT,     "  (direct)")
+MESH_STR_ENTRY(COMPOSE_DRAFT,             "Draft: %s")
+MESH_STR_ENTRY(COMPOSE_DRAFT_EMPTY,       "[ Type a message ]")
+MESH_STR_ENTRY(PICKER_TITLE,              "Send to")
+MESH_STR_ENTRY(PICKER_EMPTY,              "No channels or nodes known yet.")
+
+/* The pairing prompt. The PIN is on the *node's* screen, not this one, which is the whole
+   reason the title names the node. NODE_FALLBACK stands in when the node has no name yet. */
+MESH_STR_ENTRY(PAIRING_CONFIRM,           "Does %s show this?")
+MESH_STR_ENTRY(PAIRING_SHOWN_ON,          "PIN shown on %s")
+MESH_STR_ENTRY(PAIRING_NODE_FALLBACK,     "the node")
+
+/* Keyboard keys. The three letter rows are the layout itself and are not translated here;
+   these are the named keys along the bottom. SHIFT_* are what the shift key shows for the
+   layer it would switch *to*. */
+MESH_STR_ENTRY(KEY_LAYER_UPPER,           "ABC")
+MESH_STR_ENTRY(KEY_LAYER_SYMBOLS,         "#+=")
+MESH_STR_ENTRY(KEY_LAYER_LOWER,           "abc")
+MESH_STR_ENTRY(KEY_SPACE,                 "space")
+MESH_STR_ENTRY(KEY_DELETE,                "del")
+MESH_STR_ENTRY(KEY_DONE,                  "done")
+MESH_STR_ENTRY(KEY_SEND,                  "send")
+MESH_STR_ENTRY(KEY_CANCEL,                "cancel")
+
+/* ---- canned messages ------------------------------------------------------------------------ */
+
+/*
+ * The ten one-press replies offered under the draft row. They are overridden wholesale by
+ * canned.txt next to the preferences file, so these are only the defaults - but they are the
+ * defaults every user sees until they write that file, and they should read naturally in the
+ * language they are shown in rather than being translated word for word.
+ */
+MESH_STR_ENTRY(CANNED_OK,                 "OK")
+MESH_STR_ENTRY(CANNED_YES,                "Yes")
+MESH_STR_ENTRY(CANNED_NO,                 "No")
+MESH_STR_ENTRY(CANNED_ON_MY_WAY,          "On my way")
+MESH_STR_ENTRY(CANNED_WHERE_ARE_YOU,      "Where are you?")
+MESH_STR_ENTRY(CANNED_IM_HERE,            "I'm here")
+MESH_STR_ENTRY(CANNED_CALL_ME,            "Call me")
+MESH_STR_ENTRY(CANNED_NEED_HELP,          "Need help")
+MESH_STR_ENTRY(CANNED_HEADING_BACK,       "Heading back")
+MESH_STR_ENTRY(CANNED_PING,               "Ping")
+
+/* ---- the Devices tab ------------------------------------------------------------------------- */
+
+MESH_STR_ENTRY(DEVICES_EMPTY,             "Scanning for Meshtastic nodes...")
+/* A device the adapter has not named. The angle brackets mark it as a stand-in, not a name. */
+MESH_STR_ENTRY(DEVICES_UNNAMED,           "<unknown>")
+/* The badge after a device's name. Each begins with two spaces to hold it off the name. */
+MESH_STR_ENTRY(DEVICES_BADGE_CONNECTED,   "  connected")
+MESH_STR_ENTRY(DEVICES_BADGE_WORKING,     "  working...")
+MESH_STR_ENTRY(DEVICES_BADGE_NEEDS_PAIR,  "  needs pairing")
+MESH_STR_ENTRY(DEVICES_BADGE_PAIRED,      "  paired")
+/* A row: the cursor mark, the name, how it is attached, then the badge. USB is a bus name and
+   stays as it is; dBm is the signal strength of a Bluetooth node. */
+MESH_STR_ENTRY(DEVICES_ROW_USB,           "%c %s  USB%s")
+MESH_STR_ENTRY(DEVICES_ROW_BLE,           "%c %s  %ddBm%s")
+/* The name given to a radio we are talking to but never saw advertise. */
+MESH_STR_ENTRY(DEVICES_CONNECTED_NAME,    "Connected")
+
+/* ---- the Status tab -------------------------------------------------------------------------- */
+
+/* Row labels down the left of the Status screen. They share one narrow column, so a
+   translation that will not fit is better shortened than wrapped. */
+MESH_STR_ENTRY(STATUS_LABEL_TRANSPORT,    "Transport")
+MESH_STR_ENTRY(STATUS_LABEL_RADIO,        "Radio")
+MESH_STR_ENTRY(STATUS_LABEL_SYNC,         "Sync")
+MESH_STR_ENTRY(STATUS_LABEL_MY_NODE,      "My node")
+MESH_STR_ENTRY(STATUS_LABEL_NODEDB,       "NodeDB")
+MESH_STR_ENTRY(STATUS_LABEL_CACHED_HERE,  "Cached here")
+MESH_STR_ENTRY(STATUS_LABEL_CHANNEL,      "Channel")
+MESH_STR_ENTRY(STATUS_LABEL_AIRTIME,      "Airtime")
+MESH_STR_ENTRY(STATUS_LABEL_BATTERY,      "Battery")
+MESH_STR_ENTRY(STATUS_LABEL_PACKETS,      "Packets")
+MESH_STR_ENTRY(STATUS_LABEL_DROPPED,      "Dropped")
+MESH_STR_ENTRY(STATUS_LABEL_HEAP,         "Heap")
+MESH_STR_ENTRY(STATUS_LABEL_MESH,         "Mesh")
+MESH_STR_ENTRY(STATUS_LABEL_TX_QUEUE,     "TX queue")
+MESH_STR_ENTRY(STATUS_LABEL_RADIO_SAID,   "Radio said")
+MESH_STR_ENTRY(STATUS_LABEL_REBOOTS,      "Reboots")
+MESH_STR_ENTRY(STATUS_LABEL_MESSAGES,     "Messages")
+MESH_STR_ENTRY(STATUS_LABEL_DEVICES,      "Devices")
+
+MESH_STR_ENTRY(STATUS_NOT_CONNECTED,      "not connected")
+/* How far the settings sync has got, and "(cached)" when what is shown was read from disk
+   rather than from the radio just now. */
+MESH_STR_ENTRY(STATUS_SYNC_COMPLETE,      "complete")
+MESH_STR_ENTRY(STATUS_SYNC_IN_PROGRESS,   "in progress")
+MESH_STR_ENTRY(STATUS_SYNC_IDLE,          "idle")
+MESH_STR_ENTRY(STATUS_SYNC_CACHED,        " (cached)")
+/* The Sync row: how far the sync got, then the cached note when there is one. */
+MESH_STR_ENTRY(STATUS_SYNC_VALUE,         "%s%s")
+MESH_STR_ENTRY(STATUS_SYNC_WAITING,       "waiting for a radio")
+/* Our own short name and node number, as the Meshtastic apps write it: "BRVO !a4c1f209". */
+MESH_STR_ENTRY(STATUS_MY_NODE,            "%s !%08x")
+/* The radio's own node database: how many it holds, and either how many of those it still
+   hears or how many times it has restarted. */
+MESH_STR_ENTRY(STATUS_NODEDB_ONLINE,      "%u nodes, %u online")
+MESH_STR_ENTRY(STATUS_NODEDB_REBOOTS,     "%u nodes, %u reboots")
+/* What this client keeps, which deliberately outlives the radio's own list. */
+MESH_STR_ENTRY(STATUS_CACHED_OFF_RADIO,   "%u nodes, %u off radio")
+/* Channel busy and our own transmit share, then the noise floor when the radio reports it. */
+MESH_STR_ENTRY(STATUS_AIRTIME,            "%s busy, %s tx")
+MESH_STR_ENTRY(STATUS_AIRTIME_FLOOR,      "%s busy, %s tx, %d dBm floor")
+MESH_STR_ENTRY(STATUS_PERCENT,            "%.1f%%")
+/* Battery: a percentage, or running from USB. UPTIME follows it as ", up 3d 4h". */
+MESH_STR_ENTRY(STATUS_BATTERY_USB,        "plugged in")
+MESH_STR_ENTRY(STATUS_BATTERY_PERCENT,    "%u%%")
+MESH_STR_ENTRY(STATUS_BATTERY_UNKNOWN,    "unknown")
+MESH_STR_ENTRY(STATUS_UPTIME_SUFFIX,      "%sup %s")
+MESH_STR_ENTRY(STATUS_PACKETS,            "%u tx, %u rx, %u relayed")
+MESH_STR_ENTRY(STATUS_DROPPED,            "%u bad rx, %u dupe, %u tx")
+MESH_STR_ENTRY(STATUS_HEAP,               "%u KB free of %u KB")
+MESH_STR_ENTRY(STATUS_MESH_NO_REPORT,     "no report yet")
+/* Room left in the radio's transmit queue, and whether it is currently refusing sends. */
+MESH_STR_ENTRY(STATUS_TX_QUEUE,           "%u/%u free%s")
+MESH_STR_ENTRY(STATUS_TX_QUEUE_REFUSED,   ", send refused")
+/* How long ago the radio last logged something at us, and how many times this connection. */
+MESH_STR_ENTRY(STATUS_RADIO_SAID_COUNT,   "%s, %u this connection")
+MESH_STR_ENTRY(STATUS_REBOOTS_SINCE,      "%u since connecting")
+MESH_STR_ENTRY(STATUS_MESSAGES_KEPT,      "%u kept, %u dropped")
+MESH_STR_ENTRY(STATUS_DEVICES_IN_RANGE,   "%zu in range")
+
+/* ---- a node's detail screen ------------------------------------------------------------------ */
+
+/*
+ * The group headings, then the label of each row under them.
+ *
+ * Unit symbols in the value formats below - dB, dBm, hPa, ppm, lux, mA, V, ug/m3 - are SI or
+ * near enough and are normally left exactly as they are; what a translator may want to change
+ * is the spacing and the order, which is why the whole value is one string rather than a
+ * number with a suffix glued on.
+ */
+MESH_STR_ENTRY(NODE_HEAD_IDENTITY,        "Identity")
+MESH_STR_ENTRY(NODE_HEAD_SIGNAL,          "Signal")
+MESH_STR_ENTRY(NODE_HEAD_METRICS,         "Device metrics")
+MESH_STR_ENTRY(NODE_HEAD_POSITION,        "Position")
+MESH_STR_ENTRY(NODE_HEAD_ENVIRONMENT,     "Environment")
+MESH_STR_ENTRY(NODE_HEAD_POWER,           "Power")
+MESH_STR_ENTRY(NODE_HEAD_AIR_QUALITY,     "Air quality")
+MESH_STR_ENTRY(NODE_HEAD_HEALTH,          "Health")
+MESH_STR_ENTRY(NODE_HEAD_HOST,            "Host")
+MESH_STR_ENTRY(NODE_HEAD_NEIGHBOURS,      "Neighbours")
+MESH_STR_ENTRY(NODE_HEAD_HEARD_BY,        "Heard by")
+MESH_STR_ENTRY(NODE_HEAD_ROUTE_OUT,       "Route out")
+MESH_STR_ENTRY(NODE_HEAD_ROUTE_BACK,      "Route back")
+
+MESH_STR_ENTRY(NODE_LONG_NAME,            "Long name")
+MESH_STR_ENTRY(NODE_SHORT_NAME,           "Short name")
+MESH_STR_ENTRY(NODE_USER_ID,              "User ID")
+MESH_STR_ENTRY(NODE_NUMBER,               "Node number")
+MESH_STR_ENTRY(NODE_NAME,                 "Name")
+MESH_STR_ENTRY(NODE_NODEDB,               "NodeDB")
+MESH_STR_ENTRY(NODE_ROLE,                 "Role")
+MESH_STR_ENTRY(NODE_HARDWARE,             "Hardware")
+MESH_STR_ENTRY(NODE_PUBLIC_KEY,           "Public key")
+MESH_STR_ENTRY(NODE_FLAGS,                "Flags")
+MESH_STR_ENTRY(NODE_LAST_HEARD,           "Last heard")
+MESH_STR_ENTRY(NODE_SNR,                  "SNR")
+MESH_STR_ENTRY(NODE_RSSI,                 "RSSI")
+MESH_STR_ENTRY(NODE_HOPS_AWAY,            "Hops away")
+MESH_STR_ENTRY(NODE_CHANNEL,              "Channel")
+MESH_STR_ENTRY(NODE_HEARD_VIA,            "Heard via")
+MESH_STR_ENTRY(NODE_BATTERY,              "Battery")
+MESH_STR_ENTRY(NODE_VOLTAGE,              "Voltage")
+MESH_STR_ENTRY(NODE_CHANNEL_UTIL,         "Channel util")
+MESH_STR_ENTRY(NODE_AIR_UTIL_TX,          "Air util TX")
+MESH_STR_ENTRY(NODE_UPTIME,               "Uptime")
+/* When the reading above was taken, closing a group. */
+MESH_STR_ENTRY(NODE_REPORTED,             "Reported")
+MESH_STR_ENTRY(NODE_MEASURED,             "Measured")
+MESH_STR_ENTRY(NODE_LATITUDE,             "Latitude")
+MESH_STR_ENTRY(NODE_LONGITUDE,            "Longitude")
+MESH_STR_ENTRY(NODE_ALTITUDE,             "Altitude")
+MESH_STR_ENTRY(NODE_SATELLITES,           "Satellites")
+MESH_STR_ENTRY(NODE_PRECISION,            "Precision")
+MESH_STR_ENTRY(NODE_FIX,                  "Fix")
+MESH_STR_ENTRY(NODE_TEMPERATURE,          "Temperature")
+MESH_STR_ENTRY(NODE_HUMIDITY,             "Humidity")
+MESH_STR_ENTRY(NODE_PRESSURE,             "Pressure")
+MESH_STR_ENTRY(NODE_AIR_QUALITY,          "Air quality")
+MESH_STR_ENTRY(NODE_LIGHT,                "Light")
+MESH_STR_ENTRY(NODE_CURRENT,              "Current")
+MESH_STR_ENTRY(NODE_PM25,                 "PM2.5")
+MESH_STR_ENTRY(NODE_PM1_PM10,             "PM1 / PM10")
+MESH_STR_ENTRY(NODE_PM1,                  "PM1")
+MESH_STR_ENTRY(NODE_PM10,                 "PM10")
+MESH_STR_ENTRY(NODE_CO2,                  "CO2")
+MESH_STR_ENTRY(NODE_VOC_INDEX,            "VOC index")
+MESH_STR_ENTRY(NODE_NOX_INDEX,            "NOx index")
+MESH_STR_ENTRY(NODE_HEART_RATE,           "Heart rate")
+MESH_STR_ENTRY(NODE_SPO2,                 "SpO2")
+MESH_STR_ENTRY(NODE_FREE_MEMORY,          "Free memory")
+MESH_STR_ENTRY(NODE_FREE_DISK,            "Free disk")
+MESH_STR_ENTRY(NODE_LOAD,                 "Load")
+/* The row standing in for a neighbour list that came back empty. */
+MESH_STR_ENTRY(NODE_NEIGHBOURS_NONE,      "None")
+MESH_STR_ENTRY(NODE_HEARS_NO_ONE,         "hears no one")
+MESH_STR_ENTRY(NODE_AND_MORE,             "and more")
+MESH_STR_ENTRY(NODE_NOT_SHOWN,            "%u not shown")
+/* A node we have only ever seen mentioned by others: its name is made up from its number. */
+MESH_STR_ENTRY(NODE_DERIVED_NAME,         "derived, no NodeInfo yet")
+MESH_STR_ENTRY(NODE_NOT_IN_NODEDB,        "not on the radio")
+/* The boolean flags, joined with FLAG_SEPARATOR into one row. */
+MESH_STR_ENTRY(NODE_FLAG_IGNORED,         "ignored")
+MESH_STR_ENTRY(NODE_FLAG_LICENSED,        "licensed")
+MESH_STR_ENTRY(NODE_FLAG_UNMESSAGEABLE,   "no messages")
+MESH_STR_ENTRY(NODE_FLAG_SEPARATOR,       ", ")
+/* Whether the last packet reached us over the air or through an MQTT bridge. Both are
+   protocol names and stay as they are. */
+MESH_STR_ENTRY(NODE_VIA_MQTT,             "MQTT")
+MESH_STR_ENTRY(NODE_VIA_RF,               "RF")
+
+/* The traceroute row and the states it passes through. */
+MESH_STR_ENTRY(NODE_TRACE_ROUTE,          "Trace route")
+MESH_STR_ENTRY(NODE_TRACE_RUNNING,        "tracing...")
+MESH_STR_ENTRY(NODE_TRACE_TIMEOUT,        "no reply; press A")
+/* The first stop of a traced path is the sender, so no link reached it; a later stop with no
+   reading is one the firmware did not measure. */
+MESH_STR_ENTRY(NODE_HOP_START,            "start")
+MESH_STR_ENTRY(NODE_HOP_NO_READING,       "no reading")
+/* Each stop after the first is drawn indented behind an arrow drawn in ASCII, because the
+   framebuffer font has no arrow glyph. */
+MESH_STR_ENTRY(NODE_HOP_ARROW,            "-> ")
+
+/* The action rows at the foot of the screen. */
+MESH_STR_ENTRY(NODE_ACT_MESSAGE,          "Message this node")
+MESH_STR_ENTRY(NODE_ACT_PIN,              "Pinned to top")
+MESH_STR_ENTRY(NODE_ACT_REQUEST_INFO,     "Ask for its name")
+MESH_STR_ENTRY(NODE_ACT_REQUEST_POSITION, "Ask where it is")
+MESH_STR_ENTRY(NODE_ACT_REQUEST_TELEM,    "Ask for telemetry")
+MESH_STR_ENTRY(NODE_ACT_MUTE,             "Mute this node")
+MESH_STR_ENTRY(NODE_ACT_IGNORE,           "Ignore this node")
+MESH_STR_ENTRY(NODE_ACT_REMOVE,           "Remove from radio")
+MESH_STR_ENTRY(NODE_ACT_REMOVE_ARMED,     "A again to remove")
+
+/* Value formats. */
+MESH_STR_ENTRY(NODE_VAL_USER_ID_HEX,      "!%08x")
+MESH_STR_ENTRY(NODE_VAL_NUMBER,           "%u")
+MESH_STR_ENTRY(NODE_VAL_SNR,              "%.2f dB")
+MESH_STR_ENTRY(NODE_VAL_RSSI,             "%d dBm")
+/* RSSI, plus when it was measured, for a node now reaching us some other way. */
+MESH_STR_ENTRY(NODE_VAL_RSSI_AGED,        "%d dBm, %s")
+MESH_STR_ENTRY(NODE_VAL_PERCENT,          "%u%%")
+MESH_STR_ENTRY(NODE_VAL_PERCENT_FINE,     "%.1f%%")
+MESH_STR_ENTRY(NODE_VAL_VOLTS,            "%.2f V")
+MESH_STR_ENTRY(NODE_VAL_MILLIAMPS,        "%.0f mA")
+MESH_STR_ENTRY(NODE_VAL_MILLIAMPS_FINE,   "%.1f mA")
+MESH_STR_ENTRY(NODE_VAL_VOLTS_MILLIAMPS,  "%.2f V, %.0f mA")
+MESH_STR_ENTRY(NODE_VAL_DEGREES,          "%.5f")
+MESH_STR_ENTRY(NODE_VAL_METRES,           "%d m")
+MESH_STR_ENTRY(NODE_VAL_BITS,             "%u bits")
+/* Celsius first because the radio reports Celsius; the Fahrenheit conversion follows it. */
+MESH_STR_ENTRY(NODE_VAL_TEMPERATURE,      "%.1f C (%.1f F)")
+MESH_STR_ENTRY(NODE_VAL_PRESSURE,         "%.1f hPa")
+MESH_STR_ENTRY(NODE_VAL_IAQ,              "IAQ %u")
+MESH_STR_ENTRY(NODE_VAL_LUX,              "%.0f lux")
+MESH_STR_ENTRY(NODE_VAL_PARTICULATES,     "%u ug/m3")
+MESH_STR_ENTRY(NODE_VAL_PARTICULATES_TWO, "%u / %u ug/m3")
+MESH_STR_ENTRY(NODE_VAL_PPM,              "%u ppm")
+MESH_STR_ENTRY(NODE_VAL_INDEX,            "%.0f")
+MESH_STR_ENTRY(NODE_VAL_BPM,              "%u bpm")
+MESH_STR_ENTRY(NODE_VAL_MEGABYTES,        "%u MB")
+MESH_STR_ENTRY(NODE_VAL_GIGABYTES,        "%.1f GB")
+/* A Linux load average: one, five and fifteen minutes. */
+MESH_STR_ENTRY(NODE_VAL_LOAD,             "%.2f %.2f %.2f")
+/* A battery channel on a multi-cell power sensor, numbered from 1. */
+MESH_STR_ENTRY(NODE_POWER_CHANNEL,        "Channel %u")
+
+/* ---- settings: sections ---------------------------------------------------------------------- */
+
+/*
+ * The Settings tree. A section is a screen; a field is a row on it.
+ *
+ * Section and field names follow the Meshtastic firmware's own config fields, so a translator
+ * should prefer whatever the phone apps call the same setting in that language over a literal
+ * translation of the English here - the point of these names is that a user can follow a guide
+ * written for the phone app while holding a Brick.
+ */
+MESH_STR_ENTRY(SETTINGS_SECTION_ABOUT,                    "About MeshClient")
+MESH_STR_ENTRY(SETTINGS_SECTION_RADIO,                    "Radio")
+MESH_STR_ENTRY(SETTINGS_SECTION_USER,                     "User")
+MESH_STR_ENTRY(SETTINGS_SECTION_DEVICE,                   "Device")
+MESH_STR_ENTRY(SETTINGS_SECTION_DISPLAY,                  "Display")
+MESH_STR_ENTRY(SETTINGS_SECTION_LORA,                     "LoRa")
+MESH_STR_ENTRY(SETTINGS_SECTION_BLUETOOTH,                "Bluetooth")
+MESH_STR_ENTRY(SETTINGS_SECTION_CHANNELS,                 "Channels")
+MESH_STR_ENTRY(SETTINGS_SECTION_SECURITY,                 "Security")
+MESH_STR_ENTRY(SETTINGS_SECTION_POSITION,                 "Position")
+MESH_STR_ENTRY(SETTINGS_SECTION_POWER,                    "Power")
+MESH_STR_ENTRY(SETTINGS_SECTION_MQTT,                     "MQTT")
+MESH_STR_ENTRY(SETTINGS_SECTION_STORE_FORWARD,            "Store & Forward")
+MESH_STR_ENTRY(SETTINGS_SECTION_TELEMETRY,                "Telemetry")
+MESH_STR_ENTRY(SETTINGS_SECTION_ACTIONS,                  "Radio actions")
+MESH_STR_ENTRY(SETTINGS_SECTION_MODULES,                  "Modules")
+MESH_STR_ENTRY(SETTINGS_SECTION_NEIGHBOR_INFO,            "Neighbor info")
+MESH_STR_ENTRY(SETTINGS_SECTION_RANGE_TEST,               "Range test")
+MESH_STR_ENTRY(SETTINGS_SECTION_PAXCOUNTER,               "Paxcounter")
+MESH_STR_ENTRY(SETTINGS_SECTION_TAK,                      "TAK")
+MESH_STR_ENTRY(SETTINGS_SECTION_AMBIENT,                  "Ambient lighting")
+MESH_STR_ENTRY(SETTINGS_SECTION_STATUS_MESSAGE,           "Status message")
+MESH_STR_ENTRY(SETTINGS_SECTION_DETECTION,                "Detection sensor")
+MESH_STR_ENTRY(SETTINGS_SECTION_EXT_NOTIFICATION,         "External notify")
+MESH_STR_ENTRY(SETTINGS_SECTION_TRAFFIC,                  "Traffic management")
+
+/* ---- settings: field labels ------------------------------------------------------------------- */
+
+/* One per editable row, in the order src/ui/settings.c declares them. Several read the same
+   in English - four modules each have an "Enabled" and an "Interval" - and still get an id
+   each, because a language that inflects them will not want the same word in all four. */
+MESH_STR_ENTRY(SETTINGS_FIELD_USER_LONG_NAME,             "Long name")
+MESH_STR_ENTRY(SETTINGS_FIELD_USER_SHORT_NAME,            "Short name")
+MESH_STR_ENTRY(SETTINGS_FIELD_USER_LICENSED,              "Licensed operator")
+MESH_STR_ENTRY(SETTINGS_FIELD_USER_UNMESSAGEABLE,         "Unmessageable")
+MESH_STR_ENTRY(SETTINGS_FIELD_DEVICE_ROLE,                "Role")
+MESH_STR_ENTRY(SETTINGS_FIELD_DEVICE_TZDEF,               "Time zone")
+MESH_STR_ENTRY(SETTINGS_FIELD_DEVICE_REBROADCAST,         "Rebroadcast")
+MESH_STR_ENTRY(SETTINGS_FIELD_DEVICE_NODEINFO_SECS,       "NodeInfo every")
+MESH_STR_ENTRY(SETTINGS_FIELD_DEVICE_LED_HEARTBEAT,       "LED heartbeat")
+MESH_STR_ENTRY(SETTINGS_FIELD_DEVICE_DOUBLE_TAP,          "Double tap = button")
+MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_GPS_MODE,          "GPS")
+MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_BROADCAST_SECS,    "Broadcast every")
+MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_SMART,             "Smart broadcast")
+MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_SMART_DISTANCE,    "Smart distance")
+MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_SMART_INTERVAL,    "Smart interval")
+MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_GPS_INTERVAL,      "GPS interval")
+MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_LATITUDE,          "Latitude")
+MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_LONGITUDE,         "Longitude")
+MESH_STR_ENTRY(SETTINGS_FIELD_POSITION_ALTITUDE,          "Altitude (m)")
+MESH_STR_ENTRY(SETTINGS_FIELD_POWER_SAVING,               "Power saving")
+MESH_STR_ENTRY(SETTINGS_FIELD_POWER_LS_SECS,              "Light sleep")
+MESH_STR_ENTRY(SETTINGS_FIELD_POWER_MIN_WAKE,             "Min wake")
+MESH_STR_ENTRY(SETTINGS_FIELD_POWER_WAIT_BT,              "Wait for Bluetooth")
+MESH_STR_ENTRY(SETTINGS_FIELD_POWER_SHUTDOWN,             "Shutdown on battery")
+MESH_STR_ENTRY(SETTINGS_FIELD_DISPLAY_SCREEN_ON,          "Screen on")
+MESH_STR_ENTRY(SETTINGS_FIELD_DISPLAY_CAROUSEL,           "Carousel")
+MESH_STR_ENTRY(SETTINGS_FIELD_DISPLAY_COMPASS,            "Compass")
+MESH_STR_ENTRY(SETTINGS_FIELD_DISPLAY_12H,                "12-hour clock")
+MESH_STR_ENTRY(SETTINGS_FIELD_DISPLAY_UNITS,              "Units")
+MESH_STR_ENTRY(SETTINGS_FIELD_DISPLAY_FLIP,               "Flip screen")
+MESH_STR_ENTRY(SETTINGS_FIELD_MQTT_ENABLED,               "MQTT")
+MESH_STR_ENTRY(SETTINGS_FIELD_MQTT_ADDRESS,               "Server")
+MESH_STR_ENTRY(SETTINGS_FIELD_MQTT_USERNAME,              "Username")
+MESH_STR_ENTRY(SETTINGS_FIELD_MQTT_PASSWORD,              "Password")
+MESH_STR_ENTRY(SETTINGS_FIELD_MQTT_ROOT,                  "Root topic")
+MESH_STR_ENTRY(SETTINGS_FIELD_MQTT_ENCRYPTION,            "Encryption")
+MESH_STR_ENTRY(SETTINGS_FIELD_MQTT_TLS,                   "TLS")
+MESH_STR_ENTRY(SETTINGS_FIELD_MQTT_MAP_REPORTING,         "Report to public map")
+MESH_STR_ENTRY(SETTINGS_FIELD_MQTT_MAP_INTERVAL,          "Map interval")
+MESH_STR_ENTRY(SETTINGS_FIELD_MQTT_MAP_PRECISION,         "Map precision")
+MESH_STR_ENTRY(SETTINGS_FIELD_MQTT_MAP_LOCATION,          "Map my location")
+MESH_STR_ENTRY(SETTINGS_FIELD_SF_ENABLED,                 "Store & Forward")
+MESH_STR_ENTRY(SETTINGS_FIELD_SF_HEARTBEAT,               "Heartbeat")
+MESH_STR_ENTRY(SETTINGS_FIELD_SF_SERVER,                  "Act as server")
+MESH_STR_ENTRY(SETTINGS_FIELD_SF_RECORDS,                 "Records kept")
+MESH_STR_ENTRY(SETTINGS_FIELD_SF_HISTORY_MAX,             "History max")
+MESH_STR_ENTRY(SETTINGS_FIELD_SF_HISTORY_WINDOW,          "History window")
+MESH_STR_ENTRY(SETTINGS_FIELD_TELEMETRY_DEVICE,           "Enabled")
+MESH_STR_ENTRY(SETTINGS_FIELD_TELEMETRY_INTERVAL,         "Interval")
+MESH_STR_ENTRY(SETTINGS_FIELD_TELEMETRY_ENVIRONMENT,      "Enabled")
+MESH_STR_ENTRY(SETTINGS_FIELD_TELEMETRY_ENV_INTERVAL,     "Interval")
+MESH_STR_ENTRY(SETTINGS_FIELD_TELEMETRY_ENV_SCREEN,       "Show on screen")
+MESH_STR_ENTRY(SETTINGS_FIELD_TELEMETRY_ENV_FAHRENHEIT,   "Fahrenheit")
+MESH_STR_ENTRY(SETTINGS_FIELD_TELEMETRY_AIR_QUALITY,      "Enabled")
+MESH_STR_ENTRY(SETTINGS_FIELD_TELEMETRY_AIR_INTERVAL,     "Interval")
+MESH_STR_ENTRY(SETTINGS_FIELD_TELEMETRY_AIR_SCREEN,       "Show on screen")
+MESH_STR_ENTRY(SETTINGS_FIELD_TELEMETRY_POWER,            "Enabled")
+MESH_STR_ENTRY(SETTINGS_FIELD_TELEMETRY_POWER_INTERVAL,   "Interval")
+MESH_STR_ENTRY(SETTINGS_FIELD_TELEMETRY_POWER_SCREEN,     "Show on screen")
+MESH_STR_ENTRY(SETTINGS_FIELD_TELEMETRY_HEALTH,           "Enabled")
+MESH_STR_ENTRY(SETTINGS_FIELD_TELEMETRY_HEALTH_INTERVAL,  "Interval")
+MESH_STR_ENTRY(SETTINGS_FIELD_TELEMETRY_HEALTH_SCREEN,    "Show on screen")
+MESH_STR_ENTRY(SETTINGS_FIELD_CHANNEL_NAME,               "Name")
+MESH_STR_ENTRY(SETTINGS_FIELD_CHANNEL_ROLE,               "Role")
+MESH_STR_ENTRY(SETTINGS_FIELD_CHANNEL_KEY,                "Key")
+MESH_STR_ENTRY(SETTINGS_FIELD_CHANNEL_UPLINK,             "MQTT uplink")
+MESH_STR_ENTRY(SETTINGS_FIELD_CHANNEL_DOWNLINK,           "MQTT downlink")
+MESH_STR_ENTRY(SETTINGS_FIELD_CHANNEL_POSITION,           "Position precision")
+MESH_STR_ENTRY(SETTINGS_FIELD_BT_ENABLED,                 "Bluetooth")
+MESH_STR_ENTRY(SETTINGS_FIELD_BT_MODE,                    "Pairing")
+MESH_STR_ENTRY(SETTINGS_FIELD_BT_PIN,                     "Fixed PIN")
+MESH_STR_ENTRY(SETTINGS_FIELD_LORA_REGION,                "Region")
+MESH_STR_ENTRY(SETTINGS_FIELD_LORA_USE_PRESET,            "Use preset")
+MESH_STR_ENTRY(SETTINGS_FIELD_LORA_PRESET,                "Preset")
+MESH_STR_ENTRY(SETTINGS_FIELD_LORA_BANDWIDTH,             "Bandwidth")
+MESH_STR_ENTRY(SETTINGS_FIELD_LORA_SPREAD,                "Spread factor")
+MESH_STR_ENTRY(SETTINGS_FIELD_LORA_CODING,                "Coding rate")
+MESH_STR_ENTRY(SETTINGS_FIELD_LORA_HOPS,                  "Hop limit")
+MESH_STR_ENTRY(SETTINGS_FIELD_LORA_TX_ENABLED,            "Transmit")
+MESH_STR_ENTRY(SETTINGS_FIELD_LORA_TX_POWER,              "TX power")
+MESH_STR_ENTRY(SETTINGS_FIELD_LORA_IGNORE_MQTT,           "Ignore MQTT")
+MESH_STR_ENTRY(SETTINGS_FIELD_LORA_OK_TO_MQTT,            "OK to MQTT")
+MESH_STR_ENTRY(SETTINGS_FIELD_SECURITY_PRIVATE_KEY,       "Private key")
+MESH_STR_ENTRY(SETTINGS_FIELD_SECURITY_ADMIN_KEY_0,       "Admin key 1")
+MESH_STR_ENTRY(SETTINGS_FIELD_SECURITY_ADMIN_KEY_1,       "Admin key 2")
+MESH_STR_ENTRY(SETTINGS_FIELD_SECURITY_ADMIN_KEY_2,       "Admin key 3")
+MESH_STR_ENTRY(SETTINGS_FIELD_SECURITY_MANAGED,           "Managed mode")
+MESH_STR_ENTRY(SETTINGS_FIELD_SECURITY_ADMIN_CHANNEL,     "Admin channel")
+MESH_STR_ENTRY(SETTINGS_FIELD_SECURITY_SERIAL,            "Serial console")
+MESH_STR_ENTRY(SETTINGS_FIELD_SECURITY_DEBUG_LOG,         "Debug log API")
+MESH_STR_ENTRY(SETTINGS_FIELD_NEIGHBOR_ENABLED,           "Neighbor info")
+MESH_STR_ENTRY(SETTINGS_FIELD_NEIGHBOR_INTERVAL,          "Interval")
+MESH_STR_ENTRY(SETTINGS_FIELD_NEIGHBOR_OVER_LORA,         "Send over LoRa")
+MESH_STR_ENTRY(SETTINGS_FIELD_RANGE_TEST_ENABLED,         "Range test")
+MESH_STR_ENTRY(SETTINGS_FIELD_RANGE_TEST_SENDER,          "Send every")
+MESH_STR_ENTRY(SETTINGS_FIELD_RANGE_TEST_SAVE,            "Save CSV")
+MESH_STR_ENTRY(SETTINGS_FIELD_RANGE_TEST_CLEAR,           "Clear CSV on boot")
+MESH_STR_ENTRY(SETTINGS_FIELD_PAX_ENABLED,                "Paxcounter")
+MESH_STR_ENTRY(SETTINGS_FIELD_PAX_INTERVAL,               "Interval")
+MESH_STR_ENTRY(SETTINGS_FIELD_PAX_WIFI_THRESHOLD,         "WiFi floor")
+MESH_STR_ENTRY(SETTINGS_FIELD_PAX_BLE_THRESHOLD,          "BLE floor")
+MESH_STR_ENTRY(SETTINGS_FIELD_TAK_TEAM,                   "Team")
+MESH_STR_ENTRY(SETTINGS_FIELD_TAK_ROLE,                   "Role")
+MESH_STR_ENTRY(SETTINGS_FIELD_AMBIENT_LED,                "LED")
+MESH_STR_ENTRY(SETTINGS_FIELD_AMBIENT_CURRENT,            "Current")
+MESH_STR_ENTRY(SETTINGS_FIELD_AMBIENT_RED,                "Red")
+MESH_STR_ENTRY(SETTINGS_FIELD_AMBIENT_GREEN,              "Green")
+MESH_STR_ENTRY(SETTINGS_FIELD_AMBIENT_BLUE,               "Blue")
+MESH_STR_ENTRY(SETTINGS_FIELD_STATUS_TEXT,                "Status")
+MESH_STR_ENTRY(SETTINGS_FIELD_DETECT_ENABLED,             "Detection sensor")
+MESH_STR_ENTRY(SETTINGS_FIELD_DETECT_NAME,                "Name")
+MESH_STR_ENTRY(SETTINGS_FIELD_DETECT_MIN_BROADCAST,       "Min interval")
+MESH_STR_ENTRY(SETTINGS_FIELD_DETECT_STATE_BROADCAST,     "Heartbeat")
+MESH_STR_ENTRY(SETTINGS_FIELD_DETECT_SEND_BELL,           "Send bell")
+MESH_STR_ENTRY(SETTINGS_FIELD_DETECT_PIN,                 "Monitor pin")
+MESH_STR_ENTRY(SETTINGS_FIELD_DETECT_TRIGGER,             "Trigger")
+MESH_STR_ENTRY(SETTINGS_FIELD_DETECT_PULLUP,              "Pull-up")
+MESH_STR_ENTRY(SETTINGS_FIELD_EXTNOTIF_ENABLED,           "External notify")
+MESH_STR_ENTRY(SETTINGS_FIELD_EXTNOTIF_ACTIVE,            "Active high")
+MESH_STR_ENTRY(SETTINGS_FIELD_EXTNOTIF_OUTPUT_MS,         "On for")
+MESH_STR_ENTRY(SETTINGS_FIELD_EXTNOTIF_NAG,               "Repeat for")
+MESH_STR_ENTRY(SETTINGS_FIELD_EXTNOTIF_PWM,               "Use PWM")
+MESH_STR_ENTRY(SETTINGS_FIELD_EXTNOTIF_I2S,               "I2S as buzzer")
+MESH_STR_ENTRY(SETTINGS_FIELD_EXTNOTIF_PIN,               "Pin")
+MESH_STR_ENTRY(SETTINGS_FIELD_EXTNOTIF_ALERT_MSG,         "On message")
+MESH_STR_ENTRY(SETTINGS_FIELD_EXTNOTIF_ALERT_BELL,        "On bell")
+MESH_STR_ENTRY(SETTINGS_FIELD_EXTNOTIF_PIN_VIBRA,         "Pin")
+MESH_STR_ENTRY(SETTINGS_FIELD_EXTNOTIF_ALERT_MSG_VIBRA,   "On message")
+MESH_STR_ENTRY(SETTINGS_FIELD_EXTNOTIF_ALERT_BELL_VIBRA,  "On bell")
+MESH_STR_ENTRY(SETTINGS_FIELD_EXTNOTIF_PIN_BUZZER,        "Pin")
+MESH_STR_ENTRY(SETTINGS_FIELD_EXTNOTIF_ALERT_MSG_BUZZER,  "On message")
+MESH_STR_ENTRY(SETTINGS_FIELD_EXTNOTIF_ALERT_BELL_BUZZER, "On bell")
+MESH_STR_ENTRY(SETTINGS_FIELD_TRAFFIC_POSITION_INTERVAL,  "Position min gap")
+MESH_STR_ENTRY(SETTINGS_FIELD_TRAFFIC_NODEINFO_HOPS,      "NodeInfo max hops")
+MESH_STR_ENTRY(SETTINGS_FIELD_TRAFFIC_RATE_WINDOW,        "Rate window")
+MESH_STR_ENTRY(SETTINGS_FIELD_TRAFFIC_RATE_PACKETS,       "Rate max packets")
+MESH_STR_ENTRY(SETTINGS_FIELD_TRAFFIC_UNKNOWN_THRESHOLD,  "Unknown limit")
+MESH_STR_ENTRY(SETTINGS_FIELD_SECURITY_SIGNATURE_POLICY,  "Packet signing")
+
+/* ---- settings: what a value is called --------------------------------------------------------- */
+
+/* DisplayConfig.CompassOrientation: how far the compass rose is turned, and whether it is
+   mirrored. "deg" is degrees; "flip" is the mirrored set. */
+MESH_STR_ENTRY(ENUM_COMPASS_0,            "0 deg")
+MESH_STR_ENTRY(ENUM_COMPASS_90,           "90 deg")
+MESH_STR_ENTRY(ENUM_COMPASS_180,          "180 deg")
+MESH_STR_ENTRY(ENUM_COMPASS_270,          "270 deg")
+MESH_STR_ENTRY(ENUM_COMPASS_0_FLIP,       "0 flip")
+MESH_STR_ENTRY(ENUM_COMPASS_90_FLIP,      "90 flip")
+MESH_STR_ENTRY(ENUM_COMPASS_180_FLIP,     "180 flip")
+MESH_STR_ENTRY(ENUM_COMPASS_270_FLIP,     "270 flip")
+/* Which measurement system the radio's own screen uses. */
+MESH_STR_ENTRY(ENUM_UNITS_METRIC,         "Metric")
+MESH_STR_ENTRY(ENUM_UNITS_IMPERIAL,       "Imperial")
+/* DetectionSensorConfig.TriggerType: what the monitored pin has to do to count as a trigger.
+   Named for the pin's behaviour rather than for the protobuf constant. */
+MESH_STR_ENTRY(ENUM_TRIGGER_LOW,          "Low")
+MESH_STR_ENTRY(ENUM_TRIGGER_HIGH,         "High")
+MESH_STR_ENTRY(ENUM_TRIGGER_FALLING,      "Falling edge")
+MESH_STR_ENTRY(ENUM_TRIGGER_RISING,       "Rising edge")
+MESH_STR_ENTRY(ENUM_TRIGGER_EITHER_LOW,   "Any edge, low")
+MESH_STR_ENTRY(ENUM_TRIGGER_EITHER_HIGH,  "Any edge, high")
+/* Config.DeviceConfig.RebroadcastMode: which packets this node passes on. */
+MESH_STR_ENTRY(ENUM_REBROADCAST_ALL,      "All")
+MESH_STR_ENTRY(ENUM_REBROADCAST_ALL_SKIP, "All skip decoding")
+MESH_STR_ENTRY(ENUM_REBROADCAST_LOCAL,    "Local only")
+MESH_STR_ENTRY(ENUM_REBROADCAST_KNOWN,    "Known only")
+MESH_STR_ENTRY(ENUM_REBROADCAST_NONE,     "None")
+MESH_STR_ENTRY(ENUM_REBROADCAST_CORE,     "Core portnums only")
+/* PositionConfig.GpsMode. NOT_PRESENT is the radio saying it has no GPS at all, which is a
+   different thing from having one switched off. */
+MESH_STR_ENTRY(ENUM_GPS_DISABLED,         "Disabled")
+MESH_STR_ENTRY(ENUM_GPS_ENABLED,          "Enabled")
+MESH_STR_ENTRY(ENUM_GPS_NOT_PRESENT,      "Not present")
+/* A channel slot's role. The primary slot is never offered here - see build_channel(). */
+MESH_STR_ENTRY(ENUM_CHANNEL_DISABLED,     "Disabled")
+MESH_STR_ENTRY(ENUM_CHANNEL_SECONDARY,    "Secondary")
+MESH_STR_ENTRY(ENUM_CHANNEL_PRIMARY,      "Primary")
+/* BluetoothConfig.PairingMode: how the radio proves it is the one you meant to pair with. */
+MESH_STR_ENTRY(ENUM_PAIRING_RANDOM_PIN,   "Random PIN")
+MESH_STR_ENTRY(ENUM_PAIRING_FIXED_PIN,    "Fixed PIN")
+MESH_STR_ENTRY(ENUM_PAIRING_NO_PIN,       "No PIN")
+/* Two device roles upstream has retired. They still have to be steppable, because an older
+   radio reports them and the row could not otherwise show what a node is set to - the
+   "(retired)" is there to stop anyone choosing one on purpose. */
+MESH_STR_ENTRY(ENUM_ROLE_ROUTER_CLIENT,   "Router Client (retired)")
+MESH_STR_ENTRY(ENUM_ROLE_REPEATER,        "Repeater (retired)")
+/* How strictly this node checks the signatures on packets it receives. */
+MESH_STR_ENTRY(ENUM_SIGNATURE_COMPATIBLE, "Compatible")
+MESH_STR_ENTRY(ENUM_SIGNATURE_BALANCED,   "Balanced")
+MESH_STR_ENTRY(ENUM_SIGNATURE_STRICT,     "Strict")
+/* ATAK team colours and roles, from atak.proto. A translator should use whatever ATAK itself
+   calls these in the target language rather than translating the English, so that a team set
+   on the Brick matches what the TAK client shows. */
+MESH_STR_ENTRY(ENUM_TAK_TEAM_DEFAULT,     "Default (cyan)")
+MESH_STR_ENTRY(ENUM_TAK_TEAM_WHITE,       "White")
+MESH_STR_ENTRY(ENUM_TAK_TEAM_YELLOW,      "Yellow")
+MESH_STR_ENTRY(ENUM_TAK_TEAM_ORANGE,      "Orange")
+MESH_STR_ENTRY(ENUM_TAK_TEAM_MAGENTA,     "Magenta")
+MESH_STR_ENTRY(ENUM_TAK_TEAM_RED,         "Red")
+MESH_STR_ENTRY(ENUM_TAK_TEAM_MAROON,      "Maroon")
+MESH_STR_ENTRY(ENUM_TAK_TEAM_PURPLE,      "Purple")
+MESH_STR_ENTRY(ENUM_TAK_TEAM_DARK_BLUE,   "Dark blue")
+MESH_STR_ENTRY(ENUM_TAK_TEAM_BLUE,        "Blue")
+MESH_STR_ENTRY(ENUM_TAK_TEAM_CYAN,        "Cyan")
+MESH_STR_ENTRY(ENUM_TAK_TEAM_TEAL,        "Teal")
+MESH_STR_ENTRY(ENUM_TAK_TEAM_GREEN,       "Green")
+MESH_STR_ENTRY(ENUM_TAK_TEAM_DARK_GREEN,  "Dark green")
+MESH_STR_ENTRY(ENUM_TAK_TEAM_BROWN,       "Brown")
+MESH_STR_ENTRY(ENUM_TAK_ROLE_DEFAULT,     "Default (member)")
+MESH_STR_ENTRY(ENUM_TAK_ROLE_MEMBER,      "Team member")
+MESH_STR_ENTRY(ENUM_TAK_ROLE_LEAD,        "Team lead")
+MESH_STR_ENTRY(ENUM_TAK_ROLE_HQ,          "HQ")
+MESH_STR_ENTRY(ENUM_TAK_ROLE_SNIPER,      "Sniper")
+MESH_STR_ENTRY(ENUM_TAK_ROLE_MEDIC,       "Medic")
+MESH_STR_ENTRY(ENUM_TAK_ROLE_FORWARD_OBS, "Forward observer")
+MESH_STR_ENTRY(ENUM_TAK_ROLE_RTO,         "RTO")
+MESH_STR_ENTRY(ENUM_TAK_ROLE_K9,          "K9")
+
+/* ---- settings: formatted values ---------------------------------------------------------------- */
+
+/* Durations, as a settings row writes them: whole hours, whole minutes, else seconds. */
+MESH_STR_ENTRY(VALUE_HOURS,               "%uh")
+MESH_STR_ENTRY(VALUE_MINUTES,             "%um")
+MESH_STR_ENTRY(VALUE_SECONDS,             "%us")
+MESH_STR_ENTRY(VALUE_MILLISECONDS,        "%ums")
+/* A NUMBER row whose 0 means nothing in particular - a plain zero rather than "off". */
+MESH_STR_ENTRY(VALUE_ZERO,                "0")
+/*
+ * What 0 means on the NUMBER rows that have a word for it, from field_spec.zero_label. They
+ * read the same as the common words above and are separate ids on purpose: "off" answering
+ * "how often?" and "off" answering "is it on?" are one word in English and two most other
+ * places, and only an id apiece lets a translator tell them apart.
+ */
+MESH_STR_ENTRY(ZERO_OFF,                  "off")
+MESH_STR_ENTRY(ZERO_DEFAULT,              "default")
+MESH_STR_ENTRY(ZERO_NONE,                 "none")
+MESH_STR_ENTRY(ZERO_NEVER,                "never")
+MESH_STR_ENTRY(ZERO_ONCE,                 "once")
+MESH_STR_ENTRY(VALUE_PLAIN,               "%u")
+/* Position precision, which is a bit count on the wire and a distance to a reader. */
+MESH_STR_ENTRY(VALUE_PRECISION_OFF,       "off")
+MESH_STR_ENTRY(VALUE_PRECISION_EXACT,     "precise")
+MESH_STR_ENTRY(VALUE_PRECISION_BITS,      "%u bits")
+MESH_STR_ENTRY(VALUE_KILOMETRES,          "%u km")
+MESH_STR_ENTRY(VALUE_METRES,              "%u m")
+/* LoRa. The two fractional bandwidths are spelled out because "%u kHz" would round them. */
+MESH_STR_ENTRY(VALUE_BANDWIDTH_31,        "31.25 kHz")
+MESH_STR_ENTRY(VALUE_BANDWIDTH_62,        "62.5 kHz")
+MESH_STR_ENTRY(VALUE_BANDWIDTH_KHZ,       "%u kHz")
+/* A coding rate is written as the fraction 4/n. */
+MESH_STR_ENTRY(VALUE_CODING_RATE,         "4/%u")
+/* Transmit power: 0 means "whatever the region allows", not zero power. */
+MESH_STR_ENTRY(VALUE_TX_POWER_MAX,        "max")
+MESH_STR_ENTRY(VALUE_DBM,                 "%d dBm")
+MESH_STR_ENTRY(VALUE_MILLIAMPS,           "%u mA")
+/* A GPIO pin, or none chosen. */
+MESH_STR_ENTRY(VALUE_PIN_UNSET,           "unset")
+MESH_STR_ENTRY(VALUE_PIN,                 "GPIO %u")
+/* Distances offered for position precision, from the coarsest upward. */
+MESH_STR_ENTRY(VALUE_PRECISION_23KM,      "~23 km")
+MESH_STR_ENTRY(VALUE_PRECISION_12KM,      "~12 km")
+MESH_STR_ENTRY(VALUE_PRECISION_6KM,       "~6 km")
+MESH_STR_ENTRY(VALUE_PRECISION_3KM,       "~3 km")
+MESH_STR_ENTRY(VALUE_PRECISION_1_5KM,     "~1.5 km")
+MESH_STR_ENTRY(VALUE_PRECISION_730M,      "~730 m")
+MESH_STR_ENTRY(VALUE_PRECISION_360M,      "~360 m")
+MESH_STR_ENTRY(VALUE_PRECISION_180M,      "~180 m")
+MESH_STR_ENTRY(VALUE_PRECISION_90M,       "~90 m")
+MESH_STR_ENTRY(VALUE_PRECISION_45M,       "~45 m")
+
+/* ---- settings: rows and their values ------------------------------------------------------------ */
+
+/* A TEXT row with nothing in it, and one holding a credential. The mask is a fixed length so
+   it does not give away how long the secret is. */
+MESH_STR_ENTRY(SETTINGS_TEXT_EMPTY,       "-")
+MESH_STR_ENTRY(SETTINGS_TEXT_SECRET,      "********")
+/* Encryption keys. The first four bytes are shown as a fingerprint - enough to check against
+   the phone app, not enough to be read over a shoulder. */
+MESH_STR_ENTRY(SETTINGS_KEY_NONE,         "none")
+MESH_STR_ENTRY(SETTINGS_KEY_NO_ENCRYPTION,"no encryption")
+MESH_STR_ENTRY(SETTINGS_KEY_DEFAULT,      "default key")
+MESH_STR_ENTRY(SETTINGS_KEY_SIMPLE,       "simple key %u")
+MESH_STR_ENTRY(SETTINGS_KEY_AES,          "%.8s... (AES-%u)")
+MESH_STR_ENTRY(SETTINGS_KEY_BITS,         "%.8s... (%u-bit)")
+MESH_STR_ENTRY(SETTINGS_KEY_FINGERPRINT,  "%s... (%u bytes)")
+MESH_STR_ENTRY(SETTINGS_KEY_INVALID,      "invalid key")
+/* What a KEY row will do when the section is saved. */
+MESH_STR_ENTRY(SETTINGS_KEY_NEW_AES128,   "new random AES-128")
+MESH_STR_ENTRY(SETTINGS_KEY_NEW_AES256,   "new random AES-256")
+MESH_STR_ENTRY(SETTINGS_KEY_NEW_KEY,      "new random key")
+MESH_STR_ENTRY(SETTINGS_KEY_CLEAR,        "none (clear)")
+/* A section the radio has not sent yet, and a row that needs a link it has not got. */
+MESH_STR_ENTRY(SETTINGS_NOT_LOADED,       "not loaded")
+MESH_STR_ENTRY(SETTINGS_NOT_CONNECTED,    "not connected")
+MESH_STR_ENTRY(SETTINGS_EMPTY_DISCONNECT, "Connect to a radio to read its settings")
+MESH_STR_ENTRY(SETTINGS_EMPTY_SECTION,    "Not sent by the radio yet; X to refresh")
+/* Titles down the Settings tree: "Settings", then "Settings > Display", with "Modules > "
+   inserted for a module's own section and "(unsaved)" while edits are pending. */
+MESH_STR_ENTRY(SETTINGS_TITLE,            "Settings")
+MESH_STR_ENTRY(SETTINGS_TITLE_SECTION,    "Settings > %s%s%s")
+MESH_STR_ENTRY(SETTINGS_TITLE_CHANNEL,    "Settings > Channel %u%s")
+MESH_STR_ENTRY(SETTINGS_TRAIL_MODULES,    "Modules > ")
+MESH_STR_ENTRY(SETTINGS_UNSAVED,          " (unsaved)")
+
+/* About. */
+MESH_STR_ENTRY(ABOUT_VERSION,             "Version")
+MESH_STR_ENTRY(ABOUT_UI_BACKEND,          "UI backend")
+MESH_STR_ENTRY(ABOUT_DATA,                "Data")
+MESH_STR_ENTRY(ABOUT_THEME,               "Theme")
+/* The theme is being held by MESHCLIENT_THEME, so the row is a fact rather than a switch. */
+MESH_STR_ENTRY(ABOUT_THEME_ENV,           "Theme (env)")
+MESH_STR_ENTRY(ABOUT_UPDATES,             "Updates")
+MESH_STR_ENTRY(ABOUT_UPDATES_UNAVAILABLE, "unavailable")
+MESH_STR_ENTRY(ABOUT_UPDATE_CHANNEL,      "Update channel")
+MESH_STR_ENTRY(ABOUT_DEV_UPDATES,         "Dev updates")
+MESH_STR_ENTRY(ABOUT_DEV_UPDATES_ENV,     "on (environment)")
+MESH_STR_ENTRY(ABOUT_UPDATE_STATUS,       "Update status")
+MESH_STR_ENTRY(ABOUT_WORKING,             "Working")
+MESH_STR_ENTRY(ABOUT_WORKING_DOWNLOAD,    "downloading...")
+MESH_STR_ENTRY(ABOUT_WORKING_CHECK,       "checking...")
+MESH_STR_ENTRY(ABOUT_INSTALLED,           "Installed")
+MESH_STR_ENTRY(ABOUT_INSTALLED_RELAUNCH,  "quit and relaunch")
+MESH_STR_ENTRY(ABOUT_CHECK_UPDATES,       "Check for updates")
+/* The row that installs a named release. The version goes in the label so the value column is
+   free to say how to act on it. */
+MESH_STR_ENTRY(ABOUT_INSTALL_VERSION,     "Install %.*s")
+MESH_STR_ENTRY(ABOUT_INSTALLING,          "Installing")
+MESH_STR_ENTRY(ABOUT_TURN_ON_DEV,         "turn on Dev updates")
+
+/* Radio: what the connected node is, read-only. */
+MESH_STR_ENTRY(RADIO_FIRMWARE,            "Firmware")
+MESH_STR_ENTRY(RADIO_HARDWARE,            "Hardware")
+MESH_STR_ENTRY(RADIO_NODE_NUMBER,         "Node number")
+MESH_STR_ENTRY(RADIO_REBOOTS,             "Reboots")
+MESH_STR_ENTRY(RADIO_LORA_REGION,         "LoRa region")
+MESH_STR_ENTRY(RADIO_CAPABILITIES,        "Capabilities")
+MESH_STR_ENTRY(RADIO_CAN_SHUT_DOWN,       "Can shut down")
+/* The capability words, each with its trailing space, concatenated into one value. */
+MESH_STR_ENTRY(RADIO_CAP_BLE,             "BLE ")
+MESH_STR_ENTRY(RADIO_CAP_WIFI,            "WiFi ")
+MESH_STR_ENTRY(RADIO_CAP_ETHERNET,        "Ethernet ")
+MESH_STR_ENTRY(RADIO_CAP_PKC,             "PKC")
+MESH_STR_ENTRY(RADIO_CAP_NONE,            "none")
+/* The admin session: whether the radio is answering our AdminMessages. */
+MESH_STR_ENTRY(RADIO_ADMIN_SESSION,       "Admin session")
+MESH_STR_ENTRY(RADIO_ADMIN_OK,            "ok (%u replies)%s")
+MESH_STR_ENTRY(RADIO_ADMIN_SAVING,        ", saving")
+MESH_STR_ENTRY(RADIO_ADMIN_REFRESHING,    ", refreshing")
+MESH_STR_ENTRY(RADIO_ADMIN_WAITING,       "waiting for reply")
+MESH_STR_ENTRY(RADIO_ADMIN_NO_REPLY,      "no reply yet")
+
+/* The channel list. A slot with role 0 is a free slot: A sets it up. */
+MESH_STR_ENTRY(CHANNELS_NONE_KNOWN,       "none known yet")
+MESH_STR_ENTRY(CHANNELS_SLOT,             "%u %s")
+MESH_STR_ENTRY(CHANNELS_SLOT_EMPTY,       "%u (empty)")
+MESH_STR_ENTRY(CHANNELS_SET_UP,           "disabled, A to set up")
+/* One channel in a line: role, key, and whether it is bridged to MQTT either way. */
+MESH_STR_ENTRY(CHANNELS_SUMMARY,          "%s, %s, up %s, down %s")
+MESH_STR_ENTRY(CHANNELS_ROLE_PRIMARY,     "primary")
+MESH_STR_ENTRY(CHANNELS_ROLE_SECONDARY,   "secondary")
+MESH_STR_ENTRY(CHANNELS_KEY_NONE,         "no key")
+MESH_STR_ENTRY(CHANNELS_KEY_DEFAULT,      "default key")
+MESH_STR_ENTRY(CHANNELS_KEY_AES128,       "AES-128")
+MESH_STR_ENTRY(CHANNELS_KEY_AES256,       "AES-256")
+/* A key length the firmware should never produce, kept so the row cannot lie about it. */
+MESH_STR_ENTRY(CHANNELS_KEY_ODD,          "odd key")
+
+/* Section headings inside a module's own screen. */
+MESH_STR_ENTRY(HEAD_MAP_REPORT,           "Map report")
+MESH_STR_ENTRY(HEAD_SERVER,               "Server")
+MESH_STR_ENTRY(HEAD_DEVICE,               "Device")
+MESH_STR_ENTRY(HEAD_ENVIRONMENT,          "Environment")
+MESH_STR_ENTRY(HEAD_AIR_QUALITY,          "Air quality")
+MESH_STR_ENTRY(HEAD_POWER,                "Power")
+MESH_STR_ENTRY(HEAD_HEALTH,               "Health")
+MESH_STR_ENTRY(HEAD_TRANSMITTER,          "Transmitter")
+MESH_STR_ENTRY(HEAD_LOG_ESP32,            "Log (ESP32 only)")
+MESH_STR_ENTRY(HEAD_COUNT_ABOVE,          "Count above")
+MESH_STR_ENTRY(HEAD_COLOUR,               "Colour")
+MESH_STR_ENTRY(HEAD_WIRING,               "Wiring")
+MESH_STR_ENTRY(HEAD_OUTPUT,               "Output")
+MESH_STR_ENTRY(HEAD_VIBRA,                "Vibra")
+MESH_STR_ENTRY(HEAD_BUZZER,               "Buzzer")
+MESH_STR_ENTRY(HEAD_RATE_LIMIT,           "Rate limit")
+/* Two notes that are rows rather than headings, because they explain the rows around them. */
+MESH_STR_ENTRY(NOTE_TEST_PACKETS,         "Test packets")
+MESH_STR_ENTRY(NOTE_TEST_PACKETS_VALUE,   "go to everyone on the channel")
+MESH_STR_ENTRY(NOTE_EACH_LIMIT,           "Each limit")
+MESH_STR_ENTRY(NOTE_EACH_LIMIT_VALUE,     "is off when it is 0")
+/* Rows the MQTT and Position screens add outside the field table. */
+MESH_STR_ENTRY(SETTINGS_PROXY_VIA_CLIENT, "Proxy via client")
+MESH_STR_ENTRY(SETTINGS_FIXED_POSITION,   "Fixed position")
+MESH_STR_ENTRY(SETTINGS_SET_FIXED_POS,    "Set fixed position")
+MESH_STR_ENTRY(SETTINGS_CLEAR_FIXED_POS,  "Clear fixed position")
+MESH_STR_ENTRY(SETTINGS_CHANNELS_ROW,     "Channels")
+MESH_STR_ENTRY(SETTINGS_ROLE_ROW,         "Role")
+MESH_STR_ENTRY(SETTINGS_PUBLIC_KEY_ROW,   "Public key")
+
+/* Radio actions: the things the radio does rather than keeps. */
+MESH_STR_ENTRY(ACTION_REBOOT,             "Reboot")
+MESH_STR_ENTRY(ACTION_SHUTDOWN,           "Shutdown")
+MESH_STR_ENTRY(ACTION_SHUTDOWN_UNSUPPORTED, "not supported")
+MESH_STR_ENTRY(ACTION_RESET_NODEDB,       "Reset node database")
+MESH_STR_ENTRY(ACTION_FORGET_OFF_RADIO,   "Forget off-radio")
+MESH_STR_ENTRY(ACTION_FORGET_ALL,         "Forget all cached")
+MESH_STR_ENTRY(ACTION_FACTORY_CONFIG,     "Factory reset config")
+MESH_STR_ENTRY(ACTION_FACTORY_DEVICE,     "Factory reset device")
+/* The value column of a forget row is the count the press would drop, so a row with nothing
+   to drop is a fact rather than a press that does nothing. */
+MESH_STR_ENTRY(ACTION_NOTHING_TO_DROP,    "nothing to drop")
+MESH_STR_PLURAL_ENTRY(ACTION_FORGET_COUNT, "%u node", "%u nodes")
+
+/* ---- settings: the confirmation sheet ------------------------------------------------------------ */
+
+/* The question at the top of the sheet. */
+MESH_STR_ENTRY(CONFIRM_TITLE_REBOOT,      "Reboot the radio?")
+MESH_STR_ENTRY(CONFIRM_TITLE_SHUTDOWN,    "Shut the radio down?")
+MESH_STR_ENTRY(CONFIRM_TITLE_RESET_DB,    "Reset the node database?")
+MESH_STR_ENTRY(CONFIRM_TITLE_FORGET_OFF,  "Forget off-radio nodes?")
+MESH_STR_ENTRY(CONFIRM_TITLE_FORGET_ALL,  "Forget every cached node?")
+MESH_STR_ENTRY(CONFIRM_TITLE_FACTORY_CFG, "Factory reset the config?")
+MESH_STR_ENTRY(CONFIRM_TITLE_FACTORY_DEV, "Factory reset everything?")
+MESH_STR_ENTRY(CONFIRM_TITLE_SAVE_CHANNEL,"Save channel %u?")
+MESH_STR_ENTRY(CONFIRM_TITLE_SAVE,        "Save %s?")
+
+/* The row that goes ahead. Every one names what it does rather than saying "OK", because the
+   sheet is the last thing between a press and something that cannot be undone. */
+MESH_STR_ENTRY(CONFIRM_ACCEPT_REBOOT,     "Reboot now")
+MESH_STR_ENTRY(CONFIRM_ACCEPT_SHUTDOWN,   "Shut down now")
+MESH_STR_ENTRY(CONFIRM_ACCEPT_RESET_DB,   "Reset the node database")
+MESH_STR_ENTRY(CONFIRM_ACCEPT_FORGET_OFF, "Forget them")
+MESH_STR_ENTRY(CONFIRM_ACCEPT_FORGET_ALL, "Forget them all")
+MESH_STR_ENTRY(CONFIRM_ACCEPT_FACTORY_CFG,"Factory reset config")
+MESH_STR_ENTRY(CONFIRM_ACCEPT_FACTORY_DEV,"Factory reset device")
+MESH_STR_ENTRY(CONFIRM_ACCEPT_SAVE,       "Save to radio")
+
+/*
+ * The paragraph under it. Four wrapped lines is what the sheet draws, so each of these has to
+ * stop inside that - a warning whose last clause is cut off is worse than a shorter one, and a
+ * translation that runs longer than the English will be the one that gets cut. Say what is
+ * lost, and say what is spared: "favorites excepted" is the difference between a press the
+ * user regrets and one they do not.
+ */
+MESH_STR_ENTRY(CONFIRM_TEXT_REBOOT,       "The radio restarts in a few seconds. The link drops with it and auto-connect brings it back; anything sent to this node meanwhile is lost.")
+MESH_STR_ENTRY(CONFIRM_TEXT_SHUTDOWN,     "The radio powers off in a few seconds and nothing here can wake it again: that takes its own button. Everything it has stored survives.")
+MESH_STR_ENTRY(CONFIRM_TEXT_RESET_DB,     "The radio forgets every node it heard, favorites excepted. Names come back as each speaks again. The Brick's own list stays; the row below clears it.")
+MESH_STR_ENTRY(CONFIRM_TEXT_FORGET_OFF,   "Drops the nodes this Brick remembers and the radio no longer carries - the ones the Nodes tab marks \"off radio\". Pins and ourselves stay.")
+MESH_STR_ENTRY(CONFIRM_TEXT_FORGET_ALL,   "Empties this Brick's node list, ourselves and pins excepted. The radio's database is untouched; the list fills again on the next connect.")
+MESH_STR_ENTRY(CONFIRM_TEXT_FACTORY_CFG,  "Every setting returns to its factory default, the Bluetooth bond excepted. Channels and keys go too: the node leaves your mesh until set up again.")
+MESH_STR_ENTRY(CONFIRM_TEXT_FACTORY_DEV,  "Every setting and the node database return to factory defaults, and the Bluetooth bond is cleared: forget the node in Devices (Y) and pair again.")
+MESH_STR_ENTRY(CONFIRM_TEXT_BLUETOOTH,    "The radio will reboot. Changing the pairing mode or PIN invalidates the Brick's bond: forget the node in Devices (Y) and connect again to pair with the new PIN. Turning Bluetooth off cuts this client off entirely.")
+MESH_STR_ENTRY(CONFIRM_TEXT_CHANNELS,     "The radio will reboot. A new key or name moves this radio to a different channel: every other node needs the same settings to keep talking to it.")
+MESH_STR_ENTRY(CONFIRM_TEXT_LORA,         "The radio will reboot. A region or preset the other nodes do not share takes this radio off the mesh, and a wrong region may be illegal to transmit on. Transmit off makes it receive-only.")
+MESH_STR_ENTRY(CONFIRM_TEXT_SECURITY,     "A new private key changes this node's identity: peers must learn it again and old direct messages stay unreadable. Managed mode locks out every client whose key is not an admin key, this one included.")
+MESH_STR_ENTRY(CONFIRM_TEXT_POWER,        "The radio will reboot. Power saving puts the radio to sleep between packets, and a short light-sleep or wake time can leave too little Bluetooth on for this client to reconnect on its own.")
+MESH_STR_ENTRY(CONFIRM_TEXT_DEFAULT,      "The radio will reboot to apply this.")
+
+/* ---- transport status ------------------------------------------------------------------------- */
+
+/*
+ * What the header and the Status screen say the link is doing. These are one word each because
+ * they share the top line with the connected node's name.
+ *
+ * "BlueZ" is the Linux Bluetooth stack's own name and stays as it is; so does "adapter", which
+ * is what BlueZ calls the radio in the Brick.
+ */
+MESH_STR_ENTRY(TRANSPORT_UNKNOWN,         "unknown")
+MESH_STR_ENTRY(TRANSPORT_DISABLED,        "disabled")
+MESH_STR_ENTRY(TRANSPORT_INACTIVE,        "inactive")
+MESH_STR_ENTRY(TRANSPORT_STOPPED,         "stopped")
+MESH_STR_ENTRY(TRANSPORT_UNAVAILABLE,     "unavailable")
+MESH_STR_ENTRY(TRANSPORT_RUNNING,         "running")
+MESH_STR_ENTRY(TRANSPORT_CONNECTING,      "connecting")
+MESH_STR_ENTRY(TRANSPORT_CONNECTED,       "connected")
+MESH_STR_ENTRY(TRANSPORT_PAIRING,         "pairing")
+MESH_STR_ENTRY(TRANSPORT_WAITING_BLUEZ,   "waiting-for-bluez")
+MESH_STR_ENTRY(TRANSPORT_WAITING_ADAPTER, "waiting-for-adapter")
+MESH_STR_ENTRY(TRANSPORT_NO_PORTS,        "no-ports")
+
+/* ---- delivery ---------------------------------------------------------------------------------- */
+
+/*
+ * Why a message did not arrive, from the Routing_Error the mesh sent back. Without these a
+ * failed message is only "!!" on a bubble, which says nothing about whether to try again, move
+ * the node, or fix a key - and those are three different problems.
+ */
+MESH_STR_ENTRY(ACK_DELIVERED,             "delivered")
+MESH_STR_ENTRY(ACK_NO_ROUTE,              "no route to that node")
+MESH_STR_ENTRY(ACK_GOT_NAK,               "rejected by the mesh")
+MESH_STR_ENTRY(ACK_TIMEOUT,               "timed out")
+MESH_STR_ENTRY(ACK_NO_INTERFACE,          "no radio interface")
+/* The common one: the packet went out and nothing acknowledged it. Out of range, on another
+   LoRa config, or switched off. */
+MESH_STR_ENTRY(ACK_MAX_RETRANSMIT,        "no ack after retries")
+MESH_STR_ENTRY(ACK_NO_CHANNEL,            "no matching channel")
+MESH_STR_ENTRY(ACK_TOO_LARGE,             "message too large")
+MESH_STR_ENTRY(ACK_NO_RESPONSE,           "no response")
+MESH_STR_ENTRY(ACK_DUTY_CYCLE,            "duty cycle limit")
+MESH_STR_ENTRY(ACK_BAD_REQUEST,           "bad request")
+MESH_STR_ENTRY(ACK_NOT_AUTHORIZED,        "not authorized")
+MESH_STR_ENTRY(ACK_PKI_FAILED,            "encryption failed")
+MESH_STR_ENTRY(ACK_PKI_UNKNOWN_PUBKEY,    "no public key for that node")
+MESH_STR_ENTRY(ACK_ADMIN_BAD_SESSION,     "admin session expired")
+MESH_STR_ENTRY(ACK_ADMIN_UNAUTHORIZED,    "admin key not authorized")
+MESH_STR_ENTRY(ACK_RATE_LIMIT,            "rate limited")
+MESH_STR_ENTRY(ACK_PKI_SEND_FAIL,         "public key send failed")
+MESH_STR_ENTRY(ACK_UNKNOWN_ERROR,         "unknown error")
+
+/* ---- the link ------------------------------------------------------------------------------------ */
+
+/*
+ * What a transport says when a connect, a pairing or a link goes wrong.
+ *
+ * These reach the user as a toast, through take_error() - the transports' one user-facing
+ * surface - so they are the same kind of string as the ones below and are held to the same
+ * width. "%s" is usually a node, named by the last four hex digits of its address, which is
+ * what the Meshtastic apps show and what is printed on the case: "6D:DA" beats a full MAC in a
+ * line this short.
+ *
+ * "A" and "Devices" are the Brick's button and this client's own tab; keep them recognisable.
+ */
+MESH_STR_ENTRY(LINK_BT_STOPPED,           "Bluetooth stopped")
+MESH_STR_ENTRY(LINK_BT_UNAVAILABLE,       "Bluetooth is unavailable")
+MESH_STR_ENTRY(LINK_BT_NOT_READY,         "Bluetooth is not ready yet")
+MESH_STR_ENTRY(LINK_NOT_IN_RANGE,         "%s is not in range")
+MESH_STR_ENTRY(LINK_NEEDS_PAIRING,        "%s needs pairing; press A on it in Devices")
+/* A node, then whichever of the failure words below fits - or the C library's own description
+   of an errno, which arrives untranslated. */
+MESH_STR_ENTRY(LINK_DETAIL,               "%s: %s")
+MESH_STR_ENTRY(LINK_NO_ANSWER,            "%s did not answer; is it in range?")
+MESH_STR_ENTRY(LINK_DISCOVERY_FAILED,     "%s: service discovery failed")
+MESH_STR_ENTRY(LINK_NO_GATT,              "%s: no GATT services; try re-pairing")
+MESH_STR_ENTRY(LINK_NOT_MESHTASTIC,       "%s is not a Meshtastic node")
+MESH_STR_ENTRY(LINK_DROPPED,              "%s dropped the link; press A on it in Devices to pair")
+MESH_STR_ENTRY(LINK_SUBSCRIBE_FAILED,     "%s: could not subscribe (%d)")
+MESH_STR_ENTRY(LINK_PAIRING_START_FAILED, "%s: could not start pairing (%d)")
+MESH_STR_ENTRY(LINK_PAIRING_TIMEOUT,      "%s: pairing timed out")
+MESH_STR_ENTRY(LINK_FORGET_FAILED,        "%s: could not be forgotten (%d)")
+/* The errnos bluez_client maps its D-Bus errors onto, in words. Each of these is the second
+   half of LINK_DETAIL, so it reads as "6D:DA: is not in range". */
+MESH_STR_ENTRY(LINK_FAIL_NEEDS_PAIRING,   "needs pairing (PIN mode)")
+MESH_STR_ENTRY(LINK_FAIL_NO_ANSWER,       "did not answer; is it in range?")
+MESH_STR_ENTRY(LINK_FAIL_BUSY,            "already connecting")
+MESH_STR_ENTRY(LINK_FAIL_NOT_IN_RANGE,    "is not in range")
+MESH_STR_ENTRY(LINK_FAIL_BT_NOT_READY,    "Bluetooth is not ready")
+MESH_STR_ENTRY(LINK_FAIL_GENERIC,         "connect failed")
+/* Pairing's own two, in the same place. "wrong PIN" is only said when the node rejected what
+   was typed - a PIN nobody was there to type reads as LINK_NEEDS_PAIRING instead, so that this
+   one never sends the user looking for a typo they did not make. */
+MESH_STR_ENTRY(LINK_FAIL_WRONG_PIN,       "wrong PIN")
+MESH_STR_ENTRY(LINK_FAIL_PAIRING,         "pairing failed")
+/* USB. On the Brick a node has no serial driver until this client asks for one, so "no driver"
+   is a state a working cable reaches and not necessarily a fault. */
+MESH_STR_ENTRY(LINK_USB_DISABLED,         "USB serial is disabled")
+MESH_STR_ENTRY(LINK_USB_GONE,             "USB port is gone; is it still plugged in?")
+MESH_STR_ENTRY(LINK_USB_NO_DRIVER,        "%.20s: no USB serial driver (%d)")
+MESH_STR_ENTRY(LINK_USB_OPEN_FAILED,      "Cannot open %.24s: %.20s")
+MESH_STR_ENTRY(LINK_USB_NO_ANSWER,        "%.24s: the radio did not answer")
+
+/* ---- toasts ------------------------------------------------------------------------------------ */
+
+/*
+ * The line that appears over the footer for a few seconds after a press.
+ *
+ * A toast is about sixty bytes and one line, and names are bounded with a precision - "%.20s" -
+ * so a long node name cannot push the verb off the end. Keep those precisions when translating:
+ * they are what stops the sentence being the part that gets cut.
+ *
+ * Every "(%d)" is an errno the press came back with. It is there because a toast that only says
+ * something failed cannot be turned into a bug report.
+ */
+MESH_STR_ENTRY(TOAST_NOT_CONNECTED,       "Not connected to a node")
+MESH_STR_ENTRY(TOAST_NODE_GONE,           "That node is no longer in the list")
+MESH_STR_ENTRY(TOAST_BLE_UNAVAILABLE,     "BLE transport unavailable")
+MESH_STR_ENTRY(TOAST_BUSY_RETRY,          "Busy; try again in a moment")
+MESH_STR_ENTRY(TOAST_CONNECTING,          "Connecting to %.40s")
+MESH_STR_ENTRY(TOAST_CONNECT_FAILED,      "Connect failed (%d)")
+MESH_STR_ENTRY(TOAST_SENT_TO,             "Sent to %s")
+MESH_STR_ENTRY(TOAST_SEND_FAILED,         "Send failed (%d)")
+/* A settings refresh, with the count of pending edits it is keeping. */
+MESH_STR_PLURAL_ENTRY(TOAST_REFRESH_EDITS, "Refreshing %d sections; %u edit kept, Y saves", "Refreshing %d sections; %u edits kept, Y saves")
+MESH_STR_ENTRY(TOAST_REFRESHING,          "Refreshing %d settings sections")
+MESH_STR_ENTRY(TOAST_REFRESH_IN_PROGRESS, "Refresh already in progress")
+MESH_STR_ENTRY(TOAST_REFRESH_FAILED,      "Refresh failed (%d)")
+/* The radio actions, each saying what will happen next rather than that the press landed. */
+MESH_STR_ENTRY(TOAST_REBOOTING,           "Rebooting; reconnecting shortly")
+MESH_STR_ENTRY(TOAST_SHUTTING_DOWN,       "Shutting down; switch it on by hand")
+MESH_STR_ENTRY(TOAST_NODEDB_RESET,        "Radio DB reset; Brick's list kept (forget it below)")
+MESH_STR_ENTRY(TOAST_FACTORY_CONFIG,      "Factory reset sent; radio restarting")
+MESH_STR_ENTRY(TOAST_FACTORY_DEVICE,      "Factory reset sent; forget it in Devices")
+MESH_STR_ENTRY(TOAST_ALREADY_REQUESTED,   "Already requested")
+MESH_STR_ENTRY(TOAST_REQUEST_FAILED,      "Request failed (%d)")
+/* Dropping cached nodes. */
+MESH_STR_PLURAL_ENTRY(TOAST_FORGOT_NODES, "Forgot %d node; pins kept", "Forgot %d nodes; pins kept")
+MESH_STR_ENTRY(TOAST_NOTHING_CACHED,      "Nothing cached to forget")
+MESH_STR_ENTRY(TOAST_ALL_ON_RADIO,        "Every cached node is on the radio")
+MESH_STR_ENTRY(TOAST_FORGET_FAILED,       "Forget failed (%d)")
+/* Pinning a node to the top of the list. */
+MESH_STR_ENTRY(TOAST_PINNED,              "Pinned %.20s")
+MESH_STR_ENTRY(TOAST_UNPINNED,            "Unpinned %.20s")
+MESH_STR_ENTRY(TOAST_ALREADY_PINNED,      "%.20s is already pinned")
+MESH_STR_ENTRY(TOAST_ALREADY_UNPINNED,    "%.20s is already unpinned")
+MESH_STR_ENTRY(TOAST_PIN_FAILED,          "Pin failed (%d)")
+/* Asking a node for something. */
+MESH_STR_ENTRY(TOAST_ASKED_NAME,          "Asked %.20s to introduce itself")
+MESH_STR_ENTRY(TOAST_ASKED_POSITION,      "Asked %.20s for its position")
+MESH_STR_ENTRY(TOAST_ASKED_TELEMETRY,     "Asked %.20s for its telemetry")
+MESH_STR_ENTRY(TOAST_STILL_SYNCING,       "Still syncing; try again in a moment")
+MESH_STR_ENTRY(TOAST_CANNOT_ASK,          "Cannot ask this node")
+/* Ignoring a node: the radio drops its packets before we ever see them. */
+MESH_STR_ENTRY(TOAST_IGNORING,            "Dropping packets from %.20s")
+MESH_STR_ENTRY(TOAST_UNIGNORING,          "Hearing %.20s again")
+MESH_STR_ENTRY(TOAST_ALREADY_IGNORED,     "%.20s is already ignored")
+MESH_STR_ENTRY(TOAST_ALREADY_UNIGNORED,   "%.20s is already not ignored")
+MESH_STR_ENTRY(TOAST_CANNOT_IGNORE,       "Cannot ignore this node")
+MESH_STR_ENTRY(TOAST_IGNORE_FAILED,       "Ignore failed (%d)")
+/* Muting: we still hear it, it just stops raising alerts. */
+MESH_STR_ENTRY(TOAST_MUTE_REQUESTED,      "Mute already requested")
+MESH_STR_ENTRY(TOAST_MUTED,               "Muted %.20s")
+MESH_STR_ENTRY(TOAST_UNMUTED,             "Unmuted %.20s")
+MESH_STR_ENTRY(TOAST_MUTE_FAILED,         "Mute failed (%d)")
+/* Removing a node from the radio's database. It comes back the moment it transmits again. */
+MESH_STR_ENTRY(TOAST_REMOVED_NODE,        "Removed %.14s; back when it speaks")
+MESH_STR_ENTRY(TOAST_REMOVE_SELF,         "That is the radio you are connected to")
+MESH_STR_ENTRY(TOAST_REMOVE_FAILED,       "Remove failed (%d)")
+MESH_STR_PLURAL_ENTRY(TOAST_DELETED_MESSAGES, "Deleted %u message from %.16s", "Deleted %u messages from %.16s")
+MESH_STR_ENTRY(TOAST_NOTHING_TO_DELETE,   "Nothing to delete in %.20s")
+MESH_STR_ENTRY(TOAST_TRACING,             "Tracing route to %.20s")
+MESH_STR_ENTRY(TOAST_TRACE_RUNNING,       "A traceroute is already running")
+MESH_STR_ENTRY(TOAST_CANNOT_TRACE,        "Cannot trace a route to this node")
+MESH_STR_ENTRY(TOAST_TRACE_FAILED,        "Traceroute failed (%d)")
+/* The link itself. */
+MESH_STR_ENTRY(TOAST_DISCONNECTED_FROM,   "Disconnected from %.30s")
+MESH_STR_ENTRY(TOAST_DISCONNECTED,        "Disconnected")
+MESH_STR_ENTRY(TOAST_NOTHING_CONNECTED,   "Nothing is connected")
+MESH_STR_ENTRY(TOAST_DISCONNECT_FAILED,   "Disconnect failed (%d)")
+MESH_STR_ENTRY(TOAST_BLE_ONLY_PAIRING,    "Only Bluetooth nodes are paired")
+MESH_STR_ENTRY(TOAST_FORGOT_DEVICE,       "Forgot %.30s; pair again to use it")
+MESH_STR_ENTRY(TOAST_FORGET_DEVICE_FAILED,"Could not forget it (%d)")
+MESH_STR_ENTRY(TOAST_PAIRING,             "Pairing...")
+MESH_STR_ENTRY(TOAST_PAIRING_EXPIRED,     "The pairing request expired")
+MESH_STR_ENTRY(TOAST_PAIRING_FAILED,      "Pairing failed (%d)")
+MESH_STR_ENTRY(TOAST_PAIRING_CANCELLED,   "Pairing cancelled")
+/* About. MESHCLIENT_THEME is an environment variable name and is not translated. */
+MESH_STR_ENTRY(TOAST_UPDATE_CHANNEL,      "Update channel: %.*s")
+MESH_STR_ENTRY(TOAST_THEME_HELD,          "MESHCLIENT_THEME is holding the theme")
+MESH_STR_ENTRY(TOAST_THEME,               "Theme: %.*s")
+MESH_STR_ENTRY(TOAST_DEV_UPDATES_ON,      "Dev updates on; check again")
+MESH_STR_ENTRY(TOAST_DEV_UPDATES_OFF,     "Dev updates off")
+MESH_STR_ENTRY(TOAST_CHECKING_UPDATES,    "Checking for updates")
+MESH_STR_ENTRY(TOAST_UPDATES_UNAVAILABLE, "Updates are unavailable here")
+MESH_STR_ENTRY(TOAST_ALREADY_CHECKING,    "Already checking")
+MESH_STR_ENTRY(TOAST_UPDATE_CHECK_FAILED, "Update check failed (%d)")
+MESH_STR_ENTRY(TOAST_DOWNLOADING,         "Downloading %.20s")
+MESH_STR_ENTRY(TOAST_ALREADY_WORKING,     "Already working")
+MESH_STR_ENTRY(TOAST_CHECK_FIRST,         "Check for an update first")
+MESH_STR_ENTRY(TOAST_UPDATE_FAILED,       "Update failed (%d)")
+/* Settings writes. "edits kept" matters: the user's typing survives the failure. */
+MESH_STR_ENTRY(TOAST_COORDS_NOT_NUMBERS,  "Latitude, longitude and altitude must be numbers")
+MESH_STR_ENTRY(TOAST_NEED_COORDS,         "Set a latitude and longitude first")
+MESH_STR_ENTRY(TOAST_WORKING_ELLIPSIS,    "%s...")
+MESH_STR_ENTRY(TOAST_CLEARING_FIXED_POS,  "Clearing fixed position")
+MESH_STR_ENTRY(TOAST_PINNING_POSITION,    "Pinning position")
+MESH_STR_ENTRY(TOAST_NOT_CONNECTED_KEPT,  "Not connected to a node; edits kept")
+MESH_STR_ENTRY(TOAST_NOT_ON_EARTH,        "That is not a place on Earth")
+MESH_STR_ENTRY(TOAST_FAILED_KEPT,         "Failed (%d); edits kept")
+MESH_STR_ENTRY(TOAST_SAVING_SECTION,      "Saving %s...")
+MESH_STR_ENTRY(TOAST_SECTION_NOT_LOADED,  "%s not loaded yet; X to refresh")
+MESH_STR_ENTRY(TOAST_SECTION_READ_ONLY,   "%s is read-only for now")
+MESH_STR_ENTRY(TOAST_INVALID_VALUE,       "Invalid value (PIN is 6 digits, key is hex)")
+MESH_STR_ENTRY(TOAST_SAVE_FAILED_KEPT,    "Save failed (%d); edits kept")
+MESH_STR_ENTRY(TOAST_SAVE_SESSION_EXPIRED,"%s rejected: session expired, try again")
+MESH_STR_ENTRY(TOAST_SAVE_BAD_VALUE,      "%s rejected by the radio (bad value)")
+MESH_STR_ENTRY(TOAST_SAVE_NO_REPLY,       "No reply saving %s; X to check")
+MESH_STR_ENTRY(TOAST_SAVE_REJECTED,       "%s rejected (error %d)")
+MESH_STR_ENTRY(TOAST_SAVED_MAY_RESTART,   "%s saved; radio may restart")
+MESH_STR_ENTRY(TOAST_RESTARTING_APPLY,    "Radio restarting to apply; reconnecting")
+/* The names the save toasts above put in their %s. */
+MESH_STR_ENTRY(SAVE_SECTION_FIXED_POS,    "Fixed position")
+MESH_STR_ENTRY(SAVE_SECTION_POSITION,     "Position")
+MESH_STR_ENTRY(SAVE_SECTION_CHANNEL,      "Channel %u")
+/* Things that happen without a press behind them. */
+MESH_STR_ENTRY(TOAST_NOT_DELIVERED,       "Not delivered to %.16s: %s")
+MESH_STR_ENTRY(TOAST_RADIO_RESTARTED,     "Radio restarted; reloading its settings")
+MESH_STR_ENTRY(TOAST_LINK_LOST,           "Radio link lost; reconnecting")
+/* An alert message, which the firmware raises for something worth interrupting for. The text
+   of the alert follows the colon. */
+MESH_STR_ENTRY(TOAST_ALERT_FROM,          "Alert from %.16s: ")
+MESH_STR_ENTRY(TOAST_NODES_OFF_RADIO,     "%u nodes now off radio; forget them in Settings")
+
+/* ---- self-update -------------------------------------------------------------------------------- */
+
+/* What the updater is doing, shown on the About screen when it has nothing more specific. */
+MESH_STR_ENTRY(UPDATE_STATE_IDLE,         "idle")
+MESH_STR_ENTRY(UPDATE_STATE_CHECKING,     "checking")
+MESH_STR_ENTRY(UPDATE_STATE_UP_TO_DATE,   "up to date")
+MESH_STR_ENTRY(UPDATE_STATE_AVAILABLE,    "available")
+MESH_STR_ENTRY(UPDATE_STATE_DOWNLOADING,  "downloading")
+MESH_STR_ENTRY(UPDATE_STATE_VERIFYING,    "verifying")
+MESH_STR_ENTRY(UPDATE_STATE_READY,        "ready")
+MESH_STR_ENTRY(UPDATE_STATE_FAILED,       "failed")
+/* Which releases this build will offer. The automatic pair follows the running build: a
+   prerelease build tracks prereleases, a release build tracks releases. */
+MESH_STR_ENTRY(UPDATE_CHANNEL_STABLE,     "Stable")
+MESH_STR_ENTRY(UPDATE_CHANNEL_PRERELEASE, "Prerelease")
+MESH_STR_ENTRY(UPDATE_CHANNEL_AUTO_PRE,   "Automatic (prerelease)")
+MESH_STR_ENTRY(UPDATE_CHANNEL_AUTO_STABLE,"Automatic (stable)")
+/* Messages. "curl", "wget", "GitHub" and "pak" are names and stay as they are. */
+MESH_STR_ENTRY(UPDATE_NO_FETCHER,         "No curl or wget on this device")
+MESH_STR_ENTRY(UPDATE_DEV_DISABLED,       "Dev build; updates disabled")
+MESH_STR_ENTRY(UPDATE_DEV_ENABLED,        "Dev build; updates enabled")
+MESH_STR_ENTRY(UPDATE_CHANNEL_CHANGED,    "Channel changed; check again")
+MESH_STR_ENTRY(UPDATE_SETTING_CHANGED,    "Setting changed; check again")
+MESH_STR_ENTRY(UPDATE_START_FAILED,       "Could not start the downloader")
+MESH_STR_ENTRY(UPDATE_CHECKING,           "Checking for updates")
+MESH_STR_ENTRY(UPDATE_EMPTY_REPLY,        "Empty reply from GitHub")
+MESH_STR_ENTRY(UPDATE_NO_ASSET,           "No usable release asset")
+MESH_STR_ENTRY(UPDATE_LATEST_DEV,         "Latest is %s; dev build, not installing")
+MESH_STR_ENTRY(UPDATE_LATEST_RUNNING,     "Running the latest release")
+MESH_STR_ENTRY(UPDATE_NO_CHECKSUM,        "Release has no checksum; not installing")
+MESH_STR_ENTRY(UPDATE_BAD_SIZE,           "Release asset size looks wrong")
+/* The newer version, and the one this build is. */
+MESH_STR_ENTRY(UPDATE_AVAILABLE,          "%s available (running %s)")
+MESH_STR_ENTRY(UPDATE_DOWNLOAD_START_FAIL,"Could not start the download")
+MESH_STR_ENTRY(UPDATE_DOWNLOADING,        "Downloading %s")
+MESH_STR_ENTRY(UPDATE_RESPONSE_TOO_LARGE, "Response too large")
+MESH_STR_ENTRY(UPDATE_READ_FAILED,        "Read from downloader failed")
+MESH_STR_ENTRY(UPDATE_VERIFYING,          "Verifying download")
+MESH_STR_ENTRY(UPDATE_FILE_MISSING,       "Downloaded file is missing")
+MESH_STR_ENTRY(UPDATE_FILE_WRONG_SIZE,    "Downloaded file is the wrong size")
+MESH_STR_ENTRY(UPDATE_HASH_FAILED,        "Could not hash the download")
+MESH_STR_ENTRY(UPDATE_CHECKSUM_MISMATCH,  "Checksum mismatch; discarded")
+MESH_STR_ENTRY(UPDATE_CHMOD_FAILED,       "Could not make the update executable")
+/* The %s is the C library's own description of an errno and arrives untranslated. */
+MESH_STR_ENTRY(UPDATE_INSTALL_FAILED,     "Install failed: %s")
+MESH_STR_ENTRY(UPDATE_INSTALLED,          "%s installed - relaunch to run it")
+MESH_STR_ENTRY(UPDATE_TIMED_OUT,          "Timed out talking to GitHub")
+/* The TLS failures are worth telling apart: one is a bad certificate, the other is a pak
+   installed without its CA bundle, and only the second is fixed by reinstalling. */
+MESH_STR_ENTRY(UPDATE_TLS_UNVERIFIED,     "Could not verify GitHub's certificate")
+MESH_STR_ENTRY(UPDATE_NO_CA_BUNDLE,       "No CA certificates; reinstall the pak")
+MESH_STR_ENTRY(UPDATE_CHECK_EXIT,         "Check failed (%s exit %d)")
+MESH_STR_ENTRY(UPDATE_DOWNLOAD_EXIT,      "Download failed (%s exit %d)")
+
+/* ---- language ------------------------------------------------------------------------------------ */
+
+/*
+ * The Settings > About row naming the language in force.
+ *
+ * Only the label is here. The *name* of a language comes from `name` on struct
+ * mesh_i18n_locale, which every locale must fill in with its own name for itself - "Deutsch",
+ * not "German". It is deliberately not a catalog entry: a catalog entry may be left
+ * untranslated, and a locale whose name fell back to English would have About reporting the
+ * wrong language.
+ */
+MESH_STR_ENTRY(ABOUT_LANGUAGE,            "Language")

@@ -243,10 +243,13 @@ void fb_title_count(char *out, size_t out_len, const char *name, uint32_t count,
  */
 void fb_draw_status_row(const struct mesh_ui_backend_fb_state *state,
                         const struct fb_layout *layout, int *y, enum mesh_ui_tone tone,
-                        const char *label, const char *fmt, ...)
-#if defined(__GNUC__)
-    __attribute__((format(printf, 6, 7)))
-#endif
-    ;
+                        enum mesh_str_id label, enum mesh_str_id value, ...);
+
+/* The same row for a value that is already text - a device name, an age, a transport's own
+   status word. It exists so no "%s" pass-through ends up in the catalog, where it would be a
+   line for a translator to wonder about. */
+void fb_draw_status_text(const struct mesh_ui_backend_fb_state *state,
+                         const struct fb_layout *layout, int *y, enum mesh_ui_tone tone,
+                         enum mesh_str_id label, const char *value);
 
 #endif /* MESH_UI_BACKENDS_FB_WIDGETS_H */

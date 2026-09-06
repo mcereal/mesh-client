@@ -20,6 +20,7 @@ set(MESHCLIENT_TEST_SUPPORT
 set(MESHCLIENT_TEST_SUITES
     suites/app.c
     suites/core_basics.c
+    suites/i18n.c
     suites/message.c
     suites/radio_settings.c
     suites/session.c
@@ -60,6 +61,13 @@ endif()
 
 add_test(NAME meshclient_core_unit COMMAND meshclient_core_tests --category unit)
 set_tests_properties(meshclient_core_unit PROPERTIES LABELS "unit")
+
+# The catalog is only the single source of the client's text for as long as nobody puts an
+# English sentence back into a renderer, and a string literal is not something the compiler has
+# an opinion about. check-strings.py is that opinion; docs/i18n.md explains what it is for.
+add_test(NAME meshclient_hardcoded_strings
+         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/check-strings.py)
+set_tests_properties(meshclient_hardcoded_strings PROPERTIES LABELS "unit")
 
 # scripts/frames.py hand-rolls GIF's variable-width LZW, and the one thing that is easy to get
 # subtly wrong there - when the code width grows - produces a file that still opens and shows

@@ -81,6 +81,20 @@ void mesh_ui_line_printf(struct mesh_ui_line *line, const char *fmt, ...) {
     va_end(args);
 }
 
+/* The i18n counterpart. mesh_str_vformat() is where the non-literal format is answered for;
+   see include/mesh/i18n/strings.h. */
+void mesh_ui_line_str(struct mesh_ui_line *line, enum mesh_str_id id, ...) {
+    const size_t room = mesh_ui_line_room(line);
+    if (room == 0U) {
+        return;
+    }
+    va_list args;
+    va_start(args, id);
+    (void)mesh_str_vformat(line->text + line->len, room + 1U, id, args);
+    va_end(args);
+    mesh_ui_line_settle(line);
+}
+
 void mesh_ui_line_pad_to(struct mesh_ui_line *line, size_t cols) {
     size_t width = mesh_ui_text_cells(line->text);
     while (width < cols && mesh_ui_line_room(line) > 0U) {

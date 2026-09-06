@@ -15,6 +15,7 @@
 #include "fb_widgets.h"
 
 #include "mesh/core/message.h"
+#include "mesh/i18n/strings.h"
 #include "mesh/ui/emoji.h"
 #include "mesh/ui/input.h"
 #include "mesh/ui/layout.h"
@@ -81,8 +82,9 @@ static void fb_draw_footer(const struct mesh_ui_backend_fb_state *state,
         mesh_ui_line_printf(&line, "%s", nav->toast);
         tone = MESH_UI_TONE_ACCENT;
     } else {
-        const char *status =
-            snapshot->transport_status[0] != '\0' ? snapshot->transport_status : "starting";
+        const char *status = snapshot->transport_status[0] != '\0'
+                                 ? snapshot->transport_status
+                                 : mesh_str(MESH_STR_HEADER_TRANSPORT_STARTING);
         const char *connected = NULL;
         for (size_t i = 0; i < snapshot->device_count; ++i) {
             if (snapshot->devices[i].connected) {
@@ -92,10 +94,10 @@ static void fb_draw_footer(const struct mesh_ui_backend_fb_state *state,
             }
         }
         if (connected != NULL) {
-            mesh_ui_line_printf(&line, "%s: %s", status, connected);
+            mesh_ui_line_str(&line, MESH_STR_HEADER_STATUS_CONNECTED, status, connected);
             tone = MESH_UI_TONE_GOOD;
         } else {
-            mesh_ui_line_printf(&line, "%s | %s", status, mesh_ui_input_quit_hint());
+            mesh_ui_line_str(&line, MESH_STR_HEADER_STATUS_QUIT, status, mesh_ui_input_quit_hint());
         }
     }
     mesh_ui_line_fit(&line, cols);
@@ -116,10 +118,11 @@ static void fb_render_conversations(const struct mesh_ui_backend_fb_state *state
 
     const uint32_t count = mesh_ui_nav_conversation_count(&view);
     char title[96];
-    fb_title_count(title, sizeof title, "Messages", count, snapshot->messages.dropped);
+    fb_title_count(title, sizeof title, mesh_str(MESH_STR_TAB_MESSAGES), count,
+                   snapshot->messages.dropped);
     fb_draw_title(state, layout, title);
     if (count == 0U) {
-        fb_draw_empty(state, layout, "Connect to a node to see conversations.");
+        fb_draw_empty(state, layout, mesh_str(MESH_STR_MESSAGES_EMPTY));
         return;
     }
 
@@ -152,7 +155,7 @@ static void fb_render_conversations(const struct mesh_ui_backend_fb_state *state
             /* Past two figures a badge stops being a number and becomes a width, which is what
                every messenger's "99+" is for. */
             if (conversation.unread > 99U) {
-                snprintf(badge, sizeof badge, "%s", "99+");
+                snprintf(badge, sizeof badge, "%s", mesh_str(MESH_STR_MESSAGES_UNREAD_OVERFLOW));
             } else {
                 snprintf(badge, sizeof badge, "%u", (unsigned)conversation.unread);
             }
@@ -167,7 +170,7 @@ static void fb_render_conversations(const struct mesh_ui_backend_fb_state *state
             .age = age,
             /* The one row that is a button rather than a conversation says what it does
                instead of what was last said in it. */
-            .preview = is_new ? "Pick a channel or a node" : conversation.preview,
+            .preview = is_new ? mesh_str(MESH_STR_MESSAGES_NEW_PREVIEW) : conversation.preview,
             .preview_outbound = conversation.preview_outbound,
             .badge = badge,
             .unread = (conversation.unread > 0U),
@@ -225,11 +228,11 @@ static void fb_format_day(uint32_t rx_time, char *out, size_t out_len) {
     struct tm today;
     if (now != (time_t)-1 && localtime_r(&now, &today) != NULL) {
         if (when.tm_year == today.tm_year && when.tm_yday == today.tm_yday) {
-            snprintf(out, out_len, "%s", "Today");
+            snprintf(out, out_len, "%s", mesh_str(MESH_STR_DATE_TODAY));
             return;
         }
         if (when.tm_year == today.tm_year && when.tm_yday + 1 == today.tm_yday) {
-            snprintf(out, out_len, "%s", "Yesterday");
+            snprintf(out, out_len, "%s", mesh_str(MESH_STR_DATE_YESTERDAY));
             return;
         }
     }
@@ -238,7 +241,7 @@ static void fb_format_day(uint32_t rx_time, char *out, size_t out_len) {
     (void)strftime(month, sizeof month, "%b", &when);
     char weekday[8];
     (void)strftime(weekday, sizeof weekday, "%a", &when);
-    snprintf(out, out_len, "%s %d %s", weekday, when.tm_mday, month);
+    mesh_str_format(out, out_len, MESH_STR_DATE_WEEKDAY_DAY_MONTH, weekday, when.tm_mday, month);
 }
 
 /* A day apart, or a long enough silence, is a break in the conversation; anything closer is the
@@ -395,29 +398,33 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot, const u
     row->bubble.alert = (message->kind == (uint8_t)MESH_MESSAGE_KIND_ALERT);
 
     if (labelled || ((starts_run || force_name) && (names_needed || (outbound && nav->inbox)))) {
-        const char *peer = message->peer_name[0] != '\0' ? message->peer_name : "?";
+        const char *peer = message->peer_name[0] != '\0' ? message->peer_name
+                                                         : mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT);
         struct mesh_ui_line line;
         mesh_ui_line_reset(&line);
         if (outbound) {
             /* Ours in all-traffic still needs a destination: "sent" alone does not say to whom,
                and a broadcast and a DM look identical without it. */
-            mesh_ui_line_printf(&line, message->broadcast ? "%s" : "to %s",
-                                message->broadcast ? "sent" : peer);
+            if (message->broadcast) {
+                mesh_ui_line_printf(&line, "%s", mesh_str(MESH_STR_BUBBLE_SENT));
+            } else {
+                mesh_ui_line_str(&line, MESH_STR_BUBBLE_SENT_TO, peer);
+            }
         } else {
             mesh_ui_line_printf(&line, "%s", peer);
         }
         /* All-traffic is several conversations at once, so each bubble says which one it is. */
         if (nav->inbox) {
             if (message->broadcast) {
-                mesh_ui_line_printf(&line, "  #%u", (unsigned)message->channel);
+                mesh_ui_line_str(&line, MESH_STR_BUBBLE_CHANNEL, (unsigned)message->channel);
             } else {
-                mesh_ui_line_printf(&line, "%s", "  dm");
+                mesh_ui_line_printf(&line, "%s", mesh_str(MESH_STR_BUBBLE_DIRECT));
             }
         }
         if (message->kind == (uint8_t)MESH_MESSAGE_KIND_ALERT) {
-            mesh_ui_line_printf(&line, "%s", "  \U0001F6A8 alert");
+            mesh_ui_line_printf(&line, "%s", mesh_str(MESH_STR_BUBBLE_ALERT));
         } else if (message->kind == (uint8_t)MESH_MESSAGE_KIND_DETECTION) {
-            mesh_ui_line_printf(&line, "%s", "  sensor");
+            mesh_ui_line_printf(&line, "%s", mesh_str(MESH_STR_BUBBLE_SENSOR));
         }
         mesh_str_copy(row->name, sizeof row->name, mesh_ui_line_text(&line));
     }
@@ -437,13 +444,15 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot, const u
             /* Routing_Error NONE reads as "delivered", which on a failed message is a straight
                contradiction. It should not reach us - a failure carries a reason - but a bubble
                is the wrong place to find out that it did. */
-            mesh_ui_line_printf(&meta, "%s!! %s", space,
+            mesh_ui_line_printf(&meta, "%s%s %s", space, mesh_str(MESH_STR_BUBBLE_FAILED_MARK),
                                 message->ack_error != 0U
                                     ? mesh_message_ack_error_to_string(message->ack_error)
-                                    : "failed");
+                                    : mesh_str(MESH_STR_BUBBLE_STATE_FAILED));
         } else {
             mesh_ui_line_printf(&meta, "%s%s", space,
-                                message->ack == MESH_MESSAGE_ACK_DELIVERED ? "ok" : "..");
+                                mesh_str(message->ack == MESH_MESSAGE_ACK_DELIVERED
+                                             ? MESH_STR_BUBBLE_DELIVERED
+                                             : MESH_STR_BUBBLE_PENDING));
         }
     }
     /*
@@ -489,19 +498,22 @@ static void fb_render_thread(const struct mesh_ui_backend_fb_state *state,
     if (nav->inbox) {
         fb_title_count(title, sizeof title, convo, count, snapshot->messages.dropped);
     } else if (snapshot->messages.dropped > 0U) {
-        snprintf(title, sizeof title, "%s  %s  (+%u older)", convo,
-                 nav->target_node == MESH_MESSAGE_BROADCAST_ADDR ? "channel" : "direct",
-                 (unsigned)snapshot->messages.dropped);
+        mesh_str_format(title, sizeof title, MESH_STR_THREAD_TITLE_OLDER, convo,
+                        mesh_str(nav->target_node == MESH_MESSAGE_BROADCAST_ADDR
+                                     ? MESH_STR_THREAD_KIND_CHANNEL
+                                     : MESH_STR_THREAD_KIND_DIRECT),
+                        (unsigned)snapshot->messages.dropped);
     } else {
-        snprintf(title, sizeof title, "%s  %s", convo,
-                 nav->target_node == MESH_MESSAGE_BROADCAST_ADDR ? "channel" : "direct");
+        mesh_str_format(title, sizeof title, MESH_STR_THREAD_TITLE, convo,
+                        mesh_str(nav->target_node == MESH_MESSAGE_BROADCAST_ADDR
+                                     ? MESH_STR_THREAD_KIND_CHANNEL
+                                     : MESH_STR_THREAD_KIND_DIRECT));
     }
     fb_draw_title(state, layout, title);
 
     if (count == 0U) {
         fb_draw_empty(state, layout,
-                      nav->inbox ? "No messages yet. B goes back to the list."
-                                 : "Nothing here yet. Y writes one, B goes back.");
+                      mesh_str(nav->inbox ? MESH_STR_THREAD_EMPTY_INBOX : MESH_STR_THREAD_EMPTY));
         return;
     }
 
@@ -570,8 +582,8 @@ static void fb_render_node_detail(const struct mesh_ui_backend_fb_state *state,
     const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
     const struct mesh_ui_node_summary *node = mesh_ui_node_detail_find(hs, nav->node_detail_node);
     if (node == NULL) {
-        fb_draw_title(state, layout, "Nodes");
-        fb_draw_empty(state, layout, "That node is no longer in the list.");
+        fb_draw_title(state, layout, mesh_str(MESH_STR_TAB_NODES));
+        fb_draw_empty(state, layout, mesh_str(MESH_STR_NODES_GONE));
         return;
     }
 
@@ -581,9 +593,11 @@ static void fb_render_node_detail(const struct mesh_ui_backend_fb_state *state,
                        : node->short_name[0] != '\0' ? node->short_name
                                                      : NULL;
     if (name != NULL) {
-        snprintf(title, sizeof title, "Nodes > %s", name);
+        mesh_str_format(title, sizeof title, MESH_STR_NODES_TITLE_DETAIL, name);
     } else {
-        snprintf(title, sizeof title, "Nodes > !%08x", node->node_id);
+        char fallback[24];
+        mesh_str_format(fallback, sizeof fallback, MESH_STR_NODE_VAL_USER_ID_HEX, node->node_id);
+        mesh_str_format(title, sizeof title, MESH_STR_NODES_TITLE_DETAIL, fallback);
     }
     fb_draw_title(state, layout, title);
 
@@ -592,7 +606,7 @@ static void fb_render_node_detail(const struct mesh_ui_backend_fb_state *state,
         node, is_self, (uint32_t)time(NULL), &snapshot->traceroute, nav->node_remove_armed,
         &snapshot->handshake, items, MESH_UI_NODE_ITEMS_MAX);
     if (count == 0U) {
-        fb_draw_empty(state, layout, "Nothing reported for this node yet.");
+        fb_draw_empty(state, layout, mesh_str(MESH_STR_NODES_DETAIL_EMPTY));
         return;
     }
 
@@ -625,10 +639,10 @@ static void fb_render_nodes(const struct mesh_ui_backend_fb_state *state,
         return;
     }
     if (!snapshot->handshake_valid || snapshot->handshake.node_count == 0U) {
-        fb_draw_title(state, layout, "Nodes");
+        fb_draw_title(state, layout, mesh_str(MESH_STR_TAB_NODES));
         fb_draw_empty(state, layout,
-                      snapshot->handshake_valid ? "Waiting for the node list..."
-                                                : "Connect to a node to see the mesh.");
+                      mesh_str(snapshot->handshake_valid ? MESH_STR_NODES_EMPTY_WAITING
+                                                         : MESH_STR_NODES_EMPTY_DISCONNECTED));
         return;
     }
 
@@ -641,14 +655,15 @@ static void fb_render_nodes(const struct mesh_ui_backend_fb_state *state,
        "128 nodes, 200 off radio" would be arithmetic no screen should show. */
     const uint32_t off_radio = mesh_ui_handshake_off_radio(hs);
     if (hs->has_my_info && hs->my_info.nodedb_entries > count) {
-        snprintf(title, sizeof title, "Nodes (%u of %u)", count, hs->my_info.nodedb_entries);
+        mesh_str_format(title, sizeof title, MESH_STR_NODES_TITLE_OF, count,
+                        hs->my_info.nodedb_entries);
     } else if (off_radio > 0U) {
         /* The count the Status screen shows is the radio's; this one is ours, and after a
            NodeDB reset the two are nothing alike. Saying how much of the gap is nodes only we
            remember is what keeps "81 here, 2 there" from reading as a bug. */
-        snprintf(title, sizeof title, "Nodes (%u, %u off radio)", count, off_radio);
+        mesh_str_format(title, sizeof title, MESH_STR_NODES_TITLE_OFF_RADIO, count, off_radio);
     } else {
-        fb_title_count(title, sizeof title, "Nodes", count, 0U);
+        fb_title_count(title, sizeof title, mesh_str(MESH_STR_TAB_NODES), count, 0U);
     }
     fb_draw_title(state, layout, title);
 
@@ -660,7 +675,8 @@ static void fb_render_nodes(const struct mesh_ui_backend_fb_state *state,
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         const struct mesh_ui_node_summary *node = &hs->nodes[i];
-        const char *short_name = node->short_name[0] != '\0' ? node->short_name : "----";
+        const char *short_name =
+            node->short_name[0] != '\0' ? node->short_name : mesh_str(MESH_STR_NODES_NO_SHORT_NAME);
         const char *long_name = node->long_name[0] != '\0' ? node->long_name : "";
         fb_format_age(node->last_heard, age, sizeof age);
 
@@ -671,13 +687,14 @@ static void fb_render_nodes(const struct mesh_ui_backend_fb_state *state,
          * there is no stored key to encrypt with. The detail screen spells the same thing out.
          */
         if (!node->in_nodedb) {
-            snprintf(right, sizeof right, "off radio %s", age);
+            mesh_str_format(right, sizeof right, MESH_STR_NODES_ROW_OFF_RADIO, age);
         } else if (node->has_hops_away && node->hops_away > 0U) {
-            snprintf(right, sizeof right, "%uhop %s", (unsigned)node->hops_away, age);
+            mesh_str_format(right, sizeof right, MESH_STR_NODES_ROW_HOPS, (unsigned)node->hops_away,
+                            age);
         } else if (node->via_mqtt) {
-            snprintf(right, sizeof right, "mqtt %s", age);
+            mesh_str_format(right, sizeof right, MESH_STR_NODES_ROW_MQTT, age);
         } else {
-            snprintf(right, sizeof right, "%.1fdB %s", (double)node->snr, age);
+            mesh_str_format(right, sizeof right, MESH_STR_NODES_ROW_SNR, (double)node->snr, age);
         }
 
         /* The marker column: ourselves, then pinned. A star sprite rather than an ASCII
@@ -710,8 +727,10 @@ static void fb_render_compose(const struct mesh_ui_backend_fb_state *state,
                               const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     char title[96];
-    snprintf(title, sizeof title, "To: %s%s", nav->target_name,
-             nav->target_node == MESH_MESSAGE_BROADCAST_ADDR ? "  (channel)" : "  (direct)");
+    mesh_str_format(title, sizeof title, MESH_STR_COMPOSE_TO_KIND, nav->target_name,
+                    mesh_str(nav->target_node == MESH_MESSAGE_BROADCAST_ADDR
+                                 ? MESH_STR_COMPOSE_SUFFIX_CHANNEL
+                                 : MESH_STR_COMPOSE_SUFFIX_DIRECT));
     fb_draw_title(state, layout, title);
 
     struct fb_list list =
@@ -722,9 +741,9 @@ static void fb_render_compose(const struct mesh_ui_backend_fb_state *state,
         mesh_ui_line_reset(&line);
         if (i == MESH_UI_COMPOSE_ROW_DRAFT) {
             if (nav->draft[0] != '\0') {
-                mesh_ui_line_printf(&line, "Draft: %s", nav->draft);
+                mesh_ui_line_str(&line, MESH_STR_COMPOSE_DRAFT, nav->draft);
             } else {
-                mesh_ui_line_printf(&line, "%s", "[ Type a message ]");
+                mesh_ui_line_printf(&line, "%s", mesh_str(MESH_STR_COMPOSE_DRAFT_EMPTY));
             }
             fb_list_row_line(state, &list, i, &line, MESH_UI_TONE_ACCENT);
         } else {
@@ -744,10 +763,10 @@ static void fb_render_picker(const struct mesh_ui_backend_fb_state *state,
 
     const uint32_t count = mesh_ui_nav_picker_count(&view);
     char title[96];
-    fb_title_count(title, sizeof title, "Send to", count, 0U);
+    fb_title_count(title, sizeof title, mesh_str(MESH_STR_PICKER_TITLE), count, 0U);
     fb_draw_title(state, layout, title);
     if (count == 0U) {
-        fb_draw_empty(state, layout, "No channels or nodes known yet.");
+        fb_draw_empty(state, layout, mesh_str(MESH_STR_PICKER_EMPTY));
         return;
     }
 
@@ -766,7 +785,7 @@ static void fb_render_picker(const struct mesh_ui_backend_fb_state *state,
             (node == nav->target_node) && (!is_channel || channel == nav->target_channel);
         mesh_ui_line_reset(&line);
         mesh_ui_line_printf(&line, "%c %s%s", current ? '*' : ' ', name,
-                            is_channel ? "  (channel)" : "");
+                            is_channel ? mesh_str(MESH_STR_COMPOSE_SUFFIX_CHANNEL) : "");
         fb_list_row_line(state, &list, i, &line,
                          is_channel ? MESH_UI_TONE_ACCENT : MESH_UI_TONE_NORMAL);
     }
@@ -788,14 +807,15 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
     if (for_passkey) {
         /* The one prompt the user cannot act on without being told what to look at: the digits
            are on the node's own screen, not anywhere on this one. */
-        snprintf(title, sizeof title,
-                 nav->pairing_confirm ? "Does %s show this?" : "PIN shown on %s",
-                 nav->pairing_label[0] != '\0' ? nav->pairing_label : "the node");
+        mesh_str_format(title, sizeof title,
+                        nav->pairing_confirm ? MESH_STR_PAIRING_CONFIRM : MESH_STR_PAIRING_SHOWN_ON,
+                        nav->pairing_label[0] != '\0' ? nav->pairing_label
+                                                      : mesh_str(MESH_STR_PAIRING_NODE_FALLBACK));
     } else if (for_setting) {
         snprintf(title, sizeof title, "%s",
                  mesh_ui_settings_field_label((enum mesh_ui_setting_field)nav->keyboard_field));
     } else {
-        snprintf(title, sizeof title, "To: %s", nav->target_name);
+        mesh_str_format(title, sizeof title, MESH_STR_COMPOSE_TO, nav->target_name);
     }
     fb_draw_title(state, layout, title);
 
@@ -874,11 +894,12 @@ static void fb_render_devices(const struct mesh_ui_backend_fb_state *state,
                               const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     char title[96];
-    fb_title_count(title, sizeof title, "Devices", (uint32_t)snapshot->device_count, 0U);
+    fb_title_count(title, sizeof title, mesh_str(MESH_STR_TAB_DEVICES),
+                   (uint32_t)snapshot->device_count, 0U);
     fb_draw_title(state, layout, title);
 
     if (snapshot->device_count == 0U) {
-        fb_draw_empty(state, layout, "Scanning for Meshtastic nodes...");
+        fb_draw_empty(state, layout, mesh_str(MESH_STR_DEVICES_EMPTY));
         return;
     }
 
@@ -890,29 +911,30 @@ static void fb_render_devices(const struct mesh_ui_backend_fb_state *state,
         const struct mesh_ui_device *device = &snapshot->devices[i];
         const char *name = device->name[0] != '\0' ? device->name : device->identifier;
         if (name[0] == '\0') {
-            name = "<unknown>";
+            name = mesh_str(MESH_STR_DEVICES_UNNAMED);
         }
         /* What pressing A on this row would do. An unpaired BLE node is the case worth
            calling out: it connects and then fails on StartNotify unless it is bonded first,
            which is exactly what A now does for it. */
         const char *badge = "";
         if (device->connected) {
-            badge = "  connected";
+            badge = mesh_str(MESH_STR_DEVICES_BADGE_CONNECTED);
         } else if (device->busy) {
-            badge = "  working...";
+            badge = mesh_str(MESH_STR_DEVICES_BADGE_WORKING);
         } else if (device->kind == (uint8_t)MESH_UI_DEVICE_BLE && !device->paired) {
-            badge = "  needs pairing";
+            badge = mesh_str(MESH_STR_DEVICES_BADGE_NEEDS_PAIR);
         } else if (device->kind == (uint8_t)MESH_UI_DEVICE_BLE) {
-            badge = "  paired";
+            badge = mesh_str(MESH_STR_DEVICES_BADGE_PAIRED);
         }
 
         mesh_ui_line_reset(&line);
         /* A USB port has no RSSI to show; the badge is what tells the two kinds apart. */
         if (device->kind == (uint8_t)MESH_UI_DEVICE_SERIAL) {
-            mesh_ui_line_printf(&line, "%c %s  USB%s", device->connected ? '*' : ' ', name, badge);
+            mesh_ui_line_str(&line, MESH_STR_DEVICES_ROW_USB, device->connected ? '*' : ' ', name,
+                             badge);
         } else {
-            mesh_ui_line_printf(&line, "%c %s  %ddBm%s", device->connected ? '*' : ' ', name,
-                                (int)device->rssi, badge);
+            mesh_ui_line_str(&line, MESH_STR_DEVICES_ROW_BLE, device->connected ? '*' : ' ', name,
+                             (int)device->rssi, badge);
         }
 
         enum mesh_ui_tone tone = MESH_UI_TONE_NORMAL;
@@ -928,11 +950,13 @@ static void fb_render_devices(const struct mesh_ui_backend_fb_state *state,
 /* "3d 4h", "5h 12m", "40m" - a radio's uptime, which is a duration rather than an age. */
 static void fb_format_uptime(uint32_t seconds, char *out, size_t out_len) {
     if (seconds >= 86400U) {
-        snprintf(out, out_len, "%ud %uh", seconds / 86400U, (seconds % 86400U) / 3600U);
+        mesh_str_format(out, out_len, MESH_STR_TIME_DAYS_HOURS, seconds / 86400U,
+                        (seconds % 86400U) / 3600U);
     } else if (seconds >= 3600U) {
-        snprintf(out, out_len, "%uh %um", seconds / 3600U, (seconds % 3600U) / 60U);
+        mesh_str_format(out, out_len, MESH_STR_TIME_HOURS_MINUTES, seconds / 3600U,
+                        (seconds % 3600U) / 60U);
     } else {
-        snprintf(out, out_len, "%um", seconds / 60U);
+        mesh_str_format(out, out_len, MESH_STR_TIME_MINUTES_SHORT, seconds / 60U);
     }
 }
 
@@ -953,15 +977,16 @@ static const struct mesh_ui_node_summary *fb_self_node(const struct mesh_ui_snap
 
 static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
                              const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
-    fb_draw_title(state, layout, "Status");
+    fb_draw_title(state, layout, mesh_str(MESH_STR_TAB_STATUS));
 
     int y = layout->body_y;
     char buffer[64];
     char second[64];
 
-    fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, "Transport", "%s",
-                       snapshot->transport_status[0] != '\0' ? snapshot->transport_status
-                                                             : "starting");
+    fb_draw_status_text(state, layout, &y, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_TRANSPORT,
+                        snapshot->transport_status[0] != '\0'
+                            ? snapshot->transport_status
+                            : mesh_str(MESH_STR_HEADER_TRANSPORT_STARTING));
 
     const struct mesh_ui_device *connected = NULL;
     for (size_t i = 0; i < snapshot->device_count; ++i) {
@@ -970,31 +995,35 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
             break;
         }
     }
-    fb_draw_status_row(
-        state, layout, &y, connected != NULL ? MESH_UI_TONE_GOOD : MESH_UI_TONE_BAD, "Radio", "%s",
-        connected != NULL ? (connected->name[0] != '\0' ? connected->name : connected->identifier)
-                          : "not connected");
+    fb_draw_status_text(state, layout, &y, connected != NULL ? MESH_UI_TONE_GOOD : MESH_UI_TONE_BAD,
+                        MESH_STR_STATUS_LABEL_RADIO,
+                        connected != NULL
+                            ? (connected->name[0] != '\0' ? connected->name : connected->identifier)
+                            : mesh_str(MESH_STR_STATUS_NOT_CONNECTED));
 
     if (snapshot->handshake_valid) {
         const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
-        fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, "Sync", "%s%s",
-                           hs->config_complete ? "complete"
-                                               : (hs->request_in_flight ? "in progress" : "idle"),
-                           hs->cached ? " (cached)" : "");
+        fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_SYNC,
+                           MESH_STR_STATUS_SYNC_VALUE,
+                           mesh_str(hs->config_complete     ? MESH_STR_STATUS_SYNC_COMPLETE
+                                    : hs->request_in_flight ? MESH_STR_STATUS_SYNC_IN_PROGRESS
+                                                            : MESH_STR_STATUS_SYNC_IDLE),
+                           hs->cached ? mesh_str(MESH_STR_STATUS_SYNC_CACHED) : "");
         if (hs->has_my_info) {
-            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, "My node", "%s !%08x",
+            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL,
+                               MESH_STR_STATUS_LABEL_MY_NODE, MESH_STR_STATUS_MY_NODE,
                                hs->my_short_name, hs->my_info.node_num);
         }
         /* One line for the NodeDB, and LocalStats' online count when the radio has sent it:
            "132 nodes" alone says nothing about how much of that mesh is still alive. */
         const struct mesh_ui_radio_stats *stats = &snapshot->settings.stats;
         if (hs->has_my_info && stats->valid && stats->num_online_nodes > 0U) {
-            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, "NodeDB",
-                               "%u nodes, %u online", hs->my_info.nodedb_entries,
+            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_NODEDB,
+                               MESH_STR_STATUS_NODEDB_ONLINE, hs->my_info.nodedb_entries,
                                stats->num_online_nodes);
         } else if (hs->has_my_info) {
-            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, "NodeDB",
-                               "%u nodes, %u reboots", hs->my_info.nodedb_entries,
+            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_NODEDB,
+                               MESH_STR_STATUS_NODEDB_REBOOTS, hs->my_info.nodedb_entries,
                                hs->my_info.reboot_count);
         }
         /* Ours, next to the radio's, and only while the two differ. The row above counts the
@@ -1003,16 +1032,17 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
            numbers here are the published rows, so the second can never exceed the first. */
         const uint32_t off_radio = mesh_ui_handshake_off_radio(hs);
         if (off_radio > 0U) {
-            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_DIM, "Cached here",
-                               "%u nodes, %u off radio", hs->node_count, off_radio);
+            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_DIM,
+                               MESH_STR_STATUS_LABEL_CACHED_HERE, MESH_STR_STATUS_CACHED_OFF_RADIO,
+                               hs->node_count, off_radio);
         }
         if (hs->primary_channel[0] != '\0') {
-            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, "Channel", "%s",
-                               hs->primary_channel);
+            fb_draw_status_text(state, layout, &y, MESH_UI_TONE_NORMAL,
+                                MESH_STR_STATUS_LABEL_CHANNEL, hs->primary_channel);
         }
     } else {
-        fb_draw_status_row(state, layout, &y, MESH_UI_TONE_DIM, "Sync", "%s",
-                           "waiting for a radio");
+        fb_draw_status_text(state, layout, &y, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_SYNC,
+                            mesh_str(MESH_STR_STATUS_SYNC_WAITING));
     }
 
     /*
@@ -1052,19 +1082,22 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
                        : util_value >= 25.0f ? MESH_UI_TONE_ACCENT
                                              : MESH_UI_TONE_GOOD;
         }
-        char util[32] = "?";
+        char util[32];
+        mesh_str_copy(util, sizeof util, mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT));
         if (have_util) {
-            snprintf(util, sizeof util, "%.1f%%", (double)util_value);
+            mesh_str_format(util, sizeof util, MESH_STR_STATUS_PERCENT, (double)util_value);
         }
-        char tx[32] = "?";
+        char tx[32];
+        mesh_str_copy(tx, sizeof tx, mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT));
         if (have_tx) {
-            snprintf(tx, sizeof tx, "%.1f%%", (double)tx_value);
+            mesh_str_format(tx, sizeof tx, MESH_STR_STATUS_PERCENT, (double)tx_value);
         }
         if (stats->valid && stats->has_noise_floor) {
-            fb_draw_status_row(state, layout, &y, air_tone, "Airtime",
-                               "%s busy, %s tx, %d dBm floor", util, tx, stats->noise_floor);
+            fb_draw_status_row(state, layout, &y, air_tone, MESH_STR_STATUS_LABEL_AIRTIME,
+                               MESH_STR_STATUS_AIRTIME_FLOOR, util, tx, stats->noise_floor);
         } else {
-            fb_draw_status_row(state, layout, &y, air_tone, "Airtime", "%s busy, %s tx", util, tx);
+            fb_draw_status_row(state, layout, &y, air_tone, MESH_STR_STATUS_LABEL_AIRTIME,
+                               MESH_STR_STATUS_AIRTIME, util, tx);
         }
     }
 
@@ -1081,45 +1114,50 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
         if (have_battery) {
             /* 101 is upstream's "running off USB", not a 101% battery. */
             if (metrics->battery_level > 100U) {
-                snprintf(buffer, sizeof buffer, "plugged in");
+                mesh_str_copy(buffer, sizeof buffer, mesh_str(MESH_STR_STATUS_BATTERY_USB));
             } else {
-                snprintf(buffer, sizeof buffer, "%u%%", (unsigned)metrics->battery_level);
+                mesh_str_format(buffer, sizeof buffer, MESH_STR_STATUS_BATTERY_PERCENT,
+                                (unsigned)metrics->battery_level);
             }
         }
         second[0] = '\0';
         if (have_uptime) {
             char uptime[32];
             fb_format_uptime(uptime_value, uptime, sizeof uptime);
-            snprintf(second, sizeof second, "%sup %s", buffer[0] != '\0' ? ", " : "", uptime);
+            mesh_str_format(second, sizeof second, MESH_STR_STATUS_UPTIME_SUFFIX,
+                            buffer[0] != '\0' ? ", " : "", uptime);
         }
         const enum mesh_ui_tone battery_tone = (have_battery && metrics->battery_level <= 20U)
                                                    ? MESH_UI_TONE_BAD
                                                    : MESH_UI_TONE_NORMAL;
-        fb_draw_status_row(state, layout, &y, battery_tone, "Battery", "%s%s",
-                           buffer[0] != '\0' ? buffer : "unknown", second);
+        fb_draw_status_row(state, layout, &y, battery_tone, MESH_STR_STATUS_LABEL_BATTERY,
+                           MESH_STR_STATUS_SYNC_VALUE,
+                           buffer[0] != '\0' ? buffer : mesh_str(MESH_STR_STATUS_BATTERY_UNKNOWN),
+                           second);
     }
 
     if (stats->valid) {
-        fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, "Packets",
-                           "%u tx, %u rx, %u relayed", stats->num_packets_tx, stats->num_packets_rx,
+        fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_PACKETS,
+                           MESH_STR_STATUS_PACKETS, stats->num_packets_tx, stats->num_packets_rx,
                            stats->num_tx_relay);
         /* Bad and dropped packets are the two numbers that explain a mesh that "works but
            loses messages", so they get their own row instead of being folded into Packets. */
         const bool losing = stats->num_packets_rx_bad > 0U || stats->num_tx_dropped > 0U;
         fb_draw_status_row(state, layout, &y, losing ? MESH_UI_TONE_ACCENT : MESH_UI_TONE_DIM,
-                           "Dropped", "%u bad rx, %u dupe, %u tx", stats->num_packets_rx_bad,
-                           stats->num_rx_dupe, stats->num_tx_dropped);
+                           MESH_STR_STATUS_LABEL_DROPPED, MESH_STR_STATUS_DROPPED,
+                           stats->num_packets_rx_bad, stats->num_rx_dupe, stats->num_tx_dropped);
         if (stats->has_heap) {
             fb_draw_status_row(state, layout, &y,
                                stats->heap_free_bytes < 20480U ? MESH_UI_TONE_ACCENT
                                                                : MESH_UI_TONE_DIM,
-                               "Heap", "%u KB free of %u KB", stats->heap_free_bytes / 1024U,
-                               stats->heap_total_bytes / 1024U);
+                               MESH_STR_STATUS_LABEL_HEAP, MESH_STR_STATUS_HEAP,
+                               stats->heap_free_bytes / 1024U, stats->heap_total_bytes / 1024U);
         }
     } else if (snapshot->handshake_valid) {
         /* Short enough for the value gutter: the long form was cut mid-word, which reads as
            a bug rather than as a radio that has simply not reported yet. */
-        fb_draw_status_row(state, layout, &y, MESH_UI_TONE_DIM, "Mesh", "%s", "no report yet");
+        fb_draw_status_text(state, layout, &y, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_MESH,
+                            mesh_str(MESH_STR_STATUS_MESH_NO_REPORT));
     }
 
     /*
@@ -1132,9 +1170,10 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
     if (queue->valid && queue->maxlen > 0U &&
         (queue->res != 0 || queue->free < queue->maxlen / 2U)) {
         fb_draw_status_row(state, layout, &y,
-                           queue->res != 0 ? MESH_UI_TONE_BAD : MESH_UI_TONE_ACCENT, "TX queue",
-                           "%u/%u free%s", (unsigned)queue->free, (unsigned)queue->maxlen,
-                           queue->res != 0 ? ", send refused" : "");
+                           queue->res != 0 ? MESH_UI_TONE_BAD : MESH_UI_TONE_ACCENT,
+                           MESH_STR_STATUS_LABEL_TX_QUEUE, MESH_STR_STATUS_TX_QUEUE,
+                           (unsigned)queue->free, (unsigned)queue->maxlen,
+                           queue->res != 0 ? mesh_str(MESH_STR_STATUS_TX_QUEUE_REFUSED) : "");
     }
 
     /*
@@ -1161,10 +1200,12 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
         char age[24];
         fb_format_age(notice->received, age, sizeof age);
         if (notice->seq > 1U) {
-            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_DIM, "Radio said",
-                               "%s, %u this connection", age, notice->seq);
+            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_DIM,
+                               MESH_STR_STATUS_LABEL_RADIO_SAID, MESH_STR_STATUS_RADIO_SAID_COUNT,
+                               age, notice->seq);
         } else {
-            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_DIM, "Radio said", "%s", age);
+            fb_draw_status_text(state, layout, &y, MESH_UI_TONE_DIM,
+                                MESH_STR_STATUS_LABEL_RADIO_SAID, age);
         }
         /* At most three lines, and never past the footer: a long notification must not push
            the rows below it off the screen, since they are the ones that are always there. */
@@ -1179,15 +1220,16 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
         }
     }
     if (snapshot->settings.reboot_notices > 0U) {
-        fb_draw_status_row(state, layout, &y, MESH_UI_TONE_ACCENT, "Reboots", "%u since connecting",
-                           snapshot->settings.reboot_notices);
+        fb_draw_status_row(state, layout, &y, MESH_UI_TONE_ACCENT, MESH_STR_STATUS_LABEL_REBOOTS,
+                           MESH_STR_STATUS_REBOOTS_SINCE, snapshot->settings.reboot_notices);
     }
 
     y += layout->line / 2;
-    fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, "Messages", "%u kept, %u dropped",
-                       (unsigned)snapshot->messages.count, (unsigned)snapshot->messages.dropped);
-    fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, "Devices", "%zu in range",
-                       snapshot->device_count);
+    fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_MESSAGES,
+                       MESH_STR_STATUS_MESSAGES_KEPT, (unsigned)snapshot->messages.count,
+                       (unsigned)snapshot->messages.dropped);
+    fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_DEVICES,
+                       MESH_STR_STATUS_DEVICES_IN_RANGE, snapshot->device_count);
 
     y += layout->line / 2;
     if (y + layout->line <= layout->footer_y) {
@@ -1220,7 +1262,8 @@ static void fb_render_confirm(const struct mesh_ui_backend_fb_state *state,
     struct fb_layout choices = *layout;
     choices.body_y = layout->body_y + text_lines * layout->line + layout->line / 2;
     struct fb_list list = fb_list_begin(&choices, 2U, nav->confirm_cursor);
-    const char *const rows[] = {mesh_ui_settings_confirm_accept(confirmed), "Cancel"};
+    const char *const rows[] = {mesh_ui_settings_confirm_accept(confirmed),
+                                mesh_str(MESH_STR_COMMON_CANCEL)};
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         fb_list_row(state, &list, i, rows[i], i == 0U ? MESH_UI_TONE_ACCENT : MESH_UI_TONE_NORMAL);
@@ -1241,17 +1284,20 @@ static void fb_render_settings(const struct mesh_ui_backend_fb_state *state,
 
     /* The breadcrumb names every level that is open, so a module reads
        "Settings > Modules > Telemetry" and B has a visible target. */
-    const char *const trail = nav->settings_parent == MESH_UI_SETTINGS_MODULES ? "Modules > " : "";
+    const char *const trail = nav->settings_parent == MESH_UI_SETTINGS_MODULES
+                                  ? mesh_str(MESH_STR_SETTINGS_TRAIL_MODULES)
+                                  : "";
     char title[96];
     if (section_open && nav->settings_channel != MESH_UI_SETTINGS_NO_CHANNEL) {
-        snprintf(title, sizeof title, "Settings > Channel %u%s", (unsigned)nav->settings_channel,
-                 nav->settings_edit_count > 0U ? " (unsaved)" : "");
+        mesh_str_format(title, sizeof title, MESH_STR_SETTINGS_TITLE_CHANNEL,
+                        (unsigned)nav->settings_channel,
+                        nav->settings_edit_count > 0U ? mesh_str(MESH_STR_SETTINGS_UNSAVED) : "");
     } else if (section_open) {
-        snprintf(title, sizeof title, "Settings > %s%s%s", trail,
-                 mesh_ui_settings_section_name(section),
-                 nav->settings_edit_count > 0U ? " (unsaved)" : "");
+        mesh_str_format(title, sizeof title, MESH_STR_SETTINGS_TITLE_SECTION, trail,
+                        mesh_ui_settings_section_name(section),
+                        nav->settings_edit_count > 0U ? mesh_str(MESH_STR_SETTINGS_UNSAVED) : "");
     } else {
-        snprintf(title, sizeof title, "%s", "Settings");
+        snprintf(title, sizeof title, "%s", mesh_str(MESH_STR_SETTINGS_TITLE));
     }
     fb_draw_title(state, layout, title);
 
@@ -1262,7 +1308,7 @@ static void fb_render_settings(const struct mesh_ui_backend_fb_state *state,
        radio, and each of its rows says "not loaded" on its own. */
     if (!settings->loaded && (handshake == NULL || !handshake->has_my_info) && section_open &&
         section != MESH_UI_SETTINGS_ABOUT && section != MESH_UI_SETTINGS_MODULES) {
-        fb_draw_empty(state, layout, "Connect to a radio to read its settings");
+        fb_draw_empty(state, layout, mesh_str(MESH_STR_SETTINGS_EMPTY_DISCONNECT));
         return;
     }
 
@@ -1270,7 +1316,7 @@ static void fb_render_settings(const struct mesh_ui_backend_fb_state *state,
                                                                       nav->settings_channel)
                                         : mesh_ui_settings_root_count();
     if (count == 0U) {
-        fb_draw_empty(state, layout, "Not sent by the radio yet; X to refresh");
+        fb_draw_empty(state, layout, mesh_str(MESH_STR_SETTINGS_EMPTY_SECTION));
         return;
     }
 
@@ -1307,7 +1353,7 @@ static void fb_render_settings(const struct mesh_ui_backend_fb_state *state,
             const enum mesh_ui_settings_section row = mesh_ui_settings_root_at(i);
             const bool loaded = mesh_ui_settings_section_loaded(settings, handshake, row);
             fb_list_field_row(state, &list, i, mesh_ui_settings_section_name(row), label_cols, "",
-                              loaded ? "" : "not loaded",
+                              loaded ? "" : mesh_str(MESH_STR_SETTINGS_NOT_LOADED),
                               loaded ? MESH_UI_TONE_NORMAL : MESH_UI_TONE_DIM);
         }
     }
@@ -1335,34 +1381,34 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
     const int body_height = layout.footer_y - layout.body_y - margin / 2;
     layout.rows = body_height > 0 ? (uint32_t)(body_height / layout.line) : 0U;
 
-    const char *hint = "A select  B back  Left/Right tabs";
+    const char *hint = mesh_str(MESH_STR_HINT_DEFAULT);
     if (snapshot->nav.confirm_open) {
-        hint = "Up/Down choose  A confirm  B cancel";
+        hint = mesh_str(MESH_STR_HINT_CONFIRM);
         fb_render_confirm(state, snapshot, &layout);
         fb_draw_footer(state, snapshot, &layout, hint);
         return;
     }
     if (snapshot->nav.picker_open) {
-        hint = "A choose  B cancel  Up/Down move  L/R jump 10";
+        hint = mesh_str(MESH_STR_HINT_ENUM_PICKER);
         fb_render_picker(state, snapshot, &layout);
         fb_draw_footer(state, snapshot, &layout, hint);
         return;
     }
     if (snapshot->nav.keyboard_open) {
         if (snapshot->nav.keyboard_passkey) {
-            hint = snapshot->nav.pairing_confirm ? "START confirm  B cancel pairing"
-                                                 : "A type digits  START pair  B cancel";
+            hint = snapshot->nav.pairing_confirm ? mesh_str(MESH_STR_HINT_PAIRING_CONFIRM)
+                                                 : mesh_str(MESH_STR_HINT_PAIRING_ENTRY);
         } else {
             hint = snapshot->nav.keyboard_field != MESH_UI_FIELD_NONE
-                       ? "A type  B delete  X shift  Y space  START done"
-                       : "A type  B delete  X shift  Y space  START send";
+                       ? mesh_str(MESH_STR_HINT_KEYBOARD_FIELD)
+                       : mesh_str(MESH_STR_HINT_KEYBOARD_MESSAGE);
         }
         fb_render_keyboard(state, snapshot, &layout);
         fb_draw_footer(state, snapshot, &layout, hint);
         return;
     }
     if (snapshot->nav.compose_open) {
-        hint = "A send / type  B back to the conversation";
+        hint = mesh_str(MESH_STR_HINT_CANNED);
         fb_render_compose(state, snapshot, &layout);
         fb_draw_footer(state, snapshot, &layout, hint);
         return;
@@ -1370,53 +1416,52 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
     switch (snapshot->nav.screen) {
     case MESH_UI_SCREEN_MESSAGES:
         if (!snapshot->nav.thread_open) {
-            hint = snapshot->nav.messages_delete_armed
-                       ? "X again to delete this conversation  B cancel"
-                       : "A open  X delete  Y new message  L/R tabs";
+            hint = snapshot->nav.messages_delete_armed ? mesh_str(MESH_STR_HINT_CONVERSATION_DELETE)
+                                                       : mesh_str(MESH_STR_HINT_CONVERSATIONS);
             fb_render_conversations(state, snapshot, &layout);
         } else {
-            hint = snapshot->nav.inbox ? "A open conversation  B back  L/R tabs"
-                                       : "A reply  Y write  B back  L/R tabs";
+            hint = snapshot->nav.inbox ? mesh_str(MESH_STR_HINT_INBOX)
+                                       : mesh_str(MESH_STR_HINT_THREAD);
             fb_render_thread(state, snapshot, &layout);
         }
         break;
     case MESH_UI_SCREEN_NODES:
-        hint = snapshot->nav.node_remove_armed  ? "A again to remove this node  B cancel"
-               : snapshot->nav.node_detail_open ? "A select  B back  X pin  Y write  L/R tabs"
-                                                : "A open node  X pin  Y write  L/R tabs";
+        hint = snapshot->nav.node_remove_armed  ? mesh_str(MESH_STR_HINT_NODE_REMOVE)
+               : snapshot->nav.node_detail_open ? mesh_str(MESH_STR_HINT_NODE_DETAIL)
+                                                : mesh_str(MESH_STR_HINT_NODES);
         fb_render_nodes(state, snapshot, &layout);
         break;
     case MESH_UI_SCREEN_DEVICES:
-        hint = snapshot->nav.devices_forget_armed ? "Y again to forget this node  B cancel"
-                                                  : "A connect  X disconnect  Y forget  L/R tabs";
+        hint = snapshot->nav.devices_forget_armed ? mesh_str(MESH_STR_HINT_DEVICES_FORGET)
+                                                  : mesh_str(MESH_STR_HINT_DEVICES);
         fb_render_devices(state, snapshot, &layout);
         break;
     case MESH_UI_SCREEN_SETTINGS:
         if (snapshot->nav.settings_section == MESH_UI_SETTINGS_NO_SECTION) {
-            hint = "A open  X refresh  L/R tabs";
+            hint = mesh_str(MESH_STR_HINT_SETTINGS_ROOT);
         } else if (snapshot->nav.settings_discard_armed) {
-            hint = "B again to discard  Y save";
+            hint = mesh_str(MESH_STR_HINT_SETTINGS_DISCARD);
         } else if (snapshot->nav.settings_edit_count > 0U) {
-            hint = "Left/Right/A edit  Y save  B discard  L1/R1 tabs";
+            hint = mesh_str(MESH_STR_HINT_SETTINGS_EDIT_SAVE);
         } else if (snapshot->nav.settings_section == MESH_UI_SETTINGS_CHANNELS &&
                    snapshot->nav.settings_channel == MESH_UI_SETTINGS_NO_CHANNEL) {
-            hint = "A open channel  B back  X refresh  L1/R1 tabs";
+            hint = mesh_str(MESH_STR_HINT_SETTINGS_CHANNELS);
         } else if (snapshot->nav.settings_section == MESH_UI_SETTINGS_MODULES) {
             /* A list, not a section: nothing on it is editable, so the edit keys would be
                advertising a press that does nothing. The same branch the channel list has. */
-            hint = "A open module  B back  X refresh  L1/R1 tabs";
+            hint = mesh_str(MESH_STR_HINT_SETTINGS_MODULES);
         } else if (snapshot->nav.settings_section == MESH_UI_SETTINGS_ABOUT) {
             /* Nothing here is editable and nothing here comes from the radio, so neither the
                edit keys nor X mean anything. */
-            hint = "A run the highlighted row  B back  L1/R1 tabs";
+            hint = mesh_str(MESH_STR_HINT_SETTINGS_ACTIONS);
         } else {
-            hint = "Left/Right/A edit  B back  X refresh  L1/R1 tabs";
+            hint = mesh_str(MESH_STR_HINT_SETTINGS_SECTION);
         }
         fb_render_settings(state, snapshot, &layout);
         break;
     case MESH_UI_SCREEN_STATUS:
     default:
-        hint = "L/R tabs";
+        hint = mesh_str(MESH_STR_HINT_TABS_ONLY);
         fb_render_status(state, snapshot, &layout);
         break;
     }

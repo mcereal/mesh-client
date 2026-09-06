@@ -75,6 +75,7 @@ stop it.
 | `MESHCLIENT_UI_BACKEND` | `fb\|cli\|stub`; `fb` unless there is no `/dev/fb0` |
 | `MESHCLIENT_FB_SCALE` | framebuffer font multiplier, 2–6; default is whatever the theme asks for (4) |
 | `MESHCLIENT_THEME` | `dark\|light\|contrast\|colorblind`. Outranks the theme picked in Settings → About, which then shows as a fact rather than a switch; unset, the saved choice applies, and an unknown name warns and falls back rather than leaving a handheld with no UI |
+| `MESHCLIENT_LANG` | which language the UI is drawn in, e.g. `en`. Matched on the language part alone, so `fr_CA.UTF-8` finds `fr`; it outranks `LC_ALL`, `LC_MESSAGES` and `LANG`, and a language this build does not have leaves English in force. Settings → About says which one resolved. See [`docs/i18n.md`](i18n.md) |
 | `MESHCLIENT_QUIT_KEYS` | override the evdev codes that quit, e.g. `"139,316"` — tunable on-device from the log without a rebuild |
 | `MESHCLIENT_KEY_REPEAT_DELAY_MS` | how long a direction is held before it starts repeating, 0–5000; default 350, and `0` turns hold-to-scroll off on every device, a USB keyboard included |
 | `MESHCLIENT_KEY_REPEAT_MS` | the gap between repeats once it starts, 10–2000; default 90, halving after eight rows |

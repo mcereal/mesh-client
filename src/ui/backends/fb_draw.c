@@ -10,6 +10,7 @@
 
 #include "fb_internal.h"
 
+#include "mesh/i18n/strings.h"
 #include "mesh/ui/emoji.h"
 #include "mesh/utils/text.h"
 
@@ -492,23 +493,23 @@ void fb_draw_row(const struct mesh_ui_backend_fb_state *state, int y, const char
 /* "3m", "2h", "5d" since a radio-reported epoch; "?" when either clock is unusable. */
 void fb_format_age(uint32_t last_heard, char *out, size_t out_len) {
     if (last_heard == 0U) {
-        snprintf(out, out_len, "%s", "?");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT));
         return;
     }
     const time_t now = time(NULL);
     if (now <= 0 || (uint32_t)now < last_heard) {
-        snprintf(out, out_len, "%s", "now");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_TIME_NOW));
         return;
     }
     const uint32_t delta = (uint32_t)now - last_heard;
     if (delta < 60U) {
-        snprintf(out, out_len, "%us", delta);
+        mesh_str_format(out, out_len, MESH_STR_TIME_SECONDS_SHORT, delta);
     } else if (delta < 3600U) {
-        snprintf(out, out_len, "%um", delta / 60U);
+        mesh_str_format(out, out_len, MESH_STR_TIME_MINUTES_SHORT, delta / 60U);
     } else if (delta < 86400U) {
-        snprintf(out, out_len, "%uh", delta / 3600U);
+        mesh_str_format(out, out_len, MESH_STR_TIME_HOURS_SHORT, delta / 3600U);
     } else {
-        snprintf(out, out_len, "%ud", delta / 86400U);
+        mesh_str_format(out, out_len, MESH_STR_TIME_DAYS_SHORT, delta / 86400U);
     }
 }
 

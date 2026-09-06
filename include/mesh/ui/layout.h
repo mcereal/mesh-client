@@ -25,6 +25,8 @@
  * many codepoints it is spelled with. See include/mesh/ui/emoji.h.
  */
 
+#include "mesh/i18n/strings.h"
+
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -55,6 +57,16 @@ void mesh_ui_line_printf(struct mesh_ui_line *line, const char *fmt, ...)
 #endif
     ;
 void mesh_ui_line_vprintf(struct mesh_ui_line *line, const char *fmt, va_list args);
+
+/*
+ * Append a catalog entry, formatted.
+ *
+ * The counterpart to mesh_ui_line_printf() for text the user reads: `id` names the string and
+ * mesh_str_format() supplies it, so a renderer never holds an English sentence. Plain entries
+ * with no %-specifier are better appended as mesh_ui_line_printf(line, "%s", mesh_str(id)) -
+ * that keeps the compiler's format check where there is something to check.
+ */
+void mesh_ui_line_str(struct mesh_ui_line *line, enum mesh_str_id id, ...);
 
 /*
  * Append `text` occupying exactly `cols` cells: clipped if it is wider, space-padded if it is

@@ -10,6 +10,7 @@
 
 #include "nav_internal.h"
 
+#include "mesh/i18n/strings.h"
 #include "mesh/utils/array.h"
 #include "mesh/utils/text.h"
 
@@ -18,10 +19,13 @@
 #include <string.h>
 
 /* Short, unambiguous, and what you actually want to say with no keyboard. Replaceable through
-   mesh_ui_canned_load(). */
-static const char *const k_default_canned[] = {
-    "OK",       "Yes",     "No",        "On my way",    "Where are you?",
-    "I'm here", "Call me", "Need help", "Heading back", "Ping",
+   mesh_ui_canned_load(), and translated: a canned reply is the one piece of text this client
+   puts on the air, so it has to be in the language the sender speaks. */
+static const enum mesh_str_id k_default_canned[] = {
+    MESH_STR_CANNED_OK,        MESH_STR_CANNED_YES,           MESH_STR_CANNED_NO,
+    MESH_STR_CANNED_ON_MY_WAY, MESH_STR_CANNED_WHERE_ARE_YOU, MESH_STR_CANNED_IM_HERE,
+    MESH_STR_CANNED_CALL_ME,   MESH_STR_CANNED_NEED_HELP,     MESH_STR_CANNED_HEADING_BACK,
+    MESH_STR_CANNED_PING,
 };
 
 static char s_canned[MESH_UI_CANNED_MAX][MESH_UI_CANNED_TEXT_MAX];
@@ -32,7 +36,7 @@ static void mesh_ui_canned_defaults(void) {
     s_canned_count = 0U;
     for (size_t i = 0; i < MESH_ARRAY_LEN(k_default_canned) && s_canned_count < MESH_UI_CANNED_MAX;
          ++i) {
-        snprintf(s_canned[s_canned_count], sizeof s_canned[0], "%s", k_default_canned[i]);
+        snprintf(s_canned[s_canned_count], sizeof s_canned[0], "%s", mesh_str(k_default_canned[i]));
         s_canned_count++;
     }
     s_canned_loaded = true;

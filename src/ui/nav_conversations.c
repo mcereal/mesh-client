@@ -42,9 +42,9 @@ void mesh_ui_nav_channel_name(const struct mesh_ui_store *store, uint8_t index, 
     } else if (index == 0U) {
         /* An unnamed slot 0 is the default primary channel; the firmware shows the modem
            preset name there, which we do not track. */
-        snprintf(out, out_len, "%s", "#Primary");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CHANNEL_PRIMARY));
     } else {
-        snprintf(out, out_len, "#Ch%u", (unsigned)index);
+        mesh_str_format(out, out_len, MESH_STR_CHANNEL_NUMBERED, (unsigned)index);
     }
 }
 
@@ -513,7 +513,7 @@ bool mesh_ui_nav_conversation_at(const struct mesh_ui_store *store, uint32_t ind
 
     if (index == 0U) {
         out->kind = MESH_UI_CONVERSATION_ALL;
-        snprintf(out->name, sizeof out->name, "%s", "All traffic");
+        snprintf(out->name, sizeof out->name, "%s", mesh_str(MESH_STR_MESSAGES_ALL_TRAFFIC));
         mesh_ui_nav_conversation_summarise(store, out);
         /* All traffic is a view, not a conversation: it keeps no mark of its own (opening it
            marks nothing read), so its badge is what the rows below it still owe. */
@@ -539,7 +539,7 @@ bool mesh_ui_nav_conversation_at(const struct mesh_ui_store *store, uint32_t ind
     }
     if (index == 1U + channels + directs) {
         out->kind = MESH_UI_CONVERSATION_NEW;
-        snprintf(out->name, sizeof out->name, "%s", "New message");
+        snprintf(out->name, sizeof out->name, "%s", mesh_str(MESH_STR_MESSAGES_NEW));
         mesh_ui_nav_conversation_avatar(out);
         return true;
     }

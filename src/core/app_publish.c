@@ -11,6 +11,8 @@
 
 #include "app_internal.h"
 
+#include "mesh/i18n/strings.h"
+
 #include "mesh/core/version.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/serial.h"
@@ -33,7 +35,7 @@ void mesh_app_format_peer_name(const struct mesh_handshake_status *status, uint3
     }
 
     if (node_id == MESH_MESSAGE_BROADCAST_ADDR) {
-        snprintf(out, out_len, "all");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_PEER_EVERYONE));
         return;
     }
 
@@ -575,6 +577,11 @@ static void mesh_app_flatten_client_info(const struct mesh_app *app,
     const struct mesh_ui_theme *theme = app->ui_theme;
     snprintf(dst->theme, sizeof dst->theme, "%s", theme != NULL ? theme->id : "");
     snprintf(dst->theme_name, sizeof dst->theme_name, "%s", theme != NULL ? theme->name : "");
+    /* Straight off the locale rather than out of the catalog: `name` is a required field of
+       every locale and is always that language's own name for itself, whereas a catalog entry
+       is optional by design - a partial translation that had not got to it yet would fall back
+       to English and make About report the wrong language. */
+    snprintf(dst->language_name, sizeof dst->language_name, "%s", mesh_i18n_locale()->name);
     dst->theme_from_env = app->ui_theme_from_env;
 
     const struct mesh_updater *updater = &app->updater;
@@ -905,8 +912,8 @@ static void mesh_app_report_delivery(struct mesh_app *app) {
         }
         if (message->ack == MESH_MESSAGE_ACK_FAILED) {
             char toast[MESH_UI_NAV_TOAST_MAX];
-            snprintf(toast, sizeof toast, "Not delivered to %.16s: %s", watch->peer,
-                     mesh_message_ack_error_to_string(message->ack_error));
+            mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_NOT_DELIVERED, watch->peer,
+                            mesh_message_ack_error_to_string(message->ack_error));
             mesh_ui_store_set_toast(&app->ui_store, mesh_time_monotonic_ms(), toast);
         }
     }
@@ -941,7 +948,7 @@ static void mesh_app_report_radio_notices(struct mesh_app *app) {
            glitch. */
         if (reboots != 0U && app->config.run_mode == MESH_APP_RUN_FOREGROUND) {
             mesh_ui_store_set_toast(&app->ui_store, mesh_time_monotonic_ms(),
-                                    "Radio restarted; reloading its settings");
+                                    mesh_str(MESH_STR_TOAST_RADIO_RESTARTED));
         }
     }
 }
@@ -991,7 +998,7 @@ static void mesh_app_report_alerts(struct mesh_app *app) {
        formatting decision made by accident. The name is bounded first so the text keeps
        whatever room is left, because the first words of an alert are the ones that say what
        it is. */
-    const int prefix = snprintf(toast, sizeof toast, "Alert from %.16s: ", peer);
+    const int prefix = mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_ALERT_FROM, peer);
     if (prefix > 0 && (size_t)prefix < sizeof toast) {
         (void)mesh_str_copy(toast + prefix, sizeof toast - (size_t)prefix, newest->text);
     }
@@ -1033,7 +1040,7 @@ static void mesh_app_report_off_radio_nodes(struct mesh_app *app) {
         return;
     }
     char toast[MESH_UI_NAV_TOAST_MAX];
-    snprintf(toast, sizeof toast, "%u nodes now off radio; forget them in Settings", now);
+    mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_NODES_OFF_RADIO, now);
     mesh_ui_store_set_toast(&app->ui_store, mesh_time_monotonic_ms(), toast);
     mesh_log_info("app", "Roster and NodeDB diverged: %u off radio, was %u", now, before);
 }
@@ -1051,7 +1058,8 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
 
     struct mesh_transport *ble = mesh_ble_transport();
     if (ble == NULL) {
-        mesh_ui_store_set_transport_status(&app->ui_store, "unavailable");
+        mesh_ui_store_set_transport_status(&app->ui_store,
+                                           mesh_str(MESH_STR_TRANSPORT_UNAVAILABLE));
         return;
     }
 
@@ -1060,8 +1068,9 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         (active != NULL && active->ops != NULL && active->ops->status != NULL)
             ? active->ops->status(active)
             : NULL;
-    mesh_ui_store_set_transport_status(&app->ui_store,
-                                       transport_status != NULL ? transport_status : "unknown");
+    mesh_ui_store_set_transport_status(&app->ui_store, transport_status != NULL
+                                                           ? transport_status
+                                                           : mesh_str(MESH_STR_TRANSPORT_UNKNOWN));
 
     struct mesh_ui_device ui_devices[MESH_UI_MAX_DEVICES];
     memset(ui_devices, 0, sizeof(ui_devices));
@@ -1075,7 +1084,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     if (app->ui_link_was_connected && !link_connected &&
         app->config.run_mode == MESH_APP_RUN_FOREGROUND) {
         mesh_ui_store_set_toast(&app->ui_store, mesh_time_monotonic_ms(),
-                                "Radio link lost; reconnecting");
+                                mesh_str(MESH_STR_TOAST_LINK_LOST));
     }
     app->ui_link_was_connected = link_connected;
 
@@ -1139,7 +1148,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         snprintf(ui_devices[device_count].identifier, sizeof(ui_devices[device_count].identifier),
                  "%s", connected_address);
         snprintf(ui_devices[device_count].name, sizeof(ui_devices[device_count].name), "%s",
-                 "Connected");
+                 mesh_str(MESH_STR_DEVICES_CONNECTED_NAME));
         ui_devices[device_count].rssi = 0;
         ui_devices[device_count].connected = true;
         ++device_count;
