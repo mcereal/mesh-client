@@ -40,6 +40,7 @@ CHECKED = [
     "src/ui/backends/fb_draw.c",
     "src/ui/backends/fb_screens.c",
     "src/ui/backends/fb_widgets.c",
+    "src/ui/input.c",
     "src/core/app_actions.c",
     "src/core/app_publish.c",
     "src/core/app_settings.c",
@@ -89,6 +90,15 @@ ALLOWED = {
 
 LITERAL = re.compile(r'"((?:[^"\\]|\\.)*)"')
 PROSE = re.compile(r"[A-Za-z]{3,}")
+
+# Two shapes that are never prose, exempted by their form rather than one by one so that the
+# next environment variable or device path does not have to be added to ALLOWED by hand.
+#
+# The SHOUTING_CASE rule wants an underscore on purpose: it should match MESHCLIENT_QUIT_KEYS
+# and not a bare word like "MQTT", which is a name we choose not to translate for its own
+# reasons rather than something that is not text at all.
+ENV_NAME = re.compile(r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$")
+PATH_NAME = re.compile(r"^/[A-Za-z0-9_./%*+-]*$")
 
 
 def strip_comments(text):
@@ -141,7 +151,10 @@ def findings(path):
             continue
         for match in LITERAL.finditer(line):
             literal = match.group(0)
-            if literal in ALLOWED or not PROSE.search(match.group(1)):
+            text = match.group(1)
+            if literal in ALLOWED or not PROSE.search(text):
+                continue
+            if ENV_NAME.match(text) or PATH_NAME.match(text):
                 continue
             yield f"{path}:{number}: {literal} is spelled out; give it a catalog id"
 

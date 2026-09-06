@@ -577,8 +577,11 @@ static void mesh_app_flatten_client_info(const struct mesh_app *app,
     const struct mesh_ui_theme *theme = app->ui_theme;
     snprintf(dst->theme, sizeof dst->theme, "%s", theme != NULL ? theme->id : "");
     snprintf(dst->theme_name, sizeof dst->theme_name, "%s", theme != NULL ? theme->name : "");
-    /* The language's own name for itself, which is the one string a locale never translates. */
-    snprintf(dst->language_name, sizeof dst->language_name, "%s", mesh_str(MESH_STR_LANGUAGE_NAME));
+    /* Straight off the locale rather than out of the catalog: `name` is a required field of
+       every locale and is always that language's own name for itself, whereas a catalog entry
+       is optional by design - a partial translation that had not got to it yet would fall back
+       to English and make About report the wrong language. */
+    snprintf(dst->language_name, sizeof dst->language_name, "%s", mesh_i18n_locale()->name);
     dst->theme_from_env = app->ui_theme_from_env;
 
     const struct mesh_updater *updater = &app->updater;

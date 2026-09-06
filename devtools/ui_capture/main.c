@@ -388,7 +388,7 @@ static void uicap_publish_theme(struct uicap *cap) {
        device; the harness has no app behind it, so a capture of About would otherwise be one
        row short of what a Brick draws. */
     snprintf(settings.client.language_name, sizeof settings.client.language_name, "%s",
-             mesh_str(MESH_STR_LANGUAGE_NAME));
+             mesh_i18n_locale()->name);
     mesh_ui_store_set_settings(&cap->store, &settings);
 }
 

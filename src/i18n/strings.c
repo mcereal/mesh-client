@@ -355,8 +355,8 @@ bool mesh_i18n_validate(const struct mesh_i18n_locale *locale, char *reason, siz
         }
         if (strcmp(english_signature, translated_signature) != 0) {
             if (reason != NULL) {
-                snprintf(reason, reason_len, "%s: expected the arguments %s, the translation has %s",
-                         k_id_names[id],
+                snprintf(reason, reason_len,
+                         "%s: expected the arguments %s, the translation has %s", k_id_names[id],
                          english_signature[0] != '\0' ? english_signature : "(none)",
                          translated_signature[0] != '\0' ? translated_signature : "(none)");
             }

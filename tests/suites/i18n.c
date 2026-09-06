@@ -222,6 +222,46 @@ MESH_TEST_CASE(i18n_plural_rule_is_the_locales, unit) {
     record_success(test_name);
 }
 
+/*
+ * English on demand, which is what keeps a log line readable however the handheld is set.
+ *
+ * mesh_str_in(english, id) is the idiom for it, and the case that matters is the one where the
+ * current locale is *not* English: a diagnostic that changes language with the UI is a
+ * diagnostic nobody can search for.
+ */
+MESH_TEST_CASE(i18n_english_is_reachable_from_any_locale, unit) {
+    memset((void *)k_partial, 0, sizeof k_partial);
+    k_partial[MESH_STR_ACK_NO_ROUTE] = "keine Route zu diesem Knoten";
+    const struct mesh_i18n_locale locale = {
+        .id = "test", .name = "Test", .table = k_partial, .plural_form = NULL};
+
+    MESH_TEST_FAIL_IF(
+        strcmp(mesh_str_in(&locale, MESH_STR_ACK_NO_ROUTE), "keine Route zu diesem Knoten") != 0,
+        "the translation did not come back for the translated locale");
+    MESH_TEST_FAIL_IF(strcmp(mesh_str_in(mesh_i18n_locale_english(), MESH_STR_ACK_NO_ROUTE),
+                             "no route to that node") != 0,
+                      "English was not reachable while another locale had the entry");
+    record_success(test_name);
+}
+
+/*
+ * Every locale names itself, in its own language.
+ *
+ * This is why the name is a field on the locale and not a catalog entry: a catalog entry is
+ * optional by design, and a locale whose name fell back to English would have Settings > About
+ * reporting the wrong language while that language was on screen.
+ */
+MESH_TEST_CASE(i18n_locales_name_themselves, unit) {
+    for (size_t i = 0; i < mesh_i18n_locale_count(); ++i) {
+        const struct mesh_i18n_locale *locale = mesh_i18n_locale_at(i);
+        MESH_TEST_FAIL_IF(locale->name == NULL || locale->name[0] == '\0',
+                          "a locale does not name itself");
+    }
+    MESH_TEST_FAIL_IF(strcmp(mesh_i18n_locale_english()->name, "English") != 0,
+                      "English stopped calling itself English");
+    record_success(test_name);
+}
+
 /* ---- choosing a language ------------------------------------------------------------------ */
 
 MESH_TEST_CASE(i18n_locale_selection, unit) {
@@ -231,8 +271,7 @@ MESH_TEST_CASE(i18n_locale_selection, unit) {
     MESH_TEST_FAIL_IF(!mesh_i18n_set_locale("en"), "English could not be selected");
     MESH_TEST_FAIL_IF(mesh_i18n_locale() != mesh_i18n_locale_english(),
                       "selecting English did not take");
-    MESH_TEST_FAIL_IF(mesh_i18n_set_locale("no-such-language"),
-                      "an unknown language was accepted");
+    MESH_TEST_FAIL_IF(mesh_i18n_set_locale("no-such-language"), "an unknown language was accepted");
     MESH_TEST_FAIL_IF(mesh_i18n_locale() != mesh_i18n_locale_english(),
                       "a rejected selection changed the locale anyway");
     MESH_TEST_FAIL_IF(mesh_i18n_set_locale(NULL), "NULL was accepted as a language");

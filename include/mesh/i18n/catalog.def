@@ -100,6 +100,11 @@ MESH_STR_ENTRY(TAB_SETTINGS,              "Settings")
  */
 MESH_STR_ENTRY(HINT_DEFAULT,              "A select  B back  Left/Right tabs")
 MESH_STR_ENTRY(HINT_TABS_ONLY,            "L/R tabs")
+/* How to leave, shown beside the transport state while nothing is connected. MENU is the
+   Brick's own button; the second form is what MESHCLIENT_QUIT_KEYS leaves us able to say when
+   somebody has rebound quitting to a key whose name we do not know. */
+MESH_STR_ENTRY(HINT_QUIT_MENU,            "Press MENU to quit")
+MESH_STR_ENTRY(HINT_QUIT_KEY_CODE,        "Quit: key code %u")
 MESH_STR_ENTRY(HINT_CONFIRM,              "Up/Down choose  A confirm  B cancel")
 MESH_STR_ENTRY(HINT_ENUM_PICKER,          "A choose  B cancel  Up/Down move  L/R jump 10")
 MESH_STR_ENTRY(HINT_PAIRING_CONFIRM,      "START confirm  B cancel pairing")
@@ -1267,12 +1272,12 @@ MESH_STR_ENTRY(UPDATE_DOWNLOAD_EXIT,      "Download failed (%s exit %d)")
 /* ---- language ------------------------------------------------------------------------------------ */
 
 /*
- * The Settings > About row naming the language in force, and the name this locale answers to.
+ * The Settings > About row naming the language in force.
  *
- * ABOUT_LANGUAGE is translated like any other label. LANGUAGE_NAME is the one entry a locale
- * writes in *its own* language and never in the reader's - "Deutsch", not "German" - because
- * it is what a language picker shows, and a picker in a language you cannot read is only
- * usable if the entries are in the languages they name.
+ * Only the label is here. The *name* of a language comes from `name` on struct
+ * mesh_i18n_locale, which every locale must fill in with its own name for itself - "Deutsch",
+ * not "German". It is deliberately not a catalog entry: a catalog entry may be left
+ * untranslated, and a locale whose name fell back to English would have About reporting the
+ * wrong language.
  */
 MESH_STR_ENTRY(ABOUT_LANGUAGE,            "Language")
-MESH_STR_ENTRY(LANGUAGE_NAME,             "English")

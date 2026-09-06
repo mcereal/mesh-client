@@ -3,9 +3,11 @@
 #include "mesh/ui/input.h"
 
 #include "mesh/core/event_loop.h"
+#include "mesh/i18n/strings.h"
 #include "mesh/utils/array.h"
 #include "mesh/utils/env.h"
 #include "mesh/utils/log.h"
+#include "mesh/utils/text.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -36,7 +38,10 @@ static const uint16_t k_default_quit_keys[] = {
 static uint16_t s_quit_keys[MESH_UI_INPUT_MAX_QUIT_KEYS];
 static size_t s_quit_key_count;
 static bool s_quit_keys_loaded;
+/* The hint's text is rebuilt per call (see mesh_ui_input_quit_hint); only which of the two
+   forms it takes is settled when the keys are loaded. */
 static char s_quit_hint[64];
+static bool s_quit_hint_is_key_code;
 
 static void mesh_ui_input_load_quit_keys(void) {
     if (s_quit_keys_loaded) {
@@ -63,7 +68,7 @@ static void mesh_ui_input_load_quit_keys(void) {
         }
 
         if (s_quit_key_count > 0U) {
-            snprintf(s_quit_hint, sizeof s_quit_hint, "Quit: key code %u", s_quit_keys[0]);
+            s_quit_hint_is_key_code = true;
             mesh_log_info("input", "Quit keys overridden by MESHCLIENT_QUIT_KEYS (%zu codes)",
                           s_quit_key_count);
             return;
@@ -75,7 +80,7 @@ static void mesh_ui_input_load_quit_keys(void) {
     for (size_t i = 0; i < MESH_ARRAY_LEN(k_default_quit_keys); ++i) {
         s_quit_keys[s_quit_key_count++] = k_default_quit_keys[i];
     }
-    snprintf(s_quit_hint, sizeof s_quit_hint, "Press MENU to quit");
+    s_quit_hint_is_key_code = false;
 }
 
 /*
@@ -259,6 +264,7 @@ void mesh_ui_input_reload_quit_keys(void) {
     s_quit_key_count = 0U;
     memset(s_quit_keys, 0, sizeof s_quit_keys);
     memset(s_quit_hint, 0, sizeof s_quit_hint);
+    s_quit_hint_is_key_code = false;
     mesh_ui_input_load_quit_keys();
 }
 
@@ -272,8 +278,21 @@ bool mesh_ui_input_is_quit_key(uint16_t code) {
     return false;
 }
 
+/*
+ * Built on every call rather than cached beside the key codes.
+ *
+ * The codes are settled once at startup and never change; the language is not the same kind of
+ * fact, and a hint formatted in English when the input layer came up would outlive a switch to
+ * another one. The buffer is still file-scope, so the pointer's lifetime is what it always was.
+ */
 const char *mesh_ui_input_quit_hint(void) {
     mesh_ui_input_load_quit_keys();
+    if (s_quit_hint_is_key_code) {
+        mesh_str_format(s_quit_hint, sizeof s_quit_hint, MESH_STR_HINT_QUIT_KEY_CODE,
+                        s_quit_keys[0]);
+    } else {
+        mesh_str_copy(s_quit_hint, sizeof s_quit_hint, mesh_str(MESH_STR_HINT_QUIT_MENU));
+    }
     return s_quit_hint;
 }
 
