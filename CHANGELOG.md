@@ -1,3 +1,9 @@
+## [2.4.1](https://github.com/mcereal/mesh-client/compare/v2.4.0...v2.4.1) (2026-09-06)
+
+### Performance Improvements
+
+* **devtools:** bound the GIF palette on a high-colour screen ([efb0f25](https://github.com/mcereal/mesh-client/commit/efb0f25b571b2ae230e2f82eff00cadc77f6bac8)), closes [#60](https://github.com/mcereal/mesh-client/issues/60)
+
 ## [2.4.0](https://github.com/mcereal/mesh-client/compare/v2.3.2...v2.4.0) (2026-09-06)
 
 ### Features

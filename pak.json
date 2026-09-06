@@ -1,17 +1,17 @@
 {
   "name": "MeshClient",
-  "version": "v2.4.0",
+  "version": "v2.4.1",
   "type": "TOOL",
   "description": "A Meshtastic client for your handheld: read and send messages, browse the mesh, and edit your radio's settings over Bluetooth LE or USB.",
   "author": "mcereal",
   "repo_url": "https://github.com/mcereal/mesh-client",
   "release_filename": "MeshClient.pak.zip",
   "changelog": {
+    "v2.4.1": "Bound the GIF palette on a high-colour screen.",
     "v2.4.0": "Draw the thread as a chat transcript; Name the sender on the first bubble on screen.",
     "v2.3.2": "Store framebuffer pixels through memcpy; Pack framebuffer colours once and fill spans.",
     "v2.3.0": "Add the three large modules (roadmap phase 11); Reach every GPIO, and let zero_label mean what it says.",
-    "v2.2.0": "Add the six small modules (roadmap phase 10); Count the new module sections as loaded.",
-    "v2.1.0": "Put the modules behind their own list and complete the three shipped ones; Expose the air-quality screen toggle and label the Modules footer."
+    "v2.2.0": "Add the six small modules (roadmap phase 10); Count the new module sections as loaded."
   },
   "screenshots": [
     ".github/resources/screenshots/nodes.png",
