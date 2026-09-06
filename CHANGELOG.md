@@ -1,3 +1,9 @@
+## [2.9.2](https://github.com/mcereal/mesh-client/compare/v2.9.1...v2.9.2) (2026-09-06)
+
+### Code Refactoring
+
+* **ui:** name the two read-only Settings sections apart ([bee63e8](https://github.com/mcereal/mesh-client/commit/bee63e87ee65a5294cd92f6210f07eb244e90fac))
+
 ## [2.9.1](https://github.com/mcereal/mesh-client/compare/v2.9.0...v2.9.1) (2026-09-06)
 
 ### Bug Fixes
