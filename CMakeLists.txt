@@ -56,6 +56,7 @@ add_library(meshclient_core
     src/utils/sha256.c
     src/utils/text.c
     src/utils/time.c
+    src/ui/anim.c
     src/ui/store.c
     src/ui/controller.c
     src/ui/input.c

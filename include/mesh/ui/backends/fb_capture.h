@@ -16,6 +16,7 @@
 #include "mesh/ui/store.h"
 #include "mesh/ui/theme.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -44,6 +45,23 @@ void mesh_ui_capture_set_scale(struct mesh_ui_capture *capture, int scale);
  */
 void mesh_ui_capture_set_theme(struct mesh_ui_capture *capture, const struct mesh_ui_theme *theme);
 const struct mesh_ui_theme *mesh_ui_capture_theme(const struct mesh_ui_capture *capture);
+
+/*
+ * The clock subsequent frames are drawn against.
+ *
+ * On the device this is the monotonic clock. Here it is whatever a scene script says, because
+ * an animation rendered against real time would depend on how fast the host got round to the
+ * next frame - and a capture whose contents depend on the machine that took it is not a
+ * reviewable picture. Naming the time makes a transition reproducible frame for frame.
+ *
+ * Only ever moves forwards; an earlier reading than the current one is ignored.
+ */
+void mesh_ui_capture_advance(struct mesh_ui_capture *capture, uint32_t ms);
+uint64_t mesh_ui_capture_now(const struct mesh_ui_capture *capture);
+
+/* Whether the last frame left something mid-transition, and so whether stepping the clock
+   would show something new. */
+bool mesh_ui_capture_animating(const struct mesh_ui_capture *capture);
 
 /* Draws one whole frame over whatever the page held before. */
 void mesh_ui_capture_render(struct mesh_ui_capture *capture,

@@ -389,6 +389,69 @@ value.
 row, and (sized to its own label, via `fb_draw_chip`) the tab strip: a filled cell with a label
 centred **in cells**, so an emoji label sits where it looks centred.
 
+`struct fb_switch` is the boolean: a pill track with a knob that **slides** to the end it is
+now at. Settings draws one on every `MESH_UI_SETTING_TOGGLE` row in place of the words "on" and
+"off" — the words are still what `item.value` holds and still what the CLI backend prints, so
+this is the fb backend choosing how to say the same thing on a screen. A caller passes identity
+and state, never a position:
+
+```c
+struct fb_switch sw = {.id = 0x01000000U | (uint32_t)item.field, .on = item.number != 0U};
+fb_list_field_row_switch(state, &list, i, item.label, label_cols, marker, tone, &sw);
+```
+
+Two things about it are worth knowing before reusing it:
+
+- **`id` is the animation's key**, and it has to be stable while the control is on screen and
+  unique in the frame. A settings field id is exactly such a key; the channel is mixed in
+  because the Channels section repeats the same fields per channel. An `id` of 0 means "nothing
+  to key on" — the switch draws correctly and never animates, which is the right answer for a
+  control the frame cannot name.
+- **On a selected row it lays its own ground first.** Its two colour pairs — `ACCENT` /
+  `ON_ACCENT` and `SURFACE_SEL` / `TEXT_ON_SEL` — are the ones `mesh_ui_theme_validate()`
+  already holds to 4.5:1, and both are contracted against the ground rather than against the
+  cursor fill. On the dark and colorblind themes the cursor fill *is* `SURFACE_SEL`, so a
+  switch drawn straight onto it would vanish on precisely the row being pointed at.
+
+The track flips colour as the knob passes the midpoint rather than crossfading with it. A fade
+was tried first and is wrong twice over: mid-fade the track is not a colour any knob colour was
+validated against, and on the dark theme the two ends are yellow and blue, so everything between
+them is mud.
+
+### Animation
+
+A frame is a function of a snapshot, and a snapshot has no notion of *was*: it says a switch is
+on, never that it has just become on. Two pieces supply the difference.
+
+**`src/ui/anim.c` (`include/mesh/ui/anim.h`)** is the arithmetic — a start value, a target, a
+start time, a duration and an easing curve, in fixed point over 0..1000. It knows nothing about
+pixels, which is what lets a slide be unit-tested frame by frame with no display anywhere near
+it (`tests/suites/ui_anim.c`). `struct mesh_ui_anim_table` keys one animation per control id,
+adopting the value on first sight so **nothing slides on the frame a screen opens** and
+animating only a change after that. Aiming at the target it is already heading for is a no-op,
+so a widget calls it every frame with the state it can see.
+
+**The animation state lives in the backend, not in the store.** Where a knob has got to is
+presentation: the application neither knows nor should be asked, it dies with the frame buffer,
+and a second backend is entitled to animate differently or not at all. The table sits on
+`struct mesh_ui_backend_fb_state` beside the clock the frame is drawn against, and the caller
+passes identity in — the immediate-mode trick, the same shape as a `useState` keyed by
+component identity.
+
+**The repaint clock** is a `timerfd` in `src/ui/controller.c`. The store publishes on change,
+which is all a screen made of text ever needs; a control that animates needs several frames from
+one change. Rather than have the store invent updates nobody asked for, a backend that animates
+answers `mesh_ui_backend.animating` and the controller keeps waking it every
+`MESH_UI_FRAME_INTERVAL_MS` (33 ms, 30 fps) until it settles. **The timer is armed only while
+something is moving** — a HUD sitting still costs exactly the wake-ups it did before any of this
+existed, which on a handheld running off a battery is the only version worth shipping. A backend
+that leaves `animating` NULL never ticks, which is why the CLI and stub backends are untouched.
+
+The clock is set once per frame by whoever is driving — `mesh_time_monotonic_ms()` on the
+device, a number the scene script names in a capture — and never read inside the drawing code. A
+widget that read a clock of its own would draw two halves of one frame at two different times,
+and a capture could not pin either of them.
+
 ### Drawing
 
 `src/ui/backends/fb*.c` draw into **page 0** of the Brick's 1024x16384 framebuffer, then
@@ -621,6 +684,12 @@ takes from `MESHCLIENT_FB_SCALE`, and `-t NAME` the theme it takes from `MESHCLI
 first three emits a frame — `key ... 3` emits three, and the screen the scene starts on is
 emitted before any of them. Worked examples live in `devtools/ui_capture/scenes/`.
 
+A press that starts an [animation](#animation) emits more than one: the harness keeps stepping
+its clock and drawing until the renderer says nothing is moving any more, exactly as the event
+loop's frame timer does on the device. Those extra frames carry the animation's own 33 ms
+interval rather than the scene's delay, so a transition plays at the speed a hand holding the
+device would see it, and no scene script has to know an animation exists.
+
 | Command | What it does |
 |---|---|
 | `scene demo\|empty` | which invented radio to start from: a mesh with eight nodes and a message log, or nothing connected. Setup only, and the default is `demo` |
@@ -629,7 +698,8 @@ emitted before any of them. Worked examples live in `devtools/ui_capture/scenes/
 | `delay MS` | default per-frame delay. Setup only |
 | `tab NAME` | walk Left/Right to `messages`, `nodes`, `devices`, `status` or `settings` |
 | `key NAME [COUNT]` | `up down left right a b x y l1 r1 start select` |
-| `hold MS` | lengthen the frame just emitted, rather than emitting a duplicate |
+| `hold MS` | lengthen the frame just emitted, rather than emitting a duplicate. It also moves the clock on, so an animation that was mid-flight has advanced by the next line |
+| `config` | a radio that has answered the config handshake, so the Settings sections have rows instead of "not loaded". Plausible values; what is on show is the rows |
 | `frame` | emit the current screen again |
 | `toast TEXT` | raise the transient notice the footer draws |
 | `message in\|out NAME TEXT` | append a message, as if the radio had just said so |

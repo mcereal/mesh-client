@@ -73,6 +73,45 @@ int fb_draw_chip(const struct mesh_ui_backend_fb_state *state, int x, int y, con
                  bool active, int scale);
 
 /*
+ * A switch: a boolean the eye reads without reading a word.
+ *
+ * The knob slides rather than jumps, which is the whole reason this is a component and not two
+ * fills. Where it has got to is not in the snapshot - the snapshot only knows on or off - so
+ * the backend remembers, keyed by `id`, in the animation table on the state
+ * (include/mesh/ui/anim.h). A screen therefore passes identity, not position, and gets the
+ * transition for free.
+ *
+ * `id` must be stable for as long as the control is on screen and unique within the frame -
+ * mesh_ui_setting_field is exactly such a key, which is what the Settings rows use. An `id` of
+ * 0 means "no identity": the switch draws correctly, just without ever animating.
+ *
+ * Geometry is derived from the glyph metrics, so the control grows and shrinks with the
+ * theme's scale like every other thing on the row.
+ *
+ * Colours are the theme's validated pairs and nothing else. On the accent track the knob is
+ * ON_ACCENT and off it the knob is TEXT_ON_SEL, which are the two pairs
+ * mesh_ui_theme_validate() already holds to 4.5:1 - so a theme cannot be added that makes the
+ * knob disappear. Both pairs are contracted against the *ground*, which is why a switch on a
+ * selected row lays its own ground first rather than sitting on the cursor fill: on two of the
+ * four themes the cursor fill and the resting track are the same colour, and the control would
+ * have vanished on exactly the row the cursor was on.
+ */
+struct fb_switch {
+    struct fb_rect rect; /* the box it is drawn in; fb_switch_size() measures one */
+    uint32_t id;         /* identity for the animation, 0 for none */
+    bool on;
+    bool selected; /* the row under it carries the cursor fill */
+    bool dim;      /* it reports a state rather than offering one: drawn muted */
+};
+
+/* The size a switch wants at `scale`. Both out params may be NULL. */
+void fb_switch_size(const struct mesh_ui_backend_fb_state *state, int scale, int *w, int *h);
+
+/* Draws it, advancing the knob towards its target. Needs the mutable state: the animation it
+   is stepping lives there. */
+void fb_draw_switch(struct mesh_ui_backend_fb_state *state, const struct fb_switch *sw);
+
+/*
  * The accented heading a screen opens with. Consumes the body row it occupies, so a screen
  * calls this and then lays its list out against the layout it hands back.
  */
@@ -225,6 +264,18 @@ void fb_draw_separator(const struct mesh_ui_backend_fb_state *state, int y, cons
 void fb_list_field_row(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
                        uint32_t index, const char *label, size_t label_cols, const char *marker,
                        const char *value, enum mesh_ui_tone tone);
+
+/*
+ * The same row with a switch where the value would be, flush against the right edge.
+ *
+ * The row is clipped to leave the control its room rather than drawn under it, exactly as the
+ * badge row is. Everything a switch needs beyond the row itself - identity, the two states -
+ * comes in through `sw`; its rect is filled in here, because where the value column ends is
+ * the row's business and not the caller's.
+ */
+void fb_list_field_row_switch(struct mesh_ui_backend_fb_state *state, struct fb_list *list,
+                              uint32_t index, const char *label, size_t label_cols,
+                              const char *marker, enum mesh_ui_tone tone, struct fb_switch *sw);
 
 /* The label column width for a body this wide - narrow scales give the value more room, at the
    width the theme calls narrow. `preferred` of 0 takes the theme's own. */
