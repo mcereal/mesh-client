@@ -1,3 +1,13 @@
+## [2.9.1](https://github.com/mcereal/mesh-client/compare/v2.9.0...v2.9.1) (2026-09-06)
+
+### Bug Fixes
+
+* **i18n:** three gaps the Codex review found ([79e5bee](https://github.com/mcereal/mesh-client/commit/79e5bee0ca803f044b730a208dccc349cdbefb45))
+
+### Code Refactoring
+
+* **i18n:** route every user-facing string through a catalog ([a6e7b41](https://github.com/mcereal/mesh-client/commit/a6e7b41729c35462cd2d2fa22a6e8907624c3733))
+
 ## [2.9.0](https://github.com/mcereal/mesh-client/compare/v2.8.0...v2.9.0) (2026-09-06)
 
 ### Features
