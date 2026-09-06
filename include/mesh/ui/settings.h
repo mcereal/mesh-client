@@ -24,7 +24,10 @@ enum mesh_ui_settings_section {
     /* This client, not the radio: version, where its data lives, and the self-update rows.
        First because it is the one section that means anything without a connection. */
     MESH_UI_SETTINGS_ABOUT = 0,
-    MESH_UI_SETTINGS_RADIO, /* firmware, hardware, node number */
+    /* "About radio", the counterpart: firmware, hardware, node number, the admin session.
+       Read-only like the one above it, which is the whole of what the two names promise - a
+       row that can be changed lives in the section that owns it, never on an About screen. */
+    MESH_UI_SETTINGS_RADIO,
     MESH_UI_SETTINGS_USER,
     MESH_UI_SETTINGS_DEVICE,
     MESH_UI_SETTINGS_DISPLAY,
@@ -38,7 +41,8 @@ enum mesh_ui_settings_section {
     MESH_UI_SETTINGS_STORE_FORWARD,
     MESH_UI_SETTINGS_TELEMETRY,
     /* Things the radio does rather than keeps: reboot, shutdown, the resets. Last because a
-       cursor that overshoots the list should land on nothing worse than the row above it. */
+       cursor that overshoots the list should land on nothing worse than the row above it, and
+       grouped under headings that say whose node list each row would empty. */
     MESH_UI_SETTINGS_ACTIONS,
     /* Not a config section: the list of the ones that are modules, with each module's enabled
        state as its value. A row here opens that module the way a Channels row opens a slot.

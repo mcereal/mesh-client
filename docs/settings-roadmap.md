@@ -63,11 +63,13 @@ fragment, and uses the admin path for refreshes and as proof that writes will wo
 Twelve hand-drawn screens is the wrong shape. The Settings tab is one generic form renderer
 over a static description of each section:
 
-- A **section list**: About, Radio, User, Device, Display, Position, Power, LoRa, Bluetooth,
-  Channels, Security, Modules, Radio actions. A opens a section, B returns. Two of those rows
-  open a *list* rather than a section - Channels lists the radio's slots, Modules lists every
-  `ModuleConfig` variant with its enabled state - so the tab is two levels deep in general and
-  three under those two. `nav.settings_parent` is what B reads to know which it is coming back
+- A **section list**: About MeshClient, About radio, User, Device, Display, Position, Power,
+  LoRa, Bluetooth, Channels, Security, Modules, Radio actions. The first two are the pair the
+  names promise - what this client is, and what the radio is - and both are read-only; every
+  row that can be *changed* lives in the section that owns it. A opens a section, B returns.
+  Two of those rows open a *list* rather than a section - Channels lists the radio's slots,
+  Modules lists every `ModuleConfig` variant with its enabled state - so the tab is two levels
+  deep in general and three under those two. `nav.settings_parent` is what B reads to know which it is coming back
   to (phase 9).
 - Each section is a list of **items**: label, current value, and a kind. Kinds are `info`
   (read-only), `toggle`, `enum`, `text`, `number`, `key`, `action`, `heading`. An editable item names
@@ -330,8 +332,8 @@ has had since phase 3: a row that opens a list that opens rows.
 
 ```
 Settings                  Settings > Modules            Settings > Telemetry
-  About                     MQTT            off           Device
-  Radio                     Store & fwd     off             Enabled       on
+  About MeshClient          MQTT            off           Device
+  About radio               Store & fwd     off             Enabled       on
   User                      Telemetry       on              Interval      15m
   Device                    ...                           Environment
   ...                                                       Enabled       off
@@ -574,3 +576,26 @@ that has lost its RTC pushes nothing, and it is deliberately excluded from
 belongs to the user's own save. `set_time_only` is UTC: the node shows local time only once
 `Device` → Time zone (`DeviceConfig.tzdef`, a POSIX TZ string such as `AST4` or
 `EST5EDT,M3.2.0,M11.1.0`) is set, which is the one editable row in the Device section.
+
+**Naming the two read-only sections apart.** The top level carried `Radio` at row 2 and
+`Radio actions` at row 13, and neither held a radio *setting*: `Radio` is read-only facts
+about the hardware and the admin session, `Radio actions` is verbs, and everything you would
+actually change is in Device, LoRa, Position, Power or Bluetooth. Two rows sharing the prefix
+that names none of their contents is a list you have to learn rather than read, so `Radio`
+became **About radio** - the counterpart to About MeshClient, which is what it always was.
+The rule the pair now states: an About section is read-only, and a row that can be changed
+lives in the section that owns it.
+
+That rule cost one row. The LoRa region was listed read-only on the radio section *and*
+editable under LoRa, so the one screen that answered "what region is this radio on" was the
+one that could not answer "change it". It is now only under LoRa.
+
+`Radio actions` kept its name and its place - last, so a cursor that overshoots lands on the
+row above it - and gained four headings: **Power** (reboot, shutdown), **Nodes on the radio**
+(the NodeDB reset), **Nodes cached here** (the two forget rows) and **Factory reset**. The
+middle two are the point. Seven bare verbs gave no clue that one empties the radio's database
+and the next two empty ours, which is the distinction behind the Status screen saying 2 nodes
+while the Nodes tab says 81; the headings say whose is whose before the press rather than in
+the confirm text after it. Under the last heading the rows are `Config` and `Everything`,
+since a group does not need repeating in every label it holds - the confirm sheet still spells
+both out in full.
