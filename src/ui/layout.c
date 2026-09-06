@@ -165,3 +165,157 @@ bool mesh_ui_list_next(struct mesh_ui_list *list, uint32_t *index) {
 bool mesh_ui_list_is_cursor(const struct mesh_ui_list *list, uint32_t index) {
     return list->count > 0U && index == list->cursor;
 }
+
+/* ---- word wrapping -------------------------------------------------------------------------- */
+
+void mesh_ui_wrap_begin(struct mesh_ui_wrap *wrap, const char *text, size_t cols) {
+    wrap->rest = text != NULL ? text : "";
+    wrap->cols = cols > 0U ? cols : 1U;
+    wrap->line[0] = '\0';
+}
+
+bool mesh_ui_wrap_next(struct mesh_ui_wrap *wrap) {
+    const char *rest = wrap->rest;
+    /* A run of spaces never opens a line: breaking after one would otherwise indent the
+       continuation by however many the sender typed. */
+    while (*rest == ' ') {
+        ++rest;
+    }
+    if (*rest == '\0') {
+        wrap->rest = rest;
+        wrap->line[0] = '\0';
+        return false;
+    }
+
+    /* Walk cells - not bytes - until the window is full, remembering the last place a word
+       boundary would let us break. A space byte can never appear inside a multi-byte sequence,
+       so testing the lead byte for ' ' is safe. */
+    size_t taken = 0U;
+    size_t cells = 0U;
+    size_t last_space = 0U; /* bytes up to and including that space; 0 means none */
+    bool hard = false;
+    while (cells < wrap->cols) {
+        const char lead = rest[taken];
+        if (lead == '\0') {
+            break;
+        }
+        if (lead == '\n') {
+            hard = true;
+            break;
+        }
+        const struct mesh_ui_text_cell cell = mesh_ui_text_cell_next(&rest[taken]);
+        if (cell.bytes == 0U || taken + cell.bytes >= sizeof wrap->line) {
+            break;
+        }
+        taken += cell.bytes;
+        cells += 1U;
+        if (lead == ' ') {
+            last_space = taken;
+        }
+    }
+
+    size_t cut = taken;
+    if (!hard && rest[cut] != '\0' && rest[cut] != ' ' && last_space > 0U) {
+        cut = last_space; /* the window ended mid-word, so give the whole word to the next line */
+    }
+    if (cut == 0U && !hard) {
+        /* One cell spelled with more bytes than a whole line holds. Nothing sensible draws, but
+           the walk still has to move or the caller loops forever. */
+        const struct mesh_ui_text_cell cell = mesh_ui_text_cell_next(rest);
+        wrap->line[0] = '\0';
+        wrap->rest = rest + (cell.bytes > 0U ? cell.bytes : 1U);
+        return true;
+    }
+
+    size_t len = cut;
+    while (len > 0U && rest[len - 1U] == ' ') {
+        len -= 1U;
+    }
+    memcpy(wrap->line, rest, len);
+    wrap->line[len] = '\0';
+    wrap->rest = rest + cut + (hard ? 1U : 0U); /* the newline itself is consumed, not drawn */
+    return true;
+}
+
+uint32_t mesh_ui_wrap_lines(const char *text, size_t cols) {
+    struct mesh_ui_wrap wrap;
+    mesh_ui_wrap_begin(&wrap, text, cols);
+    uint32_t lines = 0U;
+    while (mesh_ui_wrap_next(&wrap)) {
+        lines += 1U;
+    }
+    return lines;
+}
+
+size_t mesh_ui_wrap_widest(const char *text, size_t cols) {
+    struct mesh_ui_wrap wrap;
+    mesh_ui_wrap_begin(&wrap, text, cols);
+    size_t widest = 0U;
+    while (mesh_ui_wrap_next(&wrap)) {
+        const size_t width = mesh_ui_text_cells(wrap.line);
+        if (width > widest) {
+            widest = width;
+        }
+    }
+    return widest;
+}
+
+/* ---- the transcript window ------------------------------------------------------------------ */
+
+struct mesh_ui_transcript mesh_ui_transcript_window(const uint8_t *heights, uint32_t count,
+                                                    uint32_t cursor, uint32_t rows) {
+    struct mesh_ui_transcript window;
+    memset(&window, 0, sizeof window);
+    if (heights == NULL || count == 0U || rows == 0U) {
+        return window;
+    }
+    if (cursor >= count) {
+        cursor = count - 1U;
+    }
+
+    uint32_t total = 0U;
+    for (uint32_t i = 0; i < count; ++i) {
+        total += heights[i];
+    }
+    if (total <= rows) {
+        /* Everything fits, so the slack goes above it: a two-message thread opens with those two
+           messages on the bottom rows, where a forty-message one leaves them. */
+        window.first = 0U;
+        window.count = count;
+        window.pad = rows - total;
+        return window;
+    }
+
+    /* Pinned to the newest: walk back from the end while the items still fit. */
+    uint32_t first = count;
+    uint32_t used = 0U;
+    while (first > 0U && used + heights[first - 1U] <= rows) {
+        first -= 1U;
+        used += heights[first];
+    }
+    if (first == count) {
+        /* The newest item alone is taller than the body. Draw it anyway and let it clip at the
+           bottom, which is the one place the whole UI clips. */
+        first = count - 1U;
+        used = rows;
+    }
+
+    if (cursor >= first) {
+        window.first = first;
+        window.count = count - first;
+        window.pad = rows - used;
+        return window;
+    }
+
+    /* Scrolled up past the pinned window: the cursor tops it and the rest fills downward, so the
+       item being read is whole rather than the one hanging off the top edge. */
+    uint32_t last = cursor;
+    used = 0U;
+    while (last < count && used + heights[last] <= rows) {
+        used += heights[last];
+        last += 1U;
+    }
+    window.first = cursor;
+    window.count = last > cursor ? last - cursor : 1U;
+    return window;
+}

@@ -135,11 +135,53 @@ void fb_list_row_line(const struct mesh_ui_backend_fb_state *state, struct fb_li
                       uint32_t index, struct mesh_ui_line *line, enum fb_tone tone);
 
 /*
+ * The same row with a filled count badge flush against the right edge - an unread count, said
+ * the way every messenger says it. The line is clipped to leave the badge room rather than
+ * drawn under it. `badge` of NULL or "" draws the plain row.
+ */
+void fb_list_row_line_badge(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
+                            uint32_t index, struct mesh_ui_line *line, enum fb_tone tone,
+                            const char *badge);
+
+/*
  * A continuation line under the row just drawn: never highlighted and never the cursor,
  * because it is part of the item above it rather than something to select.
  */
 void fb_list_sub_row(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
                      const char *text, enum fb_tone tone);
+
+/*
+ * A chat bubble: the component the thread screen is made of.
+ *
+ * A bubble sizes itself to its own text - never to the panel - and sits against the edge its
+ * direction names, which is the whole of what makes a transcript readable at a glance without
+ * reading a single word of it. Everything optional is omitted rather than blanked, so a run of
+ * messages from one sender stacks with the name said once.
+ *
+ * The measure and the draw share one wrap walk (struct mesh_ui_wrap), so the rows a bubble
+ * reserves and the rows it paints cannot disagree - which they must not, because the transcript
+ * places the next bubble from the count this one reported.
+ */
+struct fb_bubble {
+    const char *separator; /* dim centred label above the bubble ("Today", "14:05"); "" for none */
+    const char *name;      /* sender line inside the bubble; "" when it repeats the one above */
+    const char *text;      /* the message */
+    const char *meta;      /* clock and delivery state, tucked onto the last line when it fits */
+    bool outbound;         /* ours: drawn against the right edge */
+    bool selected;         /* the cursor is on it */
+    bool failed;           /* the radio said it did not get there */
+};
+
+/* Body rows the bubble occupies, separator included. Ask before placing it. */
+uint32_t fb_bubble_rows(const struct fb_layout *layout, const struct fb_bubble *bubble);
+
+/* Draws it with its top row at `y`. Occupies exactly fb_bubble_rows() rows. */
+void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                    int y, const struct fb_bubble *bubble);
+
+/* A dim centred label with a hairline either side, filling one body row. What separates one
+   day - or one long silence - from the next. */
+void fb_draw_separator(const struct mesh_ui_backend_fb_state *state, int y, const char *label);
 
 /*
  * A label column and a value, which is the shape both the Settings rows and the node detail

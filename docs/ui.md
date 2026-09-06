@@ -21,11 +21,13 @@ evdev -> mesh_ui_input -> mesh_ui_controller_handle_key -> mesh_ui_store_handle_
   `stub.c` (tests). **Backends are stateless** — they draw the cursor from
   `snapshot->nav`. A new platform implements the backend interface and leaves the store and
   controller untouched.
-- **`src/ui/layout.c`** holds the two backend-agnostic layout primitives every list-and-rows UI
-  needs: `struct mesh_ui_line`, a string builder that only ever measures in drawn cells, and
-  `struct mesh_ui_list`, the cursor-clamp-and-scroll-window arithmetic. Neither touches a
-  framebuffer, a font or a snapshot, so both are unit tested directly
-  (`tests/suites/ui_layout.c`) and both are as useful to a new backend as to the fb one.
+- **`src/ui/layout.c`** holds the backend-agnostic layout primitives every list-and-rows UI
+  needs: `struct mesh_ui_line`, a string builder that only ever measures in drawn cells;
+  `struct mesh_ui_list`, the cursor-clamp-and-scroll-window arithmetic; `struct mesh_ui_wrap`,
+  the cell-measured word wrap that a chat bubble measures *and* draws itself with; and
+  `mesh_ui_transcript_window`, the bottom-anchored scroll window that variable-height items
+  need. None of them touches a framebuffer, a font or a snapshot, so all are unit tested
+  directly (`tests/suites/ui_layout.c`) and all are as useful to a new backend as to the fb one.
 - **`src/ui/nav*.c`** own the tab/cursor/compose-target model (`struct mesh_ui_nav`, carried
   inside every snapshot and clamped against the lists on each consume) and return a
   `mesh_ui_action` the controller hands to `mesh_app_on_ui_action`. `nav.c` is the router;
@@ -65,9 +67,35 @@ Two levels, the shape a phone messenger has and the shape the Settings tab alrea
   each enabled channel, each node with direct messages, then "New message"), with the list's
   cursor parked in `conversation_list_cursor`.
 - `thread_open` set shows the one named by `target_node`/`target_channel` (or everything, when
-  `inbox`). B backs out.
+  `inbox`), drawn as a **transcript of bubbles**. B backs out.
 - `mesh_ui_nav_filter_messages` is the one place that filter lives, so the Messages cursor
   indexes the filtered list.
+
+**The thread is a transcript, not a list.** Theirs sits against the left edge, ours against the
+right, the newest against the bottom, and each message is wrapped whole rather than clipped to a
+row. It replaced a list of one-line rows with a three-line detail pane underneath, where the only
+way to read a message in full was to select it — and reading the one before it meant losing the
+one you had. Three rules make it read as a conversation rather than as a log, and all three live
+in `fb_screens.c` because they are content decisions:
+
+- A **separator** opens the transcript and marks each day boundary (`Today`, `Yesterday`,
+  `Sat 6 Sep`) and each silence of 30 minutes or more, so "when was this" is answered by the
+  shape of the screen rather than by reading timestamps.
+- The **sender is named once per run**, not once per message: a run breaks on a separator, a
+  change of direction or peer, or five minutes' gap. In a direct conversation no name is drawn at
+  all — the title already says who it is — while a channel and all-traffic name every run, and
+  all-traffic tags each bubble with the conversation it belongs to (`#2`, `dm`).
+- The **clock and delivery state tuck onto the last line** when they fit there, and take their
+  own line when they do not. That is what keeps a three-word message three words tall.
+
+The cursor still selects a message (A drills into its conversation from all-traffic; `nav.c`'s
+clamp keeps it pinned to the newest as traffic arrives), so a bubble carries both a lifted fill
+and an accent bar down its outer edge — a fill one step lighter is not, by itself, findable on a
+3.2" panel, and gives a colour-blind eye nothing at all.
+
+The conversation list is the two-row shape a phone messenger has: name and age, then the last
+message with the unread count as a **filled badge** flush right. Both rows highlight together,
+because a conversation is one item rather than two adjacent rows.
 
 **Only opening a thread moves the target.** The Nodes tab opens the node's *detail*, and only
 that detail's message row opens a conversation, rather than retargeting what Messages was
@@ -276,9 +304,17 @@ while (fb_list_next(&list, &i)) {
 ```
 
 `fb_list_begin_rows()` is the variant for an item that spends more than one row (the
-conversation list spends two, a name and a preview, and adds a `fb_list_sub_row()`);
-`fb_list_begin_visible()` is for a screen that reserves body rows for something else, like the
-thread's detail pane.
+conversation list spends two, a name and a preview); `fb_list_begin_visible()` is for a screen
+that reserves body rows for something else.
+
+`struct fb_bubble` is the other component that earns its keep, and it is the one place the
+thread's geometry lives. A bubble sizes itself to its own text (never past three quarters of the
+body), sits against the edge its direction names, and reports its height with
+`fb_bubble_rows()` before it is placed. **Its measure and its draw share one `mesh_ui_wrap`
+walk**, which is not an optimisation: a bubble that reserved five rows and painted six would
+paint over the message below it, and the transcript places the next bubble from the count this
+one reported. A second way of measuring the same text — a `strlen`, a second wrapper — is how
+that happens.
 
 Screens name a **tone** (`FB_TONE_ACCENT`, `FB_TONE_BAD`, …) rather than a palette constant, so
 re-theming is one function — `fb_tone_color()` — rather than a hunt for `k_fb_accent` across

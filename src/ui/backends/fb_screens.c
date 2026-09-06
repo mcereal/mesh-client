@@ -122,11 +122,17 @@ static void fb_render_conversations(const struct mesh_ui_backend_fb_state *state
         return;
     }
 
-    /* Each conversation is a name line plus a preview line. */
+    /*
+     * Each conversation is two rows: who it is with and when it last spoke, then what was said
+     * last. The unread count is a filled badge on the preview row rather than the words "3 new"
+     * in the metric column - it is the one thing on this screen you look for without reading,
+     * and the column it used to share with the age meant you got one or the other.
+     */
     struct fb_list list =
         fb_list_begin_rows(layout, count, nav->cursor[MESH_UI_SCREEN_MESSAGES], 2U);
     struct mesh_ui_line line;
     char age[8];
+    char badge[12];
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         struct mesh_ui_conversation conversation;
@@ -134,6 +140,7 @@ static void fb_render_conversations(const struct mesh_ui_backend_fb_state *state
             break;
         }
         const bool is_new = (conversation.kind == MESH_UI_CONVERSATION_NEW);
+        const bool unread = (conversation.unread > 0U);
         enum fb_tone tone = FB_TONE_NORMAL;
         if (conversation.kind == MESH_UI_CONVERSATION_CHANNEL ||
             conversation.kind == MESH_UI_CONVERSATION_ALL) {
@@ -141,65 +148,258 @@ static void fb_render_conversations(const struct mesh_ui_backend_fb_state *state
         } else if (is_new) {
             tone = FB_TONE_DIM;
         }
-
-        const bool unread = (conversation.unread > 0U);
-        mesh_ui_line_reset(&line);
-        if (is_new) {
-            mesh_ui_line_printf(&line, "+ %s", conversation.name);
-        } else {
-            /* The right-hand column says one thing only: how many messages are waiting, or
-               else how long ago the last one arrived. A bare message count there read as an
-               unread badge, and radios with no clock set report rx_time 0, so the age was a
-               bare "?" - between them the row said nothing anyone could act on. The total is
-               still in the conversation's own title once it is open. */
-            char right[24];
-            right[0] = '\0';
-            if (unread) {
-                snprintf(right, sizeof right, "%u new", (unsigned)conversation.unread);
-            } else if (conversation.last_time != 0U) {
-                fb_format_age(conversation.last_time, age, sizeof age);
-                snprintf(right, sizeof right, "%s", age);
-            }
-            mesh_ui_line_printf(&line, "%s%s", unread ? "* " : "  ", conversation.name);
-            mesh_ui_line_right(&line, layout->cols, right);
-        }
         /* Unread is drawn bright; so is the open thread, so B lands somewhere recognisable. */
         if (unread || mesh_ui_nav_conversation_is_open(nav, &conversation)) {
             tone = FB_TONE_STRONG;
         }
+
+        badge[0] = '\0';
+        if (unread) {
+            /* Past two figures a badge stops being a number and becomes a width, which is what
+               every messenger's "99+" is for. */
+            if (conversation.unread > 99U) {
+                snprintf(badge, sizeof badge, "%s", " 99+ ");
+            } else {
+                snprintf(badge, sizeof badge, " %u ", (unsigned)conversation.unread);
+            }
+        }
+
+        mesh_ui_line_reset(&line);
+        if (is_new) {
+            mesh_ui_line_printf(&line, "+ %s", conversation.name);
+            fb_list_row_line(state, &list, i, &line, tone);
+            mesh_ui_line_reset(&line);
+            fb_list_sub_row(state, &list, mesh_ui_line_text(&line), FB_TONE_DIM);
+            continue;
+        }
+
+        /* The name row carries the age on the right, the way a messenger dates a conversation.
+           A radio with no clock set reports rx_time 0, so the column is simply empty rather
+           than a bare "?" nobody can act on. */
+        age[0] = '\0';
+        if (conversation.last_time != 0U) {
+            fb_format_age(conversation.last_time, age, sizeof age);
+        }
+        mesh_ui_line_printf(&line, "%s", conversation.name);
+        mesh_ui_line_right(&line, layout->cols, age);
         fb_list_row_line(state, &list, i, &line, tone);
 
         mesh_ui_line_reset(&line);
-        if (!is_new) {
-            if (conversation.preview[0] != '\0') {
-                mesh_ui_line_printf(&line, "  %s%s", conversation.preview_outbound ? "> " : "",
-                                    conversation.preview);
-            } else {
-                mesh_ui_line_printf(&line, "%s", "  no messages yet");
-            }
-            mesh_ui_line_fit(&line, layout->cols);
+        if (conversation.preview[0] != '\0') {
+            /* "> " says the last word was ours, which is what tells you whether a quiet thread
+               is waiting on you or on them. */
+            mesh_ui_line_printf(&line, "%s%s", conversation.preview_outbound ? "> " : "",
+                                conversation.preview);
+        } else {
+            mesh_ui_line_printf(&line, "%s", "no messages yet");
         }
-        fb_list_sub_row(state, &list, mesh_ui_line_text(&line), FB_TONE_DIM);
+        /* Both rows highlight together: a conversation is one item, not two rows that happen to
+           be adjacent. */
+        fb_list_row_line_badge(state, &list, i, &line, unread ? FB_TONE_NORMAL : FB_TONE_DIM,
+                               badge);
     }
 }
 
-/* Level two: the messages in the open thread. */
+/* ---- the thread ---------------------------------------------------------------------------- */
+
+/*
+ * Level two: the open conversation, drawn as a transcript of bubbles.
+ *
+ * The shape is the one every messenger has: theirs on the left, ours on the right, the newest
+ * against the bottom, the sender said once per run rather than once per line, and the clock
+ * tucked into the message it belongs to. It replaced a list of clipped one-line rows with a
+ * detail pane underneath - which meant the only way to read a message in full was to select it,
+ * and reading the one before it meant losing the one you had.
+ *
+ * Nothing here computes a pixel: fb_bubble_rows() says how tall a message is and
+ * mesh_ui_transcript_window() says which of them are on screen.
+ */
+
+/* A message as the screen describes it, with the strings the bubble points at. Built twice per
+   frame - once to measure, once to draw - rather than kept, because a per-message cache is a
+   second source of truth for what the bubble says. */
+struct fb_thread_row {
+    struct fb_bubble bubble;
+    char separator[24];
+    char name[48];
+    char meta[64];
+};
+
+/* "Today" / "Yesterday" / "Mon 3 Sep", or nothing when the radio has no clock set. */
+static void fb_format_day(uint32_t rx_time, char *out, size_t out_len) {
+    out[0] = '\0';
+    if (rx_time == 0U) {
+        return;
+    }
+    const time_t stamp = (time_t)rx_time;
+    struct tm when;
+    if (localtime_r(&stamp, &when) == NULL) {
+        return;
+    }
+    const time_t now = time(NULL);
+    struct tm today;
+    if (now != (time_t)-1 && localtime_r(&now, &today) != NULL) {
+        if (when.tm_year == today.tm_year && when.tm_yday == today.tm_yday) {
+            snprintf(out, out_len, "%s", "Today");
+            return;
+        }
+        if (when.tm_year == today.tm_year && when.tm_yday + 1 == today.tm_yday) {
+            snprintf(out, out_len, "%s", "Yesterday");
+            return;
+        }
+    }
+    /* "%e" pads a single-digit day with a space, which reads as a typo in a centred label. */
+    char month[8];
+    (void)strftime(month, sizeof month, "%b", &when);
+    char weekday[8];
+    (void)strftime(weekday, sizeof weekday, "%a", &when);
+    snprintf(out, out_len, "%s %d %s", weekday, when.tm_mday, month);
+}
+
+/* A day apart, or a long enough silence, is a break in the conversation; anything closer is the
+   same exchange and gets no furniture between the messages. */
+#define FB_THREAD_GAP_SECONDS 1800U /* 30 minutes: a new separator */
+#define FB_THREAD_RUN_SECONDS                                                                      \
+    300U /* 5 minutes: still the same run, so the name is not repeated                             \
+          */
+
+static bool fb_thread_same_day(uint32_t a, uint32_t b) {
+    if (a == 0U || b == 0U) {
+        return a == b;
+    }
+    const time_t ta = (time_t)a;
+    const time_t tb = (time_t)b;
+    struct tm ma;
+    struct tm mb;
+    if (localtime_r(&ta, &ma) == NULL || localtime_r(&tb, &mb) == NULL) {
+        return false;
+    }
+    return ma.tm_year == mb.tm_year && ma.tm_yday == mb.tm_yday;
+}
+
+static uint32_t fb_thread_elapsed(uint32_t earlier, uint32_t later) {
+    return (earlier == 0U || later == 0U || later < earlier) ? 0U : later - earlier;
+}
+
+/*
+ * Everything the screen decides about one message: what furniture it gets and what it says.
+ *
+ * `force_name` names the sender on a bubble that would otherwise inherit the name from the
+ * message above it - which is what the first bubble on screen has to do, because the message
+ * above it is not on screen to have said it.
+ */
+static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot, const uint32_t *indices,
+                                uint32_t position, bool force_name, struct fb_thread_row *row) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    const struct mesh_ui_message *message = &snapshot->messages.entries[indices[position]];
+    const struct mesh_ui_message *previous =
+        position > 0U ? &snapshot->messages.entries[indices[position - 1U]] : NULL;
+    const bool outbound = (message->direction == MESH_MESSAGE_OUTBOUND);
+
+    memset(row, 0, sizeof *row);
+    row->bubble.text = message->text;
+    row->bubble.outbound = outbound;
+    row->bubble.failed = outbound && message->ack == MESH_MESSAGE_ACK_FAILED;
+    row->bubble.separator = row->separator;
+    row->bubble.name = row->name;
+    row->bubble.meta = row->meta;
+
+    /* A separator opens the transcript and marks every day boundary and every long silence, so
+       "when was this" is answered by the shape of the screen rather than by reading timestamps. */
+    if (previous == NULL || !fb_thread_same_day(previous->rx_time, message->rx_time)) {
+        fb_format_day(message->rx_time, row->separator, sizeof row->separator);
+    } else if (fb_thread_elapsed(previous->rx_time, message->rx_time) >= FB_THREAD_GAP_SECONDS) {
+        fb_format_clock(message->rx_time, row->separator, sizeof row->separator);
+    }
+
+    /*
+     * Who sent it, said once per run. In a direct conversation the title already answers it, so
+     * naming every bubble would be repeating the screen's own heading at the user; in a channel
+     * and in all-traffic it is the only thing that says which of thirty nodes is talking.
+     */
+    const bool names_needed = nav->inbox || nav->target_node == MESH_MESSAGE_BROADCAST_ADDR;
+    const bool starts_run =
+        previous == NULL || row->separator[0] != '\0' ||
+        (previous->direction == MESH_MESSAGE_OUTBOUND) != outbound ||
+        previous->peer != message->peer || previous->broadcast != message->broadcast ||
+        previous->channel != message->channel ||
+        fb_thread_elapsed(previous->rx_time, message->rx_time) >= FB_THREAD_RUN_SECONDS;
+
+    if ((starts_run || force_name) && (names_needed || (outbound && nav->inbox))) {
+        const char *peer = message->peer_name[0] != '\0' ? message->peer_name : "?";
+        struct mesh_ui_line line;
+        mesh_ui_line_reset(&line);
+        if (outbound) {
+            /* Ours in all-traffic still needs a destination: "sent" alone does not say to whom,
+               and a broadcast and a DM look identical without it. */
+            mesh_ui_line_printf(&line, message->broadcast ? "%s" : "to %s",
+                                message->broadcast ? "sent" : peer);
+        } else {
+            mesh_ui_line_printf(&line, "%s", peer);
+        }
+        /* All-traffic is several conversations at once, so each bubble says which one it is. */
+        if (nav->inbox) {
+            if (message->broadcast) {
+                mesh_ui_line_printf(&line, "  #%u", (unsigned)message->channel);
+            } else {
+                mesh_ui_line_printf(&line, "%s", "  dm");
+            }
+        }
+        mesh_str_copy(row->name, sizeof row->name, mesh_ui_line_text(&line));
+    }
+
+    /* The clock, and for ours what became of it. A failure says why: "!!" alone leaves the user
+       with no idea whether to move, retry or fix a key, and those are different problems. */
+    struct mesh_ui_line meta;
+    mesh_ui_line_reset(&meta);
+    char clock[8];
+    fb_format_clock(message->rx_time, clock, sizeof clock);
+    if (clock[0] != '\0') {
+        mesh_ui_line_printf(&meta, "%s", clock);
+    }
+    if (outbound && message->ack != MESH_MESSAGE_ACK_NONE) {
+        const char *space = mesh_ui_line_width(&meta) > 0U ? " " : "";
+        if (message->ack == MESH_MESSAGE_ACK_FAILED) {
+            /* Routing_Error NONE reads as "delivered", which on a failed message is a straight
+               contradiction. It should not reach us - a failure carries a reason - but a bubble
+               is the wrong place to find out that it did. */
+            mesh_ui_line_printf(&meta, "%s!! %s", space,
+                                message->ack_error != 0U
+                                    ? mesh_message_ack_error_to_string(message->ack_error)
+                                    : "failed");
+        } else {
+            mesh_ui_line_printf(&meta, "%s%s", space,
+                                message->ack == MESH_MESSAGE_ACK_DELIVERED ? "ok" : "..");
+        }
+    }
+    mesh_str_copy(row->meta, sizeof row->meta, mesh_ui_line_text(&meta));
+}
+
+/* A bubble's height, clamped into the byte the transcript window measures in. */
+static uint8_t fb_thread_height(const struct fb_layout *layout, const struct fb_thread_row *row) {
+    const uint32_t rows = fb_bubble_rows(layout, &row->bubble);
+    return rows > 0xFFU ? 0xFFU : (uint8_t)rows;
+}
+
 static void fb_render_thread(const struct mesh_ui_backend_fb_state *state,
                              const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
-    const struct mesh_ui_message_list *messages = &snapshot->messages;
     const struct mesh_ui_nav *nav = &snapshot->nav;
 
     uint32_t indices[MESH_UI_MAX_MESSAGES];
     const uint32_t count =
-        mesh_ui_nav_filter_messages(nav, messages, indices, MESH_UI_MAX_MESSAGES);
+        mesh_ui_nav_filter_messages(nav, &snapshot->messages, indices, MESH_UI_MAX_MESSAGES);
 
     char convo[MESH_UI_NAV_TARGET_NAME_MAX];
     mesh_ui_nav_conversation_name(nav, convo, sizeof convo);
     char title[96];
     if (nav->inbox) {
-        fb_title_count(title, sizeof title, convo, count, messages->dropped);
+        fb_title_count(title, sizeof title, convo, count, snapshot->messages.dropped);
+    } else if (snapshot->messages.dropped > 0U) {
+        snprintf(title, sizeof title, "%s  %s  (+%u older)", convo,
+                 nav->target_node == MESH_MESSAGE_BROADCAST_ADDR ? "channel" : "direct",
+                 (unsigned)snapshot->messages.dropped);
     } else {
-        snprintf(title, sizeof title, "%s (%u)  %s", convo, count,
+        snprintf(title, sizeof title, "%s  %s", convo,
                  nav->target_node == MESH_MESSAGE_BROADCAST_ADDR ? "channel" : "direct");
     }
     fb_draw_title(state, layout, title);
@@ -211,65 +411,55 @@ static void fb_render_thread(const struct mesh_ui_backend_fb_state *state,
         return;
     }
 
-    /* The bottom of the body is a detail pane for the selected message: full text, sender,
-       channel and time, since the list rows are clipped to one line. */
-    const int detail_lines = 3;
-    const uint32_t list_rows = layout->rows > (uint32_t)detail_lines + 1U
-                                   ? layout->rows - (uint32_t)detail_lines - 1U
-                                   : 1U;
-    struct fb_list list =
-        fb_list_begin_visible(layout, count, nav->cursor[MESH_UI_SCREEN_MESSAGES], list_rows);
-
-    struct mesh_ui_line line;
-    uint32_t i;
-    while (fb_list_next(&list, &i)) {
-        const struct mesh_ui_message *message = &messages->entries[indices[i]];
-        const bool outbound = (message->direction == MESH_MESSAGE_OUTBOUND);
-        const char *peer = message->peer_name[0] != '\0' ? message->peer_name : "?";
-        /* A failed message says why: "!!" alone leaves the user with no idea whether to move,
-           retry, or fix a key, and those are different problems. */
-        char tag[48] = "";
-        if (outbound && message->ack == MESH_MESSAGE_ACK_FAILED) {
-            snprintf(tag, sizeof tag, " !! %s",
-                     mesh_message_ack_error_to_string(message->ack_error));
-        } else if (outbound && message->ack != MESH_MESSAGE_ACK_NONE) {
-            snprintf(tag, sizeof tag, " %s",
-                     message->ack == MESH_MESSAGE_ACK_DELIVERED ? "ok" : "..");
-        }
-        /* In the inbox, say where a line belongs; inside a conversation that is the title. */
-        char where[16] = "";
-        if (nav->inbox) {
-            if (message->broadcast) {
-                snprintf(where, sizeof where, " #%u", (unsigned)message->channel);
-            } else {
-                snprintf(where, sizeof where, " dm");
-            }
-        }
-        mesh_ui_line_reset(&line);
-        mesh_ui_line_printf(&line, "%s%s%s%s: %s", outbound ? ">" : "<", peer, where, tag,
-                            message->text);
-        fb_list_row_line(state, &list, i, &line, outbound ? FB_TONE_OUTBOUND : FB_TONE_INBOUND);
+    /* Measure every message, then let the transcript say which of them are on screen. Heights
+       come from the same component that draws them, so the window can never be a row out. */
+    const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_MESSAGES];
+    uint8_t heights[MESH_UI_MAX_MESSAGES];
+    struct fb_thread_row row;
+    for (uint32_t i = 0; i < count; ++i) {
+        fb_thread_row_build(snapshot, indices, i, false, &row);
+        heights[i] = fb_thread_height(layout, &row);
     }
+    struct mesh_ui_transcript window =
+        mesh_ui_transcript_window(heights, count, cursor, layout->rows);
 
-    /* Detail pane, under the rows the list left behind. */
-    const struct mesh_ui_message *selected = &messages->entries[indices[list.model.cursor]];
-    int y = layout->body_y + (int)list_rows * layout->line + layout->line / 2;
-    fb_draw_rule(state, FB_MARGIN, y - state->scale, (int)state->var.xres - 2 * FB_MARGIN,
-                 state->scale, k_fb_cursor_bg);
-    y += state->scale * 2;
+    /*
+     * The first bubble on screen always names its sender.
+     *
+     * A run that began above the window would otherwise arrive with its name suppressed - and so
+     * would every bubble behind it, because each one only looks at the message before it in the
+     * filtered log rather than at what is actually drawn. A channel viewport filled by one node's
+     * burst then said nothing at all about who was talking, which is the one thing a channel
+     * transcript is for.
+     *
+     * Naming it costs a row, and a taller first bubble can push the window's start later, so the
+     * window and the named bubble are settled together rather than in sequence. It terminates: a
+     * taller first item only ever moves `first` later, and the window's other two branches (the
+     * whole transcript fits; the cursor has scrolled above it) do not depend on the heights at
+     * all. Two passes is the normal case and the cap is a bound, not an expectation.
+     */
+    uint32_t named = count; /* count means "nothing forced yet" */
+    for (uint32_t pass = 0U; pass < 4U && window.first != named; ++pass) {
+        if (named < count) {
+            fb_thread_row_build(snapshot, indices, named, false, &row);
+            heights[named] = fb_thread_height(layout, &row); /* it was not the first after all */
+        }
+        named = window.first;
+        fb_thread_row_build(snapshot, indices, named, true, &row);
+        heights[named] = fb_thread_height(layout, &row);
+        window = mesh_ui_transcript_window(heights, count, cursor, layout->rows);
+    }
+    /* Only force what the heights were settled against, so the draw can never disagree with the
+       measure even if the loop ran out of passes. */
+    const bool settled = (named == window.first);
 
-    char clock[8];
-    fb_format_clock(selected->rx_time, clock, sizeof clock);
-    mesh_ui_line_reset(&line);
-    mesh_ui_line_printf(&line, "%s %s%s ch%u%s%s",
-                        selected->direction == MESH_MESSAGE_OUTBOUND ? "To" : "From",
-                        selected->peer_name[0] != '\0' ? selected->peer_name : "?",
-                        selected->broadcast ? " (all)" : "", (unsigned)selected->channel,
-                        clock[0] != '\0' ? " " : "", clock);
-    mesh_ui_line_fit(&line, layout->cols);
-    fb_draw_text(state, FB_MARGIN, y, mesh_ui_line_text(&line), state->scale, k_fb_dim);
-    y += layout->line;
-    fb_draw_wrapped(state, y, selected->text, layout->cols, detail_lines - 1, k_fb_text);
+    int y = layout->body_y + (int)window.pad * layout->line;
+    for (uint32_t i = window.first; i < window.first + window.count && i < count; ++i) {
+        fb_thread_row_build(snapshot, indices, i, settled && i == named, &row);
+        row.bubble.selected = (i == cursor);
+        fb_draw_bubble(state, layout, y, &row.bubble);
+        y += (int)heights[i] * layout->line;
+    }
 }
 
 /*
