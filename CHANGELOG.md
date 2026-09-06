@@ -1,3 +1,13 @@
+## [2.12.0](https://github.com/mcereal/mesh-client/compare/v2.11.0...v2.12.0) (2026-09-06)
+
+### Features
+
+* **ui:** add surface tiers, a shape scale and tonal accents to the theme ([3ad71db](https://github.com/mcereal/mesh-client/commit/3ad71db0020b84fa25b69b6fb6c47a21a671e359))
+
+### Bug Fixes
+
+* **ui:** keep the tab strip inside the panel at every glyph scale ([f6a7898](https://github.com/mcereal/mesh-client/commit/f6a78989edb89a25d042e04145ea15de6f28f588))
+
 ## [2.11.0](https://github.com/mcereal/mesh-client/compare/v2.10.1...v2.11.0) (2026-09-06)
 
 ### Features
