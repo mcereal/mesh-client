@@ -157,100 +157,182 @@ def write_png(frame, path):
 
 # ---- palette --------------------------------------------------------------------------------
 
+# Above this many distinct colours a clip is photographic rather than the HUD, and the exact
+# histogram stops being worth its cost: a 512x384 frame of gradients holds six figures of them,
+# and both median cut and the nearest-colour search scale with that count. The HUD's own frames
+# sit in the dozens, so the exact path - which is faster *and* lossless - is what they take.
+EXACT_COLOUR_LIMIT = 4096
 
-def median_cut(counts, wanted):
-    """Classic median cut over the colours actually present, weighted by how often.
-
-    The HUD is a flat palette and a 1-bit font, so this normally has nothing to do: only the
-    colour emoji push a frame past 256 distinct colours."""
-    boxes = [list(counts.items())]
-    while len(boxes) < wanted:
-        # Split whichever box spans the most in any one channel; stop when none can be split.
-        target = -1
-        target_span = 0
-        target_channel = 0
-        for index, box in enumerate(boxes):
-            if len(box) < 2:
-                continue
-            for channel in range(3):
-                low = min(color[channel] for color, _ in box)
-                high = max(color[channel] for color, _ in box)
-                if high - low > target_span:
-                    target, target_span, target_channel = index, high - low, channel
-        if target < 0:
-            break
-        box = sorted(boxes[target], key=lambda item: item[0][target_channel])
-        half = sum(weight for _, weight in box) // 2
-        running = 0
-        split = 1
-        for position, (_, weight) in enumerate(box):
-            running += weight
-            if running >= half:
-                split = max(1, min(position + 1, len(box) - 1))
-                break
-        boxes[target : target + 1] = [box[:split], box[split:]]
-
-    palette = []
-    for box in boxes:
-        total = sum(weight for _, weight in box) or 1
-        palette.append(tuple(
-            sum(color[channel] * weight for color, weight in box) // total for channel in range(3)
-        ))
-    return palette
+# Colours are folded to 5 bits a channel once that limit is passed, capping the histogram at
+# 32768 buckets however many colours the screen actually held. The output palette is 256 entries
+# either way, so the three low bits were never going to survive.
+COLOUR_BUCKET_SHIFT = 3
 
 
-def build_palette(frames):
+def _histogram(frames, shift, limit=None):
+    """Colour -> pixel count, or None if it passed `limit`. Keys are shifted when `shift` is."""
     counts = {}
     for frame in frames:
         rgb = frame.rgb
-        for index in range(0, len(rgb), 3):
-            key = (rgb[index], rgb[index + 1], rgb[index + 2])
-            counts[key] = counts.get(key, 0) + 1
-
-    if len(counts) <= 256:
-        palette = sorted(counts)
-    else:
-        palette = median_cut(counts, 256)
-
-    # A palette has to be a power of two, and at least four entries: GIF's minimum LZW code
-    # size is 2, which is a four-entry table.
-    size = 4
-    while size < len(palette):
-        size *= 2
-    palette = list(palette) + [(0, 0, 0)] * (size - len(palette))
-    return palette
+        if shift:
+            for index in range(0, len(rgb), 3):
+                key = (rgb[index] >> shift, rgb[index + 1] >> shift, rgb[index + 2] >> shift)
+                counts[key] = counts.get(key, 0) + 1
+        else:
+            for index in range(0, len(rgb), 3):
+                key = (rgb[index], rgb[index + 1], rgb[index + 2])
+                counts[key] = counts.get(key, 0) + 1
+        # Checked per frame rather than per pixel: one frame cannot hold more distinct colours
+        # than it has pixels, so the dict stays bounded either way, and the inner loop stays free
+        # of the test.
+        if limit is not None and len(counts) > limit:
+            return None
+    return counts
 
 
-class Quantizer:
-    def __init__(self, palette):
-        self.palette = palette
-        self.cache = {}
+class _Box:
+    """A median-cut box, carrying its own bounds.
 
-    def index_of(self, color):
-        found = self.cache.get(color)
+    The bounds are the point. Recomputing min/max over every colour in every box on each of the
+    255 splits is 255 full scans of the histogram, which is what made a photographic frame take
+    half a minute; a split touches two boxes, so their bounds are the only ones that change."""
+
+    __slots__ = ("colours", "weight", "span", "channel")
+
+    def __init__(self, colours):
+        self.colours = colours
+        self.weight = sum(weight for _, weight in colours)
+        self.span = 0
+        self.channel = 0
+        if len(colours) < 2:
+            return
+        for channel in range(3):
+            low = high = colours[0][0][channel]
+            for colour, _ in colours:
+                value = colour[channel]
+                if value < low:
+                    low = value
+                elif value > high:
+                    high = value
+            if high - low > self.span:
+                self.span = high - low
+                self.channel = channel
+
+    def split(self):
+        """Halves the box at the weighted median of its widest channel."""
+        ordered = sorted(self.colours, key=lambda item: item[0][self.channel])
+        half = self.weight // 2
+        running = 0
+        cut = 1
+        for position, (_, weight) in enumerate(ordered):
+            running += weight
+            if running >= half:
+                cut = max(1, min(position + 1, len(ordered) - 1))
+                break
+        return _Box(ordered[:cut]), _Box(ordered[cut:])
+
+    def average(self):
+        total = self.weight or 1
+        return tuple(
+            sum(colour[channel] * weight for colour, weight in self.colours) // total
+            for channel in range(3)
+        )
+
+
+def median_cut(counts, wanted):
+    """Classic median cut over the colours present, weighted by how often they occur."""
+    boxes = [_Box(list(counts.items()))]
+    while len(boxes) < wanted:
+        target = -1
+        target_span = 0
+        for index, box in enumerate(boxes):
+            if box.span > target_span:
+                target, target_span = index, box.span
+        if target < 0:
+            break  # every box holds one colour; there is nothing left to split
+        boxes[target : target + 1] = list(boxes[target].split())
+    return [box.average() for box in boxes]
+
+
+class Palette:
+    """The clip's colour table, and the map from a pixel to an index in it.
+
+    Two modes, because the two things this encodes could not be less alike. The HUD is a flat
+    palette and a 1-bit font — a whole clip of it holds a few dozen colours, so they are used
+    exactly and looked up by dict. A screen filmed off the device can be a photo, and there the
+    colours are folded into buckets first so that neither median cut nor the nearest-colour
+    search is unbounded."""
+
+    def __init__(self, frames):
+        counts = _histogram(frames, 0, EXACT_COLOUR_LIMIT)
+        if counts is not None and len(counts) <= 256:
+            self.shift = 0
+            entries = sorted(counts)
+        else:
+            self.shift = COLOUR_BUCKET_SHIFT
+            if counts is None:
+                counts = _histogram(frames, self.shift)
+            else:
+                # Between 256 and EXACT_COLOUR_LIMIT colours: fold what we already counted
+                # rather than walking every pixel a second time.
+                folded = {}
+                for colour, weight in counts.items():
+                    key = tuple(value >> self.shift for value in colour)
+                    folded[key] = folded.get(key, 0) + weight
+                counts = folded
+            # Median cut wants real colours, so each bucket stands in as its own centre.
+            half = 1 << (self.shift - 1)
+            counts = {
+                tuple((value << self.shift) | half for value in key): weight
+                for key, weight in counts.items()
+            }
+            entries = median_cut(counts, 256)
+
+        # A GIF colour table is a power of two, and at least four entries: the minimum LZW code
+        # size is 2, which is a four-entry table.
+        size = 4
+        while size < len(entries):
+            size *= 2
+        self.entries = list(entries) + [(0, 0, 0)] * (size - len(entries))
+
+        if self.shift == 0:
+            self.cache = {colour: index for index, colour in enumerate(entries)}
+        else:
+            self.cache = {}
+
+    def index_of(self, colour):
+        key = colour if self.shift == 0 else tuple(value >> self.shift for value in colour)
+        found = self.cache.get(key)
         if found is None:
             best = 0
             best_distance = None
-            for index, entry in enumerate(self.palette):
-                dr = color[0] - entry[0]
-                dg = color[1] - entry[1]
-                db = color[2] - entry[2]
+            for index, entry in enumerate(self.entries):
+                dr = colour[0] - entry[0]
+                dg = colour[1] - entry[1]
+                db = colour[2] - entry[2]
                 distance = dr * dr + dg * dg + db * db
                 if best_distance is None or distance < best_distance:
                     best, best_distance = index, distance
                     if distance == 0:
                         break
             found = best
-            self.cache[color] = found
+            self.cache[key] = found
         return found
 
     def map_frame(self, frame):
         rgb = frame.rgb
         out = bytearray(frame.width * frame.height)
+        cache = self.cache
+        shift = self.shift
         for position in range(len(out)):
             index = position * 3
-            out[position] = self.index_of((rgb[index], rgb[index + 1], rgb[index + 2]))
+            colour = (rgb[index], rgb[index + 1], rgb[index + 2])
+            key = colour if shift == 0 else (colour[0] >> shift, colour[1] >> shift,
+                                             colour[2] >> shift)
+            found = cache.get(key)
+            out[position] = found if found is not None else self.index_of(colour)
         return out
+
 
 
 # ---- GIF ------------------------------------------------------------------------------------
@@ -371,17 +453,16 @@ def changed_box(previous, current, width, height):
 
 
 def write_gif(frames, delays, path, loop=0):
-    palette = build_palette(frames)
-    quantizer = Quantizer(palette)
     width, height = frames[0].width, frames[0].height
     for frame in frames:
         if frame.width != width or frame.height != height:
             raise ValueError("every frame in a clip has to be the same size")
 
-    bits = max(2, (len(palette) - 1).bit_length())
+    palette = Palette(frames)
+    bits = max(2, (len(palette.entries) - 1).bit_length())
     out = bytearray(b"GIF89a")
     out += struct.pack("<HHBBB", width, height, 0xF0 | (bits - 1), 0, 0)
-    for entry in palette:
+    for entry in palette.entries:
         out += bytes(entry)
     out += b"\x21\xFF\x0BNETSCAPE2.0\x03\x01" + struct.pack("<H", loop) + b"\x00"
 
@@ -391,7 +472,7 @@ def write_gif(frames, delays, path, loop=0):
     # frame already showing is both smaller and more honest than repeating it.
     mapped = []
     for frame, delay_ms in zip(frames, delays):
-        current = quantizer.map_frame(frame)
+        current = palette.map_frame(frame)
         if mapped and mapped[-1][0] == current:
             mapped[-1][1] += delay_ms
             continue
@@ -497,10 +578,43 @@ def selftest():
             failures += 1
             print("lzw min code size %d round trip failed" % min_size)
 
+    # The palette, and specifically the bound on how much work a photographic frame can cause.
+    # Median cut and the nearest-colour search both scale with the number of distinct colours,
+    # so an unbounded histogram is not a slow path, it is a hang: 255 splits over six figures of
+    # colours took half a minute for one 512x384 frame before the fold existed.
+    flat = Frame(64, 64, bytearray())
+    for position in range(64 * 64):
+        colour = ((position % 5) * 40, (position % 3) * 60, (position % 7) * 30)
+        flat.rgb += bytes(colour)
+    flat_palette = Palette([flat])
+    if flat_palette.shift != 0:
+        failures += 1
+        print("a flat frame should use exact colours, not buckets")
+    for position in range(0, len(flat.rgb), 3):
+        colour = (flat.rgb[position], flat.rgb[position + 1], flat.rgb[position + 2])
+        if flat_palette.entries[flat_palette.index_of(colour)] != colour:
+            failures += 1
+            print("exact palette did not round trip %s" % (colour,))
+            break
+
+    noise = Frame(128, 128, bytearray(random.randrange(256) for _ in range(128 * 128 * 3)))
+    noisy_palette = Palette([noise])
+    bucket_limit = 1 << (3 * (8 - COLOUR_BUCKET_SHIFT))
+    if noisy_palette.shift != COLOUR_BUCKET_SHIFT:
+        failures += 1
+        print("a high-colour frame should fold into buckets")
+    if len(noisy_palette.entries) > 256:
+        failures += 1
+        print("palette has %d entries; a GIF takes 256" % len(noisy_palette.entries))
+    folded = _histogram([noise], COLOUR_BUCKET_SHIFT)
+    if len(folded) > bucket_limit:
+        failures += 1
+        print("folded histogram holds %d colours; the bound is %d" % (len(folded), bucket_limit))
+
     if failures:
         print("frames.py: %d failure(s)" % failures)
         return 1
-    print("frames.py: LZW round trip ok")
+    print("frames.py: LZW round trip and palette bounds ok")
     return 0
 
 

@@ -174,6 +174,11 @@ handful of frames a second. **It is not real time.** `-r MS` sets how fast it pl
 fast it was shot: slow it down when the capture was slow. `-s N` downscales, and defaults to 2
 because a 1024x768 GIF is four times the file for no more legibility.
 
+A GIF carries 256 colours, and the HUD uses a few dozen, so a clip of MeshClient is exact. Film
+something photographic instead - the launcher's box art, `-P 1` - and the encoder folds colours
+into buckets before choosing the palette, which is coarser and larger but finishes in seconds
+rather than minutes.
+
 To see a UI change without a Brick at all - from a container, CI, or a cloud session -
 `scripts/ui-capture.sh` renders the same screens off-screen from a scripted sequence of button
 presses. See [`docs/ui.md`](ui.md#looking-at-a-ui-change).

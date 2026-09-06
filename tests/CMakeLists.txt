@@ -62,7 +62,9 @@ set_tests_properties(meshclient_core_unit PROPERTIES LABELS "unit")
 
 # scripts/frames.py hand-rolls GIF's variable-width LZW, and the one thing that is easy to get
 # subtly wrong there - when the code width grows - produces a file that still opens and shows
-# garbage. `selftest` round-trips the compressor through an independently written decoder.
+# garbage. `selftest` round-trips the compressor through an independently written decoder, and
+# checks the bound on the colour histogram: median cut scales with the number of distinct
+# colours, so an unbounded one is not a slow path but a hang on any screen that is a photo.
 add_test(NAME meshclient_frames_codec
          COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/frames.py selftest)
 set_tests_properties(meshclient_frames_codec PROPERTIES LABELS "unit")
