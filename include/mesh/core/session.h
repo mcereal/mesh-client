@@ -578,9 +578,17 @@ int mesh_session_remove_node(struct mesh_session *session, uint32_t node_id);
  */
 int mesh_session_forget_nodes(struct mesh_session *session, bool only_off_nodedb);
 
-/* How many roster entries carry `in_nodedb == false`: nodes we remember and the radio does
-   not. Survives a link drop, because so does the roster and so does the answer. */
-uint32_t mesh_session_nodes_off_nodedb(const struct mesh_session *session);
+/*
+ * How many entries the same call would drop - the count, not the act. Shares its predicate
+ * with mesh_session_forget_nodes(), so the number a Settings row advertises is exactly what
+ * pressing it removes: a roster whose off-radio nodes are every one of them pinned answers 0
+ * here, and the row becomes a fact rather than a press that would do nothing.
+ *
+ * Not the same number as the Nodes tab's "off radio" total, which counts what is on screen
+ * and includes the pinned and our own record: those rows are still nodes the radio has
+ * forgotten, they are simply not ones this drops.
+ */
+uint32_t mesh_session_forgettable_nodes(const struct mesh_session *session, bool only_off_nodedb);
 
 /*
  * The radio's own location, set by hand: `set_fixed_position` stores the coordinates and turns

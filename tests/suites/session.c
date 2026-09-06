@@ -762,15 +762,17 @@ MESH_TEST_CASE(session_forget_nodes, unit) {
     const struct mesh_node_summary *early = mesh_test_session_find_node(&session, 0x2222U);
     MESH_TEST_FAIL_IF(early == NULL || !early->in_nodedb,
                       "a node is not in the NodeDB until the sync ends");
-    MESH_TEST_FAIL_IF(mesh_session_nodes_off_nodedb(&session) != 0U,
-                      "a sync in progress counted a node as off-radio");
+    MESH_TEST_FAIL_IF(mesh_session_forgettable_nodes(&session, true) != 0U,
+                      "a sync in progress counted a node as one to forget");
 
     /* Now the real thing: four nodes, ourselves among them, as a radio replays them. */
     const uint32_t all[] = {0x1111U, 0x2222U, 0x3333U, 0x4444U};
     MESH_TEST_FAIL_IF(!session_test_sync(&session, 0x1111U, all, 4U), "first sync");
     MESH_TEST_FAIL_IF(session.handshake.node_count != 4U, "the roster did not fill");
-    MESH_TEST_FAIL_IF(mesh_session_nodes_off_nodedb(&session) != 0U,
+    MESH_TEST_FAIL_IF(mesh_session_forgettable_nodes(&session, true) != 0U,
                       "a freshly synced roster has nodes the radio does not");
+    MESH_TEST_FAIL_IF(mesh_session_forgettable_nodes(&session, false) != 3U,
+                      "emptying the roster would drop everything but our own record");
 
     /* Pin one of the two the radio is about to forget. */
     for (size_t i = 0; i < session.handshake.node_count; ++i) {
@@ -785,8 +787,11 @@ MESH_TEST_CASE(session_forget_nodes, unit) {
     const uint32_t after_reset[] = {0x1111U, 0x2222U};
     MESH_TEST_FAIL_IF(!session_test_sync(&session, 0x1111U, after_reset, 2U), "second sync");
     MESH_TEST_FAIL_IF(session.handshake.node_count != 4U, "the reset took the roster with it");
-    MESH_TEST_FAIL_IF(mesh_session_nodes_off_nodedb(&session) != 2U,
-                      "the two nodes the radio dropped are not counted");
+    /* Two nodes are off the radio and one of them is pinned, so the count the Settings row
+       shows is one - what the press would remove, not what has gone stale. A row advertising
+       the other number would sit there offering to drop a node it always keeps. */
+    MESH_TEST_FAIL_IF(mesh_session_forgettable_nodes(&session, true) != 1U,
+                      "the pinned orphan was counted as one the press would drop");
 
     /* Off-radio only: the unpinned orphan goes and nothing else does. */
     MESH_TEST_FAIL_IF(mesh_session_forget_nodes(&session, true) != 1,
@@ -801,8 +806,12 @@ MESH_TEST_CASE(session_forget_nodes, unit) {
     MESH_TEST_FAIL_IF(session.handshake.node_count != 3U, "the roster did not shrink by one");
     MESH_TEST_FAIL_IF(mesh_session_forget_nodes(&session, true) != 0,
                       "a second press found something else to drop");
+    MESH_TEST_FAIL_IF(mesh_session_forgettable_nodes(&session, true) != 0U,
+                      "the count and the act disagree: nothing left to drop, still offered");
 
     /* All of them: everything but ourselves and the pin. */
+    MESH_TEST_FAIL_IF(mesh_session_forgettable_nodes(&session, false) != 1U,
+                      "emptying the roster would drop the protected records too");
     MESH_TEST_FAIL_IF(mesh_session_forget_nodes(&session, false) != 1,
                       "emptying the roster dropped the wrong number");
     MESH_TEST_FAIL_IF(session.handshake.node_count != 2U ||

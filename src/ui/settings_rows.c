@@ -246,6 +246,21 @@ static void item_action(struct item_list *list, const char *label, const char *v
     }
 }
 
+/* One of the two rows that drop cached nodes. The value column is the count the press would
+   remove, so a row with nothing to remove is a fact rather than a press that does nothing -
+   and the two can never disagree, because the count came through the same predicate the
+   forget itself uses. */
+static void forget_row(struct item_list *list, const char *label, uint32_t forgettable,
+                       enum mesh_ui_settings_action action) {
+    if (forgettable == 0U) {
+        item_text(list, label, MESH_UI_SETTING_INFO, "nothing to drop");
+        return;
+    }
+    char value[MESH_UI_SETTINGS_VALUE_MAX];
+    snprintf(value, sizeof value, "%u node%s", forgettable, forgettable == 1U ? "" : "s");
+    item_action(list, label, value, action);
+}
+
 /* An action the radio has to be reachable for. Without a link it becomes the same row saying
    why, so the section keeps its shape whatever the transport is doing. */
 static void item_radio_action(struct item_list *list, const char *label,
@@ -940,22 +955,14 @@ static void build_actions(const struct mesh_ui_settings *s,
     }
     item_radio_action(list, "Reset node database", MESH_UI_SETTINGS_ACTION_RESET_NODEDB, connected);
 
-    const uint32_t cached = handshake != NULL ? handshake->node_count : 0U;
-    const uint32_t off_radio = handshake != NULL ? handshake->nodes_off_radio : 0U;
-    char count[MESH_UI_SETTINGS_VALUE_MAX];
-    if (off_radio == 0U) {
-        item_text(list, "Forget off-radio", MESH_UI_SETTING_INFO, "none cached");
-    } else {
-        snprintf(count, sizeof count, "%u node%s", off_radio, off_radio == 1U ? "" : "s");
-        item_action(list, "Forget off-radio", count,
-                    MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES);
-    }
-    if (cached == 0U) {
-        item_text(list, "Forget all cached", MESH_UI_SETTING_INFO, "none cached");
-    } else {
-        snprintf(count, sizeof count, "%u node%s", cached, cached == 1U ? "" : "s");
-        item_action(list, "Forget all cached", count, MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES);
-    }
+    /* Both numbers are what the press would remove, not what is cached or stale: a forget
+       keeps our own record and every pin, so a roster of eighty nodes that are all pinned has
+       nothing to drop and both rows say so. */
+    forget_row(list, "Forget off-radio",
+               handshake != NULL ? handshake->nodes_forgettable_off_radio : 0U,
+               MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES);
+    forget_row(list, "Forget all cached", handshake != NULL ? handshake->nodes_forgettable_all : 0U,
+               MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES);
 
     item_radio_action(list, "Factory reset config", MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG,
                       connected);

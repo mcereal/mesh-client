@@ -749,30 +749,32 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
         goto cleanup;
     }
 
-    /* With every node still in the radio's database there is nothing for the first row to
-       drop, so it is a fact rather than a press that would do nothing. */
+    /* Every row here reads the count the app published for it, and that count is what the
+       press would remove - so with nothing to remove the row is a fact. The fixture publishes
+       no forget counts, which is the state before the first sync fills them. */
     struct mesh_ui_settings_item item;
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
                                MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 3U, &item) ||
         strcmp(item.label, "Forget off-radio") != 0 || item.kind != MESH_UI_SETTING_INFO ||
-        strcmp(item.value, "none cached") != 0) {
+        strcmp(item.value, "nothing to drop") != 0) {
         failure = "with nothing off-radio the first forget row should be a fact";
         goto cleanup;
     }
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
                                MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 4U, &item) ||
-        strcmp(item.label, "Forget all cached") != 0 || item.kind != MESH_UI_SETTING_ACTION ||
-        strcmp(item.value, "3 nodes") != 0 ||
-        item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES) {
-        failure = "the second forget row should offer the roster it would empty";
+        strcmp(item.label, "Forget all cached") != 0 || item.kind != MESH_UI_SETTING_INFO ||
+        strcmp(item.value, "nothing to drop") != 0) {
+        failure = "an empty forget count should not draw as a press";
         goto cleanup;
     }
 
-    /* Now the state a NodeDB reset leaves: two of the three are only ours. */
+    /* Now the state a NodeDB reset leaves: two of the three are only ours, and a forget would
+       take both. */
     struct mesh_ui_handshake_state handshake = store.handshake;
     handshake.nodes[1].in_nodedb = false;
     handshake.nodes[2].in_nodedb = false;
-    handshake.nodes_off_radio = 2U;
+    handshake.nodes_forgettable_off_radio = 2U;
+    handshake.nodes_forgettable_all = 2U;
     handshake.my_info.nodedb_entries = 1U;
     mesh_ui_store_set_handshake(&store, &handshake);
 
@@ -783,6 +785,28 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
         failure = "the row should say how many nodes it would forget";
         goto cleanup;
     }
+
+    /* The case the row must not get wrong: two nodes are off the radio and a forget keeps
+       both, so the row is a fact even though the Nodes tab still marks two rows "off radio".
+       A press that would drop nothing must never be offered. */
+    struct mesh_ui_handshake_state pinned = handshake;
+    pinned.nodes[1].is_favorite = true;
+    pinned.nodes[2].is_favorite = true;
+    pinned.nodes_forgettable_off_radio = 0U;
+    pinned.nodes_forgettable_all = 0U;
+    mesh_ui_store_set_handshake(&store, &pinned);
+    if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
+                               MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 3U, &item) ||
+        item.kind != MESH_UI_SETTING_INFO || strcmp(item.value, "nothing to drop") != 0) {
+        failure = "a roster of pinned orphans should offer no press at all";
+        goto cleanup;
+    }
+    /* The tab still says so: being pinned does not put a node back on the radio. */
+    if (mesh_ui_handshake_off_radio(&store.handshake) != 2U) {
+        failure = "the Nodes tab should still count a pinned node the radio has forgotten";
+        goto cleanup;
+    }
+    mesh_ui_store_set_handshake(&store, &handshake);
 
     struct mesh_ui_action action;
     for (int i = 0; i < 4; ++i) {

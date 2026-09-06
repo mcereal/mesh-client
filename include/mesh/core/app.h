@@ -104,6 +104,9 @@ struct mesh_app {
      * Status screen says 2. A *rise* is the signal, not the count itself - a roster that has
      * held the same 79 orphans since the last run is not news, and toasting it on every launch
      * would be. Seeded from the cache at startup for exactly that reason.
+     *
+     * Counted as what the Settings row the toast names would drop, not as every off-radio
+     * node, so a toast never sends the user to a row with nothing to do.
      */
     uint32_t ui_nodes_off_radio_seen;
     uint32_t ui_nodes_off_radio_sync_id;

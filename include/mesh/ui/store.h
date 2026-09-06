@@ -639,13 +639,18 @@ struct mesh_ui_handshake_state {
     bool has_config;
     uint32_t node_count;
     /*
-     * How many of the roster's nodes the radio's own NodeDB no longer carries - the ones the
-     * Nodes tab marks "off radio". Counted over the *whole* session roster rather than the
-     * 128 published below, so the Settings row that offers to drop them says how many there
-     * really are; it is filled on every publish and recounted when the cache is loaded, so it
-     * is never stale against the rows beside it.
+     * What each of the two Settings forget rows would actually drop, counted over the *whole*
+     * session roster rather than the 128 published below - the roster holds twice that, and a
+     * row that offers to empty it has to say how many it empties.
+     *
+     * They are what the action removes, not what is off the radio: our own record and every
+     * pinned node survive a forget, so a roster whose off-radio nodes are all pinned reports
+     * zero here and the row draws as a fact. The Nodes tab's own "off radio" total is a
+     * different question - what is on screen and stale - and is counted from the rows below by
+     * mesh_ui_handshake_off_radio(), so it can never exceed the count beside it.
      */
-    uint32_t nodes_off_radio;
+    uint32_t nodes_forgettable_off_radio;
+    uint32_t nodes_forgettable_all;
     char primary_channel[33];
     char my_short_name[6];
     struct mesh_ui_node_summary nodes[MESH_UI_MAX_HANDSHAKE_NODES];
@@ -782,6 +787,15 @@ void mesh_ui_store_set_traceroute(struct mesh_ui_store *store,
    This exists because the transport's message log starts empty on every run: without merging,
    the first publish would push an empty list over the cache loaded at startup and the next
    save would erase the conversation for good. */
+/*
+ * How many of the nodes in `handshake` the radio's NodeDB no longer carries - the rows the
+ * Nodes tab dims and marks "off radio". Counted from the published rows themselves rather than
+ * carried alongside them, so it is always a number in the same scope as `node_count`: the UI
+ * holds 128 nodes and the session roster holds 256, and "128 nodes, 200 off radio" is not a
+ * thing any screen should be able to draw.
+ */
+uint32_t mesh_ui_handshake_off_radio(const struct mesh_ui_handshake_state *handshake);
+
 void mesh_ui_message_list_merge(const struct mesh_ui_message_list *cached,
                                 const struct mesh_ui_message_list *live,
                                 struct mesh_ui_message_list *out);

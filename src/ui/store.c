@@ -330,6 +330,22 @@ static bool mesh_ui_message_list_contains(const struct mesh_ui_message_list *lis
     return false;
 }
 
+uint32_t mesh_ui_handshake_off_radio(const struct mesh_ui_handshake_state *handshake) {
+    if (handshake == NULL) {
+        return 0U;
+    }
+    const uint32_t count = handshake->node_count > MESH_UI_MAX_HANDSHAKE_NODES
+                               ? MESH_UI_MAX_HANDSHAKE_NODES
+                               : handshake->node_count;
+    uint32_t off = 0U;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (!handshake->nodes[i].in_nodedb) {
+            ++off;
+        }
+    }
+    return off;
+}
+
 void mesh_ui_message_list_merge(const struct mesh_ui_message_list *cached,
                                 const struct mesh_ui_message_list *live,
                                 struct mesh_ui_message_list *out) {
@@ -1286,14 +1302,9 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
         final_count = MESH_UI_MAX_HANDSHAKE_NODES;
     }
     handshake.node_count = final_count;
-    /* Recounted rather than persisted: the flag it counts is on every node line already, and a
-       count of its own would be one more thing in the file that could disagree with them. */
-    handshake.nodes_off_radio = 0U;
-    for (uint32_t i = 0; i < final_count; ++i) {
-        if (!handshake.nodes[i].in_nodedb) {
-            ++handshake.nodes_off_radio;
-        }
-    }
+    /* The two forget counts are deliberately left at zero: they describe what the *session's*
+       roster would lose, and the session is seeded from this cache a moment later, so the
+       first publish fills them from the roster itself rather than from the 128 rows here. */
 
     if (handshake_valid) {
         if (!handshake.cached) {

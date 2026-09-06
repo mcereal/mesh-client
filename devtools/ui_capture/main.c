@@ -780,15 +780,24 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
                     name);
             exit(1);
         }
-        handshake.nodes_off_radio = 0U;
+        /* What the Settings rows offer to drop. Pinned nodes and our own record survive a
+           forget, so they are not in either count - the same arithmetic the app publishes. */
+        const uint32_t off_radio = mesh_ui_handshake_off_radio(&handshake);
+        handshake.nodes_forgettable_off_radio = 0U;
+        handshake.nodes_forgettable_all = 0U;
         for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
-            if (!handshake.nodes[i].in_nodedb) {
-                ++handshake.nodes_off_radio;
+            const struct mesh_ui_node_summary *node = &handshake.nodes[i];
+            if (node->is_favorite || node->node_id == handshake.my_info.node_num) {
+                continue;
+            }
+            ++handshake.nodes_forgettable_all;
+            if (!node->in_nodedb) {
+                ++handshake.nodes_forgettable_off_radio;
             }
         }
         /* The radio's own count goes with them: after a reset its database holds what it has
            re-heard, which is what makes the Status screen and the Nodes tab disagree. */
-        handshake.my_info.nodedb_entries = handshake.node_count - handshake.nodes_off_radio;
+        handshake.my_info.nodedb_entries = handshake.node_count - off_radio;
         mesh_ui_store_set_handshake(&cap->store, &handshake);
         uicap_emit(cap);
         return;

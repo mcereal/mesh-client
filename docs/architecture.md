@@ -97,8 +97,13 @@ and the walk home would replace them again. So:
   `mesh_session_forget_nodes(only_off_nodedb)` drops either the nodes `in_nodedb == false`
   marks or the whole roster, always keeping our own record and every pinned node, and sends
   nothing - so it works with no link at all. Settings > Radio actions carries both as rows,
-  under the NodeDB reset that is the usual reason to want them; `mesh_session_nodes_off_nodedb`
-  is the count they show and the Nodes tab's "off radio" total.
+  under the NodeDB reset that is the usual reason to want them. Each row shows
+  `mesh_session_forgettable_nodes(only_off_nodedb)` — the count *that press removes*, through
+  the same predicate the forget itself uses, so a roster whose orphans are every one of them
+  pinned reports zero and the row draws as a fact rather than a press that would do nothing.
+  That is a different number from the Nodes tab's "off radio" total, which is what is on screen
+  and stale (`mesh_ui_handshake_off_radio`, counted from the published rows so it can never
+  exceed the count beside it — the UI carries 128 nodes and the roster holds 256).
 - `mesh_session_seed_node` restores the roster the last run persisted (`mesh_app_seed_nodes_from_cache`,
   from the UI handshake cache) before any radio is attached, so a restart is not a reset either.
   The owning radio travels with it as its own `handshake_roster` line rather than as

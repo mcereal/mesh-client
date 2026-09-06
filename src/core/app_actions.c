@@ -202,7 +202,7 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
         /* The hint that sent the user here compares each sync against the last, so the press
            that acts on it has to move that baseline too: without this, a divergence the user
            has just cleared would still be the number the next sync is measured against. */
-        app->ui_nodes_off_radio_seen = mesh_session_nodes_off_nodedb(&app->session);
+        app->ui_nodes_off_radio_seen = mesh_session_forgettable_nodes(&app->session, true);
         mesh_ui_store_set_toast(&app->ui_store, now, toast);
         mesh_app_publish_ui_state(app);
         return;
