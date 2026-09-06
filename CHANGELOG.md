@@ -1,3 +1,13 @@
+## [2.11.0](https://github.com/mcereal/mesh-client/compare/v2.10.1...v2.11.0) (2026-09-06)
+
+### Features
+
+* **ui:** add a reusable card component and rebuild the Status tab on it ([7ee9f78](https://github.com/mcereal/mesh-client/commit/7ee9f78c665b460a9b525de52d356074d47a40b9))
+
+### Bug Fixes
+
+* **ui:** clip a card's trailing note instead of dropping it whole ([9bf865b](https://github.com/mcereal/mesh-client/commit/9bf865ba78e58851196b8b7b20bfa07180f23ef4))
+
 ## [2.10.1](https://github.com/mcereal/mesh-client/compare/v2.10.0...v2.10.1) (2026-09-06)
 
 ### Bug Fixes
