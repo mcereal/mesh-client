@@ -151,6 +151,22 @@ to `actions/checkout` is the one persisted into `.git/config`, so it is the one 
 ruleset guards the branch, not the releases, so only the pusher has to be exempt - and the
 release stays published by `github-actions[bot]`, as every earlier one was.
 
+#### The skip marker is the release bot's alone
+
+The release commit's message ends with `[skip ci]`, which is how it avoids
+kicking off a build of a commit that only moves a version number. That marker is not a comment:
+GitHub reads it out of *any* head commit message and skips the workflow.
+
+Now that `main` requires those checks, a marker in a pull request's head commit is a trap. The
+checks never run, so they can never pass, so the pull request cannot be merged - and nothing on
+the page says why, because there is no failure to look at. This has already happened once: the
+commit introducing this very section carried the marker inside a sentence *explaining* it, and
+CI silently declined to run.
+
+If a message needs to talk about the marker, spell it in words, as this paragraph's neighbours
+do. If a pull request has already been pushed with one, amend the message and force-push the
+branch; there is no way to ask for the skipped run back.
+
 **A fine-grained PAT expires.** When it does, releases fail exactly the way they did before it
 existed; see the GH013 entry under [Troubleshooting](#the-release-fails-with-gh013-repository-rule-violations).
 Setting a calendar reminder for the expiry is worth more than it sounds.
