@@ -135,7 +135,7 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | UI | `src/ui/` | store/controller + `nav*.c` + `settings*.c` + `layout.c` + `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
 | UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window; cards, buttons, list rows, field rows, switches |
 | Animation | `src/ui/anim.c`, `src/ui/controller.c` | fixed-point easing + a table keyed per control; the repaint timerfd that feeds it |
-| Themes | `src/ui/theme.c`, `src/ui/font.c` | palette by role, metrics, font registry; `MESHCLIENT_THEME` or Settings > About picks one |
+| Themes | `src/ui/theme.c`, `src/ui/font.c` | palette by role, surface tiers, the shape scale, metrics, font registry; `MESHCLIENT_THEME` or Settings > About picks one |
 | Text | `src/utils/text.c`, `src/ui/{font5x7,emoji}.c` | UTF-8 sanitising, cell-based measurement |
 | Strings | `src/i18n/strings.c`, `include/mesh/i18n/catalog.def` | the string catalog and the locale registry |
 | Dev tools | `devtools/`, `scripts/{ui-capture.sh,frames.py}` | off-screen UI capture; PNG/GIF encoding, stdlib only |
@@ -159,11 +159,11 @@ fails on a literal that looks like prose in a renderer. Logs, region codes, hard
 names and modem presets stay untranslated on purpose - see
 [`docs/i18n.md`](docs/i18n.md).
 
-**No colour, margin or glyph size is spelled out in a renderer.** A screen names a *tone*
-(`MESH_UI_TONE_BAD`), a widget names a *role* (`MESH_UI_COLOR_SURFACE_SEL`), and
-`src/ui/theme.c` answers both - which is what makes a theme switch total instead of a hunt.
-Geometry is the same: the margin, the glyph scale, the bubble width all live in
-`struct mesh_ui_metrics`. Adding a theme is a table entry, and
+**No colour, margin, glyph size or corner radius is spelled out in a renderer.** A screen names
+a *tone* (`MESH_UI_TONE_BAD`), a widget names a *role* (`MESH_UI_COLOR_SURFACE_SEL`) or a
+*shape* (`MESH_UI_SHAPE_FULL`), and `src/ui/theme.c` answers all three - which is what makes a
+theme switch total instead of a hunt. Geometry is the same: the margin, the glyph scale, the
+bubble width and the shape scale all live in `struct mesh_ui_metrics`. Adding a theme is a table entry, and
 `mesh_ui_theme_validate()` holds it to a contrast contract in the tests. See
 [`docs/ui.md`](docs/ui.md#themes).
 

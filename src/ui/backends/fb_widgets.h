@@ -45,20 +45,37 @@ struct fb_rect {
 };
 
 /*
+ * How much of itself a button shows when the cursor is not on it.
+ *
+ * The same three the phone and desktop platforms all landed on, for the same reason: a screen
+ * full of controls with equal weight has no shape, so a button says how much it is asking for.
+ * Each variant is a *pair* of colours the theme is validated on, at rest and under the cursor,
+ * which is why this is an enum here rather than a fill colour at the call site.
+ */
+enum fb_button_variant {
+    FB_BUTTON_TEXT = 0, /* nothing until the cursor arrives: a keyboard's character keys */
+    FB_BUTTON_FILLED,   /* always visibly a control: the keyboard's action row */
+    /* The accent, held back far enough to sit behind a label: the selected tab. What Material
+       calls a tonal button, and what its navigation bar's active indicator is. */
+    FB_BUTTON_TONAL,
+};
+
+/*
  * A pressable cell with a centred label.
  *
  * The on-screen keyboard's character keys and its action row are both this, and so is a tab
- * once it is given a rect. `filled` is what separates a key that only shows itself when the
- * cursor is on it from one that is always visibly a button.
+ * once it is given a rect.
  */
 struct fb_button {
     struct fb_rect rect;
     const char *label;
     bool selected; /* the cursor is on it */
-    bool filled;   /* keep a resting fill when it is not selected */
-    /* Label tone for a button with no fill at all. A filled one - resting or selected - draws
-       its label in MESH_UI_COLOR_TEXT_ON_SEL instead, because that is the pair the theme is
-       validated on; a tone chosen against the ground says nothing about a fill over it. */
+    enum fb_button_variant variant;
+    enum mesh_ui_shape shape; /* how round; MESH_UI_SHAPE_FULL is a pill */
+    /* Label tone for a button showing no fill at all, which is FB_BUTTON_TEXT at rest and
+       nothing else. Every other state draws its label in the colour the theme is validated on
+       against that state's fill; a tone chosen against the ground says nothing about a fill
+       over it. */
     enum mesh_ui_tone idle_tone;
     int scale; /* glyph multiplier for the label */
 };
@@ -68,6 +85,11 @@ void fb_draw_button(const struct mesh_ui_backend_fb_state *state, const struct f
 /*
  * A pill sized to its own label, laid out left to right. Returns the x the next chip starts
  * at, so a strip of them is a loop with no arithmetic in it.
+ *
+ * The active one is a tonal fill and the rest are dim labels on whatever they sit on, which is
+ * the shape a tab strip, a filter row and a segmented control all have. It is drawn at
+ * MESH_UI_SHAPE_FULL for the reason a badge is: a capsule sized to its own text is read as a
+ * label rather than as a box, and a strip of them is read as a set.
  */
 int fb_draw_chip(const struct mesh_ui_backend_fb_state *state, int x, int y, const char *label,
                  bool active, int scale);
@@ -312,10 +334,11 @@ size_t fb_field_label_cols(const struct mesh_ui_backend_fb_state *state,
  * the "does another row fit" test that was written out by hand on every dense screen.
  *
  * Colours are the theme's: the fill is MESH_UI_COLOR_SURFACE, which every theme already owes
- * body text 4.5:1 and the four card tones 3:1, and the edge is MESH_UI_COLOR_RULE, which has to
- * be visible against both. The heading takes the card's own tone, so a card reports the state
- * of what it holds - the Link card goes bad when the radio is gone - without a second cue to
- * invent.
+ * body text 4.5:1 and the four card tones 3:1, and the edge is MESH_UI_COLOR_OUTLINE, which has
+ * to be visible against both. Its corners are MESH_UI_SHAPE_MD, so how round a card is belongs
+ * to the theme like everything else about it. The heading takes the card's own tone, so a card
+ * reports the state of what it holds - the Link card goes bad when the radio is gone - without
+ * a second cue to invent.
  */
 
 #define FB_CARD_ROWS_MAX 12U

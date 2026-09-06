@@ -42,10 +42,26 @@ struct mesh_ui_rgb {
  * extra steps.
  */
 enum mesh_ui_color {
-    MESH_UI_COLOR_BG = 0,         /* the ground the whole frame is cleared to */
-    MESH_UI_COLOR_SURFACE,        /* a raised panel on the ground: the draft box */
+    MESH_UI_COLOR_BG = 0, /* the ground the whole frame is cleared to */
+    /*
+     * The three surface tiers, lowest first.
+     *
+     * A surface says how far a thing is from the ground, and the whole point of having more
+     * than one is that a panel over a panel has to be tellable from it. The Brick's display
+     * engine composites fb0 against its own background layer rather than against what we have
+     * already drawn, so there is no alpha to shade with and no drop shadow to cast - the
+     * distance is carried by the fill alone, which is how Material's tonal elevation works and
+     * why it survives a light palette as well as a dark one.
+     *
+     * Lower is nearer the ground, so on a dark theme the tiers get lighter as they rise and on
+     * a light one they get darker. A theme states all three and nothing that draws knows which
+     * direction its palette went.
+     */
+    MESH_UI_COLOR_SURFACE_LOW,    /* recessed chrome: the ground the tab strip sits on */
+    MESH_UI_COLOR_SURFACE,        /* a panel on the ground: a card */
+    MESH_UI_COLOR_SURFACE_HIGH,   /* raised over the body: the keyboard's draft box */
     MESH_UI_COLOR_SURFACE_SEL,    /* the fill under the cursor, and a button at rest */
-    MESH_UI_COLOR_SURFACE_ACTIVE, /* the active tab, a pressed button */
+    MESH_UI_COLOR_SURFACE_ACTIVE, /* a pressed button */
     MESH_UI_COLOR_TEXT,           /* body text */
     MESH_UI_COLOR_TEXT_DIM,       /* headings, secondary lines, anything not yet loaded */
     MESH_UI_COLOR_TEXT_STRONG,    /* unread, unsaved: the row the eye should land on */
@@ -55,12 +71,33 @@ enum mesh_ui_color {
        two tiers of text under the cursor - which the conversation list does - needs its own
        quiet colour rather than flattening to TEXT_ON_SEL. */
     MESH_UI_COLOR_TEXT_ON_SEL_DIM,
-    MESH_UI_COLOR_ACCENT,        /* titles, actions, channels, the current target */
-    MESH_UI_COLOR_ON_ACCENT,     /* text drawn on an accent fill: the unread badge */
-    MESH_UI_COLOR_GOOD,          /* connected, healthy */
-    MESH_UI_COLOR_BAD,           /* disconnected, failed, armed to destroy something */
-    MESH_UI_COLOR_RULE,          /* hairline separators */
-    MESH_UI_COLOR_RULE_STRONG,   /* the rule under the tab strip */
+    MESH_UI_COLOR_ACCENT,    /* titles, actions, channels, the current target */
+    MESH_UI_COLOR_ON_ACCENT, /* text drawn on an accent fill: the unread badge */
+    /*
+     * The accent's quiet half: a fill that says "this one" without shouting it, and the ink
+     * that goes on it.
+     *
+     * A full accent fill is the right answer for a badge, which is small and has to be found
+     * across the panel. It is the wrong one for anything the size of a tab, where a block of
+     * saturated colour under a label becomes the loudest thing on the screen and the label
+     * stops being read. The container is the same hue held back far enough to sit behind text -
+     * which is what a selected tab, a tonal button and an assist chip all want.
+     */
+    MESH_UI_COLOR_ACCENT_CONTAINER,
+    MESH_UI_COLOR_ON_ACCENT_CONTAINER,
+    MESH_UI_COLOR_GOOD,        /* connected, healthy */
+    MESH_UI_COLOR_BAD,         /* disconnected, failed, armed to destroy something */
+    MESH_UI_COLOR_RULE,        /* hairline separators */
+    MESH_UI_COLOR_RULE_STRONG, /* the rule under the tab strip */
+    /*
+     * The edge of a container, which is not the same job as a separator.
+     *
+     * A rule divides content that is already on one surface; an outline is what says a surface
+     * is there at all. They were one role while a card was the only thing with an edge, and
+     * they part company the moment a second container wants an edge that reads against a
+     * different fill: a rule is tuned to disappear politely, an outline has to be found.
+     */
+    MESH_UI_COLOR_OUTLINE,
     MESH_UI_COLOR_BUBBLE_IN,     /* a message from someone else */
     MESH_UI_COLOR_BUBBLE_OUT,    /* one of ours */
     MESH_UI_COLOR_BUBBLE_IN_SEL, /* the same two under the cursor */
@@ -113,6 +150,30 @@ enum mesh_ui_tone {
 #define MESH_UI_AVATAR_TINTS 6U
 
 /*
+ * The shape scale: how round a container's corners are, by what kind of container it is.
+ *
+ * A renderer no more names a radius than it names a colour. It names a shape - "this is a
+ * pill", "this is a panel" - and the theme answers, which is what makes a squarer or a rounder
+ * look one table entry instead of a hunt through every fill in the backend. It is the same
+ * move as `enum mesh_ui_tone`, one axis over.
+ *
+ * The steps are in *glyph-scale multiples*, not pixels, for the reason `card_pad` is: a theme
+ * asking for bigger text gets proportionally rounder corners, so the whole frame stays in
+ * proportion rather than the corners staying put while everything around them grows.
+ */
+enum mesh_ui_shape {
+    MESH_UI_SHAPE_NONE = 0, /* square: a rule, a bar, anything that meets an edge */
+    MESH_UI_SHAPE_SM,       /* a row highlight, a keycap - a shape the eye reads as a rectangle */
+    MESH_UI_SHAPE_MD,       /* a panel: a card, a text field */
+    MESH_UI_SHAPE_LG,       /* a surface over the body: a dialog, a sheet */
+    /* As round as the shorter side allows - a capsule, or a circle when it is square. A badge,
+       a chip, an avatar. Not a step count, so it has no entry in the table below: "half of
+       whatever this turns out to be" is not a length a theme can state in advance. */
+    MESH_UI_SHAPE_FULL,
+    MESH_UI_SHAPE_COUNT
+};
+
+/*
  * The geometry a theme owns.
  *
  * Everything here was a literal in a drawing function once. They are theme data because a
@@ -126,12 +187,15 @@ struct mesh_ui_metrics {
     uint8_t bubble_width_pct;  /* how much of the body a chat bubble may fill */
     uint8_t field_label_cols;  /* preferred label column, in cells */
     uint8_t narrow_cols;       /* a body narrower than this halves the label column */
-    /* A card's inset and how round its corners are, both in glyph-scale steps rather than in
-       pixels: a theme that asks for bigger text gets a proportionally roomier card, the same
-       way the switch and the chat bubble already grow with the scale. A radius of 0 is a
-       square card, which is what a theme going for a plainer look would ask for. */
+    /* A card's inset, in glyph-scale steps rather than in pixels: a theme that asks for bigger
+       text gets a proportionally roomier card, the same way the switch and the chat bubble
+       already grow with the scale. */
     uint8_t card_pad;
-    uint8_t card_radius;
+    /* The shape scale, in glyph-scale steps, indexed by enum mesh_ui_shape. Sized to stop
+       before MESH_UI_SHAPE_FULL because that one is not a step count - see the enum. Read it
+       through mesh_ui_theme_radius(), which does the multiply and handles the pill. All zeroes
+       is a legal, entirely square theme. */
+    uint8_t shape[MESH_UI_SHAPE_FULL];
 };
 
 struct mesh_ui_theme {
@@ -197,6 +261,16 @@ int mesh_ui_theme_scale(const struct mesh_ui_theme *theme);
 int mesh_ui_theme_chrome_scale(const struct mesh_ui_theme *theme, int scale);
 /* Clamps any multiplier into the accepted range; 0 or less means "the theme's own". */
 int mesh_ui_theme_clamp_scale(const struct mesh_ui_theme *theme, int scale);
+
+/*
+ * The corner radius `shape` wants, in pixels, at glyph multiplier `scale`.
+ *
+ * MESH_UI_SHAPE_FULL answers with a number larger than any panel, because the fill primitive
+ * clamps a radius to half the shorter side anyway: "as round as it goes" is the one shape that
+ * cannot be measured until the box it is applied to is known, and the clamp is where that is
+ * already known. Every other shape is its step count times the scale.
+ */
+int mesh_ui_theme_radius(const struct mesh_ui_theme *theme, enum mesh_ui_shape shape, int scale);
 
 /*
  * The WCAG contrast ratio between two colours, from 1.0 (identical) to 21.0 (black on white).

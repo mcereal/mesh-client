@@ -190,8 +190,10 @@ MESH_TEST_CASE(ui_capture_draws_the_status_cards, unit) {
                               mesh_ui_store_shutdown(&store),
                               "the Status screen draws no card fill across the body");
 
+    /* OUTLINE, not RULE: a card's edge is a container's boundary rather than a separator, and
+       the two parted company when a second container wanted an edge of its own. */
     const unsigned edge =
-        widest_row_run(capture, pixels, width, height, stride, MESH_UI_COLOR_RULE);
+        widest_row_run(capture, pixels, width, height, stride, MESH_UI_COLOR_OUTLINE);
     MESH_TEST_FAIL_IF_CLEANUP(edge < 80U, mesh_ui_capture_close(capture);
                               mesh_ui_store_shutdown(&store),
                               "the Status screen draws no card edge across the body");

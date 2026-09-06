@@ -108,6 +108,13 @@ struct mesh_ui_rgb fb_tone_color(const struct mesh_ui_backend_fb_state *state,
                                  enum mesh_ui_tone tone);
 /* Pixels between the panel edge and the body. */
 int fb_margin(const struct mesh_ui_backend_fb_state *state);
+/* The corner radius for a kind of container, at the frame's own glyph scale. The only way a
+   radius enters the framebuffer layers, for the reason fb_color() is the only way a colour
+   does; see enum mesh_ui_shape. */
+int fb_radius(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_shape shape);
+/* The hairline thickness an edge is drawn at - a card's, a field's. One place, because an
+   outline is two fills and both have to agree about how thick it is. */
+int fb_edge(const struct mesh_ui_backend_fb_state *state);
 const struct mesh_ui_metrics *fb_metrics(const struct mesh_ui_backend_fb_state *state);
 const struct mesh_ui_font *fb_font(const struct mesh_ui_backend_fb_state *state);
 

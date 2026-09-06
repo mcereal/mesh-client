@@ -35,12 +35,25 @@
 #define RGB(rr, gg, bb)                                                                            \
     { .r = (rr), .g = (gg), .b = (bb) }
 
-/* The metrics the Brick's panel was tuned for. A theme that wants a different look overrides
-   the field it cares about rather than restating the struct. */
+/*
+ * The metrics the Brick's panel was tuned for. A theme that wants a different look overrides
+ * the field it cares about rather than restating the struct.
+ *
+ * The shape steps start at two rather than one because of how big the boxes here are. A step is
+ * one glyph-scale unit - four pixels at the device's scale - and four pixels off the corner of
+ * a row highlight a thousand pixels wide and forty tall is not a rounded rectangle, it is a
+ * rectangle somebody sanded. Two steps is where the eye starts reading a shape with ends.
+ */
 #define MESH_UI_METRICS_DEFAULT                                                                    \
     {                                                                                              \
         .margin = 16U, .scale = 4U, .chrome_scale_down = 1U, .bubble_width_pct = 75U,              \
-        .field_label_cols = 20U, .narrow_cols = 40U, .card_pad = 2U, .card_radius = 2U,            \
+        .field_label_cols = 20U, .narrow_cols = 40U, .card_pad = 2U,                               \
+        .shape = {                                                                                 \
+            [MESH_UI_SHAPE_NONE] = 0U,                                                             \
+            [MESH_UI_SHAPE_SM] = 2U,                                                               \
+            [MESH_UI_SHAPE_MD] = 3U,                                                               \
+            [MESH_UI_SHAPE_LG] = 4U,                                                               \
+        },                                                                                         \
     }
 
 static const struct mesh_ui_theme k_themes[] = {
@@ -53,7 +66,12 @@ static const struct mesh_ui_theme k_themes[] = {
             {
                 /* Dark ground, cool greys for chrome, one warm colour for what needs the eye. */
                 [MESH_UI_COLOR_BG] = RGB(0x0A, 0x14, 0x1E),
+                /* The three tiers walk away from the ground in even steps. Far enough apart to
+                   tell one from another indoors, near enough that body text keeps the contrast
+                   it is validated for on all of them. */
+                [MESH_UI_COLOR_SURFACE_LOW] = RGB(0x10, 0x1B, 0x28),
                 [MESH_UI_COLOR_SURFACE] = RGB(0x14, 0x22, 0x32),
+                [MESH_UI_COLOR_SURFACE_HIGH] = RGB(0x1C, 0x2E, 0x42),
                 [MESH_UI_COLOR_SURFACE_SEL] = RGB(40, 80, 120),
                 [MESH_UI_COLOR_SURFACE_ACTIVE] = RGB(60, 110, 170),
                 [MESH_UI_COLOR_TEXT] = RGB(220, 230, 240),
@@ -65,10 +83,18 @@ static const struct mesh_ui_theme k_themes[] = {
                 /* Dark text on the accent fill: white on that yellow is unreadable at this
                    glyph size. */
                 [MESH_UI_COLOR_ON_ACCENT] = RGB(0x0A, 0x14, 0x1E),
+                /* The accent held back to a fill that text sits on: the same yellow taken down
+                   to an olive that reads as "the accent, quietly", with a pale tint of it for
+                   the ink. */
+                [MESH_UI_COLOR_ACCENT_CONTAINER] = RGB(86, 68, 24),
+                [MESH_UI_COLOR_ON_ACCENT_CONTAINER] = RGB(255, 232, 170),
                 [MESH_UI_COLOR_GOOD] = RGB(120, 220, 150),
                 [MESH_UI_COLOR_BAD] = RGB(240, 120, 120),
                 [MESH_UI_COLOR_RULE] = RGB(40, 80, 120),
                 [MESH_UI_COLOR_RULE_STRONG] = RGB(60, 110, 170),
+                /* A step brighter than the rule: an edge has to be found against two fills at
+                   once, where a separator only has to divide one. */
+                [MESH_UI_COLOR_OUTLINE] = RGB(62, 100, 140),
                 /* Bubble fills. Theirs is the neutral ground, ours is the one with colour in
                    it - the same "you are the blue one" every messenger has trained everybody
                    on. The selected pair are the same hues lifted, so the cursor reads as a
@@ -108,7 +134,11 @@ static const struct mesh_ui_theme k_themes[] = {
                    a fill as well as a text colour, and pale yellow under dark text is a
                    highlighter pen, not a badge. */
                 [MESH_UI_COLOR_BG] = RGB(247, 248, 250),
+                /* Downwards, because here the ground is the light one: a surface rises by
+                   getting further from paper, not nearer to it. */
+                [MESH_UI_COLOR_SURFACE_LOW] = RGB(238, 241, 246),
                 [MESH_UI_COLOR_SURFACE] = RGB(231, 235, 241),
+                [MESH_UI_COLOR_SURFACE_HIGH] = RGB(220, 226, 235),
                 [MESH_UI_COLOR_SURFACE_SEL] = RGB(200, 219, 242),
                 [MESH_UI_COLOR_SURFACE_ACTIVE] = RGB(154, 193, 236),
                 [MESH_UI_COLOR_TEXT] = RGB(24, 32, 44),
@@ -118,10 +148,16 @@ static const struct mesh_ui_theme k_themes[] = {
                 [MESH_UI_COLOR_TEXT_ON_SEL_DIM] = RGB(70, 84, 104),
                 [MESH_UI_COLOR_ACCENT] = RGB(160, 72, 0),
                 [MESH_UI_COLOR_ON_ACCENT] = RGB(255, 255, 255),
+                /* An apricot rather than the palest tint of the accent: on a paper ground the
+                   two nearest surface tiers are already near-white, so a container has to come
+                   down far enough to be a fill at all before it is a quiet one. */
+                [MESH_UI_COLOR_ACCENT_CONTAINER] = RGB(248, 182, 128),
+                [MESH_UI_COLOR_ON_ACCENT_CONTAINER] = RGB(110, 46, 0),
                 [MESH_UI_COLOR_GOOD] = RGB(20, 110, 60),
                 [MESH_UI_COLOR_BAD] = RGB(176, 32, 40),
                 [MESH_UI_COLOR_RULE] = RGB(188, 199, 213),
                 [MESH_UI_COLOR_RULE_STRONG] = RGB(120, 160, 205),
+                [MESH_UI_COLOR_OUTLINE] = RGB(160, 174, 192),
                 [MESH_UI_COLOR_BUBBLE_IN] = RGB(219, 225, 234),
                 [MESH_UI_COLOR_BUBBLE_OUT] = RGB(203, 224, 248),
                 [MESH_UI_COLOR_BUBBLE_IN_SEL] = RGB(193, 208, 228),
@@ -154,7 +190,9 @@ static const struct mesh_ui_theme k_themes[] = {
                    one step lighter than the ground is what stops being findable first in
                    sunlight, and it is the cue this theme exists to make loud. */
                 [MESH_UI_COLOR_BG] = RGB(0, 0, 0),
+                [MESH_UI_COLOR_SURFACE_LOW] = RGB(18, 18, 18),
                 [MESH_UI_COLOR_SURFACE] = RGB(26, 26, 26),
+                [MESH_UI_COLOR_SURFACE_HIGH] = RGB(42, 42, 42),
                 [MESH_UI_COLOR_SURFACE_SEL] = RGB(255, 255, 255),
                 [MESH_UI_COLOR_SURFACE_ACTIVE] = RGB(255, 214, 0),
                 [MESH_UI_COLOR_TEXT] = RGB(255, 255, 255),
@@ -164,10 +202,17 @@ static const struct mesh_ui_theme k_themes[] = {
                 [MESH_UI_COLOR_TEXT_ON_SEL_DIM] = RGB(72, 72, 72),
                 [MESH_UI_COLOR_ACCENT] = RGB(255, 214, 0),
                 [MESH_UI_COLOR_ON_ACCENT] = RGB(0, 0, 0),
+                /* The accent at full strength, exactly as ACCENT/ON_ACCENT. A container is the
+                   accent held back so text can sit on it, and holding a colour back is the one
+                   thing this theme exists not to do - so it declines, the same way it declines
+                   four of its six avatar tints. */
+                [MESH_UI_COLOR_ACCENT_CONTAINER] = RGB(255, 214, 0),
+                [MESH_UI_COLOR_ON_ACCENT_CONTAINER] = RGB(0, 0, 0),
                 [MESH_UI_COLOR_GOOD] = RGB(0, 230, 118),
                 [MESH_UI_COLOR_BAD] = RGB(255, 120, 120),
                 [MESH_UI_COLOR_RULE] = RGB(140, 140, 140),
                 [MESH_UI_COLOR_RULE_STRONG] = RGB(255, 214, 0),
+                [MESH_UI_COLOR_OUTLINE] = RGB(200, 200, 200),
                 [MESH_UI_COLOR_BUBBLE_IN] = RGB(28, 28, 28),
                 [MESH_UI_COLOR_BUBBLE_OUT] = RGB(0, 48, 84),
                 [MESH_UI_COLOR_BUBBLE_IN_SEL] = RGB(80, 80, 80),
@@ -197,7 +242,9 @@ static const struct mesh_ui_theme k_themes[] = {
                    The three stay distinct under deuteranopia and protanopia, where the
                    original green/yellow/red collapse into one another. */
                 [MESH_UI_COLOR_BG] = RGB(0x0A, 0x14, 0x1E),
+                [MESH_UI_COLOR_SURFACE_LOW] = RGB(0x10, 0x1B, 0x28),
                 [MESH_UI_COLOR_SURFACE] = RGB(0x14, 0x22, 0x32),
+                [MESH_UI_COLOR_SURFACE_HIGH] = RGB(0x1C, 0x2E, 0x42),
                 [MESH_UI_COLOR_SURFACE_SEL] = RGB(40, 80, 120),
                 [MESH_UI_COLOR_SURFACE_ACTIVE] = RGB(60, 110, 170),
                 [MESH_UI_COLOR_TEXT] = RGB(226, 232, 240),
@@ -207,10 +254,16 @@ static const struct mesh_ui_theme k_themes[] = {
                 [MESH_UI_COLOR_TEXT_ON_SEL_DIM] = RGB(190, 208, 226),
                 [MESH_UI_COLOR_ACCENT] = RGB(204, 121, 167),
                 [MESH_UI_COLOR_ON_ACCENT] = RGB(0x0A, 0x14, 0x1E),
+                /* The reddish purple taken down to a plum, with a pale tint of the same hue on
+                   it. Held back in lightness rather than towards a neighbouring hue, so the
+                   pair stays the accent under every dichromacy the theme is for. */
+                [MESH_UI_COLOR_ACCENT_CONTAINER] = RGB(80, 46, 66),
+                [MESH_UI_COLOR_ON_ACCENT_CONTAINER] = RGB(240, 194, 220),
                 [MESH_UI_COLOR_GOOD] = RGB(86, 180, 233),
                 [MESH_UI_COLOR_BAD] = RGB(230, 159, 0),
                 [MESH_UI_COLOR_RULE] = RGB(40, 80, 120),
                 [MESH_UI_COLOR_RULE_STRONG] = RGB(86, 180, 233),
+                [MESH_UI_COLOR_OUTLINE] = RGB(62, 100, 140),
                 [MESH_UI_COLOR_BUBBLE_IN] = RGB(30, 44, 60),
                 [MESH_UI_COLOR_BUBBLE_OUT] = RGB(34, 66, 104),
                 [MESH_UI_COLOR_BUBBLE_IN_SEL] = RGB(52, 72, 94),
@@ -393,6 +446,21 @@ int mesh_ui_theme_scale(const struct mesh_ui_theme *theme) {
     return mesh_ui_theme_clamp_scale(theme, 0);
 }
 
+int mesh_ui_theme_radius(const struct mesh_ui_theme *theme, enum mesh_ui_shape shape, int scale) {
+    theme = theme_or_default(theme);
+    scale = mesh_ui_theme_clamp_scale(theme, scale);
+    if (shape == MESH_UI_SHAPE_FULL) {
+        /* Bigger than any panel this runs on. fb_fill_round_rect() clamps a radius to half the
+           shorter side, so "as round as it goes" is answered where the box is finally known
+           rather than guessed at here - a pill and a circle are the same request. */
+        return INT16_MAX;
+    }
+    if ((int)shape < 0 || (int)shape >= (int)MESH_UI_SHAPE_FULL) {
+        return 0;
+    }
+    return (int)theme->metrics.shape[shape] * scale;
+}
+
 int mesh_ui_theme_chrome_scale(const struct mesh_ui_theme *theme, int scale) {
     theme = theme_or_default(theme);
     const int down = (int)theme->metrics.chrome_scale_down;
@@ -489,6 +557,14 @@ static const struct theme_pair k_required[] = {
     {MESH_UI_COLOR_TEXT_ON_SEL, MESH_UI_COLOR_SURFACE_ACTIVE, 4.5},
     {MESH_UI_COLOR_TEXT_ON_SEL_DIM, MESH_UI_COLOR_SURFACE_SEL, 3.0},
     {MESH_UI_COLOR_ON_ACCENT, MESH_UI_COLOR_ACCENT, 4.5},
+    /* The raised tier is the keyboard's draft box, and what is written in it is the thing the
+       user is composing - the one piece of text on that screen that has to be legible while
+       being typed, so it gets the body threshold and not the secondary one. */
+    {MESH_UI_COLOR_TEXT_STRONG, MESH_UI_COLOR_SURFACE_HIGH, 4.5},
+    /* The recessed tier is the tab strip's bar. Its labels are chrome - the inactive ones are
+       drawn dim, and the active one is the container pair below. */
+    {MESH_UI_COLOR_TEXT_DIM, MESH_UI_COLOR_SURFACE_LOW, 3.0},
+    {MESH_UI_COLOR_ON_ACCENT_CONTAINER, MESH_UI_COLOR_ACCENT_CONTAINER, 4.5},
     /* Two colours outside the avatar palette are drawn as avatar tints, and an avatar's
        initials are the ground colour: the accent, on the conversation-list rows that are not
        somebody, and the bad tone, on a row armed to be deleted. Both owe the ground what every
@@ -520,13 +596,20 @@ static const struct theme_pair k_required[] = {
     {MESH_UI_COLOR_TEXT_INBOUND, MESH_UI_COLOR_BUBBLE_FAILED, 3.0},
     {MESH_UI_COLOR_TEXT_OUTBOUND, MESH_UI_COLOR_BUBBLE_FAILED, 3.0},
     {MESH_UI_COLOR_BAD, MESH_UI_COLOR_BUBBLE_FAILED, 3.0},
-    /* Furniture: visible at all. A card's edge is drawn in RULE and has to be findable from
-       both sides - against the ground it sits on and against the fill it encloses - because on
-       a theme whose surface is a step off the ground the edge is the whole of what says a card
-       is there at all. */
+    /* Furniture: visible at all. An edge has to be findable from both sides - against the
+       ground it sits on and against the fill it encloses - because on a theme whose surface is
+       a step off the ground the edge is the whole of what says a container is there at all.
+       Both containers that have one are here: the card on SURFACE, the draft box on
+       SURFACE_HIGH. */
     {MESH_UI_COLOR_RULE, MESH_UI_COLOR_BG, 1.4},
-    {MESH_UI_COLOR_RULE, MESH_UI_COLOR_SURFACE, 1.4},
-    {MESH_UI_COLOR_RULE_STRONG, MESH_UI_COLOR_BG, 1.4},
+    {MESH_UI_COLOR_OUTLINE, MESH_UI_COLOR_BG, 1.4},
+    {MESH_UI_COLOR_OUTLINE, MESH_UI_COLOR_SURFACE, 1.4},
+    {MESH_UI_COLOR_OUTLINE, MESH_UI_COLOR_SURFACE_HIGH, 1.4},
+    /* The rule that closes the tab strip off now meets the strip's own bar rather than the
+       ground, and the active tab's pill sits on that same bar. Neither has to be *read*, but a
+       tab indicator nobody can find is a tab strip with no current tab. */
+    {MESH_UI_COLOR_RULE_STRONG, MESH_UI_COLOR_SURFACE_LOW, 1.4},
+    {MESH_UI_COLOR_ACCENT_CONTAINER, MESH_UI_COLOR_SURFACE_LOW, 1.4},
 };
 
 bool mesh_ui_theme_validate(const struct mesh_ui_theme *theme, char *reason, size_t reason_len) {

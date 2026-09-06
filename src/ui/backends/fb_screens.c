@@ -59,13 +59,26 @@ static const char *fb_device_label(const struct mesh_ui_device *device) {
 
 /* ---- chrome ------------------------------------------------------------------------------ */
 
-/* The tab strip: one chip per screen, then the rule that separates it from the body. */
+/*
+ * The tab strip: a bar of its own, one chip per screen, then the rule that closes it off.
+ *
+ * The bar is the point. The strip used to float on the body's own ground, which left the tabs
+ * reading as the first row of content rather than as the frame around it; a recessed tier
+ * behind them says "this is chrome" before a word of it is read, which is what every phone's
+ * navigation bar is doing. It is the theme's lowest surface, so a palette decides how far from
+ * the ground that is - on the high-contrast theme it is barely anywhere, which is correct.
+ */
 static void fb_draw_tabs(const struct mesh_ui_backend_fb_state *state,
                          const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const int small = layout->small;
     const int margin = fb_margin(state);
     const int y = margin / 2 + small;
+    const int line = fb_line_adv(state, small);
+    const int bar_h = y + line;
     int x = margin / 2;
+
+    fb_fill_rect(state, 0, 0, (int)state->var.xres, bar_h,
+                 fb_color(state, MESH_UI_COLOR_SURFACE_LOW));
 
     for (int i = 0; i < MESH_UI_SCREEN_COUNT; ++i) {
         const enum mesh_ui_screen screen = (enum mesh_ui_screen)i;
@@ -73,9 +86,8 @@ static void fb_draw_tabs(const struct mesh_ui_backend_fb_state *state,
                          small);
     }
 
-    const int line = fb_line_adv(state, small);
-    fb_draw_rule(state, 0, y + line, (int)state->var.xres, small, MESH_UI_COLOR_RULE_STRONG);
-    layout->body_y = y + line + 2 * small + margin / 2;
+    fb_draw_rule(state, 0, bar_h, (int)state->var.xres, small, MESH_UI_COLOR_RULE_STRONG);
+    layout->body_y = bar_h + 2 * small + margin / 2;
 }
 
 /* Two lines under the body: what the buttons do here, then a toast or the link summary. */
@@ -834,11 +846,26 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
     const int line = layout->line;
     int y = layout->body_y;
 
-    /* Draft box: two wrapped lines plus a cursor and a byte count. */
+    /*
+     * Draft box: two wrapped lines plus a cursor and a byte count.
+     *
+     * A container in its own right, so it is drawn as one - the raised surface tier, the panel
+     * shape, and an edge in OUTLINE laid down first with the fill inside it, exactly as a card
+     * is built. What it holds is the thing being typed, which is the one piece of text on this
+     * screen that has to stay legible while it changes; the tier is what lifts it off the
+     * keyboard below rather than leaving it as another row on the same ground.
+     */
     const int box_lines = 2;
     const int margin = fb_margin(state);
-    fb_fill_rect(state, margin / 2, y - scale, (int)state->var.xres - margin,
-                 box_lines * line + scale, fb_color(state, MESH_UI_COLOR_SURFACE));
+    const int box_x = margin / 2;
+    const int box_w = (int)state->var.xres - margin;
+    const int box_h = box_lines * line + scale;
+    const int edge = fb_edge(state);
+    const int radius = fb_radius(state, MESH_UI_SHAPE_MD);
+    fb_fill_round_rect(state, box_x, y - scale, box_w, box_h, radius + edge,
+                       fb_color(state, MESH_UI_COLOR_OUTLINE));
+    fb_fill_round_rect(state, box_x + edge, y - scale + edge, box_w - 2 * edge, box_h - 2 * edge,
+                       radius, fb_color(state, MESH_UI_COLOR_SURFACE_HIGH));
     char draft[MESH_UI_DRAFT_MAX + 2U];
     snprintf(draft, sizeof draft, "%s_", nav->draft);
     /* Show the tail when the draft outgrows the box. */
@@ -875,7 +902,8 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
                          .h = cell_h - scale},
                 .label = key,
                 .selected = (nav->kb_row == row && nav->kb_col == col),
-                .filled = false,
+                .variant = FB_BUTTON_TEXT,
+                .shape = MESH_UI_SHAPE_SM,
                 .idle_tone = MESH_UI_TONE_NORMAL,
                 .scale = scale,
             };
@@ -893,7 +921,8 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
                      .h = cell_h - scale},
             .label = mesh_ui_kb_action_label(nav, (enum mesh_ui_kb_action)col),
             .selected = (nav->kb_row == MESH_UI_KB_CHAR_ROWS && nav->kb_col == col),
-            .filled = true,
+            .variant = FB_BUTTON_FILLED,
+            .shape = MESH_UI_SHAPE_SM,
             .idle_tone = MESH_UI_TONE_NORMAL,
             .scale = scale,
         };

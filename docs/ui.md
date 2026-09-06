@@ -78,6 +78,13 @@ coalesces its repaints, so the framebuffer draws once per row at most.
 
 Five tabs: Messages, Nodes, Devices, Status, Settings.
 
+The strip is drawn on a bar of its own — `SURFACE_LOW`, the theme's recessed tier — with the
+current tab as a tonal pill. Both halves of that are saying "this is chrome, not the first row
+of content", which is the job every phone's navigation bar does with the same two devices. The
+pill is `FB_BUTTON_TONAL`: an accent *container* rather than the accent itself, because a block
+of saturated colour the size of a tab stops being an indicator and starts being the thing you
+read instead of the label on it.
+
 ### Messages
 
 Two levels, the shape a phone messenger has and the shape the Settings tab already used.
@@ -387,7 +394,7 @@ shoulder, revealed in the one place you went to change it.
 | File | Layer | What belongs there |
 |---|---|---|
 | `fb_draw.c` | ink | pixels, glyphs, the theme lookups, cell metrics (`fb_internal.h`) |
-| `fb_widgets.c` | components | cards, buttons, chips, list rows, field rows, rules (`fb_widgets.h`) |
+| `fb_widgets.c` | components | cards, buttons, chips, list rows, field rows, rules, bubbles (`fb_widgets.h`) |
 | `fb_screens.c` | screens | one renderer per screen, plus the tab strip and footer |
 | `fb.c` | device | `/dev/fb0`, the page flip, the backend vtable |
 
@@ -427,6 +434,15 @@ components take a tone or a **role** (`MESH_UI_COLOR_SURFACE_SEL`) rather than a
 [Themes](#themes) below. Same idea as a stylesheet with a token called `danger` instead of a hex
 value.
 
+`struct fb_button` is the smallest of them and carries a **variant** rather than a fill colour:
+`FB_BUTTON_TEXT` shows nothing until the cursor arrives (the keyboard's character keys),
+`FB_BUTTON_FILLED` is always visibly a control (its action row), and `FB_BUTTON_TONAL` is the
+accent held back far enough to sit behind a label (the selected tab, and what a filter chip
+would be). Each variant is a *pair* of theme colours at rest and under the cursor, resolved in
+one table in `fb_button_paint()` — they travel together because every pair is one
+`mesh_ui_theme_validate()` holds to 4.5:1, and splitting them across branches is how a label
+ends up on a fill nothing checked it against.
+
 `struct fb_card` is the container the others sit in: a titled panel that groups rows belonging to
 one subject, which is what the [Status tab](#status--cards) is now made of. It is the odd one out
 here because it is **declared and then drawn**, and the framebuffer forces that — a card's fill
@@ -464,14 +480,17 @@ decoration: on every theme that ships, the surface is deliberately close to the 
 surface far from it is one body text is no longer validated against — so in daylight the
 hairline is the whole of what says a card is there. `mesh_ui_theme_validate()` holds `RULE`
 against both the ground and the surface for that reason, and holds the four tones a card row can
-take against the surface as well. The inset and the corner radius are theme metrics
-(`card_pad`, `card_radius`) in glyph-scale steps, so a card grows with the text; the vertical
-inset is deliberately half the horizontal one, because a row is a line *advance* tall and the
-leading it already carries is counted twice in a stack of rows and once at either end.
+take against the surface as well. The inset is the `card_pad` metric in glyph-scale steps and
+the corners are `MESH_UI_SHAPE_MD` off the [shape scale](#shape-is-a-scale), so a card grows with
+the text; the vertical inset is deliberately half the horizontal one, because a row is a line
+*advance* tall and the leading it already carries is counted twice in a stack of rows and once
+at either end. Its edge is `OUTLINE`, not `RULE` — see [Surfaces are tiered](#surfaces-are-tiered).
 
 `struct fb_button` is one component covering the on-screen keyboard's character keys, its action
-row, and (sized to its own label, via `fb_draw_chip`) the tab strip: a filled cell with a label
-centred **in cells**, so an emoji label sits where it looks centred.
+row, and (sized to its own label, via `fb_draw_chip`) the tab strip: a cell with a label centred
+**in cells**, so an emoji label sits where it looks centred. It takes a `variant` and a `shape`
+rather than a fill and a radius — the keys are `FB_BUTTON_TEXT` at `MESH_UI_SHAPE_SM`, the tabs
+are `FB_BUTTON_TONAL` at `MESH_UI_SHAPE_FULL`.
 
 `struct fb_switch` is the boolean: a pill track with a knob that **slides** to the end it is
 now at. Settings draws one on every `MESH_UI_SETTING_TOGGLE` row in place of the words "on" and
@@ -647,6 +666,63 @@ the label column gives way — all of which used to be literals in drawing funct
 "large text" theme is that struct with a different `scale`; a roomier one is a different
 `margin`. Neither needs a renderer touched.
 
+#### Surfaces are tiered
+
+There are three of them, and the tier says how far a thing is from the ground:
+
+| Role | What sits on it |
+|---|---|
+| `SURFACE_LOW` | recessed chrome — the bar behind the tab strip |
+| `SURFACE` | a panel on the ground — a card |
+| `SURFACE_HIGH` | raised over the body — the keyboard's draft box |
+
+Tonal, not shadowed, and that is forced rather than chosen: the Brick's display engine
+composites `fb0` against *its own* background layer, not against what we have already drawn (see
+`fb_draw.c`'s `compose_color()`), so there is no alpha to shade with and no shadow to cast. The
+fill alone has to carry the distance — which is what Material's tonal elevation does, and it has
+the useful property of surviving a light palette, where a dark shadow would have to invert and a
+tonal step just changes direction. Lower is nearer the ground, so a dark theme's tiers get
+lighter as they rise and a light theme's get darker; nothing that draws knows which way its
+palette went.
+
+`ACCENT_CONTAINER`/`ON_ACCENT_CONTAINER` is the accent's quiet half. A full accent fill is right
+for a badge — small, and it has to be found across the panel — and wrong for anything the size
+of a tab, where a block of saturated colour under a label becomes the loudest thing on screen
+and the label stops being read. The container is the same hue held back far enough to sit behind
+text. The `contrast` theme declines and states the full accent for both, the same way it states
+two avatar tints instead of six: holding a colour back is the one thing that theme exists not to
+do.
+
+`OUTLINE` is the edge of a container, which is not the job `RULE` does. A rule divides content
+that is already on one surface and may fade politely into it; an outline is what says a surface
+is *there*, and has to be found against the ground outside it and the fill inside it at once.
+They were one role while the card was the only thing with an edge and parted company when the
+draft box grew one.
+
+#### Shape is a scale
+
+`enum mesh_ui_shape` is the geometry equivalent of a tone: a renderer names what kind of
+container it is drawing and the theme answers with a radius.
+
+| Shape | Steps | What takes it |
+|---|---|---|
+| `NONE` | 0 | a rule, a bar, anything meeting an edge |
+| `SM` | 2 | a list row's cursor, a keycap, the conversation cell |
+| `MD` | 3 | a panel — a card, the draft box, a chat bubble |
+| `LG` | 4 | a surface over the body — a dialog, a sheet |
+| `FULL` | — | a capsule or a circle — a chip, an unread badge, an avatar |
+
+Steps are **glyph-scale multiples**, not pixels, for the same reason `card_pad` is: a theme
+asking for bigger text gets proportionally rounder corners instead of the corners staying put
+while everything round them grows. `FULL` is not a step count — "half of whatever this turns out
+to be" is not a length a theme can state in advance — so it has no entry in the table and
+`mesh_ui_theme_radius()` answers with a number `fb_fill_round_rect()` will clamp to half the
+shorter side. An entirely square theme is `shape` all zeroes.
+
+The scale starts at two steps rather than one because of how big things are here. A step is four
+pixels at the device's scale, and four pixels off the corner of a row highlight a thousand
+pixels wide and forty tall is not a rounded rectangle, it is a rectangle somebody sanded.
+
 The font is a seam too (`include/mesh/ui/font.h`). `struct mesh_ui_font` is a cell size, two
 gaps and a glyph lookup; `src/ui/font5x7.c` provides the one that ships, and a theme names it by
 id. Every measurement in the UI — columns per line, button widths, bubble heights, the scroll
@@ -663,6 +739,11 @@ contract, which the test suite runs over every registered theme:
 - body text on its ground **4.5:1**, the WCAG AA threshold;
 - secondary text — dim rows, the clock on a bubble, a status colour — **3:1**;
 - a hairline only has to be visible.
+
+A pair belongs in `k_required` **when something is actually drawn that way**, and that cuts both
+ways: a pair missing from the table is a pair nothing checks, which is how dim text on a
+selected outbound bubble stayed at 1.9:1 for as long as it did. When a renderer starts drawing a
+new combination it comes with a row — and when it stops, the row goes.
 
 Contrast is `mesh_ui_theme_contrast()`: undo the display's gamma per channel, weight the three
 by how much of our sense of brightness comes from each (green most, blue almost none), compare

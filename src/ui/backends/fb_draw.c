@@ -85,6 +85,15 @@ const struct mesh_ui_font *fb_font(const struct mesh_ui_backend_fb_state *state)
     return mesh_ui_theme_font(state != NULL ? state->theme : NULL);
 }
 
+int fb_radius(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_shape shape) {
+    return mesh_ui_theme_radius(state->theme, shape, state->scale);
+}
+
+int fb_edge(const struct mesh_ui_backend_fb_state *state) {
+    const int edge = state->scale / 2;
+    return edge > 0 ? edge : 1;
+}
+
 int fb_margin(const struct mesh_ui_backend_fb_state *state) {
     return (int)fb_metrics(state)->margin;
 }
@@ -489,15 +498,24 @@ void fb_fit(char *line, size_t cols) { mesh_ui_text_cell_truncate(line, cols); }
 /* Columns a line occupies once drawn. */
 size_t fb_width(const char *line) { return mesh_ui_text_cells(line); }
 
-/* Draw one list row, highlighting it when it is the cursor. `x` is the text origin; the
-   highlight spans the full width so the eye finds it without reading. */
+/*
+ * Draw one list row, highlighting it when it is the cursor. `x` is the text origin; the
+ * highlight spans the full width so the eye finds it without reading.
+ *
+ * The highlight is a rounded, inset shape rather than a full-bleed bar. Both halves of that
+ * matter and for the same reason: a bar running edge to edge reads as a *band across the
+ * screen*, while a shape with ends reads as one row picked out of a column of them - which is
+ * what a cursor is. The corners come from the theme's shape scale, so a theme that wants the
+ * old bar back asks for MESH_UI_SHAPE_SM of zero rather than for a different renderer.
+ */
 void fb_draw_row(const struct mesh_ui_backend_fb_state *state, int y, const char *text,
                  struct mesh_ui_rgb color, bool selected) {
     const int margin = fb_margin(state);
     const int line = fb_line_adv(state, state->scale);
     if (selected) {
-        fb_fill_rect(state, margin / 2, y - state->scale, (int)state->var.xres - margin, line,
-                     fb_color(state, MESH_UI_COLOR_SURFACE_SEL));
+        fb_fill_round_rect(state, margin / 2, y - state->scale, (int)state->var.xres - margin, line,
+                           fb_radius(state, MESH_UI_SHAPE_SM),
+                           fb_color(state, MESH_UI_COLOR_SURFACE_SEL));
         color = fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL);
     }
     fb_draw_text(state, margin, y, text, state->scale, color);
