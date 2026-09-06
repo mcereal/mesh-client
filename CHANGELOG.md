@@ -1,3 +1,16 @@
+## [2.6.0](https://github.com/mcereal/mesh-client/compare/v2.5.0...v2.6.0) (2026-09-06)
+
+### Features
+
+* accept the two text ports we dropped, and ask nodes for readings ([845dfcb](https://github.com/mcereal/mesh-client/commit/845dfcb73de3a79cc035a47059fa0371e61546e4))
+* keep the node telemetry, packet fields and reactions we were dropping ([911bbe6](https://github.com/mcereal/mesh-client/commit/911bbe607416516fcd4c9149a33c8d21a1d847e9))
+* **session:** keep NeighborInfo, and draw the mesh as a graph ([6d1e947](https://github.com/mcereal/mesh-client/commit/6d1e947cfd3a41bd1fd367cabcbb0af4cd72ec67))
+* **session:** keep the three FromRadio variants we were dropping ([7f79068](https://github.com/mcereal/mesh-client/commit/7f790681217207702194c3575f84681dde517963))
+
+### Bug Fixes
+
+* four gaps in the batch that Codex review caught ([f857eaa](https://github.com/mcereal/mesh-client/commit/f857eaa9e5f40e1e98357d4bb95126b4be7ca50d))
+
 ## [2.5.0](https://github.com/mcereal/mesh-client/compare/v2.4.3...v2.5.0) (2026-09-06)
 
 ### Features
