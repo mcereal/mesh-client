@@ -1,6 +1,6 @@
-# Writing a reply: the Compose overlay, the on-screen keyboard, and the toast the send leaves
-# behind. `message out` stands in for the radio's echo - the store only raises the SEND action,
-# and there is no app or radio behind this harness to carry it out.
+# Replying two ways: A for the quick replies, Y for the on-screen keyboard, and the toast the
+# send leaves behind. `message out` stands in for the radio's echo - the store only raises the
+# SEND action, and there is no app or radio behind this harness to carry it out.
 scene demo
 scale 4
 delay 130
@@ -9,11 +9,16 @@ hold 500
 key down 4
 key a
 hold 700
+# A opens the canned list over the thread, cursor on the first reply; a second A sends it.
+key a
+hold 900
+key a
+message out BRVO OK
+toast Sent to BRVO
+hold 1200
+# Y skips the list and types instead, landing straight on the keyboard.
 key y
 hold 700
-key up
-key a
-hold 500
 key down
 key right 8
 key a

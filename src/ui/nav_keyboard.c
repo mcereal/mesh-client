@@ -114,12 +114,16 @@ void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
         snprintf(nav->draft, sizeof nav->draft, "%s", nav->draft_saved);
         nav->draft_saved[0] = '\0';
         /* The prompt landed on an open keyboard: give it back rather than dropping the user
-           out of what they were editing. */
-        if (nav->keyboard_field_displaced != MESH_UI_FIELD_NONE) {
+           out of what they were editing. A message keyboard counts - its field is NONE, which
+           is why the flag rather than the field says whether there was one, and Y opens one
+           with no compose overlay behind it to fall back on. */
+        if (nav->keyboard_displaced) {
             nav->keyboard_field = nav->keyboard_field_displaced;
+            nav->keyboard_displaced = false;
             nav->keyboard_field_displaced = MESH_UI_FIELD_NONE;
             nav->keyboard_open = true;
-            nav->screen = MESH_UI_SCREEN_SETTINGS;
+            nav->screen = (nav->keyboard_field != MESH_UI_FIELD_NONE) ? MESH_UI_SCREEN_SETTINGS
+                                                                      : MESH_UI_SCREEN_MESSAGES;
         }
         return;
     }

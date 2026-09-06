@@ -259,6 +259,29 @@ MESH_TEST_CASE(ui_nav_passkey_prompt, unit) {
     }
     mesh_ui_nav_init(&store.nav);
 
+    /* A message keyboard is displaced the same way and has to come back the same way. Its
+       field is NONE, so the field alone cannot say one was open - and Y opens it with no
+       compose overlay behind it, so anything less drops a half-typed message out of sight. */
+    store.nav.screen = MESH_UI_SCREEN_MESSAGES;
+    store.nav.thread_open = true;
+    store.nav.keyboard_open = true;
+    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "on my w");
+    mesh_ui_store_open_passkey_prompt(&store, "NodePin", 0U, false);
+    if (!store.nav.keyboard_passkey || store.nav.draft[0] != '\0') {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "the prompt should take the message keyboard over cleanly");
+        return;
+    }
+    mesh_ui_store_close_passkey_prompt(&store);
+    if (!store.nav.keyboard_open || store.nav.keyboard_passkey ||
+        store.nav.keyboard_field != (uint8_t)MESH_UI_FIELD_NONE ||
+        store.nav.screen != MESH_UI_SCREEN_MESSAGES || strcmp(store.nav.draft, "on my w") != 0) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "a displaced message keyboard should come back with its draft");
+        return;
+    }
+    mesh_ui_nav_init(&store.nav);
+
     /* B with nothing typed abandons the bond rather than silently leaving BlueZ waiting. */
     mesh_ui_store_open_passkey_prompt(&store, "NodePin", 0U, false);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);

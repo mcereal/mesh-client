@@ -105,6 +105,15 @@ enum mesh_ui_kb_action {
     MESH_UI_KB_ACTION_CANCEL,
 };
 
+/* What opens over the thread once the picker has named one. The picker itself does not care
+   which; it is the key that opened it that decides - A wants the quick replies, Y wants to
+   type. */
+enum mesh_ui_picker_follow {
+    MESH_UI_PICKER_FOLLOW_NONE = 0,
+    MESH_UI_PICKER_FOLLOW_QUICK,    /* the compose overlay: canned replies */
+    MESH_UI_PICKER_FOLLOW_KEYBOARD, /* straight into typing */
+};
+
 /*
  * Everything a backend needs to draw a cursor, the compose target and the keyboard. Lives in
  * the store and is copied into each snapshot, so backends stay stateless.
@@ -148,15 +157,16 @@ struct mesh_ui_nav {
     /* Filtered message count at the last clamp, so a cursor parked on the newest message
        follows new traffic instead of being left behind. */
     uint32_t messages_seen;
-    /* Compose overlay over the open thread: the draft row, then the canned replies. */
+    /* Compose overlay over the open thread: the draft row, then the canned replies. A opens
+       it; Y skips it and goes straight to the keyboard, which is why `keyboard_open` can be
+       set with this one clear. */
     bool compose_open;
     uint32_t compose_cursor;
     /* "Send to" picker: every enabled channel, then every node. Picking opens that
-       conversation's thread, and when `picker_to_compose` is set (the "New message" row) the
-       compose overlay with it. */
+       conversation's thread, and `picker_follow` says what opens over it. */
     bool picker_open;
     uint32_t picker_cursor;
-    bool picker_to_compose;
+    uint8_t picker_follow; /* enum mesh_ui_picker_follow */
     /* Free-text entry. */
     bool keyboard_open;
     uint8_t kb_row;
@@ -215,10 +225,13 @@ struct mesh_ui_nav {
     bool keyboard_passkey;
     bool pairing_confirm;
     char pairing_label[MESH_UI_NAV_TARGET_NAME_MAX];
-    /* The keyboard target the prompt displaced, restored when it closes. The prompt can land
-       on top of an open keyboard, and the text being typed is parked in `draft_saved` like any
-       other. (A settings keyboard that had itself parked a compose draft loses that one: there
-       is a single parking slot, and the text in front of the user is the one worth keeping.) */
+    /* The keyboard the prompt displaced, restored when it closes. The prompt can land on top
+       of an open keyboard, and the text being typed is parked in `draft_saved` like any other.
+       `keyboard_displaced` is what says one was open at all: `keyboard_field_displaced` cannot,
+       because NONE is what a message keyboard reads as. (A settings keyboard that had itself
+       parked a compose draft loses that one: there is a single parking slot, and the text in
+       front of the user is the one worth keeping.) */
+    bool keyboard_displaced;
     uint8_t keyboard_field_displaced;
     /* Devices tab: Y is armed by one press and forgets the node on the second, because a
        bond dropped by accident costs the user a re-pair with the PIN. */

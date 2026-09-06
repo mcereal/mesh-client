@@ -154,9 +154,9 @@ bool mesh_ui_nav_picker_row(const struct mesh_ui_store *store, uint32_t index, u
 }
 
 void mesh_ui_nav_picker_open(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
-                             bool then_compose) {
+                             enum mesh_ui_picker_follow follow) {
     nav->picker_open = true;
-    nav->picker_to_compose = then_compose;
+    nav->picker_follow = (uint8_t)follow;
     nav->picker_cursor = 0U;
     /* Start on the current target so a stray A changes nothing. */
     const uint32_t count = mesh_ui_nav_picker_count(store);
@@ -214,17 +214,20 @@ bool mesh_ui_nav_picker_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             /* Picking is the one other way to open a thread: it names a destination, so the
                target moves and the conversation opens together. */
             mesh_ui_nav_open_thread(nav, store, node, channel, NULL);
-            if (nav->picker_to_compose) {
+            /* Whatever asked for the picker gets its own follow-up over the new thread. */
+            if (nav->picker_follow == (uint8_t)MESH_UI_PICKER_FOLLOW_KEYBOARD) {
+                mesh_ui_nav_open_keyboard(nav);
+            } else if (nav->picker_follow == (uint8_t)MESH_UI_PICKER_FOLLOW_QUICK) {
                 mesh_ui_nav_open_compose(nav);
             }
         }
         nav->picker_open = false;
-        nav->picker_to_compose = false;
+        nav->picker_follow = (uint8_t)MESH_UI_PICKER_FOLLOW_NONE;
         return true;
     }
     case MESH_UI_KEY_B:
         nav->picker_open = false;
-        nav->picker_to_compose = false;
+        nav->picker_follow = (uint8_t)MESH_UI_PICKER_FOLLOW_NONE;
         return true;
     default:
         return false;
@@ -609,7 +612,7 @@ bool mesh_ui_nav_delete_conversation(struct mesh_ui_nav *nav, const struct mesh_
 
 /* A on a conversation row. Returns true when the frame changed. */
 bool mesh_ui_nav_open_conversation(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
-                                   uint32_t index, bool then_compose) {
+                                   uint32_t index) {
     struct mesh_ui_conversation conversation;
     if (!mesh_ui_nav_conversation_at(store, index, &conversation)) {
         return false;
@@ -628,11 +631,9 @@ bool mesh_ui_nav_open_conversation(struct mesh_ui_nav *nav, const struct mesh_ui
         break;
     case MESH_UI_CONVERSATION_NEW:
     default:
-        mesh_ui_nav_picker_open(nav, store, true);
+        mesh_ui_nav_picker_open(nav, store, MESH_UI_PICKER_FOLLOW_QUICK);
         return true;
     }
-    if (then_compose) {
-        mesh_ui_nav_open_compose(nav);
-    }
+    /* The thread and nothing over it: what to do in it is the next press's business. */
     return true;
 }
