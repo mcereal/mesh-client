@@ -69,6 +69,14 @@ package-lock.json
 # Device deploy settings (scripts/deploy-device.sh)
 .brick.env
 
-# Python helper tooling (scripts/gen-emoji.py)
+# Python helper tooling (scripts/gen-emoji.py, scripts/frames.py)
 __pycache__/
 .venv/
+
+# Captured UI frames and clips (scripts/ui-capture.sh, deploy-device.sh shot|clip). The
+# screenshots the README uses live in .github/resources/ and are committed deliberately.
+capture/
+*.ppm
+shot-*.png
+clip-*.gif
+ui-capture.gif

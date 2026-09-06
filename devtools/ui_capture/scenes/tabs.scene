@@ -1,0 +1,14 @@
+# One pass along the tab bar. The cheapest way to see chrome changes on every screen at once.
+scene demo
+scale 4
+delay 220
+
+hold 500
+tab nodes
+hold 500
+tab devices
+hold 500
+tab status
+hold 500
+tab settings
+hold 900

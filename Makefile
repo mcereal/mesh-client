@@ -10,8 +10,10 @@ export BUILD_ROOT
 DOCKER := ./scripts/docker.sh
 
 .PHONY: help setup debug release relwithdebinfo build test package proto clean distclean run format \
-        docker-image docker-cross-image docker-shell docker-debug docker-test docker-run docker-pak docker-clean \
-        deploy deploy-run deploy-logs deploy-check deploy-shot deploy-shell deploy-key brick
+        ui-capture \
+        docker-image docker-cross-image docker-shell docker-debug docker-test docker-run docker-pak \
+        docker-clean docker-ui-capture \
+        deploy deploy-run deploy-logs deploy-check deploy-shot deploy-clip deploy-shell deploy-key brick
 
 help:
 	@echo "Host targets (Linux):"
@@ -23,6 +25,7 @@ help:
 	@echo "  make package        - Produce dist/MeshClient.pak.zip from a Release build"
 	@echo "  make proto          - Regenerate nanopb sources from proto/meshtastic"
 	@echo "  make format         - clang-format all tracked .c/.h files"
+	@echo "  make ui-capture     - Render a UI scene to a GIF without a device (ARGS=\"scene -o out.gif\")"
 	@echo "  make clean          - Remove build artifacts"
 	@echo "  make distclean      - Remove build and dist outputs"
 	@echo ""
@@ -34,6 +37,7 @@ help:
 	@echo "  make docker-pak     - Static aarch64 build + dist/MeshClient.pak.zip for the TrimUI Brick"
 	@echo "  make docker-image   - (Re)build the dev image;  make docker-cross-image for the cross image"
 	@echo "  make docker-clean   - Remove build/linux"
+	@echo "  make docker-ui-capture - make ui-capture inside the dev container (use this on macOS)"
 	@echo ""
 	@echo "Device targets (TrimUI Brick over SSH; configure .brick.env, see docs/device.md):"
 	@echo "  make deploy         - Push dist/MeshClient.pak to the Brick's Tools/tg5040/"
@@ -42,6 +46,7 @@ help:
 	@echo "  make deploy-logs    - Tail the on-device MeshClient.txt log"
 	@echo "  make deploy-check   - Report SD card / BlueZ / D-Bus / adapter / fb0 state on the device"
 	@echo "  make deploy-shot    - Screenshot the device's screen to a PNG (ARGS=\"-d 10 -o nodes.png\")"
+	@echo "  make deploy-clip    - Film the device's screen to a GIF (ARGS=\"-d 10 -n 30 -o open.gif\")"
 	@echo "  make deploy-shell   - SSH into the device"
 	@echo "  make deploy-key     - Install your SSH public key on the device"
 
@@ -70,6 +75,11 @@ proto: debug
 
 run: debug
 	./$(BUILD_ROOT)/debug/meshclient --foreground --log-level debug
+
+# Render the HUD from a scene script, off-screen, with no Brick and no framebuffer involved.
+# The companion to deploy-shot for a change that is about a transition; see docs/ui.md.
+ui-capture:
+	./scripts/ui-capture.sh $(ARGS)
 
 # clang-format 18 is what ubuntu:24.04 ships, so the dev container and CI agree on it. A
 # different major reflows code that is already normalised - trailing-comment alignment and how
@@ -121,6 +131,9 @@ docker-run:
 docker-pak:
 	$(DOCKER) --cross ./scripts/cross-build.sh
 
+docker-ui-capture:
+	$(DOCKER) make ui-capture ARGS="$(ARGS)"
+
 docker-clean:
 	rm -rf build/linux
 
@@ -145,6 +158,9 @@ deploy-check:
 
 deploy-shot:
 	$(DEPLOY) shot -- $(ARGS)
+
+deploy-clip:
+	$(DEPLOY) clip -- $(ARGS)
 
 deploy-shell:
 	$(DEPLOY) shell

@@ -421,3 +421,70 @@ one". `launch.sh` sets `fb` explicitly on device.
 
 `stub` accepts snapshots and draws nothing. It is what the tests drive the controller against,
 and what `mesh_app_init` falls back to if the chosen backend's `init` fails.
+
+## Looking at a UI change
+
+A UI change wants a picture, and most of them want a moving one: the interesting part is usually
+the *transition* — a thread opening, the keyboard coming up, a toast arriving — and neither a
+still nor a diff shows that.
+
+There are two ways to get one, and they meet at the same encoder
+(`scripts/frames.py`, Python standard library only, so a macOS host needs no Pillow and no
+ffmpeg).
+
+### Off-screen, with no device
+
+`scripts/ui-capture.sh` drives the HUD through a scripted sequence of button presses and renders
+each frame into memory. Nothing about it is a mock: `mesh_ui_store_handle_key()` and
+`fb_render_snapshot()` are the ones that ship, drawing into a malloc'd page instead of an mmap of
+`/dev/fb0` (`src/ui/backends/fb_capture.c`). Only the radio is invented. That makes it usable
+from a container, a CI runner or a cloud session — anywhere a Brick is not.
+
+```bash
+make ui-capture ARGS="devtools/ui_capture/scenes/messages.scene -o messages.gif"
+make docker-ui-capture ARGS="..."          # on macOS, where the core does not build natively
+./scripts/ui-capture.sh -o thread.png devtools/ui_capture/scenes/messages.scene
+printf 'scene demo\ntab nodes\nkey down 2\nkey a\n' | ./scripts/ui-capture.sh -o node.gif
+```
+
+A `.png` output captures a single frame; anything else is an animated GIF. The output is halved
+by default (`-d 1` keeps it at the panel's 1024x768) and `-s N` sets the glyph scale the device
+takes from `MESHCLIENT_FB_SCALE`.
+
+**Scene scripts** are one command per line, `#` starts a comment, and every command but the
+first three emits a frame — `key ... 3` emits three, and the screen the scene starts on is
+emitted before any of them. Worked examples live in `devtools/ui_capture/scenes/`.
+
+| Command | What it does |
+|---|---|
+| `scene demo\|empty` | which invented radio to start from: a mesh with eight nodes and a message log, or nothing connected. Setup only, and the default is `demo` |
+| `scale N` | glyph multiplier, 2..6. Setup only |
+| `delay MS` | default per-frame delay. Setup only |
+| `tab NAME` | walk Left/Right to `messages`, `nodes`, `devices`, `status` or `settings` |
+| `key NAME [COUNT]` | `up down left right a b x y l1 r1 start select` |
+| `hold MS` | lengthen the frame just emitted, rather than emitting a duplicate |
+| `frame` | emit the current screen again |
+| `toast TEXT` | raise the transient notice the footer draws |
+| `message in\|out NAME TEXT` | append a message, as if the radio had just said so |
+| `status TEXT` | set the transport status line |
+
+`tab` walks the tabs with the buttons rather than assigning `nav.screen`, so a scene can only
+ever reach a screen the device can reach.
+
+The one thing the harness cannot do is act on a `struct mesh_ui_action`. Pressing START in the
+keyboard raises `SEND_TEXT` and the store stops there — it is `mesh_app` that sends and echoes it
+back. `message out ...` is how a scene stands in for that.
+
+### Off the device
+
+`scripts/deploy-device.sh` reads the Brick's framebuffer directly, so it catches whatever is
+actually on the panel — our HUD, the launcher, a crash:
+
+```bash
+make deploy-shot ARGS="-d 10 -o nodes.png"        # one frame
+make deploy-clip ARGS="-d 10 -n 30 -o open.gif"   # 30 frames as a GIF
+```
+
+A page is 3 MB and there is nothing on the device to shrink it, so a clip comes back at a handful
+of frames a second over WiFi — it is not real time. `-r MS` sets how fast it plays back rather
+than how fast it was shot. See [`docs/device.md`](device.md).

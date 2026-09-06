@@ -4,7 +4,7 @@ The whole suite is **one binary with a name filter**, not per-test CTest entries
 `tests/suites/<area>.c`, one file per subject area, and **register themselves** — there is no
 central table to keep in sync.
 
-As of 2026-09-05: **98 unit tests, all passing**, zero compiler warnings.
+As of 2026-09-06: **123 unit tests, all passing**, zero compiler warnings.
 
 ## Layout
 
@@ -29,7 +29,7 @@ second suite needs it — that is the whole rule.
 
 ```bash
 make test                                                    # debug build + ctest
-ctest -L unit                                                # the same suite directly
+ctest -L unit                                                # both suites directly
 
 ./build/debug/tests/meshclient_core_tests --list             # names, categories and suites
 ./build/debug/tests/meshclient_core_tests --filter ble_transport
@@ -39,6 +39,18 @@ ctest -L unit                                                # the same suite di
 
 The driver prints a `[RUN]` line per case and a pass/fail summary; a non-zero failure count is a
 non-zero exit code.
+
+CTest runs one more thing beside it. `scripts/frames.py` hand-rolls GIF's variable-width LZW for
+`make ui-capture` and `make deploy-clip`, and the part that is easy to get subtly wrong — when
+the code width grows — produces a file that still opens and shows garbage, so
+`meshclient_frames_codec` round-trips the compressor through an independently written decoder
+(`scripts/frames.py selftest`).
+
+The framebuffer renderer is covered too, in `tests/suites/ui_capture.c`. There is no `/dev/fb0`
+in CI or in the dev container, and `mesh_ui_capture_*` (`src/ui/backends/fb_capture.c`) is the
+only way the fb backend's output is exercised anywhere but on a Brick. Those cases check the
+contract the encoders rely on — geometry, pixel order, that two screens do not render
+identically — rather than pinning pixels, which would fail on every legitimate UI change.
 
 ## Adding a test
 

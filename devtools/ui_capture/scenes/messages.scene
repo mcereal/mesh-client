@@ -1,0 +1,15 @@
+# Opening a conversation and reading it: the Messages tab's two levels, and what the
+# transcript looks like once a thread is open.
+scene demo
+scale 4
+delay 160
+
+hold 700
+key down 2
+hold 300
+key a
+hold 900
+key up 3
+hold 700
+key b
+hold 800

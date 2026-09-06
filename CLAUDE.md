@@ -26,6 +26,20 @@ make debug                                # Debug build only
 make format                               # clang-format all tracked .c/.h
 make proto                                # regenerate nanopb sources
 make release && make package              # release binary + dist/MeshClient.pak.zip
+make ui-capture ARGS="<scene> -o x.gif"   # render a UI scene to a GIF, no device needed
+```
+
+**A UI change is shown, not described.** `make ui-capture` drives the HUD through a scripted
+sequence of button presses and renders every frame off-screen - the real nav model and the real
+`fb_render_snapshot()`, drawing into memory instead of `/dev/fb0` - so a change is reviewable as
+a picture from a container or a cloud session. A GIF rather than a still because most UI changes
+are about a transition. Scene scripts and the command list are in
+[`docs/ui.md`](docs/ui.md#looking-at-a-ui-change); examples in `devtools/ui_capture/scenes/`.
+
+```bash
+make ui-capture ARGS="devtools/ui_capture/scenes/messages.scene -o messages.gif"
+make docker-ui-capture ARGS="..."         # on macOS
+printf 'scene demo\ntab nodes\nkey down 2\nkey a\n' | ./scripts/ui-capture.sh -o node.gif
 ```
 
 `make docker-*` wraps `scripts/docker.sh`, which builds the image from `docker/Dockerfile` on
@@ -53,6 +67,7 @@ make deploy                               # push only
 make deploy-logs                          # tail the device log
 make deploy-check                         # report BlueZ, D-Bus and fb0 state on device
 make deploy-shot ARGS="-d 10 -o x.png"    # screenshot /dev/fb0 (page 0; -P 1 is the launcher)
+make deploy-clip ARGS="-d 10 -n 30"       # film /dev/fb0 to a GIF (a few fps; not real time)
 make deploy-run ARGS="--list-devices"     # run launch.sh on device headless, streaming output
 ```
 
@@ -81,7 +96,7 @@ suite needs it.
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Verified 2026-09-06: 120 unit tests, all passing, zero compiler warnings.
+Verified 2026-09-06: 123 unit tests, all passing, zero compiler warnings.
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
 vector — not against our own encoder — so a protobuf regeneration that changes field numbers or
 wire types fails loudly.
@@ -119,6 +134,7 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | UI | `src/ui/` | store/controller + `nav*.c` + `settings*.c` + `layout.c` + `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
 | UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window; buttons, list rows, field rows |
 | Text | `src/utils/text.c`, `src/ui/{font5x7,emoji}.c` | UTF-8 sanitising, cell-based measurement |
+| Dev tools | `devtools/`, `scripts/{ui-capture.sh,frames.py}` | off-screen UI capture; PNG/GIF encoding, stdlib only |
 | Shared utils | `src/utils/` | `text` (UTF-8 + `mesh_str_copy`), `time` (`mesh_time_monotonic_ms`), `env` (`mesh_env_bool`/`_int`), `log`, `sha256`, `array` |
 
 `include/mesh/` mirrors `src/` one-for-one — `core/`, `transport/`, `ui/`, `proto/`, `utils/` —
@@ -169,6 +185,11 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
 - **`launch.sh` and the pak's CA bundle do not ship through self-update.** Only the bare binary
   does. Changing either forces a pak reinstall, so treat them as a compatibility boundary.
 - **`scripts/gen-emoji.py` is not part of the build.** Run it by hand and commit the result.
+- **`devtools/` is not `Tools/`.** `Tools/` holds the device-facing pak assets, and macOS
+  filesystems are case-insensitive by default, so a `tools/` directory would collide with it.
+- **The capture harness cannot act on a `mesh_ui_action`.** START in the keyboard raises
+  `SEND_TEXT` and the store stops there; sending is `mesh_app`'s job and there is no app behind
+  the harness. A scene stands in for the echo with `message out ...`.
 
 ## Protobufs
 
