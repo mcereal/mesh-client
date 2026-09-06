@@ -60,6 +60,7 @@ static const struct mesh_ui_theme k_themes[] = {
                 [MESH_UI_COLOR_TEXT_DIM] = RGB(140, 150, 165),
                 [MESH_UI_COLOR_TEXT_STRONG] = RGB(255, 255, 255),
                 [MESH_UI_COLOR_TEXT_ON_SEL] = RGB(255, 255, 255),
+                [MESH_UI_COLOR_TEXT_ON_SEL_DIM] = RGB(190, 208, 226),
                 [MESH_UI_COLOR_ACCENT] = RGB(255, 220, 120),
                 /* Dark text on the accent fill: white on that yellow is unreadable at this
                    glyph size. */
@@ -82,6 +83,18 @@ static const struct mesh_ui_theme k_themes[] = {
                    that said "ours" on a bare row; the bubble says that now. */
                 [MESH_UI_COLOR_TEXT_OUTBOUND] = RGB(228, 238, 248),
             },
+        /* Bright tints for a dark ground: the initials over them are the ground colour, so a
+           tint has to carry the contrast the way the accent fill does. */
+        .avatars =
+            {
+                RGB(120, 190, 255), /* sky */
+                RGB(255, 200, 120), /* amber */
+                RGB(150, 220, 170), /* mint */
+                RGB(230, 160, 220), /* orchid */
+                RGB(255, 162, 140), /* coral */
+                RGB(180, 200, 255), /* periwinkle */
+            },
+        .avatar_count = 6U,
         .metrics = MESH_UI_METRICS_DEFAULT,
     },
     {
@@ -102,6 +115,7 @@ static const struct mesh_ui_theme k_themes[] = {
                 [MESH_UI_COLOR_TEXT_DIM] = RGB(92, 104, 120),
                 [MESH_UI_COLOR_TEXT_STRONG] = RGB(8, 14, 24),
                 [MESH_UI_COLOR_TEXT_ON_SEL] = RGB(12, 20, 32),
+                [MESH_UI_COLOR_TEXT_ON_SEL_DIM] = RGB(70, 84, 104),
                 [MESH_UI_COLOR_ACCENT] = RGB(160, 72, 0),
                 [MESH_UI_COLOR_ON_ACCENT] = RGB(255, 255, 255),
                 [MESH_UI_COLOR_GOOD] = RGB(20, 110, 60),
@@ -116,6 +130,17 @@ static const struct mesh_ui_theme k_themes[] = {
                 [MESH_UI_COLOR_TEXT_INBOUND] = RGB(22, 30, 42),
                 [MESH_UI_COLOR_TEXT_OUTBOUND] = RGB(18, 32, 52),
             },
+        /* The dark half of each hue, because here the initials are the paper ground. */
+        .avatars =
+            {
+                RGB(30, 90, 160),  /* deep blue */
+                RGB(150, 60, 20),  /* rust */
+                RGB(20, 110, 80),  /* pine */
+                RGB(110, 45, 130), /* plum */
+                RGB(150, 40, 80),  /* berry */
+                RGB(60, 80, 130),  /* slate */
+            },
+        .avatar_count = 6U,
         .metrics = MESH_UI_METRICS_DEFAULT,
     },
     {
@@ -136,6 +161,7 @@ static const struct mesh_ui_theme k_themes[] = {
                 [MESH_UI_COLOR_TEXT_DIM] = RGB(196, 196, 196),
                 [MESH_UI_COLOR_TEXT_STRONG] = RGB(255, 255, 255),
                 [MESH_UI_COLOR_TEXT_ON_SEL] = RGB(0, 0, 0),
+                [MESH_UI_COLOR_TEXT_ON_SEL_DIM] = RGB(72, 72, 72),
                 [MESH_UI_COLOR_ACCENT] = RGB(255, 214, 0),
                 [MESH_UI_COLOR_ON_ACCENT] = RGB(0, 0, 0),
                 [MESH_UI_COLOR_GOOD] = RGB(0, 230, 118),
@@ -150,6 +176,14 @@ static const struct mesh_ui_theme k_themes[] = {
                 [MESH_UI_COLOR_TEXT_INBOUND] = RGB(255, 255, 255),
                 [MESH_UI_COLOR_TEXT_OUTBOUND] = RGB(255, 255, 255),
             },
+        /* Two, not six. A palette of hues is exactly what this theme exists to do without, so
+           an avatar here is the yellow or the white and the initials carry the rest. */
+        .avatars =
+            {
+                RGB(255, 214, 0),
+                RGB(255, 255, 255),
+            },
+        .avatar_count = 2U,
         .metrics = MESH_UI_METRICS_DEFAULT,
     },
     {
@@ -170,6 +204,7 @@ static const struct mesh_ui_theme k_themes[] = {
                 [MESH_UI_COLOR_TEXT_DIM] = RGB(146, 156, 170),
                 [MESH_UI_COLOR_TEXT_STRONG] = RGB(255, 255, 255),
                 [MESH_UI_COLOR_TEXT_ON_SEL] = RGB(255, 255, 255),
+                [MESH_UI_COLOR_TEXT_ON_SEL_DIM] = RGB(190, 208, 226),
                 [MESH_UI_COLOR_ACCENT] = RGB(204, 121, 167),
                 [MESH_UI_COLOR_ON_ACCENT] = RGB(0x0A, 0x14, 0x1E),
                 [MESH_UI_COLOR_GOOD] = RGB(86, 180, 233),
@@ -186,6 +221,19 @@ static const struct mesh_ui_theme k_themes[] = {
                 [MESH_UI_COLOR_TEXT_INBOUND] = RGB(235, 245, 255),
                 [MESH_UI_COLOR_TEXT_OUTBOUND] = RGB(228, 238, 248),
             },
+        /* The Okabe-Ito set again, this time as fills. They are the six that stay separable
+           under every common dichromacy, which is the only reason to spend six on avatars at
+           all - two tints that collapse into one for the reader are one tint. */
+        .avatars =
+            {
+                RGB(86, 180, 233),  /* sky blue */
+                RGB(230, 159, 0),   /* orange */
+                RGB(0, 158, 115),   /* bluish green */
+                RGB(240, 228, 66),  /* yellow */
+                RGB(213, 94, 0),    /* vermillion */
+                RGB(204, 121, 167), /* reddish purple */
+            },
+        .avatar_count = 6U,
         .metrics = MESH_UI_METRICS_DEFAULT,
     },
 };
@@ -296,6 +344,25 @@ enum mesh_ui_color mesh_ui_tone_role(enum mesh_ui_tone tone) {
 
 struct mesh_ui_rgb mesh_ui_theme_tone(const struct mesh_ui_theme *theme, enum mesh_ui_tone tone) {
     return mesh_ui_theme_color(theme, mesh_ui_tone_role(tone));
+}
+
+struct mesh_ui_rgb mesh_ui_theme_avatar(const struct mesh_ui_theme *theme, uint32_t seed) {
+    theme = theme_or_default(theme);
+    const uint32_t count = theme->avatar_count > 0U && theme->avatar_count <= MESH_UI_AVATAR_TINTS
+                               ? theme->avatar_count
+                               : 0U;
+    if (count == 0U) {
+        /* A theme that states no palette still has to answer, and the accent is the one fill
+           it already promises reads with the ground colour over it. */
+        return theme->colors[MESH_UI_COLOR_ACCENT];
+    }
+    /*
+     * Knuth's multiplicative hash before the modulo. A node number is not random in its low
+     * bits - a mesh is a run of consecutive ids off one vendor's block - so `seed % count`
+     * alone hands neighbouring nodes neighbouring tints, which is the one thing an avatar
+     * colour must not do.
+     */
+    return theme->avatars[(seed * 2654435761U >> 16) % count];
 }
 
 const struct mesh_ui_font *mesh_ui_theme_font(const struct mesh_ui_theme *theme) {
@@ -416,7 +483,14 @@ static const struct theme_pair k_required[] = {
     {MESH_UI_COLOR_TEXT, MESH_UI_COLOR_SURFACE, 4.5},
     {MESH_UI_COLOR_TEXT_ON_SEL, MESH_UI_COLOR_SURFACE_SEL, 4.5},
     {MESH_UI_COLOR_TEXT_ON_SEL, MESH_UI_COLOR_SURFACE_ACTIVE, 4.5},
+    {MESH_UI_COLOR_TEXT_ON_SEL_DIM, MESH_UI_COLOR_SURFACE_SEL, 3.0},
     {MESH_UI_COLOR_ON_ACCENT, MESH_UI_COLOR_ACCENT, 4.5},
+    /* Two colours outside the avatar palette are drawn as avatar tints, and an avatar's
+       initials are the ground colour: the accent, on the conversation-list rows that are not
+       somebody, and the bad tone, on a row armed to be deleted. Both owe the ground what every
+       stated tint owes it - and the armed one is the disc that must not go quiet. */
+    {MESH_UI_COLOR_BG, MESH_UI_COLOR_ACCENT, 4.5},
+    {MESH_UI_COLOR_BG, MESH_UI_COLOR_BAD, 4.5},
     {MESH_UI_COLOR_TEXT_INBOUND, MESH_UI_COLOR_BUBBLE_IN, 4.5},
     {MESH_UI_COLOR_TEXT_INBOUND, MESH_UI_COLOR_BUBBLE_IN_SEL, 4.5},
     {MESH_UI_COLOR_TEXT_OUTBOUND, MESH_UI_COLOR_BUBBLE_OUT, 4.5},
@@ -478,6 +552,14 @@ bool mesh_ui_theme_validate(const struct mesh_ui_theme *theme, char *reason, siz
         return false;
     }
 
+    if (theme->avatar_count > MESH_UI_AVATAR_TINTS) {
+        if (reason != NULL) {
+            snprintf(reason, reason_len, "%u avatar tints, at most %u fit", theme->avatar_count,
+                     (unsigned)MESH_UI_AVATAR_TINTS);
+        }
+        return false;
+    }
+
     for (size_t i = 0; i < sizeof k_required / sizeof k_required[0]; ++i) {
         const struct theme_pair *pair = &k_required[i];
         const double ratio =
@@ -486,6 +568,22 @@ bool mesh_ui_theme_validate(const struct mesh_ui_theme *theme, char *reason, siz
             if (reason != NULL) {
                 snprintf(reason, reason_len, "role %d on role %d is %.2f:1, needs %.1f:1",
                          (int)pair->ink, (int)pair->ground, ratio, pair->ratio);
+            }
+            return false;
+        }
+    }
+
+    /* An avatar is a fill with the ground colour punched out of it, so every tint owes the
+       ground what body text owes it. A palette entry that fails is a disc whose initials
+       nobody can read - and the initials are the only part of an avatar that carries
+       information. */
+    for (uint8_t i = 0; i < theme->avatar_count; ++i) {
+        const double ratio =
+            mesh_ui_theme_contrast(theme->avatars[i], theme->colors[MESH_UI_COLOR_BG]);
+        if (ratio + 0.005 < 4.5) {
+            if (reason != NULL) {
+                snprintf(reason, reason_len, "avatar tint %u on the ground is %.2f:1, needs 4.5:1",
+                         i, ratio);
             }
             return false;
         }

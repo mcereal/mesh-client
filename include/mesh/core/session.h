@@ -612,6 +612,16 @@ int mesh_session_request_telemetry(struct mesh_session *session, uint32_t dest);
 /* Meshtastic packet ids only need to be unique per sender for a few minutes. Never zero. */
 uint32_t mesh_session_next_packet_id(struct mesh_session *session);
 
+/*
+ * Throws one conversation out of the message log; returns how many messages went.
+ *
+ * `peer` of MESH_MESSAGE_BROADCAST_ADDR means the channel conversation on `channel`, anything
+ * else the direct exchange with that node. Purely local: the radio keeps no per-client message
+ * history to tell, and it will happily deliver the same conversation again.
+ */
+uint32_t mesh_session_forget_conversation(struct mesh_session *session, uint32_t peer,
+                                          uint8_t channel);
+
 /* Borrowed views; valid until the next call into the session. */
 const struct mesh_handshake_status *mesh_session_handshake(const struct mesh_session *session);
 const struct mesh_message_log *mesh_session_messages(const struct mesh_session *session);

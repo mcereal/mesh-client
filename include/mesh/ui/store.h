@@ -778,6 +778,28 @@ void mesh_ui_message_list_merge(const struct mesh_ui_message_list *cached,
                                 const struct mesh_ui_message_list *live,
                                 struct mesh_ui_message_list *out);
 
+/*
+ * Drops every message in one conversation from a list. Returns how many went.
+ *
+ * `kind` is an enum mesh_ui_conversation_kind: CHANNEL reads `channel`, DIRECT reads `node`,
+ * and neither ALL nor NEW names a conversation, so both remove nothing - "delete everything"
+ * is not a thing one press on a list row should be able to mean.
+ */
+uint32_t mesh_ui_message_list_forget(struct mesh_ui_message_list *list, uint8_t kind, uint32_t node,
+                                     uint8_t channel);
+
+/*
+ * The same on the store, plus the conversation's read mark, signalling a repaint when
+ * anything went.
+ *
+ * This is only the UI's copy. The messages also sit in the transport's ring and in the history
+ * the app read back from its cache, and a delete that misses either of those puts the
+ * conversation straight back on the next publish - which is why the app owns
+ * MESH_UI_ACTION_DELETE_CONVERSATION rather than the store doing it on a key press.
+ */
+uint32_t mesh_ui_store_forget_conversation(struct mesh_ui_store *store, uint8_t kind, uint32_t node,
+                                           uint8_t channel);
+
 /* Navigation. A key press moves the cursor or switches tabs and, for A on an actionable row,
    fills *out_action for the caller to carry out (connect, send). Returns true when the frame
    needs repainting; the store has already signalled its eventfd in that case. */

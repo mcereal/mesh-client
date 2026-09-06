@@ -562,3 +562,76 @@ MESH_TEST_CASE(message_echo_carries_encryption, unit) {
 
     record_success(test_name);
 }
+
+/*
+ * Deleting a conversation from the ring.
+ *
+ * The interesting case is a ring that has already wrapped: the entries are oldest-first
+ * through a modulo, so a compaction that walked the array rather than the ring would keep the
+ * right *number* of messages in the wrong order.
+ */
+MESH_TEST_CASE(message_log_forget_conversation, unit) {
+    struct mesh_message_log log;
+    mesh_message_log_reset(&log);
+
+    /* Overfill so head is not 0, alternating between a channel and two direct peers. */
+    const size_t total = MESH_MESSAGE_LOG_CAPACITY + 6U;
+    for (size_t i = 0; i < total; ++i) {
+        struct mesh_message message;
+        memset(&message, 0, sizeof(message));
+        message.packet_id = (uint32_t)(i + 1U);
+        switch (i % 3U) {
+        case 0U: /* a broadcast on channel 0 */
+            message.from = 0x2000U;
+            message.to = MESH_MESSAGE_BROADCAST_ADDR;
+            message.channel = 0U;
+            break;
+        case 1U: /* inbound from BRVO */
+            message.from = 0x3000U;
+            message.to = 0x1000U;
+            break;
+        default: /* outbound to BRVO, the other half of the same conversation */
+            message.from = 0x1000U;
+            message.to = 0x3000U;
+            message.direction = MESH_MESSAGE_OUTBOUND;
+            break;
+        }
+        snprintf(message.text, sizeof(message.text), "message %zu", i);
+        MESH_TEST_FAIL_IF(mesh_message_log_append(&log, &message) == NULL, "append failed");
+    }
+    MESH_TEST_FAIL_IF(log.head == 0U, "the ring should have wrapped for this case to be worth it");
+
+    const size_t before = log.count;
+    const uint32_t dropped_before = log.dropped;
+    const uint32_t removed = mesh_message_log_forget(&log, 0x3000U, 0U);
+    MESH_TEST_FAIL_IF(removed == 0U, "the direct conversation should have had messages in it");
+    MESH_TEST_FAIL_IF(log.count != before - removed, "the count should fall by what was removed");
+    MESH_TEST_FAIL_IF(log.dropped != dropped_before,
+                      "a delete is not the ring evicting: dropped should not move");
+
+    /* Both directions went, the broadcasts stayed, and what stayed is still oldest-first. */
+    uint32_t previous = 0U;
+    for (size_t i = 0; i < log.count; ++i) {
+        const struct mesh_message *message = mesh_message_log_at(&log, i);
+        MESH_TEST_FAIL_IF(message == NULL, "every retained index should resolve");
+        MESH_TEST_FAIL_IF(message->from == 0x3000U || message->to == 0x3000U,
+                          "a message in the deleted conversation survived");
+        MESH_TEST_FAIL_IF(message->packet_id <= previous,
+                          "the surviving order is not oldest-first");
+        previous = message->packet_id;
+    }
+
+    /* A second delete of the same conversation finds nothing and changes nothing. */
+    MESH_TEST_FAIL_IF(mesh_message_log_forget(&log, 0x3000U, 0U) != 0U,
+                      "deleting an empty conversation should remove nothing");
+
+    /* And the channel goes by its slot rather than by a peer. */
+    const size_t remaining = log.count;
+    const uint32_t broadcasts = mesh_message_log_forget(&log, MESH_MESSAGE_BROADCAST_ADDR, 0U);
+    MESH_TEST_FAIL_IF(broadcasts == 0U || log.count != remaining - broadcasts,
+                      "the channel conversation should have gone by its slot");
+    MESH_TEST_FAIL_IF(mesh_message_log_forget(&log, MESH_MESSAGE_BROADCAST_ADDR, 3U) != 0U,
+                      "a channel slot nothing was sent on should remove nothing");
+
+    record_success(test_name);
+}

@@ -39,6 +39,9 @@ void mesh_ui_nav_node_name(const struct mesh_ui_store *store, uint32_t node_id, 
 /* Opens the conversation at `index` in the Messages list. False when the index is past the end. */
 bool mesh_ui_nav_open_conversation(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                    uint32_t index, bool then_compose);
+/* X on a conversation row: arms the delete, or emits it when that row is already armed. */
+bool mesh_ui_nav_delete_conversation(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                     uint32_t index, struct mesh_ui_action *action);
 /* Opens the send-to picker over the current screen. */
 void mesh_ui_nav_picker_open(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                              bool then_compose);

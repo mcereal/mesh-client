@@ -1,0 +1,14 @@
+# X on the conversation list: the first press arms the delete and the row itself says so, the
+# second asks the app to carry it out. Nothing is deleted here - the capture harness has no app
+# behind it, so the clip stops where the row raises the question and where B stands it down.
+scene demo
+scale 4
+delay 160
+
+hold 700
+key down 3
+hold 500
+key x
+hold 1200
+key b
+hold 900

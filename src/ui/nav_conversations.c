@@ -382,6 +382,122 @@ uint32_t mesh_ui_nav_conversation_count(const struct mesh_ui_store *store) {
     return 1U + channels + directs + 1U;
 }
 
+/*
+ * The two cells an avatar shows.
+ *
+ * The rule every messenger uses: the first letter of each of the first two words, or the first
+ * two letters when there is only one word. Meshtastic short names are four upper-case
+ * characters ("BRVO"), so in practice this is their first half - which is what makes the disc
+ * recognisable before the name beside it has been read.
+ *
+ * Non-alphanumerics are skipped, so the "!a1b2c3d4" a node with no User falls back to gives
+ * "A1" rather than "!A", and a channel's leading '#' does not eat one of the two cells.
+ * Anything outside ASCII is taken as-is and counted as one cell: an emoji name is one glyph
+ * wide and upper-casing it would be meaningless.
+ */
+static bool mesh_ui_nav_is_word_break(unsigned char c) {
+    return c == ' ' || c == '_' || c == '-' || c == '.';
+}
+
+/* A character that can stand for a name. Everything outside ASCII counts: it is one drawn
+   cell whatever it is spelled with, and there is no case to fold. */
+static bool mesh_ui_nav_is_name_char(unsigned char c) {
+    return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c >= 0x80U;
+}
+
+/* Bytes in the cell starting at `p`: one for ASCII, the whole sequence for anything else. */
+static size_t mesh_ui_nav_cell_bytes(const unsigned char *p) {
+    size_t bytes = 1U;
+    while (p[bytes] != '\0' && (p[bytes] & 0xC0U) == 0x80U) {
+        ++bytes;
+    }
+    return bytes;
+}
+
+/* Appends the cell at `p`, upper-cased when it is a lower-case ASCII letter. */
+static void mesh_ui_nav_append_cell(const unsigned char *p, char *out, size_t out_len,
+                                    size_t *written) {
+    const size_t bytes = mesh_ui_nav_cell_bytes(p);
+    if (*written + bytes + 1U > out_len) {
+        return;
+    }
+    if (bytes == 1U && *p >= 'a' && *p <= 'z') {
+        out[(*written)++] = (char)(*p - ('a' - 'A'));
+    } else {
+        memcpy(&out[*written], p, bytes);
+        *written += bytes;
+    }
+    out[*written] = '\0';
+}
+
+static void mesh_ui_nav_initials(const char *name, char *out, size_t out_len) {
+    out[0] = '\0';
+    if (name == NULL || out_len < 2U) {
+        return;
+    }
+    const unsigned char *text = (const unsigned char *)name;
+
+    /* The first letter, whatever punctuation leads. */
+    size_t i = 0U;
+    while (text[i] != '\0' && !mesh_ui_nav_is_name_char(text[i])) {
+        ++i;
+    }
+    if (text[i] == '\0') {
+        return; /* nothing in the name is a letter; the disc draws empty */
+    }
+    size_t written = 0U;
+    mesh_ui_nav_append_cell(&text[i], out, out_len, &written);
+    i += mesh_ui_nav_cell_bytes(&text[i]);
+
+    /* The second: the first letter of the next word if the name has one, else simply the
+       character after the first - which is the case that matters here, because a Meshtastic
+       short name is one word of four ("BRVO" -> "BR"). */
+    const size_t next = i;
+    bool after_break = false;
+    for (; text[i] != '\0'; ++i) {
+        if (mesh_ui_nav_is_word_break(text[i])) {
+            after_break = true;
+            continue;
+        }
+        if (after_break && mesh_ui_nav_is_name_char(text[i])) {
+            mesh_ui_nav_append_cell(&text[i], out, out_len, &written);
+            return;
+        }
+    }
+    if (mesh_ui_nav_is_name_char(text[next])) {
+        mesh_ui_nav_append_cell(&text[next], out, out_len, &written);
+    }
+}
+
+/* Everything a backend needs to draw the avatar: the two cells and the seed that colours
+   them. The seed is the conversation's identity - a node number, a channel slot - rather than
+   its name, so the tint survives a rename. */
+static void mesh_ui_nav_conversation_avatar(struct mesh_ui_conversation *out) {
+    switch ((enum mesh_ui_conversation_kind)out->kind) {
+    case MESH_UI_CONVERSATION_ALL:
+        /* Not a person and not a place: the one row that is a view over the others gets a
+           mark rather than initials, and the backend tints it with the accent. */
+        mesh_str_copy(out->initials, sizeof out->initials, "*");
+        out->tint = 0U;
+        return;
+    case MESH_UI_CONVERSATION_NEW:
+        mesh_str_copy(out->initials, sizeof out->initials, "+");
+        out->tint = 0U;
+        return;
+    case MESH_UI_CONVERSATION_CHANNEL:
+        /* A channel is a place, and '#' is what says so everywhere else on this screen. The
+           slot rather than the name seeds it, so renaming a channel keeps its colour. */
+        mesh_str_copy(out->initials, sizeof out->initials, "#");
+        out->tint = 0x0C000000U + out->channel;
+        return;
+    case MESH_UI_CONVERSATION_DIRECT:
+    default:
+        mesh_ui_nav_initials(out->name, out->initials, sizeof out->initials);
+        out->tint = out->node;
+        return;
+    }
+}
+
 bool mesh_ui_nav_conversation_at(const struct mesh_ui_store *store, uint32_t index,
                                  struct mesh_ui_conversation *out) {
     if (store == NULL || out == NULL) {
@@ -402,6 +518,7 @@ bool mesh_ui_nav_conversation_at(const struct mesh_ui_store *store, uint32_t ind
         /* All traffic is a view, not a conversation: it keeps no mark of its own (opening it
            marks nothing read), so its badge is what the rows below it still owe. */
         out->unread = mesh_ui_nav_unread_total(store);
+        mesh_ui_nav_conversation_avatar(out);
         return true;
     }
     if (index < 1U + channels) {
@@ -409,6 +526,7 @@ bool mesh_ui_nav_conversation_at(const struct mesh_ui_store *store, uint32_t ind
         out->channel = slots[index - 1U];
         mesh_ui_nav_channel_name(store, out->channel, out->name, sizeof out->name);
         mesh_ui_nav_conversation_summarise(store, out);
+        mesh_ui_nav_conversation_avatar(out);
         return true;
     }
     if (index < 1U + channels + directs) {
@@ -416,33 +534,77 @@ bool mesh_ui_nav_conversation_at(const struct mesh_ui_store *store, uint32_t ind
         out->node = peers[index - 1U - channels];
         mesh_ui_nav_node_name(store, out->node, out->name, sizeof out->name);
         mesh_ui_nav_conversation_summarise(store, out);
+        mesh_ui_nav_conversation_avatar(out);
         return true;
     }
     if (index == 1U + channels + directs) {
         out->kind = MESH_UI_CONVERSATION_NEW;
         snprintf(out->name, sizeof out->name, "%s", "New message");
+        mesh_ui_nav_conversation_avatar(out);
         return true;
     }
     return false;
 }
 
-bool mesh_ui_nav_conversation_is_open(const struct mesh_ui_nav *nav,
-                                      const struct mesh_ui_conversation *conversation) {
-    if (nav == NULL || conversation == NULL || !nav->thread_open) {
+bool mesh_ui_nav_conversation_is_armed(const struct mesh_ui_nav *nav,
+                                       const struct mesh_ui_conversation *conversation) {
+    if (nav == NULL || conversation == NULL || !nav->messages_delete_armed ||
+        nav->messages_delete_kind != conversation->kind) {
         return false;
     }
     switch ((enum mesh_ui_conversation_kind)conversation->kind) {
-    case MESH_UI_CONVERSATION_ALL:
-        return nav->inbox;
     case MESH_UI_CONVERSATION_CHANNEL:
-        return !nav->inbox && nav->target_node == MESH_MESSAGE_BROADCAST_ADDR &&
-               nav->target_channel == conversation->channel;
+        return nav->messages_delete_channel == conversation->channel;
     case MESH_UI_CONVERSATION_DIRECT:
-        return !nav->inbox && nav->target_node == conversation->node;
+        return nav->messages_delete_node == conversation->node;
+    case MESH_UI_CONVERSATION_ALL:
     case MESH_UI_CONVERSATION_NEW:
     default:
         return false;
     }
+}
+
+/*
+ * X on a conversation row: arm the delete, or carry it out when this row is already armed.
+ *
+ * Neither "All traffic" nor "New message" is a conversation - one is a view over the others
+ * and the other is a button - so X on either does nothing at all rather than doing something
+ * surprising with the whole log. Returns true when the frame changed.
+ */
+bool mesh_ui_nav_delete_conversation(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                     uint32_t index, struct mesh_ui_action *action) {
+    struct mesh_ui_conversation conversation;
+    if (!mesh_ui_nav_conversation_at(store, index, &conversation)) {
+        return false;
+    }
+    if (conversation.kind != MESH_UI_CONVERSATION_CHANNEL &&
+        conversation.kind != MESH_UI_CONVERSATION_DIRECT) {
+        return false;
+    }
+
+    if (!mesh_ui_nav_conversation_is_armed(nav, &conversation)) {
+        nav->messages_delete_armed = true;
+        nav->messages_delete_kind = conversation.kind;
+        nav->messages_delete_channel = conversation.channel;
+        nav->messages_delete_node = conversation.node;
+        return true;
+    }
+
+    nav->messages_delete_armed = false;
+    if (action != NULL) {
+        action->type = MESH_UI_ACTION_DELETE_CONVERSATION;
+        action->number = conversation.kind;
+        action->dest = conversation.node;
+        action->channel = conversation.channel;
+        /* The name off the row rather than one the app resolves again: what the toast should
+           say is what the user was looking at when they pressed X, and a channel's name lives
+           in the handshake's channel table that only this layer walks. */
+        mesh_str_copy(action->text, sizeof action->text, conversation.name);
+    }
+    /* The frame changes when the app publishes the shorter log, not here: saying "deleted"
+       before the messages have gone is how a failed delete comes to look like a successful
+       one. Standing the arming down is a change on its own, though. */
+    return true;
 }
 
 /* A on a conversation row. Returns true when the frame changed. */

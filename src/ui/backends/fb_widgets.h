@@ -147,6 +147,39 @@ void fb_list_sub_row(const struct mesh_ui_backend_fb_state *state, struct fb_lis
                      const char *text, enum mesh_ui_tone tone);
 
 /*
+ * A conversation cell: the component the Messages list is made of.
+ *
+ * Two body rows, laid out the way every messenger lays this out - a tinted disc with the
+ * correspondent's initials, then the name with the age of the last traffic against the right
+ * edge, then what was last said with the unread count as a pill after it. The shape is what
+ * makes the list skimmable: the eye finds a thread by the colour and the two letters, long
+ * before it has read a name.
+ *
+ * Everything here is content, not geometry. The disc's size, the text column it pushes the
+ * name into and the pill's corner radius are all derived from the glyph scale down in
+ * fb_draw_conversation(), because they have to stay in proportion as a theme changes it.
+ */
+struct fb_conversation {
+    const char *avatar;    /* one or two cells inside the disc: initials, "#", "+" */
+    uint32_t tint;         /* seeds the disc's colour; ignored when `accent` is set */
+    bool accent;           /* draw the disc in the accent instead - "All traffic", "New message" */
+    const char *name;      /* who or where */
+    const char *age;       /* "2m" since the last message; "" when the radio has no clock */
+    const char *preview;   /* the last thing said; "" for a conversation with no traffic yet */
+    bool preview_outbound; /* it was ours, so the preview is marked as a reply */
+    const char *badge;     /* unread count as it should read ("3", "99+"); "" for none */
+    bool unread;
+    /* X has been pressed once on it: the cell asks the question rather than the footer, so the
+       row that would go is the row carrying the warning. */
+    bool armed;
+    enum mesh_ui_tone name_tone;
+};
+
+/* Draws one conversation into the next two rows of `list` and advances past them. */
+void fb_draw_conversation(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
+                          uint32_t index, const struct fb_conversation *conversation);
+
+/*
  * A chat bubble: the component the thread screen is made of.
  *
  * A bubble sizes itself to its own text - never to the panel - and sits against the edge its
