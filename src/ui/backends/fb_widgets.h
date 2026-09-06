@@ -166,6 +166,10 @@ struct fb_bubble {
     bool outbound;         /* ours: drawn against the right edge */
     bool selected;         /* the cursor is on it */
     bool failed;           /* the radio said it did not get there */
+    /* A critical alert (ALERT_APP). Draws the name line in the bad tone rather than the accent,
+       which is the one line every bubble in a channel already has - so an alert is picked out
+       without a bubble fill that would then mean two different things in one colour. */
+    bool alert;
 };
 
 /* Body rows the bubble occupies, separator included. Ask before placing it. */

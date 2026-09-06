@@ -5,6 +5,8 @@
 #include "framework/mesh_test.h"
 
 #include "mesh/core/radio_settings.h"
+/* For enum mesh_traceroute_state, which the UI's traceroute carries as a byte. */
+#include "mesh/core/session.h"
 #include "mesh/core/updater.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
@@ -598,9 +600,9 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
     node.snr = -4.5f;
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, items,
+    uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, items,
                                                MESH_UI_NODE_ITEMS_MAX);
-    MESH_TEST_FAIL_IF(count != mesh_ui_node_detail_count(&node, false, NULL),
+    MESH_TEST_FAIL_IF(count != mesh_ui_node_detail_count(&node, false, NULL, NULL),
                       "the count the nav walks disagrees with the built list");
     MESH_TEST_FAIL_IF(count == 0U || items[0].kind != MESH_UI_NODE_ROW_ACTION ||
                           items[0].action != MESH_UI_NODE_ACTION_MESSAGE,
@@ -626,9 +628,9 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
     }
 
     /* Our own node cannot be messaged and its SNR against itself means nothing. */
-    const uint32_t self_count = mesh_ui_node_detail_count(&node, true, NULL);
+    const uint32_t self_count = mesh_ui_node_detail_count(&node, true, NULL, NULL);
     struct mesh_ui_node_item self_items[MESH_UI_NODE_ITEMS_MAX];
-    mesh_ui_node_detail_build(&node, true, 1750000600U, NULL, false, self_items,
+    mesh_ui_node_detail_build(&node, true, 1750000600U, NULL, false, NULL, self_items,
                               MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0; i < self_count; ++i) {
         if (self_items[i].kind == MESH_UI_NODE_ROW_ACTION ||
@@ -650,7 +652,7 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
     node.environment.has_temperature = true;
     node.environment.temperature = 20.0f;
 
-    count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, items,
+    count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, items,
                                       MESH_UI_NODE_ITEMS_MAX);
     bool battery_ok = false;
     bool latitude_ok = false;
@@ -670,7 +672,7 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
     }
     MESH_TEST_FAIL_IF(!battery_ok || !latitude_ok || !temperature_ok,
                       "a reported value was missing or misformatted");
-    MESH_TEST_FAIL_IF(count != mesh_ui_node_detail_count(&node, false, NULL),
+    MESH_TEST_FAIL_IF(count != mesh_ui_node_detail_count(&node, false, NULL, NULL),
                       "the count disagrees once the sections appear");
 
     record_success(test_name);
@@ -1098,6 +1100,329 @@ MESH_TEST_CASE(ui_settings_coords, unit) {
     MESH_TEST_FAIL_IF(!mesh_ui_settings_coord_parse("120.0", 180, &value) ||
                           mesh_ui_settings_coord_parse("120.0", 90, &value),
                       "the range limit is not being applied");
+
+    record_success(test_name);
+}
+
+/*
+ * The four sensor groups a node can report beyond device metrics and environment, and the row
+ * budget they all have to fit inside.
+ *
+ * The budget is the point of the test. rows_next() drops silently past MESH_UI_NODE_ITEMS_MAX,
+ * so a group added without raising the cap does not fail - it takes the last rows of whatever
+ * group happens to be built last off the screen, which nothing would notice. Building the
+ * worst case on purpose is what turns that into a failing assertion.
+ */
+MESH_TEST_CASE(node_detail_row_budget, unit) {
+    struct mesh_ui_node_summary node;
+    memset(&node, 0, sizeof node);
+    node.node_id = 0x6001U;
+    snprintf(node.long_name, sizeof node.long_name, "Everything Sensor");
+    snprintf(node.short_name, sizeof node.short_name, "ALL");
+    node.last_heard = 1750000000U;
+    node.snr = 3.25f;
+    node.has_user = true;
+    node.has_hops_away = true;
+    node.hops_away = 3U;
+    node.hw_model = 9U;
+    node.role = 1U;
+    node.is_licensed = true;
+    node.public_key_len = 32U;
+
+    node.metrics.valid = true;
+    node.metrics.has_battery = true;
+    node.metrics.battery_level = 64U;
+    node.metrics.has_voltage = true;
+    node.metrics.has_channel_utilization = true;
+    node.metrics.has_air_util_tx = true;
+    node.metrics.has_uptime = true;
+
+    node.position.valid = true;
+    node.position.has_altitude = true;
+    node.position.sats_in_view = 9U;
+    node.position.precision_bits = 32U;
+
+    node.environment.valid = true;
+    node.environment.has_temperature = true;
+    node.environment.has_humidity = true;
+    node.environment.has_pressure = true;
+    node.environment.has_iaq = true;
+    node.environment.has_lux = true;
+    node.environment.has_voltage = true;
+    node.environment.has_current = true;
+
+    node.power.valid = true;
+    for (size_t ch = 0; ch < sizeof node.power.channel / sizeof node.power.channel[0]; ++ch) {
+        node.power.channel[ch].has_voltage = true;
+        node.power.channel[ch].voltage = 3.7f + (float)ch;
+        node.power.channel[ch].has_current = true;
+        node.power.channel[ch].current = 120.0f;
+    }
+
+    node.air_quality.valid = true;
+    node.air_quality.has_pm10 = true;
+    node.air_quality.pm10_standard = 4U;
+    node.air_quality.has_pm25 = true;
+    node.air_quality.pm25_standard = 12U;
+    node.air_quality.has_pm100 = true;
+    node.air_quality.pm100_standard = 18U;
+    node.air_quality.has_co2 = true;
+    node.air_quality.co2 = 812U;
+    node.air_quality.has_voc_index = true;
+    node.air_quality.voc_index = 103.0f;
+    node.air_quality.has_nox_index = true;
+    node.air_quality.nox_index = 1.0f;
+
+    node.health.valid = true;
+    node.health.has_heart_bpm = true;
+    node.health.heart_bpm = 62U;
+    node.health.has_spo2 = true;
+    node.health.spo2 = 98U;
+    node.health.has_temperature = true;
+    node.health.temperature = 36.6f;
+
+    node.host.valid = true;
+    node.host.has_uptime = true;
+    node.host.uptime_seconds = 90061U;
+    node.host.has_freemem = true;
+    node.host.freemem_kib = 512U * 1024U;
+    node.host.has_diskfree = true;
+    node.host.diskfree_mib = 4096U;
+    node.host.has_load = true;
+    node.host.load1 = 42U;
+    node.host.load5 = 137U;
+    node.host.load15 = 8U;
+
+    /* A completed trace to this node, at the full length RouteDiscovery allows in both
+       directions: the action rows are the largest block on the screen and they are the one
+       part that does not depend on the node's hardware. */
+    struct mesh_ui_traceroute trace;
+    memset(&trace, 0, sizeof trace);
+    trace.state = MESH_TRACEROUTE_DONE;
+    trace.target = node.node_id;
+    trace.completed = 1750000500U;
+    trace.forward_count = MESH_UI_TRACEROUTE_MAX_HOPS;
+    trace.back_count = MESH_UI_TRACEROUTE_MAX_HOPS;
+    for (uint8_t i = 0; i < MESH_UI_TRACEROUTE_MAX_HOPS; ++i) {
+        trace.forward[i].node_id = 0x7000U + i;
+        trace.forward[i].has_snr = true;
+        trace.forward[i].snr_quarter_db = 20;
+        snprintf(trace.forward[i].name, sizeof trace.forward[i].name, "hop%u", (unsigned)i);
+        trace.back[i] = trace.forward[i];
+    }
+
+    /*
+     * And the worst case for the two neighbour groups: this node reports the ten out-edges
+     * upstream allows, and ten *other* nodes report hearing it. The roster is what both are
+     * read from, so it has to be built as well as the node.
+     */
+    static struct mesh_ui_handshake_state roster;
+    memset(&roster, 0, sizeof roster);
+    roster.node_count = 1U + MESH_UI_MAX_NEIGHBORS;
+    roster.nodes[0] = node;
+    roster.nodes[0].neighbors.valid = true;
+    roster.nodes[0].neighbors.time = 1750000000U;
+    roster.nodes[0].neighbors.count = (uint8_t)MESH_UI_MAX_NEIGHBORS;
+    for (uint8_t i = 0; i < MESH_UI_MAX_NEIGHBORS; ++i) {
+        roster.nodes[0].neighbors.entries[i].node_id = 0x6100U + i;
+        roster.nodes[0].neighbors.entries[i].snr = 5.0f;
+
+        struct mesh_ui_node_summary *peer = &roster.nodes[1U + i];
+        peer->node_id = 0x6100U + i;
+        snprintf(peer->short_name, sizeof peer->short_name, "N%u", (unsigned)i);
+        peer->neighbors.valid = true;
+        peer->neighbors.count = 1U;
+        peer->neighbors.entries[0].node_id = node.node_id;
+        peer->neighbors.entries[0].snr = -2.5f;
+    }
+    node = roster.nodes[0];
+
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    const uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, &trace, true,
+                                                     &roster, items, MESH_UI_NODE_ITEMS_MAX);
+    MESH_TEST_FAIL_IF(count >= MESH_UI_NODE_ITEMS_MAX,
+                      "a node reporting everything fills the row budget; raise it");
+    MESH_TEST_FAIL_IF(count != mesh_ui_node_detail_count(&node, false, &trace, &roster),
+                      "the count the nav walks disagrees with the built list");
+
+    /* Each group is there, and each reading is formatted the way its units are read. */
+    struct {
+        const char *label;
+        const char *value;
+        bool seen;
+    } expect[] = {
+        {"Power", NULL, false},
+        {"Channel 1", "3.70 V, 120 mA", false},
+        {"Air quality", NULL, false},
+        {"PM2.5", "12 ug/m3", false},
+        {"PM1 / PM10", "4 / 18 ug/m3", false},
+        {"CO2", "812 ppm", false},
+        {"Health", NULL, false},
+        {"SpO2", "98%", false},
+        {"Host", NULL, false},
+        {"Free disk", "4.0 GB", false},
+        {"Free memory", "512 MB", false},
+        /* The load average arrives as the real value times 100 and must not be shown raw. */
+        {"Load", "0.42 1.37 0.08", false},
+        /* Both neighbour groups, and a neighbour resolved to its name rather than shown as a
+           node number - the wire carries only the number. */
+        {"Neighbours", NULL, false},
+        {"Heard by", NULL, false},
+        {"N0", "5.00 dB", false},
+    };
+    for (uint32_t i = 0; i < count; ++i) {
+        for (size_t e = 0; e < sizeof expect / sizeof expect[0]; ++e) {
+            if (strcmp(items[i].label, expect[e].label) != 0) {
+                continue;
+            }
+            if (expect[e].value == NULL || strcmp(items[i].value, expect[e].value) == 0) {
+                expect[e].seen = true;
+            }
+        }
+    }
+    for (size_t e = 0; e < sizeof expect / sizeof expect[0]; ++e) {
+        if (!expect[e].seen) {
+            char message[128];
+            snprintf(message, sizeof message, "row '%s' is missing or misformatted",
+                     expect[e].label);
+            record_failure(test_name, message);
+            return;
+        }
+    }
+
+    /* And a node that reports none of them shows none of the headings, rather than four empty
+       groups - which is the whole reason they are separate groups. */
+    struct mesh_ui_node_summary bare;
+    memset(&bare, 0, sizeof bare);
+    bare.node_id = 0x6002U;
+    const uint32_t bare_count = mesh_ui_node_detail_build(&bare, false, 1750000600U, NULL, false,
+                                                          NULL, items, MESH_UI_NODE_ITEMS_MAX);
+    for (uint32_t i = 0; i < bare_count; ++i) {
+        MESH_TEST_FAIL_IF(
+            strcmp(items[i].label, "Power") == 0 || strcmp(items[i].label, "Air quality") == 0 ||
+                strcmp(items[i].label, "Health") == 0 || strcmp(items[i].label, "Host") == 0 ||
+                strcmp(items[i].label, "Neighbours") == 0 ||
+                strcmp(items[i].label, "Heard by") == 0,
+            "a node with no sensors should show no sensor groups");
+    }
+
+    record_success(test_name);
+}
+
+/*
+ * "Heard by" on a mesh denser than one report can describe.
+ *
+ * Upstream's ten-entry cap is on what a single node reports about its own neighbours; it says
+ * nothing about how many nodes may report hearing this one, which on a dense mesh is everyone
+ * in range. Capping the *count* at ten as well would make the one screen whose question is
+ * "how many can hear me" answer it wrongly and without saying so.
+ */
+MESH_TEST_CASE(node_detail_listener_count, unit) {
+    static struct mesh_ui_handshake_state roster;
+    memset(&roster, 0, sizeof roster);
+
+    const uint32_t subject_id = 0x7001U;
+    const uint32_t listeners = MESH_UI_NODE_MAX_LISTENERS + 4U;
+
+    roster.node_count = 1U + listeners;
+    roster.nodes[0].node_id = subject_id;
+    snprintf(roster.nodes[0].short_name, sizeof roster.nodes[0].short_name, "SUBJ");
+    for (uint32_t i = 0; i < listeners; ++i) {
+        struct mesh_ui_node_summary *peer = &roster.nodes[1U + i];
+        peer->node_id = 0x7100U + i;
+        snprintf(peer->short_name, sizeof peer->short_name, "L%u", (unsigned)i);
+        peer->neighbors.valid = true;
+        peer->neighbors.count = 1U;
+        peer->neighbors.entries[0].node_id = subject_id;
+        peer->neighbors.entries[0].snr = 2.0f;
+    }
+
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    const uint32_t count = mesh_ui_node_detail_build(&roster.nodes[0], false, 1750000600U, NULL,
+                                                     false, &roster, items, MESH_UI_NODE_ITEMS_MAX);
+    MESH_TEST_FAIL_IF(count >= MESH_UI_NODE_ITEMS_MAX, "the row budget was filled");
+
+    /* Counted from the heading onwards rather than by label shape: "Last heard" and "Load" are
+       both rows on this screen that begin with an L. */
+    uint32_t listener_rows = 0U;
+    bool saw_heading = false;
+    bool saw_remainder = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, "Heard by") == 0) {
+            saw_heading = true;
+            continue;
+        }
+        if (saw_heading && !saw_remainder && items[i].kind == MESH_UI_NODE_ROW_INFO &&
+            strcmp(items[i].label, "and more") != 0) {
+            listener_rows++;
+        }
+        if (strcmp(items[i].label, "and more") == 0) {
+            saw_remainder = true;
+            char expected[32];
+            snprintf(expected, sizeof expected, "%u not shown",
+                     (unsigned)(listeners - MESH_UI_NODE_MAX_LISTENERS));
+            MESH_TEST_FAIL_IF(strcmp(items[i].value, expected) != 0,
+                              "the remainder row does not say how many were left out");
+        }
+    }
+    MESH_TEST_FAIL_IF(!saw_heading, "the Heard by group is missing");
+    MESH_TEST_FAIL_IF(listener_rows != MESH_UI_NODE_MAX_LISTENERS,
+                      "the drawn listeners should stop at the row budget");
+    MESH_TEST_FAIL_IF(!saw_remainder,
+                      "listeners beyond the row budget were dropped without saying so");
+
+    /* And with the rows exactly filled there is nothing left over to announce. */
+    roster.node_count = 1U + MESH_UI_NODE_MAX_LISTENERS;
+    const uint32_t exact = mesh_ui_node_detail_build(&roster.nodes[0], false, 1750000600U, NULL,
+                                                     false, &roster, items, MESH_UI_NODE_ITEMS_MAX);
+    for (uint32_t i = 0; i < exact; ++i) {
+        MESH_TEST_FAIL_IF(strcmp(items[i].label, "and more") == 0,
+                          "a full but untruncated list should not claim a remainder");
+    }
+
+    record_success(test_name);
+}
+
+/*
+ * An RSSI is a measurement this radio made. A node heard over RF and then relayed to us over
+ * MQTT keeps that reading - it is still true, and clearing it would make the row flicker on a
+ * mesh whose bridge relays traffic we also hear ourselves - but the row has to stop claiming to
+ * describe the packet that just arrived.
+ */
+MESH_TEST_CASE(node_detail_rssi_is_stamped, unit) {
+    struct mesh_ui_node_summary node;
+    memset(&node, 0, sizeof node);
+    node.node_id = 0x7201U;
+    snprintf(node.short_name, sizeof node.short_name, "RS");
+    node.has_rssi = true;
+    node.rx_rssi = -97;
+    node.last_heard = 1750000000U;
+    node.rssi_time = 1750000000U;
+
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, items,
+                                               MESH_UI_NODE_ITEMS_MAX);
+    bool plain = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, "RSSI") == 0 && strcmp(items[i].value, "-97 dBm") == 0) {
+            plain = true;
+        }
+    }
+    MESH_TEST_FAIL_IF(!plain, "a reading from the newest packet should carry no age");
+
+    /* Now the node turns up over MQTT: last_heard moves on, the reading does not. */
+    node.last_heard = 1750000500U;
+    node.via_mqtt = true;
+    count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, items,
+                                      MESH_UI_NODE_ITEMS_MAX);
+    bool stamped = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, "RSSI") == 0) {
+            stamped = (strcmp(items[i].value, "-97 dBm, 10m ago") == 0);
+        }
+    }
+    MESH_TEST_FAIL_IF(!stamped,
+                      "an RSSI older than the newest packet should say when it was measured");
 
     record_success(test_name);
 }

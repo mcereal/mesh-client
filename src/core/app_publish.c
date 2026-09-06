@@ -59,7 +59,8 @@ void mesh_app_format_peer_name(const struct mesh_handshake_status *status, uint3
     snprintf(out, out_len, "!%08x", node_id);
 }
 
-/* Position, device metrics and environment, from the session's structs into the UI's twins.
+/* Position, device metrics, environment and the four sensor groups, from the session's structs
+   into the UI's twins.
    Field by field rather than a memcpy: the two declarations are deliberately independent (the
    UI half must stay free of nanopb), so nothing but this function keeps them in step. */
 static void mesh_app_copy_node_detail(const struct mesh_node_summary *src,
@@ -102,12 +103,70 @@ static void mesh_app_copy_node_detail(const struct mesh_node_summary *src,
     dst->environment.voltage = src->environment.voltage;
     dst->environment.has_current = src->environment.has_current;
     dst->environment.current = src->environment.current;
+
+    dst->power.valid = src->power.valid;
+    dst->power.time = src->power.time;
+    for (size_t ch = 0; ch < sizeof dst->power.channel / sizeof dst->power.channel[0]; ++ch) {
+        dst->power.channel[ch].has_voltage = src->power.channel[ch].has_voltage;
+        dst->power.channel[ch].voltage = src->power.channel[ch].voltage;
+        dst->power.channel[ch].has_current = src->power.channel[ch].has_current;
+        dst->power.channel[ch].current = src->power.channel[ch].current;
+    }
+
+    dst->air_quality.valid = src->air_quality.valid;
+    dst->air_quality.time = src->air_quality.time;
+    dst->air_quality.has_pm10 = src->air_quality.has_pm10;
+    dst->air_quality.pm10_standard = src->air_quality.pm10_standard;
+    dst->air_quality.has_pm25 = src->air_quality.has_pm25;
+    dst->air_quality.pm25_standard = src->air_quality.pm25_standard;
+    dst->air_quality.has_pm100 = src->air_quality.has_pm100;
+    dst->air_quality.pm100_standard = src->air_quality.pm100_standard;
+    dst->air_quality.has_co2 = src->air_quality.has_co2;
+    dst->air_quality.co2 = src->air_quality.co2;
+    dst->air_quality.has_voc_index = src->air_quality.has_voc_index;
+    dst->air_quality.voc_index = src->air_quality.voc_index;
+    dst->air_quality.has_nox_index = src->air_quality.has_nox_index;
+    dst->air_quality.nox_index = src->air_quality.nox_index;
+
+    dst->health.valid = src->health.valid;
+    dst->health.time = src->health.time;
+    dst->health.has_heart_bpm = src->health.has_heart_bpm;
+    dst->health.heart_bpm = src->health.heart_bpm;
+    dst->health.has_spo2 = src->health.has_spo2;
+    dst->health.spo2 = src->health.spo2;
+    dst->health.has_temperature = src->health.has_temperature;
+    dst->health.temperature = src->health.temperature;
+
+    dst->host.valid = src->host.valid;
+    dst->host.time = src->host.time;
+    dst->host.has_uptime = src->host.has_uptime;
+    dst->host.uptime_seconds = src->host.uptime_seconds;
+    dst->host.has_freemem = src->host.has_freemem;
+    dst->host.freemem_kib = src->host.freemem_kib;
+    dst->host.has_diskfree = src->host.has_diskfree;
+    dst->host.diskfree_mib = src->host.diskfree_mib;
+    dst->host.has_load = src->host.has_load;
+    dst->host.load1 = src->host.load1;
+    dst->host.load5 = src->host.load5;
+    dst->host.load15 = src->host.load15;
+
+    dst->neighbors.valid = src->neighbors.valid;
+    dst->neighbors.time = src->neighbors.time;
+    dst->neighbors.broadcast_interval_secs = src->neighbors.broadcast_interval_secs;
+    dst->neighbors.count = src->neighbors.count > MESH_UI_MAX_NEIGHBORS
+                               ? (uint8_t)MESH_UI_MAX_NEIGHBORS
+                               : src->neighbors.count;
+    for (uint8_t n = 0; n < dst->neighbors.count; ++n) {
+        dst->neighbors.entries[n].node_id = src->neighbors.entries[n].node_id;
+        dst->neighbors.entries[n].snr = src->neighbors.entries[n].snr;
+    }
 }
 
 /*
  * The same copy the other way, for the roster the last run left on disk. Only the fields the
- * cache actually persists are restored - position, metrics and environment come back through
- * their own keys - so a node returns as what we knew, not as a blank with a name.
+ * cache actually persists are restored - position, metrics, environment and the four sensor
+ * groups come back through their own keys - so a node returns as what we knew, not as a blank
+ * with a name.
  */
 static void mesh_app_restore_node(const struct mesh_ui_node_summary *src,
                                   struct mesh_node_summary *dst) {
@@ -120,6 +179,9 @@ static void mesh_app_restore_node(const struct mesh_ui_node_summary *src,
     dst->in_nodedb = src->in_nodedb;
     dst->last_heard = src->last_heard;
     dst->snr = src->snr;
+    dst->has_rssi = src->has_rssi;
+    dst->rx_rssi = src->rx_rssi;
+    dst->rssi_time = src->rssi_time;
     dst->via_mqtt = src->via_mqtt;
     dst->has_hops_away = src->has_hops_away;
     dst->hops_away = src->hops_away;
@@ -174,6 +236,63 @@ static void mesh_app_restore_node(const struct mesh_ui_node_summary *src,
     dst->environment.voltage = src->environment.voltage;
     dst->environment.has_current = src->environment.has_current;
     dst->environment.current = src->environment.current;
+
+    dst->power.valid = src->power.valid;
+    dst->power.time = src->power.time;
+    for (size_t ch = 0; ch < sizeof dst->power.channel / sizeof dst->power.channel[0]; ++ch) {
+        dst->power.channel[ch].has_voltage = src->power.channel[ch].has_voltage;
+        dst->power.channel[ch].voltage = src->power.channel[ch].voltage;
+        dst->power.channel[ch].has_current = src->power.channel[ch].has_current;
+        dst->power.channel[ch].current = src->power.channel[ch].current;
+    }
+
+    dst->air_quality.valid = src->air_quality.valid;
+    dst->air_quality.time = src->air_quality.time;
+    dst->air_quality.has_pm10 = src->air_quality.has_pm10;
+    dst->air_quality.pm10_standard = src->air_quality.pm10_standard;
+    dst->air_quality.has_pm25 = src->air_quality.has_pm25;
+    dst->air_quality.pm25_standard = src->air_quality.pm25_standard;
+    dst->air_quality.has_pm100 = src->air_quality.has_pm100;
+    dst->air_quality.pm100_standard = src->air_quality.pm100_standard;
+    dst->air_quality.has_co2 = src->air_quality.has_co2;
+    dst->air_quality.co2 = src->air_quality.co2;
+    dst->air_quality.has_voc_index = src->air_quality.has_voc_index;
+    dst->air_quality.voc_index = src->air_quality.voc_index;
+    dst->air_quality.has_nox_index = src->air_quality.has_nox_index;
+    dst->air_quality.nox_index = src->air_quality.nox_index;
+
+    dst->health.valid = src->health.valid;
+    dst->health.time = src->health.time;
+    dst->health.has_heart_bpm = src->health.has_heart_bpm;
+    dst->health.heart_bpm = src->health.heart_bpm;
+    dst->health.has_spo2 = src->health.has_spo2;
+    dst->health.spo2 = src->health.spo2;
+    dst->health.has_temperature = src->health.has_temperature;
+    dst->health.temperature = src->health.temperature;
+
+    dst->host.valid = src->host.valid;
+    dst->host.time = src->host.time;
+    dst->host.has_uptime = src->host.has_uptime;
+    dst->host.uptime_seconds = src->host.uptime_seconds;
+    dst->host.has_freemem = src->host.has_freemem;
+    dst->host.freemem_kib = src->host.freemem_kib;
+    dst->host.has_diskfree = src->host.has_diskfree;
+    dst->host.diskfree_mib = src->host.diskfree_mib;
+    dst->host.has_load = src->host.has_load;
+    dst->host.load1 = src->host.load1;
+    dst->host.load5 = src->host.load5;
+    dst->host.load15 = src->host.load15;
+
+    dst->neighbors.valid = src->neighbors.valid;
+    dst->neighbors.time = src->neighbors.time;
+    dst->neighbors.broadcast_interval_secs = src->neighbors.broadcast_interval_secs;
+    dst->neighbors.count = src->neighbors.count > MESH_NODE_MAX_NEIGHBORS
+                               ? (uint8_t)MESH_NODE_MAX_NEIGHBORS
+                               : src->neighbors.count;
+    for (uint8_t n = 0; n < dst->neighbors.count; ++n) {
+        dst->neighbors.entries[n].node_id = src->neighbors.entries[n].node_id;
+        dst->neighbors.entries[n].snr = src->neighbors.entries[n].snr;
+    }
 }
 
 /*
@@ -277,9 +396,13 @@ static void mesh_app_publish_messages(struct mesh_app *app,
         target->rx_time = source->rx_time;
         target->channel = source->channel;
         target->direction = source->direction;
+        target->kind = source->kind;
         target->ack = source->ack;
         target->ack_error = source->ack_error;
         target->broadcast = (source->to == MESH_MESSAGE_BROADCAST_ADDR);
+        target->pki_encrypted = source->pki_encrypted;
+        target->reply_id = source->reply_id;
+        target->is_reaction = source->is_reaction;
         mesh_app_format_peer_name(status, target->peer, target->peer_name,
                                   sizeof(target->peer_name));
         snprintf(target->text, sizeof(target->text), "%s", source->text);
@@ -388,6 +511,34 @@ static void mesh_app_flatten_radio_stats(const struct mesh_radio_stats *src,
     dst->heap_free_bytes = src->heap_free_bytes;
     dst->has_noise_floor = src->has_noise_floor;
     dst->noise_floor = src->noise_floor;
+}
+
+/* The radio's own announcements, copied by hand for the reason above. Both are always copied,
+   valid or not: `seq` 0 and `valid` false are what the renderers read as "nothing yet", and
+   zeroing them here is what clears the last radio's words when a new one connects. */
+static void mesh_app_flatten_radio_notice(const struct mesh_client_notification *src,
+                                          struct mesh_ui_radio_notice *dst) {
+    memset(dst, 0, sizeof *dst);
+    if (src == NULL || src->seq == 0U) {
+        return;
+    }
+    dst->seq = src->seq;
+    dst->time = src->time;
+    dst->received = src->received;
+    dst->level = src->level;
+    mesh_str_copy(dst->text, sizeof dst->text, src->text);
+}
+
+static void mesh_app_flatten_queue_status(const struct mesh_queue_status *src,
+                                          struct mesh_ui_queue_status *dst) {
+    memset(dst, 0, sizeof *dst);
+    if (src == NULL || !src->valid) {
+        return;
+    }
+    dst->valid = true;
+    dst->res = src->res;
+    dst->free = src->free;
+    dst->maxlen = src->maxlen;
 }
 
 /* Flattens the transport's protobuf-typed view into the UI's plain struct. */
@@ -759,6 +910,91 @@ static void mesh_app_report_delivery(struct mesh_app *app) {
     app->ui_sent_watch_count = kept;
 }
 
+/*
+ * Announces what the radio has said about itself since the last publish, once each.
+ *
+ * Both counters run forwards for the life of a connection and are reset to 0 with the
+ * handshake, so "seq differs from what we last saw" is the test rather than "seq is greater":
+ * a reconnect restarts the count at 1, and a greater-than test would swallow the first
+ * notification of every connection after a talkative one.
+ */
+static void mesh_app_report_radio_notices(struct mesh_app *app) {
+    const struct mesh_client_notification *notice = mesh_session_notification(&app->session);
+    if (notice != NULL && notice->seq != app->ui_notice_seq_seen) {
+        app->ui_notice_seq_seen = notice->seq;
+        if (notice->seq != 0U && notice->text[0] != '\0' &&
+            app->config.run_mode == MESH_APP_RUN_FOREGROUND) {
+            /* The radio's words verbatim: it is describing a decision the firmware took, and
+               nothing this side of the link knows how to say it better. */
+            mesh_ui_store_set_toast(&app->ui_store, mesh_time_monotonic_ms(), notice->text);
+        }
+    }
+
+    const uint32_t reboots = app->session.reboot_notices;
+    if (reboots != app->ui_reboot_notices_seen) {
+        app->ui_reboot_notices_seen = reboots;
+        /* The session has already re-run the config sync by the time this is read; the toast
+           exists so a screen that empties and refills looks like an event rather than a
+           glitch. */
+        if (reboots != 0U && app->config.run_mode == MESH_APP_RUN_FOREGROUND) {
+            mesh_ui_store_set_toast(&app->ui_store, mesh_time_monotonic_ms(),
+                                    "Radio restarted; reloading its settings");
+        }
+    }
+}
+
+/*
+ * Announces the newest unseen critical alert, once.
+ *
+ * The Messages tab may not be the one on screen, and an ALERT_APP message is by definition the
+ * one thing the firmware expects a client to interrupt for. Only the newest is announced: three
+ * alerts arriving together are one situation, and three toasts in a row would show the user the
+ * last one anyway.
+ *
+ * Only inbound, and only alerts. A detection is a sensor announcing itself, which belongs in
+ * the conversation and not in front of whatever the user is doing.
+ */
+static void mesh_app_report_alerts(struct mesh_app *app) {
+    const struct mesh_message_log *log = mesh_session_messages(&app->session);
+    if (log == NULL || log->count == 0U) {
+        return;
+    }
+
+    const struct mesh_message *newest = NULL;
+    for (size_t i = log->count; i > 0U; --i) {
+        const struct mesh_message *entry = mesh_message_log_at(log, i - 1U);
+        if (entry != NULL && entry->kind == MESH_MESSAGE_KIND_ALERT &&
+            entry->direction == MESH_MESSAGE_INBOUND) {
+            newest = entry;
+            break;
+        }
+    }
+    if (newest == NULL || newest->packet_id == app->ui_alert_announced_id) {
+        return;
+    }
+    app->ui_alert_announced_id = newest->packet_id;
+    if (app->config.run_mode != MESH_APP_RUN_FOREGROUND) {
+        return;
+    }
+
+    /* The sender's name and then the alert itself, truncated by the toast rather than by us -
+       the first words of an alert are the ones that say what it is. */
+    char peer[MESH_UI_NAV_TARGET_NAME_MAX];
+    mesh_app_format_peer_name(mesh_session_handshake(&app->session), newest->from, peer,
+                              sizeof peer);
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    /* Built in two steps rather than one snprintf: the alert body is up to 233 bytes against a
+       64-byte toast, and letting one format truncate it is both a compiler warning and a
+       formatting decision made by accident. The name is bounded first so the text keeps
+       whatever room is left, because the first words of an alert are the ones that say what
+       it is. */
+    const int prefix = snprintf(toast, sizeof toast, "Alert from %.16s: ", peer);
+    if (prefix > 0 && (size_t)prefix < sizeof toast) {
+        (void)mesh_str_copy(toast + prefix, sizeof toast - (size_t)prefix, newest->text);
+    }
+    mesh_ui_store_set_toast(&app->ui_store, mesh_time_monotonic_ms(), toast);
+}
+
 void mesh_app_publish_ui_state(struct mesh_app *app) {
     if (app == NULL) {
         return;
@@ -766,6 +1002,8 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
 
     mesh_ui_store_tick(&app->ui_store, mesh_time_monotonic_ms());
     mesh_app_report_delivery(app);
+    mesh_app_report_radio_notices(app);
+    mesh_app_report_alerts(app);
 
     struct mesh_transport *ble = mesh_ble_transport();
     if (ble == NULL) {
@@ -988,6 +1226,9 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             snprintf(dst->short_name, sizeof(dst->short_name), "%s", src->short_name);
             dst->last_heard = src->last_heard;
             dst->snr = src->snr;
+            dst->has_rssi = src->has_rssi;
+            dst->rx_rssi = src->rx_rssi;
+            dst->rssi_time = src->rssi_time;
             dst->via_mqtt = src->via_mqtt;
             dst->has_hops_away = src->has_hops_away;
             dst->hops_away = src->hops_away;
@@ -1081,6 +1322,9 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         }
     }
     mesh_app_flatten_radio_stats(mesh_session_radio_stats(&app->session), &ui_settings.stats);
+    mesh_app_flatten_radio_notice(mesh_session_notification(&app->session), &ui_settings.notice);
+    mesh_app_flatten_queue_status(mesh_session_queue_status(&app->session), &ui_settings.queue);
+    ui_settings.reboot_notices = app->session.reboot_notices;
     mesh_ui_store_set_settings(&app->ui_store, &ui_settings);
     mesh_app_track_settings_save(app, radio_settings, link_connected);
 

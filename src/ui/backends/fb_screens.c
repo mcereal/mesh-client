@@ -283,6 +283,80 @@ static uint32_t fb_thread_elapsed(uint32_t earlier, uint32_t later) {
 }
 
 /*
+ * The reactions attached to one message, as a short chip like "\U0001F44D 3 \U0001F602".
+ *
+ * Gathered from the whole message list rather than from the filtered transcript, because they
+ * were filtered out of it on purpose: a reaction is an annotation on its target, and the
+ * transcript would otherwise carry a bubble containing nothing but an emoji. Identical emoji
+ * are counted rather than repeated, so a channel where twenty nodes agree is one chip and a
+ * number instead of twenty bubbles.
+ *
+ * Only the first character of the payload is taken. A reaction is one emoji by definition, and
+ * the payload is radio text - a sender that puts a paragraph in one must not push the clock
+ * off the end of the line.
+ */
+#define FB_THREAD_REACTION_KINDS 4U
+
+static void fb_thread_reactions(const struct mesh_ui_snapshot *snapshot, uint32_t packet_id,
+                                char *out, size_t out_len) {
+    out[0] = '\0';
+    if (packet_id == 0U) {
+        return;
+    }
+
+    struct {
+        char glyph[8];
+        uint16_t count;
+    } seen[FB_THREAD_REACTION_KINDS];
+    size_t kinds = 0U;
+
+    const uint32_t total = snapshot->messages.count > MESH_UI_MAX_MESSAGES
+                               ? MESH_UI_MAX_MESSAGES
+                               : snapshot->messages.count;
+    for (uint32_t i = 0; i < total; ++i) {
+        const struct mesh_ui_message *reaction = &snapshot->messages.entries[i];
+        if (!reaction->is_reaction || reaction->reply_id != packet_id ||
+            reaction->text[0] == '\0') {
+            continue;
+        }
+        char glyph[8];
+        const size_t take = mesh_ui_text_cell_offset(reaction->text, 1U);
+        if (take == 0U || take >= sizeof glyph) {
+            continue;
+        }
+        memcpy(glyph, reaction->text, take);
+        glyph[take] = '\0';
+
+        size_t slot = 0U;
+        while (slot < kinds && strcmp(seen[slot].glyph, glyph) != 0) {
+            ++slot;
+        }
+        if (slot == kinds) {
+            if (kinds == FB_THREAD_REACTION_KINDS) {
+                continue; /* a fifth kind; the four already shown are the story */
+            }
+            mesh_str_copy(seen[kinds].glyph, sizeof seen[kinds].glyph, glyph);
+            seen[kinds].count = 0U;
+            kinds++;
+        }
+        seen[slot].count++;
+    }
+
+    struct mesh_ui_line line;
+    mesh_ui_line_reset(&line);
+    for (size_t i = 0; i < kinds; ++i) {
+        /* The count is left off a lone reaction: "\U0001F44D 1" reads as a score. */
+        if (seen[i].count > 1U) {
+            mesh_ui_line_printf(&line, "%s%s%u", i > 0U ? " " : "", seen[i].glyph,
+                                (unsigned)seen[i].count);
+        } else {
+            mesh_ui_line_printf(&line, "%s%s", i > 0U ? " " : "", seen[i].glyph);
+        }
+    }
+    mesh_str_copy(out, out_len, mesh_ui_line_text(&line));
+}
+
+/*
  * Everything the screen decides about one message: what furniture it gets and what it says.
  *
  * `force_name` names the sender on a bubble that would otherwise inherit the name from the
@@ -326,7 +400,17 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot, const u
         previous->channel != message->channel ||
         fb_thread_elapsed(previous->rx_time, message->rx_time) >= FB_THREAD_RUN_SECONDS;
 
-    if ((starts_run || force_name) && (names_needed || (outbound && nav->inbox))) {
+    /*
+     * An alert and a detection arrive as text on a channel and are otherwise indistinguishable
+     * from anything else said there, so they are always headed - whatever the screen would
+     * have decided about naming, and even in a direct conversation where the title already
+     * says who is talking. A run of identical-looking bubbles is exactly what a critical alert
+     * must not be.
+     */
+    const bool labelled = message->kind != (uint8_t)MESH_MESSAGE_KIND_TEXT;
+    row->bubble.alert = (message->kind == (uint8_t)MESH_MESSAGE_KIND_ALERT);
+
+    if (labelled || ((starts_run || force_name) && (names_needed || (outbound && nav->inbox)))) {
         const char *peer = message->peer_name[0] != '\0' ? message->peer_name : "?";
         struct mesh_ui_line line;
         mesh_ui_line_reset(&line);
@@ -345,6 +429,11 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot, const u
             } else {
                 mesh_ui_line_printf(&line, "%s", "  dm");
             }
+        }
+        if (message->kind == (uint8_t)MESH_MESSAGE_KIND_ALERT) {
+            mesh_ui_line_printf(&line, "%s", "  \U0001F6A8 alert");
+        } else if (message->kind == (uint8_t)MESH_MESSAGE_KIND_DETECTION) {
+            mesh_ui_line_printf(&line, "%s", "  sensor");
         }
         mesh_str_copy(row->name, sizeof row->name, mesh_ui_line_text(&line));
     }
@@ -373,6 +462,25 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot, const u
                                 message->ack == MESH_MESSAGE_ACK_DELIVERED ? "ok" : "..");
         }
     }
+    /*
+     * A padlock on a message the radio decrypted with our key pair rather than with a channel
+     * PSK. It only means anything on a direct message, and it is worth saying there: on a
+     * channel still using the default key every node on the mesh holds that key, so a DM that
+     * did *not* go out PKI-encrypted was readable by all of them, and nothing else on the
+     * screen distinguishes the two.
+     */
+    if (message->pki_encrypted && !message->broadcast) {
+        mesh_ui_line_printf(&meta, "%s\U0001F512", mesh_ui_line_width(&meta) > 0U ? " " : "");
+    }
+
+    /* Reactions ride on the meta line rather than taking a row: they are an annotation on this
+       bubble, and a row of their own is the bubble they were filtered out of being. */
+    char reactions[40];
+    fb_thread_reactions(snapshot, message->packet_id, reactions, sizeof reactions);
+    if (reactions[0] != '\0') {
+        mesh_ui_line_printf(&meta, "%s%s", mesh_ui_line_width(&meta) > 0U ? " " : "", reactions);
+    }
+
     mesh_str_copy(row->meta, sizeof row->meta, mesh_ui_line_text(&meta));
 }
 
@@ -496,9 +604,9 @@ static void fb_render_node_detail(const struct mesh_ui_backend_fb_state *state,
     fb_draw_title(state, layout, title);
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    const uint32_t count =
-        mesh_ui_node_detail_build(node, is_self, (uint32_t)time(NULL), &snapshot->traceroute,
-                                  nav->node_remove_armed, items, MESH_UI_NODE_ITEMS_MAX);
+    const uint32_t count = mesh_ui_node_detail_build(
+        node, is_self, (uint32_t)time(NULL), &snapshot->traceroute, nav->node_remove_armed,
+        &snapshot->handshake, items, MESH_UI_NODE_ITEMS_MAX);
     if (count == 0U) {
         fb_draw_empty(state, layout, "Nothing reported for this node yet.");
         return;
@@ -992,8 +1100,70 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
                                stats->heap_total_bytes / 1024U);
         }
     } else if (snapshot->handshake_valid) {
-        fb_draw_status_row(state, layout, &y, MESH_UI_TONE_DIM, "Mesh", "%s",
-                           "waiting for the radio's first report");
+        /* Short enough for the value gutter: the long form was cut mid-word, which reads as
+           a bug rather than as a radio that has simply not reported yet. */
+        fb_draw_status_row(state, layout, &y, MESH_UI_TONE_DIM, "Mesh", "%s", "no report yet");
+    }
+
+    /*
+     * The radio's send queue. Only worth a row once it is under pressure or has just refused
+     * something: on an idle link it reads "16 of 16 free" for ever, which is one more number
+     * to skip past. A refusal keeps the row up because it is the explanation for a message
+     * that was never transmitted at all.
+     */
+    const struct mesh_ui_queue_status *queue = &snapshot->settings.queue;
+    if (queue->valid && queue->maxlen > 0U &&
+        (queue->res != 0 || queue->free < queue->maxlen / 2U)) {
+        fb_draw_status_row(state, layout, &y,
+                           queue->res != 0 ? MESH_UI_TONE_BAD : MESH_UI_TONE_ACCENT, "TX queue",
+                           "%u/%u free%s", (unsigned)queue->free, (unsigned)queue->maxlen,
+                           queue->res != 0 ? ", send refused" : "");
+    }
+
+    /*
+     * The last thing the radio said in its own words, and how many times it has restarted
+     * under us. Both are the answers to "why is this not working" that nothing else on this
+     * screen can give: the counters above describe traffic, and a duty-cycle refusal or a
+     * key mismatch is not traffic.
+     */
+    const struct mesh_ui_radio_notice *notice = &snapshot->settings.notice;
+    if (notice->seq != 0U && notice->text[0] != '\0') {
+        y += layout->line / 2;
+        /* Levels are python logging's scale: 40 is ERROR, 30 WARNING. Anything below that is
+           the radio being informative rather than reporting a problem. */
+        const enum mesh_ui_tone notice_tone = notice->level >= 40U   ? MESH_UI_TONE_BAD
+                                              : notice->level >= 30U ? MESH_UI_TONE_ACCENT
+                                                                     : MESH_UI_TONE_NORMAL;
+        /*
+         * When and how often on the labelled row, the words themselves wrapped underneath at
+         * the full width. Every other row on this screen is a label and a short value, but a
+         * notification is a sentence the firmware wrote, and a sentence in the 22-cell value
+         * gutter is three words and a cut - which loses exactly the part that explains
+         * anything.
+         */
+        char age[24];
+        fb_format_age(notice->received, age, sizeof age);
+        if (notice->seq > 1U) {
+            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_DIM, "Radio said",
+                               "%s, %u this connection", age, notice->seq);
+        } else {
+            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_DIM, "Radio said", "%s", age);
+        }
+        /* At most three lines, and never past the footer: a long notification must not push
+           the rows below it off the screen, since they are the ones that are always there. */
+        int notice_lines = (layout->footer_y - y) / layout->line;
+        if (notice_lines > 3) {
+            notice_lines = 3;
+        }
+        if (notice_lines > 0) {
+            /* fb_draw_wrapped returns how many lines it drew, not where it left the cursor. */
+            y += layout->line * fb_draw_wrapped(state, y, notice->text, layout->cols, notice_lines,
+                                                fb_tone_color(state, notice_tone));
+        }
+    }
+    if (snapshot->settings.reboot_notices > 0U) {
+        fb_draw_status_row(state, layout, &y, MESH_UI_TONE_ACCENT, "Reboots", "%u since connecting",
+                           snapshot->settings.reboot_notices);
     }
 
     y += layout->line / 2;

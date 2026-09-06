@@ -6,6 +6,7 @@
 #include "support/proto_fixture.h"
 
 #include "mesh/core/message.h"
+#include "mesh/utils/text.h"
 
 #include <pb_decode.h>
 #include <pb_encode.h>
@@ -401,6 +402,163 @@ MESH_TEST_CASE(message_routing_failure_reason, unit) {
     /* An unknown code from a newer firmware still has to render as something. */
     MESH_TEST_FAIL_IF(strcmp(mesh_message_ack_error_to_string(200U), "unknown error") != 0,
                       "an unrecognised reason should still say something");
+
+    record_success(test_name);
+}
+
+/*
+ * The three Data/MeshPacket fields a text packet carries that used to be dropped: whether the
+ * radio decrypted it with our key pair, what it is a reply to, and whether it is a reaction
+ * rather than something to read.
+ *
+ * The reaction flag is the one that was actively wrong before. A tapback from a phone app is a
+ * TEXT_MESSAGE_APP packet whose payload is one emoji and whose `emoji` field is set; with the
+ * flag ignored it went into the transcript as a bubble containing "\U0001F44D" and no
+ * indication of what it was about.
+ */
+MESH_TEST_CASE(message_ingest_reaction_and_reply, unit) {
+    struct mesh_message_log log;
+    mesh_message_log_reset(&log);
+
+    meshtastic_MeshPacket original = mesh_test_make_decoded_packet(
+        0x11111111U, 0x22222222U, 0U, 500U, meshtastic_PortNum_TEXT_MESSAGE_APP, "on my way", 9U);
+    original.pki_encrypted = true;
+    MESH_TEST_FAIL_IF(mesh_message_ingest(&log, &original, 0x22222222U) != 1,
+                      "the original message should be appended");
+    const struct mesh_message *stored = mesh_message_log_find(&log, 500U);
+    MESH_TEST_FAIL_IF(stored == NULL || !stored->pki_encrypted,
+                      "a PKI-encrypted packet should be marked as one");
+    MESH_TEST_FAIL_IF(stored->is_reaction || stored->reply_id != 0U,
+                      "a plain message is neither a reply nor a reaction");
+
+    /* A threaded reply: a message in its own right that names what it answers. */
+    meshtastic_MeshPacket reply = mesh_test_make_decoded_packet(
+        0x22222222U, 0x11111111U, 0U, 501U, meshtastic_PortNum_TEXT_MESSAGE_APP, "understood", 10U);
+    reply.decoded.reply_id = 500U;
+    MESH_TEST_FAIL_IF(mesh_message_ingest(&log, &reply, 0x22222222U) != 1,
+                      "a reply is still a message and should be appended");
+    stored = mesh_message_log_find(&log, 501U);
+    MESH_TEST_FAIL_IF(stored == NULL || stored->reply_id != 500U || stored->is_reaction,
+                      "a reply should carry its target and not be a reaction");
+
+    /* And a reaction: kept, because it is traffic that happened, but flagged so the transcript
+       can attach it to its target instead of giving it a bubble. */
+    meshtastic_MeshPacket reaction =
+        mesh_test_make_decoded_packet(0x33333333U, 0x22222222U, 0U, 502U,
+                                      meshtastic_PortNum_TEXT_MESSAGE_APP, "\xF0\x9F\x91\x8D", 4U);
+    reaction.decoded.reply_id = 500U;
+    reaction.decoded.emoji = 1U;
+    MESH_TEST_FAIL_IF(mesh_message_ingest(&log, &reaction, 0x22222222U) != 1,
+                      "a reaction should be kept in the log");
+    stored = mesh_message_log_find(&log, 502U);
+    MESH_TEST_FAIL_IF(stored == NULL || !stored->is_reaction || stored->reply_id != 500U,
+                      "a reaction should be flagged and carry the message it is about");
+    MESH_TEST_FAIL_IF(strcmp(stored->text, "\xF0\x9F\x91\x8D") != 0,
+                      "the emoji itself should survive the sanitiser whole");
+
+    record_success(test_name);
+}
+
+/*
+ * The two ports upstream describes as "same as Text Message" and that the ingest never
+ * accepted, so a sensor tripping or a critical alert going out reached this client and
+ * produced nothing at all.
+ *
+ * They are text on a channel, so they belong in the conversation - but not as ordinary
+ * messages: the kind is what lets the transcript head an alert differently from the chatter
+ * around it, and heading it is the entire point of keeping it.
+ */
+MESH_TEST_CASE(message_ingest_alert_and_detection, unit) {
+    struct mesh_message_log log;
+    mesh_message_log_reset(&log);
+
+    const struct {
+        const char *label;
+        meshtastic_PortNum portnum;
+        const char *text;
+        uint8_t kind;
+    } cases[] = {
+        {"text", meshtastic_PortNum_TEXT_MESSAGE_APP, "heading up", MESH_MESSAGE_KIND_TEXT},
+        {"detection", meshtastic_PortNum_DETECTION_SENSOR_APP, "Door detected",
+         MESH_MESSAGE_KIND_DETECTION},
+        {"alert", meshtastic_PortNum_ALERT_APP, "Rockfall on the north trail",
+         MESH_MESSAGE_KIND_ALERT},
+    };
+
+    for (size_t i = 0; i < sizeof cases / sizeof cases[0]; ++i) {
+        meshtastic_MeshPacket packet = mesh_test_make_decoded_packet(
+            0x11111111U, MESH_MESSAGE_BROADCAST_ADDR, 0U, (uint32_t)(600U + i), cases[i].portnum,
+            cases[i].text, strlen(cases[i].text));
+        char message[128];
+        if (mesh_message_ingest(&log, &packet, 0x22222222U) != 1) {
+            snprintf(message, sizeof message, "a %s packet should be appended", cases[i].label);
+            record_failure(test_name, message);
+            return;
+        }
+        const struct mesh_message *stored = mesh_message_log_find(&log, (uint32_t)(600U + i));
+        if (stored == NULL || stored->kind != cases[i].kind ||
+            strcmp(stored->text, cases[i].text) != 0) {
+            snprintf(message, sizeof message, "the %s packet did not keep its kind or its text",
+                     cases[i].label);
+            record_failure(test_name, message);
+            return;
+        }
+    }
+
+    /* And the ports that are not text still produce nothing: accepting three is not accepting
+       everything, and a Position decoded as a message would be a screenful of bytes. */
+    meshtastic_MeshPacket position =
+        mesh_test_make_decoded_packet(0x11111111U, MESH_MESSAGE_BROADCAST_ADDR, 0U, 700U,
+                                      meshtastic_PortNum_POSITION_APP, "\x01\x02", 2U);
+    MESH_TEST_FAIL_IF(mesh_message_ingest(&log, &position, 0x22222222U) != 0,
+                      "a position packet is not a message");
+
+    record_success(test_name);
+}
+
+/*
+ * The echo of our own send is the only place the radio's encryption decision can come from.
+ *
+ * mesh_session_send_text() records the message before the radio has done anything with it, so
+ * `pki_encrypted` starts false; the radio picks per packet, from whether it holds the
+ * recipient's public key, and tells us by echoing the packet back. The dedup branch that stops
+ * the echo appearing twice used to copy only the timestamps, which left every outbound direct
+ * message without its padlock however it had actually gone out.
+ */
+MESH_TEST_CASE(message_echo_carries_encryption, unit) {
+    struct mesh_message_log log;
+    mesh_message_log_reset(&log);
+
+    /* What send_text() puts in the log: no rx_time, no SNR, and no encryption state. */
+    struct mesh_message sent;
+    memset(&sent, 0, sizeof sent);
+    sent.packet_id = 800U;
+    sent.from = 0x22222222U;
+    sent.to = 0x11111111U;
+    sent.direction = MESH_MESSAGE_OUTBOUND;
+    sent.ack = MESH_MESSAGE_ACK_PENDING;
+    mesh_str_copy(sent.text, sizeof sent.text, "on my way");
+    MESH_TEST_FAIL_IF(mesh_message_log_append(&log, &sent) == NULL, "seeding the send failed");
+    MESH_TEST_FAIL_IF(mesh_message_log_find(&log, 800U)->pki_encrypted,
+                      "a message is not encrypted before the radio has sent it");
+
+    meshtastic_MeshPacket echo = mesh_test_make_decoded_packet(
+        0x22222222U, 0x11111111U, 0U, 800U, meshtastic_PortNum_TEXT_MESSAGE_APP, "on my way", 9U);
+    echo.has_rx_time = true;
+    echo.rx_time = 1750000000U;
+    echo.pki_encrypted = true;
+
+    MESH_TEST_FAIL_IF(mesh_message_ingest(&log, &echo, 0x22222222U) != 0,
+                      "the echo should refresh the entry rather than append a second one");
+    MESH_TEST_FAIL_IF(log.count != 1U, "the echo was appended as a second message");
+
+    const struct mesh_message *stored = mesh_message_log_find(&log, 800U);
+    MESH_TEST_FAIL_IF(stored->rx_time != 1750000000U,
+                      "the echo's timestamp did not reach the entry");
+    MESH_TEST_FAIL_IF(!stored->pki_encrypted,
+                      "the radio's encryption decision did not survive the echo");
+    MESH_TEST_FAIL_IF(stored->ack != MESH_MESSAGE_ACK_PENDING,
+                      "the echo should not disturb the delivery state");
 
     record_success(test_name);
 }

@@ -22,6 +22,21 @@
 #include <unistd.h>
 
 /*
+ * Our own wall clock as epoch seconds, or 0 when the Brick does not have one worth quoting.
+ *
+ * The handheld has no RTC battery, so an unconfigured one boots somewhere in 1970 and a
+ * timestamp taken from it would date every packet to before Meshtastic existed. Anything
+ * earlier than the floor is treated as no clock at all, which every caller already renders as
+ * "unknown" rather than as a date.
+ */
+#define MESH_SESSION_CLOCK_MIN_EPOCH 1600000000
+
+static uint32_t mesh_session_wall_clock(void) {
+    const time_t now = time(NULL);
+    return now > MESH_SESSION_CLOCK_MIN_EPOCH ? (uint32_t)now : 0U;
+}
+
+/*
  * Everything the connection that just ended told us about itself. The node roster is the one
  * thing kept: it belongs to the client, not to the radio. The radio's NodeDB holds 80 entries
  * on this hardware and evicts as soon as it fills, so wiping our copy on every reconnect threw
@@ -43,6 +58,12 @@ static void mesh_session_reset_handshake(struct mesh_session *session) {
 
     memset(&session->stats, 0, sizeof session->stats);
     memset(&session->traceroute, 0, sizeof session->traceroute);
+    /* Both describe the radio that is connected right now, so they go the way `stats` does.
+       The reboot counter goes with them: it counts restarts of *this* link, and a reader that
+       saw it at 2 on the last radio must not read the next one's first reboot as a third. */
+    memset(&session->notification, 0, sizeof session->notification);
+    memset(&session->queue, 0, sizeof session->queue);
+    session->reboot_notices = 0U;
     session->node_cache_warned = false;
     mesh_radio_settings_reset(&session->settings);
     session->admin_probe_queued = false;
@@ -412,6 +433,111 @@ static void mesh_session_apply_environment(struct mesh_node_summary *summary,
 }
 
 /*
+ * The four variants beyond device and environment metrics. Each follows the pattern above: the
+ * whole wire message is decoded, and the fields worth a row are copied across with the sender's
+ * own has_* rather than being inferred from a zero - on a sensor node "0 ug/m3" and "no
+ * particulate sensor" are very different statements.
+ */
+static void mesh_session_apply_power_metrics(struct mesh_node_summary *summary,
+                                             const meshtastic_PowerMetrics *power, uint32_t heard) {
+    summary->power.valid = true;
+    summary->power.time = heard;
+    summary->power.channel[0].has_voltage = power->has_ch1_voltage;
+    summary->power.channel[0].voltage = power->ch1_voltage;
+    summary->power.channel[0].has_current = power->has_ch1_current;
+    summary->power.channel[0].current = power->ch1_current;
+    summary->power.channel[1].has_voltage = power->has_ch2_voltage;
+    summary->power.channel[1].voltage = power->ch2_voltage;
+    summary->power.channel[1].has_current = power->has_ch2_current;
+    summary->power.channel[1].current = power->ch2_current;
+    summary->power.channel[2].has_voltage = power->has_ch3_voltage;
+    summary->power.channel[2].voltage = power->ch3_voltage;
+    summary->power.channel[2].has_current = power->has_ch3_current;
+    summary->power.channel[2].current = power->ch3_current;
+}
+
+static void mesh_session_apply_air_quality(struct mesh_node_summary *summary,
+                                           const meshtastic_AirQualityMetrics *air,
+                                           uint32_t heard) {
+    summary->air_quality.valid = true;
+    summary->air_quality.time = heard;
+    summary->air_quality.has_pm10 = air->has_pm10_standard;
+    summary->air_quality.pm10_standard = (uint16_t)air->pm10_standard;
+    summary->air_quality.has_pm25 = air->has_pm25_standard;
+    summary->air_quality.pm25_standard = (uint16_t)air->pm25_standard;
+    summary->air_quality.has_pm100 = air->has_pm100_standard;
+    summary->air_quality.pm100_standard = (uint16_t)air->pm100_standard;
+    summary->air_quality.has_co2 = air->has_co2;
+    summary->air_quality.co2 = (uint16_t)air->co2;
+    summary->air_quality.has_voc_index = air->has_pm_voc_idx;
+    summary->air_quality.voc_index = air->pm_voc_idx;
+    summary->air_quality.has_nox_index = air->has_pm_nox_idx;
+    summary->air_quality.nox_index = air->pm_nox_idx;
+}
+
+static void mesh_session_apply_health_metrics(struct mesh_node_summary *summary,
+                                              const meshtastic_HealthMetrics *health,
+                                              uint32_t heard) {
+    summary->health.valid = true;
+    summary->health.time = heard;
+    summary->health.has_heart_bpm = health->has_heart_bpm;
+    summary->health.heart_bpm = (uint8_t)health->heart_bpm;
+    summary->health.has_spo2 = health->has_spO2;
+    summary->health.spo2 = (uint8_t)health->spO2;
+    summary->health.has_temperature = health->has_temperature;
+    summary->health.temperature = health->temperature;
+}
+
+static void mesh_session_apply_host_metrics(struct mesh_node_summary *summary,
+                                            const meshtastic_HostMetrics *host, uint32_t heard) {
+    summary->host.valid = true;
+    summary->host.time = heard;
+    /* uptime, free memory and the load averages are plain scalars with no has_* on the wire, so
+       a zero is indistinguishable from silence. Uptime and memory of zero are impossible on a
+       host that is running, which is what the flags are set from; a load average of zero is a
+       real reading, so the trio is flagged together on any of them being non-zero. */
+    summary->host.has_uptime = host->uptime_seconds > 0U;
+    summary->host.uptime_seconds = host->uptime_seconds;
+    summary->host.has_freemem = host->freemem_bytes > 0U;
+    summary->host.freemem_kib = (uint32_t)(host->freemem_bytes / 1024U);
+    summary->host.has_diskfree = host->diskfree1_bytes > 0U;
+    summary->host.diskfree_mib = (uint32_t)(host->diskfree1_bytes / (1024U * 1024U));
+    summary->host.has_load = host->load1 > 0U || host->load5 > 0U || host->load15 > 0U;
+    summary->host.load1 = host->load1;
+    summary->host.load5 = host->load5;
+    summary->host.load15 = host->load15;
+}
+
+/*
+ * A node's list of who it can hear.
+ *
+ * The record belongs to `info->node_id` rather than to `packet->from`: a NeighborInfo is
+ * forwarded across the mesh, and `last_sent_by_id` names whoever relayed it. Attributing the
+ * list to the relayer would draw one node's neighbours on another node's screen, which is
+ * exactly the kind of wrong that looks plausible.
+ *
+ * A report with no neighbours in it is kept as a report with no neighbours: a node that hears
+ * nobody is a real and interesting state, and rejecting it would leave the last non-empty list
+ * standing as though it were still true.
+ */
+static void mesh_session_apply_neighbors(struct mesh_node_summary *summary,
+                                         const meshtastic_NeighborInfo *info, uint32_t heard) {
+    summary->neighbors.valid = true;
+    summary->neighbors.time = heard;
+    summary->neighbors.broadcast_interval_secs = info->node_broadcast_interval_secs;
+    summary->neighbors.count = 0U;
+    for (pb_size_t i = 0;
+         i < info->neighbors_count && summary->neighbors.count < MESH_NODE_MAX_NEIGHBORS; ++i) {
+        if (info->neighbors[i].node_id == 0U) {
+            continue;
+        }
+        struct mesh_node_neighbor *entry = &summary->neighbors.entries[summary->neighbors.count++];
+        entry->node_id = info->neighbors[i].node_id;
+        entry->snr = info->neighbors[i].snr;
+    }
+}
+
+/*
  * LocalStats is the radio describing itself, so it lands on the session rather than on a node
  * record. Two fields get a flag rather than being trusted at face value: heap_total_bytes of
  * zero means the firmware did not fill it in (no radio has no heap), and a noise floor of
@@ -523,10 +649,7 @@ static void mesh_session_touch_node_from_packet(struct mesh_session *session,
     uint32_t heard = packet->has_rx_time ? packet->rx_time : 0U;
     if (heard == 0U) {
         /* No radio timestamp: use ours if it looks like a real clock (not 1970). */
-        const time_t now = time(NULL);
-        if (now > 1600000000) {
-            heard = (uint32_t)now;
-        }
+        heard = mesh_session_wall_clock();
     }
 
     const bool known = mesh_session_node_known(session, packet->from);
@@ -544,6 +667,15 @@ static void mesh_session_touch_node_from_packet(struct mesh_session *session,
     }
     if (packet->rx_snr != 0.0f) {
         summary->snr = packet->rx_snr;
+    }
+    /* A packet that reached us over MQTT was not heard by this radio at all, so whatever RSSI
+       rides along with it describes somebody else's antenna. The reading is stamped rather
+       than cleared on the next MQTT packet: it stays a true measurement, and clearing it would
+       make the row flicker on a mesh whose bridge relays traffic we also hear ourselves. */
+    if (packet->has_rx_rssi && !packet->via_mqtt) {
+        summary->has_rssi = true;
+        summary->rx_rssi = (int16_t)packet->rx_rssi;
+        summary->rssi_time = heard;
     }
     if (packet->hop_start != 0U && packet->hop_start >= packet->hop_limit) {
         summary->has_hops_away = true;
@@ -573,16 +705,14 @@ static void mesh_session_apply_packet_details(struct mesh_session *session,
     const meshtastic_Data *data = &packet->decoded;
     if (data->portnum != meshtastic_PortNum_NODEINFO_APP &&
         data->portnum != meshtastic_PortNum_POSITION_APP &&
-        data->portnum != meshtastic_PortNum_TELEMETRY_APP) {
+        data->portnum != meshtastic_PortNum_TELEMETRY_APP &&
+        data->portnum != meshtastic_PortNum_NEIGHBORINFO_APP) {
         return;
     }
 
     uint32_t heard = packet->has_rx_time ? packet->rx_time : 0U;
     if (heard == 0U) {
-        const time_t now = time(NULL);
-        if (now > 1600000000) {
-            heard = (uint32_t)now;
-        }
+        heard = mesh_session_wall_clock();
     }
 
     /* LocalStats below is about the radio rather than about a node, so a full node cache
@@ -619,6 +749,26 @@ static void mesh_session_apply_packet_details(struct mesh_session *session,
         mesh_session_apply_position(summary, &position);
         break;
     }
+    case meshtastic_PortNum_NEIGHBORINFO_APP: {
+        meshtastic_NeighborInfo info = meshtastic_NeighborInfo_init_default;
+        if (!pb_decode(&stream, meshtastic_NeighborInfo_fields, &info)) {
+            mesh_log_debug("session", "Bad NEIGHBORINFO_APP from 0x%08x: %s", packet->from,
+                           PB_GET_ERROR(&stream));
+            return;
+        }
+        /* The reporting node, not the one that handed it to us. `summary` above is the
+           relayer's slot, so this looks up its own. */
+        const uint32_t reporter = info.node_id != 0U ? info.node_id : packet->from;
+        struct mesh_node_summary *owner =
+            (reporter == packet->from) ? summary : mesh_session_node_slot(session, reporter);
+        if (owner == NULL) {
+            return;
+        }
+        mesh_session_apply_neighbors(owner, &info, heard);
+        mesh_log_debug("session", "Node 0x%08x reports %u neighbour%s", reporter,
+                       (unsigned)owner->neighbors.count, owner->neighbors.count == 1U ? "" : "s");
+        break;
+    }
     case meshtastic_PortNum_TELEMETRY_APP: {
         meshtastic_Telemetry telemetry = meshtastic_Telemetry_init_default;
         if (!pb_decode(&stream, meshtastic_Telemetry_fields, &telemetry)) {
@@ -639,10 +789,29 @@ static void mesh_session_apply_packet_details(struct mesh_session *session,
         if (summary == NULL) {
             return;
         }
-        if (telemetry.which_variant == meshtastic_Telemetry_device_metrics_tag) {
+        switch (telemetry.which_variant) {
+        case meshtastic_Telemetry_device_metrics_tag:
             mesh_session_apply_device_metrics(summary, &telemetry.variant.device_metrics, stamp);
-        } else if (telemetry.which_variant == meshtastic_Telemetry_environment_metrics_tag) {
+            break;
+        case meshtastic_Telemetry_environment_metrics_tag:
             mesh_session_apply_environment(summary, &telemetry.variant.environment_metrics, stamp);
+            break;
+        case meshtastic_Telemetry_power_metrics_tag:
+            mesh_session_apply_power_metrics(summary, &telemetry.variant.power_metrics, stamp);
+            break;
+        case meshtastic_Telemetry_air_quality_metrics_tag:
+            mesh_session_apply_air_quality(summary, &telemetry.variant.air_quality_metrics, stamp);
+            break;
+        case meshtastic_Telemetry_health_metrics_tag:
+            mesh_session_apply_health_metrics(summary, &telemetry.variant.health_metrics, stamp);
+            break;
+        case meshtastic_Telemetry_host_metrics_tag:
+            mesh_session_apply_host_metrics(summary, &telemetry.variant.host_metrics, stamp);
+            break;
+        default:
+            /* TrafficManagementStats and anything upstream adds next: decoded, counted as a
+               packet from the node, and otherwise nothing we have a row for. */
+            break;
         }
         break;
     }
@@ -708,8 +877,7 @@ static bool mesh_session_handle_traceroute(struct mesh_session *session,
         trace->snr_back[i] = route.snr_back[i];
     }
 
-    const time_t now = time(NULL);
-    trace->completed = now > 1600000000 ? (uint32_t)now : 0U;
+    trace->completed = mesh_session_wall_clock();
     trace->state = MESH_TRACEROUTE_DONE;
     mesh_log_info("session", "Traceroute to 0x%08x: %u hops out, %u back", trace->target,
                   (unsigned)trace->route_count, (unsigned)trace->back_count);
@@ -741,6 +909,79 @@ static void mesh_session_handle_log_record(const meshtastic_LogRecord *record) {
     default:
         mesh_log_trace(component, "%s", message);
         break;
+    }
+}
+
+/*
+ * The radio's own explanation of something it just did or refused to do. Unlike a LogRecord -
+ * which is the firmware's debug stream and goes to our log at its own level - a
+ * ClientNotification is addressed *to the user*: the firmware raises one when it has taken a
+ * decision the person holding the client needs to know about, and the phone apps show it.
+ *
+ * The message is untrusted radio text, so it is sanitised on the way in like a node name is,
+ * and the slot it lands in is smaller than the 400 bytes the wire allows.
+ */
+static void mesh_session_handle_client_notification(struct mesh_session *session,
+                                                    const meshtastic_ClientNotification *note) {
+    struct mesh_client_notification *out = &session->notification;
+    /* Monotonic for the life of the session: two identical notifications are two events, and a
+       reader watching for "something new" cannot see that in the text. */
+    out->seq++;
+    out->time = note->time;
+    out->received = mesh_session_wall_clock();
+    out->has_reply_id = note->has_reply_id;
+    out->reply_id = note->has_reply_id ? note->reply_id : 0U;
+    out->level = (uint8_t)note->level;
+    mesh_text_sanitise((const uint8_t *)note->message, strnlen(note->message, sizeof note->message),
+                       out->text, sizeof out->text);
+
+    /* Logged at the radio's own level as well as kept for the UI: the screen shows the newest
+       one and the log is where the sequence of them can be read back afterwards. */
+    const char *component = "radio.notify";
+    switch (note->level) {
+    case meshtastic_LogRecord_Level_CRITICAL:
+    case meshtastic_LogRecord_Level_ERROR:
+        mesh_log_error(component, "%s", out->text);
+        break;
+    case meshtastic_LogRecord_Level_WARNING:
+        mesh_log_warn(component, "%s", out->text);
+        break;
+    default:
+        mesh_log_info(component, "%s", out->text);
+        break;
+    }
+}
+
+/*
+ * The radio reporting its outgoing queue after every ToRadio it took or refused.
+ *
+ * A refusal (`res` non-zero) is the one failure that produces no Routing reply at all: the
+ * packet was never transmitted, so nothing in the mesh will ever answer for it, and the
+ * message would otherwise sit PENDING until the ring evicted it. Marking it here is what turns
+ * "still sending..." into a stated failure with the firmware's own reason on it.
+ */
+static void mesh_session_handle_queue_status(struct mesh_session *session,
+                                             const meshtastic_QueueStatus *status) {
+    struct mesh_queue_status *out = &session->queue;
+    out->valid = true;
+    out->time = mesh_session_wall_clock();
+    out->res = status->res;
+    out->free = status->free;
+    out->maxlen = status->maxlen;
+    out->mesh_packet_id = status->mesh_packet_id;
+
+    if (status->res == 0) {
+        return;
+    }
+    mesh_log_warn("session", "Radio refused packet %u (error %d); %u of %u queue slots free",
+                  status->mesh_packet_id, (int)status->res, (unsigned)status->free,
+                  (unsigned)status->maxlen);
+    /* `res` is a Routing_Error, the same scale mesh_message_log_mark_ack() already speaks, so
+       the message log needs no new failure vocabulary for this. A queue status with no packet
+       id is the radio reporting depth rather than refusing anything. */
+    if (status->mesh_packet_id != 0U) {
+        (void)mesh_message_log_mark_ack(&session->messages, status->mesh_packet_id,
+                                        MESH_MESSAGE_ACK_FAILED, (uint8_t)status->res);
     }
 }
 
@@ -866,6 +1107,30 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
         break;
     case meshtastic_FromRadio_log_record_tag:
         mesh_session_handle_log_record(&message.log_record);
+        break;
+    case meshtastic_FromRadio_clientNotification_tag:
+        mesh_session_handle_client_notification(session, &message.clientNotification);
+        break;
+    case meshtastic_FromRadio_queueStatus_tag:
+        mesh_session_handle_queue_status(session, &message.queueStatus);
+        break;
+    case meshtastic_FromRadio_rebooted_tag:
+        /*
+         * The radio restarted underneath a link that survived it. Everything the config sync
+         * told us describes the process that just died - the NodeDB replay, the channel table,
+         * the config fragments, and the admin session passkey above all - so the only correct
+         * response is to ask for all of it again.
+         *
+         * The counter is bumped *after* the handshake restarts, not before:
+         * mesh_session_begin_handshake() resets the per-connection state, and this counter is
+         * part of that state so it clears on a detach or a radio swap. Incrementing first
+         * would hand the reset its own answer to wipe.
+         */
+        if (message.rebooted) {
+            mesh_log_info("session", "Radio reports it rebooted; re-running the config sync");
+            (void)mesh_session_begin_handshake(session);
+            session->reboot_notices++;
+        }
         break;
     default:
         mesh_log_debug("session", "Ignoring FromRadio payload tag %" PRIu32,
@@ -1062,6 +1327,68 @@ int mesh_session_request_node_info(struct mesh_session *session, uint32_t dest) 
         mesh_log_info("session", "Asked node 0x%08x to introduce itself", dest);
     }
     return result;
+}
+
+/*
+ * Asks a node for its position or its telemetry, now, rather than waiting for its broadcast
+ * interval to come round.
+ *
+ * Both are the same mechanism as the NodeInfo request above - an empty payload on the port
+ * with `want_response` set - and both answer the question that made the node detail's readings
+ * frustrating: a tracker broadcasts a position every fifteen minutes by default and telemetry
+ * every half hour, so "where is it *now*" was a question the client could not ask.
+ *
+ * Unlike the NodeInfo request, neither carries anything of ours. A NodeInfo is applied by
+ * overwriting the record wholesale, which is why that one refuses to go out with a placeholder;
+ * a Position and a Telemetry are merged field by field at the far end and an empty one asserts
+ * nothing, so there is nothing here to erase and no owner to wait for.
+ */
+static int mesh_session_request_on_port(struct mesh_session *session, uint32_t dest,
+                                        meshtastic_PortNum portnum, const char *what) {
+    if (session == NULL || dest == 0U || dest == MESH_MESSAGE_BROADCAST_ADDR) {
+        return -EINVAL;
+    }
+    if (session->send == NULL || !session->handshake.has_my_info) {
+        return -ENOTCONN;
+    }
+    if (dest == session->handshake.my_info.my_node_num) {
+        return -EINVAL;
+    }
+
+    meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_default;
+    to_radio.which_payload_variant = meshtastic_ToRadio_packet_tag;
+    meshtastic_MeshPacket *packet = &to_radio.packet;
+    packet->to = dest;
+    packet->id = mesh_session_next_packet_id(session);
+    /* The reply is the acknowledgement. A want_ack on top of it would double the traffic this
+       costs the mesh for a question that answers itself when it works. */
+    packet->want_ack = false;
+    packet->which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    packet->decoded.portnum = portnum;
+    packet->decoded.want_response = true;
+    packet->decoded.payload.size = 0U;
+
+    uint8_t payload[MESH_SESSION_MAX_PACKET];
+    pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof payload);
+    if (!pb_encode(&stream, meshtastic_ToRadio_fields, &to_radio)) {
+        mesh_log_error("session", "Failed to encode %s request: %s", what, PB_GET_ERROR(&stream));
+        return -EIO;
+    }
+
+    const int result = mesh_session_send_raw(session, payload, stream.bytes_written, 0U);
+    if (result == 0) {
+        mesh_log_info("session", "Asked node 0x%08x for its %s", dest, what);
+    }
+    return result;
+}
+
+int mesh_session_request_position(struct mesh_session *session, uint32_t dest) {
+    return mesh_session_request_on_port(session, dest, meshtastic_PortNum_POSITION_APP, "position");
+}
+
+int mesh_session_request_telemetry(struct mesh_session *session, uint32_t dest) {
+    return mesh_session_request_on_port(session, dest, meshtastic_PortNum_TELEMETRY_APP,
+                                        "telemetry");
 }
 
 /*
@@ -1370,6 +1697,15 @@ const struct mesh_radio_settings *mesh_session_settings(const struct mesh_sessio
 
 const struct mesh_radio_stats *mesh_session_radio_stats(const struct mesh_session *session) {
     return session != NULL ? &session->stats : NULL;
+}
+
+const struct mesh_client_notification *
+mesh_session_notification(const struct mesh_session *session) {
+    return session != NULL ? &session->notification : NULL;
+}
+
+const struct mesh_queue_status *mesh_session_queue_status(const struct mesh_session *session) {
+    return session != NULL ? &session->queue : NULL;
 }
 
 int mesh_session_send_traceroute(struct mesh_session *session, uint32_t dest) {

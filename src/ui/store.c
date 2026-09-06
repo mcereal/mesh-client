@@ -581,6 +581,12 @@ static int mesh_ui_store_save_handshake(FILE *file,
             snprintf(key, sizeof key, "node_key[%u]", i);
             mesh_ui_store_escape_and_write(file, key, pubkey);
         }
+        /* Its own key rather than a widened node[] line: the loader matches node[] on an exact
+           field count, so a build that predates this one would drop the whole node rather than
+           the one value it does not know. */
+        if (node->has_rssi) {
+            fprintf(file, "node_rssi[%u]=%d\n", i, (int)node->rx_rssi);
+        }
         if (node->position.valid) {
             fprintf(file, "node_pos[%u]=%d,%d,%u,%d,%u,%u,%u\n", i, node->position.latitude_i,
                     node->position.longitude_i, node->position.has_altitude ? 1U : 0U,
@@ -607,6 +613,60 @@ static int mesh_ui_store_save_handshake(FILE *file,
                     node->environment.has_lux ? 1U : 0U, (double)node->environment.lux,
                     node->environment.has_voltage ? 1U : 0U, (double)node->environment.voltage,
                     node->environment.has_current ? 1U : 0U, (double)node->environment.current);
+        }
+        /* The four groups beyond device metrics and environment. Each gets its own key for the
+           reason the three above do: a cache written by a build that had them is read by one
+           that does not simply by skipping a line it does not recognise. */
+        /* One line per neighbour rather than one line for the list: a cache line is parsed
+           with a fixed-field sscanf, and a variable-length list in one would have to be
+           re-parsed by hand for a count that upstream can change. */
+        if (node->neighbors.valid) {
+            fprintf(file, "node_nbrs[%u]=%u,%u,%u\n", i, node->neighbors.time,
+                    node->neighbors.broadcast_interval_secs, (unsigned)node->neighbors.count);
+            for (uint8_t n = 0; n < node->neighbors.count && n < MESH_UI_MAX_NEIGHBORS; ++n) {
+                fprintf(file, "node_nbr[%u.%u]=%u,%f\n", i, (unsigned)n,
+                        node->neighbors.entries[n].node_id, (double)node->neighbors.entries[n].snr);
+            }
+        }
+        if (node->power.valid) {
+            fprintf(file, "node_power[%u]=%u,%u,%f,%u,%f,%u,%f,%u,%f,%u,%f,%u,%f\n", i,
+                    node->power.time, node->power.channel[0].has_voltage ? 1U : 0U,
+                    (double)node->power.channel[0].voltage,
+                    node->power.channel[0].has_current ? 1U : 0U,
+                    (double)node->power.channel[0].current,
+                    node->power.channel[1].has_voltage ? 1U : 0U,
+                    (double)node->power.channel[1].voltage,
+                    node->power.channel[1].has_current ? 1U : 0U,
+                    (double)node->power.channel[1].current,
+                    node->power.channel[2].has_voltage ? 1U : 0U,
+                    (double)node->power.channel[2].voltage,
+                    node->power.channel[2].has_current ? 1U : 0U,
+                    (double)node->power.channel[2].current);
+        }
+        if (node->air_quality.valid) {
+            fprintf(file, "node_air[%u]=%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%f,%u,%f\n", i,
+                    node->air_quality.time, node->air_quality.has_pm10 ? 1U : 0U,
+                    (unsigned)node->air_quality.pm10_standard, node->air_quality.has_pm25 ? 1U : 0U,
+                    (unsigned)node->air_quality.pm25_standard,
+                    node->air_quality.has_pm100 ? 1U : 0U,
+                    (unsigned)node->air_quality.pm100_standard, node->air_quality.has_co2 ? 1U : 0U,
+                    (unsigned)node->air_quality.co2, node->air_quality.has_voc_index ? 1U : 0U,
+                    (double)node->air_quality.voc_index, node->air_quality.has_nox_index ? 1U : 0U,
+                    (double)node->air_quality.nox_index);
+        }
+        if (node->health.valid) {
+            fprintf(file, "node_health[%u]=%u,%u,%u,%u,%u,%u,%f\n", i, node->health.time,
+                    node->health.has_heart_bpm ? 1U : 0U, (unsigned)node->health.heart_bpm,
+                    node->health.has_spo2 ? 1U : 0U, (unsigned)node->health.spo2,
+                    node->health.has_temperature ? 1U : 0U, (double)node->health.temperature);
+        }
+        if (node->host.valid) {
+            fprintf(file, "node_host[%u]=%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\n", i, node->host.time,
+                    node->host.has_uptime ? 1U : 0U, node->host.uptime_seconds,
+                    node->host.has_freemem ? 1U : 0U, node->host.freemem_kib,
+                    node->host.has_diskfree ? 1U : 0U, node->host.diskfree_mib,
+                    node->host.has_load ? 1U : 0U, node->host.load1, node->host.load5,
+                    node->host.load15);
         }
     }
 
@@ -644,6 +704,20 @@ static void mesh_ui_store_save_messages(FILE *file, const struct mesh_ui_message
         fprintf(file, "msg[%u]=%u,%u,%u,%u,%u,%u,%u\n", i, message->packet_id, message->peer,
                 message->rx_time, (unsigned)message->channel, (unsigned)message->direction,
                 (unsigned)message->ack, message->broadcast ? 1U : 0U);
+
+        /* What the message *is*, as opposed to where it came from. On its own key rather than
+           widened onto msg[] for the reason the node detail's groups are: the loader matches
+           msg[] on an exact field count, so a build that predates this would drop the whole
+           message rather than the part it does not know.
+
+           Losing this line is not cosmetic. A reaction reloaded without `is_reaction` is a
+           bubble containing a bare emoji that also bumps the unread count - which is precisely
+           the behaviour reading Data.emoji was meant to end, returning at every restart. */
+        char key_meta[32];
+        snprintf(key_meta, sizeof key_meta, "msg_meta[%u]", i);
+        fprintf(file, "%s=%u,%u,%u,%u\n", key_meta, (unsigned)message->kind,
+                message->pki_encrypted ? 1U : 0U, message->reply_id,
+                message->is_reaction ? 1U : 0U);
 
         char key_name[32];
         char key_text[32];
@@ -874,6 +948,51 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                     node->public_key_len = (uint8_t)len;
                 }
             }
+        } else if (strncmp(key, "node_nbrs[", 10) == 0) {
+            unsigned int index = 0U;
+            unsigned int stamp = 0U;
+            unsigned int interval = 0U;
+            unsigned int count = 0U;
+            if (sscanf(key, "node_nbrs[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES &&
+                sscanf(value, "%u,%u,%u", &stamp, &interval, &count) == 3) {
+                struct mesh_ui_node_neighbors *nbrs = &handshake.nodes[index].neighbors;
+                nbrs->valid = true;
+                nbrs->time = stamp;
+                nbrs->broadcast_interval_secs = interval;
+                /* The count is re-derived from the entries that actually load, so a truncated
+                   or hand-edited file cannot leave the list claiming rows that are not there. */
+                nbrs->count = 0U;
+            }
+        } else if (strncmp(key, "node_nbr[", 9) == 0) {
+            unsigned int index = 0U;
+            unsigned int slot = 0U;
+            unsigned int node_id = 0U;
+            double snr = 0.0;
+            if (sscanf(key, "node_nbr[%u.%u]", &index, &slot) == 2 &&
+                index < MESH_UI_MAX_HANDSHAKE_NODES && slot < MESH_UI_MAX_NEIGHBORS &&
+                sscanf(value, "%u,%lf", &node_id, &snr) == 2 && node_id != 0U) {
+                struct mesh_ui_node_neighbors *nbrs = &handshake.nodes[index].neighbors;
+                /* Only ever appended, and only for a list the node_nbrs line already opened:
+                   a stray entry for a node with no header is not half a neighbour list. */
+                if (nbrs->valid && nbrs->count < MESH_UI_MAX_NEIGHBORS) {
+                    nbrs->entries[nbrs->count].node_id = node_id;
+                    nbrs->entries[nbrs->count].snr = (float)snr;
+                    nbrs->count++;
+                }
+            }
+        } else if (strncmp(key, "node_rssi[", 10) == 0) {
+            unsigned int index = 0U;
+            int rssi = 0;
+            unsigned int stamp = 0U;
+            /* The stamp joined this line after the reading did, so `>= 1` rather than `== 2`:
+               a cache written without it still loads, and an unstamped reading reads as
+               current - which is exactly what it was before the stamp existed. */
+            if (sscanf(key, "node_rssi[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES &&
+                sscanf(value, "%d,%u", &rssi, &stamp) >= 1) {
+                handshake.nodes[index].has_rssi = true;
+                handshake.nodes[index].rx_rssi = (int16_t)rssi;
+                handshake.nodes[index].rssi_time = stamp;
+            }
         } else if (strncmp(key, "node_pos[", 9) == 0) {
             unsigned int index = 0U;
             int latitude = 0;
@@ -968,6 +1087,116 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                 env->has_current = (has_current != 0U);
                 env->current = (float)current;
             }
+        } else if (strncmp(key, "node_power[", 11) == 0) {
+            unsigned int index = 0U;
+            unsigned int stamp = 0U;
+            unsigned int has_v[3] = {0U, 0U, 0U};
+            double v[3] = {0.0, 0.0, 0.0};
+            unsigned int has_i[3] = {0U, 0U, 0U};
+            double amps[3] = {0.0, 0.0, 0.0};
+            if (sscanf(key, "node_power[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES &&
+                sscanf(value, "%u,%u,%lf,%u,%lf,%u,%lf,%u,%lf,%u,%lf,%u,%lf", &stamp, &has_v[0],
+                       &v[0], &has_i[0], &amps[0], &has_v[1], &v[1], &has_i[1], &amps[1], &has_v[2],
+                       &v[2], &has_i[2], &amps[2]) == 13) {
+                struct mesh_ui_node_power *power = &handshake.nodes[index].power;
+                power->valid = true;
+                power->time = stamp;
+                for (size_t ch = 0; ch < 3U; ++ch) {
+                    power->channel[ch].has_voltage = (has_v[ch] != 0U);
+                    power->channel[ch].voltage = (float)v[ch];
+                    power->channel[ch].has_current = (has_i[ch] != 0U);
+                    power->channel[ch].current = (float)amps[ch];
+                }
+            }
+        } else if (strncmp(key, "node_air[", 9) == 0) {
+            unsigned int index = 0U;
+            unsigned int stamp = 0U;
+            unsigned int has_pm10 = 0U;
+            unsigned int pm10 = 0U;
+            unsigned int has_pm25 = 0U;
+            unsigned int pm25 = 0U;
+            unsigned int has_pm100 = 0U;
+            unsigned int pm100 = 0U;
+            unsigned int has_co2 = 0U;
+            unsigned int co2 = 0U;
+            unsigned int has_voc = 0U;
+            double voc = 0.0;
+            unsigned int has_nox = 0U;
+            double nox = 0.0;
+            if (sscanf(key, "node_air[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES &&
+                sscanf(value, "%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%lf,%u,%lf", &stamp, &has_pm10, &pm10,
+                       &has_pm25, &pm25, &has_pm100, &pm100, &has_co2, &co2, &has_voc, &voc,
+                       &has_nox, &nox) == 13) {
+                struct mesh_ui_node_air_quality *air = &handshake.nodes[index].air_quality;
+                air->valid = true;
+                air->time = stamp;
+                air->has_pm10 = (has_pm10 != 0U);
+                air->pm10_standard = (uint16_t)pm10;
+                air->has_pm25 = (has_pm25 != 0U);
+                air->pm25_standard = (uint16_t)pm25;
+                air->has_pm100 = (has_pm100 != 0U);
+                air->pm100_standard = (uint16_t)pm100;
+                air->has_co2 = (has_co2 != 0U);
+                air->co2 = (uint16_t)co2;
+                air->has_voc_index = (has_voc != 0U);
+                air->voc_index = (float)voc;
+                air->has_nox_index = (has_nox != 0U);
+                air->nox_index = (float)nox;
+            }
+        } else if (strncmp(key, "node_health[", 12) == 0) {
+            unsigned int index = 0U;
+            unsigned int stamp = 0U;
+            unsigned int has_bpm = 0U;
+            unsigned int bpm = 0U;
+            unsigned int has_spo2 = 0U;
+            unsigned int spo2 = 0U;
+            unsigned int has_temperature = 0U;
+            double temperature = 0.0;
+            if (sscanf(key, "node_health[%u]", &index) == 1 &&
+                index < MESH_UI_MAX_HANDSHAKE_NODES &&
+                sscanf(value, "%u,%u,%u,%u,%u,%u,%lf", &stamp, &has_bpm, &bpm, &has_spo2, &spo2,
+                       &has_temperature, &temperature) == 7) {
+                struct mesh_ui_node_health *health = &handshake.nodes[index].health;
+                health->valid = true;
+                health->time = stamp;
+                health->has_heart_bpm = (has_bpm != 0U);
+                health->heart_bpm = (uint8_t)bpm;
+                health->has_spo2 = (has_spo2 != 0U);
+                health->spo2 = (uint8_t)spo2;
+                health->has_temperature = (has_temperature != 0U);
+                health->temperature = (float)temperature;
+            }
+        } else if (strncmp(key, "node_host[", 10) == 0) {
+            unsigned int index = 0U;
+            unsigned int stamp = 0U;
+            unsigned int has_uptime = 0U;
+            unsigned int uptime = 0U;
+            unsigned int has_freemem = 0U;
+            unsigned int freemem = 0U;
+            unsigned int has_diskfree = 0U;
+            unsigned int diskfree = 0U;
+            unsigned int has_load = 0U;
+            unsigned int load1 = 0U;
+            unsigned int load5 = 0U;
+            unsigned int load15 = 0U;
+            if (sscanf(key, "node_host[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES &&
+                sscanf(value, "%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u", &stamp, &has_uptime, &uptime,
+                       &has_freemem, &freemem, &has_diskfree, &diskfree, &has_load, &load1, &load5,
+                       &load15) == 11) {
+                struct mesh_ui_node_host *host = &handshake.nodes[index].host;
+                host->valid = true;
+                host->time = stamp;
+                host->has_uptime = (has_uptime != 0U);
+                host->uptime_seconds = uptime;
+                host->has_freemem = (has_freemem != 0U);
+                host->freemem_kib = freemem;
+                host->has_diskfree = (has_diskfree != 0U);
+                host->diskfree_mib = diskfree;
+                host->has_load = (has_load != 0U);
+                host->load1 = load1;
+                host->load5 = load5;
+                host->load15 = load15;
+            }
         } else if (strcmp(key, "messages") == 0) {
             unsigned int count = 0U;
             unsigned int dropped = 0U;
@@ -1000,6 +1229,20 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                         messages_loaded = index + 1U;
                     }
                 }
+            }
+        } else if (strncmp(key, "msg_meta[", 9) == 0) {
+            unsigned int index = 0U;
+            unsigned int kind = 0U;
+            unsigned int pki = 0U;
+            unsigned int reply_id = 0U;
+            unsigned int is_reaction = 0U;
+            if (sscanf(key, "msg_meta[%u]", &index) == 1 && index < MESH_UI_MAX_MESSAGES &&
+                sscanf(value, "%u,%u,%u,%u", &kind, &pki, &reply_id, &is_reaction) == 4) {
+                struct mesh_ui_message *message = &messages.entries[index];
+                message->kind = (uint8_t)kind;
+                message->pki_encrypted = (pki != 0U);
+                message->reply_id = reply_id;
+                message->is_reaction = (is_reaction != 0U);
             }
         } else if (strncmp(key, "msg_name[", 9) == 0) {
             unsigned int index = 0U;

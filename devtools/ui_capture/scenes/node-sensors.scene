@@ -1,0 +1,23 @@
+# The node detail showing the four sensor groups beyond device metrics and environment.
+#
+# The groups only appear for a node that actually reported them, which is the whole reason they
+# are separate groups: a plain handheld shows none, a solar repeater shows power, an indoor
+# sensor shows air quality, a base station running meshtasticd shows a filesystem. This walks
+# the ones the demo mesh has.
+
+scene demo
+tab nodes
+
+# Echo Repeater: a solar node with a two-channel current monitor.
+key down 5
+key a
+key down 12
+hold 1200
+key b
+
+# Golf Cabin: an indoor particulate and CO2 sensor.
+key down 2
+key a
+key down 12
+hold 1200
+key b

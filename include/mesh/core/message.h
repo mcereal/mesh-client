@@ -25,6 +25,22 @@ enum mesh_message_direction {
     MESH_MESSAGE_OUTBOUND,
 };
 
+/*
+ * Which port a message arrived on. Three of them are "same as Text Message" upstream - the
+ * payload is plain text and the packet is addressed to a channel like any other - so they
+ * belong in the conversation rather than in a screen of their own. What they are not is
+ * interchangeable: an alert is the firmware's word for something that needs acting on, and a
+ * detection is a sensor announcing itself, and a transcript that drew all three identically
+ * would be hiding the only part that matters.
+ *
+ * Anything we send is TEXT: the client has no reason to originate an alert or a detection.
+ */
+enum mesh_message_kind {
+    MESH_MESSAGE_KIND_TEXT = 0,
+    MESH_MESSAGE_KIND_ALERT,     /* ALERT_APP: the firmware's critical alert */
+    MESH_MESSAGE_KIND_DETECTION, /* DETECTION_SENSOR_APP: "<name> detected" */
+};
+
 /* Delivery state of an outbound message. Inbound messages are always MESH_MESSAGE_ACK_NONE. */
 enum mesh_message_ack {
     MESH_MESSAGE_ACK_NONE = 0,  /* nothing to wait for: broadcast, or want_ack unset */
@@ -41,10 +57,25 @@ struct mesh_message {
     float rx_snr;
     uint8_t channel;
     uint8_t direction;  /* enum mesh_message_direction */
+    uint8_t kind;       /* enum mesh_message_kind */
     uint8_t ack;        /* enum mesh_message_ack */
     uint8_t ack_error;  /* meshtastic_Routing_Error, meaningful when ack == FAILED */
     bool has_hops_away; /* hop_start/hop_limit were both usable */
     uint8_t hops_away;
+    /* The radio decrypted this with the sender's public key rather than with a channel PSK, so
+       it was addressed to us and to nobody else. Worth showing: on a default-key channel every
+       node on the mesh can read a "direct" message, and the two look identical without this. */
+    bool pki_encrypted;
+    /*
+     * A reaction (Data.emoji set) carries an emoji in its payload and names the message it is
+     * about in reply_id. It is kept in the log because it is traffic that happened, but it is
+     * not a message: the UI attaches it to its target rather than giving it a bubble.
+     *
+     * reply_id is also set on an ordinary message that is a threaded reply, which is why the
+     * two are separate flags rather than one.
+     */
+    uint32_t reply_id;
+    bool is_reaction;
     /* Sanitised text: control bytes are folded to spaces or '?' by mesh_message_ingest, so
        backends can draw this straight into a framebuffer without re-checking it. */
     char text[MESH_MESSAGE_TEXT_MAX + 1U];

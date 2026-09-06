@@ -45,6 +45,56 @@ extern "C" {
 #define MESH_SESSION_MAX_PACKET 512U
 
 /*
+ * The firmware's ClientNotification message is char[400]; nothing the radio sends is that
+ * long in practice and the Status row it lands on is one line, so it is sanitised into
+ * something a screen can hold rather than kept whole.
+ */
+#define MESH_CLIENT_NOTIFICATION_TEXT_MAX 128U
+
+/*
+ * The radio explaining itself to the attached client: a duty-cycle limit reached, a channel
+ * key that did not match, a public key seen on two different nodes. It arrives as
+ * FromRadio.clientNotification and it is the *only* route these reach a user - nothing in the
+ * mesh traffic says why a send went nowhere, and a Routing ack that never lands looks exactly
+ * like a radio that is merely slow.
+ *
+ * Only the newest is kept, because the value is in seeing it when it happens rather than in
+ * keeping a log. `seq` counts every one that has arrived, so a reader can tell a repeat of the
+ * same text from a slot that has not moved and can say how many went past unseen; it is
+ * monotonic for the life of the session, and 0 means none has arrived.
+ */
+struct mesh_client_notification {
+    uint32_t seq;
+    uint32_t time;     /* the radio's clock, epoch seconds; 0 when it does not have one */
+    uint32_t received; /* our clock when it landed, epoch seconds; 0 when we do not have one */
+    bool has_reply_id;
+    uint32_t reply_id; /* the packet it is about, when it is about one */
+    uint8_t level;     /* meshtastic_LogRecord_Level */
+    char text[MESH_CLIENT_NOTIFICATION_TEXT_MAX];
+};
+
+/*
+ * The radio's outgoing packet queue, reported after every ToRadio it accepts or refuses.
+ *
+ * This is the one thing that distinguishes "the mesh did not deliver it" from "the radio never
+ * transmitted it at all": a send that overflows the queue is refused locally, no packet is ever
+ * emitted, and so no Routing reply will ever come back to mark the message failed. Without this
+ * the message sits PENDING for ever.
+ *
+ * `res` is a meshtastic_Routing_Error - 0 is accepted, anything else is a refusal - and
+ * `mesh_packet_id` names the packet it refers to, which is what lets a refusal be attached to
+ * the message the user actually sent.
+ */
+struct mesh_queue_status {
+    bool valid;
+    uint32_t time; /* our clock when this arrived, epoch seconds */
+    int8_t res;
+    uint8_t free;
+    uint8_t maxlen;
+    uint32_t mesh_packet_id;
+};
+
+/*
  * A node's last known fix. Meshtastic carries latitude and longitude as fixed-point 1e-7
  * degrees, so they are kept in that form and only divided out for display; `time` is the
  * radio's timestamp for the fix, which is not the same thing as when we heard from the node.
@@ -102,6 +152,120 @@ struct mesh_node_environment {
 };
 
 /*
+ * The four Telemetry variants beyond DeviceMetrics and EnvironmentMetrics that a node can
+ * broadcast. Each is its own group for the same reason environment is: a node reports the ones
+ * its hardware has and nothing about the others, so folding them together would leave every
+ * screen unable to tell "no sensor" from "reading of zero".
+ *
+ * They are curated rather than complete. AirQualityMetrics alone carries twenty-six fields,
+ * most of them per-particle-size bin counts that mean nothing without a chart; what is kept is
+ * what a person reads off a sensor node. The wire message is decoded whole either way, so
+ * adding a field later is one line here and one row in the node detail.
+ */
+
+/* One monitored supply on a node with a current sensor: an INA219/INA3221 or similar has up to
+   three, and a two-channel board reports two, so each channel carries its own flags. */
+struct mesh_node_power_channel {
+    bool has_voltage;
+    float voltage; /* volts */
+    bool has_current;
+    float current; /* mA */
+};
+
+struct mesh_node_power {
+    bool valid;
+    uint32_t time;
+    struct mesh_node_power_channel channel[3];
+};
+
+struct mesh_node_air_quality {
+    bool valid;
+    uint32_t time;
+    /* Particulate mass concentrations, ug/m3, at the "standard" calibration the sensors report
+       first. The environmental pair is the same reading under a different correction and is not
+       kept: two nearly-equal numbers on one screen is a question, not an answer. */
+    bool has_pm10;
+    uint16_t pm10_standard;
+    bool has_pm25;
+    uint16_t pm25_standard;
+    bool has_pm100;
+    uint16_t pm100_standard;
+    bool has_co2;
+    uint16_t co2; /* ppm */
+    /* Sensirion's unitless indices, 1..500, where 100 is "normal for this room". */
+    bool has_voc_index;
+    float voc_index;
+    bool has_nox_index;
+    float nox_index;
+};
+
+struct mesh_node_health {
+    bool valid;
+    uint32_t time;
+    bool has_heart_bpm;
+    uint8_t heart_bpm;
+    bool has_spo2;
+    uint8_t spo2; /* percent */
+    bool has_temperature;
+    float temperature; /* Celsius, body rather than air */
+};
+
+/*
+ * HostMetrics: a node that is a computer rather than a microcontroller - meshtasticd on a Pi,
+ * say. Nothing else on a node record describes a filesystem or a load average, and a host that
+ * is out of disk stops storing anything without saying so on the air.
+ */
+struct mesh_node_host {
+    bool valid;
+    uint32_t time;
+    bool has_uptime;
+    uint32_t uptime_seconds;
+    /* The wire carries these as uint64 bytes. Kept scaled so the record stays 32-bit: a
+       kibibyte of memory resolution is finer than anything the row shows, and mebibytes keep
+       a multi-terabyte disk inside a uint32 where kibibytes would not. */
+    bool has_freemem;
+    uint32_t freemem_kib;
+    bool has_diskfree;
+    uint32_t diskfree_mib;
+    /* Load averages as the firmware sends them: the real value times 100. */
+    bool has_load;
+    uint32_t load1;
+    uint32_t load5;
+    uint32_t load15;
+};
+
+/*
+ * Who a node can hear, as it reported it (NEIGHBORINFO_APP).
+ *
+ * This is the only thing on the wire that describes the mesh as a *graph*. Everything else
+ * describes one link: `hops_away` is a count, SNR is the reading of the hop that reached us,
+ * and a traceroute is one path measured once. A neighbour list is a node's own answer to "who
+ * do I hear", and the same lists read across the roster answer the question a handheld actually
+ * has - "is anyone hearing *me*" - which nothing else here can answer at all.
+ *
+ * Upstream caps the list at ten out-edges (proto/meshtastic/mesh.options), so this is that cap
+ * rather than a screen budget. The neighbour module's broadcast interval is floored at four
+ * hours by the firmware, which is why the list is worth persisting: without it a restart waits
+ * that long for the picture to come back.
+ */
+#define MESH_NODE_MAX_NEIGHBORS 10U
+
+struct mesh_node_neighbor {
+    uint32_t node_id;
+    float snr; /* of the last packet the reporting node heard from this neighbour */
+};
+
+struct mesh_node_neighbors {
+    bool valid;
+    uint32_t time; /* when the report reached us */
+    /* How often the reporting node says it broadcasts this. 0 when it did not say, which is
+       what tells a stale list from one that is merely infrequent. */
+    uint32_t broadcast_interval_secs;
+    uint8_t count;
+    struct mesh_node_neighbor entries[MESH_NODE_MAX_NEIGHBORS];
+};
+
+/*
  * LocalStats: the connected radio talking about itself and the air around it, delivered as a
  * TELEMETRY_APP packet from our own node rather than through the config handshake. Nothing
  * else tells us how busy the channel is, how many packets the radio dropped, or how many of
@@ -141,6 +305,22 @@ struct mesh_node_summary {
     char short_name[5];
     uint32_t last_heard;
     float snr;
+    /*
+     * Signal strength of the last packet this radio heard from the node *directly*. SNR says
+     * how far above the noise it was; RSSI says how loud it was, and the two answer different
+     * questions - a strong signal in a noisy band and a weak one in a quiet band both give a
+     * usable SNR. Optional on the wire, so it carries its own flag rather than reading 0 dBm
+     * as a level.
+     *
+     * `rssi_time` is when that reading was taken, and it is not always `last_heard`: a node
+     * heard over RF and then relayed to us over MQTT keeps its RF reading, because that is a
+     * true measurement and clearing it would make the row flicker on a mesh whose bridge
+     * relays traffic we also hear ourselves. The stamp is what stops the row *claiming* to
+     * describe a packet it does not.
+     */
+    bool has_rssi;
+    int16_t rx_rssi;    /* dBm */
+    uint32_t rssi_time; /* epoch of the reading; equals last_heard when it is the newest */
     bool via_mqtt;
     bool has_hops_away;
     uint8_t hops_away;
@@ -173,6 +353,11 @@ struct mesh_node_summary {
     struct mesh_node_position position;
     struct mesh_node_metrics metrics;
     struct mesh_node_environment environment;
+    struct mesh_node_power power;
+    struct mesh_node_air_quality air_quality;
+    struct mesh_node_health health;
+    struct mesh_node_host host;
+    struct mesh_node_neighbors neighbors;
 };
 
 enum mesh_traceroute_state {
@@ -255,6 +440,16 @@ struct mesh_session {
     struct mesh_radio_settings settings;
     /* The last traceroute, running or finished; reset with the handshake. */
     struct mesh_traceroute traceroute;
+    /* The newest thing the radio said about itself, and the state of its send queue. Both
+       describe the radio that is connected right now, so both are cleared with the handshake
+       for the same reason `stats` is. */
+    struct mesh_client_notification notification;
+    struct mesh_queue_status queue;
+    /* Counts the times the radio has told us it restarted (FromRadio.rebooted) on this link.
+       A reboot invalidates everything the config sync told us, so the session re-runs the
+       handshake; the counter is what lets the UI say it happened rather than silently
+       reloading. */
+    uint32_t reboot_notices;
     mesh_session_send_fn send;
     void *send_ctx;
     uint32_t next_config_request_id;
@@ -402,6 +597,18 @@ int mesh_session_set_node_ignored(struct mesh_session *session, uint32_t node_id
  */
 int mesh_session_request_node_info(struct mesh_session *session, uint32_t dest);
 
+/*
+ * Asks a node for its position or its telemetry now, instead of waiting for its next broadcast
+ * - fifteen minutes for a position and half an hour for telemetry, at the firmware's defaults.
+ * An empty payload on the port with `want_response` set; the answer arrives as an ordinary
+ * POSITION_APP or TELEMETRY_APP packet and lands on the node record the usual way.
+ *
+ * Same returns as mesh_session_request_node_info(), except that neither needs our owner record:
+ * an empty Position or Telemetry asserts nothing at the far end, so there is nothing to erase.
+ */
+int mesh_session_request_position(struct mesh_session *session, uint32_t dest);
+int mesh_session_request_telemetry(struct mesh_session *session, uint32_t dest);
+
 /* Meshtastic packet ids only need to be unique per sender for a few minutes. Never zero. */
 uint32_t mesh_session_next_packet_id(struct mesh_session *session);
 
@@ -411,6 +618,11 @@ const struct mesh_message_log *mesh_session_messages(const struct mesh_session *
 const struct mesh_radio_settings *mesh_session_settings(const struct mesh_session *session);
 /* The connected radio's own LocalStats, or a record with `valid` false before one arrives. */
 const struct mesh_radio_stats *mesh_session_radio_stats(const struct mesh_session *session);
+/* The newest ClientNotification, or a record with `seq` 0 before one arrives. */
+const struct mesh_client_notification *
+mesh_session_notification(const struct mesh_session *session);
+/* The radio's send queue, or a record with `valid` false before it reports one. */
+const struct mesh_queue_status *mesh_session_queue_status(const struct mesh_session *session);
 
 /*
  * Asks the mesh which way it reaches `dest`, replacing whatever the last trace found. Sends an

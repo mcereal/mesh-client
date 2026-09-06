@@ -102,12 +102,103 @@ struct mesh_ui_node_environment {
     float current;
 };
 
+/*
+ * The four Telemetry groups beyond device metrics and environment, mirroring the session's
+ * declarations (mesh/core/session.h) without nanopb. Curated rather than complete, for the
+ * reason given there; each field carries the sender's own has_*, because on a sensor node a
+ * missing reading and a reading of zero are different statements.
+ */
+struct mesh_ui_node_power_channel {
+    bool has_voltage;
+    float voltage; /* volts */
+    bool has_current;
+    float current; /* mA */
+};
+
+struct mesh_ui_node_power {
+    bool valid;
+    uint32_t time;
+    struct mesh_ui_node_power_channel channel[3];
+};
+
+struct mesh_ui_node_air_quality {
+    bool valid;
+    uint32_t time;
+    bool has_pm10;
+    uint16_t pm10_standard; /* ug/m3 */
+    bool has_pm25;
+    uint16_t pm25_standard;
+    bool has_pm100;
+    uint16_t pm100_standard;
+    bool has_co2;
+    uint16_t co2; /* ppm */
+    bool has_voc_index;
+    float voc_index; /* Sensirion's unitless 1..500, 100 is normal */
+    bool has_nox_index;
+    float nox_index;
+};
+
+struct mesh_ui_node_health {
+    bool valid;
+    uint32_t time;
+    bool has_heart_bpm;
+    uint8_t heart_bpm;
+    bool has_spo2;
+    uint8_t spo2; /* percent */
+    bool has_temperature;
+    float temperature; /* Celsius, body rather than air */
+};
+
+struct mesh_ui_node_host {
+    bool valid;
+    uint32_t time;
+    bool has_uptime;
+    uint32_t uptime_seconds;
+    bool has_freemem;
+    uint32_t freemem_kib;
+    bool has_diskfree;
+    uint32_t diskfree_mib;
+    bool has_load;
+    uint32_t load1; /* the real load average times 100, as the firmware sends it */
+    uint32_t load5;
+    uint32_t load15;
+};
+
+/*
+ * Who a node reported it can hear (NEIGHBORINFO_APP), mirroring the session's declaration. Ten
+ * is upstream's own cap on the list, not a screen budget. The names are not resolved here: the
+ * node detail resolves them against the roster it is already handed, and the same lists read
+ * across that roster are what answer "who hears *this* node" - the reverse edge, which nothing
+ * on the wire reports directly.
+ */
+#define MESH_UI_MAX_NEIGHBORS 10U
+
+struct mesh_ui_node_neighbor {
+    uint32_t node_id;
+    float snr;
+};
+
+struct mesh_ui_node_neighbors {
+    bool valid;
+    uint32_t time;
+    uint32_t broadcast_interval_secs; /* 0 when the node did not say */
+    uint8_t count;
+    struct mesh_ui_node_neighbor entries[MESH_UI_MAX_NEIGHBORS];
+};
+
 struct mesh_ui_node_summary {
     uint32_t node_id;
     char long_name[40];
     char short_name[5];
     uint32_t last_heard;
     float snr;
+    /* How loud the last directly-heard packet was, as opposed to how far above the noise; see
+       the session's declaration. `rssi_time` is when it was measured, which is not always
+       `last_heard` - a node relayed over MQTT keeps its last RF reading, and the stamp is what
+       stops the row claiming to describe a packet it does not. */
+    bool has_rssi;
+    int16_t rx_rssi;    /* dBm */
+    uint32_t rssi_time; /* epoch of the reading; equals last_heard when it is the newest */
     bool via_mqtt;
     bool has_hops_away;
     uint8_t hops_away;
@@ -130,6 +221,11 @@ struct mesh_ui_node_summary {
     struct mesh_ui_node_position position;
     struct mesh_ui_node_metrics metrics;
     struct mesh_ui_node_environment environment;
+    struct mesh_ui_node_power power;
+    struct mesh_ui_node_air_quality air_quality;
+    struct mesh_ui_node_health health;
+    struct mesh_ui_node_host host;
+    struct mesh_ui_node_neighbors neighbors;
 };
 
 struct mesh_ui_channel {
@@ -277,6 +373,34 @@ struct mesh_ui_radio_stats {
     int32_t noise_floor;
 };
 
+/*
+ * The newest thing the radio said to the user in its own words (FromRadio.clientNotification),
+ * flattened for the backends. `seq` is the session's running count, so a backend can tell one
+ * notification from a repeat of the same text and the app can announce each exactly once; 0
+ * means none has arrived on this connection.
+ */
+#define MESH_UI_RADIO_NOTICE_TEXT_MAX 128U
+
+struct mesh_ui_radio_notice {
+    uint32_t seq;
+    uint32_t time;     /* the radio's clock, epoch seconds; 0 when it has none */
+    uint32_t received; /* our clock when it landed, epoch seconds; 0 when we have none */
+    uint8_t level;     /* meshtastic_LogRecord_Level, carried as a byte */
+    char text[MESH_UI_RADIO_NOTICE_TEXT_MAX];
+};
+
+/*
+ * The radio's outgoing packet queue. `res` non-zero is the radio having refused a packet
+ * outright - it never went on the air, so no Routing reply will ever explain it - and `free`
+ * against `maxlen` is how close the link is to that happening again.
+ */
+struct mesh_ui_queue_status {
+    bool valid;
+    int8_t res;
+    uint8_t free;
+    uint8_t maxlen;
+};
+
 struct mesh_ui_settings {
     /* The client's own facts. Always populated, radio or no radio - the About section is the
        one part of this tab that does not need a connection. */
@@ -284,6 +408,12 @@ struct mesh_ui_settings {
     /* Mesh health, from LocalStats telemetry rather than from the config handshake, so it
        fills in on its own schedule and is absent until the radio's first report. */
     struct mesh_ui_radio_stats stats;
+    /* What the radio has said and how full its send queue is. Like `stats`, these arrive on
+       the radio's own schedule rather than through the handshake, and neither is persisted. */
+    struct mesh_ui_radio_notice notice;
+    struct mesh_ui_queue_status queue;
+    /* Times the radio has told us it restarted on this connection. */
+    uint32_t reboot_notices;
     bool loaded;
     bool admin_ok;      /* at least one AdminMessage reply came back this connection */
     bool admin_busy;    /* a refresh is in flight */
@@ -531,11 +661,24 @@ struct mesh_ui_message {
     char text[MESH_UI_MESSAGE_TEXT_MAX];
     uint8_t channel;
     uint8_t direction; /* enum mesh_message_direction */
-    uint8_t ack;       /* enum mesh_message_ack */
+    /* enum mesh_message_kind: an ordinary text message, the firmware's critical alert, or a
+       detection sensor announcing itself. All three arrive as text on a channel; only the
+       transcript's labelling tells them apart. */
+    uint8_t kind;
+    uint8_t ack; /* enum mesh_message_ack */
     /* meshtastic_Routing_Error behind an ack of FAILED, so the row can say why rather than
        just marking it failed. Meaningless for anything else. */
     uint8_t ack_error;
     bool broadcast;
+    /* Decrypted with our public key rather than a channel PSK: addressed to us and readable by
+       nobody else. On a default-key channel a "direct" message is not that, and the transcript
+       has no other way to say so. */
+    bool pki_encrypted;
+    /* The message this one answers, and whether it is a reaction rather than a reply. A
+       reaction is an annotation on its target, not a line of its own, so it is filtered out of
+       the thread (mesh_ui_nav_filter_messages) and drawn on the bubble it belongs to. */
+    uint32_t reply_id;
+    bool is_reaction;
 };
 
 struct mesh_ui_message_list {

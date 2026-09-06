@@ -232,12 +232,30 @@ int mesh_message_ingest(struct mesh_message_log *log, const meshtastic_MeshPacke
         return mesh_message_handle_routing(log, data);
     }
 
-    if (data->portnum != meshtastic_PortNum_TEXT_MESSAGE_APP) {
+    /*
+     * Three ports carry a plain text payload addressed to a channel: the ordinary one, the
+     * detection sensor module's, and the firmware's critical alert. Upstream describes the
+     * latter two as "same as Text Message", and they are - they were simply never accepted
+     * here, so a sensor tripping or an alert going out reached this client and vanished.
+     */
+    enum mesh_message_kind kind;
+    switch (data->portnum) {
+    case meshtastic_PortNum_TEXT_MESSAGE_APP:
+        kind = MESH_MESSAGE_KIND_TEXT;
+        break;
+    case meshtastic_PortNum_ALERT_APP:
+        kind = MESH_MESSAGE_KIND_ALERT;
+        break;
+    case meshtastic_PortNum_DETECTION_SENSOR_APP:
+        kind = MESH_MESSAGE_KIND_DETECTION;
+        break;
+    default:
         return 0;
     }
 
     struct mesh_message message;
     memset(&message, 0, sizeof(message));
+    message.kind = (uint8_t)kind;
     message.packet_id = packet->id;
     message.from = packet->from;
     message.to = packet->to;
@@ -252,19 +270,33 @@ int mesh_message_ingest(struct mesh_message_log *log, const meshtastic_MeshPacke
         message.has_hops_away = true;
         message.hops_away = (uint8_t)(packet->hop_start - packet->hop_limit);
     }
+    message.pki_encrypted = packet->pki_encrypted;
+    message.reply_id = data->reply_id;
+    /* `emoji` is a fixed32 used as a flag: non-zero means the payload is an emoji reacting to
+       reply_id rather than something to read on its own line. */
+    message.is_reaction = (data->emoji != 0U);
     mesh_text_sanitise(data->payload.bytes, data->payload.size, message.text, sizeof(message.text));
 
     if (message.text[0] == '\0') {
         return 0;
     }
 
-    /* The radio echoes our own sends back to us. Refresh the entry we already hold instead of
-       showing the message twice. */
+    /*
+     * The radio echoes our own sends back to us. Refresh the entry we already hold instead of
+     * showing the message twice.
+     *
+     * The echo is the only place some of this can come from. mesh_session_send_text() records
+     * the message before the radio has done anything with it, so `pki_encrypted` starts false
+     * and the radio's own decision - it picks per-packet, from whether it holds the recipient's
+     * public key - arrives only here. Copying just the timestamps left every outbound direct
+     * message without its padlock however it actually went out.
+     */
     struct mesh_message *existing = mesh_message_log_find(log, message.packet_id);
     if (existing != NULL && existing->direction == MESH_MESSAGE_OUTBOUND &&
         message.direction == MESH_MESSAGE_OUTBOUND) {
         existing->rx_time = message.rx_time;
         existing->rx_snr = message.rx_snr;
+        existing->pki_encrypted = message.pki_encrypted;
         return 0;
     }
 
@@ -272,8 +304,10 @@ int mesh_message_ingest(struct mesh_message_log *log, const meshtastic_MeshPacke
         return -ENOMEM;
     }
 
-    mesh_log_info("message", "%s text from 0x%08x on channel %u (%zu chars)",
-                  message.direction == MESH_MESSAGE_OUTBOUND ? "Echoed" : "Received", message.from,
+    static const char *const k_kind_names[] = {"text", "alert", "detection"};
+    mesh_log_info("message", "%s %s from 0x%08x on channel %u (%zu chars)",
+                  message.direction == MESH_MESSAGE_OUTBOUND ? "Echoed" : "Received",
+                  message.is_reaction ? "reaction" : k_kind_names[message.kind], message.from,
                   (unsigned)message.channel, strlen(message.text));
     return 1;
 }

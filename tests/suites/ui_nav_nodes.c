@@ -72,8 +72,9 @@ MESH_TEST_CASE(ui_nav_node_favorite, unit) {
         return;
     }
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    const uint32_t count = mesh_ui_node_detail_build(&store.handshake.nodes[1], false, 0U, NULL,
-                                                     false, items, MESH_UI_NODE_ITEMS_MAX);
+    const uint32_t count =
+        mesh_ui_node_detail_build(&store.handshake.nodes[1], false, 0U, NULL, false,
+                                  &store.handshake, items, MESH_UI_NODE_ITEMS_MAX);
     uint32_t favorite_row = count;
     for (uint32_t i = 0; i < count; ++i) {
         if (items[i].action == MESH_UI_NODE_ACTION_FAVORITE) {
@@ -325,8 +326,8 @@ MESH_TEST_CASE(ui_nav_node_mute_remove, unit) {
     }
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    uint32_t count =
-        mesh_ui_node_detail_build(node, false, 0U, NULL, false, items, MESH_UI_NODE_ITEMS_MAX);
+    uint32_t count = mesh_ui_node_detail_build(node, false, 0U, NULL, false, &store.handshake,
+                                               items, MESH_UI_NODE_ITEMS_MAX);
     uint32_t mute_row = count;
     uint32_t remove_row = count;
     for (uint32_t i = 0; i < count; ++i) {
@@ -343,7 +344,8 @@ MESH_TEST_CASE(ui_nav_node_mute_remove, unit) {
         goto cleanup;
     }
     /* The armed spelling is the only thing the flag changes. */
-    (void)mesh_ui_node_detail_build(node, false, 0U, NULL, true, items, MESH_UI_NODE_ITEMS_MAX);
+    (void)mesh_ui_node_detail_build(node, false, 0U, NULL, true, &store.handshake, items,
+                                    MESH_UI_NODE_ITEMS_MAX);
     if (strcmp(items[remove_row].value, "A again to remove") != 0) {
         failure = "arming should change what the remove row says";
         goto cleanup;

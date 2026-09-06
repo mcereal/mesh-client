@@ -1,0 +1,25 @@
+# Reactions and the end-to-end padlock, in the direct conversation.
+#
+# A reaction is an annotation on a message, not a message: before the emoji flag was read at
+# all it arrived as a bubble containing one emoji and no indication of what it was about. It is
+# now filtered out of the transcript and drawn on the bubble it names, with identical emoji
+# counted rather than repeated.
+
+scene demo
+tab messages
+
+# Open the direct conversation with Bravo Creek.
+key down 4
+key a
+hold 600
+
+message in BRVO Found the crossing, about 200m upstream
+hold 600
+
+# One node agrees, then two more - the chip counts rather than repeating.
+react HOME 👍
+hold 500
+react ALFA 👍
+hold 500
+react CHRL 🎉
+hold 1400

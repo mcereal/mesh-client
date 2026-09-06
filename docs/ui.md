@@ -576,7 +576,13 @@ emitted before any of them. Worked examples live in `devtools/ui_capture/scenes/
 | `frame` | emit the current screen again |
 | `toast TEXT` | raise the transient notice the footer draws |
 | `message in\|out NAME TEXT` | append a message, as if the radio had just said so |
+| `react NAME EMOJI` | react to the newest message, as another node would. The transcript draws it on that message rather than as a bubble of its own |
+| `alert NAME TEXT` | a critical alert (`ALERT_APP`) on the channel |
+| `detection NAME TEXT` | a detection sensor announcing itself (`DETECTION_SENSOR_APP`) |
 | `status TEXT` | set the transport status line |
+| `notice info\|warn\|error TEXT` | what the radio last said about itself, on the Status tab |
+| `queue FREE MAXLEN [refused]` | the radio's outgoing packet queue, on the Status tab. The row only appears once the queue is under pressure or has refused a send |
+| `reboots N` | times the radio has restarted under us, on the Status tab |
 
 `tab` walks the tabs with the buttons rather than assigning `nav.screen`, so a scene can only
 ever reach a screen the device can reach.

@@ -1,0 +1,26 @@
+# The Status tab answering "why is this not working".
+#
+# Everything above the fold on this screen describes traffic: packets in, packets out, airtime.
+# None of it can explain a send that the radio refused before it ever transmitted, or a
+# firmware decision the user is supposed to know about. These three rows are those answers.
+
+scene demo
+tab status
+
+# A busy queue is worth a row; an idle one is not, so the row appears here rather than always.
+queue 6 16
+
+# The radio refusing a packet outright. No Routing reply will ever arrive for it, so this row
+# and the message's own "!!" are the whole of the report.
+queue 0 16 refused
+hold 900
+
+# The firmware explaining itself, at the level it chose.
+notice warn Duty cycle limit reached, transmit paused
+hold 900
+notice error Channel key mismatch on LongFast
+hold 900
+
+# And a radio that keeps restarting under a link that survives it.
+reboots 3
+hold 1200

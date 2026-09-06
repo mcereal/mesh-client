@@ -1,0 +1,20 @@
+# Alerts and detections, which used to reach this client and vanish.
+#
+# ALERT_APP and DETECTION_SENSOR_APP are both "same as Text Message" upstream - plain text on a
+# channel - and were simply never accepted by the ingest, so a sensor tripping or an alert going
+# out produced nothing at all. They now land in the channel they were sent on, headed with what
+# they are: a run of identical-looking bubbles is exactly what a critical alert must not be.
+
+scene demo
+tab messages
+
+# Open the primary channel.
+key down 1
+key a
+hold 600
+
+detection CHRL Door detected
+hold 900
+
+alert ALFA Rockfall on the north trail, do not descend
+hold 1600

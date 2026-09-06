@@ -3,6 +3,7 @@
 /* The session's node cache, stats, traceroute and node actions. */
 
 #include "framework/mesh_test.h"
+#include "support/proto_fixture.h"
 #include "support/session_fixture.h"
 
 #include "mesh/core/app.h"
@@ -783,6 +784,462 @@ MESH_TEST_CASE(session_roster_eviction, unit) {
     mesh_session_seed_node(&session, &again);
     MESH_TEST_FAIL_IF(session.handshake.node_count != MESH_SESSION_MAX_NODES,
                       "re-seeding a known node grew the roster");
+
+    record_success(test_name);
+}
+
+/*
+ * The three things the radio says about itself that used to fall off the end of the FromRadio
+ * switch. Each one is the answer to a question nothing else on the link can answer, which is
+ * why they are worth keeping at all:
+ *
+ * - a ClientNotification is the firmware explaining a decision to the user;
+ * - a QueueStatus refusal is the *only* report of a packet that never went on the air, so no
+ *   Routing reply will ever arrive to mark the message failed;
+ * - `rebooted` says every fact the config sync gave us now describes a dead process.
+ */
+MESH_TEST_CASE(session_radio_announcements, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+    struct mesh_test_trace_capture capture;
+    memset(&capture, 0, sizeof capture);
+    mesh_session_attach(&session, mesh_test_trace_capture_fn, &capture);
+
+    MESH_TEST_FAIL_IF(mesh_session_notification(&session)->seq != 0U,
+                      "a notification was claimed before any arrived");
+    MESH_TEST_FAIL_IF(mesh_session_queue_status(&session)->valid,
+                      "a queue status was claimed before any arrived");
+
+    /* The message is radio text like a node name, so it arrives sanitised: a control byte in
+       it must not reach the framebuffer, and the wire field is far longer than our slot. */
+    meshtastic_FromRadio note = meshtastic_FromRadio_init_default;
+    note.which_payload_variant = meshtastic_FromRadio_clientNotification_tag;
+    note.clientNotification.time = 1750000000U;
+    note.clientNotification.level = meshtastic_LogRecord_Level_WARNING;
+    note.clientNotification.has_reply_id = true;
+    note.clientNotification.reply_id = 0x1234U;
+    snprintf(note.clientNotification.message, sizeof note.clientNotification.message,
+             "Duty cycle\nlimit reached");
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &note),
+                      "encode clientNotification failed");
+
+    const struct mesh_client_notification *held = mesh_session_notification(&session);
+    MESH_TEST_FAIL_IF(held->seq != 1U, "the first notification did not take sequence 1");
+    MESH_TEST_FAIL_IF(strcmp(held->text, "Duty cycle limit reached") != 0,
+                      "the notification text was not sanitised into the slot");
+    MESH_TEST_FAIL_IF(!held->has_reply_id || held->reply_id != 0x1234U ||
+                          held->level != (uint8_t)meshtastic_LogRecord_Level_WARNING ||
+                          held->time != 1750000000U,
+                      "the notification's metadata was not kept");
+
+    /* Two identical notifications are two events. Only the counter can say so. */
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &note),
+                      "re-feed clientNotification failed");
+    MESH_TEST_FAIL_IF(mesh_session_notification(&session)->seq != 2U,
+                      "a repeated notification did not advance the sequence");
+
+    /* A queue status with no refusal in it is depth reporting and touches no message. */
+    const uint32_t packet_id = 0x5150U;
+    struct mesh_message sent;
+    memset(&sent, 0, sizeof sent);
+    sent.packet_id = packet_id;
+    sent.direction = MESH_MESSAGE_OUTBOUND;
+    sent.ack = MESH_MESSAGE_ACK_PENDING;
+    mesh_str_copy(sent.text, sizeof sent.text, "hello");
+    MESH_TEST_FAIL_IF(mesh_message_log_append(&session.messages, &sent) == NULL,
+                      "seeding the outbound message failed");
+
+    meshtastic_FromRadio queue = meshtastic_FromRadio_init_default;
+    queue.which_payload_variant = meshtastic_FromRadio_queueStatus_tag;
+    queue.queueStatus.res = 0;
+    queue.queueStatus.free = 14;
+    queue.queueStatus.maxlen = 16;
+    queue.queueStatus.mesh_packet_id = packet_id;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &queue),
+                      "encode accepted queueStatus failed");
+    MESH_TEST_FAIL_IF(!mesh_session_queue_status(&session)->valid ||
+                          mesh_session_queue_status(&session)->free != 14U ||
+                          mesh_session_queue_status(&session)->maxlen != 16U,
+                      "the queue depth was not kept");
+    MESH_TEST_FAIL_IF(mesh_message_log_find(&session.messages, packet_id)->ack !=
+                          MESH_MESSAGE_ACK_PENDING,
+                      "an accepted packet was marked failed");
+
+    /* A refusal is the packet never leaving the radio. `res` is a Routing_Error, so it lands
+       on the message as the reason without any new failure vocabulary. */
+    queue.queueStatus.res = (int8_t)meshtastic_Routing_Error_NO_INTERFACE;
+    queue.queueStatus.free = 0;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &queue),
+                      "encode refused queueStatus failed");
+    const struct mesh_message *refused = mesh_message_log_find(&session.messages, packet_id);
+    MESH_TEST_FAIL_IF(refused->ack != MESH_MESSAGE_ACK_FAILED ||
+                          refused->ack_error != (uint8_t)meshtastic_Routing_Error_NO_INTERFACE,
+                      "a refused packet was not marked failed with the radio's reason");
+
+    /* A reboot re-runs the config sync: everything the last one told us describes a process
+       that no longer exists. The want_config_id that goes out is the proof it did. */
+    const unsigned sends_before = capture.calls;
+    meshtastic_FromRadio rebooted = meshtastic_FromRadio_init_default;
+    rebooted.which_payload_variant = meshtastic_FromRadio_rebooted_tag;
+    rebooted.rebooted = true;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &rebooted),
+                      "encode rebooted failed");
+    MESH_TEST_FAIL_IF(capture.calls == sends_before,
+                      "a reported reboot did not re-run the config sync");
+    MESH_TEST_FAIL_IF(!session.handshake.request_in_flight,
+                      "the re-run handshake is not in flight");
+    MESH_TEST_FAIL_IF(session.reboot_notices != 1U,
+                      "the reboot counter did not survive the handshake reset it triggers");
+
+    /* The reboot cleared the per-connection state, notification and queue included: they
+       described the process that just died. */
+    MESH_TEST_FAIL_IF(mesh_session_notification(&session)->seq != 0U ||
+                          mesh_session_queue_status(&session)->valid,
+                      "the dead process's announcements survived its reboot");
+
+    /* But the conversation does not belong to the radio, so it is still there. */
+    MESH_TEST_FAIL_IF(mesh_message_log_find(&session.messages, packet_id) == NULL,
+                      "the reboot took the message log with it");
+
+    /* And a dropped link forgets the counter, so the next radio's first reboot is its first. */
+    mesh_session_detach(&session);
+    MESH_TEST_FAIL_IF(session.reboot_notices != 0U, "the reboot counter survived the link drop");
+
+    /*
+     * RSSI rides on the packet alongside SNR and answers a different question: how loud the
+     * signal was rather than how far above the noise. A packet that reached us over MQTT was
+     * not heard by this radio at all, so its RSSI describes somebody else's antenna and must
+     * not be recorded as ours.
+     */
+    meshtastic_MeshPacket rf = mesh_test_make_decoded_packet(
+        0x9101U, 0x9102U, 0U, 900U, meshtastic_PortNum_TEXT_MESSAGE_APP, "hi", 2U);
+    rf.has_rx_rssi = true;
+    rf.rx_rssi = -97;
+    meshtastic_FromRadio wrapper = meshtastic_FromRadio_init_default;
+    wrapper.which_payload_variant = meshtastic_FromRadio_packet_tag;
+    wrapper.packet = rf;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &wrapper),
+                      "feed an RF packet failed");
+    const struct mesh_node_summary *rf_node = mesh_test_session_find_node(&session, 0x9101U);
+    MESH_TEST_FAIL_IF(rf_node == NULL || !rf_node->has_rssi || rf_node->rx_rssi != -97,
+                      "the packet's RSSI was not recorded on the node");
+
+    wrapper.packet.from = 0x9103U;
+    wrapper.packet.via_mqtt = true;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &wrapper),
+                      "feed an MQTT packet failed");
+    const struct mesh_node_summary *mqtt_node = mesh_test_session_find_node(&session, 0x9103U);
+    MESH_TEST_FAIL_IF(mqtt_node == NULL || mqtt_node->has_rssi,
+                      "an MQTT-fed packet's RSSI was taken as this radio's reading");
+
+    record_success(test_name);
+}
+
+/*
+ * The four Telemetry variants beyond device and environment metrics, each landing on the node
+ * that broadcast it.
+ *
+ * What is worth pinning here is the has_* handling rather than the copy. Every field in these
+ * messages is optional on the wire except HostMetrics', so a sender that has one sensor and not
+ * another must not leave the node claiming a reading of zero for the one it lacks - and
+ * HostMetrics, which has no optional flags at all, must derive them from what a running host
+ * cannot plausibly report.
+ */
+MESH_TEST_CASE(session_sensor_telemetry, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+
+    const uint32_t node_id = 0x9001U;
+    uint8_t payload[512];
+
+    /* A two-channel current monitor: the third channel is absent, not zero. */
+    meshtastic_Telemetry telemetry = meshtastic_Telemetry_init_default;
+    telemetry.time = 1750000000U;
+    telemetry.which_variant = meshtastic_Telemetry_power_metrics_tag;
+    telemetry.variant.power_metrics.has_ch1_voltage = true;
+    telemetry.variant.power_metrics.ch1_voltage = 12.6f;
+    telemetry.variant.power_metrics.has_ch1_current = true;
+    telemetry.variant.power_metrics.ch1_current = 340.0f;
+    telemetry.variant.power_metrics.has_ch2_voltage = true;
+    telemetry.variant.power_metrics.ch2_voltage = 5.02f;
+    pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof payload);
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_Telemetry_fields, &telemetry) ||
+                          !mesh_test_session_feed_app_packet(&session, node_id,
+                                                             meshtastic_PortNum_TELEMETRY_APP,
+                                                             payload, stream.bytes_written),
+                      "feed power metrics failed");
+
+    const struct mesh_node_summary *node = mesh_test_session_find_node(&session, node_id);
+    MESH_TEST_FAIL_IF(node == NULL, "the power-metrics packet did not create the node");
+    MESH_TEST_FAIL_IF(!node->power.valid || !node->power.channel[0].has_voltage ||
+                          node->power.channel[0].voltage < 12.5f ||
+                          node->power.channel[0].voltage > 12.7f ||
+                          !node->power.channel[0].has_current,
+                      "channel 1 readings were not kept");
+    MESH_TEST_FAIL_IF(!node->power.channel[1].has_voltage || node->power.channel[1].has_current,
+                      "channel 2's absent current was taken as a reading");
+    MESH_TEST_FAIL_IF(node->power.channel[2].has_voltage || node->power.channel[2].has_current,
+                      "an unreported third channel was taken as a reading");
+
+    /* Air quality: a particulate sensor with no CO2 on it. */
+    telemetry = (meshtastic_Telemetry)meshtastic_Telemetry_init_default;
+    telemetry.time = 1750000100U;
+    telemetry.which_variant = meshtastic_Telemetry_air_quality_metrics_tag;
+    telemetry.variant.air_quality_metrics.has_pm25_standard = true;
+    telemetry.variant.air_quality_metrics.pm25_standard = 12U;
+    telemetry.variant.air_quality_metrics.has_pm_voc_idx = true;
+    telemetry.variant.air_quality_metrics.pm_voc_idx = 103.0f;
+    stream = pb_ostream_from_buffer(payload, sizeof payload);
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_Telemetry_fields, &telemetry) ||
+                          !mesh_test_session_feed_app_packet(&session, node_id,
+                                                             meshtastic_PortNum_TELEMETRY_APP,
+                                                             payload, stream.bytes_written),
+                      "feed air quality failed");
+    node = mesh_test_session_find_node(&session, node_id);
+    MESH_TEST_FAIL_IF(!node->air_quality.valid || node->air_quality.pm25_standard != 12U ||
+                          !node->air_quality.has_voc_index,
+                      "air quality readings were not kept");
+    MESH_TEST_FAIL_IF(node->air_quality.has_co2 || node->air_quality.has_nox_index,
+                      "an absent CO2 or NOx reading was taken as zero");
+    /* A second variant must not have wiped the first: they are separate groups. */
+    MESH_TEST_FAIL_IF(!node->power.valid, "air quality replaced the power readings");
+
+    /* Health. */
+    telemetry = (meshtastic_Telemetry)meshtastic_Telemetry_init_default;
+    telemetry.time = 1750000200U;
+    telemetry.which_variant = meshtastic_Telemetry_health_metrics_tag;
+    telemetry.variant.health_metrics.has_heart_bpm = true;
+    telemetry.variant.health_metrics.heart_bpm = 62U;
+    telemetry.variant.health_metrics.has_spO2 = true;
+    telemetry.variant.health_metrics.spO2 = 98U;
+    stream = pb_ostream_from_buffer(payload, sizeof payload);
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_Telemetry_fields, &telemetry) ||
+                          !mesh_test_session_feed_app_packet(&session, node_id,
+                                                             meshtastic_PortNum_TELEMETRY_APP,
+                                                             payload, stream.bytes_written),
+                      "feed health metrics failed");
+    node = mesh_test_session_find_node(&session, node_id);
+    MESH_TEST_FAIL_IF(!node->health.valid || node->health.heart_bpm != 62U ||
+                          node->health.spo2 != 98U || node->health.has_temperature,
+                      "health readings were not kept");
+
+    /*
+     * HostMetrics has no optional fields on the wire, so the flags come from what a running
+     * host cannot report: no uptime and no free memory mean the sender did not fill them in.
+     * A load average of zero is a real reading, so the trio is flagged together.
+     */
+    telemetry = (meshtastic_Telemetry)meshtastic_Telemetry_init_default;
+    telemetry.time = 1750000300U;
+    telemetry.which_variant = meshtastic_Telemetry_host_metrics_tag;
+    telemetry.variant.host_metrics.uptime_seconds = 90061U;
+    telemetry.variant.host_metrics.freemem_bytes = 512ULL * 1024ULL * 1024ULL;
+    telemetry.variant.host_metrics.diskfree1_bytes = 4ULL * 1024ULL * 1024ULL * 1024ULL;
+    telemetry.variant.host_metrics.load1 = 42U;
+    stream = pb_ostream_from_buffer(payload, sizeof payload);
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_Telemetry_fields, &telemetry) ||
+                          !mesh_test_session_feed_app_packet(&session, node_id,
+                                                             meshtastic_PortNum_TELEMETRY_APP,
+                                                             payload, stream.bytes_written),
+                      "feed host metrics failed");
+    node = mesh_test_session_find_node(&session, node_id);
+    MESH_TEST_FAIL_IF(!node->host.valid || !node->host.has_uptime ||
+                          node->host.uptime_seconds != 90061U,
+                      "host uptime was not kept");
+    MESH_TEST_FAIL_IF(!node->host.has_freemem || node->host.freemem_kib != 512U * 1024U,
+                      "free memory was not scaled to kibibytes");
+    MESH_TEST_FAIL_IF(!node->host.has_diskfree || node->host.diskfree_mib != 4096U,
+                      "free disk was not scaled to mebibytes");
+    MESH_TEST_FAIL_IF(!node->host.has_load || node->host.load1 != 42U || node->host.load5 != 0U,
+                      "the load trio was not flagged from the one non-zero average");
+
+    /* A host that reported nothing must not read as a host with an empty disk. */
+    telemetry = (meshtastic_Telemetry)meshtastic_Telemetry_init_default;
+    telemetry.time = 1750000400U;
+    telemetry.which_variant = meshtastic_Telemetry_host_metrics_tag;
+    stream = pb_ostream_from_buffer(payload, sizeof payload);
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_Telemetry_fields, &telemetry) ||
+                          !mesh_test_session_feed_app_packet(&session, 0x9002U,
+                                                             meshtastic_PortNum_TELEMETRY_APP,
+                                                             payload, stream.bytes_written),
+                      "feed empty host metrics failed");
+    node = mesh_test_session_find_node(&session, 0x9002U);
+    MESH_TEST_FAIL_IF(node->host.has_uptime || node->host.has_freemem || node->host.has_diskfree ||
+                          node->host.has_load,
+                      "an empty HostMetrics was read as a host reporting zeroes");
+
+    record_success(test_name);
+}
+
+/*
+ * Asking a node for a reading now, rather than at its next broadcast.
+ *
+ * The wire shape is the whole of it: an empty payload on the port with `want_response` set. The
+ * two things worth pinning are that the payload really is empty - a Position or a Telemetry
+ * with fields in it would assert those fields at the far end - and that no want_ack rides
+ * along, because the answer is the acknowledgement and a want_ack would double what this costs
+ * the mesh for a question that reports its own success.
+ */
+MESH_TEST_CASE(session_request_readings, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+    struct mesh_test_trace_capture capture;
+    memset(&capture, 0, sizeof capture);
+
+    /* Nothing goes out without a link, and nothing goes out before we know our own number:
+       an AdminMessage-free request still needs to know which node is not the target. */
+    MESH_TEST_FAIL_IF(mesh_session_request_position(&session, 0x4001U) != -ENOTCONN,
+                      "a position request without a link should be refused");
+
+    mesh_session_attach(&session, mesh_test_trace_capture_fn, &capture);
+    MESH_TEST_FAIL_IF(mesh_session_request_telemetry(&session, 0x4001U) != -ENOTCONN,
+                      "a request before MyNodeInfo should be refused");
+
+    meshtastic_FromRadio my_info = meshtastic_FromRadio_init_default;
+    my_info.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    my_info.my_info.my_node_num = 0x4000U;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &my_info),
+                      "encode my_info failed");
+
+    MESH_TEST_FAIL_IF(mesh_session_request_position(&session, 0x4000U) != -EINVAL,
+                      "asking ourselves where we are is not a question");
+    MESH_TEST_FAIL_IF(mesh_session_request_position(&session, MESH_MESSAGE_BROADCAST_ADDR) !=
+                          -EINVAL,
+                      "a broadcast request would ask the whole mesh at once");
+
+    const struct {
+        const char *label;
+        int (*send)(struct mesh_session *, uint32_t);
+        meshtastic_PortNum portnum;
+    } cases[] = {
+        {"position", mesh_session_request_position, meshtastic_PortNum_POSITION_APP},
+        {"telemetry", mesh_session_request_telemetry, meshtastic_PortNum_TELEMETRY_APP},
+    };
+
+    for (size_t i = 0; i < sizeof cases / sizeof cases[0]; ++i) {
+        memset(&capture, 0, sizeof capture);
+        MESH_TEST_FAIL_IF(cases[i].send(&session, 0x4001U) != 0,
+                          "the request should have gone out");
+        MESH_TEST_FAIL_IF(capture.calls != 1U || capture.len == 0U,
+                          "exactly one ToRadio should have been sent");
+
+        meshtastic_ToRadio sent = meshtastic_ToRadio_init_default;
+        pb_istream_t stream = pb_istream_from_buffer(capture.packet, capture.len);
+        MESH_TEST_FAIL_IF(!pb_decode(&stream, meshtastic_ToRadio_fields, &sent),
+                          "the request did not decode as a ToRadio");
+        MESH_TEST_FAIL_IF(sent.which_payload_variant != meshtastic_ToRadio_packet_tag,
+                          "the request should be a packet");
+
+        const meshtastic_MeshPacket *packet = &sent.packet;
+        char message[128];
+        if (packet->to != 0x4001U || packet->id == 0U) {
+            snprintf(message, sizeof message, "the %s request is not addressed to the node",
+                     cases[i].label);
+            record_failure(test_name, message);
+            return;
+        }
+        if (packet->decoded.portnum != cases[i].portnum || !packet->decoded.want_response) {
+            snprintf(message, sizeof message, "the %s request is not a want_response on its port",
+                     cases[i].label);
+            record_failure(test_name, message);
+            return;
+        }
+        if (packet->decoded.payload.size != 0U) {
+            snprintf(message, sizeof message, "the %s request carries a payload it should not",
+                     cases[i].label);
+            record_failure(test_name, message);
+            return;
+        }
+        if (packet->want_ack) {
+            snprintf(message, sizeof message, "the %s request asks for an ack as well as a reply",
+                     cases[i].label);
+            record_failure(test_name, message);
+            return;
+        }
+    }
+
+    record_success(test_name);
+}
+
+/*
+ * NeighborInfo: the only thing on the wire that describes the mesh as a graph rather than as a
+ * collection of one-hop readings.
+ *
+ * The attribution is what has to be right. A NeighborInfo is forwarded across the mesh and
+ * `last_sent_by_id` names whoever relayed it, so a client that filed the list under the packet's
+ * `from` would draw one node's neighbours on another node's screen - wrong in a way that looks
+ * entirely plausible.
+ */
+MESH_TEST_CASE(session_neighbor_info, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+
+    uint8_t payload[256];
+    meshtastic_NeighborInfo info = meshtastic_NeighborInfo_init_default;
+    info.node_id = 0xA001U;
+    info.last_sent_by_id = 0xA002U;
+    info.node_broadcast_interval_secs = 14400U;
+    info.neighbors_count = 3U;
+    info.neighbors[0].node_id = 0xA002U;
+    info.neighbors[0].snr = 8.25F;
+    info.neighbors[1].node_id = 0xA003U;
+    info.neighbors[1].snr = -3.5F;
+    /* A zero id is not a node; it must not take a slot and leave the count claiming it. */
+    info.neighbors[2].node_id = 0U;
+    info.neighbors[2].snr = 1.0F;
+
+    pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof payload);
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_NeighborInfo_fields, &info),
+                      "encode NeighborInfo failed");
+
+    /* Relayed by 0xA002: the list belongs to 0xA001, which is what the payload says. */
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_app_packet(&session, 0xA002U,
+                                                         meshtastic_PortNum_NEIGHBORINFO_APP,
+                                                         payload, stream.bytes_written),
+                      "feed NeighborInfo failed");
+
+    const struct mesh_node_summary *reporter = mesh_test_session_find_node(&session, 0xA001U);
+    MESH_TEST_FAIL_IF(reporter == NULL || !reporter->neighbors.valid,
+                      "the list was not filed under the node that reported it");
+    MESH_TEST_FAIL_IF(reporter->neighbors.count != 2U,
+                      "the zero-id neighbour should not have taken a slot");
+    MESH_TEST_FAIL_IF(reporter->neighbors.entries[0].node_id != 0xA002U ||
+                          reporter->neighbors.entries[1].node_id != 0xA003U,
+                      "the neighbours were not kept in order");
+    MESH_TEST_FAIL_IF(reporter->neighbors.broadcast_interval_secs != 14400U,
+                      "the reporting node's broadcast interval was not kept");
+
+    const struct mesh_node_summary *relayer = mesh_test_session_find_node(&session, 0xA002U);
+    MESH_TEST_FAIL_IF(relayer != NULL && relayer->neighbors.valid,
+                      "the relayer was credited with the reporting node's neighbours");
+
+    /* A node that hears nobody is a real state - it is what a repeater that has dropped off the
+       mesh looks like - so an empty report replaces the list rather than being ignored. */
+    info.neighbors_count = 0U;
+    stream = pb_ostream_from_buffer(payload, sizeof payload);
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_NeighborInfo_fields, &info) ||
+                          !mesh_test_session_feed_app_packet(&session, 0xA001U,
+                                                             meshtastic_PortNum_NEIGHBORINFO_APP,
+                                                             payload, stream.bytes_written),
+                      "feed empty NeighborInfo failed");
+    reporter = mesh_test_session_find_node(&session, 0xA001U);
+    MESH_TEST_FAIL_IF(!reporter->neighbors.valid || reporter->neighbors.count != 0U,
+                      "an empty report should stand rather than leave the old list in place");
+
+    /* More neighbours than the wire allows cannot overrun the record. */
+    info.neighbors_count = (pb_size_t)(sizeof info.neighbors / sizeof info.neighbors[0]);
+    for (pb_size_t i = 0; i < info.neighbors_count; ++i) {
+        info.neighbors[i].node_id = 0xB000U + i;
+        info.neighbors[i].snr = 1.0F;
+    }
+    stream = pb_ostream_from_buffer(payload, sizeof payload);
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_NeighborInfo_fields, &info) ||
+                          !mesh_test_session_feed_app_packet(&session, 0xA001U,
+                                                             meshtastic_PortNum_NEIGHBORINFO_APP,
+                                                             payload, stream.bytes_written),
+                      "feed a full NeighborInfo failed");
+    reporter = mesh_test_session_find_node(&session, 0xA001U);
+    MESH_TEST_FAIL_IF(reporter->neighbors.count > MESH_NODE_MAX_NEIGHBORS,
+                      "a full neighbour list overran the record");
 
     record_success(test_name);
 }

@@ -1,5 +1,7 @@
 #include "mesh/ui/node_detail.h"
 
+#include "mesh/utils/text.h"
+
 /* session.h for the traceroute state enum: the UI struct carries it as a byte so store.h
    stays plain, but this file already pulls nanopb in through radio_settings.h, so naming the
    real enum here beats keeping a second copy of it in step. */
@@ -177,6 +179,20 @@ static void node_rows_signal(struct node_rows *rows, const struct mesh_ui_node_s
 
     if (!is_self) {
         rows_info(rows, "SNR", "%.2f dB", (double)node->snr);
+        /* Beside it rather than instead of it: SNR is how far above the noise the packet was
+           and RSSI is how loud it was, and a link can be good on one and poor on the other. */
+        if (node->has_rssi) {
+            /* Only this radio can measure an RSSI, so a node now reaching us over MQTT keeps
+               the reading from the last packet we heard ourselves. Saying when that was is what
+               stops the row reading as a description of the packet that just arrived. */
+            if (node->rssi_time != 0U && node->last_heard > node->rssi_time) {
+                char measured[24];
+                format_age(node->rssi_time, now, measured, sizeof measured);
+                rows_info(rows, "RSSI", "%d dBm, %s", (int)node->rx_rssi, measured);
+            } else {
+                rows_info(rows, "RSSI", "%d dBm", (int)node->rx_rssi);
+            }
+        }
         if (node->has_hops_away) {
             rows_info(rows, "Hops away", "%u", (unsigned)node->hops_away);
         } else {
@@ -284,6 +300,237 @@ static void node_rows_environment(struct node_rows *rows, const struct mesh_ui_n
 }
 
 /*
+ * The four sensor groups beyond device metrics and environment. Each is emitted only when the
+ * node has actually reported it, so a plain handheld shows none of them and a solar-powered
+ * weather station shows two - which is the whole reason they are separate groups rather than
+ * one "Telemetry" heading with empty rows under it.
+ */
+static void node_rows_power_metrics(struct node_rows *rows, const struct mesh_ui_node_summary *node,
+                                    uint32_t now) {
+    const struct mesh_ui_node_power *power = &node->power;
+    if (!power->valid) {
+        return;
+    }
+    rows_heading(rows, "Power");
+    for (size_t ch = 0; ch < sizeof power->channel / sizeof power->channel[0]; ++ch) {
+        const struct mesh_ui_node_power_channel *channel = &power->channel[ch];
+        if (!channel->has_voltage && !channel->has_current) {
+            continue;
+        }
+        char label[MESH_UI_NODE_LABEL_MAX];
+        snprintf(label, sizeof label, "Channel %u", (unsigned)ch + 1U);
+        /* Both readings on one row: a supply is a voltage and a draw, and splitting them makes
+           a three-channel board six rows that have to be read in pairs anyway. */
+        if (channel->has_voltage && channel->has_current) {
+            rows_info(rows, label, "%.2f V, %.0f mA", (double)channel->voltage,
+                      (double)channel->current);
+        } else if (channel->has_voltage) {
+            rows_info(rows, label, "%.2f V", (double)channel->voltage);
+        } else {
+            rows_info(rows, label, "%.0f mA", (double)channel->current);
+        }
+    }
+    char age[24];
+    format_age(power->time, now, age, sizeof age);
+    rows_info(rows, "Reported", "%s", age);
+}
+
+static void node_rows_air_quality(struct node_rows *rows, const struct mesh_ui_node_summary *node,
+                                  uint32_t now) {
+    const struct mesh_ui_node_air_quality *air = &node->air_quality;
+    if (!air->valid) {
+        return;
+    }
+    rows_heading(rows, "Air quality");
+    /* PM2.5 first and on its own row: it is the number air quality is judged by, and the one a
+       person looks for. The coarser fractions share a row because they are read against it. */
+    if (air->has_pm25) {
+        rows_info(rows, "PM2.5", "%u ug/m3", (unsigned)air->pm25_standard);
+    }
+    if (air->has_pm10 && air->has_pm100) {
+        rows_info(rows, "PM1 / PM10", "%u / %u ug/m3", (unsigned)air->pm10_standard,
+                  (unsigned)air->pm100_standard);
+    } else if (air->has_pm10) {
+        rows_info(rows, "PM1", "%u ug/m3", (unsigned)air->pm10_standard);
+    } else if (air->has_pm100) {
+        rows_info(rows, "PM10", "%u ug/m3", (unsigned)air->pm100_standard);
+    }
+    if (air->has_co2) {
+        rows_info(rows, "CO2", "%u ppm", (unsigned)air->co2);
+    }
+    if (air->has_voc_index) {
+        rows_info(rows, "VOC index", "%.0f", (double)air->voc_index);
+    }
+    if (air->has_nox_index) {
+        rows_info(rows, "NOx index", "%.0f", (double)air->nox_index);
+    }
+    char age[24];
+    format_age(air->time, now, age, sizeof age);
+    rows_info(rows, "Reported", "%s", age);
+}
+
+static void node_rows_health(struct node_rows *rows, const struct mesh_ui_node_summary *node,
+                             uint32_t now) {
+    const struct mesh_ui_node_health *health = &node->health;
+    if (!health->valid) {
+        return;
+    }
+    rows_heading(rows, "Health");
+    if (health->has_heart_bpm) {
+        rows_info(rows, "Heart rate", "%u bpm", (unsigned)health->heart_bpm);
+    }
+    if (health->has_spo2) {
+        rows_info(rows, "SpO2", "%u%%", (unsigned)health->spo2);
+    }
+    if (health->has_temperature) {
+        rows_info(rows, "Temperature", "%.1f C (%.1f F)", (double)health->temperature,
+                  (double)health->temperature * 1.8 + 32.0);
+    }
+    char age[24];
+    format_age(health->time, now, age, sizeof age);
+    rows_info(rows, "Reported", "%s", age);
+}
+
+static void node_rows_host(struct node_rows *rows, const struct mesh_ui_node_summary *node,
+                           uint32_t now) {
+    const struct mesh_ui_node_host *host = &node->host;
+    if (!host->valid) {
+        return;
+    }
+    rows_heading(rows, "Host");
+    if (host->has_uptime) {
+        char uptime[32];
+        format_uptime(host->uptime_seconds, uptime, sizeof uptime);
+        rows_info(rows, "Uptime", "%s", uptime);
+    }
+    if (host->has_freemem) {
+        rows_info(rows, "Free memory", "%u MB", host->freemem_kib / 1024U);
+    }
+    if (host->has_diskfree) {
+        /* Below a gigabyte the megabyte figure is the one that matters; above it, it is noise. */
+        if (host->diskfree_mib >= 1024U) {
+            rows_info(rows, "Free disk", "%.1f GB", (double)host->diskfree_mib / 1024.0);
+        } else {
+            rows_info(rows, "Free disk", "%u MB", host->diskfree_mib);
+        }
+    }
+    if (host->has_load) {
+        /* The firmware sends the load average times 100. */
+        rows_info(rows, "Load", "%.2f %.2f %.2f", (double)host->load1 / 100.0,
+                  (double)host->load5 / 100.0, (double)host->load15 / 100.0);
+    }
+    char age[24];
+    format_age(host->time, now, age, sizeof age);
+    rows_info(rows, "Reported", "%s", age);
+}
+
+/*
+ * The mesh as a graph, which is the one thing a neighbour list gives that nothing else does.
+ *
+ * Two groups, and the second is the reason this screen needs the whole roster rather than one
+ * node. "Neighbours" is what the node itself reported it can hear - an out-edge list, and the
+ * only thing on the wire that says so. "Heard by" is the reverse, and no node reports it: it
+ * exists only as every *other* node's list read backwards, and it is the half a person holding
+ * the radio actually wants, because "is anything hearing me" is not a question a hop count or
+ * an SNR reading can answer.
+ *
+ * A neighbour is a bare node number on the wire, so each is resolved against the roster and
+ * falls back to the "!0a1b2c3d" form the apps show - the same fallback the identity group uses
+ * for a node with no User.
+ */
+static void node_rows_neighbor_name(const struct mesh_ui_handshake_state *roster, uint32_t node_id,
+                                    char *out, size_t out_len) {
+    if (roster != NULL) {
+        const uint32_t count = roster->node_count > MESH_UI_MAX_HANDSHAKE_NODES
+                                   ? MESH_UI_MAX_HANDSHAKE_NODES
+                                   : roster->node_count;
+        for (uint32_t i = 0; i < count; ++i) {
+            if (roster->nodes[i].node_id != node_id) {
+                continue;
+            }
+            const char *name = roster->nodes[i].short_name[0] != '\0' ? roster->nodes[i].short_name
+                                                                      : roster->nodes[i].long_name;
+            if (name[0] != '\0') {
+                mesh_str_copy(out, out_len, name);
+                return;
+            }
+            break;
+        }
+    }
+    snprintf(out, out_len, "!%08x", node_id);
+}
+
+static void node_rows_neighbors(struct node_rows *rows, const struct mesh_ui_node_summary *node,
+                                const struct mesh_ui_handshake_state *roster, uint32_t now) {
+    if (roster == NULL) {
+        return;
+    }
+
+    const struct mesh_ui_node_neighbors *heard = &node->neighbors;
+    if (heard->valid) {
+        rows_heading(rows, "Neighbours");
+        if (heard->count == 0U) {
+            /* A node that hears nobody is a real state and an interesting one - it is how a
+               repeater that has fallen off the mesh looks - so it says so rather than showing
+               a heading with nothing under it. */
+            rows_info(rows, "None", "%s", "hears no one");
+        }
+        for (uint8_t i = 0; i < heard->count && i < MESH_UI_MAX_NEIGHBORS; ++i) {
+            char name[MESH_UI_NODE_LABEL_MAX];
+            node_rows_neighbor_name(roster, heard->entries[i].node_id, name, sizeof name);
+            rows_info(rows, name, "%.2f dB", (double)heard->entries[i].snr);
+        }
+        char age[24];
+        format_age(heard->time, now, age, sizeof age);
+        rows_info(rows, "Reported", "%s", age);
+    }
+
+    /*
+     * The reverse edges. Walked over the roster rather than stored, because it is derived from
+     * data that changes under it: a node that stops hearing us drops out of its own next
+     * report, and a cached answer would keep saying it still does.
+     *
+     * The ten-entry cap upstream puts on a neighbour list is a cap on what *one* node reports,
+     * not on how many nodes may report hearing this one - on a dense mesh that is every node in
+     * range. So the rows are capped for the row budget's sake but the count is not: stopping at
+     * ten silently would make the one screen whose question is "how many can hear me" answer it
+     * wrongly, and quietly.
+     */
+    uint32_t listeners = 0U;
+    uint32_t shown = 0U;
+    const uint32_t count = roster->node_count > MESH_UI_MAX_HANDSHAKE_NODES
+                               ? MESH_UI_MAX_HANDSHAKE_NODES
+                               : roster->node_count;
+    for (uint32_t i = 0; i < count; ++i) {
+        const struct mesh_ui_node_summary *other = &roster->nodes[i];
+        if (other->node_id == node->node_id || !other->neighbors.valid) {
+            continue;
+        }
+        for (uint8_t n = 0; n < other->neighbors.count && n < MESH_UI_MAX_NEIGHBORS; ++n) {
+            if (other->neighbors.entries[n].node_id != node->node_id) {
+                continue;
+            }
+            if (listeners == 0U) {
+                rows_heading(rows, "Heard by");
+            }
+            listeners++;
+            /* The roster is already ordered by mesh_app_node_rank, so the first ten are the
+               ones a reader would have looked for anyway. */
+            if (shown < MESH_UI_NODE_MAX_LISTENERS) {
+                char name[MESH_UI_NODE_LABEL_MAX];
+                node_rows_neighbor_name(roster, other->node_id, name, sizeof name);
+                rows_info(rows, name, "%.2f dB", (double)other->neighbors.entries[n].snr);
+                shown++;
+            }
+            break;
+        }
+    }
+    if (listeners > shown) {
+        rows_info(rows, "and more", "%u not shown", listeners - shown);
+    }
+}
+
+/*
  * The traced route, if the one trace slot is holding this node's. Two paths of stops, each
  * row a node and the SNR of the link that reached it - the first stop of a path is the sender
  * and has no incoming link, so it carries no reading rather than a zero.
@@ -346,8 +593,8 @@ static void node_rows_route(struct node_rows *rows, const struct mesh_ui_node_su
 
 uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool is_self,
                                    uint32_t now, const struct mesh_ui_traceroute *trace,
-                                   bool remove_armed, struct mesh_ui_node_item *out,
-                                   uint32_t capacity) {
+                                   bool remove_armed, const struct mesh_ui_handshake_state *roster,
+                                   struct mesh_ui_node_item *out, uint32_t capacity) {
     if (node == NULL) {
         return 0U;
     }
@@ -370,6 +617,12 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
         /* The one row that answers "who is this?" for a node that joined after the NodeDB
            replay and has been sitting in the list as a bare id ever since. */
         rows_action(&rows, "Ask for its name", "press A", MESH_UI_NODE_ACTION_REQUEST_INFO);
+        /* The same shape, for the two readings that otherwise arrive on the node's own
+           schedule. They sit next to "Ask for its name" because they are the same question -
+           tell me what you have now - and because the answer to all three lands in the groups
+           further down this screen rather than anywhere else. */
+        rows_action(&rows, "Ask where it is", "press A", MESH_UI_NODE_ACTION_REQUEST_POSITION);
+        rows_action(&rows, "Ask for telemetry", "press A", MESH_UI_NODE_ACTION_REQUEST_TELEMETRY);
         /* Muting is the gentle one of the three below: the node's traffic still arrives and
            still shows in its conversation, the radio just stops announcing it. The wire verb
            is a toggle rather than a set, so this row states the flag and flips it. */
@@ -391,13 +644,19 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
     node_rows_power(&rows, node, now);
     node_rows_position(&rows, node, now);
     node_rows_environment(&rows, node, now);
+    node_rows_power_metrics(&rows, node, now);
+    node_rows_air_quality(&rows, node, now);
+    node_rows_health(&rows, node, now);
+    node_rows_host(&rows, node, now);
+    node_rows_neighbors(&rows, node, roster, now);
 
     return rows.count;
 }
 
 uint32_t mesh_ui_node_detail_count(const struct mesh_ui_node_summary *node, bool is_self,
-                                   const struct mesh_ui_traceroute *trace) {
-    return mesh_ui_node_detail_build(node, is_self, 0U, trace, false, NULL, 0U);
+                                   const struct mesh_ui_traceroute *trace,
+                                   const struct mesh_ui_handshake_state *roster) {
+    return mesh_ui_node_detail_build(node, is_self, 0U, trace, false, roster, NULL, 0U);
 }
 
 static uint32_t node_list_count(const struct mesh_ui_handshake_state *handshake) {

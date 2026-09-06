@@ -159,6 +159,18 @@ void mesh_ui_nav_init(struct mesh_ui_nav *nav) {
    the conversation list below matches on its own terms. */
 static bool mesh_ui_nav_message_matches(const struct mesh_ui_nav *nav,
                                         const struct mesh_ui_message *message) {
+    /*
+     * A reaction is an annotation on another message, not a line of its own. The transcript
+     * draws it on the bubble it names (fb_thread_row_build), so it must not also appear as a
+     * bubble containing a bare emoji - which is exactly what it looked like before the emoji
+     * flag was read at all, and is what a phone app never shows.
+     *
+     * This is the one filter every thread goes through, including all-traffic, which is why it
+     * sits here rather than in each caller.
+     */
+    if (message->is_reaction) {
+        return false;
+    }
     if (nav->inbox) {
         return true;
     }
@@ -234,7 +246,7 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
         const struct mesh_ui_node_summary *node =
             mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node);
         return mesh_ui_node_detail_count(node, mesh_ui_nav_node_is_self(store, node),
-                                         &store->traceroute);
+                                         &store->traceroute, &store->handshake);
     }
     case MESH_UI_SCREEN_DEVICES:
         return (uint32_t)store->device_count;
@@ -491,7 +503,7 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
         const uint32_t count = mesh_ui_node_detail_build(
             node, mesh_ui_nav_node_is_self(store, node), 0U, &store->traceroute,
-            nav->node_remove_armed, items, MESH_UI_NODE_ITEMS_MAX);
+            nav->node_remove_armed, &store->handshake, items, MESH_UI_NODE_ITEMS_MAX);
         if (cursor >= count || items[cursor].kind != MESH_UI_NODE_ROW_ACTION) {
             return false;
         }
@@ -510,9 +522,15 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             }
             return false; /* the rows redraw when the app publishes the trace */
         }
-        if (items[cursor].action == MESH_UI_NODE_ACTION_REQUEST_INFO) {
+        if (items[cursor].action == MESH_UI_NODE_ACTION_REQUEST_INFO ||
+            items[cursor].action == MESH_UI_NODE_ACTION_REQUEST_POSITION ||
+            items[cursor].action == MESH_UI_NODE_ACTION_REQUEST_TELEMETRY) {
             if (action != NULL) {
-                action->type = MESH_UI_ACTION_REQUEST_NODE_INFO;
+                action->type = items[cursor].action == MESH_UI_NODE_ACTION_REQUEST_POSITION
+                                   ? MESH_UI_ACTION_REQUEST_POSITION
+                                   : (items[cursor].action == MESH_UI_NODE_ACTION_REQUEST_TELEMETRY
+                                          ? MESH_UI_ACTION_REQUEST_TELEMETRY
+                                          : MESH_UI_ACTION_REQUEST_NODE_INFO);
                 action->dest = node->node_id;
             }
             return false; /* the row redraws if and when the node answers */

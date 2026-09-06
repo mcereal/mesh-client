@@ -166,6 +166,34 @@ MESH_TEST_CASE(ui_store_persistence, unit) {
     handshake.nodes[0].environment.valid = true;
     handshake.nodes[0].environment.has_temperature = true;
     handshake.nodes[0].environment.temperature = 21.5f;
+    /* One field out of each of the four sensor groups, enough to prove each has a key of its
+       own on disk and comes back through it. */
+    /* RSSI has a key of its own, so a build that predates it drops one line rather than the
+       whole node. */
+    handshake.nodes[0].has_rssi = true;
+    handshake.nodes[0].rx_rssi = -97;
+    handshake.nodes[0].power.valid = true;
+    handshake.nodes[0].power.channel[1].has_current = true;
+    handshake.nodes[0].power.channel[1].current = 250.0f;
+    handshake.nodes[0].air_quality.valid = true;
+    handshake.nodes[0].air_quality.has_pm25 = true;
+    handshake.nodes[0].air_quality.pm25_standard = 12U;
+    handshake.nodes[0].health.valid = true;
+    handshake.nodes[0].health.has_spo2 = true;
+    handshake.nodes[0].health.spo2 = 98U;
+    handshake.nodes[0].host.valid = true;
+    handshake.nodes[0].host.has_diskfree = true;
+    handshake.nodes[0].host.diskfree_mib = 4096U;
+    /* A neighbour list is a header line plus one line per entry, so the roundtrip has to prove
+       both come back and that the count is re-derived from the entries rather than trusted. */
+    handshake.nodes[0].neighbors.valid = true;
+    handshake.nodes[0].neighbors.time = 1750000123U;
+    handshake.nodes[0].neighbors.broadcast_interval_secs = 14400U;
+    handshake.nodes[0].neighbors.count = 2U;
+    handshake.nodes[0].neighbors.entries[0].node_id = 0xA002U;
+    handshake.nodes[0].neighbors.entries[0].snr = 8.25f;
+    handshake.nodes[0].neighbors.entries[1].node_id = 0xA003U;
+    handshake.nodes[0].neighbors.entries[1].snr = -3.5f;
     /* The two the radio does not tell us on a resync: whether the name is the node's own, and
        whether the radio still carried it. The restored roster is only worth more than a fresh
        sync if both come back. */
@@ -279,6 +307,43 @@ MESH_TEST_CASE(ui_store_persistence, unit) {
         record_failure(test_name, "node environment did not survive the cache");
         return;
     }
+    if (!node->has_rssi || node->rx_rssi != -97) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "node RSSI did not survive the cache");
+        return;
+    }
+    if (!node->power.valid || !node->power.channel[1].has_current ||
+        node->power.channel[1].current < 249.0f || node->power.channel[1].current > 251.0f ||
+        node->power.channel[0].has_current) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "node power did not survive the cache, channel for channel");
+        return;
+    }
+    if (!node->air_quality.valid || node->air_quality.pm25_standard != 12U ||
+        node->air_quality.has_pm10) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "node air quality did not survive the cache");
+        return;
+    }
+    if (!node->health.valid || node->health.spo2 != 98U || node->health.has_heart_bpm) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "node health did not survive the cache");
+        return;
+    }
+    if (!node->host.valid || node->host.diskfree_mib != 4096U || node->host.has_freemem) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "node host metrics did not survive the cache");
+        return;
+    }
+    if (!node->neighbors.valid || node->neighbors.count != 2U ||
+        node->neighbors.broadcast_interval_secs != 14400U ||
+        node->neighbors.entries[0].node_id != 0xA002U ||
+        node->neighbors.entries[1].node_id != 0xA003U || node->neighbors.entries[1].snr > -3.4f ||
+        node->neighbors.entries[1].snr < -3.6f) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "the neighbour list did not survive the cache");
+        return;
+    }
 
     mesh_ui_store_shutdown(&store);
     record_success(test_name);
@@ -373,6 +438,19 @@ MESH_TEST_CASE(ui_store_messages, unit) {
     snprintf(list.entries[1].peer_name, sizeof(list.entries[1].peer_name), "all");
     /* '=' and a backslash both need escaping in the on-disk format. */
     snprintf(list.entries[1].text, sizeof(list.entries[1].text), "a=b\\c");
+    list.entries[1].pki_encrypted = true;
+    /* A third entry that is not a message at all. A reaction reloaded without its flag is a
+       bubble containing a bare emoji that also bumps the unread count - the exact behaviour
+       reading Data.emoji removed, coming back at every restart. */
+    list.count = 3U;
+    list.entries[2].packet_id = 13U;
+    list.entries[2].peer = 0x1234U;
+    list.entries[2].direction = MESH_MESSAGE_INBOUND;
+    list.entries[2].kind = MESH_MESSAGE_KIND_ALERT;
+    list.entries[2].is_reaction = true;
+    list.entries[2].reply_id = 11U;
+    snprintf(list.entries[2].peer_name, sizeof(list.entries[2].peer_name), "AB12");
+    snprintf(list.entries[2].text, sizeof(list.entries[2].text), "\xF0\x9F\x91\x8D");
 
     mesh_ui_store_set_messages(&store, &list);
 
@@ -382,7 +460,7 @@ MESH_TEST_CASE(ui_store_messages, unit) {
                       "setting messages should raise an update");
     MESH_TEST_FAIL_IF((snapshot.update_flags & MESH_UI_UPDATE_MESSAGES) == 0U,
                       "the messages flag should be set");
-    MESH_TEST_FAIL_IF(snapshot.messages.count != 2U || snapshot.messages.dropped != 7U,
+    MESH_TEST_FAIL_IF(snapshot.messages.count != 3U || snapshot.messages.dropped != 7U,
                       "message list did not reach the snapshot");
 
     /* Setting the same list again is not a change and must not wake the UI. */
@@ -424,13 +502,20 @@ MESH_TEST_CASE(ui_store_messages, unit) {
         return;
     }
 
-    bool ok = (loaded.messages.count == 2U) && (loaded.messages.dropped == 7U) &&
+    bool ok = (loaded.messages.count == 3U) && (loaded.messages.dropped == 7U) &&
               (strcmp(loaded.messages.entries[0].text, "hello there") == 0) &&
               (strcmp(loaded.messages.entries[0].peer_name, "AB12") == 0) &&
               (loaded.messages.entries[1].packet_id == 12U) &&
               (loaded.messages.entries[1].ack == MESH_MESSAGE_ACK_DELIVERED) &&
               loaded.messages.entries[1].broadcast &&
               (strcmp(loaded.messages.entries[1].text, "a=b\\c") == 0);
+
+    /* What a message *is*, which is carried on its own key and was being dropped entirely. */
+    ok = ok && !loaded.messages.entries[0].pki_encrypted &&
+         loaded.messages.entries[1].pki_encrypted &&
+         (loaded.messages.entries[0].kind == MESH_MESSAGE_KIND_TEXT) &&
+         (loaded.messages.entries[2].kind == MESH_MESSAGE_KIND_ALERT) &&
+         loaded.messages.entries[2].is_reaction && (loaded.messages.entries[2].reply_id == 11U);
 
     unlink(cache_path);
     mesh_ui_store_shutdown(&loaded);
