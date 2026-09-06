@@ -16,7 +16,6 @@
 
 #include "mesh/core/message.h"
 #include "mesh/ui/emoji.h"
-#include "mesh/ui/font5x7.h"
 #include "mesh/ui/input.h"
 #include "mesh/ui/layout.h"
 #include "mesh/ui/nav.h"
@@ -46,8 +45,9 @@ static void fb_store_view(const struct mesh_ui_snapshot *snapshot, struct mesh_u
 static void fb_draw_tabs(const struct mesh_ui_backend_fb_state *state,
                          const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const int small = layout->small;
-    const int y = FB_MARGIN / 2 + small;
-    int x = FB_MARGIN / 2;
+    const int margin = fb_margin(state);
+    const int y = margin / 2 + small;
+    int x = margin / 2;
 
     for (int i = 0; i < MESH_UI_SCREEN_COUNT; ++i) {
         const enum mesh_ui_screen screen = (enum mesh_ui_screen)i;
@@ -55,9 +55,9 @@ static void fb_draw_tabs(const struct mesh_ui_backend_fb_state *state,
                          small);
     }
 
-    const int line = fb_line_adv(small);
-    fb_draw_rule(state, 0, y + line, (int)state->var.xres, small, k_fb_tab_active_bg);
-    layout->body_y = y + line + 2 * small + FB_MARGIN / 2;
+    const int line = fb_line_adv(state, small);
+    fb_draw_rule(state, 0, y + line, (int)state->var.xres, small, MESH_UI_COLOR_RULE_STRONG);
+    layout->body_y = y + line + 2 * small + margin / 2;
 }
 
 /* Two lines under the body: what the buttons do here, then a toast or the link summary. */
@@ -71,14 +71,15 @@ static void fb_draw_footer(const struct mesh_ui_backend_fb_state *state,
     mesh_ui_line_reset(&line);
     mesh_ui_line_printf(&line, "%s", hint);
     mesh_ui_line_fit(&line, cols);
-    fb_draw_text(state, FB_MARGIN, layout->footer_y, mesh_ui_line_text(&line), small, k_fb_dim);
+    fb_draw_text(state, fb_margin(state), layout->footer_y, mesh_ui_line_text(&line), small,
+                 fb_tone_color(state, MESH_UI_TONE_DIM));
 
     const struct mesh_ui_nav *nav = &snapshot->nav;
-    enum fb_tone tone = FB_TONE_DIM;
+    enum mesh_ui_tone tone = MESH_UI_TONE_DIM;
     mesh_ui_line_reset(&line);
     if (nav->toast[0] != '\0') {
         mesh_ui_line_printf(&line, "%s", nav->toast);
-        tone = FB_TONE_ACCENT;
+        tone = MESH_UI_TONE_ACCENT;
     } else {
         const char *status =
             snapshot->transport_status[0] != '\0' ? snapshot->transport_status : "starting";
@@ -92,14 +93,14 @@ static void fb_draw_footer(const struct mesh_ui_backend_fb_state *state,
         }
         if (connected != NULL) {
             mesh_ui_line_printf(&line, "%s: %s", status, connected);
-            tone = FB_TONE_GOOD;
+            tone = MESH_UI_TONE_GOOD;
         } else {
             mesh_ui_line_printf(&line, "%s | %s", status, mesh_ui_input_quit_hint());
         }
     }
     mesh_ui_line_fit(&line, cols);
-    fb_draw_text(state, FB_MARGIN, layout->footer_y + fb_line_adv(small), mesh_ui_line_text(&line),
-                 small, fb_tone_color(tone));
+    fb_draw_text(state, fb_margin(state), layout->footer_y + fb_line_adv(state, small),
+                 mesh_ui_line_text(&line), small, fb_tone_color(state, tone));
 }
 
 /* ---- screens ----------------------------------------------------------------------------- */
@@ -141,16 +142,16 @@ static void fb_render_conversations(const struct mesh_ui_backend_fb_state *state
         }
         const bool is_new = (conversation.kind == MESH_UI_CONVERSATION_NEW);
         const bool unread = (conversation.unread > 0U);
-        enum fb_tone tone = FB_TONE_NORMAL;
+        enum mesh_ui_tone tone = MESH_UI_TONE_NORMAL;
         if (conversation.kind == MESH_UI_CONVERSATION_CHANNEL ||
             conversation.kind == MESH_UI_CONVERSATION_ALL) {
-            tone = FB_TONE_ACCENT;
+            tone = MESH_UI_TONE_ACCENT;
         } else if (is_new) {
-            tone = FB_TONE_DIM;
+            tone = MESH_UI_TONE_DIM;
         }
         /* Unread is drawn bright; so is the open thread, so B lands somewhere recognisable. */
         if (unread || mesh_ui_nav_conversation_is_open(nav, &conversation)) {
-            tone = FB_TONE_STRONG;
+            tone = MESH_UI_TONE_STRONG;
         }
 
         badge[0] = '\0';
@@ -169,7 +170,7 @@ static void fb_render_conversations(const struct mesh_ui_backend_fb_state *state
             mesh_ui_line_printf(&line, "+ %s", conversation.name);
             fb_list_row_line(state, &list, i, &line, tone);
             mesh_ui_line_reset(&line);
-            fb_list_sub_row(state, &list, mesh_ui_line_text(&line), FB_TONE_DIM);
+            fb_list_sub_row(state, &list, mesh_ui_line_text(&line), MESH_UI_TONE_DIM);
             continue;
         }
 
@@ -195,8 +196,8 @@ static void fb_render_conversations(const struct mesh_ui_backend_fb_state *state
         }
         /* Both rows highlight together: a conversation is one item, not two rows that happen to
            be adjacent. */
-        fb_list_row_line_badge(state, &list, i, &line, unread ? FB_TONE_NORMAL : FB_TONE_DIM,
-                               badge);
+        fb_list_row_line_badge(state, &list, i, &line,
+                               unread ? MESH_UI_TONE_NORMAL : MESH_UI_TONE_DIM, badge);
     }
 }
 
@@ -376,8 +377,9 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot, const u
 }
 
 /* A bubble's height, clamped into the byte the transcript window measures in. */
-static uint8_t fb_thread_height(const struct fb_layout *layout, const struct fb_thread_row *row) {
-    const uint32_t rows = fb_bubble_rows(layout, &row->bubble);
+static uint8_t fb_thread_height(const struct mesh_ui_backend_fb_state *state,
+                                const struct fb_layout *layout, const struct fb_thread_row *row) {
+    const uint32_t rows = fb_bubble_rows(state, layout, &row->bubble);
     return rows > 0xFFU ? 0xFFU : (uint8_t)rows;
 }
 
@@ -418,7 +420,7 @@ static void fb_render_thread(const struct mesh_ui_backend_fb_state *state,
     struct fb_thread_row row;
     for (uint32_t i = 0; i < count; ++i) {
         fb_thread_row_build(snapshot, indices, i, false, &row);
-        heights[i] = fb_thread_height(layout, &row);
+        heights[i] = fb_thread_height(state, layout, &row);
     }
     struct mesh_ui_transcript window =
         mesh_ui_transcript_window(heights, count, cursor, layout->rows);
@@ -442,11 +444,12 @@ static void fb_render_thread(const struct mesh_ui_backend_fb_state *state,
     for (uint32_t pass = 0U; pass < 4U && window.first != named; ++pass) {
         if (named < count) {
             fb_thread_row_build(snapshot, indices, named, false, &row);
-            heights[named] = fb_thread_height(layout, &row); /* it was not the first after all */
+            heights[named] =
+                fb_thread_height(state, layout, &row); /* it was not the first after all */
         }
         named = window.first;
         fb_thread_row_build(snapshot, indices, named, true, &row);
-        heights[named] = fb_thread_height(layout, &row);
+        heights[named] = fb_thread_height(state, layout, &row);
         window = mesh_ui_transcript_window(heights, count, cursor, layout->rows);
     }
     /* Only force what the heights were settled against, so the draw can never disagree with the
@@ -501,7 +504,7 @@ static void fb_render_node_detail(const struct mesh_ui_backend_fb_state *state,
         return;
     }
 
-    const size_t label_cols = fb_field_label_cols(layout, 16U);
+    const size_t label_cols = fb_field_label_cols(state, layout, 16U);
     struct fb_list list = fb_list_begin(layout, count, nav->cursor[MESH_UI_SCREEN_NODES]);
     struct mesh_ui_line line;
     uint32_t i;
@@ -510,14 +513,14 @@ static void fb_render_node_detail(const struct mesh_ui_backend_fb_state *state,
         if (item->kind == MESH_UI_NODE_ROW_HEADING) {
             mesh_ui_line_reset(&line);
             mesh_ui_line_printf(&line, "%s", item->label);
-            fb_list_row_line(state, &list, i, &line, FB_TONE_DIM);
+            fb_list_row_line(state, &list, i, &line, MESH_UI_TONE_DIM);
         } else if (item->kind == MESH_UI_NODE_ROW_ACTION) {
             mesh_ui_line_reset(&line);
             mesh_ui_line_printf(&line, "> %s", item->label);
-            fb_list_row_line(state, &list, i, &line, FB_TONE_ACCENT);
+            fb_list_row_line(state, &list, i, &line, MESH_UI_TONE_ACCENT);
         } else {
             fb_list_field_row(state, &list, i, item->label, label_cols, " ", item->value,
-                              FB_TONE_NORMAL);
+                              MESH_UI_TONE_NORMAL);
         }
     }
 }
@@ -580,7 +583,8 @@ static void fb_render_nodes(const struct mesh_ui_backend_fb_state *state,
         mesh_ui_line_printf(&line, " %s", long_name);
         mesh_ui_line_right(&line, layout->cols, right);
         fb_list_row_line(state, &list, i, &line,
-                         (node->node_id == nav->target_node) ? FB_TONE_ACCENT : FB_TONE_NORMAL);
+                         (node->node_id == nav->target_node) ? MESH_UI_TONE_ACCENT
+                                                             : MESH_UI_TONE_NORMAL);
     }
 }
 
@@ -606,11 +610,11 @@ static void fb_render_compose(const struct mesh_ui_backend_fb_state *state,
             } else {
                 mesh_ui_line_printf(&line, "%s", "[ Type a message ]");
             }
-            fb_list_row_line(state, &list, i, &line, FB_TONE_ACCENT);
+            fb_list_row_line(state, &list, i, &line, MESH_UI_TONE_ACCENT);
         } else {
             mesh_ui_line_printf(&line, "  %s",
                                 mesh_ui_canned_text(i - MESH_UI_COMPOSE_FIRST_CANNED));
-            fb_list_row_line(state, &list, i, &line, FB_TONE_NORMAL);
+            fb_list_row_line(state, &list, i, &line, MESH_UI_TONE_NORMAL);
         }
     }
 }
@@ -647,7 +651,8 @@ static void fb_render_picker(const struct mesh_ui_backend_fb_state *state,
         mesh_ui_line_reset(&line);
         mesh_ui_line_printf(&line, "%c %s%s", current ? '*' : ' ', name,
                             is_channel ? "  (channel)" : "");
-        fb_list_row_line(state, &list, i, &line, is_channel ? FB_TONE_ACCENT : FB_TONE_NORMAL);
+        fb_list_row_line(state, &list, i, &line,
+                         is_channel ? MESH_UI_TONE_ACCENT : MESH_UI_TONE_NORMAL);
     }
 }
 
@@ -684,8 +689,9 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
 
     /* Draft box: two wrapped lines plus a cursor and a byte count. */
     const int box_lines = 2;
-    fb_fill_rect(state, FB_MARGIN / 2, y - scale, (int)state->var.xres - FB_MARGIN,
-                 box_lines * line + scale, (struct fb_rgb){0x14, 0x22, 0x32});
+    const int margin = fb_margin(state);
+    fb_fill_rect(state, margin / 2, y - scale, (int)state->var.xres - margin,
+                 box_lines * line + scale, fb_color(state, MESH_UI_COLOR_SURFACE));
     char draft[MESH_UI_DRAFT_MAX + 2U];
     snprintf(draft, sizeof draft, "%s_", nav->draft);
     /* Show the tail when the draft outgrows the box. */
@@ -695,19 +701,20 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
     if (draft_width > visible) {
         shown = draft + mesh_ui_text_cell_offset(draft, draft_width - visible);
     }
-    fb_draw_wrapped(state, y, shown, layout->cols, box_lines, k_fb_white);
+    fb_draw_wrapped(state, y, shown, layout->cols, box_lines,
+                    fb_tone_color(state, MESH_UI_TONE_STRONG));
     y += box_lines * line;
 
     char meter[32];
     snprintf(meter, sizeof meter, "%zu/%zu", strlen(nav->draft), draft_cap);
     fb_draw_text(state,
-                 (int)state->var.xres - FB_MARGIN -
-                     (int)mesh_ui_text_cells(meter) * fb_char_adv(layout->small),
-                 y, meter, layout->small, k_fb_dim);
-    y += fb_line_adv(layout->small) + scale;
+                 (int)state->var.xres - margin -
+                     (int)mesh_ui_text_cells(meter) * fb_char_adv(state, layout->small),
+                 y, meter, layout->small, fb_tone_color(state, MESH_UI_TONE_DIM));
+    y += fb_line_adv(state, layout->small) + scale;
 
     /* The character grid and the action row are the same button, sized differently. */
-    const int grid_w = (int)state->var.xres - 2 * FB_MARGIN;
+    const int grid_w = (int)state->var.xres - 2 * margin;
     const int cell_w = grid_w / (int)MESH_UI_KB_COLS;
     const int cell_h = line + 2 * scale;
     for (unsigned row = 0; row < MESH_UI_KB_CHAR_ROWS; ++row) {
@@ -715,14 +722,14 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
             const char ch = mesh_ui_kb_char((enum mesh_ui_kb_layer)nav->kb_layer, row, col);
             const char key[2] = {ch, '\0'};
             const struct fb_button button = {
-                .rect = {.x = FB_MARGIN + (int)col * cell_w,
+                .rect = {.x = margin + (int)col * cell_w,
                          .y = y,
                          .w = cell_w - scale,
                          .h = cell_h - scale},
                 .label = key,
                 .selected = (nav->kb_row == row && nav->kb_col == col),
                 .filled = false,
-                .idle_tone = FB_TONE_NORMAL,
+                .idle_tone = MESH_UI_TONE_NORMAL,
                 .scale = scale,
             };
             fb_draw_button(state, &button);
@@ -733,14 +740,14 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
     const int action_w = grid_w / (int)MESH_UI_KB_ACTIONS;
     for (unsigned col = 0; col < MESH_UI_KB_ACTIONS; ++col) {
         const struct fb_button button = {
-            .rect = {.x = FB_MARGIN + (int)col * action_w,
+            .rect = {.x = margin + (int)col * action_w,
                      .y = y,
                      .w = action_w - scale,
                      .h = cell_h - scale},
             .label = mesh_ui_kb_action_label(nav, (enum mesh_ui_kb_action)col),
             .selected = (nav->kb_row == MESH_UI_KB_CHAR_ROWS && nav->kb_col == col),
             .filled = true,
-            .idle_tone = FB_TONE_NORMAL,
+            .idle_tone = MESH_UI_TONE_NORMAL,
             .scale = scale,
         };
         fb_draw_button(state, &button);
@@ -792,11 +799,11 @@ static void fb_render_devices(const struct mesh_ui_backend_fb_state *state,
                                 (int)device->rssi, badge);
         }
 
-        enum fb_tone tone = FB_TONE_NORMAL;
+        enum mesh_ui_tone tone = MESH_UI_TONE_NORMAL;
         if (device->connected) {
-            tone = FB_TONE_GOOD;
+            tone = MESH_UI_TONE_GOOD;
         } else if (nav->devices_forget_armed && nav->devices_forget_row == i) {
-            tone = FB_TONE_BAD;
+            tone = MESH_UI_TONE_BAD;
         }
         fb_list_row_line(state, &list, i, &line, tone);
     }
@@ -836,7 +843,7 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
     char buffer[64];
     char second[64];
 
-    fb_draw_status_row(state, layout, &y, FB_TONE_NORMAL, "Transport", "%s",
+    fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, "Transport", "%s",
                        snapshot->transport_status[0] != '\0' ? snapshot->transport_status
                                                              : "starting");
 
@@ -848,36 +855,39 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
         }
     }
     fb_draw_status_row(
-        state, layout, &y, connected != NULL ? FB_TONE_GOOD : FB_TONE_BAD, "Radio", "%s",
+        state, layout, &y, connected != NULL ? MESH_UI_TONE_GOOD : MESH_UI_TONE_BAD, "Radio", "%s",
         connected != NULL ? (connected->name[0] != '\0' ? connected->name : connected->identifier)
                           : "not connected");
 
     if (snapshot->handshake_valid) {
         const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
-        fb_draw_status_row(state, layout, &y, FB_TONE_NORMAL, "Sync", "%s%s",
+        fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, "Sync", "%s%s",
                            hs->config_complete ? "complete"
                                                : (hs->request_in_flight ? "in progress" : "idle"),
                            hs->cached ? " (cached)" : "");
         if (hs->has_my_info) {
-            fb_draw_status_row(state, layout, &y, FB_TONE_NORMAL, "My node", "%s !%08x",
+            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, "My node", "%s !%08x",
                                hs->my_short_name, hs->my_info.node_num);
         }
         /* One line for the NodeDB, and LocalStats' online count when the radio has sent it:
            "132 nodes" alone says nothing about how much of that mesh is still alive. */
         const struct mesh_ui_radio_stats *stats = &snapshot->settings.stats;
         if (hs->has_my_info && stats->valid && stats->num_online_nodes > 0U) {
-            fb_draw_status_row(state, layout, &y, FB_TONE_NORMAL, "NodeDB", "%u nodes, %u online",
-                               hs->my_info.nodedb_entries, stats->num_online_nodes);
+            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, "NodeDB",
+                               "%u nodes, %u online", hs->my_info.nodedb_entries,
+                               stats->num_online_nodes);
         } else if (hs->has_my_info) {
-            fb_draw_status_row(state, layout, &y, FB_TONE_NORMAL, "NodeDB", "%u nodes, %u reboots",
-                               hs->my_info.nodedb_entries, hs->my_info.reboot_count);
+            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, "NodeDB",
+                               "%u nodes, %u reboots", hs->my_info.nodedb_entries,
+                               hs->my_info.reboot_count);
         }
         if (hs->primary_channel[0] != '\0') {
-            fb_draw_status_row(state, layout, &y, FB_TONE_NORMAL, "Channel", "%s",
+            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, "Channel", "%s",
                                hs->primary_channel);
         }
     } else {
-        fb_draw_status_row(state, layout, &y, FB_TONE_DIM, "Sync", "%s", "waiting for a radio");
+        fb_draw_status_row(state, layout, &y, MESH_UI_TONE_DIM, "Sync", "%s",
+                           "waiting for a radio");
     }
 
     /*
@@ -911,11 +921,11 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
             air_from_stats ? stats->air_util_tx : (metrics != NULL ? metrics->air_util_tx : 0.0f);
         /* Above ~25% channel utilization the mesh is saturated and hop delivery collapses, so
            the number is coloured rather than left as one more figure to interpret. */
-        enum fb_tone air_tone = FB_TONE_NORMAL;
+        enum mesh_ui_tone air_tone = MESH_UI_TONE_NORMAL;
         if (have_util) {
-            air_tone = util_value >= 50.0f   ? FB_TONE_BAD
-                       : util_value >= 25.0f ? FB_TONE_ACCENT
-                                             : FB_TONE_GOOD;
+            air_tone = util_value >= 50.0f   ? MESH_UI_TONE_BAD
+                       : util_value >= 25.0f ? MESH_UI_TONE_ACCENT
+                                             : MESH_UI_TONE_GOOD;
         }
         char util[32] = "?";
         if (have_util) {
@@ -957,41 +967,45 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
             fb_format_uptime(uptime_value, uptime, sizeof uptime);
             snprintf(second, sizeof second, "%sup %s", buffer[0] != '\0' ? ", " : "", uptime);
         }
-        const enum fb_tone battery_tone =
-            (have_battery && metrics->battery_level <= 20U) ? FB_TONE_BAD : FB_TONE_NORMAL;
+        const enum mesh_ui_tone battery_tone = (have_battery && metrics->battery_level <= 20U)
+                                                   ? MESH_UI_TONE_BAD
+                                                   : MESH_UI_TONE_NORMAL;
         fb_draw_status_row(state, layout, &y, battery_tone, "Battery", "%s%s",
                            buffer[0] != '\0' ? buffer : "unknown", second);
     }
 
     if (stats->valid) {
-        fb_draw_status_row(state, layout, &y, FB_TONE_NORMAL, "Packets", "%u tx, %u rx, %u relayed",
-                           stats->num_packets_tx, stats->num_packets_rx, stats->num_tx_relay);
+        fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, "Packets",
+                           "%u tx, %u rx, %u relayed", stats->num_packets_tx, stats->num_packets_rx,
+                           stats->num_tx_relay);
         /* Bad and dropped packets are the two numbers that explain a mesh that "works but
            loses messages", so they get their own row instead of being folded into Packets. */
         const bool losing = stats->num_packets_rx_bad > 0U || stats->num_tx_dropped > 0U;
-        fb_draw_status_row(state, layout, &y, losing ? FB_TONE_ACCENT : FB_TONE_DIM, "Dropped",
-                           "%u bad rx, %u dupe, %u tx", stats->num_packets_rx_bad,
+        fb_draw_status_row(state, layout, &y, losing ? MESH_UI_TONE_ACCENT : MESH_UI_TONE_DIM,
+                           "Dropped", "%u bad rx, %u dupe, %u tx", stats->num_packets_rx_bad,
                            stats->num_rx_dupe, stats->num_tx_dropped);
         if (stats->has_heap) {
             fb_draw_status_row(state, layout, &y,
-                               stats->heap_free_bytes < 20480U ? FB_TONE_ACCENT : FB_TONE_DIM,
+                               stats->heap_free_bytes < 20480U ? MESH_UI_TONE_ACCENT
+                                                               : MESH_UI_TONE_DIM,
                                "Heap", "%u KB free of %u KB", stats->heap_free_bytes / 1024U,
                                stats->heap_total_bytes / 1024U);
         }
     } else if (snapshot->handshake_valid) {
-        fb_draw_status_row(state, layout, &y, FB_TONE_DIM, "Mesh", "%s",
+        fb_draw_status_row(state, layout, &y, MESH_UI_TONE_DIM, "Mesh", "%s",
                            "waiting for the radio's first report");
     }
 
     y += layout->line / 2;
-    fb_draw_status_row(state, layout, &y, FB_TONE_NORMAL, "Messages", "%u kept, %u dropped",
+    fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, "Messages", "%u kept, %u dropped",
                        (unsigned)snapshot->messages.count, (unsigned)snapshot->messages.dropped);
-    fb_draw_status_row(state, layout, &y, FB_TONE_NORMAL, "Devices", "%zu in range",
+    fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, "Devices", "%zu in range",
                        snapshot->device_count);
 
     y += layout->line / 2;
     if (y + layout->line <= layout->footer_y) {
-        fb_draw_text(state, FB_MARGIN, y, mesh_ui_input_quit_hint(), state->scale, k_fb_dim);
+        fb_draw_text(state, fb_margin(state), y, mesh_ui_input_quit_hint(), state->scale,
+                     fb_tone_color(state, MESH_UI_TONE_DIM));
     }
 }
 
@@ -1012,7 +1026,8 @@ static void fb_render_confirm(const struct mesh_ui_backend_fb_state *state,
     char text[256];
     mesh_ui_settings_confirm_text(section, confirmed, text, sizeof text);
     const int text_lines = 4;
-    fb_draw_wrapped(state, layout->body_y, text, layout->cols, text_lines, k_fb_text);
+    fb_draw_wrapped(state, layout->body_y, text, layout->cols, text_lines,
+                    fb_tone_color(state, MESH_UI_TONE_NORMAL));
 
     /* The two choices are a list of their own, below the wrapped body text. */
     struct fb_layout choices = *layout;
@@ -1021,7 +1036,7 @@ static void fb_render_confirm(const struct mesh_ui_backend_fb_state *state,
     const char *const rows[] = {mesh_ui_settings_confirm_accept(confirmed), "Cancel"};
     uint32_t i;
     while (fb_list_next(&list, &i)) {
-        fb_list_row(state, &list, i, rows[i], i == 0U ? FB_TONE_ACCENT : FB_TONE_NORMAL);
+        fb_list_row(state, &list, i, rows[i], i == 0U ? MESH_UI_TONE_ACCENT : MESH_UI_TONE_NORMAL);
     }
 }
 
@@ -1073,7 +1088,7 @@ static void fb_render_settings(const struct mesh_ui_backend_fb_state *state,
     }
 
     /* Label column: a fixed width so values line up, capped for narrow scales. */
-    const size_t label_cols = fb_field_label_cols(layout, 20U);
+    const size_t label_cols = fb_field_label_cols(state, layout, 0U);
     struct fb_list list = fb_list_begin(layout, count, nav->cursor[MESH_UI_SCREEN_SETTINGS]);
     struct mesh_ui_line line;
     uint32_t i;
@@ -1090,7 +1105,7 @@ static void fb_render_settings(const struct mesh_ui_backend_fb_state *state,
             if (item.kind == MESH_UI_SETTING_HEADING) {
                 mesh_ui_line_reset(&line);
                 mesh_ui_line_printf(&line, "%s", item.label);
-                fb_list_row_line(state, &list, i, &line, FB_TONE_DIM);
+                fb_list_row_line(state, &list, i, &line, MESH_UI_TONE_DIM);
                 continue;
             }
             /* Editable rows carry a marker so the eye can tell what Left/Right will act on;
@@ -1100,31 +1115,33 @@ static void fb_render_settings(const struct mesh_ui_backend_fb_state *state,
                                  : item.kind == MESH_UI_SETTING_ACTION ? "> "
                                                                        : "  ";
             fb_list_field_row(state, &list, i, item.label, label_cols, marker, item.value,
-                              item.dirty ? FB_TONE_STRONG : FB_TONE_NORMAL);
+                              item.dirty ? MESH_UI_TONE_STRONG : MESH_UI_TONE_NORMAL);
         } else {
             const enum mesh_ui_settings_section row = mesh_ui_settings_root_at(i);
             const bool loaded = mesh_ui_settings_section_loaded(settings, handshake, row);
             fb_list_field_row(state, &list, i, mesh_ui_settings_section_name(row), label_cols, "",
-                              loaded ? "" : "not loaded", loaded ? FB_TONE_NORMAL : FB_TONE_DIM);
+                              loaded ? "" : "not loaded",
+                              loaded ? MESH_UI_TONE_NORMAL : MESH_UI_TONE_DIM);
         }
     }
 }
 
 void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
                         const struct mesh_ui_snapshot *snapshot) {
-    fb_clear(state, k_fb_bg);
+    fb_clear(state, fb_color(state, MESH_UI_COLOR_BG));
 
     struct fb_layout layout;
     memset(&layout, 0, sizeof layout);
-    layout.small = state->scale > FB_MIN_SCALE ? state->scale - 1 : FB_MIN_SCALE;
-    layout.line = fb_line_adv(state->scale);
+    layout.small = mesh_ui_theme_chrome_scale(state->theme, state->scale);
+    layout.line = fb_line_adv(state, state->scale);
     layout.cols = fb_cols(state, state->scale);
 
     fb_draw_tabs(state, snapshot, &layout);
 
-    const int footer_height = 2 * fb_line_adv(layout.small) + FB_MARGIN;
+    const int margin = fb_margin(state);
+    const int footer_height = 2 * fb_line_adv(state, layout.small) + margin;
     layout.footer_y = (int)state->var.yres - footer_height;
-    const int body_height = layout.footer_y - layout.body_y - FB_MARGIN / 2;
+    const int body_height = layout.footer_y - layout.body_y - margin / 2;
     layout.rows = body_height > 0 ? (uint32_t)(body_height / layout.line) : 0U;
 
     const char *hint = "A select  B back  Left/Right tabs";

@@ -1,6 +1,8 @@
 #ifndef MESH_UI_FONT5X7_H
 #define MESH_UI_FONT5X7_H
 
+#include "mesh/ui/font.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -41,6 +43,10 @@ bool mesh_font5x7_glyph(uint32_t codepoint, struct mesh_font_glyph *out);
 
 /* Whether the font has a real glyph for `codepoint`, without building it. */
 bool mesh_font5x7_has_glyph(uint32_t codepoint);
+
+/* This font as a `struct mesh_ui_font`, which is how a theme reaches it. Everything that draws
+   goes through that descriptor; the two functions above are its implementation. */
+const struct mesh_ui_font *mesh_ui_font5x7(void);
 
 #ifdef __cplusplus
 }

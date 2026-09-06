@@ -9,6 +9,10 @@
  * caller of fb_internal.h, and reaching that header from outside the group would widen the
  * seam the split exists to keep narrow.
  *
+ * The theme comes from MESHCLIENT_THEME like the device backend's does, and
+ * mesh_ui_capture_set_theme() overrides it - which is how one scene script renders the same
+ * frames in four looks.
+ *
  * The fabricated fb_var_screeninfo leaves every bitfield zero. compose_color() then takes its
  * 32 bpp path and packs 0xFFRRGGBB, which is what the Brick's fb0 actually holds - so a page
  * from here is interchangeable with a page dd'd off the device.
@@ -29,19 +33,6 @@ struct mesh_ui_capture {
     uint32_t width;
     uint32_t height;
 };
-
-static int capture_clamp_scale(int scale) {
-    if (scale <= 0) {
-        return FB_DEFAULT_SCALE;
-    }
-    if (scale < FB_MIN_SCALE) {
-        return FB_MIN_SCALE;
-    }
-    if (scale > FB_MAX_SCALE) {
-        return FB_MAX_SCALE;
-    }
-    return scale;
-}
 
 int mesh_ui_capture_open(struct mesh_ui_capture **out, uint32_t width, uint32_t height, int scale) {
     if (out == NULL || width == 0U || height == 0U) {
@@ -81,7 +72,7 @@ int mesh_ui_capture_open(struct mesh_ui_capture **out, uint32_t width, uint32_t 
     state->fix.line_length = (uint32_t)stride;
     state->line_bytes = (uint32_t)stride;
     state->bytes_per_pixel = 4U;
-    state->scale = capture_clamp_scale(scale);
+    fb_state_set_theme(state, mesh_ui_theme_from_env(), scale);
 
     *out = capture;
     return 0;
@@ -99,7 +90,21 @@ void mesh_ui_capture_set_scale(struct mesh_ui_capture *capture, int scale) {
     if (capture == NULL) {
         return;
     }
-    capture->state.scale = capture_clamp_scale(scale);
+    capture->state.scale = mesh_ui_theme_clamp_scale(capture->state.theme, scale);
+}
+
+void mesh_ui_capture_set_theme(struct mesh_ui_capture *capture, const struct mesh_ui_theme *theme) {
+    if (capture == NULL) {
+        return;
+    }
+    /* The scale rides along: a theme carries one, and a capture that kept the previous theme's
+       would render the new one at a size it never asks for. A caller that wants both says so by
+       calling set_scale() afterwards, which is what the scene script's `scale` line does. */
+    fb_state_set_theme(&capture->state, theme, 0);
+}
+
+const struct mesh_ui_theme *mesh_ui_capture_theme(const struct mesh_ui_capture *capture) {
+    return capture != NULL ? capture->state.theme : NULL;
 }
 
 void mesh_ui_capture_render(struct mesh_ui_capture *capture,

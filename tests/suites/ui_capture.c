@@ -16,15 +16,20 @@
 #include "mesh/ui/backends/fb_capture.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/store.h"
+#include "mesh/ui/theme.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
-/* The palette's background, which fb_render_snapshot() clears to before drawing anything. */
+/* The active theme's ground, which fb_render_snapshot() clears to before drawing anything.
+   Asked of the theme rather than spelled out, so a palette change is not a test change; the
+   themes themselves are covered in ui_theme.c. */
 static bool pixel_is_background(const uint8_t *pixel) {
-    return pixel[0] == 0x1EU && pixel[1] == 0x14U && pixel[2] == 0x0AU;
+    const struct mesh_ui_rgb bg = mesh_ui_theme_color(mesh_ui_theme_default(), MESH_UI_COLOR_BG);
+    /* 32 bpp with every bitfield zero, which is what the capture fabricates: B,G,R,X. */
+    return pixel[0] == bg.b && pixel[1] == bg.g && pixel[2] == bg.r;
 }
 
 static size_t count_drawn(const uint8_t *pixels, uint32_t width, uint32_t height, size_t stride) {

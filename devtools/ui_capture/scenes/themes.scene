@@ -1,0 +1,20 @@
+# The same conversation in every theme, switched live.
+#
+# What it is for: a palette change is only reviewable next to the thing it replaces, and a
+# theme that reads well on a desktop monitor can be unreadable on a 3.2" panel in daylight.
+# Each `theme` line re-renders the screen already on show, so the strip is one screen, four
+# looks, with nothing else moving.
+scene demo
+scale 4
+delay 900
+
+key a
+hold 600
+theme light
+hold 900
+theme contrast
+hold 900
+theme colorblind
+hold 900
+theme dark
+hold 900

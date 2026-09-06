@@ -16,6 +16,7 @@
 #   -o, --out FILE        output path; .png captures a single frame, anything else is a GIF.
 #                         Default: the scene's name with .gif, or ui-capture.gif from stdin.
 #   -s, --scale N         glyph scale 2..6 (the device default is 4)
+#   -t, --theme NAME      dark|light|contrast|colorblind; a scene's own `theme` still wins
 #   -d, --downscale N     shrink the output by an integer factor. Default 2 for a GIF, 1 for a
 #                         PNG - the panel is 1024x768 and a full-size clip is four times the file
 #                         for no more legibility.
@@ -39,6 +40,7 @@ die() { echo "ui-capture: $*" >&2; exit 1; }
 
 OUT=""
 SCALE=""
+THEME=""
 DOWNSCALE=""
 DELAY=""
 FRAMES_DIR=""
@@ -50,6 +52,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         -o|--out) OUT="${2:-}"; shift 2 ;;
         -s|--scale) SCALE="${2:-}"; shift 2 ;;
+        -t|--theme) THEME="${2:-}"; shift 2 ;;
         -d|--downscale) DOWNSCALE="${2:-}"; shift 2 ;;
         --delay) DELAY="${2:-}"; shift 2 ;;
         --frames) FRAMES_DIR="${2:-}"; KEEP=1; shift 2 ;;
@@ -102,6 +105,7 @@ fi
 
 CAP_ARGS=(--out "${FRAMES_DIR}" --quiet)
 [[ -n "${SCALE}" ]] && CAP_ARGS+=(--scale "${SCALE}")
+[[ -n "${THEME}" ]] && CAP_ARGS+=(--theme "${THEME}")
 [[ -n "${DELAY}" ]] && CAP_ARGS+=(--delay "${DELAY}")
 [[ "${SCENE_PATH}" != "-" ]] && CAP_ARGS+=(--script "${SCENE_PATH}")
 

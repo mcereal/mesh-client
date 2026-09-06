@@ -23,8 +23,18 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-static int fb_scale_from_env(void) {
-    return (int)mesh_env_int("MESHCLIENT_FB_SCALE", FB_MIN_SCALE, FB_MAX_SCALE, FB_DEFAULT_SCALE);
+/*
+ * The look this run is drawn with.
+ *
+ * MESHCLIENT_THEME names it (see src/ui/theme.c for the list) and MESHCLIENT_FB_SCALE overrides
+ * the glyph multiplier the theme asks for - an environment variable rather than a flag because
+ * on the Brick the app is started by launch.sh, not by anyone with a shell.
+ */
+static void fb_apply_theme_from_env(struct mesh_ui_backend_fb_state *state) {
+    const struct mesh_ui_theme *theme = mesh_ui_theme_from_env();
+    const int scale = (int)mesh_env_int("MESHCLIENT_FB_SCALE", MESH_UI_SCALE_MIN, MESH_UI_SCALE_MAX,
+                                        mesh_ui_theme_scale(theme));
+    fb_state_set_theme(state, theme, scale);
 }
 
 static int mesh_ui_backend_fb_init(void **state_out, void *userdata) {
@@ -36,7 +46,7 @@ static int mesh_ui_backend_fb_init(void **state_out, void *userdata) {
     static struct mesh_ui_backend_fb_state state_storage;
     struct mesh_ui_backend_fb_state *state = &state_storage;
     memset(state, 0, sizeof *state);
-    state->scale = fb_scale_from_env();
+    fb_apply_theme_from_env(state);
 
     state->fb_fd = open("/dev/fb0", O_RDWR);
     if (state->fb_fd < 0) {
@@ -69,10 +79,12 @@ static int mesh_ui_backend_fb_init(void **state_out, void *userdata) {
         return -errno;
     }
 
-    mesh_log_info("ui", "Framebuffer UI backend active (%ux%u %u bpp, virtual %ux%u, offset %u,%u)",
+    mesh_log_info("ui",
+                  "Framebuffer UI backend active (%ux%u %u bpp, virtual %ux%u, offset %u,%u, "
+                  "theme %s at scale %d)",
                   state->var.xres, state->var.yres, state->var.bits_per_pixel,
                   state->var.xres_virtual, state->var.yres_virtual, state->var.xoffset,
-                  state->var.yoffset);
+                  state->var.yoffset, state->theme->id, state->scale);
 
     if (state_out != NULL) {
         *state_out = state;

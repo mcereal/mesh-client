@@ -1,0 +1,171 @@
+#ifndef MESH_UI_THEME_H
+#define MESH_UI_THEME_H
+
+/*
+ * Themes: the colours, the metrics and the font a frame is drawn with.
+ *
+ * A renderer never names a colour. It names a *role* - "the ground", "the fill under the
+ * cursor", "text on an accent fill" - or a *tone*, which is the same idea one level up: what a
+ * piece of text means, rather than what colour it is. The theme answers, so a new look is a
+ * table in src/ui/theme.c and nothing else, and every screen switches together because none of
+ * them holds an opinion of its own.
+ *
+ * The same goes for geometry. The margin, the glyph multiplier, how much smaller chrome text
+ * is, how wide a bubble may grow, when the label column gives way on a narrow body: those were
+ * literals scattered through the drawing code, and a theme that wanted a roomier layout had to
+ * find all of them. They are `struct mesh_ui_metrics` now.
+ *
+ * Nothing here knows about the framebuffer. That is deliberate: tones and metrics are the
+ * vocabulary of *the UI*, and a second backend that grows colour (a colour CLI, an SDL window
+ * on a desktop) should speak it too rather than inventing a parallel one.
+ */
+
+#include "mesh/ui/font.h"
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+struct mesh_ui_rgb {
+    uint8_t r, g, b;
+};
+
+/*
+ * Every colour a frame can use, named for the job it does.
+ *
+ * Adding a role is how a new visual element gets themed. Adding it means every theme answers
+ * for it, which is the point - a role that only one theme fills is a hardcoded colour with
+ * extra steps.
+ */
+enum mesh_ui_color {
+    MESH_UI_COLOR_BG = 0,      /* the ground the whole frame is cleared to */
+    MESH_UI_COLOR_SURFACE,     /* a raised panel on the ground: the draft box */
+    MESH_UI_COLOR_SURFACE_SEL, /* the fill under the cursor, and a button at rest */
+    MESH_UI_COLOR_SURFACE_ACTIVE, /* the active tab, a pressed button */
+    MESH_UI_COLOR_TEXT,           /* body text */
+    MESH_UI_COLOR_TEXT_DIM,       /* headings, secondary lines, anything not yet loaded */
+    MESH_UI_COLOR_TEXT_STRONG,    /* unread, unsaved: the row the eye should land on */
+    MESH_UI_COLOR_TEXT_ON_SEL,    /* text drawn on SURFACE_SEL or SURFACE_ACTIVE */
+    MESH_UI_COLOR_ACCENT,         /* titles, actions, channels, the current target */
+    MESH_UI_COLOR_ON_ACCENT,      /* text drawn on an accent fill: the unread badge */
+    MESH_UI_COLOR_GOOD,           /* connected, healthy */
+    MESH_UI_COLOR_BAD,            /* disconnected, failed, armed to destroy something */
+    MESH_UI_COLOR_RULE,           /* hairline separators */
+    MESH_UI_COLOR_RULE_STRONG,    /* the rule under the tab strip */
+    MESH_UI_COLOR_BUBBLE_IN,      /* a message from someone else */
+    MESH_UI_COLOR_BUBBLE_OUT,     /* one of ours */
+    MESH_UI_COLOR_BUBBLE_IN_SEL,  /* the same two under the cursor */
+    MESH_UI_COLOR_BUBBLE_OUT_SEL,
+    MESH_UI_COLOR_BUBBLE_FAILED, /* the radio said it did not get there */
+    MESH_UI_COLOR_TEXT_INBOUND,  /* text on an inbound bubble */
+    MESH_UI_COLOR_TEXT_OUTBOUND, /* text on one of ours */
+    MESH_UI_COLOR_COUNT
+};
+
+/*
+ * What a piece of content *is*, rather than which colour to draw it.
+ *
+ * This is the vocabulary screens speak. It is a level above the roles above: a screen says
+ * "this row is bad news" and the theme decides both which role that maps to and what colour
+ * the role holds. Same reason a stylesheet has a token called `danger` instead of a hex.
+ */
+enum mesh_ui_tone {
+    MESH_UI_TONE_NORMAL = 0,
+    MESH_UI_TONE_DIM,
+    MESH_UI_TONE_STRONG,
+    MESH_UI_TONE_ACCENT,
+    MESH_UI_TONE_GOOD,
+    MESH_UI_TONE_BAD,
+    MESH_UI_TONE_INBOUND,
+    MESH_UI_TONE_OUTBOUND,
+    MESH_UI_TONE_COUNT
+};
+
+/* The glyph multipliers the UI will accept, whatever a theme asks for. The lower bound is
+   legibility on the Brick's 3.2" panel; the upper is the buffers sized off it. */
+#define MESH_UI_SCALE_MIN 2
+#define MESH_UI_SCALE_MAX 6
+
+/*
+ * The geometry a theme owns.
+ *
+ * Everything here was a literal in a drawing function once. They are theme data because a
+ * "large text" theme is exactly this struct with a different `scale`, and a roomier one is a
+ * different `margin` - neither should need a renderer to be touched.
+ */
+struct mesh_ui_metrics {
+    uint8_t margin;            /* pixels between the panel edge and the body */
+    uint8_t scale;             /* glyph multiplier for body text */
+    uint8_t chrome_scale_down; /* steps smaller the tab bar and footer are drawn */
+    uint8_t bubble_width_pct;  /* how much of the body a chat bubble may fill */
+    uint8_t field_label_cols;  /* preferred label column, in cells */
+    uint8_t narrow_cols;       /* a body narrower than this halves the label column */
+};
+
+struct mesh_ui_theme {
+    const char *id;      /* what MESHCLIENT_THEME and a saved preference name it by */
+    const char *name;    /* what a menu would show */
+    const char *font_id; /* resolved against the font registry; NULL means the default */
+    bool dark;           /* whether the ground is darker than the text; nothing draws
+                            differently for it, but a caller choosing a default cares */
+    struct mesh_ui_rgb colors[MESH_UI_COLOR_COUNT];
+    struct mesh_ui_metrics metrics;
+};
+
+/* The registry. Index order is menu order, and `dark` is index 0. */
+size_t mesh_ui_theme_count(void);
+const struct mesh_ui_theme *mesh_ui_theme_at(size_t index);
+const struct mesh_ui_theme *mesh_ui_theme_by_id(const char *id); /* NULL when unknown */
+const struct mesh_ui_theme *mesh_ui_theme_default(void);
+
+/*
+ * The theme MESHCLIENT_THEME names, or the default when it is unset or names nothing.
+ *
+ * An unknown name warns rather than failing: a typo in an environment variable should not
+ * leave a handheld with no UI.
+ */
+const struct mesh_ui_theme *mesh_ui_theme_from_env(void);
+
+/* Lookups. A NULL theme resolves to the default, so no caller has to guard. */
+struct mesh_ui_rgb mesh_ui_theme_color(const struct mesh_ui_theme *theme, enum mesh_ui_color role);
+struct mesh_ui_rgb mesh_ui_theme_tone(const struct mesh_ui_theme *theme, enum mesh_ui_tone tone);
+enum mesh_ui_color mesh_ui_tone_role(enum mesh_ui_tone tone);
+const struct mesh_ui_font *mesh_ui_theme_font(const struct mesh_ui_theme *theme);
+const struct mesh_ui_metrics *mesh_ui_theme_metrics(const struct mesh_ui_theme *theme);
+
+/* The theme's glyph multiplier, clamped into [MESH_UI_SCALE_MIN, MESH_UI_SCALE_MAX]. */
+int mesh_ui_theme_scale(const struct mesh_ui_theme *theme);
+/* The multiplier chrome is drawn at, given the body's. Never below the minimum. */
+int mesh_ui_theme_chrome_scale(const struct mesh_ui_theme *theme, int scale);
+/* Clamps any multiplier into the accepted range; 0 or less means "the theme's own". */
+int mesh_ui_theme_clamp_scale(const struct mesh_ui_theme *theme, int scale);
+
+/*
+ * The WCAG contrast ratio between two colours, from 1.0 (identical) to 21.0 (black on white).
+ *
+ * The arithmetic is the standard one: undo the display's gamma on each channel, weight them by
+ * how much the eye gets from each (green most, blue least) to get a relative luminance, then
+ * compare the lighter against the darker. It is here rather than in a test because it is what
+ * makes "is this theme readable?" a question with an answer - see mesh_ui_theme_validate().
+ */
+double mesh_ui_theme_contrast(struct mesh_ui_rgb a, struct mesh_ui_rgb b);
+
+/*
+ * Whether a theme's text is readable on the grounds it is drawn on.
+ *
+ * Body text needs 4.5:1 and secondary text 3.0:1, which are the WCAG AA thresholds; a hairline
+ * only has to be visible at all. On failure `reason` (when given) names the pair that failed,
+ * so a theme added later fails with an explanation rather than by looking wrong on a handheld
+ * somebody has taken outdoors.
+ */
+bool mesh_ui_theme_validate(const struct mesh_ui_theme *theme, char *reason, size_t reason_len);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* MESH_UI_THEME_H */

@@ -6,7 +6,7 @@
  *
  * The layering under src/ui/backends/ is:
  *
- *   fb_draw.c     pixels, glyphs, the palette, the page geometry     "how to put ink down"
+ *   fb_draw.c     pixels, glyphs, the theme lookups, page geometry   "how to put ink down"
  *   fb_widgets.c  buttons, chips, list rows, field rows, rules       "what things look like"
  *   fb_screens.c  one renderer per screen                            "what is on this screen"
  *
@@ -23,30 +23,21 @@
 #include "fb_internal.h"
 
 #include "mesh/ui/layout.h"
+#include "mesh/ui/theme.h"
 
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
 /*
- * What a thing *is*, rather than which colour to draw it.
+ * Tones - what a thing *is*, rather than which colour to draw it - live in
+ * include/mesh/ui/theme.h as `enum mesh_ui_tone`, because they are the UI's vocabulary rather
+ * than this backend's. A screen names one, the theme answers, and fb_tone_color() on the state
+ * is the only place the two meet.
  *
- * Screens name a tone and the palette answers, so re-theming is one function here rather than
- * a hunt for k_fb_accent across nine renderers - the same reason a stylesheet has a token
- * called "danger" instead of the hex for red.
+ * A widget takes a tone, never a colour, for the same reason a stylesheet has a token called
+ * "danger" instead of the hex for red: it is what lets a theme change the answer.
  */
-enum fb_tone {
-    FB_TONE_NORMAL = 0, /* body text */
-    FB_TONE_DIM,        /* headings, secondary lines, anything not yet loaded */
-    FB_TONE_STRONG,     /* unread, unsaved, the row the eye should land on */
-    FB_TONE_ACCENT,     /* actions, channels, the current target */
-    FB_TONE_GOOD,       /* connected, healthy */
-    FB_TONE_BAD,        /* disconnected, failed, armed to destroy something */
-    FB_TONE_INBOUND,    /* a message from someone else */
-    FB_TONE_OUTBOUND,   /* one of ours */
-};
-
-struct fb_rgb fb_tone_color(enum fb_tone tone);
 
 /* A box in pixels. */
 struct fb_rect {
@@ -63,10 +54,10 @@ struct fb_rect {
 struct fb_button {
     struct fb_rect rect;
     const char *label;
-    bool selected;          /* the cursor is on it */
-    bool filled;            /* keep a resting fill when it is not selected */
-    enum fb_tone idle_tone; /* label colour when it is not selected */
-    int scale;              /* glyph multiplier for the label */
+    bool selected;               /* the cursor is on it */
+    bool filled;                 /* keep a resting fill when it is not selected */
+    enum mesh_ui_tone idle_tone; /* label tone when it is not selected */
+    int scale;                   /* glyph multiplier for the label */
 };
 
 void fb_draw_button(const struct mesh_ui_backend_fb_state *state, const struct fb_button *button);
@@ -89,9 +80,11 @@ void fb_draw_title(const struct mesh_ui_backend_fb_state *state, struct fb_layou
 void fb_draw_empty(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
                    const char *text);
 
-/* A hairline separator - under the tab strip, above a detail pane. */
+/* A hairline separator - under the tab strip, above a detail pane. The role says which of the
+   theme's two rule colours it is: MESH_UI_COLOR_RULE for a separator inside the body,
+   MESH_UI_COLOR_RULE_STRONG for the one that closes the chrome off. */
 void fb_draw_rule(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int scale,
-                  struct fb_rgb color);
+                  enum mesh_ui_color role);
 
 /*
  * A scrolling list of rows, drawn top to bottom.
@@ -128,11 +121,11 @@ bool fb_list_next(struct fb_list *list, uint32_t *index);
 
 /* Draws the row - highlighted when `index` is the cursor - and advances. */
 void fb_list_row(const struct mesh_ui_backend_fb_state *state, struct fb_list *list, uint32_t index,
-                 const char *text, enum fb_tone tone);
+                 const char *text, enum mesh_ui_tone tone);
 
 /* Same, taking the line builder directly, which is how most rows are assembled. */
 void fb_list_row_line(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
-                      uint32_t index, struct mesh_ui_line *line, enum fb_tone tone);
+                      uint32_t index, struct mesh_ui_line *line, enum mesh_ui_tone tone);
 
 /*
  * The same row with a filled count badge flush against the right edge - an unread count, said
@@ -140,7 +133,7 @@ void fb_list_row_line(const struct mesh_ui_backend_fb_state *state, struct fb_li
  * drawn under it. `badge` of NULL or "" draws the plain row.
  */
 void fb_list_row_line_badge(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
-                            uint32_t index, struct mesh_ui_line *line, enum fb_tone tone,
+                            uint32_t index, struct mesh_ui_line *line, enum mesh_ui_tone tone,
                             const char *badge);
 
 /*
@@ -148,7 +141,7 @@ void fb_list_row_line_badge(const struct mesh_ui_backend_fb_state *state, struct
  * because it is part of the item above it rather than something to select.
  */
 void fb_list_sub_row(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
-                     const char *text, enum fb_tone tone);
+                     const char *text, enum mesh_ui_tone tone);
 
 /*
  * A chat bubble: the component the thread screen is made of.
@@ -173,7 +166,8 @@ struct fb_bubble {
 };
 
 /* Body rows the bubble occupies, separator included. Ask before placing it. */
-uint32_t fb_bubble_rows(const struct fb_layout *layout, const struct fb_bubble *bubble);
+uint32_t fb_bubble_rows(const struct mesh_ui_backend_fb_state *state,
+                        const struct fb_layout *layout, const struct fb_bubble *bubble);
 
 /* Draws it with its top row at `y`. Occupies exactly fb_bubble_rows() rows. */
 void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
@@ -190,10 +184,12 @@ void fb_draw_separator(const struct mesh_ui_backend_fb_state *state, int y, cons
  */
 void fb_list_field_row(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
                        uint32_t index, const char *label, size_t label_cols, const char *marker,
-                       const char *value, enum fb_tone tone);
+                       const char *value, enum mesh_ui_tone tone);
 
-/* The label column width for a body this wide - narrow scales give the value more room. */
-size_t fb_field_label_cols(const struct fb_layout *layout, size_t preferred);
+/* The label column width for a body this wide - narrow scales give the value more room, at the
+   width the theme calls narrow. `preferred` of 0 takes the theme's own. */
+size_t fb_field_label_cols(const struct mesh_ui_backend_fb_state *state,
+                           const struct fb_layout *layout, size_t preferred);
 
 /* "Messages (12)", or "Messages (12, +40 older)" when a ring has dropped some. */
 void fb_title_count(char *out, size_t out_len, const char *name, uint32_t count, uint32_t dropped);
@@ -206,7 +202,7 @@ void fb_title_count(char *out, size_t out_len, const char *name, uint32_t count,
  * somebody's device.
  */
 void fb_draw_status_row(const struct mesh_ui_backend_fb_state *state,
-                        const struct fb_layout *layout, int *y, enum fb_tone tone,
+                        const struct fb_layout *layout, int *y, enum mesh_ui_tone tone,
                         const char *label, const char *fmt, ...)
 #if defined(__GNUC__)
     __attribute__((format(printf, 6, 7)))
