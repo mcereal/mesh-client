@@ -16,13 +16,48 @@
 #include <stdio.h>
 #include <string.h>
 
+/*
+ * The fill a variant wears in a state, and the ink that goes on it.
+ *
+ * One table rather than a chain of ifs at the draw site, because the point of a variant is
+ * that its two colours travel together: every pair below is one mesh_ui_theme_validate()
+ * holds to 4.5:1, and splitting them across branches is how a label ends up on a fill nothing
+ * checked it against. `has_fill` false means the button draws no ground of its own and the
+ * caller's idle tone is the ink.
+ */
+struct fb_button_paint {
+    bool has_fill;
+    enum mesh_ui_color fill;
+    enum mesh_ui_color ink;
+};
+
+static struct fb_button_paint fb_button_paint(enum fb_button_variant variant, bool selected) {
+    switch (variant) {
+    case FB_BUTTON_FILLED:
+        return (struct fb_button_paint){
+            true, selected ? MESH_UI_COLOR_SURFACE_ACTIVE : MESH_UI_COLOR_SURFACE_SEL,
+            MESH_UI_COLOR_TEXT_ON_SEL};
+    case FB_BUTTON_TONAL:
+        /* Under the cursor a tonal control commits to the full accent: the held-back fill is
+           there so a label can be read over it, and a control being pressed has stopped being
+           something to read. */
+        return selected
+                   ? (struct fb_button_paint){true, MESH_UI_COLOR_ACCENT, MESH_UI_COLOR_ON_ACCENT}
+                   : (struct fb_button_paint){true, MESH_UI_COLOR_ACCENT_CONTAINER,
+                                              MESH_UI_COLOR_ON_ACCENT_CONTAINER};
+    case FB_BUTTON_TEXT:
+    default:
+        return selected ? (struct fb_button_paint){true, MESH_UI_COLOR_SURFACE_ACTIVE,
+                                                   MESH_UI_COLOR_TEXT_ON_SEL}
+                        : (struct fb_button_paint){false, MESH_UI_COLOR_BG, MESH_UI_COLOR_TEXT};
+    }
+}
+
 void fb_draw_button(const struct mesh_ui_backend_fb_state *state, const struct fb_button *button) {
-    if (button->selected) {
-        fb_fill_rect(state, button->rect.x, button->rect.y, button->rect.w, button->rect.h,
-                     fb_color(state, MESH_UI_COLOR_SURFACE_ACTIVE));
-    } else if (button->filled) {
-        fb_fill_rect(state, button->rect.x, button->rect.y, button->rect.w, button->rect.h,
-                     fb_color(state, MESH_UI_COLOR_SURFACE_SEL));
+    const struct fb_button_paint paint = fb_button_paint(button->variant, button->selected);
+    if (paint.has_fill) {
+        fb_fill_round_rect(state, button->rect.x, button->rect.y, button->rect.w, button->rect.h,
+                           fb_radius(state, button->shape), fb_color(state, paint.fill));
     }
 
     if (button->label == NULL || button->label[0] == '\0') {
@@ -37,25 +72,41 @@ void fb_draw_button(const struct mesh_ui_backend_fb_state *state, const struct f
     const int text_h = (int)fb_font(state)->height * button->scale;
     const int x = button->rect.x + (button->rect.w - text_w) / 2;
     const int y = button->rect.y + (button->rect.h - text_h) / 2;
-    /* Any fill at all - the cursor's or a resting one - means the label is drawn in the colour
-       the theme validates against that fill. Only a button with no fill is free to take its
-       idle tone: a resting fill and the text over it are exactly the pair a theme is held to,
-       and reading the tone there is how the keyboard's action row came out white on white. */
-    const bool on_fill = button->selected || button->filled;
+    /* Any fill at all means the label is drawn in the colour the theme validates against that
+       fill. Only a button with no fill is free to take its idle tone, which is chosen against
+       the ground - reading the tone over a fill is how the keyboard's action row came out
+       white on white. */
     fb_draw_text(state, x, y, button->label, button->scale,
-                 on_fill ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL)
-                         : fb_tone_color(state, button->idle_tone));
+                 paint.has_fill ? fb_color(state, paint.ink)
+                                : fb_tone_color(state, button->idle_tone));
 }
 
 int fb_draw_chip(const struct mesh_ui_backend_fb_state *state, int x, int y, const char *label,
                  bool active, int scale) {
     const int adv = fb_char_adv(state, scale);
-    const int width = (int)mesh_ui_text_cells(label) * adv + 2 * scale;
+    /*
+     * Padding enough to clear the capsule's own curve, and derived from the *glyph scale*
+     * rather than from the cell advance.
+     *
+     * A capsule's ends eat into their own corners, so a label needs room the flat-sided chip
+     * did not: the pill's radius is half its height - (7 + 2) / 2 scale steps for the 5x7 font
+     * - and at the top and bottom of a glyph body the edge has curved inwards by about 1.7
+     * steps. Two either side clears that with room to spare.
+     *
+     * Why not measure it in cells, which is how everything else here is measured? Because a
+     * cell is six scale steps wide, so a cell of padding either side is three times what the
+     * curve needs, and the strip has to *fit*: five tabs at MESHCLIENT_FB_SCALE=5 leave about
+     * 60 px of slack across a 1024 px panel, and a padding that generous spends 240 of it. The
+     * last tab and its indicator then fall off the right-hand edge, which is a navigation tab
+     * the user can no longer see rather than a cosmetic overflow.
+     */
+    const int width = (int)mesh_ui_text_cells(label) * adv + 4 * scale;
     const struct fb_button button = {
         .rect = {.x = x, .y = y - scale, .w = width, .h = fb_line_adv(state, scale)},
         .label = label,
-        .selected = active,
-        .filled = false,
+        .selected = false,
+        .variant = active ? FB_BUTTON_TONAL : FB_BUTTON_TEXT,
+        .shape = MESH_UI_SHAPE_FULL,
         .idle_tone = MESH_UI_TONE_DIM,
         .scale = scale,
     };
@@ -148,8 +199,12 @@ void fb_list_row_line_badge(const struct mesh_ui_backend_fb_state *state, struct
 
     const int width = (int)badge_cols * adv + adv;
     const int x = (int)state->var.xres - fb_margin(state) - width;
-    fb_fill_rect(state, x, y - state->scale, width, fb_line_adv(state, state->scale) - state->scale,
-                 fb_color(state, MESH_UI_COLOR_ACCENT));
+    /* A capsule, the way every messenger draws a count. The shape is doing the work here: a
+       filled rectangle of accent on the end of a row reads as part of the row, and the same
+       fill with its ends taken off reads as a thing sitting on top of it. */
+    fb_fill_round_rect(state, x, y - state->scale, width,
+                       fb_line_adv(state, state->scale) - state->scale,
+                       fb_radius(state, MESH_UI_SHAPE_FULL), fb_color(state, MESH_UI_COLOR_ACCENT));
     /* Whatever the theme says reads on its own accent fill - on the dark theme that is the
        ground colour, because white on that yellow is unreadable at this glyph size. */
     fb_draw_text(state, x + adv / 2, y, badge, state->scale,
@@ -212,12 +267,23 @@ void fb_draw_conversation(const struct mesh_ui_backend_fb_state *state, struct f
     const int height = 2 * list->line - 2 * scale;
 
     if (selected) {
-        fb_fill_round_rect(state, margin / 2, top, (int)state->var.xres - margin, height, scale,
+        /*
+         * The same shape a plain list row's cursor takes, and the bar down its outer edge is
+         * laid the way a card's edge is: the accent shape first, the fill over it a scale
+         * narrower on the left only. Both share their right edge, so the accent survives just
+         * where the bar is meant to be - and it follows the corner instead of poking a square
+         * end out of it, which is what a straight bar does once the row has ends.
+         *
+         * The bar is not decoration: a fill one step off the ground is not by itself findable
+         * on a small panel in sunlight, and gives a colour-blind eye nothing at all.
+         */
+        const int radius = fb_radius(state, MESH_UI_SHAPE_SM);
+        const int row_x = margin / 2;
+        const int row_w = (int)state->var.xres - margin;
+        fb_fill_round_rect(state, row_x, top, row_w, height, radius,
+                           fb_color(state, MESH_UI_COLOR_ACCENT));
+        fb_fill_round_rect(state, row_x + scale, top, row_w - scale, height, radius,
                            fb_color(state, MESH_UI_COLOR_SURFACE_SEL));
-        /* And a bar down the outer edge, for the same reason the selected bubble gets one: a
-           fill one step off the ground is not by itself findable on a small panel in sunlight,
-           and gives a colour-blind eye nothing at all. */
-        fb_fill_rect(state, margin / 2, top, scale, height, fb_color(state, MESH_UI_COLOR_ACCENT));
     }
 
     /* The disc, and the text column that starts after it. */
@@ -465,14 +531,26 @@ void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct f
         fill_role = bubble->selected ? MESH_UI_COLOR_BUBBLE_IN_SEL : MESH_UI_COLOR_BUBBLE_IN;
     }
     const struct mesh_ui_rgb fill = fb_color(state, fill_role);
-    fb_fill_rect(state, box_x, y - scale, box_w, box_h, fill);
-
-    /* The cursor also gets a bar down its outer edge: on a small panel a fill one step lighter
-       is not by itself enough to find, and a colour-blind eye gets nothing from it at all. */
+    /*
+     * Rounded, because a bubble is the one shape in this UI that everybody already has a
+     * picture of: a transcript of square boxes reads as a log, and the same boxes with their
+     * corners off read as a conversation. It is the panel shape, so how round belongs to the
+     * theme along with everything else about it.
+     *
+     * The cursor also gets a bar down its outer edge - on a small panel a fill one step lighter
+     * is not by itself enough to find, and a colour-blind eye gets nothing from it at all - and
+     * it is laid as the card's edge is: the accent shape first, the fill over it a scale
+     * narrower on the outer side only, so the bar follows the corner rather than squaring it
+     * off. The three edges the two shapes share leave no accent showing on them.
+     */
+    const int radius = fb_radius(state, MESH_UI_SHAPE_MD);
     if (bubble->selected) {
-        const int bar_x = bubble->outbound ? box_x + box_w - scale : box_x;
-        fb_fill_rect(state, bar_x, y - scale, scale, box_h, fb_color(state, MESH_UI_COLOR_ACCENT));
+        fb_fill_round_rect(state, box_x, y - scale, box_w, box_h, radius,
+                           fb_color(state, MESH_UI_COLOR_ACCENT));
     }
+    const int fill_x = (bubble->selected && !bubble->outbound) ? box_x + scale : box_x;
+    const int fill_w = bubble->selected ? box_w - scale : box_w;
+    fb_fill_round_rect(state, fill_x, y - scale, fill_w, box_h, radius, fill);
 
     const int text_x = box_x + pad;
     const struct mesh_ui_rgb body =
@@ -591,8 +669,8 @@ static struct fb_card_metrics fb_card_measure(const struct mesh_ui_backend_fb_st
        either end of one. A card padded equally all round reads bottom-heavy for that reason,
        and on a panel with fifteen body rows it costs the better part of one per card. */
     m.pad_y = m.pad / 2 > 0 ? m.pad / 2 : m.pad;
-    m.edge = scale / 2 > 0 ? scale / 2 : 1;
-    m.radius = (int)metrics->card_radius * scale;
+    m.edge = fb_edge(state);
+    m.radius = fb_radius(state, MESH_UI_SHAPE_MD);
     /* A heading is drawn at the chrome scale, the size the tab strip and the footer are: a
        section label is not something to read, it is something to find, and at the body scale it
        costs a whole row of content on a panel that has fifteen of them. */
@@ -846,12 +924,13 @@ bool fb_draw_card(const struct mesh_ui_backend_fb_state *state, const struct fb_
      * The edge is not decoration. On a theme whose surface is a step off the ground - which is
      * every one that ships, because a surface far from the ground is a surface body text is no
      * longer validated against - the fill alone is nearly invisible in daylight, and the
-     * hairline is the whole of what says a card is there. mesh_ui_theme_validate() holds RULE
-     * against both the ground and the surface for exactly this.
+     * hairline is the whole of what says a card is there. It is drawn in OUTLINE rather than
+     * RULE for that reason: a separator may fade politely into what it divides, an edge may
+     * not. mesh_ui_theme_validate() holds OUTLINE against both the ground and the surface.
      */
     const int top = *y;
     fb_fill_round_rect(state, m.x, top, m.width, height, m.radius + m.edge,
-                       fb_color(state, MESH_UI_COLOR_RULE));
+                       fb_color(state, MESH_UI_COLOR_OUTLINE));
     fb_fill_round_rect(state, m.x + m.edge, top + m.edge, m.width - 2 * m.edge, height - 2 * m.edge,
                        m.radius, fb_color(state, MESH_UI_COLOR_SURFACE));
 

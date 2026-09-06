@@ -176,7 +176,7 @@ MESH_TEST_CASE(ui_theme_validate_rejects_an_unreadable_palette, unit) {
  * easiest to lose is the *edge*, because on a theme whose surface sits a step off the ground
  * the hairline is the whole of what says a card is there at all.
  */
-MESH_TEST_CASE(ui_theme_states_card_geometry, unit) {
+MESH_TEST_CASE(ui_theme_states_its_geometry, unit) {
     for (size_t i = 0; i < mesh_ui_theme_count(); ++i) {
         const struct mesh_ui_theme *theme = mesh_ui_theme_at(i);
         const struct mesh_ui_metrics *metrics = mesh_ui_theme_metrics(theme);
@@ -187,9 +187,53 @@ MESH_TEST_CASE(ui_theme_states_card_geometry, unit) {
            them either way is already a quarter of a row on the Brick's panel; more than that is
            a theme spending its body rows on its own furniture. */
         MESH_TEST_FAIL_IF(metrics->card_pad > 4U, "a theme's card inset would eat the body");
-        MESH_TEST_FAIL_IF(metrics->card_radius > 4U, "a theme's card corners are rounder than the "
-                                                     "card");
+        /*
+         * The shape scale has to be a scale: rounder as it goes up, and never so round that a
+         * corner eats the row it belongs to. A flat table - every shape the same radius - is
+         * legal and is what an entirely square theme looks like; what is not legal is a large
+         * shape squarer than a small one, because then a screen naming MESH_UI_SHAPE_LG gets
+         * something less round than one naming MESH_UI_SHAPE_SM and the vocabulary is lying.
+         */
+        for (int shape = MESH_UI_SHAPE_NONE; shape < MESH_UI_SHAPE_FULL; ++shape) {
+            MESH_TEST_FAIL_IF(metrics->shape[shape] > 4U,
+                              "a theme's corners are rounder than the box they are on");
+            if (shape > MESH_UI_SHAPE_NONE) {
+                MESH_TEST_FAIL_IF(metrics->shape[shape] < metrics->shape[shape - 1],
+                                  "a theme's shape scale gets squarer as it goes up");
+            }
+        }
+        MESH_TEST_FAIL_IF(metrics->shape[MESH_UI_SHAPE_NONE] != 0U,
+                          "a theme rounds the corners of MESH_UI_SHAPE_NONE");
     }
+
+    /*
+     * The radius accessor: steps times the scale, and the pill answering with something the
+     * fill primitive will clamp rather than with a length of its own.
+     *
+     * The clamp is the contract worth pinning. fb_fill_round_rect() takes half the shorter side
+     * when a radius overshoots it, so MESH_UI_SHAPE_FULL only has to be bigger than any box it
+     * could be handed - and a number that merely looks big (a hundred pixels, say) stops being
+     * big the day somebody draws a full-screen panel.
+     */
+    const struct mesh_ui_theme *shaped = mesh_ui_theme_default();
+    const int scale = mesh_ui_theme_scale(shaped);
+    const struct mesh_ui_metrics *shaped_metrics = mesh_ui_theme_metrics(shaped);
+    for (int shape = MESH_UI_SHAPE_NONE; shape < MESH_UI_SHAPE_FULL; ++shape) {
+        const int want = (int)shaped_metrics->shape[shape] * scale;
+        MESH_TEST_FAIL_IF(mesh_ui_theme_radius(shaped, (enum mesh_ui_shape)shape, scale) != want,
+                          "a shape's radius is not its step count times the glyph scale");
+    }
+    MESH_TEST_FAIL_IF(mesh_ui_theme_radius(shaped, MESH_UI_SHAPE_FULL, scale) < 4096,
+                      "a pill's radius is small enough for a panel to outgrow it");
+    /* A NULL theme resolves to the default, like every other lookup here, and a shape outside
+       the enum is square rather than undefined - a renderer with a stale enum draws a box, not
+       a corner of garbage. */
+    MESH_TEST_FAIL_IF(mesh_ui_theme_radius(NULL, MESH_UI_SHAPE_MD, scale) !=
+                          mesh_ui_theme_radius(shaped, MESH_UI_SHAPE_MD, scale),
+                      "a NULL theme did not resolve to the default for a radius");
+    MESH_TEST_FAIL_IF(
+        mesh_ui_theme_radius(shaped, (enum mesh_ui_shape)MESH_UI_SHAPE_COUNT, scale) != 0,
+        "a shape outside the scale was not square");
 
     char reason[128];
     struct mesh_ui_theme swallowed = *mesh_ui_theme_default();
@@ -349,9 +393,20 @@ MESH_TEST_CASE(ui_theme_fonts_measure, unit) {
 
 /* The pixel at the corner of the panel: fb_render_snapshot() clears to the theme's ground
    before it draws, so this is the whole frame's background by construction. */
-static bool corner_is(const uint8_t *pixels, struct mesh_ui_rgb color) {
+/*
+ * The colour of the frame's ground, sampled from the bottom-left pixel.
+ *
+ * The bottom rather than the top, and that is not arbitrary: the tab strip lays its own
+ * recessed surface across the whole width of the first rows, so the top-left pixel now reports
+ * the chrome's tier rather than the ground the frame was cleared to. The last row is below
+ * everything any screen draws - the footer's text starts a margin in - so it is the one pixel
+ * that is still the ground on every screen.
+ */
+static bool ground_is(const uint8_t *pixels, size_t stride, uint32_t height,
+                      struct mesh_ui_rgb color) {
+    const uint8_t *px = pixels + stride * (size_t)(height - 1U);
     /* 32 bpp with every bitfield zero, which is what the capture fabricates: B,G,R,X. */
-    return pixels[0] == color.b && pixels[1] == color.g && pixels[2] == color.r;
+    return px[0] == color.b && px[1] == color.g && px[2] == color.r;
 }
 
 /*
@@ -394,8 +449,9 @@ MESH_TEST_CASE(ui_theme_switch_repaints_the_frame, unit) {
     mesh_ui_capture_set_theme(capture, first);
     mesh_ui_capture_set_scale(capture, 2);
     mesh_ui_capture_render(capture, &snapshot);
-    MESH_TEST_FAIL_IF_CLEANUP(!corner_is(pixels, mesh_ui_theme_color(first, MESH_UI_COLOR_BG)),
-                              THEME_CLEANUP, "the frame is not drawn on the theme's background");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !ground_is(pixels, stride, height, mesh_ui_theme_color(first, MESH_UI_COLOR_BG)),
+        THEME_CLEANUP, "the frame is not drawn on the theme's background");
     memcpy(reference, pixels, page_bytes);
 
     for (size_t i = 1U; i < mesh_ui_theme_count(); ++i) {
@@ -406,9 +462,9 @@ MESH_TEST_CASE(ui_theme_switch_repaints_the_frame, unit) {
                                   "the capture did not take the theme it was given");
         mesh_ui_capture_render(capture, &snapshot);
 
-        MESH_TEST_FAIL_IF_CLEANUP(!corner_is(pixels, mesh_ui_theme_color(theme, MESH_UI_COLOR_BG)),
-                                  THEME_CLEANUP,
-                                  "a theme's frame is not drawn on that theme's background");
+        MESH_TEST_FAIL_IF_CLEANUP(
+            !ground_is(pixels, stride, height, mesh_ui_theme_color(theme, MESH_UI_COLOR_BG)),
+            THEME_CLEANUP, "a theme's frame is not drawn on that theme's background");
         MESH_TEST_FAIL_IF_CLEANUP(memcmp(reference, pixels, page_bytes) == 0, THEME_CLEANUP,
                                   "two themes rendered the same snapshot identically");
     }
@@ -467,7 +523,8 @@ MESH_TEST_CASE(ui_theme_follows_the_snapshot, unit) {
        which is what lets the capture harness, where no app fills the client info, work at all. */
     mesh_ui_capture_render(capture, &snapshot);
     MESH_TEST_FAIL_IF_CLEANUP(
-        !corner_is(pixels, mesh_ui_theme_color(mesh_ui_theme_default(), MESH_UI_COLOR_BG)),
+        !ground_is(pixels, stride, height,
+                   mesh_ui_theme_color(mesh_ui_theme_default(), MESH_UI_COLOR_BG)),
         SNAPSHOT_CLEANUP, "an unnamed theme did not leave the capture's own in place");
 
     /* Now the app names one. Every other theme in the registry has to arrive this way. */
@@ -478,9 +535,9 @@ MESH_TEST_CASE(ui_theme_follows_the_snapshot, unit) {
         mesh_ui_capture_render(capture, &snapshot);
         MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_theme(capture) != theme, SNAPSHOT_CLEANUP,
                                   "the renderer did not adopt the theme the snapshot named");
-        MESH_TEST_FAIL_IF_CLEANUP(!corner_is(pixels, mesh_ui_theme_color(theme, MESH_UI_COLOR_BG)),
-                                  SNAPSHOT_CLEANUP,
-                                  "the frame is not drawn on the named theme's background");
+        MESH_TEST_FAIL_IF_CLEANUP(
+            !ground_is(pixels, stride, height, mesh_ui_theme_color(theme, MESH_UI_COLOR_BG)),
+            SNAPSHOT_CLEANUP, "the frame is not drawn on the named theme's background");
     }
 
     /*
