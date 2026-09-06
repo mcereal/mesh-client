@@ -278,6 +278,101 @@ cleanup:
     }
 }
 
+/* Holding the d-pad has to scroll. The Brick reports the d-pad as ABS_HAT0X/Y, and an absolute
+ * axis gets no kernel autorepeat however long it is held - one event out of centre, one back -
+ * so walking a 60-node roster used to be 60 presses. The repeat is generated in the input layer
+ * instead. No timerfd here: a zeroed struct has none, and the hold is stepped by hand. */
+MESH_TEST_CASE(ui_input_key_repeat, unit) {
+    const char *failure = NULL;
+    unsetenv("MESHCLIENT_QUIT_KEYS");
+    unsetenv("MESHCLIENT_KEY_REPEAT_DELAY_MS");
+    unsetenv("MESHCLIENT_KEY_REPEAT_MS");
+    mesh_ui_input_reload_quit_keys();
+    mesh_ui_input_reload_key_repeat();
+
+    /* The first repeat waits out the hold delay; later ones come at the scroll interval, and
+       the interval ramps down once the hold is clearly deliberate. */
+    const unsigned int hold = mesh_ui_input_repeat_delay_ms(0U);
+    const unsigned int step = mesh_ui_input_repeat_delay_ms(1U);
+    const unsigned int fast = mesh_ui_input_repeat_delay_ms(64U);
+    MESH_TEST_FAIL_IF(hold == 0U || step == 0U || fast == 0U, "repeat should be on by default");
+    MESH_TEST_FAIL_IF(hold <= step, "the hold delay must be longer than the scroll interval");
+    MESH_TEST_FAIL_IF(fast > step, "a long hold must not scroll slower than a short one");
+
+    struct test_key_capture capture;
+    memset(&capture, 0, sizeof capture);
+    struct mesh_ui_input input;
+    memset(&input, 0, sizeof input);
+    mesh_ui_input_set_handler(&input, test_capture_key, &capture);
+
+    /* Down on the hat: one row now, and the hold that will produce the rest. */
+    mesh_ui_input_handle_event(&input, EV_ABS, ABS_HAT0Y, 1);
+    if (capture.count != 1U || capture.keys[0] != MESH_UI_KEY_DOWN ||
+        mesh_ui_input_repeat_key(&input) != MESH_UI_KEY_DOWN) {
+        failure = "a held direction should emit once and arm the repeat";
+        goto cleanup;
+    }
+
+    mesh_ui_input_repeat_tick(&input);
+    mesh_ui_input_repeat_tick(&input);
+    if (capture.count != 3U || capture.keys[1] != MESH_UI_KEY_DOWN ||
+        capture.keys[2] != MESH_UI_KEY_DOWN) {
+        failure = "each repeat should emit the held direction again";
+        goto cleanup;
+    }
+
+    /* Centre is the release, and nothing repeats after it. */
+    mesh_ui_input_handle_event(&input, EV_ABS, ABS_HAT0Y, 0);
+    mesh_ui_input_repeat_tick(&input);
+    if (capture.count != 3U || mesh_ui_input_repeat_key(&input) != MESH_UI_KEY_NONE) {
+        failure = "centring the hat should end the repeat";
+        goto cleanup;
+    }
+
+    /* A keyboard's arrow key repeats through the same path, and the kernel's own autorepeat for
+       a key we are already holding is dropped rather than counted twice. */
+    mesh_ui_input_handle_event(&input, EV_KEY, KEY_DOWN, 1);
+    mesh_ui_input_handle_event(&input, EV_KEY, KEY_DOWN, 2);
+    if (capture.count != 4U || mesh_ui_input_repeat_key(&input) != MESH_UI_KEY_DOWN) {
+        failure = "kernel autorepeat must not double a repeat we are already driving";
+        goto cleanup;
+    }
+    mesh_ui_input_handle_event(&input, EV_KEY, KEY_DOWN, 0);
+    if (mesh_ui_input_repeat_key(&input) != MESH_UI_KEY_NONE) {
+        failure = "releasing the key should end the repeat";
+        goto cleanup;
+    }
+
+    /* Confirm and back never repeat: a held A that fired forty times would open forty things.
+       Pressing one also ends a direction still being held. */
+    mesh_ui_input_handle_event(&input, EV_ABS, ABS_HAT0Y, 1);
+    mesh_ui_input_handle_event(&input, EV_KEY, BTN_EAST, 1);
+    if (mesh_ui_input_repeat_key(&input) != MESH_UI_KEY_NONE) {
+        failure = "A should not repeat, and should stop the direction that was held";
+        goto cleanup;
+    }
+
+    /* The knobs exist because the device has no console; 0 restores one row per press. */
+    setenv("MESHCLIENT_KEY_REPEAT_DELAY_MS", "0", 1);
+    mesh_ui_input_reload_key_repeat();
+    mesh_ui_input_handle_event(&input, EV_ABS, ABS_HAT0Y, 1);
+    if (mesh_ui_input_repeat_delay_ms(0U) != 0U ||
+        mesh_ui_input_repeat_key(&input) != MESH_UI_KEY_NONE) {
+        failure = "a zero delay should switch hold-to-scroll off";
+        goto cleanup;
+    }
+
+cleanup:
+    unsetenv("MESHCLIENT_KEY_REPEAT_DELAY_MS");
+    unsetenv("MESHCLIENT_KEY_REPEAT_MS");
+    mesh_ui_input_reload_key_repeat();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
 MESH_TEST_CASE(ui_controller_key_dispatch, unit) {
     const char *failure = NULL;
     mesh_ui_canned_reset();

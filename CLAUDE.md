@@ -185,6 +185,10 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   (`mesh_session_default_identity`). An empty `User` in a NodeInfo must not blank a name we have.
 - **A radio reboot after a settings write is expected.** The link drops and auto-connect
   reconnects.
+- **Key repeat is generated in `input.c`, not by the kernel.** Autorepeat is an EV_KEY/EV_REP
+  feature and the d-pad is an absolute axis (`ABS_HAT0X/Y`), which never repeats however long it
+  is held. The timerfd in `mesh_ui_input` is what makes holding down scroll a long node list, and
+  it deliberately drops the kernel's own `value == 2` for a key it is already holding.
 - **fb layout is measured in cells, not bytes.** A `strlen` or `%-Ns` there is a bug.
 - **The framebuffer needs all three steps** — draw page 0, `FBIOPAN_DISPLAY`, mirror into page 1
   — or the screen is black.

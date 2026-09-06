@@ -4,15 +4,18 @@
 
 #include "mesh/core/event_loop.h"
 #include "mesh/utils/array.h"
+#include "mesh/utils/env.h"
 #include "mesh/utils/log.h"
 
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <linux/input.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/timerfd.h>
 #include <unistd.h>
 
 /* Standard evdev codes. The Brick's gamepad device ("TRIMUI Player1") reports the face and
@@ -73,6 +76,170 @@ static void mesh_ui_input_load_quit_keys(void) {
         s_quit_keys[s_quit_key_count++] = k_default_quit_keys[i];
     }
     snprintf(s_quit_hint, sizeof s_quit_hint, "Press MENU to quit");
+}
+
+/*
+ * Software key repeat.
+ *
+ * The kernel's own autorepeat is an EV_KEY/EV_REP feature, and the Brick reports its d-pad as
+ * the absolute axes ABS_HAT0X/Y. An absolute axis never repeats however long it is held: the
+ * driver sends one event on the way out of centre and one on the way back, so a 60-node roster
+ * cost 60 separate presses. The repeat is therefore generated here, from a timerfd on the same
+ * event loop, and it covers the arrow keys of a USB keyboard too - where the kernel would
+ * repeat, ours takes over, so both devices scroll at the same speed.
+ *
+ * Only the four directions repeat. A, B, X and Y confirm or go back, and a held confirm that
+ * fired forty times would be a trap rather than a convenience.
+ */
+#define MESH_UI_INPUT_REPEAT_DELAY_MS 350U /* held this long before the first repeat */
+#define MESH_UI_INPUT_REPEAT_MS 90U        /* then a row this often */
+#define MESH_UI_INPUT_REPEAT_RAMP 8U       /* rows before the interval halves */
+#define MESH_UI_INPUT_REPEAT_MIN_MS 25U    /* never faster than this, whatever the knobs say */
+
+static unsigned int s_repeat_delay_ms;
+static unsigned int s_repeat_interval_ms;
+static bool s_repeat_loaded;
+
+static void mesh_ui_input_load_key_repeat(void) {
+    if (s_repeat_loaded) {
+        return;
+    }
+    s_repeat_loaded = true;
+    /* Tunable on-device from launch.sh, the same escape hatch MESHCLIENT_QUIT_KEYS is; a delay
+       of 0 turns hold-to-scroll off and restores one row per press. */
+    s_repeat_delay_ms = (unsigned int)mesh_env_int("MESHCLIENT_KEY_REPEAT_DELAY_MS", 0, 5000,
+                                                   MESH_UI_INPUT_REPEAT_DELAY_MS);
+    s_repeat_interval_ms =
+        (unsigned int)mesh_env_int("MESHCLIENT_KEY_REPEAT_MS", 10, 2000, MESH_UI_INPUT_REPEAT_MS);
+}
+
+void mesh_ui_input_reload_key_repeat(void) {
+    s_repeat_loaded = false;
+    s_repeat_delay_ms = 0U;
+    s_repeat_interval_ms = 0U;
+    mesh_ui_input_load_key_repeat();
+}
+
+unsigned int mesh_ui_input_repeat_delay_ms(unsigned int repeats) {
+    mesh_ui_input_load_key_repeat();
+    if (s_repeat_delay_ms == 0U) {
+        return 0U;
+    }
+    if (repeats == 0U) {
+        return s_repeat_delay_ms;
+    }
+    if (repeats < MESH_UI_INPUT_REPEAT_RAMP) {
+        return s_repeat_interval_ms;
+    }
+
+    /* Past the ramp the finger is clearly travelling, not nudging, so the list speeds up. The
+       clamps keep a hand-set interval from being made slower by the acceleration. */
+    unsigned int fast = s_repeat_interval_ms / 2U;
+    if (fast < MESH_UI_INPUT_REPEAT_MIN_MS) {
+        fast = MESH_UI_INPUT_REPEAT_MIN_MS;
+    }
+    if (fast > s_repeat_interval_ms) {
+        fast = s_repeat_interval_ms;
+    }
+    return fast;
+}
+
+static bool mesh_ui_input_key_repeats(enum mesh_ui_key key) {
+    return key == MESH_UI_KEY_UP || key == MESH_UI_KEY_DOWN || key == MESH_UI_KEY_LEFT ||
+           key == MESH_UI_KEY_RIGHT;
+}
+
+/* True when the hold in progress was started by this exact evdev event, which is what makes a
+   release end it. A zeroed struct reports MESH_UI_KEY_NONE and so never matches. */
+static bool mesh_ui_input_repeat_owns(const struct mesh_ui_input *input, uint16_t type,
+                                      uint16_t code) {
+    return input->repeat_key != MESH_UI_KEY_NONE && input->repeat_type == type &&
+           input->repeat_code == code;
+}
+
+/* One-shot each time rather than an interval timer, because the delay changes as the hold
+   ramps up. An all-zero it_value disarms, which is exactly what a released key wants. */
+static void mesh_ui_input_repeat_schedule(struct mesh_ui_input *input) {
+    if (input->repeat_timer_fd <= 0) {
+        return;
+    }
+
+    const unsigned int ms = input->repeat_key == MESH_UI_KEY_NONE
+                                ? 0U
+                                : mesh_ui_input_repeat_delay_ms(input->repeat_count);
+
+    struct itimerspec spec;
+    memset(&spec, 0, sizeof spec);
+    spec.it_value.tv_sec = (time_t)(ms / 1000U);
+    spec.it_value.tv_nsec = (long)(ms % 1000U) * 1000000L;
+    if (timerfd_settime(input->repeat_timer_fd, 0, &spec, NULL) < 0) {
+        mesh_log_warn("input", "key repeat timerfd_settime failed: %s", strerror(errno));
+    }
+}
+
+static void mesh_ui_input_repeat_cancel(struct mesh_ui_input *input) {
+    if (input->repeat_key == MESH_UI_KEY_NONE) {
+        return;
+    }
+    input->repeat_key = MESH_UI_KEY_NONE;
+    input->repeat_type = 0U;
+    input->repeat_code = 0U;
+    input->repeat_count = 0U;
+    mesh_ui_input_repeat_schedule(input);
+}
+
+/* Every press goes through here, so anything that is not a repeatable direction - a face
+   button, an unmapped code - also ends whatever was being held. That keeps a missed release
+   from scrolling forever, and makes "press A" a definite stop rather than a maybe. */
+static void mesh_ui_input_repeat_start(struct mesh_ui_input *input, enum mesh_ui_key key,
+                                       uint16_t type, uint16_t code) {
+    if (!mesh_ui_input_key_repeats(key) || mesh_ui_input_repeat_delay_ms(0U) == 0U) {
+        mesh_ui_input_repeat_cancel(input);
+        return;
+    }
+
+    input->repeat_key = key;
+    input->repeat_type = type;
+    input->repeat_code = code;
+    input->repeat_count = 0U;
+    mesh_ui_input_repeat_schedule(input);
+}
+
+void mesh_ui_input_repeat_tick(struct mesh_ui_input *input) {
+    if (input == NULL || input->repeat_key == MESH_UI_KEY_NONE) {
+        return;
+    }
+
+    const enum mesh_ui_key key = input->repeat_key;
+    if (input->repeat_count < UINT_MAX) {
+        input->repeat_count++;
+    }
+    /* Scheduled before the handler runs: the handler owns the UI and may tear this input down,
+       and by then the timer must already be set (or not) for the next row. */
+    mesh_ui_input_repeat_schedule(input);
+    if (input->on_key != NULL) {
+        input->on_key(input->key_userdata, key);
+    }
+}
+
+enum mesh_ui_key mesh_ui_input_repeat_key(const struct mesh_ui_input *input) {
+    return input == NULL ? MESH_UI_KEY_NONE : input->repeat_key;
+}
+
+static int mesh_ui_input_repeat_callback(int fd, uint32_t events, void *userdata) {
+    struct mesh_ui_input *input = (struct mesh_ui_input *)userdata;
+    if (input == NULL || (events & EPOLLIN) == 0U) {
+        return 0;
+    }
+
+    uint64_t expirations = 0U;
+    ssize_t bytes;
+    do {
+        bytes = read(fd, &expirations, sizeof expirations);
+    } while (bytes < 0 && errno == EINTR);
+
+    mesh_ui_input_repeat_tick(input);
+    return 0;
 }
 
 void mesh_ui_input_reload_quit_keys(void) {
@@ -179,8 +346,13 @@ void mesh_ui_input_handle_event(struct mesh_ui_input *input, uint16_t type, uint
 
     enum mesh_ui_key key = MESH_UI_KEY_NONE;
     if (type == EV_KEY) {
-        /* value 1 is a press, 2 is autorepeat, 0 is a release. Repeat is honoured for the
-           navigation keys so holding the d-pad scrolls, but never for quitting. */
+        /* value 1 is a press, 2 is the kernel's autorepeat, 0 is a release. */
+        if (value == 0) {
+            if (mesh_ui_input_repeat_owns(input, type, code)) {
+                mesh_ui_input_repeat_cancel(input);
+            }
+            return;
+        }
         if (value == 1) {
             if (mesh_ui_input_is_quit_key(code)) {
                 mesh_log_info("input", "Quit key %u pressed; stopping", (unsigned)code);
@@ -195,12 +367,29 @@ void mesh_ui_input_handle_event(struct mesh_ui_input *input, uint16_t type, uint
         } else if (value != 2) {
             return;
         }
+        /* A kernel autorepeat for a key our own timer is already holding would double every
+           step; ours wins, so the d-pad and a USB keyboard scroll at the same speed. */
+        if (value == 2 && mesh_ui_input_repeat_owns(input, type, code)) {
+            return;
+        }
         key = mesh_ui_input_map_key(code);
     } else if (type == EV_ABS) {
+        /* The hat back at centre: the release of whichever direction was held. */
+        if (value == 0) {
+            if (mesh_ui_input_repeat_owns(input, type, code)) {
+                mesh_ui_input_repeat_cancel(input);
+            }
+            return;
+        }
         key = mesh_ui_input_map_hat(code, value);
     }
 
-    if (key != MESH_UI_KEY_NONE && input->on_key != NULL) {
+    if (key == MESH_UI_KEY_NONE) {
+        return;
+    }
+
+    mesh_ui_input_repeat_start(input, key, type, code);
+    if (input->on_key != NULL) {
         input->on_key(input->key_userdata, key);
     }
 }
@@ -244,6 +433,27 @@ static int mesh_ui_input_event_callback(int fd, uint32_t events, void *userdata)
     return 0;
 }
 
+/* Repeat is a convenience, so a host without a spare fd loses hold-to-scroll and keeps every
+   press working, rather than failing the client's startup. */
+static void mesh_ui_input_setup_repeat_timer(struct mesh_ui_input *input,
+                                             struct mesh_event_loop *loop) {
+    const int fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+    if (fd < 0) {
+        mesh_log_warn("input", "key repeat timerfd_create failed: %s", strerror(errno));
+        return;
+    }
+
+    const int add_result =
+        mesh_event_loop_add_fd(loop, fd, EPOLLIN, mesh_ui_input_repeat_callback, input);
+    if (add_result < 0) {
+        mesh_log_warn("input", "Failed to watch the key repeat timer: %d", add_result);
+        close(fd);
+        return;
+    }
+
+    input->repeat_timer_fd = fd;
+}
+
 int mesh_ui_input_init(struct mesh_ui_input *input, struct mesh_event_loop *loop) {
     if (input == NULL || loop == NULL) {
         return -EINVAL;
@@ -251,7 +461,10 @@ int mesh_ui_input_init(struct mesh_ui_input *input, struct mesh_event_loop *loop
 
     memset(input, 0, sizeof *input);
     input->loop = loop;
+    input->repeat_timer_fd = -1;
     mesh_ui_input_load_quit_keys();
+    mesh_ui_input_load_key_repeat();
+    mesh_ui_input_setup_repeat_timer(input, loop);
 
     for (unsigned int index = 0; index < 32U && input->count < MESH_UI_INPUT_MAX_DEVICES; ++index) {
         char path[32];
@@ -296,6 +509,16 @@ void mesh_ui_input_shutdown(struct mesh_ui_input *input) {
         }
         close(input->fds[i]);
     }
+
+    if (input->repeat_timer_fd > 0) {
+        if (input->loop != NULL) {
+            mesh_event_loop_remove_fd(input->loop, input->repeat_timer_fd);
+        }
+        close(input->repeat_timer_fd);
+    }
+    input->repeat_timer_fd = -1;
+    input->repeat_key = MESH_UI_KEY_NONE;
+    input->repeat_count = 0U;
 
     input->count = 0U;
     input->loop = NULL;

@@ -58,6 +58,18 @@ section and X refreshes it, so every save became a refresh and the edits stayed 
 were verified from the device log by pressing the button; `input_brick_face_buttons` pins them.
 **Do not "fix" any of it back.**
 
+**Key repeat is ours, not the kernel's.** Autorepeat is an EV_KEY/EV_REP feature, and the d-pad
+arrives as the absolute axes `ABS_HAT0X/Y`: an axis sends one event out of centre and one back,
+however long it is held, so a 60-node roster used to cost 60 separate presses. `input.c` runs its
+own repeat off a timerfd on the same event loop — hold for `MESHCLIENT_KEY_REPEAT_DELAY_MS`
+(350 ms), then a row every `MESHCLIENT_KEY_REPEAT_MS` (90 ms), halving after eight rows so a long
+list is walked rather than crawled. Only the four directions repeat; a held A that confirmed
+forty times would be a trap. Ours also takes over from the kernel's repeat on a USB keyboard —
+a `value == 2` for a key we are already holding is dropped — so both devices scroll at one speed,
+and `MESHCLIENT_KEY_REPEAT_DELAY_MS=0` turns the whole thing off. Repeats reach the store one per
+event-loop turn and the store coalesces its repaints, so the framebuffer draws once per row at
+most.
+
 ## Tabs
 
 Five tabs: Messages, Nodes, Devices, Status, Settings.

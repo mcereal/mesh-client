@@ -76,6 +76,8 @@ stop it.
 | `MESHCLIENT_FB_SCALE` | framebuffer font multiplier, 2–6; default is whatever the theme asks for (4) |
 | `MESHCLIENT_THEME` | `dark\|light\|contrast\|colorblind`. Outranks the theme picked in Settings → About, which then shows as a fact rather than a switch; unset, the saved choice applies, and an unknown name warns and falls back rather than leaving a handheld with no UI |
 | `MESHCLIENT_QUIT_KEYS` | override the evdev codes that quit, e.g. `"139,316"` — tunable on-device from the log without a rebuild |
+| `MESHCLIENT_KEY_REPEAT_DELAY_MS` | how long a direction is held before it starts repeating, 0–5000; default 350, and `0` turns hold-to-scroll off |
+| `MESHCLIENT_KEY_REPEAT_MS` | the gap between repeats once it starts, 10–2000; default 90, halving after eight rows |
 | `MESHCLIENT_UPDATE_REPO`, `MESHCLIENT_UPDATE_ASSET` | where the self-updater looks |
 | `MESHCLIENT_UPDATE_ALLOW_DEV` | let a `-dev` build install what it finds; same switch as Settings → About → Dev updates |
 
@@ -100,7 +102,7 @@ The framebuffer HUD is five tabs: **Messages, Nodes, Devices, Status, Settings.*
 | Key | Action |
 |---|---|
 | Left/Right, L1/R1 | switch tab |
-| Up/Down | move the cursor |
+| Up/Down | move the cursor — hold to keep scrolling, which speeds up after a few rows |
 | A | act on the row |
 | B | back out |
 | Y | write a message (Messages/Nodes), save a section (Settings) |
