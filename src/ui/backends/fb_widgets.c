@@ -84,10 +84,23 @@ void fb_draw_button(const struct mesh_ui_backend_fb_state *state, const struct f
 int fb_draw_chip(const struct mesh_ui_backend_fb_state *state, int x, int y, const char *label,
                  bool active, int scale) {
     const int adv = fb_char_adv(state, scale);
-    /* Wider than the label by a whole cell either side rather than the half a chip used to
-       take. A capsule's ends eat into their own corners, so the same padding that looked
-       generous on a rectangle leaves the first and last glyph sitting in the curve. */
-    const int width = (int)mesh_ui_text_cells(label) * adv + 2 * adv;
+    /*
+     * Padding enough to clear the capsule's own curve, and derived from the *glyph scale*
+     * rather than from the cell advance.
+     *
+     * A capsule's ends eat into their own corners, so a label needs room the flat-sided chip
+     * did not: the pill's radius is half its height - (7 + 2) / 2 scale steps for the 5x7 font
+     * - and at the top and bottom of a glyph body the edge has curved inwards by about 1.7
+     * steps. Two either side clears that with room to spare.
+     *
+     * Why not measure it in cells, which is how everything else here is measured? Because a
+     * cell is six scale steps wide, so a cell of padding either side is three times what the
+     * curve needs, and the strip has to *fit*: five tabs at MESHCLIENT_FB_SCALE=5 leave about
+     * 60 px of slack across a 1024 px panel, and a padding that generous spends 240 of it. The
+     * last tab and its indicator then fall off the right-hand edge, which is a navigation tab
+     * the user can no longer see rather than a cosmetic overflow.
+     */
+    const int width = (int)mesh_ui_text_cells(label) * adv + 4 * scale;
     const struct fb_button button = {
         .rect = {.x = x, .y = y - scale, .w = width, .h = fb_line_adv(state, scale)},
         .label = label,
