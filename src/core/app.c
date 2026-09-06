@@ -11,6 +11,7 @@
 
 #include "app_internal.h"
 
+#include "mesh/i18n/strings.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/serial.h"
 #include "mesh/ui/backends/cli.h"
@@ -498,6 +499,11 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
      * deliberate override - the same order the dev-updates switch below uses - and when it has
      * spoken the About row shows the theme as a fact rather than as a switch.
      */
+    /* The language, before anything can put a string on screen. MESHCLIENT_LANG first, then
+       the POSIX locale variables; English when none of them names a language this build has.
+       No preference behind it yet, because there is nothing in the UI to pick with. */
+    mesh_i18n_init();
+
     app->ui_theme = mesh_ui_theme_env();
     app->ui_theme_from_env = (app->ui_theme != NULL);
     if (app->ui_theme == NULL) {
@@ -668,8 +674,9 @@ int mesh_app_run(struct mesh_app *app) {
         struct mesh_transport *ble = mesh_ble_transport();
         const char *status = (ble != NULL && ble->ops != NULL && ble->ops->status != NULL)
                                  ? ble->ops->status(ble)
-                                 : "stopped";
-        mesh_ui_store_set_transport_status(&app->ui_store, status != NULL ? status : "stopped");
+                                 : NULL;
+        mesh_ui_store_set_transport_status(
+            &app->ui_store, status != NULL ? status : mesh_str(MESH_STR_TRANSPORT_STOPPED));
     }
 
     mesh_ui_input_shutdown(&app->ui_input);

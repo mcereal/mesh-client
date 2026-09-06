@@ -43,6 +43,7 @@
  */
 
 #include "mesh/core/message.h"
+#include "mesh/i18n/strings.h"
 #include "mesh/ui/backends/fb_capture.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/store.h"
@@ -383,6 +384,11 @@ static void uicap_publish_theme(struct uicap *cap) {
     /* Only when the capture really is drawing what MESHCLIENT_THEME named: a scene that picked
        its own theme is not being held by the environment, whatever the environment says. */
     settings.client.theme_from_env = (mesh_ui_theme_env() == theme);
+    /* The About row that names the language. mesh_app_publish_ui_state() fills this in on the
+       device; the harness has no app behind it, so a capture of About would otherwise be one
+       row short of what a Brick draws. */
+    snprintf(settings.client.language_name, sizeof settings.client.language_name, "%s",
+             mesh_str(MESH_STR_LANGUAGE_NAME));
     mesh_ui_store_set_settings(&cap->store, &settings);
 }
 

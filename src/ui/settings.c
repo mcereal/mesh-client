@@ -33,57 +33,57 @@
 const char *mesh_ui_settings_section_name(enum mesh_ui_settings_section section) {
     switch (section) {
     case MESH_UI_SETTINGS_ABOUT:
-        return "About MeshClient";
+        return mesh_str(MESH_STR_SETTINGS_SECTION_ABOUT);
     case MESH_UI_SETTINGS_RADIO:
-        return "Radio";
+        return mesh_str(MESH_STR_SETTINGS_SECTION_RADIO);
     case MESH_UI_SETTINGS_USER:
-        return "User";
+        return mesh_str(MESH_STR_SETTINGS_SECTION_USER);
     case MESH_UI_SETTINGS_DEVICE:
-        return "Device";
+        return mesh_str(MESH_STR_SETTINGS_SECTION_DEVICE);
     case MESH_UI_SETTINGS_DISPLAY:
-        return "Display";
+        return mesh_str(MESH_STR_SETTINGS_SECTION_DISPLAY);
     case MESH_UI_SETTINGS_LORA:
-        return "LoRa";
+        return mesh_str(MESH_STR_SETTINGS_SECTION_LORA);
     case MESH_UI_SETTINGS_BLUETOOTH:
-        return "Bluetooth";
+        return mesh_str(MESH_STR_SETTINGS_SECTION_BLUETOOTH);
     case MESH_UI_SETTINGS_CHANNELS:
-        return "Channels";
+        return mesh_str(MESH_STR_SETTINGS_SECTION_CHANNELS);
     case MESH_UI_SETTINGS_SECURITY:
-        return "Security";
+        return mesh_str(MESH_STR_SETTINGS_SECTION_SECURITY);
     case MESH_UI_SETTINGS_POSITION:
-        return "Position";
+        return mesh_str(MESH_STR_SETTINGS_SECTION_POSITION);
     case MESH_UI_SETTINGS_POWER:
-        return "Power";
+        return mesh_str(MESH_STR_SETTINGS_SECTION_POWER);
     case MESH_UI_SETTINGS_MQTT:
-        return "MQTT";
+        return mesh_str(MESH_STR_SETTINGS_SECTION_MQTT);
     case MESH_UI_SETTINGS_STORE_FORWARD:
-        return "Store & Forward";
+        return mesh_str(MESH_STR_SETTINGS_SECTION_STORE_FORWARD);
     case MESH_UI_SETTINGS_TELEMETRY:
-        return "Telemetry";
+        return mesh_str(MESH_STR_SETTINGS_SECTION_TELEMETRY);
     case MESH_UI_SETTINGS_ACTIONS:
-        return "Radio actions";
+        return mesh_str(MESH_STR_SETTINGS_SECTION_ACTIONS);
     case MESH_UI_SETTINGS_MODULES:
-        return "Modules";
+        return mesh_str(MESH_STR_SETTINGS_SECTION_MODULES);
     case MESH_UI_SETTINGS_NEIGHBOR_INFO:
-        return "Neighbor info";
+        return mesh_str(MESH_STR_SETTINGS_SECTION_NEIGHBOR_INFO);
     case MESH_UI_SETTINGS_RANGE_TEST:
-        return "Range test";
+        return mesh_str(MESH_STR_SETTINGS_SECTION_RANGE_TEST);
     case MESH_UI_SETTINGS_PAXCOUNTER:
-        return "Paxcounter";
+        return mesh_str(MESH_STR_SETTINGS_SECTION_PAXCOUNTER);
     case MESH_UI_SETTINGS_TAK:
-        return "TAK";
+        return mesh_str(MESH_STR_SETTINGS_SECTION_TAK);
     case MESH_UI_SETTINGS_AMBIENT:
-        return "Ambient lighting";
+        return mesh_str(MESH_STR_SETTINGS_SECTION_AMBIENT);
     case MESH_UI_SETTINGS_STATUS_MESSAGE:
-        return "Status message";
+        return mesh_str(MESH_STR_SETTINGS_SECTION_STATUS_MESSAGE);
     case MESH_UI_SETTINGS_DETECTION:
-        return "Detection sensor";
+        return mesh_str(MESH_STR_SETTINGS_SECTION_DETECTION);
     case MESH_UI_SETTINGS_EXT_NOTIFICATION:
-        return "External notify";
+        return mesh_str(MESH_STR_SETTINGS_SECTION_EXT_NOTIFICATION);
     case MESH_UI_SETTINGS_TRAFFIC:
-        return "Traffic management";
+        return mesh_str(MESH_STR_SETTINGS_SECTION_TRAFFIC);
     default:
-        return "?";
+        return mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT);
     }
 }
 
@@ -206,21 +206,30 @@ bool mesh_ui_settings_section_loaded(const struct mesh_ui_settings *settings,
 /* ---- editable fields ---------------------------------------------------------------------- */
 
 static const char *compass_name(uint32_t orientation) {
-    static const char *const k_names[] = {
-        "0 deg", "90 deg", "180 deg", "270 deg", "0 flip", "90 flip", "180 flip", "270 flip",
+    static const enum mesh_str_id k_names[] = {
+        MESH_STR_ENUM_COMPASS_0,        MESH_STR_ENUM_COMPASS_90,
+        MESH_STR_ENUM_COMPASS_180,      MESH_STR_ENUM_COMPASS_270,
+        MESH_STR_ENUM_COMPASS_0_FLIP,   MESH_STR_ENUM_COMPASS_90_FLIP,
+        MESH_STR_ENUM_COMPASS_180_FLIP, MESH_STR_ENUM_COMPASS_270_FLIP,
     };
-    return orientation < 8U ? k_names[orientation] : "?";
+    return mesh_str(orientation < MESH_ARRAY_LEN(k_names) ? k_names[orientation]
+                                                          : MESH_STR_COMMON_UNKNOWN_SHORT);
 }
 
-static const char *units_name(uint32_t units) { return units == 1U ? "Imperial" : "Metric"; }
+static const char *units_name(uint32_t units) {
+    return mesh_str(units == 1U ? MESH_STR_ENUM_UNITS_IMPERIAL : MESH_STR_ENUM_UNITS_METRIC);
+}
 
 /* DetectionSensorConfig.TriggerType, 0..5 and contiguous. Named for what the pin does rather
    than for the constant: "Low" says more than "LOGIC_LOW" next to the word Trigger. */
 static const char *trigger_name(uint32_t trigger) {
-    static const char *const k_names[] = {
-        "Low", "High", "Falling edge", "Rising edge", "Any edge, low", "Any edge, high",
+    static const enum mesh_str_id k_names[] = {
+        MESH_STR_ENUM_TRIGGER_LOW,        MESH_STR_ENUM_TRIGGER_HIGH,
+        MESH_STR_ENUM_TRIGGER_FALLING,    MESH_STR_ENUM_TRIGGER_RISING,
+        MESH_STR_ENUM_TRIGGER_EITHER_LOW, MESH_STR_ENUM_TRIGGER_EITHER_HIGH,
     };
-    return trigger < MESH_ARRAY_LEN(k_names) ? k_names[trigger] : "?";
+    return mesh_str(trigger < MESH_ARRAY_LEN(k_names) ? k_names[trigger]
+                                                      : MESH_STR_COMMON_UNKNOWN_SHORT);
 }
 
 /* meshtastic_Team and meshtastic_MemberRole, from atak.proto. Both are contiguous from 0, which
@@ -230,83 +239,97 @@ static const char *trigger_name(uint32_t trigger) {
    Named as the phone apps name them - "RTO", not its expansion - for the reason keys are shown
    as base64: a setting read off the Brick should be recognisable in the app and back. */
 static const char *tak_team_name(uint32_t team) {
-    static const char *const k_names[] = {
-        "Default (cyan)", "White", "Yellow", "Orange", "Magenta", "Red",        "Maroon", "Purple",
-        "Dark blue",      "Blue",  "Cyan",   "Teal",   "Green",   "Dark green", "Brown",
+    static const enum mesh_str_id k_names[] = {
+        MESH_STR_ENUM_TAK_TEAM_DEFAULT,   MESH_STR_ENUM_TAK_TEAM_WHITE,
+        MESH_STR_ENUM_TAK_TEAM_YELLOW,    MESH_STR_ENUM_TAK_TEAM_ORANGE,
+        MESH_STR_ENUM_TAK_TEAM_MAGENTA,   MESH_STR_ENUM_TAK_TEAM_RED,
+        MESH_STR_ENUM_TAK_TEAM_MAROON,    MESH_STR_ENUM_TAK_TEAM_PURPLE,
+        MESH_STR_ENUM_TAK_TEAM_DARK_BLUE, MESH_STR_ENUM_TAK_TEAM_BLUE,
+        MESH_STR_ENUM_TAK_TEAM_CYAN,      MESH_STR_ENUM_TAK_TEAM_TEAL,
+        MESH_STR_ENUM_TAK_TEAM_GREEN,     MESH_STR_ENUM_TAK_TEAM_DARK_GREEN,
+        MESH_STR_ENUM_TAK_TEAM_BROWN,
     };
-    return team < MESH_ARRAY_LEN(k_names) ? k_names[team] : "?";
+    return mesh_str(team < MESH_ARRAY_LEN(k_names) ? k_names[team] : MESH_STR_COMMON_UNKNOWN_SHORT);
 }
 
 static const char *tak_role_name(uint32_t role) {
-    static const char *const k_names[] = {
-        "Default (member)", "Team member", "Team lead", "HQ", "Sniper", "Medic",
-        "Forward observer", "RTO",         "K9",
+    static const enum mesh_str_id k_names[] = {
+        MESH_STR_ENUM_TAK_ROLE_DEFAULT,     MESH_STR_ENUM_TAK_ROLE_MEMBER,
+        MESH_STR_ENUM_TAK_ROLE_LEAD,        MESH_STR_ENUM_TAK_ROLE_HQ,
+        MESH_STR_ENUM_TAK_ROLE_SNIPER,      MESH_STR_ENUM_TAK_ROLE_MEDIC,
+        MESH_STR_ENUM_TAK_ROLE_FORWARD_OBS, MESH_STR_ENUM_TAK_ROLE_RTO,
+        MESH_STR_ENUM_TAK_ROLE_K9,
     };
-    return role < MESH_ARRAY_LEN(k_names) ? k_names[role] : "?";
+    return mesh_str(role < MESH_ARRAY_LEN(k_names) ? k_names[role] : MESH_STR_COMMON_UNKNOWN_SHORT);
 }
 
 static const char *rebroadcast_name(uint32_t mode) {
-    static const char *const k_names[] = {
-        "All", "All skip decoding", "Local only", "Known only", "None", "Core portnums only",
+    static const enum mesh_str_id k_names[] = {
+        MESH_STR_ENUM_REBROADCAST_ALL,   MESH_STR_ENUM_REBROADCAST_ALL_SKIP,
+        MESH_STR_ENUM_REBROADCAST_LOCAL, MESH_STR_ENUM_REBROADCAST_KNOWN,
+        MESH_STR_ENUM_REBROADCAST_NONE,  MESH_STR_ENUM_REBROADCAST_CORE,
     };
-    return mode < 6U ? k_names[mode] : "?";
+    return mesh_str(mode < MESH_ARRAY_LEN(k_names) ? k_names[mode] : MESH_STR_COMMON_UNKNOWN_SHORT);
 }
 
 static const char *gps_mode_name(uint32_t mode) {
     switch (mode) {
     case 0U:
-        return "Disabled";
+        return mesh_str(MESH_STR_ENUM_GPS_DISABLED);
     case 1U:
-        return "Enabled";
+        return mesh_str(MESH_STR_ENUM_GPS_ENABLED);
     case 2U:
-        return "Not present";
+        return mesh_str(MESH_STR_ENUM_GPS_NOT_PRESENT);
     default:
-        return "?";
+        return mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT);
     }
 }
 
 static const char *channel_role_name(uint32_t value) {
-    return value == 1U ? "Secondary" : "Disabled";
+    return mesh_str(value == 1U ? MESH_STR_ENUM_CHANNEL_SECONDARY : MESH_STR_ENUM_CHANNEL_DISABLED);
 }
 
 static const char *pairing_enum_name(uint32_t mode) {
     switch (mode) {
     case 0U:
-        return "Random PIN";
+        return mesh_str(MESH_STR_ENUM_PAIRING_RANDOM_PIN);
     case 1U:
-        return "Fixed PIN";
+        return mesh_str(MESH_STR_ENUM_PAIRING_FIXED_PIN);
     case 2U:
-        return "No PIN";
+        return mesh_str(MESH_STR_ENUM_PAIRING_NO_PIN);
     default:
-        return "?";
+        return mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT);
     }
 }
 
 /* Position precision is a bit count; the phone apps label the useful ones by distance. */
 static void format_precision(uint32_t bits, char *out, size_t out_len) {
-    static const char *const k_distance[] = {
-        "~23 km", "~12 km", "~6 km",  "~3 km", "~1.5 km",
-        "~730 m", "~360 m", "~180 m", "~90 m", "~45 m",
+    static const enum mesh_str_id k_distance[] = {
+        MESH_STR_VALUE_PRECISION_23KM,  MESH_STR_VALUE_PRECISION_12KM,
+        MESH_STR_VALUE_PRECISION_6KM,   MESH_STR_VALUE_PRECISION_3KM,
+        MESH_STR_VALUE_PRECISION_1_5KM, MESH_STR_VALUE_PRECISION_730M,
+        MESH_STR_VALUE_PRECISION_360M,  MESH_STR_VALUE_PRECISION_180M,
+        MESH_STR_VALUE_PRECISION_90M,   MESH_STR_VALUE_PRECISION_45M,
     };
     if (bits == 0U) {
-        snprintf(out, out_len, "%s", "off");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_VALUE_PRECISION_OFF));
     } else if (bits >= 32U) {
-        snprintf(out, out_len, "%s", "precise");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_VALUE_PRECISION_EXACT));
     } else if (bits >= 10U && bits <= 19U) {
-        snprintf(out, out_len, "%s", k_distance[bits - 10U]);
+        snprintf(out, out_len, "%s", mesh_str(k_distance[bits - 10U]));
     } else {
-        snprintf(out, out_len, "%u bits", (unsigned)bits);
+        mesh_str_format(out, out_len, MESH_STR_VALUE_PRECISION_BITS, (unsigned)bits);
     }
 }
 
 /* Metres, which is what PositionConfig's smart-broadcast threshold is in. */
 static void format_metres(uint32_t metres, char *out, size_t out_len) {
     if (metres == 0U) {
-        snprintf(out, out_len, "%s", "default");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_COMMON_DEFAULT));
     } else if (metres >= 1000U && metres % 1000U == 0U) {
-        snprintf(out, out_len, "%u km", (unsigned)(metres / 1000U));
+        mesh_str_format(out, out_len, MESH_STR_VALUE_KILOMETRES, (unsigned)(metres / 1000U));
     } else {
-        snprintf(out, out_len, "%u m", (unsigned)metres);
+        mesh_str_format(out, out_len, MESH_STR_VALUE_METRES, (unsigned)metres);
     }
 }
 
@@ -320,9 +343,9 @@ static void format_metres(uint32_t metres, char *out, size_t out_len) {
 static const char *role_enum_name(uint32_t role) {
     switch (role) {
     case 3U:
-        return "Router Client (retired)";
+        return mesh_str(MESH_STR_ENUM_ROLE_ROUTER_CLIENT);
     case 4U:
-        return "Repeater (retired)";
+        return mesh_str(MESH_STR_ENUM_ROLE_REPEATER);
     default:
         return mesh_radio_role_name(role);
     }
@@ -335,36 +358,36 @@ static const char *preset_enum_name(uint32_t preset) {
 static const char *signature_policy_name(uint32_t policy) {
     switch (policy) {
     case 0U:
-        return "Compatible";
+        return mesh_str(MESH_STR_ENUM_SIGNATURE_COMPATIBLE);
     case 1U:
-        return "Balanced";
+        return mesh_str(MESH_STR_ENUM_SIGNATURE_BALANCED);
     case 2U:
-        return "Strict";
+        return mesh_str(MESH_STR_ENUM_SIGNATURE_STRICT);
     default:
-        return "?";
+        return mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT);
     }
 }
 
 static void format_bandwidth(uint32_t khz, char *out, size_t out_len) {
     if (khz == 31U) {
-        snprintf(out, out_len, "%s", "31.25 kHz");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_VALUE_BANDWIDTH_31));
     } else if (khz == 62U) {
-        snprintf(out, out_len, "%s", "62.5 kHz");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_VALUE_BANDWIDTH_62));
     } else {
-        snprintf(out, out_len, "%u kHz", (unsigned)khz);
+        mesh_str_format(out, out_len, MESH_STR_VALUE_BANDWIDTH_KHZ, (unsigned)khz);
     }
 }
 static void format_plain(uint32_t value, char *out, size_t out_len) {
-    snprintf(out, out_len, "%u", (unsigned)value);
+    mesh_str_format(out, out_len, MESH_STR_VALUE_PLAIN, (unsigned)value);
 }
 static void format_coding_rate(uint32_t value, char *out, size_t out_len) {
-    snprintf(out, out_len, "4/%u", (unsigned)value);
+    mesh_str_format(out, out_len, MESH_STR_VALUE_CODING_RATE, (unsigned)value);
 }
 static void format_tx_power(uint32_t value, char *out, size_t out_len) {
     if (value == 0U) {
-        snprintf(out, out_len, "%s", "max");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_VALUE_TX_POWER_MAX));
     } else {
-        snprintf(out, out_len, "%d dBm", (int)(int8_t)value);
+        mesh_str_format(out, out_len, MESH_STR_VALUE_DBM, (int)(int8_t)value);
     }
 }
 
@@ -484,43 +507,43 @@ static const uint32_t k_led_level_presets[] = {0U, 32U, 64U, 96U, 128U, 160U, 19
    "500s". */
 static void format_millis(uint32_t value, char *out, size_t out_len) {
     if (value % 1000U == 0U && value != 0U) {
-        snprintf(out, out_len, "%us", (unsigned)(value / 1000U));
+        mesh_str_format(out, out_len, MESH_STR_VALUE_SECONDS, (unsigned)(value / 1000U));
     } else {
-        snprintf(out, out_len, "%ums", (unsigned)value);
+        mesh_str_format(out, out_len, MESH_STR_VALUE_MILLISECONDS, (unsigned)value);
     }
 }
 
 /* A GPIO pin, or nothing at all. */
 static void format_pin(uint32_t value, char *out, size_t out_len) {
     if (value == 0U) {
-        snprintf(out, out_len, "%s", "unset");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_VALUE_PIN_UNSET));
     } else {
-        snprintf(out, out_len, "GPIO %u", (unsigned)value);
+        mesh_str_format(out, out_len, MESH_STR_VALUE_PIN, (unsigned)value);
     }
 }
 
 /* Signed dBm, read back out of the uint32_t the preset table stores it in. */
 static void format_rssi(uint32_t value, char *out, size_t out_len) {
-    snprintf(out, out_len, "%d dBm", (int)(int32_t)value);
+    mesh_str_format(out, out_len, MESH_STR_VALUE_DBM, (int)(int32_t)value);
 }
 
 /* A plain 0-255 level, so an LED channel does not read as a duration. */
 static void format_level(uint32_t value, char *out, size_t out_len) {
-    snprintf(out, out_len, "%u", (unsigned)value);
+    mesh_str_format(out, out_len, MESH_STR_VALUE_PLAIN, (unsigned)value);
 }
 
 /* Milliamps, for the LED current row. */
 static void format_milliamps(uint32_t value, char *out, size_t out_len) {
-    snprintf(out, out_len, "%u mA", (unsigned)value);
+    mesh_str_format(out, out_len, MESH_STR_VALUE_MILLIAMPS, (unsigned)value);
 }
 
 /* NUMBER fields whose value is a count rather than a duration; without this the seconds
    formatter would render 100 records as "1m40s". */
 static void format_count(uint32_t value, char *out, size_t out_len) {
     if (value == 0U) {
-        snprintf(out, out_len, "%s", "default");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_COMMON_DEFAULT));
     } else {
-        snprintf(out, out_len, "%u", (unsigned)value);
+        mesh_str_format(out, out_len, MESH_STR_VALUE_PLAIN, (unsigned)value);
     }
 }
 
@@ -529,395 +552,476 @@ static void format_count(uint32_t value, char *out, size_t out_len) {
 
 /* User.long_name is 39 bytes on the wire but the firmware truncates to 24 (mesh.proto). */
 static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
-    [MESH_UI_FIELD_NONE] = {"?", MESH_UI_SETTING_INFO, MESH_UI_SETTINGS_SECTION_COUNT, 0U, NULL,
-                            NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_USER_LONG_NAME] = {"Long name", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_USER, 24U,
-                                      NULL, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_USER_SHORT_NAME] = {"Short name", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_USER,
-                                       4U, NULL, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_USER_LICENSED] = {"Licensed operator", MESH_UI_SETTING_TOGGLE,
-                                     MESH_UI_SETTINGS_USER, 0U, NULL, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_USER_UNMESSAGEABLE] = {"Unmessageable", MESH_UI_SETTING_TOGGLE,
-                                          MESH_UI_SETTINGS_USER, 0U, NULL, NO_PRESETS, NULL, NULL,
-                                          0U},
+    [MESH_UI_FIELD_NONE] = {MESH_STR_COMMON_UNKNOWN_SHORT, MESH_UI_SETTING_INFO,
+                            MESH_UI_SETTINGS_SECTION_COUNT, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
+                            NULL, 0U},
+    [MESH_UI_FIELD_USER_LONG_NAME] = {MESH_STR_SETTINGS_FIELD_USER_LONG_NAME, MESH_UI_SETTING_TEXT,
+                                      MESH_UI_SETTINGS_USER, 24U, NULL, NO_PRESETS, MESH_STR_NONE,
+                                      NULL, 0U},
+    [MESH_UI_FIELD_USER_SHORT_NAME] = {MESH_STR_SETTINGS_FIELD_USER_SHORT_NAME,
+                                       MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_USER, 4U, NULL,
+                                       NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_USER_LICENSED] = {MESH_STR_SETTINGS_FIELD_USER_LICENSED, MESH_UI_SETTING_TOGGLE,
+                                     MESH_UI_SETTINGS_USER, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
+                                     NULL, 0U},
+    [MESH_UI_FIELD_USER_UNMESSAGEABLE] = {MESH_STR_SETTINGS_FIELD_USER_UNMESSAGEABLE,
+                                          MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_USER, 0U, NULL,
+                                          NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     /* Thirteen values, two of them retired but still steppable: see role_enum_name(). */
-    [MESH_UI_FIELD_DEVICE_ROLE] = {"Role", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_DEVICE, 13U,
-                                   role_enum_name, NO_PRESETS, NULL, NULL, 0U},
+    [MESH_UI_FIELD_DEVICE_ROLE] = {MESH_STR_SETTINGS_FIELD_DEVICE_ROLE, MESH_UI_SETTING_ENUM,
+                                   MESH_UI_SETTINGS_DEVICE, 13U, role_enum_name, NO_PRESETS,
+                                   MESH_STR_NONE, NULL, 0U},
     /* tzdef is 64 bytes on the wire. The radio applies it to its own clock only; it has no
        bearing on what this client shows, which follows the Brick's own TZ. */
-    [MESH_UI_FIELD_DEVICE_TZDEF] = {"Time zone", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_DEVICE, 64U,
-                                    NULL, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_DEVICE_REBROADCAST] = {"Rebroadcast", MESH_UI_SETTING_ENUM,
-                                          MESH_UI_SETTINGS_DEVICE, 6U, rebroadcast_name, NO_PRESETS,
-                                          NULL, NULL, 0U},
-    [MESH_UI_FIELD_DEVICE_NODEINFO_SECS] = {"NodeInfo every", MESH_UI_SETTING_NUMBER,
-                                            MESH_UI_SETTINGS_DEVICE, 0U, NULL,
-                                            PRESETS(k_nodeinfo_presets), "default", NULL, 0U},
-    [MESH_UI_FIELD_DEVICE_LED_HEARTBEAT] = {"LED heartbeat", MESH_UI_SETTING_TOGGLE,
-                                            MESH_UI_SETTINGS_DEVICE, 0U, NULL, NO_PRESETS, NULL,
-                                            NULL, 0U},
-    [MESH_UI_FIELD_DEVICE_DOUBLE_TAP] = {"Double tap = button", MESH_UI_SETTING_TOGGLE,
-                                         MESH_UI_SETTINGS_DEVICE, 0U, NULL, NO_PRESETS, NULL, NULL,
-                                         0U},
-    [MESH_UI_FIELD_POSITION_GPS_MODE] = {"GPS", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_POSITION, 3U,
-                                         gps_mode_name, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_POSITION_BROADCAST_SECS] = {"Broadcast every", MESH_UI_SETTING_NUMBER,
-                                               MESH_UI_SETTINGS_POSITION, 0U, NULL,
-                                               PRESETS(k_interval_presets), "default", NULL, 0U},
-    [MESH_UI_FIELD_POSITION_SMART] = {"Smart broadcast", MESH_UI_SETTING_TOGGLE,
-                                      MESH_UI_SETTINGS_POSITION, 0U, NULL, NO_PRESETS, NULL, NULL,
-                                      0U},
-    [MESH_UI_FIELD_POSITION_SMART_DISTANCE] = {"Smart distance", MESH_UI_SETTING_NUMBER,
-                                               MESH_UI_SETTINGS_POSITION, 0U, NULL,
-                                               PRESETS(k_smart_distance_presets), NULL,
-                                               format_metres, 0U},
-    [MESH_UI_FIELD_POSITION_SMART_INTERVAL] = {"Smart interval", MESH_UI_SETTING_NUMBER,
-                                               MESH_UI_SETTINGS_POSITION, 0U, NULL,
-                                               PRESETS(k_smart_interval_presets), "default", NULL,
-                                               0U},
-    [MESH_UI_FIELD_POSITION_GPS_INTERVAL] = {"GPS interval", MESH_UI_SETTING_NUMBER,
-                                             MESH_UI_SETTINGS_POSITION, 0U, NULL,
-                                             PRESETS(k_gps_interval_presets), "default", NULL, 0U},
-    [MESH_UI_FIELD_POSITION_LATITUDE] = {"Latitude", MESH_UI_SETTING_TEXT,
-                                         MESH_UI_SETTINGS_POSITION, 15U, NULL, NULL, 0U, NULL, NULL,
-                                         0U},
-    [MESH_UI_FIELD_POSITION_LONGITUDE] = {"Longitude", MESH_UI_SETTING_TEXT,
-                                          MESH_UI_SETTINGS_POSITION, 15U, NULL, NULL, 0U, NULL,
-                                          NULL, 0U},
-    [MESH_UI_FIELD_POSITION_ALTITUDE] = {"Altitude (m)", MESH_UI_SETTING_TEXT,
-                                         MESH_UI_SETTINGS_POSITION, 7U, NULL, NULL, 0U, NULL, NULL,
-                                         0U},
-    [MESH_UI_FIELD_POWER_SAVING] = {"Power saving", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_POWER,
-                                    0U, NULL, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_POWER_LS_SECS] = {"Light sleep", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_POWER,
-                                     0U, NULL, PRESETS(k_sleep_presets), "default", NULL, 0U},
-    [MESH_UI_FIELD_POWER_MIN_WAKE] = {"Min wake", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_POWER,
-                                      0U, NULL, PRESETS(k_wake_presets), "default", NULL, 0U},
-    [MESH_UI_FIELD_POWER_WAIT_BT] = {"Wait for Bluetooth", MESH_UI_SETTING_NUMBER,
+    [MESH_UI_FIELD_DEVICE_TZDEF] = {MESH_STR_SETTINGS_FIELD_DEVICE_TZDEF, MESH_UI_SETTING_TEXT,
+                                    MESH_UI_SETTINGS_DEVICE, 64U, NULL, NO_PRESETS, MESH_STR_NONE,
+                                    NULL, 0U},
+    [MESH_UI_FIELD_DEVICE_REBROADCAST] = {MESH_STR_SETTINGS_FIELD_DEVICE_REBROADCAST,
+                                          MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_DEVICE, 6U,
+                                          rebroadcast_name, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_DEVICE_NODEINFO_SECS] = {MESH_STR_SETTINGS_FIELD_DEVICE_NODEINFO_SECS,
+                                            MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_DEVICE, 0U,
+                                            NULL, PRESETS(k_nodeinfo_presets),
+                                            MESH_STR_ZERO_DEFAULT, NULL, 0U},
+    [MESH_UI_FIELD_DEVICE_LED_HEARTBEAT] = {MESH_STR_SETTINGS_FIELD_DEVICE_LED_HEARTBEAT,
+                                            MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_DEVICE, 0U,
+                                            NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_DEVICE_DOUBLE_TAP] = {MESH_STR_SETTINGS_FIELD_DEVICE_DOUBLE_TAP,
+                                         MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_DEVICE, 0U, NULL,
+                                         NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_POSITION_GPS_MODE] = {MESH_STR_SETTINGS_FIELD_POSITION_GPS_MODE,
+                                         MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_POSITION, 3U,
+                                         gps_mode_name, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_POSITION_BROADCAST_SECS] = {MESH_STR_SETTINGS_FIELD_POSITION_BROADCAST_SECS,
+                                               MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_POSITION,
+                                               0U, NULL, PRESETS(k_interval_presets),
+                                               MESH_STR_ZERO_DEFAULT, NULL, 0U},
+    [MESH_UI_FIELD_POSITION_SMART] = {MESH_STR_SETTINGS_FIELD_POSITION_SMART,
+                                      MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_POSITION, 0U, NULL,
+                                      NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_POSITION_SMART_DISTANCE] = {MESH_STR_SETTINGS_FIELD_POSITION_SMART_DISTANCE,
+                                               MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_POSITION,
+                                               0U, NULL, PRESETS(k_smart_distance_presets),
+                                               MESH_STR_NONE, format_metres, 0U},
+    [MESH_UI_FIELD_POSITION_SMART_INTERVAL] = {MESH_STR_SETTINGS_FIELD_POSITION_SMART_INTERVAL,
+                                               MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_POSITION,
+                                               0U, NULL, PRESETS(k_smart_interval_presets),
+                                               MESH_STR_ZERO_DEFAULT, NULL, 0U},
+    [MESH_UI_FIELD_POSITION_GPS_INTERVAL] = {MESH_STR_SETTINGS_FIELD_POSITION_GPS_INTERVAL,
+                                             MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_POSITION, 0U,
+                                             NULL, PRESETS(k_gps_interval_presets),
+                                             MESH_STR_ZERO_DEFAULT, NULL, 0U},
+    [MESH_UI_FIELD_POSITION_LATITUDE] = {MESH_STR_SETTINGS_FIELD_POSITION_LATITUDE,
+                                         MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_POSITION, 15U, NULL,
+                                         NULL, 0U, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_POSITION_LONGITUDE] = {MESH_STR_SETTINGS_FIELD_POSITION_LONGITUDE,
+                                          MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_POSITION, 15U,
+                                          NULL, NULL, 0U, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_POSITION_ALTITUDE] = {MESH_STR_SETTINGS_FIELD_POSITION_ALTITUDE,
+                                         MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_POSITION, 7U, NULL,
+                                         NULL, 0U, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_POWER_SAVING] = {MESH_STR_SETTINGS_FIELD_POWER_SAVING, MESH_UI_SETTING_TOGGLE,
+                                    MESH_UI_SETTINGS_POWER, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
+                                    NULL, 0U},
+    [MESH_UI_FIELD_POWER_LS_SECS] = {MESH_STR_SETTINGS_FIELD_POWER_LS_SECS, MESH_UI_SETTING_NUMBER,
+                                     MESH_UI_SETTINGS_POWER, 0U, NULL, PRESETS(k_sleep_presets),
+                                     MESH_STR_ZERO_DEFAULT, NULL, 0U},
+    [MESH_UI_FIELD_POWER_MIN_WAKE] = {MESH_STR_SETTINGS_FIELD_POWER_MIN_WAKE,
+                                      MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_POWER, 0U, NULL,
+                                      PRESETS(k_wake_presets), MESH_STR_ZERO_DEFAULT, NULL, 0U},
+    [MESH_UI_FIELD_POWER_WAIT_BT] = {MESH_STR_SETTINGS_FIELD_POWER_WAIT_BT, MESH_UI_SETTING_NUMBER,
                                      MESH_UI_SETTINGS_POWER, 0U, NULL, PRESETS(k_wait_bt_presets),
-                                     "default", NULL, 0U},
-    [MESH_UI_FIELD_POWER_SHUTDOWN] = {"Shutdown on battery", MESH_UI_SETTING_NUMBER,
-                                      MESH_UI_SETTINGS_POWER, 0U, NULL, PRESETS(k_shutdown_presets),
-                                      "off", NULL, 0U},
-    [MESH_UI_FIELD_DISPLAY_SCREEN_ON] = {"Screen on", MESH_UI_SETTING_NUMBER,
-                                         MESH_UI_SETTINGS_DISPLAY, 0U, NULL,
-                                         PRESETS(k_screen_on_presets), "default", NULL, 0U},
-    [MESH_UI_FIELD_DISPLAY_CAROUSEL] = {"Carousel", MESH_UI_SETTING_NUMBER,
-                                        MESH_UI_SETTINGS_DISPLAY, 0U, NULL,
-                                        PRESETS(k_carousel_presets), "off", NULL, 0U},
-    [MESH_UI_FIELD_DISPLAY_COMPASS] = {"Compass", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_DISPLAY,
-                                       8U, compass_name, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_DISPLAY_12H] = {"12-hour clock", MESH_UI_SETTING_TOGGLE,
-                                   MESH_UI_SETTINGS_DISPLAY, 0U, NULL, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_DISPLAY_UNITS] = {"Units", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_DISPLAY, 2U,
-                                     units_name, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_DISPLAY_FLIP] = {"Flip screen", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_DISPLAY,
-                                    0U, NULL, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_MQTT_ENABLED] = {"MQTT", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_MQTT, 0U, NULL,
-                                    NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_MQTT_ADDRESS] = {"Server", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_MQTT, 63U,
-                                    NULL, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_MQTT_USERNAME] = {"Username", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_MQTT, 63U,
-                                     NULL, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_MQTT_PASSWORD] = {"Password", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_MQTT, 31U,
-                                     NULL, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_MQTT_ROOT] = {"Root topic", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_MQTT, 31U,
-                                 NULL, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_MQTT_ENCRYPTION] = {"Encryption", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_MQTT,
-                                       0U, NULL, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_MQTT_TLS] = {"TLS", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_MQTT, 0U, NULL,
-                                NO_PRESETS, NULL, NULL, 0U},
+                                     MESH_STR_ZERO_DEFAULT, NULL, 0U},
+    [MESH_UI_FIELD_POWER_SHUTDOWN] = {MESH_STR_SETTINGS_FIELD_POWER_SHUTDOWN,
+                                      MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_POWER, 0U, NULL,
+                                      PRESETS(k_shutdown_presets), MESH_STR_ZERO_OFF, NULL, 0U},
+    [MESH_UI_FIELD_DISPLAY_SCREEN_ON] = {MESH_STR_SETTINGS_FIELD_DISPLAY_SCREEN_ON,
+                                         MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_DISPLAY, 0U, NULL,
+                                         PRESETS(k_screen_on_presets), MESH_STR_ZERO_DEFAULT, NULL,
+                                         0U},
+    [MESH_UI_FIELD_DISPLAY_CAROUSEL] = {MESH_STR_SETTINGS_FIELD_DISPLAY_CAROUSEL,
+                                        MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_DISPLAY, 0U, NULL,
+                                        PRESETS(k_carousel_presets), MESH_STR_ZERO_OFF, NULL, 0U},
+    [MESH_UI_FIELD_DISPLAY_COMPASS] = {MESH_STR_SETTINGS_FIELD_DISPLAY_COMPASS,
+                                       MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_DISPLAY, 8U,
+                                       compass_name, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_DISPLAY_12H] = {MESH_STR_SETTINGS_FIELD_DISPLAY_12H, MESH_UI_SETTING_TOGGLE,
+                                   MESH_UI_SETTINGS_DISPLAY, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
+                                   NULL, 0U},
+    [MESH_UI_FIELD_DISPLAY_UNITS] = {MESH_STR_SETTINGS_FIELD_DISPLAY_UNITS, MESH_UI_SETTING_ENUM,
+                                     MESH_UI_SETTINGS_DISPLAY, 2U, units_name, NO_PRESETS,
+                                     MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_DISPLAY_FLIP] = {MESH_STR_SETTINGS_FIELD_DISPLAY_FLIP, MESH_UI_SETTING_TOGGLE,
+                                    MESH_UI_SETTINGS_DISPLAY, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
+                                    NULL, 0U},
+    [MESH_UI_FIELD_MQTT_ENABLED] = {MESH_STR_SETTINGS_FIELD_MQTT_ENABLED, MESH_UI_SETTING_TOGGLE,
+                                    MESH_UI_SETTINGS_MQTT, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
+                                    NULL, 0U},
+    [MESH_UI_FIELD_MQTT_ADDRESS] = {MESH_STR_SETTINGS_FIELD_MQTT_ADDRESS, MESH_UI_SETTING_TEXT,
+                                    MESH_UI_SETTINGS_MQTT, 63U, NULL, NO_PRESETS, MESH_STR_NONE,
+                                    NULL, 0U},
+    [MESH_UI_FIELD_MQTT_USERNAME] = {MESH_STR_SETTINGS_FIELD_MQTT_USERNAME, MESH_UI_SETTING_TEXT,
+                                     MESH_UI_SETTINGS_MQTT, 63U, NULL, NO_PRESETS, MESH_STR_NONE,
+                                     NULL, 0U},
+    [MESH_UI_FIELD_MQTT_PASSWORD] = {MESH_STR_SETTINGS_FIELD_MQTT_PASSWORD, MESH_UI_SETTING_TEXT,
+                                     MESH_UI_SETTINGS_MQTT, 31U, NULL, NO_PRESETS, MESH_STR_NONE,
+                                     NULL, 0U},
+    [MESH_UI_FIELD_MQTT_ROOT] = {MESH_STR_SETTINGS_FIELD_MQTT_ROOT, MESH_UI_SETTING_TEXT,
+                                 MESH_UI_SETTINGS_MQTT, 31U, NULL, NO_PRESETS, MESH_STR_NONE, NULL,
+                                 0U},
+    [MESH_UI_FIELD_MQTT_ENCRYPTION] = {MESH_STR_SETTINGS_FIELD_MQTT_ENCRYPTION,
+                                       MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_MQTT, 0U, NULL,
+                                       NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_MQTT_TLS] = {MESH_STR_SETTINGS_FIELD_MQTT_TLS, MESH_UI_SETTING_TOGGLE,
+                                MESH_UI_SETTINGS_MQTT, 0U, NULL, NO_PRESETS, MESH_STR_NONE, NULL,
+                                0U},
     /* Spelled out: this one publishes the node's position to a public map, which is not what
        "map reporting" reads as to somebody stepping through toggles. */
-    [MESH_UI_FIELD_MQTT_MAP_REPORTING] = {"Report to public map", MESH_UI_SETTING_TOGGLE,
-                                          MESH_UI_SETTINGS_MQTT, 0U, NULL, NO_PRESETS, NULL, NULL,
-                                          0U},
-    [MESH_UI_FIELD_MQTT_MAP_INTERVAL] = {"Map interval", MESH_UI_SETTING_NUMBER,
-                                         MESH_UI_SETTINGS_MQTT, 0U, NULL,
-                                         PRESETS(k_map_interval_presets), NULL, NULL, 0U},
-    [MESH_UI_FIELD_MQTT_MAP_PRECISION] = {"Map precision", MESH_UI_SETTING_NUMBER,
-                                          MESH_UI_SETTINGS_MQTT, 0U, NULL,
-                                          PRESETS(k_precision_presets), "off", format_precision,
-                                          0U},
-    [MESH_UI_FIELD_MQTT_MAP_LOCATION] = {"Map my location", MESH_UI_SETTING_TOGGLE,
-                                         MESH_UI_SETTINGS_MQTT, 0U, NULL, NO_PRESETS, NULL, NULL,
-                                         0U},
-    [MESH_UI_FIELD_SF_ENABLED] = {"Store & Forward", MESH_UI_SETTING_TOGGLE,
-                                  MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL, NO_PRESETS, NULL, NULL,
-                                  0U},
-    [MESH_UI_FIELD_SF_HEARTBEAT] = {"Heartbeat", MESH_UI_SETTING_TOGGLE,
-                                    MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL, NO_PRESETS, NULL,
-                                    NULL, 0U},
-    [MESH_UI_FIELD_SF_SERVER] = {"Act as server", MESH_UI_SETTING_TOGGLE,
-                                 MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL, NO_PRESETS, NULL, NULL,
-                                 0U},
-    [MESH_UI_FIELD_SF_RECORDS] = {"Records kept", MESH_UI_SETTING_NUMBER,
+    [MESH_UI_FIELD_MQTT_MAP_REPORTING] = {MESH_STR_SETTINGS_FIELD_MQTT_MAP_REPORTING,
+                                          MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_MQTT, 0U, NULL,
+                                          NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_MQTT_MAP_INTERVAL] = {MESH_STR_SETTINGS_FIELD_MQTT_MAP_INTERVAL,
+                                         MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_MQTT, 0U, NULL,
+                                         PRESETS(k_map_interval_presets), MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_MQTT_MAP_PRECISION] = {MESH_STR_SETTINGS_FIELD_MQTT_MAP_PRECISION,
+                                          MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_MQTT, 0U, NULL,
+                                          PRESETS(k_precision_presets), MESH_STR_ZERO_OFF,
+                                          format_precision, 0U},
+    [MESH_UI_FIELD_MQTT_MAP_LOCATION] = {MESH_STR_SETTINGS_FIELD_MQTT_MAP_LOCATION,
+                                         MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_MQTT, 0U, NULL,
+                                         NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_SF_ENABLED] = {MESH_STR_SETTINGS_FIELD_SF_ENABLED, MESH_UI_SETTING_TOGGLE,
+                                  MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL, NO_PRESETS,
+                                  MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_SF_HEARTBEAT] = {MESH_STR_SETTINGS_FIELD_SF_HEARTBEAT, MESH_UI_SETTING_TOGGLE,
+                                    MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL, NO_PRESETS,
+                                    MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_SF_SERVER] = {MESH_STR_SETTINGS_FIELD_SF_SERVER, MESH_UI_SETTING_TOGGLE,
+                                 MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL, NO_PRESETS,
+                                 MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_SF_RECORDS] = {MESH_STR_SETTINGS_FIELD_SF_RECORDS, MESH_UI_SETTING_NUMBER,
                                   MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL,
-                                  PRESETS(k_sf_records_presets), NULL, format_count, 0U},
-    [MESH_UI_FIELD_SF_HISTORY_MAX] = {"History max", MESH_UI_SETTING_NUMBER,
-                                      MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL,
-                                      PRESETS(k_sf_history_presets), NULL, format_count, 0U},
-    [MESH_UI_FIELD_SF_HISTORY_WINDOW] = {"History window", MESH_UI_SETTING_NUMBER,
-                                         MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL,
-                                         PRESETS(k_sf_window_presets), "default", NULL, 0U},
+                                  PRESETS(k_sf_records_presets), MESH_STR_NONE, format_count, 0U},
+    [MESH_UI_FIELD_SF_HISTORY_MAX] = {MESH_STR_SETTINGS_FIELD_SF_HISTORY_MAX,
+                                      MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_STORE_FORWARD, 0U,
+                                      NULL, PRESETS(k_sf_history_presets), MESH_STR_NONE,
+                                      format_count, 0U},
+    [MESH_UI_FIELD_SF_HISTORY_WINDOW] = {MESH_STR_SETTINGS_FIELD_SF_HISTORY_WINDOW,
+                                         MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_STORE_FORWARD, 0U,
+                                         NULL, PRESETS(k_sf_window_presets), MESH_STR_ZERO_DEFAULT,
+                                         NULL, 0U},
     /* The five telemetry groups each sit under a heading, so their rows are named for what
        they are inside the group rather than repeating it ("Enabled", not "Env enabled"). The
        only consumer of a field label outside the row list is the keyboard title, and none of
        these is a TEXT field. */
-    [MESH_UI_FIELD_TELEMETRY_DEVICE] = {"Enabled", MESH_UI_SETTING_TOGGLE,
-                                        MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS, NULL,
-                                        NULL, 0U},
-    [MESH_UI_FIELD_TELEMETRY_INTERVAL] = {"Interval", MESH_UI_SETTING_NUMBER,
-                                          MESH_UI_SETTINGS_TELEMETRY, 0U, NULL,
-                                          PRESETS(k_interval_presets), "default", NULL, 0U},
-    [MESH_UI_FIELD_TELEMETRY_ENVIRONMENT] = {"Enabled", MESH_UI_SETTING_TOGGLE,
-                                             MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS, NULL,
-                                             NULL, 0U},
-    [MESH_UI_FIELD_TELEMETRY_ENV_INTERVAL] = {"Interval", MESH_UI_SETTING_NUMBER,
-                                              MESH_UI_SETTINGS_TELEMETRY, 0U, NULL,
-                                              PRESETS(k_interval_presets), "default", NULL, 0U},
-    [MESH_UI_FIELD_TELEMETRY_ENV_SCREEN] = {"Show on screen", MESH_UI_SETTING_TOGGLE,
-                                            MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS, NULL,
-                                            NULL, 0U},
-    [MESH_UI_FIELD_TELEMETRY_ENV_FAHRENHEIT] = {"Fahrenheit", MESH_UI_SETTING_TOGGLE,
-                                                MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS,
-                                                NULL, NULL, 0U},
-    [MESH_UI_FIELD_TELEMETRY_AIR_QUALITY] = {"Enabled", MESH_UI_SETTING_TOGGLE,
-                                             MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS, NULL,
-                                             NULL, 0U},
-    [MESH_UI_FIELD_TELEMETRY_AIR_INTERVAL] = {"Interval", MESH_UI_SETTING_NUMBER,
-                                              MESH_UI_SETTINGS_TELEMETRY, 0U, NULL,
-                                              PRESETS(k_interval_presets), "default", NULL, 0U},
-    [MESH_UI_FIELD_TELEMETRY_AIR_SCREEN] = {"Show on screen", MESH_UI_SETTING_TOGGLE,
-                                            MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS, NULL,
-                                            NULL, 0U},
-    [MESH_UI_FIELD_TELEMETRY_POWER] = {"Enabled", MESH_UI_SETTING_TOGGLE,
-                                       MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS, NULL, NULL,
-                                       0U},
-    [MESH_UI_FIELD_TELEMETRY_POWER_INTERVAL] = {"Interval", MESH_UI_SETTING_NUMBER,
-                                                MESH_UI_SETTINGS_TELEMETRY, 0U, NULL,
-                                                PRESETS(k_interval_presets), "default", NULL, 0U},
-    [MESH_UI_FIELD_TELEMETRY_POWER_SCREEN] = {"Show on screen", MESH_UI_SETTING_TOGGLE,
-                                              MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS,
-                                              NULL, NULL, 0U},
-    [MESH_UI_FIELD_TELEMETRY_HEALTH] = {"Enabled", MESH_UI_SETTING_TOGGLE,
-                                        MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS, NULL,
-                                        NULL, 0U},
-    [MESH_UI_FIELD_TELEMETRY_HEALTH_INTERVAL] = {"Interval", MESH_UI_SETTING_NUMBER,
-                                                 MESH_UI_SETTINGS_TELEMETRY, 0U, NULL,
-                                                 PRESETS(k_interval_presets), "default", NULL, 0U},
-    [MESH_UI_FIELD_TELEMETRY_HEALTH_SCREEN] = {"Show on screen", MESH_UI_SETTING_TOGGLE,
-                                               MESH_UI_SETTINGS_TELEMETRY, 0U, NULL, NO_PRESETS,
-                                               NULL, NULL, 0U},
-    [MESH_UI_FIELD_CHANNEL_NAME] = {"Name", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_CHANNELS, 11U,
-                                    NULL, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_CHANNEL_ROLE] = {"Role", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_CHANNELS, 2U,
-                                    channel_role_name, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_CHANNEL_KEY] = {"Key", MESH_UI_SETTING_KEY, MESH_UI_SETTINGS_CHANNELS, 64U, NULL,
-                                   NO_PRESETS, NULL, NULL, CHANNEL_KEY_CHOICES},
-    [MESH_UI_FIELD_CHANNEL_UPLINK] = {"MQTT uplink", MESH_UI_SETTING_TOGGLE,
-                                      MESH_UI_SETTINGS_CHANNELS, 0U, NULL, NO_PRESETS, NULL, NULL,
+    [MESH_UI_FIELD_TELEMETRY_DEVICE] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_DEVICE,
+                                        MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY, 0U,
+                                        NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_TELEMETRY_INTERVAL] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_INTERVAL,
+                                          MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TELEMETRY, 0U,
+                                          NULL, PRESETS(k_interval_presets), MESH_STR_ZERO_DEFAULT,
+                                          NULL, 0U},
+    [MESH_UI_FIELD_TELEMETRY_ENVIRONMENT] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_ENVIRONMENT,
+                                             MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY, 0U,
+                                             NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_TELEMETRY_ENV_INTERVAL] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_ENV_INTERVAL,
+                                              MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TELEMETRY,
+                                              0U, NULL, PRESETS(k_interval_presets),
+                                              MESH_STR_ZERO_DEFAULT, NULL, 0U},
+    [MESH_UI_FIELD_TELEMETRY_ENV_SCREEN] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_ENV_SCREEN,
+                                            MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY, 0U,
+                                            NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_TELEMETRY_ENV_FAHRENHEIT] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_ENV_FAHRENHEIT,
+                                                MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY,
+                                                0U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_TELEMETRY_AIR_QUALITY] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_AIR_QUALITY,
+                                             MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY, 0U,
+                                             NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_TELEMETRY_AIR_INTERVAL] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_AIR_INTERVAL,
+                                              MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TELEMETRY,
+                                              0U, NULL, PRESETS(k_interval_presets),
+                                              MESH_STR_ZERO_DEFAULT, NULL, 0U},
+    [MESH_UI_FIELD_TELEMETRY_AIR_SCREEN] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_AIR_SCREEN,
+                                            MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY, 0U,
+                                            NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_TELEMETRY_POWER] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_POWER,
+                                       MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY, 0U, NULL,
+                                       NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_TELEMETRY_POWER_INTERVAL] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_POWER_INTERVAL,
+                                                MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TELEMETRY,
+                                                0U, NULL, PRESETS(k_interval_presets),
+                                                MESH_STR_ZERO_DEFAULT, NULL, 0U},
+    [MESH_UI_FIELD_TELEMETRY_POWER_SCREEN] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_POWER_SCREEN,
+                                              MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY,
+                                              0U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_TELEMETRY_HEALTH] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_HEALTH,
+                                        MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY, 0U,
+                                        NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_TELEMETRY_HEALTH_INTERVAL] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_HEALTH_INTERVAL,
+                                                 MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TELEMETRY,
+                                                 0U, NULL, PRESETS(k_interval_presets),
+                                                 MESH_STR_ZERO_DEFAULT, NULL, 0U},
+    [MESH_UI_FIELD_TELEMETRY_HEALTH_SCREEN] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_HEALTH_SCREEN,
+                                               MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY,
+                                               0U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_CHANNEL_NAME] = {MESH_STR_SETTINGS_FIELD_CHANNEL_NAME, MESH_UI_SETTING_TEXT,
+                                    MESH_UI_SETTINGS_CHANNELS, 11U, NULL, NO_PRESETS, MESH_STR_NONE,
+                                    NULL, 0U},
+    [MESH_UI_FIELD_CHANNEL_ROLE] = {MESH_STR_SETTINGS_FIELD_CHANNEL_ROLE, MESH_UI_SETTING_ENUM,
+                                    MESH_UI_SETTINGS_CHANNELS, 2U, channel_role_name, NO_PRESETS,
+                                    MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_CHANNEL_KEY] = {MESH_STR_SETTINGS_FIELD_CHANNEL_KEY, MESH_UI_SETTING_KEY,
+                                   MESH_UI_SETTINGS_CHANNELS, 64U, NULL, NO_PRESETS, MESH_STR_NONE,
+                                   NULL, CHANNEL_KEY_CHOICES},
+    [MESH_UI_FIELD_CHANNEL_UPLINK] = {MESH_STR_SETTINGS_FIELD_CHANNEL_UPLINK,
+                                      MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_CHANNELS, 0U, NULL,
+                                      NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_CHANNEL_DOWNLINK] = {MESH_STR_SETTINGS_FIELD_CHANNEL_DOWNLINK,
+                                        MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_CHANNELS, 0U, NULL,
+                                        NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_CHANNEL_POSITION] = {MESH_STR_SETTINGS_FIELD_CHANNEL_POSITION,
+                                        MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_CHANNELS, 0U, NULL,
+                                        PRESETS(k_precision_presets), MESH_STR_ZERO_OFF,
+                                        format_precision, 0U},
+    [MESH_UI_FIELD_BT_ENABLED] = {MESH_STR_SETTINGS_FIELD_BT_ENABLED, MESH_UI_SETTING_TOGGLE,
+                                  MESH_UI_SETTINGS_BLUETOOTH, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
+                                  NULL, 0U},
+    [MESH_UI_FIELD_BT_MODE] = {MESH_STR_SETTINGS_FIELD_BT_MODE, MESH_UI_SETTING_ENUM,
+                               MESH_UI_SETTINGS_BLUETOOTH, 3U, pairing_enum_name, NO_PRESETS,
+                               MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_BT_PIN] = {MESH_STR_SETTINGS_FIELD_BT_PIN, MESH_UI_SETTING_TEXT,
+                              MESH_UI_SETTINGS_BLUETOOTH, 6U, NULL, NO_PRESETS, MESH_STR_NONE, NULL,
+                              0U},
+    [MESH_UI_FIELD_LORA_REGION] = {MESH_STR_SETTINGS_FIELD_LORA_REGION, MESH_UI_SETTING_ENUM,
+                                   MESH_UI_SETTINGS_LORA, 38U, region_enum_name, NO_PRESETS,
+                                   MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_LORA_USE_PRESET] = {MESH_STR_SETTINGS_FIELD_LORA_USE_PRESET,
+                                       MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_LORA, 0U, NULL,
+                                       NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_LORA_PRESET] = {MESH_STR_SETTINGS_FIELD_LORA_PRESET, MESH_UI_SETTING_ENUM,
+                                   MESH_UI_SETTINGS_LORA, 17U, preset_enum_name, NO_PRESETS,
+                                   MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_LORA_BANDWIDTH] = {MESH_STR_SETTINGS_FIELD_LORA_BANDWIDTH,
+                                      MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_LORA, 0U, NULL,
+                                      PRESETS(k_bandwidth_presets), MESH_STR_NONE, format_bandwidth,
                                       0U},
-    [MESH_UI_FIELD_CHANNEL_DOWNLINK] = {"MQTT downlink", MESH_UI_SETTING_TOGGLE,
-                                        MESH_UI_SETTINGS_CHANNELS, 0U, NULL, NO_PRESETS, NULL, NULL,
-                                        0U},
-    [MESH_UI_FIELD_CHANNEL_POSITION] = {"Position precision", MESH_UI_SETTING_NUMBER,
-                                        MESH_UI_SETTINGS_CHANNELS, 0U, NULL,
-                                        PRESETS(k_precision_presets), "off", format_precision, 0U},
-    [MESH_UI_FIELD_BT_ENABLED] = {"Bluetooth", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_BLUETOOTH,
-                                  0U, NULL, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_BT_MODE] = {"Pairing", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_BLUETOOTH, 3U,
-                               pairing_enum_name, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_BT_PIN] = {"Fixed PIN", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_BLUETOOTH, 6U,
-                              NULL, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_LORA_REGION] = {"Region", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_LORA, 38U,
-                                   region_enum_name, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_LORA_USE_PRESET] = {"Use preset", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_LORA,
-                                       0U, NULL, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_LORA_PRESET] = {"Preset", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_LORA, 17U,
-                                   preset_enum_name, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_LORA_BANDWIDTH] = {"Bandwidth", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_LORA,
-                                      0U, NULL, PRESETS(k_bandwidth_presets), NULL,
-                                      format_bandwidth, 0U},
-    [MESH_UI_FIELD_LORA_SPREAD] = {"Spread factor", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_LORA,
-                                   0U, NULL, PRESETS(k_spread_presets), NULL, format_plain, 0U},
-    [MESH_UI_FIELD_LORA_CODING] = {"Coding rate", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_LORA, 0U,
-                                   NULL, PRESETS(k_coding_presets), NULL, format_coding_rate, 0U},
-    [MESH_UI_FIELD_LORA_HOPS] = {"Hop limit", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_LORA, 0U,
-                                 NULL, PRESETS(k_hop_presets), NULL, format_plain, 0U},
-    [MESH_UI_FIELD_LORA_TX_ENABLED] = {"Transmit", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_LORA,
-                                       0U, NULL, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_LORA_TX_POWER] = {"TX power", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_LORA, 0U,
-                                     NULL, PRESETS(k_tx_power_presets), NULL, format_tx_power, 0U},
-    [MESH_UI_FIELD_LORA_IGNORE_MQTT] = {"Ignore MQTT", MESH_UI_SETTING_TOGGLE,
-                                        MESH_UI_SETTINGS_LORA, 0U, NULL, NO_PRESETS, NULL, NULL,
-                                        0U},
-    [MESH_UI_FIELD_LORA_OK_TO_MQTT] = {"OK to MQTT", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_LORA,
-                                       0U, NULL, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_SECURITY_PRIVATE_KEY] = {"Private key", MESH_UI_SETTING_KEY,
-                                            MESH_UI_SETTINGS_SECURITY, 64U, NULL, NO_PRESETS, NULL,
-                                            NULL, PRIVATE_KEY_CHOICES},
-    [MESH_UI_FIELD_SECURITY_ADMIN_KEY_0] = {"Admin key 1", MESH_UI_SETTING_KEY,
-                                            MESH_UI_SETTINGS_SECURITY, 64U, NULL, NO_PRESETS, NULL,
-                                            NULL, ADMIN_KEY_CHOICES},
-    [MESH_UI_FIELD_SECURITY_ADMIN_KEY_1] = {"Admin key 2", MESH_UI_SETTING_KEY,
-                                            MESH_UI_SETTINGS_SECURITY, 64U, NULL, NO_PRESETS, NULL,
-                                            NULL, ADMIN_KEY_CHOICES},
-    [MESH_UI_FIELD_SECURITY_ADMIN_KEY_2] = {"Admin key 3", MESH_UI_SETTING_KEY,
-                                            MESH_UI_SETTINGS_SECURITY, 64U, NULL, NO_PRESETS, NULL,
-                                            NULL, ADMIN_KEY_CHOICES},
-    [MESH_UI_FIELD_SECURITY_MANAGED] = {"Managed mode", MESH_UI_SETTING_TOGGLE,
-                                        MESH_UI_SETTINGS_SECURITY, 0U, NULL, NO_PRESETS, NULL, NULL,
-                                        0U},
-    [MESH_UI_FIELD_SECURITY_ADMIN_CHANNEL] = {"Admin channel", MESH_UI_SETTING_TOGGLE,
-                                              MESH_UI_SETTINGS_SECURITY, 0U, NULL, NO_PRESETS, NULL,
-                                              NULL, 0U},
-    [MESH_UI_FIELD_SECURITY_SERIAL] = {"Serial console", MESH_UI_SETTING_TOGGLE,
-                                       MESH_UI_SETTINGS_SECURITY, 0U, NULL, NO_PRESETS, NULL, NULL,
-                                       0U},
-    [MESH_UI_FIELD_SECURITY_DEBUG_LOG] = {"Debug log API", MESH_UI_SETTING_TOGGLE,
-                                          MESH_UI_SETTINGS_SECURITY, 0U, NULL, NO_PRESETS, NULL,
-                                          NULL, 0U},
-    [MESH_UI_FIELD_NEIGHBOR_ENABLED] = {"Neighbor info", MESH_UI_SETTING_TOGGLE,
-                                        MESH_UI_SETTINGS_NEIGHBOR_INFO, 0U, NULL, NO_PRESETS, NULL,
-                                        NULL, 0U},
-    [MESH_UI_FIELD_NEIGHBOR_INTERVAL] = {"Interval", MESH_UI_SETTING_NUMBER,
-                                         MESH_UI_SETTINGS_NEIGHBOR_INFO, 0U, NULL,
-                                         PRESETS(k_neighbor_presets), NULL, NULL, 0U},
-    [MESH_UI_FIELD_NEIGHBOR_OVER_LORA] = {"Send over LoRa", MESH_UI_SETTING_TOGGLE,
-                                          MESH_UI_SETTINGS_NEIGHBOR_INFO, 0U, NULL, NO_PRESETS,
-                                          NULL, NULL, 0U},
-    [MESH_UI_FIELD_RANGE_TEST_ENABLED] = {"Range test", MESH_UI_SETTING_TOGGLE,
-                                          MESH_UI_SETTINGS_RANGE_TEST, 0U, NULL, NO_PRESETS, NULL,
-                                          NULL, 0U},
-    [MESH_UI_FIELD_RANGE_TEST_SENDER] = {"Send every", MESH_UI_SETTING_NUMBER,
-                                         MESH_UI_SETTINGS_RANGE_TEST, 0U, NULL,
-                                         PRESETS(k_range_test_presets), "never", NULL, 0U},
-    [MESH_UI_FIELD_RANGE_TEST_SAVE] = {"Save CSV", MESH_UI_SETTING_TOGGLE,
-                                       MESH_UI_SETTINGS_RANGE_TEST, 0U, NULL, NO_PRESETS, NULL,
-                                       NULL, 0U},
-    [MESH_UI_FIELD_RANGE_TEST_CLEAR] = {"Clear CSV on boot", MESH_UI_SETTING_TOGGLE,
-                                        MESH_UI_SETTINGS_RANGE_TEST, 0U, NULL, NO_PRESETS, NULL,
-                                        NULL, 0U},
-    [MESH_UI_FIELD_PAX_ENABLED] = {"Paxcounter", MESH_UI_SETTING_TOGGLE,
-                                   MESH_UI_SETTINGS_PAXCOUNTER, 0U, NULL, NO_PRESETS, NULL, NULL,
-                                   0U},
-    [MESH_UI_FIELD_PAX_INTERVAL] = {"Interval", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_PAXCOUNTER,
-                                    0U, NULL, PRESETS(k_interval_presets), "default", NULL, 0U},
-    [MESH_UI_FIELD_PAX_WIFI_THRESHOLD] = {"WiFi floor", MESH_UI_SETTING_NUMBER,
-                                          MESH_UI_SETTINGS_PAXCOUNTER, 0U, NULL,
-                                          PRESETS(k_rssi_presets), NULL, format_rssi, 0U},
-    [MESH_UI_FIELD_PAX_BLE_THRESHOLD] = {"BLE floor", MESH_UI_SETTING_NUMBER,
-                                         MESH_UI_SETTINGS_PAXCOUNTER, 0U, NULL,
-                                         PRESETS(k_rssi_presets), NULL, format_rssi, 0U},
-    [MESH_UI_FIELD_TAK_TEAM] = {"Team", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_TAK, 15U,
-                                tak_team_name, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_TAK_ROLE] = {"Role", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_TAK, 9U,
-                                tak_role_name, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_AMBIENT_LED] = {"LED", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_AMBIENT, 0U,
-                                   NULL, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_AMBIENT_CURRENT] = {"Current", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_AMBIENT,
-                                       0U, NULL, PRESETS(k_led_current_presets), NULL,
+    [MESH_UI_FIELD_LORA_SPREAD] = {MESH_STR_SETTINGS_FIELD_LORA_SPREAD, MESH_UI_SETTING_NUMBER,
+                                   MESH_UI_SETTINGS_LORA, 0U, NULL, PRESETS(k_spread_presets),
+                                   MESH_STR_NONE, format_plain, 0U},
+    [MESH_UI_FIELD_LORA_CODING] = {MESH_STR_SETTINGS_FIELD_LORA_CODING, MESH_UI_SETTING_NUMBER,
+                                   MESH_UI_SETTINGS_LORA, 0U, NULL, PRESETS(k_coding_presets),
+                                   MESH_STR_NONE, format_coding_rate, 0U},
+    [MESH_UI_FIELD_LORA_HOPS] = {MESH_STR_SETTINGS_FIELD_LORA_HOPS, MESH_UI_SETTING_NUMBER,
+                                 MESH_UI_SETTINGS_LORA, 0U, NULL, PRESETS(k_hop_presets),
+                                 MESH_STR_NONE, format_plain, 0U},
+    [MESH_UI_FIELD_LORA_TX_ENABLED] = {MESH_STR_SETTINGS_FIELD_LORA_TX_ENABLED,
+                                       MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_LORA, 0U, NULL,
+                                       NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_LORA_TX_POWER] = {MESH_STR_SETTINGS_FIELD_LORA_TX_POWER, MESH_UI_SETTING_NUMBER,
+                                     MESH_UI_SETTINGS_LORA, 0U, NULL, PRESETS(k_tx_power_presets),
+                                     MESH_STR_NONE, format_tx_power, 0U},
+    [MESH_UI_FIELD_LORA_IGNORE_MQTT] = {MESH_STR_SETTINGS_FIELD_LORA_IGNORE_MQTT,
+                                        MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_LORA, 0U, NULL,
+                                        NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_LORA_OK_TO_MQTT] = {MESH_STR_SETTINGS_FIELD_LORA_OK_TO_MQTT,
+                                       MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_LORA, 0U, NULL,
+                                       NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_SECURITY_PRIVATE_KEY] = {MESH_STR_SETTINGS_FIELD_SECURITY_PRIVATE_KEY,
+                                            MESH_UI_SETTING_KEY, MESH_UI_SETTINGS_SECURITY, 64U,
+                                            NULL, NO_PRESETS, MESH_STR_NONE, NULL,
+                                            PRIVATE_KEY_CHOICES},
+    [MESH_UI_FIELD_SECURITY_ADMIN_KEY_0] = {MESH_STR_SETTINGS_FIELD_SECURITY_ADMIN_KEY_0,
+                                            MESH_UI_SETTING_KEY, MESH_UI_SETTINGS_SECURITY, 64U,
+                                            NULL, NO_PRESETS, MESH_STR_NONE, NULL,
+                                            ADMIN_KEY_CHOICES},
+    [MESH_UI_FIELD_SECURITY_ADMIN_KEY_1] = {MESH_STR_SETTINGS_FIELD_SECURITY_ADMIN_KEY_1,
+                                            MESH_UI_SETTING_KEY, MESH_UI_SETTINGS_SECURITY, 64U,
+                                            NULL, NO_PRESETS, MESH_STR_NONE, NULL,
+                                            ADMIN_KEY_CHOICES},
+    [MESH_UI_FIELD_SECURITY_ADMIN_KEY_2] = {MESH_STR_SETTINGS_FIELD_SECURITY_ADMIN_KEY_2,
+                                            MESH_UI_SETTING_KEY, MESH_UI_SETTINGS_SECURITY, 64U,
+                                            NULL, NO_PRESETS, MESH_STR_NONE, NULL,
+                                            ADMIN_KEY_CHOICES},
+    [MESH_UI_FIELD_SECURITY_MANAGED] = {MESH_STR_SETTINGS_FIELD_SECURITY_MANAGED,
+                                        MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_SECURITY, 0U, NULL,
+                                        NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_SECURITY_ADMIN_CHANNEL] = {MESH_STR_SETTINGS_FIELD_SECURITY_ADMIN_CHANNEL,
+                                              MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_SECURITY, 0U,
+                                              NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_SECURITY_SERIAL] = {MESH_STR_SETTINGS_FIELD_SECURITY_SERIAL,
+                                       MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_SECURITY, 0U, NULL,
+                                       NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_SECURITY_DEBUG_LOG] = {MESH_STR_SETTINGS_FIELD_SECURITY_DEBUG_LOG,
+                                          MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_SECURITY, 0U,
+                                          NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_NEIGHBOR_ENABLED] = {MESH_STR_SETTINGS_FIELD_NEIGHBOR_ENABLED,
+                                        MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_NEIGHBOR_INFO, 0U,
+                                        NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_NEIGHBOR_INTERVAL] = {MESH_STR_SETTINGS_FIELD_NEIGHBOR_INTERVAL,
+                                         MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_NEIGHBOR_INFO, 0U,
+                                         NULL, PRESETS(k_neighbor_presets), MESH_STR_NONE, NULL,
+                                         0U},
+    [MESH_UI_FIELD_NEIGHBOR_OVER_LORA] = {MESH_STR_SETTINGS_FIELD_NEIGHBOR_OVER_LORA,
+                                          MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_NEIGHBOR_INFO,
+                                          0U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_RANGE_TEST_ENABLED] = {MESH_STR_SETTINGS_FIELD_RANGE_TEST_ENABLED,
+                                          MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_RANGE_TEST, 0U,
+                                          NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_RANGE_TEST_SENDER] = {MESH_STR_SETTINGS_FIELD_RANGE_TEST_SENDER,
+                                         MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_RANGE_TEST, 0U,
+                                         NULL, PRESETS(k_range_test_presets), MESH_STR_ZERO_NEVER,
+                                         NULL, 0U},
+    [MESH_UI_FIELD_RANGE_TEST_SAVE] = {MESH_STR_SETTINGS_FIELD_RANGE_TEST_SAVE,
+                                       MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_RANGE_TEST, 0U,
+                                       NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_RANGE_TEST_CLEAR] = {MESH_STR_SETTINGS_FIELD_RANGE_TEST_CLEAR,
+                                        MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_RANGE_TEST, 0U,
+                                        NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_PAX_ENABLED] = {MESH_STR_SETTINGS_FIELD_PAX_ENABLED, MESH_UI_SETTING_TOGGLE,
+                                   MESH_UI_SETTINGS_PAXCOUNTER, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
+                                   NULL, 0U},
+    [MESH_UI_FIELD_PAX_INTERVAL] = {MESH_STR_SETTINGS_FIELD_PAX_INTERVAL, MESH_UI_SETTING_NUMBER,
+                                    MESH_UI_SETTINGS_PAXCOUNTER, 0U, NULL,
+                                    PRESETS(k_interval_presets), MESH_STR_ZERO_DEFAULT, NULL, 0U},
+    [MESH_UI_FIELD_PAX_WIFI_THRESHOLD] = {MESH_STR_SETTINGS_FIELD_PAX_WIFI_THRESHOLD,
+                                          MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_PAXCOUNTER, 0U,
+                                          NULL, PRESETS(k_rssi_presets), MESH_STR_NONE, format_rssi,
+                                          0U},
+    [MESH_UI_FIELD_PAX_BLE_THRESHOLD] = {MESH_STR_SETTINGS_FIELD_PAX_BLE_THRESHOLD,
+                                         MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_PAXCOUNTER, 0U,
+                                         NULL, PRESETS(k_rssi_presets), MESH_STR_NONE, format_rssi,
+                                         0U},
+    [MESH_UI_FIELD_TAK_TEAM] = {MESH_STR_SETTINGS_FIELD_TAK_TEAM, MESH_UI_SETTING_ENUM,
+                                MESH_UI_SETTINGS_TAK, 15U, tak_team_name, NO_PRESETS, MESH_STR_NONE,
+                                NULL, 0U},
+    [MESH_UI_FIELD_TAK_ROLE] = {MESH_STR_SETTINGS_FIELD_TAK_ROLE, MESH_UI_SETTING_ENUM,
+                                MESH_UI_SETTINGS_TAK, 9U, tak_role_name, NO_PRESETS, MESH_STR_NONE,
+                                NULL, 0U},
+    [MESH_UI_FIELD_AMBIENT_LED] = {MESH_STR_SETTINGS_FIELD_AMBIENT_LED, MESH_UI_SETTING_TOGGLE,
+                                   MESH_UI_SETTINGS_AMBIENT, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
+                                   NULL, 0U},
+    [MESH_UI_FIELD_AMBIENT_CURRENT] = {MESH_STR_SETTINGS_FIELD_AMBIENT_CURRENT,
+                                       MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_AMBIENT, 0U, NULL,
+                                       PRESETS(k_led_current_presets), MESH_STR_NONE,
                                        format_milliamps, 0U},
-    [MESH_UI_FIELD_AMBIENT_RED] = {"Red", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_AMBIENT, 0U,
-                                   NULL, PRESETS(k_led_level_presets), NULL, format_level, 0U},
-    [MESH_UI_FIELD_AMBIENT_GREEN] = {"Green", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_AMBIENT, 0U,
-                                     NULL, PRESETS(k_led_level_presets), NULL, format_level, 0U},
-    [MESH_UI_FIELD_AMBIENT_BLUE] = {"Blue", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_AMBIENT, 0U,
-                                    NULL, PRESETS(k_led_level_presets), NULL, format_level, 0U},
+    [MESH_UI_FIELD_AMBIENT_RED] = {MESH_STR_SETTINGS_FIELD_AMBIENT_RED, MESH_UI_SETTING_NUMBER,
+                                   MESH_UI_SETTINGS_AMBIENT, 0U, NULL, PRESETS(k_led_level_presets),
+                                   MESH_STR_NONE, format_level, 0U},
+    [MESH_UI_FIELD_AMBIENT_GREEN] = {MESH_STR_SETTINGS_FIELD_AMBIENT_GREEN, MESH_UI_SETTING_NUMBER,
+                                     MESH_UI_SETTINGS_AMBIENT, 0U, NULL,
+                                     PRESETS(k_led_level_presets), MESH_STR_NONE, format_level, 0U},
+    [MESH_UI_FIELD_AMBIENT_BLUE] = {MESH_STR_SETTINGS_FIELD_AMBIENT_BLUE, MESH_UI_SETTING_NUMBER,
+                                    MESH_UI_SETTINGS_AMBIENT, 0U, NULL,
+                                    PRESETS(k_led_level_presets), MESH_STR_NONE, format_level, 0U},
     /* 79 bytes on the wire; MESH_UI_SETTING_TEXT_MAX was raised to 80 to hold it. */
-    [MESH_UI_FIELD_STATUS_TEXT] = {"Status", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_STATUS_MESSAGE,
-                                   79U, NULL, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_DETECT_ENABLED] = {"Detection sensor", MESH_UI_SETTING_TOGGLE,
-                                      MESH_UI_SETTINGS_DETECTION, 0U, NULL, NO_PRESETS, NULL, NULL,
-                                      0U},
+    [MESH_UI_FIELD_STATUS_TEXT] = {MESH_STR_SETTINGS_FIELD_STATUS_TEXT, MESH_UI_SETTING_TEXT,
+                                   MESH_UI_SETTINGS_STATUS_MESSAGE, 79U, NULL, NO_PRESETS,
+                                   MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_DETECT_ENABLED] = {MESH_STR_SETTINGS_FIELD_DETECT_ENABLED,
+                                      MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_DETECTION, 0U, NULL,
+                                      NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     /* 20 bytes on the wire including the NUL, so 19 typed. */
-    [MESH_UI_FIELD_DETECT_NAME] = {"Name", MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_DETECTION, 19U,
-                                   NULL, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_DETECT_MIN_BROADCAST] = {"Min interval", MESH_UI_SETTING_NUMBER,
-                                            MESH_UI_SETTINGS_DETECTION, 0U, NULL,
-                                            PRESETS(k_detect_min_presets), "none", NULL, 0U},
-    [MESH_UI_FIELD_DETECT_STATE_BROADCAST] = {"Heartbeat", MESH_UI_SETTING_NUMBER,
-                                              MESH_UI_SETTINGS_DETECTION, 0U, NULL,
-                                              PRESETS(k_detect_state_presets), "off", NULL, 0U},
-    [MESH_UI_FIELD_DETECT_SEND_BELL] = {"Send bell", MESH_UI_SETTING_TOGGLE,
-                                        MESH_UI_SETTINGS_DETECTION, 0U, NULL, NO_PRESETS, NULL,
-                                        NULL, 0U},
-    [MESH_UI_FIELD_DETECT_PIN] = {"Monitor pin", MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_DETECTION,
-                                  0U, NULL, PRESETS(k_gpio_presets), NULL, format_pin, 0U},
-    [MESH_UI_FIELD_DETECT_TRIGGER] = {"Trigger", MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_DETECTION,
-                                      6U, trigger_name, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_DETECT_PULLUP] = {"Pull-up", MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_DETECTION,
-                                     0U, NULL, NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_EXTNOTIF_ENABLED] = {"External notify", MESH_UI_SETTING_TOGGLE,
-                                        MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL, NO_PRESETS,
-                                        NULL, NULL, 0U},
-    [MESH_UI_FIELD_EXTNOTIF_ACTIVE] = {"Active high", MESH_UI_SETTING_TOGGLE,
-                                       MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL, NO_PRESETS,
-                                       NULL, NULL, 0U},
-    [MESH_UI_FIELD_EXTNOTIF_OUTPUT_MS] = {"On for", MESH_UI_SETTING_NUMBER,
-                                          MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
-                                          PRESETS(k_output_ms_presets), NULL, format_millis, 0U},
-    [MESH_UI_FIELD_EXTNOTIF_NAG] = {"Repeat for", MESH_UI_SETTING_NUMBER,
+    [MESH_UI_FIELD_DETECT_NAME] = {MESH_STR_SETTINGS_FIELD_DETECT_NAME, MESH_UI_SETTING_TEXT,
+                                   MESH_UI_SETTINGS_DETECTION, 19U, NULL, NO_PRESETS, MESH_STR_NONE,
+                                   NULL, 0U},
+    [MESH_UI_FIELD_DETECT_MIN_BROADCAST] = {MESH_STR_SETTINGS_FIELD_DETECT_MIN_BROADCAST,
+                                            MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_DETECTION, 0U,
+                                            NULL, PRESETS(k_detect_min_presets), MESH_STR_ZERO_NONE,
+                                            NULL, 0U},
+    [MESH_UI_FIELD_DETECT_STATE_BROADCAST] = {MESH_STR_SETTINGS_FIELD_DETECT_STATE_BROADCAST,
+                                              MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_DETECTION,
+                                              0U, NULL, PRESETS(k_detect_state_presets),
+                                              MESH_STR_ZERO_OFF, NULL, 0U},
+    [MESH_UI_FIELD_DETECT_SEND_BELL] = {MESH_STR_SETTINGS_FIELD_DETECT_SEND_BELL,
+                                        MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_DETECTION, 0U,
+                                        NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_DETECT_PIN] = {MESH_STR_SETTINGS_FIELD_DETECT_PIN, MESH_UI_SETTING_NUMBER,
+                                  MESH_UI_SETTINGS_DETECTION, 0U, NULL, PRESETS(k_gpio_presets),
+                                  MESH_STR_NONE, format_pin, 0U},
+    [MESH_UI_FIELD_DETECT_TRIGGER] = {MESH_STR_SETTINGS_FIELD_DETECT_TRIGGER, MESH_UI_SETTING_ENUM,
+                                      MESH_UI_SETTINGS_DETECTION, 6U, trigger_name, NO_PRESETS,
+                                      MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_DETECT_PULLUP] = {MESH_STR_SETTINGS_FIELD_DETECT_PULLUP, MESH_UI_SETTING_TOGGLE,
+                                     MESH_UI_SETTINGS_DETECTION, 0U, NULL, NO_PRESETS,
+                                     MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_ENABLED] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_ENABLED,
+                                        MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_EXT_NOTIFICATION,
+                                        0U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_ACTIVE] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_ACTIVE,
+                                       MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_EXT_NOTIFICATION,
+                                       0U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_OUTPUT_MS] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_OUTPUT_MS,
+                                          MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_EXT_NOTIFICATION,
+                                          0U, NULL, PRESETS(k_output_ms_presets), MESH_STR_NONE,
+                                          format_millis, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_NAG] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_NAG, MESH_UI_SETTING_NUMBER,
                                     MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
-                                    PRESETS(k_nag_presets), "once", NULL, 0U},
-    [MESH_UI_FIELD_EXTNOTIF_PWM] = {"Use PWM", MESH_UI_SETTING_TOGGLE,
-                                    MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL, NO_PRESETS, NULL,
-                                    NULL, 0U},
-    [MESH_UI_FIELD_EXTNOTIF_I2S] = {"I2S as buzzer", MESH_UI_SETTING_TOGGLE,
-                                    MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL, NO_PRESETS, NULL,
-                                    NULL, 0U},
+                                    PRESETS(k_nag_presets), MESH_STR_ZERO_ONCE, NULL, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_PWM] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_PWM, MESH_UI_SETTING_TOGGLE,
+                                    MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL, NO_PRESETS,
+                                    MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_I2S] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_I2S, MESH_UI_SETTING_TOGGLE,
+                                    MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL, NO_PRESETS,
+                                    MESH_STR_NONE, NULL, 0U},
     /* The three output groups. Each row is named for what it is inside its group, the way the
        telemetry groups are, because the heading above it says which output it belongs to. */
-    [MESH_UI_FIELD_EXTNOTIF_PIN] = {"Pin", MESH_UI_SETTING_NUMBER,
+    [MESH_UI_FIELD_EXTNOTIF_PIN] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_PIN, MESH_UI_SETTING_NUMBER,
                                     MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
-                                    PRESETS(k_gpio_presets), NULL, format_pin, 0U},
-    [MESH_UI_FIELD_EXTNOTIF_ALERT_MSG] = {"On message", MESH_UI_SETTING_TOGGLE,
-                                          MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL, NO_PRESETS,
-                                          NULL, NULL, 0U},
-    [MESH_UI_FIELD_EXTNOTIF_ALERT_BELL] = {"On bell", MESH_UI_SETTING_TOGGLE,
+                                    PRESETS(k_gpio_presets), MESH_STR_NONE, format_pin, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_ALERT_MSG] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_ALERT_MSG,
+                                          MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_EXT_NOTIFICATION,
+                                          0U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_ALERT_BELL] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_ALERT_BELL,
+                                           MESH_UI_SETTING_TOGGLE,
                                            MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL, NO_PRESETS,
-                                           NULL, NULL, 0U},
-    [MESH_UI_FIELD_EXTNOTIF_PIN_VIBRA] = {"Pin", MESH_UI_SETTING_NUMBER,
-                                          MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
-                                          PRESETS(k_gpio_presets), NULL, format_pin, 0U},
-    [MESH_UI_FIELD_EXTNOTIF_ALERT_MSG_VIBRA] = {"On message", MESH_UI_SETTING_TOGGLE,
+                                           MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_PIN_VIBRA] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_PIN_VIBRA,
+                                          MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_EXT_NOTIFICATION,
+                                          0U, NULL, PRESETS(k_gpio_presets), MESH_STR_NONE,
+                                          format_pin, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_ALERT_MSG_VIBRA] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_ALERT_MSG_VIBRA,
+                                                MESH_UI_SETTING_TOGGLE,
                                                 MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
-                                                NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_EXTNOTIF_ALERT_BELL_VIBRA] = {"On bell", MESH_UI_SETTING_TOGGLE,
+                                                NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_ALERT_BELL_VIBRA] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_ALERT_BELL_VIBRA,
+                                                 MESH_UI_SETTING_TOGGLE,
                                                  MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
-                                                 NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_EXTNOTIF_PIN_BUZZER] = {"Pin", MESH_UI_SETTING_NUMBER,
+                                                 NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_PIN_BUZZER] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_PIN_BUZZER,
+                                           MESH_UI_SETTING_NUMBER,
                                            MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
-                                           PRESETS(k_gpio_presets), NULL, format_pin, 0U},
-    [MESH_UI_FIELD_EXTNOTIF_ALERT_MSG_BUZZER] = {"On message", MESH_UI_SETTING_TOGGLE,
+                                           PRESETS(k_gpio_presets), MESH_STR_NONE, format_pin, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_ALERT_MSG_BUZZER] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_ALERT_MSG_BUZZER,
+                                                 MESH_UI_SETTING_TOGGLE,
                                                  MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
-                                                 NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_EXTNOTIF_ALERT_BELL_BUZZER] = {"On bell", MESH_UI_SETTING_TOGGLE,
-                                                  MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
-                                                  NO_PRESETS, NULL, NULL, 0U},
-    [MESH_UI_FIELD_TRAFFIC_POSITION_INTERVAL] = {"Position min gap", MESH_UI_SETTING_NUMBER,
-                                                 MESH_UI_SETTINGS_TRAFFIC, 0U, NULL,
-                                                 PRESETS(k_traffic_interval_presets), "off", NULL,
-                                                 0U},
-    [MESH_UI_FIELD_TRAFFIC_NODEINFO_HOPS] = {"NodeInfo max hops", MESH_UI_SETTING_NUMBER,
-                                             MESH_UI_SETTINGS_TRAFFIC, 0U, NULL,
-                                             PRESETS(k_traffic_hops_presets), "off", format_count,
-                                             0U},
-    [MESH_UI_FIELD_TRAFFIC_RATE_WINDOW] = {"Rate window", MESH_UI_SETTING_NUMBER,
-                                           MESH_UI_SETTINGS_TRAFFIC, 0U, NULL,
-                                           PRESETS(k_traffic_interval_presets), "off", NULL, 0U},
-    [MESH_UI_FIELD_TRAFFIC_RATE_PACKETS] = {"Rate max packets", MESH_UI_SETTING_NUMBER,
-                                            MESH_UI_SETTINGS_TRAFFIC, 0U, NULL,
-                                            PRESETS(k_traffic_packets_presets), "off", format_count,
-                                            0U},
-    [MESH_UI_FIELD_TRAFFIC_UNKNOWN_THRESHOLD] = {"Unknown limit", MESH_UI_SETTING_NUMBER,
-                                                 MESH_UI_SETTINGS_TRAFFIC, 0U, NULL,
-                                                 PRESETS(k_traffic_packets_presets), "off",
-                                                 format_count, 0U},
-    [MESH_UI_FIELD_SECURITY_SIGNATURE_POLICY] = {"Packet signing", MESH_UI_SETTING_ENUM,
-                                                 MESH_UI_SETTINGS_SECURITY, 3U,
-                                                 signature_policy_name, NO_PRESETS, NULL, NULL, 0U},
+                                                 NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_EXTNOTIF_ALERT_BELL_BUZZER] =
+        {MESH_STR_SETTINGS_FIELD_EXTNOTIF_ALERT_BELL_BUZZER, MESH_UI_SETTING_TOGGLE,
+         MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_TRAFFIC_POSITION_INTERVAL] = {MESH_STR_SETTINGS_FIELD_TRAFFIC_POSITION_INTERVAL,
+                                                 MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TRAFFIC,
+                                                 0U, NULL, PRESETS(k_traffic_interval_presets),
+                                                 MESH_STR_ZERO_OFF, NULL, 0U},
+    [MESH_UI_FIELD_TRAFFIC_NODEINFO_HOPS] = {MESH_STR_SETTINGS_FIELD_TRAFFIC_NODEINFO_HOPS,
+                                             MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TRAFFIC, 0U,
+                                             NULL, PRESETS(k_traffic_hops_presets),
+                                             MESH_STR_ZERO_OFF, format_count, 0U},
+    [MESH_UI_FIELD_TRAFFIC_RATE_WINDOW] = {MESH_STR_SETTINGS_FIELD_TRAFFIC_RATE_WINDOW,
+                                           MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TRAFFIC, 0U,
+                                           NULL, PRESETS(k_traffic_interval_presets),
+                                           MESH_STR_ZERO_OFF, NULL, 0U},
+    [MESH_UI_FIELD_TRAFFIC_RATE_PACKETS] = {MESH_STR_SETTINGS_FIELD_TRAFFIC_RATE_PACKETS,
+                                            MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TRAFFIC, 0U,
+                                            NULL, PRESETS(k_traffic_packets_presets),
+                                            MESH_STR_ZERO_OFF, format_count, 0U},
+    [MESH_UI_FIELD_TRAFFIC_UNKNOWN_THRESHOLD] = {MESH_STR_SETTINGS_FIELD_TRAFFIC_UNKNOWN_THRESHOLD,
+                                                 MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TRAFFIC,
+                                                 0U, NULL, PRESETS(k_traffic_packets_presets),
+                                                 MESH_STR_ZERO_OFF, format_count, 0U},
+    [MESH_UI_FIELD_SECURITY_SIGNATURE_POLICY] = {MESH_STR_SETTINGS_FIELD_SECURITY_SIGNATURE_POLICY,
+                                                 MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_SECURITY,
+                                                 3U, signature_policy_name, NO_PRESETS,
+                                                 MESH_STR_NONE, NULL, 0U},
 };
 
 const struct field_spec *field_spec(enum mesh_ui_setting_field field) {
@@ -928,7 +1032,7 @@ const struct field_spec *field_spec(enum mesh_ui_setting_field field) {
 }
 
 const char *mesh_ui_settings_field_label(enum mesh_ui_setting_field field) {
-    return field_spec(field)->label;
+    return mesh_str(field_spec(field)->label);
 }
 
 enum mesh_ui_setting_kind mesh_ui_settings_field_kind(enum mesh_ui_setting_field field) {
@@ -947,7 +1051,7 @@ uint32_t mesh_ui_settings_enum_count(enum mesh_ui_setting_field field) {
 const char *mesh_ui_settings_enum_name(enum mesh_ui_setting_field field, uint32_t value) {
     const struct field_spec *spec = field_spec(field);
     if (spec->kind != MESH_UI_SETTING_ENUM || spec->enum_name == NULL) {
-        return "?";
+        return mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT);
     }
     return spec->enum_name(value);
 }
@@ -1054,54 +1158,55 @@ void mesh_ui_settings_confirm_title(enum mesh_ui_settings_section section, uint8
     }
     switch (action) {
     case MESH_UI_SETTINGS_ACTION_REBOOT:
-        snprintf(out, out_len, "%s", "Reboot the radio?");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_REBOOT));
         return;
     case MESH_UI_SETTINGS_ACTION_SHUTDOWN:
-        snprintf(out, out_len, "%s", "Shut the radio down?");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_SHUTDOWN));
         return;
     case MESH_UI_SETTINGS_ACTION_RESET_NODEDB:
-        snprintf(out, out_len, "%s", "Reset the node database?");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_RESET_DB));
         return;
     case MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES:
-        snprintf(out, out_len, "%s", "Forget off-radio nodes?");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_FORGET_OFF));
         return;
     case MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES:
-        snprintf(out, out_len, "%s", "Forget every cached node?");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_FORGET_ALL));
         return;
     case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG:
-        snprintf(out, out_len, "%s", "Factory reset the config?");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_FACTORY_CFG));
         return;
     case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE:
-        snprintf(out, out_len, "%s", "Factory reset everything?");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_FACTORY_DEV));
         return;
     default:
         break;
     }
     if (section == MESH_UI_SETTINGS_CHANNELS && channel != MESH_UI_SETTINGS_NO_CHANNEL) {
-        snprintf(out, out_len, "Save channel %u?", (unsigned)channel);
+        mesh_str_format(out, out_len, MESH_STR_CONFIRM_TITLE_SAVE_CHANNEL, (unsigned)channel);
         return;
     }
-    snprintf(out, out_len, "Save %s?", mesh_ui_settings_section_name(section));
+    mesh_str_format(out, out_len, MESH_STR_CONFIRM_TITLE_SAVE,
+                    mesh_ui_settings_section_name(section));
 }
 
 const char *mesh_ui_settings_confirm_accept(enum mesh_ui_settings_action action) {
     switch (action) {
     case MESH_UI_SETTINGS_ACTION_REBOOT:
-        return "Reboot now";
+        return mesh_str(MESH_STR_CONFIRM_ACCEPT_REBOOT);
     case MESH_UI_SETTINGS_ACTION_SHUTDOWN:
-        return "Shut down now";
+        return mesh_str(MESH_STR_CONFIRM_ACCEPT_SHUTDOWN);
     case MESH_UI_SETTINGS_ACTION_RESET_NODEDB:
-        return "Reset the node database";
+        return mesh_str(MESH_STR_CONFIRM_ACCEPT_RESET_DB);
     case MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES:
-        return "Forget them";
+        return mesh_str(MESH_STR_CONFIRM_ACCEPT_FORGET_OFF);
     case MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES:
-        return "Forget them all";
+        return mesh_str(MESH_STR_CONFIRM_ACCEPT_FORGET_ALL);
     case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG:
-        return "Factory reset config";
+        return mesh_str(MESH_STR_CONFIRM_ACCEPT_FACTORY_CFG);
     case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE:
-        return "Factory reset device";
+        return mesh_str(MESH_STR_CONFIRM_ACCEPT_FACTORY_DEV);
     default:
-        return "Save to radio";
+        return mesh_str(MESH_STR_CONFIRM_ACCEPT_SAVE);
     }
 }
 
@@ -1118,78 +1223,49 @@ void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section,
      */
     switch (action) {
     case MESH_UI_SETTINGS_ACTION_REBOOT:
-        snprintf(out, out_len, "%s",
-                 "The radio restarts in a few seconds. The link drops with it and auto-connect "
-                 "brings it back; anything sent to this node meanwhile is lost.");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_REBOOT));
         return;
     case MESH_UI_SETTINGS_ACTION_SHUTDOWN:
-        snprintf(out, out_len, "%s",
-                 "The radio powers off in a few seconds and nothing here can wake it again: "
-                 "that takes its own button. Everything it has stored survives.");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_SHUTDOWN));
         return;
     /* Four wrapped lines is what the sheet draws, so each of these stops inside it: a warning
        whose last clause is cut off is worse than a shorter one. */
     case MESH_UI_SETTINGS_ACTION_RESET_NODEDB:
-        snprintf(out, out_len, "%s",
-                 "The radio forgets every node it heard, favorites excepted. Names come back "
-                 "as each speaks again. The Brick's own list stays; the row below clears "
-                 "it.");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_RESET_DB));
         return;
     case MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES:
-        snprintf(out, out_len, "%s",
-                 "Drops the nodes this Brick remembers and the radio no longer carries - the "
-                 "ones the Nodes tab marks \"off radio\". Pins and ourselves stay.");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_FORGET_OFF));
         return;
     case MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES:
-        snprintf(out, out_len, "%s",
-                 "Empties this Brick's node list, ourselves and pins excepted. The radio's "
-                 "database is untouched; the list fills again on the next connect.");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_FORGET_ALL));
         return;
     case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG:
-        snprintf(out, out_len, "%s",
-                 "Every setting returns to its factory default, the Bluetooth bond excepted. "
-                 "Channels and keys go too: the node leaves your mesh until set up again.");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_FACTORY_CFG));
         return;
     case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE:
-        snprintf(out, out_len, "%s",
-                 "Every setting and the node database return to factory defaults, and the "
-                 "Bluetooth bond is cleared: forget the node in Devices (Y) and pair again.");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_FACTORY_DEV));
         return;
     default:
         break;
     }
     switch (section) {
     case MESH_UI_SETTINGS_BLUETOOTH:
-        snprintf(out, out_len, "%s",
-                 "The radio will reboot. Changing the pairing mode or PIN invalidates the "
-                 "Brick's bond: forget the node in Devices (Y) and connect again to pair "
-                 "with the new PIN. Turning Bluetooth off cuts this client off entirely.");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_BLUETOOTH));
         break;
     case MESH_UI_SETTINGS_CHANNELS:
-        snprintf(out, out_len, "%s",
-                 "The radio will reboot. A new key or name moves this radio to a different "
-                 "channel: every other node needs the same settings to keep talking to it.");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_CHANNELS));
         break;
     case MESH_UI_SETTINGS_LORA:
-        snprintf(out, out_len, "%s",
-                 "The radio will reboot. A region or preset the other nodes do not share takes "
-                 "this radio off the mesh, and a wrong region may be illegal to transmit on. "
-                 "Transmit off makes it receive-only.");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_LORA));
         break;
     case MESH_UI_SETTINGS_SECURITY:
-        snprintf(out, out_len, "%s",
-                 "A new private key changes this node's identity: peers must learn it again "
-                 "and old direct messages stay unreadable. Managed mode locks out every "
-                 "client whose key is not an admin key, this one included.");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_SECURITY));
         break;
     case MESH_UI_SETTINGS_POWER:
-        snprintf(out, out_len, "%s",
-                 "The radio will reboot. Power saving puts the radio to sleep between "
-                 "packets, and a short light-sleep or wake time can leave too little "
-                 "Bluetooth on for this client to reconnect on its own.");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_POWER));
         break;
     default:
-        snprintf(out, out_len, "%s", "The radio will reboot to apply this.");
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_DEFAULT));
         break;
     }
 }

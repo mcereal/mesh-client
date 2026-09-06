@@ -97,7 +97,7 @@ suite needs it.
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Verified 2026-09-06: 157 unit tests, all passing, zero compiler warnings.
+Verified 2026-09-06: 167 unit tests, all passing, zero compiler warnings.
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
 vector — not against our own encoder — so a protobuf regeneration that changes field numbers or
 wire types fails loudly.
@@ -136,6 +136,7 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window; buttons, list rows, field rows |
 | Themes | `src/ui/theme.c`, `src/ui/font.c` | palette by role, metrics, font registry; `MESHCLIENT_THEME` or Settings > About picks one |
 | Text | `src/utils/text.c`, `src/ui/{font5x7,emoji}.c` | UTF-8 sanitising, cell-based measurement |
+| Strings | `src/i18n/strings.c`, `include/mesh/i18n/catalog.def` | the string catalog and the locale registry |
 | Dev tools | `devtools/`, `scripts/{ui-capture.sh,frames.py}` | off-screen UI capture; PNG/GIF encoding, stdlib only |
 | Shared utils | `src/utils/` | `text` (UTF-8 + `mesh_str_copy`), `time` (`mesh_time_monotonic_ms`), `env` (`mesh_env_bool`/`_int`), `log`, `sha256`, `array` |
 
@@ -148,6 +149,14 @@ Four subsystems are split across several files sharing one `*_internal.h` next t
 would still be `static` if the group were one file, and nothing outside the group should include
 one. A symbol added to an internal header is a seam widened; prefer keeping the call inside the
 file that owns the state.
+
+**No English sentence is spelled out in a renderer either.** A screen names a *string id*
+(`MESH_STR_TOAST_NOT_CONNECTED`) and `src/i18n/strings.c` answers, the same way `theme.c`
+answers a colour role. The catalog is one line per string in `include/mesh/i18n/catalog.def`;
+adding a string is adding a line there. `scripts/check-strings.py` runs in `make test` and
+fails on a literal that looks like prose in a renderer. Logs, region codes, hardware model
+names and modem presets stay untranslated on purpose - see
+[`docs/i18n.md`](docs/i18n.md).
 
 **No colour, margin or glyph size is spelled out in a renderer.** A screen names a *tone*
 (`MESH_UI_TONE_BAD`), a widget names a *role* (`MESH_UI_COLOR_SURFACE_SEL`), and
@@ -203,6 +212,12 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
 - **`launch.sh` and the pak's CA bundle do not ship through self-update.** Only the bare binary
   does. Changing either forces a pak reinstall, so treat them as a compatibility boundary.
 - **`scripts/gen-emoji.py` is not part of the build.** Run it by hand and commit the result.
+  The same goes for `scripts/gen-locale.py`, which turns the string catalog into a translation
+  template or a locale skeleton.
+- **`include/mesh/i18n/catalog.def` is not a header and `make format` does not touch it.** It is
+  included several times with the macros defined differently each time, which is what keeps the
+  enum, the English table and the translation template from drifting apart. Its `.def` extension
+  is why clang-format leaves the table alone.
 - **`devtools/` is not `Tools/`.** `Tools/` holds the device-facing pak assets, and macOS
   filesystems are case-insensitive by default, so a `tools/` directory would collide with it.
 - **The capture harness cannot act on a `mesh_ui_action`.** START in the keyboard raises
@@ -231,6 +246,7 @@ generated during the release; hand edits to either are overwritten.
 | [`docs/architecture.md`](docs/architecture.md) | core design and the reasoning behind it |
 | [`docs/transport.md`](docs/transport.md) | BLE, serial, and the Brick USB workaround |
 | [`docs/ui.md`](docs/ui.md) | store/nav/backends, fb rendering, fonts and emoji |
+| [`docs/i18n.md`](docs/i18n.md) | the string catalog, adding a string, adding a language |
 | [`docs/cli.md`](docs/cli.md) | flags, environment variables, on-device controls |
 | [`docs/device.md`](docs/device.md) | Brick setup, deploy loop, screenshots, troubleshooting |
 | [`docs/settings-roadmap.md`](docs/settings-roadmap.md) | radio settings phases and admin verbs |

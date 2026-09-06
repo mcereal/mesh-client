@@ -14,6 +14,7 @@
 #include "mesh/core/radio_settings.h"
 #include "mesh/core/updater.h"
 #include "mesh/core/version.h"
+#include "mesh/i18n/strings.h"
 #include "mesh/utils/array.h"
 #include "mesh/utils/text.h"
 
@@ -25,24 +26,22 @@
    channel list does, else it is plain bits. */
 static void key_summary(const uint8_t *key, size_t len, bool aes, char *out, size_t out_len) {
     if (len == 0U) {
-        snprintf(out, out_len, "%s", aes ? "no encryption" : "none");
+        snprintf(out, out_len, "%s",
+                 mesh_str(aes ? MESH_STR_SETTINGS_KEY_NO_ENCRYPTION : MESH_STR_SETTINGS_KEY_NONE));
         return;
     }
     if (len == 1U) {
         if (key[0] == 1U) {
-            snprintf(out, out_len, "%s", "default key");
+            snprintf(out, out_len, "%s", mesh_str(MESH_STR_SETTINGS_KEY_DEFAULT));
         } else {
-            snprintf(out, out_len, "simple key %u", (unsigned)key[0]);
+            mesh_str_format(out, out_len, MESH_STR_SETTINGS_KEY_SIMPLE, (unsigned)key[0]);
         }
         return;
     }
     char text[48];
     mesh_ui_settings_key_text(key, len, text, sizeof text);
-    if (aes) {
-        snprintf(out, out_len, "%.8s... (AES-%u)", text, (unsigned)(len * 8U));
-    } else {
-        snprintf(out, out_len, "%.8s... (%u-bit)", text, (unsigned)(len * 8U));
-    }
+    mesh_str_format(out, out_len, aes ? MESH_STR_SETTINGS_KEY_AES : MESH_STR_SETTINGS_KEY_BITS,
+                    text, (unsigned)(len * 8U));
 }
 
 /* ---- item builders ------------------------------------------------------------------------ */
@@ -54,8 +53,13 @@ struct item_list {
     size_t edit_count;
 };
 
-static struct mesh_ui_settings_item *item_add(struct item_list *list, const char *label,
-                                              enum mesh_ui_setting_kind kind) {
+/*
+ * Rows name their label with a catalog id; item_add_named() is the exception, for the two
+ * labels that come off the wire rather than out of the catalog - a channel's own name and a
+ * module's section title.
+ */
+static struct mesh_ui_settings_item *item_add_named(struct item_list *list, const char *label,
+                                                    enum mesh_ui_setting_kind kind) {
     if (list->count >= MESH_UI_SETTINGS_ITEMS_MAX) {
         return NULL;
     }
@@ -66,35 +70,46 @@ static struct mesh_ui_settings_item *item_add(struct item_list *list, const char
     return item;
 }
 
-static void item_text(struct item_list *list, const char *label, enum mesh_ui_setting_kind kind,
-                      const char *value) {
+static struct mesh_ui_settings_item *item_add(struct item_list *list, enum mesh_str_id label,
+                                              enum mesh_ui_setting_kind kind) {
+    return item_add_named(list, mesh_str(label), kind);
+}
+
+static void item_text(struct item_list *list, enum mesh_str_id label,
+                      enum mesh_ui_setting_kind kind, const char *value) {
     struct mesh_ui_settings_item *item = item_add(list, label, kind);
     if (item != NULL) {
         mesh_str_copy(item->value, sizeof item->value, value);
     }
 }
 
-static void item_toggle(struct item_list *list, const char *label, bool value) {
-    item_text(list, label, MESH_UI_SETTING_TOGGLE, value ? "on" : "off");
+/* The common case: both halves of the row are catalog entries. */
+static void item_str(struct item_list *list, enum mesh_str_id label, enum mesh_ui_setting_kind kind,
+                     enum mesh_str_id value) {
+    item_text(list, label, kind, mesh_str(value));
+}
+
+static void item_toggle(struct item_list *list, enum mesh_str_id label, bool value) {
+    item_str(list, label, MESH_UI_SETTING_TOGGLE, value ? MESH_STR_COMMON_ON : MESH_STR_COMMON_OFF);
 }
 
 /* A group title. No value, no field, nothing happens when A lands on it. Headings are emitted
    unconditionally - never behind the group's own Enabled toggle - so an edit can never change
    the row count under the cursor. */
-static void item_heading(struct item_list *list, const char *label) {
+static void item_heading(struct item_list *list, enum mesh_str_id label) {
     item_add(list, label, MESH_UI_SETTING_HEADING);
 }
 
 /* "30s", "5m", "2h"; `zero` says what 0 means for this field ("off", "default"). */
-static void format_seconds(char *out, size_t out_len, uint32_t seconds, const char *zero) {
+static void format_seconds(char *out, size_t out_len, uint32_t seconds, enum mesh_str_id zero) {
     if (seconds == 0U) {
-        snprintf(out, out_len, "%s", zero);
+        snprintf(out, out_len, "%s", mesh_str(zero));
     } else if (seconds % 3600U == 0U) {
-        snprintf(out, out_len, "%uh", (unsigned)(seconds / 3600U));
+        mesh_str_format(out, out_len, MESH_STR_VALUE_HOURS, (unsigned)(seconds / 3600U));
     } else if (seconds % 60U == 0U) {
-        snprintf(out, out_len, "%um", (unsigned)(seconds / 60U));
+        mesh_str_format(out, out_len, MESH_STR_VALUE_MINUTES, (unsigned)(seconds / 60U));
     } else {
-        snprintf(out, out_len, "%us", (unsigned)seconds);
+        mesh_str_format(out, out_len, MESH_STR_VALUE_SECONDS, (unsigned)seconds);
     }
 }
 
@@ -133,7 +148,8 @@ static void item_field(struct item_list *list, enum mesh_ui_setting_field field,
     item->number = number;
     switch (spec->kind) {
     case MESH_UI_SETTING_TOGGLE:
-        snprintf(item->value, sizeof item->value, "%s", number != 0U ? "on" : "off");
+        snprintf(item->value, sizeof item->value, "%s",
+                 mesh_str(number != 0U ? MESH_STR_COMMON_ON : MESH_STR_COMMON_OFF));
         break;
     case MESH_UI_SETTING_ENUM:
         snprintf(item->value, sizeof item->value, "%s", mesh_ui_settings_enum_name(field, number));
@@ -143,21 +159,23 @@ static void item_field(struct item_list *list, enum mesh_ui_setting_field field,
            table's way of saying what 0 means for this row, and a formatter that also had an
            opinion silently overrode it - three Traffic management rows read "default" under a
            section whose whole convention is that 0 is off. */
-        if (number == 0U && spec->zero_label != NULL) {
-            snprintf(item->value, sizeof item->value, "%s", spec->zero_label);
+        if (number == 0U && spec->zero_label != MESH_STR_NONE) {
+            snprintf(item->value, sizeof item->value, "%s", mesh_str(spec->zero_label));
         } else if (spec->format != NULL) {
             spec->format(number, item->value, sizeof item->value);
         } else {
             format_seconds(item->value, sizeof item->value, number,
-                           spec->zero_label != NULL ? spec->zero_label : "0");
+                           spec->zero_label != MESH_STR_NONE ? spec->zero_label
+                                                             : MESH_STR_VALUE_ZERO);
         }
         break;
     case MESH_UI_SETTING_TEXT:
         snprintf(item->text, sizeof item->text, "%s", text != NULL ? text : "");
         if (item->text[0] == '\0') {
-            snprintf(item->value, sizeof item->value, "%s", "-");
+            snprintf(item->value, sizeof item->value, "%s", mesh_str(MESH_STR_SETTINGS_TEXT_EMPTY));
         } else if (field_is_secret(field)) {
-            snprintf(item->value, sizeof item->value, "%s", "********");
+            snprintf(item->value, sizeof item->value, "%s",
+                     mesh_str(MESH_STR_SETTINGS_TEXT_SECRET));
         } else {
             mesh_str_copy(item->value, sizeof item->value, item->text);
         }
@@ -186,17 +204,18 @@ static void item_key_field(struct item_list *list, enum mesh_ui_setting_field fi
     item->dirty = edit != NULL;
     switch ((enum mesh_ui_psk_choice)item->number) {
     case MESH_UI_PSK_DEFAULT:
-        snprintf(item->value, sizeof item->value, "%s", "default key");
+        snprintf(item->value, sizeof item->value, "%s", mesh_str(MESH_STR_SETTINGS_KEY_DEFAULT));
         break;
     case MESH_UI_PSK_RANDOM_128:
-        snprintf(item->value, sizeof item->value, "%s", "new random AES-128");
+        snprintf(item->value, sizeof item->value, "%s", mesh_str(MESH_STR_SETTINGS_KEY_NEW_AES128));
         break;
     case MESH_UI_PSK_RANDOM_256:
         snprintf(item->value, sizeof item->value, "%s",
-                 aes ? "new random AES-256" : "new random key");
+                 mesh_str(aes ? MESH_STR_SETTINGS_KEY_NEW_AES256 : MESH_STR_SETTINGS_KEY_NEW_KEY));
         break;
     case MESH_UI_PSK_NONE:
-        snprintf(item->value, sizeof item->value, "%s", aes ? "no encryption" : "none (clear)");
+        snprintf(item->value, sizeof item->value, "%s",
+                 mesh_str(aes ? MESH_STR_SETTINGS_KEY_NO_ENCRYPTION : MESH_STR_SETTINGS_KEY_CLEAR));
         break;
     case MESH_UI_PSK_TYPED: {
         uint8_t typed[MESH_UI_PSK_MAX];
@@ -205,7 +224,8 @@ static void item_key_field(struct item_list *list, enum mesh_ui_setting_field fi
         if (mesh_ui_settings_key_parse(edit->text, typed, sizeof typed, &typed_len)) {
             key_summary(typed, typed_len, aes, item->value, sizeof item->value);
         } else {
-            snprintf(item->value, sizeof item->value, "%s", "invalid key");
+            snprintf(item->value, sizeof item->value, "%s",
+                     mesh_str(MESH_STR_SETTINGS_KEY_INVALID));
         }
         break;
     }
@@ -218,13 +238,14 @@ static void item_key_field(struct item_list *list, enum mesh_ui_setting_field fi
 
 /* Keys are shown as a short fingerprint: enough to compare against the phone app's view,
    not enough to leak the key to someone reading over your shoulder. */
-static void item_key(struct item_list *list, const char *label, const uint8_t *key, size_t len) {
+static void item_key(struct item_list *list, enum mesh_str_id label, const uint8_t *key,
+                     size_t len) {
     struct mesh_ui_settings_item *item = item_add(list, label, MESH_UI_SETTING_KEY);
     if (item == NULL) {
         return;
     }
     if (len == 0U) {
-        snprintf(item->value, sizeof item->value, "%s", "none");
+        snprintf(item->value, sizeof item->value, "%s", mesh_str(MESH_STR_SETTINGS_KEY_NONE));
         return;
     }
     size_t shown = len < 4U ? len : 4U;
@@ -232,43 +253,50 @@ static void item_key(struct item_list *list, const char *label, const uint8_t *k
     for (size_t i = 0; i < shown; ++i) {
         snprintf(hex + 2U * i, sizeof hex - 2U * i, "%02x", key[i]);
     }
-    snprintf(item->value, sizeof item->value, "%s... (%u bytes)", hex, (unsigned)len);
+    mesh_str_format(item->value, sizeof item->value, MESH_STR_SETTINGS_KEY_FINGERPRINT, hex,
+                    (unsigned)len);
 }
 
 /* An ACTION row: drawn like an editable one and activated with A, carrying what it does in
    `number` so the nav can raise the action without knowing about updates. */
-static void item_action(struct item_list *list, const char *label, const char *value,
-                        enum mesh_ui_settings_action action) {
-    struct mesh_ui_settings_item *item = item_add(list, label, MESH_UI_SETTING_ACTION);
+static void item_action_named(struct item_list *list, const char *label, const char *value,
+                              enum mesh_ui_settings_action action) {
+    struct mesh_ui_settings_item *item = item_add_named(list, label, MESH_UI_SETTING_ACTION);
     if (item != NULL) {
         snprintf(item->value, sizeof item->value, "%s", value);
         item->number = (uint32_t)action;
     }
 }
 
+static void item_action(struct item_list *list, enum mesh_str_id label, const char *value,
+                        enum mesh_ui_settings_action action) {
+    item_action_named(list, mesh_str(label), value, action);
+}
+
 /* One of the two rows that drop cached nodes. The value column is the count the press would
    remove, so a row with nothing to remove is a fact rather than a press that does nothing -
    and the two can never disagree, because the count came through the same predicate the
    forget itself uses. */
-static void forget_row(struct item_list *list, const char *label, uint32_t forgettable,
+static void forget_row(struct item_list *list, enum mesh_str_id label, uint32_t forgettable,
                        enum mesh_ui_settings_action action) {
     if (forgettable == 0U) {
-        item_text(list, label, MESH_UI_SETTING_INFO, "nothing to drop");
+        item_str(list, label, MESH_UI_SETTING_INFO, MESH_STR_ACTION_NOTHING_TO_DROP);
         return;
     }
     char value[MESH_UI_SETTINGS_VALUE_MAX];
-    snprintf(value, sizeof value, "%u node%s", forgettable, forgettable == 1U ? "" : "s");
+    mesh_str_format_plural(value, sizeof value, MESH_STR_ACTION_FORGET_COUNT_ONE, forgettable,
+                           forgettable);
     item_action(list, label, value, action);
 }
 
 /* An action the radio has to be reachable for. Without a link it becomes the same row saying
    why, so the section keeps its shape whatever the transport is doing. */
-static void item_radio_action(struct item_list *list, const char *label,
+static void item_radio_action(struct item_list *list, enum mesh_str_id label,
                               enum mesh_ui_settings_action action, bool connected) {
     if (connected) {
-        item_action(list, label, "press A", action);
+        item_action(list, label, mesh_str(MESH_STR_COMMON_PRESS_A), action);
     } else {
-        item_text(list, label, MESH_UI_SETTING_INFO, "not connected");
+        item_str(list, label, MESH_UI_SETTING_INFO, MESH_STR_SETTINGS_NOT_CONNECTED);
     }
 }
 
@@ -286,13 +314,21 @@ static void item_radio_action(struct item_list *list, const char *label,
  */
 static void build_about(const struct mesh_ui_settings *s, struct item_list *list) {
     const struct mesh_ui_client_info *client = &s->client;
-    item_text(list, "Version", MESH_UI_SETTING_INFO,
-              client->version[0] != '\0' ? client->version : "?");
+    item_text(list, MESH_STR_ABOUT_VERSION, MESH_UI_SETTING_INFO,
+              client->version[0] != '\0' ? client->version
+                                         : mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT));
     if (client->backend[0] != '\0') {
-        item_text(list, "UI backend", MESH_UI_SETTING_INFO, client->backend);
+        item_text(list, MESH_STR_ABOUT_UI_BACKEND, MESH_UI_SETTING_INFO, client->backend);
     }
     if (client->data_dir[0] != '\0') {
-        item_text(list, "Data", MESH_UI_SETTING_INFO, client->data_dir);
+        item_text(list, MESH_STR_ABOUT_DATA, MESH_UI_SETTING_INFO, client->data_dir);
+    }
+    /* A fact, not a switch, while the build ships one language: it says which one the catalog
+       resolved to, so MESHCLIENT_LANG naming a language this build does not have shows up here
+       rather than as a screen that is silently still in English. It is where the picker goes
+       when there is something to pick - see docs/i18n.md. */
+    if (client->language_name[0] != '\0') {
+        item_text(list, MESH_STR_ABOUT_LANGUAGE, MESH_UI_SETTING_INFO, client->language_name);
     }
 
     /*
@@ -311,15 +347,16 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
                cells at the device scale, so "High contrast (environment)" clipped to "High
                contrast (env" - a note that reads as a bug. The label column has room for the
                note whatever the theme is called, and the value stays the plain name. */
-            item_text(list, "Theme (env)", MESH_UI_SETTING_INFO, name);
+            item_text(list, MESH_STR_ABOUT_THEME_ENV, MESH_UI_SETTING_INFO, name);
         } else {
-            item_action(list, "Theme", name, MESH_UI_SETTINGS_ACTION_CYCLE_THEME);
+            item_action(list, MESH_STR_ABOUT_THEME, name, MESH_UI_SETTINGS_ACTION_CYCLE_THEME);
         }
     }
 
     if (!client->update_supported) {
-        item_text(list, "Updates", MESH_UI_SETTING_INFO,
-                  client->update_message[0] != '\0' ? client->update_message : "unavailable");
+        item_text(list, MESH_STR_ABOUT_UPDATES, MESH_UI_SETTING_INFO,
+                  client->update_message[0] != '\0' ? client->update_message
+                                                    : mesh_str(MESH_STR_ABOUT_UPDATES_UNAVAILABLE));
         return;
     }
 
@@ -332,11 +369,14 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
      * pull the asset out from under it, so the updater refuses, and a row that refuses is
      * worse than one that never invited the press.
      */
-    const char *const channel = client->update_channel[0] != '\0' ? client->update_channel : "?";
+    const char *const channel = client->update_channel[0] != '\0'
+                                    ? client->update_channel
+                                    : mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT);
     if (client->update_busy) {
-        item_text(list, "Update channel", MESH_UI_SETTING_INFO, channel);
+        item_text(list, MESH_STR_ABOUT_UPDATE_CHANNEL, MESH_UI_SETTING_INFO, channel);
     } else {
-        item_action(list, "Update channel", channel, MESH_UI_SETTINGS_ACTION_CYCLE_UPDATE_CHANNEL);
+        item_action(list, MESH_STR_ABOUT_UPDATE_CHANNEL, channel,
+                    MESH_UI_SETTINGS_ACTION_CYCLE_UPDATE_CHANNEL);
     }
 
     /*
@@ -350,46 +390,53 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
         if (client->update_allow_dev_from_env) {
             /* Held on by MESHCLIENT_UPDATE_ALLOW_DEV. Shown as a fact rather than a switch,
                because a toggle that sprang back would look broken. */
-            item_text(list, "Dev updates", MESH_UI_SETTING_INFO, "on (environment)");
+            item_str(list, MESH_STR_ABOUT_DEV_UPDATES, MESH_UI_SETTING_INFO,
+                     MESH_STR_ABOUT_DEV_UPDATES_ENV);
         } else if (client->update_busy) {
-            item_text(list, "Dev updates", MESH_UI_SETTING_INFO,
-                      client->update_allow_dev ? "on" : "off");
+            item_str(list, MESH_STR_ABOUT_DEV_UPDATES, MESH_UI_SETTING_INFO,
+                     client->update_allow_dev ? MESH_STR_COMMON_ON : MESH_STR_COMMON_OFF);
         } else {
-            item_action(list, "Dev updates", client->update_allow_dev ? "on" : "off",
-                        MESH_UI_SETTINGS_ACTION_TOGGLE_DEV_UPDATES);
+            item_action(
+                list, MESH_STR_ABOUT_DEV_UPDATES,
+                mesh_str(client->update_allow_dev ? MESH_STR_COMMON_ON : MESH_STR_COMMON_OFF),
+                MESH_UI_SETTINGS_ACTION_TOGGLE_DEV_UPDATES);
         }
     }
 
     const enum mesh_update_state state = (enum mesh_update_state)client->update_state;
-    item_text(list, "Update status", MESH_UI_SETTING_INFO,
+    item_text(list, MESH_STR_ABOUT_UPDATE_STATUS, MESH_UI_SETTING_INFO,
               client->update_message[0] != '\0' ? client->update_message
                                                 : mesh_update_state_name(state));
 
     /* While a child is running neither update row does anything, so both say so rather than
        inviting a press that would be swallowed. */
     if (client->update_busy) {
-        item_text(list, "Working", MESH_UI_SETTING_INFO,
-                  state == MESH_UPDATE_DOWNLOADING ? "downloading..." : "checking...");
+        item_str(list, MESH_STR_ABOUT_WORKING, MESH_UI_SETTING_INFO,
+                 state == MESH_UPDATE_DOWNLOADING ? MESH_STR_ABOUT_WORKING_DOWNLOAD
+                                                  : MESH_STR_ABOUT_WORKING_CHECK);
         return;
     }
     if (state == MESH_UPDATE_READY) {
-        item_text(list, "Installed", MESH_UI_SETTING_INFO, "quit and relaunch");
+        item_str(list, MESH_STR_ABOUT_INSTALLED, MESH_UI_SETTING_INFO,
+                 MESH_STR_ABOUT_INSTALLED_RELAUNCH);
         return;
     }
 
-    item_action(list, "Check for updates", "press A", MESH_UI_SETTINGS_ACTION_CHECK_UPDATE);
+    item_action(list, MESH_STR_ABOUT_CHECK_UPDATES, mesh_str(MESH_STR_COMMON_PRESS_A),
+                MESH_UI_SETTINGS_ACTION_CHECK_UPDATE);
     if (state == MESH_UPDATE_AVAILABLE) {
         /* The version goes in the label so the value column can say how to act on it: the row
            the user has to find is the one that names what it will install. The label is
            bounded by its own column, not by what the release named itself. */
         char label[MESH_UI_SETTINGS_LABEL_MAX];
-        snprintf(label, sizeof label, "Install %.*s", (int)(sizeof label - 9U),
-                 client->update_latest);
-        item_action(list, label, "press A", MESH_UI_SETTINGS_ACTION_INSTALL_UPDATE);
+        mesh_str_format(label, sizeof label, MESH_STR_ABOUT_INSTALL_VERSION,
+                        (int)(sizeof label - 9U), client->update_latest);
+        item_action_named(list, label, mesh_str(MESH_STR_COMMON_PRESS_A),
+                          MESH_UI_SETTINGS_ACTION_INSTALL_UPDATE);
     } else if (!client->update_can_install) {
         /* Nothing here will offer an install, so say so once - and name the row that changes
            it, rather than leaving the user hunting for one that is never coming. */
-        item_text(list, "Installing", MESH_UI_SETTING_INFO, "turn on Dev updates");
+        item_str(list, MESH_STR_ABOUT_INSTALLING, MESH_UI_SETTING_INFO, MESH_STR_ABOUT_TURN_ON_DEV);
     }
 }
 
@@ -397,36 +444,43 @@ static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_h
                         struct item_list *list) {
     char buffer[48];
     if (s->has_metadata) {
-        item_text(list, "Firmware", MESH_UI_SETTING_INFO,
-                  s->firmware_version[0] != '\0' ? s->firmware_version : "?");
-        item_text(list, "Hardware", MESH_UI_SETTING_INFO,
+        item_text(list, MESH_STR_RADIO_FIRMWARE, MESH_UI_SETTING_INFO,
+                  s->firmware_version[0] != '\0' ? s->firmware_version
+                                                 : mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT));
+        item_text(list, MESH_STR_RADIO_HARDWARE, MESH_UI_SETTING_INFO,
                   mesh_radio_hw_model_name(s->hw_model, buffer, sizeof buffer));
     }
     if (hs != NULL && hs->has_my_info) {
-        snprintf(buffer, sizeof buffer, "!%08x", hs->my_info.node_num);
-        item_text(list, "Node number", MESH_UI_SETTING_INFO, buffer);
-        snprintf(buffer, sizeof buffer, "%u", hs->my_info.reboot_count);
-        item_text(list, "Reboots", MESH_UI_SETTING_INFO, buffer);
+        mesh_str_format(buffer, sizeof buffer, MESH_STR_NODE_VAL_USER_ID_HEX, hs->my_info.node_num);
+        item_text(list, MESH_STR_RADIO_NODE_NUMBER, MESH_UI_SETTING_INFO, buffer);
+        mesh_str_format(buffer, sizeof buffer, MESH_STR_VALUE_PLAIN, hs->my_info.reboot_count);
+        item_text(list, MESH_STR_RADIO_REBOOTS, MESH_UI_SETTING_INFO, buffer);
     }
     if (s->has_lora) {
-        item_text(list, "LoRa region", MESH_UI_SETTING_INFO, mesh_radio_region_name(s->region));
+        item_text(list, MESH_STR_RADIO_LORA_REGION, MESH_UI_SETTING_INFO,
+                  mesh_radio_region_name(s->region));
     }
     if (s->has_metadata) {
-        snprintf(buffer, sizeof buffer, "%s%s%s%s", s->has_bluetooth_radio ? "BLE " : "",
-                 s->has_wifi ? "WiFi " : "", s->has_ethernet ? "Ethernet " : "",
-                 s->has_pkc ? "PKC" : "");
-        item_text(list, "Capabilities", MESH_UI_SETTING_INFO, buffer[0] != '\0' ? buffer : "none");
-        item_toggle(list, "Can shut down", s->can_shutdown);
+        snprintf(buffer, sizeof buffer, "%s%s%s%s",
+                 s->has_bluetooth_radio ? mesh_str(MESH_STR_RADIO_CAP_BLE) : "",
+                 s->has_wifi ? mesh_str(MESH_STR_RADIO_CAP_WIFI) : "",
+                 s->has_ethernet ? mesh_str(MESH_STR_RADIO_CAP_ETHERNET) : "",
+                 s->has_pkc ? mesh_str(MESH_STR_RADIO_CAP_PKC) : "");
+        item_text(list, MESH_STR_RADIO_CAPABILITIES, MESH_UI_SETTING_INFO,
+                  buffer[0] != '\0' ? buffer : mesh_str(MESH_STR_RADIO_CAP_NONE));
+        item_toggle(list, MESH_STR_RADIO_CAN_SHUT_DOWN, s->can_shutdown);
     }
     if (s->admin_ok) {
-        snprintf(buffer, sizeof buffer, "ok (%u replies)%s", (unsigned)s->admin_replies,
-                 s->write_pending ? ", saving"
-                 : s->admin_busy  ? ", refreshing"
-                                  : "");
+        mesh_str_format(buffer, sizeof buffer, MESH_STR_RADIO_ADMIN_OK, (unsigned)s->admin_replies,
+                        s->write_pending ? mesh_str(MESH_STR_RADIO_ADMIN_SAVING)
+                        : s->admin_busy  ? mesh_str(MESH_STR_RADIO_ADMIN_REFRESHING)
+                                         : "");
     } else {
-        snprintf(buffer, sizeof buffer, "%s", s->admin_busy ? "waiting for reply" : "no reply yet");
+        snprintf(
+            buffer, sizeof buffer, "%s",
+            mesh_str(s->admin_busy ? MESH_STR_RADIO_ADMIN_WAITING : MESH_STR_RADIO_ADMIN_NO_REPLY));
     }
-    item_text(list, "Admin session", MESH_UI_SETTING_INFO, buffer);
+    item_text(list, MESH_STR_RADIO_ADMIN_SESSION, MESH_UI_SETTING_INFO, buffer);
 }
 
 static void build_user(const struct mesh_ui_settings *s, struct item_list *list) {
@@ -481,19 +535,24 @@ static void build_bluetooth(const struct mesh_ui_settings *s, struct item_list *
 }
 
 static void channel_label(uint8_t index, const char *name, char *out, size_t out_len) {
-    snprintf(out, out_len, "%u %s", (unsigned)index,
-             name[0] != '\0' ? name : (index == 0U ? "Primary" : "?"));
+    mesh_str_format(out, out_len, MESH_STR_CHANNELS_SLOT, (unsigned)index,
+                    name[0] != '\0' ? name
+                                    : mesh_str(index == 0U ? MESH_STR_ENUM_CHANNEL_PRIMARY
+                                                           : MESH_STR_COMMON_UNKNOWN_SHORT));
 }
 
 static void channel_summary(uint8_t role, uint8_t psk_len, bool uplink, bool downlink, char *out,
                             size_t out_len) {
-    const char *key = psk_len == 0U    ? "no key"
-                      : psk_len == 1U  ? "default key"
-                      : psk_len == 16U ? "AES-128"
-                      : psk_len == 32U ? "AES-256"
-                                       : "odd key";
-    snprintf(out, out_len, "%s, %s, up %s, down %s", role == 1U ? "primary" : "secondary", key,
-             uplink ? "on" : "off", downlink ? "on" : "off");
+    const char *key = mesh_str(psk_len == 0U    ? MESH_STR_CHANNELS_KEY_NONE
+                               : psk_len == 1U  ? MESH_STR_CHANNELS_KEY_DEFAULT
+                               : psk_len == 16U ? MESH_STR_CHANNELS_KEY_AES128
+                               : psk_len == 32U ? MESH_STR_CHANNELS_KEY_AES256
+                                                : MESH_STR_CHANNELS_KEY_ODD);
+    mesh_str_format(
+        out, out_len, MESH_STR_CHANNELS_SUMMARY,
+        mesh_str(role == 1U ? MESH_STR_CHANNELS_ROLE_PRIMARY : MESH_STR_CHANNELS_ROLE_SECONDARY),
+        key, mesh_str(uplink ? MESH_STR_COMMON_ON : MESH_STR_COMMON_OFF),
+        mesh_str(downlink ? MESH_STR_COMMON_ON : MESH_STR_COMMON_OFF));
 }
 
 /* The channel list. With the radio's full table held every slot is listed, disabled ones
@@ -510,17 +569,19 @@ static void build_channels(const struct mesh_ui_settings *s,
                 continue;
             }
             if (channel->role == 0U) {
-                snprintf(label, sizeof label, "%u (empty)", (unsigned)channel->index);
+                mesh_str_format(label, sizeof label, MESH_STR_CHANNELS_SLOT_EMPTY,
+                                (unsigned)channel->index);
             } else {
                 channel_label(channel->index, channel->name, label, sizeof label);
             }
-            struct mesh_ui_settings_item *item = item_add(list, label, MESH_UI_SETTING_ACTION);
+            struct mesh_ui_settings_item *item =
+                item_add_named(list, label, MESH_UI_SETTING_ACTION);
             if (item == NULL) {
                 continue;
             }
             item->number = channel->index;
             if (channel->role == 0U) {
-                snprintf(item->value, sizeof item->value, "%s", "disabled, A to set up");
+                snprintf(item->value, sizeof item->value, "%s", mesh_str(MESH_STR_CHANNELS_SET_UP));
             } else {
                 channel_summary(channel->role, channel->psk_len, channel->uplink_enabled,
                                 channel->downlink_enabled, item->value, sizeof item->value);
@@ -533,7 +594,7 @@ static void build_channels(const struct mesh_ui_settings *s,
                 continue;
             }
             channel_label(channel->index, channel->name, label, sizeof label);
-            struct mesh_ui_settings_item *item = item_add(list, label, MESH_UI_SETTING_INFO);
+            struct mesh_ui_settings_item *item = item_add_named(list, label, MESH_UI_SETTING_INFO);
             if (item != NULL) {
                 channel_summary(channel->role, channel->psk_len, channel->uplink_enabled,
                                 channel->downlink_enabled, item->value, sizeof item->value);
@@ -542,7 +603,8 @@ static void build_channels(const struct mesh_ui_settings *s,
         }
     }
     if (list->count == 0U) {
-        item_text(list, "Channels", MESH_UI_SETTING_INFO, "none known yet");
+        item_str(list, MESH_STR_SETTINGS_CHANNELS_ROW, MESH_UI_SETTING_INFO,
+                 MESH_STR_CHANNELS_NONE_KNOWN);
     }
 }
 
@@ -555,7 +617,8 @@ static void build_channel(const struct mesh_ui_settings *s, uint8_t slot, struct
     const struct mesh_ui_channel_detail *channel = &s->channels[slot];
     item_field(list, MESH_UI_FIELD_CHANNEL_NAME, 0U, channel->name);
     if (channel->role == 1U) {
-        item_text(list, "Role", MESH_UI_SETTING_INFO, "Primary");
+        item_str(list, MESH_STR_SETTINGS_ROLE_ROW, MESH_UI_SETTING_INFO,
+                 MESH_STR_ENUM_CHANNEL_PRIMARY);
     } else {
         item_field(list, MESH_UI_FIELD_CHANNEL_ROLE, channel->role == 2U ? 1U : 0U, NULL);
     }
@@ -578,7 +641,7 @@ int mesh_ui_settings_channel_at_row(const struct mesh_ui_settings *settings,
 }
 
 static void build_security(const struct mesh_ui_settings *s, struct item_list *list) {
-    item_key(list, "Public key", s->public_key, s->public_key_len);
+    item_key(list, MESH_STR_SETTINGS_PUBLIC_KEY_ROW, s->public_key, s->public_key_len);
     item_key_field(list, MESH_UI_FIELD_SECURITY_PRIVATE_KEY, s->private_key, s->private_key_len);
     for (unsigned i = 0; i < 3U; ++i) {
         item_key_field(list, (enum mesh_ui_setting_field)(MESH_UI_FIELD_SECURITY_ADMIN_KEY_0 + i),
@@ -613,7 +676,7 @@ static void build_position(const struct mesh_ui_settings *s, struct item_list *l
      * them. They are pre-filled with where the radio says it is, so a fix that came from a
      * GPS can be pinned down by opening the section and pressing one row.
      */
-    item_toggle(list, "Fixed position", s->fixed_position);
+    item_toggle(list, MESH_STR_SETTINGS_FIXED_POSITION, s->fixed_position);
     char coord[MESH_UI_SETTINGS_VALUE_MAX];
     mesh_ui_settings_coord_text(s->has_own_position ? s->own_latitude_i : 0, coord, sizeof coord);
     item_field(list, MESH_UI_FIELD_POSITION_LATITUDE, 0U, coord);
@@ -621,10 +684,11 @@ static void build_position(const struct mesh_ui_settings *s, struct item_list *l
     item_field(list, MESH_UI_FIELD_POSITION_LONGITUDE, 0U, coord);
     snprintf(coord, sizeof coord, "%d", s->has_own_altitude ? (int)s->own_altitude : 0);
     item_field(list, MESH_UI_FIELD_POSITION_ALTITUDE, 0U, coord);
-    item_action(list, "Set fixed position", "press A", MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION);
+    item_action(list, MESH_STR_SETTINGS_SET_FIXED_POS, mesh_str(MESH_STR_COMMON_PRESS_A),
+                MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION);
     /* Only offered when there is one to clear; the row would otherwise do nothing twice. */
     if (s->fixed_position) {
-        item_action(list, "Clear fixed position", "press A",
+        item_action(list, MESH_STR_SETTINGS_CLEAR_FIXED_POS, mesh_str(MESH_STR_COMMON_PRESS_A),
                     MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION);
     }
 }
@@ -652,13 +716,13 @@ static void build_modules(const struct mesh_ui_settings *s,
     for (uint32_t i = 0; i < count; ++i) {
         const enum mesh_ui_settings_section section = mesh_ui_settings_module_at(i);
         struct mesh_ui_settings_item *item =
-            item_add(list, mesh_ui_settings_section_name(section), MESH_UI_SETTING_ACTION);
+            item_add_named(list, mesh_ui_settings_section_name(section), MESH_UI_SETTING_ACTION);
         if (item == NULL) {
             continue;
         }
         item->number = (uint32_t)section;
         if (!mesh_ui_settings_section_loaded(s, hs, section)) {
-            mesh_str_copy(item->value, sizeof item->value, "not loaded");
+            mesh_str_copy(item->value, sizeof item->value, mesh_str(MESH_STR_SETTINGS_NOT_LOADED));
             continue;
         }
         bool enabled = false;
@@ -714,7 +778,8 @@ static void build_modules(const struct mesh_ui_settings *s,
         default:
             break;
         }
-        mesh_str_copy(item->value, sizeof item->value, enabled ? "on" : "off");
+        mesh_str_copy(item->value, sizeof item->value,
+                      mesh_str(enabled ? MESH_STR_COMMON_ON : MESH_STR_COMMON_OFF));
     }
 }
 
@@ -731,7 +796,7 @@ static void build_mqtt(const struct mesh_ui_settings *s, struct item_list *list)
     /* MapReportSettings, the one submessage in this section. Listed under the toggle that
        decides whether the radio reads them at all, and listed whether or not it is on - the
        heading rule. */
-    item_heading(list, "Map report");
+    item_heading(list, MESH_STR_HEAD_MAP_REPORT);
     item_field(list, MESH_UI_FIELD_MQTT_MAP_INTERVAL, s->mqtt_map_publish_interval_secs, NULL);
     item_field(list, MESH_UI_FIELD_MQTT_MAP_PRECISION, s->mqtt_map_position_precision, NULL);
     item_field(list, MESH_UI_FIELD_MQTT_MAP_LOCATION, s->mqtt_map_should_report_location ? 1U : 0U,
@@ -744,7 +809,7 @@ static void build_mqtt(const struct mesh_ui_settings *s, struct item_list *list)
      * the air; showing the setting still tells you why MQTT is not working if a phone left it
      * on. Editable once we speak the proxy protocol, not before.
      */
-    item_toggle(list, "Proxy via client", s->mqtt_proxy_to_client_enabled);
+    item_toggle(list, MESH_STR_SETTINGS_PROXY_VIA_CLIENT, s->mqtt_proxy_to_client_enabled);
 }
 
 static void build_store_forward(const struct mesh_ui_settings *s, struct item_list *list) {
@@ -753,7 +818,7 @@ static void build_store_forward(const struct mesh_ui_settings *s, struct item_li
     item_field(list, MESH_UI_FIELD_SF_SERVER, s->store_forward_is_server ? 1U : 0U, NULL);
     /* The three the radio only reads as a server. Shown regardless: a node is set up to be a
        server by filling these in and then turning the row above on. */
-    item_heading(list, "Server");
+    item_heading(list, MESH_STR_HEAD_SERVER);
     item_field(list, MESH_UI_FIELD_SF_RECORDS, s->store_forward_records, NULL);
     item_field(list, MESH_UI_FIELD_SF_HISTORY_MAX, s->store_forward_history_return_max, NULL);
     item_field(list, MESH_UI_FIELD_SF_HISTORY_WINDOW, s->store_forward_history_return_window, NULL);
@@ -766,10 +831,10 @@ static void build_store_forward(const struct mesh_ui_settings *s, struct item_li
  * rather than repeating the group in every label.
  */
 static void build_telemetry(const struct mesh_ui_settings *s, struct item_list *list) {
-    item_heading(list, "Device");
+    item_heading(list, MESH_STR_HEAD_DEVICE);
     item_field(list, MESH_UI_FIELD_TELEMETRY_DEVICE, s->device_telemetry_enabled ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_TELEMETRY_INTERVAL, s->device_update_interval, NULL);
-    item_heading(list, "Environment");
+    item_heading(list, MESH_STR_HEAD_ENVIRONMENT);
     item_field(list, MESH_UI_FIELD_TELEMETRY_ENVIRONMENT,
                s->environment_measurement_enabled ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_TELEMETRY_ENV_INTERVAL, s->environment_update_interval, NULL);
@@ -777,16 +842,16 @@ static void build_telemetry(const struct mesh_ui_settings *s, struct item_list *
                NULL);
     item_field(list, MESH_UI_FIELD_TELEMETRY_ENV_FAHRENHEIT,
                s->environment_display_fahrenheit ? 1U : 0U, NULL);
-    item_heading(list, "Air quality");
+    item_heading(list, MESH_STR_HEAD_AIR_QUALITY);
     item_field(list, MESH_UI_FIELD_TELEMETRY_AIR_QUALITY, s->air_quality_enabled ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_TELEMETRY_AIR_INTERVAL, s->air_quality_interval, NULL);
     item_field(list, MESH_UI_FIELD_TELEMETRY_AIR_SCREEN, s->air_quality_screen_enabled ? 1U : 0U,
                NULL);
-    item_heading(list, "Power");
+    item_heading(list, MESH_STR_HEAD_POWER);
     item_field(list, MESH_UI_FIELD_TELEMETRY_POWER, s->power_measurement_enabled ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_TELEMETRY_POWER_INTERVAL, s->power_update_interval, NULL);
     item_field(list, MESH_UI_FIELD_TELEMETRY_POWER_SCREEN, s->power_screen_enabled ? 1U : 0U, NULL);
-    item_heading(list, "Health");
+    item_heading(list, MESH_STR_HEAD_HEALTH);
     item_field(list, MESH_UI_FIELD_TELEMETRY_HEALTH, s->health_measurement_enabled ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_TELEMETRY_HEALTH_INTERVAL, s->health_update_interval, NULL);
     item_field(list, MESH_UI_FIELD_TELEMETRY_HEALTH_SCREEN, s->health_screen_enabled ? 1U : 0U,
@@ -807,12 +872,13 @@ static void build_neighbor_info(const struct mesh_ui_settings *s, struct item_li
  */
 static void build_range_test(const struct mesh_ui_settings *s, struct item_list *list) {
     item_field(list, MESH_UI_FIELD_RANGE_TEST_ENABLED, s->range_test_enabled ? 1U : 0U, NULL);
-    item_heading(list, "Transmitter");
-    item_text(list, "Test packets", MESH_UI_SETTING_INFO, "go to everyone on the channel");
+    item_heading(list, MESH_STR_HEAD_TRANSMITTER);
+    item_str(list, MESH_STR_NOTE_TEST_PACKETS, MESH_UI_SETTING_INFO,
+             MESH_STR_NOTE_TEST_PACKETS_VALUE);
     item_field(list, MESH_UI_FIELD_RANGE_TEST_SENDER, s->range_test_sender, NULL);
     /* ESP32-only in the firmware; shown anyway, because the radio ignoring a flag is quieter
        than the row not being there when a phone app shows it. */
-    item_heading(list, "Log (ESP32 only)");
+    item_heading(list, MESH_STR_HEAD_LOG_ESP32);
     item_field(list, MESH_UI_FIELD_RANGE_TEST_SAVE, s->range_test_save ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_RANGE_TEST_CLEAR, s->range_test_clear_on_reboot ? 1U : 0U, NULL);
 }
@@ -823,7 +889,7 @@ static void build_paxcounter(const struct mesh_ui_settings *s, struct item_list 
     /* Signed on the wire and signed in the store; the cast is the row model's, not the value's
        (see k_rssi_presets). A radio that has never had these set reports 0, which is not a
        threshold the module uses - the firmware substitutes -80. */
-    item_heading(list, "Count above");
+    item_heading(list, MESH_STR_HEAD_COUNT_ABOVE);
     item_field(list, MESH_UI_FIELD_PAX_WIFI_THRESHOLD,
                (uint32_t)(s->paxcounter_wifi_threshold != 0 ? s->paxcounter_wifi_threshold : -80),
                NULL);
@@ -842,7 +908,7 @@ static void build_ambient(const struct mesh_ui_settings *s, struct item_list *li
     item_field(list, MESH_UI_FIELD_AMBIENT_CURRENT, s->ambient_current, NULL);
     /* Three channels rather than a colour picker: a d-pad steps numbers well and picks colours
        badly. Listed under a heading so the trio reads as one setting. */
-    item_heading(list, "Colour");
+    item_heading(list, MESH_STR_HEAD_COLOUR);
     item_field(list, MESH_UI_FIELD_AMBIENT_RED, s->ambient_red, NULL);
     item_field(list, MESH_UI_FIELD_AMBIENT_GREEN, s->ambient_green, NULL);
     item_field(list, MESH_UI_FIELD_AMBIENT_BLUE, s->ambient_blue, NULL);
@@ -860,7 +926,7 @@ static void build_detection(const struct mesh_ui_settings *s, struct item_list *
     item_field(list, MESH_UI_FIELD_DETECT_SEND_BELL, s->detection_send_bell ? 1U : 0U, NULL);
     /* The pin and how it is read. Which pins a board exposes is its own business and nothing
        on the wire says, so the rows are offered and the heading says whose problem it is. */
-    item_heading(list, "Wiring");
+    item_heading(list, MESH_STR_HEAD_WIRING);
     item_field(list, MESH_UI_FIELD_DETECT_PIN, s->detection_monitor_pin, NULL);
     item_field(list, MESH_UI_FIELD_DETECT_TRIGGER, s->detection_trigger_type, NULL);
     item_field(list, MESH_UI_FIELD_DETECT_PULLUP, s->detection_use_pullup ? 1U : 0U, NULL);
@@ -880,17 +946,17 @@ static void build_ext_notification(const struct mesh_ui_settings *s, struct item
     item_field(list, MESH_UI_FIELD_EXTNOTIF_ACTIVE, s->extnotif_active ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_EXTNOTIF_PWM, s->extnotif_use_pwm ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_EXTNOTIF_I2S, s->extnotif_use_i2s_as_buzzer ? 1U : 0U, NULL);
-    item_heading(list, "Output");
+    item_heading(list, MESH_STR_HEAD_OUTPUT);
     item_field(list, MESH_UI_FIELD_EXTNOTIF_PIN, s->extnotif_output, NULL);
     item_field(list, MESH_UI_FIELD_EXTNOTIF_ALERT_MSG, s->extnotif_alert_message ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_EXTNOTIF_ALERT_BELL, s->extnotif_alert_bell ? 1U : 0U, NULL);
-    item_heading(list, "Vibra");
+    item_heading(list, MESH_STR_HEAD_VIBRA);
     item_field(list, MESH_UI_FIELD_EXTNOTIF_PIN_VIBRA, s->extnotif_output_vibra, NULL);
     item_field(list, MESH_UI_FIELD_EXTNOTIF_ALERT_MSG_VIBRA,
                s->extnotif_alert_message_vibra ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_EXTNOTIF_ALERT_BELL_VIBRA,
                s->extnotif_alert_bell_vibra ? 1U : 0U, NULL);
-    item_heading(list, "Buzzer");
+    item_heading(list, MESH_STR_HEAD_BUZZER);
     item_field(list, MESH_UI_FIELD_EXTNOTIF_PIN_BUZZER, s->extnotif_output_buzzer, NULL);
     item_field(list, MESH_UI_FIELD_EXTNOTIF_ALERT_MSG_BUZZER,
                s->extnotif_alert_message_buzzer ? 1U : 0U, NULL);
@@ -905,11 +971,11 @@ static void build_ext_notification(const struct mesh_ui_settings *s, struct item
  * than leaving a reader to wonder where the switch is.
  */
 static void build_traffic(const struct mesh_ui_settings *s, struct item_list *list) {
-    item_text(list, "Each limit", MESH_UI_SETTING_INFO, "is off when it is 0");
+    item_str(list, MESH_STR_NOTE_EACH_LIMIT, MESH_UI_SETTING_INFO, MESH_STR_NOTE_EACH_LIMIT_VALUE);
     item_field(list, MESH_UI_FIELD_TRAFFIC_POSITION_INTERVAL, s->traffic_position_min_interval_secs,
                NULL);
     item_field(list, MESH_UI_FIELD_TRAFFIC_NODEINFO_HOPS, s->traffic_nodeinfo_max_hops, NULL);
-    item_heading(list, "Rate limit");
+    item_heading(list, MESH_STR_HEAD_RATE_LIMIT);
     item_field(list, MESH_UI_FIELD_TRAFFIC_RATE_WINDOW, s->traffic_rate_limit_window_secs, NULL);
     item_field(list, MESH_UI_FIELD_TRAFFIC_RATE_PACKETS, s->traffic_rate_limit_max_packets, NULL);
     item_field(list, MESH_UI_FIELD_TRAFFIC_UNKNOWN_THRESHOLD, s->traffic_unknown_packet_threshold,
@@ -944,30 +1010,34 @@ static void build_actions(const struct mesh_ui_settings *s,
        user, and "not connected" is the answer they were about to press A to find out. */
     const bool connected = handshake != NULL && handshake->has_my_info;
 
-    item_radio_action(list, "Reboot", MESH_UI_SETTINGS_ACTION_REBOOT, connected);
+    item_radio_action(list, MESH_STR_ACTION_REBOOT, MESH_UI_SETTINGS_ACTION_REBOOT, connected);
     /* DeviceMetadata says whether the hardware can cut its own power; on a board that cannot,
        the request is simply ignored, so the row says so rather than lying about what A does.
        Until the metadata arrives the row is offered: the radio is the authority, not us. */
     if (s->has_metadata && !s->can_shutdown) {
-        item_text(list, "Shutdown", MESH_UI_SETTING_INFO, "not supported");
+        item_str(list, MESH_STR_ACTION_SHUTDOWN, MESH_UI_SETTING_INFO,
+                 MESH_STR_ACTION_SHUTDOWN_UNSUPPORTED);
     } else {
-        item_radio_action(list, "Shutdown", MESH_UI_SETTINGS_ACTION_SHUTDOWN, connected);
+        item_radio_action(list, MESH_STR_ACTION_SHUTDOWN, MESH_UI_SETTINGS_ACTION_SHUTDOWN,
+                          connected);
     }
-    item_radio_action(list, "Reset node database", MESH_UI_SETTINGS_ACTION_RESET_NODEDB, connected);
+    item_radio_action(list, MESH_STR_ACTION_RESET_NODEDB, MESH_UI_SETTINGS_ACTION_RESET_NODEDB,
+                      connected);
 
     /* Both numbers are what the press would remove, not what is cached or stale: a forget
        keeps our own record and every pin, so a roster of eighty nodes that are all pinned has
        nothing to drop and both rows say so. */
-    forget_row(list, "Forget off-radio",
+    forget_row(list, MESH_STR_ACTION_FORGET_OFF_RADIO,
                handshake != NULL ? handshake->nodes_forgettable_off_radio : 0U,
                MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES);
-    forget_row(list, "Forget all cached", handshake != NULL ? handshake->nodes_forgettable_all : 0U,
+    forget_row(list, MESH_STR_ACTION_FORGET_ALL,
+               handshake != NULL ? handshake->nodes_forgettable_all : 0U,
                MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES);
 
-    item_radio_action(list, "Factory reset config", MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG,
-                      connected);
-    item_radio_action(list, "Factory reset device", MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE,
-                      connected);
+    item_radio_action(list, MESH_STR_ACTION_FACTORY_CONFIG,
+                      MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG, connected);
+    item_radio_action(list, MESH_STR_ACTION_FACTORY_DEVICE,
+                      MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE, connected);
 }
 
 static void build_section(const struct mesh_ui_settings *settings,

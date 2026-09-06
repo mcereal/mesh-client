@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #define _POSIX_C_SOURCE 200809L
 
+#include "mesh/i18n/strings.h"
 #include "mesh/transport/serial.h"
 
 #include "mesh/core/config.h"
@@ -81,26 +82,29 @@ struct mesh_serial_transport_state {
 };
 
 /* Records a failure for the UI to pick up. First one wins until it is read. */
-static void mesh_serial_set_error(struct mesh_serial_transport_state *state, const char *fmt, ...) {
+/* As in the BLE transport: a catalog id rather than a format string, so the one place a
+   transport writes text a person reads cannot be handed an English sentence. */
+static void mesh_serial_set_error(struct mesh_serial_transport_state *state, enum mesh_str_id text,
+                                  ...) {
     if (state == NULL || state->last_error[0] != '\0') {
         return;
     }
     va_list args;
-    va_start(args, fmt);
-    (void)vsnprintf(state->last_error, sizeof state->last_error, fmt, args);
+    va_start(args, text);
+    (void)mesh_str_vformat(state->last_error, sizeof state->last_error, text, args);
     va_end(args);
 }
 
 static const char *mesh_serial_state_to_string(enum mesh_serial_state state) {
     switch (state) {
     case MESH_SERIAL_STATE_DISABLED:
-        return "disabled";
+        return mesh_str(MESH_STR_TRANSPORT_DISABLED);
     case MESH_SERIAL_STATE_IDLE:
-        return "no-ports";
+        return mesh_str(MESH_STR_TRANSPORT_NO_PORTS);
     case MESH_SERIAL_STATE_READY:
-        return "running";
+        return mesh_str(MESH_STR_TRANSPORT_RUNNING);
     }
-    return "unknown";
+    return mesh_str(MESH_STR_TRANSPORT_UNKNOWN);
 }
 
 static void mesh_serial_reset_link(struct mesh_serial_transport_state *state, const char *reason);
@@ -370,7 +374,7 @@ int mesh_serial_transport_connect(struct mesh_transport *transport, const char *
     state->last_error[0] = '\0';
 
     if (state->state == MESH_SERIAL_STATE_DISABLED) {
-        mesh_serial_set_error(state, "USB serial is disabled");
+        mesh_serial_set_error(state, MESH_STR_LINK_USB_DISABLED);
         return -ENODEV;
     }
     if (state->link_state != MESH_SERIAL_LINK_DISCONNECTED) {
@@ -384,7 +388,7 @@ int mesh_serial_transport_connect(struct mesh_transport *transport, const char *
     }
     if (device == NULL) {
         mesh_log_warn("serial", "No USB serial port matches '%s'", identifier);
-        mesh_serial_set_error(state, "USB port is gone; is it still plugged in?");
+        mesh_serial_set_error(state, MESH_STR_LINK_USB_GONE);
         return -ENODEV;
     }
 
@@ -392,8 +396,7 @@ int mesh_serial_transport_connect(struct mesh_transport *transport, const char *
     if (!device->bound || device->path[0] == '\0') {
         const int bind_result = mesh_serial_usb_bind(device);
         if (bind_result < 0) {
-            mesh_serial_set_error(state, "%.20s: no USB serial driver (%d)", device->name,
-                                  bind_result);
+            mesh_serial_set_error(state, MESH_STR_LINK_USB_NO_DRIVER, device->name, bind_result);
             return bind_result;
         }
     }
@@ -401,7 +404,7 @@ int mesh_serial_transport_connect(struct mesh_transport *transport, const char *
     const int fd = mesh_serial_port_open(device->path);
     if (fd < 0) {
         mesh_log_warn("serial", "Cannot open %s: %s", device->path, strerror(-fd));
-        mesh_serial_set_error(state, "Cannot open %.24s: %.20s", device->path, strerror(-fd));
+        mesh_serial_set_error(state, MESH_STR_LINK_USB_OPEN_FAILED, device->path, strerror(-fd));
         return fd;
     }
     state->fd = fd;
@@ -469,7 +472,7 @@ static void mesh_serial_finish_wake(struct mesh_serial_transport_state *state) {
     const int handshake = mesh_session_begin_handshake(state->session);
     if (handshake < 0) {
         mesh_log_warn("serial", "Failed to request config sync: %d", handshake);
-        mesh_serial_set_error(state, "%.24s: the radio did not answer", state->connected.path);
+        mesh_serial_set_error(state, MESH_STR_LINK_USB_NO_ANSWER, state->connected.path);
         mesh_serial_reset_link(state, "handshake failed");
         return;
     }
@@ -637,15 +640,15 @@ static void mesh_serial_stop(struct mesh_transport *transport) {
 
 static const char *mesh_serial_status(const struct mesh_transport *transport) {
     if (transport == NULL || transport->state == NULL) {
-        return "unavailable";
+        return mesh_str(MESH_STR_TRANSPORT_UNAVAILABLE);
     }
     const struct mesh_serial_transport_state *state =
         (const struct mesh_serial_transport_state *)transport->state;
     switch (state->link_state) {
     case MESH_SERIAL_LINK_WAKING:
-        return "connecting";
+        return mesh_str(MESH_STR_TRANSPORT_CONNECTING);
     case MESH_SERIAL_LINK_CONNECTED:
-        return "connected";
+        return mesh_str(MESH_STR_TRANSPORT_CONNECTED);
     case MESH_SERIAL_LINK_DISCONNECTED:
         break;
     }

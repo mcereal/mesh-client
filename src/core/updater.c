@@ -2,6 +2,8 @@
 
 #include "mesh/core/updater.h"
 
+#include "mesh/i18n/strings.h"
+
 #include "mesh/core/event_loop.h"
 #include "mesh/core/version.h"
 #include "mesh/utils/env.h"
@@ -46,32 +48,32 @@ const char *mesh_updater_asset_name(void) {
 const char *mesh_update_state_name(enum mesh_update_state state) {
     switch (state) {
     case MESH_UPDATE_IDLE:
-        return "idle";
+        return mesh_str(MESH_STR_UPDATE_STATE_IDLE);
     case MESH_UPDATE_CHECKING:
-        return "checking";
+        return mesh_str(MESH_STR_UPDATE_STATE_CHECKING);
     case MESH_UPDATE_UP_TO_DATE:
-        return "up to date";
+        return mesh_str(MESH_STR_UPDATE_STATE_UP_TO_DATE);
     case MESH_UPDATE_AVAILABLE:
-        return "available";
+        return mesh_str(MESH_STR_UPDATE_STATE_AVAILABLE);
     case MESH_UPDATE_DOWNLOADING:
-        return "downloading";
+        return mesh_str(MESH_STR_UPDATE_STATE_DOWNLOADING);
     case MESH_UPDATE_VERIFYING:
-        return "verifying";
+        return mesh_str(MESH_STR_UPDATE_STATE_VERIFYING);
     case MESH_UPDATE_READY:
-        return "ready";
+        return mesh_str(MESH_STR_UPDATE_STATE_READY);
     case MESH_UPDATE_FAILED:
-        return "failed";
+        return mesh_str(MESH_STR_UPDATE_STATE_FAILED);
     default:
-        return "?";
+        return mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT);
     }
 }
 
 const char *mesh_update_channel_name(enum mesh_update_channel channel) {
     switch (channel) {
     case MESH_UPDATE_CHANNEL_STABLE:
-        return "Stable";
+        return mesh_str(MESH_STR_UPDATE_CHANNEL_STABLE);
     case MESH_UPDATE_CHANNEL_PRERELEASE:
-        return "Prerelease";
+        return mesh_str(MESH_STR_UPDATE_CHANNEL_PRERELEASE);
     case MESH_UPDATE_CHANNEL_DEFAULT:
         /* Say what the inference resolved to, or the row would read as a shrug - and ask the
            function that does the resolving rather than repeating its rule. Spelling the rule
@@ -79,11 +81,11 @@ const char *mesh_update_channel_name(enum mesh_update_channel channel) {
            while the check went to the stable endpoint: a `-dev` suffix makes
            mesh_version_is_prerelease() true on its own, but the inference also requires the
            build to be a release. NULL is the updater on the default channel, by definition. */
-        return mesh_updater_effective_channel(NULL) == MESH_UPDATE_CHANNEL_PRERELEASE
-                   ? "Automatic (prerelease)"
-                   : "Automatic (stable)";
+        return mesh_str(mesh_updater_effective_channel(NULL) == MESH_UPDATE_CHANNEL_PRERELEASE
+                            ? MESH_STR_UPDATE_CHANNEL_AUTO_PRE
+                            : MESH_STR_UPDATE_CHANNEL_AUTO_STABLE);
     default:
-        return "?";
+        return mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT);
     }
 }
 
@@ -529,7 +531,8 @@ static bool updater_drain(struct mesh_updater *updater) {
         const ssize_t got = read(updater->child_fd, buffer, sizeof buffer);
         if (got > 0) {
             if (!updater_absorb(updater, buffer, (size_t)got)) {
-                updater_set(updater, MESH_UPDATE_FAILED, "Response too large");
+                updater_set(updater, MESH_UPDATE_FAILED,
+                            mesh_str(MESH_STR_UPDATE_RESPONSE_TOO_LARGE));
                 updater_close_child(updater);
                 return false;
             }
@@ -544,7 +547,7 @@ static bool updater_drain(struct mesh_updater *updater) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             return true;
         }
-        updater_set(updater, MESH_UPDATE_FAILED, "Read from downloader failed");
+        updater_set(updater, MESH_UPDATE_FAILED, mesh_str(MESH_STR_UPDATE_READ_FAILED));
         updater_close_child(updater);
         return false;
     }
@@ -696,15 +699,18 @@ static void updater_resolve_ca_bundle(struct mesh_updater *updater) {
  * fix. The bundle ships in the pak and not through self-update, so the answer really is to
  * reinstall the pak.
  */
-static void updater_fetch_failed(struct mesh_updater *updater, int exit_status, const char *what) {
+/* `what` names the catalog entry for the phase that failed - a check or a download - so the
+   sentence is one string rather than a verb glued onto a template. */
+static void updater_fetch_failed(struct mesh_updater *updater, int exit_status,
+                                 enum mesh_str_id what) {
     char message[MESH_UPDATE_MESSAGE_MAX];
     if (updater->fetcher != NULL && strcmp(updater->fetcher, "curl") == 0 && exit_status == 60) {
         snprintf(message, sizeof message, "%s",
-                 updater->ca_bundle[0] != '\0' ? "Could not verify GitHub's certificate"
-                                               : "No CA certificates; reinstall the pak");
+                 mesh_str(updater->ca_bundle[0] != '\0' ? MESH_STR_UPDATE_TLS_UNVERIFIED
+                                                        : MESH_STR_UPDATE_NO_CA_BUNDLE));
     } else {
-        snprintf(message, sizeof message, "%s failed (%s exit %d)", what,
-                 updater->fetcher != NULL ? updater->fetcher : "fetcher", exit_status);
+        mesh_str_format(message, sizeof message, what,
+                        updater->fetcher != NULL ? updater->fetcher : "fetcher", exit_status);
     }
     updater_set(updater, MESH_UPDATE_FAILED, message);
 }
@@ -749,14 +755,17 @@ int mesh_updater_init(struct mesh_updater *updater, struct mesh_event_loop *loop
     updater->allow_dev = updater->allow_dev_from_env;
 
     if (updater->fetcher == NULL) {
-        snprintf(updater->message, sizeof updater->message, "%s", "No curl or wget on this device");
+        snprintf(updater->message, sizeof updater->message, "%s",
+                 mesh_str(MESH_STR_UPDATE_NO_FETCHER));
     } else if (!mesh_version_is_release() && !updater->allow_dev) {
         /* Say the consequence, not just the fact: the old wording ("Development build") sat
            next to a check that would go on to name a newer release it had no intention of
            installing, which reads as a broken install button rather than a deliberate guard. */
-        snprintf(updater->message, sizeof updater->message, "%s", "Dev build; updates disabled");
+        snprintf(updater->message, sizeof updater->message, "%s",
+                 mesh_str(MESH_STR_UPDATE_DEV_DISABLED));
     } else if (!mesh_version_is_release()) {
-        snprintf(updater->message, sizeof updater->message, "%s", "Dev build; updates enabled");
+        snprintf(updater->message, sizeof updater->message, "%s",
+                 mesh_str(MESH_STR_UPDATE_DEV_ENABLED));
     }
     mesh_log_info("update",
                   "Updater ready: fetcher=%s binary=%s version=%s channel=%s allow_dev=%s "
@@ -794,7 +803,7 @@ bool mesh_updater_set_channel(struct mesh_updater *updater, enum mesh_update_cha
         return false; /* mid-check or mid-download: the asset in flight belongs to the old one */
     }
     updater->channel = channel;
-    updater_invalidate_check(updater, "Channel changed; check again");
+    updater_invalidate_check(updater, mesh_str(MESH_STR_UPDATE_CHANNEL_CHANGED));
     mesh_log_info("update", "Update channel set to %s",
                   mesh_update_channel_name(mesh_updater_effective_channel(updater)));
     return true;
@@ -808,12 +817,12 @@ bool mesh_updater_set_allow_dev(struct mesh_updater *updater, bool allow) {
         return false; /* mid-check or mid-download; let it finish rather than move the goalposts */
     }
     updater->allow_dev = allow;
-    updater_invalidate_check(updater, "Setting changed; check again");
+    updater_invalidate_check(updater, mesh_str(MESH_STR_UPDATE_SETTING_CHANGED));
     /* init() put its reason in `message` when the updater was left idle, and that reason has
        just stopped being true either way. */
     if (updater->state == MESH_UPDATE_IDLE && !mesh_version_is_release()) {
         snprintf(updater->message, sizeof updater->message, "%s",
-                 allow ? "Dev build; updates enabled" : "Dev build; updates disabled");
+                 mesh_str(allow ? MESH_STR_UPDATE_DEV_ENABLED : MESH_STR_UPDATE_DEV_DISABLED));
     }
     mesh_log_info("update", "Dev updates %s", allow ? "enabled" : "disabled");
     return true;
@@ -893,20 +902,20 @@ int mesh_updater_check(struct mesh_updater *updater, uint64_t now_ms) {
         result = updater_spawn(updater, argv, now_ms, MESH_UPDATE_CHECK_TIMEOUT_MS);
     }
     if (result != 0) {
-        updater_set(updater, MESH_UPDATE_FAILED, "Could not start the downloader");
+        updater_set(updater, MESH_UPDATE_FAILED, mesh_str(MESH_STR_UPDATE_START_FAILED));
         return result;
     }
-    updater_set(updater, MESH_UPDATE_CHECKING, "Checking for updates");
+    updater_set(updater, MESH_UPDATE_CHECKING, mesh_str(MESH_STR_UPDATE_CHECKING));
     return 0;
 }
 
 static void updater_finish_check(struct mesh_updater *updater, int exit_status) {
     if (exit_status != 0) {
-        updater_fetch_failed(updater, exit_status, "Check");
+        updater_fetch_failed(updater, exit_status, MESH_STR_UPDATE_CHECK_EXIT);
         return;
     }
     if (updater->response == NULL) {
-        updater_set(updater, MESH_UPDATE_FAILED, "Empty reply from GitHub");
+        updater_set(updater, MESH_UPDATE_FAILED, mesh_str(MESH_STR_UPDATE_EMPTY_REPLY));
         return;
     }
 
@@ -917,7 +926,7 @@ static void updater_finish_check(struct mesh_updater *updater, int exit_status) 
     if (!mesh_updater_parse_release(updater->response, mesh_updater_repo(),
                                     mesh_updater_asset_name(), tag, sizeof tag, url, sizeof url,
                                     sha256, sizeof sha256, &size)) {
-        updater_set(updater, MESH_UPDATE_FAILED, "No usable release asset");
+        updater_set(updater, MESH_UPDATE_FAILED, mesh_str(MESH_STR_UPDATE_NO_ASSET));
         return;
     }
 
@@ -933,7 +942,7 @@ static void updater_finish_check(struct mesh_updater *updater, int exit_status) 
            read as an offer. Naming the release and the reason in one line is what stops the
            About screen from looking like an install button that does nothing. */
         char message[MESH_UPDATE_MESSAGE_MAX];
-        snprintf(message, sizeof message, "Latest is %s; dev build, not installing", tag);
+        mesh_str_format(message, sizeof message, MESH_STR_UPDATE_LATEST_DEV, tag);
         updater_set(updater, MESH_UPDATE_UP_TO_DATE, message);
         return;
     }
@@ -947,22 +956,22 @@ static void updater_finish_check(struct mesh_updater *updater, int exit_status) 
                            ? mesh_version_is_newer_than_running(tag)
                            : mesh_version_compare(tag, mesh_version_string()) > 0;
     if (!newer) {
-        updater_set(updater, MESH_UPDATE_UP_TO_DATE, "Running the latest release");
+        updater_set(updater, MESH_UPDATE_UP_TO_DATE, mesh_str(MESH_STR_UPDATE_LATEST_RUNNING));
         return;
     }
     if (updater->asset_sha256[0] == '\0') {
         /* Without a digest there is no way to tell a good download from a bad one, and this
            installs an executable. Refuse rather than trust the transport alone. */
-        updater_set(updater, MESH_UPDATE_FAILED, "Release has no checksum; not installing");
+        updater_set(updater, MESH_UPDATE_FAILED, mesh_str(MESH_STR_UPDATE_NO_CHECKSUM));
         return;
     }
     if (size == 0U || size > MESH_UPDATE_MAX_ASSET_BYTES) {
-        updater_set(updater, MESH_UPDATE_FAILED, "Release asset size looks wrong");
+        updater_set(updater, MESH_UPDATE_FAILED, mesh_str(MESH_STR_UPDATE_BAD_SIZE));
         return;
     }
 
     char message[MESH_UPDATE_MESSAGE_MAX];
-    snprintf(message, sizeof message, "%s available (running %s)", tag, mesh_version_string());
+    mesh_str_format(message, sizeof message, MESH_STR_UPDATE_AVAILABLE, tag, mesh_version_string());
     updater_set(updater, MESH_UPDATE_AVAILABLE, message);
 }
 
@@ -1019,11 +1028,11 @@ int mesh_updater_install(struct mesh_updater *updater, uint64_t now_ms) {
         result = updater_spawn(updater, argv, now_ms, MESH_UPDATE_DOWNLOAD_TIMEOUT_MS);
     }
     if (result != 0) {
-        updater_set(updater, MESH_UPDATE_FAILED, "Could not start the download");
+        updater_set(updater, MESH_UPDATE_FAILED, mesh_str(MESH_STR_UPDATE_DOWNLOAD_START_FAIL));
         return result;
     }
     char message[MESH_UPDATE_MESSAGE_MAX];
-    snprintf(message, sizeof message, "Downloading %s", updater->latest);
+    mesh_str_format(message, sizeof message, MESH_STR_UPDATE_DOWNLOADING, updater->latest);
     updater_set(updater, MESH_UPDATE_DOWNLOADING, message);
     return 0;
 }
@@ -1113,21 +1122,21 @@ static void updater_stamp_pak_json(const struct mesh_updater *updater) {
 
 static void updater_finish_download(struct mesh_updater *updater, int exit_status) {
     if (exit_status != 0) {
-        updater_fetch_failed(updater, exit_status, "Download");
+        updater_fetch_failed(updater, exit_status, MESH_STR_UPDATE_DOWNLOAD_EXIT);
         (void)unlink(updater->staged_path);
         return;
     }
 
-    updater_set(updater, MESH_UPDATE_VERIFYING, "Verifying download");
+    updater_set(updater, MESH_UPDATE_VERIFYING, mesh_str(MESH_STR_UPDATE_VERIFYING));
 
     struct stat info;
     if (stat(updater->staged_path, &info) != 0 || info.st_size <= 0) {
-        updater_set(updater, MESH_UPDATE_FAILED, "Downloaded file is missing");
+        updater_set(updater, MESH_UPDATE_FAILED, mesh_str(MESH_STR_UPDATE_FILE_MISSING));
         (void)unlink(updater->staged_path);
         return;
     }
     if (updater->asset_size != 0U && (uint64_t)info.st_size != updater->asset_size) {
-        updater_set(updater, MESH_UPDATE_FAILED, "Downloaded file is the wrong size");
+        updater_set(updater, MESH_UPDATE_FAILED, mesh_str(MESH_STR_UPDATE_FILE_WRONG_SIZE));
         (void)unlink(updater->staged_path);
         return;
     }
@@ -1135,7 +1144,7 @@ static void updater_finish_download(struct mesh_updater *updater, int exit_statu
     uint8_t digest[MESH_SHA256_DIGEST_LEN];
     const int hashed = mesh_sha256_file(updater->staged_path, digest);
     if (hashed != 0) {
-        updater_set(updater, MESH_UPDATE_FAILED, "Could not hash the download");
+        updater_set(updater, MESH_UPDATE_FAILED, mesh_str(MESH_STR_UPDATE_HASH_FAILED));
         (void)unlink(updater->staged_path);
         return;
     }
@@ -1144,13 +1153,13 @@ static void updater_finish_download(struct mesh_updater *updater, int exit_statu
     if (strcmp(hex, updater->asset_sha256) != 0) {
         mesh_log_warn("update", "Checksum mismatch: got %s, expected %s", hex,
                       updater->asset_sha256);
-        updater_set(updater, MESH_UPDATE_FAILED, "Checksum mismatch; discarded");
+        updater_set(updater, MESH_UPDATE_FAILED, mesh_str(MESH_STR_UPDATE_CHECKSUM_MISMATCH));
         (void)unlink(updater->staged_path);
         return;
     }
 
     if (chmod(updater->staged_path, 0755) != 0) {
-        updater_set(updater, MESH_UPDATE_FAILED, "Could not make the update executable");
+        updater_set(updater, MESH_UPDATE_FAILED, mesh_str(MESH_STR_UPDATE_CHMOD_FAILED));
         (void)unlink(updater->staged_path);
         return;
     }
@@ -1158,7 +1167,7 @@ static void updater_finish_download(struct mesh_updater *updater, int exit_statu
        image lives on through its inode, so this is safe under ourselves. */
     if (rename(updater->staged_path, updater->install_path) != 0) {
         char message[MESH_UPDATE_MESSAGE_MAX];
-        snprintf(message, sizeof message, "Install failed: %s", strerror(errno));
+        mesh_str_format(message, sizeof message, MESH_STR_UPDATE_INSTALL_FAILED, strerror(errno));
         updater_set(updater, MESH_UPDATE_FAILED, message);
         (void)unlink(updater->staged_path);
         return;
@@ -1167,7 +1176,7 @@ static void updater_finish_download(struct mesh_updater *updater, int exit_statu
     mesh_log_info("update", "Installed %s over %s", updater->latest, updater->install_path);
     updater_stamp_pak_json(updater);
     char message[MESH_UPDATE_MESSAGE_MAX];
-    snprintf(message, sizeof message, "%s installed - relaunch to run it", updater->latest);
+    mesh_str_format(message, sizeof message, MESH_STR_UPDATE_INSTALLED, updater->latest);
     updater_set(updater, MESH_UPDATE_READY, message);
 }
 
@@ -1190,6 +1199,6 @@ void mesh_updater_tick(struct mesh_updater *updater, uint64_t now_ms) {
         if (downloading) {
             (void)unlink(updater->staged_path);
         }
-        updater_set(updater, MESH_UPDATE_FAILED, "Timed out talking to GitHub");
+        updater_set(updater, MESH_UPDATE_FAILED, mesh_str(MESH_STR_UPDATE_TIMED_OUT));
     }
 }

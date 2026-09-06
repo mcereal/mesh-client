@@ -275,6 +275,11 @@ struct mesh_ui_client_info {
      */
     char theme[MESH_UI_CLIENT_TEXT_MAX];
     char theme_name[MESH_UI_CLIENT_TEXT_MAX];
+    /* The language the catalog resolved to, in that language ("English", "Deutsch"). It rides
+       here for the reason the theme name does: About reads it, and a backend is not the place
+       to ask src/i18n anything. Chosen at startup from MESHCLIENT_LANG and the POSIX locale
+       variables; see docs/i18n.md. */
+    char language_name[MESH_UI_CLIENT_TEXT_MAX];
     /* MESHCLIENT_THEME is holding it. The row then says so instead of offering a press that
        the environment would override on the next frame. */
     bool theme_from_env;

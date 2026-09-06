@@ -38,20 +38,22 @@ const char *mesh_ui_kb_action_label(const struct mesh_ui_nav *nav, enum mesh_ui_
     switch (action) {
     case MESH_UI_KB_ACTION_LAYER:
         if (nav != NULL && nav->kb_layer == MESH_UI_KB_LOWER) {
-            return "ABC";
+            return mesh_str(MESH_STR_KEY_LAYER_UPPER);
         }
         if (nav != NULL && nav->kb_layer == MESH_UI_KB_UPPER) {
-            return "#+=";
+            return mesh_str(MESH_STR_KEY_LAYER_SYMBOLS);
         }
-        return "abc";
+        return mesh_str(MESH_STR_KEY_LAYER_LOWER);
     case MESH_UI_KB_ACTION_SPACE:
-        return "space";
+        return mesh_str(MESH_STR_KEY_SPACE);
     case MESH_UI_KB_ACTION_DELETE:
-        return "del";
+        return mesh_str(MESH_STR_KEY_DELETE);
     case MESH_UI_KB_ACTION_SEND:
-        return (nav != NULL && nav->keyboard_field != MESH_UI_FIELD_NONE) ? "done" : "send";
+        return mesh_str((nav != NULL && nav->keyboard_field != MESH_UI_FIELD_NONE)
+                            ? MESH_STR_KEY_DONE
+                            : MESH_STR_KEY_SEND);
     case MESH_UI_KB_ACTION_CANCEL:
-        return "cancel";
+        return mesh_str(MESH_STR_KEY_CANCEL);
     default:
         return "";
     }
