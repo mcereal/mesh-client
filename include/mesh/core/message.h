@@ -110,6 +110,23 @@ const struct mesh_message *mesh_message_log_at(const struct mesh_message_log *lo
 /* Finds the newest entry with this packet id, or NULL. */
 struct mesh_message *mesh_message_log_find(struct mesh_message_log *log, uint32_t packet_id);
 
+/*
+ * Whether `message` belongs to one conversation, named the way the UI names a destination:
+ * `peer` of MESH_MESSAGE_BROADCAST_ADDR means the channel conversation on `channel`, and
+ * anything else means the direct exchange with that node, in either direction.
+ */
+bool mesh_message_in_conversation(const struct mesh_message *message, uint32_t peer,
+                                  uint8_t channel);
+
+/*
+ * Drops every message in that conversation, compacting the ring. Returns how many went.
+ *
+ * `dropped` is deliberately untouched: it counts what the ring took away from the user, and a
+ * delete is the user taking it away themselves - counting it there would have the UI report
+ * "+3 older" for history somebody asked to be rid of.
+ */
+uint32_t mesh_message_log_forget(struct mesh_message_log *log, uint32_t peer, uint8_t channel);
+
 /* Applies a delivery result to the outbound entry with this packet id. Returns true when a
    matching entry was updated. */
 bool mesh_message_log_mark_ack(struct mesh_message_log *log, uint32_t packet_id,

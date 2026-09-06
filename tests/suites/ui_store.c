@@ -3,6 +3,7 @@
 /* The UI store: state, persistence, refresh requests and the message list. */
 
 #include "framework/mesh_test.h"
+#include "support/ui_fixture.h"
 
 #include "mesh/core/message.h"
 #include "mesh/ui/nav.h"
@@ -642,4 +643,93 @@ cleanup:
     } else {
         record_success(test_name);
     }
+}
+
+/*
+ * Deleting a conversation out of the store: its messages and its read mark, and nothing else.
+ *
+ * The mark has to go with the messages. A mark whose message has been evicted by the ring
+ * correctly reads as "everything still in view arrived before it" - that is what makes the
+ * ring's evictions safe - and it is exactly the wrong answer here, where the messages went
+ * because somebody asked for them to go.
+ */
+MESH_TEST_CASE(ui_store_forget_conversation, unit) {
+    const char *failure = NULL;
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_action action;
+
+    /* Open BRVO's thread so it picks up a read mark, then back out to the list. */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (store.read_state.count == 0U) {
+        failure = "opening the thread should have left a read mark";
+        goto cleanup;
+    }
+    const uint32_t marks_before = store.read_state.count;
+
+    const uint32_t removed = mesh_ui_store_forget_conversation(
+        &store, (uint8_t)MESH_UI_CONVERSATION_DIRECT, 0x3000U, 0U);
+    if (removed != 1U || store.messages.count != 1U) {
+        failure = "only BRVO's one message should have gone";
+        goto cleanup;
+    }
+    if (!store.messages.entries[0].broadcast) {
+        failure = "the broadcast on the channel should have stayed";
+        goto cleanup;
+    }
+    if (store.read_state.count != marks_before - 1U) {
+        failure = "the conversation's read mark should have gone with its messages";
+        goto cleanup;
+    }
+    if ((store.pending_flags & MESH_UI_UPDATE_MESSAGES) == 0U) {
+        failure = "a delete should ask for a repaint";
+        goto cleanup;
+    }
+
+    /* The row goes with the last message, because a direct conversation is only a row for as
+       long as there is traffic in it. A channel's row is the radio's, and stays. */
+    if (mesh_ui_nav_conversation_count(&store) != 3U) {
+        failure = "BRVO's row should have gone with its messages";
+        goto cleanup;
+    }
+    const uint32_t channel_removed =
+        mesh_ui_store_forget_conversation(&store, (uint8_t)MESH_UI_CONVERSATION_CHANNEL, 0U, 0U);
+    if (channel_removed != 1U || store.messages.count != 0U) {
+        failure = "the channel's broadcast should have gone by its slot";
+        goto cleanup;
+    }
+    if (mesh_ui_nav_conversation_count(&store) != 3U) {
+        failure = "an emptied channel keeps its row: the row is the radio's, not the log's";
+        goto cleanup;
+    }
+
+    /* Neither of the rows that is not a conversation can be deleted through this door. */
+    struct mesh_ui_message_list messages;
+    memset(&messages, 0, sizeof messages);
+    messages.count = 1U;
+    messages.entries[0].packet_id = 99U;
+    messages.entries[0].peer = 0x3000U;
+    snprintf(messages.entries[0].text, sizeof messages.entries[0].text, "%s", "back again");
+    mesh_ui_store_set_messages(&store, &messages);
+    if (mesh_ui_store_forget_conversation(&store, (uint8_t)MESH_UI_CONVERSATION_ALL, 0U, 0U) !=
+            0U ||
+        mesh_ui_store_forget_conversation(&store, (uint8_t)MESH_UI_CONVERSATION_NEW, 0U, 0U) !=
+            0U ||
+        store.messages.count != 1U) {
+        failure = "'All traffic' and 'New message' name no conversation and should delete nothing";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
 }

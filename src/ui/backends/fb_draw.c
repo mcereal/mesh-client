@@ -410,6 +410,49 @@ void fb_fill_rect(const struct mesh_ui_backend_fb_state *state, int x, int y, in
     fb_fill_packed(state, x, y, w, h, compose_color(state, color.r, color.g, color.b));
 }
 
+void fb_fill_round_rect(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h,
+                        int radius, struct mesh_ui_rgb color) {
+    if (w <= 0 || h <= 0) {
+        return;
+    }
+    const int limit = (w < h ? w : h) / 2;
+    if (radius > limit) {
+        radius = limit;
+    }
+    if (radius <= 0) {
+        fb_fill_rect(state, x, y, w, h, color);
+        return;
+    }
+
+    const uint32_t packed = compose_color(state, color.r, color.g, color.b);
+    /* The straight middle, then a span per row of each corner band. */
+    fb_fill_packed(state, x, y + radius, w, h - 2 * radius, packed);
+
+    /*
+     * How far in the fill starts on each of the rounded rows.
+     *
+     * Everything is doubled so the test lands on pixel *centres* without leaving integers:
+     * the row's centre is half a pixel below its top edge, and a circle drawn from pixel
+     * corners is visibly lopsided at this size. `2*d - 2*r + 1` is twice the offset of the
+     * pixel centre from the arc's centre, and the comparison is that against twice the radius.
+     */
+    const int diameter_sq = 4 * radius * radius;
+    for (int dy = 0; dy < radius; ++dy) {
+        const int oy = 2 * dy - 2 * radius + 1;
+        int dx = 0;
+        while (dx < radius) {
+            const int ox = 2 * dx - 2 * radius + 1;
+            if (ox * ox + oy * oy <= diameter_sq) {
+                break;
+            }
+            ++dx;
+        }
+        const int span = w - 2 * dx;
+        fb_fill_packed(state, x + dx, y + dy, span, 1, packed);
+        fb_fill_packed(state, x + dx, y + h - 1 - dy, span, 1, packed);
+    }
+}
+
 void fb_clear(const struct mesh_ui_backend_fb_state *state, struct mesh_ui_rgb color) {
     fb_fill_rect(state, 0, 0, (int)state->var.xres, (int)state->var.yres, color);
 }

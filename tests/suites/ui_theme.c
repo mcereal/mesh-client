@@ -76,6 +76,66 @@ MESH_TEST_CASE(ui_theme_tables_are_readable, unit) {
     record_success(test_name);
 }
 
+/*
+ * The avatar palettes.
+ *
+ * Every theme has to offer at least one tint, answer for any seed at all, and hand back only
+ * colours it actually stated - a lookup that ran off the end of a short palette would draw a
+ * conversation's disc in whatever zeroed bytes follow it, which on a dark theme is a black
+ * disc with black initials.
+ *
+ * The readability of each tint against the ground is mesh_ui_theme_validate()'s job, and
+ * ui_theme_tables_are_readable already runs it over the whole registry.
+ */
+MESH_TEST_CASE(ui_theme_avatar_palettes, unit) {
+    for (size_t i = 0; i < mesh_ui_theme_count(); ++i) {
+        const struct mesh_ui_theme *theme = mesh_ui_theme_at(i);
+        MESH_TEST_FAIL_IF(theme->avatar_count == 0U || theme->avatar_count > MESH_UI_AVATAR_TINTS,
+                          "a theme states no avatar tints, or more than fit");
+
+        /* Node numbers are consecutive off a vendor's block, so the seeds that matter are
+           adjacent ones - and the palette has to spread them rather than hand a whole mesh the
+           same colour. A theme offering more than one tint must use more than one here. */
+        bool seen[MESH_UI_AVATAR_TINTS];
+        memset(seen, 0, sizeof seen);
+        for (uint32_t seed = 0x8F21B000U; seed < 0x8F21B040U; ++seed) {
+            const struct mesh_ui_rgb tint = mesh_ui_theme_avatar(theme, seed);
+            bool known = false;
+            for (uint8_t slot = 0; slot < theme->avatar_count; ++slot) {
+                if (tint.r == theme->avatars[slot].r && tint.g == theme->avatars[slot].g &&
+                    tint.b == theme->avatars[slot].b) {
+                    seen[slot] = true;
+                    known = true;
+                }
+            }
+            MESH_TEST_FAIL_IF(!known, "an avatar seed resolved to a colour the theme never stated");
+        }
+        uint8_t used = 0U;
+        for (uint8_t slot = 0; slot < theme->avatar_count; ++slot) {
+            used = (uint8_t)(used + (seen[slot] ? 1U : 0U));
+        }
+        MESH_TEST_FAIL_IF(theme->avatar_count > 1U && used < 2U,
+                          "a run of neighbouring node numbers all got the same avatar tint");
+
+        /* The same conversation is the same colour every time, which is the whole reason the
+           seed is an identity rather than a name. */
+        const struct mesh_ui_rgb once = mesh_ui_theme_avatar(theme, 0x3000U);
+        const struct mesh_ui_rgb twice = mesh_ui_theme_avatar(theme, 0x3000U);
+        MESH_TEST_FAIL_IF(once.r != twice.r || once.g != twice.g || once.b != twice.b,
+                          "the same seed gave two different tints");
+    }
+
+    /* A theme that states no palette at all still has to answer, because the lookup is on the
+       drawing path and a NULL there would be a blank screen rather than a wrong colour. */
+    struct mesh_ui_theme bare = *mesh_ui_theme_default();
+    bare.avatar_count = 0U;
+    const struct mesh_ui_rgb fallback = mesh_ui_theme_avatar(&bare, 7U);
+    const struct mesh_ui_rgb accent = mesh_ui_theme_color(&bare, MESH_UI_COLOR_ACCENT);
+    MESH_TEST_FAIL_IF(fallback.r != accent.r || fallback.g != accent.g || fallback.b != accent.b,
+                      "a theme with no palette should fall back to the accent it already owes");
+    record_success(test_name);
+}
+
 /* A pair of colours far apart is a high ratio, a pair close together is near 1, and the extreme
    is exactly 21. The renderer never calls this, but every theme is admitted by it. */
 MESH_TEST_CASE(ui_theme_contrast_is_the_wcag_ratio, unit) {

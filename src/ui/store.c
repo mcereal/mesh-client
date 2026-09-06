@@ -370,6 +370,83 @@ void mesh_ui_message_list_merge(const struct mesh_ui_message_list *cached,
         ((cached != NULL) ? cached->dropped : 0U) + ((live != NULL) ? live->dropped : 0U) + skipped;
 }
 
+/* Whether a UI message belongs to the conversation named by (kind, node, channel). The store's
+   copy already carries the resolved peer and a broadcast flag, so this is the same question
+   mesh_message_in_conversation() answers on the transport's ring, asked of the other shape. */
+static bool mesh_ui_message_belongs(const struct mesh_ui_message *message, uint8_t kind,
+                                    uint32_t node, uint8_t channel) {
+    switch ((enum mesh_ui_conversation_kind)kind) {
+    case MESH_UI_CONVERSATION_CHANNEL:
+        return message->broadcast && message->channel == channel;
+    case MESH_UI_CONVERSATION_DIRECT:
+        return !message->broadcast && message->peer == node;
+    case MESH_UI_CONVERSATION_ALL:
+    case MESH_UI_CONVERSATION_NEW:
+    default:
+        return false;
+    }
+}
+
+uint32_t mesh_ui_message_list_forget(struct mesh_ui_message_list *list, uint8_t kind, uint32_t node,
+                                     uint8_t channel) {
+    if (list == NULL) {
+        return 0U;
+    }
+    const uint32_t count = list->count > MESH_UI_MAX_MESSAGES ? MESH_UI_MAX_MESSAGES : list->count;
+    uint32_t kept = 0U;
+    uint32_t removed = 0U;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (mesh_ui_message_belongs(&list->entries[i], kind, node, channel)) {
+            removed++;
+            continue;
+        }
+        if (kept != i) {
+            list->entries[kept] = list->entries[i];
+        }
+        kept++;
+    }
+    if (removed > 0U) {
+        memset(&list->entries[kept], 0, (count - kept) * sizeof list->entries[0]);
+        list->count = kept;
+    }
+    return removed;
+}
+
+uint32_t mesh_ui_store_forget_conversation(struct mesh_ui_store *store, uint8_t kind, uint32_t node,
+                                           uint8_t channel) {
+    if (store == NULL) {
+        return 0U;
+    }
+    const uint32_t removed = mesh_ui_message_list_forget(&store->messages, kind, node, channel);
+
+    /* The mark goes with the messages it marked. Leaving it would badge the conversation's
+       whole next exchange as read, because a mark whose message is gone reads as "everything
+       still in view arrived before it" - the rule that makes the ring's evictions safe is
+       exactly the wrong one here. */
+    struct mesh_ui_read_state *state = &store->read_state;
+    for (uint32_t i = 0; i < state->count && i < MESH_UI_READ_MARKS_MAX; ++i) {
+        if (state->marks[i].kind != kind) {
+            continue;
+        }
+        const bool match = (kind == MESH_UI_CONVERSATION_CHANNEL)
+                               ? state->marks[i].channel == channel
+                               : state->marks[i].node == node;
+        if (!match) {
+            continue;
+        }
+        state->marks[i] = state->marks[state->count - 1U];
+        memset(&state->marks[state->count - 1U], 0, sizeof state->marks[0]);
+        state->count--;
+        state->stamp++; /* the app persists the read state when this moves */
+        break;
+    }
+
+    if (removed > 0U) {
+        mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_MESSAGES);
+    }
+    return removed;
+}
+
 /* The slot holding this conversation's mark, taking a free one or evicting the least recently
    read when they are all in use. Never fails. */
 static struct mesh_ui_read_mark *mesh_ui_store_read_mark_slot(struct mesh_ui_read_state *state,

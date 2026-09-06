@@ -112,9 +112,50 @@ clamp keeps it pinned to the newest as traffic arrives), so a bubble carries bot
 and an accent bar down its outer edge — a fill one step lighter is not, by itself, findable on a
 3.2" panel, and gives a colour-blind eye nothing at all.
 
-The conversation list is the two-row shape a phone messenger has: name and age, then the last
-message with the unread count as a **filled badge** flush right. Both rows highlight together,
-because a conversation is one item rather than two adjacent rows.
+The conversation list is the two-row shape a phone messenger has, drawn as one component
+(`struct fb_conversation` / `fb_draw_conversation`, `fb_widgets.h`): a tinted **avatar disc**
+carrying the correspondent's initials, then the name with the age of the last traffic against the
+right edge, then what was last said with the unread count as a **pill**. The cell owns all of it
+and the screen renderer only says which strings go in it.
+
+Three things make the list skimmable rather than a wall of text, and all three are in that
+component:
+
+- **The avatar.** Two cells and a colour is what the eye finds a thread by, long before it has
+  read a name. The initials come from the nav (`mesh_ui_nav_conversation_at` fills `initials` and
+  `tint`): the first letter of each of the first two words, or the first two letters of a
+  one-word name — which is what a four-character Meshtastic short name is, so `BRVO` reads `BR`.
+  A channel shows `#` and the all-traffic row a `*`. The `tint` seeds the colour and is the
+  conversation's *identity* (a node number, a channel slot) rather than its name, so a node that
+  renames itself keeps the colour the user has learned to look for.
+- **Tighter leading than the gap.** The two rows are one item, so the preview sits a scale above
+  where a second list row would put it, and the space that frees becomes the gap between cells —
+  with an inset hairline in it. Without that the cell fills every pixel of its two rows and a
+  list of them reads as one block with no way in.
+- **Two tiers of text under the cursor.** `MESH_UI_COLOR_TEXT_ON_SEL_DIM` exists for this: the
+  age and a read preview are secondary on a selected row too, and `TEXT_DIM` is chosen against
+  the *ground* and says nothing about a fill over it.
+
+The avatar tints are a per-theme palette (`theme->avatars`, read through
+`mesh_ui_theme_avatar()`), not a role — the point of an avatar colour is that two of them
+differ. The initials are drawn in `MESH_UI_COLOR_BG`, so every tint owes the ground the
+body-text contrast and `mesh_ui_theme_validate()` holds it to that; the high-contrast theme
+states two tints rather than six, because a palette of hues is what that theme exists to do
+without.
+
+**X deletes a conversation**, armed by one press and carried out by the second — the same idiom
+as Y on the Devices tab and the node detail's remove row. The arming names the *conversation*
+rather than the row, because direct peers are ordered by recency and one message from somebody
+else re-ranks them under the cursor. The armed cell says so itself
+(`mesh_ui_nav_conversation_is_armed`), in place of the preview it is about to take away.
+
+The delete itself is the app's (`MESH_UI_ACTION_DELETE_CONVERSATION`), because a message lives in
+three places at once — the transport's ring, the history read back from the cache at startup, and
+the store — and one that reached only the store would survive about a second, until the next
+publish rebuilt the store from the other two. Neither "All traffic" nor "New message" answers to
+X: one is a view over the others and the other is a button. An emptied channel keeps its row, because
+the row is the radio's channel table rather than the log; an emptied direct peer loses it, which
+is what "delete conversation" means everywhere else.
 
 **Only opening a thread moves the target.** The Nodes tab opens the node's *detail*, and only
 that detail's message row opens a conversation, rather than retargeting what Messages was

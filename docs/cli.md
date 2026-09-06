@@ -106,13 +106,22 @@ The framebuffer HUD is five tabs: **Messages, Nodes, Devices, Status, Settings.*
 | A | act on the row |
 | B | back out |
 | Y | write a message (Messages/Nodes), save a section (Settings) |
-| X | refresh (Settings), pin a node (Nodes), disconnect (Devices) |
+| X | delete a conversation (Messages), refresh (Settings), pin a node (Nodes), disconnect (Devices) |
 | MENU | quit |
 
 **Messages** is two levels, the way a phone messenger is: a conversation list (all traffic, each
 channel, each node you have direct messages with, and a *New message* row) and, inside one, that
-conversation. Rows with unread messages are marked `*` and say how many are waiting; opening a
-conversation clears it, and the marks persist across restarts alongside the cached history.
+conversation. Each row is a coloured disc with the correspondent's initials, the name and how long
+ago it last spoke, then the last thing said with the unread count as a pill; opening a conversation
+clears the count, and the marks persist across restarts alongside the cached history.
+
+**X deletes the conversation under the cursor.** The first press arms it and the row says so, the
+second throws the messages away — from the running log, from the cached history and from the file
+on disk, so they do not come back on the next start. Nothing is asked of the radio: it keeps no
+per-client history to delete, and it will happily deliver the same conversation again. Deleting a
+channel empties it but keeps its row, because that row is the radio's channel table rather than
+your message log; deleting a direct conversation takes the row with it. *All traffic* and *New
+message* are not conversations and X does nothing on either.
 
 **Compose** is an overlay over the conversation you are in rather than a tab, so it always knows
 where the message is going. It has a d-pad keyboard for free text (A types, B deletes, X shifts,

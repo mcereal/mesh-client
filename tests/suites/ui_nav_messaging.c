@@ -867,3 +867,173 @@ cleanup:
     }
     record_success(test_name);
 }
+
+/* The two cells an avatar shows, and the seed that colours it. */
+MESH_TEST_CASE(ui_nav_conversation_avatars, unit) {
+    const char *failure = NULL;
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_conversation conversation;
+
+    /* All traffic and New message are not people: a mark rather than initials, and no seed. */
+    if (!mesh_ui_nav_conversation_at(&store, 0U, &conversation) ||
+        strcmp(conversation.initials, "*") != 0) {
+        failure = "all traffic should be marked rather than lettered";
+        goto cleanup;
+    }
+    /* A channel shows the '#' its name already leads with, seeded by the slot rather than the
+       name so that renaming it keeps the colour. */
+    if (!mesh_ui_nav_conversation_at(&store, 1U, &conversation) ||
+        strcmp(conversation.initials, "#") != 0 || conversation.tint == 0U) {
+        failure = "a channel should show '#' with a seed of its own";
+        goto cleanup;
+    }
+    /* A Meshtastic short name is one word of four, so the initials are its first half. */
+    if (!mesh_ui_nav_conversation_at(&store, 2U, &conversation) ||
+        strcmp(conversation.name, "BRVO") != 0 || strcmp(conversation.initials, "BR") != 0 ||
+        conversation.tint != 0x3000U) {
+        failure = "a direct conversation should take two letters and the node number as its seed";
+        goto cleanup;
+    }
+    if (!mesh_ui_nav_conversation_at(&store, 3U, &conversation) ||
+        strcmp(conversation.initials, "+") != 0) {
+        failure = "the New message row should show a plus";
+        goto cleanup;
+    }
+
+    /* A node with no User falls back to its "!hex" id, and the '!' is punctuation rather than
+       a letter - so the disc reads "A1", not "!A". A two-word long name gives one letter from
+       each word, and both are upper-cased. */
+    struct mesh_ui_handshake_state handshake = store.handshake;
+    handshake.node_count = 2U;
+    handshake.nodes[1].node_id = 0x2000U;
+    handshake.nodes[1].short_name[0] = '\0';
+    snprintf(handshake.nodes[1].long_name, sizeof handshake.nodes[1].long_name, "%s", "alfa ridge");
+    mesh_ui_store_set_handshake(&store, &handshake);
+
+    struct mesh_ui_message_list messages;
+    memset(&messages, 0, sizeof messages);
+    messages.count = 2U;
+    messages.entries[0].packet_id = 21U;
+    messages.entries[0].peer = 0x2000U;
+    snprintf(messages.entries[0].text, sizeof messages.entries[0].text, "%s", "from alfa");
+    messages.entries[1].packet_id = 22U;
+    messages.entries[1].peer = 0x9ABCDEF0U; /* nothing in the roster knows this one */
+    snprintf(messages.entries[1].text, sizeof messages.entries[1].text, "%s", "from a stranger");
+    mesh_ui_store_set_messages(&store, &messages);
+
+    /* Newest traffic first, so the stranger is above Alfa. */
+    if (!mesh_ui_nav_conversation_at(&store, 2U, &conversation) ||
+        strcmp(conversation.initials, "9A") != 0) {
+        failure = "a bare node id should letter from its hex, skipping the '!'";
+        goto cleanup;
+    }
+    if (!mesh_ui_nav_conversation_at(&store, 3U, &conversation) ||
+        strcmp(conversation.name, "alfa ridge") != 0 || strcmp(conversation.initials, "AR") != 0) {
+        failure = "a two-word name should give one upper-cased letter from each word";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * X on the conversation list: one press arms, the second asks the app to delete.
+ *
+ * The arming names the conversation rather than the row, because the direct peers are ordered
+ * by recency - one message from somebody else re-ranks them, and a row index armed a moment
+ * ago can be a different conversation by the time the second press lands.
+ */
+MESH_TEST_CASE(ui_nav_delete_conversation, unit) {
+    const char *failure = NULL;
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_action action;
+    struct mesh_ui_conversation conversation;
+
+    /* Neither of the two rows that are not conversations answers to X at all. */
+    memset(&action, 0, sizeof action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    if (store.nav.messages_delete_armed || action.type != MESH_UI_ACTION_NONE) {
+        failure = "X on the all-traffic row should do nothing";
+        goto cleanup;
+    }
+
+    /* Down twice to BRVO. */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    if (!mesh_ui_nav_conversation_at(&store, store.nav.cursor[MESH_UI_SCREEN_MESSAGES],
+                                     &conversation) ||
+        conversation.kind != MESH_UI_CONVERSATION_DIRECT) {
+        failure = "expected the cursor to be on BRVO";
+        goto cleanup;
+    }
+
+    memset(&action, 0, sizeof action);
+    if (!mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action) ||
+        !store.nav.messages_delete_armed || action.type != MESH_UI_ACTION_NONE) {
+        failure = "the first X should arm the delete and ask for nothing";
+        goto cleanup;
+    }
+    if (!mesh_ui_nav_conversation_is_armed(&store.nav, &conversation)) {
+        failure = "the armed conversation should be the one under the cursor";
+        goto cleanup;
+    }
+
+    /* Any other press stands it down, and the arming does not survive to the next X. */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    if (store.nav.messages_delete_armed) {
+        failure = "moving the cursor should stand the delete down";
+        goto cleanup;
+    }
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+
+    /* Arm again, then carry it out. */
+    memset(&action, 0, sizeof action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    memset(&action, 0, sizeof action);
+    if (!mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action) ||
+        action.type != MESH_UI_ACTION_DELETE_CONVERSATION) {
+        failure = "the second X should ask the app to delete the conversation";
+        goto cleanup;
+    }
+    if (action.number != (uint32_t)MESH_UI_CONVERSATION_DIRECT || action.dest != 0x3000U ||
+        strcmp(action.text, "BRVO") != 0) {
+        failure = "the action should name the conversation and carry the name off its row";
+        goto cleanup;
+    }
+    if (store.nav.messages_delete_armed) {
+        failure = "carrying the delete out should stand the arming down";
+        goto cleanup;
+    }
+
+    /* And nothing has been deleted here: the store still holds both messages until the app
+       comes back with a shorter log. */
+    if (store.messages.count != 2U) {
+        failure = "the nav should not have touched the message log itself";
+        goto cleanup;
+    }
+
+    /* Inside a thread X means nothing, so the list's delete cannot be reached from there. */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    memset(&action, 0, sizeof action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    if (store.nav.messages_delete_armed || action.type != MESH_UI_ACTION_NONE) {
+        failure = "X inside an open thread should do nothing";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}

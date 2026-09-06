@@ -1472,3 +1472,133 @@ cleanup:
     }
     record_success(test_name);
 }
+
+/*
+ * Deleting a conversation from the Messages tab, all the way through.
+ *
+ * The point of the test is the part that is easy to get wrong: a message lives in three places
+ * at once - the transport's ring, the history the app read back from its cache at startup, and
+ * the store the backends draw - and a delete that reaches only the store survives about a
+ * second, because the very next publish rebuilds the store from the other two.
+ */
+MESH_TEST_CASE(app_delete_conversation, unit) {
+    const char *failure = NULL;
+    bool app_ready = false;
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+
+    char home_dir[] = "/tmp/mesh_app_deleteXXXXXX";
+    if (mkdtemp(home_dir) == NULL) {
+        record_failure(test_name, "mkdtemp failed");
+        return;
+    }
+    setenv("HOME", home_dir, 1);
+    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
+    unsetenv("MESHCLIENT_AUTOCONNECT");
+
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    config.enable_serial = false;
+    config.enable_ble = false;
+
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+
+    /* One broadcast on the primary channel and two halves of a direct exchange, in both the
+       store and the cached history - which is the shape the app is in after a restart. */
+    struct mesh_ui_message_list messages;
+    memset(&messages, 0, sizeof messages);
+    messages.count = 3U;
+    messages.entries[0].packet_id = 41U;
+    messages.entries[0].peer = 0x2000U;
+    messages.entries[0].broadcast = true;
+    snprintf(messages.entries[0].text, sizeof messages.entries[0].text, "%s", "net check");
+    messages.entries[1].packet_id = 42U;
+    messages.entries[1].peer = 0x3000U;
+    messages.entries[1].direction = MESH_MESSAGE_INBOUND;
+    snprintf(messages.entries[1].text, sizeof messages.entries[1].text, "%s", "are you there");
+    messages.entries[2].packet_id = 43U;
+    messages.entries[2].peer = 0x3000U;
+    messages.entries[2].direction = MESH_MESSAGE_OUTBOUND;
+    snprintf(messages.entries[2].text, sizeof messages.entries[2].text, "%s", "on my way");
+    mesh_ui_store_set_messages(&app.ui_store, &messages);
+    app.ui_messages_cached = messages;
+
+    /* Down to the direct conversation: All traffic, #Primary, then the peer. */
+    mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_DOWN);
+    mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_DOWN);
+    struct mesh_ui_conversation conversation;
+    if (!mesh_ui_nav_conversation_at(
+            &app.ui_store, app.ui_store.nav.cursor[MESH_UI_SCREEN_MESSAGES], &conversation) ||
+        conversation.kind != MESH_UI_CONVERSATION_DIRECT || conversation.node != 0x3000U) {
+        failure = "expected the cursor on the direct conversation";
+        goto cleanup;
+    }
+
+    /* One X only arms it: a press that lands here by accident costs nothing. */
+    mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_X);
+    if (!app.ui_store.nav.messages_delete_armed || app.ui_store.messages.count != 3U) {
+        failure = "the first X should arm the delete without touching the log";
+        goto cleanup;
+    }
+
+    mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_X);
+    if (app.ui_store.messages.count != 1U || !app.ui_store.messages.entries[0].broadcast) {
+        failure = "the second X should leave only the broadcast in the store";
+        goto cleanup;
+    }
+    if (app.ui_messages_cached.count != 1U) {
+        failure = "the history read back from the cache still holds the deleted conversation";
+        goto cleanup;
+    }
+    if (app.ui_store.nav.toast[0] == '\0') {
+        failure = "the delete should say what it did";
+        goto cleanup;
+    }
+
+    /* A publish is what would put them back, so run one and check that it does not. */
+    mesh_app_publish_ui_state(&app);
+    if (app.ui_store.messages.count != 1U) {
+        failure = "the next publish brought the deleted conversation back";
+        goto cleanup;
+    }
+
+    /* And the cache on disk agrees, so a restart does not resurrect it either. */
+    struct mesh_ui_store reloaded;
+    if (mesh_ui_store_init(&reloaded) != 0) {
+        failure = "reload store init failed";
+        goto cleanup;
+    }
+    const int loaded = mesh_ui_store_load(&reloaded, app.ui_handshake_cache_path);
+    const uint32_t reloaded_count = reloaded.messages.count;
+    uint32_t survivors = 0U;
+    for (uint32_t i = 0; i < reloaded_count && i < MESH_UI_MAX_MESSAGES; ++i) {
+        if (!reloaded.messages.entries[i].broadcast &&
+            reloaded.messages.entries[i].peer == 0x3000U) {
+            survivors++;
+        }
+    }
+    mesh_ui_store_shutdown(&reloaded);
+    if (loaded != 0) {
+        failure = "the cache should have been written back after the delete";
+        goto cleanup;
+    }
+    if (survivors != 0U) {
+        failure = "the deleted conversation is still in the cache on disk";
+        goto cleanup;
+    }
+
+cleanup:
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}

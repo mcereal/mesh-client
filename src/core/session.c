@@ -1691,6 +1691,14 @@ const struct mesh_message_log *mesh_session_messages(const struct mesh_session *
     return session != NULL ? &session->messages : NULL;
 }
 
+uint32_t mesh_session_forget_conversation(struct mesh_session *session, uint32_t peer,
+                                          uint8_t channel) {
+    if (session == NULL) {
+        return 0U;
+    }
+    return mesh_message_log_forget(&session->messages, peer, channel);
+}
+
 const struct mesh_radio_settings *mesh_session_settings(const struct mesh_session *session) {
     return session != NULL ? &session->settings : NULL;
 }

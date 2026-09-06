@@ -323,6 +323,41 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
         mesh_ui_store_set_toast(&app->ui_store, now, toast);
         return;
     }
+    case MESH_UI_ACTION_DELETE_CONVERSATION: {
+        /*
+         * A message lives in three places at once, and the delete has to reach all three or the
+         * next publish undoes it: the transport's ring, the history read back from the cache at
+         * startup, and the store the backends draw. The ring is the one that matters most -
+         * mesh_app_publish_messages() rebuilds the store from it on every frame that carries
+         * traffic, so a store-only delete would survive about a second.
+         */
+        const bool is_channel = (action->number == (uint32_t)MESH_UI_CONVERSATION_CHANNEL);
+        const uint32_t peer = is_channel ? MESH_MESSAGE_BROADCAST_ADDR : action->dest;
+        /* The name the row was showing, carried on the action. */
+        const char *name = action->text;
+
+        (void)mesh_session_forget_conversation(&app->session, peer, action->channel);
+        (void)mesh_ui_message_list_forget(&app->ui_messages_cached, (uint8_t)action->number,
+                                          action->dest, action->channel);
+        const uint32_t removed = mesh_ui_store_forget_conversation(
+            &app->ui_store, (uint8_t)action->number, action->dest, action->channel);
+
+        /* Written straight back out, so the messages do not come back on the next start. */
+        if (app->ui_handshake_cache_path[0] != '\0') {
+            app->ui_handshake_cache_dirty = true;
+        }
+
+        if (removed > 0U) {
+            snprintf(toast, sizeof toast, "Deleted %u message%s from %.16s", (unsigned)removed,
+                     removed == 1U ? "" : "s", name);
+            mesh_log_info("ui", "Deleted %u message(s) in the conversation with %s",
+                          (unsigned)removed, name);
+        } else {
+            snprintf(toast, sizeof toast, "Nothing to delete in %.20s", name);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
     case MESH_UI_ACTION_TRACEROUTE: {
         char name[MESH_UI_NAV_TARGET_NAME_MAX];
         mesh_app_format_peer_name(mesh_session_handshake(&app->session), action->dest, name,

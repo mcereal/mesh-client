@@ -109,6 +109,19 @@ int fb_draw_wrapped(const struct mesh_ui_backend_fb_state *state, int y, const c
                     size_t cols, int max_lines, struct mesh_ui_rgb color);
 void fb_fill_rect(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h,
                   struct mesh_ui_rgb color);
+/*
+ * The same box with its corners taken off, `radius` pixels each - the shape an avatar disc, a
+ * count pill and a selected row are. A radius of half the shorter side is a circle (or a
+ * capsule); anything larger is clamped to that, so a caller can ask for "as round as it goes"
+ * without measuring first.
+ *
+ * There is no anti-aliasing: the panel is 1024 px across a 3.2" screen, so a stepped edge on a
+ * 60 px disc is already below what the eye resolves, and blending would need a background this
+ * function cannot see - a disc is drawn over the ground on one row and over the cursor fill on
+ * the next.
+ */
+void fb_fill_round_rect(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h,
+                        int radius, struct mesh_ui_rgb color);
 void fb_fit(char *line, size_t cols);
 void fb_format_age(uint32_t last_heard, char *out, size_t out_len);
 void fb_format_clock(uint32_t rx_time, char *out, size_t out_len);

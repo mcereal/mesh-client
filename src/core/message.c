@@ -49,6 +49,48 @@ const struct mesh_message *mesh_message_log_at(const struct mesh_message_log *lo
     return &log->entries[(log->head + index) % MESH_MESSAGE_LOG_CAPACITY];
 }
 
+bool mesh_message_in_conversation(const struct mesh_message *message, uint32_t peer,
+                                  uint8_t channel) {
+    if (message == NULL) {
+        return false;
+    }
+    const bool broadcast = (message->to == MESH_MESSAGE_BROADCAST_ADDR);
+    if (peer == MESH_MESSAGE_BROADCAST_ADDR) {
+        return broadcast && message->channel == channel;
+    }
+    /* Either direction: what makes a direct conversation one thing is that both halves of it
+       name the same node, once as the sender and once as the recipient. */
+    return !broadcast && (message->from == peer || message->to == peer);
+}
+
+uint32_t mesh_message_log_forget(struct mesh_message_log *log, uint32_t peer, uint8_t channel) {
+    if (log == NULL || log->count == 0U) {
+        return 0U;
+    }
+
+    /* Compact in place into a fresh ring rather than shuffling the old one: the entries are
+       oldest-first through a modulo, and every alternative to one forward pass gets that
+       wrapping wrong in some corner. */
+    struct mesh_message_log kept;
+    memset(&kept, 0, sizeof(kept));
+    kept.dropped = log->dropped;
+
+    uint32_t removed = 0U;
+    for (size_t i = 0; i < log->count; ++i) {
+        const struct mesh_message *message =
+            &log->entries[(log->head + i) % MESH_MESSAGE_LOG_CAPACITY];
+        if (mesh_message_in_conversation(message, peer, channel)) {
+            removed++;
+            continue;
+        }
+        kept.entries[kept.count++] = *message;
+    }
+    if (removed > 0U) {
+        *log = kept;
+    }
+    return removed;
+}
+
 struct mesh_message *mesh_message_log_find(struct mesh_message_log *log, uint32_t packet_id) {
     if (log == NULL || packet_id == 0U) {
         return NULL;

@@ -128,6 +128,17 @@ struct mesh_ui_nav {
        conversation list, whose position is parked in conversation_list_cursor meanwhile. */
     bool thread_open;
     uint32_t conversation_list_cursor;
+    /* X on the conversation list is armed by one press and deletes on the second, the same way
+       Y on the Devices tab and the node detail's remove row are: a conversation is history the
+       radio cannot give back, so a press that lands on it by accident should cost nothing.
+       The arming names the *conversation* rather than the row it was made on, because the
+       direct peers are ordered by recency and one message from somebody else re-ranks them
+       under the cursor - a row index armed a moment ago can be a different conversation by the
+       time the second press lands. */
+    bool messages_delete_armed;
+    uint8_t messages_delete_kind; /* enum mesh_ui_conversation_kind */
+    uint8_t messages_delete_channel;
+    uint32_t messages_delete_node;
     /* The open thread is the all-traffic one; meaningless unless thread_open. */
     bool inbox;
     char target_name[MESH_UI_NAV_TARGET_NAME_MAX];
@@ -231,6 +242,12 @@ enum mesh_ui_action_type {
        behind it (toggle_muted_node) offers nothing else. */
     MESH_UI_ACTION_TOGGLE_MUTE,
     MESH_UI_ACTION_REMOVE_NODE,
+    /* Throws away one conversation's messages: `number` is the enum mesh_ui_conversation_kind,
+       `dest` the peer for a direct one and `channel` the slot for a channel. The app owns it
+       because the log lives in three places at once - the transport's ring, the history read
+       back from the cache, and the store - and a delete that missed any of them would put the
+       conversation back on the next publish. */
+    MESH_UI_ACTION_DELETE_CONVERSATION,
     /* About section: ask GitHub what the newest release is, and install the one a check
        found. Two actions rather than one because installing replaces the running binary. */
     MESH_UI_ACTION_CHECK_UPDATE,
@@ -321,6 +338,9 @@ enum mesh_ui_conversation_kind {
 };
 
 #define MESH_UI_CONVERSATION_PREVIEW_MAX 96U
+/* Two cells and a terminator: an avatar carries initials, not a name. Four bytes because one
+   of those cells may be a multi-byte character. */
+#define MESH_UI_CONVERSATION_INITIALS_MAX 9U
 
 struct mesh_ui_conversation {
     uint8_t kind; /* enum mesh_ui_conversation_kind */
@@ -328,6 +348,11 @@ struct mesh_ui_conversation {
     uint32_t node;
     uint8_t channel;
     char name[MESH_UI_NAV_TARGET_NAME_MAX];
+    /* What a backend draws in the avatar, and the seed that picks its colour. The seed is the
+       conversation's identity rather than its name, so a node that renames itself keeps the
+       tint the user has learned to look for. */
+    char initials[MESH_UI_CONVERSATION_INITIALS_MAX];
+    uint32_t tint;
     /* Newest message in the conversation, for the list's second line. Empty and zero when the
        conversation has no traffic yet. */
     char preview[MESH_UI_CONVERSATION_PREVIEW_MAX];
@@ -348,9 +373,10 @@ struct mesh_ui_conversation {
 uint32_t mesh_ui_nav_conversation_count(const struct mesh_ui_store *store);
 bool mesh_ui_nav_conversation_at(const struct mesh_ui_store *store, uint32_t index,
                                  struct mesh_ui_conversation *out);
-/* True when the nav's open thread is the conversation on that row. */
-bool mesh_ui_nav_conversation_is_open(const struct mesh_ui_nav *nav,
-                                      const struct mesh_ui_conversation *conversation);
+/* True when X has been pressed once on this conversation and the next one deletes it. What a
+   backend asks so the armed row can say so rather than the screen saying it in the abstract. */
+bool mesh_ui_nav_conversation_is_armed(const struct mesh_ui_nav *nav,
+                                       const struct mesh_ui_conversation *conversation);
 
 /* Inbound messages across every channel and peer that have not been read. */
 uint32_t mesh_ui_nav_unread_total(const struct mesh_ui_store *store);

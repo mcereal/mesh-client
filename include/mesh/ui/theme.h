@@ -50,15 +50,20 @@ enum mesh_ui_color {
     MESH_UI_COLOR_TEXT_DIM,       /* headings, secondary lines, anything not yet loaded */
     MESH_UI_COLOR_TEXT_STRONG,    /* unread, unsaved: the row the eye should land on */
     MESH_UI_COLOR_TEXT_ON_SEL,    /* text drawn on SURFACE_SEL or SURFACE_ACTIVE */
-    MESH_UI_COLOR_ACCENT,         /* titles, actions, channels, the current target */
-    MESH_UI_COLOR_ON_ACCENT,      /* text drawn on an accent fill: the unread badge */
-    MESH_UI_COLOR_GOOD,           /* connected, healthy */
-    MESH_UI_COLOR_BAD,            /* disconnected, failed, armed to destroy something */
-    MESH_UI_COLOR_RULE,           /* hairline separators */
-    MESH_UI_COLOR_RULE_STRONG,    /* the rule under the tab strip */
-    MESH_UI_COLOR_BUBBLE_IN,      /* a message from someone else */
-    MESH_UI_COLOR_BUBBLE_OUT,     /* one of ours */
-    MESH_UI_COLOR_BUBBLE_IN_SEL,  /* the same two under the cursor */
+    /* The secondary line of a selected item: a timestamp, a message preview. TEXT_DIM is
+       chosen against the ground and says nothing about a fill over it, so a row that carries
+       two tiers of text under the cursor - which the conversation list does - needs its own
+       quiet colour rather than flattening to TEXT_ON_SEL. */
+    MESH_UI_COLOR_TEXT_ON_SEL_DIM,
+    MESH_UI_COLOR_ACCENT,        /* titles, actions, channels, the current target */
+    MESH_UI_COLOR_ON_ACCENT,     /* text drawn on an accent fill: the unread badge */
+    MESH_UI_COLOR_GOOD,          /* connected, healthy */
+    MESH_UI_COLOR_BAD,           /* disconnected, failed, armed to destroy something */
+    MESH_UI_COLOR_RULE,          /* hairline separators */
+    MESH_UI_COLOR_RULE_STRONG,   /* the rule under the tab strip */
+    MESH_UI_COLOR_BUBBLE_IN,     /* a message from someone else */
+    MESH_UI_COLOR_BUBBLE_OUT,    /* one of ours */
+    MESH_UI_COLOR_BUBBLE_IN_SEL, /* the same two under the cursor */
     MESH_UI_COLOR_BUBBLE_OUT_SEL,
     MESH_UI_COLOR_BUBBLE_FAILED, /* the radio said it did not get there */
     MESH_UI_COLOR_TEXT_INBOUND,  /* text on an inbound bubble */
@@ -91,6 +96,23 @@ enum mesh_ui_tone {
 #define MESH_UI_SCALE_MAX 6
 
 /*
+ * Avatar tints: the fills behind a conversation's initials.
+ *
+ * A palette rather than a role because the whole point of an avatar colour is that two of them
+ * differ - it is what lets the eye find a thread in a list without reading a word of it, the
+ * way every messenger's coloured discs do. Which tint a conversation gets is a hash of its
+ * identity, so it is stable across restarts and across a rename.
+ *
+ * A theme may fill fewer than the maximum (`avatar_count`); the high-contrast one deliberately
+ * offers two, because a palette of six hues is the opposite of what that theme is for.
+ *
+ * The initials are drawn in MESH_UI_COLOR_BG - a tint is a fill punched out of the ground - so
+ * every tint owes the ground the body-text contrast, and mesh_ui_theme_validate() holds it to
+ * that. Same contract as ACCENT/ON_ACCENT, one level up.
+ */
+#define MESH_UI_AVATAR_TINTS 6U
+
+/*
  * The geometry a theme owns.
  *
  * Everything here was a literal in a drawing function once. They are theme data because a
@@ -113,6 +135,10 @@ struct mesh_ui_theme {
     bool dark;           /* whether the ground is darker than the text; nothing draws
                             differently for it, but a caller choosing a default cares */
     struct mesh_ui_rgb colors[MESH_UI_COLOR_COUNT];
+    /* Avatar fills, read through mesh_ui_theme_avatar(). Only the first `avatar_count` are
+       used, so a theme states its palette and leaves the rest zeroed. */
+    struct mesh_ui_rgb avatars[MESH_UI_AVATAR_TINTS];
+    uint8_t avatar_count;
     struct mesh_ui_metrics metrics;
 };
 
@@ -150,6 +176,13 @@ struct mesh_ui_rgb mesh_ui_theme_color(const struct mesh_ui_theme *theme, enum m
 struct mesh_ui_rgb mesh_ui_theme_tone(const struct mesh_ui_theme *theme, enum mesh_ui_tone tone);
 enum mesh_ui_color mesh_ui_tone_role(enum mesh_ui_tone tone);
 const struct mesh_ui_font *mesh_ui_theme_font(const struct mesh_ui_theme *theme);
+
+/*
+ * The avatar fill for `seed`, which is whatever identifies the conversation - a node number, a
+ * channel index. Any seed answers: it is reduced into the theme's palette here, so no caller
+ * has to know how many tints a theme offers.
+ */
+struct mesh_ui_rgb mesh_ui_theme_avatar(const struct mesh_ui_theme *theme, uint32_t seed);
 const struct mesh_ui_metrics *mesh_ui_theme_metrics(const struct mesh_ui_theme *theme);
 
 /* The theme's glyph multiplier, clamped into [MESH_UI_SCALE_MIN, MESH_UI_SCALE_MAX]. */

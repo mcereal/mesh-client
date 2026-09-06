@@ -713,6 +713,14 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         nav->node_remove_armed = false;
         changed = true;
     }
+    /* And the conversation list's delete, which only a second X on the list may carry out. A
+       cursor move standing it down is the point: the row the question was asked about is the
+       only row the answer may apply to. */
+    if (nav->messages_delete_armed &&
+        (key != MESH_UI_KEY_X || nav->screen != MESH_UI_SCREEN_MESSAGES || nav->thread_open)) {
+        nav->messages_delete_armed = false;
+        changed = true;
+    }
 
     if (nav->screen == MESH_UI_SCREEN_SETTINGS &&
         nav->settings_section != MESH_UI_SETTINGS_NO_SECTION) {
@@ -757,6 +765,13 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         }
         return changed;
     case MESH_UI_KEY_X:
+        if (nav->screen == MESH_UI_SCREEN_MESSAGES && !nav->thread_open) {
+            /* Nothing else on this screen has a use for X, and a conversation list without a
+               way to clear a thread out fills up with every node that ever said hello. */
+            return mesh_ui_nav_delete_conversation(nav, store, nav->cursor[nav->screen],
+                                                   out_action) ||
+                   changed;
+        }
         if (nav->screen == MESH_UI_SCREEN_DEVICES) {
             /* Only one radio is ever connected, so this does not depend on the row: it drops
                the link that is up (or the one coming up), which is what stops auto-connect

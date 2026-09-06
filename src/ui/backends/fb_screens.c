@@ -106,7 +106,7 @@ static void fb_draw_footer(const struct mesh_ui_backend_fb_state *state,
 /* ---- screens ----------------------------------------------------------------------------- */
 
 /* Level one of the Messages tab: all traffic, the channels, whoever we have direct messages
-   with, and the way to start a new one. Two lines a row - name and newest message. */
+   with, and the way to start a new one. One conversation cell a row - see fb_widgets.h. */
 static void fb_render_conversations(const struct mesh_ui_backend_fb_state *state,
                                     const struct mesh_ui_snapshot *snapshot,
                                     struct fb_layout *layout) {
@@ -124,16 +124,14 @@ static void fb_render_conversations(const struct mesh_ui_backend_fb_state *state
     }
 
     /*
-     * Each conversation is two rows: who it is with and when it last spoke, then what was said
-     * last. The unread count is a filled badge on the preview row rather than the words "3 new"
-     * in the metric column - it is the one thing on this screen you look for without reading,
-     * and the column it used to share with the age meant you got one or the other.
+     * Each conversation is one cell two body rows tall: the avatar, the name and the age, then
+     * the last thing said with the unread count as a pill. The cell owns every pixel of that -
+     * this loop only says which strings go in it and what each one means.
      */
     struct fb_list list =
         fb_list_begin_rows(layout, count, nav->cursor[MESH_UI_SCREEN_MESSAGES], 2U);
-    struct mesh_ui_line line;
     char age[8];
-    char badge[12];
+    char badge[8];
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         struct mesh_ui_conversation conversation;
@@ -141,63 +139,49 @@ static void fb_render_conversations(const struct mesh_ui_backend_fb_state *state
             break;
         }
         const bool is_new = (conversation.kind == MESH_UI_CONVERSATION_NEW);
-        const bool unread = (conversation.unread > 0U);
-        enum mesh_ui_tone tone = MESH_UI_TONE_NORMAL;
-        if (conversation.kind == MESH_UI_CONVERSATION_CHANNEL ||
-            conversation.kind == MESH_UI_CONVERSATION_ALL) {
-            tone = MESH_UI_TONE_ACCENT;
-        } else if (is_new) {
-            tone = MESH_UI_TONE_DIM;
-        }
-        /* Unread is drawn bright; so is the open thread, so B lands somewhere recognisable. */
-        if (unread || mesh_ui_nav_conversation_is_open(nav, &conversation)) {
-            tone = MESH_UI_TONE_STRONG;
-        }
+        const bool is_view = is_new || (conversation.kind == MESH_UI_CONVERSATION_ALL);
 
-        badge[0] = '\0';
-        if (unread) {
-            /* Past two figures a badge stops being a number and becomes a width, which is what
-               every messenger's "99+" is for. */
-            if (conversation.unread > 99U) {
-                snprintf(badge, sizeof badge, "%s", " 99+ ");
-            } else {
-                snprintf(badge, sizeof badge, " %u ", (unsigned)conversation.unread);
-            }
-        }
-
-        mesh_ui_line_reset(&line);
-        if (is_new) {
-            mesh_ui_line_printf(&line, "+ %s", conversation.name);
-            fb_list_row_line(state, &list, i, &line, tone);
-            mesh_ui_line_reset(&line);
-            fb_list_sub_row(state, &list, mesh_ui_line_text(&line), MESH_UI_TONE_DIM);
-            continue;
-        }
-
-        /* The name row carries the age on the right, the way a messenger dates a conversation.
-           A radio with no clock set reports rx_time 0, so the column is simply empty rather
-           than a bare "?" nobody can act on. */
+        /* A radio with no clock set reports rx_time 0, so the age column is simply empty
+           rather than a bare "?" nobody can act on. */
         age[0] = '\0';
         if (conversation.last_time != 0U) {
             fb_format_age(conversation.last_time, age, sizeof age);
         }
-        mesh_ui_line_printf(&line, "%s", conversation.name);
-        mesh_ui_line_right(&line, layout->cols, age);
-        fb_list_row_line(state, &list, i, &line, tone);
-
-        mesh_ui_line_reset(&line);
-        if (conversation.preview[0] != '\0') {
-            /* "> " says the last word was ours, which is what tells you whether a quiet thread
-               is waiting on you or on them. */
-            mesh_ui_line_printf(&line, "%s%s", conversation.preview_outbound ? "> " : "",
-                                conversation.preview);
-        } else {
-            mesh_ui_line_printf(&line, "%s", "no messages yet");
+        badge[0] = '\0';
+        if (conversation.unread > 0U) {
+            /* Past two figures a badge stops being a number and becomes a width, which is what
+               every messenger's "99+" is for. */
+            if (conversation.unread > 99U) {
+                snprintf(badge, sizeof badge, "%s", "99+");
+            } else {
+                snprintf(badge, sizeof badge, "%u", (unsigned)conversation.unread);
+            }
         }
-        /* Both rows highlight together: a conversation is one item, not two rows that happen to
-           be adjacent. */
-        fb_list_row_line_badge(state, &list, i, &line,
-                               unread ? MESH_UI_TONE_NORMAL : MESH_UI_TONE_DIM, badge);
+
+        const struct fb_conversation cell = {
+            .avatar = conversation.initials,
+            .tint = conversation.tint,
+            /* The two rows that are not somebody: a view over the others, and a button. */
+            .accent = is_view,
+            .name = conversation.name,
+            .age = age,
+            /* The one row that is a button rather than a conversation says what it does
+               instead of what was last said in it. */
+            .preview = is_new ? "Pick a channel or a node" : conversation.preview,
+            .preview_outbound = conversation.preview_outbound,
+            .badge = badge,
+            .unread = (conversation.unread > 0U),
+            .armed = mesh_ui_nav_conversation_is_armed(nav, &conversation),
+            /* All traffic is accented because it is a view rather than somebody; a channel
+               used to be too, and no longer needs to be now that its avatar carries the '#'.
+               That frees the strong tone to mean what it means everywhere else on this
+               screen: there is something here you have not read. */
+            .name_tone = is_new                                            ? MESH_UI_TONE_DIM
+                         : (conversation.kind == MESH_UI_CONVERSATION_ALL) ? MESH_UI_TONE_ACCENT
+                         : (conversation.unread > 0U)                      ? MESH_UI_TONE_STRONG
+                                                                           : MESH_UI_TONE_NORMAL,
+        };
+        fb_draw_conversation(state, &list, i, &cell);
     }
 }
 
@@ -1353,7 +1337,9 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
     switch (snapshot->nav.screen) {
     case MESH_UI_SCREEN_MESSAGES:
         if (!snapshot->nav.thread_open) {
-            hint = "A open  Y new message  L/R tabs";
+            hint = snapshot->nav.messages_delete_armed
+                       ? "X again to delete this conversation  B cancel"
+                       : "A open  X delete  Y new message  L/R tabs";
             fb_render_conversations(state, snapshot, &layout);
         } else {
             hint = snapshot->nav.inbox ? "A open conversation  B back  L/R tabs"
