@@ -340,6 +340,12 @@ static void uicap_advance(struct uicap *cap, unsigned ms) {
     mesh_ui_capture_advance(cap->capture, ms);
 }
 
+/*
+ * The interval a frame carries while something on it is still moving: 30 fps, the rate the
+ * event loop's frame timer wakes the backend at on the device.
+ */
+#define UICAP_FRAME_MS 33U
+
 static void uicap_emit_delay(struct uicap *cap, unsigned delay_ms) {
     if (!mesh_ui_store_consume_updates(&cap->store, &cap->snapshot)) {
         /* Nothing changed - a press the screen ignores, say. Draw it anyway: a clip that
@@ -368,6 +374,17 @@ static void uicap_emit_delay(struct uicap *cap, unsigned delay_ms) {
         cap->delays = delays;
         cap->delay_capacity = grown;
     }
+    /*
+     * A frame that leaves something mid-transition carries the animation's interval, whatever
+     * the scene asked for. The scene's delay is for a frame somebody is meant to read, and the
+     * frame a press emits is not one: the knob has not moved yet, so holding it for the scene's
+     * delay froze the old state for a third of a second before every slide - a pause the device
+     * does not have and the clip should not invent. The frame the transition lands on is not
+     * animating any more, so it keeps the scene's delay and a `hold` after it still works.
+     */
+    if (mesh_ui_capture_animating(cap->capture) && delay_ms > UICAP_FRAME_MS) {
+        delay_ms = UICAP_FRAME_MS;
+    }
     cap->delays[cap->frame_count - 1U] = delay_ms;
     if (!cap->quiet) {
         printf("  frame %u  %s-%04u.ppm\n", cap->frame_count, cap->prefix, cap->frame_count);
@@ -385,12 +402,10 @@ static void uicap_emit(struct uicap *cap) { uicap_emit_delay(cap, cap->delay_ms)
  * on the device. That is what makes an animation reviewable in a GIF without a single scene
  * script having to know an animation exists.
  *
- * These frames carry the animation's own interval rather than the scene's, so the transition
- * plays at the speed a hand holding the device would see; the scene's delay is for the frames
- * somebody is meant to read. The cap is a guard against a widget that never settles - a bug,
- * but not one that should hang a capture.
+ * Each frame's delay is uicap_emit_delay()'s decision, not this loop's: a frame that is still
+ * moving takes the animation's interval and the one it lands on takes the scene's. The cap is a
+ * guard against a widget that never settles - a bug, but not one that should hang a capture.
  */
-#define UICAP_FRAME_MS 33U
 #define UICAP_MAX_ANIM_FRAMES 40U
 
 static void uicap_settle(struct uicap *cap) {
@@ -399,7 +414,7 @@ static void uicap_settle(struct uicap *cap) {
             return;
         }
         uicap_advance(cap, UICAP_FRAME_MS);
-        uicap_emit_delay(cap, UICAP_FRAME_MS);
+        uicap_emit(cap);
     }
 }
 
