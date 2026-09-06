@@ -359,6 +359,7 @@ MESH_TEST_CASE(ui_theme_follows_the_snapshot, unit) {
     uint32_t height = 0U;
     size_t stride = 0U;
     const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+    const size_t page_bytes = stride * (size_t)height;
 
 #define SNAPSHOT_CLEANUP                                                                           \
     mesh_ui_capture_close(capture);                                                                \
@@ -383,6 +384,28 @@ MESH_TEST_CASE(ui_theme_follows_the_snapshot, unit) {
                                   SNAPSHOT_CLEANUP,
                                   "the frame is not drawn on the named theme's background");
     }
+
+    /*
+     * A scale the caller named survives all of that.
+     *
+     * A theme carries a glyph multiplier, so adopting one from a snapshot could quietly swap
+     * an explicit capture scale for that theme's default - which would silently mis-size every
+     * screenshot a caller asked for at a particular size. Proven by rendering the same theme
+     * at the pinned scale directly and comparing the pages, because the scale is not otherwise
+     * visible from out here.
+     */
+    const struct mesh_ui_theme *const last = mesh_ui_capture_theme(capture);
+    uint8_t *pinned = malloc(page_bytes);
+    MESH_TEST_FAIL_IF_CLEANUP(pinned == NULL, SNAPSHOT_CLEANUP, "out of memory");
+    memcpy(pinned, pixels, page_bytes);
+
+    mesh_ui_capture_set_theme(capture, last);
+    mesh_ui_capture_set_scale(capture, 2);
+    mesh_ui_capture_render(capture, &snapshot);
+    const bool scale_held = (memcmp(pinned, pixels, page_bytes) == 0);
+    free(pinned);
+    MESH_TEST_FAIL_IF_CLEANUP(!scale_held, SNAPSHOT_CLEANUP,
+                              "following a snapshot's theme discarded the caller's scale");
 
     /* An id from a build that had more themes than this one is ignored rather than obeyed, and
        the frame stays readable in whatever was already up. */

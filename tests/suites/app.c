@@ -1330,17 +1330,31 @@ MESH_TEST_CASE(app_theme_switcher, unit) {
         failure = "A on the theme row should step to the next theme";
         goto cleanup;
     }
-    if (strcmp(app.ui_preferences.theme, second->id) != 0 || !app.ui_preferences_dirty) {
-        failure = "the new theme should be recorded for saving";
+    if (strcmp(app.ui_preferences.theme, second->id) != 0) {
+        failure = "the new theme should be recorded in the preferences";
+        goto cleanup;
+    }
+    /* The publish the press does also writes the file, so the choice survives a battery pull
+       between the press and the next thing that would have saved it. */
+    struct mesh_ui_preferences after_press;
+    if (mesh_ui_preferences_load(&after_press, app.ui_preferences_path) != 0 ||
+        mesh_ui_theme_resolve(after_press.theme) != second) {
+        failure = "the press should have written the new theme to disk";
         goto cleanup;
     }
     if (app.ui_store.nav.toast[0] == '\0') {
         failure = "the press should say which theme it landed on";
         goto cleanup;
     }
-    mesh_app_publish_ui_state(&app);
-    if (strcmp(app.ui_store.settings.client.theme, second->id) != 0) {
-        failure = "the published client info should follow the switch";
+    /*
+     * Deliberately without publishing first. The press happens inside the event loop and the
+     * toast queues a redraw the same turn drains, so the new theme has to be in the published
+     * client info by the time this handler returns - otherwise the press's own frame draws the
+     * new toast in the old theme and the switch lands a turn later.
+     */
+    if (strcmp(app.ui_store.settings.client.theme, second->id) != 0 ||
+        strcmp(app.ui_store.settings.client.theme_name, second->name) != 0) {
+        failure = "the press should publish the new theme before it returns";
         goto cleanup;
     }
 
@@ -1354,16 +1368,12 @@ MESH_TEST_CASE(app_theme_switcher, unit) {
         goto cleanup;
     }
 
-    /* And it survives a relaunch: written to the preferences file, read back on the next run. */
-    snprintf(app.ui_preferences.theme, sizeof app.ui_preferences.theme, "%s", second->id);
-    if (mesh_ui_preferences_save(&app.ui_preferences, app.ui_preferences_path) != 0) {
-        failure = "saving the preferences failed";
-        goto cleanup;
-    }
+    /* And what is on disk keeps up: the file names whatever the last press landed on, which
+       is what the next run reads back. */
     struct mesh_ui_preferences reloaded;
     if (mesh_ui_preferences_load(&reloaded, app.ui_preferences_path) != 0 ||
-        mesh_ui_theme_resolve(reloaded.theme) != second) {
-        failure = "the saved theme should come back on the next run";
+        mesh_ui_theme_resolve(reloaded.theme) != first) {
+        failure = "the saved theme should follow the last press";
         goto cleanup;
     }
 

@@ -48,8 +48,9 @@ struct mesh_ui_backend_fb_state {
        3.2" panel is 1024 px wide, so 4 gives ~41 columns of legible text. It starts at the
        theme's own and is overridden by MESHCLIENT_FB_SCALE. */
     int scale;
-    /* MESHCLIENT_FB_SCALE named the multiplier, so a theme switch keeps it rather than taking
-       the new theme's default. */
+    /* Somebody named this multiplier outright - MESHCLIENT_FB_SCALE on the device, an explicit
+       scale through the capture API - so a theme arriving in a snapshot keeps it rather than
+       swapping in that theme's default. */
     bool scale_pinned;
 };
 

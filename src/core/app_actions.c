@@ -447,6 +447,14 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
         app->ui_preferences_dirty = true;
         snprintf(toast, sizeof toast, "Theme: %.*s", (int)(sizeof toast - 8U), next->name);
         mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        /*
+         * Published here rather than left to the next loop turn. This handler runs inside
+         * mesh_event_loop_run(), and the toast above has already queued a redraw that the same
+         * turn will drain - so without this the press's own frame would arrive with the new
+         * toast drawn in the old theme, and the switch would land a turn later. That gap is
+         * exactly what "the frame the press draws is the answer" is not.
+         */
+        mesh_app_publish_ui_state(app);
         return;
     }
     case MESH_UI_ACTION_TOGGLE_DEV_UPDATES: {
