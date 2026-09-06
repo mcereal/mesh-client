@@ -246,7 +246,7 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
         const struct mesh_ui_node_summary *node =
             mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node);
         return mesh_ui_node_detail_count(node, mesh_ui_nav_node_is_self(store, node),
-                                         &store->traceroute);
+                                         &store->traceroute, &store->handshake);
     }
     case MESH_UI_SCREEN_DEVICES:
         return (uint32_t)store->device_count;
@@ -503,7 +503,7 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
         const uint32_t count = mesh_ui_node_detail_build(
             node, mesh_ui_nav_node_is_self(store, node), 0U, &store->traceroute,
-            nav->node_remove_armed, items, MESH_UI_NODE_ITEMS_MAX);
+            nav->node_remove_armed, &store->handshake, items, MESH_UI_NODE_ITEMS_MAX);
         if (cursor >= count || items[cursor].kind != MESH_UI_NODE_ROW_ACTION) {
             return false;
         }

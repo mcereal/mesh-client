@@ -224,6 +224,44 @@ static void uicap_scene_demo(struct uicap *cap) {
     foxtrot->health.has_spo2 = true;
     foxtrot->health.spo2 = 98U;
 
+    /*
+     * Neighbour lists on four of them, arranged so the two groups on the node detail say
+     * different things: Echo hears Alfa, Charlie and Golf; Alfa and Charlie both hear Echo, so
+     * Echo's "Heard by" is not simply its own list read back. Delta hears nobody, which is what
+     * a node that has dropped off the mesh looks like and is a real answer rather than a gap.
+     */
+    echo->neighbors.valid = true;
+    echo->neighbors.time = now - 1800U;
+    echo->neighbors.broadcast_interval_secs = 14400U;
+    echo->neighbors.count = 3U;
+    echo->neighbors.entries[0].node_id = seeds[1].node_id; /* Alfa Ridge */
+    echo->neighbors.entries[0].snr = 8.25F;
+    echo->neighbors.entries[1].node_id = seeds[3].node_id; /* Charlie Lookout */
+    echo->neighbors.entries[1].snr = 4.0F;
+    echo->neighbors.entries[2].node_id = seeds[7].node_id; /* Golf Cabin */
+    echo->neighbors.entries[2].snr = -6.75F;
+
+    struct mesh_ui_node_summary *alfa = &handshake.nodes[1];
+    alfa->neighbors.valid = true;
+    alfa->neighbors.time = now - 2400U;
+    alfa->neighbors.count = 2U;
+    alfa->neighbors.entries[0].node_id = seeds[5].node_id; /* Echo Repeater */
+    alfa->neighbors.entries[0].snr = 7.5F;
+    alfa->neighbors.entries[1].node_id = seeds[0].node_id; /* Home Base */
+    alfa->neighbors.entries[1].snr = 11.0F;
+
+    struct mesh_ui_node_summary *charlie = &handshake.nodes[3];
+    charlie->neighbors.valid = true;
+    charlie->neighbors.time = now - 3000U;
+    charlie->neighbors.count = 1U;
+    charlie->neighbors.entries[0].node_id = seeds[5].node_id; /* Echo Repeater */
+    charlie->neighbors.entries[0].snr = 3.25F;
+
+    struct mesh_ui_node_summary *delta = &handshake.nodes[4];
+    delta->neighbors.valid = true;
+    delta->neighbors.time = now - 7200U;
+    delta->neighbors.count = 0U;
+
     handshake.channel_count = 2U;
     handshake.channels[0].index = 0U;
     handshake.channels[0].role = 1U;

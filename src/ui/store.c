@@ -617,6 +617,17 @@ static int mesh_ui_store_save_handshake(FILE *file,
         /* The four groups beyond device metrics and environment. Each gets its own key for the
            reason the three above do: a cache written by a build that had them is read by one
            that does not simply by skipping a line it does not recognise. */
+        /* One line per neighbour rather than one line for the list: a cache line is parsed
+           with a fixed-field sscanf, and a variable-length list in one would have to be
+           re-parsed by hand for a count that upstream can change. */
+        if (node->neighbors.valid) {
+            fprintf(file, "node_nbrs[%u]=%u,%u,%u\n", i, node->neighbors.time,
+                    node->neighbors.broadcast_interval_secs, (unsigned)node->neighbors.count);
+            for (uint8_t n = 0; n < node->neighbors.count && n < MESH_UI_MAX_NEIGHBORS; ++n) {
+                fprintf(file, "node_nbr[%u.%u]=%u,%f\n", i, (unsigned)n,
+                        node->neighbors.entries[n].node_id, (double)node->neighbors.entries[n].snr);
+            }
+        }
         if (node->power.valid) {
             fprintf(file, "node_power[%u]=%u,%u,%f,%u,%f,%u,%f,%u,%f,%u,%f,%u,%f\n", i,
                     node->power.time, node->power.channel[0].has_voltage ? 1U : 0U,
@@ -921,6 +932,38 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                 if (mesh_ui_settings_key_parse(value, node->public_key, sizeof node->public_key,
                                                &len)) {
                     node->public_key_len = (uint8_t)len;
+                }
+            }
+        } else if (strncmp(key, "node_nbrs[", 10) == 0) {
+            unsigned int index = 0U;
+            unsigned int stamp = 0U;
+            unsigned int interval = 0U;
+            unsigned int count = 0U;
+            if (sscanf(key, "node_nbrs[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES &&
+                sscanf(value, "%u,%u,%u", &stamp, &interval, &count) == 3) {
+                struct mesh_ui_node_neighbors *nbrs = &handshake.nodes[index].neighbors;
+                nbrs->valid = true;
+                nbrs->time = stamp;
+                nbrs->broadcast_interval_secs = interval;
+                /* The count is re-derived from the entries that actually load, so a truncated
+                   or hand-edited file cannot leave the list claiming rows that are not there. */
+                nbrs->count = 0U;
+            }
+        } else if (strncmp(key, "node_nbr[", 9) == 0) {
+            unsigned int index = 0U;
+            unsigned int slot = 0U;
+            unsigned int node_id = 0U;
+            double snr = 0.0;
+            if (sscanf(key, "node_nbr[%u.%u]", &index, &slot) == 2 &&
+                index < MESH_UI_MAX_HANDSHAKE_NODES && slot < MESH_UI_MAX_NEIGHBORS &&
+                sscanf(value, "%u,%lf", &node_id, &snr) == 2 && node_id != 0U) {
+                struct mesh_ui_node_neighbors *nbrs = &handshake.nodes[index].neighbors;
+                /* Only ever appended, and only for a list the node_nbrs line already opened:
+                   a stray entry for a node with no header is not half a neighbour list. */
+                if (nbrs->valid && nbrs->count < MESH_UI_MAX_NEIGHBORS) {
+                    nbrs->entries[nbrs->count].node_id = node_id;
+                    nbrs->entries[nbrs->count].snr = (float)snr;
+                    nbrs->count++;
                 }
             }
         } else if (strncmp(key, "node_rssi[", 10) == 0) {

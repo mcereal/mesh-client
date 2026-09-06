@@ -1,5 +1,7 @@
 #include "mesh/ui/node_detail.h"
 
+#include "mesh/utils/text.h"
+
 /* session.h for the traceroute state enum: the UI struct carries it as a byte so store.h
    stays plain, but this file already pulls nanopb in through radio_settings.h, so naming the
    real enum here beats keeping a second copy of it in step. */
@@ -414,6 +416,95 @@ static void node_rows_host(struct node_rows *rows, const struct mesh_ui_node_sum
 }
 
 /*
+ * The mesh as a graph, which is the one thing a neighbour list gives that nothing else does.
+ *
+ * Two groups, and the second is the reason this screen needs the whole roster rather than one
+ * node. "Neighbours" is what the node itself reported it can hear - an out-edge list, and the
+ * only thing on the wire that says so. "Heard by" is the reverse, and no node reports it: it
+ * exists only as every *other* node's list read backwards, and it is the half a person holding
+ * the radio actually wants, because "is anything hearing me" is not a question a hop count or
+ * an SNR reading can answer.
+ *
+ * A neighbour is a bare node number on the wire, so each is resolved against the roster and
+ * falls back to the "!0a1b2c3d" form the apps show - the same fallback the identity group uses
+ * for a node with no User.
+ */
+static void node_rows_neighbor_name(const struct mesh_ui_handshake_state *roster, uint32_t node_id,
+                                    char *out, size_t out_len) {
+    if (roster != NULL) {
+        const uint32_t count = roster->node_count > MESH_UI_MAX_HANDSHAKE_NODES
+                                   ? MESH_UI_MAX_HANDSHAKE_NODES
+                                   : roster->node_count;
+        for (uint32_t i = 0; i < count; ++i) {
+            if (roster->nodes[i].node_id != node_id) {
+                continue;
+            }
+            const char *name = roster->nodes[i].short_name[0] != '\0' ? roster->nodes[i].short_name
+                                                                      : roster->nodes[i].long_name;
+            if (name[0] != '\0') {
+                mesh_str_copy(out, out_len, name);
+                return;
+            }
+            break;
+        }
+    }
+    snprintf(out, out_len, "!%08x", node_id);
+}
+
+static void node_rows_neighbors(struct node_rows *rows, const struct mesh_ui_node_summary *node,
+                                const struct mesh_ui_handshake_state *roster, uint32_t now) {
+    if (roster == NULL) {
+        return;
+    }
+
+    const struct mesh_ui_node_neighbors *heard = &node->neighbors;
+    if (heard->valid) {
+        rows_heading(rows, "Neighbours");
+        if (heard->count == 0U) {
+            /* A node that hears nobody is a real state and an interesting one - it is how a
+               repeater that has fallen off the mesh looks - so it says so rather than showing
+               a heading with nothing under it. */
+            rows_info(rows, "None", "%s", "hears no one");
+        }
+        for (uint8_t i = 0; i < heard->count && i < MESH_UI_MAX_NEIGHBORS; ++i) {
+            char name[MESH_UI_NODE_LABEL_MAX];
+            node_rows_neighbor_name(roster, heard->entries[i].node_id, name, sizeof name);
+            rows_info(rows, name, "%.2f dB", (double)heard->entries[i].snr);
+        }
+        char age[24];
+        format_age(heard->time, now, age, sizeof age);
+        rows_info(rows, "Reported", "%s", age);
+    }
+
+    /* The reverse edges. Walked over the roster rather than stored, because it is derived from
+       data that changes under it: a node that stops hearing us drops out of its own next
+       report, and a cached answer would keep saying it still does. */
+    uint32_t listeners = 0U;
+    const uint32_t count = roster->node_count > MESH_UI_MAX_HANDSHAKE_NODES
+                               ? MESH_UI_MAX_HANDSHAKE_NODES
+                               : roster->node_count;
+    for (uint32_t i = 0; i < count && listeners < MESH_UI_MAX_NEIGHBORS; ++i) {
+        const struct mesh_ui_node_summary *other = &roster->nodes[i];
+        if (other->node_id == node->node_id || !other->neighbors.valid) {
+            continue;
+        }
+        for (uint8_t n = 0; n < other->neighbors.count && n < MESH_UI_MAX_NEIGHBORS; ++n) {
+            if (other->neighbors.entries[n].node_id != node->node_id) {
+                continue;
+            }
+            if (listeners == 0U) {
+                rows_heading(rows, "Heard by");
+            }
+            char name[MESH_UI_NODE_LABEL_MAX];
+            node_rows_neighbor_name(roster, other->node_id, name, sizeof name);
+            rows_info(rows, name, "%.2f dB", (double)other->neighbors.entries[n].snr);
+            listeners++;
+            break;
+        }
+    }
+}
+
+/*
  * The traced route, if the one trace slot is holding this node's. Two paths of stops, each
  * row a node and the SNR of the link that reached it - the first stop of a path is the sender
  * and has no incoming link, so it carries no reading rather than a zero.
@@ -476,8 +567,8 @@ static void node_rows_route(struct node_rows *rows, const struct mesh_ui_node_su
 
 uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool is_self,
                                    uint32_t now, const struct mesh_ui_traceroute *trace,
-                                   bool remove_armed, struct mesh_ui_node_item *out,
-                                   uint32_t capacity) {
+                                   bool remove_armed, const struct mesh_ui_handshake_state *roster,
+                                   struct mesh_ui_node_item *out, uint32_t capacity) {
     if (node == NULL) {
         return 0U;
     }
@@ -531,13 +622,15 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
     node_rows_air_quality(&rows, node, now);
     node_rows_health(&rows, node, now);
     node_rows_host(&rows, node, now);
+    node_rows_neighbors(&rows, node, roster, now);
 
     return rows.count;
 }
 
 uint32_t mesh_ui_node_detail_count(const struct mesh_ui_node_summary *node, bool is_self,
-                                   const struct mesh_ui_traceroute *trace) {
-    return mesh_ui_node_detail_build(node, is_self, 0U, trace, false, NULL, 0U);
+                                   const struct mesh_ui_traceroute *trace,
+                                   const struct mesh_ui_handshake_state *roster) {
+    return mesh_ui_node_detail_build(node, is_self, 0U, trace, false, roster, NULL, 0U);
 }
 
 static uint32_t node_list_count(const struct mesh_ui_handshake_state *handshake) {

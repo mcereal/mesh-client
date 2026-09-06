@@ -184,6 +184,16 @@ MESH_TEST_CASE(ui_store_persistence, unit) {
     handshake.nodes[0].host.valid = true;
     handshake.nodes[0].host.has_diskfree = true;
     handshake.nodes[0].host.diskfree_mib = 4096U;
+    /* A neighbour list is a header line plus one line per entry, so the roundtrip has to prove
+       both come back and that the count is re-derived from the entries rather than trusted. */
+    handshake.nodes[0].neighbors.valid = true;
+    handshake.nodes[0].neighbors.time = 1750000123U;
+    handshake.nodes[0].neighbors.broadcast_interval_secs = 14400U;
+    handshake.nodes[0].neighbors.count = 2U;
+    handshake.nodes[0].neighbors.entries[0].node_id = 0xA002U;
+    handshake.nodes[0].neighbors.entries[0].snr = 8.25f;
+    handshake.nodes[0].neighbors.entries[1].node_id = 0xA003U;
+    handshake.nodes[0].neighbors.entries[1].snr = -3.5f;
     /* The two the radio does not tell us on a resync: whether the name is the node's own, and
        whether the radio still carried it. The restored roster is only worth more than a fresh
        sync if both come back. */
@@ -323,6 +333,15 @@ MESH_TEST_CASE(ui_store_persistence, unit) {
     if (!node->host.valid || node->host.diskfree_mib != 4096U || node->host.has_freemem) {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "node host metrics did not survive the cache");
+        return;
+    }
+    if (!node->neighbors.valid || node->neighbors.count != 2U ||
+        node->neighbors.broadcast_interval_secs != 14400U ||
+        node->neighbors.entries[0].node_id != 0xA002U ||
+        node->neighbors.entries[1].node_id != 0xA003U || node->neighbors.entries[1].snr > -3.4f ||
+        node->neighbors.entries[1].snr < -3.6f) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "the neighbour list did not survive the cache");
         return;
     }
 

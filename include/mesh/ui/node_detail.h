@@ -32,12 +32,15 @@ extern "C" {
  * actions, plus a traced route of up to ten stops in each direction with its two headings and
  * its stamp), 11 identity, 7 signal, and then one group per kind of reading - 7 device
  * metrics, 7 position, 9 environment, 5 power, 7 air quality, 5 health, 6 host - which comes
- * to 95 for a node that reports everything at the end of a ten-hop trace.
+ * to 95 for a node that reports everything at the end of a ten-hop trace - plus the two
+ * neighbour groups, which upstream caps at ten out-edges each: 12 for the list the node
+ * reported (heading, ten neighbours, the stamp) and 11 for the nodes that report hearing it,
+ * making 118.
  *
  * Rounded up for headroom, and pinned by node_detail_row_budget in the ui_settings suite so a
  * new group cannot quietly push the last one off the screen.
  */
-#define MESH_UI_NODE_ITEMS_MAX 112U
+#define MESH_UI_NODE_ITEMS_MAX 128U
 
 enum mesh_ui_node_row_kind {
     MESH_UI_NODE_ROW_INFO = 0, /* label and value */
@@ -79,15 +82,21 @@ struct mesh_ui_node_item {
  * `remove_armed` is the nav's "the next press really does it" state for the remove row, which
  * is the one row here whose consequence the user cannot walk back from - the node leaves the
  * list and takes its own row with it. It only changes what that row's value column says.
+ *
+ * `roster` is the whole node list and may be NULL, in which case the neighbour rows are left
+ * out. Two of this screen's groups need it rather than just this node: a neighbour is a bare
+ * node number on the wire and has to be resolved to a name, and "who hears this node" is not
+ * reported by anybody - it only exists as the reverse of every *other* node's list.
  */
 uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool is_self,
                                    uint32_t now, const struct mesh_ui_traceroute *trace,
-                                   bool remove_armed, struct mesh_ui_node_item *out,
-                                   uint32_t capacity);
+                                   bool remove_armed, const struct mesh_ui_handshake_state *roster,
+                                   struct mesh_ui_node_item *out, uint32_t capacity);
 
 /* Rows the node would produce. The nav needs nothing else from this module. */
 uint32_t mesh_ui_node_detail_count(const struct mesh_ui_node_summary *node, bool is_self,
-                                   const struct mesh_ui_traceroute *trace);
+                                   const struct mesh_ui_traceroute *trace,
+                                   const struct mesh_ui_handshake_state *roster);
 
 /*
  * The node with that id, or NULL when it is not in the list. The open detail is remembered by

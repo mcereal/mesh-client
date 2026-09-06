@@ -1,0 +1,25 @@
+# The mesh as a graph, on the node detail.
+#
+# NEIGHBORINFO_APP is the only thing on the wire that says which nodes hear which. Everything
+# else describes one link: hops_away is a count, SNR is the reading of the hop that reached us,
+# and a traceroute is one path measured once.
+#
+# Two groups, and the second is the one worth having. "Neighbours" is what the node itself
+# reported. "Heard by" is the reverse - nobody reports it, it exists only as every other node's
+# list read backwards - and it is the half that answers "is anything hearing me".
+
+scene demo
+tab nodes
+
+# Echo Repeater: hears three, and two of those report hearing it back.
+key down 5
+key a
+key down 30
+hold 1600
+key b
+
+# Delta Camp: hears nobody, which is what a node off the mesh looks like.
+key down 1
+key a
+key down 20
+hold 1600

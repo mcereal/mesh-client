@@ -164,6 +164,28 @@ struct mesh_ui_node_host {
     uint32_t load15;
 };
 
+/*
+ * Who a node reported it can hear (NEIGHBORINFO_APP), mirroring the session's declaration. Ten
+ * is upstream's own cap on the list, not a screen budget. The names are not resolved here: the
+ * node detail resolves them against the roster it is already handed, and the same lists read
+ * across that roster are what answer "who hears *this* node" - the reverse edge, which nothing
+ * on the wire reports directly.
+ */
+#define MESH_UI_MAX_NEIGHBORS 10U
+
+struct mesh_ui_node_neighbor {
+    uint32_t node_id;
+    float snr;
+};
+
+struct mesh_ui_node_neighbors {
+    bool valid;
+    uint32_t time;
+    uint32_t broadcast_interval_secs; /* 0 when the node did not say */
+    uint8_t count;
+    struct mesh_ui_node_neighbor entries[MESH_UI_MAX_NEIGHBORS];
+};
+
 struct mesh_ui_node_summary {
     uint32_t node_id;
     char long_name[40];
@@ -200,6 +222,7 @@ struct mesh_ui_node_summary {
     struct mesh_ui_node_air_quality air_quality;
     struct mesh_ui_node_health health;
     struct mesh_ui_node_host host;
+    struct mesh_ui_node_neighbors neighbors;
 };
 
 struct mesh_ui_channel {

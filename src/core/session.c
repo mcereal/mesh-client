@@ -509,6 +509,35 @@ static void mesh_session_apply_host_metrics(struct mesh_node_summary *summary,
 }
 
 /*
+ * A node's list of who it can hear.
+ *
+ * The record belongs to `info->node_id` rather than to `packet->from`: a NeighborInfo is
+ * forwarded across the mesh, and `last_sent_by_id` names whoever relayed it. Attributing the
+ * list to the relayer would draw one node's neighbours on another node's screen, which is
+ * exactly the kind of wrong that looks plausible.
+ *
+ * A report with no neighbours in it is kept as a report with no neighbours: a node that hears
+ * nobody is a real and interesting state, and rejecting it would leave the last non-empty list
+ * standing as though it were still true.
+ */
+static void mesh_session_apply_neighbors(struct mesh_node_summary *summary,
+                                         const meshtastic_NeighborInfo *info, uint32_t heard) {
+    summary->neighbors.valid = true;
+    summary->neighbors.time = heard;
+    summary->neighbors.broadcast_interval_secs = info->node_broadcast_interval_secs;
+    summary->neighbors.count = 0U;
+    for (pb_size_t i = 0;
+         i < info->neighbors_count && summary->neighbors.count < MESH_NODE_MAX_NEIGHBORS; ++i) {
+        if (info->neighbors[i].node_id == 0U) {
+            continue;
+        }
+        struct mesh_node_neighbor *entry = &summary->neighbors.entries[summary->neighbors.count++];
+        entry->node_id = info->neighbors[i].node_id;
+        entry->snr = info->neighbors[i].snr;
+    }
+}
+
+/*
  * LocalStats is the radio describing itself, so it lands on the session rather than on a node
  * record. Two fields get a flag rather than being trusted at face value: heap_total_bytes of
  * zero means the firmware did not fill it in (no radio has no heap), and a noise floor of
@@ -673,7 +702,8 @@ static void mesh_session_apply_packet_details(struct mesh_session *session,
     const meshtastic_Data *data = &packet->decoded;
     if (data->portnum != meshtastic_PortNum_NODEINFO_APP &&
         data->portnum != meshtastic_PortNum_POSITION_APP &&
-        data->portnum != meshtastic_PortNum_TELEMETRY_APP) {
+        data->portnum != meshtastic_PortNum_TELEMETRY_APP &&
+        data->portnum != meshtastic_PortNum_NEIGHBORINFO_APP) {
         return;
     }
 
@@ -714,6 +744,26 @@ static void mesh_session_apply_packet_details(struct mesh_session *session,
             return;
         }
         mesh_session_apply_position(summary, &position);
+        break;
+    }
+    case meshtastic_PortNum_NEIGHBORINFO_APP: {
+        meshtastic_NeighborInfo info = meshtastic_NeighborInfo_init_default;
+        if (!pb_decode(&stream, meshtastic_NeighborInfo_fields, &info)) {
+            mesh_log_debug("session", "Bad NEIGHBORINFO_APP from 0x%08x: %s", packet->from,
+                           PB_GET_ERROR(&stream));
+            return;
+        }
+        /* The reporting node, not the one that handed it to us. `summary` above is the
+           relayer's slot, so this looks up its own. */
+        const uint32_t reporter = info.node_id != 0U ? info.node_id : packet->from;
+        struct mesh_node_summary *owner =
+            (reporter == packet->from) ? summary : mesh_session_node_slot(session, reporter);
+        if (owner == NULL) {
+            return;
+        }
+        mesh_session_apply_neighbors(owner, &info, heard);
+        mesh_log_debug("session", "Node 0x%08x reports %u neighbour%s", reporter,
+                       (unsigned)owner->neighbors.count, owner->neighbors.count == 1U ? "" : "s");
         break;
     }
     case meshtastic_PortNum_TELEMETRY_APP: {

@@ -149,6 +149,17 @@ static void mesh_app_copy_node_detail(const struct mesh_node_summary *src,
     dst->host.load1 = src->host.load1;
     dst->host.load5 = src->host.load5;
     dst->host.load15 = src->host.load15;
+
+    dst->neighbors.valid = src->neighbors.valid;
+    dst->neighbors.time = src->neighbors.time;
+    dst->neighbors.broadcast_interval_secs = src->neighbors.broadcast_interval_secs;
+    dst->neighbors.count = src->neighbors.count > MESH_UI_MAX_NEIGHBORS
+                               ? (uint8_t)MESH_UI_MAX_NEIGHBORS
+                               : src->neighbors.count;
+    for (uint8_t n = 0; n < dst->neighbors.count; ++n) {
+        dst->neighbors.entries[n].node_id = src->neighbors.entries[n].node_id;
+        dst->neighbors.entries[n].snr = src->neighbors.entries[n].snr;
+    }
 }
 
 /*
@@ -270,6 +281,17 @@ static void mesh_app_restore_node(const struct mesh_ui_node_summary *src,
     dst->host.load1 = src->host.load1;
     dst->host.load5 = src->host.load5;
     dst->host.load15 = src->host.load15;
+
+    dst->neighbors.valid = src->neighbors.valid;
+    dst->neighbors.time = src->neighbors.time;
+    dst->neighbors.broadcast_interval_secs = src->neighbors.broadcast_interval_secs;
+    dst->neighbors.count = src->neighbors.count > MESH_NODE_MAX_NEIGHBORS
+                               ? (uint8_t)MESH_NODE_MAX_NEIGHBORS
+                               : src->neighbors.count;
+    for (uint8_t n = 0; n < dst->neighbors.count; ++n) {
+        dst->neighbors.entries[n].node_id = src->neighbors.entries[n].node_id;
+        dst->neighbors.entries[n].snr = src->neighbors.entries[n].snr;
+    }
 }
 
 /*

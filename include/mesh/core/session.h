@@ -235,6 +235,37 @@ struct mesh_node_host {
 };
 
 /*
+ * Who a node can hear, as it reported it (NEIGHBORINFO_APP).
+ *
+ * This is the only thing on the wire that describes the mesh as a *graph*. Everything else
+ * describes one link: `hops_away` is a count, SNR is the reading of the hop that reached us,
+ * and a traceroute is one path measured once. A neighbour list is a node's own answer to "who
+ * do I hear", and the same lists read across the roster answer the question a handheld actually
+ * has - "is anyone hearing *me*" - which nothing else here can answer at all.
+ *
+ * Upstream caps the list at ten out-edges (proto/meshtastic/mesh.options), so this is that cap
+ * rather than a screen budget. The neighbour module's broadcast interval is floored at four
+ * hours by the firmware, which is why the list is worth persisting: without it a restart waits
+ * that long for the picture to come back.
+ */
+#define MESH_NODE_MAX_NEIGHBORS 10U
+
+struct mesh_node_neighbor {
+    uint32_t node_id;
+    float snr; /* of the last packet the reporting node heard from this neighbour */
+};
+
+struct mesh_node_neighbors {
+    bool valid;
+    uint32_t time; /* when the report reached us */
+    /* How often the reporting node says it broadcasts this. 0 when it did not say, which is
+       what tells a stale list from one that is merely infrequent. */
+    uint32_t broadcast_interval_secs;
+    uint8_t count;
+    struct mesh_node_neighbor entries[MESH_NODE_MAX_NEIGHBORS];
+};
+
+/*
  * LocalStats: the connected radio talking about itself and the air around it, delivered as a
  * TELEMETRY_APP packet from our own node rather than through the config handshake. Nothing
  * else tells us how busy the channel is, how many packets the radio dropped, or how many of
@@ -316,6 +347,7 @@ struct mesh_node_summary {
     struct mesh_node_air_quality air_quality;
     struct mesh_node_health health;
     struct mesh_node_host host;
+    struct mesh_node_neighbors neighbors;
 };
 
 enum mesh_traceroute_state {

@@ -600,9 +600,9 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
     node.snr = -4.5f;
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, items,
+    uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, items,
                                                MESH_UI_NODE_ITEMS_MAX);
-    MESH_TEST_FAIL_IF(count != mesh_ui_node_detail_count(&node, false, NULL),
+    MESH_TEST_FAIL_IF(count != mesh_ui_node_detail_count(&node, false, NULL, NULL),
                       "the count the nav walks disagrees with the built list");
     MESH_TEST_FAIL_IF(count == 0U || items[0].kind != MESH_UI_NODE_ROW_ACTION ||
                           items[0].action != MESH_UI_NODE_ACTION_MESSAGE,
@@ -628,9 +628,9 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
     }
 
     /* Our own node cannot be messaged and its SNR against itself means nothing. */
-    const uint32_t self_count = mesh_ui_node_detail_count(&node, true, NULL);
+    const uint32_t self_count = mesh_ui_node_detail_count(&node, true, NULL, NULL);
     struct mesh_ui_node_item self_items[MESH_UI_NODE_ITEMS_MAX];
-    mesh_ui_node_detail_build(&node, true, 1750000600U, NULL, false, self_items,
+    mesh_ui_node_detail_build(&node, true, 1750000600U, NULL, false, NULL, self_items,
                               MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0; i < self_count; ++i) {
         if (self_items[i].kind == MESH_UI_NODE_ROW_ACTION ||
@@ -652,7 +652,7 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
     node.environment.has_temperature = true;
     node.environment.temperature = 20.0f;
 
-    count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, items,
+    count = mesh_ui_node_detail_build(&node, false, 1750000600U, NULL, false, NULL, items,
                                       MESH_UI_NODE_ITEMS_MAX);
     bool battery_ok = false;
     bool latitude_ok = false;
@@ -672,7 +672,7 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
     }
     MESH_TEST_FAIL_IF(!battery_ok || !latitude_ok || !temperature_ok,
                       "a reported value was missing or misformatted");
-    MESH_TEST_FAIL_IF(count != mesh_ui_node_detail_count(&node, false, NULL),
+    MESH_TEST_FAIL_IF(count != mesh_ui_node_detail_count(&node, false, NULL, NULL),
                       "the count disagrees once the sections appear");
 
     record_success(test_name);
@@ -1125,12 +1125,38 @@ MESH_TEST_CASE(node_detail_row_budget, unit) {
         trace.back[i] = trace.forward[i];
     }
 
+    /*
+     * And the worst case for the two neighbour groups: this node reports the ten out-edges
+     * upstream allows, and ten *other* nodes report hearing it. The roster is what both are
+     * read from, so it has to be built as well as the node.
+     */
+    static struct mesh_ui_handshake_state roster;
+    memset(&roster, 0, sizeof roster);
+    roster.node_count = 1U + MESH_UI_MAX_NEIGHBORS;
+    roster.nodes[0] = node;
+    roster.nodes[0].neighbors.valid = true;
+    roster.nodes[0].neighbors.time = 1750000000U;
+    roster.nodes[0].neighbors.count = (uint8_t)MESH_UI_MAX_NEIGHBORS;
+    for (uint8_t i = 0; i < MESH_UI_MAX_NEIGHBORS; ++i) {
+        roster.nodes[0].neighbors.entries[i].node_id = 0x6100U + i;
+        roster.nodes[0].neighbors.entries[i].snr = 5.0f;
+
+        struct mesh_ui_node_summary *peer = &roster.nodes[1U + i];
+        peer->node_id = 0x6100U + i;
+        snprintf(peer->short_name, sizeof peer->short_name, "N%u", (unsigned)i);
+        peer->neighbors.valid = true;
+        peer->neighbors.count = 1U;
+        peer->neighbors.entries[0].node_id = node.node_id;
+        peer->neighbors.entries[0].snr = -2.5f;
+    }
+    node = roster.nodes[0];
+
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    const uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, &trace, true, items,
-                                                     MESH_UI_NODE_ITEMS_MAX);
+    const uint32_t count = mesh_ui_node_detail_build(&node, false, 1750000600U, &trace, true,
+                                                     &roster, items, MESH_UI_NODE_ITEMS_MAX);
     MESH_TEST_FAIL_IF(count >= MESH_UI_NODE_ITEMS_MAX,
                       "a node reporting everything fills the row budget; raise it");
-    MESH_TEST_FAIL_IF(count != mesh_ui_node_detail_count(&node, false, &trace),
+    MESH_TEST_FAIL_IF(count != mesh_ui_node_detail_count(&node, false, &trace, &roster),
                       "the count the nav walks disagrees with the built list");
 
     /* Each group is there, and each reading is formatted the way its units are read. */
@@ -1152,6 +1178,11 @@ MESH_TEST_CASE(node_detail_row_budget, unit) {
         {"Free memory", "512 MB", false},
         /* The load average arrives as the real value times 100 and must not be shown raw. */
         {"Load", "0.42 1.37 0.08", false},
+        /* Both neighbour groups, and a neighbour resolved to its name rather than shown as a
+           node number - the wire carries only the number. */
+        {"Neighbours", NULL, false},
+        {"Heard by", NULL, false},
+        {"N0", "5.00 dB", false},
     };
     for (uint32_t i = 0; i < count; ++i) {
         for (size_t e = 0; e < sizeof expect / sizeof expect[0]; ++e) {
@@ -1179,11 +1210,13 @@ MESH_TEST_CASE(node_detail_row_budget, unit) {
     memset(&bare, 0, sizeof bare);
     bare.node_id = 0x6002U;
     const uint32_t bare_count = mesh_ui_node_detail_build(&bare, false, 1750000600U, NULL, false,
-                                                          items, MESH_UI_NODE_ITEMS_MAX);
+                                                          NULL, items, MESH_UI_NODE_ITEMS_MAX);
     for (uint32_t i = 0; i < bare_count; ++i) {
         MESH_TEST_FAIL_IF(
             strcmp(items[i].label, "Power") == 0 || strcmp(items[i].label, "Air quality") == 0 ||
-                strcmp(items[i].label, "Health") == 0 || strcmp(items[i].label, "Host") == 0,
+                strcmp(items[i].label, "Health") == 0 || strcmp(items[i].label, "Host") == 0 ||
+                strcmp(items[i].label, "Neighbours") == 0 ||
+                strcmp(items[i].label, "Heard by") == 0,
             "a node with no sensors should show no sensor groups");
     }
 

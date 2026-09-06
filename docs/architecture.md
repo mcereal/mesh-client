@@ -168,6 +168,32 @@ announces each exactly once by watching for the counter to **differ** rather tha
 restart at 1 on a reconnect, and a greater-than test would swallow the first notification of
 every connection after a talkative one.
 
+#### The mesh as a graph
+
+`NEIGHBORINFO_APP` is the only thing on the wire that says which nodes hear which. Everything
+else on a node record describes one link: `hops_away` is a count, `snr` is the reading of the
+hop that reached *us*, and a traceroute is one path measured once. A neighbour list is a node's
+own answer to "who do I hear", capped upstream at ten out-edges.
+
+- **The list belongs to `NeighborInfo.node_id`, not to `packet->from`.** These are forwarded
+  across the mesh and `last_sent_by_id` names the relayer, so filing the list under the sender
+  would draw one node's neighbours on another node's screen — wrong in a way that looks
+  entirely plausible.
+- **An empty report is kept as an empty report.** A node that hears nobody is a real and
+  interesting state — it is what a repeater that has fallen off the mesh looks like — and
+  ignoring it would leave the last non-empty list standing as though it were still true. The
+  node detail says "hears no one" rather than showing a heading with nothing under it.
+- **"Heard by" is derived, never stored.** No node reports who hears *it*; that edge exists only
+  as every other node's list read backwards, which is why `mesh_ui_node_detail_build` takes the
+  whole roster rather than one node. It is also the half a person holding the radio actually
+  wants: "is anything hearing me" is not a question a hop count or an SNR reading can answer.
+  It is walked per frame rather than cached because it is derived from data that moves under it
+  — a node that stops hearing us simply drops out of its own next report, and a cached answer
+  would go on claiming it still does.
+- The list **is** persisted, unlike the traceroute: the neighbour module's broadcast interval is
+  floored at four hours by the firmware, so a restart would otherwise wait that long for the
+  picture to come back.
+
 #### Three ports carry text
 
 `TEXT_MESSAGE_APP` is not the only one. `ALERT_APP` (the firmware's critical alert) and

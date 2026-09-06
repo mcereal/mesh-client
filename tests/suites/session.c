@@ -1159,3 +1159,87 @@ MESH_TEST_CASE(session_request_readings, unit) {
 
     record_success(test_name);
 }
+
+/*
+ * NeighborInfo: the only thing on the wire that describes the mesh as a graph rather than as a
+ * collection of one-hop readings.
+ *
+ * The attribution is what has to be right. A NeighborInfo is forwarded across the mesh and
+ * `last_sent_by_id` names whoever relayed it, so a client that filed the list under the packet's
+ * `from` would draw one node's neighbours on another node's screen - wrong in a way that looks
+ * entirely plausible.
+ */
+MESH_TEST_CASE(session_neighbor_info, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+
+    uint8_t payload[256];
+    meshtastic_NeighborInfo info = meshtastic_NeighborInfo_init_default;
+    info.node_id = 0xA001U;
+    info.last_sent_by_id = 0xA002U;
+    info.node_broadcast_interval_secs = 14400U;
+    info.neighbors_count = 3U;
+    info.neighbors[0].node_id = 0xA002U;
+    info.neighbors[0].snr = 8.25F;
+    info.neighbors[1].node_id = 0xA003U;
+    info.neighbors[1].snr = -3.5F;
+    /* A zero id is not a node; it must not take a slot and leave the count claiming it. */
+    info.neighbors[2].node_id = 0U;
+    info.neighbors[2].snr = 1.0F;
+
+    pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof payload);
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_NeighborInfo_fields, &info),
+                      "encode NeighborInfo failed");
+
+    /* Relayed by 0xA002: the list belongs to 0xA001, which is what the payload says. */
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_app_packet(&session, 0xA002U,
+                                                         meshtastic_PortNum_NEIGHBORINFO_APP,
+                                                         payload, stream.bytes_written),
+                      "feed NeighborInfo failed");
+
+    const struct mesh_node_summary *reporter = mesh_test_session_find_node(&session, 0xA001U);
+    MESH_TEST_FAIL_IF(reporter == NULL || !reporter->neighbors.valid,
+                      "the list was not filed under the node that reported it");
+    MESH_TEST_FAIL_IF(reporter->neighbors.count != 2U,
+                      "the zero-id neighbour should not have taken a slot");
+    MESH_TEST_FAIL_IF(reporter->neighbors.entries[0].node_id != 0xA002U ||
+                          reporter->neighbors.entries[1].node_id != 0xA003U,
+                      "the neighbours were not kept in order");
+    MESH_TEST_FAIL_IF(reporter->neighbors.broadcast_interval_secs != 14400U,
+                      "the reporting node's broadcast interval was not kept");
+
+    const struct mesh_node_summary *relayer = mesh_test_session_find_node(&session, 0xA002U);
+    MESH_TEST_FAIL_IF(relayer != NULL && relayer->neighbors.valid,
+                      "the relayer was credited with the reporting node's neighbours");
+
+    /* A node that hears nobody is a real state - it is what a repeater that has dropped off the
+       mesh looks like - so an empty report replaces the list rather than being ignored. */
+    info.neighbors_count = 0U;
+    stream = pb_ostream_from_buffer(payload, sizeof payload);
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_NeighborInfo_fields, &info) ||
+                          !mesh_test_session_feed_app_packet(&session, 0xA001U,
+                                                             meshtastic_PortNum_NEIGHBORINFO_APP,
+                                                             payload, stream.bytes_written),
+                      "feed empty NeighborInfo failed");
+    reporter = mesh_test_session_find_node(&session, 0xA001U);
+    MESH_TEST_FAIL_IF(!reporter->neighbors.valid || reporter->neighbors.count != 0U,
+                      "an empty report should stand rather than leave the old list in place");
+
+    /* More neighbours than the wire allows cannot overrun the record. */
+    info.neighbors_count = (pb_size_t)(sizeof info.neighbors / sizeof info.neighbors[0]);
+    for (pb_size_t i = 0; i < info.neighbors_count; ++i) {
+        info.neighbors[i].node_id = 0xB000U + i;
+        info.neighbors[i].snr = 1.0F;
+    }
+    stream = pb_ostream_from_buffer(payload, sizeof payload);
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_NeighborInfo_fields, &info) ||
+                          !mesh_test_session_feed_app_packet(&session, 0xA001U,
+                                                             meshtastic_PortNum_NEIGHBORINFO_APP,
+                                                             payload, stream.bytes_written),
+                      "feed a full NeighborInfo failed");
+    reporter = mesh_test_session_find_node(&session, 0xA001U);
+    MESH_TEST_FAIL_IF(reporter->neighbors.count > MESH_NODE_MAX_NEIGHBORS,
+                      "a full neighbour list overran the record");
+
+    record_success(test_name);
+}
