@@ -8,6 +8,7 @@
 #include "mesh/core/updater.h"
 #include "mesh/ui/preferences.h"
 #include "mesh/ui/store.h"
+#include "mesh/ui/theme.h"
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -27,6 +28,7 @@ MESH_TEST_CASE(ui_preferences_roundtrip, unit) {
     snprintf(prefs.preferred_channel, sizeof prefs.preferred_channel, "%s", "LongRange");
     prefs.update_channel = (uint8_t)MESH_UPDATE_CHANNEL_PRERELEASE;
     prefs.update_allow_dev = true;
+    snprintf(prefs.theme, sizeof prefs.theme, "%s", "light");
 
     if (mesh_ui_preferences_save(&prefs, prefab_path) != 0) {
         unlink(prefab_path);
@@ -45,11 +47,30 @@ MESH_TEST_CASE(ui_preferences_roundtrip, unit) {
         strcmp(loaded.preferred_channel, prefs.preferred_channel) != 0 ||
         loaded.preferred_device_kind != prefs.preferred_device_kind ||
         loaded.update_channel != prefs.update_channel ||
-        loaded.update_allow_dev != prefs.update_allow_dev) {
+        loaded.update_allow_dev != prefs.update_allow_dev ||
+        strcmp(loaded.theme, prefs.theme) != 0) {
         unlink(prefab_path);
         record_failure(test_name, "roundtrip mismatch");
         return;
     }
+
+    /* A theme id this build does not know is kept as written rather than corrected on load:
+       the file may have been written by a version that had more themes, and it resolves to the
+       default when it is looked up. Losing the name would move the user permanently. */
+    snprintf(prefs.theme, sizeof prefs.theme, "%s", "solarized");
+    if (mesh_ui_preferences_save(&prefs, prefab_path) != 0 ||
+        mesh_ui_preferences_load(&loaded, prefab_path) != 0 ||
+        strcmp(loaded.theme, "solarized") != 0) {
+        unlink(prefab_path);
+        record_failure(test_name, "an unknown theme id did not survive a roundtrip");
+        return;
+    }
+    if (mesh_ui_theme_resolve(loaded.theme) != mesh_ui_theme_default()) {
+        unlink(prefab_path);
+        record_failure(test_name, "an unknown theme id should resolve to the default");
+        return;
+    }
+    snprintf(prefs.theme, sizeof prefs.theme, "%s", "light");
 
     /* A USB port roundtrips as serial, so the reconnect goes to the right link. */
     snprintf(prefs.preferred_device, sizeof prefs.preferred_device, "%s", "/dev/ttyUSB0");

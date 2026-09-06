@@ -212,18 +212,51 @@ const struct mesh_ui_theme *mesh_ui_theme_by_id(const char *id) {
     return NULL;
 }
 
-const struct mesh_ui_theme *mesh_ui_theme_from_env(void) {
+const struct mesh_ui_theme *mesh_ui_theme_env(void) {
     const char *name = getenv("MESHCLIENT_THEME");
     if (name == NULL || name[0] == '\0') {
-        return mesh_ui_theme_default();
+        return NULL;
     }
     const struct mesh_ui_theme *theme = mesh_ui_theme_by_id(name);
     if (theme == NULL) {
+        /* Warned rather than refused: a typo in an environment variable should not leave a
+           handheld with no UI. Warned once per call site, and there are two. */
         mesh_log_warn("ui", "Unknown MESHCLIENT_THEME '%s'; using '%s'", name,
                       mesh_ui_theme_default()->id);
-        return mesh_ui_theme_default();
+        return NULL;
     }
     return theme;
+}
+
+const struct mesh_ui_theme *mesh_ui_theme_from_env(void) {
+    const struct mesh_ui_theme *theme = mesh_ui_theme_env();
+    return theme != NULL ? theme : mesh_ui_theme_default();
+}
+
+const struct mesh_ui_theme *mesh_ui_theme_resolve(const char *id) {
+    const struct mesh_ui_theme *theme = mesh_ui_theme_by_id(id);
+    return theme != NULL ? theme : mesh_ui_theme_default();
+}
+
+/*
+ * The next theme in the registry, wrapping.
+ *
+ * Cycling rather than a menu because the Brick has no pointer and About is a list of one-press
+ * rows: pressing A steps to the next look and the screen is the preview. The order is the
+ * table's, which is why `dark` is first - a user who has cycled somewhere unreadable presses
+ * A until the familiar one comes back round.
+ */
+const struct mesh_ui_theme *mesh_ui_theme_next(const struct mesh_ui_theme *theme) {
+    const size_t count = mesh_ui_theme_count();
+    if (count == 0U) {
+        return NULL;
+    }
+    for (size_t i = 0; i < count; ++i) {
+        if (mesh_ui_theme_at(i) == theme) {
+            return mesh_ui_theme_at((i + 1U) % count);
+        }
+    }
+    return mesh_ui_theme_default();
 }
 
 static const struct mesh_ui_theme *theme_or_default(const struct mesh_ui_theme *theme) {

@@ -130,6 +130,21 @@ const struct mesh_ui_theme *mesh_ui_theme_default(void);
  */
 const struct mesh_ui_theme *mesh_ui_theme_from_env(void);
 
+/*
+ * The same, but NULL when the environment did not name a theme this layer knows.
+ *
+ * The difference matters to whoever owns the choice: an environment variable is a deliberate
+ * override, so when it names a theme the Settings row shows it as a fact rather than as a
+ * switch that would spring back. Same shape as the updater's MESHCLIENT_UPDATE_ALLOW_DEV.
+ */
+const struct mesh_ui_theme *mesh_ui_theme_env(void);
+
+/* The theme `id` names, or the default. What a saved preference is read back through. */
+const struct mesh_ui_theme *mesh_ui_theme_resolve(const char *id);
+
+/* The next theme in registry order, wrapping - the Settings row steps through with this. */
+const struct mesh_ui_theme *mesh_ui_theme_next(const struct mesh_ui_theme *theme);
+
 /* Lookups. A NULL theme resolves to the default, so no caller has to guard. */
 struct mesh_ui_rgb mesh_ui_theme_color(const struct mesh_ui_theme *theme, enum mesh_ui_color role);
 struct mesh_ui_rgb mesh_ui_theme_tone(const struct mesh_ui_theme *theme, enum mesh_ui_tone tone);

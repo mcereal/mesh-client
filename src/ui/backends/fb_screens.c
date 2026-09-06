@@ -1128,6 +1128,10 @@ static void fb_render_settings(const struct mesh_ui_backend_fb_state *state,
 
 void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
                         const struct mesh_ui_snapshot *snapshot) {
+    /* Before anything is measured: a theme carries the glyph scale and the margin the whole
+       frame is laid out against, so adopting one mid-frame would draw half of each. */
+    (void)fb_state_follow_snapshot(state, snapshot);
+
     fb_clear(state, fb_color(state, MESH_UI_COLOR_BG));
 
     struct fb_layout layout;

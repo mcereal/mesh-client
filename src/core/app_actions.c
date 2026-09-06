@@ -429,6 +429,26 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
         mesh_ui_store_set_toast(&app->ui_store, now, toast);
         return;
     }
+    case MESH_UI_ACTION_CYCLE_THEME: {
+        /* Saved immediately rather than collected as a pending edit, for the reason the update
+           channel is: About has no Y-save, because there is no radio write behind it.
+           The frame after this one is drawn in the new theme - the backends read it out of the
+           client info in the snapshot - so the press is its own confirmation. */
+        if (app->ui_theme_from_env) {
+            mesh_ui_store_set_toast(&app->ui_store, now, "MESHCLIENT_THEME is holding the theme");
+            return;
+        }
+        const struct mesh_ui_theme *next = mesh_ui_theme_next(app->ui_theme);
+        if (next == NULL) {
+            return;
+        }
+        app->ui_theme = next;
+        mesh_str_copy(app->ui_preferences.theme, sizeof app->ui_preferences.theme, next->id);
+        app->ui_preferences_dirty = true;
+        snprintf(toast, sizeof toast, "Theme: %.*s", (int)(sizeof toast - 8U), next->name);
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
     case MESH_UI_ACTION_TOGGLE_DEV_UPDATES: {
         if (!mesh_updater_set_allow_dev(&app->updater, !app->updater.allow_dev)) {
             mesh_ui_store_set_toast(&app->ui_store, now, "Busy; try again in a moment");

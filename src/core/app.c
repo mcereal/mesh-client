@@ -492,6 +492,18 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     }
     mesh_ui_controller_set_action_handler(&app->ui_controller, mesh_app_on_ui_action, app);
 
+    /*
+     * The look, in order of who gets to decide: MESHCLIENT_THEME, then whatever was picked in
+     * Settings on an earlier run, then the default. The environment wins because it is the
+     * deliberate override - the same order the dev-updates switch below uses - and when it has
+     * spoken the About row shows the theme as a fact rather than as a switch.
+     */
+    app->ui_theme = mesh_ui_theme_env();
+    app->ui_theme_from_env = (app->ui_theme != NULL);
+    if (app->ui_theme == NULL) {
+        app->ui_theme = mesh_ui_theme_resolve(app->ui_preferences.theme);
+    }
+
     /* Never fatal: a client that cannot update itself is still a working client, and the
        About section says why rather than offering a row that would do nothing. */
     (void)mesh_updater_init(&app->updater, &app->loop);

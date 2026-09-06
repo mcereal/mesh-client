@@ -13,6 +13,7 @@
 #include "mesh/ui/preferences.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
+#include "mesh/ui/theme.h"
 
 #include <stdint.h>
 
@@ -43,6 +44,15 @@ struct mesh_app {
        flattened into the UI's client info on every publish, so the About section renders it
        without the UI ever seeing a child process. */
     struct mesh_updater updater;
+    /*
+     * The look the UI is drawn with. Resolved once at start-up from MESHCLIENT_THEME, then the
+     * saved preference, then the default, and published in the client info on every frame -
+     * which is how a switch reaches the framebuffer without anything pushing at the backend.
+     * Never NULL after mesh_app_init(); every theme lookup falls back to the default anyway.
+     */
+    const struct mesh_ui_theme *ui_theme;
+    /* MESHCLIENT_THEME named it, so the Settings row is a fact rather than a switch. */
+    bool ui_theme_from_env;
     char ui_preferences_path[256];
     char ui_handshake_cache_path[256];
     bool ui_preferences_dirty;

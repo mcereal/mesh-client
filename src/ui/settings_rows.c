@@ -269,6 +269,28 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
         item_text(list, "Data", MESH_UI_SETTING_INFO, client->data_dir);
     }
 
+    /*
+     * The look. Above the update rows on purpose: those return early in three places - no
+     * updater, a check in flight, an install ready - and a row placed after them would
+     * disappear exactly when somebody sat in the sun wanted it.
+     *
+     * Cycling rather than a submenu because the screen is its own preview: pressing A steps to
+     * the next theme and the frame it draws is the answer. Held as a fact when the environment
+     * named one, the same way the dev-updates switch is.
+     */
+    if (client->theme_name[0] != '\0' || client->theme[0] != '\0') {
+        const char *const name = client->theme_name[0] != '\0' ? client->theme_name : client->theme;
+        if (client->theme_from_env) {
+            /* The note goes in the label, not the value. The value column is about eighteen
+               cells at the device scale, so "High contrast (environment)" clipped to "High
+               contrast (env" - a note that reads as a bug. The label column has room for the
+               note whatever the theme is called, and the value stays the plain name. */
+            item_text(list, "Theme (env)", MESH_UI_SETTING_INFO, name);
+        } else {
+            item_action(list, "Theme", name, MESH_UI_SETTINGS_ACTION_CYCLE_THEME);
+        }
+    }
+
     if (!client->update_supported) {
         item_text(list, "Updates", MESH_UI_SETTING_INFO,
                   client->update_message[0] != '\0' ? client->update_message : "unavailable");

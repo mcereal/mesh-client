@@ -696,6 +696,8 @@ MESH_TEST_CASE(ui_settings_about, unit) {
     settings.client.update_can_install = true;
     settings.client.update_state = (uint8_t)MESH_UPDATE_IDLE;
     snprintf(settings.client.update_channel, sizeof settings.client.update_channel, "%s", "Stable");
+    snprintf(settings.client.theme, sizeof settings.client.theme, "%s", "dark");
+    snprintf(settings.client.theme_name, sizeof settings.client.theme_name, "%s", "Dark");
     mesh_ui_store_set_settings(&store, &settings);
 
     if (!mesh_ui_settings_section_loaded(&store.settings, NULL, MESH_UI_SETTINGS_ABOUT)) {
@@ -759,6 +761,83 @@ MESH_TEST_CASE(ui_settings_about, unit) {
         failure = "A on the check row should ask the app to check";
         goto cleanup;
     }
+
+    /*
+     * The theme row. It steps the look on A and shows the name it is on, and it sits above the
+     * update rows because those return early - with no updater, mid-check, or with an install
+     * ready - and a row after them would vanish exactly when somebody wanted it.
+     */
+    uint32_t theme_row = rows;
+    for (uint32_t i = 0; i < rows; ++i) {
+        if (mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+            strcmp(item.label, "Theme") == 0) {
+            theme_row = i;
+        }
+    }
+    if (theme_row >= rows) {
+        failure = "About should offer a theme row";
+        goto cleanup;
+    }
+    if (mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
+                              MESH_UI_SETTINGS_NO_CHANNEL, theme_row, &item)) {
+        if (item.kind != MESH_UI_SETTING_ACTION ||
+            item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_THEME) {
+            failure = "the theme row should be the cycle-theme action";
+            goto cleanup;
+        }
+        if (strcmp(item.value, "Dark") != 0) {
+            failure = "the theme row should show the name of the theme in use";
+            goto cleanup;
+        }
+    }
+    /* Back to the top - an earlier case above left the cursor on the check row - and then
+       down to the theme row. Up clamps at the first row, so this lands where it says. */
+    for (uint32_t i = 0; i < rows; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    }
+    for (uint32_t i = 0; i < theme_row; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_CYCLE_THEME) {
+        failure = "A on the theme row should ask the app to step the theme";
+        goto cleanup;
+    }
+
+    /*
+     * With MESHCLIENT_THEME holding the choice the row becomes a fact. A switch that sprang
+     * back on the next frame would look broken, which is the same reason the dev-updates row
+     * goes read-only when its environment variable is set.
+     */
+    settings.client.theme_from_env = true;
+    mesh_ui_store_set_settings(&store, &settings);
+    bool pinned_row_found = false;
+    const uint32_t pinned_rows = mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS);
+    for (uint32_t i = 0; i < pinned_rows; ++i) {
+        if (mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+            strncmp(item.label, "Theme", 5U) == 0) {
+            pinned_row_found = true;
+            if (item.kind != MESH_UI_SETTING_INFO ||
+                item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_THEME) {
+                failure = "an environment-held theme should not offer a press";
+                goto cleanup;
+            }
+            /* The note is in the label so it fits whatever the theme is called, and the value
+               stays the plain name - a clipped "(env" would read as a bug. */
+            if (strstr(item.label, "(env)") == NULL || strcmp(item.value, "Dark") != 0) {
+                failure = "an environment-held theme should say so without clipping the name";
+                goto cleanup;
+            }
+        }
+    }
+    if (!pinned_row_found) {
+        failure = "the theme row should still be shown when the environment holds it";
+        goto cleanup;
+    }
+    settings.client.theme_from_env = false;
+    mesh_ui_store_set_settings(&store, &settings);
 
     /* No install row until a check has actually found something: the action that replaces the
        running binary must never be reachable on a guess. */
@@ -912,7 +991,13 @@ MESH_TEST_CASE(ui_settings_about, unit) {
         }
     }
 
-    /* While a child is running neither action is offered, so a second press cannot stack one. */
+    /*
+     * While a child is running none of the *update* actions are offered, so a second press
+     * cannot stack one. Scoped to those four rather than to every action in the section: the
+     * theme row is also an action and is unaffected by a download - it touches nothing the
+     * updater owns - and taking a working control away for an unrelated reason would be its
+     * own bug.
+     */
     settings.client.update_state = (uint8_t)MESH_UPDATE_DOWNLOADING;
     settings.client.update_busy = true;
     mesh_ui_store_set_settings(&store, &settings);
@@ -920,8 +1005,9 @@ MESH_TEST_CASE(ui_settings_about, unit) {
     for (uint32_t i = 0; i < busy_rows; ++i) {
         if (mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
                                   MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
-            item.kind == MESH_UI_SETTING_ACTION) {
-            failure = "a busy updater should offer no actions";
+            item.kind == MESH_UI_SETTING_ACTION &&
+            item.number != (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_THEME) {
+            failure = "a busy updater should offer no update actions";
             goto cleanup;
         }
     }

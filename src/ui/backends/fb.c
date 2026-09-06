@@ -18,6 +18,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/fb.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -32,6 +33,9 @@
  */
 static void fb_apply_theme_from_env(struct mesh_ui_backend_fb_state *state) {
     const struct mesh_ui_theme *theme = mesh_ui_theme_from_env();
+    /* A scale named in the environment outlives a theme switch: it is an explicit choice about
+       this panel, where a theme's own scale is only that theme's default. */
+    state->scale_pinned = getenv("MESHCLIENT_FB_SCALE") != NULL;
     const int scale = (int)mesh_env_int("MESHCLIENT_FB_SCALE", MESH_UI_SCALE_MIN, MESH_UI_SCALE_MAX,
                                         mesh_ui_theme_scale(theme));
     fb_state_set_theme(state, theme, scale);

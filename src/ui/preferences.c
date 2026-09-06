@@ -163,6 +163,11 @@ int mesh_ui_preferences_load(struct mesh_ui_preferences *prefs, const char *path
             } else {
                 prefs->update_channel = 0U;
             }
+        } else if (strncmp(line, "theme", key_len) == 0) {
+            /* Taken as written. An id no build knows resolves to the default when it is looked
+               up, so a file from a newer version that had more themes degrades rather than
+               failing, and keeps the name in case that version comes back. */
+            snprintf(prefs->theme, sizeof prefs->theme, "%s", value);
         } else if (strncmp(line, "update_allow_dev", key_len) == 0) {
             prefs->update_allow_dev = strcmp(value, "1") == 0;
         } else if (strncmp(line, "known_radios", key_len) == 0) {
@@ -253,6 +258,7 @@ int mesh_ui_preferences_save(const struct mesh_ui_preferences *prefs, const char
             : prefs->update_channel == 2U ? "prerelease"
                                           : "default");
     fprintf(file, "update_allow_dev=%s\n", prefs->update_allow_dev ? "1" : "0");
+    fprintf(file, "theme=%s\n", prefs->theme);
     fprintf(file, "known_radios=");
     for (uint8_t i = 0; i < prefs->known_radio_count && i < MESH_UI_MAX_KNOWN_RADIOS; ++i) {
         fprintf(file, "%s%u", i > 0U ? "," : "", prefs->known_radios[i]);
