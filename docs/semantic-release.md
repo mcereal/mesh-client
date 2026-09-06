@@ -121,6 +121,85 @@ prepareCmd: ./scripts/release-build.sh ${nextRelease.version}
 version afterwards. Because `@semantic-release/exec` runs before `@semantic-release/git`, a
 failed build aborts the release with nothing committed and no tag created.
 
+### `main` is protected, and the release bot has to be let through
+
+`main` carries a ruleset that requires the two CI checks. semantic-release does not open a pull
+request - `@semantic-release/git` commits the version bump and pushes it **straight to `main`** -
+so that push has to be allowed past the rule, and no amount of configuration makes it satisfy
+one instead:
+
+- the commit does not exist until the bot creates it, so the checks have never reported on it
+  (the rule reads this as "expected", not "failed");
+- the commit carries `[skip ci]`, so they would not run on it anyway;
+- a push made with `GITHUB_TOKEN` does not trigger workflows, by design.
+
+The way through is the ruleset's **bypass list**, and that decides which token pushes:
+
+| Bypass actor available | Token to use |
+|---|---|
+| GitHub Actions | none needed - `GITHUB_TOKEN` already pushes as `github-actions[bot]` |
+| Repository admin | a fine-grained PAT owned by an admin, as `RELEASE_TOKEN` |
+| an installed GitHub App | an installation token minted in the workflow |
+
+This repository uses the second: **`RELEASE_TOKEN`**, a fine-grained PAT scoped to this
+repository with **Contents: write** and nothing else, added to the repository's secrets, with
+**Repository admin** on the ruleset's bypass list.
+
+It needs no other permission because the workflow keeps *two* identities apart:
+
+| | Identity | Used for |
+|---|---|---|
+| `GIT_CREDENTIALS` | `RELEASE_TOKEN` | the one push: the version bump onto `main` |
+| `GITHUB_TOKEN` | the scoped per-run token | the API: the release, its assets, its comments |
+
+semantic-release builds its authenticated remote from the first of `GIT_CREDENTIALS`,
+`GH_TOKEN`, `GITHUB_TOKEN` that can push (`lib/get-git-auth-url.js`), which is what makes
+`@semantic-release/git` use the PAT while everything else goes on using the per-run token. The
+release therefore stays published by `github-actions[bot]`, as every earlier one was.
+
+#### Why the PAT is not handed to `actions/checkout`
+
+It would be the obvious place - checkout persists whatever token it is given into `.git/config`,
+and the push would pick it up from there. That is how this was first written, and it is wrong:
+the credential would then sit on disk while the steps in between run `pip install`, build a
+downloaded tarball and execute `npm install` lifecycle scripts. All of that is third-party code,
+and a credential that **bypasses branch protection** is worth far more to a compromised
+dependency than the scoped per-run token it replaced.
+
+So checkout runs with `persist-credentials: false` and no token override, and the PAT appears
+exactly once, as an env var on the release step. That does not make it untouchable - a
+semantic-release plugin still runs with it in the environment - but it is out of reach of
+everything installed before it.
+
+#### The skip marker is the release bot's alone
+
+The release commit's message ends with `[skip ci]`, which is how it avoids
+kicking off a build of a commit that only moves a version number. That marker is not a comment:
+GitHub reads it out of *any* head commit message and skips the workflow.
+
+Now that `main` requires those checks, a marker in a pull request's head commit is a trap. The
+checks never run, so they can never pass, so the pull request cannot be merged - and nothing on
+the page says why, because there is no failure to look at. This has already happened once: the
+commit introducing this very section carried the marker inside a sentence *explaining* it, and
+CI silently declined to run.
+
+If a message needs to talk about the marker, spell it in words, as this paragraph's neighbours
+do. If a pull request has already been pushed with one, amend the message and force-push the
+branch; there is no way to ask for the skipped run back.
+
+**A fine-grained PAT expires**, and the two failures look different, which is worth knowing
+before reading a red run:
+
+- **no `RELEASE_TOKEN` at all** - the fallback hands the per-run token to the push, the ruleset
+  refuses it, and the run fails with GH013 (see
+  [Troubleshooting](#the-release-fails-with-gh013-repository-rule-violations));
+- **an expired or revoked `RELEASE_TOKEN`** - the secret is still there, so it is still used, and
+  the push fails on *authentication* inside the release step instead. No GH013, because the
+  credential never gets as far as the rule.
+
+Either way nothing is half-released. Setting a calendar reminder for the expiry is worth more
+than it sounds.
+
 ### Prereleases on `beta` and `rc`
 
 CMake's `project(VERSION)` accepts only numeric components — it errors outright on
@@ -306,9 +385,32 @@ The workflow uses `sed` to update the version. Ensure the CMakeLists.txt has the
 project(meshclient VERSION 0.1.0 LANGUAGES C)
 ```
 
+### The release fails with GH013 "repository rule violations"
+
+```
+ExecaError: Command failed with exit code 1: git push --tags '...' 'HEAD:main'
+remote: error: GH013: Repository rule violations found for refs/heads/main.
+remote: - 2 of 2 required status checks are expected.
+ ! [remote rejected] HEAD -> main (push declined due to repository rule violations)
+```
+
+The push that carries the version bump was refused by `main`'s ruleset: whoever pushed it is not
+on the bypass list. Either `RELEASE_TOKEN` is missing - the workflow then falls back to the
+per-run token, which cannot bypass anything - or its owner has been taken off the list. An
+*expired* token fails differently, on authentication rather than on the rule; see
+[`main` is protected](#main-is-protected-and-the-release-bot-has-to-be-let-through).
+
+Nothing is half-released when this happens: `@semantic-release/git` runs in *prepare*, before
+the tag is pushed and before `@semantic-release/github` publishes, so a failure here leaves no
+tag, no release and no version bump on `main`. Fix the token and re-run the failed workflow run -
+semantic-release recomputes the next version from the tags and picks up where it left off.
+
 ### Permission errors
 
-Ensure the `GITHUB_TOKEN` has write permissions in the workflow. This is automatically provided by GitHub Actions.
+The workflow's `GITHUB_TOKEN` is provided automatically by GitHub Actions and its
+`permissions:` block already grants the writes the release needs. A permission error that
+mentions a *ref* rather than an API scope is usually the ruleset instead - see the entry
+above.
 
 ## More Information
 
