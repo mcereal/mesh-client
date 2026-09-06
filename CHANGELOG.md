@@ -1,3 +1,17 @@
+## [2.4.2](https://github.com/mcereal/mesh-client/compare/v2.4.1...v2.4.2) (2026-09-06)
+
+### Bug Fixes
+
+* **ui:** draw on-fill text on every filled button and selected bubble ([dd6cbad](https://github.com/mcereal/mesh-client/commit/dd6cbad6f78d4b9b59b94903b3241820580967ee))
+
+### Documentation
+
+* note the theme flag and the new test count ([7664daa](https://github.com/mcereal/mesh-client/commit/7664daaba494ddba9f309961c84371835890e6ff))
+
+### Code Refactoring
+
+* **ui:** make the palette, metrics and font a theme ([6eb30bc](https://github.com/mcereal/mesh-client/commit/6eb30bcf6f8845f56b4650655c0678e41bc5f5f3))
+
 ## [2.4.1](https://github.com/mcereal/mesh-client/compare/v2.4.0...v2.4.1) (2026-09-06)
 
 ### Performance Improvements
