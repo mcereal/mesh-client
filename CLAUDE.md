@@ -38,6 +38,7 @@ are about a transition. Scene scripts and the command list are in
 
 ```bash
 make ui-capture ARGS="devtools/ui_capture/scenes/messages.scene -o messages.gif"
+make ui-capture ARGS="-t light devtools/ui_capture/scenes/messages.scene -o light.gif"
 make docker-ui-capture ARGS="..."         # on macOS
 printf 'scene demo\ntab nodes\nkey down 2\nkey a\n' | ./scripts/ui-capture.sh -o node.gif
 ```
@@ -96,7 +97,7 @@ suite needs it.
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Verified 2026-09-06: 123 unit tests, all passing, zero compiler warnings.
+Verified 2026-09-06: 131 unit tests, all passing, zero compiler warnings.
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
 vector — not against our own encoder — so a protobuf regeneration that changes field numbers or
 wire types fails loudly.
