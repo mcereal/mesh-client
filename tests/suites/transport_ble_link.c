@@ -852,3 +852,122 @@ cleanup:
         record_success(test_name);
     }
 }
+
+/* bluetoothd is not always on the bus when MeshClient launches - the first launch after the
+   Brick wakes from sleep routinely beats it there - so the transport has to pick BlueZ up when
+   it arrives instead of sitting in waiting-for-bluez until the app is restarted. */
+MESH_TEST_CASE(ble_transport_recovers_when_bluez_arrives, unit) {
+    struct mesh_transport *ble = mesh_ble_transport();
+    const char *failure = NULL;
+
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:01", .name = "NodeOne", .rssi = -45, .paired = true},
+    };
+    struct mesh_bluez_mock_config mock_config = {
+        .check_ready_result = -ENODEV,
+        .adapter_path = "/org/bluez/hci0",
+        .devices = mock_devices,
+        .device_count = 1U,
+    };
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    struct mesh_app_config config = mesh_app_config_default();
+    struct mesh_event_loop loop;
+    mesh_event_loop_init(&loop);
+    if (ble->ops->start(ble, &config, &loop) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+    if (strcmp(ble->ops->status(ble), "waiting-for-bluez") != 0) {
+        failure = "no bluetoothd should park the transport at waiting-for-bluez";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != -EAGAIN) {
+        failure = "connecting without bluetoothd should be refused";
+        goto cleanup;
+    }
+
+    /* bluetoothd arrives; the next loop turn is what has to notice. */
+    mock_config.check_ready_result = 0;
+    mesh_bluez_client_mock_enable(&mock_config);
+    ble->ops->tick(ble);
+
+    if (strcmp(ble->ops->status(ble), "running") != 0) {
+        failure = "the transport should come up once bluetoothd is on the bus";
+        goto cleanup;
+    }
+    struct mesh_bluez_device_info discovered[4];
+    if (mesh_ble_transport_get_devices(ble, discovered, 4U) != 1U) {
+        failure = "discovery should be running after the retry";
+        goto cleanup;
+    }
+
+cleanup:
+    ble->ops->stop(ble);
+    mesh_event_loop_shutdown(&loop);
+    mesh_bluez_client_mock_disable();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+/* And the reverse: bluetoothd leaving under a ready transport - Bluetooth toggled off, a resume
+   that restarted it - must put the transport back to waiting rather than leave it pointing at
+   an adapter that no longer exists. */
+MESH_TEST_CASE(ble_transport_demotes_when_bluez_leaves, unit) {
+    struct mesh_transport *ble = mesh_ble_transport();
+    const char *failure = NULL;
+
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:01", .name = "NodeOne", .rssi = -45, .paired = true},
+    };
+    struct mesh_bluez_mock_config mock_config = {
+        .check_ready_result = 0,
+        .adapter_path = "/org/bluez/hci0",
+        .devices = mock_devices,
+        .device_count = 1U,
+    };
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    struct mesh_app_config config = mesh_app_config_default();
+    struct mesh_event_loop loop;
+    mesh_event_loop_init(&loop);
+    if (ble->ops->start(ble, &config, &loop) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+    if (strcmp(ble->ops->status(ble), "running") != 0) {
+        failure = "the transport should start ready";
+        goto cleanup;
+    }
+
+    mock_config.check_ready_result = -ENODEV;
+    mesh_bluez_client_mock_enable(&mock_config);
+    ble->ops->tick(ble);
+
+    if (strcmp(ble->ops->status(ble), "waiting-for-bluez") != 0) {
+        failure = "losing bluetoothd should demote the transport";
+        goto cleanup;
+    }
+    struct mesh_bluez_device_info discovered[4];
+    if (mesh_ble_transport_get_devices(ble, discovered, 4U) != 0U) {
+        failure = "devices found through the old BlueZ should be dropped";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != -EAGAIN) {
+        failure = "connecting after the demote should be refused";
+        goto cleanup;
+    }
+
+cleanup:
+    ble->ops->stop(ble);
+    mesh_event_loop_shutdown(&loop);
+    mesh_bluez_client_mock_disable();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}

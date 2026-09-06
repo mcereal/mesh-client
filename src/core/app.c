@@ -249,9 +249,6 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     }
 
     uint64_t now = mesh_time_monotonic_ms();
-    if (app->autoconnect_started_ms == 0U) {
-        app->autoconnect_started_ms = now;
-    }
     if (now < app->autoconnect_retry_at_ms) {
         return;
     }
@@ -297,6 +294,13 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     size_t device_count = mesh_ble_transport_get_devices(ble, devices, MESH_UI_MAX_DEVICES);
     if (device_count == 0U) {
         return; /* nothing in range yet; discovery keeps running */
+    }
+    /* The grace period below is a scanning window, so it starts at the first scan result rather
+       than at app start: BlueZ can arrive long after we do (the first launch after the Brick
+       wakes), and a window that expired while nothing was scanning would hand the preferred
+       node's slot to whatever answered first. */
+    if (app->autoconnect_started_ms == 0U) {
+        app->autoconnect_started_ms = now;
     }
 
     const struct mesh_bluez_device_info *target = NULL;
