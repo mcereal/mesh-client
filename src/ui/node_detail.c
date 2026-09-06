@@ -500,6 +500,12 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
         /* The one row that answers "who is this?" for a node that joined after the NodeDB
            replay and has been sitting in the list as a bare id ever since. */
         rows_action(&rows, "Ask for its name", "press A", MESH_UI_NODE_ACTION_REQUEST_INFO);
+        /* The same shape, for the two readings that otherwise arrive on the node's own
+           schedule. They sit next to "Ask for its name" because they are the same question -
+           tell me what you have now - and because the answer to all three lands in the groups
+           further down this screen rather than anywhere else. */
+        rows_action(&rows, "Ask where it is", "press A", MESH_UI_NODE_ACTION_REQUEST_POSITION);
+        rows_action(&rows, "Ask for telemetry", "press A", MESH_UI_NODE_ACTION_REQUEST_TELEMETRY);
         /* Muting is the gentle one of the three below: the node's traffic still arrives and
            still shows in its conversation, the radio just stops announcing it. The wire verb
            is a toggle rather than a set, so this row states the flag and flips it. */

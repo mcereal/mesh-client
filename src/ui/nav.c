@@ -522,9 +522,15 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             }
             return false; /* the rows redraw when the app publishes the trace */
         }
-        if (items[cursor].action == MESH_UI_NODE_ACTION_REQUEST_INFO) {
+        if (items[cursor].action == MESH_UI_NODE_ACTION_REQUEST_INFO ||
+            items[cursor].action == MESH_UI_NODE_ACTION_REQUEST_POSITION ||
+            items[cursor].action == MESH_UI_NODE_ACTION_REQUEST_TELEMETRY) {
             if (action != NULL) {
-                action->type = MESH_UI_ACTION_REQUEST_NODE_INFO;
+                action->type = items[cursor].action == MESH_UI_NODE_ACTION_REQUEST_POSITION
+                                   ? MESH_UI_ACTION_REQUEST_POSITION
+                                   : (items[cursor].action == MESH_UI_NODE_ACTION_REQUEST_TELEMETRY
+                                          ? MESH_UI_ACTION_REQUEST_TELEMETRY
+                                          : MESH_UI_ACTION_REQUEST_NODE_INFO);
                 action->dest = node->node_id;
             }
             return false; /* the row redraws if and when the node answers */

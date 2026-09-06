@@ -334,10 +334,15 @@ void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct f
         mesh_ui_line_printf(&line, "%s", bubble->name);
         mesh_ui_line_fit(&line, metrics.cols);
         /* Ours is dimmed and theirs is accented: on our own bubble the name is a reminder, on
-           theirs it is the thing being looked for. */
+           theirs it is the thing being looked for. An alert overrides both - it is the one
+           bubble whose heading is the point rather than the label on the point. */
+        enum mesh_ui_tone name_tone =
+            bubble->outbound ? fb_bubble_quiet_tone(bubble) : MESH_UI_TONE_ACCENT;
+        if (bubble->alert) {
+            name_tone = MESH_UI_TONE_BAD;
+        }
         fb_draw_text(state, text_x, y, mesh_ui_line_text(&line), scale,
-                     fb_tone_color(state, bubble->outbound ? fb_bubble_quiet_tone(bubble)
-                                                           : MESH_UI_TONE_ACCENT));
+                     fb_tone_color(state, name_tone));
         y += layout->line;
     }
 

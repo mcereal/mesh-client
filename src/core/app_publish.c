@@ -373,6 +373,7 @@ static void mesh_app_publish_messages(struct mesh_app *app,
         target->rx_time = source->rx_time;
         target->channel = source->channel;
         target->direction = source->direction;
+        target->kind = source->kind;
         target->ack = source->ack;
         target->ack_error = source->ack_error;
         target->broadcast = (source->to == MESH_MESSAGE_BROADCAST_ADDR);
@@ -912,6 +913,58 @@ static void mesh_app_report_radio_notices(struct mesh_app *app) {
     }
 }
 
+/*
+ * Announces the newest unseen critical alert, once.
+ *
+ * The Messages tab may not be the one on screen, and an ALERT_APP message is by definition the
+ * one thing the firmware expects a client to interrupt for. Only the newest is announced: three
+ * alerts arriving together are one situation, and three toasts in a row would show the user the
+ * last one anyway.
+ *
+ * Only inbound, and only alerts. A detection is a sensor announcing itself, which belongs in
+ * the conversation and not in front of whatever the user is doing.
+ */
+static void mesh_app_report_alerts(struct mesh_app *app) {
+    const struct mesh_message_log *log = mesh_session_messages(&app->session);
+    if (log == NULL || log->count == 0U) {
+        return;
+    }
+
+    const struct mesh_message *newest = NULL;
+    for (size_t i = log->count; i > 0U; --i) {
+        const struct mesh_message *entry = mesh_message_log_at(log, i - 1U);
+        if (entry != NULL && entry->kind == MESH_MESSAGE_KIND_ALERT &&
+            entry->direction == MESH_MESSAGE_INBOUND) {
+            newest = entry;
+            break;
+        }
+    }
+    if (newest == NULL || newest->packet_id == app->ui_alert_announced_id) {
+        return;
+    }
+    app->ui_alert_announced_id = newest->packet_id;
+    if (app->config.run_mode != MESH_APP_RUN_FOREGROUND) {
+        return;
+    }
+
+    /* The sender's name and then the alert itself, truncated by the toast rather than by us -
+       the first words of an alert are the ones that say what it is. */
+    char peer[MESH_UI_NAV_TARGET_NAME_MAX];
+    mesh_app_format_peer_name(mesh_session_handshake(&app->session), newest->from, peer,
+                              sizeof peer);
+    char toast[MESH_UI_NAV_TOAST_MAX];
+    /* Built in two steps rather than one snprintf: the alert body is up to 233 bytes against a
+       64-byte toast, and letting one format truncate it is both a compiler warning and a
+       formatting decision made by accident. The name is bounded first so the text keeps
+       whatever room is left, because the first words of an alert are the ones that say what
+       it is. */
+    const int prefix = snprintf(toast, sizeof toast, "Alert from %.16s: ", peer);
+    if (prefix > 0 && (size_t)prefix < sizeof toast) {
+        (void)mesh_str_copy(toast + prefix, sizeof toast - (size_t)prefix, newest->text);
+    }
+    mesh_ui_store_set_toast(&app->ui_store, mesh_time_monotonic_ms(), toast);
+}
+
 void mesh_app_publish_ui_state(struct mesh_app *app) {
     if (app == NULL) {
         return;
@@ -920,6 +973,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     mesh_ui_store_tick(&app->ui_store, mesh_time_monotonic_ms());
     mesh_app_report_delivery(app);
     mesh_app_report_radio_notices(app);
+    mesh_app_report_alerts(app);
 
     struct mesh_transport *ble = mesh_ble_transport();
     if (ble == NULL) {

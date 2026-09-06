@@ -555,6 +555,18 @@ int mesh_session_set_node_ignored(struct mesh_session *session, uint32_t node_id
  */
 int mesh_session_request_node_info(struct mesh_session *session, uint32_t dest);
 
+/*
+ * Asks a node for its position or its telemetry now, instead of waiting for its next broadcast
+ * - fifteen minutes for a position and half an hour for telemetry, at the firmware's defaults.
+ * An empty payload on the port with `want_response` set; the answer arrives as an ordinary
+ * POSITION_APP or TELEMETRY_APP packet and lands on the node record the usual way.
+ *
+ * Same returns as mesh_session_request_node_info(), except that neither needs our owner record:
+ * an empty Position or Telemetry asserts nothing at the far end, so there is nothing to erase.
+ */
+int mesh_session_request_position(struct mesh_session *session, uint32_t dest);
+int mesh_session_request_telemetry(struct mesh_session *session, uint32_t dest);
+
 /* Meshtastic packet ids only need to be unique per sender for a few minutes. Never zero. */
 uint32_t mesh_session_next_packet_id(struct mesh_session *session);
 

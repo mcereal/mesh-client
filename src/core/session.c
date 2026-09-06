@@ -1277,6 +1277,68 @@ int mesh_session_request_node_info(struct mesh_session *session, uint32_t dest) 
 }
 
 /*
+ * Asks a node for its position or its telemetry, now, rather than waiting for its broadcast
+ * interval to come round.
+ *
+ * Both are the same mechanism as the NodeInfo request above - an empty payload on the port
+ * with `want_response` set - and both answer the question that made the node detail's readings
+ * frustrating: a tracker broadcasts a position every fifteen minutes by default and telemetry
+ * every half hour, so "where is it *now*" was a question the client could not ask.
+ *
+ * Unlike the NodeInfo request, neither carries anything of ours. A NodeInfo is applied by
+ * overwriting the record wholesale, which is why that one refuses to go out with a placeholder;
+ * a Position and a Telemetry are merged field by field at the far end and an empty one asserts
+ * nothing, so there is nothing here to erase and no owner to wait for.
+ */
+static int mesh_session_request_on_port(struct mesh_session *session, uint32_t dest,
+                                        meshtastic_PortNum portnum, const char *what) {
+    if (session == NULL || dest == 0U || dest == MESH_MESSAGE_BROADCAST_ADDR) {
+        return -EINVAL;
+    }
+    if (session->send == NULL || !session->handshake.has_my_info) {
+        return -ENOTCONN;
+    }
+    if (dest == session->handshake.my_info.my_node_num) {
+        return -EINVAL;
+    }
+
+    meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_default;
+    to_radio.which_payload_variant = meshtastic_ToRadio_packet_tag;
+    meshtastic_MeshPacket *packet = &to_radio.packet;
+    packet->to = dest;
+    packet->id = mesh_session_next_packet_id(session);
+    /* The reply is the acknowledgement. A want_ack on top of it would double the traffic this
+       costs the mesh for a question that answers itself when it works. */
+    packet->want_ack = false;
+    packet->which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    packet->decoded.portnum = portnum;
+    packet->decoded.want_response = true;
+    packet->decoded.payload.size = 0U;
+
+    uint8_t payload[MESH_SESSION_MAX_PACKET];
+    pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof payload);
+    if (!pb_encode(&stream, meshtastic_ToRadio_fields, &to_radio)) {
+        mesh_log_error("session", "Failed to encode %s request: %s", what, PB_GET_ERROR(&stream));
+        return -EIO;
+    }
+
+    const int result = mesh_session_send_raw(session, payload, stream.bytes_written, 0U);
+    if (result == 0) {
+        mesh_log_info("session", "Asked node 0x%08x for its %s", dest, what);
+    }
+    return result;
+}
+
+int mesh_session_request_position(struct mesh_session *session, uint32_t dest) {
+    return mesh_session_request_on_port(session, dest, meshtastic_PortNum_POSITION_APP, "position");
+}
+
+int mesh_session_request_telemetry(struct mesh_session *session, uint32_t dest) {
+    return mesh_session_request_on_port(session, dest, meshtastic_PortNum_TELEMETRY_APP,
+                                        "telemetry");
+}
+
+/*
  * Meshtastic packet ids only need to be unique per sender for a few minutes, so a cheap
  * xorshift seeded from the monotonic clock is enough. Zero is reserved by the protocol to mean
  * "no id", so it is never handed out.

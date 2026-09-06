@@ -220,6 +220,31 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
         mesh_ui_store_set_toast(&app->ui_store, now, toast);
         return;
     }
+    case MESH_UI_ACTION_REQUEST_POSITION:
+    case MESH_UI_ACTION_REQUEST_TELEMETRY: {
+        const bool position = (action->type == MESH_UI_ACTION_REQUEST_POSITION);
+        char name[MESH_UI_NAV_TARGET_NAME_MAX];
+        mesh_app_format_peer_name(mesh_session_handshake(&app->session), action->dest, name,
+                                  sizeof name);
+        const int result = position ? mesh_session_request_position(&app->session, action->dest)
+                                    : mesh_session_request_telemetry(&app->session, action->dest);
+        if (result == 0) {
+            /* Nothing here can promise an answer either: the request carries no want_ack, and a
+               node that is out of range, asleep or simply not equipped answers nothing. */
+            snprintf(toast, sizeof toast, "Asked %.20s for its %s", name,
+                     position ? "position" : "telemetry");
+        } else if (result == -ENOTCONN) {
+            snprintf(toast, sizeof toast, "%s", "Not connected to a node");
+        } else if (result == -EINVAL) {
+            snprintf(toast, sizeof toast, "%s", "Cannot ask this node");
+        } else {
+            snprintf(toast, sizeof toast, "Request failed (%d)", result);
+            mesh_log_warn("ui", "%s request for 0x%08x failed: %d",
+                          position ? "Position" : "Telemetry", action->dest, result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
     case MESH_UI_ACTION_TOGGLE_IGNORE: {
         const bool ignored = (action->number != 0U);
         char name[MESH_UI_NAV_TARGET_NAME_MAX];

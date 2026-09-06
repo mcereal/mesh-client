@@ -624,7 +624,11 @@ struct mesh_ui_message {
     char text[MESH_UI_MESSAGE_TEXT_MAX];
     uint8_t channel;
     uint8_t direction; /* enum mesh_message_direction */
-    uint8_t ack;       /* enum mesh_message_ack */
+    /* enum mesh_message_kind: an ordinary text message, the firmware's critical alert, or a
+       detection sensor announcing itself. All three arrive as text on a channel; only the
+       transcript's labelling tells them apart. */
+    uint8_t kind;
+    uint8_t ack; /* enum mesh_message_ack */
     /* meshtastic_Routing_Error behind an ack of FAILED, so the row can say why rather than
        just marking it failed. Meaningless for anything else. */
     uint8_t ack_error;

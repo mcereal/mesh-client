@@ -29,6 +29,8 @@
  *   toast TEXT             raise the transient notice backends draw in the footer
  *   message in|out NAME TEXT   append a message to the log, as if the radio had just said so
  *   react NAME EMOJI       react to the newest message, as another node would
+ *   alert NAME TEXT        a critical alert (ALERT_APP) on the channel
+ *   detection NAME TEXT    a detection sensor announcing itself (DETECTION_SENSOR_APP)
  *   status TEXT            set the transport status line
  *   notice info|warn|error TEXT   what the radio last said about itself (Status tab)
  *   queue FREE MAXLEN [refused]   the radio's outgoing packet queue (Status tab)
@@ -422,8 +424,8 @@ static void uicap_tab(struct uicap *cap, int screen) {
     die("tab: could not reach that tab (an overlay is open)");
 }
 
-static void uicap_append_message(struct uicap *cap, bool outbound, const char *name,
-                                 const char *text) {
+static void uicap_append_message(struct uicap *cap, bool outbound, enum mesh_message_kind kind,
+                                 const char *name, const char *text) {
     struct mesh_ui_message_list messages = cap->store.messages;
     if (messages.count >= MESH_UI_MAX_MESSAGES) {
         memmove(&messages.entries[0], &messages.entries[1],
@@ -454,6 +456,10 @@ static void uicap_append_message(struct uicap *cap, bool outbound, const char *n
     snprintf(entry->text, sizeof entry->text, "%s", text);
     entry->direction = outbound ? (uint8_t)MESH_MESSAGE_OUTBOUND : (uint8_t)MESH_MESSAGE_INBOUND;
     entry->ack = outbound ? (uint8_t)MESH_MESSAGE_ACK_PENDING : (uint8_t)MESH_MESSAGE_ACK_NONE;
+    entry->kind = (uint8_t)kind;
+    /* An alert and a detection are broadcasts on a channel, which is what the firmware sends
+       and what puts them in a conversation rather than in a private exchange. */
+    entry->broadcast = (kind != MESH_MESSAGE_KIND_TEXT);
     mesh_ui_store_set_messages(&cap->store, &messages);
     uicap_emit(cap);
 }
@@ -755,7 +761,24 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
             exit(1);
         }
         uicap_start(cap);
-        uicap_append_message(cap, strcmp(direction, "out") == 0, name, uicap_tail(rest));
+        uicap_append_message(cap, strcmp(direction, "out") == 0, MESH_MESSAGE_KIND_TEXT, name,
+                             uicap_tail(rest));
+        return;
+    }
+
+    /* The two ports that are "same as Text Message" upstream and were never accepted here. */
+    if (strcmp(command, "alert") == 0 || strcmp(command, "detection") == 0) {
+        char *name = uicap_word(&rest);
+        if (name == NULL) {
+            fprintf(stderr, "uicap: line %u: '%s' needs a short name and text\n", line_number,
+                    command);
+            exit(1);
+        }
+        uicap_start(cap);
+        uicap_append_message(cap, false,
+                             strcmp(command, "alert") == 0 ? MESH_MESSAGE_KIND_ALERT
+                                                           : MESH_MESSAGE_KIND_DETECTION,
+                             name, uicap_tail(rest));
         return;
     }
 

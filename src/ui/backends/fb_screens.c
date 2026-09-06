@@ -400,7 +400,17 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot, const u
         previous->channel != message->channel ||
         fb_thread_elapsed(previous->rx_time, message->rx_time) >= FB_THREAD_RUN_SECONDS;
 
-    if ((starts_run || force_name) && (names_needed || (outbound && nav->inbox))) {
+    /*
+     * An alert and a detection arrive as text on a channel and are otherwise indistinguishable
+     * from anything else said there, so they are always headed - whatever the screen would
+     * have decided about naming, and even in a direct conversation where the title already
+     * says who is talking. A run of identical-looking bubbles is exactly what a critical alert
+     * must not be.
+     */
+    const bool labelled = message->kind != (uint8_t)MESH_MESSAGE_KIND_TEXT;
+    row->bubble.alert = (message->kind == (uint8_t)MESH_MESSAGE_KIND_ALERT);
+
+    if (labelled || ((starts_run || force_name) && (names_needed || (outbound && nav->inbox)))) {
         const char *peer = message->peer_name[0] != '\0' ? message->peer_name : "?";
         struct mesh_ui_line line;
         mesh_ui_line_reset(&line);
@@ -419,6 +429,11 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot, const u
             } else {
                 mesh_ui_line_printf(&line, "%s", "  dm");
             }
+        }
+        if (message->kind == (uint8_t)MESH_MESSAGE_KIND_ALERT) {
+            mesh_ui_line_printf(&line, "%s", "  \U0001F6A8 alert");
+        } else if (message->kind == (uint8_t)MESH_MESSAGE_KIND_DETECTION) {
+            mesh_ui_line_printf(&line, "%s", "  sensor");
         }
         mesh_str_copy(row->name, sizeof row->name, mesh_ui_line_text(&line));
     }

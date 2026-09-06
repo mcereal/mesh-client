@@ -168,6 +168,31 @@ announces each exactly once by watching for the counter to **differ** rather tha
 restart at 1 on a reconnect, and a greater-than test would swallow the first notification of
 every connection after a talkative one.
 
+#### Three ports carry text
+
+`TEXT_MESSAGE_APP` is not the only one. `ALERT_APP` (the firmware's critical alert) and
+`DETECTION_SENSOR_APP` (a sensor announcing itself, "<name> detected") are both described
+upstream as "same as Text Message": plain text addressed to a channel. The ingest accepted only
+the first, so an alert or a detection reached this client and produced nothing whatsoever.
+
+They belong in the conversation they were sent to, but not as ordinary messages, so
+`struct mesh_message` carries an `enum mesh_message_kind`:
+
+- The transcript **always** heads an alert or a detection, whatever it would otherwise have
+  decided about naming and even in a direct conversation where the title already says who is
+  talking. A run of identical-looking bubbles is precisely what a critical alert must not be.
+- An alert's heading is drawn in the bad tone rather than the accent, which is why
+  `{BAD, BUBBLE_IN}` and `{BAD, BUBBLE_IN_SEL}` joined the theme contrast contract: the one
+  message a theme must not swallow is the one it would otherwise swallow.
+- An alert also **toasts wherever the user is**, because the Messages tab may not be the one on
+  screen and an alert is by definition the thing a client should interrupt for. A detection does
+  not: a sensor announcing itself belongs in the conversation, not in front of whatever the user
+  is doing. Only the newest unseen alert is announced — three arriving together are one
+  situation — and it is tracked by packet id rather than by a count, because the log merges a
+  cached history back in at startup and a counter would re-fire the lot at the next launch.
+
+Nothing this client sends is ever an alert or a detection; there is no reason to originate one.
+
 #### Reactions are not messages
 
 `Data.emoji` marks a packet whose payload is an emoji reacting to `Data.reply_id`. It is kept in
@@ -221,10 +246,19 @@ directions and the SNR of every link.
 - **`mesh_session_sync_clock`** pushes the Brick's own `time(NULL)` at the radio once per
   connection so a node with no GPS stops sitting at 00:00 and its packets carry a real `rx_time`.
 
-Three neighbouring admin verbs are deliberately *not* exposed: `toggle_muted_node` means "no
-notifications" and we have none; `remove_by_nodenum` is undone by the node's next packet, so it
-would often look broken; and a position request duplicates what the NodeInfo exchange already
-brings back.
+- **`mesh_session_request_position`** / **`mesh_session_request_telemetry`** send an *empty*
+  payload on `POSITION_APP` / `TELEMETRY_APP` with `want_response`, and the answer lands on the
+  node record the ordinary way. They exist because the alternative is waiting for the node's own
+  broadcast - fifteen minutes for a position and half an hour for telemetry at the firmware's
+  defaults - which made the node detail's readings a report on the past rather than an answer.
+  Unlike the NodeInfo request neither needs our owner record and neither can erase anything: a
+  `Position` and a `Telemetry` are merged field by field at the far end, so an empty one asserts
+  nothing. Neither carries `want_ack` either — the reply *is* the acknowledgement, and asking
+  for both would double what the question costs the mesh.
+
+An earlier version of this document said a position request "duplicates what the NodeInfo
+exchange already brings back". It does not: a `NODEINFO_APP` reply is a `User` record and
+carries no position at all.
 
 ### `src/core/radio_settings.c` — the admin protocol
 

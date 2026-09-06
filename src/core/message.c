@@ -232,12 +232,30 @@ int mesh_message_ingest(struct mesh_message_log *log, const meshtastic_MeshPacke
         return mesh_message_handle_routing(log, data);
     }
 
-    if (data->portnum != meshtastic_PortNum_TEXT_MESSAGE_APP) {
+    /*
+     * Three ports carry a plain text payload addressed to a channel: the ordinary one, the
+     * detection sensor module's, and the firmware's critical alert. Upstream describes the
+     * latter two as "same as Text Message", and they are - they were simply never accepted
+     * here, so a sensor tripping or an alert going out reached this client and vanished.
+     */
+    enum mesh_message_kind kind;
+    switch (data->portnum) {
+    case meshtastic_PortNum_TEXT_MESSAGE_APP:
+        kind = MESH_MESSAGE_KIND_TEXT;
+        break;
+    case meshtastic_PortNum_ALERT_APP:
+        kind = MESH_MESSAGE_KIND_ALERT;
+        break;
+    case meshtastic_PortNum_DETECTION_SENSOR_APP:
+        kind = MESH_MESSAGE_KIND_DETECTION;
+        break;
+    default:
         return 0;
     }
 
     struct mesh_message message;
     memset(&message, 0, sizeof(message));
+    message.kind = (uint8_t)kind;
     message.packet_id = packet->id;
     message.from = packet->from;
     message.to = packet->to;
@@ -277,9 +295,10 @@ int mesh_message_ingest(struct mesh_message_log *log, const meshtastic_MeshPacke
         return -ENOMEM;
     }
 
+    static const char *const k_kind_names[] = {"text", "alert", "detection"};
     mesh_log_info("message", "%s %s from 0x%08x on channel %u (%zu chars)",
                   message.direction == MESH_MESSAGE_OUTBOUND ? "Echoed" : "Received",
-                  message.is_reaction ? "reaction" : "text", message.from,
+                  message.is_reaction ? "reaction" : k_kind_names[message.kind], message.from,
                   (unsigned)message.channel, strlen(message.text));
     return 1;
 }

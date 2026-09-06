@@ -28,11 +28,11 @@ extern "C" {
 #define MESH_UI_NODE_VALUE_MAX 48U
 /*
  * Every row every node can produce, all at once. rows_next() drops silently past this, so it
- * has to be an upper bound rather than a guess: the arithmetic is 29 action rows (seven
+ * has to be an upper bound rather than a guess: the arithmetic is 31 action rows (nine
  * actions, plus a traced route of up to ten stops in each direction with its two headings and
- * its stamp), 11 identity, 6 signal, and then one group per kind of reading - 7 device
+ * its stamp), 11 identity, 7 signal, and then one group per kind of reading - 7 device
  * metrics, 7 position, 9 environment, 5 power, 7 air quality, 5 health, 6 host - which comes
- * to 92 for a node that reports everything at the end of a ten-hop trace.
+ * to 95 for a node that reports everything at the end of a ten-hop trace.
  *
  * Rounded up for headroom, and pinned by node_detail_row_budget in the ui_settings suite so a
  * new group cannot quietly push the last one off the screen.
@@ -51,9 +51,13 @@ enum mesh_ui_node_action {
     MESH_UI_NODE_ACTION_FAVORITE,     /* pin or unpin the node in the radio's NodeDB */
     MESH_UI_NODE_ACTION_TRACEROUTE,   /* ask the mesh which way it reaches this node */
     MESH_UI_NODE_ACTION_REQUEST_INFO, /* ask the node to introduce itself */
-    MESH_UI_NODE_ACTION_IGNORE,       /* have the radio drop this node's packets */
-    MESH_UI_NODE_ACTION_MUTE,         /* stop this node raising notifications on the radio */
-    MESH_UI_NODE_ACTION_REMOVE,       /* drop this node from the radio's NodeDB */
+    /* Ask for a fix or a reading now, rather than at the node's next broadcast - fifteen
+       minutes and half an hour at the firmware's defaults. */
+    MESH_UI_NODE_ACTION_REQUEST_POSITION,
+    MESH_UI_NODE_ACTION_REQUEST_TELEMETRY,
+    MESH_UI_NODE_ACTION_IGNORE, /* have the radio drop this node's packets */
+    MESH_UI_NODE_ACTION_MUTE,   /* stop this node raising notifications on the radio */
+    MESH_UI_NODE_ACTION_REMOVE, /* drop this node from the radio's NodeDB */
 };
 
 struct mesh_ui_node_item {

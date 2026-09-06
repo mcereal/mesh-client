@@ -84,6 +84,14 @@ struct mesh_app {
      */
     uint32_t ui_notice_seq_seen;
     uint32_t ui_reboot_notices_seen;
+    /*
+     * The newest inbound ALERT_APP message already announced. A critical alert is the one
+     * message the firmware expects a client to interrupt for, and the Messages tab may not be
+     * the one on screen - so it toasts wherever the user is. Held as a packet id rather than a
+     * count because the log is a ring that merges a cached history in at startup: a counter
+     * would fire on every message restored from disk at the next launch.
+     */
+    uint32_t ui_alert_announced_id;
     /* A Settings save in flight: the write counters seen when it was queued, so its ack or
        rejection can be announced once; see mesh_app_track_settings_save(). */
     bool settings_save_pending;

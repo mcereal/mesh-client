@@ -1069,3 +1069,93 @@ MESH_TEST_CASE(session_sensor_telemetry, unit) {
 
     record_success(test_name);
 }
+
+/*
+ * Asking a node for a reading now, rather than at its next broadcast.
+ *
+ * The wire shape is the whole of it: an empty payload on the port with `want_response` set. The
+ * two things worth pinning are that the payload really is empty - a Position or a Telemetry
+ * with fields in it would assert those fields at the far end - and that no want_ack rides
+ * along, because the answer is the acknowledgement and a want_ack would double what this costs
+ * the mesh for a question that reports its own success.
+ */
+MESH_TEST_CASE(session_request_readings, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+    struct mesh_test_trace_capture capture;
+    memset(&capture, 0, sizeof capture);
+
+    /* Nothing goes out without a link, and nothing goes out before we know our own number:
+       an AdminMessage-free request still needs to know which node is not the target. */
+    MESH_TEST_FAIL_IF(mesh_session_request_position(&session, 0x4001U) != -ENOTCONN,
+                      "a position request without a link should be refused");
+
+    mesh_session_attach(&session, mesh_test_trace_capture_fn, &capture);
+    MESH_TEST_FAIL_IF(mesh_session_request_telemetry(&session, 0x4001U) != -ENOTCONN,
+                      "a request before MyNodeInfo should be refused");
+
+    meshtastic_FromRadio my_info = meshtastic_FromRadio_init_default;
+    my_info.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    my_info.my_info.my_node_num = 0x4000U;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &my_info),
+                      "encode my_info failed");
+
+    MESH_TEST_FAIL_IF(mesh_session_request_position(&session, 0x4000U) != -EINVAL,
+                      "asking ourselves where we are is not a question");
+    MESH_TEST_FAIL_IF(mesh_session_request_position(&session, MESH_MESSAGE_BROADCAST_ADDR) !=
+                          -EINVAL,
+                      "a broadcast request would ask the whole mesh at once");
+
+    const struct {
+        const char *label;
+        int (*send)(struct mesh_session *, uint32_t);
+        meshtastic_PortNum portnum;
+    } cases[] = {
+        {"position", mesh_session_request_position, meshtastic_PortNum_POSITION_APP},
+        {"telemetry", mesh_session_request_telemetry, meshtastic_PortNum_TELEMETRY_APP},
+    };
+
+    for (size_t i = 0; i < sizeof cases / sizeof cases[0]; ++i) {
+        memset(&capture, 0, sizeof capture);
+        MESH_TEST_FAIL_IF(cases[i].send(&session, 0x4001U) != 0,
+                          "the request should have gone out");
+        MESH_TEST_FAIL_IF(capture.calls != 1U || capture.len == 0U,
+                          "exactly one ToRadio should have been sent");
+
+        meshtastic_ToRadio sent = meshtastic_ToRadio_init_default;
+        pb_istream_t stream = pb_istream_from_buffer(capture.packet, capture.len);
+        MESH_TEST_FAIL_IF(!pb_decode(&stream, meshtastic_ToRadio_fields, &sent),
+                          "the request did not decode as a ToRadio");
+        MESH_TEST_FAIL_IF(sent.which_payload_variant != meshtastic_ToRadio_packet_tag,
+                          "the request should be a packet");
+
+        const meshtastic_MeshPacket *packet = &sent.packet;
+        char message[128];
+        if (packet->to != 0x4001U || packet->id == 0U) {
+            snprintf(message, sizeof message, "the %s request is not addressed to the node",
+                     cases[i].label);
+            record_failure(test_name, message);
+            return;
+        }
+        if (packet->decoded.portnum != cases[i].portnum || !packet->decoded.want_response) {
+            snprintf(message, sizeof message, "the %s request is not a want_response on its port",
+                     cases[i].label);
+            record_failure(test_name, message);
+            return;
+        }
+        if (packet->decoded.payload.size != 0U) {
+            snprintf(message, sizeof message, "the %s request carries a payload it should not",
+                     cases[i].label);
+            record_failure(test_name, message);
+            return;
+        }
+        if (packet->want_ack) {
+            snprintf(message, sizeof message, "the %s request asks for an ack as well as a reply",
+                     cases[i].label);
+            record_failure(test_name, message);
+            return;
+        }
+    }
+
+    record_success(test_name);
+}

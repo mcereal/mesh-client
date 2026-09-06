@@ -396,6 +396,11 @@ static const struct theme_pair k_required[] = {
     {MESH_UI_COLOR_BAD, MESH_UI_COLOR_BG, 3.0},
     {MESH_UI_COLOR_ACCENT, MESH_UI_COLOR_BUBBLE_IN, 3.0},
     {MESH_UI_COLOR_ACCENT, MESH_UI_COLOR_BUBBLE_IN_SEL, 3.0},
+    /* A critical alert heads its bubble in the bad tone rather than the accent, so that pairing
+       has to hold everywhere the accent one does - otherwise the one message a theme must not
+       swallow is the one it swallows. */
+    {MESH_UI_COLOR_BAD, MESH_UI_COLOR_BUBBLE_IN, 3.0},
+    {MESH_UI_COLOR_BAD, MESH_UI_COLOR_BUBBLE_IN_SEL, 3.0},
     {MESH_UI_COLOR_TEXT_DIM, MESH_UI_COLOR_BUBBLE_IN, 3.0},
     {MESH_UI_COLOR_TEXT_DIM, MESH_UI_COLOR_BUBBLE_OUT, 3.0},
     {MESH_UI_COLOR_TEXT_INBOUND, MESH_UI_COLOR_BUBBLE_FAILED, 3.0},

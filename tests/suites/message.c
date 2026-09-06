@@ -457,3 +457,60 @@ MESH_TEST_CASE(message_ingest_reaction_and_reply, unit) {
 
     record_success(test_name);
 }
+
+/*
+ * The two ports upstream describes as "same as Text Message" and that the ingest never
+ * accepted, so a sensor tripping or a critical alert going out reached this client and
+ * produced nothing at all.
+ *
+ * They are text on a channel, so they belong in the conversation - but not as ordinary
+ * messages: the kind is what lets the transcript head an alert differently from the chatter
+ * around it, and heading it is the entire point of keeping it.
+ */
+MESH_TEST_CASE(message_ingest_alert_and_detection, unit) {
+    struct mesh_message_log log;
+    mesh_message_log_reset(&log);
+
+    const struct {
+        const char *label;
+        meshtastic_PortNum portnum;
+        const char *text;
+        uint8_t kind;
+    } cases[] = {
+        {"text", meshtastic_PortNum_TEXT_MESSAGE_APP, "heading up", MESH_MESSAGE_KIND_TEXT},
+        {"detection", meshtastic_PortNum_DETECTION_SENSOR_APP, "Door detected",
+         MESH_MESSAGE_KIND_DETECTION},
+        {"alert", meshtastic_PortNum_ALERT_APP, "Rockfall on the north trail",
+         MESH_MESSAGE_KIND_ALERT},
+    };
+
+    for (size_t i = 0; i < sizeof cases / sizeof cases[0]; ++i) {
+        meshtastic_MeshPacket packet = mesh_test_make_decoded_packet(
+            0x11111111U, MESH_MESSAGE_BROADCAST_ADDR, 0U, (uint32_t)(600U + i), cases[i].portnum,
+            cases[i].text, strlen(cases[i].text));
+        char message[128];
+        if (mesh_message_ingest(&log, &packet, 0x22222222U) != 1) {
+            snprintf(message, sizeof message, "a %s packet should be appended", cases[i].label);
+            record_failure(test_name, message);
+            return;
+        }
+        const struct mesh_message *stored = mesh_message_log_find(&log, (uint32_t)(600U + i));
+        if (stored == NULL || stored->kind != cases[i].kind ||
+            strcmp(stored->text, cases[i].text) != 0) {
+            snprintf(message, sizeof message, "the %s packet did not keep its kind or its text",
+                     cases[i].label);
+            record_failure(test_name, message);
+            return;
+        }
+    }
+
+    /* And the ports that are not text still produce nothing: accepting three is not accepting
+       everything, and a Position decoded as a message would be a screenful of bytes. */
+    meshtastic_MeshPacket position =
+        mesh_test_make_decoded_packet(0x11111111U, MESH_MESSAGE_BROADCAST_ADDR, 0U, 700U,
+                                      meshtastic_PortNum_POSITION_APP, "\x01\x02", 2U);
+    MESH_TEST_FAIL_IF(mesh_message_ingest(&log, &position, 0x22222222U) != 0,
+                      "a position packet is not a message");
+
+    record_success(test_name);
+}
