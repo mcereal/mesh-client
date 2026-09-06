@@ -1,3 +1,17 @@
+## [2.10.0](https://github.com/mcereal/mesh-client/compare/v2.9.2...v2.10.0) (2026-09-06)
+
+### Features
+
+* **ui:** animated toggle switch component ([0bac397](https://github.com/mcereal/mesh-client/commit/0bac397294c8bae990b2368637f1fe2b32ab3b9e))
+
+### Bug Fixes
+
+* **uicap:** give an animating frame the animation's interval ([2e49e28](https://github.com/mcereal/mesh-client/commit/2e49e28b6c4c757949118072e16fac1f38fb99d6))
+
+### Documentation
+
+* refresh the verified unit test count ([e5b07d5](https://github.com/mcereal/mesh-client/commit/e5b07d516951d1a51238c2d013754b9ac5249f7e))
+
 ## [2.9.2](https://github.com/mcereal/mesh-client/compare/v2.9.1...v2.9.2) (2026-09-06)
 
 ### Code Refactoring
