@@ -653,16 +653,58 @@ static uint32_t fb_card_row_lines(const struct fb_card_row *row, size_t cols) {
     return lines > 0U ? lines : 1U;
 }
 
-/* The painted box for a card holding its first `count` rows - the gap to the next card is not
-   part of it, because the last card on a screen does not spend one and a fit test that charged
-   it anyway lost a row to a card that had room for it. */
+/*
+ * How much of a card is being drawn: whole rows, and then however many lines of the row after
+ * them a note may keep.
+ *
+ * The second half is not a refinement. A note is a sentence the radio wrote about itself, and it
+ * is the row on the Status screen that explains something no counter can - so dropping it whole
+ * because its third line did not fit leaves the age it arrived at and none of the words. The
+ * renderer this replaced capped the paragraph to the lines it had room for, and so does this.
+ */
+struct fb_card_fit {
+    uint32_t rows;       /* rows drawn whole */
+    uint32_t tail_lines; /* lines kept of rows[rows]; 0 when that row is not drawn at all */
+};
+
+/* The painted box for that much of the card - the gap to the next card is not part of it,
+   because the last card on a screen does not spend one and a fit test that charged it anyway
+   lost a row to a card that had room for it. */
 static int fb_card_box_height(const struct fb_card_metrics *m, const struct fb_layout *layout,
-                              const struct fb_card *card, uint32_t count) {
+                              const struct fb_card *card, struct fb_card_fit fit) {
     int height = 2 * (m->pad_y + m->edge) + m->heading_h;
-    for (uint32_t i = 0U; i < count && i < card->count; ++i) {
+    for (uint32_t i = 0U; i < fit.rows && i < card->count; ++i) {
         height += (int)fb_card_row_lines(&card->rows[i], m->cols) * layout->line;
     }
-    return height;
+    return height + (int)fit.tail_lines * layout->line;
+}
+
+/*
+ * As much of the card as fits between `top` and `bottom`.
+ *
+ * Whole rows go first, dropped from the end. Then, when the row that did not fit is a note, as
+ * many of its lines as the leftover room takes - and only a note, because a field row is a label
+ * and a value and half of one is not half a fact. Nothing is drawn after a clipped note either:
+ * a truncated paragraph with rows under it reads as a complete one.
+ */
+static struct fb_card_fit fb_card_clip(const struct fb_card_metrics *m,
+                                       const struct fb_layout *layout, const struct fb_card *card,
+                                       int top, int bottom) {
+    struct fb_card_fit fit = {.rows = card->count, .tail_lines = 0U};
+    while (fit.rows > 0U && top + fb_card_box_height(m, layout, card, fit) > bottom) {
+        fit.rows -= 1U;
+    }
+    if (fit.rows < card->count && card->rows[fit.rows].kind == FB_CARD_ROW_NOTE) {
+        const uint32_t whole = fb_card_row_lines(&card->rows[fit.rows], m->cols);
+        for (uint32_t lines = whole > 0U ? whole - 1U : 0U; lines > 0U; --lines) {
+            const struct fb_card_fit probe = {.rows = fit.rows, .tail_lines = lines};
+            if (top + fb_card_box_height(m, layout, card, probe) <= bottom) {
+                fit.tail_lines = lines;
+                break;
+            }
+        }
+    }
+    return fit;
 }
 
 void fb_card_begin(struct fb_card *card, enum mesh_str_id heading, enum mesh_ui_tone tone) {
@@ -735,21 +777,24 @@ int fb_card_height(const struct mesh_ui_backend_fb_state *state, const struct fb
         return 0;
     }
     const struct fb_card_metrics m = fb_card_measure(state, layout, card);
-    return fb_card_box_height(&m, layout, card, card->count) + m.gap;
+    const struct fb_card_fit whole = {.rows = card->count, .tail_lines = 0U};
+    return fb_card_box_height(&m, layout, card, whole) + m.gap;
 }
 
-/* One row of content, drawn at `y` and returning the rows it used. */
+/* One row of content, drawn at `y` and returning the rows it used. `max_lines` of 0 means the
+   row's own count; anything else is the budget a clipped note has been given. */
 static uint32_t fb_draw_card_row(const struct mesh_ui_backend_fb_state *state,
                                  const struct fb_card_metrics *m, const struct fb_layout *layout,
-                                 int y, const struct fb_card_row *row) {
+                                 int y, const struct fb_card_row *row, uint32_t max_lines) {
     const struct mesh_ui_rgb color = fb_tone_color(state, row->tone);
     if (row->kind == FB_CARD_ROW_NOTE) {
         /* fb_draw_wrapped() lays out from the left margin, and a card's content starts inside
            it, so the note is wrapped here against the card's own column. */
+        const uint32_t budget = max_lines > 0U ? max_lines : FB_CARD_NOTE_LINES;
         struct mesh_ui_wrap wrap;
         mesh_ui_wrap_begin(&wrap, row->value, m->cols);
         uint32_t drawn = 0U;
-        while (drawn < FB_CARD_NOTE_LINES && mesh_ui_wrap_next(&wrap)) {
+        while (drawn < budget && mesh_ui_wrap_next(&wrap)) {
             fb_draw_text(state, m->content_x, y + (int)drawn * layout->line, wrap.line,
                          state->scale, color);
             drawn += 1U;
@@ -774,26 +819,24 @@ bool fb_draw_card(const struct mesh_ui_backend_fb_state *state, const struct fb_
     const struct fb_card_metrics m = fb_card_measure(state, layout, card);
 
     /*
-     * How much of the card there is room for. Rows are dropped from the end until it fits,
-     * which is the one place the "does another row fit" test lives - every dense screen used to
-     * write it out per row, and the notice paragraph on the Status screen wrote a second,
-     * different one. A card with nothing left but its heading is not a card, so that is the
-     * point at which it is refused outright rather than drawn as an empty box.
+     * How much of the card there is room for - the one place the "does another row fit" test
+     * lives. Every dense screen used to write it out per row, and the notice paragraph on the
+     * Status screen wrote a second, differently. A card with nothing left but its heading is not
+     * a card, so that is the point at which it is refused outright rather than drawn as an empty
+     * box; a single clipped line of a note is content, so it is not that point.
+     *
+     * The bound is the body's bottom, not the footer's first baseline: fb_render_snapshot() keeps
+     * half a margin between the two when it counts the body rows, and a card that ran to the
+     * baseline itself would put its edge against the footer text on the one screen dense enough
+     * to reach it.
      */
-    /* The bound is the body's bottom, not the footer's first baseline: fb_render_snapshot()
-       keeps half a margin between the two when it counts the body rows, and a card that ran to
-       the baseline itself would put its edge against the footer text on the one screen dense
-       enough to reach it. */
     const int bottom = layout->footer_y - fb_margin(state) / 2;
-    uint32_t rows = card->count;
-    while (rows > 0U && *y + fb_card_box_height(&m, layout, card, rows) > bottom) {
-        rows -= 1U;
-    }
-    if (rows == 0U) {
+    const struct fb_card_fit fit = fb_card_clip(&m, layout, card, *y, bottom);
+    if (fit.rows == 0U && fit.tail_lines == 0U) {
         return false;
     }
 
-    const int height = fb_card_box_height(&m, layout, card, rows);
+    const int height = fb_card_box_height(&m, layout, card, fit);
     /*
      * The edge first, then the fill inside it: fb_fill_round_rect() fills rather than strokes,
      * so an outline is the larger shape with the smaller one laid over it. Two fills rather than
@@ -826,8 +869,11 @@ bool fb_draw_card(const struct mesh_ui_backend_fb_state *state, const struct fb_
         row_y += m.heading_h;
     }
 
-    for (uint32_t i = 0U; i < rows; ++i) {
-        row_y += (int)fb_draw_card_row(state, &m, layout, row_y, &card->rows[i]) * layout->line;
+    for (uint32_t i = 0U; i < fit.rows; ++i) {
+        row_y += (int)fb_draw_card_row(state, &m, layout, row_y, &card->rows[i], 0U) * layout->line;
+    }
+    if (fit.tail_lines > 0U) {
+        (void)fb_draw_card_row(state, &m, layout, row_y, &card->rows[fit.rows], fit.tail_lines);
     }
 
     *y = top + height + m.gap;

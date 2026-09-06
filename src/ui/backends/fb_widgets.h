@@ -380,10 +380,17 @@ int fb_card_height(const struct mesh_ui_backend_fb_state *state, const struct fb
 /*
  * Draws the card with its top edge at `*y` and advances `*y` past it.
  *
- * Rows that would fall past the footer are dropped and the card shrinks to what is left, so a
- * screen may hand over more cards than the panel holds and get the ones that fit. Returns false
- * when not even the heading and one row fit, in which case nothing is drawn and `*y` is
- * untouched - which is also the answer for every card after it, so a screen can stop.
+ * Rows that would fall past the body's bottom are dropped from the end and the card shrinks to
+ * what is left, so a screen may hand over more cards than the panel holds and get the ones that
+ * fit. A *note* is the exception: when it is the row that did not fit, it keeps as many of its
+ * lines as the leftover room takes, because a note is a sentence explaining something no other
+ * row can and half of it beats none of it. A field row is never halved - a label and half a
+ * value is not half a fact - and nothing is drawn below a clipped note, since a truncated
+ * paragraph with rows under it reads as a complete one.
+ *
+ * Returns false when not even the heading and one row - or one line of a note - fit, in which
+ * case nothing is drawn and `*y` is untouched. That is also the answer for every card after it,
+ * so a screen can stop.
  */
 bool fb_draw_card(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
                   int *y, const struct fb_card *card);
