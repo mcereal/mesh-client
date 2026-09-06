@@ -110,6 +110,97 @@ MESH_TEST_CASE(ui_capture_renders_a_snapshot, unit) {
     record_success(test_name);
 }
 
+/* Whether a pixel is exactly the colour a role names. The capture fabricates 32 bpp with every
+   bitfield zero, which is B,G,R,X - the same order pixel_is_background() reads. */
+static bool pixel_is_role(const struct mesh_ui_capture *capture, const uint8_t *pixel,
+                          enum mesh_ui_color role) {
+    const struct mesh_ui_rgb want = mesh_ui_theme_color(mesh_ui_capture_theme(capture), role);
+    return pixel[0] == want.b && pixel[1] == want.g && pixel[2] == want.r;
+}
+
+/* The widest run of `role` on any scanline, as a fraction of the width, in percent. A card's
+   padding band is an unbroken run of its fill from edge to edge and its border is an unbroken
+   run of the rule colour, so both come out near 100; a glyph in that colour comes out at a few. */
+static unsigned widest_row_run(const struct mesh_ui_capture *capture, const uint8_t *pixels,
+                               uint32_t width, uint32_t height, size_t stride,
+                               enum mesh_ui_color role) {
+    unsigned best = 0U;
+    for (uint32_t y = 0U; y < height; ++y) {
+        const uint8_t *row = pixels + (size_t)y * stride;
+        unsigned run = 0U;
+        for (uint32_t x = 0U; x < width; ++x) {
+            run = pixel_is_role(capture, row + (size_t)x * 4U, role) ? run + 1U : 0U;
+            const unsigned pct = (unsigned)((uint64_t)run * 100U / width);
+            if (pct > best) {
+                best = pct;
+            }
+        }
+    }
+    return best;
+}
+
+/*
+ * The Status screen is drawn as cards, not as text on the bare ground.
+ *
+ * Pinning pixels would fail on every legitimate change to that screen, so this asks the two
+ * things a card is: a filled panel spanning most of the width, and a hairline of the rule colour
+ * doing the same. Neither appears on a screen of plain rows - which is what Status was - so the
+ * case fails if the cards are lost, and passes whatever the rows inside them come to say.
+ *
+ * Both are checked because either alone can be there without a card: a selected list row is a
+ * fill, and the strip under the tabs is a rule. Only a card is both, one inside the other.
+ */
+MESH_TEST_CASE(ui_capture_draws_the_status_cards, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    /* Walked rather than assigned, and asserted on arrival: the tab order is the nav's to
+       change, and a test that set nav.screen by hand would keep passing while the key that gets
+       a user there stopped working. */
+    struct mesh_ui_action action;
+    while (store.nav.screen != MESH_UI_SCREEN_STATUS) {
+        const enum mesh_ui_screen before = store.nav.screen;
+        memset(&action, 0, sizeof action);
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+        MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen == before, mesh_ui_store_shutdown(&store),
+                                  "Right stopped moving before the Status tab");
+    }
+
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_ui_store_consume_updates(&store, &snapshot),
+                              mesh_ui_store_shutdown(&store), "no snapshot to render");
+
+    struct mesh_ui_capture *capture = NULL;
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, 4) != 0,
+        mesh_ui_store_shutdown(&store), "capture open failed");
+
+    uint32_t width = 0U;
+    uint32_t height = 0U;
+    size_t stride = 0U;
+    const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+    mesh_ui_capture_render(capture, &snapshot);
+
+    const unsigned fill =
+        widest_row_run(capture, pixels, width, height, stride, MESH_UI_COLOR_SURFACE);
+    MESH_TEST_FAIL_IF_CLEANUP(fill < 80U, mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "the Status screen draws no card fill across the body");
+
+    const unsigned edge =
+        widest_row_run(capture, pixels, width, height, stride, MESH_UI_COLOR_RULE);
+    MESH_TEST_FAIL_IF_CLEANUP(edge < 80U, mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "the Status screen draws no card edge across the body");
+
+    mesh_ui_capture_close(capture);
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
 /*
  * Two screens must not render identically. This is the check that would have caught a capture
  * tool that rendered the same snapshot over and over - a clip of one frame repeated looks

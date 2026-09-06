@@ -40,6 +40,23 @@ static void fb_store_view(const struct mesh_ui_snapshot *snapshot, struct mesh_u
     view->event_fd = -1;
 }
 
+/* The radio this frame is attached to, or NULL. Three places asked it and each wrote the loop
+   out again; the footer and the Status card also have to agree, because one of them saying
+   "connected" while the other says "not connected" is the worst way to answer the question. */
+static const struct mesh_ui_device *fb_connected_device(const struct mesh_ui_snapshot *snapshot) {
+    for (size_t i = 0; i < snapshot->device_count; ++i) {
+        if (snapshot->devices[i].connected) {
+            return &snapshot->devices[i];
+        }
+    }
+    return NULL;
+}
+
+/* What to call it: the advertised name when it has one, otherwise whatever we addressed it by. */
+static const char *fb_device_label(const struct mesh_ui_device *device) {
+    return device->name[0] != '\0' ? device->name : device->identifier;
+}
+
 /* ---- chrome ------------------------------------------------------------------------------ */
 
 /* The tab strip: one chip per screen, then the rule that separates it from the body. */
@@ -85,16 +102,10 @@ static void fb_draw_footer(const struct mesh_ui_backend_fb_state *state,
         const char *status = snapshot->transport_status[0] != '\0'
                                  ? snapshot->transport_status
                                  : mesh_str(MESH_STR_HEADER_TRANSPORT_STARTING);
-        const char *connected = NULL;
-        for (size_t i = 0; i < snapshot->device_count; ++i) {
-            if (snapshot->devices[i].connected) {
-                connected = snapshot->devices[i].name[0] != '\0' ? snapshot->devices[i].name
-                                                                 : snapshot->devices[i].identifier;
-                break;
-            }
-        }
-        if (connected != NULL) {
-            mesh_ui_line_str(&line, MESH_STR_HEADER_STATUS_CONNECTED, status, connected);
+        const struct mesh_ui_device *device = fb_connected_device(snapshot);
+        if (device != NULL) {
+            mesh_ui_line_str(&line, MESH_STR_HEADER_STATUS_CONNECTED, status,
+                             fb_device_label(device));
             tone = MESH_UI_TONE_GOOD;
         } else {
             mesh_ui_line_str(&line, MESH_STR_HEADER_STATUS_QUIT, status, mesh_ui_input_quit_hint());
@@ -975,113 +986,134 @@ static const struct mesh_ui_node_summary *fb_self_node(const struct mesh_ui_snap
     return NULL;
 }
 
+/*
+ * The Status tab, as three cards.
+ *
+ * It used to be eighteen label/value lines on the bare ground, in one column, and nothing in it
+ * said that Transport, Radio and Sync are one subject and Packets and Dropped are another - the
+ * only grouping was a half-line of extra space every so often, which is not a grouping so much
+ * as a hope. Each card names its subject and reports on it in its own heading colour, so "is
+ * anything wrong" is answered by the shape and the colour before a number has been read.
+ *
+ * There is no screen title: the tab strip already says Status and every card names itself, so a
+ * title would be the third time. The rows it frees are the ones the cards spend on their
+ * headings.
+ *
+ * Cards are declared and then drawn (see fb_widgets.h), so a row that only exists when the
+ * radio has reported something is an `if` around one call. Nothing here guards the footer
+ * either: fb_draw_card() drops what does not fit and refuses a card outright when nothing does,
+ * which is the check this screen used to write out per row, and in two different ways.
+ */
 static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
                              const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
-    fb_draw_title(state, layout, mesh_str(MESH_STR_TAB_STATUS));
-
     int y = layout->body_y;
+    struct fb_card card;
     char buffer[64];
     char second[64];
 
-    fb_draw_status_text(state, layout, &y, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_TRANSPORT,
-                        snapshot->transport_status[0] != '\0'
-                            ? snapshot->transport_status
-                            : mesh_str(MESH_STR_HEADER_TRANSPORT_STARTING));
+    /* ---- the link: what we are talking to, and whether it has told us who it is ---- */
 
-    const struct mesh_ui_device *connected = NULL;
-    for (size_t i = 0; i < snapshot->device_count; ++i) {
-        if (snapshot->devices[i].connected) {
-            connected = &snapshot->devices[i];
-            break;
-        }
-    }
-    fb_draw_status_text(state, layout, &y, connected != NULL ? MESH_UI_TONE_GOOD : MESH_UI_TONE_BAD,
-                        MESH_STR_STATUS_LABEL_RADIO,
-                        connected != NULL
-                            ? (connected->name[0] != '\0' ? connected->name : connected->identifier)
-                            : mesh_str(MESH_STR_STATUS_NOT_CONNECTED));
+    const struct mesh_ui_device *connected = fb_connected_device(snapshot);
 
+    fb_card_begin(&card, MESH_STR_STATUS_CARD_LINK,
+                  connected != NULL ? MESH_UI_TONE_GOOD : MESH_UI_TONE_BAD);
+    fb_card_row_text(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_TRANSPORT,
+                     snapshot->transport_status[0] != '\0'
+                         ? snapshot->transport_status
+                         : mesh_str(MESH_STR_HEADER_TRANSPORT_STARTING));
+    fb_card_row_text(&card, connected != NULL ? MESH_UI_TONE_GOOD : MESH_UI_TONE_BAD,
+                     MESH_STR_STATUS_LABEL_RADIO,
+                     connected != NULL ? fb_device_label(connected)
+                                       : mesh_str(MESH_STR_STATUS_NOT_CONNECTED));
     if (snapshot->handshake_valid) {
         const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
-        fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_SYNC,
-                           MESH_STR_STATUS_SYNC_VALUE,
-                           mesh_str(hs->config_complete     ? MESH_STR_STATUS_SYNC_COMPLETE
-                                    : hs->request_in_flight ? MESH_STR_STATUS_SYNC_IN_PROGRESS
-                                                            : MESH_STR_STATUS_SYNC_IDLE),
-                           hs->cached ? mesh_str(MESH_STR_STATUS_SYNC_CACHED) : "");
+        fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_SYNC,
+                    MESH_STR_STATUS_SYNC_VALUE,
+                    mesh_str(hs->config_complete     ? MESH_STR_STATUS_SYNC_COMPLETE
+                             : hs->request_in_flight ? MESH_STR_STATUS_SYNC_IN_PROGRESS
+                                                     : MESH_STR_STATUS_SYNC_IDLE),
+                    hs->cached ? mesh_str(MESH_STR_STATUS_SYNC_CACHED) : "");
         if (hs->has_my_info) {
-            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL,
-                               MESH_STR_STATUS_LABEL_MY_NODE, MESH_STR_STATUS_MY_NODE,
-                               hs->my_short_name, hs->my_info.node_num);
-        }
-        /* One line for the NodeDB, and LocalStats' online count when the radio has sent it:
-           "132 nodes" alone says nothing about how much of that mesh is still alive. */
-        const struct mesh_ui_radio_stats *stats = &snapshot->settings.stats;
-        if (hs->has_my_info && stats->valid && stats->num_online_nodes > 0U) {
-            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_NODEDB,
-                               MESH_STR_STATUS_NODEDB_ONLINE, hs->my_info.nodedb_entries,
-                               stats->num_online_nodes);
-        } else if (hs->has_my_info) {
-            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_NODEDB,
-                               MESH_STR_STATUS_NODEDB_REBOOTS, hs->my_info.nodedb_entries,
-                               hs->my_info.reboot_count);
-        }
-        /* Ours, next to the radio's, and only while the two differ. The row above counts the
-           radio's database; this one counts the roster, which outlives it on purpose - so
-           after a NodeDB reset one says 2 and the other 81 with nothing to explain it. Both
-           numbers here are the published rows, so the second can never exceed the first. */
-        const uint32_t off_radio = mesh_ui_handshake_off_radio(hs);
-        if (off_radio > 0U) {
-            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_DIM,
-                               MESH_STR_STATUS_LABEL_CACHED_HERE, MESH_STR_STATUS_CACHED_OFF_RADIO,
-                               hs->node_count, off_radio);
+            fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_MY_NODE,
+                        MESH_STR_STATUS_MY_NODE, hs->my_short_name, hs->my_info.node_num);
         }
         if (hs->primary_channel[0] != '\0') {
-            fb_draw_status_text(state, layout, &y, MESH_UI_TONE_NORMAL,
-                                MESH_STR_STATUS_LABEL_CHANNEL, hs->primary_channel);
+            fb_card_row_text(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_CHANNEL,
+                             hs->primary_channel);
         }
     } else {
-        fb_draw_status_text(state, layout, &y, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_SYNC,
-                            mesh_str(MESH_STR_STATUS_SYNC_WAITING));
+        fb_card_row_text(&card, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_SYNC,
+                         mesh_str(MESH_STR_STATUS_SYNC_WAITING));
     }
+    /* What else is within reach, which is the same subject as what we are attached to - and on
+       a screen where the radio is gone it is the row that says whether anything is there. */
+    fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_DEVICES,
+                MESH_STR_STATUS_DEVICES_IN_RANGE, snapshot->device_count);
+    (void)fb_draw_card(state, layout, &y, &card);
 
     /*
-     * Mesh health, from the two sources that carry it. LocalStats is the radio's own live
+     * ---- the mesh: how many nodes, and how much of the air they are using ----
+     *
+     * Mesh health comes from the two sources that carry it. LocalStats is the radio's own live
      * view, sent to the attached client on its own schedule; DeviceMetrics is what our node
      * last *broadcast* about itself, on the telemetry interval, which is half an hour by
      * default. Both carry the airtime pair, so LocalStats wins it when it has arrived and
-     * DeviceMetrics only fills the gap before the first report - reading the broadcast copy
-     * by preference means the row can sit on a half-hour-old 0.0% while the radio is busy.
-     * Battery and uptime have only the one source: LocalStats has no battery at all.
+     * DeviceMetrics only fills the gap before the first report - reading the broadcast copy by
+     * preference means the row can sit on a half-hour-old 0.0% while the radio is busy.
      */
     const struct mesh_ui_node_summary *self = fb_self_node(snapshot);
     const struct mesh_ui_node_metrics *metrics =
         (self != NULL && self->metrics.valid) ? &self->metrics : NULL;
     const struct mesh_ui_radio_stats *stats = &snapshot->settings.stats;
 
-    if (metrics != NULL || stats->valid) {
-        y += layout->line / 2;
-    }
-
-    /* LocalStats' airtime fields are plain scalars the firmware always fills, so `valid` is
-       the whole test; DeviceMetrics' are optional and carry their own has_*. */
+    /* LocalStats' airtime fields are plain scalars the firmware always fills, so `valid` is the
+       whole test; DeviceMetrics' are optional and carry their own has_*. */
     const bool air_from_stats = stats->valid;
     const bool have_util = air_from_stats || (metrics != NULL && metrics->has_channel_utilization);
     const bool have_tx = air_from_stats || (metrics != NULL && metrics->has_air_util_tx);
+    const float util_value = air_from_stats
+                                 ? stats->channel_utilization
+                                 : (metrics != NULL ? metrics->channel_utilization : 0.0f);
+    /* Above ~25% channel utilization the mesh is saturated and hop delivery collapses, so the
+       number is coloured rather than left as one more figure to interpret - and the card's
+       heading takes the same tone, which is what makes a saturated mesh visible from the shape
+       of the screen rather than from reading a percentage. */
+    enum mesh_ui_tone air_tone = MESH_UI_TONE_NORMAL;
+    if (have_util) {
+        air_tone = util_value >= 50.0f   ? MESH_UI_TONE_BAD
+                   : util_value >= 25.0f ? MESH_UI_TONE_ACCENT
+                                         : MESH_UI_TONE_GOOD;
+    }
+
+    fb_card_begin(&card, MESH_STR_STATUS_CARD_MESH,
+                  air_tone != MESH_UI_TONE_NORMAL ? air_tone : MESH_UI_TONE_ACCENT);
+    if (snapshot->handshake_valid) {
+        const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
+        /* One line for the NodeDB, and LocalStats' online count when the radio has sent it:
+           "132 nodes" alone says nothing about how much of that mesh is still alive. */
+        if (hs->has_my_info && stats->valid && stats->num_online_nodes > 0U) {
+            fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_NODEDB,
+                        MESH_STR_STATUS_NODEDB_ONLINE, hs->my_info.nodedb_entries,
+                        stats->num_online_nodes);
+        } else if (hs->has_my_info) {
+            fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_NODEDB,
+                        MESH_STR_STATUS_NODEDB_REBOOTS, hs->my_info.nodedb_entries,
+                        hs->my_info.reboot_count);
+        }
+        /* Ours, next to the radio's, and only while the two differ. The row above counts the
+           radio's database; this one counts the roster, which outlives it on purpose - so after
+           a NodeDB reset one says 2 and the other 81 with nothing to explain it. Both numbers
+           here are the published rows, so the second can never exceed the first. */
+        const uint32_t off_radio = mesh_ui_handshake_off_radio(hs);
+        if (off_radio > 0U) {
+            fb_card_row(&card, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_CACHED_HERE,
+                        MESH_STR_STATUS_CACHED_OFF_RADIO, hs->node_count, off_radio);
+        }
+    }
+
     if (have_util || have_tx) {
-        const float util_value = air_from_stats
-                                     ? stats->channel_utilization
-                                     : (metrics != NULL ? metrics->channel_utilization : 0.0f);
         const float tx_value =
             air_from_stats ? stats->air_util_tx : (metrics != NULL ? metrics->air_util_tx : 0.0f);
-        /* Above ~25% channel utilization the mesh is saturated and hop delivery collapses, so
-           the number is coloured rather than left as one more figure to interpret. */
-        enum mesh_ui_tone air_tone = MESH_UI_TONE_NORMAL;
-        if (have_util) {
-            air_tone = util_value >= 50.0f   ? MESH_UI_TONE_BAD
-                       : util_value >= 25.0f ? MESH_UI_TONE_ACCENT
-                                             : MESH_UI_TONE_GOOD;
-        }
         char util[32];
         mesh_str_copy(util, sizeof util, mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT));
         if (have_util) {
@@ -1093,15 +1125,45 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
             mesh_str_format(tx, sizeof tx, MESH_STR_STATUS_PERCENT, (double)tx_value);
         }
         if (stats->valid && stats->has_noise_floor) {
-            fb_draw_status_row(state, layout, &y, air_tone, MESH_STR_STATUS_LABEL_AIRTIME,
-                               MESH_STR_STATUS_AIRTIME_FLOOR, util, tx, stats->noise_floor);
+            fb_card_row(&card, air_tone, MESH_STR_STATUS_LABEL_AIRTIME,
+                        MESH_STR_STATUS_AIRTIME_FLOOR, util, tx, stats->noise_floor);
         } else {
-            fb_draw_status_row(state, layout, &y, air_tone, MESH_STR_STATUS_LABEL_AIRTIME,
-                               MESH_STR_STATUS_AIRTIME, util, tx);
+            fb_card_row(&card, air_tone, MESH_STR_STATUS_LABEL_AIRTIME, MESH_STR_STATUS_AIRTIME,
+                        util, tx);
         }
     }
 
-    /* Uptime is in both, like the airtime pair above, so LocalStats wins it for the same
+    if (stats->valid) {
+        fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_PACKETS,
+                    MESH_STR_STATUS_PACKETS, stats->num_packets_tx, stats->num_packets_rx,
+                    stats->num_tx_relay);
+        /* Bad and dropped packets are the two numbers that explain a mesh that "works but loses
+           messages", so they get their own row instead of being folded into Packets. */
+        const bool losing = stats->num_packets_rx_bad > 0U || stats->num_tx_dropped > 0U;
+        fb_card_row(&card, losing ? MESH_UI_TONE_ACCENT : MESH_UI_TONE_DIM,
+                    MESH_STR_STATUS_LABEL_DROPPED, MESH_STR_STATUS_DROPPED,
+                    stats->num_packets_rx_bad, stats->num_rx_dupe, stats->num_tx_dropped);
+    } else if (snapshot->handshake_valid) {
+        /* Standing in for the two rows above, so it carries their label rather than one naming
+           the card it is already inside - "Mesh: no report yet" on a card headed Mesh says the
+           word twice and the subject once. Short enough for the value gutter, too: the long
+           form was cut mid-word, which reads as a bug rather than as a radio that has simply
+           not reported yet. */
+        fb_card_row_text(&card, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_PACKETS,
+                         mesh_str(MESH_STR_STATUS_MESH_NO_REPORT));
+    }
+    /* How much of that traffic this client is still holding. It is the one row on the card that
+       counts something of ours rather than the radio's, and it sits here because what the ring
+       holds is mesh traffic - a card of its own for two client-side numbers is a heading and two
+       insets spent on the least-read rows of the screen. */
+    fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_MESSAGES,
+                MESH_STR_STATUS_MESSAGES_KEPT, (unsigned)snapshot->messages.count,
+                (unsigned)snapshot->messages.dropped);
+    (void)fb_draw_card(state, layout, &y, &card);
+
+    /* ---- the radio itself: its battery, its queue, and what it last said about itself ---- */
+
+    /* Uptime is in both sources, like the airtime pair above, so LocalStats wins it for the same
        reason - and without this the row vanishes entirely when LocalStats has arrived but our
        node has not broadcast DeviceMetrics yet. Battery really does have only the one source. */
     const bool have_battery = metrics != NULL && metrics->has_battery;
@@ -1109,6 +1171,46 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
     const uint32_t uptime_value = stats->valid        ? stats->uptime_seconds
                                   : (metrics != NULL) ? metrics->uptime_seconds
                                                       : 0U;
+    const bool low_battery = have_battery && metrics->battery_level <= 20U;
+
+    /*
+     * The last thing the radio said in its own words, and how many times it has restarted under
+     * us. Both are the answers to "why is this not working" that no counter above can give: the
+     * counters describe traffic, and a duty-cycle refusal or a key mismatch is not traffic.
+     *
+     * Levels are python logging's scale: 40 is ERROR, 30 WARNING. Anything below that is the
+     * radio being informative rather than reporting a problem.
+     */
+    const struct mesh_ui_radio_notice *notice = &snapshot->settings.notice;
+    const bool have_notice = notice->seq != 0U && notice->text[0] != '\0';
+    const enum mesh_ui_tone notice_tone = notice->level >= 40U   ? MESH_UI_TONE_BAD
+                                          : notice->level >= 30U ? MESH_UI_TONE_ACCENT
+                                                                 : MESH_UI_TONE_NORMAL;
+    const struct mesh_ui_queue_status *queue = &snapshot->settings.queue;
+    /* The radio's send queue is only worth a row once it is under pressure or has just refused
+       something: on an idle link it reads "16 of 16 free" for ever, which is one more number to
+       skip past. A refusal keeps the row up because it is the explanation for a message that
+       was never transmitted at all. */
+    const bool have_queue =
+        queue->valid && queue->maxlen > 0U && (queue->res != 0 || queue->free < queue->maxlen / 2U);
+
+    /* The card reports the worst thing it holds. A refused packet and an ERROR notice are both
+       the radio saying no; a flat battery is the reason it is about to. */
+    enum mesh_ui_tone radio_tone = MESH_UI_TONE_ACCENT;
+    if (low_battery || (have_queue && queue->res != 0) || (have_notice && notice->level >= 40U)) {
+        radio_tone = MESH_UI_TONE_BAD;
+    } else if (have_notice && notice->level >= 30U) {
+        radio_tone = MESH_UI_TONE_ACCENT;
+    }
+
+    /*
+     * Ordered most-read first, which matters here and on no other card: this is the one that can
+     * outgrow the panel - every row on it appears only when the radio is in some kind of
+     * trouble, so the worst case is all of them at once - and fb_draw_card() drops from the end.
+     * So the battery and the radio's own words come first and the heap figure last, because a
+     * free-heap number is the row a user would have scrolled past anyway.
+     */
+    fb_card_begin(&card, MESH_STR_STATUS_CARD_RADIO, radio_tone);
     if (have_battery || have_uptime) {
         buffer[0] = '\0';
         if (have_battery) {
@@ -1127,115 +1229,43 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
             mesh_str_format(second, sizeof second, MESH_STR_STATUS_UPTIME_SUFFIX,
                             buffer[0] != '\0' ? ", " : "", uptime);
         }
-        const enum mesh_ui_tone battery_tone = (have_battery && metrics->battery_level <= 20U)
-                                                   ? MESH_UI_TONE_BAD
-                                                   : MESH_UI_TONE_NORMAL;
-        fb_draw_status_row(state, layout, &y, battery_tone, MESH_STR_STATUS_LABEL_BATTERY,
-                           MESH_STR_STATUS_SYNC_VALUE,
-                           buffer[0] != '\0' ? buffer : mesh_str(MESH_STR_STATUS_BATTERY_UNKNOWN),
-                           second);
+        fb_card_row(&card, low_battery ? MESH_UI_TONE_BAD : MESH_UI_TONE_NORMAL,
+                    MESH_STR_STATUS_LABEL_BATTERY, MESH_STR_STATUS_SYNC_VALUE,
+                    buffer[0] != '\0' ? buffer : mesh_str(MESH_STR_STATUS_BATTERY_UNKNOWN), second);
     }
-
-    if (stats->valid) {
-        fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_PACKETS,
-                           MESH_STR_STATUS_PACKETS, stats->num_packets_tx, stats->num_packets_rx,
-                           stats->num_tx_relay);
-        /* Bad and dropped packets are the two numbers that explain a mesh that "works but
-           loses messages", so they get their own row instead of being folded into Packets. */
-        const bool losing = stats->num_packets_rx_bad > 0U || stats->num_tx_dropped > 0U;
-        fb_draw_status_row(state, layout, &y, losing ? MESH_UI_TONE_ACCENT : MESH_UI_TONE_DIM,
-                           MESH_STR_STATUS_LABEL_DROPPED, MESH_STR_STATUS_DROPPED,
-                           stats->num_packets_rx_bad, stats->num_rx_dupe, stats->num_tx_dropped);
-        if (stats->has_heap) {
-            fb_draw_status_row(state, layout, &y,
-                               stats->heap_free_bytes < 20480U ? MESH_UI_TONE_ACCENT
-                                                               : MESH_UI_TONE_DIM,
-                               MESH_STR_STATUS_LABEL_HEAP, MESH_STR_STATUS_HEAP,
-                               stats->heap_free_bytes / 1024U, stats->heap_total_bytes / 1024U);
-        }
-    } else if (snapshot->handshake_valid) {
-        /* Short enough for the value gutter: the long form was cut mid-word, which reads as
-           a bug rather than as a radio that has simply not reported yet. */
-        fb_draw_status_text(state, layout, &y, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_MESH,
-                            mesh_str(MESH_STR_STATUS_MESH_NO_REPORT));
-    }
-
-    /*
-     * The radio's send queue. Only worth a row once it is under pressure or has just refused
-     * something: on an idle link it reads "16 of 16 free" for ever, which is one more number
-     * to skip past. A refusal keeps the row up because it is the explanation for a message
-     * that was never transmitted at all.
-     */
-    const struct mesh_ui_queue_status *queue = &snapshot->settings.queue;
-    if (queue->valid && queue->maxlen > 0U &&
-        (queue->res != 0 || queue->free < queue->maxlen / 2U)) {
-        fb_draw_status_row(state, layout, &y,
-                           queue->res != 0 ? MESH_UI_TONE_BAD : MESH_UI_TONE_ACCENT,
-                           MESH_STR_STATUS_LABEL_TX_QUEUE, MESH_STR_STATUS_TX_QUEUE,
-                           (unsigned)queue->free, (unsigned)queue->maxlen,
-                           queue->res != 0 ? mesh_str(MESH_STR_STATUS_TX_QUEUE_REFUSED) : "");
-    }
-
-    /*
-     * The last thing the radio said in its own words, and how many times it has restarted
-     * under us. Both are the answers to "why is this not working" that nothing else on this
-     * screen can give: the counters above describe traffic, and a duty-cycle refusal or a
-     * key mismatch is not traffic.
-     */
-    const struct mesh_ui_radio_notice *notice = &snapshot->settings.notice;
-    if (notice->seq != 0U && notice->text[0] != '\0') {
-        y += layout->line / 2;
-        /* Levels are python logging's scale: 40 is ERROR, 30 WARNING. Anything below that is
-           the radio being informative rather than reporting a problem. */
-        const enum mesh_ui_tone notice_tone = notice->level >= 40U   ? MESH_UI_TONE_BAD
-                                              : notice->level >= 30U ? MESH_UI_TONE_ACCENT
-                                                                     : MESH_UI_TONE_NORMAL;
+    if (have_notice) {
         /*
-         * When and how often on the labelled row, the words themselves wrapped underneath at
-         * the full width. Every other row on this screen is a label and a short value, but a
-         * notification is a sentence the firmware wrote, and a sentence in the 22-cell value
-         * gutter is three words and a cut - which loses exactly the part that explains
-         * anything.
+         * When and how often on the labelled row, the words themselves as a note underneath at
+         * the card's full width. Every other row here is a label and a short value, but a
+         * notification is a sentence the firmware wrote, and a sentence in the narrow value
+         * gutter is three words and a cut - which loses exactly the part that explains anything.
          */
         char age[24];
         fb_format_age(notice->received, age, sizeof age);
         if (notice->seq > 1U) {
-            fb_draw_status_row(state, layout, &y, MESH_UI_TONE_DIM,
-                               MESH_STR_STATUS_LABEL_RADIO_SAID, MESH_STR_STATUS_RADIO_SAID_COUNT,
-                               age, notice->seq);
+            fb_card_row(&card, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_RADIO_SAID,
+                        MESH_STR_STATUS_RADIO_SAID_COUNT, age, notice->seq);
         } else {
-            fb_draw_status_text(state, layout, &y, MESH_UI_TONE_DIM,
-                                MESH_STR_STATUS_LABEL_RADIO_SAID, age);
+            fb_card_row_text(&card, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_RADIO_SAID, age);
         }
-        /* At most three lines, and never past the footer: a long notification must not push
-           the rows below it off the screen, since they are the ones that are always there. */
-        int notice_lines = (layout->footer_y - y) / layout->line;
-        if (notice_lines > 3) {
-            notice_lines = 3;
-        }
-        if (notice_lines > 0) {
-            /* fb_draw_wrapped returns how many lines it drew, not where it left the cursor. */
-            y += layout->line * fb_draw_wrapped(state, y, notice->text, layout->cols, notice_lines,
-                                                fb_tone_color(state, notice_tone));
-        }
+        fb_card_note(&card, notice_tone, notice->text);
+    }
+    if (have_queue) {
+        fb_card_row(&card, queue->res != 0 ? MESH_UI_TONE_BAD : MESH_UI_TONE_ACCENT,
+                    MESH_STR_STATUS_LABEL_TX_QUEUE, MESH_STR_STATUS_TX_QUEUE, (unsigned)queue->free,
+                    (unsigned)queue->maxlen,
+                    queue->res != 0 ? mesh_str(MESH_STR_STATUS_TX_QUEUE_REFUSED) : "");
     }
     if (snapshot->settings.reboot_notices > 0U) {
-        fb_draw_status_row(state, layout, &y, MESH_UI_TONE_ACCENT, MESH_STR_STATUS_LABEL_REBOOTS,
-                           MESH_STR_STATUS_REBOOTS_SINCE, snapshot->settings.reboot_notices);
+        fb_card_row(&card, MESH_UI_TONE_ACCENT, MESH_STR_STATUS_LABEL_REBOOTS,
+                    MESH_STR_STATUS_REBOOTS_SINCE, snapshot->settings.reboot_notices);
     }
-
-    y += layout->line / 2;
-    fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_MESSAGES,
-                       MESH_STR_STATUS_MESSAGES_KEPT, (unsigned)snapshot->messages.count,
-                       (unsigned)snapshot->messages.dropped);
-    fb_draw_status_row(state, layout, &y, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_DEVICES,
-                       MESH_STR_STATUS_DEVICES_IN_RANGE, snapshot->device_count);
-
-    y += layout->line / 2;
-    if (y + layout->line <= layout->footer_y) {
-        fb_draw_text(state, fb_margin(state), y, mesh_ui_input_quit_hint(), state->scale,
-                     fb_tone_color(state, MESH_UI_TONE_DIM));
+    if (stats->valid && stats->has_heap) {
+        fb_card_row(&card, stats->heap_free_bytes < 20480U ? MESH_UI_TONE_ACCENT : MESH_UI_TONE_DIM,
+                    MESH_STR_STATUS_LABEL_HEAP, MESH_STR_STATUS_HEAP,
+                    stats->heap_free_bytes / 1024U, stats->heap_total_bytes / 1024U);
     }
+    (void)fb_draw_card(state, layout, &y, &card);
 }
 
 /* "Save <section>?" for the sections whose write can cut this client off, and "Reboot the
@@ -1487,7 +1517,14 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
         break;
     case MESH_UI_SCREEN_STATUS:
     default:
-        hint = mesh_str(MESH_STR_HINT_TABS_ONLY);
+        /* Status has no controls of its own, so the footer says the one thing the Brick's chrome
+           cannot: how to get out. It used to be a body row on this screen, which is the only
+           screen that ever put a hint in the body - the footer is where every other screen says
+           what the buttons do, and the body row it frees is one the cards spend. Only while a
+           radio is attached, though: the line under this one already ends in the quit hint when
+           there is none, and the same sentence twice reads as a rendering fault. */
+        hint = fb_connected_device(snapshot) != NULL ? mesh_ui_input_quit_hint()
+                                                     : mesh_str(MESH_STR_HINT_TABS_ONLY);
         fb_render_status(state, snapshot, &layout);
         break;
     }

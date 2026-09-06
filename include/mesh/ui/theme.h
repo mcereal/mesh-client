@@ -126,6 +126,12 @@ struct mesh_ui_metrics {
     uint8_t bubble_width_pct;  /* how much of the body a chat bubble may fill */
     uint8_t field_label_cols;  /* preferred label column, in cells */
     uint8_t narrow_cols;       /* a body narrower than this halves the label column */
+    /* A card's inset and how round its corners are, both in glyph-scale steps rather than in
+       pixels: a theme that asks for bigger text gets a proportionally roomier card, the same
+       way the switch and the chat bubble already grow with the scale. A radius of 0 is a
+       square card, which is what a theme going for a plainer look would ask for. */
+    uint8_t card_pad;
+    uint8_t card_radius;
 };
 
 struct mesh_ui_theme {

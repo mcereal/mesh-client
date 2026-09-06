@@ -40,7 +40,7 @@
 #define MESH_UI_METRICS_DEFAULT                                                                    \
     {                                                                                              \
         .margin = 16U, .scale = 4U, .chrome_scale_down = 1U, .bubble_width_pct = 75U,              \
-        .field_label_cols = 20U, .narrow_cols = 40U,                                               \
+        .field_label_cols = 20U, .narrow_cols = 40U, .card_pad = 2U, .card_radius = 2U,            \
     }
 
 static const struct mesh_ui_theme k_themes[] = {
@@ -481,6 +481,10 @@ static const struct theme_pair k_required[] = {
     {MESH_UI_COLOR_TEXT, MESH_UI_COLOR_BG, 4.5},
     {MESH_UI_COLOR_TEXT_STRONG, MESH_UI_COLOR_BG, 4.5},
     {MESH_UI_COLOR_TEXT, MESH_UI_COLOR_SURFACE, 4.5},
+    /* A card is a SURFACE panel with the ordinary tones written on it, so every tone a card row
+       can take owes that fill what it already owes the ground. Without these four rows a theme
+       could put its surface anywhere it liked and only the plain body text would notice. */
+    {MESH_UI_COLOR_TEXT_STRONG, MESH_UI_COLOR_SURFACE, 4.5},
     {MESH_UI_COLOR_TEXT_ON_SEL, MESH_UI_COLOR_SURFACE_SEL, 4.5},
     {MESH_UI_COLOR_TEXT_ON_SEL, MESH_UI_COLOR_SURFACE_ACTIVE, 4.5},
     {MESH_UI_COLOR_TEXT_ON_SEL_DIM, MESH_UI_COLOR_SURFACE_SEL, 3.0},
@@ -498,6 +502,9 @@ static const struct theme_pair k_required[] = {
     /* Secondary: still has to be read, just not for long. */
     {MESH_UI_COLOR_TEXT_DIM, MESH_UI_COLOR_BG, 3.0},
     {MESH_UI_COLOR_TEXT_DIM, MESH_UI_COLOR_SURFACE, 3.0},
+    {MESH_UI_COLOR_ACCENT, MESH_UI_COLOR_SURFACE, 3.0},
+    {MESH_UI_COLOR_GOOD, MESH_UI_COLOR_SURFACE, 3.0},
+    {MESH_UI_COLOR_BAD, MESH_UI_COLOR_SURFACE, 3.0},
     {MESH_UI_COLOR_ACCENT, MESH_UI_COLOR_BG, 3.0},
     {MESH_UI_COLOR_GOOD, MESH_UI_COLOR_BG, 3.0},
     {MESH_UI_COLOR_BAD, MESH_UI_COLOR_BG, 3.0},
@@ -513,8 +520,12 @@ static const struct theme_pair k_required[] = {
     {MESH_UI_COLOR_TEXT_INBOUND, MESH_UI_COLOR_BUBBLE_FAILED, 3.0},
     {MESH_UI_COLOR_TEXT_OUTBOUND, MESH_UI_COLOR_BUBBLE_FAILED, 3.0},
     {MESH_UI_COLOR_BAD, MESH_UI_COLOR_BUBBLE_FAILED, 3.0},
-    /* Furniture: visible at all. */
+    /* Furniture: visible at all. A card's edge is drawn in RULE and has to be findable from
+       both sides - against the ground it sits on and against the fill it encloses - because on
+       a theme whose surface is a step off the ground the edge is the whole of what says a card
+       is there at all. */
     {MESH_UI_COLOR_RULE, MESH_UI_COLOR_BG, 1.4},
+    {MESH_UI_COLOR_RULE, MESH_UI_COLOR_SURFACE, 1.4},
     {MESH_UI_COLOR_RULE_STRONG, MESH_UI_COLOR_BG, 1.4},
 };
 

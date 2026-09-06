@@ -169,6 +169,44 @@ MESH_TEST_CASE(ui_theme_validate_rejects_an_unreadable_palette, unit) {
 }
 
 /*
+ * Cards: the geometry a theme owes them, and the contrast their text owes the fill.
+ *
+ * A card is the one component drawn on MESH_UI_COLOR_SURFACE rather than on the ground, so
+ * every tone a card row can take needs a pair in the validation table - and the pair that is
+ * easiest to lose is the *edge*, because on a theme whose surface sits a step off the ground
+ * the hairline is the whole of what says a card is there at all.
+ */
+MESH_TEST_CASE(ui_theme_states_card_geometry, unit) {
+    for (size_t i = 0; i < mesh_ui_theme_count(); ++i) {
+        const struct mesh_ui_theme *theme = mesh_ui_theme_at(i);
+        const struct mesh_ui_metrics *metrics = mesh_ui_theme_metrics(theme);
+        /* Zero padding is a card whose text touches its own edge, which is not a card. The
+           radius may legitimately be zero: that is a theme asking for square corners. */
+        MESH_TEST_FAIL_IF(metrics->card_pad == 0U, "a theme gives its cards no inset");
+        /* Both are multiplied by the glyph scale, so a step is a whole cell of chrome. Two of
+           them either way is already a quarter of a row on the Brick's panel; more than that is
+           a theme spending its body rows on its own furniture. */
+        MESH_TEST_FAIL_IF(metrics->card_pad > 4U, "a theme's card inset would eat the body");
+        MESH_TEST_FAIL_IF(metrics->card_radius > 4U, "a theme's card corners are rounder than the "
+                                                     "card");
+    }
+
+    char reason[128];
+    struct mesh_ui_theme swallowed = *mesh_ui_theme_default();
+    swallowed.colors[MESH_UI_COLOR_SURFACE] = swallowed.colors[MESH_UI_COLOR_ACCENT];
+    reason[0] = '\0';
+    MESH_TEST_FAIL_IF(mesh_ui_theme_validate(&swallowed, reason, sizeof reason),
+                      "a card fill that swallows the accent heading passed validation");
+
+    struct mesh_ui_theme edgeless = *mesh_ui_theme_default();
+    edgeless.colors[MESH_UI_COLOR_RULE] = edgeless.colors[MESH_UI_COLOR_SURFACE];
+    reason[0] = '\0';
+    MESH_TEST_FAIL_IF(mesh_ui_theme_validate(&edgeless, reason, sizeof reason),
+                      "a card edge invisible against its own fill passed validation");
+    record_success(test_name);
+}
+
+/*
  * Cycling, which is the whole of what the Settings row does.
  *
  * Every theme has to be reachable by pressing A enough times, and pressing it once more from
