@@ -1,0 +1,11 @@
+# The Messages shot: a channel with a conversation in it.
+#
+# One frame rather than a clip, because this is the still the README and the Pak Store listing
+# carry - so it is the one scene here whose last frame is the point. The channel thread rather
+# than the conversation list: bubbles either side of the panel, an outbound one carrying its
+# delivery mark, and the separators a log that crosses a day boundary earns.
+scene demo
+scale 4
+config
+key down 1
+key a

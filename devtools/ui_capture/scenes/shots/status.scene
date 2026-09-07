@@ -1,0 +1,11 @@
+# The Status shot: the three cards with a radio that has answered for itself.
+#
+# `stats` is what makes this the resting screen rather than a screen of gaps: the counters, the
+# online count and the airtime bar all come from the radio's own LocalStats report. Nothing here
+# is wrong, on purpose - the queue rows and the radio's own words have their own scenes, and a
+# listing screenshot should be the state a working client is in.
+scene demo
+scale 4
+config
+stats
+tab status

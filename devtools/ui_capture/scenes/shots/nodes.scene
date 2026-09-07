@@ -1,0 +1,9 @@
+# The Nodes shot: the mesh as a roster.
+#
+# Longer than the panel on purpose, so the scroll rail is drawn - and a spread of ages, hop
+# counts and signal, so the trailing column shows both what a staircase says about a node we
+# heard ourselves and what it cannot say about one that arrived over a relay.
+scene demo
+scale 4
+config
+tab nodes

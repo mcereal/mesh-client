@@ -1,0 +1,11 @@
+# The Settings shot: LoRa, which is the section that says what this client is for.
+#
+# The index above it is a column of chevrons; this is the screen with the controls on it - a
+# region, a preset, a hop limit on the scale of the hop limits it could have had, a transmit
+# switch and a power reading the scale cannot place.
+scene demo
+scale 4
+config
+tab settings
+key down 7
+key a

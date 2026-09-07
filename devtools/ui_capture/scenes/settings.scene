@@ -1,8 +1,12 @@
-# Down into a Settings section and back out. Nothing is connected in this scene, so the
-# sections carry no radio values - it is the navigation and the chrome that are on show.
+# Down into a Settings section and back out: the navigation and the chrome, over a radio that
+# has answered for itself.
+#
+# `config` is what makes the sections carry rows rather than a column of "not loaded" - which is
+# what this scene filmed before the verb existed, and what it went on filming for a while after.
 scene demo
 scale 4
 delay 180
+config
 
 tab settings
 hold 600

@@ -2,6 +2,7 @@
 scene demo
 scale 4
 delay 260
+config
 
 hold 600
 tab nodes

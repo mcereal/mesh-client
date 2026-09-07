@@ -24,6 +24,8 @@
  *                          show the same screen in every theme
  *   tab NAME               walk Left/Right to messages|nodes|devices|status|settings
  *   config                 a radio that has answered the config handshake
+ *   stats                  the radio's own LocalStats report - packet counters, online nodes and
+ *                          the airtime pair, which the Status tab's Mesh card reads
  *   key NAME [COUNT]       up down left right a b x y l1 r1 start select
  *   hold MS                add MS to the delay of the frame just emitted
  *   frame                  emit the current screen again
@@ -127,7 +129,7 @@ struct uicap_message_seed {
 static void uicap_scene_demo(struct uicap *cap) {
     const struct mesh_ui_device devices[3] = {
         {.identifier = "F4:12:FA:00:0A:11",
-         .name = "Trailhead",
+         .name = "Home Base",
          .rssi = -48,
          .connected = true,
          .paired = true},
@@ -290,6 +292,28 @@ static void uicap_scene_demo(struct uicap *cap) {
     foxtrot->health.heart_bpm = 62U;
     foxtrot->health.has_spo2 = true;
     foxtrot->health.spo2 = 98U;
+
+    /*
+     * And our own node, which is the one the Status tab's Radio card reads.
+     *
+     * Every row on that card comes from the radio we are attached to rather than from the mesh,
+     * and none of them had a source: the card fell through to "no report yet" on a demo whose
+     * radio had been up for nine days. Home Base runs meshtasticd on mains, so its battery
+     * figure is upstream's 101 - "running off USB" - rather than a percentage, and its uptime is
+     * the one its host telemetry already claims.
+     */
+    home->metrics.valid = true;
+    home->metrics.time = now - 90U;
+    home->metrics.has_battery = true;
+    home->metrics.battery_level = 101U;
+    home->metrics.has_voltage = true;
+    home->metrics.voltage = 5.06F;
+    /* No airtime pair here on purpose. It would draw the Mesh card's airtime row and the meter
+       under it in every scene, and those two steps come off the bottom card - which is where the
+       queue, the radio's own words and the reboot count live. `stats` and `airtime` are how a
+       scene that wants them asks. */
+    home->metrics.has_uptime = true;
+    home->metrics.uptime_seconds = 806400U;
 
     /*
      * Neighbour lists on four of them, arranged so the two groups on the node detail say
@@ -1035,9 +1059,15 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         struct mesh_ui_settings settings = cap->store.settings;
         settings.loaded = true;
         settings.admin_ok = true;
+        /* A session that has answered is a session with replies behind it; "ok (0 replies)" is
+           the one pair of words on that row that cannot both be true. */
+        settings.admin_replies = 4U;
         settings.has_owner = true;
-        snprintf(settings.long_name, sizeof settings.long_name, "%s", "Brick");
-        snprintf(settings.short_name, sizeof settings.short_name, "%s", "BRK");
+        /* The owner rows name the radio we are attached to, so they are our own node's names
+           rather than a second identity for the same node: "Brick" here and "Home Base" on the
+           Status card was one radio answering to two names. */
+        snprintf(settings.long_name, sizeof settings.long_name, "%s", "Home Base");
+        snprintf(settings.short_name, sizeof settings.short_name, "%s", "HOME");
         settings.has_device = true;
         settings.node_info_broadcast_secs = 10800U;
         settings.led_heartbeat_disabled = false;
@@ -1053,6 +1083,152 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         settings.hop_limit = 3U;
         settings.has_bluetooth = true;
         settings.bluetooth_enabled = true;
+        settings.pairing_mode = 0U; /* a random PIN, which is the firmware's default */
+
+        /*
+         * DeviceMetadata, which is a reply of its own rather than a config block - and the whole
+         * of Settings > About radio above the node number. Portduino because this radio is the
+         * Linux host the demo's own node reports host telemetry for; a board that cannot cut its
+         * own power, which is why "Can shut down" is the one capability that is off.
+         */
+        settings.has_metadata = true;
+        snprintf(settings.firmware_version, sizeof settings.firmware_version, "%s",
+                 "2.7.6.f1a4c39");
+        settings.hw_model = 37U; /* meshtastic_HardwareModel_PORTDUINO */
+        settings.has_bluetooth_radio = true;
+        settings.has_wifi = true;
+        settings.has_ethernet = true;
+        settings.has_pkc = true;
+        settings.can_shutdown = false;
+
+        /* The two LoRa rows that read as unconfigured rather than as defaults: a region of
+           "Unset" is a radio that will not transmit, and an empty timezone is the row's dash. */
+        settings.region = 1U;       /* meshtastic_Config_LoRaConfig_RegionCode_US */
+        settings.modem_preset = 0U; /* LONG_FAST, which is what the primary channel is named for */
+        /* The three the preset decides. A radio reports what it is actually running, so leaving
+           them zeroed drew a modem at 0 kHz on a link that was carrying traffic; these are
+           LONG_FAST's own numbers. */
+        settings.bandwidth = 250U;
+        settings.spread_factor = 11U;
+        settings.coding_rate = 5U;
+        snprintf(settings.tzdef, sizeof settings.tzdef, "%s", "PST8PDT,M3.2.0,M11.1.0");
+
+        /*
+         * Position, Power and Security: three sections that said "not loaded" on a radio that had
+         * answered everything else, because nothing here filled them.
+         *
+         * The position is fixed rather than surveyed, which is both what a base station on a roof
+         * has and the state that gives the section something to show in every row: coordinates,
+         * the flag the firmware sets itself, and the clear verb underneath.
+         */
+        settings.has_position = true;
+        settings.gps_mode = 2U; /* not present - the coordinates below were set, not surveyed */
+        settings.position_broadcast_secs = 900U;
+        settings.position_broadcast_smart_enabled = true;
+        settings.smart_minimum_distance = 100U;
+        settings.smart_minimum_interval_secs = 30U;
+        settings.gps_update_interval = 120U;
+        settings.fixed_position = true;
+        settings.has_own_position = true;
+        settings.own_latitude_i = 476205000; /* fixed-point 1e-7 degrees, as the wire carries */
+        settings.own_longitude_i = -1223350000;
+        settings.has_own_altitude = true;
+        settings.own_altitude = 84;
+
+        settings.has_power = true;
+        settings.is_power_saving = false;
+        settings.ls_secs = 300U;
+        settings.min_wake_secs = 10U;
+        settings.wait_bluetooth_secs = 60U;
+        settings.on_battery_shutdown_after_secs = 0U;
+
+        /*
+         * Keys are bytes rather than a string: the rows render them, so what matters is that they
+         * are the right length and not all one value. One admin key, which is the ordinary state
+         * for a radio somebody administers from a phone as well.
+         */
+        settings.has_security = true;
+        settings.public_key_len = 32U;
+        settings.has_private_key = true;
+        settings.private_key_len = 32U;
+        settings.admin_key_count = 1U;
+        settings.admin_key_lens[0] = 32U;
+        for (uint8_t i = 0U; i < 32U; ++i) {
+            settings.public_key[i] = (uint8_t)(0x40U + i * 5U);
+            settings.private_key[i] = (uint8_t)(0x11U + i * 7U);
+            settings.admin_keys[0][i] = (uint8_t)(0x9BU - i * 3U);
+        }
+        settings.packet_signature_policy = 0U;
+        settings.is_managed = false;
+        settings.serial_enabled = true;
+        settings.debug_log_api_enabled = false;
+        settings.admin_channel_enabled = false;
+
+        /*
+         * And the module table, every row of which said "not loaded".
+         *
+         * A radio answers for all of them whether or not it runs any, so the demo does too - and
+         * the point of filling them is the mix rather than the values: the Modules list is a
+         * column of on and off, which is what it looks like on a device and what a list of
+         * twelve identical "not loaded" rows could not show. The three that are on are the three
+         * this mesh visibly uses - telemetry behind the node detail's reading groups, neighbour
+         * info behind its two neighbour lists, and a status message.
+         */
+        settings.has_mqtt = true;
+        settings.mqtt_enabled = false;
+        snprintf(settings.mqtt_address, sizeof settings.mqtt_address, "%s", "mqtt.meshtastic.org");
+        snprintf(settings.mqtt_root, sizeof settings.mqtt_root, "%s", "msh/US");
+        settings.mqtt_encryption_enabled = true;
+        settings.mqtt_map_publish_interval_secs = 3600U;
+        settings.mqtt_map_position_precision = 32U;
+
+        settings.has_store_forward = true;
+        settings.store_forward_enabled = false;
+        settings.store_forward_records = 0U;
+        settings.store_forward_history_return_max = 25U;
+        settings.store_forward_history_return_window = 7200U;
+
+        settings.has_telemetry = true;
+        settings.device_telemetry_enabled = true;
+        settings.device_update_interval = 1800U;
+        settings.environment_measurement_enabled = true;
+        settings.environment_update_interval = 3600U;
+        settings.environment_screen_enabled = true;
+
+        settings.has_neighbor_info = true;
+        settings.neighbor_info_enabled = true;
+        settings.neighbor_info_interval = 14400U; /* the interval Echo Repeater reports */
+
+        settings.has_range_test = true;
+        settings.range_test_enabled = false;
+
+        settings.has_paxcounter = true;
+        settings.paxcounter_enabled = false;
+        settings.paxcounter_interval = 300U;
+        settings.paxcounter_wifi_threshold = -80;
+        settings.paxcounter_ble_threshold = -80;
+
+        settings.has_ambient_lighting = true;
+        settings.ambient_led_state = false;
+        settings.ambient_current = 10U;
+
+        settings.has_status_message = true;
+        snprintf(settings.status_message, sizeof settings.status_message, "%s",
+                 "Base station, up on solar");
+
+        settings.has_tak = true;
+        settings.has_detection_sensor = true;
+        settings.detection_enabled = false;
+        settings.detection_minimum_broadcast_secs = 30U;
+        settings.detection_state_broadcast_secs = 900U;
+        snprintf(settings.detection_name, sizeof settings.detection_name, "%s", "Gate");
+
+        settings.has_external_notification = true;
+        settings.extnotif_enabled = false;
+        settings.extnotif_output_ms = 1000U;
+
+        settings.has_traffic_management = true;
+
         mesh_ui_store_set_settings(&cap->store, &settings);
         uicap_emit(cap);
         return;
@@ -1073,6 +1249,48 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         settings.queue.maxlen = (uint8_t)uicap_number(maxlen, "queue");
         /* Any Routing_Error will do: the row says "refused", not which error it was. */
         settings.queue.res = (refused != NULL && strcmp(refused, "refused") == 0) ? 1 : 0;
+        mesh_ui_store_set_settings(&cap->store, &settings);
+        uicap_emit(cap);
+        return;
+    }
+
+    /*
+     * LocalStats: what the radio says about its own traffic.
+     *
+     * It arrives on the radio's own schedule rather than through the config handshake, which is
+     * why it is a verb rather than part of `scene demo` - and why it is not part of `config`
+     * either. It costs the Status tab four steps (the airtime row, the meter under it, and the
+     * two counter rows), and those come off the bottom of the last card, so a scene about the
+     * queue or about what the radio last said wants the room more than it wants the counters.
+     * A scene showing the Status tab at rest wants them.
+     *
+     * Plausible figures rather than meaningful ones, exactly as `config`'s are: what is on show
+     * is the rows. `airtime` overwrites the two airtime figures, so the two compose in either
+     * order - and calling `stats` first is what stops `airtime` alone from drawing a counter row
+     * of zeroes.
+     *
+     * No heap figure: that is an ESP32's number, and this radio is the Linux host whose own
+     * telemetry group already reports the memory it actually has.
+     */
+    if (strcmp(command, "stats") == 0) {
+        uicap_start(cap);
+        struct mesh_ui_settings settings = cap->store.settings;
+        settings.stats.valid = true;
+        settings.stats.time = (uint32_t)time(NULL);
+        settings.stats.uptime_seconds = 806400U;
+        settings.stats.channel_utilization = 11.5F;
+        settings.stats.air_util_tx = 3.2F;
+        settings.stats.num_packets_tx = 1462U;
+        settings.stats.num_packets_rx = 5871U;
+        settings.stats.num_packets_rx_bad = 12U;
+        settings.stats.num_rx_dupe = 431U;
+        settings.stats.num_tx_relay = 268U;
+        settings.stats.num_tx_relay_canceled = 41U;
+        settings.stats.num_tx_dropped = 3U;
+        settings.stats.num_online_nodes = 9U;
+        settings.stats.num_total_nodes = cap->store.handshake.my_info.nodedb_entries;
+        settings.stats.has_noise_floor = true;
+        settings.stats.noise_floor = -101;
         mesh_ui_store_set_settings(&cap->store, &settings);
         uicap_emit(cap);
         return;
