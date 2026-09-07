@@ -185,6 +185,17 @@ struct fb_layout {
     /* The glyph multiplier chrome is drawn at: MESH_UI_TYPE_LABEL, resolved once in
        fb_render_snapshot() and carried here so every piece of chrome in the frame agrees. */
     int small;
+    /*
+     * Whether there is a screen behind this one to go back to, from mesh_ui_action_bar_goes_
+     * back() - the top app bar's leading slot.
+     *
+     * Here rather than on `struct fb_app_bar` because a screen renderer is the wrong place to
+     * be asked: it is a fact about the nav, the tables in src/ui/actions.c already decide it
+     * for the action bar at the bottom, and the two pieces of chrome disagreeing about whether
+     * B leaves is exactly the drift a second opinion would introduce. fb_render_snapshot()
+     * asks once and both bars read the same answer.
+     */
+    bool back;
 };
 
 /* ---- fb_draw.c: the drawing toolkit ------------------------------------------------------ */

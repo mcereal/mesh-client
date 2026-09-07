@@ -293,6 +293,9 @@ a struct field, not a component. That the conversation cell had been drawing one
 argument *for* doing it, not against: the slot is proven, and Messages and Devices saying the
 same thing the same way is the whole point of a component set.
 
+> **Landed.** `fb_draw_app_bar()` over `struct fb_app_bar`, with `fb_draw_badge()` lifted out
+> of the trailing slot on the way past - which is most of §2.8. §7 has what doing it changed.
+
 **2.15 There is no top app bar.** `fb_draw_title()` takes a `const char *`. A screen's heading is
 therefore a *string*, and everything a heading has to carry gets glued into that string:
 Settings builds `"Settings > %s%s%s"` out of `SETTINGS_TITLE_SECTION` and
@@ -338,6 +341,10 @@ pill. The drawing already exists; it needs to come out of the row.
 > standalone form wants extracting. And the place `3 unsaved` actually belongs is not a card
 > heading: it is the top app bar's trailing slot (§2.15), which is why that entry should land
 > first and this one should shrink to whatever is left over.
+>
+> **It did, and to almost nothing.** Step 7 lifted the capsule into `fb_draw_badge()` because it
+> had two callers the moment the app bar had a trailing slot, and `3 unsaved` is drawn by it. All
+> that is left of this entry is the Status card's `LIVE` pill — a caller, not a component.
 
 **2.9 No persistent inline banner.** The snackbar is transient by design and correctly so. But
 *radio disconnected*, *firmware mismatch* and *update available* are persistent states, and they
@@ -466,7 +473,7 @@ Each step is independently shippable and each is visible.
 | 4 | Type scale (§1.1) | **done** | The big one. Do it after spacing so the two land together |
 | 5 | Nav bar + action bar as components (§2.2, §2.3) | **done** | Both are moves into `fb_widgets.c`; both benefit from 3 and 4 |
 | 6 | Leading icon and badge, wired up (§2.14) | **done** | No new component: a slot with no caller, one only the conversation cell reaches, and two marker characters |
-| 7 | Top app bar (§2.15) |  | Retires the breadcrumb format strings, and is where 8 and 11 land |
+| 7 | Top app bar (§2.15) | **done** | Retires the breadcrumb format strings, and is where 8 and 11 land |
 | 8 | Card variants and card actions (§2.4) |  | Where the type scale pays off most |
 | 9 | Variable-height list rows (§1.4) |  | Structural. §1.1's unfinished half and three components below wait on it |
 | 10 | Checkbox / radio, segmented button (§2.5, §2.6) |  | Additive slots on components that already exist |
@@ -624,3 +631,47 @@ entry will meet again.
   fact the harness seeds and a press it cannot make. A component whose state is only reachable
   through an action needs a scene verb before it can be reviewed as a picture, and that is
   worth budgeting alongside the icon.
+
+## 7. What doing step 7 changed
+
+The audit budgeted this as "retires two format strings and gains a component", and the component
+was the small half. Four things it did not have, and each is a rule rather than a note.
+
+- **An overline says only what nothing else on the frame says.** The entry describes the trail as
+  the breadcrumb made structural, which reads as *the same levels, in slots*. That is wrong on a
+  device with a navigation bar: the outermost level of every trail here is the tab, and the tab
+  strip is already drawing it, selected, three rows above. A faithful trail would have spent a
+  body row saying `Settings` under a chip reading **Settings**. So the trail is the levels
+  *between* the tab and this screen, which for most sections is none — and the entry's own worked
+  example, `Nodes > Bravo Creek`, turns out to want no overline at all: it becomes an arrow and a
+  name, and the node detail keeps all sixteen of its rows. The overline earns itself in exactly
+  two places, `Modules` and `Channels`, which are the two levels the tab strip cannot name.
+- **The leading slot is derived, and that is what makes it correct.** The entry calls the back
+  affordance a slot, which invites a `bool back` on the struct filled in by each screen — a
+  second opinion about a fact `src/ui/actions.c` already holds, and the exact shape of the bug
+  §2.2 removed from `fb_render_snapshot()`. `mesh_ui_action_bar_goes_back()` reads the bar the
+  action bar is about to draw, so the arrow costs one line and is right in the case a flag would
+  have got wrong: a settings section holding edits offers `B` as *discard*, not as back, and the
+  arrow correctly is not there. The bar and the keycap are one table or they will drift.
+- **A trailing slot made §2.8 into a caller.** The badge did not need extracting for its own sake;
+  it needed a second caller, and the app bar was it. `fb_draw_badge()` is the component and the
+  row's `FB_TRAILING_BADGE` is now one of its two callers — which is the shape §2.14 predicted
+  for a slot with one hardcoded user, arrived at from the other end.
+- **The catalog lost more than it gained, as the entry promised — and one thing it did not
+  spot.** Gone: `SETTINGS_TITLE_SECTION`, `SETTINGS_TRAIL_MODULES` and `NODES_TITLE_DETAIL`.
+  Changed: `SETTINGS_TITLE_CHANNEL` from `"Settings > Channel %u%s"` to `"Channel %u"`, and
+  `SETTINGS_UNSAVED` from `" (unsaved)"` to `"%u unsaved"` — a marker becoming a count, which is
+  what a badge slot buys and a `%s` on the end of a title could not. Added: nothing. What is left
+  for a later pass is `COMPOSE_SUFFIX_CHANNEL` / `_DIRECT`, which are a second pair of entries
+  saying what `THREAD_KIND_CHANNEL` / `_DIRECT` already say; collapsing them is a compose-sheet
+  change rather than an app-bar one, so it stayed out of this step.
+
+One cost, stated because the next entry with an overline will meet it: **a trail costs a body
+row.** It is drawn at the label scale and advanced past by the glyph body rather than by the full
+line advance, which is as tight as it goes, and the body's floored-division remainder does not
+cover it the way it covered step 4's larger title. That is the whole of why the rule at the top
+of this list matters — the two screens that keep an overline are paying a row for it, and the
+four that would have had one for free are not paying anything.
+
+§2.9's banner and §2.10's screen progress both hang off this bar's bottom edge, and both are
+unblocked by it now.

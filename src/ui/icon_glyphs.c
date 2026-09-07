@@ -4,7 +4,7 @@
  * Material Symbols is licensed under the Apache License 2.0; the licence text is in
  * licenses/Apache-2.0-MaterialSymbols.txt and covers this derived data too.
  *
- * 48 sprites of 32x32 at 16 coverage levels, 7759 runs. The icons and their glyph names
+ * 49 sprites of 32x32 at 16 coverage levels, 7855 runs. The icons and their glyph names
  * are include/mesh/ui/icons.def; the axes are FILL 1, GRAD 0, opsz 20, wght 500, and
  * each sprite is a 256-unit window on the 240-unit design grid, centred on it.
  */
@@ -158,6 +158,18 @@ static const uint8_t k_runs[] = {
     0x1A, 0x00, 0x01, 0x06, 0x03, 0x0F, 0x01, 0x04, 0x1A, 0x00, 0x01, 0x06, 0x03, 0x0F, 0x01, 0x04,
     0x1A, 0x00, 0x01, 0x06, 0x03, 0x0F, 0x01, 0x04, 0x1A, 0x00, 0x01, 0x03, 0x03, 0x0F, 0x01, 0x04,
     0x1B, 0x00, 0x01, 0x03, 0x02, 0x0E, 0x01, 0x04, 0x1D, 0x00, 0x02, 0x02, 0xFF, 0x00, 0x13, 0x00,
+    0xEE, 0x00, 0x01, 0x01, 0x02, 0x0A, 0x01, 0x01, 0x1B, 0x00, 0x01, 0x01, 0x01, 0x0B, 0x02, 0x0F,
+    0x01, 0x05, 0x1A, 0x00, 0x01, 0x01, 0x01, 0x0B, 0x02, 0x0F, 0x01, 0x0B, 0x01, 0x01, 0x19, 0x00,
+    0x01, 0x01, 0x01, 0x0B, 0x02, 0x0F, 0x01, 0x0B, 0x01, 0x01, 0x19, 0x00, 0x01, 0x01, 0x01, 0x0B,
+    0x02, 0x0F, 0x01, 0x0B, 0x01, 0x01, 0x19, 0x00, 0x01, 0x01, 0x01, 0x0C, 0x02, 0x0F, 0x01, 0x0C,
+    0x01, 0x01, 0x19, 0x00, 0x01, 0x01, 0x01, 0x0C, 0x02, 0x0F, 0x01, 0x0A, 0x1A, 0x00, 0x01, 0x01,
+    0x01, 0x0C, 0x02, 0x0F, 0x01, 0x0E, 0x01, 0x06, 0x01, 0x05, 0x0A, 0x06, 0x01, 0x03, 0x0E, 0x00,
+    0x01, 0x0A, 0x11, 0x0F, 0x01, 0x03, 0x0D, 0x00, 0x01, 0x09, 0x10, 0x0F, 0x01, 0x0E, 0x01, 0x02,
+    0x0E, 0x00, 0x01, 0x0A, 0x02, 0x0F, 0x01, 0x0E, 0x01, 0x05, 0x0B, 0x04, 0x01, 0x02, 0x10, 0x00,
+    0x01, 0x0A, 0x02, 0x0F, 0x01, 0x0C, 0x01, 0x01, 0x1C, 0x00, 0x01, 0x0A, 0x02, 0x0F, 0x01, 0x0D,
+    0x01, 0x02, 0x1C, 0x00, 0x01, 0x0A, 0x02, 0x0F, 0x01, 0x0D, 0x01, 0x02, 0x1C, 0x00, 0x01, 0x0A,
+    0x02, 0x0F, 0x01, 0x0D, 0x01, 0x02, 0x1C, 0x00, 0x01, 0x0A, 0x02, 0x0F, 0x01, 0x0D, 0x01, 0x02,
+    0x1C, 0x00, 0x01, 0x0A, 0x02, 0x0F, 0x01, 0x05, 0x1D, 0x00, 0x02, 0x08, 0x01, 0x01, 0xEE, 0x00,
     0xB5, 0x00, 0x01, 0x08, 0x01, 0x0B, 0x01, 0x07, 0x1C, 0x00, 0x01, 0x0B, 0x03, 0x0F, 0x01, 0x0A,
     0x1A, 0x00, 0x01, 0x0B, 0x05, 0x0F, 0x01, 0x0A, 0x18, 0x00, 0x01, 0x0B, 0x02, 0x0F, 0x01, 0x0C,
     0x01, 0x03, 0x01, 0x0C, 0x02, 0x0F, 0x01, 0x08, 0x16, 0x00, 0x01, 0x0B, 0x02, 0x0F, 0x01, 0x0E,
@@ -995,48 +1007,49 @@ static const uint32_t k_run_offsets[MESH_UI_ICON_COUNT + 1] = {
     764,  /* MESH_UI_ICON_STATUS (speed) */
     911,  /* MESH_UI_ICON_SETTINGS (settings) */
     1094, /* MESH_UI_ICON_CHEVRON (chevron_right) */
-    1160, /* MESH_UI_ICON_EDIT (edit) */
-    1264, /* MESH_UI_ICON_UNSAVED (fiber_manual_record) */
-    1347, /* MESH_UI_ICON_CHECK (check) */
-    1428, /* MESH_UI_ICON_CLOSE (close) */
-    1540, /* MESH_UI_ICON_WARNING (warning) */
-    1668, /* MESH_UI_ICON_CHANNEL (tag) */
-    1840, /* MESH_UI_ICON_BROADCAST (public) */
-    2111, /* MESH_UI_ICON_COMPOSE (add) */
-    2187, /* MESH_UI_ICON_REPLY (reply) */
-    2294, /* MESH_UI_ICON_DELETE (delete) */
-    2482, /* MESH_UI_ICON_BLUETOOTH (bluetooth) */
-    2695, /* MESH_UI_ICON_USB (usb) */
-    2872, /* MESH_UI_ICON_RADIO (cell_tower) */
-    3236, /* MESH_UI_ICON_LINK (link) */
-    3387, /* MESH_UI_ICON_SEND (send) */
-    3500, /* MESH_UI_ICON_BACKSPACE (backspace) */
-    3648, /* MESH_UI_ICON_SPACE (space_bar) */
-    3697, /* MESH_UI_ICON_ABOUT (info) */
-    3882, /* MESH_UI_ICON_USER (person) */
-    3979, /* MESH_UI_ICON_DEVICE (tune) */
-    4135, /* MESH_UI_ICON_DISPLAY (monitor) */
-    4236, /* MESH_UI_ICON_POSITION (place) */
-    4387, /* MESH_UI_ICON_POWER (battery_charging_full) */
-    4554, /* MESH_UI_ICON_LORA (wifi_tethering) */
-    4899, /* MESH_UI_ICON_SECURITY (shield) */
-    5036, /* MESH_UI_ICON_MODULES (extension) */
-    5153, /* MESH_UI_ICON_ACTIONS (power_settings_new) */
-    5416, /* MESH_UI_ICON_MQTT (cloud) */
-    5516, /* MESH_UI_ICON_STORE_FWD (inventory_2) */
-    5671, /* MESH_UI_ICON_TELEMETRY (monitoring) */
-    5904, /* MESH_UI_ICON_RANGE_TEST (straighten) */
-    6083, /* MESH_UI_ICON_NEIGHBORS (group) */
-    6264, /* MESH_UI_ICON_AMBIENT (lightbulb) */
-    6383, /* MESH_UI_ICON_PAXCOUNTER (groups) */
-    6561, /* MESH_UI_ICON_STATUS_MSG (campaign) */
-    6732, /* MESH_UI_ICON_TAK (military_tech) */
-    6906, /* MESH_UI_ICON_DETECTION (sensors) */
-    7178, /* MESH_UI_ICON_EXT_NOTIFY (notifications) */
-    7294, /* MESH_UI_ICON_TRAFFIC (traffic) */
-    7451, /* MESH_UI_ICON_PINNED (star) */
-    7580, /* MESH_UI_ICON_ENCRYPTED (lock) */
-    7759, /* end */
+    1160, /* MESH_UI_ICON_BACK (arrow_back) */
+    1256, /* MESH_UI_ICON_EDIT (edit) */
+    1360, /* MESH_UI_ICON_UNSAVED (fiber_manual_record) */
+    1443, /* MESH_UI_ICON_CHECK (check) */
+    1524, /* MESH_UI_ICON_CLOSE (close) */
+    1636, /* MESH_UI_ICON_WARNING (warning) */
+    1764, /* MESH_UI_ICON_CHANNEL (tag) */
+    1936, /* MESH_UI_ICON_BROADCAST (public) */
+    2207, /* MESH_UI_ICON_COMPOSE (add) */
+    2283, /* MESH_UI_ICON_REPLY (reply) */
+    2390, /* MESH_UI_ICON_DELETE (delete) */
+    2578, /* MESH_UI_ICON_BLUETOOTH (bluetooth) */
+    2791, /* MESH_UI_ICON_USB (usb) */
+    2968, /* MESH_UI_ICON_RADIO (cell_tower) */
+    3332, /* MESH_UI_ICON_LINK (link) */
+    3483, /* MESH_UI_ICON_SEND (send) */
+    3596, /* MESH_UI_ICON_BACKSPACE (backspace) */
+    3744, /* MESH_UI_ICON_SPACE (space_bar) */
+    3793, /* MESH_UI_ICON_ABOUT (info) */
+    3978, /* MESH_UI_ICON_USER (person) */
+    4075, /* MESH_UI_ICON_DEVICE (tune) */
+    4231, /* MESH_UI_ICON_DISPLAY (monitor) */
+    4332, /* MESH_UI_ICON_POSITION (place) */
+    4483, /* MESH_UI_ICON_POWER (battery_charging_full) */
+    4650, /* MESH_UI_ICON_LORA (wifi_tethering) */
+    4995, /* MESH_UI_ICON_SECURITY (shield) */
+    5132, /* MESH_UI_ICON_MODULES (extension) */
+    5249, /* MESH_UI_ICON_ACTIONS (power_settings_new) */
+    5512, /* MESH_UI_ICON_MQTT (cloud) */
+    5612, /* MESH_UI_ICON_STORE_FWD (inventory_2) */
+    5767, /* MESH_UI_ICON_TELEMETRY (monitoring) */
+    6000, /* MESH_UI_ICON_RANGE_TEST (straighten) */
+    6179, /* MESH_UI_ICON_NEIGHBORS (group) */
+    6360, /* MESH_UI_ICON_AMBIENT (lightbulb) */
+    6479, /* MESH_UI_ICON_PAXCOUNTER (groups) */
+    6657, /* MESH_UI_ICON_STATUS_MSG (campaign) */
+    6828, /* MESH_UI_ICON_TAK (military_tech) */
+    7002, /* MESH_UI_ICON_DETECTION (sensors) */
+    7274, /* MESH_UI_ICON_EXT_NOTIFY (notifications) */
+    7390, /* MESH_UI_ICON_TRAFFIC (traffic) */
+    7547, /* MESH_UI_ICON_PINNED (star) */
+    7676, /* MESH_UI_ICON_ENCRYPTED (lock) */
+    7855, /* end */
 };
 
 const struct mesh_ui_icon_table mesh_ui_icon_table = {

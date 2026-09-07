@@ -42,6 +42,11 @@ MESH_ICON_ENTRY(SETTINGS,  "settings")
 
 /* This row opens something: a settings section, an action, a node's detail. */
 MESH_ICON_ENTRY(CHEVRON,   "chevron_right")
+/* B leaves this screen for the one behind it. Its own id rather than a mirrored CHEVRON,
+   because a chevron on a row is an offer the cursor takes and this is a statement about the
+   whole screen - and because the top app bar draws both at once, the trail's separators in
+   one and the leading affordance in the other. */
+MESH_ICON_ENTRY(BACK,      "arrow_back")
 /* This row's value can be changed in place - Left and Right act on it. */
 MESH_ICON_ENTRY(EDIT,      "edit")
 /* Changed here and not yet written to the radio. A dot rather than a pencil: it reports state,

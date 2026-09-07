@@ -451,6 +451,72 @@ MESH_TEST_CASE(ui_capture_follows_the_nav, unit) {
     record_success(test_name);
 }
 
+/*
+ * The top app bar's trailing slot: a fact about the *screen*, in the one place a title could
+ * not carry one.
+ *
+ * "3 unsaved" used to be " (unsaved)" glued onto the end of the breadcrumb with a %s, where it
+ * was neither countable nor a capsule - so the thing worth pinning is that it is a filled shape
+ * in the chrome rather than more words in the title, and that it is not there when there is
+ * nothing to report. Position rather than colour alone: a badge that drifted into the body
+ * would still be the right colour.
+ */
+MESH_TEST_CASE(ui_capture_app_bar_badges_unsaved_edits, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    while (store.nav.screen != MESH_UI_SCREEN_SETTINGS) {
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    }
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_test_settings_open(&store, MESH_UI_SETTINGS_DISPLAY),
+                              mesh_ui_store_shutdown(&store), "could not open a settings section");
+
+    struct mesh_ui_capture *capture = NULL;
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, 4) != 0,
+        mesh_ui_store_shutdown(&store), "capture open failed");
+
+    uint32_t width = 0U;
+    uint32_t height = 0U;
+    size_t stride = 0U;
+    const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+
+    /* Wide enough that a warning-toned glyph cannot pass for a capsule, narrow enough that the
+       shortest badge ("1 unsaved" at the smallest glyph scale a theme picks) still clears it. */
+    const unsigned capsule = 60U;
+    /* The chrome: the navigation bar and the app bar under it. The body starts well below. */
+    const uint32_t chrome = height / 6U;
+
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    mesh_ui_capture_render(capture, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        topmost_row_run(capture, pixels, width, height, stride, MESH_UI_COLOR_WARNING, capsule) <
+            chrome,
+        mesh_ui_capture_close(capture);
+        mesh_ui_store_shutdown(&store),
+        "a section with nothing pending should carry no badge in its app bar");
+
+    store.nav.settings_edit_count = 3U;
+    mesh_ui_store_request_refresh(&store);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    mesh_ui_capture_render(capture, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        topmost_row_run(capture, pixels, width, height, stride, MESH_UI_COLOR_WARNING, capsule) >=
+            chrome,
+        mesh_ui_capture_close(capture);
+        mesh_ui_store_shutdown(&store),
+        "pending edits should draw a filled badge in the app bar's trailing slot");
+
+    mesh_ui_capture_close(capture);
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
 /* The PPM is what scripts/frames.py parses, so its header and its byte order are a contract. */
 MESH_TEST_CASE(ui_capture_writes_a_ppm, unit) {
     struct mesh_ui_capture *capture = NULL;

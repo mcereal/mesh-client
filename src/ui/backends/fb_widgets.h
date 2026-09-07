@@ -417,12 +417,77 @@ void fb_draw_meter(struct mesh_ui_backend_fb_state *state, const struct fb_meter
 void fb_draw_signal(const struct mesh_ui_backend_fb_state *state, const struct fb_rect *box,
                     uint8_t level, struct mesh_ui_rgb ink, struct mesh_ui_rgb unlit);
 
-/*
- * The accented heading a screen opens with. Consumes the body row it occupies, so a screen
- * calls this and then lays its list out against the layout it hands back.
+/* ---- the badge ------------------------------------------------------------------------------
+ *
+ * A capsule of text, filled from a family. Two callers: a list row's trailing slot
+ * (FB_TRAILING_BADGE) and the top app bar's, which is why it is a component of its own rather
+ * than a few lines inside the slot - two places drawing their own round rect are two capsules
+ * that end up different shapes.
+ *
+ * It takes a family rather than a tone because it *fills* something, and a fill and the label
+ * on it are a pair the theme was validated as a pair. It follows that anything a badge does
+ * not shout is a badge that should not be there: a state every row is in is a column of colour
+ * reporting nothing, and on two of the themes here it collides with the row that has something
+ * to say. See fb_render_devices().
  */
-void fb_draw_title(const struct mesh_ui_backend_fb_state *state, struct fb_layout *layout,
-                   const char *title);
+
+/* What the capsule takes, its padding included and with no gap after it. Zero for empty text,
+   so a caller can lay a slot out without testing first. */
+int fb_badge_width(const struct mesh_ui_backend_fb_state *state, const char *text, int scale);
+
+/*
+ * Draws it: the capsule fills `box`, the words start at `text_y` - the same origin
+ * fb_draw_text() takes - inset by the padding fb_badge_width() charged for.
+ *
+ * The box is handed in rather than derived because the two callers measure it differently. A
+ * list row's slot is the row's cursor fill, which is one shape on a one-line row and another
+ * on a two-line one; the app bar's is centred on the title's glyph body.
+ */
+void fb_draw_badge(const struct mesh_ui_backend_fb_state *state, const struct fb_rect *box,
+                   int text_y, const char *text, enum mesh_ui_family family, int scale);
+
+/* ---- the top app bar ------------------------------------------------------------------------
+ *
+ * The heading a screen opens with: where you are, how to get out, and one fact about the whole
+ * screen. Consumes the body rows it occupies, so a screen calls this and then lays its list out
+ * against the layout it hands back.
+ *
+ * It used to take a `const char *`, which meant a screen's heading was a *string* and
+ * everything a heading had to carry got glued into it. Settings built "Settings > %s%s%s" out
+ * of two catalog entries and an unsaved marker, and that is a whole-sentence string id doing
+ * structural work in the same way the button hints were: the `>` separators handed a translator
+ * the breadcrumb's grammar along with its words, and a badge glued into a title with %s cannot
+ * be a badge. What is left in the catalog is one word per level.
+ *
+ * The four slots, and what each is for:
+ *
+ *   leading    the back affordance. Not a field - it is layout->back, from the action bar's own
+ *              table, so the arrow and the B keycap cannot disagree about whether B leaves.
+ *   overline   the trail of levels above this one, separated by a drawn chevron. Two levels is
+ *              the deepest anything here goes ("Settings > Modules" over "Telemetry").
+ *   title      what this screen is. One line, at MESH_UI_TYPE_TITLE.
+ *   trailing   a badge: a fact about the screen rather than about any row of it.
+ */
+
+/* Settings is the deepest trail in the tree and it is two levels; three is one level of slack
+   so that a screen growing one is a call-site change rather than a component change. */
+#define FB_APP_BAR_TRAIL_MAX 3U
+
+struct fb_app_bar {
+    /* Outermost first: {"Settings", "Modules"} above a title of "Telemetry". Each entry is one
+       level's own name - the separators belong to the component. */
+    const char *trail[FB_APP_BAR_TRAIL_MAX];
+    size_t trail_count;
+    const char *title;
+    /* The trailing capsule, empty for most screens. `badge_family` is what it is filled with:
+       the warning family for edits the radio has not been told about, which is the one this
+       exists for. */
+    const char *badge;
+    enum mesh_ui_family badge_family;
+};
+
+void fb_draw_app_bar(const struct mesh_ui_backend_fb_state *state, struct fb_layout *layout,
+                     const struct fb_app_bar *bar);
 
 /*
  * What a screen says instead of a list when it has nothing to show, under the icon of whatever

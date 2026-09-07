@@ -1,0 +1,30 @@
+# The top app bar's four slots, in the order a hand reaches them.
+#
+#   the section list   a root: a title and nothing else
+#   Display            the leading arrow arrives, because B now leaves
+#   one edit           the trailing badge arrives, and the arrow leaves with it - B is
+#                      discard while edits are pending, and the bar says only what B does
+#   Modules > MQTT     the overline: the one level between the tab and this screen. "Settings"
+#                      is not in it, because the navigation bar is already saying that
+scene demo
+scale 4
+delay 260
+config
+
+tab settings
+hold 700
+key down 4
+key a
+hold 900
+key right
+hold 1200
+key b
+key b
+hold 500
+key down 7
+key a
+hold 800
+key a
+hold 1200
+key b
+hold 600
