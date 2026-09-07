@@ -1,11 +1,12 @@
 #define _POSIX_C_SOURCE 200809L
 
-/* Standalone utilities: SHA-256 and UTF-8 handling. */
+/* Standalone utilities: SHA-256, UTF-8 handling and the clocks. */
 
 #include "framework/mesh_test.h"
 
 #include "mesh/utils/sha256.h"
 #include "mesh/utils/text.h"
+#include "mesh/utils/time.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -135,5 +136,26 @@ MESH_TEST_CASE(sha256_vectors, unit) {
     }
     MESH_TEST_FAIL_IF(mesh_sha256_file("/nonexistent/meshclient", file_digest) == 0,
                       "hashing a missing file should fail");
+    record_success(test_name);
+}
+
+/*
+ * The wall clock's override, which is what makes a rendered frame reproducible.
+ *
+ * Zero has to mean "follow the real clock" rather than "it is 1970": a caller that clears the
+ * pin - every test above does, in its cleanup - would otherwise leave every later case drawing
+ * ages of fifty-five years.
+ */
+MESH_TEST_CASE(time_wall_clock_pins_and_releases, unit) {
+    const uint32_t pinned = 1767200000U;
+    mesh_time_wall_set_fixed(pinned);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_time_wall_s() != pinned, mesh_time_wall_set_fixed(0U),
+                              "the pinned clock did not read back");
+
+    mesh_time_wall_set_fixed(0U);
+    const uint32_t live = mesh_time_wall_s();
+    /* Any date after this file was written; the point is that it is the real clock again and
+       not the epoch. */
+    MESH_TEST_FAIL_IF(live < 1700000000U, "clearing the pin did not restore the real clock");
     record_success(test_name);
 }

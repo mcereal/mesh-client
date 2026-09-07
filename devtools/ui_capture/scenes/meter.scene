@@ -14,6 +14,7 @@
 scene demo
 config
 tab status
+stats
 airtime 4 1
 hold 900
 

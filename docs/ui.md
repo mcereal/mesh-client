@@ -1990,10 +1990,12 @@ device would see it, and no scene script has to know an animation exists.
 | `scale N` | glyph multiplier, 2..6. Setup only; the default is the theme's own |
 | `theme NAME` | `dark\|light\|contrast\|colorblind`. Before the first frame it picks the look and emits nothing; after it, it switches and emits a frame |
 | `delay MS` | default per-frame delay. Setup only |
+| `clock YYYY-MM-DD HH:MM` | pin the wall clock, as local time. The scene seeds its message log and its last-heard times against it, and the renderer draws its clocks, its ages and its day separators from the same value — so the scene renders the same frames on any host at any hour, which is what a checked-in screenshot needs. Setup only; the default is the machine's own clock |
 | `tab NAME` | walk Left/Right to `messages`, `nodes`, `devices`, `status` or `settings` |
 | `key NAME [COUNT]` | `up down left right a b x y l1 r1 start select` |
 | `hold MS` | lengthen the frame just emitted, rather than emitting a duplicate. It also moves the clock on, so an animation that was mid-flight has advanced by the next line |
-| `config` | a radio that has answered the config handshake, so the Settings sections have rows instead of "not loaded". Plausible values; what is on show is the rows |
+| `config` | a radio that has answered the config handshake, so the Settings sections, the module table and About radio have rows instead of "not loaded". Plausible values; what is on show is the rows |
+| `stats` | the radio's own LocalStats report: the packet counters, the online count, the noise floor and the airtime pair. Its own verb rather than part of `scene demo` because it costs the Status tab four steps — the airtime row, the meter under it and the two counter rows — and those come off the end of the last card, which is where the queue and the radio's own words live. Calling it before `airtime` is also what stops that verb from raising a counter row of zeroes |
 | `frame` | emit the current screen again |
 | `toast TEXT` | raise the transient notice — the snackbar. It times out on the scene's own
 clock, so a `hold` past four seconds followed by a `frame` films it sliding back out |
@@ -2018,6 +2020,32 @@ ever reach a screen the device can reach.
 The one thing the harness cannot do is act on a `struct mesh_ui_action`. Pressing START in the
 keyboard raises `SEND_TEXT` and the store stops there — it is `mesh_app` that sends and echoes it
 back. `message out ...` is how a scene stands in for that.
+
+#### The listing screenshots
+
+The four stills the README and the Pak Store listing carry are scenes too, one per shot in
+[`devtools/ui_capture/scenes/shots/`](../devtools/ui_capture/scenes/shots), each named for the
+file it writes:
+
+```bash
+make screenshots                       # all four, into .github/resources/screenshots
+make screenshots ARGS="status"         # just one
+make docker-screenshots                # on macOS
+```
+
+A screenshot goes stale the way nothing else in the tree does — the UI moves on and nothing
+fails — so the fix is that regenerating them is a command rather than an afternoon with a Brick.
+They are rendered at the panel's own 1024x768 by the renderer that ships, which is what makes
+them the frames the device would draw rather than an approximation: `pak.json` lists the same
+four paths, and `scripts/screenshots.sh` is what refreshes both.
+
+Each of those scenes pins its clock, which is what makes them files rather than pictures of when
+they were taken. A frame drawn from the real clock is a function of the minute it was drawn in —
+the clock column moves, and either side of midnight the day separators move with it — so
+regenerating an unchanged UI still rewrote all four. `clock` and the seam under it
+(`mesh_time_wall_s()`, beside the monotonic clock in `src/utils/time.c`) make the rendering
+reproducible: the same scene draws the same bytes on any host at any hour. Nothing on the device
+pins it, so there the clock is the clock.
 
 ### Off the device
 

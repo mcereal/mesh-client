@@ -47,23 +47,27 @@ hold 2000
 
 # ---- the card: the mesh getting busier -------------------------------------------------------
 #
-# Each `airtime` line is one LocalStats report, which is what the radio sends its attached
-# client every few minutes - so this is an hour of mesh compressed into a few seconds. Watch the
-# three rows together: the figure says 58%, the bar says that is past both of its marks, and only
-# the line says it was 6% when we started. The first two are the same sentence at two levels of
-# effort; the third is a different sentence, and it is the one that says whether to wait.
+# `stats` and each `airtime` line after it are one LocalStats report each, which is what the
+# radio sends its attached client every few minutes - so this is an hour of mesh compressed into
+# a few seconds. `stats` goes first for the reason it does in gauges.scene: the counter rows want
+# the radio's real traffic rather than a row of zeroes.
+#
+# Watch the three airtime rows together: the figure says 58%, the bar says that is past both of
+# its marks, and only the line says it was a tenth of that when we started. The first two are the
+# same sentence at two levels of effort; the third is a different sentence, and it is the one
+# that says whether to wait.
 #
 # The line appears on the second report and not before. A trend needs two readings, and a box
 # drawn empty against a radio that has reported once would say the mesh is quiet when nothing
 # has been said about it at all.
 tab status
-airtime 6 1
-hold 500
-airtime 9 2
+stats
 hold 500
 airtime 14 3
 hold 500
-airtime 21 5
+airtime 19 5
+hold 500
+airtime 26 7
 hold 500
 airtime 33 9
 hold 500

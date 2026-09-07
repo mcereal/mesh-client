@@ -27,6 +27,7 @@ make format                               # clang-format all tracked .c/.h
 make proto                                # regenerate nanopb sources
 make release && make package              # release binary + dist/MeshClient.pak.zip
 make ui-capture ARGS="<scene> -o x.gif"   # render a UI scene to a GIF, no device needed
+make screenshots                          # re-render the four listing stills in .github/resources
 ```
 
 **A UI change is shown, not described.** `make ui-capture` drives the HUD through a scripted
@@ -40,8 +41,13 @@ are about a transition. Scene scripts and the command list are in
 make ui-capture ARGS="devtools/ui_capture/scenes/messages.scene -o messages.gif"
 make ui-capture ARGS="-t light devtools/ui_capture/scenes/messages.scene -o light.gif"
 make docker-ui-capture ARGS="..."         # on macOS
+make docker-screenshots                   # ditto for the listing stills
 printf 'scene demo\ntab nodes\nkey down 2\nkey a\n' | ./scripts/ui-capture.sh -o node.gif
 ```
+
+The README's and `pak.json`'s four stills are scenes too, one per shot in
+`devtools/ui_capture/scenes/shots/`, and `make screenshots` re-renders all four - so a UI change
+refreshes the listing pictures with a command rather than with a Brick on the desk.
 
 `make docker-*` wraps `scripts/docker.sh`, which builds the image from `docker/Dockerfile` on
 first use and bind-mounts the repo at `/src`. Container builds use `BUILD_ROOT=build/linux`, so
@@ -97,7 +103,7 @@ suite needs it.
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Verified 2026-09-07: 271 unit tests, all passing, zero compiler warnings.
+Verified 2026-09-07: 273 unit tests, all passing, zero compiler warnings.
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
 vector — not against our own encoder — so a protobuf regeneration that changes field numbers or
 wire types fails loudly.
