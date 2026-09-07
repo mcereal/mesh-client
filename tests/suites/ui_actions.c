@@ -66,20 +66,44 @@ MESH_TEST_CASE(actions_screens_offer_their_own_presses, unit) {
                       "Y should forget a radio on the Devices tab");
 
     /*
-     * Status has no controls of its own, so it offers the way out - but only while a radio is
-     * attached, because the line under the bar already ends in the quit hint when there is
-     * none, and the same instruction twice reads as a rendering fault.
+     * Status offers the way out - but only while a radio is attached, because the line under
+     * the bar already ends in the quit hint when there is none, and the same instruction twice
+     * reads as a rendering fault.
      */
     snapshot.nav.screen = MESH_UI_SCREEN_STATUS;
+    snapshot.handshake_valid = false;
     mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_QUIT) != MESH_STR_NONE,
                       "Status should not repeat the quit hint while nothing is connected");
+    /* And nothing else: with no radio its cards carry no verbs, so A means nothing here. */
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_NONE,
+                      "Status with no radio should not offer a press it cannot answer");
 
     snapshot.device_count = 1U;
     snapshot.devices[0].connected = true;
     mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_QUIT) != MESH_STR_ACTION_QUIT,
                       "Status should say how to leave once a radio is attached");
+    /*
+     * A names the verb the cursor is on rather than one word for the screen, which is the
+     * compose sheet's rule and not the settings section's: the cards offer different verbs.
+     * With one verb on offer there is nothing to choose between, so no direction keycap.
+     */
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_DISCONNECT,
+                      "A on the Link card's verb should say disconnect");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_UP_DOWN) != MESH_STR_NONE,
+                      "one verb needs no gesture for choosing between verbs");
+
+    /* A radio that has answered the handshake adds the Radio card's refresh, and the bar
+       renames A as the cursor moves onto it. */
+    snapshot.handshake_valid = true;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_UP_DOWN) != MESH_STR_ACTION_CHOOSE,
+                      "two verbs want a way to choose between them");
+    snapshot.nav.cursor[MESH_UI_SCREEN_STATUS] = 1U;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_REFRESH,
+                      "A on the Radio card's verb should say refresh");
     record_success(test_name);
 }
 

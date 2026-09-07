@@ -22,6 +22,7 @@
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/settings.h"
+#include "mesh/ui/status.h"
 #include "mesh/utils/text.h"
 
 #include <stdio.h>
@@ -1303,6 +1304,25 @@ static const struct mesh_ui_band fb_air_band = {.warn = MESH_UI_AIRTIME_BUSY_WAR
 #define FB_ANIM_ID_AIRTIME 0xFFFFFF02U
 
 /*
+ * The verbs one card offers, hung on the card that offers them.
+ *
+ * The flat list is walked rather than the card asked what it wants, so the order the buttons
+ * draw in is the order the cursor walks them by construction - see include/mesh/ui/status.h.
+ * `focus` is the screen cursor; the button it lands on is the one that draws filled, and a card
+ * holding it draws its focus ring.
+ */
+static void fb_status_card_actions(struct fb_card *card,
+                                   const struct mesh_ui_status_actions *actions,
+                                   enum mesh_ui_status_card which, uint32_t focus) {
+    for (uint32_t i = 0U; i < actions->count && i < MESH_UI_STATUS_ACTIONS_MAX; ++i) {
+        if (actions->items[i].card != (uint8_t)which) {
+            continue;
+        }
+        fb_card_action(card, actions->items[i].label, i == focus);
+    }
+}
+
+/*
  * The Status tab, as three cards.
  *
  * It used to be eighteen label/value lines on the bare ground, in one column, and nothing in it
@@ -1331,7 +1351,21 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
 
     const struct mesh_ui_device *connected = mesh_ui_snapshot_connected_device(snapshot);
 
-    fb_card_begin(&card, MESH_UI_ICON_LINK, MESH_STR_STATUS_CARD_LINK,
+    /*
+     * The verbs on offer and which of them the cursor is on. Both come from the same table
+     * nav.c walks and the action bar names, so the button that draws filled here is the one A
+     * will run - see include/mesh/ui/status.h.
+     */
+    struct mesh_ui_status_actions actions;
+    mesh_ui_status_actions(&actions, connected != NULL, snapshot->handshake_valid);
+    const uint32_t focus = snapshot->nav.cursor[MESH_UI_SCREEN_STATUS];
+
+    /*
+     * Elevated, always. It is the first question the screen answers - is there a radio - and
+     * every number on the two cards below it is about a link this one says whether we have; a
+     * column of equal weights was the audit's complaint about this screen.
+     */
+    fb_card_begin(&card, FB_CARD_ELEVATED, MESH_UI_ICON_LINK, MESH_STR_STATUS_CARD_LINK,
                   connected != NULL ? MESH_UI_TONE_SUCCESS : MESH_UI_TONE_ERROR);
     fb_card_row_text(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_TRANSPORT,
                      snapshot->transport_status[0] != '\0'
@@ -1365,6 +1399,7 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
        a screen where the radio is gone it is the row that says whether anything is there. */
     fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_DEVICES,
                 MESH_STR_STATUS_DEVICES_IN_RANGE, snapshot->device_count);
+    fb_status_card_actions(&card, &actions, MESH_UI_STATUS_CARD_LINK, focus);
     (void)fb_draw_card(state, layout, &y, &card);
 
     /*
@@ -1406,7 +1441,9 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
         have_util ? mesh_ui_band_tone(&fb_air_band, util_permille, MESH_UI_TONE_SUCCESS)
                   : MESH_UI_TONE_NORMAL;
 
-    fb_card_begin(&card, MESH_UI_ICON_NODES, MESH_STR_STATUS_CARD_MESH,
+    /* Filled: the ordinary weight, and the middle of the three. The mesh is the subject of the
+       screen once there is a link, but it is never the thing to read first. */
+    fb_card_begin(&card, FB_CARD_FILLED, MESH_UI_ICON_NODES, MESH_STR_STATUS_CARD_MESH,
                   air_tone != MESH_UI_TONE_NORMAL ? air_tone : MESH_UI_TONE_PRIMARY);
     if (snapshot->handshake_valid) {
         const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
@@ -1565,7 +1602,17 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
      * So the battery and the radio's own words come first and the heap figure last, because a
      * free-heap number is the row a user would have scrolled past anyway.
      */
-    fb_card_begin(&card, MESH_UI_ICON_RADIO, MESH_STR_STATUS_CARD_RADIO, radio_tone);
+    /*
+     * The one card whose weight is a reading rather than a decision.
+     *
+     * Every row on it appears only when the radio is in some kind of trouble, so on a healthy
+     * link it is a heading over a battery figure and nothing else - and a quiet card should
+     * recede rather than spend a panel's worth of fill saying nothing. It is outlined there,
+     * and lifts to the raised tier the moment the tone above says it has something to report,
+     * which is the fact the heading colour was already carrying alone.
+     */
+    fb_card_begin(&card, radio_tone == MESH_UI_TONE_PRIMARY ? FB_CARD_OUTLINED : FB_CARD_ELEVATED,
+                  MESH_UI_ICON_RADIO, MESH_STR_STATUS_CARD_RADIO, radio_tone);
     if (have_battery || have_uptime) {
         buffer[0] = '\0';
         if (have_battery) {
@@ -1624,6 +1671,22 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
                     MESH_STR_STATUS_LABEL_HEAP, MESH_STR_STATUS_HEAP,
                     stats->heap_free_bytes / 1024U, stats->heap_total_bytes / 1024U);
     }
+    /*
+     * A radio that has told us nothing about itself, said out loud.
+     *
+     * Every row above appears only when something is worth reporting, so a link that has just
+     * come up and a radio with no battery sensor both leave this card with no rows at all - and
+     * a card with no rows is not drawn. That was fine while the card was a readout. It is not
+     * fine now that it carries a verb: the action bar would be naming a press whose button is
+     * not on screen, and the cursor would step onto nothing. The Mesh card already had this row
+     * for the same reason its counters can be missing; this is the same sentence for the same
+     * situation, with its own id because it is read somewhere else.
+     */
+    if (fb_card_is_empty(&card) && snapshot->handshake_valid) {
+        fb_card_row_text(&card, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_RADIO_SELF,
+                         mesh_str(MESH_STR_STATUS_RADIO_NO_REPORT));
+    }
+    fb_status_card_actions(&card, &actions, MESH_UI_STATUS_CARD_RADIO, focus);
     (void)fb_draw_card(state, layout, &y, &card);
 }
 

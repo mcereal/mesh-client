@@ -3,6 +3,7 @@
 #include "mesh/ui/input.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/settings.h"
+#include "mesh/ui/status.h"
 #include "mesh/ui/store.h"
 
 #include <string.h>
@@ -175,13 +176,33 @@ static void actions_settings(const struct mesh_ui_nav *nav, struct mesh_ui_actio
 
 static void actions_status(const struct mesh_ui_snapshot *snapshot,
                            struct mesh_ui_action_bar *bar) {
+    const bool connected = mesh_ui_snapshot_connected_device(snapshot) != NULL;
+
     /*
-     * Status has no controls of its own, so the bar says the one thing the Brick's own chrome
-     * cannot: how to get out. Only while a radio is attached, though - the line under the bar
-     * already ends in the quit hint when there is none, and the same instruction twice reads as
-     * a rendering fault.
+     * The verb the cursor is on, named rather than described.
+     *
+     * This is the compose sheet's rule rather than the settings section's: the cards offer
+     * different verbs, so A does not mean one thing here the way "edit" does on a section of
+     * fields. The bar names what *this* button runs, which is the same label the button itself
+     * is drawing - one table, read twice, which is what stops the two disagreeing.
      */
-    if (mesh_ui_snapshot_connected_device(snapshot) != NULL) {
+    struct mesh_ui_status_actions actions;
+    mesh_ui_status_actions(&actions, connected, snapshot->handshake_valid);
+    const uint32_t cursor = snapshot->nav.cursor[MESH_UI_SCREEN_STATUS];
+    if (cursor < actions.count) {
+        bar_add(bar, MESH_UI_BUTTON_A, actions.items[cursor].label);
+    }
+    /* Only once there is somewhere to move to. A screen offering one verb needs no gesture for
+       choosing between verbs, and a keycap that does nothing is worse than one fewer. */
+    if (actions.count > 1U) {
+        bar_add(bar, MESH_UI_BUTTON_UP_DOWN, MESH_STR_ACTION_CHOOSE);
+    }
+    /*
+     * And the one thing the Brick's own chrome cannot say: how to get out. Only while a radio
+     * is attached - the line under the bar already ends in the quit hint when there is none,
+     * and the same instruction twice reads as a rendering fault.
+     */
+    if (connected) {
         bar_add(bar, MESH_UI_BUTTON_QUIT, MESH_STR_ACTION_QUIT);
     }
     bar_add_tabs(bar);

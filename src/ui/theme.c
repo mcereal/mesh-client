@@ -1070,6 +1070,12 @@ bool mesh_ui_theme_validate(const struct mesh_ui_theme *theme, char *reason, siz
                body - so it owes both grounds the secondary threshold. */
             {MESH_UI_SLOT_COUNT, MESH_UI_SLOT_BASE, MESH_UI_COLOR_BG, MESH_UI_STATE_REST, 3.0},
             {MESH_UI_SLOT_COUNT, MESH_UI_SLOT_BASE, MESH_UI_COLOR_SURFACE, MESH_UI_STATE_REST, 3.0},
+            /* And on the raised tier, because a card may now be drawn there: an elevated card
+               is SURFACE_HIGH with the same headings and the same row tones written on it as a
+               filled one, and a variant that changed the fill without extending the contract
+               would be a card whose heading a theme is free to swallow. */
+            {MESH_UI_SLOT_COUNT, MESH_UI_SLOT_BASE, MESH_UI_COLOR_SURFACE_HIGH, MESH_UI_STATE_REST,
+             3.0},
             /* A container is a fill on the body ground. It only has to be found, not read -
                the same "visible at all" bar the meter track gets, and for the same reason. */
             {MESH_UI_SLOT_COUNT, MESH_UI_SLOT_CONTAINER, MESH_UI_COLOR_BG, MESH_UI_STATE_REST, 1.2},

@@ -133,8 +133,9 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | App glue | `src/core/app*.c` | `app` lifecycle/link, `_actions` UI actions, `_publish` to store, `_settings` writes |
 | Self-update | `src/core/updater.c`, `version.c` | forks curl, SemVer, digest-verified install |
 | UI | `src/ui/` | store/controller + `nav*.c` + `settings*.c` + `layout.c` + `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
-| UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window; cards, buttons, chips, badges, list items (leading/marker/supporting/trailing slots), switches, meters (with domains and drawn threshold bands), signal staircases, bubbles, the top app bar, the navigation bar, the action bar, the snackbar |
+| UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window; cards (filled/elevated/outlined, with verbs on the heading line), buttons, chips, badges, list items (leading/marker/supporting/trailing slots), switches, meters (with domains and drawn threshold bands), signal staircases, bubbles, the top app bar, the navigation bar, the action bar, the snackbar |
 | Button hints | `src/ui/actions.c`, `include/mesh/ui/actions.h` | what the buttons do here, as (button, verb) pairs the action bar iterates |
+| Status verbs | `src/ui/status.c`, `include/mesh/ui/status.h` | which Status card carries which verb — read by `nav.c`, `actions.c` and the renderer alike |
 | Animation | `src/ui/anim.c`, `src/ui/controller.c` | fixed-point easing + a table keyed per control; the repaint timerfd that feeds it |
 | Icons | `src/ui/icon.c`, `src/ui/icon_glyphs.c`, `include/mesh/ui/icons.def` | monochrome Material Symbols, tinted by the theme, in the row slots |
 | Themes | `src/ui/theme.c`, `src/ui/font.c` | palette by role, surface tiers, the shape scale, metrics, font registry; `MESHCLIENT_THEME` or Settings > About picks one |
@@ -187,6 +188,18 @@ monochrome sprite the row draws in its own ink. The set is one line per icon in
 `include/mesh/ui/icons.def`; adding one is a line there plus `scripts/gen-icons.py`. The `"> "`,
 `"* "`, `"#"` and `"+"` markers this replaced are gone from the fb backend - see
 [`docs/ui.md`](docs/ui.md#srcuiiconc--the-generated-srcuiicon_glyphsc).
+
+**No card weight is spelled out in a renderer either, and no card acts on its own.** A card
+names one of three *variants* (`FB_CARD_FILLED`, `_ELEVATED`, `_OUTLINED`) and `fb_draw_card()`
+answers with a surface tier - there is no alpha on this panel and nothing to cast a shadow into,
+so how far a card is off the ground is carried by its fill, which is Material's tonal elevation.
+A card can also carry up to three *verbs*, as buttons against the far edge of its heading line,
+and which card carries which is a table in [`src/ui/status.c`](src/ui/status.c) rather than a
+fact the renderer holds - because `nav.c` walks the cursor over the same list and
+`src/ui/actions.c` names the press in the action bar, and three opinions about one list is how
+the button under the cursor and the verb in the bar come to disagree. A focused card is
+*derived*: it draws its accent ring because one of its buttons is selected, never because a flag
+said so - the same correction the app bar's back arrow made.
 
 **No colour, margin, glyph size or corner radius is spelled out in a renderer.** A screen names
 a *tone* (`MESH_UI_TONE_WARNING`), a widget that fills something names a *family*
@@ -260,6 +273,23 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   Symbols, for `scripts/gen-font.py`, which rasterises the `ui` face out of JetBrains Mono, and
   for `scripts/gen-locale.py`, which turns the string catalog into a translation template or a
   locale skeleton.
+- **A card's verbs are on its heading line, not in a row under its content.** Every phone puts
+  card actions at the bottom, and that is how it was first written. It cost a row of content per
+  card carrying a verb, and the screen it cost them on is the one that can outgrow its panel -
+  the Status tab lost the TX queue and the reboot count off the end of the Radio card. A heading
+  is three or four cells of a line that is otherwise empty; the verbs go in the rest of it, at
+  the chrome scale, and cost nothing.
+- **The Status cursor is an index into the verbs its cards offer, so that list may only ever
+  grow at its end.** Both verbs are gated on the link being up for that reason as much as for
+  their own: a verb appearing *ahead* of the cursor changes what the next A press does without
+  the cursor moving. See `mesh_ui_status_actions()`.
+- **A card's focus ring is painted inward and is not part of its layout.** The card's edge is in
+  the content inset and in the box height, so a ring that widened it would make a card grow when
+  the cursor arrived and shift every card below it.
+- **A card that can end up with no rows must not be given a verb.** A card with no rows is not
+  drawn, and a verb on an undrawn card leaves the action bar naming a press whose button is not
+  on the frame. That is why the Radio card says "no report yet" rather than disappearing when
+  the radio has told us nothing about itself.
 - **A font's cell height is not its cap height.** Anything sized to stand beside the text - an
   icon in a row slot - uses `mesh_ui_font_cap()`. They are equal for `5x7`, whose capitals fill
   its cell, and they are not for a face with real ascenders and descenders; using the cell there

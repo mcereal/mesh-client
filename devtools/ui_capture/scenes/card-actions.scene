@@ -1,0 +1,50 @@
+# Cards with weight, and cards with verbs.
+#
+# Two things land here at once, and they are the same argument from either end. A column of
+# cards drawn at one weight has no shape - Link and Mesh sat side by side with nothing to say
+# which one to read first - so a card now states one of three variants, which on a panel with no
+# alpha to cast a shadow into is one of three surface tiers. And a card that reports on
+# something is where the verb about it belongs: disconnecting used to mean walking to the
+# Devices tab to press X on a card that was already naming the radio.
+#
+# Watch three things: the fills, the ring, and the bar. The Link card is a step off the ground
+# and always is - it answers the screen's first question. The Radio card is outlined while it
+# has nothing to report and lifts to the raised tier the moment it does, which is the same fact
+# its heading colour was carrying alone. And Up/Down walks the verbs rather than the cards, so
+# the focus ring moves between panels and the action bar renames A as it goes.
+
+scene demo
+delay 260
+config
+
+tab status
+hold 1100
+
+# Down to the Radio card's verb. The ring follows, the button fills, and "A disconnect" in the
+# bar becomes "A refresh" - one table read twice, which is what stops the two disagreeing.
+key down
+hold 1400
+key up
+hold 900
+
+# The radio comes under pressure. Every row on that card exists only while something is wrong,
+# which is why it recedes when nothing is - and why it lifts here without a row having to be
+# read. The heading tone and the variant are two readings of one fact.
+queue 6 16
+hold 700
+notice warn Duty cycle limit reached, transmit paused
+hold 900
+queue 0 16 refused
+hold 900
+reboots 2
+hold 1200
+
+# The same three weights in every theme. A variant is a surface role and the ring is a tone, so
+# nothing here is switched by hand - and on the contrast theme, where all three tiers are within
+# a shade of the ground, the hairline is the whole of what says a card is there.
+theme light
+hold 1200
+theme contrast
+hold 1200
+theme colorblind
+hold 1600

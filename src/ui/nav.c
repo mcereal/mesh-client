@@ -14,6 +14,7 @@
 #include "mesh/core/message.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/settings.h"
+#include "mesh/ui/status.h"
 #include "mesh/utils/array.h"
 #include "mesh/utils/text.h"
 
@@ -229,6 +230,22 @@ static void mesh_ui_nav_fill_favorite(struct mesh_ui_action *action,
 
 /* ---- rows and cursors --------------------------------------------------------------------- */
 
+/*
+ * The verbs the Status cards offer, from the store.
+ *
+ * mesh_ui_status_actions() takes the two facts as booleans rather than either of the two
+ * parallel structs, because it is asked the same question from three places holding different
+ * ones - here with a store, and from actions.c and the renderer with a snapshot.
+ */
+static void mesh_ui_nav_status_actions(const struct mesh_ui_store *store,
+                                       struct mesh_ui_status_actions *out) {
+    bool connected = false;
+    for (size_t i = 0; i < store->device_count; ++i) {
+        connected = connected || store->devices[i].connected;
+    }
+    mesh_ui_status_actions(out, connected, store->handshake_valid);
+}
+
 uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                enum mesh_ui_screen screen) {
     if (store == NULL) {
@@ -265,8 +282,14 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
             &store->settings, store->handshake_valid ? &store->handshake : NULL,
             (enum mesh_ui_settings_section)nav->settings_section, nav->settings_channel);
     case MESH_UI_SCREEN_STATUS:
-    default:
-        return 0U;
+    default: {
+        /* Status has no list. Its "rows" are the verbs its cards offer, walked as one flat
+           set - a card is focused because the cursor is on one of its buttons, and a card with
+           no verb is stepped over. See include/mesh/ui/status.h for why the list is flat. */
+        struct mesh_ui_status_actions actions;
+        mesh_ui_nav_status_actions(store, &actions);
+        return actions.count;
+    }
     }
 }
 
@@ -674,8 +697,38 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         return true;
     }
     case MESH_UI_SCREEN_STATUS:
-    default:
-        return false;
+    default: {
+        struct mesh_ui_status_actions actions;
+        mesh_ui_nav_status_actions(store, &actions);
+        if (cursor >= actions.count) {
+            return false;
+        }
+        if (action == NULL) {
+            return false;
+        }
+        switch ((enum mesh_ui_status_verb)actions.items[cursor].verb) {
+        case MESH_UI_STATUS_VERB_DISCONNECT:
+            /* The same press X makes on the Devices tab, and it names the radio for the same
+               reason: only one link is ever up, so the transport is told which one to drop
+               rather than being left to work it out. */
+            action->type = MESH_UI_ACTION_DISCONNECT;
+            for (size_t i = 0; i < store->device_count; ++i) {
+                if (!store->devices[i].connected) {
+                    continue;
+                }
+                snprintf(action->identifier, sizeof action->identifier, "%s",
+                         store->devices[i].identifier);
+                action->kind = store->devices[i].kind;
+                break;
+            }
+            return false;
+        case MESH_UI_STATUS_VERB_REFRESH:
+        default:
+            /* No pending edits to report: this screen has none to hold, unlike X on Settings. */
+            action->type = MESH_UI_ACTION_REFRESH_SETTINGS;
+            return false;
+        }
+    }
     }
 }
 

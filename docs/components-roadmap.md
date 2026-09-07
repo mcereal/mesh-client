@@ -223,6 +223,11 @@ have a chip strip — a filter row on Nodes (*All / Direct / Favourites*) would 
 the measuring loop, which is the exact duplication `fb_chip_width()` was added to prevent. Move it
 to `fb_widgets.c` as `fb_draw_nav_bar()` / `fb_draw_chip_strip()`.
 
+> **Landed.** `enum fb_card_variant` on `struct fb_card`, `fb_card_action()` on its heading line,
+> and the Status tab's cursor over the verbs its cards carry. §8 has what doing it changed —
+> including the two things the entry below got wrong about where an action row goes and about
+> what "focusable" turned out to mean.
+
 **2.4 The card has one variant.** On the dark theme the card fill sits close enough to the ground
 that a card reads as an outlined box; on Status, two cards of equal weight say Link and Mesh with
 nothing to say which one to look at. M3 has filled, elevated and outlined and uses the difference
@@ -474,7 +479,7 @@ Each step is independently shippable and each is visible.
 | 5 | Nav bar + action bar as components (§2.2, §2.3) | **done** | Both are moves into `fb_widgets.c`; both benefit from 3 and 4 |
 | 6 | Leading icon and badge, wired up (§2.14) | **done** | No new component: a slot with no caller, one only the conversation cell reaches, and two marker characters |
 | 7 | Top app bar (§2.15) | **done** | Retires the breadcrumb format strings, and is where 8 and 11 land |
-| 8 | Card variants and card actions (§2.4) |  | Where the type scale pays off most |
+| 8 | Card variants and card actions (§2.4) | **done** | Where the type scale pays off most |
 | 9 | Variable-height list rows (§1.4) |  | Structural. §1.1's unfinished half and three components below wait on it |
 | 10 | Checkbox / radio, segmented button (§2.5, §2.6) |  | Additive slots on components that already exist |
 | 11 | Banner and screen progress (§2.9, §2.10) |  | New surfaces; the bar from 7 is where progress hangs |
@@ -675,3 +680,86 @@ four that would have had one for free are not paying anything.
 
 §2.9's banner and §2.10's screen progress both hang off this bar's bottom edge, and both are
 unblocked by it now.
+
+## 8. What doing step 8 changed
+
+The entry budgeted three things — a variant enum, an action row, and a focusable card — and read
+as though the first was the work and the other two were struct fields. It is the other way round.
+The variant is four lines and a switch. What the other two cost is a place to put a button, an
+interaction model, and one bug that only exists once a card can offer a verb.
+
+- **An action row does not go at the bottom.** M3 puts card actions under the content and that is
+  how this was first written, buttons at the body scale in a row along the card's bottom edge. It
+  looked right and it cost a row per card carrying a verb — which was measured rather than
+  guessed, by rendering the same scene with the calls disabled: the Status tab lost the TX queue
+  and the reboot count off the end of the Radio card, which are two of the rows that card exists
+  to show, on the one screen here that can outgrow its panel. A heading is three or four cells of
+  a line that is otherwise empty. The verbs went into the rest of it, at the chrome scale the
+  heading is drawn at and the action bar draws every other verb on the frame at, and the whole
+  thing costs nothing. **On a panel with fifteen rows, a component that wants a row of its own has
+  to be worth a row of content, and an action row is not.**
+- **"Focusable" is not a flag, and it is not a state layer either.** The entry's wording invites a
+  `bool focused` on `struct fb_card` and `MESH_UI_STATE_SELECTED` over its fill, which is what the
+  palette's own rule would suggest. Both are wrong here. The flag is a second opinion about
+  something the buttons already say, so focus is *derived* — a card is focused because one of its
+  actions is selected — which is the same correction step 7 made about the back arrow. And the
+  state layer over an area that large is a change nobody sees from across a table, while every
+  tone written on the card would then owe the layered fill its own contrast contract, on each of
+  three tiers. What says which card the next press acts on is an **accent edge, drawn thicker**:
+  Material's focus indicator, read at a glance, and `PRIMARY` already owes both grounds 3:1.
+- **The cursor walks verbs, not cards.** There was no free axis for anything else: Left and Right
+  are the tab switch on every screen including this one, so a per-card cursor with Left/Right
+  inside it would have had to take a gesture that works everywhere. Up and Down walk the flat
+  list of verbs instead, and a card with none is stepped over — which is also why the Mesh card
+  needs no "this card has no actions" anything. The one thing this costs is that a card with two
+  verbs is walked vertically through a horizontal pair; no card here has two yet, and the day one
+  does is the day to look at it again.
+- **A card that can be empty cannot carry a verb.** Every row on the Radio card appears only when
+  the radio is in some kind of trouble, so a healthy radio leaves it with no rows — and a card
+  with no rows is not drawn. That was fine while it was a readout. With a verb on it, the action
+  bar was naming a press whose button was nowhere on the frame and the cursor was stepping onto
+  nothing. The Mesh card already had a `no report yet` row for the same reason its counters can
+  be missing, so the Radio card got the same sentence with its own id. The general form is worth
+  keeping: **a verb may only be offered where the thing carrying it is guaranteed to be drawn**,
+  and "guaranteed" means the renderer's condition, not the model's.
+- **The third variant was already on the screen, as a colour.** `radio_tone` is a reading of the
+  worst thing that card holds, and the card's variant is now that same reading rather than a
+  separate decision: outlined while it has nothing to report, so a quiet card recedes into the
+  ground instead of spending a panel of fill saying nothing, and raised the moment the tone says
+  otherwise. Link is elevated always, because it answers the screen's first question. Mesh is
+  filled. That is the audit's complaint — *two cards of equal weight with nothing to say which one
+  to look at* — answered by one existing fact and one line.
+- **A variant is a fill, so it extends the contrast contract.** An elevated card is
+  `SURFACE_HIGH` with the same headings and row tones on it, so `k_family_rules` gained
+  BASE-on-`SURFACE_HIGH` at 3:1 and every family is now checked on all three grounds a card can
+  be. All four shipped themes cleared it unchanged, which is what a rule looping over the
+  families rather than over a hand-written list is for.
+
+Two things the first draft got wrong, both found by review and both worth keeping written down
+because the next focusable component meets them again:
+
+- **A focus indicator must not be part of the layout.** The ring was drawn by doubling the
+  card's edge, and that edge is also in the content inset and in the box height — so selecting a
+  card made it taller, moved its text, pushed every card under it down the panel, and could
+  change which rows were clipped, all because the cursor arrived. The painted thickness is now
+  its own number and grows *inward* into the padding; the layout edge is a fact about the card,
+  never about what is selected.
+- **A cursor that is an index needs a list that only appends.** Refresh was offered on a synced
+  radio whether or not the link was up. A client holding a cached configuration therefore offered
+  refresh alone, and auto-connect arriving slid disconnect in *underneath* a cursor still sitting
+  on index 0 — so a press meant to re-read the settings would have dropped the link that had just
+  come up. The fix is not to remember the verb: it is to gate both verbs on the same fact, so the
+  list goes empty → `[disconnect]` → `[disconnect, refresh]` and nothing is ever inserted before
+  something already on it. That is also the more honest gate, because a refresh is a request over
+  the air and `mesh_session_refresh_settings()` answers `-ENOTCONN` without one. A third verb here
+  has to keep the invariant or the cursor has to start carrying a verb rather than an index.
+
+One thing deliberately left: the entry's own worked example, *"Radio actions" is a list row that
+opens a screen because a card cannot offer a verb*. A card can now, and that verb still is not
+there — the confirmation dialog is keyed on `nav->settings_section` and takes its strings from
+`settings.c`, so a reboot raised from the Status tab would mean decoupling the dialog from the
+settings model first. That is a nav change rather than a component one, and it belongs with §2.9's
+banner rather than here. The two verbs the cards do carry — disconnect and refresh — are both
+presses that already existed on other screens, which was the point: this step gives a card
+somewhere to put a verb, and a verb invented for the occasion would have been arguing two things
+at once.
