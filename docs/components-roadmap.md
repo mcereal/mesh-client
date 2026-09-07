@@ -333,7 +333,10 @@ filter row and a segmented control all have" — the component predicted this on
 setting with two to four choices is currently a value column stepped with Left/Right, which shows
 one option at a time and gives no sense of how many there are. A segmented control shows the set.
 
-**2.7 No slider.** `NUMBER` settings step with Left/Right and report a figure. The meter already
+**2.7 No slider.** *(Landed - see §12, including the two things this entry did not have: that
+what a preset list means cannot be derived from the integers in it, and that a list can be a
+scale with one value standing outside it.)* `NUMBER` settings step with Left/Right and report a
+figure. The meter already
 draws an animated track with a fill; a slider is that plus a knob and a focused state. Worth it
 for the settings that are genuinely continuous — screen-on seconds, broadcast intervals — and not
 worth it for the ones that are really enums with numeric labels.
@@ -484,7 +487,7 @@ Each step is independently shippable and each is visible.
 | 9 | Variable-height list rows (§1.4) | **done** | Structural. §1.1's unfinished half and three components below wait on it |
 | 10 | Checkbox / radio, segmented button (§2.5, §2.6) | **done** (the checkbox is held, see §10) | Additive slots on components that already exist |
 | 11 | Banner and screen progress (§2.9, §2.10) | **done** (the banner's table is two entries, see §11) | New surfaces; the bar from 7 is where progress hangs |
-| 12 | Slider (§2.7) |  | Genuinely new interaction |
+| 12 | Slider (§2.7) | **done** (and it found what a scale is not, see §12) | Genuinely new interaction |
 | 13 | Screen transitions (§2.16) |  | Wants a direction on the nav first; the only step whose work is mostly outside the backend |
 | — | Meter domain and bands, signal staircase (§2.11, §2.12) | **done** | Out of order on purpose: both were visible on the device and neither needed anything above |
 | 14 | Sparkline (§2.13) |  | A sample ring in the store first; the component is the small half |
@@ -1020,3 +1023,102 @@ as long as it runs - and a bar that never stopped would be a bar that had stoppe
 anything. Every derived indicator that reads a handshake field meets this, because the roster
 surviving a disconnect is the one piece of state in this client that is deliberately older than
 the link it came from.
+
+## 12. What doing step 12 changed
+
+The entry called this "genuinely new interaction", and that is the one thing it is not. Left and
+Right already stepped a `NUMBER` field, the marker gutter already carried the pencil that says
+so, and nothing about input changed - exactly as in step 10, and for the same reason: the
+control is a *statement about state*, and the press that changes the state was already there.
+What was new is that this is the first component whose correctness is a question about the data
+rather than about the drawing, and the drawing was finished long before the answer was.
+
+- **The slider is the meter's sibling and is not a variant of it.** §2.7 read them as one shape
+  with a knob added, which is true of the pixels. The distinction that matters is the same
+  temporal one §11 found between the progress bar and the banner, one level down: a meter reports
+  a level *being told to you* and eases towards each sample; a slider reports a value you are
+  *choosing between others*, marks the others on its own track, and has a focused state because
+  there is a cursor on it. A component with a state the other has no word for is a second
+  component.
+- **It went on the second step, and the trailing slot was never in the running.** The rule that
+  slot was written with settles it: *inline is for a figure the eye passes; a step is for one it
+  stops on*. A settings control is by definition the second kind. The measurement says the same
+  thing - eight cells could not carry a band's two boundary marks, and this needs a dozen stops.
+  The cost is real and was accepted: a section of durations is now half as many rows on screen,
+  which is what the node detail paid in step 9 for exactly the same reason.
+- **What a preset list *is* cannot be derived from it, and that is the whole of the step.** `{0,
+  1, 2, 3, 4, 5, 6, 7}` is a hop limit under one field and a GPIO pin under the next. A length
+  drawn across the second says a pin is two thirds of the way to being a pin, which is §2.11's
+  rule - *a picture cannot be wrong quietly* - meeting a component that has no reading of its
+  own to check against. So every `NUMBER` field states which it is, in the same table entry that
+  states its presets, and the five lists that name things rather than measure them (a spreading
+  factor, a bandwidth, a coding rate, a pin, a count of coordinate bits) say so. The LoRa
+  section is where the argument is visible in one frame: five numeric rows, two with a track
+  under them and three without.
+- **And the harder half is that a list can be a scale with one value that is not on it.** This
+  is what the first version shipped wrong, and it was visible in the first capture: LoRa's
+  transmit power reads `max` at 0, drawn with its handle hard left - at the *empty* end of its
+  own bar, reporting the opposite of what it says. Every `default` is the same mistake more
+  quietly: a screen timeout the firmware picks is not the shortest one this client offers, it is
+  an interval nobody here knows. So `SCALE_PRESETS_AFTER_ZERO()` stands that value outside the
+  track, the scale is what follows it, and such a value draws the stops with no handle anywhere -
+  §10's *a control that shows a set has to be able to say "not one of these"*, arriving on an
+  axis. An empty track is not ambiguous with a value at the minimum, because a value at the
+  minimum has a handle sitting on it.
+- **Stop space, not value space.** These lists climb geometrically, so a handle at `value/max`
+  would crowd eight of screen-on's ten choices into the first sixth of the track. What is being
+  chosen between is the choices, so the stops are evenly spaced. That immediately buys the thing
+  the segmented button could not have: a value *between* two stops is interpolated rather than
+  refused, because an axis has room between its members and a set of alternatives does not. A
+  radio reporting 42 seconds - a firmware default, a phone app with a different list - lands
+  where 42 seconds is.
+- **The height comes from the field, never from the value.** `unplaced` is the only state in the
+  client where a row would otherwise want a different height, and the tempting thing to write -
+  no slider, so no second step - reflows the section under the cursor the instant somebody
+  presses Right off `default`. It is step 10's rule about the row count under the cursor, a step
+  further in, and it is the assertion the capture test exists for: the two frames must differ in
+  the row and be pixel-identical below it. Neither half is visible in a screenshot taken one
+  value at a time.
+- **The measurement is one function, asked twice.** `settings_row_slider()` answers "does this
+  row draw one, and where does the handle go" for the height pass and for the draw alike. This
+  is `fb_trailing_cols()`'s rule one component along, and here the two answers would have been a
+  *step* apart rather than a cell - a control drawn into a step the list never reserved, over the
+  row beneath it.
+- **The screen had to be able to measure at all, which cost an accessor and refunded it.**
+  `fb_render_settings()` asked `mesh_ui_settings_item()` row by row, and that call rebuilds the
+  section from the radio's config every time - so a screen of sixteen rows built its own section
+  sixteen times. Measuring needs every row before the first is placed, which is
+  `mesh_ui_node_detail_build()`'s shape, so `mesh_ui_settings_items()` fills the array once. The
+  step that needed the batch is the step that made the screen cheaper.
+- **Nothing new was needed to draw it.** The track is `MESH_UI_COLOR_METER_TRACK`, the fill is a
+  tone through the same `fb_meter_tone()` fallback, the stops are notches cut out in the ground
+  colour - a band boundary's own mark, for a reason that transfers exactly: a gap reads the same
+  over the fill as over the track, where an ink of its own would be two more contracts per theme
+  to say what an absence already says. The one thing measured rather than reused is the handle,
+  which is narrower than its track is thick because it marks a *position* and a wide one is a
+  range, and which stands taller under the cursor inside a box that always reserves the taller
+  size - §8's focus ring rule, since a control that grew on focus would move the rows below it.
+
+Two things review found that the argument above had right in principle and wrong in the code, and
+both are worth recording because each is a rule already written here failing at its own edge:
+
+- **A notch has to be cut *after* what it is cutting into.** The stops moved above the fill while
+  the `unplaced` exit was being written, because the marks are the one part of the control that is
+  true whatever the value is - which is a correct sentence about *meaning* and the wrong order for
+  *ink*. A gap in the ground painted before the fill is a gap the fill closes, so the stops behind
+  the handle vanished one by one as the value climbed and a full track showed none of them. The
+  meter had the order right; this is the cost of a component reusing another's idea without its
+  sequence. `ui_capture_slider_stops_survive_the_fill` reads it off the frame - the most runs of
+  ground colour any scanline has *inside* runs of the fill - because where the bar is depends on
+  the theme, and a test that worked that out would be a second opinion about the layout.
+- **Below the bottom stop is off the track, and a word is only one way to get there.** The first
+  version tested for it only on the lists that stand a zero aside, which missed the two that
+  simply *start* above zero: the public map drops a report under an hour and the firmware floors
+  neighbour info at four, so those presets begin there - while a radio nobody has configured
+  reports 0, and MQTT's map settings are an optional submessage that is absent far more often than
+  it is present. "Off" was therefore drawn exactly as "every hour". The fix is that the test is
+  about the *track*, not about the field's vocabulary: anything under the first stop is unplaced.
+
+What remains of §3 is step 13 (screen transitions) and step 14 (the sparkline), and both are
+still what the audit said they were: the first is mostly nav work, and the second is a data
+change wearing a component's clothes.

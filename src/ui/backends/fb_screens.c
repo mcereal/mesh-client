@@ -1858,6 +1858,29 @@ static void fb_render_confirm(struct mesh_ui_backend_fb_state *state,
    pending edit in place of the radio's value, marked with a dot until Y saves it. */
 /* Takes the state mutably, unlike its neighbours: the switches on the toggle rows step an
    animation kept on it. Nothing else here writes to the state. */
+/*
+ * Whether a settings row says its value with a slider, and where the handle goes if it does.
+ *
+ * One function, asked twice - once to measure the row's height and once to draw it - for the
+ * reason fb_trailing_cols() is one function: a control whose presence was decided by one piece
+ * of code and whose room was reserved by another is a control drawn over the row beneath it.
+ * Here the two answers are a step apart rather than a cell, which is the more visible half of
+ * the same bug.
+ *
+ * The decision itself is not this screen's. Whether a field's numbers measure something or name
+ * something is a fact about the field, stated in its own table entry, and the arithmetic that
+ * places a value among the presets is unit-tested in the settings model - so this is a call, not
+ * a rule. What the backend decides is only that a scale is worth a length, which is the same
+ * choice it makes when a boolean gets a switch instead of the word "On".
+ */
+static bool settings_row_slider(const struct mesh_ui_settings_item *item,
+                                struct mesh_ui_settings_track *out) {
+    if (item->kind != MESH_UI_SETTING_NUMBER || item->field == MESH_UI_FIELD_NONE) {
+        return false;
+    }
+    return mesh_ui_settings_number_track(item->field, item->number, out);
+}
+
 static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                                const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
@@ -1934,9 +1957,26 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
         return;
     }
 
-    const uint32_t count = section_open ? mesh_ui_settings_item_count(settings, handshake, section,
-                                                                      nav->settings_channel)
-                                        : mesh_ui_settings_root_count();
+    /*
+     * The section's rows, all of them, before anything is placed.
+     *
+     * Built once rather than asked for row by row, which is what step 9's list model requires of
+     * any screen whose rows are not all one height: the window, the highlight and the scroll
+     * thumb are three sums of the heights, and the model has to be handed them before it decides
+     * which rows are on screen. The node detail has had this shape since that step; the settings
+     * screen only needed it once a row could be two steps tall.
+     *
+     * It is also strictly cheaper than what it replaced. mesh_ui_settings_item() rebuilds the
+     * whole section from the radio's config for every row it answers, so the loop below used to
+     * build it once per visible row.
+     */
+    struct mesh_ui_settings_item items[MESH_UI_SETTINGS_ITEMS_MAX];
+    const uint32_t count =
+        section_open
+            ? mesh_ui_settings_items(settings, handshake, nav->settings_edits,
+                                     nav->settings_edit_count, section, nav->settings_channel,
+                                     items, MESH_UI_SETTINGS_ITEMS_MAX)
+            : mesh_ui_settings_root_count();
     if (count == 0U) {
         fb_draw_empty(state, layout, MESH_UI_ICON_SETTINGS,
                       mesh_str(MESH_STR_SETTINGS_EMPTY_SECTION));
@@ -1954,16 +1994,27 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
 
     /* Label column: a fixed width so values line up, capped for narrow scales. */
     const size_t label_cols = fb_field_label_cols(state, layout, 0U);
-    struct fb_list list = fb_list_begin(layout, count, nav->cursor[MESH_UI_SCREEN_SETTINGS]);
+    /*
+     * Which rows carry a slider, measured here and handed to the model before the first row is
+     * placed - the node detail's arrangement, and the rule step 9 left behind: the screen
+     * measures, because the screen is the only thing that knows whether a row carries a bar, and
+     * from there the model is the authority on every height.
+     *
+     * A field's answer does not depend on its current value, deliberately. The slider is dropped
+     * for a field whose numbers name something rather than measure it, and that is a fact about
+     * the field; if it depended on the value, stepping a row would change the height of the row
+     * the cursor is sitting on.
+     */
+    uint8_t heights[MESH_UI_SETTINGS_ITEMS_MAX];
+    for (uint32_t r = 0; r < count; ++r) {
+        heights[r] = (section_open && settings_row_slider(&items[r], NULL)) ? 2U : 1U;
+    }
+    struct fb_list list =
+        fb_list_begin_heights(layout, count, nav->cursor[MESH_UI_SCREEN_SETTINGS], heights);
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         if (section_open) {
-            struct mesh_ui_settings_item item;
-            if (!mesh_ui_settings_item(settings, handshake, nav->settings_edits,
-                                       nav->settings_edit_count, section, nav->settings_channel, i,
-                                       &item)) {
-                break;
-            }
+            const struct mesh_ui_settings_item item = items[i];
             /* A heading names the group below it: dimmed, no marker, and no value column -
                the same row the node detail draws, so the two screens stay identical. */
             if (item.kind == MESH_UI_SETTING_HEADING) {
@@ -2041,6 +2092,50 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                     .marker_icon = marker,
                     .tone = tone,
                     .trailing = {.kind = FB_TRAILING_SWITCH, .sw = &sw},
+                };
+                fb_list_item(state, &list, i, &row);
+                continue;
+            }
+            /*
+             * A number on a scale gets the scale drawn under it.
+             *
+             * The same choice again, one kind further along: the item already says what the
+             * value is - "5m", and the CLI backend draws exactly that and nothing else - and
+             * this is the fb backend adding what the word cannot carry, which is where 5m falls
+             * among the durations this field will accept. A row of intervals used to be a
+             * column of figures that could only be compared against each other by reading all
+             * of them.
+             *
+             * It costs the row its second step, and that is the deal §1.4 struck: a bar with the
+             * row to itself is the one that can be aimed at, and the trailing slot's eight cells
+             * cannot carry a dozen stops. A control the reader is about to change is exactly the
+             * kind of thing that earns a step, where a figure the eye passes does not.
+             *
+             * Keyed on the field, with the channel mixed in for the rows the Channels section
+             * repeats per slot - the switch's identity, because this is a control on a field in
+             * the same way, and 0x05 keeps it clear of everything the switch and the meters use.
+             */
+            struct mesh_ui_settings_track track;
+            if (settings_row_slider(&item, &track)) {
+                struct fb_slider slider = {
+                    .id = 0x05000000U | ((uint32_t)nav->settings_channel << 16) |
+                          (uint32_t)item.field,
+                    .position = track.position,
+                    .stops = track.stops,
+                    .unplaced = track.unplaced,
+                    .tone = MESH_UI_TONE_PRIMARY,
+                };
+                const struct fb_list_item row = {
+                    .leading = leading,
+                    .label = item.label,
+                    .label_cols = label_cols,
+                    .marker_icon = marker,
+                    /* The figure stays. The track says how far along, the word says how long,
+                       and neither is the other's caption - a slider with no reading is a
+                       control that cannot be set to a value anybody could name. */
+                    .value = item.value,
+                    .tone = tone,
+                    .slider = &slider,
                 };
                 fb_list_item(state, &list, i, &row);
                 continue;

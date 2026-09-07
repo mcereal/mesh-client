@@ -606,6 +606,78 @@ int fb_meter_thickness(const struct mesh_ui_backend_fb_state *state, int scale);
    mutable state for the same reason the switch does. */
 void fb_draw_meter(struct mesh_ui_backend_fb_state *state, const struct fb_meter *meter);
 
+/* ---- the slider ------------------------------------------------------------------------------
+ *
+ * A quantity the reader is *choosing*, where the meter is a quantity they are being told.
+ *
+ * That is the whole of what separates the two components, and it is why this is not a flag on
+ * the meter. A meter reports and eases towards each reading it is handed; a slider says where a
+ * value sits among the values that could have been picked instead, marks those choices on its
+ * own track, and shows which one the cursor is on. The first is a picture, the second is a
+ * control, and a control has a state the picture has no word for.
+ *
+ * What it replaced: a NUMBER setting was Left/Right over a preset list with the chosen value in
+ * the value column - "5m", and nothing at all about whether 5m was near the short end of what
+ * this field offers or near the long one. The figure is still drawn, because the figure is what
+ * says *how long*; the track is what says *how far along*, and that is the half a row of
+ * durations could not answer without the reader already carrying the list around.
+ *
+ * The stops are evenly spaced and the reading between them is interpolated - see
+ * mesh_ui_settings_number_track(), which is where that arithmetic lives so a test can reach it. Two
+ * consequences the drawing depends on: a preset list that climbs geometrically still gives an
+ * aimable track, and a value the list does not contain lands between two stops rather than being
+ * refused. The segmented button had to fall back to words for an unknown value because a set of
+ * alternatives has no room between its members; an axis has room, so this one does not need the
+ * fallback.
+ */
+
+struct fb_slider {
+    struct fb_rect rect; /* the track's box; fb_slider_height() is the height one wants */
+    /* Identity for the animation, 0 for none - the meter's contract, and it matters here for
+       the same reason it matters on the switch: a press should move the handle, and a screen
+       opening on a value should not animate up to it from zero. */
+    uint32_t id;
+    /* Where the value sits, in permille of the track. The caller's, not derived here: which
+       values a field offers is the settings model's business and the arithmetic that places one
+       among them is unit-tested there. */
+    int32_t position;
+    /* How many choices to mark on the track, 0 for an unmarked one. The component decides
+       whether they are drawn - see fb_draw_slider() - because a mark the eye cannot separate
+       from its neighbour is worse than no mark, and the width that decides it is not known
+       until the row has laid the track out. */
+    uint32_t stops;
+    /* The active track and the handle, from one tone. ACCENT, GOOD or BAD - the meter's three,
+       validated against MESH_UI_COLOR_METER_TRACK - and anything else falls back to the
+       accent. */
+    enum mesh_ui_tone tone;
+    /*
+     * The value the row is showing is not one this track has room for, so the control draws its
+     * stops and nothing else - no fill, and no handle anywhere.
+     *
+     * §10's rule arriving on an axis: *a control that shows a set has to be able to say "not one
+     * of these"*. Two things reach it. Almost every settings scale here opens with a value that
+     * is a word rather than a quantity - a "default" the firmware picks, LoRa's "max" - and
+     * neither belongs at the bottom of a bar; and two lists start above zero because the thing
+     * receiving the setting refuses anything below that, while an unconfigured radio still
+     * reports 0. An empty track is not ambiguous with a value at the minimum, because a value at
+     * the minimum has a handle sitting on it.
+     */
+    bool unplaced;
+    /* The cursor is on this row: the handle stands up to its full height, and the track gets
+       its own ground under the cursor fill. A slider is the one control on a settings row that
+       the reader is about to change, so it says so rather than looking the same everywhere. */
+    bool selected;
+};
+
+/* The height the whole control wants at `scale` - the handle's, which is taller than its track.
+   Reserved whether or not the cursor is on the row, so a handle standing up under the cursor
+   does not make the row it is on grow and shift every row below it. */
+int fb_slider_height(const struct mesh_ui_backend_fb_state *state, int scale);
+
+/* Draws the track, its stops, and the handle at `position`, easing the handle towards it. Needs
+   the mutable state for the reason the meter and the switch do. */
+void fb_draw_slider(struct mesh_ui_backend_fb_state *state, const struct fb_slider *slider);
+
 /* ---- the signal staircase -------------------------------------------------------------------
  *
  * Its own component rather than a variant of the meter, because it is answering a different
@@ -1055,6 +1127,16 @@ struct fb_list_item {
      * for one it stops on, and a row only earns the second step by being the second kind.
      */
     struct fb_meter *meter;
+    /*
+     * The other thing that can occupy that step: the control, where the meter is the reading.
+     *
+     * Two pointers rather than a kind and a union, because unlike the trailing slot there is no
+     * measurement to get wrong - a bar is the width the words had, whichever of the two it is -
+     * and one function answers how tall the step must be for either. A row that set both would
+     * draw them on top of each other, which is a call site with two opinions about what its
+     * second step is for and not a state this can resolve for it.
+     */
+    struct fb_slider *slider;
 
     /* A bar down the leading edge when the cursor is on the row. Not decoration: a fill one
        step off the ground is not by itself findable on a small panel in sunlight, and gives a

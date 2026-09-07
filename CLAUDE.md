@@ -97,7 +97,7 @@ suite needs it.
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Verified 2026-09-07: 244 unit tests, all passing, zero compiler warnings.
+Verified 2026-09-07: 254 unit tests, all passing, zero compiler warnings.
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
 vector — not against our own encoder — so a protobuf regeneration that changes field numbers or
 wire types fails loudly.
@@ -133,7 +133,7 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | App glue | `src/core/app*.c` | `app` lifecycle/link, `_actions` UI actions, `_publish` to store, `_settings` writes |
 | Self-update | `src/core/updater.c`, `version.c` | forks curl, SemVer, digest-verified install |
 | UI | `src/ui/` | store/controller + `nav*.c` + `settings*.c` + `layout.c` + `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
-| UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window (counted in **steps**, so one row may be taller than its neighbours); cards (filled/elevated/outlined, with verbs on the heading line), buttons, chips, badges, list items (leading/marker/supporting/trailing slots, an optional full-width bar on a second step), section subheaders, switches, selection controls (checkbox/radio), segmented buttons (which fall back to the chosen word when the row is too narrow), meters (with domains and drawn threshold bands), signal staircases, bubbles, the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar |
+| UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window (counted in **steps**, so one row may be taller than its neighbours); cards (filled/elevated/outlined, with verbs on the heading line), buttons, chips, badges, list items (leading/marker/supporting/trailing slots, an optional full-width bar on a second step), section subheaders, switches, selection controls (checkbox/radio), segmented buttons (which fall back to the chosen word when the row is too narrow), meters (with domains and drawn threshold bands), sliders (a settings number on the scale of the values it could have had, with a value the scale cannot place drawn as a track with no handle), signal staircases, bubbles, the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar |
 | Button hints | `src/ui/actions.c`, `include/mesh/ui/actions.h` | what the buttons do here, as (button, verb) pairs the action bar iterates |
 | Status verbs | `src/ui/status.c`, `include/mesh/ui/status.h` | which Status card carries which verb — read by `nav.c`, `actions.c` and the renderer alike |
 | Client-level chrome | `src/ui/chrome.c`, `include/mesh/ui/chrome.h` | what the frame says about the *client* rather than about a screen: whether anything is in flight (the progress bar) and which persistent banner it carries |
@@ -308,6 +308,19 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
 - **A card's focus ring is painted inward and is not part of its layout.** The card's edge is in
   the content inset and in the box height, so a ring that widened it would make a card grow when
   the cursor arrived and shift every card below it.
+- **A slider's stops are evenly spaced, and its zero may not be on it at all.** A `NUMBER`
+  setting steps a preset list that climbs geometrically, so the handle is placed in *stop* space -
+  placing it in value space crowds eight of screen-on's ten choices into the first sixth of the
+  track. And most of those lists open with a 0 the field reads as a word: "the firmware's
+  default", and on LoRa's transmit power "as much as this radio has". Neither is a quantity, so
+  `SCALE_PRESETS_AFTER_ZERO()` stands it outside the track and the row draws its stops with no
+  handle anywhere - drawn the other way, `max` reported itself at the empty end of its own bar.
+  The same goes for a list that merely *starts* above zero (map reporting, neighbour info): the
+  test is anything under the first stop, not the field's word for it. And the stops are cut into
+  the track **after** both halves are filled, exactly as a meter's band boundaries are - painted
+  before the fill they are gaps the fill closes, and a full track shows none of them.
+  Which lists are a scale at all is stated per field (`SCALE_PRESETS` / `NAMED_PRESETS`) and is
+  not derivable: `{0, 1, ... 7}` is a hop limit under one field and a GPIO pin under the next.
 - **A card that can end up with no rows must not be given a verb.** A card with no rows is not
   drawn, and a verb on an undrawn card leaves the action bar naming a press whose button is not
   on the frame. That is why the Radio card says "no report yet" rather than disappearing when
