@@ -1,3 +1,10 @@
+## [2.15.1](https://github.com/mcereal/mesh-client/compare/v2.15.0...v2.15.1) (2026-09-07)
+
+### Bug Fixes
+
+* **ui:** round the icon buffer bound the way the box is rounded ([142902d](https://github.com/mcereal/mesh-client/commit/142902dacb498b0607418b2adc8d068dd63442de))
+* **ui:** stop the icon sprites being cropped ([230cc4d](https://github.com/mcereal/mesh-client/commit/230cc4d17f8be8aa79af73dbd67244bffa85b7c8))
+
 ## [2.15.0](https://github.com/mcereal/mesh-client/compare/v2.14.0...v2.15.0) (2026-09-07)
 
 ### Features
