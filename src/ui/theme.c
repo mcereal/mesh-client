@@ -86,7 +86,7 @@ static const struct mesh_ui_theme
             {
                 .id = "dark",
                 .name = "Dark",
-                .font_id = "5x7",
+                .font_id = "ui",
                 .dark = true,
                 .colors =
                     {
@@ -177,7 +177,7 @@ static const struct mesh_ui_theme
             {
                 .id = "light",
                 .name = "Light",
-                .font_id = "5x7",
+                .font_id = "ui",
                 .dark = false,
                 .colors =
                     {
@@ -258,7 +258,7 @@ static const struct mesh_ui_theme
             {
                 .id = "contrast",
                 .name = "High contrast",
-                .font_id = "5x7",
+                .font_id = "ui",
                 .dark = true,
                 .colors =
                     {
@@ -341,7 +341,7 @@ static const struct mesh_ui_theme
             {
                 .id = "colorblind",
                 .name = "Colour-blind safe",
-                .font_id = "5x7",
+                .font_id = "ui",
                 .dark = true,
                 .colors =
                     {

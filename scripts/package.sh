@@ -50,6 +50,15 @@ cp pak.json "${OUTPUT_DIR}/pak.json"
 mkdir -p "${OUTPUT_DIR}/certs"
 cp Tools/tg5040/MeshClient.pak/certs/certificates.crt "${OUTPUT_DIR}/certs/certificates.crt"
 
+# The licences for the third-party data compiled into the binary. Three fonts are rasterised
+# into it and none of them ships as a file: Material Symbols behind the icon set (Apache 2.0),
+# Noto Color Emoji behind the emoji sprites and JetBrains Mono behind the text (both SIL OFL
+# 1.1). Bitmaps rasterised from an outline are a derived work of it, and both licences ask that
+# a copy travel with every redistribution - so the pak a device installs is exactly where they
+# have to be, since it is the only thing an end user receives.
+mkdir -p "${OUTPUT_DIR}/licenses"
+cp licenses/*.txt "${OUTPUT_DIR}/licenses/"
+
 mkdir -p "${DIST_DIR}"
 # The zip holds the *contents* of the pak, not the pak folder itself. That is what the NextUI
 # Pak Store requires - it creates `Tools/<platform>/MeshClient.pak/` and unpacks into it, so a

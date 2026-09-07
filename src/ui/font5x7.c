@@ -448,23 +448,34 @@ bool mesh_font5x7_has_glyph(uint32_t codepoint) {
 /*
  * The 5x7 font as `struct mesh_ui_font`.
  *
- * The widening from this font's 8-bit columns to the interface's 16-bit ones is here rather
- * than in the table: the table is the part a human maintains, and it stays five hex bytes a
- * character. A taller font would fill the wider columns directly.
+ * The transposition from this font's column-major bitmask to the interface's row-major
+ * coverage is here rather than in the table: the table is the part a human maintains, and it
+ * stays five hex bytes a character. A pixel is either off or solid, so the coverage a lit bit
+ * turns into is the maximum - which is what makes this font come out of the resampler as the
+ * same hard-edged spans it has always drawn.
  */
 static bool font5x7_glyph(uint32_t codepoint, struct mesh_ui_glyph *out) {
     struct mesh_font_glyph glyph;
     const bool known = mesh_font5x7_glyph(codepoint, &glyph);
+    /* Row 0 of the master is the overhang, which is this font's `above`; the cell follows. */
     for (int col = 0; col < MESH_FONT_WIDTH; ++col) {
-        out->columns[col] = glyph.columns[col];
-        out->above[col] = glyph.above[col];
+        out->alpha[col] = (glyph.above[col] & 0x01U) != 0U ? MESH_UI_GLYPH_MAX_ALPHA : 0U;
+    }
+    for (int row = 0; row < MESH_FONT_HEIGHT; ++row) {
+        uint8_t *dst = &out->alpha[(size_t)(row + 1) * MESH_FONT_WIDTH];
+        for (int col = 0; col < MESH_FONT_WIDTH; ++col) {
+            dst[col] = (glyph.columns[col] & (1U << row)) != 0U ? MESH_UI_GLYPH_MAX_ALPHA : 0U;
+        }
     }
     return known;
 }
 
 const struct mesh_ui_font *mesh_ui_font5x7(void) {
     /* One column of gap between cells and two rows between lines, per scale step - the second
-       of those is the gap an accent hangs in, so it is not padding to be trimmed. */
+       of those is the gap an accent hangs in, so it is not padding to be trimmed.
+
+       The master is the cell: this is pixel art, drawn at the size it was designed at and
+       block-replicated from there, so it stays as crisp at scale 6 as it is at scale 2. */
     static const struct mesh_ui_font font = {
         .id = "5x7",
         .name = "5x7",
@@ -472,6 +483,15 @@ const struct mesh_ui_font *mesh_ui_font5x7(void) {
         .height = MESH_FONT_HEIGHT,
         .advance_gap = 1U,
         .line_gap = 2U,
+        .master_w = MESH_FONT_WIDTH,
+        /* One row taller than the cell: the overhang an accented capital's mark hangs in, which
+           is the top half of the two-row line gap above. */
+        .master_h = MESH_FONT_HEIGHT + 1U,
+        .master_top = 1U,
+        /* Its capitals fill the cell - that is why an accented one has nowhere to put its mark
+           but the overhang. */
+        .cap_rows = MESH_FONT_HEIGHT,
+        .sampling = MESH_UI_FONT_PIXEL,
         .glyph = font5x7_glyph,
         .has_glyph = mesh_font5x7_has_glyph,
     };
