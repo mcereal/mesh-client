@@ -839,9 +839,13 @@ own layer, and a row is drawn on the ground on one line and on the cursor fill o
 widget that has just filled a row knows the colour it filled it with; nothing else does.
 
 An icon occupies **exactly one text cell** so the layout above it keeps counting in columns, and
-is *drawn* at the glyph body's height and centred on that cell — a symbol the width of a cell
-advance comes out visibly smaller than the capitals it is labelling, and overhanging the gaps
-either side by a pixel or two costs nothing.
+is *drawn* so that its **symbol** stands at the glyph body's height, centred on that cell — a
+symbol the width of a cell advance comes out visibly smaller than the capitals it is labelling,
+and overhanging the gaps either side by a pixel or two costs nothing. The symbol rather than the
+sprite, because a sprite is a window a little wider than Material's grid
+(`MESH_UI_ICON_WINDOW`) with the shape inside the central `MESH_UI_ICON_BODY` of it and air
+around the outside: `fb_icon_drawn()` scales the height it is matching by that ratio, so what
+lands on the capitals' height is the shape and what overhangs is the air.
 
 The tab strip is the one place that measures before it draws: five labelled tabs fit at the
 scale the device ships with and do not at the two above it, so `fb_draw_tabs()` asks
@@ -851,9 +855,25 @@ mode, arrived at by measurement.
 
 `scripts/gen-icons.py` rasterises Material Symbols Rounded (Apache 2.0, `licenses/`) and is
 **not part of the build** — run it by hand and commit the result, exactly like the emoji
-generator. It renders filled at weight 500 and crops Material's 24 grid to the central 20 the
-symbol occupies: an outlined symbol is a 1 px stroke by the time it is 16 px across and thins to
-nothing where it curves, and keeping the padding would leave a 13 px symbol in a 16 px box.
+generator. It renders filled at weight 500, because an outlined symbol is a 1 px stroke by the
+time it is 16 px across and thins to nothing where it curves.
+
+Two things about the crop are worth knowing, because getting either wrong cuts every symbol in
+the set and the miss reads as "that is just what the icon looks like":
+
+- **It is measured off the baseline.** Material sits its 24 grid on the baseline, one em tall,
+  while PIL's default text anchor is the *ascender* — and this face's ascender is a tenth of an
+  em above the em box. Treating the two as the same put the window a descender too high and
+  shaved the bottom off everything the UI drew.
+- **The window is the whole grid plus a little air**, not the central 20 the symbol usually
+  occupies. Usually is not always: at this fill and weight the full-bleed symbols (`hub`, the
+  antenna, the warning triangle) reach the grid's edge and a hair past it. The air is free,
+  because `fb_icon_drawn()` scales it back out at draw time.
+
+The generator fails the run if a glyph's ink reaches outside the window, and
+`icon_sprites_are_not_cropped` in `tests/suites/ui_icon.c` holds the committed data to the same
+contract — a cut leaves a saturated edge on the sprite, which is a thing a test can see and a
+person reviewing a 32x32 hex table cannot.
 
 ## Themes
 

@@ -41,6 +41,23 @@ extern "C" {
 #define MESH_UI_ICON_MAX_ALPHA 15
 
 /*
+ * What a sprite is a picture *of*, in Material's own grid units - which is what a renderer needs
+ * to turn "this icon is 32 px of data" into "this icon should be drawn this big".
+ *
+ * Material draws a symbol on a 24 square and keeps it inside the central 20, so the 20 is the
+ * part that carries the shape and the ring around it is air by design. A sprite holds a little
+ * more than the 24 - MESH_UI_ICON_WINDOW - because at the fill and weight these are rasterised
+ * at, the full-bleed symbols (`hub`, the antenna, the warning triangle) reach the grid's edge and
+ * a hair past it; a window that cuts one cuts it on every screen it appears on.
+ *
+ * So a renderer that wants a symbol to stand as tall as some measurement - the capitals beside
+ * it, say - scales that measurement by WINDOW / BODY to get the box to draw the whole sprite in.
+ * The air comes out where air belongs, around the outside.
+ */
+#define MESH_UI_ICON_WINDOW 256
+#define MESH_UI_ICON_BODY 200
+
+/*
  * Every icon this build can draw.
  *
  * MESH_UI_ICON_NONE is 0 and draws nothing, which is what makes an icon slot safe to leave
