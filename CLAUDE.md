@@ -97,7 +97,7 @@ suite needs it.
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Verified 2026-09-07: 220 unit tests, all passing, zero compiler warnings.
+Verified 2026-09-07: 233 unit tests, all passing, zero compiler warnings.
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
 vector — not against our own encoder — so a protobuf regeneration that changes field numbers or
 wire types fails loudly.
@@ -133,7 +133,7 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | App glue | `src/core/app*.c` | `app` lifecycle/link, `_actions` UI actions, `_publish` to store, `_settings` writes |
 | Self-update | `src/core/updater.c`, `version.c` | forks curl, SemVer, digest-verified install |
 | UI | `src/ui/` | store/controller + `nav*.c` + `settings*.c` + `layout.c` + `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
-| UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window; cards (filled/elevated/outlined, with verbs on the heading line), buttons, chips, badges, list items (leading/marker/supporting/trailing slots), switches, meters (with domains and drawn threshold bands), signal staircases, bubbles, the top app bar, the navigation bar, the action bar, the snackbar |
+| UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window (counted in **steps**, so one row may be taller than its neighbours); cards (filled/elevated/outlined, with verbs on the heading line), buttons, chips, badges, list items (leading/marker/supporting/trailing slots, an optional full-width bar on a second step), section subheaders, switches, meters (with domains and drawn threshold bands), signal staircases, bubbles, the top app bar, the navigation bar, the action bar, the snackbar |
 | Button hints | `src/ui/actions.c`, `include/mesh/ui/actions.h` | what the buttons do here, as (button, verb) pairs the action bar iterates |
 | Status verbs | `src/ui/status.c`, `include/mesh/ui/status.h` | which Status card carries which verb — read by `nav.c`, `actions.c` and the renderer alike |
 | Animation | `src/ui/anim.c`, `src/ui/controller.c` | fixed-point easing + a table keyed per control; the repaint timerfd that feeds it |
@@ -188,6 +188,16 @@ monochrome sprite the row draws in its own ink. The set is one line per icon in
 `include/mesh/ui/icons.def`; adding one is a line there plus `scripts/gen-icons.py`. The `"> "`,
 `"* "`, `"#"` and `"+"` markers this replaced are gone from the fb backend - see
 [`docs/ui.md`](docs/ui.md#srcuiiconc--the-generated-srcuiicon_glyphsc).
+
+**No row height is spelled out in a renderer either.** A list row is however many *steps* the
+list model says it is, and a step is one body row. The screen measures - it is the only thing
+that knows whether a row carries a bar - and hands `fb_list_begin_heights()` an array, exactly
+as the transcript hands `mesh_ui_transcript_window()` one; from there the **model is the
+authority**, and every entry point that advances a row advances by `fb_list_row_height()`
+rather than by what the item it was given looks like. A screen that forgets to declare a tall
+row draws it short, which is visible, rather than over the row beneath it, which is not. The
+window, the highlight and the scroll thumb are three sums of the same heights - see
+[`docs/ui.md`](docs/ui.md#rows-that-are-not-all-the-same-height).
 
 **No card weight is spelled out in a renderer either, and no card acts on its own.** A card
 names one of three *variants* (`FB_CARD_FILLED`, `_ELEVATED`, `_OUTLINED`) and `fb_draw_card()`

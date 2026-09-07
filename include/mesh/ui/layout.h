@@ -153,6 +153,24 @@ struct mesh_ui_transcript mesh_ui_transcript_window(const uint8_t *heights, uint
  * Stateless between frames on purpose: the window is derived from the cursor every time rather
  * than remembered, so there is no scroll position to get out of step with a list that changed
  * underneath it. Iterate with mesh_ui_list_next().
+ *
+ * ---- steps ----
+ *
+ * A list measures itself in *steps* rather than in items, and an item is however many steps
+ * tall it says it is. A step is one body row; nothing here knows that, which is the point -
+ * `capacity` is steps the window holds and a backend multiplies by whatever a row costs it.
+ *
+ * Every item being one step is the common case and is what mesh_ui_list_begin() means, so
+ * `first`, `visible` and the scroll thumb all still read as item arithmetic there. What the
+ * step count buys is the case where they are not: a row carrying a chart wants two where its
+ * neighbours want one, and a window that counted items would put the cursor, the highlight and
+ * the scroll thumb in three different places the moment one row was taller than the rest.
+ *
+ * The heights are handed in as an array rather than measured through a callback because the
+ * caller has already walked its items to build them - see mesh_ui_transcript_window(), which
+ * takes the same shape for the same reason - and a second walk through a function pointer buys
+ * generality no screen on this panel needs. Nothing here has to know the height of row four
+ * hundred.
  */
 struct mesh_ui_list {
     uint32_t count;   /* items in the list */
@@ -160,6 +178,21 @@ struct mesh_ui_list {
     uint32_t first;   /* index of the first item on screen */
     uint32_t visible; /* items that fit */
     uint32_t next;    /* iterator position */
+
+    /* One height per item, in steps, or NULL when every item is `step` steps tall. Borrowed:
+       the caller owns the array and it has to outlive the list, which on every caller here
+       means it is a local in the same function. A height of 0 is read as 1 - an item that
+       occupied nothing could never be scrolled to. */
+    const uint8_t *heights;
+    uint8_t step;        /* the uniform height, when `heights` is NULL. 0 is read as 1 */
+    uint32_t capacity;   /* steps the window holds */
+    uint32_t total;      /* steps the whole list occupies */
+    uint32_t first_step; /* steps above `first` */
+    uint32_t used;       /* steps the visible items occupy */
+    /* Steps above the window that ends on the last item: how far `first_step` can travel, and
+       so where a scroll thumb reaches the end of its rail. Derived with the window because that
+       is the walk already bounded by the window rather than by the list. */
+    uint32_t last_first_step;
 };
 
 /*
@@ -169,12 +202,39 @@ struct mesh_ui_list {
  */
 struct mesh_ui_list mesh_ui_list_begin(uint32_t count, uint32_t cursor, uint32_t visible);
 
+/*
+ * The same window, over items `step` steps tall each. `capacity` is in steps, so a body of
+ * fifteen rows holding two-row items is (15, 2) rather than a division the caller does.
+ *
+ * Doing the division here rather than at the call site is what keeps the scroll thumb honest:
+ * a caller that divided first would hand over a window whose remainder - most of a row, at the
+ * scales this ships with - had already been rounded away.
+ */
+struct mesh_ui_list mesh_ui_list_begin_step(uint32_t count, uint32_t cursor, uint32_t capacity,
+                                            uint8_t step);
+
+/*
+ * The same window, over items of differing heights. `heights` is one step count per item and
+ * is borrowed for the life of the list; NULL is every item one step.
+ *
+ * The window still puts the cursor on the last line that fits and fills upward from it, which
+ * is what mesh_ui_list_begin() does and is why scrolling down a list of mixed heights does not
+ * feel like a different list.
+ */
+struct mesh_ui_list mesh_ui_list_begin_heights(uint32_t count, uint32_t cursor, uint32_t capacity,
+                                               const uint8_t *heights);
+
+/* Steps item `index` occupies. Out of range is 0, which is what an iterator past the end of a
+   list wants and what a caller advancing a y cursor should add. */
+uint8_t mesh_ui_list_item_height(const struct mesh_ui_list *list, uint32_t index);
+
 /* Hands back each visible index in turn, false when the window is exhausted. */
 bool mesh_ui_list_next(struct mesh_ui_list *list, uint32_t *index);
 
 bool mesh_ui_list_is_cursor(const struct mesh_ui_list *list, uint32_t index);
 
-/* Where the window starts so that `cursor` is inside it. */
+/* Where the window starts so that `cursor` is inside it, for a list of one-step items. Answered
+   by mesh_ui_list_begin() rather than derived beside it - one answer for where a list starts. */
 uint32_t mesh_ui_list_first_visible(uint32_t cursor, uint32_t count, uint32_t visible);
 
 /*

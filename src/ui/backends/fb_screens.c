@@ -653,15 +653,26 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
     }
 
     const size_t label_cols = fb_field_label_cols(state, layout, 16U);
-    struct fb_list list = fb_list_begin(layout, count, nav->cursor[MESH_UI_SCREEN_NODES]);
-    struct mesh_ui_line line;
+    /*
+     * The one list on the device whose rows are not all the same height, and the reason the
+     * window learned to count steps: a reading gets a bar with the row to itself, so the
+     * decibels and the percentages on this screen can be judged rather than merely read.
+     *
+     * Measured here, from the same `kind` the loop below draws from, and handed to the model
+     * before anything is placed - which is what stops the window and the draw from ever being
+     * a row apart.
+     */
+    uint8_t heights[MESH_UI_NODE_ITEMS_MAX];
+    for (uint32_t r = 0; r < count; ++r) {
+        heights[r] = items[r].kind == MESH_UI_NODE_ROW_METER ? 2U : 1U;
+    }
+    struct fb_list list =
+        fb_list_begin_heights(layout, count, nav->cursor[MESH_UI_SCREEN_NODES], heights);
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         const struct mesh_ui_node_item *item = &items[i];
         if (item->kind == MESH_UI_NODE_ROW_HEADING) {
-            mesh_ui_line_reset(&line);
-            mesh_ui_line_printf(&line, "%s", item->label);
-            fb_list_row_line(state, &list, i, &line, MESH_UI_TONE_DIM);
+            fb_list_subheader(state, &list, i, item->label);
         } else if (item->kind == MESH_UI_NODE_ROW_ACTION) {
             const struct fb_list_item row = {
                 .text = item->label,
@@ -687,12 +698,16 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
                 .band = item->banded ? &item->band : NULL,
                 .tone = MESH_UI_TONE_SUCCESS,
             };
+            /* Under the words rather than beside them, which is the second step this row was
+               given. Eight cells of trailing bar could show a level; it could not show where
+               the thresholds are, and on this screen where the reading falls between them is
+               the whole question. */
             const struct fb_list_item row = {
                 .label = item->label,
                 .label_cols = label_cols,
                 .value = item->value,
                 .tone = MESH_UI_TONE_NORMAL,
-                .trailing = {.kind = FB_TRAILING_METER, .meter = &meter},
+                .meter = &meter,
             };
             fb_list_item(state, &list, i, &row);
         } else {
@@ -1826,7 +1841,6 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
     /* Label column: a fixed width so values line up, capped for narrow scales. */
     const size_t label_cols = fb_field_label_cols(state, layout, 0U);
     struct fb_list list = fb_list_begin(layout, count, nav->cursor[MESH_UI_SCREEN_SETTINGS]);
-    struct mesh_ui_line line;
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         if (section_open) {
@@ -1839,9 +1853,7 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
             /* A heading names the group below it: dimmed, no marker, and no value column -
                the same row the node detail draws, so the two screens stay identical. */
             if (item.kind == MESH_UI_SETTING_HEADING) {
-                mesh_ui_line_reset(&line);
-                mesh_ui_line_printf(&line, "%s", item.label);
-                fb_list_row_line(state, &list, i, &line, MESH_UI_TONE_DIM);
+                fb_list_subheader(state, &list, i, item.label);
                 continue;
             }
             /*

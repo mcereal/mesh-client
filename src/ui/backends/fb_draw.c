@@ -839,27 +839,39 @@ void fb_fit(char *line, size_t cols) { mesh_ui_text_cell_truncate(line, cols); }
 size_t fb_width(const char *line) { return mesh_ui_text_cells(line); }
 
 /*
- * Draw one list row, highlighting it when it is the cursor. `x` is the text origin; the
- * highlight spans the full width so the eye finds it without reading.
+ * The cursor's highlight, and the ground everything on the row is drawn against.
  *
- * The highlight is a rounded, inset shape rather than a full-bleed bar. Both halves of that
- * matter and for the same reason: a bar running edge to edge reads as a *band across the
- * screen*, while a shape with ends reads as one row picked out of a column of them - which is
- * what a cursor is. The corners come from the theme's shape scale, so a theme that wants the
- * old bar back asks for MESH_UI_SHAPE_SM of zero rather than for a different renderer.
+ * It is a rounded, inset shape rather than a full-bleed bar. Both halves of that matter and for
+ * the same reason: a bar running edge to edge reads as a *band across the screen*, while a
+ * shape with ends reads as one row picked out of a column of them - which is what a cursor is.
+ * The corners come from the theme's shape scale, so a theme that wants the old bar back asks
+ * for MESH_UI_SHAPE_SM of zero rather than for a different renderer.
+ *
+ * Its own function because a list mixes row shapes: a plain row and a section heading in the
+ * same list highlighting to two slightly different rectangles is a cursor that changes shape as
+ * it walks, and two copies of `y - scale` is exactly how that happens.
  */
+struct mesh_ui_rgb fb_draw_row_fill(const struct mesh_ui_backend_fb_state *state, int y,
+                                    uint32_t rows, bool selected) {
+    if (!selected) {
+        return fb_color(state, MESH_UI_COLOR_BG);
+    }
+    const struct mesh_ui_rgb ground = fb_color(state, MESH_UI_COLOR_SURFACE_SEL);
+    const int line = fb_line_adv(state, state->scale);
+    fb_fill_round_rect(state, fb_gutter(state), y - state->scale,
+                       (int)state->var.xres - fb_margin(state), (int)(rows > 0U ? rows : 1U) * line,
+                       fb_radius(state, MESH_UI_SHAPE_SM), ground);
+    return ground;
+}
+
+/* One list row of text, highlighted when it is the cursor: the fill above, then the words. */
 void fb_draw_row(const struct mesh_ui_backend_fb_state *state, int y, const char *text,
                  struct mesh_ui_rgb color, bool selected) {
-    const int margin = fb_margin(state);
-    const int line = fb_line_adv(state, state->scale);
-    struct mesh_ui_rgb ground = fb_color(state, MESH_UI_COLOR_BG);
+    const struct mesh_ui_rgb ground = fb_draw_row_fill(state, y, 1U, selected);
     if (selected) {
-        ground = fb_color(state, MESH_UI_COLOR_SURFACE_SEL);
-        fb_fill_round_rect(state, fb_gutter(state), y - state->scale, (int)state->var.xres - margin,
-                           line, fb_radius(state, MESH_UI_SHAPE_SM), ground);
         color = fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL);
     }
-    fb_draw_text(state, margin, y, text, state->scale, color, ground);
+    fb_draw_text(state, fb_margin(state), y, text, state->scale, color, ground);
 }
 
 /* "3m", "2h", "5d" since a radio-reported epoch; "?" when either clock is unusable. */

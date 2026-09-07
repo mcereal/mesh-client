@@ -1,0 +1,48 @@
+# Rows of a list that are not all the same height, which the window model could not hold until
+# now: it counted items and multiplied, so one taller row put the cursor, the highlight and the
+# scroll thumb in three different places.
+#
+# Two things came out of fixing that, and both are on the node detail screen. Watch the group
+# titles first and the bars second - the scroll rail in the right-hand gutter is the third, and
+# it is measured in the same steps as everything else here rather than in rows.
+
+scene demo
+scale 4
+delay 220
+
+# Foxtrot Mobile: a handheld on a weak link with a battery running down, so every reading on it
+# has something to say.
+tab nodes
+key down 6
+key a
+hold 1000
+
+# Down past the actions and into the readings. "Identity", "Signal", "Device metrics" are a step
+# smaller than the rows they head and sit on the bottom of their line, so the space the smaller
+# glyphs free becomes the gap above them - a section break rather than one more dim row.
+key down 12
+hold 1600
+key down 4
+hold 1600
+
+# The bars. A reading with the row to itself can carry the marks its thresholds are at, which is
+# what eight cells against the trailing edge could not: SNR is amber past -7 dB with the poor
+# mark still ahead of it, and the battery is red past a line drawn where the line actually is.
+key down 4
+hold 2000
+key down 6
+hold 2000
+
+# The cursor over a two-step row: one highlight, covering the words and the bar under them.
+key up 6
+hold 2200
+
+# And a settings section of the same shape, to show the group titles are the list's and not the
+# node screen's.
+key b
+tab settings
+key down 12
+key a
+hold 900
+key down 3
+hold 2200

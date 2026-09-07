@@ -23,7 +23,8 @@ evdev -> mesh_ui_input -> mesh_ui_controller_handle_key -> mesh_ui_store_handle_
   controller untouched.
 - **`src/ui/layout.c`** holds the backend-agnostic layout primitives every list-and-rows UI
   needs: `struct mesh_ui_line`, a string builder that only ever measures in drawn cells;
-  `struct mesh_ui_list`, the cursor-clamp-and-scroll-window arithmetic; `struct mesh_ui_wrap`,
+  `struct mesh_ui_list`, the cursor-clamp-and-scroll-window arithmetic — measured in *steps*
+  rather than in items, so one row can be taller than its neighbours; `struct mesh_ui_wrap`,
   the cell-measured word wrap that a chat bubble measures *and* draws itself with; and
   `mesh_ui_transcript_window`, the bottom-anchored scroll window that variable-height items
   need. None of them touches a framebuffer, a font or a snapshot, so all are unit tested
@@ -466,6 +467,36 @@ while (fb_list_next(&list, &i)) {
 conversation list spends two, a name and a preview); `fb_list_begin_visible()` is for a screen
 that reserves body rows for something else.
 
+#### Rows that are not all the same height
+
+`fb_list_begin_heights()` takes one row count per item and is what a list of *mixed* heights
+opens with. The node detail screen is the only caller today: its readings get a bar with a row
+to themselves and everything else on the screen gets one row, so no single number describes the
+list.
+
+The whole of why this needs the model rather than the widget is the **cursor**. `struct
+mesh_ui_list` used to count items and multiply — the first row on screen, the scroll thumb and
+the highlight rect were all `index * line` — so a row that quietly grew a second tier put those
+three in three different places. It now counts *steps*, and every one of them is a sum of
+heights instead. That arithmetic is in `layout.c` and unit tested there
+(`layout_list_window_counts_steps`, `layout_list_scroll_counts_steps`), because a second backend
+that grew a taller row would want the same answer rather than a second derivation of it.
+
+Two rules come out of it:
+
+- **The measure is the caller's; the authority is the list's.** A screen knows whether a row
+  carries a bar and has already walked its items to find out, so it builds the heights — the
+  same shape `mesh_ui_transcript_window()` takes. But once the model has been told, every entry
+  point advances by *its* answer (`fb_list_row_height()`), never by what the item it was handed
+  looks like. A row whose height a screen forgot to declare therefore draws short rather than
+  over the row beneath it.
+- **A step is a body row, and that is the floor.** There is no half-step, so a section heading
+  drawn a type smaller does not get *cheaper* — it gets the air. `fb_list_subheader()` draws at
+  `MESH_UI_TYPE_LABEL` and sits on the bottom of its step, so the space the smaller glyphs free
+  becomes the gap above the heading, which is where a section break wants it. That closes the
+  half of the type scale that could not be done while the list counted rows: a group title is no
+  longer distinguished from the rows it heads by colour alone.
+
 #### `struct fb_list_item` — one row with slots
 
 A row that is more than a line of text is a `fb_list_item`: something optional at the **leading**
@@ -772,9 +803,16 @@ struct fb_meter snr = {.value = (int32_t)node->snr, .scale = {MESH_UI_SNR_FLOOR,
 It appears in two slots, and which one to use is a sentence about what the bar is for:
 
 - **`FB_TRAILING_METER`**, a short bar against a list row's trailing edge, where a switch would
-  go. Inline rather than a band under the row because the list's scroll window counts rows, and
-  a row that quietly grew a second tier would put the cursor and the fill in two different
-  places. `MESH_UI_SETTING_METER` rows get one — the About screen's update progress is the first.
+  go. Eight cells, which is enough to be read as a length and no more — a figure the eye passes
+  on its way down a list. `MESH_UI_SETTING_METER` rows get one; the About screen's update
+  progress is the first.
+- **`struct fb_list_item.meter`**, a full-width bar on the row's *second step*, under the words.
+  What the trailing slot cannot be: threshold marks land on top of each other in eight cells,
+  and a domain with a negative end — a signal-to-noise ratio — has its whole interesting half
+  inside two of them. This is the slot for a reading the screen wants judged rather than
+  glanced at, and the node detail's four gauges are it. It costs the row a step, so the list has
+  to have been told (`fb_list_begin_heights()`); a row that was not told simply draws no bar,
+  because the alternative is painting over the row beneath it.
 - **`FB_CARD_ROW_METER`**, a row inside a card. With a label it lines up with the field rows
   above it; with `MESH_STR_NONE` it takes the card's whole content width, which is the shape for
   a bar that is *about the row above it* — the Status card's airtime pair, where the words say

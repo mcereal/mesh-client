@@ -231,6 +231,18 @@ void fb_draw_glyph(const struct mesh_ui_backend_fb_state *state, int x, int y, u
                    int scale, struct mesh_ui_rgb ink, struct mesh_ui_rgb ground);
 /* A whole row from the body margin, drawing its own cursor fill - so it knows its own ground
    and does not take one. */
+/*
+ * The fill a selected row lays down, and the ground everything on that row is then drawn
+ * against - the background colour when the row is not the cursor's.
+ *
+ * Shared rather than written out per row shape because a list mixes them: a plain row and a
+ * section heading in the same list highlighting to two slightly different rectangles is a
+ * cursor that changes shape as it walks, which is exactly what a duplicated `y - scale` and a
+ * duplicated height produced. `rows` is how many body rows the row occupies.
+ */
+struct mesh_ui_rgb fb_draw_row_fill(const struct mesh_ui_backend_fb_state *state, int y,
+                                    uint32_t rows, bool selected);
+
 void fb_draw_row(const struct mesh_ui_backend_fb_state *state, int y, const char *text,
                  struct mesh_ui_rgb color, bool selected);
 void fb_draw_text(const struct mesh_ui_backend_fb_state *state, int x, int y, const char *text,

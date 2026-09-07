@@ -522,7 +522,7 @@ void fb_draw_rule(const struct mesh_ui_backend_fb_state *state, int x, int y, in
 struct fb_list {
     struct mesh_ui_list model;
     int y;    /* next row's baseline */
-    int line; /* row advance */
+    int line; /* one step's advance - a body row */
     size_t cols;
     /* The body the list was opened against, for the scroll rail: where it starts and how tall
        it is. Taken from the layout at fb_list_begin*() rather than accumulated as rows are
@@ -542,11 +542,33 @@ struct fb_list fb_list_begin(const struct fb_layout *layout, uint32_t count, uin
 struct fb_list fb_list_begin_rows(const struct fb_layout *layout, uint32_t count, uint32_t cursor,
                                   uint32_t per_item);
 
+/*
+ * Rows that are not all the same height: `heights` is one row count per item, and it is
+ * borrowed for the life of the list.
+ *
+ * The measure is the caller's because the caller is the only thing that knows: whether a row
+ * carries a bar under its words is a fact about that row's content, and the screen has already
+ * walked its items to build them. What must not happen is the screen measuring one way and the
+ * component drawing another, so the *list* is the authority once it has been told - every entry
+ * point below advances by the height the model holds for that index, never by what the item it
+ * was handed looks like. A row whose height the screen forgot to declare therefore draws short
+ * rather than over the row beneath it.
+ *
+ * mesh_ui_transcript_window() takes the same shape, for the same reason - see include/mesh/ui/
+ * layout.h, where the window arithmetic lives and is unit tested.
+ */
+struct fb_list fb_list_begin_heights(const struct fb_layout *layout, uint32_t count,
+                                     uint32_t cursor, const uint8_t *heights);
+
 /* An explicit window, for a screen that reserves body rows for something else. */
 struct fb_list fb_list_begin_visible(const struct fb_layout *layout, uint32_t count,
                                      uint32_t cursor, uint32_t visible);
 
 bool fb_list_next(struct fb_list *list, uint32_t *index);
+
+/* Rows item `index` occupies, from the list model. What a screen measuring something of its own
+   against a row - a divider, a second column - has to advance by. */
+uint32_t fb_list_row_height(const struct fb_list *list, uint32_t index);
 
 /*
  * ---- the scroll rail ----
@@ -582,6 +604,22 @@ void fb_list_row(const struct mesh_ui_backend_fb_state *state, struct fb_list *l
 /* Same, taking the line builder directly, which is how most rows are assembled. */
 void fb_list_row_line(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
                       uint32_t index, struct mesh_ui_line *line, enum mesh_ui_tone tone);
+
+/*
+ * A section header inside a list: the row that names the group under it.
+ *
+ * It was a dimmed row of body text, which is a heading distinguished from the rows it heads by
+ * colour alone - the one thing the type scale landed to stop, and the half of it that could not
+ * be done at the time because the list model counted rows of one height. It is drawn at
+ * MESH_UI_TYPE_LABEL and sat on the *bottom* of its step, so the space the smaller glyphs free
+ * becomes air above it: the gap is what separates one group from the last one's rows, and it
+ * costs nothing because the row was already that tall.
+ *
+ * Still a row of the list, and still highlightable - the cursor walks onto these on both
+ * screens that draw them - so the fill is the step, whatever size the words in it are.
+ */
+void fb_list_subheader(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
+                       uint32_t index, const char *text);
 
 /* ---- the list item ------------------------------------------------------------------------
  *
@@ -758,6 +796,22 @@ struct fb_list_item {
        is, a delete warning is not. */
     bool supporting_quiet;
     struct fb_trailing supporting_trailing;
+
+    /*
+     * A bar across the row, under the words rather than against the trailing edge. Costs the
+     * item a second step, and is drawn only when the list was told to give it one.
+     *
+     * The trailing slot's meter (FB_TRAILING_METER) is eight cells, which is enough to read as
+     * a length and not enough for anything else: threshold marks land on top of each other, and
+     * a domain with a negative end - a signal-to-noise ratio, which is the reading this screen
+     * exists for - has its whole interesting half inside two cells. A bar with the row to
+     * itself is the one that can carry bands, and it is what every phone puts under a reading
+     * it wants you to judge rather than merely read.
+     *
+     * So the two are not variants of one slot. Inline is for a figure the eye passes; this is
+     * for one it stops on, and a row only earns the second step by being the second kind.
+     */
+    struct fb_meter *meter;
 
     /* A bar down the leading edge when the cursor is on the row. Not decoration: a fill one
        step off the ground is not by itself findable on a small panel in sunlight, and gives a
