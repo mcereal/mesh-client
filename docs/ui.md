@@ -441,7 +441,7 @@ shoulder, revealed in the one place you went to change it.
 | File | Layer | What belongs there |
 |---|---|---|
 | `fb_draw.c` | ink | pixels, glyphs, the theme lookups, cell metrics (`fb_internal.h`) |
-| `fb_widgets.c` | components | cards (three variants, with verbs), buttons, chips, badges, list items, switches, meters, signal staircases, rules, bubbles, the top app bar, the navigation bar, the action bar, the snackbar (`fb_widgets.h`) |
+| `fb_widgets.c` | components | cards (three variants, with verbs), buttons, chips, badges, list items, switches, meters, signal staircases, rules, bubbles, the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar (`fb_widgets.h`) |
 | `fb_screens.c` | screens | one renderer per screen, and nothing else |
 | `fb.c` | device | `/dev/fb0`, the page flip, the backend vtable |
 
@@ -1122,6 +1122,101 @@ about drawing. Three things follow from that:
   catch: that an armed destructive action says so, that no table overruns
   `MESH_UI_ACTIONS_MAX`, and that every verb named is one the catalog has.
 
+#### `fb_draw_progress()` and `fb_draw_banner()` — what the *client* says
+
+Everything else on the panel belongs to something. A row describes a node, a card describes the
+link, the app bar names the screen it heads. Two statements do not: *a newer release is out
+there* and *something is in flight right now* are true of the client, on whichever tab you
+happen to be looking at — and until these two components existed the first was visible only
+inside Settings > About and the second was not visible anywhere.
+
+So they are chrome, drawn once by `fb_render_snapshot()` around whichever screen is up. What
+they *say* is decided in [`src/ui/chrome.c`](../src/ui/chrome.c), for the reason the action
+bar's verbs are decided in `src/ui/actions.c`: which states are worth a notice is a fact about
+the client, not about a framebuffer, so a second backend gets the same two answers and a unit
+test can ask the questions without a panel.
+
+```c
+fb_draw_progress(state, &layout, mesh_ui_chrome_busy(snapshot));   /* costs no row */
+
+struct mesh_ui_banner banner;
+if (mesh_ui_chrome_banner(snapshot, &banner)) {
+    fb_draw_banner(state, &layout, &(const struct fb_banner){
+        .icon = banner.icon,
+        .text = mesh_str(banner.text),
+        .supporting = mesh_str(banner.supporting),
+        .detail = banner.detail,                                   /* a version, untranslated */
+        .family = banner.family,
+    });                                                            /* costs the rows it takes */
+}
+```
+
+**The split between them is the rule that keeps either from being noise.** The bar is for what
+is *moving*: it costs no row, it says nothing about what, and it goes away on its own when the
+work lands. The banner is for what has *settled*: it stays until something resolves it, so it
+has to be worth the rows it takes. A state that is one of them is never the other — which is
+why the three updater states in flight raise the bar and the two settled ones raise the banner,
+and why the roadmap's *radio disconnected* is neither.
+
+**The bar never moves the body.** The navigation bar already leaves a gap between its rule and
+the first body row, and the bar hangs in it — so `layout` is `const` in that call, a list gets
+the same rows whether or not anything is in flight, and a save going out does not reflow the
+screen it was saved from. It is the same rule the card's focus ring is painted by: an indicator
+that changes the layout is an indicator that moves what it is pointing at.
+`tests/suites/ui_capture.c` pins both ends of it — the busy frame and the quiet frame must stop
+differing inside the top eighth of the panel, and the banner frame must differ all the way down.
+
+It is `fb_draw_meter()` at `FB_METER_INDETERMINATE`, full bleed and one hairline tall, rather
+than a drawing of its own. There is exactly one "a thing is working" motion in this UI and a
+second implementation of a travelling pill is a second one to keep in step with the theme's
+timings. Full bleed because it is the navigation bar's rule saying something: inset by the
+margin it would read as the first row of the body, which is the mistake the tab strip made
+before it was given a surface of its own.
+
+**The banner sits above the screen's own app bar**, which is not where Material puts one, and
+the reason is what each piece of chrome belongs to: the navigation bar is this client's
+app-level chrome and the top app bar is the *screen's* heading, so a statement about the client
+goes with the first. The practical half of the same answer — drawn below the app bar it would
+have to be called by every screen renderer, and by each of the four overlays, which is the
+duplication `fb_render_snapshot()`'s single tail exists to prevent.
+
+Nothing about it animates. The container consumes body rows, so a height that eased open would
+reflow the list underneath it for the length of the animation — and unlike the snackbar, which
+arrives *over* the UI and has to be noticed to be read, a banner is read whenever the eye next
+reaches the top of the panel.
+
+Three rules decide what the table in `chrome.c` may raise, and they are why it is shorter than
+the audit expected:
+
+- **A banner says only what nothing else on the frame says.** This is the app bar overline's
+  rule arriving somewhere else. It refuses *radio disconnected*, which the status line under the
+  keycaps reports on every frame anyway, and it is why the update banner stands down inside
+  Settings > About: the section it points at states the same thing in more detail, so a banner
+  over it is the client telling you something you are already reading.
+- **A banner must resolve.** There is no dismissal, because dismissal needs somewhere to
+  remember what was dismissed, a press to spend on it, and a rule about when it comes back —
+  a nav change with a component on the end of it. So nothing is raised that cannot go away on
+  its own terms. That is what refuses the radio's own `ERROR` notice, which is kept until the
+  link cycles, and it is what makes `update_can_install` part of the gate rather than a detail:
+  an update a build is not allowed to install is a banner nothing the user does can clear.
+- **A modal owns the body.** Nothing is raised over the confirm dialog, the picker, the keyboard
+  or the compose sheet. Those four take the body for a question, and a container that shortened
+  the body while one was up would move the question as it was being answered. The bar keeps
+  running under all four, because it has nothing to move.
+
+`make ui-capture ARGS="devtools/ui_capture/scenes/banner.scene -o banner.gif"` shows both: the
+bar running with the list unmoved under it, the banner following you across the tabs, and it
+standing down on the one screen that already says the same thing.
+
+The banner's slots are the app bar's lesson applied again: a headline string id, a supporting
+string id, and a `detail` that is a runtime string rather than an id — a version number, in the
+same category as a region code (see [i18n](i18n.md)). Keeping the version out of the words is
+what lets the headline be one short translatable phrase instead of a format string with a number
+glued into it. The supporting line is the half that goes when the body cannot spare a row for
+it: the headline says what is true, the hint says where to go about it, and a hint over an empty
+screen is worse than no hint.
+
+
 ### Animation
 
 A frame is a function of a snapshot, and a snapshot has no notion of *was*: it says a switch is
@@ -1698,7 +1793,8 @@ clock, so a `hold` past four seconds followed by a `frame` films it sliding back
 | `queue FREE MAXLEN [refused]` | the radio's outgoing packet queue, on the Status tab. The row only appears once the queue is under pressure or has refused a send |
 | `reboots N` | times the radio has restarted under us, on the Status tab |
 | `airtime BUSY [TX]` | the radio's airtime report as whole percentages: how much of the channel is busy, and how much of that is ours. What the Status card's Airtime row and the meter under it both read |
-| `update check\|download [PERCENT]` | a self-update in flight, on Settings > About. `check` is the step with no length and draws the indeterminate bar; `download` with a percentage draws the fraction. There is no updater behind the harness - it forks curl and reaches the network - so this sets what the app would have published |
+| `update check\|download [PERCENT]\|available\|ready` | the self-updater's state. `check` and `download` are in flight - `check` is the step with no length and draws the indeterminate bar, `download` with a percentage draws the fraction - and both raise the screen progress bar. `available` and `ready` are settled, and each raises a banner. There is no updater behind the harness - it forks curl and reaches the network - so this sets what the app would have published |
+| `syncing on\|off` | put the config handshake back in flight, or finish it. What the screen progress bar reports, and unreachable any other way in a scene: `scene demo` starts with the handshake already complete because every screen in it needs a roster |
 | `offradio NAME\|all` | mark that node (or every node but ours) as one the radio's NodeDB no longer carries - what a NodeDB reset leaves behind. Its own verb because no press can reach it: the reset goes out over the air and the answer arrives on the next sync, and the harness has neither |
 | `pin NAME` | pin that node — the star in a row's marker gutter. Its own verb for the same reason: X on the Nodes tab raises a `mesh_ui_action` and the store stops there, so the press the harness can make never reaches the flag |
 

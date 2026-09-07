@@ -483,7 +483,7 @@ Each step is independently shippable and each is visible.
 | 8 | Card variants and card actions (§2.4) | **done** | Where the type scale pays off most |
 | 9 | Variable-height list rows (§1.4) | **done** | Structural. §1.1's unfinished half and three components below wait on it |
 | 10 | Checkbox / radio, segmented button (§2.5, §2.6) | **done** (the checkbox is held, see §10) | Additive slots on components that already exist |
-| 11 | Banner and screen progress (§2.9, §2.10) |  | New surfaces; the bar from 7 is where progress hangs |
+| 11 | Banner and screen progress (§2.9, §2.10) | **done** (the banner's table is two entries, see §11) | New surfaces; the bar from 7 is where progress hangs |
 | 12 | Slider (§2.7) |  | Genuinely new interaction |
 | 13 | Screen transitions (§2.16) |  | Wants a direction on the nav first; the only step whose work is mostly outside the backend |
 | — | Meter domain and bands, signal staircase (§2.11, §2.12) | **done** | Out of order on purpose: both were visible on the device and neither needed anything above |
@@ -912,3 +912,111 @@ input work at all. Left and Right already stepped an `ENUM` field, the marker gu
 carried the pencil that says so, and the picker already had a cursor. Both components are pure
 statements about state - which is why "additive slots" was the right description of the half of
 the work that is in `fb_widgets.c`, and why the argument above is all about the other half.
+
+## 11. What doing step 11 changed
+
+The entry called these "new surfaces" and put them together because both hang off the bar from
+step 7. They do hang off it, and they are otherwise not one kind of thing at all: one is chrome
+that costs nothing and the other is content that costs rows, and the whole of what makes either
+readable is the line between them. What the entry did not have is that line, and that most of
+the work is deciding what may go in the banner rather than drawing one.
+
+- **The bar and the banner are the moving half and the settled half of the same idea.** §2.9 and
+  §2.10 read as two components with different geometry. The distinction that matters is
+  temporal: the bar says something is *moving* - it costs no row, it says nothing about what,
+  and it goes away on its own when the work lands - and the banner says something has *settled*
+  and stays true until somebody or something resolves it, which is what makes it worth rows. A
+  state that is one is never the other, and that is not a stylistic preference: it is what
+  decides that the updater's three in-flight states raise the bar and its two settled ones raise
+  the banner, and it is what makes the entry's own first example, *radio disconnected*, neither
+  of them.
+- **A banner says only what nothing else on the frame says, and that is most of the table.**
+  This is §7's overline rule - *an overline says only what nothing else on the frame says* -
+  arriving somewhere it was not expected, and it refuses two of the three things §2.9 asked
+  for. *Radio disconnected* is on every frame already, in the status line under the keycaps,
+  and a second statement of it in a container is not more visible, it is the frame contradicting
+  itself about how important the fact is. *Unsaved edits* would have been the same, and is worth
+  recording because the app bar's trailing badge already carries it - which is the rule
+  confirming itself from the other side. What is left is the updater, and the rule pays for
+  itself once more inside that: the banner stands down inside Settings > About, because the
+  section it points at states the same thing in more detail and a banner over it is the client
+  telling you something while you are already reading it.
+- **A banner must resolve, because there is no dismissal - and dismissal is a nav change.**
+  M3's banner "stays until dismissed or resolved" and the first draft budgeted a dismissal.
+  It cannot be had cheaply: it needs somewhere to remember *which* banner was dismissed, a
+  press to spend on it, and a rule about when it comes back - a nav change with a component on
+  the end of it, which is the shape step 9 was and not the shape this one is. Refusing it turns
+  out to be the more useful constraint, because it disciplines the table: nothing may be raised
+  that cannot go away on its own terms. That is what refuses the radio's own `ERROR` notice,
+  which nothing clears until the link cycles, and it is what makes `update_can_install` part of
+  the gate rather than a detail - an update a build is not allowed to install is a container
+  nothing the user does would ever clear, on every screen, for the rest of the run.
+- **The one §2.9 asked for first is the one that needs something the snapshot does not carry.**
+  *Radio disconnected* is refused above for saying what the status line says, and even if it
+  were not, the honest version of it needs to know whether the transport is *between*
+  connections - a link that drops after a settings write is expected and comes back in seconds,
+  and a banner that flashed on every reconnect would be worse than none. The only thing the
+  snapshot holds about that is `transport_status`, a free-form string the transports write for
+  a person to read ("scanning", "waiting-for-bluez"), and comparing against it in the UI layer
+  is exactly the coupling `enum mesh_str_id` exists to prevent everywhere else. So it waits on
+  the transport publishing a *state* rather than a sentence, which is a transport change, not a
+  component one.
+- **The bar costs no row, and that had to be arranged rather than discovered.** The navigation
+  bar already leaves a gap between its rule and the first body row, and the bar hangs in it - so
+  the layout is `const` in that call, a list gets the same rows whether or not anything is in
+  flight, and a save going out does not reflow the screen it was saved from. This is §8's
+  correction about the focus ring, one component along: **an indicator that changes the layout
+  is an indicator that moves what it is pointing at.** The capture test is what says so, and it
+  is the same assertion read from both ends - the busy frame and the quiet frame must stop
+  differing inside the top eighth of the panel, and the banner frame must differ all the way
+  down. Neither half of that is a claim about a pixel, which is what lets both drawings change.
+- **`layout->nav_y` is a field rather than an arithmetic.** The bar needs the bottom edge of the
+  navigation bar's rule and `body_y` is a gap further down - and has moved on by the time a
+  banner or an app bar has run. Deriving it by subtracting the gap would be the navigation bar's
+  own arithmetic written out a second time, in a place that cannot see when the bar changes it.
+  The same reasoning `layout->back` was added by in §7.
+- **The banner sits above the screen's app bar, which is not where Material puts it.** A phone's
+  banner goes under the top app bar because on a phone the top app bar *is* the app-level
+  chrome. Here it is not: the navigation bar is, and the top app bar is the screen's own
+  heading. A statement about the client goes with the first of those, so the stack is nav bar,
+  progress, banner, then whatever screen is up. The practical half of the same answer is that a
+  banner under the app bar would have to be called by every screen renderer and by each of the
+  four overlays, which is the duplication `fb_render_snapshot()`'s single tail exists to prevent.
+- **Nothing about the banner animates, and that follows from it costing rows.** A container that
+  eased its height open would reflow the list underneath it for the length of the animation. The
+  snackbar animates because it arrives *over* the UI and has to be noticed to be read; a banner
+  is read whenever the eye next reaches the top of the panel, which on a handheld is every time
+  the screen changes.
+- **The bar is the meter, and the version is not in the words.** Two reuses worth recording
+  because both were the alternative to a new thing. The bar is `fb_draw_meter()` at
+  `FB_METER_INDETERMINATE`, full bleed and one hairline tall - there is exactly one "a thing is
+  working" motion in this UI, and a second travelling pill is a second one to keep in step with
+  the theme's timings. And the banner's version number is a *slot*, drawn against the trailing
+  edge of the headline at the label scale, rather than a `%s` inside the sentence: the same
+  split the app bar made when `"Settings > %s%s%s"` became a trail, a title and a badge. It
+  recedes by size rather than by colour, which is the type scale doing a job a second, unvalidated
+  ink would otherwise have been invented for.
+
+- **The bar is the first animated thing above `body_y`, and it needed no new machinery to be
+  one.** The partial-composition work that landed alongside this
+  (`fb_animation_damage()`, `state->clip`) re-composes a frame clipped to whatever the animated
+  widgets declared, and it is entered exactly when the snapshot has stopped changing - which is
+  the bar's whole life. Because the bar *is* `fb_draw_meter()`, it declares that region already:
+  reuse paid a second time, in a mechanism that did not exist when it was chosen.
+  `fb_progress_clip_matches_full_composition` pins it, because the existing clip test runs on a
+  snapshot with no radio attached and so never draws one.
+
+One thing the audit had right and worth repeating: §2.10's example is exact. Open Settings
+before the radio has answered and eight sections say `not loaded`, which reads identically
+whether a request is on its way back or nothing was ever sent. One hairline under the tab strip
+is the difference, and because it is chrome it answers that for every screen at once rather than
+for the one that happened to be waiting - `admin_busy`, `write_pending`, the config handshake and
+an update check all raise it, and no screen had to be told.
+
+And one cost, stated for §2.13, which will meet it: **the banner's gate on `config_complete` had
+to be read against a connected radio, not on its own.** The node roster deliberately outlives the
+connection, so a client sitting on a cached roster with no radio has an incomplete handshake for
+as long as it runs - and a bar that never stopped would be a bar that had stopped saying
+anything. Every derived indicator that reads a handshake field meets this, because the roster
+surviving a disconnect is the one piece of state in this client that is deliberately older than
+the link it came from.

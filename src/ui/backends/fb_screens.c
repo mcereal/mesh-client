@@ -16,6 +16,7 @@
 
 #include "mesh/core/message.h"
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/chrome.h"
 #include "mesh/ui/emoji.h"
 #include "mesh/ui/input.h"
 #include "mesh/ui/layout.h"
@@ -2195,9 +2196,38 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
     fb_draw_nav_bar(state, &layout, fb_tab_chips(), MESH_UI_SCREEN_COUNT,
                     (size_t)snapshot->nav.screen);
 
+    /*
+     * The two things the *client* says about itself, rather than what any screen says about
+     * itself. Both are drawn here, once, around whichever screen is up - and both take their
+     * content from src/ui/chrome.c for the reason the action bar takes its verbs from
+     * src/ui/actions.c: which states are worth a notice is a fact about the client, not about
+     * a framebuffer, and it is a unit test's business rather than a screenshot's.
+     *
+     * The bar goes first and costs nothing: it hangs in the gap the navigation bar already
+     * leaves, so `layout` is unchanged by it and a request going out never reflows a list.
+     */
+    fb_draw_progress(state, &layout, mesh_ui_chrome_busy(snapshot));
+
     layout.footer_y = (int)state->var.yres - fb_action_bar_height(state, &layout);
     const int body_height = layout.footer_y - layout.body_y - fb_gutter(state);
     layout.rows = body_height > 0 ? (uint32_t)(body_height / layout.line) : 0U;
+
+    /*
+     * The banner does cost rows, so it is drawn after the body has been measured and hands back
+     * what is left - exactly as the top app bar under it does. Nothing below this line knows it
+     * happened, which is the whole point: a screen renderer lays out against `layout`.
+     */
+    struct mesh_ui_banner banner;
+    if (mesh_ui_chrome_banner(snapshot, &banner)) {
+        const struct fb_banner drawn = {
+            .icon = banner.icon,
+            .text = mesh_str(banner.text),
+            .supporting = banner.supporting != MESH_STR_NONE ? mesh_str(banner.supporting) : NULL,
+            .detail = banner.detail,
+            .family = banner.family,
+        };
+        fb_draw_banner(state, &layout, &drawn);
+    }
 
     /*
      * Which buttons mean something here is no longer decided in this function.

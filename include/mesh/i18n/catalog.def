@@ -1154,6 +1154,28 @@ MESH_STR_ENTRY(LINK_USB_NO_DRIVER,        "%.20s: no USB serial driver (%d)")
 MESH_STR_ENTRY(LINK_USB_OPEN_FAILED,      "Cannot open %.24s: %.20s")
 MESH_STR_ENTRY(LINK_USB_NO_ANSWER,        "%.24s: the radio did not answer")
 
+/* ---- the banner --------------------------------------------------------------------------------- */
+
+/*
+ * The persistent notice under the tab strip: something is true of the whole client and stays
+ * true until it is resolved.
+ *
+ * Two slots per banner, and they are separate strings on purpose. The first says *what is
+ * true* and the second says *what to do about it*, so a translator is never asked to fit both
+ * into one line - the component draws them on two, and the second is dropped before the first
+ * when a panel is too narrow to hold them.
+ *
+ * Neither carries the version number. It is drawn against the trailing edge of the first line,
+ * untranslated, in the same category as a region code or a hardware model name (docs/i18n.md).
+ */
+MESH_STR_ENTRY(BANNER_UPDATE_READY,       "Update installed")
+MESH_STR_ENTRY(BANNER_UPDATE_READY_HINT,  "Restart the client to run it")
+MESH_STR_ENTRY(BANNER_UPDATE_AVAILABLE,   "Update available")
+/* "Settings" names the tab and should read exactly as it does on MESH_STR_TAB_SETTINGS -
+   somebody is being sent there. The section within it is not named: About is the first row of
+   that tab, and a hint carrying the whole path would be a breadcrumb spelled into a sentence. */
+MESH_STR_ENTRY(BANNER_UPDATE_AVAILABLE_HINT, "Install it from the Settings tab")
+
 /* ---- toasts ------------------------------------------------------------------------------------ */
 
 /*

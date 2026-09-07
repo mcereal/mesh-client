@@ -199,6 +199,86 @@ int fb_draw_chip_strip(const struct mesh_ui_backend_fb_state *state, int x, int 
 void fb_draw_nav_bar(const struct mesh_ui_backend_fb_state *state, struct fb_layout *layout,
                      const struct fb_chip *tabs, size_t count, size_t active);
 
+/* ---- the screen progress bar -----------------------------------------------------------------
+ *
+ * A hairline across the panel, under the navigation bar's rule: the client is waiting on
+ * something it has already asked for.
+ *
+ * Not a new drawing - it is fb_draw_meter() at FB_METER_INDETERMINATE, full bleed and one
+ * hairline tall - and that is deliberate rather than lazy. There is exactly one "a thing is
+ * working" motion in this UI, and a second implementation of a travelling pill would be a
+ * second one to keep in step with the theme's timings.
+ *
+ * What it is for: open Settings before the radio has answered and eight sections say "not
+ * loaded", which reads identically whether a request is on its way back or nothing was ever
+ * sent. This is the difference, and because it is chrome it answers for every screen at once
+ * rather than for the one that happened to be waiting.
+ *
+ * **It never moves the body.** The navigation bar already leaves a gap between its rule and the
+ * first body row, and the bar hangs in that gap - so `layout` is const here, the rows a list
+ * gets are the same rows whether or not anything is in flight, and a save going out does not
+ * reflow the screen it was saved from. It is the same rule the card's focus ring is drawn by:
+ * an indicator that changes the layout is an indicator that moves what it is pointing at.
+ *
+ * Which states count is not this file's business - see mesh_ui_chrome_busy() in
+ * include/mesh/ui/chrome.h, which is where the UI layer answers it for every backend.
+ */
+void fb_draw_progress(struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                      bool busy);
+
+/* ---- the banner ------------------------------------------------------------------------------
+ *
+ * The persistent notice: something is true of the whole client and stays true until it is
+ * resolved.
+ *
+ * The snackbar is the transient half of this and is correctly transient - it is for what just
+ * happened. What it cannot say is what is *still the case*: a release waiting to be installed
+ * was visible only inside Settings > About, so the one screen that already knew was the only
+ * screen that said so. A banner is the other half: it costs body rows, it does not go away on a
+ * timer, and it sits in the chrome under the tab strip where a statement about the client
+ * belongs.
+ *
+ * Why it is above the screen's own app bar rather than below it, which is where Material puts
+ * one. The navigation bar is this client's app-level chrome and the top app bar is the
+ * *screen's* heading; a banner is a statement about the client, so it goes with the first. The
+ * practical half of the same answer: drawn below the app bar it would have to be called by
+ * every screen renderer, and the four overlays would each need their own copy - which is the
+ * duplication fb_render_snapshot()'s single tail exists to prevent.
+ *
+ * Nothing here animates, and that is a decision rather than an omission. The container consumes
+ * body rows, so a height that eased open would reflow the list underneath it for the length of
+ * the animation - and unlike the snackbar, which arrives over the UI and has to be *noticed*,
+ * a banner is read whenever the eye next reaches the top of the panel.
+ *
+ * Which banner, if any, is mesh_ui_chrome_banner()'s answer (include/mesh/ui/chrome.h).
+ */
+struct fb_banner {
+    /* The leading symbol, in the container's own ink. */
+    enum mesh_ui_icon icon;
+    /* The headline: what is true. NULL or empty draws nothing at all, which is what makes "no
+       banner" a struct rather than a branch at the call site. */
+    const char *text;
+    /* What to do about it, on a second line at the label scale. NULL for none - and dropped
+       before the headline is when the body cannot spare the row for it. */
+    const char *supporting;
+    /* A fact stated in its own units against the trailing edge of the headline: a version
+       number. Untranslated by design, so it is a string rather than an id. NULL for none. */
+    const char *detail;
+    /* The container's fill and the ink on it, taken together from one theme call. A family
+       rather than a tone for the reason a badge takes one: this thing fills something. */
+    enum mesh_ui_family family;
+};
+
+/*
+ * Draws it at the top of the body and consumes the rows it took, so a screen renderer that
+ * follows lays out against a shorter body without knowing this happened.
+ *
+ * Recomputes `rows` from the body's real bottom rather than deducting a row count, for the
+ * reason fb_draw_app_bar() does - see the comment on its tail.
+ */
+void fb_draw_banner(const struct mesh_ui_backend_fb_state *state, struct fb_layout *layout,
+                    const struct fb_banner *banner);
+
 /* ---- the action bar -------------------------------------------------------------------------
  *
  * The chrome across the bottom: what the buttons do here, as keycaps, over the line that says
@@ -636,6 +716,11 @@ void fb_draw_app_bar(const struct mesh_ui_backend_fb_state *state, struct fb_lay
  */
 void fb_draw_empty(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
                    enum mesh_ui_icon icon, const char *text);
+
+/* How tall a hairline is at `scale` - what a caller stacking something under one has to clear.
+   Beside the call that draws one because two expressions for one thickness is how a bar ends up
+   overlapping the rule above it. */
+int fb_rule_height(const struct mesh_ui_backend_fb_state *state, int scale);
 
 /* A hairline separator - under the tab strip, above a detail pane. The role says which of the
    theme's two rule colours it is: MESH_UI_COLOR_RULE for a separator inside the body,

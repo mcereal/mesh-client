@@ -206,6 +206,16 @@ struct fb_layout {
        fb_render_snapshot() and carried here so every piece of chrome in the frame agrees. */
     int small;
     /*
+     * The first pixel below the navigation bar, its closing rule included.
+     *
+     * Not the same number as `body_y`, and that is the point: between the two there is the gap
+     * the bar leaves before the body starts, and the screen progress bar hangs in it. A caller
+     * that derived it from `body_y` would be subtracting a gap the navigation bar chose, which
+     * is the navigation bar's arithmetic written out a second time - and `body_y` has moved on
+     * by then anyway, because the app bar and the banner both advance it.
+     */
+    int nav_y;
+    /*
      * Whether there is a screen behind this one to go back to, from mesh_ui_action_bar_goes_
      * back() - the top app bar's leading slot.
      *

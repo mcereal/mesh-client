@@ -1117,21 +1117,35 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
     if (strcmp(command, "update") == 0) {
         char *step = uicap_word(&rest);
         if (step == NULL) {
-            fprintf(stderr, "uicap: line %u: 'update' needs check or download\n", line_number);
+            fprintf(stderr, "uicap: line %u: 'update' needs check, download, available or ready\n",
+                    line_number);
             exit(1);
         }
         const bool downloading = strcmp(step, "download") == 0;
-        if (!downloading && strcmp(step, "check") != 0) {
-            fprintf(stderr, "uicap: line %u: 'update' takes check or download\n", line_number);
+        const bool checking = strcmp(step, "check") == 0;
+        /* The two settled states, which is what a banner is for: a check that has finished and
+           found something, and an install that has finished and is waiting for a restart.
+           Neither is busy - the bar and the banner are the moving half and the settled half of
+           the same story, and a scene has to be able to show them apart. */
+        const bool available = strcmp(step, "available") == 0;
+        const bool ready = strcmp(step, "ready") == 0;
+        if (!downloading && !checking && !available && !ready) {
+            fprintf(stderr, "uicap: line %u: 'update' takes check, download, available or ready\n",
+                    line_number);
             exit(1);
         }
         const char *percent = uicap_word(&rest);
         uicap_start(cap);
         struct mesh_ui_settings settings = cap->store.settings;
         settings.client.update_supported = true;
-        settings.client.update_busy = true;
-        settings.client.update_state =
-            (uint8_t)(downloading ? MESH_UPDATE_DOWNLOADING : MESH_UPDATE_CHECKING);
+        settings.client.update_busy = downloading || checking;
+        /* A build that may install what it finds. mesh_ui_chrome_banner() gates the "available"
+           banner on it, because an update a build cannot install is a notice nothing clears. */
+        settings.client.update_can_install = true;
+        settings.client.update_state = (uint8_t)(downloading ? MESH_UPDATE_DOWNLOADING
+                                                 : checking  ? MESH_UPDATE_CHECKING
+                                                 : available ? MESH_UPDATE_AVAILABLE
+                                                             : MESH_UPDATE_READY);
         settings.client.update_progress_known = downloading && percent != NULL;
         settings.client.update_progress =
             (uint16_t)(settings.client.update_progress_known ? uicap_number(percent, "update") * 10U
@@ -1139,6 +1153,31 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         snprintf(settings.client.update_latest, sizeof settings.client.update_latest, "%s",
                  "999.0.0");
         mesh_ui_store_set_settings(&cap->store, &settings);
+        uicap_emit(cap);
+        uicap_settle(cap);
+        return;
+    }
+
+    /*
+     * A radio that has not finished answering, which is what the screen progress bar reports.
+     *
+     * The demo scene starts with the handshake complete, because every screen in it needs a
+     * roster - so the one state the bar exists for is the one state a capture could not reach.
+     * `syncing on` puts the handshake back in flight without touching the nodes it has already
+     * published, exactly as a reconnect does.
+     */
+    if (strcmp(command, "syncing") == 0) {
+        char *value = uicap_word(&rest);
+        if (value == NULL || (strcmp(value, "on") != 0 && strcmp(value, "off") != 0)) {
+            fprintf(stderr, "uicap: line %u: 'syncing' takes on or off\n", line_number);
+            exit(1);
+        }
+        uicap_start(cap);
+        struct mesh_ui_handshake_state handshake = cap->store.handshake;
+        const bool on = strcmp(value, "on") == 0;
+        handshake.request_in_flight = on;
+        handshake.config_complete = !on;
+        mesh_ui_store_set_handshake(&cap->store, &handshake);
         uicap_emit(cap);
         uicap_settle(cap);
         return;
