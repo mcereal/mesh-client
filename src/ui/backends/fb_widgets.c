@@ -181,20 +181,46 @@ void fb_list_row_line(const struct mesh_ui_backend_fb_state *state, struct fb_li
 
 /* ---- the conversation cell ----------------------------------------------------------------- */
 
-/* The disc and its initials. `size` is both its width and its height, so the radius is half
-   of it and the shape is a circle. */
+/*
+ * The disc and its initials. `size` is both its width and its height, so the radius is half of
+ * it and the shape is a circle.
+ *
+ * The label is drawn at the largest multiplier that *fits inside the disc*, which is not always
+ * the body's. A two-row item gives the disc two lines to be round in and the body scale fits
+ * with room; a one-row item - a node, a picker row - gives it one, and two cells at the body
+ * scale then overhang a circle barely taller than a single glyph. That drew initials sliced off
+ * at both ends, which is worse than no disc at all: the whole job of the colour and the two
+ * letters is to be recognised without being read.
+ *
+ * So the fit is measured rather than assumed. It is done here, once, because the caller cannot
+ * answer it - which scale fits is a fact about this component's geometry, and a screen that had
+ * to work it out would be computing a glyph size, which is the thing screens do not do.
+ */
 static void fb_draw_avatar(const struct mesh_ui_backend_fb_state *state, int x, int y, int size,
                            const char *label, struct mesh_ui_rgb tint) {
     fb_fill_round_rect(state, x, y, size, size, size / 2, tint);
     if (label == NULL || label[0] == '\0') {
         return;
     }
+    /*
+     * The inset a circle owes its contents: at the corners of the text box the disc has already
+     * curved away, so text measured against the full diameter still touches the edge. An eighth
+     * on each side is what keeps two cells clear of it at every scale the theme allows.
+     */
+    const int room = size - size / 4;
+    const size_t cells = mesh_ui_text_cells(label);
+    int scale = state->scale;
+    while (scale > 1 && ((int)cells * fb_char_adv(state, scale) > room ||
+                         (int)fb_font(state)->height * scale > room)) {
+        --scale;
+    }
+
     /* Centred in cells, and vertically on the glyph body rather than the line advance - the
        advance carries the gap accents hang in, and counting it sits the initials low in the
        disc. The same reasoning as fb_draw_button's label. */
-    const int text_w = (int)mesh_ui_text_cells(label) * fb_char_adv(state, state->scale);
-    const int text_h = (int)fb_font(state)->height * state->scale;
-    fb_draw_text(state, x + (size - text_w) / 2, y + (size - text_h) / 2, label, state->scale,
+    const int text_w = (int)cells * fb_char_adv(state, scale);
+    const int text_h = (int)fb_font(state)->height * scale;
+    fb_draw_text(state, x + (size - text_w) / 2, y + (size - text_h) / 2, label, scale,
                  fb_color(state, MESH_UI_COLOR_BG));
 }
 

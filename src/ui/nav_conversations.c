@@ -385,19 +385,7 @@ uint32_t mesh_ui_nav_conversation_count(const struct mesh_ui_store *store) {
     return 1U + channels + directs + 1U;
 }
 
-/*
- * The two cells an avatar shows.
- *
- * The rule every messenger uses: the first letter of each of the first two words, or the first
- * two letters when there is only one word. Meshtastic short names are four upper-case
- * characters ("BRVO"), so in practice this is their first half - which is what makes the disc
- * recognisable before the name beside it has been read.
- *
- * Non-alphanumerics are skipped, so the "!a1b2c3d4" a node with no User falls back to gives
- * "A1" rather than "!A", and a channel's leading '#' does not eat one of the two cells.
- * Anything outside ASCII is taken as-is and counted as one cell: an emoji name is one glyph
- * wide and upper-casing it would be meaningless.
- */
+/* The cell classification behind mesh_ui_nav_initials(), whose contract is in nav.h. */
 static bool mesh_ui_nav_is_word_break(unsigned char c) {
     return c == ' ' || c == '_' || c == '-' || c == '.';
 }
@@ -433,7 +421,7 @@ static void mesh_ui_nav_append_cell(const unsigned char *p, char *out, size_t ou
     out[*written] = '\0';
 }
 
-static void mesh_ui_nav_initials(const char *name, char *out, size_t out_len) {
+void mesh_ui_nav_initials(const char *name, char *out, size_t out_len) {
     out[0] = '\0';
     if (name == NULL || out_len < 2U) {
         return;
@@ -472,6 +460,18 @@ static void mesh_ui_nav_initials(const char *name, char *out, size_t out_len) {
     }
 }
 
+/*
+ * The seed that colours a channel's disc.
+ *
+ * The channel *slot* rather than its name, so renaming a channel keeps the colour the user has
+ * learned to look for - and offset well clear of the node-number space so a channel and a node
+ * cannot collide onto the same tint. One function because two lists ask it, and a tint derived
+ * two ways is the same channel in two colours.
+ */
+static uint32_t mesh_ui_nav_channel_tint(uint8_t channel) {
+    return 0x0C000000U + (uint32_t)channel;
+}
+
 /* Everything a backend needs to draw the avatar: the two cells and the seed that colours
    them. The seed is the conversation's identity - a node number, a channel slot - rather than
    its name, so the tint survives a rename. */
@@ -491,13 +491,37 @@ static void mesh_ui_nav_conversation_avatar(struct mesh_ui_conversation *out) {
         /* A channel is a place, and '#' is what says so everywhere else on this screen. The
            slot rather than the name seeds it, so renaming a channel keeps its colour. */
         mesh_str_copy(out->initials, sizeof out->initials, "#");
-        out->tint = 0x0C000000U + out->channel;
+        out->tint = mesh_ui_nav_channel_tint(out->channel);
         return;
     case MESH_UI_CONVERSATION_DIRECT:
     default:
         mesh_ui_nav_initials(out->name, out->initials, sizeof out->initials);
         out->tint = out->node;
         return;
+    }
+}
+
+/* The same two facts for a picker row. A channel is a place and wears '#' seeded by its slot,
+   exactly as MESH_UI_CONVERSATION_CHANNEL does; a node wears the initials of the name the
+   conversation list knows it by, which is why this resolves the node rather than taking the
+   caller's display string. */
+void mesh_ui_nav_picker_avatar(const struct mesh_ui_store *store, uint32_t node, uint8_t channel,
+                               char *out_initials, size_t out_len, uint32_t *out_tint) {
+    if (out_initials == NULL || out_len == 0U) {
+        return;
+    }
+    if (node == MESH_MESSAGE_BROADCAST_ADDR) {
+        mesh_str_copy(out_initials, out_len, "#");
+        if (out_tint != NULL) {
+            *out_tint = mesh_ui_nav_channel_tint(channel);
+        }
+        return;
+    }
+    char name[MESH_UI_NAV_TARGET_NAME_MAX];
+    mesh_ui_nav_node_name(store, node, name, sizeof name);
+    mesh_ui_nav_initials(name, out_initials, out_len);
+    if (out_tint != NULL) {
+        *out_tint = node;
     }
 }
 
