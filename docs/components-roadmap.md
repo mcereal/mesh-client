@@ -1240,12 +1240,18 @@ quietly, and those are the step.
   because both always carry a counter that moves: packets for LocalStats, uptime for a node.
   A radio that repeated a report byte for byte contributes no sample, which is the right way
   round - nothing new was said.
-- **A gap is a break, not a slope.** The entry did not raise it and it is the one that would
-  have shipped wrong: a line drawn straight across the hour the radio was away claims readings
-  nobody took, and it is precisely the hour a reader would want to see was missing. Each series
-  states its own `gap_ms` because how long a silence is remarkable is a fact about the *source*
-  - LocalStats is minutes apart, a node's telemetry broadcast is half an hour - so it travels
-  with the data rather than being told to the widget.
+- **A gap is a break, not a slope - and there are two kinds of gap.** The entry did not raise
+  either and the first is the one that would have shipped wrong: a line drawn straight across
+  the hour the radio was away claims readings nobody took, and it is precisely the hour a reader
+  would want to see was missing. Each series states its own `gap_ms` because how long a silence
+  is remarkable is a fact about the *source* - LocalStats is minutes apart, a node's telemetry
+  broadcast is half an hour - so it travels with the data rather than being told to the widget.
+  The second kind arrived in review and is the more interesting one: a reading can be *refused*
+  rather than missing, and the elapsed-time test cannot see it. A node on external power reports
+  the firmware's 101 sentinel, punctually, well inside its own gap window - so refusing the
+  sentinel is not enough, and the two real levels either side of an hour on mains were being
+  joined into one slope over a period where no battery level existed. `mesh_ui_series_break()`
+  is the source saying what the clock cannot: *whatever comes next does not continue this*.
 - **The y axis is the reading's own domain, and the temptation to rescale is strong.** Every
   sparkline in a spreadsheet fits its data to its box, and on the two readings this draws it is
   wrong both times: a battery that fell two percent overnight becomes a cliff, and a mesh
@@ -1274,6 +1280,13 @@ quietly, and those are the step.
   already has the wide picture - a banded bar on its second step, where the reading sits between
   flat and full - and what it had never been able to say is which way it was moving. Six cells
   beside the figure says that and costs no row.
+- **A tone is not a colour the cursor validates.** Also from review, and the same shape as the
+  gap: the line was drawn in its family tone whether or not the row under it carried the cursor
+  fill. A family is validated against the body and against a card and not against that fill, and
+  on the contrast theme the fill is white while the primary is yellow - so the trend vanished on
+  precisely the row being pointed at. The meter answers this by laying a ground of its own under
+  its track; a line has no track to lay one under, so it takes the pairing the row's words take,
+  which is `MESH_UI_COLOR_TEXT_ON_SEL` and is exactly what the staircase's lit rungs already do.
 - **The inline version had to be anchored to the line rather than to the fill.** Every other
   trailing slot centres on the row's cursor fill, which was indistinguishable from centring on
   the line until a row was two steps tall with a bar on the second - and then the trend landed

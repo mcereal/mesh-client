@@ -118,6 +118,29 @@ MESH_TEST_CASE(series_breaks_the_line_at_a_gap, unit) {
     record_success(test_name);
 }
 
+/*
+ * A discontinuity the clock cannot see: a reading that was refused rather than missing.
+ *
+ * The elapsed-time test cannot catch it - the two real readings are punctual, well inside the
+ * gap window - so the source has to say so, and mesh_ui_series_break() is how.
+ */
+MESH_TEST_CASE(series_breaks_where_the_source_says_so, unit) {
+    struct mesh_ui_series series;
+    mesh_ui_series_reset(&series, 10000U);
+    mesh_ui_series_push(&series, 0U, 80);
+    mesh_ui_series_break(&series);
+    mesh_ui_series_push(&series, 1000U, 79);
+    mesh_ui_series_push(&series, 2000U, 78);
+
+    struct mesh_ui_polyline points;
+    mesh_ui_series_project(&series, (struct mesh_ui_scale){0, 100}, &points);
+    MESH_TEST_FAIL_IF(points.count != 3U, "a break should cost no reading");
+    MESH_TEST_FAIL_IF(!points.items[1].gap,
+                      "a reading after a stated break should start its own segment");
+    MESH_TEST_FAIL_IF(points.items[2].gap, "the break should be spent on one reading, not held");
+    record_success(test_name);
+}
+
 /* One reading is a level, and a widget handed one draws nothing. */
 MESH_TEST_CASE(series_projection_of_one_reading_is_not_a_trend, unit) {
     struct mesh_ui_series series;
@@ -172,12 +195,46 @@ MESH_TEST_CASE(history_keeps_a_battery_per_node, unit) {
                       "a second node should get a slot of its own");
 
     /*
-     * 101 is the firmware's "running off external power", which is not a level: it is refused
-     * rather than drawn as a reading above full. The trend keeps what it had.
+     * 101 is the firmware's "running off external power", which every phone app draws as a plug
+     * rather than as a level. It is refused rather than drawn as a reading above full, and the
+     * trend keeps what it had.
      */
     mesh_ui_history_note_battery(&history, 3000U, 0x1234U, 101U);
     MESH_TEST_FAIL_IF(mesh_ui_history_battery(&history, 0x1234U)->count != 2U,
                       "a node on mains reports no battery level to plot");
+    record_success(test_name);
+}
+
+/*
+ * And an hour on external power breaks the line rather than vanishing from it.
+ *
+ * Refusing the sentinel is not enough on its own: a node on mains is still reporting punctually,
+ * so the two real readings either side of it are inside the gap window and would be joined -
+ * one continuous slope over a period where no battery level existed. This is the case the
+ * elapsed-time rule cannot see.
+ */
+MESH_TEST_CASE(history_breaks_a_battery_trend_across_external_power, unit) {
+    struct mesh_ui_history history;
+    mesh_ui_history_reset(&history);
+
+    mesh_ui_history_note_battery(&history, 1000U, 0x1234U, 80U);
+    mesh_ui_history_note_battery(&history, 2000U, 0x1234U, 101U); /* plugged in */
+    mesh_ui_history_note_battery(&history, 3000U, 0x1234U, 79U);
+
+    const struct mesh_ui_series *series = mesh_ui_history_battery(&history, 0x1234U);
+    MESH_TEST_FAIL_IF(series == NULL || series->count != 2U,
+                      "only the two real levels should be readings");
+
+    struct mesh_ui_polyline points;
+    mesh_ui_series_project(series, (struct mesh_ui_scale){0, 100}, &points);
+    MESH_TEST_FAIL_IF(!points.items[1].gap,
+                      "the reading after the plug should not continue the one before it");
+
+    /* A node nothing has been watching has no trend to discontinue, and recording that it is
+       plugged in would spend a slot a node with readings could have used. */
+    mesh_ui_history_note_battery(&history, 4000U, 0x9999U, 101U);
+    MESH_TEST_FAIL_IF(mesh_ui_history_battery(&history, 0x9999U) != NULL,
+                      "external power alone should not claim a slot");
     record_success(test_name);
 }
 

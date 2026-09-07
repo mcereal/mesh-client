@@ -610,6 +610,17 @@ void mesh_ui_series_push(struct mesh_ui_series *series, uint32_t time, int32_t v
     }
     series->items[slot].time = time;
     series->items[slot].value = value;
+    /* A break belongs to the sample that *starts* the new segment, so it is spent here rather
+       than remembered against the series - a second push must not inherit it. */
+    series->items[slot].gap = series->pending_break;
+    series->pending_break = false;
+}
+
+void mesh_ui_series_break(struct mesh_ui_series *series) {
+    if (series == NULL) {
+        return;
+    }
+    series->pending_break = true;
 }
 
 const struct mesh_ui_sample *mesh_ui_series_at(const struct mesh_ui_series *series,
@@ -655,10 +666,11 @@ void mesh_ui_series_project(const struct mesh_ui_series *series, struct mesh_ui_
                                                    span)
                                        : (int32_t)(((uint64_t)i * MESH_UI_ANIM_ONE) / last));
         point->y = (int16_t)mesh_ui_scale_permille(scale, sample->value);
-        /* The first sample continues nothing, and neither does one that arrived after a silence
-           the series calls a break. */
-        point->gap =
-            (i == 0U) || (series->gap_ms > 0U && (sample->time - previous) > series->gap_ms);
+        /* The first sample continues nothing; neither does one that arrived after a silence the
+           series calls a break, nor one the source itself broke before - a discontinuity the
+           clock cannot see, which is what mesh_ui_series_break() exists for. */
+        point->gap = (i == 0U) || sample->gap ||
+                     (series->gap_ms > 0U && (sample->time - previous) > series->gap_ms);
         previous = sample->time;
     }
     out->count = series->count;

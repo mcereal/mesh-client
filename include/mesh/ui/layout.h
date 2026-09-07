@@ -433,6 +433,10 @@ uint8_t mesh_ui_signal_level(float snr);
 struct mesh_ui_sample {
     uint32_t time; /* the client's monotonic clock, in milliseconds */
     int32_t value; /* the reading, in whatever units the series is stated in */
+    /* This reading does not continue the one before it, for a reason the clock cannot show -
+       see mesh_ui_series_break(). The elapsed-time test is the other way a point becomes the
+       start of a segment, and the two are independent. */
+    bool gap;
 };
 
 struct mesh_ui_series {
@@ -444,6 +448,8 @@ struct mesh_ui_series {
        about the source - the radio's own report is minutes apart and a node's is half an hour -
        and travels with the data so nothing downstream has to be told twice. 0 never breaks. */
     uint32_t gap_ms;
+    /* mesh_ui_series_break() has been called and no reading has arrived since. */
+    bool pending_break;
 };
 
 /* Empties it and states how long a silence counts as a break. */
@@ -458,6 +464,21 @@ void mesh_ui_series_reset(struct mesh_ui_series *series, uint32_t gap_ms);
  */
 void mesh_ui_series_push(struct mesh_ui_series *series, uint32_t time, int32_t value);
 
+/*
+ * Whatever arrives next does not continue what came before.
+ *
+ * A silence is not the only discontinuity a reading can have, and the elapsed-time test cannot
+ * see the other kind: a reading that was *refused* rather than missing. A node that spends an
+ * hour on external power is reporting throughout - punctually, inside any gap window - and
+ * reporting something that is not a level, so the two samples either side of it have an hour of
+ * unknown battery between them. Sloping across that is the same false claim as sloping across a
+ * silence, and it arrives past the same guard.
+ *
+ * So the source says so, because the source is the only thing that knows it happened. Calling
+ * it on an empty series does nothing a first sample was not already going to do.
+ */
+void mesh_ui_series_break(struct mesh_ui_series *series);
+
 /* The `index`th oldest, or NULL past the end. */
 const struct mesh_ui_sample *mesh_ui_series_at(const struct mesh_ui_series *series, uint32_t index);
 
@@ -468,8 +489,8 @@ const struct mesh_ui_sample *mesh_ui_series_newest(const struct mesh_ui_series *
  * One projected sample: where it sits across the box and up it, both in permille.
  *
  * `gap` is the pen: true means "this sample does not continue the one before it", which is the
- * first sample of the line and every sample that follows a silence longer than the series'
- * `gap_ms`.
+ * first sample of the line, every sample that follows a silence longer than the series'
+ * `gap_ms`, and every sample the source itself broke before (mesh_ui_series_break()).
  */
 struct mesh_ui_point {
     int16_t x;

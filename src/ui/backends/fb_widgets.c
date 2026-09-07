@@ -3604,7 +3604,20 @@ void fb_draw_sparkline(const struct mesh_ui_backend_fb_state *state,
                                              : fb_color(state, MESH_UI_COLOR_METER_TRACK);
     fb_fill_rect(state, r.x, r.y + r.h - stroke, r.w, stroke, floor_ink);
 
-    const struct mesh_ui_rgb ink = fb_tone_color(state, fb_meter_tone(spark->tone));
+    /*
+     * The line.
+     *
+     * Its tone on the ground, and the row's selected ink under the cursor - which is the
+     * staircase's rule, not a second one. A family tone is validated against the body and
+     * against a card; it is not validated against the cursor fill, and on the contrast theme
+     * that fill is white while the primary is yellow, so a stroke drawn in the tone there is a
+     * line nobody can see on precisely the row being pointed at. The meter answers this by
+     * laying a ground of its own under its track; a line has no track to lay one under - it is
+     * a stroke among the row's words - so it takes the pairing those words take.
+     */
+    const struct mesh_ui_rgb ink = spark->selected
+                                       ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL)
+                                       : fb_tone_color(state, fb_meter_tone(spark->tone));
     int previous_x = 0;
     int previous_y = 0;
     for (uint32_t i = 0U; i < points->count && i < MESH_UI_SERIES_MAX; ++i) {

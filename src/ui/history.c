@@ -25,6 +25,19 @@ void mesh_ui_history_note_airtime(struct mesh_ui_history *history, uint32_t now_
     mesh_ui_series_push(&history->air_util_tx, now_ms, tx_permille);
 }
 
+/* The slot this node already has, or NULL. Separate from the one below because two callers
+   want different answers to "no slot": a reading takes one, and a discontinuity in a trend
+   nothing has been watching is not a thing to start watching. */
+static struct mesh_ui_history_node *mesh_ui_history_find(struct mesh_ui_history *history,
+                                                         uint32_t node_id) {
+    for (uint32_t i = 0U; i < MESH_UI_HISTORY_NODES; ++i) {
+        if (history->nodes[i].node_id == node_id) {
+            return &history->nodes[i];
+        }
+    }
+    return NULL;
+}
+
 /*
  * The slot this node has, or the one it takes.
  *
@@ -62,9 +75,25 @@ void mesh_ui_history_note_battery(struct mesh_ui_history *history, uint32_t now_
      * rather than as a level. It is not a hundred and one percent of anything, so it is not a
      * point on a line: a node that spends the night on mains and the morning on its battery
      * would otherwise show a cliff at dawn that is the plug being pulled, not the charge
-     * falling. The reading is refused and the trend simply has a gap there, which is true.
+     * falling.
+     *
+     * Refusing it is not enough on its own, and this is the one place the elapsed-time gap
+     * cannot do the work. A node on mains is still reporting, punctually, well inside its gap
+     * window - so the two real readings either side of an hour of external power are half an
+     * hour apart on the clock with an hour of unknown battery between them, and a line drawn
+     * straight through would claim a charge nobody measured. The series is told, and the next
+     * reading starts a segment of its own.
+     *
+     * Only for a node that already has a trend. A node we have never had a level from has
+     * nothing to discontinue, and claiming a slot to record that it is plugged in would evict a
+     * node whose battery we are actually watching.
      */
     if (battery_level > 100U) {
+        struct mesh_ui_history_node *known = mesh_ui_history_find(history, node_id);
+        if (known != NULL && known->battery.count > 0U) {
+            known->seen = now_ms;
+            mesh_ui_series_break(&known->battery);
+        }
         return;
     }
     struct mesh_ui_history_node *slot = mesh_ui_history_slot(history, node_id);

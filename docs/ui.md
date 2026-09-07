@@ -1068,7 +1068,11 @@ Four rules, and each is a way a trend line can be wrong quietly:
 - **A gap is a break, not a slope.** A line drawn straight across the hour the radio was away
   claims readings nobody took, and it is exactly the hour a reader would want to see was missing.
   Each series carries its own `gap_ms`, because how long a silence is remarkable is a fact about
-  the source: minutes for the radio's own report, hours for a node's telemetry broadcast.
+  the source: minutes for the radio's own report, hours for a node's telemetry broadcast. A
+  silence is not the only discontinuity, though — a reading can be *refused* rather than missing,
+  and the clock cannot see that one. A node on external power reports punctually and reports
+  something that is not a level, so the source says so with `mesh_ui_series_break()` and the next
+  reading starts a segment of its own.
 - **The y axis is the reading's own domain** — the same `struct mesh_ui_scale` the bar beside it
   fills against, never the range these particular samples span. Auto-scaling is what a
   spreadsheet does, and on a battery that fell two percent overnight it draws a cliff. It is also

@@ -103,7 +103,7 @@ suite needs it.
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Verified 2026-09-07: 273 unit tests, all passing, zero compiler warnings.
+Verified 2026-09-07: 275 unit tests, all passing, zero compiler warnings.
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
 vector — not against our own encoder — so a protobuf regeneration that changes field numbers or
 wire types fails loudly.
@@ -346,7 +346,10 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   samples happen to span. Every spreadsheet does the opposite, and on the two readings this draws
   it is wrong both times: a battery that fell two percent overnight becomes a cliff, and a quiet
   mesh becomes a mesh in trouble. A silence longer than the series' own `gap_ms` breaks the line
-  rather than sloping across it, for the same reason. And **the history is never persisted**: the
+  rather than sloping across it, for the same reason - and so does a reading that was *refused*
+  rather than missing, which the clock cannot see: a node on external power reports punctually
+  and reports something that is not a level, so `mesh_ui_series_break()` is how the source says
+  the next reading starts a segment. And **the history is never persisted**: the
   roster is what we know and survives a restart, a trend is what we *watched*, and the hours the
   client was not running are not a silence it can draw.
 - **A history sample is stamped with the client's clock, and a new reading is detected by the
