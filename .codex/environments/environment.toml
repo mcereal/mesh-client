@@ -3,4 +3,4 @@ version = 1
 name = "mesh-client"
 
 [setup]
-script = ""
+script = "make setup"
