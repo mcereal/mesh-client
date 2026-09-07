@@ -532,9 +532,10 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             return false;
         }
         struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-        const uint32_t count = mesh_ui_node_detail_build(
-            node, mesh_ui_nav_node_is_self(store, node), 0U, &store->traceroute,
-            nav->node_remove_armed, &store->handshake, items, MESH_UI_NODE_ITEMS_MAX);
+        const uint32_t count =
+            mesh_ui_node_detail_build(node, mesh_ui_nav_node_is_self(store, node), 0U,
+                                      &store->traceroute, nav->node_remove_armed, &store->handshake,
+                                      &store->history, items, MESH_UI_NODE_ITEMS_MAX);
         if (cursor >= count || items[cursor].kind != MESH_UI_NODE_ROW_ACTION) {
             return false;
         }

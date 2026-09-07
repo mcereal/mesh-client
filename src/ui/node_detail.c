@@ -21,6 +21,10 @@ struct node_rows {
     struct mesh_ui_node_item *items;
     uint32_t capacity;
     uint32_t count;
+    /* This node's battery trend, resolved once by the build rather than looked up per row.
+       NULL when nothing has been watched, which is every caller that passes no history and
+       every node the client has not heard a second reading from. */
+    const struct mesh_ui_series *battery_trend;
 };
 
 static struct mesh_ui_node_item *rows_next(struct node_rows *rows) {
@@ -164,6 +168,27 @@ static void rows_gauge(struct node_rows *rows, int32_t value, struct mesh_ui_sca
         item->band = *band;
         item->banded = true;
     }
+}
+
+/*
+ * The fifth way, and a modifier on a modifier: what this reading has been doing, hung on the
+ * row that already says what it is now.
+ *
+ * Only ever on a meter row - see `trend` on struct mesh_ui_node_item - which rows_gauge() has
+ * just made, so the two are called as a pair and the second is refused if the first did not
+ * happen. That is not defensiveness: a trend on an info row would be a line with no ends to be
+ * drawn between, and the ends are the meter's.
+ */
+static void rows_trend(struct node_rows *rows, const struct mesh_ui_series *series) {
+    if (series == NULL || rows->items == NULL || rows->count == 0U ||
+        rows->count > rows->capacity) {
+        return;
+    }
+    struct mesh_ui_node_item *item = &rows->items[rows->count - 1U];
+    if (item->kind != MESH_UI_NODE_ROW_METER) {
+        return;
+    }
+    item->trend = series;
 }
 
 /* "4m", "3h", "2d" - the same shorthand the Nodes list uses, so the two agree. An unset or
@@ -326,6 +351,10 @@ static void node_rows_power(struct node_rows *rows, const struct mesh_ui_node_su
                       (unsigned)metrics->battery_level);
             rows_gauge(rows, (int32_t)metrics->battery_level, node_battery_scale,
                        &node_battery_band);
+            /* And which way it has been going, which is the question a battery percentage is
+               nearly always a proxy for. Drawn on the bar's own scale, so the line and the bar
+               under it are one reading measured twice rather than two. */
+            rows_trend(rows, rows->battery_trend);
         }
     }
     if (metrics->has_voltage) {
@@ -733,6 +762,7 @@ static void node_rows_route(struct node_rows *rows, const struct mesh_ui_node_su
 uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool is_self,
                                    uint32_t now, const struct mesh_ui_traceroute *trace,
                                    bool remove_armed, const struct mesh_ui_handshake_state *roster,
+                                   const struct mesh_ui_history *history,
                                    struct mesh_ui_node_item *out, uint32_t capacity) {
     if (node == NULL) {
         return 0U;
@@ -742,6 +772,7 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
         .items = out,
         .capacity = (out == NULL) ? MESH_UI_NODE_ITEMS_MAX : capacity,
         .count = 0U,
+        .battery_trend = mesh_ui_history_battery(history, node->node_id),
     };
 
     /* The actions lead: opening a node from the Nodes tab used to go straight to its
@@ -803,7 +834,7 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
 uint32_t mesh_ui_node_detail_count(const struct mesh_ui_node_summary *node, bool is_self,
                                    const struct mesh_ui_traceroute *trace,
                                    const struct mesh_ui_handshake_state *roster) {
-    return mesh_ui_node_detail_build(node, is_self, 0U, trace, false, roster, NULL, 0U);
+    return mesh_ui_node_detail_build(node, is_self, 0U, trace, false, roster, NULL, NULL, 0U);
 }
 
 static uint32_t node_list_count(const struct mesh_ui_handshake_state *handshake) {

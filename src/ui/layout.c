@@ -575,3 +575,103 @@ uint8_t mesh_ui_signal_level(float snr) {
     }
     return 0U;
 }
+
+/* ---- a series ------------------------------------------------------------------------------ */
+
+void mesh_ui_series_reset(struct mesh_ui_series *series, uint32_t gap_ms) {
+    if (series == NULL) {
+        return;
+    }
+    memset(series, 0, sizeof *series);
+    series->gap_ms = gap_ms;
+}
+
+void mesh_ui_series_push(struct mesh_ui_series *series, uint32_t time, int32_t value) {
+    if (series == NULL) {
+        return;
+    }
+    const struct mesh_ui_sample *newest = mesh_ui_series_newest(series);
+    if (newest != NULL && time < newest->time) {
+        /* The clock went backwards, so nothing here knows when any of it happened any more. The
+           readings are still true and a trend over them is not, which is the difference between
+           dropping the series and keeping it. See the header. */
+        const uint32_t gap_ms = series->gap_ms;
+        memset(series, 0, sizeof *series);
+        series->gap_ms = gap_ms;
+    }
+    uint32_t slot;
+    if (series->count < MESH_UI_SERIES_MAX) {
+        slot = (series->first + series->count) % MESH_UI_SERIES_MAX;
+        ++series->count;
+    } else {
+        /* Full: the oldest is what the newest costs. */
+        slot = series->first;
+        series->first = (series->first + 1U) % MESH_UI_SERIES_MAX;
+    }
+    series->items[slot].time = time;
+    series->items[slot].value = value;
+    /* A break belongs to the sample that *starts* the new segment, so it is spent here rather
+       than remembered against the series - a second push must not inherit it. */
+    series->items[slot].gap = series->pending_break;
+    series->pending_break = false;
+}
+
+void mesh_ui_series_break(struct mesh_ui_series *series) {
+    if (series == NULL) {
+        return;
+    }
+    series->pending_break = true;
+}
+
+const struct mesh_ui_sample *mesh_ui_series_at(const struct mesh_ui_series *series,
+                                               uint32_t index) {
+    if (series == NULL || index >= series->count) {
+        return NULL;
+    }
+    return &series->items[(series->first + index) % MESH_UI_SERIES_MAX];
+}
+
+const struct mesh_ui_sample *mesh_ui_series_newest(const struct mesh_ui_series *series) {
+    if (series == NULL || series->count == 0U) {
+        return NULL;
+    }
+    return mesh_ui_series_at(series, series->count - 1U);
+}
+
+void mesh_ui_series_project(const struct mesh_ui_series *series, struct mesh_ui_scale scale,
+                            struct mesh_ui_polyline *out) {
+    if (out == NULL) {
+        return;
+    }
+    memset(out, 0, sizeof *out);
+    if (series == NULL || series->count == 0U) {
+        return;
+    }
+
+    const struct mesh_ui_sample *oldest = mesh_ui_series_at(series, 0U);
+    const struct mesh_ui_sample *newest = mesh_ui_series_newest(series);
+    /* Pushes are ordered and a backwards clock empties the series, so this cannot underflow. */
+    const uint32_t span = newest->time - oldest->time;
+    const uint32_t last = series->count > 1U ? series->count - 1U : 1U;
+
+    uint32_t previous = 0U;
+    for (uint32_t i = 0U; i < series->count; ++i) {
+        const struct mesh_ui_sample *sample = mesh_ui_series_at(series, i);
+        struct mesh_ui_point *point = &out->items[i];
+        /* Across the span the readings were actually taken over - or evenly, when the clock
+           could not separate them at all, which is the one case the sample number is the axis
+           and is what `span == 0` means here. */
+        point->x = (int16_t)(span > 0U ? (int32_t)(((uint64_t)(sample->time - oldest->time) *
+                                                    (uint64_t)MESH_UI_ANIM_ONE) /
+                                                   span)
+                                       : (int32_t)(((uint64_t)i * MESH_UI_ANIM_ONE) / last));
+        point->y = (int16_t)mesh_ui_scale_permille(scale, sample->value);
+        /* The first sample continues nothing; neither does one that arrived after a silence the
+           series calls a break, nor one the source itself broke before - a discontinuity the
+           clock cannot see, which is what mesh_ui_series_break() exists for. */
+        point->gap = (i == 0U) || sample->gap ||
+                     (series->gap_ms > 0U && (sample->time - previous) > series->gap_ms);
+        previous = sample->time;
+    }
+    out->count = series->count;
+}

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "mesh/ui/history.h"
 #include "mesh/ui/nav.h"
 
 #include <stdbool.h>
@@ -762,6 +763,12 @@ struct mesh_ui_snapshot {
     struct mesh_ui_settings settings;
     /* The last traceroute, running or finished. Not persisted. */
     struct mesh_ui_traceroute traceroute;
+    /*
+     * What the client has watched happen, as opposed to everything above, which is what is true
+     * now. The one part of a snapshot that is not a copy of what the radio last said - see
+     * include/mesh/ui/history.h. Not persisted, for the reason stated there.
+     */
+    struct mesh_ui_history history;
     mesh_ui_update_flags update_flags;
 };
 
@@ -776,6 +783,16 @@ struct mesh_ui_store {
     struct mesh_ui_nav nav;
     struct mesh_ui_settings settings;
     struct mesh_ui_traceroute traceroute;
+    struct mesh_ui_history history;
+    /*
+     * The clock the last mesh_ui_store_tick() carried, which is what stamps a history sample.
+     *
+     * The setters do not take a time - they are called from wherever a publish happens to reach
+     * the store - and a series needs one, so the store keeps the last it was told. The event
+     * loop ticks every turn, so it is never more than a turn stale; before the first tick it is
+     * 0, which is a real point on a monotonic clock rather than a missing one.
+     */
+    uint64_t now_ms;
     int event_fd;
     mesh_ui_update_flags pending_flags;
 };

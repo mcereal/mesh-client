@@ -706,6 +706,82 @@ void fb_draw_slider(struct mesh_ui_backend_fb_state *state, const struct fb_slid
 void fb_draw_signal(const struct mesh_ui_backend_fb_state *state, const struct fb_rect *box,
                     uint8_t level, struct mesh_ui_rgb ink, struct mesh_ui_rgb unlit);
 
+/* ---- the sparkline --------------------------------------------------------------------------
+ *
+ * The same reading over time, in the room a row has: which *way* it is going.
+ *
+ * The third quantitative component and the first that is not about now. A meter says how much,
+ * a staircase says how well, and both are read against a track that is right there - but the
+ * two questions this client is actually opened for are "is the mesh getting worse" and "is this
+ * battery going to last the night", and neither is answerable from a level. A reader who
+ * happened to look an hour ago can answer them; nobody else can, and the client is the thing
+ * that was looking.
+ *
+ * So it draws a memory, and the memory is `struct mesh_ui_series` (include/mesh/ui/layout.h) -
+ * where the whole cost of this component is, and where the three rules that keep the picture
+ * honest are stated. What is left here is the drawing, which is small.
+ *
+ * Four decisions in it, and each is the staircase's rules arriving on a second axis:
+ *
+ *   - **The vertical is the reading's own domain**, the same `struct mesh_ui_scale` the bar
+ *     beside it fills against - never the range these particular samples happened to span. A
+ *     line that rescaled itself to its data would draw a battery that fell two percent overnight
+ *     as a cliff, which is what a spreadsheet does and what "a picture cannot be wrong quietly"
+ *     forbids. It also means the line and the bar can be read against each other, because they
+ *     are measured on one scale.
+ *   - **Nothing animates.** A meter eases towards each reading because the value it is drawing
+ *     replaces the last one; a trend *keeps* them, so there is nothing to move between. Easing
+ *     the newest point into place would show a shape that was never a reading.
+ *   - **The pen lifts at a gap.** A break in the line is a period nothing was reported, and
+ *     drawing a slope across it claims readings nobody took - see `gap` on struct mesh_ui_point.
+ *   - **It takes the row's pair, not a colour.** The line is a tone, and the floor under it is
+ *     the meter's track - which is the pairing every theme is already validated for, and the
+ *     reason a trend costs no new contract.
+ *
+ * Fewer than two points draws nothing at all, including no floor: one reading is a level, there
+ * is a component for that, and an empty track in a list row is furniture reporting that nothing
+ * has happened yet.
+ */
+
+/* Cells a trailing sparkline occupies, its gap to the words excluded. Stated rather than
+   measured, for the reason the staircase's width is: a line has no natural width. Six is where
+   two dozen samples are still individually placeable at the smallest glyph scale, and it is the
+   inline meter's eight less the two the gap and the figure want back. */
+#define FB_SPARK_CELLS 6U
+
+struct fb_sparkline {
+    struct fb_rect rect; /* the box the line is drawn in; fb_sparkline_height() is the height */
+    /*
+     * The samples, already normalised - x across the box, y up it, both in permille, oldest
+     * first. mesh_ui_series_project() is what produces one, so the arithmetic that decides
+     * where a reading lands is a unit test's to reach rather than a renderer's to hold.
+     *
+     * Borrowed for the call. Nothing here keeps it.
+     */
+    const struct mesh_ui_polyline *points;
+    /* The line. A family tone, on the meter's terms: the neutral three fall back to the accent,
+       because a stroke nobody validated against the track is a line that vanishes on a theme
+       somebody has not opened yet. */
+    enum mesh_ui_tone tone;
+    bool selected; /* the row under it carries the cursor fill */
+};
+
+/*
+ * The height the line wants at `scale`, in pixels: the glyph body's, which is taller than the
+ * icon box the staircase beside it takes.
+ *
+ * Not an inconsistency between two things in one column. An icon has to stand as tall as the
+ * capitals it is read among and no taller, and four rungs are counted rather than measured; a
+ * line's whole reading is in its height, so every pixel of it is a pixel of the answer. This is
+ * as tall as a row's own text, which is as tall as a slot can be without the row growing.
+ */
+int fb_sparkline_height(const struct mesh_ui_backend_fb_state *state, int scale);
+
+/* Draws the floor and the line. Const state, unlike the meter and the slider: there is no
+   animation to step - see above. */
+void fb_draw_sparkline(const struct mesh_ui_backend_fb_state *state,
+                       const struct fb_sparkline *spark);
+
 /* ---- the badge ------------------------------------------------------------------------------
  *
  * A capsule of text, filled from a family. Two callers: a list row's trailing slot
@@ -974,6 +1050,18 @@ enum fb_trailing_kind {
      * nothing to say about. Rightmost is the signal, exactly as a status bar orders the two.
      */
     FB_TRAILING_SIGNAL,
+    /*
+     * A trend line against the trailing edge: which way a reading has been going - see struct
+     * fb_sparkline.
+     *
+     * The slot's second picture of a reading, and the pair with FB_TRAILING_METER is the point:
+     * an inline bar says where a number sits between its ends *now*, and a row that already
+     * carries a bar under its words - the node detail's battery, say - has said that twice
+     * before it has said anything about the direction. Six cells of line is where the direction
+     * fits, and it is the one thing on such a row that its figure, its bar and its band all
+     * leave out.
+     */
+    FB_TRAILING_SPARK,
     /* The two selection controls - see struct fb_selection. A checkbox for a boolean that is
        one of a set, a radio for one alternative among a column of them. CHECKBOX has no caller
        yet and the comment above enum fb_selection_shape says why. */
@@ -1001,6 +1089,8 @@ struct fb_trailing {
     struct fb_switch *sw;   /* SWITCH. Its rect is filled in by the row: where the value column
                                ends is the row's business, not the caller's. */
     struct fb_meter *meter; /* METER. Its rect is filled in by the row, as the switch's is. */
+    /* SPARK. Its rect is filled in by the row, as the meter's is. */
+    struct fb_sparkline *spark;
     /* CHECKBOX and RADIO. Its rect is filled in by the row, as the switch's is; `shape` is set
        from the kind, so a caller cannot name one and draw the other. */
     struct fb_selection *sel;
@@ -1336,6 +1426,10 @@ enum fb_card_row_kind {
        like a field row, so a card with one costs no more room and the clip arithmetic above is
        unchanged - a bar is thinner than the text it sits among, not taller. */
     FB_CARD_ROW_METER,
+    /* The same shape for a trend line: a label column and a sparkline across the rest of the
+       row, one line, for the same reason. What it costs a card is one row and what it buys is
+       the direction, which is the half of a reading no other row on a card can carry. */
+    FB_CARD_ROW_SPARK,
 };
 
 struct fb_card_row {
@@ -1353,6 +1447,10 @@ struct fb_card_row {
     struct mesh_ui_band meter_band;
     bool meter_banded;
     uint32_t meter_id;
+    /* SPARK: the samples, already normalised. Held by value on the same terms the band is - a
+       card is built, handed over and drawn, so a row that pointed into a snapshot would be a
+       card that only works while the frame that built it is still being drawn. */
+    struct mesh_ui_polyline spark;
 };
 
 /*
@@ -1454,6 +1552,22 @@ void fb_card_note(struct fb_card *card, enum mesh_ui_tone tone, const char *text
 void fb_card_meter(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_id label,
                    int32_t value, struct mesh_ui_scale scale, const struct mesh_ui_band *band,
                    uint32_t id);
+
+/*
+ * A line: the row for the same number's *direction*.
+ *
+ * `series` is the readings kept for it and `scale` the domain they are drawn on - the same one
+ * the bar above it fills against, which is what lets the two be read together rather than each
+ * against its own idea of full. A series with fewer than two samples adds no row at all, so a
+ * card asks for the trend and gets it once there is one, rather than reserving an empty box
+ * against a reading the radio has yet to repeat.
+ *
+ * `label` of MESH_STR_NONE gives the line the card's whole content width, and it is the shape
+ * to reach for here for the reason the meter's is: a trend under a bar under the words is
+ * already the third thing said about one number, and a label would be the fourth.
+ */
+void fb_card_spark(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_id label,
+                   const struct mesh_ui_series *series, struct mesh_ui_scale scale);
 
 /*
  * A verb, as a button on the card's heading line. Declared left to right: the first call is the

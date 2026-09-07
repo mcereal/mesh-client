@@ -241,6 +241,13 @@ why the set is closed: message, trace route, ask for its name, pin, ignore. What
 why the neighbouring admin verbs are absent is in
 [`architecture.md`](architecture.md#asking-the-radio-about-a-node).
 
+A reading with ends the reader does not carry around gets a banded bar on a second step
+(`MESH_UI_NODE_ROW_METER`) — battery, SNR, the two airtime figures — and the battery row also
+gets a trend in its trailing slot, because a percentage is nearly always a proxy for the question
+about the direction. Both are measured on the same scale, so the line and the bar are one reading
+drawn twice rather than two. What the reading is *now* gets the wider picture, because that is
+what this screen is for.
+
 The open node is remembered by **id** (`nav.node_detail_node`), not by row: `app.c` re-ranks the
 node list on every publish, so an index would slide onto a different node while the user was
 reading one. `nav.c`'s clamp closes the detail when that id leaves the list.
@@ -263,7 +270,7 @@ half-line of extra space every so often standing in for a grouping. It is now th
 | Card | What it holds | Variant | Heading colour | Verb |
 |---|---|---|---|---|
 | **Link** | transport, radio, sync, our node, the primary channel, devices in range | elevated, always | good when a radio is attached, bad when none is | *disconnect*, while one is |
-| **Mesh** | NodeDB and roster counts, airtime, packets, what the ring is holding | filled | the airtime tone — warning past 25% channel utilization, error past 50% | none |
+| **Mesh** | NodeDB and roster counts, airtime with a banded bar and a trend under it, packets, what the ring is holding | filled | the airtime tone — warning past 25% channel utilization, error past 50% | none |
 | **Radio** | battery and uptime, what the firmware last said, reboots, the TX queue, free heap | outlined while quiet, elevated when not | the worst thing on it: bad for a flat battery, a refused packet or an `ERROR` notice | *refresh*, once it has synced |
 
 The heading colour is the point. Every row on the Radio card exists only when something is
@@ -441,7 +448,7 @@ shoulder, revealed in the one place you went to change it.
 | File | Layer | What belongs there |
 |---|---|---|
 | `fb_draw.c` | ink | pixels, glyphs, the theme lookups, cell metrics (`fb_internal.h`) |
-| `fb_widgets.c` | components | cards (three variants, with verbs), buttons, chips, badges, list items, switches, meters, sliders, signal staircases, rules, bubbles, the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar (`fb_widgets.h`) |
+| `fb_widgets.c` | components | cards (three variants, with verbs), buttons, chips, badges, list items, switches, meters, sliders, sparklines, signal staircases, rules, bubbles, the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar (`fb_widgets.h`) |
 | `fb_screens.c` | screens | one renderer per screen, and nothing else |
 | `fb.c` | device | `/dev/fb0`, the page flip, the backend vtable |
 
@@ -1035,6 +1042,74 @@ Three things it does deliberately differently from the meter:
 Unlit rungs are `MESH_UI_COLOR_METER_TRACK` — the role already contracted as "the empty part of
 an indicator" — except under the cursor, where the track is the cursor fill on two of the four
 themes and the row's own dim pairing is used instead.
+
+#### `fb_draw_sparkline()` — a reading over time
+
+The third quantitative component, and the first that is not about now. A meter says how much of
+the air is in use; a staircase says how well we hear a node. Neither can answer "is it climbing",
+and that is the question behind both of the ones this client is actually opened for — *is the
+mesh getting worse*, and *is that battery going to last the night*. A level answers them only for
+a reader who happened to look an hour ago and remembers what it said.
+
+Most of the work is not the drawing. `struct mesh_ui_snapshot` is the present tense throughout —
+this many nodes, this much air, this battery at this percent — so the client had nowhere to
+remember anything. It has one now: `struct mesh_ui_series` in
+[`layout.h`](../include/mesh/ui/layout.h) is a bounded ring of stamped readings, and
+`struct mesh_ui_history` in [`history.h`](../include/mesh/ui/history.h) is which series the
+client keeps. The store fills them as publishes arrive and hands a copy to the backends in the
+snapshot; nothing is persisted, because the gap where the client was not running is not a silence
+it can honestly draw.
+
+Four rules, and each is a way a trend line can be wrong quietly:
+
+- **The x axis is time, not the sample number.** Telemetry arrives on the radio's schedule and a
+  reconnect resumes whenever it resumes. Four readings over ten minutes and four over four hours
+  would otherwise be the same picture.
+- **A gap is a break, not a slope.** A line drawn straight across the hour the radio was away
+  claims readings nobody took, and it is exactly the hour a reader would want to see was missing.
+  Each series carries its own `gap_ms`, because how long a silence is remarkable is a fact about
+  the source: minutes for the radio's own report, hours for a node's telemetry broadcast. A
+  silence is not the only discontinuity, though — a reading can be *refused* rather than missing,
+  and the clock cannot see that one. A node on external power reports punctually and reports
+  something that is not a level, so the source says so with `mesh_ui_series_break()` and the next
+  reading starts a segment of its own.
+- **The y axis is the reading's own domain** — the same `struct mesh_ui_scale` the bar beside it
+  fills against, never the range these particular samples span. Auto-scaling is what a
+  spreadsheet does, and on a battery that fell two percent overnight it draws a cliff. It is also
+  what lets the line and the bar be read against each other.
+- **Fewer than two readings is not a trend.** One is a level, and there is a component for that.
+  A row with one reading draws no line and no floor: an empty box says the radio has gone quiet,
+  which is a different claim from having nothing to say yet.
+
+Nothing animates, unlike the meter and the slider. A meter eases towards each reading because the
+new value *replaces* the last one; a series keeps them, so there is nothing to move between —
+easing the newest point into place would show a shape that was never a reading.
+
+It comes in two sizes, and the pair is the same distinction the meter's two already make:
+
+| Where | Size | For |
+|---|---|---|
+| `FB_CARD_ROW_SPARK` | the card's content width, two body rows | a reading somebody has stopped to look at — the Status tab's airtime, under the bar that reads it |
+| `FB_TRAILING_SPARK` | six cells against a row's trailing edge | one the eye is passing — the node detail's battery, beside the figure |
+
+The card row is the one place in the set where a picture costs more than the text it sits among,
+and the reason is worth stating: a meter's whole reading is a *length*, so it can be as thin as
+the theme likes; a sparkline's reading is a *shape*, and a shape squeezed into the height of a
+hairline is a hairline. One extra body row is what makes a climb and a fall legible at arm's
+length.
+
+Two smaller decisions from doing it. The stroke is drawn a pixel column at a time rather than
+with Bresenham's, because consecutive columns are then joined by construction — on an axis
+measured in time, two readings a minute apart on a line spanning an hour land within a few
+columns of each other, and a line rasteriser leaves a ladder of separated pixels there. And the
+newest reading carries a square: a line has two ends and nothing about a stroke says which of
+them is now, which on a trend is the whole reading.
+
+The line takes a tone and the floor under it takes `MESH_UI_COLOR_METER_TRACK` — the meter's
+pairing, so a trend costs no theme a new contract — and swaps the floor for the row's quiet ink
+under the cursor, exactly as an unlit rung does and for the same reason.
+
+Rendered by `make ui-capture ARGS="devtools/ui_capture/scenes/trend.scene"`.
 
 #### `struct fb_snackbar` — the transient notice
 
@@ -1940,6 +2015,7 @@ clock, so a `hold` past four seconds followed by a `frame` films it sliding back
 | `update check\|download [PERCENT]\|available\|ready` | the self-updater's state. `check` and `download` are in flight - `check` is the step with no length and draws the indeterminate bar, `download` with a percentage draws the fraction - and both raise the screen progress bar. `available` and `ready` are settled, and each raises a banner. There is no updater behind the harness - it forks curl and reaches the network - so this sets what the app would have published |
 | `syncing on\|off` | put the config handshake back in flight, or finish it. What the screen progress bar reports, and unreachable any other way in a scene: `scene demo` starts with the handshake already complete because every screen in it needs a roster |
 | `offradio NAME\|all` | mark that node (or every node but ours) as one the radio's NodeDB no longer carries - what a NodeDB reset leaves behind. Its own verb because no press can reach it: the reset goes out over the air and the answer arrives on the next sync, and the harness has neither |
+| `battery NAME PERCENT` | one telemetry report from that node: a battery level, and the uptime that moves with it. Several of these lines are what makes a trend, and the command takes one reading at a time on purpose - a verb that took a whole series would let a scene declare a shape the client could not have been told |
 | `pin NAME` | pin that node — the star in a row's marker gutter. Its own verb for the same reason: X on the Nodes tab raises a `mesh_ui_action` and the store stops there, so the press the harness can make never reaches the flag |
 
 `tab` walks the tabs with the buttons rather than assigning `nav.screen`, so a scene can only

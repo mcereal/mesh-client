@@ -446,6 +446,13 @@ Three rules came out of doing it, and they are the ones a sparkline or a stacked
   a colour of its own. Anything else is a contract every theme has to be re-validated for, to
   say something the existing pairing already says.
 
+> **Landed.** `struct mesh_ui_series` and `mesh_ui_series_project()` in
+> [`layout.h`](../include/mesh/ui/layout.h), `struct mesh_ui_history` in
+> [`history.h`](../include/mesh/ui/history.h), `fb_draw_sparkline()` with `FB_CARD_ROW_SPARK`
+> and `FB_TRAILING_SPARK`. Kept below because it is the entry the work agreed with most - the
+> ring really was the larger half - and because the four ways a trend line is wrong quietly are
+> what the next thing that wants history will face. See §14.
+
 **2.13 There is still no sparkline.** The gap that remains, and the only one on this list whose
 cost is not in the component. A meter and a staircase both report a *level*; nothing reports a
 **trend**, and "is the airtime climbing" and "is this battery going to last the night" are the
@@ -493,7 +500,12 @@ Each step is independently shippable and each is visible.
 | 12 | Slider (§2.7) | **done** (and it found what a scale is not, see §12) | Genuinely new interaction |
 | 13 | Screen transitions (§2.16) | **done** (and the direction is derived rather than recorded, see §13) | Wants a direction on the nav first; the only step whose work is mostly outside the backend |
 | — | Meter domain and bands, signal staircase (§2.11, §2.12) | **done** | Out of order on purpose: both were visible on the device and neither needed anything above |
-| 14 | Sparkline (§2.13) |  | A sample ring in the store first; the component is the small half |
+| 14 | Sparkline (§2.13) | **done** (and the ring was the larger half, as §2.13 said, see §14) | A sample ring in the store first; the component is the small half |
+
+**With step 14 the ordered list is closed.** What is left in this document is Tier 3 - the
+entries it argues should *not* be done yet, and which each step since has left more rather than
+less true - and the record below of what each step turned out to be once done. A new component
+belongs in §2 with an argument for why the screen needs it, not on the end of §3.
 
 Steps 1 to 4 have landed. The motion tokens are `enum mesh_ui_motion` in
 [`theme.h`](../include/mesh/ui/theme.h), answered by `mesh_ui_theme_motion()`; the five
@@ -1202,3 +1214,95 @@ about the shape of the first one, and the correction is the step.
   row. Every pixel it writes is one the screen was going to write anyway, somewhere else on the
   panel — which is why the whole of it is 60 lines of backend under a model with no drawing in
   it at all, and why the only way to review it is `make ui-capture ARGS="scenes/transitions.scene"`.
+
+## 14. What doing step 14 changed
+
+The entry was right about the thing it was least sure of: "a data change wearing a component's
+clothes" is exactly what this is, and the ring is around three times the component by weight. It
+was right that the drawing is a polyline in a row's height, right that nothing in the store kept
+history, and right to put it last. What it did not have is the four ways a trend line is wrong
+quietly, and those are the step.
+
+- **The x axis is time, and there was no clock to use.** §2.13 said "a fixed number of readings
+  per series" and stopped there, which reads as an array with an index for an axis. It cannot
+  be: telemetry arrives on the radio's schedule, a reconnect resumes whenever it resumes, and
+  four readings over ten minutes drawn like four over four hours is a picture of a mesh that
+  does not exist. So a sample carries a stamp - and the stamp cannot be the radio's. Every
+  reading on this client is stamped with `heard`, which is the packet's `rx_time` or our wall
+  clock, and **a Brick has no wall clock**: on the device the field is 0 on every report, so a
+  series keyed on it would hold one sample for the life of the session. The clock is the
+  client's own monotonic one, from `mesh_ui_store_tick()`, and the sentence that falls out of
+  it is the right one anyway: *a trend is what the client watched, so it is measured on the
+  clock the client was watching by.*
+- **Which means "is this a new reading" is a separate question from "when was it".** The stamp
+  cannot answer it either, for the same reason, so the test is the report itself having changed
+  - the whole `struct mesh_ui_radio_stats`, the whole `struct mesh_ui_node_metrics`. That works
+  because both always carry a counter that moves: packets for LocalStats, uptime for a node.
+  A radio that repeated a report byte for byte contributes no sample, which is the right way
+  round - nothing new was said.
+- **A gap is a break, not a slope - and there are two kinds of gap.** The entry did not raise
+  either and the first is the one that would have shipped wrong: a line drawn straight across
+  the hour the radio was away claims readings nobody took, and it is precisely the hour a reader
+  would want to see was missing. Each series states its own `gap_ms` because how long a silence
+  is remarkable is a fact about the *source* - LocalStats is minutes apart, a node's telemetry
+  broadcast is half an hour - so it travels with the data rather than being told to the widget.
+  The second kind arrived in review and is the more interesting one: a reading can be *refused*
+  rather than missing, and the elapsed-time test cannot see it. A node on external power reports
+  the firmware's 101 sentinel, punctually, well inside its own gap window - so refusing the
+  sentinel is not enough, and the two real levels either side of an hour on mains were being
+  joined into one slope over a period where no battery level existed. `mesh_ui_series_break()`
+  is the source saying what the clock cannot: *whatever comes next does not continue this*.
+- **The y axis is the reading's own domain, and the temptation to rescale is strong.** Every
+  sparkline in a spreadsheet fits its data to its box, and on the two readings this draws it is
+  wrong both times: a battery that fell two percent overnight becomes a cliff, and a mesh
+  sitting at 3% airtime becomes a mesh in trouble. It takes the same `struct mesh_ui_scale` the
+  bar beside it fills against - which also means the line and the bar can be read against each
+  other, because they are two readings of one scale rather than two scales.
+- **What a series knows and what it is a series *of* are two layers, and the seam is what let
+  the store include it.** `history.h` holds series and slots and has never heard of a node;
+  `store.c` walks the roster and hands over readings. That is `mesh_ui_signal_level()`'s seam
+  one level up, and it is what makes `struct mesh_ui_history` a member of the snapshot rather
+  than a circular include.
+- **It is not persisted, and that is a rule rather than an omission.** The node cache carries
+  the roster across restarts because a roster is what we *know*; a trend is what we *watched*,
+  and the hours the client was not running are not a silence it can draw. A resumed trend would
+  put a line over a period nothing observed - the same argument as the gap, on a longer scale.
+- **The component costs a card a row, and a bar costs it none.** The first version gave the card
+  trend one line, like the meter, on the assumption that a picture in a row is a picture in a
+  row. It is not: a meter's whole reading is a *length*, so it can be as thin as the theme
+  likes and still say everything; a sparkline's reading is a *shape*, and a shape in the height
+  of a hairline is a hairline. Two body rows is what makes a climb and a fall legible at arm's
+  length, and it is the honest price of the only row on a card that can say which way something
+  is going.
+- **Two sizes, and the pair is the meter's own distinction arriving on a second axis.** Full
+  width on a card for a reading somebody has stopped to look at; six cells in a row's trailing
+  slot for one the eye is passing. The node detail's battery row is what proves it: the row
+  already has the wide picture - a banded bar on its second step, where the reading sits between
+  flat and full - and what it had never been able to say is which way it was moving. Six cells
+  beside the figure says that and costs no row.
+- **A tone is not a colour the cursor validates.** Also from review, and the same shape as the
+  gap: the line was drawn in its family tone whether or not the row under it carried the cursor
+  fill. A family is validated against the body and against a card and not against that fill, and
+  on the contrast theme the fill is white while the primary is yellow - so the trend vanished on
+  precisely the row being pointed at. The meter answers this by laying a ground of its own under
+  its track; a line has no track to lay one under, so it takes the pairing the row's words take,
+  which is `MESH_UI_COLOR_TEXT_ON_SEL` and is exactly what the staircase's lit rungs already do.
+- **The inline version had to be anchored to the line rather than to the fill.** Every other
+  trailing slot centres on the row's cursor fill, which was indistinguishable from centring on
+  the line until a row was two steps tall with a bar on the second - and then the trend landed
+  in the gap and drew its floor through the bar. The slot is the box that means "beside these
+  words". It only showed up in `make ui-capture`, which is the whole argument for the harness.
+- **Bresenham's is the wrong rasteriser here.** A line drawn as a set of pixels leaves a ladder
+  on a steep segment, and on an axis measured in time steep is the *ordinary* case: two readings
+  a minute apart on a line spanning an hour land within a few columns of each other. Drawing a
+  pixel column at a time - each column filling from where the last one ended - joins them by
+  construction, on a panel with no anti-aliasing to hide the difference.
+- **A line has two ends and a stroke does not say which of them is now.** A falling trend and a
+  rising one are the same picture read backwards, so the newest reading carries a square. It is
+  the smallest thing on the frame and it is half of what the frame says.
+- **The two questions the entry named are the two it answers, and nothing else got a trend.**
+  Not the SNR, which is measured off one packet and is the reading §2.12 quantised into four
+  rungs precisely because its error bars will not support a line. Not every node's battery
+  either: the history keeps twelve slots and evicts the least recently heard from, because a
+  general store of everything the mesh ever said is a database, and the screens that would
+  justify one do not exist.

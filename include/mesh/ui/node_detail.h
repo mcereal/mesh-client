@@ -14,6 +14,7 @@
  * lives. The backend builds once per frame and the nav asks for the count.
  */
 
+#include "mesh/ui/history.h"
 #include "mesh/ui/layout.h"
 #include "mesh/ui/store.h"
 #include "mesh/ui/theme.h"
@@ -110,6 +111,19 @@ struct mesh_ui_node_item {
     struct mesh_ui_scale scale;
     struct mesh_ui_band band;
     bool banded;
+    /*
+     * METER: what this reading has been doing, or NULL for one nothing has watched.
+     *
+     * Borrowed from the history the build was handed, which outlives the frame drawn from it.
+     * A pointer rather than a copy because a series is two dozen samples and this screen builds
+     * a hundred and nineteen rows: the one row that carries a trend should not cost every row
+     * that does not.
+     *
+     * It hangs on a METER row and only on one, and that is the rule rather than an accident of
+     * which rows have one so far. A trend is measured on the same `scale` the bar beside it is,
+     * so a row with a trend and no ends to draw it between would be a line against nothing.
+     */
+    const struct mesh_ui_series *trend;
 };
 
 /*
@@ -129,10 +143,17 @@ struct mesh_ui_node_item {
  * out. Two of this screen's groups need it rather than just this node: a neighbour is a bare
  * node number on the wire and has to be resolved to a name, and "who hears this node" is not
  * reported by anybody - it only exists as the reverse of every *other* node's list.
+ *
+ * `history` is what the client has watched this node's readings do (include/mesh/ui/history.h)
+ * and may be NULL. It adds no rows and removes none - a trend is a third thing said about a
+ * reading a row is already making, so it hangs on the row that made it - which is why
+ * mesh_ui_node_detail_count() does not take one and why the nav and the renderer cannot come to
+ * different totals over it.
  */
 uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool is_self,
                                    uint32_t now, const struct mesh_ui_traceroute *trace,
                                    bool remove_armed, const struct mesh_ui_handshake_state *roster,
+                                   const struct mesh_ui_history *history,
                                    struct mesh_ui_node_item *out, uint32_t capacity);
 
 /* Rows the node would produce. The nav needs nothing else from this module. */
