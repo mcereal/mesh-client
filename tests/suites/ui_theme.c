@@ -380,6 +380,7 @@ MESH_TEST_CASE(ui_theme_states_its_motion, unit) {
     MESH_TEST_FAIL_IF(mesh_ui_theme_motion(NULL, MESH_UI_MOTION_SHORT) !=
                           mesh_ui_theme_motion(theme, MESH_UI_MOTION_SHORT),
                       "a NULL theme did not fall back to the default");
+    record_success(test_name);
 }
 
 MESH_TEST_CASE(ui_theme_cycles_through_every_theme, unit) {

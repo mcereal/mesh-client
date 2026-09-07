@@ -334,4 +334,5 @@ MESH_TEST_CASE(ui_layout_scroll_reports_the_window, unit) {
     struct mesh_ui_scroll clipped = mesh_ui_list_scroll(&stubby, 4, 40);
     MESH_TEST_FAIL_IF(clipped.length > 4, "the thumb is longer than the track holding it");
     MESH_TEST_FAIL_IF(clipped.offset + clipped.length > 4, "the thumb ran past a short track");
+    record_success(test_name);
 }
