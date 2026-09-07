@@ -1,3 +1,13 @@
+## [2.13.0](https://github.com/mcereal/mesh-client/compare/v2.12.2...v2.13.0) (2026-09-07)
+
+### Features
+
+* **ui:** draw row markers as themed Material icons ([3e4f2b4](https://github.com/mcereal/mesh-client/commit/3e4f2b4bd9cec8ff5fc25d6132f978e4e3f4db56))
+
+### Bug Fixes
+
+* **ui:** blend a chip's icon over the bar it sits on ([230b483](https://github.com/mcereal/mesh-client/commit/230b483a71e93783bc96a24541dfd60137224ae6))
+
 ## [2.12.2](https://github.com/mcereal/mesh-client/compare/v2.12.1...v2.12.2) (2026-09-07)
 
 ### Bug Fixes
