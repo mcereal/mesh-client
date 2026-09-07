@@ -997,6 +997,15 @@ the work is deciding what may go in the banner rather than drawing one.
   recedes by size rather than by colour, which is the type scale doing a job a second, unvalidated
   ink would otherwise have been invented for.
 
+- **The bar is the first animated thing above `body_y`, and it needed no new machinery to be
+  one.** The partial-composition work that landed alongside this
+  (`fb_animation_damage()`, `state->clip`) re-composes a frame clipped to whatever the animated
+  widgets declared, and it is entered exactly when the snapshot has stopped changing - which is
+  the bar's whole life. Because the bar *is* `fb_draw_meter()`, it declares that region already:
+  reuse paid a second time, in a mechanism that did not exist when it was chosen.
+  `fb_progress_clip_matches_full_composition` pins it, because the existing clip test runs on a
+  snapshot with no radio attached and so never draws one.
+
 One thing the audit had right and worth repeating: §2.10's example is exact. Open Settings
 before the radio has answered and eight sections say `not loaded`, which reads identically
 whether a request is on its way back or nothing was ever sent. One hairline under the tab strip

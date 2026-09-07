@@ -1618,3 +1618,77 @@ cleanup:
     else
         record_success(test_name);
 }
+
+/*
+ * The screen progress bar under the partial-composition clip.
+ *
+ * fb_animation_clip_matches_full_composition covers the two animated things a body can hold; the
+ * bar is the first one that lives in the *chrome*, above `body_y`, and it runs on a snapshot that
+ * is not changing - which is precisely the case the clip is entered on. It declares its damage
+ * through fb_draw_meter(), because it is one, so this is the check that the reuse is enough:
+ * clipped and unclipped composition have to agree on every frame of the loop.
+ */
+MESH_TEST_CASE(fb_progress_clip_matches_full_composition, unit) {
+    struct mesh_ui_backend_fb_state state[2] = {0};
+    struct mesh_ui_snapshot *snapshot = calloc(1U, sizeof *snapshot);
+    const char *failure = NULL;
+    unsigned clipped = 0U;
+    if (snapshot == NULL) {
+        record_failure(test_name, "snapshot allocation failed");
+        return;
+    }
+    for (unsigned i = 0; i < 2U; ++i) {
+        state[i].var.xres = 1024U;
+        state[i].var.yres = 768U;
+        state[i].var.bits_per_pixel = 32U;
+        state[i].line_bytes = state[i].fix.line_length = 4096U;
+        state[i].bytes_per_pixel = 4U;
+        state[i].fb_size = 4096U * 768U;
+        state[i].fb_ptr = calloc(1U, state[i].fb_size);
+        if (state[i].fb_ptr == NULL) {
+            failure = "frame allocation failed";
+            goto cleanup;
+        }
+        fb_state_set_theme(&state[i], mesh_ui_theme_default(), 4);
+    }
+    state[1].partial_disabled = true;
+
+    /* A radio attached with an admin read outstanding: mesh_ui_chrome_busy() is true and nothing
+       else about the frame moves, so every frame after the first is a candidate for the clip. */
+    snapshot->nav.screen = MESH_UI_SCREEN_NODES;
+    snapshot->device_count = 1U;
+    snapshot->devices[0].connected = true;
+    snapshot->handshake_valid = true;
+    snapshot->handshake.config_complete = true;
+    snapshot->settings.admin_busy = true;
+
+    for (unsigned frame = 0U; frame < 40U; ++frame) {
+        for (unsigned i = 0U; i < 2U; ++i) {
+            fb_state_set_now(&state[i], 1000U + frame * 16U);
+            fb_render_snapshot(&state[i], snapshot);
+        }
+        if (state[0].clip_active) {
+            clipped++;
+        }
+        if (memcmp(state[0].fb_ptr, state[1].fb_ptr, state[0].fb_size) != 0) {
+            failure = "the clipped frame lost the progress bar, or what it travelled over";
+            goto cleanup;
+        }
+    }
+    if (clipped == 0U) {
+        failure = "the bar declared no damage, so the comparison never exercised the clip";
+    }
+cleanup:
+    for (unsigned i = 0U; i < 2U; ++i) {
+        fb_glyph_cache_free(&state[i]);
+        fb_thread_cache_free(&state[i]);
+        fb_render_cache_free(&state[i]);
+        free(state[i].fb_ptr);
+    }
+    free(snapshot);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}

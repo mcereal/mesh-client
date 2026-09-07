@@ -41,7 +41,8 @@ MESH_TEST_CASE(ui_chrome_bar_follows_what_is_in_flight, unit) {
     struct mesh_ui_snapshot snapshot;
 
     chrome_fixture(&snapshot);
-    MESH_TEST_FAIL_IF(mesh_ui_chrome_busy(&snapshot), "a settled client is not waiting on anything");
+    MESH_TEST_FAIL_IF(mesh_ui_chrome_busy(&snapshot),
+                      "a settled client is not waiting on anything");
 
     /* The four requests already sent. Each on its own, because a bar that only appeared when
        two of them coincided would be a bar nobody ever saw. */
@@ -51,7 +52,8 @@ MESH_TEST_CASE(ui_chrome_bar_follows_what_is_in_flight, unit) {
 
     chrome_fixture(&snapshot);
     snapshot.handshake.config_complete = false;
-    MESH_TEST_FAIL_IF(!mesh_ui_chrome_busy(&snapshot), "an unfinished handshake is work outstanding");
+    MESH_TEST_FAIL_IF(!mesh_ui_chrome_busy(&snapshot),
+                      "an unfinished handshake is work outstanding");
 
     chrome_fixture(&snapshot);
     snapshot.settings.admin_busy = true;
@@ -95,7 +97,8 @@ MESH_TEST_CASE(ui_chrome_banner_reports_the_settled_update_states, unit) {
     struct mesh_ui_banner banner;
 
     chrome_fixture(&snapshot);
-    MESH_TEST_FAIL_IF(mesh_ui_chrome_banner(&snapshot, &banner), "an idle client announces nothing");
+    MESH_TEST_FAIL_IF(mesh_ui_chrome_banner(&snapshot, &banner),
+                      "an idle client announces nothing");
     MESH_TEST_FAIL_IF(banner.kind != (uint8_t)MESH_UI_BANNER_NONE || banner.detail == NULL,
                       "a refused banner has to come back cleared, with a detail that is safe to "
                       "draw");
@@ -103,9 +106,10 @@ MESH_TEST_CASE(ui_chrome_banner_reports_the_settled_update_states, unit) {
     chrome_fixture(&snapshot);
     snapshot.settings.client.update_state = (uint8_t)MESH_UPDATE_AVAILABLE;
     snapshot.settings.client.update_can_install = true;
-    snprintf(snapshot.settings.client.update_latest,
-             sizeof snapshot.settings.client.update_latest, "%s", "9.9.9");
-    MESH_TEST_FAIL_IF(!mesh_ui_chrome_banner(&snapshot, &banner), "a newer release is worth saying");
+    snprintf(snapshot.settings.client.update_latest, sizeof snapshot.settings.client.update_latest,
+             "%s", "9.9.9");
+    MESH_TEST_FAIL_IF(!mesh_ui_chrome_banner(&snapshot, &banner),
+                      "a newer release is worth saying");
     MESH_TEST_FAIL_IF(banner.kind != (uint8_t)MESH_UI_BANNER_UPDATE_AVAILABLE,
                       "the wrong banner for an available release");
     MESH_TEST_FAIL_IF(strcmp(banner.detail, "9.9.9") != 0,
@@ -127,7 +131,8 @@ MESH_TEST_CASE(ui_chrome_banner_reports_the_settled_update_states, unit) {
         snapshot.settings.client.update_state = (uint8_t)state;
         snapshot.settings.client.update_can_install = true;
         const bool raised = mesh_ui_chrome_banner(&snapshot, &banner);
-        const bool expected = state == (int)MESH_UPDATE_AVAILABLE || state == (int)MESH_UPDATE_READY;
+        const bool expected =
+            state == (int)MESH_UPDATE_AVAILABLE || state == (int)MESH_UPDATE_READY;
         MESH_TEST_FAIL_IF(raised != expected, "an updater state raises the wrong kind of notice");
     }
 
