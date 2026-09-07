@@ -482,7 +482,7 @@ Each step is independently shippable and each is visible.
 | 7 | Top app bar (§2.15) | **done** | Retires the breadcrumb format strings, and is where 8 and 11 land |
 | 8 | Card variants and card actions (§2.4) | **done** | Where the type scale pays off most |
 | 9 | Variable-height list rows (§1.4) | **done** | Structural. §1.1's unfinished half and three components below wait on it |
-| 10 | Checkbox / radio, segmented button (§2.5, §2.6) |  | Additive slots on components that already exist |
+| 10 | Checkbox / radio, segmented button (§2.5, §2.6) | **done** (the checkbox is held, see §10) | Additive slots on components that already exist |
 | 11 | Banner and screen progress (§2.9, §2.10) |  | New surfaces; the bar from 7 is where progress hangs |
 | 12 | Slider (§2.7) |  | Genuinely new interaction |
 | 13 | Screen transitions (§2.16) |  | Wants a direction on the nav first; the only step whose work is mostly outside the backend |
@@ -838,3 +838,61 @@ buttons that already had a home, while eight cells against a trailing edge genui
 a threshold mark, and where a reading falls between its marks is the whole of what that screen is
 for. A row of content is worth spending on something the screen could not otherwise say. It is
 not worth spending on somewhere else to put something it already says.
+
+## 10. What doing step 10 changed
+
+The entry called these "additive slots on components that already exist", and for the drawing
+that is exactly right: both are one new function in `fb_widgets.c` and a kind on the trailing
+slot. What it did not have is that a slot is only half of a component - the other half is a
+caller - and that one of the three controls it names still has no second half.
+
+- **The checkbox is built and is not wired, on purpose.** `FB_SELECTION_CHECKBOX` exists because
+  it is the same drawing as the radio with a different corner radius, and `FB_TRAILING_CHECKBOX`
+  is not a kind any screen names. §5's finding is the reason: *a slot that is implemented,
+  documented and unused reads exactly like a slot that is in use*, and the way to avoid adding
+  another `FB_LEADING_ICON` is to say so rather than to hope. There is nothing multi-select in
+  this client - §2.5's own examples, *forget these nodes* and *which channels to show*, are both
+  a nav change with a component on the end of it, which is the shape step 9 was and not the shape
+  this one is. The day a list can arm more than one row is the day the kind goes in.
+- **The radio's caller was a correction, not an addition.** The "send to" picker already marked
+  the current target - by giving that row's avatar a stated accent fill, which §2.5 spotted does
+  not generalise. What it missed is that it was also *wrong for one choice*: the disc's fill is
+  the node's identity, the same two letters and the same colour the conversation list and the
+  Nodes tab draw, and the mark overwrote it on precisely the row the eye was hunting for.
+  Identity belongs to the leading slot and selection to the trailing one. This is the same
+  correction §7 made to the back arrow and §8 made to the focused card, arriving from the other
+  direction: not *two opinions about one fact*, but *one slot carrying two facts*.
+- **A segmented button is not a chip strip, and the difference is a measurement.** Both are
+  buttons in a row and the file predicted they were one shape, which is true of the drawing. It
+  is not true of the sizing: a chip is as wide as its own words, and a segment is as wide as the
+  widest of them, because the members of a segmented control are *alternatives* and three boxes
+  of three different widths read as three different kinds of thing. `fb_draw_chip_strip()` was
+  reused for neither reason in the end - the segments want a shared container and equal shares,
+  and what they actually reuse is `fb_button_width()` and `fb_draw_button()`, one layer down.
+- **The type role is what made it fit at all.** Drawn at the body scale a three-valued setting
+  wants more than a value column at every scale that ships, so the control would have fallen back
+  to the word it exists to replace on every theme and the step would have shipped one two-valued
+  setting's worth of visible change. `MESH_UI_TYPE_LABEL` is both the Material answer and the
+  practical one. Its *height* stays the switch's at the row's scale, which is the distinction
+  worth keeping: the labels are chrome, the control is not.
+- **The slot that can come back as words.** Every other trailing kind either fits or is dropped.
+  This one has a second form because a set of choices always has the chosen one in words, so
+  `struct fb_segmented` carries `value` and one function answers "how many cells, and which
+  form" for the measure and the draw alike. That is the same rule `fb_trailing_cols()` was
+  written for, one level further in: a slot whose *form* was decided twice would disagree with
+  itself exactly as one whose width was.
+- **And it found the bug in that rule.** `fb_trailing_cols()` fitted a slot against the whole
+  line. A headline is clipped from its tail, so a slot too wide ate the row's value and then its
+  label - and the wide slots never existed to notice: a switch is four cells and a badge is two.
+  A segmented button is most of a value column and reaches it at every scale. Slots are fitted
+  against what is *free* now (`reserved` - the label column and its marker gutter), which is
+  the number the row already knew and had never passed on. The capture test pins it by rendering
+  one row at two values across every theme and every scale and requiring the *label* column to be
+  pixel-identical, which is the only form of the assertion that does not have to know where the
+  control ended up.
+
+One thing the entry got right that is worth recording because it is unusual: this step needed no
+input work at all. Left and Right already stepped an `ENUM` field, the marker gutter already
+carried the pencil that says so, and the picker already had a cursor. Both components are pure
+statements about state - which is why "additive slots" was the right description of the half of
+the work that is in `fb_widgets.c`, and why the argument above is all about the other half.

@@ -1,0 +1,63 @@
+# The two components step 10 added: the segmented button, and the radio.
+#
+# Both answer "which of these", and the difference between them is how many of these there are.
+# A handful of alternatives fit on the row and are shown; a column of twenty-three cannot be,
+# so it is a list with one mark down its trailing edge.
+
+scene demo
+scale 4
+delay 300
+
+config
+tab settings
+
+# Settings > Bluetooth. Pairing has three values, which is what the control exists for: the row
+# used to say "Random PIN" and give no sign that there were two more behind it. Left and Right
+# still step the field - the control takes no input of its own - so what moves here is the fill
+# travelling the set, and the divider that vanishes beside whichever segment is filled.
+key down 8
+key a
+key down 1
+hold 700
+key right
+hold 700
+key right
+hold 700
+key left
+hold 900
+
+# B with a pending edit asks before it drops it, which is the section's own rule and nothing to
+# do with the control: the second B is the answer that leaves.
+key b
+key b
+hold 400
+
+# Settings > Display. Units is two values, so it fits with room to spare - and it sits in a
+# column with two switches, which is the comparison worth having: a boolean gets the control
+# that is a boolean, a small set gets the control that is a small set.
+key up 4
+key a
+key down 4
+hold 1200
+key b
+hold 400
+
+# What does *not* get segments, deliberately. Device > Role has thirteen values and Rebroadcast
+# six; five equal shares of a value column are five clipped words, so both are still a word the
+# d-pad steps. The control is for the sets that can be taken in at a glance.
+key up 1
+key a
+hold 1400
+key b
+hold 400
+
+# The radio, on the one list in this client that was already a single choice: "send to". It used
+# to mark the current target by filling that row's avatar with the accent - which overwrote the
+# tint the whole UI identifies a node by, on precisely the row the eye was looking for. Identity
+# is the leading slot's; selection is the trailing slot's.
+tab messages
+key down 5
+key a
+hold 900
+key down 3
+hold 1400

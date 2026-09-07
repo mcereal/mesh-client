@@ -300,6 +300,135 @@ void fb_switch_size(const struct mesh_ui_backend_fb_state *state, int scale, int
    is stepping lives there. */
 void fb_draw_switch(struct mesh_ui_backend_fb_state *state, const struct fb_switch *sw);
 
+/* ---- the selection control ------------------------------------------------------------------
+ *
+ * The other two answers to "which of these", and the two the set did not have: a checkbox and a
+ * radio.
+ *
+ * A switch is a boolean that *acts* - flick it and the thing it names is on. Neither of these
+ * is. A radio is one of a set of alternatives, so it says as much about the rows it is not on
+ * as about the row it is on, and the meaning is only there because the whole column is drawn:
+ * one radio alone is a switch that has forgotten how to say off. A checkbox is a boolean that
+ * is *part of a set* rather than a thing in itself - which is why both live in a list's
+ * trailing slot and the switch is the only one of the three that also makes sense on its own.
+ *
+ * So they are one component and one drawing, and the shape is the sentence: a circle is "one of
+ * these", a square is "any of these". That is not a stylistic convention this file is copying,
+ * it is the only part of either control the eye reads before it has counted the column.
+ *
+ * What it replaced, on the one screen that had it: the "send to" picker gave the current
+ * target's avatar a stated accent fill. That works for one choice and does not generalise -
+ * and it costs the row the very thing the disc is there for, because the tint the whole UI
+ * identifies a node by is exactly what the accent fill overwrites. Identity is the leading
+ * slot's job and selection is the trailing slot's; a row that said both in one disc was a row
+ * where turning the second on turned the first off.
+ *
+ * Everything else is the switch's, deliberately: `id` keys the same animation table, the
+ * geometry falls out of the same glyph metrics, and a selected row gets its own ground laid
+ * for the same reason - two of the four themes make the cursor fill and the resting control the
+ * same colour.
+ */
+
+/*
+ * A note before the enum, because §5 of the component roadmap is about exactly this: a slot that
+ * is implemented, documented and unused reads exactly like a slot that is in use.
+ *
+ * FB_SELECTION_CHECKBOX and FB_TRAILING_CHECKBOX have **no caller**. The checkbox is here
+ * because it is the radio's drawing with a different corner radius, and it is unwired because
+ * nothing in this client is multi-select: a list that can arm more than one row is a nav change
+ * with a component on the end of it, and the component is the half that was already free. When
+ * one arrives - "forget these nodes" is the likely first - the kind is waiting and this note
+ * goes. Until then, do not read the checkbox as a thing the UI does.
+ */
+enum fb_selection_shape {
+    /* A square: any number of these may be on, and this one's state says nothing about its
+       neighbours. No caller yet - see above. */
+    FB_SELECTION_CHECKBOX = 0,
+    /* A circle: exactly one of the column is on. */
+    FB_SELECTION_RADIO,
+};
+
+struct fb_selection {
+    struct fb_rect rect; /* the box it is drawn in; fb_selection_size() measures one */
+    uint32_t id;         /* identity for the animation, 0 for none */
+    enum fb_selection_shape shape;
+    /* The family the mark takes when it is on. Zero is MESH_UI_FAMILY_PRIMARY, which is what a
+       plain choice wants; a row selected *for deletion* can name the error family. */
+    enum mesh_ui_family family;
+    bool on;
+    bool selected; /* the row under it carries the cursor fill */
+    bool dim;      /* it reports a state rather than offering one: drawn muted */
+};
+
+/* The size a selection control wants at `scale` - a square, so both out params get the same
+   number. Both may be NULL. */
+void fb_selection_size(const struct mesh_ui_backend_fb_state *state, int scale, int *w, int *h);
+
+/* Draws it, growing the mark towards its target. Needs the mutable state: the animation it is
+   stepping lives there, exactly as the switch's does. */
+void fb_draw_selection(struct mesh_ui_backend_fb_state *state, const struct fb_selection *sel);
+
+/* ---- the segmented button -------------------------------------------------------------------
+ *
+ * A small set of alternatives, all of them on screen at once.
+ *
+ * fb_draw_chip()'s own comment has said since it was written that a tab strip, a filter row and
+ * a segmented control are one shape, and this is the third of them: the same buttons, sized to
+ * a share of the room rather than to their own words, inside one outlined container that says
+ * they are alternatives rather than a row of separate offers.
+ *
+ * What it is for. An ENUM setting was a word in the value column stepped with Left and Right,
+ * which shows one option at a time - so "Metric" gives no sign that there is an "Imperial"
+ * behind it, and three-valued settings gave no sign of which end of the three you were at.
+ * Two to four choices is exactly the range where showing the set costs less room than hiding
+ * it; above that the words stop fitting and the value column is the honest answer, which is
+ * why the component measures rather than assumes (see `value` below).
+ *
+ * It takes no input of its own and deliberately so. Left and Right already step an ENUM field,
+ * the marker gutter already carries the pencil that says so, and a control that grew its own
+ * cursor would be a second opinion about a row the list is already highlighting.
+ */
+
+/* At most this many segments. Not a buffer bound - it is the point at which a segmented button
+   stops being one: five equal shares of a value column are five clipped words, and the set that
+   cannot be read at a glance is better read one at a time. */
+#define FB_SEGMENTED_MAX 4U
+
+struct fb_segmented {
+    const char *labels[FB_SEGMENTED_MAX];
+    size_t count;
+    size_t active;
+    /*
+     * The same choice in words, for when the control cannot have the room.
+     *
+     * Not a fallback bolted on: it is what the row would have drawn anyway - `item.value` is
+     * this string - and naming it here is what lets one function decide between the two. A
+     * screen that had to ask "does it fit" would be a screen computing pixels, and a slot
+     * measured by one rule and drawn by another is the bug the trailing slot exists to prevent.
+     */
+    const char *value;
+};
+
+/* The width the set wants at `scale`: every segment as wide as the widest label's button,
+   because equal shares are what make it read as one control rather than as chips. */
+int fb_segmented_width(const struct mesh_ui_backend_fb_state *state,
+                       const struct fb_segmented *segmented, int scale);
+
+/* The height it wants at `scale` - the switch's, so the two controls sit the same distance off
+   a row's top and bottom edges. `scale` here is the row's, not the segments': a control's labels
+   may be chrome-sized without the control shrinking away from the switch above it. */
+int fb_segmented_height(const struct mesh_ui_backend_fb_state *state, int scale);
+
+/*
+ * Draws the set into `rect`, which is divided into `count` equal shares.
+ *
+ * `ground` is what the caller has filled behind it, on the same terms as a button's - the
+ * container is an outline, so what shows through it is the caller's, not this component's.
+ */
+void fb_draw_segmented(const struct mesh_ui_backend_fb_state *state, const struct fb_rect *rect,
+                       const struct fb_segmented *segmented, bool selected,
+                       enum mesh_ui_color ground, int scale);
+
 /* ---- the meter --------------------------------------------------------------------------- *
  *
  * A quantity as a length: how much of the air the mesh is using, how much of a download has
@@ -680,6 +809,21 @@ enum fb_trailing_kind {
      * nothing to say about. Rightmost is the signal, exactly as a status bar orders the two.
      */
     FB_TRAILING_SIGNAL,
+    /* The two selection controls - see struct fb_selection. A checkbox for a boolean that is
+       one of a set, a radio for one alternative among a column of them. CHECKBOX has no caller
+       yet and the comment above enum fb_selection_shape says why. */
+    FB_TRAILING_CHECKBOX,
+    FB_TRAILING_RADIO,
+    /*
+     * A small set of alternatives with all of them on screen - see struct fb_segmented.
+     *
+     * The slot that can come back as words. Every other kind here either fits or is dropped;
+     * this one has a second form the caller has already supplied, so a value column too narrow
+     * for three segments draws the chosen word instead of nothing. That is not the slot being
+     * inconsistent: a switch with no room has nothing to fall back to, and a set of choices
+     * always does.
+     */
+    FB_TRAILING_SEGMENTED,
 };
 
 struct fb_trailing {
@@ -692,6 +836,12 @@ struct fb_trailing {
     struct fb_switch *sw;   /* SWITCH. Its rect is filled in by the row: where the value column
                                ends is the row's business, not the caller's. */
     struct fb_meter *meter; /* METER. Its rect is filled in by the row, as the switch's is. */
+    /* CHECKBOX and RADIO. Its rect is filled in by the row, as the switch's is; `shape` is set
+       from the kind, so a caller cannot name one and draw the other. */
+    struct fb_selection *sel;
+    /* SEGMENTED. Read, not written: unlike the controls above it needs no rect back, because
+       what it is given is a share of the row rather than a box of its own size. */
+    const struct fb_segmented *segmented;
     /* SIGNAL: rungs lit, 0..MESH_UI_SIGNAL_STEPS. mesh_ui_signal_level() is what answers it, so
        that the quantising is arithmetic a test can reach rather than a ladder in a renderer. */
     uint8_t signal;
