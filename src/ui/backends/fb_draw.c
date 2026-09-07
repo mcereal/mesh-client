@@ -430,9 +430,13 @@ static int fb_icon_drawn(const struct mesh_ui_backend_fb_state *state, int scale
 #define FB_ICON_BLEND_STEPS 32
 
 /* The largest box fb_draw_icon() can be asked for: the empty state's symbol at the largest glyph
-   scale, plus the air its window carries around it. */
+   scale, plus the air its window carries around it. Rounded the way fb_icon_drawn() rounds, not
+   merely scaled the same way - a bound a pixel under what it is bounding fails the check below,
+   and an icon that fails that check is not drawn at all. */
 #define FB_ICON_DRAWN_MAX                                                                          \
-    (MESH_UI_GLYPH_MAX_HEIGHT * FB_ICON_SCALE_MAX * MESH_UI_ICON_WINDOW / MESH_UI_ICON_BODY)
+    ((MESH_UI_GLYPH_MAX_HEIGHT * FB_ICON_SCALE_MAX * MESH_UI_ICON_WINDOW +                         \
+      MESH_UI_ICON_BODY / 2) /                                                                     \
+     MESH_UI_ICON_BODY)
 
 /*
  * Coverage at one destination pixel, as a blend step.
