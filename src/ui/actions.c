@@ -25,7 +25,7 @@ static const char *const k_caps[MESH_UI_BUTTON_COUNT] = {
     [MESH_UI_BUTTON_Y] = "Y",
     [MESH_UI_BUTTON_START] = "START",
     [MESH_UI_BUTTON_SHOULDERS] = "L/R",
-    [MESH_UI_BUTTON_UP_DOWN] = "\xE2\x86\x91\xE2\x86\x93",   /* up arrow, down arrow */
+    [MESH_UI_BUTTON_UP_DOWN] = "\xE2\x86\x91\xE2\x86\x93",    /* up arrow, down arrow */
     [MESH_UI_BUTTON_LEFT_RIGHT] = "\xE2\x86\x90\xE2\x86\x92", /* left arrow, right arrow */
     [MESH_UI_BUTTON_QUIT] = NULL,
 };
@@ -237,7 +237,15 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct mesh_ui
         return;
     }
     if (nav->compose_open) {
-        bar_add(out, MESH_UI_BUTTON_A, MESH_STR_ACTION_SEND);
+        /*
+         * A sends the canned message the cursor is on - except on the draft row, where it opens
+         * the keyboard instead (mesh_ui_nav_compose in nav.c). The sentence this replaced said
+         * "A send / type" for exactly that reason; a bar names one verb per key, so it has to
+         * name the one *this row* offers rather than the commoner of the two.
+         */
+        bar_add(out, MESH_UI_BUTTON_A,
+                nav->compose_cursor == MESH_UI_COMPOSE_ROW_DRAFT ? MESH_STR_ACTION_TYPE
+                                                                 : MESH_STR_ACTION_SEND);
         bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
         return;
     }

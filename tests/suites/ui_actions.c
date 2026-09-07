@@ -22,6 +22,7 @@
 #include "framework/mesh_test.h"
 
 #include "mesh/ui/actions.h"
+#include "mesh/ui/nav.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
 
@@ -118,6 +119,34 @@ MESH_TEST_CASE(actions_overlays_win_over_the_screen, unit) {
     mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_START) != MESH_STR_ACTION_DONE,
                       "START should finish a settings field rather than send it");
+    record_success(test_name);
+}
+
+/*
+ * The compose sheet's A does two different things, and the bar has to say which.
+ *
+ * On the draft row it opens the keyboard; on a canned row it sends that message
+ * (mesh_ui_nav_compose in nav.c). The sentence this replaced said "A send / type" and so was
+ * right about both at once, which a bar naming one verb per key cannot be - so it names the
+ * one the row under the cursor actually offers. Missed once already; hence the case.
+ */
+MESH_TEST_CASE(actions_compose_names_the_row_under_the_cursor, unit) {
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_action_bar bar;
+
+    actions_snapshot(&snapshot);
+    snapshot.nav.compose_open = true;
+    snapshot.nav.compose_cursor = MESH_UI_COMPOSE_ROW_DRAFT;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_TYPE,
+                      "A opens the keyboard on the draft row, so the bar must not say send");
+
+    snapshot.nav.compose_cursor = MESH_UI_COMPOSE_FIRST_CANNED;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_SEND,
+                      "A sends the canned message the cursor is on");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_B) != MESH_STR_ACTION_BACK,
+                      "B leaves the compose sheet either way");
     record_success(test_name);
 }
 
