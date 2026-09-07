@@ -1198,7 +1198,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
 
 static void uicap_usage(void) {
     fputs("usage: meshclient_uicap [--script FILE] [--out DIR] [--scale N] [--delay MS]\n"
-          "                        [--theme NAME] [--prefix NAME] [--quiet]\n\n"
+          "                        [--theme NAME] [--prefix NAME] [--quiet] [--reference]\n\n"
           "Reads a scene script (stdin by default), writes DIR/NAME-NNNN.ppm and\n"
           "DIR/frames.txt. See devtools/ui_capture/scenes/ for examples.\n",
           stderr);
@@ -1215,6 +1215,7 @@ int main(int argc, char **argv) {
     cap.now_ms = 1000U;
     cap.next_packet_id = 0x5A0001U;
 
+    bool reference = false;
     const char *script_path = NULL;
     for (int i = 1; i < argc; ++i) {
         const char *arg = argv[i];
@@ -1231,6 +1232,8 @@ int main(int argc, char **argv) {
             cap.delay_ms = uicap_number(argv[++i], "--delay");
         } else if (strcmp(arg, "--theme") == 0 && value != NULL) {
             cap.theme_id = argv[++i];
+        } else if (strcmp(arg, "--reference") == 0) {
+            reference = true;
         } else if (strcmp(arg, "--quiet") == 0) {
             cap.quiet = true;
         } else if (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0) {
@@ -1255,6 +1258,8 @@ int main(int argc, char **argv) {
                              cap.scale) != 0) {
         die("cannot allocate the off-screen page");
     }
+
+    mesh_ui_capture_set_reference(cap.capture, reference);
 
     FILE *script = stdin;
     if (script_path != NULL && strcmp(script_path, "-") != 0) {

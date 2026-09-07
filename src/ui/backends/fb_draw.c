@@ -243,6 +243,19 @@ static void fb_fill_packed(const struct mesh_ui_backend_fb_state *state, int x, 
         return;
     }
 
+    if (state->clip_active) {
+        const int right = x + w < state->clip.right ? x + w : state->clip.right;
+        const int bottom = y + h < state->clip.bottom ? y + h : state->clip.bottom;
+        if (x < state->clip.x)
+            x = state->clip.x;
+        if (y < state->clip.y)
+            y = state->clip.y;
+        w = right - x;
+        h = bottom - y;
+        if (w <= 0 || h <= 0)
+            return;
+    }
+
     const size_t bpp = state->bytes_per_pixel;
     const size_t stride = state->fix.line_length;
     uint8_t *row = state->fb_ptr + (size_t)y * stride + (size_t)x * bpp;

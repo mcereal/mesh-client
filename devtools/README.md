@@ -37,7 +37,9 @@ The scene language and the rest of the workflow are documented in
 ## `perf` — `meshclient_perf`
 
 Measures the same text rasterizer with its glyph cache disabled and warm, and verifies that
-both outputs match. Build with `make release`, then run
+both outputs match. It also compares full-render reference and optimized transcript navigation
+and snackbar animation. `meshclient_uicap --reference` disables transcript caching and partial
+redrawing for scene comparisons. Build with `make release`, then run
 `build/release/devtools/meshclient_perf` (`./scripts/docker.sh make release` and
 `./scripts/docker.sh build/linux/release/devtools/meshclient_perf` on macOS).
 See [`docs/performance.md`](../docs/performance.md) for the workload and measurement limits.

@@ -51,6 +51,9 @@ void mesh_app_track_settings_save(struct mesh_app *app,
 
 /* ---- app_publish.c ---------------------------------------------------------------------- */
 
+void mesh_app_flush_ui_cache(struct mesh_app *app);
+void mesh_app_close_ui_cache_timer(struct mesh_app *app);
+
 /* Resolves a node number to something a human can read, preferring the short name the NodeDB
    gave us and falling back to the Meshtastic-style "!hex" id. */
 void mesh_app_format_peer_name(const struct mesh_handshake_status *status, uint32_t node_id,

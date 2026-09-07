@@ -2249,6 +2249,7 @@ void fb_draw_snackbar(struct mesh_ui_backend_fb_state *state, const struct fb_la
        off its resting place reads as a nudge; one that comes up from off-screen reads as
        something arriving, which is the whole of what this shape is for. */
     const int off_y = (int)state->var.yres;
+    fb_animation_damage(state, box_x, rest_y, box_w, off_y - rest_y + box_h);
     const int y = off_y + (int)(((int64_t)(rest_y - off_y) * position) / MESH_UI_ANIM_ONE);
 
     /*
@@ -2332,6 +2333,9 @@ void fb_draw_switch(struct mesh_ui_backend_fb_state *state, const struct fb_swit
         mesh_ui_anim_track(&state->anim, sw->id, state->now_ms, sw->on ? MESH_UI_ANIM_ONE : 0,
                            fb_motion(state, FB_SWITCH_MOTION), MESH_UI_EASE_OUT);
 
+    const int damage_pad = fb_space(state, MESH_UI_SPACE_XS);
+    fb_animation_damage(state, sw->rect.x - damage_pad, sw->rect.y - damage_pad,
+                        sw->rect.w + 2 * damage_pad, sw->rect.h + 2 * damage_pad);
     const int radius = sw->rect.h / 2;
 
     /*
@@ -2466,6 +2470,9 @@ void fb_draw_meter(struct mesh_ui_backend_fb_state *state, const struct fb_meter
         return;
     }
     const struct fb_rect r = meter->rect;
+    const int damage_pad = fb_space(state, MESH_UI_SPACE_XS);
+    fb_animation_damage(state, r.x - damage_pad, r.y - damage_pad, r.w + 2 * damage_pad,
+                        r.h + 2 * damage_pad);
     /* A pill, always: a bar with square ends reads as a region of the screen that has been
        filled in, and one with round ends reads as a quantity in a container. */
     const int radius = fb_radius(state, MESH_UI_SHAPE_FULL);

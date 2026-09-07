@@ -114,6 +114,8 @@ static void mesh_ui_backend_fb_shutdown(void *state_ptr, void *userdata) {
     struct mesh_ui_backend_fb_state *state = (struct mesh_ui_backend_fb_state *)state_ptr;
     if (state != NULL) {
         fb_glyph_cache_free(state);
+        fb_thread_cache_free(state);
+        fb_render_cache_free(state);
         free(state->draw_buffer);
         free(state->previous_frame);
         state->draw_buffer = NULL;
@@ -150,6 +152,10 @@ size_t fb_copy_damage(struct mesh_ui_backend_fb_state *state, const uint8_t *fra
         state->var.yres_virtual >= 2U * state->var.yres && page_bytes <= state->fb_size / 2U;
     size_t written = 0U;
     for (uint32_t y = 0U; y < state->var.yres; ++y) {
+        if (!force && state->clip_active &&
+            ((int)y < state->clip.y || (int)y >= state->clip.bottom)) {
+            continue;
+        }
         const size_t offset = (size_t)y * stride;
         const uint8_t *src = frame + offset;
         uint8_t *old = previous + offset;
@@ -222,6 +228,7 @@ static void mesh_ui_backend_fb_present(void *state_ptr, const struct mesh_ui_sna
             fb_copy_damage(state, state->draw_buffer, state->previous_frame, !state->frame_valid);
         state->frame_valid = true;
     } else {
+        state->partial_disabled = true;
         fb_render_snapshot(state, snapshot);
         written = page_bytes;
         if (state->var.yres_virtual >= 2U * state->var.yres && page_bytes <= state->fb_size / 2U) {

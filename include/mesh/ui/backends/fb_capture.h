@@ -33,6 +33,8 @@ struct mesh_ui_capture;
  */
 int mesh_ui_capture_open(struct mesh_ui_capture **out, uint32_t width, uint32_t height, int scale);
 void mesh_ui_capture_close(struct mesh_ui_capture *capture);
+/* Reference rendering for pixel comparisons and CPU measurements. */
+void mesh_ui_capture_set_reference(struct mesh_ui_capture *capture, bool reference);
 
 /* Same clamping as the scale passed to open(). */
 void mesh_ui_capture_set_scale(struct mesh_ui_capture *capture, int scale);

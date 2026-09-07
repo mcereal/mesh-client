@@ -20,19 +20,21 @@ static void ready(void *userdata) { ++*(unsigned *)userdata; }
 static int input(int fd, uint32_t events, void *userdata) {
     (void)events;
     uint64_t count;
-    (void)read(fd, &count, sizeof count);
+    if (read(fd, &count, sizeof count) != sizeof count)
+        return -EIO;
     ++*(unsigned *)userdata;
     return 0;
 }
 
-static DBusMessage *request(DBusConnection *server, struct mesh_event_loop *loop) {
+static DBusMessage *request_named(DBusConnection *server, struct mesh_event_loop *loop,
+                                  const char *member) {
     for (unsigned turn = 0U; turn < 100U; ++turn) {
         mesh_event_loop_run(loop, 0);
         dbus_connection_read_write(server, 10);
         DBusMessage *message;
         while ((message = dbus_connection_pop_message(server)) != NULL) {
-            if (dbus_message_is_method_call(message, "org.bluez.GattCharacteristic1",
-                                            "ReadValue")) {
+            if (dbus_message_get_type(message) == DBUS_MESSAGE_TYPE_METHOD_CALL &&
+                strcmp(dbus_message_get_member(message), member) == 0) {
                 return message;
             }
             dbus_message_unref(message);
@@ -55,6 +57,105 @@ static void respond(DBusConnection *server, DBusMessage *call, bool malformed) {
     dbus_connection_send(server, reply, NULL);
     dbus_connection_flush(server);
     dbus_message_unref(reply);
+}
+
+static int operation(struct mesh_bluez_client *client, unsigned op, bool *value) {
+    const uint8_t data[] = {0x08, 0x01};
+    if (op == 0U)
+        return mesh_bluez_client_write(client, "/toradio", MESH_BLE_TORADIO_UUID, data,
+                                       sizeof data);
+    if (op == 1U)
+        return mesh_bluez_client_services_resolved(client, "/device", value);
+    return mesh_bluez_client_device_connected(client, "/device", value);
+}
+
+static void operation_reply(DBusConnection *server, DBusMessage *call, unsigned op, unsigned pass) {
+    DBusMessage *reply = pass == 1U
+                             ? dbus_message_new_error(call, "org.bluez.Error.Failed", "failed")
+                             : dbus_message_new_method_return(call);
+    if (pass == 2U) {
+        const char *wrong = "wrong";
+        dbus_message_append_args(reply, DBUS_TYPE_STRING, &wrong, DBUS_TYPE_INVALID);
+    } else if (op != 0U && pass != 1U) {
+        DBusMessageIter iter, variant;
+        dbus_bool_t value = TRUE;
+        dbus_message_iter_init_append(reply, &iter);
+        dbus_message_iter_open_container(&iter, DBUS_TYPE_VARIANT, "b", &variant);
+        dbus_message_iter_append_basic(&variant, DBUS_TYPE_BOOLEAN, &value);
+        dbus_message_iter_close_container(&iter, &variant);
+    }
+    dbus_connection_send(server, reply, NULL);
+    dbus_connection_flush(server);
+    dbus_message_unref(reply);
+}
+
+static const char *test_operations(DBusConnection *server, struct mesh_event_loop *loop,
+                                   struct mesh_bluez_client *client, int input_fd,
+                                   unsigned *inputs) {
+    for (unsigned op = 0U; op < 3U; ++op) {
+        for (unsigned pass = 0U; pass < 5U; ++pass) {
+            bool value = false;
+            if (operation(client, op, &value) != -EAGAIN)
+                return "operation did not yield";
+            DBusMessage *call = request_named(server, loop, op == 0U ? "WriteValue" : "Get");
+            if (call == NULL)
+                return "operation never reached fake service";
+            const bool signature =
+                strcmp(dbus_message_get_signature(call), op == 0U ? "aya{sv}" : "ss") == 0;
+            const unsigned before = *inputs;
+            const uint64_t one = 1U;
+            if (write(input_fd, &one, sizeof one) != sizeof one) {
+                dbus_message_unref(call);
+                return "input wake failed";
+            }
+            mesh_event_loop_run(loop, 0);
+            if (!signature || *inputs != before + 1U || operation(client, op, &value) != -EAGAIN) {
+                dbus_message_unref(call);
+                return "pending operation blocked input, duplicated send or marshalled incorrectly";
+            }
+            if (pass >= 3U) {
+                if (pass == 3U) {
+                    const struct itimerspec spec = {.it_value = {.tv_nsec = 1L}};
+                    timerfd_settime(client->requests[op].timer_fd, 0, &spec, NULL);
+                    struct pollfd fd = {.fd = client->requests[op].timer_fd, .events = POLLIN};
+                    (void)poll(&fd, 1, 1000);
+                    mesh_event_loop_run(loop, 0);
+                    if (operation(client, op, &value) != -ETIMEDOUT) {
+                        dbus_message_unref(call);
+                        return "operation timeout lost";
+                    }
+                } else {
+                    mesh_bluez_client_requests_cancel(client);
+                }
+                /* A reply for the old link/request cannot finish the new request. */
+                if (operation(client, op, &value) != -EAGAIN) {
+                    dbus_message_unref(call);
+                    return "operation did not restart";
+                }
+                DBusMessage *next = request_named(server, loop, op == 0U ? "WriteValue" : "Get");
+                operation_reply(server, call, op, 0U);
+                dbus_message_unref(call);
+                call = next;
+                mesh_event_loop_run(loop, 1);
+                if (call == NULL || operation(client, op, &value) != -EAGAIN) {
+                    if (call != NULL)
+                        dbus_message_unref(call);
+                    return "late reply completed a newer operation";
+                }
+            }
+            operation_reply(server, call, op, pass < 3U ? pass : 0U);
+            dbus_message_unref(call);
+            for (unsigned turn = 0U; turn < 100U && client->requests[op].state == 1; ++turn) {
+                mesh_event_loop_run(loop, 1);
+            }
+            const int expected = pass == 1U ? -EIO : pass == 2U ? -EPROTO : 0;
+            if (operation(client, op, &value) != expected ||
+                (expected == 0 && op != 0U && !value)) {
+                return "operation reply result incorrect";
+            }
+        }
+    }
+    return NULL;
 }
 
 int main(void) {
@@ -97,7 +198,7 @@ int main(void) {
             failure = "read did not yield";
             break;
         }
-        call = request(server, &loop);
+        call = request_named(server, &loop, "ReadValue");
         if (call == NULL) {
             failure = "queued read never reached the fake service";
             break;
@@ -107,7 +208,10 @@ int main(void) {
             break;
         }
         const uint64_t one = 1U;
-        (void)write(input_fd, &one, sizeof one);
+        if (write(input_fd, &one, sizeof one) != sizeof one) {
+            failure = "input wake failed";
+            break;
+        }
         mesh_event_loop_run(&loop, 0);
         if (inputs != pass + 1U || completions != pass) {
             failure = "input must be serviced while the reply is withheld";
@@ -146,6 +250,9 @@ int main(void) {
     }
     if (call != NULL) {
         dbus_message_unref(call);
+    }
+    if (failure == NULL) {
+        failure = test_operations(server, &loop, &client, input_fd, &inputs);
     }
     mesh_event_loop_remove_fd(&loop, input_fd);
     close(input_fd);

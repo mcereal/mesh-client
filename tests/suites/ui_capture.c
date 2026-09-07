@@ -13,6 +13,8 @@
 #include "framework/mesh_test.h"
 #include "support/ui_fixture.h"
 
+#include "mesh/core/message.h"
+#include "mesh/i18n/strings.h"
 #include "mesh/ui/backends/fb_capture.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/settings.h"
@@ -1070,4 +1072,142 @@ MESH_TEST_CASE(fb_glyph_cache_matches_uncached_colors_and_scales, unit) {
         return;
     }
     record_success(test_name);
+}
+
+MESH_TEST_CASE(fb_transcript_cache_matches_reference_after_mutations, unit) {
+    struct mesh_ui_capture *cached = NULL, *reference = NULL;
+    struct mesh_ui_snapshot *snapshot = calloc(1U, sizeof *snapshot);
+    const char *failure = NULL;
+    if (snapshot == NULL || mesh_ui_capture_open(&cached, 1024U, 768U, 4) != 0 ||
+        mesh_ui_capture_open(&reference, 1024U, 768U, 4) != 0) {
+        failure = "capture allocation failed";
+        goto cleanup;
+    }
+    mesh_ui_capture_set_reference(reference, true);
+    snapshot->nav.screen = MESH_UI_SCREEN_MESSAGES;
+    snapshot->nav.thread_open = true;
+    snapshot->nav.inbox = true;
+    snapshot->messages.count = MESH_UI_MAX_MESSAGES;
+    for (uint32_t i = 0; i < MESH_UI_MAX_MESSAGES; ++i) {
+        struct mesh_ui_message *message = &snapshot->messages.entries[i];
+        message->packet_id = i + 1U;
+        message->peer = 2U;
+        message->broadcast = true;
+        message->rx_time = 1788000000U + i * 1000U;
+        snprintf(message->peer_name, sizeof message->peer_name, "ALFA");
+        snprintf(message->text, sizeof message->text,
+                 "Message %u with enough text to wrap into several lines on a narrow screen.", i);
+    }
+    for (unsigned pass = 0; pass < 12U; ++pass) {
+        snapshot->nav.cursor[MESH_UI_SCREEN_MESSAGES] = pass % 2U == 0 ? 20U : 63U;
+        if (pass == 2U)
+            snprintf(snapshot->messages.entries[20].text,
+                     sizeof snapshot->messages.entries[20].text, "edited");
+        if (pass == 3U)
+            snprintf(snapshot->messages.entries[63].peer_name,
+                     sizeof snapshot->messages.entries[63].peer_name, "RENAMED");
+        if (pass == 4U) {
+            snapshot->messages.entries[62].is_reaction = true;
+            snapshot->messages.entries[62].reply_id = 64U;
+            snprintf(snapshot->messages.entries[62].text,
+                     sizeof snapshot->messages.entries[62].text, "!");
+        }
+        if (pass == 5U) {
+            snapshot->messages.entries[63].direction = MESH_MESSAGE_OUTBOUND;
+            snapshot->messages.entries[63].ack = MESH_MESSAGE_ACK_FAILED;
+        }
+        if (pass == 6U)
+            mesh_i18n_set_locale("es");
+        if (pass == 7U) {
+            mesh_ui_capture_set_scale(cached, 3);
+            mesh_ui_capture_set_scale(reference, 3);
+        }
+        if (pass == 8U)
+            snapshot->nav.inbox = false;
+        if (pass == 9U)
+            snapshot->nav.target_node = MESH_MESSAGE_BROADCAST_ADDR;
+        if (pass == 10U)
+            snapshot->messages.count = 1U;
+        mesh_ui_capture_render(cached, snapshot);
+        mesh_ui_capture_render(reference, snapshot);
+        if (memcmp(mesh_ui_capture_pixels(cached, NULL, NULL, NULL),
+                   mesh_ui_capture_pixels(reference, NULL, NULL, NULL), 1024U * 768U * 4U) != 0) {
+            failure = "cached transcript differs after navigation or input mutation";
+            break;
+        }
+    }
+cleanup:
+    mesh_i18n_set_locale("en");
+    mesh_ui_capture_close(cached);
+    mesh_ui_capture_close(reference);
+    free(snapshot);
+    if (failure != NULL)
+        record_failure(test_name, failure);
+    else
+        record_success(test_name);
+}
+
+MESH_TEST_CASE(fb_animation_clip_matches_full_composition, unit) {
+    struct mesh_ui_backend_fb_state state[2] = {0};
+    struct mesh_ui_snapshot *snapshot = calloc(1U, sizeof *snapshot);
+    const char *failure = NULL;
+    unsigned clipped = 0U;
+    if (snapshot == NULL) {
+        record_failure(test_name, "snapshot allocation failed");
+        return;
+    }
+    for (unsigned i = 0; i < 2U; ++i) {
+        state[i].var.xres = 1024U;
+        state[i].var.yres = 768U;
+        state[i].var.bits_per_pixel = 32U;
+        state[i].line_bytes = state[i].fix.line_length = 4096U;
+        state[i].bytes_per_pixel = 4U;
+        state[i].fb_size = 4096U * 768U;
+        state[i].fb_ptr = calloc(1U, state[i].fb_size);
+        if (state[i].fb_ptr == NULL) {
+            failure = "frame allocation failed";
+            goto cleanup;
+        }
+        fb_state_set_theme(&state[i], mesh_ui_theme_default(), 4);
+    }
+    state[1].partial_disabled = true;
+    snapshot->nav.screen = MESH_UI_SCREEN_MESSAGES;
+    for (unsigned frame = 0U; frame < 50U; ++frame) {
+        if (frame == 1U || frame == 20U) {
+            snprintf(snapshot->nav.toast, sizeof snapshot->nav.toast, "Saved");
+            snapshot->nav.toast_until_ms = 5000U + frame;
+        }
+        if (frame == 15U || frame == 35U)
+            snapshot->nav.toast[0] = '\0';
+        if (frame == 25U)
+            snapshot->nav.screen = MESH_UI_SCREEN_NODES;
+        if (frame == 30U) {
+            fb_state_set_theme(&state[0], mesh_ui_theme_default(), 3);
+            fb_state_set_theme(&state[1], mesh_ui_theme_default(), 3);
+        }
+        for (unsigned i = 0U; i < 2U; ++i) {
+            fb_state_set_now(&state[i], 1000U + frame * 16U);
+            fb_render_snapshot(&state[i], snapshot);
+        }
+        if (state[0].clip_active)
+            clipped++;
+        if (memcmp(state[0].fb_ptr, state[1].fb_ptr, state[0].fb_size) != 0) {
+            failure = "animation clip must restore overlapping content on arrival and dismissal";
+            goto cleanup;
+        }
+    }
+    if (clipped == 0U)
+        failure = "comparison did not exercise partial drawing";
+cleanup:
+    for (unsigned i = 0U; i < 2U; ++i) {
+        fb_glyph_cache_free(&state[i]);
+        fb_thread_cache_free(&state[i]);
+        fb_render_cache_free(&state[i]);
+        free(state[i].fb_ptr);
+    }
+    free(snapshot);
+    if (failure != NULL)
+        record_failure(test_name, failure);
+    else
+        record_success(test_name);
 }

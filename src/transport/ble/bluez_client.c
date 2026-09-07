@@ -87,8 +87,91 @@ static int mesh_bluez_read_start_timer(struct mesh_bluez_client *client) {
     return result;
 }
 
+static void mesh_bluez_request_cancel(struct mesh_bluez_pending *request) {
+    if (request->state != 0 && request->timer_fd >= 0) {
+        if (request->client->loop != NULL) {
+            mesh_event_loop_remove_fd(request->client->loop, request->timer_fd);
+        }
+        close(request->timer_fd);
+    }
+    request->state = 0;
+    request->serial = 0U;
+    request->timer_fd = -1;
+}
+
+void mesh_bluez_client_requests_cancel(struct mesh_bluez_client *client) {
+    if (client != NULL) {
+        for (size_t i = 0; i < MESH_ARRAY_LEN(client->requests); ++i) {
+            mesh_bluez_request_cancel(&client->requests[i]);
+        }
+    }
+}
+
+static void mesh_bluez_request_finish(struct mesh_bluez_pending *request, int result) {
+    request->result = result;
+    request->state = 2;
+    request->serial = 0U;
+    if (request->client->requests_ready != NULL) {
+        request->client->requests_ready(request->client->read_userdata);
+    }
+}
+
 #ifdef MESH_HAVE_DBUS
 #include <dbus/dbus.h>
+
+static int mesh_bluez_request_timeout(int fd, uint32_t events, void *userdata) {
+    (void)events;
+    uint64_t count;
+    struct mesh_bluez_pending *request = userdata;
+    if (read(fd, &count, sizeof count) == sizeof count && request->state == 1) {
+        mesh_bluez_request_finish(request, -ETIMEDOUT);
+    }
+    return 0;
+}
+
+/* Queue without flushing: the registered writable watch drains the connection. */
+static int mesh_bluez_request_send(struct mesh_bluez_client *client,
+                                   struct mesh_bluez_pending *request, DBusMessage *message,
+                                   unsigned timeout_ms) {
+    request->client = client;
+    request->timer_fd = -1;
+    request->state = 1;
+    request->deadline_ms = mesh_time_monotonic_ms() + timeout_ms;
+    int result = 0;
+    if (client->loop != NULL) {
+        request->timer_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+        if (request->timer_fd < 0) {
+            result = -errno;
+        } else {
+            result = mesh_event_loop_add_fd(client->loop, request->timer_fd, EPOLLIN,
+                                            mesh_bluez_request_timeout, request);
+            struct itimerspec spec = {0};
+            spec.it_value.tv_sec = timeout_ms / 1000U;
+            spec.it_value.tv_nsec = (long)(timeout_ms % 1000U) * 1000000L;
+            if (result == 0 && timerfd_settime(request->timer_fd, 0, &spec, NULL) < 0) {
+                result = -errno;
+            }
+        }
+    }
+    if (result == 0 && !dbus_connection_send(client->connection, message, &request->serial)) {
+        result = -ENOMEM;
+    }
+    dbus_message_unref(message);
+    if (result < 0) {
+        mesh_bluez_request_cancel(request);
+        return result;
+    }
+    return -EAGAIN;
+}
+
+static int mesh_bluez_request_poll(struct mesh_bluez_pending *request) {
+    if (request->state == 1) {
+        return -EAGAIN;
+    }
+    const int result = request->result;
+    mesh_bluez_request_cancel(request);
+    return result;
+}
 
 static int mesh_bluez_read_reply(DBusMessage *reply, uint8_t *out, size_t capacity,
                                  size_t *out_len) {
@@ -464,9 +547,11 @@ int mesh_bluez_client_init(struct mesh_bluez_client *client) {
         return -EINVAL;
     }
 
+    memset(client->requests, 0, sizeof client->requests);
     client->read_state = 0;
     client->read_timer_fd = -1;
     client->read_ready = NULL;
+    client->requests_ready = NULL;
     client->read_userdata = NULL;
     client->read_serial = 0U;
     client->read_deadline_ms = 0U;
@@ -577,6 +662,7 @@ void mesh_bluez_client_shutdown(struct mesh_bluez_client *client) {
     }
 
     mesh_bluez_client_read_cancel(client);
+    mesh_bluez_client_requests_cancel(client);
 
     /* Give BlueZ its agent back before the connection goes: a registration left behind on a
        name that has vanished blocks the next one with AlreadyExists. */
@@ -930,6 +1016,36 @@ static void mesh_bluez_client_handle_message(struct mesh_bluez_client *client,
         return;
     }
 
+    for (size_t i = 0; i < MESH_ARRAY_LEN(client->requests); ++i) {
+        struct mesh_bluez_pending *request = &client->requests[i];
+        if (request->state != 1 || request->serial == 0U ||
+            dbus_message_get_reply_serial(message) != request->serial) {
+            continue;
+        }
+        int result = -EIO;
+        if (dbus_message_get_type(message) == DBUS_MESSAGE_TYPE_METHOD_RETURN) {
+            result = 0;
+            if (i != 0U) {
+                DBusMessageIter iter, value;
+                result = -EPROTO;
+                if (dbus_message_iter_init(message, &iter) &&
+                    dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_VARIANT) {
+                    dbus_message_iter_recurse(&iter, &value);
+                    if (dbus_message_iter_get_arg_type(&value) == DBUS_TYPE_BOOLEAN) {
+                        dbus_bool_t boolean;
+                        dbus_message_iter_get_basic(&value, &boolean);
+                        request->value = boolean != FALSE;
+                        result = 0;
+                    }
+                }
+            } else if (strcmp(dbus_message_get_signature(message), "") != 0) {
+                result = -EPROTO;
+            }
+        }
+        mesh_bluez_request_finish(request, result);
+        return;
+    }
+
     if (client->read_state == 1 && client->read_serial != 0U &&
         dbus_message_get_reply_serial(message) == client->read_serial) {
         const int result = mesh_bluez_read_reply(message, client->read_payload,
@@ -1065,6 +1181,7 @@ void mesh_bluez_client_detach_loop(struct mesh_bluez_client *client) {
     }
 
     mesh_bluez_client_read_cancel(client);
+    mesh_bluez_client_requests_cancel(client);
 
 #ifdef MESH_HAVE_DBUS
     if (client->loop != NULL) {
@@ -1089,6 +1206,12 @@ int mesh_bluez_client_process(struct mesh_bluez_client *client) {
         return -ENOTCONN;
     }
 
+    for (size_t i = 0; i < MESH_ARRAY_LEN(client->requests); ++i) {
+        struct mesh_bluez_pending *request = &client->requests[i];
+        if (request->state == 1 && mesh_time_monotonic_ms() >= request->deadline_ms) {
+            mesh_bluez_request_finish(request, -ETIMEDOUT);
+        }
+    }
     if (client->read_state == 1 && mesh_time_monotonic_ms() >= client->read_deadline_ms) {
         mesh_bluez_read_finish(client, -ETIMEDOUT);
     }
@@ -1882,6 +2005,16 @@ static int mesh_bluez_get_device_boolean(struct mesh_bluez_client *client, const
         return -ENOTCONN;
     }
 
+    struct mesh_bluez_pending *request =
+        &client->requests[strcmp(property, "ServicesResolved") == 0 ? 1 : 2];
+    if (request->state != 0) {
+        const int result = mesh_bluez_request_poll(request);
+        if (result == 0) {
+            *out_value = request->value;
+        }
+        return result;
+    }
+
     DBusMessage *message = dbus_message_new_method_call("org.bluez", device_path,
                                                         "org.freedesktop.DBus.Properties", "Get");
     if (message == NULL) {
@@ -1895,36 +2028,9 @@ static int mesh_bluez_get_device_boolean(struct mesh_bluez_client *client, const
         return -ENOMEM;
     }
 
-    DBusError error;
-    dbus_error_init(&error);
-    DBusMessage *reply = dbus_connection_send_with_reply_and_block(
-        connection, message, MESH_BLUEZ_PROPERTY_TIMEOUT_MS, &error);
-    dbus_message_unref(message);
-
-    if (reply == NULL) {
-        if (dbus_error_is_set(&error)) {
-            mesh_log_warn("bluez", "Get %s failed: %s", property, error.message);
-            dbus_error_free(&error);
-        }
-        return -EIO;
-    }
-
-    int result = -EIO;
-    DBusMessageIter iter;
-    if (dbus_message_iter_init(reply, &iter) &&
-        dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_VARIANT) {
-        DBusMessageIter variant_iter;
-        dbus_message_iter_recurse(&iter, &variant_iter);
-        if (dbus_message_iter_get_arg_type(&variant_iter) == DBUS_TYPE_BOOLEAN) {
-            dbus_bool_t value = FALSE;
-            dbus_message_iter_get_basic(&variant_iter, &value);
-            *out_value = value ? true : false;
-            result = 0;
-        }
-    }
-    dbus_message_unref(reply);
-    return result;
+    return mesh_bluez_request_send(client, request, message, MESH_BLUEZ_PROPERTY_TIMEOUT_MS);
 }
+
 #endif
 
 int mesh_bluez_client_services_resolved(struct mesh_bluez_client *client, const char *device_path,
@@ -1935,7 +2041,7 @@ int mesh_bluez_client_services_resolved(struct mesh_bluez_client *client, const 
 
     *out_resolved = false;
 
-    if (g_mock_state.enabled) {
+    if (g_mock_state.enabled && g_mock_state.config.read_bus_address == NULL) {
         if (g_mock_state.config.services_resolved_result != 0) {
             return g_mock_state.config.services_resolved_result;
         }
@@ -1960,7 +2066,7 @@ int mesh_bluez_client_device_connected(struct mesh_bluez_client *client, const c
 
     *out_connected = false;
 
-    if (g_mock_state.enabled) {
+    if (g_mock_state.enabled && g_mock_state.config.read_bus_address == NULL) {
         g_mock_state.connected_polls++;
         *out_connected =
             g_mock_state.config.connected_drops_after_polls == 0U ||
@@ -2101,7 +2207,7 @@ int mesh_bluez_client_write(struct mesh_bluez_client *client, const char *device
         return -EINVAL;
     }
 
-    if (g_mock_state.enabled) {
+    if (g_mock_state.enabled && g_mock_state.config.read_bus_address == NULL) {
         size_t call_index = 0U;
         if (g_mock_state.config.write_call_count != NULL) {
             (*g_mock_state.config.write_call_count)++;
@@ -2142,6 +2248,12 @@ int mesh_bluez_client_write(struct mesh_bluez_client *client, const char *device
 
 #ifdef MESH_HAVE_DBUS
     DBusConnection *connection = (DBusConnection *)client->connection;
+    if (connection == NULL) {
+        return -ENOTCONN;
+    }
+    if (client->requests[0].state != 0) {
+        return mesh_bluez_request_poll(&client->requests[0]);
+    }
     DBusMessage *message = dbus_message_new_method_call(
         "org.bluez", device_path, "org.bluez.GattCharacteristic1", "WriteValue");
     if (message == NULL) {
@@ -2167,22 +2279,7 @@ int mesh_bluez_client_write(struct mesh_bluez_client *client, const char *device
     dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY, "{sv}", &options_iter);
     dbus_message_iter_close_container(&iter, &options_iter);
 
-    DBusError error;
-    dbus_error_init(&error);
-    DBusMessage *reply = dbus_connection_send_with_reply_and_block(
-        connection, message, DBUS_TIMEOUT_USE_DEFAULT, &error);
-    dbus_message_unref(message);
-
-    if (reply == NULL) {
-        if (dbus_error_is_set(&error)) {
-            mesh_log_warn("bluez", "WriteValue failed: %s", error.message);
-            dbus_error_free(&error);
-        }
-        return -EIO;
-    }
-
-    dbus_message_unref(reply);
-    return 0;
+    return mesh_bluez_request_send(client, &client->requests[0], message, 3000U);
 #else
     (void)client;
     (void)device_path;

@@ -387,6 +387,7 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
         /* Written straight back out, so the messages do not come back on the next start. */
         if (app->ui_handshake_cache_path[0] != '\0') {
             app->ui_handshake_cache_dirty = true;
+            mesh_app_flush_ui_cache(app);
         }
 
         if (removed > 0U) {

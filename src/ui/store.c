@@ -852,8 +852,11 @@ int mesh_ui_store_save(const struct mesh_ui_store *store, const char *path) {
     mesh_ui_store_save_messages(file, &store->messages);
     mesh_ui_store_save_read_state(file, &store->read_state);
 
-    fclose(file);
-    return 0;
+    int result = ferror(file) ? -EIO : 0;
+    if (fclose(file) != 0) {
+        result = -errno;
+    }
+    return result;
 }
 
 int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {

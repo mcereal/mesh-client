@@ -217,6 +217,16 @@ static int mesh_ble_do_connect(struct mesh_ble_transport_state *state, const cha
 static void mesh_ble_bring_up(struct mesh_transport *transport);
 static void mesh_ble_demote(struct mesh_ble_transport_state *state);
 
+static void mesh_ble_requests_ready(void *userdata) {
+    struct mesh_ble_transport_state *state = userdata;
+    const uint64_t one = 1U;
+    if (state->drain_wake_fd >= 0) {
+        if (write(state->drain_wake_fd, &one, sizeof one) < 0 && errno != EAGAIN) {
+            mesh_log_warn("ble", "request wake write failed: %s", strerror(errno));
+        }
+    }
+}
+
 static void mesh_ble_read_ready(void *userdata) {
     struct mesh_ble_transport_state *state = userdata;
     if (state->link_state == MESH_BLE_LINK_CONNECTED) {
@@ -289,6 +299,16 @@ static int mesh_ble_drain_wake_callback(int fd, uint32_t events, void *userdata)
         mesh_log_warn("ble", "drain wake read failed: %s", strerror(errno));
     }
     struct mesh_ble_transport_state *state = (struct mesh_ble_transport_state *)transport->state;
+    if (state != NULL) {
+        (void)mesh_ble_flush_write_queue(state);
+        if (state->bluez.requests[1].state == 2 && state->link_state == MESH_BLE_LINK_CONNECTING) {
+            state->next_services_poll_ms = 0U;
+            mesh_ble_poll_connecting(state);
+        }
+        if (state->bluez.requests[2].state == 2 && state->link_state == MESH_BLE_LINK_CONNECTED) {
+            (void)mesh_ble_transport_check_link(transport);
+        }
+    }
     if (state != NULL && state->drain_pending &&
         mesh_time_monotonic_ms() >= state->drain_retry_at_ms) {
         mesh_ble_drain_from_radio(state);
@@ -607,6 +627,7 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
 
     mesh_bluez_client_set_notification_handler(&state->bluez, mesh_ble_notification_handler, state);
     state->bluez.read_ready = mesh_ble_read_ready;
+    state->bluez.requests_ready = mesh_ble_requests_ready;
     state->bluez.read_userdata = state;
 
     mesh_ble_bring_up(transport);
@@ -840,6 +861,9 @@ static int mesh_ble_flush_write_queue(struct mesh_ble_transport_state *state) {
 
         int result = mesh_bluez_client_write(&state->bluez, state->chars.toradio_path,
                                              MESH_BLE_TORADIO_UUID, packet->data, packet->length);
+        if (result == -EAGAIN) {
+            return 0;
+        }
         if (result < 0) {
             mesh_log_warn("ble", "ToRadio write failed: %d; dropping link", result);
             mesh_ble_reset_link(state, "write failed");
@@ -1120,6 +1144,9 @@ static void mesh_ble_poll_connecting(struct mesh_ble_transport_state *state) {
     bool resolved = false;
     int result =
         mesh_bluez_client_services_resolved(&state->bluez, state->connected_device_path, &resolved);
+    if (result == -EAGAIN) {
+        return;
+    }
     if (result < 0) {
         mesh_log_warn("ble", "ServicesResolved query failed for %s (%d)", state->connected_address,
                       result);
@@ -1214,6 +1241,7 @@ static void mesh_ble_reset_link(struct mesh_ble_transport_state *state, const ch
         return;
     }
     mesh_bluez_client_read_cancel(&state->bluez);
+    mesh_bluez_client_requests_cancel(&state->bluez);
     if (state->client_initialised && state->connected_device_path[0] != '\0') {
         int result = mesh_bluez_client_disconnect(&state->bluez, state->connected_device_path);
         if (result < 0) {

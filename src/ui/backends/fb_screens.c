@@ -3,8 +3,8 @@
 /*
  * One renderer per screen, plus the chrome and the frame that dispatches between them.
  *
- * Each takes the immutable snapshot and a layout, and draws - no state is kept between frames,
- * which is why the scroll window is derived every time (struct fb_list) rather than remembered.
+ * Each takes an immutable snapshot and a layout. Derived transcript measurements are cached;
+ * scroll windows are still selected from the current navigation state on every frame.
  * Adding a screen is a fb_render_* here and a case in fb_render_snapshot().
  *
  * Nothing in this file computes a pixel coordinate or a padding width. A row is built with
@@ -222,15 +222,36 @@ static void fb_render_conversations(struct mesh_ui_backend_fb_state *state,
  * mesh_ui_transcript_window() says which of them are on screen.
  */
 
-/* A message as the screen describes it, with the strings the bubble points at. Built twice per
-   frame - once to measure, once to draw - rather than kept, because a per-message cache is a
-   second source of truth for what the bubble says. */
+/* A message as the screen describes it, with the strings the bubble points at. */
 struct fb_thread_row {
     struct fb_bubble bubble;
     char separator[24];
     char name[48];
     char meta[64];
 };
+
+/* Both first-visible and ordinary variants are derived from exact message inputs. Cursor
+   movement only chooses between them; it never reformats or remeasures the transcript. */
+struct fb_thread_cache {
+    bool valid;
+    struct mesh_ui_message_list messages;
+    uint32_t indices[MESH_UI_MAX_MESSAGES];
+    uint32_t count;
+    bool inbox;
+    uint32_t target_node;
+    const struct mesh_ui_theme *theme;
+    const struct mesh_i18n_locale *locale;
+    int scale;
+    size_t cols;
+    char calendar[80];
+    struct fb_thread_row rows[2][MESH_UI_MAX_MESSAGES];
+    uint8_t heights[2][MESH_UI_MAX_MESSAGES];
+};
+
+void fb_thread_cache_free(struct mesh_ui_backend_fb_state *state) {
+    free(state->thread_cache);
+    state->thread_cache = NULL;
+}
 
 /* "Today" / "Yesterday" / "Mon 3 Sep", or nothing when the radio has no clock set. */
 static void fb_format_day(uint32_t rx_time, char *out, size_t out_len) {
@@ -514,7 +535,73 @@ static uint8_t fb_thread_height(const struct mesh_ui_backend_fb_state *state,
     return rows > 0xFFU ? 0xFFU : (uint8_t)rows;
 }
 
-static void fb_render_thread(const struct mesh_ui_backend_fb_state *state,
+static struct fb_thread_cache *fb_thread_cache_get(struct mesh_ui_backend_fb_state *state,
+                                                   const struct mesh_ui_snapshot *snapshot,
+                                                   const struct fb_layout *layout,
+                                                   const uint32_t *indices, uint32_t count) {
+    if (state->thread_cache_disabled) {
+        return NULL;
+    }
+    if (state->thread_cache == NULL) {
+        state->thread_cache = calloc(1U, sizeof *state->thread_cache);
+    }
+    struct fb_thread_cache *cache = state->thread_cache;
+    if (cache == NULL) {
+        return NULL;
+    }
+    /* Include local calendar and zone, so midnight and a timezone change invalidate labels. */
+    char calendar[80] = {0};
+    const time_t now = time(NULL);
+    struct tm local;
+    if (localtime_r(&now, &local) != NULL) {
+        (void)strftime(calendar, sizeof calendar, "%Y-%m-%d %Z %z", &local);
+    }
+    const bool changed =
+        !cache->valid || cache->count != count || cache->inbox != snapshot->nav.inbox ||
+        cache->target_node != snapshot->nav.target_node || cache->theme != state->theme ||
+        cache->locale != mesh_i18n_locale() || cache->scale != state->scale ||
+        cache->cols != layout->cols || strcmp(cache->calendar, calendar) != 0 ||
+        memcmp(cache->indices, indices, count * sizeof *indices) != 0 ||
+        memcmp(&cache->messages, &snapshot->messages, sizeof cache->messages) != 0;
+    if (changed) {
+        cache->messages = snapshot->messages;
+        memcpy(cache->indices, indices, count * sizeof *indices);
+        cache->count = count;
+        cache->inbox = snapshot->nav.inbox;
+        cache->target_node = snapshot->nav.target_node;
+        cache->theme = state->theme;
+        cache->locale = mesh_i18n_locale();
+        cache->scale = state->scale;
+        cache->cols = layout->cols;
+        memcpy(cache->calendar, calendar, sizeof calendar);
+        for (unsigned variant = 0U; variant < 2U; ++variant) {
+            for (uint32_t i = 0U; i < count; ++i) {
+                fb_thread_row_build(snapshot, indices, i, variant != 0U, &cache->rows[variant][i]);
+                cache->heights[variant][i] =
+                    fb_thread_height(state, layout, &cache->rows[variant][i]);
+            }
+        }
+        cache->valid = true;
+    }
+    return cache;
+}
+
+static void fb_thread_row_get(const struct mesh_ui_snapshot *snapshot, const uint32_t *indices,
+                              uint32_t position, bool force_name,
+                              const struct fb_thread_cache *cache, struct fb_thread_row *row) {
+    if (cache == NULL) {
+        fb_thread_row_build(snapshot, indices, position, force_name, row);
+        return;
+    }
+    *row = cache->rows[force_name ? 1 : 0][position];
+    /* Never retain pointers into a caller-owned snapshot, or into a copied row's strings. */
+    row->bubble.text = snapshot->messages.entries[indices[position]].text;
+    row->bubble.separator = row->separator;
+    row->bubble.name = row->name;
+    row->bubble.meta = row->meta;
+}
+
+static void fb_render_thread(struct mesh_ui_backend_fb_state *state,
                              const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
 
@@ -555,9 +642,14 @@ static void fb_render_thread(const struct mesh_ui_backend_fb_state *state,
     const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_MESSAGES];
     uint8_t heights[MESH_UI_MAX_MESSAGES];
     struct fb_thread_row row;
+    struct fb_thread_cache *cache = fb_thread_cache_get(state, snapshot, layout, indices, count);
     for (uint32_t i = 0; i < count; ++i) {
-        fb_thread_row_build(snapshot, indices, i, false, &row);
-        heights[i] = fb_thread_height(state, layout, &row);
+        if (cache != NULL) {
+            heights[i] = cache->heights[0][i];
+        } else {
+            fb_thread_row_build(snapshot, indices, i, false, &row);
+            heights[i] = fb_thread_height(state, layout, &row);
+        }
     }
     struct mesh_ui_transcript window =
         mesh_ui_transcript_window(heights, count, cursor, layout->rows);
@@ -580,13 +672,20 @@ static void fb_render_thread(const struct mesh_ui_backend_fb_state *state,
     uint32_t named = count; /* count means "nothing forced yet" */
     for (uint32_t pass = 0U; pass < 4U && window.first != named; ++pass) {
         if (named < count) {
-            fb_thread_row_build(snapshot, indices, named, false, &row);
-            heights[named] =
-                fb_thread_height(state, layout, &row); /* it was not the first after all */
+            if (cache != NULL) {
+                heights[named] = cache->heights[0][named];
+            } else {
+                fb_thread_row_build(snapshot, indices, named, false, &row);
+                heights[named] = fb_thread_height(state, layout, &row);
+            }
         }
         named = window.first;
-        fb_thread_row_build(snapshot, indices, named, true, &row);
-        heights[named] = fb_thread_height(state, layout, &row);
+        if (cache != NULL) {
+            heights[named] = cache->heights[1][named];
+        } else {
+            fb_thread_row_build(snapshot, indices, named, true, &row);
+            heights[named] = fb_thread_height(state, layout, &row);
+        }
         window = mesh_ui_transcript_window(heights, count, cursor, layout->rows);
     }
     /* Only force what the heights were settled against, so the draw can never disagree with the
@@ -595,7 +694,7 @@ static void fb_render_thread(const struct mesh_ui_backend_fb_state *state,
 
     int y = layout->body_y + (int)window.pad * layout->line;
     for (uint32_t i = window.first; i < window.first + window.count && i < count; ++i) {
-        fb_thread_row_build(snapshot, indices, i, settled && i == named, &row);
+        fb_thread_row_get(snapshot, indices, i, settled && i == named, cache, &row);
         row.bubble.selected = (i == cursor);
         fb_draw_bubble(state, layout, y, &row.bubble);
         y += (int)heights[i] * layout->line;
@@ -1962,11 +2061,76 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
     }
 }
 
+/* The same snapshot and geometry can only move inside the bounds declared by animated
+   widgets. Re-run composition through a clip so overlapping chrome is restored in draw order. */
+struct fb_render_cache {
+    struct mesh_ui_snapshot snapshot;
+    const struct mesh_ui_theme *theme;
+    const struct mesh_i18n_locale *locale;
+    int scale;
+    uint32_t width, height;
+    time_t second;
+    bool valid;
+};
+
+void fb_render_cache_free(struct mesh_ui_backend_fb_state *state) {
+    free(state->render_cache);
+    state->render_cache = NULL;
+}
+
+void fb_animation_damage(struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h) {
+    struct fb_damage_rect *r = &state->animation_damage;
+    if (w <= 0 || h <= 0)
+        return;
+    if (!r->valid) {
+        *r =
+            (struct fb_damage_rect){.x = x, .y = y, .right = x + w, .bottom = y + h, .valid = true};
+    } else {
+        if (x < r->x)
+            r->x = x;
+        if (y < r->y)
+            r->y = y;
+        if (x + w > r->right)
+            r->right = x + w;
+        if (y + h > r->bottom)
+            r->bottom = y + h;
+    }
+}
+
+static void fb_render_begin(struct mesh_ui_backend_fb_state *state,
+                            const struct mesh_ui_snapshot *snapshot) {
+    state->clip_active = false;
+    if (!state->partial_disabled && state->render_cache == NULL) {
+        state->render_cache = calloc(1U, sizeof *state->render_cache);
+    }
+    struct fb_render_cache *cache = state->render_cache;
+    if (!state->partial_disabled && cache != NULL) {
+        const time_t second = time(NULL);
+        cache->snapshot.update_flags = snapshot->update_flags;
+        state->clip_active = cache->valid && state->animation_damage.valid &&
+                             cache->theme == state->theme && cache->locale == mesh_i18n_locale() &&
+                             cache->scale == state->scale && cache->width == state->var.xres &&
+                             cache->height == state->var.yres && cache->second == second &&
+                             memcmp(&cache->snapshot, snapshot, sizeof *snapshot) == 0;
+        state->clip = state->animation_damage;
+        cache->snapshot = *snapshot;
+        cache->theme = state->theme;
+        cache->locale = mesh_i18n_locale();
+        cache->scale = state->scale;
+        cache->width = state->var.xres;
+        cache->height = state->var.yres;
+        cache->second = second;
+        cache->valid = true;
+    }
+    state->animation_damage.valid = false;
+}
+
 void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
                         const struct mesh_ui_snapshot *snapshot) {
     /* Before anything is measured: a theme carries the glyph scale and the margin the whole
        frame is laid out against, so adopting one mid-frame would draw half of each. */
     (void)fb_state_follow_snapshot(state, snapshot);
+    fb_render_begin(state, snapshot);
 
     fb_clear(state, fb_color(state, MESH_UI_COLOR_BG));
 

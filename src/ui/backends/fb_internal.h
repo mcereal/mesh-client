@@ -34,9 +34,23 @@
 #include <stdint.h>
 
 struct fb_glyph_cache;
+struct fb_thread_cache;
+struct fb_render_cache;
+
+struct fb_damage_rect {
+    int x, y, right, bottom;
+    bool valid;
+};
 
 struct mesh_ui_backend_fb_state {
     struct fb_glyph_cache *glyph_cache;
+    struct fb_thread_cache *thread_cache;
+    struct fb_render_cache *render_cache;
+    bool partial_disabled;
+    bool clip_active;
+    struct fb_damage_rect clip;
+    struct fb_damage_rect animation_damage;
+    bool thread_cache_disabled;
     uint8_t *draw_buffer;
     uint8_t *previous_frame;
     bool frame_valid;
@@ -208,6 +222,9 @@ struct fb_layout {
    Returns bytes written across both pages; force initializes pages owned by the launcher. */
 size_t fb_copy_damage(struct mesh_ui_backend_fb_state *state, const uint8_t *frame,
                       uint8_t *previous, bool force);
+void fb_render_cache_free(struct mesh_ui_backend_fb_state *state);
+void fb_animation_damage(struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h);
+void fb_thread_cache_free(struct mesh_ui_backend_fb_state *state);
 void fb_glyph_cache_free(struct mesh_ui_backend_fb_state *state);
 
 /* ---- fb_draw.c: the drawing toolkit ------------------------------------------------------ */

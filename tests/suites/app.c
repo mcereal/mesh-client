@@ -2,9 +2,12 @@
 
 /* App glue: auto-connect policy, link routing, and settings writes built from UI state. */
 
+#include "../../src/core/app_internal.h"
 #include "framework/mesh_test.h"
 #include "support/proto_fixture.h"
 #include "support/serial_fixture.h"
+#include <poll.h>
+#include <sys/timerfd.h>
 
 #include "mesh/core/app.h"
 #include "mesh/core/config.h"
@@ -1791,4 +1794,75 @@ MESH_TEST_CASE(app_init_from_dirty_storage, unit) {
         return;
     }
     record_success(test_name);
+}
+
+MESH_TEST_CASE(app_cache_batches_and_retries_persistence, unit) {
+    struct mesh_app *app = calloc(1U, sizeof *app);
+    MESH_TEST_FAIL_IF(app == NULL, "allocation failed");
+    const char *failure = NULL;
+    char path[] = "/tmp/mesh-cache-batch-XXXXXX";
+    int fd = mkstemp(path);
+    if (fd < 0 || mesh_event_loop_init(&app->loop) != 0) {
+        if (fd >= 0)
+            close(fd);
+        unlink(path);
+        free(app);
+        record_failure(test_name, "fixture init failed");
+        return;
+    }
+    close(fd);
+    unlink(path);
+    mesh_session_init(&app->session);
+    mesh_ui_store_init(&app->ui_store);
+    snprintf(app->ui_handshake_cache_path, sizeof app->ui_handshake_cache_path, "%s", path);
+    app->ui_handshake_cache_dirty = true;
+    mesh_app_publish_ui_state(app);
+    const int timer = app->ui_cache_timer_fd;
+    struct itimerspec before, after;
+    timerfd_gettime(timer, &before);
+    app->ui_store.read_state.stamp++;
+    mesh_app_publish_ui_state(app);
+    timerfd_gettime(timer, &after);
+    if (!app->ui_cache_timer_armed || timer != app->ui_cache_timer_fd || access(path, F_OK) == 0 ||
+        after.it_value.tv_sec > before.it_value.tv_sec ||
+        (after.it_value.tv_sec == before.it_value.tv_sec &&
+         after.it_value.tv_nsec > before.it_value.tv_nsec)) {
+        failure = "updates must share a fixed batching deadline without writing immediately";
+        goto cleanup;
+    }
+    const struct itimerspec expire = {.it_value = {.tv_nsec = 1L}};
+    timerfd_settime(timer, 0, &expire, NULL);
+    struct pollfd ready_fd = {.fd = timer, .events = POLLIN};
+    (void)poll(&ready_fd, 1, 1000);
+    mesh_event_loop_run(&app->loop, 0);
+    if (app->ui_handshake_cache_dirty || app->ui_cache_timer_armed || access(path, F_OK) != 0) {
+        failure = "timer must persist and clear the dirty batch";
+        goto cleanup;
+    }
+    snprintf(app->ui_handshake_cache_path, sizeof app->ui_handshake_cache_path, "/dev/full");
+    app->ui_handshake_cache_dirty = true;
+    mesh_app_publish_ui_state(app);
+    timerfd_settime(app->ui_cache_timer_fd, 0, &expire, NULL);
+    ready_fd.fd = app->ui_cache_timer_fd;
+    (void)poll(&ready_fd, 1, 1000);
+    mesh_event_loop_run(&app->loop, 0);
+    if (!app->ui_handshake_cache_dirty || !app->ui_cache_timer_armed) {
+        failure = "a failed stdio flush must retain dirty state and schedule another batch";
+        goto cleanup;
+    }
+    snprintf(app->ui_handshake_cache_path, sizeof app->ui_handshake_cache_path, "%s", path);
+    mesh_app_flush_ui_cache(app);
+    if (app->ui_handshake_cache_dirty)
+        failure = "explicit final flush must persist a pending batch";
+cleanup:
+    mesh_app_close_ui_cache_timer(app);
+    mesh_ui_store_shutdown(&app->ui_store);
+    mesh_event_loop_shutdown(&app->loop);
+    free(app->publish_cache);
+    free(app);
+    unlink(path);
+    if (failure != NULL)
+        record_failure(test_name, failure);
+    else
+        record_success(test_name);
 }
