@@ -1,3 +1,13 @@
+## [2.17.0](https://github.com/mcereal/mesh-client/compare/v2.16.0...v2.17.0) (2026-09-07)
+
+### Features
+
+* **ui:** restructure the palette as six Material colour families ([bed6187](https://github.com/mcereal/mesh-client/commit/bed61877aaff55b7d16a1640ae14ce3005003ab2))
+
+### Bug Fixes
+
+* **ui:** keep theme.h C++-includable and let the Radio card see its warnings ([d380784](https://github.com/mcereal/mesh-client/commit/d38078470fdde154e91b9b81c8072d0dc7397d8d))
+
 ## [2.16.0](https://github.com/mcereal/mesh-client/compare/v2.15.1...v2.16.0) (2026-09-07)
 
 ### Features
