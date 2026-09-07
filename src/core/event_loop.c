@@ -1,8 +1,10 @@
 #include "mesh/core/event_loop.h"
 
 #include "mesh/utils/log.h"
+#include "mesh/utils/time.h"
 
 #include <errno.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -196,10 +198,35 @@ int mesh_event_loop_run(struct mesh_event_loop *loop, int timeout_ms) {
     loop->running = true;
     loop->stop_requested = false;
 
+    /*
+     * `timeout_ms` bounds the whole call, not each wait.
+     *
+     * Returning only on an idle epoll made the caller's periodic work - the transport tick, the
+     * UI publish, the updater deadline - conditional on the loop going quiet, and any fd that
+     * re-arms itself faster than that is enough to make sure it never does. The screen progress
+     * bar is exactly that fd: it re-arms the 33 ms frame timer for as long as it is drawn, and
+     * it is drawn for as long as the handshake it is reporting is unfinished - which is work
+     * that only happens in the tick this call was starving. A client whose radio went quiet
+     * mid-sync then sat there animating a bar about a sync that could not advance, forever.
+     * See mesh_updater_tick(), which met the same starvation from the other side and worked
+     * around it by dropping the child's fd.
+     *
+     * So the deadline is checked after dispatching rather than before: a caller that asked for
+     * zero still drains what is already ready, exactly as it did, and one that asked for a
+     * timeout now gets control back within it whether the loop fell idle or not.
+     */
+    const bool bounded = timeout_ms > 0;
+    const uint64_t deadline_ms = bounded ? mesh_time_monotonic_ms() + (uint64_t)timeout_ms : 0U;
+
     struct epoll_event events[8];
     while (loop->running) {
+        int wait_ms = timeout_ms;
+        if (bounded) {
+            const uint64_t now = mesh_time_monotonic_ms();
+            wait_ms = now >= deadline_ms ? 0 : (int)(deadline_ms - now);
+        }
         int ready =
-            epoll_wait(loop->epoll_fd, events, (int)(sizeof events / sizeof events[0]), timeout_ms);
+            epoll_wait(loop->epoll_fd, events, (int)(sizeof events / sizeof events[0]), wait_ms);
         if (ready < 0) {
             if (errno == EINTR) {
                 continue;
@@ -220,6 +247,10 @@ int mesh_event_loop_run(struct mesh_event_loop *loop, int timeout_ms) {
                 continue;
             }
             source->callback(source->fd, events[i].events, source->userdata);
+        }
+
+        if (bounded && mesh_time_monotonic_ms() >= deadline_ms) {
+            break;
         }
     }
 

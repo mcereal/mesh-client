@@ -153,6 +153,9 @@ struct mesh_bluez_mock_config {
        (0 = resolved on the first poll, i.e. BlueZ already had the GATT database cached). */
     unsigned services_resolved_after_polls;
     int services_resolved_result;
+    /* Polls that answer -ETIMEDOUT before the after_polls sequence above starts, standing in for
+       a bluetoothd too busy to answer a Properties.Get inside MESH_BLUEZ_PROPERTY_TIMEOUT_MS. */
+    unsigned services_resolved_timeout_polls;
     /* Connect reply polls that stay pending before the mock completes with connect_result. */
     unsigned connect_pending_polls;
     /* Device1.Connected polls that report true before the mock reports the link dropped

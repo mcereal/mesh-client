@@ -18,7 +18,20 @@
 #include <unistd.h>
 
 #define MESH_BLUEZ_READ_TIMEOUT_MS 3000
-#define MESH_BLUEZ_PROPERTY_TIMEOUT_MS 1000
+/*
+ * Generous on purpose, and deliberately unlike the read timeout above.
+ *
+ * This bounds an *asynchronous* Properties.Get. Nothing waits on the answer, so the deadline
+ * does not decide how responsive anything is - it only decides when a request whose reply may
+ * never come is stale enough to stop tracking. What decides whether a link is hopeless is
+ * MESH_BLE_SERVICES_TIMEOUT_MS, twenty seconds of it, and a poll that expires here is reissued
+ * rather than fatal (see mesh_ble_poll_connecting()).
+ *
+ * A second was too tight to be that: bluetoothd was measured on the Brick answering one of
+ * these 1036 ms after it was issued, mid-connect, and every poll of a connect expiring is how
+ * a link BlueZ had resolved fine never came up at all.
+ */
+#define MESH_BLUEZ_PROPERTY_TIMEOUT_MS 5000
 /* Our org.bluez.Agent1 object. BlueZ calls back on this path to ask for a PIN. */
 #define MESH_BLUEZ_AGENT_PATH "/org/meshclient/agent"
 
@@ -452,6 +465,7 @@ struct mesh_bluez_mock_state {
     struct mesh_bluez_client *client;
     size_t read_cursor;
     unsigned services_resolved_polls;
+    unsigned services_resolved_timeouts;
     unsigned connect_polls;
     unsigned connected_polls;
     unsigned write_calls;
@@ -518,6 +532,7 @@ static void mesh_bluez_mock_reset_counters(void) {
     g_mock_state.client = NULL;
     g_mock_state.read_cursor = 0U;
     g_mock_state.services_resolved_polls = 0U;
+    g_mock_state.services_resolved_timeouts = 0U;
     g_mock_state.connect_polls = 0U;
     g_mock_state.connected_polls = 0U;
     g_mock_state.write_calls = 0U;
@@ -2044,6 +2059,11 @@ int mesh_bluez_client_services_resolved(struct mesh_bluez_client *client, const 
     if (g_mock_state.enabled && g_mock_state.config.read_bus_address == NULL) {
         if (g_mock_state.config.services_resolved_result != 0) {
             return g_mock_state.config.services_resolved_result;
+        }
+        if (g_mock_state.services_resolved_timeouts <
+            g_mock_state.config.services_resolved_timeout_polls) {
+            g_mock_state.services_resolved_timeouts++;
+            return -ETIMEDOUT;
         }
         g_mock_state.services_resolved_polls++;
         *out_resolved = g_mock_state.services_resolved_polls >
