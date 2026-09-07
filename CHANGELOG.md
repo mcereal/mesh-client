@@ -1,3 +1,13 @@
+## [2.16.0](https://github.com/mcereal/mesh-client/compare/v2.15.1...v2.16.0) (2026-09-07)
+
+### Features
+
+* **ui:** add a meter component and give the updater progress ([bb80b9f](https://github.com/mcereal/mesh-client/commit/bb80b9fd76d9222d0ed8e60a4eb1e214116fe6a3))
+
+### Bug Fixes
+
+* **ui:** measure a card's label column from labels, not row kinds ([9999659](https://github.com/mcereal/mesh-client/commit/9999659206c20da1b24652c4b6b138208f2fede1))
+
 ## [2.15.1](https://github.com/mcereal/mesh-client/compare/v2.15.0...v2.15.1) (2026-09-07)
 
 ### Bug Fixes
