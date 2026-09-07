@@ -1,3 +1,17 @@
+## [2.31.0](https://github.com/mcereal/mesh-client/compare/v2.30.0...v2.31.0) (2026-09-07)
+
+### Features
+
+* **ui:** add the slider, and say which numbers are a scale ([9fcf812](https://github.com/mcereal/mesh-client/commit/9fcf812fe3aa1dc492e32820aabe6c9e687110ec))
+
+### Bug Fixes
+
+* **ui:** place a slider's stops after the fill, and refuse anything under its bottom stop ([aee7119](https://github.com/mcereal/mesh-client/commit/aee71190ffcd9ca6485be7e6499a4e21d1ded503)), closes [#102](https://github.com/mcereal/mesh-client/issues/102)
+
+### Documentation
+
+* outline modular map support roadmap ([8f97046](https://github.com/mcereal/mesh-client/commit/8f97046589053a40228e345f877e96ed3d891d54))
+
 ## [2.30.0](https://github.com/mcereal/mesh-client/compare/v2.29.1...v2.30.0) (2026-09-07)
 
 ### Features
