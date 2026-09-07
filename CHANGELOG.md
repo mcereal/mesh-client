@@ -1,3 +1,9 @@
+## [2.29.1](https://github.com/mcereal/mesh-client/compare/v2.29.0...v2.29.1) (2026-09-07)
+
+### Performance Improvements
+
+* keep Bluetooth and animated UI updates responsive ([115301f](https://github.com/mcereal/mesh-client/commit/115301f508ddfb808fd8381bd66f7d95a1ebe453))
+
 ## [2.29.0](https://github.com/mcereal/mesh-client/compare/v2.28.0...v2.29.0) (2026-09-07)
 
 ### Features
