@@ -22,6 +22,7 @@
 
 #include "fb_internal.h"
 
+#include "mesh/ui/icon.h"
 #include "mesh/ui/layout.h"
 #include "mesh/ui/theme.h"
 
@@ -68,6 +69,10 @@ enum fb_button_variant {
  */
 struct fb_button {
     struct fb_rect rect;
+    /* Drawn before the label, or centred alone when there is no label - which is what the
+       keyboard's action row is: a soft keyboard says backspace and send with a symbol on every
+       platform there is, and the words for them are the two longest labels in the catalog. */
+    enum mesh_ui_icon icon;
     const char *label;
     bool selected; /* the cursor is on it */
     enum fb_button_variant variant;
@@ -91,8 +96,14 @@ void fb_draw_button(const struct mesh_ui_backend_fb_state *state, const struct f
  * MESH_UI_SHAPE_FULL for the reason a badge is: a capsule sized to its own text is read as a
  * label rather than as a box, and a strip of them is read as a set.
  */
-int fb_draw_chip(const struct mesh_ui_backend_fb_state *state, int x, int y, const char *label,
-                 bool active, int scale);
+int fb_draw_chip(const struct mesh_ui_backend_fb_state *state, int x, int y, enum mesh_ui_icon icon,
+                 const char *label, bool active, int scale);
+
+/* What one chip takes, its trailing gap included - so a strip can ask whether it fits before it
+   draws anything. The same arithmetic fb_draw_chip() advances by, because a strip that measured
+   itself differently from the way it draws is a strip whose last tab falls off the panel. */
+int fb_chip_width(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_icon icon,
+                  const char *label, int scale);
 
 /*
  * A switch: a boolean the eye reads without reading a word.
@@ -140,9 +151,16 @@ void fb_draw_switch(struct mesh_ui_backend_fb_state *state, const struct fb_swit
 void fb_draw_title(const struct mesh_ui_backend_fb_state *state, struct fb_layout *layout,
                    const char *title);
 
-/* What a screen says instead of a list when it has nothing to show. */
+/*
+ * What a screen says instead of a list when it has nothing to show, under the icon of whatever
+ * the list would have held.
+ *
+ * The icon is drawn large and dim above the words, which is the shape an empty state has
+ * everywhere: the screen is blank, so the one thing on it can afford to be the size that says
+ * "this is empty on purpose" rather than "this failed to load".
+ */
 void fb_draw_empty(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
-                   const char *text);
+                   enum mesh_ui_icon icon, const char *text);
 
 /* A hairline separator - under the tab strip, above a detail pane. The role says which of the
    theme's two rule colours it is: MESH_UI_COLOR_RULE for a separator inside the body,
@@ -209,7 +227,7 @@ void fb_list_row_line(const struct mesh_ui_backend_fb_state *state, struct fb_li
  *     const struct fb_list_item row = {
  *         .label = item->label,
  *         .label_cols = label_cols,
- *         .marker = "> ",
+ *         .marker_icon = MESH_UI_ICON_EDIT,
  *         .value = item->value,
  *         .tone = MESH_UI_TONE_NORMAL,
  *     };
@@ -223,31 +241,57 @@ enum fb_trailing_kind {
     FB_TRAILING_TEXT,   /* right-aligned and quiet: an age, a "not loaded" */
     FB_TRAILING_BADGE,  /* a filled capsule: an unread count, said the way messengers say it */
     FB_TRAILING_SWITCH, /* the boolean control - see struct fb_switch */
+    /* One cell against the trailing edge: the chevron that says a row opens something, the
+       check that says this is the one in use. The slot every platform's list rows end with. */
+    FB_TRAILING_ICON,
 };
 
 struct fb_trailing {
     enum fb_trailing_kind kind;
-    const char *text;     /* TEXT and BADGE */
-    struct fb_switch *sw; /* SWITCH. Its rect is filled in by the row: where the value column
-                             ends is the row's business, not the caller's. */
+    const char *text;       /* TEXT and BADGE */
+    enum mesh_ui_icon icon; /* ICON */
+    struct fb_switch *sw;   /* SWITCH. Its rect is filled in by the row: where the value column
+                               ends is the row's business, not the caller's. */
 };
 
 /* What sits at the row's leading edge. */
 enum fb_leading_kind {
     FB_LEADING_NONE = 0,
-    /* A tinted disc with one or two cells in it. What lets the eye find a row by colour and
-       two letters long before it has read a name. */
+    /* A tinted disc with one or two cells - or one icon - in it. What lets the eye find a row
+       by colour and two letters long before it has read a name. */
     FB_LEADING_AVATAR,
+    /*
+     * One icon in the gutter before the words: the star on a pinned node, the broken link on a
+     * node the radio has forgotten, the bluetooth rune on a device row.
+     *
+     * The slot is reserved whenever the kind is set, `icon` of MESH_UI_ICON_NONE included -
+     * which is the point. A list where some rows have an icon and some do not is a list whose
+     * text starts in two different columns, so a screen declares the slot for the whole list
+     * and the rows with nothing to say leave it empty.
+     */
+    FB_LEADING_ICON,
 };
 
 struct fb_leading {
     enum fb_leading_kind kind;
-    const char *label; /* initials, "#", "+" */
-    uint32_t tint;     /* seeds the disc's colour through the theme's avatar palette */
-    /* A stated fill instead of a tint - the accent for "all traffic", the bad tone for a row
-       armed to be deleted. MESH_UI_COLOR_COUNT means "use the tint". */
+    const char *label;      /* AVATAR: initials */
+    enum mesh_ui_icon icon; /* ICON, and AVATAR when a disc holds a symbol rather than letters */
+    uint32_t tint;          /* AVATAR: seeds the disc's colour through the theme's avatar palette */
+    /* AVATAR: a stated fill instead of a tint - the accent for "all traffic", the bad tone for a
+       row armed to be deleted. MESH_UI_COLOR_COUNT means "use the tint". */
     enum mesh_ui_color role;
 };
+
+/*
+ * An icon in a row's own slots - leading, marker, supporting, trailing - is drawn in the row's
+ * ink, and there is deliberately no way to ask for another colour.
+ *
+ * It is standing in for a character that used to be part of the row's text ("> ", "* ", "#"),
+ * so it inherits what that character would have had: the row's tone on the ground, the
+ * cursor's ink under the cursor, and the quiet pairing for a trailing slot, exactly as a
+ * trailing age is quiet. A screen that wants an icon to shout says so by giving the *row* a
+ * tone - which is the same sentence it was already making about the words.
+ */
 
 struct fb_list_item {
     struct fb_leading leading;
@@ -263,7 +307,16 @@ struct fb_list_item {
     const char *text;
     const char *label;
     size_t label_cols;
-    const char *marker; /* the "> " / "* " gutter that says a row is editable or edited */
+    /*
+     * The gutter between the label column and the value, which says what the row *offers*: the
+     * pencil on a row Left and Right change, the dot on one changed and not yet written, the
+     * chevron on one that opens something.
+     *
+     * It is one cell wide whether or not there is an icon in it, so the value column starts in
+     * the same place on every row of a list - which is the whole reason this is a slot rather
+     * than two characters somebody prepended to the value.
+     */
+    enum mesh_ui_icon marker_icon;
     const char *value;
     enum mesh_ui_tone tone;
     struct fb_trailing trailing;
@@ -276,6 +329,9 @@ struct fb_list_item {
      * block of text with no way into it.
      */
     const char *supporting;
+    /* One cell before the supporting line, on the same terms as the marker: the reply arrow
+       that says the last word in a thread was ours. */
+    enum mesh_ui_icon supporting_icon;
     enum mesh_ui_tone supporting_tone;
     /* Whether the supporting line stays secondary even under the cursor. A row's ink and its
        cursor ink are different pairs rather than the same colour dimmed, so a line that is
@@ -319,7 +375,10 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
  * fb_draw_conversation(), because they have to stay in proportion as a theme changes it.
  */
 struct fb_conversation {
-    const char *avatar;    /* one or two cells inside the disc: initials, "#", "+" */
+    const char *avatar; /* one or two cells inside the disc: a node's initials */
+    /* Inside the disc instead of initials, for the rows that are not a person: the tag on a
+       channel, the globe on all traffic, the plus on the row that starts a new thread. */
+    enum mesh_ui_icon avatar_icon;
     uint32_t tint;         /* seeds the disc's colour; ignored when `accent` is set */
     bool accent;           /* draw the disc in the accent instead - "All traffic", "New message" */
     const char *name;      /* who or where */
@@ -443,6 +502,10 @@ struct fb_card_row {
 
 struct fb_card {
     char heading[FB_CARD_LABEL_MAX];
+    /* Beside the heading: what the card is about, said in one cell. A column of cards is a
+       column of headings otherwise, and the icon is what the eye finds first when it is looking
+       for the radio rather than the mesh. */
+    enum mesh_ui_icon icon;
     enum mesh_ui_tone tone; /* the heading's, and so the card's own report on itself */
     /* Rows offered past the last are dropped. The cap is well above what any screen here fills
        - the densest is the Status tab's Radio card at six - so reaching it means a screen has
@@ -452,8 +515,10 @@ struct fb_card {
 };
 
 /* Starts a card. `heading` of MESH_STR_NONE is a card with no heading - a panel, not a
-   section. Always call this first: it is what clears the row list. */
-void fb_card_begin(struct fb_card *card, enum mesh_str_id heading, enum mesh_ui_tone tone);
+   section - and takes MESH_UI_ICON_NONE with it. Always call this first: it is what clears the
+   row list. */
+void fb_card_begin(struct fb_card *card, enum mesh_ui_icon icon, enum mesh_str_id heading,
+                   enum mesh_ui_tone tone);
 
 /* A label and a value formatted from the catalog, which is the shape most rows have. */
 void fb_card_row(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_id label,

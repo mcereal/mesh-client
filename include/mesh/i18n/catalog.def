@@ -267,10 +267,11 @@ MESH_STR_ENTRY(DEVICES_BADGE_CONNECTED,   "  connected")
 MESH_STR_ENTRY(DEVICES_BADGE_WORKING,     "  working...")
 MESH_STR_ENTRY(DEVICES_BADGE_NEEDS_PAIR,  "  needs pairing")
 MESH_STR_ENTRY(DEVICES_BADGE_PAIRED,      "  paired")
-/* A row: the cursor mark, the name, how it is attached, then the badge. USB is a bus name and
-   stays as it is; dBm is the signal strength of a Bluetooth node. */
-MESH_STR_ENTRY(DEVICES_ROW_USB,           "%c %s  USB%s")
-MESH_STR_ENTRY(DEVICES_ROW_BLE,           "%c %s  %ddBm%s")
+/* A row: the name, how it is attached, then the badge. Which transport it is and whether it is
+   the one in use are icons on the row rather than words. USB is a bus name and stays as it is;
+   dBm is the signal strength of a Bluetooth node. */
+MESH_STR_ENTRY(DEVICES_ROW_USB,           "%s  USB%s")
+MESH_STR_ENTRY(DEVICES_ROW_BLE,           "%s  %ddBm%s")
 /* The name given to a radio we are talking to but never saw advertise. */
 MESH_STR_ENTRY(DEVICES_CONNECTED_NAME,    "Connected")
 

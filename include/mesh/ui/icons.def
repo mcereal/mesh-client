@@ -1,0 +1,79 @@
+/*
+ * The icon set: one line per icon, in the order the enum takes.
+ *
+ * This file is included more than once with the macro defined differently each time - once to
+ * build `enum mesh_ui_icon`, once to build the name table, and once by scripts/gen-icons.py to
+ * decide which Material Symbols glyphs to rasterise. That is what keeps the enum, the sprites
+ * and the generator from drifting apart, and it is the same trick include/mesh/i18n/catalog.def
+ * plays for strings. Like that file it has no include guard, it is not a .h, and `make format`
+ * leaves it alone.
+ *
+ *   MESH_ICON_ENTRY(ID, "material_symbols_name")
+ *
+ * `ID` is what a renderer names (MESH_UI_ICON_CHEVRON); the string is the glyph the generator
+ * looks up in Material Symbols Rounded, and is never read by a person - it is a font's glyph
+ * name, not a word, so it stays out of the string catalog.
+ *
+ * Rules for a good entry:
+ *
+ *   - The id says what the icon *means here*, not what it draws. CHEVRON is a shape and would
+ *     be a poor id if it meant one thing; it stays because a chevron means exactly one thing on
+ *     every screen - "this row opens something". OFF_RADIO is a broken link; that it is drawn
+ *     with link_off is the table's business, not the renderer's.
+ *   - One id per job, even when two jobs share a glyph. The Nodes tab and the Status screen's
+ *     mesh card both draw `hub`, and both name MESH_UI_ICON_NODES, because they are saying the
+ *     same thing. If they ever stop being the same thing, one of them gets its own id.
+ *   - An icon nothing draws does not belong here. The sprites are generated data, and an id
+ *     with no call site is a kilobyte of rodata that no theme, screen or test can see.
+ *
+ * Adding one is: a line here, then `python3 scripts/gen-icons.py <font> src/ui/icon_glyphs.c`
+ * (see the script's header for the font), then commit the regenerated data with it.
+ */
+
+/* ---- the tabs, and the empty states that stand in for them --------------------------------- */
+
+MESH_ICON_ENTRY(MESSAGES,  "forum")
+MESH_ICON_ENTRY(NODES,     "hub")
+MESH_ICON_ENTRY(DEVICES,   "settings_input_antenna")
+MESH_ICON_ENTRY(STATUS,    "speed")
+MESH_ICON_ENTRY(SETTINGS,  "settings")
+
+/* ---- what a row offers --------------------------------------------------------------------- */
+
+/* This row opens something: a settings section, an action, a node's detail. */
+MESH_ICON_ENTRY(CHEVRON,   "chevron_right")
+/* This row's value can be changed in place - Left and Right act on it. */
+MESH_ICON_ENTRY(EDIT,      "edit")
+/* Changed here and not yet written to the radio. A dot rather than a pencil: it reports state,
+   it does not offer anything. */
+MESH_ICON_ENTRY(UNSAVED,   "fiber_manual_record")
+MESH_ICON_ENTRY(CHECK,     "check")
+MESH_ICON_ENTRY(CLOSE,     "close")
+
+/* ---- who and where -------------------------------------------------------------------------- */
+
+MESH_ICON_ENTRY(PERSON,    "person")
+MESH_ICON_ENTRY(STAR,      "star")
+MESH_ICON_ENTRY(CHANNEL,   "tag")
+MESH_ICON_ENTRY(BROADCAST, "public")
+MESH_ICON_ENTRY(COMPOSE,   "add")
+/* The last word in a thread was ours. */
+MESH_ICON_ENTRY(REPLY,     "reply")
+MESH_ICON_ENTRY(DELETE,    "delete")
+
+/* ---- what the mesh is doing ----------------------------------------------------------------- */
+
+/* The radio's NodeDB no longer carries this node; we do. */
+MESH_ICON_ENTRY(OFF_RADIO, "link_off")
+MESH_ICON_ENTRY(MQTT,      "cloud")
+MESH_ICON_ENTRY(BLUETOOTH, "bluetooth")
+MESH_ICON_ENTRY(USB,       "usb")
+MESH_ICON_ENTRY(RADIO,     "cell_tower")
+MESH_ICON_ENTRY(LINK,      "link")
+MESH_ICON_ENTRY(WARNING,   "warning")
+
+/* ---- the keyboard's action row --------------------------------------------------------------- */
+
+MESH_ICON_ENTRY(SEND,      "send")
+MESH_ICON_ENTRY(BACKSPACE, "backspace")
+MESH_ICON_ENTRY(SPACE,     "space_bar")

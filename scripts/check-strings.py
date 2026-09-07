@@ -57,7 +57,6 @@ ALLOWED = {
     '"%s%s%s%s"': "printf glue",
     '"%s%s%u"': "printf glue",
     '"%s_"': "the draft's cursor",
-    '"%c %s%s"': "printf glue, cursor mark and name",
     '"%02x"': "one byte of a key fingerprint",
     '"%06u"': "a six-digit PIN",
     '"%d"': "a number typed into a text row",
@@ -84,8 +83,6 @@ ALLOWED = {
     '"QWERTYUIOP"': "the keyboard's upper layer",
     '"ASDFGHJKL\\\""': "the keyboard's upper layer",
     '"ZXCVBNM!-:"': "the keyboard's upper layer",
-    # A glyph, drawn rather than read: the star beside a pinned node.
-    '"\\xE2\\xAD\\x90"': "the pinned-node star",
 }
 
 LITERAL = re.compile(r'"((?:[^"\\]|\\.)*)"')

@@ -434,19 +434,25 @@ vocabulary that covers every row a list wants.
 
 | Slot | Kinds |
 |---|---|
-| leading | `FB_LEADING_NONE`, `FB_LEADING_AVATAR` (a tinted disc with one or two cells in it) |
-| headline | plain `text`, or a `label` column of `label_cols` cells then `marker` and `value` |
-| supporting | a second line; non-NULL is what makes the item two rows tall |
-| trailing | `FB_TRAILING_NONE` / `_TEXT` (right-aligned and quiet) / `_BADGE` (a filled capsule) / `_SWITCH` |
+| leading | `FB_LEADING_NONE`, `FB_LEADING_AVATAR` (a tinted disc with initials or an icon in it), `FB_LEADING_ICON` |
+| headline | plain `text`, or a `label` column of `label_cols` cells then the `marker_icon` gutter and `value` |
+| supporting | a second line, with its own `supporting_icon`; non-NULL is what makes the item two rows tall |
+| trailing | `FB_TRAILING_NONE` / `_TEXT` (right-aligned and quiet) / `_BADGE` (a filled capsule) / `_SWITCH` / `_ICON` |
 
 ```c
 const struct fb_list_item row = {
     .label = item->label, .label_cols = label_cols,
-    .marker = "> ", .value = item->value, .tone = MESH_UI_TONE_NORMAL,
+    .marker_icon = item->dirty ? MESH_UI_ICON_UNSAVED : MESH_UI_ICON_EDIT,
+    .value = item->value, .tone = MESH_UI_TONE_NORMAL,
     .trailing = {.kind = FB_TRAILING_SWITCH, .sw = &sw},
 };
 fb_list_item(state, &list, i, &row);
 ```
+
+Three of those four slots hold an [icon](#srcuiiconc--the-generated-srcuiicon_glyphsc) rather than a character, which is what the row
+markers used to be. `FB_LEADING_ICON` **reserves its cell whether or not the row filled it** —
+`MESH_UI_ICON_NONE` included — because a list that indents only the rows with something to say
+is a list the eye cannot run down.
 
 There were four of these functions and they were the same row four times — a settings row, a
 toggle row, a badge row, a conversation cell. Each carried its own copy of the **two things that
@@ -498,7 +504,8 @@ row is in:
 
 ```c
 struct fb_card card;
-fb_card_begin(&card, MESH_STR_STATUS_CARD_LINK, connected ? MESH_UI_TONE_GOOD : MESH_UI_TONE_BAD);
+fb_card_begin(&card, MESH_UI_ICON_LINK, MESH_STR_STATUS_CARD_LINK,
+              connected ? MESH_UI_TONE_GOOD : MESH_UI_TONE_BAD);
 fb_card_row_text(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_TRANSPORT, status);
 if (handshake_valid) {
     fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_MY_NODE,
@@ -687,6 +694,55 @@ the build** — run it by hand and commit the result. 5626 sprites over 3963 uni
 purpose: a braced initialiser of a million integers costs minutes of compile time, the literal
 costs about two seconds. The file carries its own
 `#pragma GCC diagnostic ignored "-Woverlength-strings"` plus a `.clang-format-ignore` entry.
+
+### `src/ui/icon.c` + the generated `src/ui/icon_glyphs.c`
+
+Monochrome Material Symbols, in the slots that used to hold `>`, `*`, `#` and `+`.
+
+The set is one line per icon in `include/mesh/ui/icons.def`, included twice to build
+`enum mesh_ui_icon` and the name table, and read a third time by `scripts/gen-icons.py` to decide
+what to rasterise — the same trick `catalog.def` plays for strings, and for the same reason:
+the enum, the sprites and the generator cannot drift apart. Adding an icon is a line there plus
+a regeneration.
+
+Two things separate icons from [emoji](#srcuiemojic--the-generated-srcuiemoji_glyphsc), and they
+are why there is a second sprite table rather than a bigger first one:
+
+- **An icon carries coverage, not colour.** It is drawn in the row's ink — the tone on the
+  ground, `TEXT_ON_SEL` under the cursor, the quiet pairing in a trailing slot — because it is
+  doing the job the character it replaced was doing. An emoji carries its own palette, which is
+  most of what makes one recognisable at 20 px. There is deliberately no way to ask a slot for
+  an icon in some other colour: a screen that wants one to shout gives the *row* a tone.
+- **An icon is named by the UI, an emoji is looked up by codepoint.** `MESH_UI_ICON_CHEVRON`
+  is chosen by a renderer; an emoji arrives inside a name somebody typed.
+
+Coverage is 4 bits per pixel over a 32x32 sprite, run-length encoded — about 10 KB for the whole
+set. Sprites are larger than the cell they usually land in (28 px at the body scale, 21 in the
+chrome) so that the one place that draws an icon *big* — the symbol on an empty screen — is not
+resampling a thumbnail. `fb_draw_icon()` samples them **bilinearly** and blends between an ink
+and a ground the caller passes in, which is the one place this differs from the emoji path's
+nearest neighbour: dropping or duplicating source rows turns a 2 px chevron stroke into a
+staircase. The ground has to be passed because nothing
+can read what is already on the panel — the Brick's display engine composites `fb0` against its
+own layer, and a row is drawn on the ground on one line and on the cursor fill on the next. A
+widget that has just filled a row knows the colour it filled it with; nothing else does.
+
+An icon occupies **exactly one text cell** so the layout above it keeps counting in columns, and
+is *drawn* at the glyph body's height and centred on that cell — a symbol the width of a cell
+advance comes out visibly smaller than the capitals it is labelling, and overhanging the gaps
+either side by a pixel or two costs nothing.
+
+The tab strip is the one place that measures before it draws: five labelled tabs fit at the
+scale the device ships with and do not at the two above it, so `fb_draw_tabs()` asks
+`fb_chip_width()` for the total and drops to labelling only the selected tab, then to no labels
+at all, rather than pushing a tab off the edge of the panel. That is Material's "selected" label
+mode, arrived at by measurement.
+
+`scripts/gen-icons.py` rasterises Material Symbols Rounded (Apache 2.0, `licenses/`) and is
+**not part of the build** — run it by hand and commit the result, exactly like the emoji
+generator. It renders filled at weight 500 and crops Material's 24 grid to the central 20 the
+symbol occupies: an outlined symbol is a 1 px stroke by the time it is 16 px across and thins to
+nothing where it curves, and keeping the padding would leave a 13 px symbol in a 16 px box.
 
 ## Themes
 

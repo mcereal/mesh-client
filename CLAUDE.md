@@ -97,7 +97,7 @@ suite needs it.
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Verified 2026-09-06: 176 unit tests, all passing, zero compiler warnings.
+Verified 2026-09-07: 183 unit tests, all passing, zero compiler warnings.
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
 vector — not against our own encoder — so a protobuf regeneration that changes field numbers or
 wire types fails loudly.
@@ -133,8 +133,9 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | App glue | `src/core/app*.c` | `app` lifecycle/link, `_actions` UI actions, `_publish` to store, `_settings` writes |
 | Self-update | `src/core/updater.c`, `version.c` | forks curl, SemVer, digest-verified install |
 | UI | `src/ui/` | store/controller + `nav*.c` + `settings*.c` + `layout.c` + `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
-| UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window; cards, buttons, chips, list items (leading/trailing slots), switches, bubbles |
+| UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window; cards, buttons, chips, list items (leading/marker/supporting/trailing slots), switches, bubbles |
 | Animation | `src/ui/anim.c`, `src/ui/controller.c` | fixed-point easing + a table keyed per control; the repaint timerfd that feeds it |
+| Icons | `src/ui/icon.c`, `src/ui/icon_glyphs.c`, `include/mesh/ui/icons.def` | monochrome Material Symbols, tinted by the theme, in the row slots |
 | Themes | `src/ui/theme.c`, `src/ui/font.c` | palette by role, surface tiers, the shape scale, metrics, font registry; `MESHCLIENT_THEME` or Settings > About picks one |
 | Text | `src/utils/text.c`, `src/ui/{font5x7,emoji}.c` | UTF-8 sanitising, cell-based measurement |
 | Strings | `src/i18n/strings.c`, `include/mesh/i18n/catalog.def` | the string catalog and the locale registry |
@@ -158,6 +159,14 @@ adding a string is adding a line there. `scripts/check-strings.py` runs in `make
 fails on a literal that looks like prose in a renderer. Logs, region codes, hardware model
 names and modem presets stay untranslated on purpose - see
 [`docs/i18n.md`](docs/i18n.md).
+
+**No row marker is spelled out in a renderer either.** A row that opens something, one with an
+unsaved edit, a channel, a node the radio has forgotten: each names an *icon*
+(`MESH_UI_ICON_CHEVRON`) in one of the list item's slots, and `src/ui/icon.c` answers with a
+monochrome sprite the row draws in its own ink. The set is one line per icon in
+`include/mesh/ui/icons.def`; adding one is a line there plus `scripts/gen-icons.py`. The `"> "`,
+`"* "`, `"#"` and `"+"` markers this replaced are gone from the fb backend - see
+[`docs/ui.md`](docs/ui.md#srcuiiconc--the-generated-srcuiicon_glyphsc).
 
 **No colour, margin, glyph size or corner radius is spelled out in a renderer.** A screen names
 a *tone* (`MESH_UI_TONE_BAD`), a widget names a *role* (`MESH_UI_COLOR_SURFACE_SEL`) or a
@@ -213,12 +222,14 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
 - **`launch.sh` and the pak's CA bundle do not ship through self-update.** Only the bare binary
   does. Changing either forces a pak reinstall, so treat them as a compatibility boundary.
 - **`scripts/gen-emoji.py` is not part of the build.** Run it by hand and commit the result.
-  The same goes for `scripts/gen-locale.py`, which turns the string catalog into a translation
+  The same goes for `scripts/gen-icons.py`, which rasterises the icon set out of Material
+  Symbols, and for `scripts/gen-locale.py`, which turns the string catalog into a translation
   template or a locale skeleton.
-- **`include/mesh/i18n/catalog.def` is not a header and `make format` does not touch it.** It is
-  included several times with the macros defined differently each time, which is what keeps the
-  enum, the English table and the translation template from drifting apart. Its `.def` extension
-  is why clang-format leaves the table alone.
+- **Neither `include/mesh/i18n/catalog.def` nor `include/mesh/ui/icons.def` is a header, and
+  `make format` does not touch either.** Each is included several times with the macros defined
+  differently each time, which is what keeps the enum, the table and - for the catalog - the
+  translation template from drifting apart. Their `.def` extension is why clang-format leaves
+  the tables alone.
 - **`devtools/` is not `Tools/`.** `Tools/` holds the device-facing pak assets, and macOS
   filesystems are case-insensitive by default, so a `tools/` directory would collide with it.
 - **The capture harness cannot act on a `mesh_ui_action`.** START in the keyboard raises
