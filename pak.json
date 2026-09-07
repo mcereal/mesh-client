@@ -1,17 +1,17 @@
 {
   "name": "MeshClient",
-  "version": "v2.26.0",
+  "version": "v2.26.1",
   "type": "TOOL",
   "description": "A Meshtastic client for your handheld: read and send messages, browse the mesh, and edit your radio's settings over Bluetooth LE or USB.",
   "author": "mcereal",
   "repo_url": "https://github.com/mcereal/mesh-client",
   "release_filename": "MeshClient.pak.zip",
   "changelog": {
+    "v2.26.1": "Keep BLE sync responsive and cache UI rendering work; Initialize owned state before publishing or shutdown.",
     "v2.26.0": "Add the top app bar, with a trail, a back arrow and a badge.",
     "v2.25.0": "Fill the leading and marker slots the component set already had.",
     "v2.24.0": "Draw the UI in a rasterised face instead of a 5x7 bitmap; Ship the third-party font licences in the pak; Carry the ground through the signal slot, and format the generated table.",
-    "v2.23.1": "Run repository setup in the environment.",
-    "v2.23.0": "Add Spanish language support."
+    "v2.23.1": "Run repository setup in the environment."
   },
   "screenshots": [
     ".github/resources/screenshots/nodes.png",

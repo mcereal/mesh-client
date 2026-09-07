@@ -1,3 +1,13 @@
+## [2.26.1](https://github.com/mcereal/mesh-client/compare/v2.26.0...v2.26.1) (2026-09-07)
+
+### Bug Fixes
+
+* **app:** initialize owned state before publishing or shutdown ([d70849d](https://github.com/mcereal/mesh-client/commit/d70849d2dc0f6a07652dc8f1004ae3b02a55e540))
+
+### Performance Improvements
+
+* keep BLE sync responsive and cache UI rendering work ([d478e44](https://github.com/mcereal/mesh-client/commit/d478e449a44a9230efa10d2cbc0f4db8c0bf0512))
+
 ## [2.26.0](https://github.com/mcereal/mesh-client/compare/v2.25.0...v2.26.0) (2026-09-07)
 
 ### Features
