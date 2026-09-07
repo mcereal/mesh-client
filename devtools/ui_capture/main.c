@@ -134,14 +134,21 @@ static void uicap_scene_demo(struct uicap *cap) {
     };
     mesh_ui_store_set_discovery(&cap->store, devices, 3U);
 
+    /*
+     * Four of these are zero hops away and not over MQTT, which is what makes them *heard* -
+     * and their SNR figures are spread across the four rungs of a signal staircase on purpose,
+     * because a roster where nothing was heard directly could not show one at all. That was the
+     * roster before: every node reached over a relay or over MQTT, which is a mesh with no
+     * neighbours in range and not one anybody has.
+     */
     static const struct uicap_node_seed seeds[] = {
         {0x43A1C0DEU, "HOME", "Home Base", 30U, 11.5F, 0U, true, false},
-        {0x8F21B004U, "ALFA", "Alfa Ridge", 95U, 8.25F, 1U, true, false},
-        {0x8F21B005U, "BRVO", "Bravo Creek", 640U, -3.5F, 2U, true, false},
-        {0x8F21B006U, "CHRL", "Charlie Lookout", 2400U, 4.0F, 1U, true, false},
+        {0x8F21B004U, "ALFA", "Alfa Ridge", 95U, 8.25F, 0U, true, false},
+        {0x8F21B005U, "BRVO", "Bravo Creek", 640U, -3.5F, 0U, true, false},
+        {0x8F21B006U, "CHRL", "Charlie Lookout", 2400U, 4.0F, 0U, true, false},
         {0x8F21B007U, "DLTA", "Delta Camp", 5400U, 0.0F, 0U, false, true},
         {0x8F21B008U, "ECHO", "Echo Repeater", 9000U, 6.75F, 3U, true, false},
-        {0x8F21B009U, "FXTR", "Foxtrot Mobile", 21600U, -8.0F, 0U, false, true},
+        {0x8F21B009U, "FXTR", "Foxtrot Mobile", 21600U, -8.0F, 0U, true, false},
         {0x8F21B00AU, "GOLF", "Golf Cabin", 76000U, 2.5F, 2U, true, false},
         /* Past here the list is longer than any body this renders into, which is the point:
            the scroll rail only draws when there is something off screen, so a demo roster that
@@ -241,7 +248,40 @@ static void uicap_scene_demo(struct uicap *cap) {
     home->host.load5 = 137U;
     home->host.load15 = 8U;
 
+    /*
+     * Device metrics on two of them - battery, voltage and the airtime pair.
+     *
+     * Almost every node on a real mesh reports these; none of the demo's did, which left the
+     * node detail's largest group with nothing to draw and no way to look at it. The two are
+     * deliberately either side of the battery band: Alfa is a repeater on mains with room in the
+     * air, Foxtrot is a handheld running down, so one screen shows a reading resting and the
+     * other shows one that has crossed a boundary.
+     */
+    struct mesh_ui_node_summary *alfa_metrics = &handshake.nodes[1]; /* Alfa Ridge, mains */
+    alfa_metrics->metrics.valid = true;
+    alfa_metrics->metrics.time = now - 200U;
+    alfa_metrics->metrics.has_battery = true;
+    alfa_metrics->metrics.battery_level = 87U;
+    alfa_metrics->metrics.has_voltage = true;
+    alfa_metrics->metrics.voltage = 4.02F;
+    alfa_metrics->metrics.has_channel_utilization = true;
+    alfa_metrics->metrics.channel_utilization = 12.5F;
+    alfa_metrics->metrics.has_air_util_tx = true;
+    alfa_metrics->metrics.air_util_tx = 1.8F;
+    alfa_metrics->metrics.has_uptime = true;
+    alfa_metrics->metrics.uptime_seconds = 259200U;
+
     struct mesh_ui_node_summary *foxtrot = &handshake.nodes[6]; /* Foxtrot Mobile, wearable */
+    foxtrot->metrics.valid = true;
+    foxtrot->metrics.time = now - 400U;
+    foxtrot->metrics.has_battery = true;
+    foxtrot->metrics.battery_level = 11U;
+    foxtrot->metrics.has_voltage = true;
+    foxtrot->metrics.voltage = 3.41F;
+    foxtrot->metrics.has_channel_utilization = true;
+    foxtrot->metrics.channel_utilization = 38.0F;
+    foxtrot->metrics.has_air_util_tx = true;
+    foxtrot->metrics.air_util_tx = 7.2F;
     foxtrot->health.valid = true;
     foxtrot->health.time = now - 120U;
     foxtrot->health.has_heart_bpm = true;
@@ -475,6 +515,7 @@ static void uicap_publish_theme(struct uicap *cap) {
     /* The About row that names the language. mesh_app_publish_ui_state() fills this in on the
        device; the harness has no app behind it, so a capture of About would otherwise be one
        row short of what a Brick draws. */
+    settings.client.language_from_env = mesh_i18n_is_overridden();
     snprintf(settings.client.language_name, sizeof settings.client.language_name, "%s",
              mesh_i18n_locale()->name);
     mesh_ui_store_set_settings(&cap->store, &settings);
@@ -1113,6 +1154,7 @@ static void uicap_usage(void) {
 }
 
 int main(int argc, char **argv) {
+    mesh_i18n_init();
     struct uicap cap;
     memset(&cap, 0, sizeof cap);
     cap.out_dir = "capture";

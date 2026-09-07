@@ -280,6 +280,7 @@ struct mesh_ui_client_info {
        to ask src/i18n anything. Chosen at startup from MESHCLIENT_LANG and the POSIX locale
        variables; see docs/i18n.md. */
     char language_name[MESH_UI_CLIENT_TEXT_MAX];
+    bool language_from_env;
     /* MESHCLIENT_THEME is holding it. The row then says so instead of offering a press that
        the environment would override on the next frame. */
     bool theme_from_env;

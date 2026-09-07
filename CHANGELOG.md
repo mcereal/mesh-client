@@ -1,3 +1,31 @@
+## [2.23.0](https://github.com/mcereal/mesh-client/compare/v2.22.0...v2.23.0) (2026-09-07)
+
+### Features
+
+* **i18n:** add Spanish language support ([dd45eee](https://github.com/mcereal/mesh-client/commit/dd45eee2f5a2ab13f747798ad7fb023f51f044f4))
+
+## [2.22.0](https://github.com/mcereal/mesh-client/compare/v2.21.0...v2.22.0) (2026-09-07)
+
+### Features
+
+* **ui:** give a device's state a capsule instead of a supporting line ([e11cafe](https://github.com/mcereal/mesh-client/commit/e11cafeb58ff01a8b60e4840fc30700d1d6adbc4))
+
+### Documentation
+
+* highlight Pak Store installation ([f3531cd](https://github.com/mcereal/mesh-client/commit/f3531cda3185d0ca14a6dfba8677e7d6fe0d5087))
+* **ui:** correct two claims the review caught ([cb0a1fa](https://github.com/mcereal/mesh-client/commit/cb0a1fa5e8cb9e6764e2a3f73524c1cbe38e9a13))
+* **ui:** re-audit the component set against the current tree ([6dc99c0](https://github.com/mcereal/mesh-client/commit/6dc99c058a374fcc83f5d45e0a52c7b2dcfd392d))
+
+## [2.21.0](https://github.com/mcereal/mesh-client/compare/v2.20.0...v2.21.0) (2026-09-07)
+
+### Features
+
+* **ui:** give the meter a domain and drawn threshold bands, and lists a signal staircase ([3b43698](https://github.com/mcereal/mesh-client/commit/3b4369851dd4a57d12bdaff27b5148f0b9373af8))
+
+### Bug Fixes
+
+* **ui:** only draw a signal staircase where the reading is the node's own ([0e9ca33](https://github.com/mcereal/mesh-client/commit/0e9ca330e43f32467ee4ca0fe42978ec350df4aa))
+
 ## [2.20.0](https://github.com/mcereal/mesh-client/compare/v2.19.0...v2.20.0) (2026-09-07)
 
 ### Features

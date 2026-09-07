@@ -531,6 +531,27 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
         mesh_ui_store_set_toast(&app->ui_store, now, toast);
         return;
     }
+    case MESH_UI_ACTION_CYCLE_LANGUAGE: {
+        if (mesh_i18n_is_overridden()) {
+            return;
+        }
+        const size_t count = mesh_i18n_locale_count();
+        for (size_t i = 0; i < count; ++i) {
+            if (mesh_i18n_locale_at(i) != mesh_i18n_locale()) {
+                continue;
+            }
+            const struct mesh_i18n_locale *next = mesh_i18n_locale_at((i + 1U) % count);
+            (void)mesh_i18n_set_locale(next->id);
+            mesh_str_copy(app->ui_preferences.language, sizeof app->ui_preferences.language,
+                          next->id);
+            app->ui_preferences_dirty = true;
+            mesh_ui_store_set_toast(&app->ui_store, now, next->name);
+            /* Persist and rebuild formatted snapshot text before the queued redraw. */
+            mesh_app_publish_ui_state(app);
+            break;
+        }
+        return;
+    }
     case MESH_UI_ACTION_CYCLE_THEME: {
         /* Saved immediately rather than collected as a pending edit, for the reason the update
            channel is: About has no Y-save, because there is no radio write behind it.

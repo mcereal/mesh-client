@@ -31,8 +31,10 @@ static const enum mesh_str_id k_default_canned[] = {
 static char s_canned[MESH_UI_CANNED_MAX][MESH_UI_CANNED_TEXT_MAX];
 static size_t s_canned_count;
 static bool s_canned_loaded;
+static bool s_canned_custom;
 
 static void mesh_ui_canned_defaults(void) {
+    s_canned_custom = false;
     s_canned_count = 0U;
     for (size_t i = 0; i < MESH_ARRAY_LEN(k_default_canned) && s_canned_count < MESH_UI_CANNED_MAX;
          ++i) {
@@ -58,7 +60,7 @@ const char *mesh_ui_canned_text(size_t index) {
     if (index >= s_canned_count) {
         return "";
     }
-    return s_canned[index];
+    return s_canned_custom ? s_canned[index] : mesh_str(k_default_canned[index]);
 }
 
 int mesh_ui_canned_load(const char *path) {
@@ -96,6 +98,7 @@ int mesh_ui_canned_load(const char *path) {
         return -ENODATA;
     }
 
+    s_canned_custom = true;
     memcpy(s_canned, staged, sizeof s_canned);
     s_canned_count = count;
     s_canned_loaded = true;

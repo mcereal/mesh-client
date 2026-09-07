@@ -499,10 +499,8 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
      * deliberate override - the same order the dev-updates switch below uses - and when it has
      * spoken the About row shows the theme as a fact rather than as a switch.
      */
-    /* The language, before anything can put a string on screen. MESHCLIENT_LANG first, then
-       the POSIX locale variables; English when none of them names a language this build has.
-       No preference behind it yet, because there is nothing in the UI to pick with. */
-    mesh_i18n_init();
+    /* Resolve the saved language before building any translated UI state. */
+    mesh_i18n_init_with_preference(app->ui_preferences.language);
 
     app->ui_theme = mesh_ui_theme_env();
     app->ui_theme_from_env = (app->ui_theme != NULL);

@@ -627,6 +627,31 @@ struct mesh_ui_paint mesh_ui_theme_paint(const struct mesh_ui_theme *theme,
     };
 }
 
+enum mesh_ui_tone mesh_ui_band_tone(const struct mesh_ui_band *band, int32_t value,
+                                    enum mesh_ui_tone resting) {
+    if (band == NULL) {
+        return resting;
+    }
+    if (band->bad >= band->warn) {
+        /*
+         * Ascending - worse as it climbs. The permille form below already answers this half and
+         * is asked rather than restated: it is three comparisons, so it does not care whether
+         * the numbers are permille, percent or decibels. Its SUCCESS means "earned nothing",
+         * which is where the caller's resting tone goes.
+         */
+        const enum mesh_ui_tone earned = mesh_ui_tone_for_load(value, band->warn, band->bad);
+        return earned == MESH_UI_TONE_SUCCESS ? resting : earned;
+    }
+    /* Descending - worse as it falls. A battery, a signal-to-noise ratio. */
+    if (value <= band->bad) {
+        return MESH_UI_TONE_ERROR;
+    }
+    if (value <= band->warn) {
+        return MESH_UI_TONE_WARNING;
+    }
+    return resting;
+}
+
 enum mesh_ui_tone mesh_ui_tone_for_load(int32_t permille, int32_t warn, int32_t bad) {
     /* Thresholds handed over the wrong way round would otherwise make the middle band
        unreachable and every reading BAD, which is the failure that hides itself: a screen

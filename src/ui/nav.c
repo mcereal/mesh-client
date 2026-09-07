@@ -653,6 +653,8 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
                     } else if (item.number ==
                                (uint32_t)MESH_UI_SETTINGS_ACTION_TOGGLE_DEV_UPDATES) {
                         action->type = MESH_UI_ACTION_TOGGLE_DEV_UPDATES;
+                    } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_LANGUAGE) {
+                        action->type = MESH_UI_ACTION_CYCLE_LANGUAGE;
                     } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_THEME) {
                         action->type = MESH_UI_ACTION_CYCLE_THEME;
                     }

@@ -36,6 +36,12 @@ out a grid. Everything else is content.
 So this is not a rewrite. It is: **three tokens the theme does not answer for yet**, and
 **a handful of components whose absence is visible on screen right now.**
 
+> **Second pass.** The three tokens have since landed, along with the two pieces of chrome that
+> were not components (§2.2, §2.3) and the quantitative work in §2.11–2.12. What the re-audit
+> added is §1.4, §1.5, §2.14, §2.15 and §2.16, and a reordering in §3 that puts two of them
+> first. §5 says why. Sections are numbered in the order they were found rather than by tier,
+> which is why the newest entries sit at the end of their tier's list.
+
 ## 1. The tokens
 
 These come first because they are multipliers. Every component below is easier to add once they
@@ -119,6 +125,52 @@ things that were each tuned alone. The same argument as the colour families, and
 This is the cheapest of the three and the one that most affects whether the UI *feels* modern, as
 distinct from looking it.
 
+### 1.4 A list row is one height, chosen for the whole list
+
+> Raised out of §3's closing note, where it sat as a caveat on the type scale. It is the last
+> structural gap in the layout model, and four things below are waiting behind it.
+
+`fb_list_begin_rows()` takes a *`per_item`* — one number, for the list. The conversation cell
+spends two rows and every settings row spends one, and each list picks its number once at
+`fb_list_begin*()`. Rows of the same height are therefore not a limitation; rows of *different*
+heights within one list are, and that is the case every one of the following wants:
+
+- a section heading a step down from the rows it heads — §1.1's one unfinished half;
+- a row carrying a sparkline, which wants two steps where its neighbours want one (§2.13);
+- a banner *inside* a list rather than above it (§2.9);
+- a meter row that puts its bar under the words instead of beside them, which is what a card
+  row already does and a list row cannot.
+
+The cursor is why this is not cosmetic. `struct mesh_ui_list` counts items and multiplies:
+`first`, `visible` and the scroll thumb in `mesh_ui_list_scroll()` are all item arithmetic, and
+`fb_list_next()` advances `y` by `line` (or by `rows * line` for the two-row item, which is the
+same multiplication with a constant in it). Give one row a different height and the window's
+first row, the rail's thumb and the highlight rect stop agreeing, in three different ways.
+
+Two shapes would work and they cost very differently. A **measure pass** — the list asks the
+caller how tall row *i* is before it draws anything, which is what every platform's list does —
+is general and needs a callback through an API that currently has none. A **height in steps**
+field on `struct fb_list_item`, with the model counting steps rather than items, is less
+general, needs no second pass, and is almost certainly the right answer on a panel that holds
+sixteen rows: nothing here needs to know the height of row four hundred.
+
+Either way the change lands in `layout.c` and its tests before a pixel moves, because
+`mesh_ui_list_scroll()` is unit tested and a second backend is meant to read it. Budget it as a
+layout-model change with a component set on the far side, not as a widget.
+
+### 1.5 The icon set is a prerequisite, not a detail
+
+`include/mesh/ui/icons.def` holds twenty-three entries, and four of the components below name a
+glyph that is not among them: §2.5's checkbox and radio, §2.9's banner (an `info` and an
+`error`), §2.15's back affordance, §2.14's star. Adding one is not a line of code. It is a line
+in the `.def`, then `scripts/gen-icons.py` against a Material Symbols Rounded font that is not
+in this tree, then committing the regenerated `src/ui/icon_glyphs.c` — a step CI cannot run and
+a contributor without the font cannot run either (`CLAUDE.md` says as much, under the generators
+that are not part of the build).
+
+So an icon is a real line item in a component's budget, in the same way §2.2 discovered the
+catalog was. Every entry below that needs one says so.
+
 ## 2. Components
 
 Tiered by whether the absence is visible on the device today.
@@ -181,6 +233,78 @@ Two related card gaps: there is no **action row** (a card that ends in buttons �
 is a list row that opens a screen because a card cannot offer a verb), and a card is never
 **focusable**, which is why the whole Status tab is inert.
 
+> **The badge half has landed.** `FB_TRAILING_BADGE` is wired into the Devices list, and doing
+> it produced one rule worth more than the wiring: *anything a badge does not shout is a badge
+> that should not be there.* Badging all four device states looked right on the dark theme and
+> collided on two others — the contrast palette has one yellow and the colourblind palette one
+> blue, so the resting `paired` capsule came out the same colour as the warning beside it on the
+> first and as `connected` on the second. The resting state is a quiet word in the same
+> right-aligned slot now, and the colour is left to the rows that have something to report. The
+> leading-icon half, the pinned star and the bubble's padlock are still open.
+
+**2.14 A slot with no caller, and a slot only one component can reach.** This is the one entry
+on the list where the component is not missing — the *wiring* is — and it is therefore the
+cheapest visible change left. The two slots are not in the same state, and an earlier draft of
+this section flattened them into one claim that was wrong about the second:
+
+- `FB_LEADING_ICON` is **never set**. The two branches that draw it in `fb_widgets.c` are
+  the implementation; nothing anywhere assigns the kind, so they are unreachable.
+- `FB_TRAILING_BADGE` has **exactly one**, and it is not a screen: `fb_draw_conversation()`
+  names it internally for a thread's unread count, so a badge is on screen on the Messages tab
+  and always has been. What no screen had done is reach for it while composing an
+  `fb_list_item` of its own — which is a much narrower finding than "nothing draws it", and
+  worth stating carefully, because a slot that is exercised through one hardcoded caller is
+  covered by that caller's rendering and cannot be assumed dead.
+
+The header's own examples for the leading slot name three screens and none of the three does it.
+Nodes and Devices both took the avatar instead, and in Devices' case that is right: a disc
+carrying the transport answers "which bus is this radio on" in the place the eye already looks,
+and a second icon would be saying it twice. What is left for the slot is the settings section
+list and the root rows, which have no leading anything and are the one list here that reads as a
+column of words.
+
+The pinned star is the sharper finding. It is still `"\xE2\xAD\x90"` prepended to the row's text
+in `fb_render_nodes()` — a live exception to §4's third rule. Its comment argues the star belongs beside the name rather than in place of the
+identity the disc is carrying, which is a sound layout call and not an argument for a literal:
+the marker gutter is exactly the slot for "a fact about this row, one cell, before the words",
+and it is already reserved on every row of a list that declares it. Moving it there costs one
+entry in `icons.def` and a `gen-icons.py` run (§1.5).
+
+It is **not** the only one, and the second is the harder half. `fb_thread_row_build()` appends a
+literal `\U0001F512` to a bubble's meta line for a direct message the radio decrypted with our key
+pair rather than with a channel PSK, and that padlock is saying something no other mark on the
+screen says. The star can move because a list row has a marker gutter waiting for it; the meta
+line has no slots at all — it is a text run assembled by the line builder out of the delivered
+or pending word, the padlock and the reactions, in that order — so retiring this one means
+giving the bubble a slot first, which is a change to `struct fb_bubble` rather than a struct
+field. Budget it with the components, not with the star.
+
+The badge is still the cheapest of the three, one caller or none. Devices puts `Connected` /
+`Working` / `Needs pairing` on the supporting line as dim text — a state word set as prose,
+where every platform draws a filled capsule, and where `FB_TRAILING_BADGE` with a family already
+draws exactly that. Success for connected, warning for needs-pairing: the tones are already
+chosen on that screen, they are just being spent on the row's ink instead of on a pill. That is
+a struct field, not a component. That the conversation cell had been drawing one all along is an
+argument *for* doing it, not against: the slot is proven, and Messages and Devices saying the
+same thing the same way is the whole point of a component set.
+
+**2.15 There is no top app bar.** `fb_draw_title()` takes a `const char *`. A screen's heading is
+therefore a *string*, and everything a heading has to carry gets glued into that string:
+Settings builds `"Settings > %s%s%s"` out of `SETTINGS_TITLE_SECTION` and
+`SETTINGS_TRAIL_MODULES` (`"Modules > "`), and the unsaved count arrives as a third `%s`.
+
+That is a whole-sentence string id doing structural work, and it is the same mistake §2.2 spent
+most of its budget undoing for the button hints — worse here, because the `>` separators hand a
+translator the breadcrumb's *grammar* along with its words, and because a badge glued into a
+title with `%s` cannot be a badge.
+
+M3's top app bar is the component that answers all of it at once: a leading slot (the back
+affordance, which B already does on every screen and nothing on screen says), an overline for
+the trail, the title, and a trailing slot. §2.8's standalone badge wants to live in that trailing
+slot — `3 unsaved` is a fact about the screen, not about a card — and §2.10's screen-level
+progress bar wants the bar's bottom edge. Three entries on this list collapse into one component,
+and the catalog loses two format strings rather than gaining any. Needs one icon (§1.5).
+
 ### Tier 2 — gaps that unlock screens we do not have yet
 
 **2.5 No selection controls besides the switch.** No checkbox, no radio. The picker signals
@@ -204,6 +328,12 @@ worth it for the ones that are really enums with numeric labels.
 list row. A card heading cannot carry `3 unsaved`, and the Status card cannot carry a `LIVE`
 pill. The drawing already exists; it needs to come out of the row.
 
+> Two things this got half right. The drawing does exist — and `FB_TRAILING_BADGE` is not
+> merely un-liftable, it is **unused** (§2.14), so the row form wants a caller before the
+> standalone form wants extracting. And the place `3 unsaved` actually belongs is not a card
+> heading: it is the top app bar's trailing slot (§2.15), which is why that entry should land
+> first and this one should shrink to whatever is left over.
+
 **2.9 No persistent inline banner.** The snackbar is transient by design and correctly so. But
 *radio disconnected*, *firmware mismatch* and *update available* are persistent states, and they
 currently become a dim card note or a word in the footer. M3's banner sits under the app bar and
@@ -215,12 +345,106 @@ linear indeterminate bar under the nav bar during handshake or sync. Open Settin
 radio has answered and eight rows say `not loaded` with no sign that anything is happening. One
 bar under the tab strip answers that for every screen at once.
 
+**2.16 Nothing transitions.** §1.3 gave the theme durations and every one of them is spent on a
+*control*: a switch's knob, a meter's fill, the snackbar's rise. Moving between screens is a cut.
+Opening a node, entering a settings section, raising the keyboard, pressing B to go back — each
+replaces the frame with a different frame in one repaint, and those four are precisely the
+transitions a handheld OS animates. It is the difference between a UI that reads as a place and
+one that reads as a slideshow, and it is the largest remaining gap in how the thing *feels* as
+distinct from how it looks.
+
+Two honest costs, and neither of them is in `fb_widgets.c`.
+
+The nav has to say **what changed and which way**. Forward into a section and back out of one are
+the same two frames in the opposite order, and that is the whole of what decides whether the new
+screen slides in from the right or the old one slides off it. `struct mesh_ui_nav` holds where
+you are, not how you got there, so this is a field and a rule about who clears it — the same
+shape as `settings_parent`, which already exists for the breadcrumb and is the closest thing to
+a precedent.
+
+And there is **no alpha compositing**, so a cross-fade is out. `fb_draw.c` blends an icon against
+a ground it is told about, which is not the same capability: nothing can read what is already on
+the panel. What is available is an x-offset slide — render one screen at an offset for the length
+of one `MESH_UI_MOTION_SHORT` — which is the transition those platforms mostly use anyway. Over
+the existing repaint timerfd, at one screen per frame, that is affordable.
+
+The reason it is Tier 2 and not Tier 1 is that unlike everything above it, no part of it is
+visible as a *static* defect. Nothing on the panel is wrong right now; it is what happens between
+two panels that is missing, which is also why it is the one entry here that a `make ui-capture`
+GIF reviews better than a screenshot ever could.
+
+### Tier 1.5 — the quantitative gap
+
+> **Landed.** `struct mesh_ui_scale` and `mesh_ui_signal_level()` in
+> [`layout.h`](../include/mesh/ui/layout.h), `struct mesh_ui_band` and `mesh_ui_band_tone()` in
+> [`theme.h`](../include/mesh/ui/theme.h), the notches and the domain in `fb_draw_meter()`, and
+> `FB_TRAILING_SIGNAL`. Kept below because the argument is what the next visualization has to
+> keep answering.
+
+**2.11 A meter had no marks on it.** This is the one the set got *nearly* right and it is worth
+separating from the components that were simply absent. `fb_draw_meter()` could say how far
+along a reading was and could turn amber when it crossed a threshold — but nothing on screen
+said where the threshold *was*. The colour therefore reported a boundary the reader could not
+locate, which is half of an answer to the question the bar exists for: the Status card's own
+comment says a percentage "has to be read and then held against a threshold nobody carries
+around", and a bare track is a threshold nobody can see either.
+
+Two things were missing and they are one change. A **domain** (`struct mesh_ui_scale`), because
+a bar that fills from zero cannot express a reading measured between −20 dB and +10 at all, and
+because a caller normalising by hand is free to pick ends that the thresholds colouring the
+number know nothing about. And a **band** (`struct mesh_ui_band`), stated in the reading's own
+units and *drawn* — a notch cut into the track at each boundary — so the mark and the colour are
+two readings of one statement. Order is meaning there: `bad` above `warn` climbs, `bad` below
+`warn` falls, which is what lets a battery use the same component as airtime.
+
+The band lives in `theme.h` beside `mesh_ui_tone_for_load()`, which it generalises and delegates
+to; the scale lives in `layout.h` beside `mesh_ui_list_scroll()`, which is proportion arithmetic
+for the same reason. What a number *means* is the theme's half; where it *goes* is layout's.
+
+**2.12 A list had no way to show a signal.** The Nodes tab's trailing column was `4.2dB 3m` on
+every row — a figure with a scale nobody carries around, forty-two times down one screen — and
+the node detail's readings were text throughout. `FB_TRAILING_SIGNAL` is four rungs in the slot
+the trailing text already had, and `MESH_UI_NODE_ROW_METER` is the node detail's row model
+gaining the same "a fact, and a length beside it" shape the settings rows had.
+
+Three rules came out of doing it, and they are the ones a sparkline or a stacked bar will face:
+
+- **A picture cannot be wrong quietly.** The Nodes list already knew that a relayed node's SNR
+  describes the relay and an MQTT node's describes nothing on the air — that is what the `Nhop`
+  and `mqtt` branches were. Printing a number there was merely unhelpful; drawing a staircase
+  would have been a claim. Each new visualization has to be checked against the branch it is
+  replacing rather than dropped over it.
+- **Quantise where the reading is noisy.** An SNR is measured off one packet. Four rungs is a
+  claim its error bars support; a smooth bar is not, and easing between buckets would invent the
+  intermediate values that bucketing was meant to refuse. `mesh_ui_signal_level()` is in
+  `layout.c` so the ladder is arithmetic a test can reach.
+- **Reuse the row's own pair.** A staircase takes the row's ink and the meter's track role, not
+  a colour of its own. Anything else is a contract every theme has to be re-validated for, to
+  say something the existing pairing already says.
+
+**2.13 There is still no sparkline.** The gap that remains, and the only one on this list whose
+cost is not in the component. A meter and a staircase both report a *level*; nothing reports a
+**trend**, and "is the airtime climbing" and "is this battery going to last the night" are the
+two questions the Status and node screens cannot answer at all. The drawing is a polyline in a
+row's height. The work is that nothing in the store keeps history: `struct mesh_ui_snapshot`
+holds the present, so this wants a small sample ring — a fixed number of readings per series,
+written where the telemetry lands — before there is anything to draw. Worth doing, worth doing
+last, and worth being honest that it is a data change wearing a component's clothes.
+
 ### Tier 3 — worth knowing, not worth doing yet
 
 - **Surface tiers stop at three plus two states.** M3 has five container levels. Only worth a
   fourth once §2.4 and §2.9 land and there is something that needs to sit above a card.
 - **No menu, no tooltip.** Correctly absent: both are pointer affordances, and this device has a
   d-pad and four face buttons.
+- **No radial gauge, and there should not be one.** The obvious answer to "where does this
+  reading sit" is a dial, and it is the wrong one here twice over. `fb_internal.h` says there is
+  no anti-aliasing, deliberately, because the panel is 1024 px across 3.2 inches — and a dial
+  reads through a swept needle against tick marks, which are the two things that need it most; a
+  staircase and a bar are axis-aligned rectangles and lose nothing. And a dial wants a square of
+  screen where a list row is one line tall, so a screen of readings would become a screen of one
+  reading. The banded meter says the same sentence in a row's height. "Gauge" here means a
+  meter with marks on it, not a dial.
 - **No FAB.** Also arguably correct. The "start a new thread" row is a list row with a plus in
   its avatar slot, which is the right answer on a device with no touch — a floating button that
   cannot be pointed at is a button that has to be reached by scrolling past everything else.
@@ -236,10 +460,16 @@ Each step is independently shippable and each is visible.
 | 3 | Spacing scale (§1.2) | **done** | Mechanical, and every later step stops adding literals |
 | 4 | Type scale (§1.1) | **done** | The big one. Do it after spacing so the two land together |
 | 5 | Nav bar + action bar as components (§2.2, §2.3) | **done** | Both are moves into `fb_widgets.c`; both benefit from 3 and 4 |
-| 6 | Card variants and card actions (§2.4) |  | Where the type scale pays off most |
-| 7 | Checkbox / radio, segmented button (§2.5, §2.6) |  | Additive slots on components that already exist |
-| 8 | Banner, screen progress, standalone badge (§2.8–2.10) |  | New surfaces; want the fourth tier decided first |
-| 9 | Slider (§2.7) |  | Genuinely new interaction; do it last |
+| 6 | Leading icon and badge, wired up (§2.14) | badge **done** | No new component: a slot with no caller, one only the conversation cell reaches, and two marker characters |
+| 7 | Top app bar (§2.15) |  | Retires the breadcrumb format strings, and is where 8 and 11 land |
+| 8 | Card variants and card actions (§2.4) |  | Where the type scale pays off most |
+| 9 | Variable-height list rows (§1.4) |  | Structural. §1.1's unfinished half and three components below wait on it |
+| 10 | Checkbox / radio, segmented button (§2.5, §2.6) |  | Additive slots on components that already exist |
+| 11 | Banner and screen progress (§2.9, §2.10) |  | New surfaces; the bar from 7 is where progress hangs |
+| 12 | Slider (§2.7) |  | Genuinely new interaction |
+| 13 | Screen transitions (§2.16) |  | Wants a direction on the nav first; the only step whose work is mostly outside the backend |
+| — | Meter domain and bands, signal staircase (§2.11, §2.12) | **done** | Out of order on purpose: both were visible on the device and neither needed anything above |
+| 14 | Sparkline (§2.13) |  | A sample ring in the store first; the component is the small half |
 
 Steps 1 to 4 have landed. The motion tokens are `enum mesh_ui_motion` in
 [`theme.h`](../include/mesh/ui/theme.h), answered by `mesh_ui_theme_motion()`; the five
@@ -262,7 +492,8 @@ absolutes would stop being a scale the moment somebody asked for larger text.
 > hierarchy in colour alone. It is a list row, and `struct mesh_ui_list` counts rows of one
 > fixed height — a heading drawn a step down would put the cursor and the row it highlights in
 > two different places. Giving those a type role means variable-height list items first, which
-> is a change to the list model rather than to the type scale.
+> is a change to the list model rather than to the type scale. That is now §1.4, promoted out of
+> this note because three later components turned out to be waiting behind the same thing.
 
 Step 5 is the first that changed what a screen can *say*, and the change is mostly in the
 catalog rather than in `fb_widgets.c`. The navigation bar was a move: `fb_draw_tabs()` became
@@ -322,10 +553,42 @@ what screens can *say*, so each wants its own scene.
   example: the hint entries were the obstacle rather than the supply, and retiring them was most
   of that step. The successor rule, now that the action bar exists: a screen names a **(button,
   verb) pair**, and a verb is a word, not a clause.
-- A component names an **icon**, never a marker character.
+- A component names an **icon**, never a marker character. Two exceptions are still on screen
+  and they cost differently (§2.14): the pinned node's star is a literal in a list row's text,
+  and a marker gutter is already waiting for it; the padlock on a PKI-encrypted direct message
+  is a literal in a bubble's meta line, which has no slots to move it into.
 - `fb_widgets.h` stays a **component set, not a seam**: it is included only from
   `src/ui/backends/`. A type scale and a spacing scale are the opposite — they belong in
   `include/mesh/ui/theme.h` with the colours, because a second backend that grows colour should
   speak them too.
 - Anything added to `struct mesh_ui_metrics` must be answered by **every** theme, and
   `mesh_ui_theme_validate()` should hold it to a contract wherever a contract exists.
+
+## 5. What the second pass found
+
+Steps 1 to 5 landed between the two passes, so the re-audit was mostly a check that the argument
+above still describes the tree. Four things it did not describe, and they are why the order in §3
+moved:
+
+- **The set has capability it is not spending.** `FB_LEADING_ICON` has no caller at all, and
+  `FB_TRAILING_BADGE` had exactly one — `fb_draw_conversation()`, internally (§2.14). The
+  original audit read the component set by its header, which is the one way to miss the first:
+  a slot that is implemented, documented and unused reads exactly like a slot that is in use.
+  The correction is worth as much as the finding. A first draft of §2.14 called both of them
+  unused, which was wrong about the badge and would have mis-scoped step 6 — so the `grep` this
+  wants is over every kind in every enum, and it has to count callers *inside* `fb_widgets.c`
+  as well as outside, because a component that composes another component is a caller.
+- **The title is a string, and that is the last sentence-shaped string id doing structural
+  work** (§2.15). §4's second rule caught the button hints and did not catch this, because
+  `"Settings > %s%s%s"` looks like a format rather than like a sentence. It is both.
+- **The list model's fixed row height blocks more than a heading's type role** (§1.4). It was
+  written down as a footnote about one unfinished half of §1.1; it is actually the prerequisite
+  for a sparkline row, an in-list banner and a stacked meter row as well.
+- **Motion stops at the control** (§2.16). Every duration the theme now answers for is spent
+  inside a widget, and the frame-to-frame transitions are all cuts. The original audit had no
+  entry for this at all, because it audited components and a transition is not one.
+
+One thing the first pass got right and is worth restating: the ordering heuristic is *visible on
+the device today, cheapest first*, and it keeps winning. The two highest-value entries this pass
+found (§2.14, §2.15) are both wiring and retirement rather than new components, which is the same
+shape §2.2 turned out to have.

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.18)
-project(meshclient VERSION 2.20.0 LANGUAGES C)
+project(meshclient VERSION 2.23.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -51,6 +51,7 @@ add_library(meshclient_core
     src/transport/serial/serial_usb.c
     src/proto/stream_framing.c
     src/i18n/strings.c
+    src/i18n/locale_es.c
     src/utils/env.c
     src/utils/log.c
     src/utils/sha256.c

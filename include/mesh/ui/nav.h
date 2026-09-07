@@ -271,6 +271,7 @@ enum mesh_ui_action_type {
        app owns the preferences file; the store finds out the same way every backend does,
        through the client info in the next snapshot. */
     MESH_UI_ACTION_CYCLE_THEME,
+    MESH_UI_ACTION_CYCLE_LANGUAGE,
     /* Radio actions section: `number` is the enum mesh_ui_settings_action the user confirmed.
        One action type rather than five because the nav has nothing to say about any of them
        beyond which row it was - the app owns what each one means. */

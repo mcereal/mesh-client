@@ -10,11 +10,10 @@
  * table has - the enum and the table drifting apart - which the compiler cannot see because
  * both are generated from the same list only as long as nobody hand-edits one of them.
  *
- * The second are about a *translation*, built here rather than shipped, because the build has
- * one language and the thing worth testing is what happens when it has two: a partial table
- * falls back to English entry by entry, and a table whose %-specifiers no longer match the
- * English is rejected by mesh_i18n_validate() rather than reaching a vsnprintf that would read
- * the wrong argument off the stack.
+ * The second are about a *translation*, built here rather than shipped, to exercise fallback
+ * independently of the shipped languages: a partial table falls back to English entry by entry, and
+ * a table whose %-specifiers no longer match the English is rejected by mesh_i18n_validate() rather
+ * than reaching a vsnprintf that would read the wrong argument off the stack.
  *
  * The third are about the renderers: with every string coming from one place, the way to catch
  * a screen that kept an English word of its own is to draw it in another language and check
@@ -24,6 +23,8 @@
 #include "framework/mesh_test.h"
 
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/font5x7.h"
+#include "mesh/ui/nav.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -298,5 +299,102 @@ MESH_TEST_CASE(i18n_locale_selection, unit) {
                       "LANG=C did not resolve to English");
     (void)unsetenv("LANG");
     mesh_i18n_init();
+    record_success(test_name);
+}
+
+/* A complete Spanish catalog, including the characters the framebuffer must draw. */
+MESH_TEST_CASE(i18n_spanish_catalog, unit) {
+    const struct mesh_i18n_locale *spanish = mesh_i18n_locale_by_id("es");
+    MESH_TEST_FAIL_IF(spanish == NULL || spanish->table == NULL, "Spanish is not registered");
+    for (int id = 0; id < (int)MESH_STR_COUNT; ++id) {
+        MESH_TEST_FAIL_IF(spanish->table[id] == NULL, "Spanish has an untranslated entry");
+        MESH_TEST_FAIL_IF(id != MESH_STR_NONE && spanish->table[id][0] == '\0',
+                          "Spanish has an empty translation");
+    }
+    const uint32_t letters[] = {0x00e1, 0x00e9, 0x00ed, 0x00f3, 0x00fa,
+                                0x00fc, 0x00f1, 0x00bf, 0x00a1};
+    for (size_t i = 0; i < sizeof letters / sizeof letters[0]; ++i) {
+        MESH_TEST_FAIL_IF(!mesh_font5x7_has_glyph(letters[i]), "a Spanish glyph is missing");
+    }
+    const char *before = mesh_i18n_locale()->id;
+    mesh_ui_canned_reset();
+    (void)mesh_i18n_set_locale("es");
+    char one[96], zero[96], many[96];
+    mesh_str_format_plural(one, sizeof one, MESH_STR_ACTION_FORGET_COUNT_ONE, 1U, 1U);
+    mesh_str_format_plural(zero, sizeof zero, MESH_STR_ACTION_FORGET_COUNT_ONE, 0U, 0U);
+    mesh_str_format_plural(many, sizeof many, MESH_STR_ACTION_FORGET_COUNT_ONE, 3U, 3U);
+    const bool translated = strcmp(mesh_str(MESH_STR_TAB_SETTINGS), "Ajustes") == 0 &&
+                            strcmp(mesh_ui_canned_text(4U), "¿Dónde estás?") == 0 &&
+                            strcmp(mesh_str(MESH_STR_DATE_WED), "mié") == 0;
+    (void)mesh_i18n_set_locale(before);
+    mesh_ui_canned_reset();
+    MESH_TEST_FAIL_IF(!translated, "Spanish UI text, dates or quick replies did not switch");
+    MESH_TEST_FAIL_IF(strcmp(one, "1 nodo") != 0 || strcmp(zero, "0 nodos") != 0 ||
+                          strcmp(many, "3 nodos") != 0,
+                      "Spanish plurals are incorrect");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(i18n_spanish_preference_and_environment, unit) {
+    const char *before = mesh_i18n_locale()->id;
+    const char *names[] = {"MESHCLIENT_LANG", "LC_ALL", "LC_MESSAGES", "LANG"};
+    char *saved[4] = {0};
+    for (size_t i = 0; i < 4U; ++i) {
+        const char *value = getenv(names[i]);
+        saved[i] = value != NULL ? strdup(value) : NULL;
+        unsetenv(names[i]);
+    }
+    const char *failure = NULL;
+    const char *tags[] = {"es", "es_ES.UTF-8", "es_PR.UTF-8", "es-MX", "es@euro"};
+    for (size_t i = 0; i < sizeof tags / sizeof tags[0]; ++i) {
+        setenv("MESHCLIENT_LANG", tags[i], 1);
+        mesh_i18n_init_with_preference("en");
+        if (strcmp(mesh_i18n_locale()->id, "es") != 0 || !mesh_i18n_is_overridden()) {
+            failure = "Spanish environment tags must override the saved language";
+        }
+    }
+    unsetenv("MESHCLIENT_LANG");
+    setenv("LANG", "es_ES.UTF-8", 1);
+    mesh_i18n_init_with_preference("en");
+    if (strcmp(mesh_i18n_locale()->id, "en") != 0 || mesh_i18n_is_overridden()) {
+        failure = "saved English must override system Spanish without locking the picker";
+    }
+    mesh_i18n_init_with_preference("unknown");
+    if (strcmp(mesh_i18n_locale()->id, "es") != 0) {
+        failure = "unknown saved language must retain the system fallback";
+    }
+    setenv("LC_MESSAGES", "en_US.UTF-8", 1);
+    mesh_i18n_init_with_preference("");
+    if (strcmp(mesh_i18n_locale()->id, "en") != 0) {
+        failure = "LC_MESSAGES must take precedence over LANG";
+    }
+    setenv("LC_ALL", "es_PR.UTF-8", 1);
+    mesh_i18n_init_with_preference("");
+    if (strcmp(mesh_i18n_locale()->id, "es") != 0) {
+        failure = "LC_ALL must take precedence over LC_MESSAGES";
+    }
+    setenv("MESHCLIENT_LANG", "xx", 1);
+    mesh_i18n_init_with_preference("es");
+    if (strcmp(mesh_i18n_locale()->id, "en") != 0) {
+        failure = "an unknown explicit override must fall back to English";
+    }
+    setenv("MESHCLIENT_LANG", "C", 1);
+    mesh_i18n_init_with_preference("es");
+    if (strcmp(mesh_i18n_locale()->id, "es") != 0 || mesh_i18n_is_overridden()) {
+        failure = "C must allow a saved language";
+    }
+    for (size_t i = 0; i < 4U; ++i) {
+        if (saved[i] != NULL) {
+            setenv(names[i], saved[i], 1);
+        } else {
+            unsetenv(names[i]);
+        }
+        free(saved[i]);
+    }
+    (void)mesh_i18n_set_locale(before);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
     record_success(test_name);
 }

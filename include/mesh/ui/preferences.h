@@ -38,6 +38,8 @@ struct mesh_ui_preferences {
        reads as - the default theme then applies, exactly as before. Stored by name rather
        than by index so reordering the theme table cannot move somebody onto another one. */
     char theme[16];
+    /* Locale id, e.g. "es". Empty follows the system language. */
+    char language[16];
     /* Whether a build that is not an official release may install what the updater finds.
        Remembered so the choice survives a relaunch: the alternative was an environment
        variable, which on a handheld means having a computer and an ssh session to hand. */

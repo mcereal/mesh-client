@@ -190,6 +190,61 @@ MESH_TEST_CASE(ui_theme_tone_for_load_bands, unit) {
 }
 
 /*
+ * The band, which is the load tones generalised to a domain and a direction.
+ *
+ * It matters that the ascending half agrees with mesh_ui_tone_for_load() exactly, because that
+ * is the claim the implementation makes rather than restating it - and it matters that the
+ * descending half exists at all, because a battery is the one reading on the mesh that is worse
+ * when it is smaller and the ascending form would have called a flat one healthy.
+ */
+MESH_TEST_CASE(ui_theme_band_tone_directions, unit) {
+    const struct mesh_ui_band rising = {.warn = 250, .bad = 500};
+
+    /* No band earns nothing, so a caller without thresholds need not branch. */
+    MESH_TEST_FAIL_IF(mesh_ui_band_tone(NULL, 900, MESH_UI_TONE_PRIMARY) != MESH_UI_TONE_PRIMARY,
+                      "a reading with no band earned a tone anyway");
+
+    MESH_TEST_FAIL_IF(mesh_ui_band_tone(&rising, 0, MESH_UI_TONE_PRIMARY) != MESH_UI_TONE_PRIMARY,
+                      "a reading below every boundary did not rest in the tone it was given");
+    MESH_TEST_FAIL_IF(mesh_ui_band_tone(&rising, 250, MESH_UI_TONE_SUCCESS) != MESH_UI_TONE_WARNING,
+                      "the warning boundary itself did not warn");
+    MESH_TEST_FAIL_IF(mesh_ui_band_tone(&rising, 500, MESH_UI_TONE_SUCCESS) != MESH_UI_TONE_ERROR,
+                      "the bad boundary itself was not bad");
+
+    /* The half that is delegated: past a boundary the two must give the same answer, or the
+       generalisation has quietly become a second set of thresholds. */
+    for (int32_t level = 250; level <= MESH_UI_ANIM_ONE; level += 25) {
+        MESH_TEST_FAIL_IF(mesh_ui_band_tone(&rising, level, MESH_UI_TONE_SUCCESS) !=
+                              mesh_ui_tone_for_load(level, rising.warn, rising.bad),
+                          "an ascending band disagreed with the load tones it delegates to");
+    }
+
+    /* Descending: a battery, in percent, worse as it falls. The pair is stated in the order it
+       is read - warn first, then bad - so the reversal is the sentence rather than a typo. */
+    const struct mesh_ui_band falling = {.warn = 30, .bad = 15};
+    MESH_TEST_FAIL_IF(mesh_ui_band_tone(&falling, 87, MESH_UI_TONE_SUCCESS) != MESH_UI_TONE_SUCCESS,
+                      "a healthy battery did not rest");
+    MESH_TEST_FAIL_IF(mesh_ui_band_tone(&falling, 30, MESH_UI_TONE_SUCCESS) != MESH_UI_TONE_WARNING,
+                      "the low boundary itself did not warn");
+    MESH_TEST_FAIL_IF(mesh_ui_band_tone(&falling, 16, MESH_UI_TONE_SUCCESS) != MESH_UI_TONE_WARNING,
+                      "just above critical stopped being a warning");
+    MESH_TEST_FAIL_IF(mesh_ui_band_tone(&falling, 15, MESH_UI_TONE_SUCCESS) != MESH_UI_TONE_ERROR,
+                      "the critical boundary itself was not bad");
+    MESH_TEST_FAIL_IF(mesh_ui_band_tone(&falling, 0, MESH_UI_TONE_SUCCESS) != MESH_UI_TONE_ERROR,
+                      "a flat battery was not bad news");
+
+    /* Whatever it answers, a meter may be filled with it: mesh_ui_theme_validate() holds every
+       family against the track. The resting tone is the caller's, so only the earned ones are
+       this function's to keep inside the contract. */
+    for (int32_t level = 0; level <= 100; level += 5) {
+        const enum mesh_ui_tone tone = mesh_ui_band_tone(&falling, level, MESH_UI_TONE_SUCCESS);
+        MESH_TEST_FAIL_IF(mesh_ui_tone_family(tone) == MESH_UI_FAMILY_COUNT,
+                          "a band tone escaped the families a meter is validated for");
+    }
+    record_success(test_name);
+}
+
+/*
  * A meter is a track with a fill in it, and a theme that loses either half loses the widget:
  * an unfindable track is a bar that vanishes when the reading is low, a fill that matches its
  * track is one that vanishes when the reading is high.

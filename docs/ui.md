@@ -405,7 +405,7 @@ shoulder, revealed in the one place you went to change it.
 | File | Layer | What belongs there |
 |---|---|---|
 | `fb_draw.c` | ink | pixels, glyphs, the theme lookups, cell metrics (`fb_internal.h`) |
-| `fb_widgets.c` | components | cards, buttons, chips, list items, switches, meters, rules, bubbles, the navigation bar, the action bar, the snackbar (`fb_widgets.h`) |
+| `fb_widgets.c` | components | cards, buttons, chips, list items, switches, meters, signal staircases, rules, bubbles, the navigation bar, the action bar, the snackbar (`fb_widgets.h`) |
 | `fb_screens.c` | screens | one renderer per screen, and nothing else |
 | `fb.c` | device | `/dev/fb0`, the page flip, the backend vtable |
 
@@ -496,6 +496,23 @@ all three resolve them through the node's own name — `mesh_ui_nav_initials()` 
 showing. (The picker's row *reads* "BRVO  Bravo Creek", whose first two words both begin with B;
 initials taken from that would be "BB" and the same radio would wear two different discs one
 screen apart.)
+
+The Devices row is where the trailing **badge** slot earns itself outside the conversation cell.
+A device's state - connected, working, needs pairing - used to be a word on the supporting line
+in the dim ink every supporting line takes, which meant a list of radios read as three identical
+rows until each had been read; it is a capsule in the family that says what the state *is*, and
+the signal figure it displaced drops to the supporting line, because how a radio is attached is
+a detail and whether it is the one we are on is not.
+
+`paired` is deliberately **not** a capsule. It is the resting state of a bonded radio, so a pill
+there is on every row at once - a column of colour reporting nothing - and on two of the four
+themes it was worse than nothing: the contrast palette has one yellow and the colourblind
+palette one blue, so a resting capsule came out the same colour as the warning beside it on the
+first and as `connected` on the second. The rule that came out of it is the one to apply to the
+next badge: **anything a badge does not shout is a badge that should not be there**, and a quiet
+word in the same right-aligned slot says it without spending a colour. A row armed to be
+forgotten is the exception that proves it - the capsule comes back, in the error family, because
+the row is being asked a destructive question and every part of it should say so.
 
 #### `struct fb_text_field` and `struct fb_dialog`
 
@@ -661,6 +678,15 @@ struct fb_meter meter = {.id = 0x03000000U | i, .kind = FB_METER_DETERMINATE,
 const struct fb_list_item row = {..., .trailing = {.kind = FB_TRAILING_METER, .meter = &meter}};
 ```
 
+A reading that is not already a fraction states the ends it is measured between, and the widget
+normalises it — a battery on `{0, 100}`, an SNR on `{-20, +10}`. A zeroed scale is the identity
+domain and means "already permille", so the call above costs nothing.
+
+```c
+struct fb_meter snr = {.value = (int32_t)node->snr, .scale = {MESH_UI_SNR_FLOOR, MESH_UI_SNR_CEILING},
+                       .band = &node_snr_band, .tone = MESH_UI_TONE_SUCCESS};
+```
+
 It appears in two slots, and which one to use is a sentence about what the bar is for:
 
 - **`FB_TRAILING_METER`**, a short bar against a list row's trailing edge, where a switch would
@@ -696,6 +722,39 @@ Four things are worth knowing before reusing it:
   `mesh_ui_tone_for_load()` answers with success, warning and error, so the figure's colour, the
   card heading's and the bar's fill are one sentence about one number rather than three
   thresholds that can drift apart.
+- **A band is drawn, not just obeyed.** `struct mesh_ui_band` (in `theme.h`, beside the tones it
+  answers with) says where a reading changes meaning, in the reading's own units. A meter given
+  one takes its fill from `mesh_ui_band_tone()` *and cuts a notch into its track at each
+  boundary* — which is the half that was missing. A fill turning amber at a quarter reports a
+  threshold that cannot be located; a notch is that threshold, drawn where it is, so "is 31% a
+  lot" becomes "past the first mark". The notch is the ground colour rather than an ink of its
+  own, so it reads the same over the track and over the fill and needs no new contract.
+  Order is meaning: `bad` above `warn` is worse as it climbs (airtime), `bad` below `warn` is
+  worse as it falls (a battery), and there is no third case.
+
+#### `fb_draw_signal()` — signal as rungs
+
+A four-rung staircase, in the list row's trailing slot (`FB_TRAILING_SIGNAL`), for the one
+reading a list is actually scanned for. The Nodes tab's trailing column was `4.2dB 3m`: a
+figure whose scale nobody carries around, forty-two times down a screen. Rungs are compared
+against the rungs above and below without being read at all.
+
+Three things it does deliberately differently from the meter:
+
+- **It quantises**, and does not ease between buckets. An SNR is measured off *one* packet, so a
+  smooth bar would claim a precision the number does not have. `mesh_ui_signal_level()` in
+  `layout.c` is where the ladder lives, so the buckets are arithmetic a test can reach rather
+  than a chain of `if`s in a renderer.
+- **It reads SNR, not RSSI** — the reading a cellular indicator would use. LoRa decodes *below*
+  the noise floor, so received strength alone says nothing about whether a packet arrives: a
+  loud band with a loud noise floor is a good RSSI and a dead link.
+- **It is drawn only where the reading is this node's.** A node reached over relays has the last
+  relay's SNR and one over MQTT has nothing that was on the air, so those rows keep their `Nhop`
+  and `mqtt` text. A number can be wrong quietly; a picture cannot.
+
+Unlit rungs are `MESH_UI_COLOR_METER_TRACK` — the role already contracted as "the empty part of
+an indicator" — except under the cursor, where the track is the cursor fill on two of the four
+themes and the row's own dim pairing is used instead.
 
 #### `struct fb_snackbar` — the transient notice
 
