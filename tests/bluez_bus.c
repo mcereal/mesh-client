@@ -31,7 +31,8 @@ static DBusMessage *request(DBusConnection *server, struct mesh_event_loop *loop
         dbus_connection_read_write(server, 10);
         DBusMessage *message;
         while ((message = dbus_connection_pop_message(server)) != NULL) {
-            if (dbus_message_is_method_call(message, "org.bluez.GattCharacteristic1", "ReadValue")) {
+            if (dbus_message_is_method_call(message, "org.bluez.GattCharacteristic1",
+                                            "ReadValue")) {
                 return message;
             }
             dbus_message_unref(message);
@@ -48,8 +49,8 @@ static void respond(DBusConnection *server, DBusMessage *call, bool malformed) {
     if (malformed) {
         dbus_message_append_args(reply, DBUS_TYPE_STRING, &wrong, DBUS_TYPE_INVALID);
     } else {
-        dbus_message_append_args(reply, DBUS_TYPE_ARRAY, DBUS_TYPE_BYTE, &ptr,
-                                  (int)sizeof payload, DBUS_TYPE_INVALID);
+        dbus_message_append_args(reply, DBUS_TYPE_ARRAY, DBUS_TYPE_BYTE, &ptr, (int)sizeof payload,
+                                 DBUS_TYPE_INVALID);
     }
     dbus_connection_send(server, reply, NULL);
     dbus_connection_flush(server);
@@ -65,7 +66,8 @@ int main(void) {
     DBusError error;
     dbus_error_init(&error);
     DBusConnection *server = dbus_bus_get_private(DBUS_BUS_SESSION, &error);
-    if (server == NULL || dbus_bus_request_name(server, "org.bluez", 0, &error) != DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER) {
+    if (server == NULL || dbus_bus_request_name(server, "org.bluez", 0, &error) !=
+                              DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER) {
         fputs("Could not start isolated fake service.\n", stderr);
         return 1;
     }
@@ -89,7 +91,9 @@ int main(void) {
     size_t length;
     DBusMessage *call = NULL;
     for (unsigned pass = 0U; pass < 4U; ++pass) {
-        if (mesh_bluez_client_read(&client, "/fromradio", bytes, sizeof bytes, &length) != -EAGAIN || length != 0U) {
+        if (mesh_bluez_client_read(&client, "/fromradio", bytes, sizeof bytes, &length) !=
+                -EAGAIN ||
+            length != 0U) {
             failure = "read did not yield";
             break;
         }
@@ -120,7 +124,8 @@ int main(void) {
         for (unsigned turn = 0U; turn < 100U && completions == pass; ++turn) {
             mesh_event_loop_run(&loop, 1);
         }
-        const int result = mesh_bluez_client_read(&client, "/fromradio", bytes, sizeof bytes, &length);
+        const int result =
+            mesh_bluez_client_read(&client, "/fromradio", bytes, sizeof bytes, &length);
         const int expected = pass == 1U ? -EPROTO : pass == 2U ? -ETIMEDOUT : 0;
         if (completions != pass + 1U || result != expected ||
             (result == 0 && (length != 4U || bytes[0] != 0x08U))) {
@@ -154,6 +159,7 @@ int main(void) {
         fprintf(stderr, "%s\n", failure);
         return 1;
     }
-    puts("Isolated D-Bus: nonblocking send, input responsiveness, reply parsing and timeout passed.");
+    puts("Isolated D-Bus: nonblocking send, input responsiveness, reply parsing and timeout "
+         "passed.");
     return 0;
 }

@@ -21,9 +21,9 @@ static void render_text(struct mesh_ui_backend_fb_state *state) {
     fb_clear(state, ground);
     for (int row = 0; row < 18; ++row) {
         fb_draw_text(state, 24, 24 + row * 40,
-                      row % 2 == 0 ? "ALFA  Meshtastic radio: signal -75 dBm" :
-                                     "BRVO  Messages 0123456789 café español",
-                      4, ink, ground);
+                     row % 2 == 0 ? "ALFA  Meshtastic radio: signal -75 dBm"
+                                  : "BRVO  Messages 0123456789 café español",
+                     4, ink, ground);
     }
 }
 
@@ -60,9 +60,8 @@ int main(void) {
     }
     const bool identical = memcmp(reference, state.fb_ptr, state.fb_size) == 0;
     printf("1024x768 text workload, %u frames, font %s\n", frames, fb_font(&state)->id);
-    printf("uncached %.3f ms/frame; cached %.3f ms/frame; %.2fx; pixels %s\n",
-            elapsed[0] / frames, elapsed[1] / frames, elapsed[0] / elapsed[1],
-            identical ? "identical" : "DIFFERENT");
+    printf("uncached %.3f ms/frame; cached %.3f ms/frame; %.2fx; pixels %s\n", elapsed[0] / frames,
+           elapsed[1] / frames, elapsed[0] / elapsed[1], identical ? "identical" : "DIFFERENT");
     state.glyph_cache = cache;
     fb_glyph_cache_free(&state);
     free(reference);
