@@ -382,6 +382,65 @@ enum mesh_ui_motion {
 };
 
 /*
+ * The spacing scale: the gaps between things, in half-steps of the glyph scale.
+ *
+ * These were literals - `scale / 2` for the inset above a row fill, `2 * scale` for a button's
+ * padding, `line / 2` for the gap under a dialog's heading. Each was right; collectively they
+ * were the same thing the colour literals were before theme.c, and a theme that wanted a denser
+ * or a roomier layout could move `margin` and watch half the spacing on screen stay where it
+ * was, because it had been derived from the glyph scale instead.
+ *
+ * Half-steps rather than whole ones because half a step is a real and much-used gap here: at
+ * the device's scale a step is four pixels, and the hairline inset that stops a row fill from
+ * touching the text above it is two. A table in whole steps could not say that without either
+ * rounding it away or doubling every other entry.
+ *
+ * This scale is glyph-relative on purpose, and so is *not* where a panel inset belongs. The
+ * half-margin the row fill and the dialog panel sit in tracks the body margin, not the text
+ * size - see fb_gutter().
+ */
+enum mesh_ui_space {
+    MESH_UI_SPACE_NONE = 0,
+    MESH_UI_SPACE_XS, /* half a step: the inset above a fill, a hairline's thickness */
+    MESH_UI_SPACE_SM, /* one step: the gap under a title, a meter's clearance */
+    MESH_UI_SPACE_MD, /* two steps: a button's padding, a keyboard cell's */
+    MESH_UI_SPACE_LG, /* three steps: the room a dialog leaves around its actions */
+    MESH_UI_SPACE_COUNT
+};
+
+/*
+ * The type scale: how big a thing is drawn, named for what it *is*.
+ *
+ * The theme answered for colour, for shape and for spacing, and for type it had two numbers -
+ * the body scale and how many steps smaller chrome was. Those two split *content from chrome*,
+ * which is not a hierarchy: a screen title was drawn at the body scale, exactly the size of the
+ * list rows beneath it, and told apart from them by colour alone. There was no size a renderer
+ * could reach for that meant "more important", so colour was carrying the whole job.
+ *
+ * Held as an offset from the body scale rather than as an absolute multiplier, because the body
+ * scale is not the theme's alone: a preference and MESHCLIENT_SCALE both override it at
+ * runtime, and a table of absolutes would silently stop being a scale the moment somebody asked
+ * for larger text. An offset keeps the *relationship*, which is what a type scale is.
+ *
+ * Three roles, not Material's fifteen. The glyph scale is an integer multiplier over a 5x7 cell
+ * with MESH_UI_SCALE_MAX at six, so the whole usable range is a handful of steps; a scale with
+ * more roles than the range can express is a vocabulary whose words are synonyms. At the top of
+ * the range the roles collapse towards each other, which is correct and is what
+ * mesh_ui_theme_type_scale() clamping guarantees.
+ */
+enum mesh_ui_type {
+    /* A screen's own heading. One step up, so a title is a title before it is read. */
+    MESH_UI_TYPE_TITLE = 0,
+    /* The default: list rows, card values, chat bubbles, anything read rather than glanced at. */
+    MESH_UI_TYPE_BODY,
+    /* Chrome and section labels: the tab strip, the footer, a card's heading, a counter. One
+       step down - these are found, not read, and at the body scale each costs a whole row on a
+       panel that has fifteen. */
+    MESH_UI_TYPE_LABEL,
+    MESH_UI_TYPE_COUNT
+};
+
+/*
  * The geometry a theme owns.
  *
  * Everything here was a literal in a drawing function once. They are theme data because a
@@ -389,12 +448,15 @@ enum mesh_ui_motion {
  * different `margin` - neither should need a renderer to be touched.
  */
 struct mesh_ui_metrics {
-    uint8_t margin;            /* pixels between the panel edge and the body */
-    uint8_t scale;             /* glyph multiplier for body text */
-    uint8_t chrome_scale_down; /* steps smaller the tab bar and footer are drawn */
-    uint8_t bubble_width_pct;  /* how much of the body a chat bubble may fill */
-    uint8_t field_label_cols;  /* preferred label column, in cells */
-    uint8_t narrow_cols;       /* a body narrower than this halves the label column */
+    uint8_t margin; /* pixels between the panel edge and the body */
+    uint8_t scale;  /* glyph multiplier for body text */
+    /* The type scale, as offsets from the body scale, indexed by enum mesh_ui_type. Signed:
+       a title is above the body and a label below it. Read through
+       mesh_ui_theme_type_scale(), which does the addition and the clamp. */
+    int8_t type_offset[MESH_UI_TYPE_COUNT];
+    uint8_t bubble_width_pct; /* how much of the body a chat bubble may fill */
+    uint8_t field_label_cols; /* preferred label column, in cells */
+    uint8_t narrow_cols;      /* a body narrower than this halves the label column */
     /* A card's inset, in glyph-scale steps rather than in pixels: a theme that asks for bigger
        text gets a proportionally roomier card, the same way the switch and the chat bubble
        already grow with the scale. */
@@ -423,6 +485,9 @@ struct mesh_ui_metrics {
      * anything on the panel, and a theme that draws bigger does not want to animate slower.
      */
     uint16_t motion_ms[MESH_UI_MOTION_COUNT];
+    /* The spacing scale, in *half* steps of the glyph scale, indexed by enum mesh_ui_space.
+       Read through mesh_ui_theme_space(). All zeroes is a legal, entirely flush theme. */
+    uint8_t space[MESH_UI_SPACE_COUNT];
     /* The shape scale, in glyph-scale steps, indexed by enum mesh_ui_shape. Sized to stop
        before MESH_UI_SHAPE_FULL because that one is not a step count - see the enum. Read it
        through mesh_ui_theme_radius(), which does the multiply and handles the pill. All zeroes
@@ -552,7 +617,14 @@ const struct mesh_ui_metrics *mesh_ui_theme_metrics(const struct mesh_ui_theme *
 /* The theme's glyph multiplier, clamped into [MESH_UI_SCALE_MIN, MESH_UI_SCALE_MAX]. */
 int mesh_ui_theme_scale(const struct mesh_ui_theme *theme);
 /* The multiplier chrome is drawn at, given the body's. Never below the minimum. */
-int mesh_ui_theme_chrome_scale(const struct mesh_ui_theme *theme, int scale);
+/*
+ * The glyph multiplier `type` wants, given the body's.
+ *
+ * The body scale plus the role's offset, clamped into the accepted range - so a theme already
+ * drawing at the maximum gets a title the same size as its body rather than one the font
+ * registry cannot rasterise, and the vocabulary degrades instead of breaking.
+ */
+int mesh_ui_theme_type_scale(const struct mesh_ui_theme *theme, enum mesh_ui_type type, int scale);
 /* Clamps any multiplier into the accepted range; 0 or less means "the theme's own". */
 int mesh_ui_theme_clamp_scale(const struct mesh_ui_theme *theme, int scale);
 
@@ -565,6 +637,11 @@ int mesh_ui_theme_clamp_scale(const struct mesh_ui_theme *theme, int scale);
  * already known. Every other shape is its step count times the scale.
  */
 int mesh_ui_theme_radius(const struct mesh_ui_theme *theme, enum mesh_ui_shape shape, int scale);
+
+/* The gap `space` asks for, in pixels, at glyph multiplier `scale`. Half-steps times the scale,
+   halved - so MESH_UI_SPACE_SM is exactly one step and MESH_UI_SPACE_XS is half of one. Never
+   negative, and never rounded away to nothing when the theme asked for something. */
+int mesh_ui_theme_space(const struct mesh_ui_theme *theme, enum mesh_ui_space space, int scale);
 
 /* How long `motion` lasts, in milliseconds. 0 for a token a theme left unset, which every
    animation here reads as "already there" - so an incomplete theme is still a drawable one. */

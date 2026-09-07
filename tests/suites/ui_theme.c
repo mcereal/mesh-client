@@ -337,6 +337,107 @@ MESH_TEST_CASE(ui_theme_states_its_geometry, unit) {
  * the last one has to come back to the first - a user who has stepped somewhere unreadable
  * gets home the same way they left.
  */
+MESH_TEST_CASE(ui_theme_states_its_type_scale, unit) {
+    for (size_t i = 0; i < mesh_ui_theme_count(); ++i) {
+        const struct mesh_ui_theme *theme = mesh_ui_theme_at(i);
+
+        for (int scale = MESH_UI_SCALE_MIN; scale <= MESH_UI_SCALE_MAX; ++scale) {
+            const int title = mesh_ui_theme_type_scale(theme, MESH_UI_TYPE_TITLE, scale);
+            const int body = mesh_ui_theme_type_scale(theme, MESH_UI_TYPE_BODY, scale);
+            const int label = mesh_ui_theme_type_scale(theme, MESH_UI_TYPE_LABEL, scale);
+
+            /* Every role stays inside what the font registry can rasterise. This is the whole
+               reason the table holds offsets and the accessor clamps: a title one step above a
+               body already at the maximum is a size nothing can draw. */
+            MESH_TEST_FAIL_IF(title < MESH_UI_SCALE_MIN || title > MESH_UI_SCALE_MAX,
+                              "a title scale fell outside the drawable range");
+            MESH_TEST_FAIL_IF(label < MESH_UI_SCALE_MIN || label > MESH_UI_SCALE_MAX,
+                              "a label scale fell outside the drawable range");
+
+            /* The body role is the body scale by definition - it is the zero the other two are
+               offsets from, and a theme that moved it would be renaming the scale. */
+            MESH_TEST_FAIL_IF(body != mesh_ui_theme_clamp_scale(theme, scale),
+                              "the body role is not the body scale");
+
+            /*
+             * The ordering is the vocabulary. A screen naming TITLE must never get something
+             * smaller than one naming BODY, and BODY never smaller than LABEL - at the ends of
+             * the range they collapse onto each other, which is the scale degrading rather than
+             * inverting.
+             */
+            MESH_TEST_FAIL_IF(title < body, "a title is drawn smaller than the body");
+            MESH_TEST_FAIL_IF(body < label, "a label is drawn larger than the body");
+        }
+
+        /* At the top of the range the title has nowhere to go and collapses onto the body; at
+           the bottom the label does. Pinned because it is the behaviour a caller relies on
+           instead of a bounds check of its own. */
+        MESH_TEST_FAIL_IF(mesh_ui_theme_type_scale(theme, MESH_UI_TYPE_TITLE, MESH_UI_SCALE_MAX) !=
+                              MESH_UI_SCALE_MAX,
+                          "a title at the maximum scale did not collapse onto it");
+        MESH_TEST_FAIL_IF(mesh_ui_theme_type_scale(theme, MESH_UI_TYPE_LABEL, MESH_UI_SCALE_MIN) !=
+                              MESH_UI_SCALE_MIN,
+                          "a label at the minimum scale did not collapse onto it");
+    }
+
+    /* Out of range answers the body scale rather than reading past the table, and NULL is the
+       default theme as everywhere else in this header. */
+    const struct mesh_ui_theme *theme = mesh_ui_theme_default();
+    const int body = mesh_ui_theme_type_scale(theme, MESH_UI_TYPE_BODY, 4);
+    MESH_TEST_FAIL_IF(mesh_ui_theme_type_scale(theme, (enum mesh_ui_type) - 1, 4) != body,
+                      "a negative type role read something");
+    MESH_TEST_FAIL_IF(mesh_ui_theme_type_scale(theme, MESH_UI_TYPE_COUNT, 4) != body,
+                      "a type role past the end read something");
+    MESH_TEST_FAIL_IF(mesh_ui_theme_type_scale(NULL, MESH_UI_TYPE_TITLE, 4) !=
+                          mesh_ui_theme_type_scale(theme, MESH_UI_TYPE_TITLE, 4),
+                      "a NULL theme did not fall back to the default");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(ui_theme_states_its_spacing, unit) {
+    for (size_t i = 0; i < mesh_ui_theme_count(); ++i) {
+        const struct mesh_ui_theme *theme = mesh_ui_theme_at(i);
+        const int scale = mesh_ui_theme_scale(theme);
+
+        MESH_TEST_FAIL_IF(mesh_ui_theme_space(theme, MESH_UI_SPACE_NONE, scale) != 0,
+                          "MESH_UI_SPACE_NONE is not nothing");
+
+        int previous = 0;
+        for (int space = MESH_UI_SPACE_XS; space < MESH_UI_SPACE_COUNT; ++space) {
+            const int gap = mesh_ui_theme_space(theme, (enum mesh_ui_space)space, scale);
+            /* A theme that asked for a gap gets at least a pixel of one, however small the
+               scale: a half-step rounded away to zero is an inset that silently stops
+               existing. */
+            MESH_TEST_FAIL_IF(gap < 1, "a spacing step rounded away to nothing");
+            /* And it has to be a scale, for the reason the shape steps do - a widget naming MD
+               and getting less room than one naming SM is a vocabulary that lies. */
+            MESH_TEST_FAIL_IF(gap < previous, "a theme's spacing scale gets tighter as it goes up");
+            /* Nothing in the scale is a whole row: these are gaps between things, not rows.
+               Four steps is already taller than the glyph cell at any scale, so a table that
+               reaches it is a theme spending body rows on its own furniture. */
+            MESH_TEST_FAIL_IF(gap > 4 * scale,
+                              "a theme's spacing step is as tall as the row it separates");
+            previous = gap;
+        }
+
+        /* The scale is glyph-relative, so it grows with the text. A theme whose gaps did not
+           move when the glyph scale did would be the literals this replaced. */
+        MESH_TEST_FAIL_IF(mesh_ui_theme_space(theme, MESH_UI_SPACE_MD, MESH_UI_SCALE_MAX) <
+                              mesh_ui_theme_space(theme, MESH_UI_SPACE_MD, MESH_UI_SCALE_MIN),
+                          "a spacing step did not grow with the glyph scale");
+    }
+
+    const struct mesh_ui_theme *theme = mesh_ui_theme_default();
+    MESH_TEST_FAIL_IF(mesh_ui_theme_space(theme, (enum mesh_ui_space) - 1, 4) != 0,
+                      "a negative spacing token read something");
+    MESH_TEST_FAIL_IF(mesh_ui_theme_space(theme, MESH_UI_SPACE_COUNT, 4) != 0,
+                      "a spacing token past the end read something");
+    MESH_TEST_FAIL_IF(mesh_ui_theme_space(NULL, MESH_UI_SPACE_SM, 4) !=
+                          mesh_ui_theme_space(theme, MESH_UI_SPACE_SM, 4),
+                      "a NULL theme did not fall back to the default");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_theme_states_its_motion, unit) {
     for (size_t i = 0; i < mesh_ui_theme_count(); ++i) {
         const struct mesh_ui_theme *theme = mesh_ui_theme_at(i);
@@ -473,7 +574,7 @@ MESH_TEST_CASE(ui_theme_scale_is_clamped, unit) {
 
     /* Chrome is smaller than the body but never below the floor, whatever the body is at. */
     for (int scale = MESH_UI_SCALE_MIN; scale <= MESH_UI_SCALE_MAX; ++scale) {
-        const int chrome = mesh_ui_theme_chrome_scale(theme, scale);
+        const int chrome = mesh_ui_theme_type_scale(theme, MESH_UI_TYPE_LABEL, scale);
         MESH_TEST_FAIL_IF(chrome < MESH_UI_SCALE_MIN, "chrome text fell below the minimum scale");
         MESH_TEST_FAIL_IF(chrome > scale, "chrome text is bigger than the body text");
     }

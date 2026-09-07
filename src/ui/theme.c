@@ -52,7 +52,18 @@
  */
 #define MESH_UI_METRICS_DEFAULT                                                                    \
     {                                                                                              \
-        .margin = 16U, .scale = 4U, .chrome_scale_down = 1U, .bubble_width_pct = 75U,              \
+        .margin = 16U, .scale = 4U, .bubble_width_pct = 75U,                                       \
+        .type_offset =                                                                             \
+            {                                                                                      \
+                [MESH_UI_TYPE_TITLE] = 1,                                                          \
+                [MESH_UI_TYPE_BODY] = 0,                                                           \
+                [MESH_UI_TYPE_LABEL] = -1,                                                         \
+            },                                                                                     \
+        .space =                                                                                   \
+            {                                                                                      \
+                [MESH_UI_SPACE_NONE] = 0U, [MESH_UI_SPACE_XS] = 1U, [MESH_UI_SPACE_SM] = 2U,       \
+                [MESH_UI_SPACE_MD] = 4U,   [MESH_UI_SPACE_LG] = 6U,                                \
+            },                                                                                     \
         .field_label_cols = 20U, .narrow_cols = 40U, .card_pad = 2U, .meter_thickness = 1U,        \
         .motion_ms =                                                                               \
             {                                                                                      \
@@ -708,11 +719,40 @@ int mesh_ui_theme_radius(const struct mesh_ui_theme *theme, enum mesh_ui_shape s
     return (int)theme->metrics.shape[shape] * scale;
 }
 
-int mesh_ui_theme_chrome_scale(const struct mesh_ui_theme *theme, int scale) {
+int mesh_ui_theme_type_scale(const struct mesh_ui_theme *theme, enum mesh_ui_type type, int scale) {
     theme = theme_or_default(theme);
-    const int down = (int)theme->metrics.chrome_scale_down;
-    const int chrome = mesh_ui_theme_clamp_scale(theme, scale) - down;
-    return chrome < MESH_UI_SCALE_MIN ? MESH_UI_SCALE_MIN : chrome;
+    const int body = mesh_ui_theme_clamp_scale(theme, scale);
+    if ((int)type < 0 || (int)type >= (int)MESH_UI_TYPE_COUNT) {
+        return body;
+    }
+    const int wanted = body + (int)theme->metrics.type_offset[type];
+    /* Clamped rather than allowed out: at the top of the range a title collapses onto the body
+       and at the bottom a label does, which is the scale degrading rather than the font
+       registry being asked for a size it cannot rasterise. */
+    if (wanted < MESH_UI_SCALE_MIN) {
+        return MESH_UI_SCALE_MIN;
+    }
+    if (wanted > MESH_UI_SCALE_MAX) {
+        return MESH_UI_SCALE_MAX;
+    }
+    return wanted;
+}
+
+int mesh_ui_theme_space(const struct mesh_ui_theme *theme, enum mesh_ui_space space, int scale) {
+    theme = theme_or_default(theme);
+    if ((int)space < 0 || (int)space >= (int)MESH_UI_SPACE_COUNT) {
+        return 0;
+    }
+    const int halves = (int)theme->metrics.space[space];
+    if (halves <= 0) {
+        return 0;
+    }
+    scale = mesh_ui_theme_clamp_scale(theme, scale);
+    const int pixels = (halves * scale) / 2;
+    /* A theme that asked for a gap gets at least a pixel of one. Rounding a half-step down to
+       nothing at a small scale is how an inset silently stops existing on exactly the themes
+       that most need it to. */
+    return pixels > 0 ? pixels : 1;
 }
 
 /*

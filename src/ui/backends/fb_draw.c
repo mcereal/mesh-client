@@ -102,12 +102,29 @@ int fb_radius(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_shape s
     return mesh_ui_theme_radius(state->theme, shape, state->scale);
 }
 
+int fb_space(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_space space) {
+    return mesh_ui_theme_space(state->theme, space, state->scale);
+}
+
+int fb_space_at(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_space space, int scale) {
+    return mesh_ui_theme_space(state->theme, space, scale);
+}
+
+int fb_type_scale(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_type type) {
+    return mesh_ui_theme_type_scale(state->theme, type, state->scale);
+}
+
+int fb_gutter(const struct mesh_ui_backend_fb_state *state) {
+    const int margin = fb_margin(state);
+    return margin > 1 ? margin / 2 : margin;
+}
+
 uint32_t fb_motion(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_motion motion) {
     return mesh_ui_theme_motion(state->theme, motion);
 }
 
 int fb_edge(const struct mesh_ui_backend_fb_state *state) {
-    const int edge = state->scale / 2;
+    const int edge = fb_space(state, MESH_UI_SPACE_XS);
     return edge > 0 ? edge : 1;
 }
 
@@ -678,8 +695,8 @@ void fb_draw_row(const struct mesh_ui_backend_fb_state *state, int y, const char
     const int margin = fb_margin(state);
     const int line = fb_line_adv(state, state->scale);
     if (selected) {
-        fb_fill_round_rect(state, margin / 2, y - state->scale, (int)state->var.xres - margin, line,
-                           fb_radius(state, MESH_UI_SHAPE_SM),
+        fb_fill_round_rect(state, fb_gutter(state), y - state->scale, (int)state->var.xres - margin,
+                           line, fb_radius(state, MESH_UI_SHAPE_SM),
                            fb_color(state, MESH_UI_COLOR_SURFACE_SEL));
         color = fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL);
     }
