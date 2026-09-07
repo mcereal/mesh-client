@@ -1,17 +1,17 @@
 {
   "name": "MeshClient",
-  "version": "v2.21.0",
+  "version": "v2.22.0",
   "type": "TOOL",
   "description": "A Meshtastic client for your handheld: read and send messages, browse the mesh, and edit your radio's settings over Bluetooth LE or USB.",
   "author": "mcereal",
   "repo_url": "https://github.com/mcereal/mesh-client",
   "release_filename": "MeshClient.pak.zip",
   "changelog": {
+    "v2.22.0": "Give a device's state a capsule instead of a supporting line.",
     "v2.21.0": "Give the meter a domain and drawn threshold bands, and lists a signal staircase; Only draw a signal staircase where the reading is the node's own.",
     "v2.20.0": "Draw the chrome as a navigation bar and an action bar; Name the compose sheet's A for the row under the cursor.",
     "v2.19.0": "Add a spacing scale and a type scale; Keep the row a title did not actually cost.",
-    "v2.18.0": "Add motion tokens and a list scroll rail.",
-    "v2.17.0": "Restructure the palette as six Material colour families; Keep theme.h C++-includable and let the Radio card see its warnings."
+    "v2.18.0": "Add motion tokens and a list scroll rail."
   },
   "screenshots": [
     ".github/resources/screenshots/nodes.png",
