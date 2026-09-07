@@ -25,6 +25,11 @@
  * rather than cards, and a card is focused because the cursor is on one of its buttons. Left
  * and Right could not be spent here - they are the tab switch on every screen, including this
  * one - so a per-card cursor would have needed a press the Brick does not have spare.
+ *
+ * Because the cursor is an *index* into that list, the list may only ever grow at its end. A
+ * verb appearing ahead of the cursor would change what the next A press does without the
+ * cursor moving, which is the one way a screen like this can act on something nobody asked
+ * for. mesh_ui_status_actions() holds to it, and says how.
  */
 
 /* The cards, in the order the screen draws them. */
@@ -70,6 +75,9 @@ struct mesh_ui_status_actions {
  * handshake. Both are facts the store and the snapshot each hold under the same names, which is
  * why they arrive as booleans rather than as one of the two structs: this is called from nav.c
  * with a store, from actions.c with a snapshot, and from the renderer with a snapshot.
+ *
+ * With no radio attached the answer is nothing at all: every verb here is a request over the
+ * air, and the list is append-only precisely because both of them turn on the same fact.
  */
 void mesh_ui_status_actions(struct mesh_ui_status_actions *out, bool connected, bool synced);
 

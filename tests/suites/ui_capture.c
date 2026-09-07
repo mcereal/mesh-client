@@ -206,6 +206,44 @@ MESH_TEST_CASE(ui_capture_draws_the_status_cards, unit) {
     record_success(test_name);
 }
 
+/* The lowest scanline carrying a run of `role` across most of the width, or `height` when
+   there is none. A card's top and bottom edges are the only thing on these screens that puts an
+   unbroken band of the outline or the accent across the panel. */
+static uint32_t last_wide_run_y(const struct mesh_ui_capture *capture, const uint8_t *pixels,
+                                uint32_t width, uint32_t height, size_t stride,
+                                enum mesh_ui_color role) {
+    uint32_t last = height;
+    for (uint32_t y = 0U; y < height; ++y) {
+        const uint8_t *row = pixels + (size_t)y * stride;
+        unsigned run = 0U;
+        for (uint32_t x = 0U; x < width; ++x) {
+            run = pixel_is_role(capture, row + (size_t)x * 4U, role) ? run + 1U : 0U;
+            if ((uint64_t)run * 100U / width >= 80U) {
+                last = y;
+                break;
+            }
+        }
+    }
+    return last;
+}
+
+/* The bottom edge of the lowest card on the frame, whichever ink it is drawn in - a focused
+   card's edge is the accent and every other card's is the outline. */
+static uint32_t last_card_edge_y(const struct mesh_ui_capture *capture, const uint8_t *pixels,
+                                 uint32_t width, uint32_t height, size_t stride) {
+    const uint32_t outline =
+        last_wide_run_y(capture, pixels, width, height, stride, MESH_UI_COLOR_OUTLINE);
+    const uint32_t ring =
+        last_wide_run_y(capture, pixels, width, height, stride, MESH_UI_COLOR_PRIMARY);
+    if (outline == height) {
+        return ring;
+    }
+    if (ring == height) {
+        return outline;
+    }
+    return outline > ring ? outline : ring;
+}
+
 /*
  * The three card variants, and the ring that says which card the next press acts on.
  *
@@ -264,6 +302,16 @@ MESH_TEST_CASE(ui_capture_draws_the_card_variants, unit) {
                               mesh_ui_store_shutdown(&store),
                               "the focused card draws no ring, so nothing says what A acts on");
 
+    /*
+     * Where the lowest card ends, which must not depend on where the cursor is.
+     *
+     * The ring is a thicker edge, and an earlier draft grew the card's *layout* edge to draw
+     * it - so selecting a card made it taller, pushed every card under it down the panel and
+     * could change which rows were clipped, all because the cursor arrived. The ring is painted
+     * inward into the padding now, and this is what says so.
+     */
+    const uint32_t bottom_before = last_card_edge_y(capture, pixels, width, height, stride);
+
     /* And it moves. The cursor steps to the Radio card's verb, which is a different card, so
        the ring has to end up on a different scanline - a ring painted at a fixed place would
        pass every check above and still be wrong. */
@@ -306,6 +354,11 @@ MESH_TEST_CASE(ui_capture_draws_the_card_variants, unit) {
     MESH_TEST_FAIL_IF_CLEANUP(
         moved_ring_y == height || moved_ring_y == first_ring_y, mesh_ui_capture_close(capture);
         mesh_ui_store_shutdown(&store), "Down did not move the ring onto the next card's verb");
+
+    const uint32_t bottom_after = last_card_edge_y(capture, pixels, width, height, stride);
+    MESH_TEST_FAIL_IF_CLEANUP(bottom_after != bottom_before, mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "moving the cursor resized a card and shifted the column");
 
     mesh_ui_capture_close(capture);
     mesh_ui_store_shutdown(&store);

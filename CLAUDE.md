@@ -279,6 +279,13 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   the Status tab lost the TX queue and the reboot count off the end of the Radio card. A heading
   is three or four cells of a line that is otherwise empty; the verbs go in the rest of it, at
   the chrome scale, and cost nothing.
+- **The Status cursor is an index into the verbs its cards offer, so that list may only ever
+  grow at its end.** Both verbs are gated on the link being up for that reason as much as for
+  their own: a verb appearing *ahead* of the cursor changes what the next A press does without
+  the cursor moving. See `mesh_ui_status_actions()`.
+- **A card's focus ring is painted inward and is not part of its layout.** The card's edge is in
+  the content inset and in the box height, so a ring that widened it would make a card grow when
+  the cursor arrived and shift every card below it.
 - **A card that can end up with no rows must not be given a verb.** A card with no rows is not
   drawn, and a verb on an undrawn card leaves the action bar naming a press whose button is not
   on the frame. That is why the Radio card says "no report yet" rather than disappearing when

@@ -34,17 +34,17 @@ MESH_TEST_CASE(ui_status_verbs_follow_the_link, unit) {
                           actions.items[0].verb != (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT,
                       "an attached radio should offer disconnect on the Link card");
 
-    /* A radio that has answered the handshake offers a refresh whether or not the link is up:
-       what a refresh re-reads is a configuration we hold, and the app decides what to do about
-       a link that has since gone. */
+    /* A cached configuration and no radio is still no verbs. A refresh is a request over the
+       air, so offering it with the link gone is offering a press whose only outcome is a
+       complaint - and it is what would otherwise slide in ahead of the cursor; see below. */
     mesh_ui_status_actions(&actions, false, true);
-    MESH_TEST_FAIL_IF(actions.count != 1U ||
-                          actions.items[0].card != (uint8_t)MESH_UI_STATUS_CARD_RADIO ||
-                          actions.items[0].verb != (uint8_t)MESH_UI_STATUS_VERB_REFRESH,
-                      "a synced radio should offer refresh on the Radio card");
+    MESH_TEST_FAIL_IF(actions.count != 0U, "a refresh with no link is a press that cannot work");
 
     mesh_ui_status_actions(&actions, true, true);
     MESH_TEST_FAIL_IF(actions.count != 2U, "a connected, synced radio offers both verbs");
+    MESH_TEST_FAIL_IF(actions.items[1].card != (uint8_t)MESH_UI_STATUS_CARD_RADIO ||
+                          actions.items[1].verb != (uint8_t)MESH_UI_STATUS_VERB_REFRESH,
+                      "a synced radio should offer refresh on the Radio card");
     /* The order is the order the cursor walks and the order the cards draw, which is the order
        the screen stacks them: Link, then Mesh, then Radio. */
     MESH_TEST_FAIL_IF(actions.items[0].card > actions.items[1].card,
@@ -55,6 +55,42 @@ MESH_TEST_CASE(ui_status_verbs_follow_the_link, unit) {
     for (uint32_t i = 0U; i < actions.count; ++i) {
         MESH_TEST_FAIL_IF(actions.items[i].label == MESH_STR_NONE, "a verb with no word");
     }
+    record_success(test_name);
+}
+
+/*
+ * The list only ever grows at its end.
+ *
+ * The Status cursor is an index, so a verb that appeared *ahead* of it would change what the
+ * next A press does without the cursor moving - a client holding a cached configuration would
+ * offer refresh alone, and auto-connect arriving would slide disconnect in underneath a cursor
+ * still on index 0, so a press meant to re-read the settings would drop the link that had just
+ * come up. Every state the two facts can be in is walked here rather than the two that happen
+ * to be reachable today, because the invariant is what a third verb has to be checked against.
+ */
+MESH_TEST_CASE(ui_status_verbs_only_ever_append, unit) {
+    struct mesh_ui_status_actions previous;
+    memset(&previous, 0, sizeof previous);
+
+    for (int state = 0; state < 4; ++state) {
+        const bool connected = (state & 1) != 0;
+        const bool synced = (state & 2) != 0;
+        struct mesh_ui_status_actions actions;
+        mesh_ui_status_actions(&actions, connected, synced);
+
+        /* Whatever the state, the prefix of the longest list this can produce is what any
+           shorter one holds: index 0 is always disconnect and index 1 is always refresh. */
+        for (uint32_t i = 0U; i < actions.count; ++i) {
+            const uint8_t expected = i == 0U ? (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT
+                                             : (uint8_t)MESH_UI_STATUS_VERB_REFRESH;
+            MESH_TEST_FAIL_IF(actions.items[i].verb != expected,
+                              "a verb moved to a different index, so a parked cursor now means "
+                              "something else");
+        }
+        MESH_TEST_FAIL_IF(actions.count > MESH_UI_STATUS_ACTIONS_MAX, "more verbs than the cap");
+        previous = actions;
+    }
+    (void)previous;
     record_success(test_name);
 }
 
@@ -123,7 +159,8 @@ MESH_TEST_CASE(ui_status_cursor_survives_the_link_dropping, unit) {
         goto cleanup;
     }
 
-    /* The radio goes away. Disconnect goes with it and refresh moves up to index 0. */
+    /* The radio goes away, and both verbs go with it - every one of them is a request over the
+       air. The cursor has to come back to 0 rather than sit past the end of an empty list. */
     struct mesh_ui_device devices[1] = {
         {.identifier = "AA:BB:CC:DD:EE:01", .name = "NodeOne", .rssi = -45, .connected = false},
     };
@@ -132,17 +169,33 @@ MESH_TEST_CASE(ui_status_cursor_survives_the_link_dropping, unit) {
         failure = "expected a snapshot after the link dropped";
         goto cleanup;
     }
-    if (mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_STATUS) != 1U) {
-        failure = "a radio that has gone leaves only the refresh";
+    if (mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_STATUS) != 0U) {
+        failure = "a radio that has gone leaves no verb behind it";
         goto cleanup;
     }
     if (snapshot.nav.cursor[MESH_UI_SCREEN_STATUS] != 0U) {
-        failure = "the cursor must be clamped onto the verb that is left";
+        failure = "the cursor must be clamped back onto an empty list";
         goto cleanup;
     }
+    memset(&action, 0, sizeof action);
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    if (action.type != MESH_UI_ACTION_REFRESH_SETTINGS) {
-        failure = "A should run the verb the cursor was clamped onto";
+    if (action.type != MESH_UI_ACTION_NONE) {
+        failure = "A on a screen with no verbs must do nothing";
+        goto cleanup;
+    }
+
+    /* And when it comes back, the cursor lands on the first verb rather than on whichever one
+       happens to sit at the index it was left at. */
+    devices[0].connected = true;
+    mesh_ui_store_set_discovery(&store, devices, 1U);
+    if (!mesh_ui_store_consume_updates(&store, &snapshot)) {
+        failure = "expected a snapshot after the link came back";
+        goto cleanup;
+    }
+    memset(&action, 0, sizeof action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_DISCONNECT) {
+        failure = "the cursor should be on the first verb when the list comes back";
         goto cleanup;
     }
 

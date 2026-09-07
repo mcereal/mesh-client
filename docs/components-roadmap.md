@@ -735,6 +735,25 @@ interaction model, and one bug that only exists once a card can offer a verb.
   be. All four shipped themes cleared it unchanged, which is what a rule looping over the
   families rather than over a hand-written list is for.
 
+Two things the first draft got wrong, both found by review and both worth keeping written down
+because the next focusable component meets them again:
+
+- **A focus indicator must not be part of the layout.** The ring was drawn by doubling the
+  card's edge, and that edge is also in the content inset and in the box height — so selecting a
+  card made it taller, moved its text, pushed every card under it down the panel, and could
+  change which rows were clipped, all because the cursor arrived. The painted thickness is now
+  its own number and grows *inward* into the padding; the layout edge is a fact about the card,
+  never about what is selected.
+- **A cursor that is an index needs a list that only appends.** Refresh was offered on a synced
+  radio whether or not the link was up. A client holding a cached configuration therefore offered
+  refresh alone, and auto-connect arriving slid disconnect in *underneath* a cursor still sitting
+  on index 0 — so a press meant to re-read the settings would have dropped the link that had just
+  come up. The fix is not to remember the verb: it is to gate both verbs on the same fact, so the
+  list goes empty → `[disconnect]` → `[disconnect, refresh]` and nothing is ever inserted before
+  something already on it. That is also the more honest gate, because a refresh is a request over
+  the air and `mesh_session_refresh_settings()` answers `-ENOTCONN` without one. A third verb here
+  has to keep the invariant or the cursor has to start carrying a verb rather than an index.
+
 One thing deliberately left: the entry's own worked example, *"Radio actions" is a list row that
 opens a screen because a card cannot offer a verb*. A card can now, and that verb still is not
 there — the confirmation dialog is keyed on `nav->settings_section` and takes its strings from

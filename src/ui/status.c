@@ -9,9 +9,22 @@
  * src/ui/actions.c are: what a screen offers in a given state should be readable in one place
  * and checkable against the nav that handles the press.
  *
- * Two conditions, and each is the one that makes its verb mean anything. Disconnect needs a
- * link to drop; a refresh needs a radio that has answered the handshake, because re-reading a
- * configuration nothing has sent yet is a press that reports nothing and looks broken.
+ * Both verbs need a link, and that is the whole of the gating. Disconnect needs one to drop.
+ * Refresh needs one because a refresh is a request over the air - mesh_session_refresh_settings()
+ * answers -ENOTCONN without one and the app toasts "not connected" - so offering it while the
+ * radio is away is offering a press whose only outcome is a complaint. It needs the handshake
+ * on top of that, because re-reading a configuration nothing has sent yet reports nothing and
+ * reads as broken.
+ *
+ * **The list only ever grows at the end, and that is a requirement rather than a coincidence.**
+ * The cursor on this screen is an index into it, so a verb inserted *ahead* of the cursor would
+ * silently change what the next A press does: a client holding a cached configuration would
+ * offer refresh alone, and auto-connect arriving would slide disconnect in underneath a cursor
+ * still sitting on index 0 - so a press meant to re-read the settings would drop the link that
+ * had just come up. Gating both on `connected` removes the case rather than compensating for
+ * it: the list is empty, then [disconnect], then [disconnect, refresh], and nothing is ever
+ * inserted before something already on it. A verb added here has to keep that true, or the
+ * cursor has to start remembering which verb it was on rather than which index.
  *
  * The Mesh card offers none, and it is not an omission. Every verb this client has about the
  * mesh either belongs to a node - trace it, ask it for a fix - or is destructive enough to want
@@ -24,13 +37,15 @@ void mesh_ui_status_actions(struct mesh_ui_status_actions *out, bool connected, 
         return;
     }
     memset(out, 0, sizeof *out);
-
-    if (connected) {
-        out->items[out->count].card = (uint8_t)MESH_UI_STATUS_CARD_LINK;
-        out->items[out->count].verb = (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT;
-        out->items[out->count].label = MESH_STR_ACTION_DISCONNECT;
-        ++out->count;
+    if (!connected) {
+        return;
     }
+
+    out->items[out->count].card = (uint8_t)MESH_UI_STATUS_CARD_LINK;
+    out->items[out->count].verb = (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT;
+    out->items[out->count].label = MESH_STR_ACTION_DISCONNECT;
+    ++out->count;
+
     if (synced) {
         out->items[out->count].card = (uint8_t)MESH_UI_STATUS_CARD_RADIO;
         out->items[out->count].verb = (uint8_t)MESH_UI_STATUS_VERB_REFRESH;

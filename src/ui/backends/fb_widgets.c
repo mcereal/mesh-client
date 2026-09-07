@@ -1471,8 +1471,15 @@ struct fb_card_metrics {
     int x, width; /* the panel, edge included */
     int pad;      /* the inset from the side edges to the content */
     int pad_y;    /* the inset from the top and bottom edges */
-    int edge;     /* the hairline's thickness */
-    int radius;   /* corner radius, clamped by fb_fill_round_rect() anyway */
+    int edge;     /* the hairline's thickness, and the only edge the layout knows about */
+    /* What is actually painted around the panel: the hairline, or the thicker focus ring. It is
+       deliberately not `edge`, because `edge` is in the content inset and in the box height -
+       so a ring that widened it would move the card's text and shift every card below it by a
+       few pixels for no reason but the cursor arriving. The ring grows *inward*, into the
+       padding, which is what keeps the outer geometry a fact about the card rather than about
+       what is selected. */
+    int ring;
+    int radius; /* corner radius, clamped by fb_fill_round_rect() anyway */
     /* The header line: the heading, and the verbs against its far edge. 0 when there is
        neither. */
     int heading_h;
@@ -1525,13 +1532,21 @@ static struct fb_card_metrics fb_card_measure(const struct mesh_ui_backend_fb_st
      * The focus ring. A card holding the selected verb is the one the next press acts on, and
      * that has to be findable before any of it is read - so it is the edge that changes rather
      * than the fill, drawn in the accent and at twice the thickness. See fb_draw_card().
+     *
+     * Only what is painted changes. `m.edge` stays the hairline, so the content inset, the
+     * label column and the box height are the same whether the card is focused or not; the
+     * extra thickness is taken out of the padding instead, capped so it can never reach the
+     * text. Widening the layout edge here made a card grow when the cursor arrived and pushed
+     * every card under it down the panel, which is a repaint of the whole screen to say one
+     * thing about one card.
      */
     bool focused = false;
     for (uint32_t i = 0U; i < card->action_count && i < FB_CARD_ACTIONS_MAX; ++i) {
         focused = focused || card->actions[i].selected;
     }
+    m.ring = m.edge;
     if (focused) {
-        m.edge *= 2;
+        m.ring = m.edge * 2;
         m.edge_ink = fb_tone_color(state, MESH_UI_TONE_PRIMARY);
     } else {
         m.edge_ink = fb_color(state, MESH_UI_COLOR_OUTLINE);
@@ -1560,6 +1575,14 @@ static struct fb_card_metrics fb_card_measure(const struct mesh_ui_backend_fb_st
     m.button_h = card->action_count > 0U ? fb_line_adv(state, layout->small) : 0;
     if (m.button_h > m.heading_h) {
         m.heading_h = m.button_h;
+    }
+
+    /* Never into the content: the ring lives in the padding, and a theme with a thick hairline
+       and a tight inset must lose the ring rather than the row it would eat. Bounded by the
+       *vertical* inset, which is the smaller of the two - the first row's baseline is what a
+       ring grown too far would land on. */
+    if (m.ring > m.edge + m.pad_y) {
+        m.ring = m.edge + m.pad_y;
     }
 
     const int inset = m.pad + m.edge;
@@ -1897,12 +1920,15 @@ bool fb_draw_card(struct mesh_ui_backend_fb_state *state, const struct fb_layout
      * ground, is why it has to hold against all three rather than against the panel's own.
      *
      * On the card holding the selected verb both of those change: the ink is the accent and the
-     * thickness is doubled, which is the focus ring. See fb_card_measure().
+     * painted thickness is doubled, which is the focus ring. Only the *painted* thickness - the
+     * panel is the same size and its content starts in the same place either way, so the ring
+     * grows inward into the padding. See fb_card_measure().
      */
     const int top = *y;
+    const int inner_radius = m.radius + m.edge - m.ring > 0 ? m.radius + m.edge - m.ring : 0;
     fb_fill_round_rect(state, m.x, top, m.width, height, m.radius + m.edge, m.edge_ink);
-    fb_fill_round_rect(state, m.x + m.edge, top + m.edge, m.width - 2 * m.edge, height - 2 * m.edge,
-                       m.radius, fb_color(state, m.fill));
+    fb_fill_round_rect(state, m.x + m.ring, top + m.ring, m.width - 2 * m.ring, height - 2 * m.ring,
+                       inner_radius, fb_color(state, m.fill));
 
     int row_y = top + m.pad_y + m.edge;
     /*

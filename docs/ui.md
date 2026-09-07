@@ -263,7 +263,7 @@ half-line of extra space every so often standing in for a grouping. It is now th
 |---|---|---|---|---|
 | **Link** | transport, radio, sync, our node, the primary channel, devices in range | elevated, always | good when a radio is attached, bad when none is | *disconnect*, while one is |
 | **Mesh** | NodeDB and roster counts, airtime, packets, what the ring is holding | filled | the airtime tone — warning past 25% channel utilization, error past 50% | none |
-| **Radio** | battery and uptime, what the firmware last said, reboots, the TX queue, free heap | outlined while quiet, elevated when not | the worst thing on it: bad for a flat battery, a refused packet or an `ERROR` notice | *refresh*, once the radio has synced |
+| **Radio** | battery and uptime, what the firmware last said, reboots, the TX queue, free heap | outlined while quiet, elevated when not | the worst thing on it: bad for a flat battery, a refused packet or an `ERROR` notice | *refresh*, once it has synced |
 
 The heading colour is the point. Every row on the Radio card exists only when something is
 wrong, so on a healthy link that card is small and primary-coloured and there is nothing to read;
@@ -284,7 +284,13 @@ axis to spend on a cursor inside a card.
 
 Both verbs are presses that already existed elsewhere — X on Devices and X on Settings — which is
 deliberate: the step gave a card somewhere to put a verb, and a verb invented for it would have
-been arguing two things at once. What is *not* there is a destructive one: the confirmation
+been arguing two things at once. Both also need a link, refresh included: a refresh is a request
+over the air, so offering it while the radio is away is offering a press whose only outcome is a
+complaint. That gating is load-bearing for a second reason — **the list may only ever grow at its
+end**. The cursor is an index into it, so a verb appearing *ahead* of the cursor would change what
+the next A press does without the cursor moving; with both verbs turning on the same fact the list
+goes empty → *disconnect* → *disconnect, refresh*, and nothing is ever inserted before something
+already on it. What is *not* there is a destructive one: the confirmation
 dialog is still keyed on `nav->settings_section`, so "reboot the radio" from this screen means
 decoupling the dialog from the settings model first.
 
