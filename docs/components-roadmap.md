@@ -233,6 +233,15 @@ Two related card gaps: there is no **action row** (a card that ends in buttons �
 is a list row that opens a screen because a card cannot offer a verb), and a card is never
 **focusable**, which is why the whole Status tab is inert.
 
+> **The badge half has landed.** `FB_TRAILING_BADGE` is wired into the Devices list, and doing
+> it produced one rule worth more than the wiring: *anything a badge does not shout is a badge
+> that should not be there.* Badging all four device states looked right on the dark theme and
+> collided on two others — the contrast palette has one yellow and the colourblind palette one
+> blue, so the resting `paired` capsule came out the same colour as the warning beside it on the
+> first and as `connected` on the second. The resting state is a quiet word in the same
+> right-aligned slot now, and the colour is left to the rows that have something to report. The
+> leading-icon half and the pinned star are still open.
+
 **2.14 Two slots are built and nothing draws them.** `FB_LEADING_ICON` and `FB_TRAILING_BADGE`
 are implemented in `fb_widgets.c` and have no caller anywhere outside it. This is the one entry
 on the list where the component is not missing — the *wiring* is — and it is therefore the
@@ -431,7 +440,7 @@ Each step is independently shippable and each is visible.
 | 3 | Spacing scale (§1.2) | **done** | Mechanical, and every later step stops adding literals |
 | 4 | Type scale (§1.1) | **done** | The big one. Do it after spacing so the two land together |
 | 5 | Nav bar + action bar as components (§2.2, §2.3) | **done** | Both are moves into `fb_widgets.c`; both benefit from 3 and 4 |
-| 6 | Leading icon and badge, wired up (§2.14) |  | No new component: two built slots with no caller, and the last marker character |
+| 6 | Leading icon and badge, wired up (§2.14) | badge **done** | No new component: two built slots with no caller, and the last marker character |
 | 7 | Top app bar (§2.15) |  | Retires the breadcrumb format strings, and is where 8 and 11 land |
 | 8 | Card variants and card actions (§2.4) |  | Where the type scale pays off most |
 | 9 | Variable-height list rows (§1.4) |  | Structural. §1.1's unfinished half and three components below wait on it |
