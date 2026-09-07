@@ -1,3 +1,13 @@
+## [2.33.0](https://github.com/mcereal/mesh-client/compare/v2.32.1...v2.33.0) (2026-09-07)
+
+### Features
+
+* **ui:** a sparkline, and the sample ring behind it ([7bc8659](https://github.com/mcereal/mesh-client/commit/7bc8659f1c4b216695184e37f119c4ab751eb743))
+
+### Bug Fixes
+
+* **ui:** break a battery trend across external power, and keep the line legible under the cursor ([8f2b4d5](https://github.com/mcereal/mesh-client/commit/8f2b4d5fb54aeea3a044fd8f58e53915666fcd18)), closes [#105](https://github.com/mcereal/mesh-client/issues/105)
+
 ## [2.32.1](https://github.com/mcereal/mesh-client/compare/v2.32.0...v2.32.1) (2026-09-07)
 
 ### Bug Fixes
