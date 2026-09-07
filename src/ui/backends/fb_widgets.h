@@ -623,12 +623,12 @@ void fb_draw_meter(struct mesh_ui_backend_fb_state *state, const struct fb_meter
  * durations could not answer without the reader already carrying the list around.
  *
  * The stops are evenly spaced and the reading between them is interpolated - see
- * mesh_ui_settings_number_position(), which is where that arithmetic lives so a test can reach
- * it. Two consequences the drawing depends on: a preset list that climbs geometrically still
- * gives an aimable track, and a value the list does not contain lands between two stops rather
- * than being refused. The segmented button had to fall back to words for an unknown value
- * because a set of alternatives has no room between its members; an axis has room, so this one
- * does not need the fallback.
+ * mesh_ui_settings_number_track(), which is where that arithmetic lives so a test can reach it. Two
+ * consequences the drawing depends on: a preset list that climbs geometrically still gives an
+ * aimable track, and a value the list does not contain lands between two stops rather than being
+ * refused. The segmented button had to fall back to words for an unknown value because a set of
+ * alternatives has no room between its members; an axis has room, so this one does not need the
+ * fallback.
  */
 
 struct fb_slider {
@@ -655,10 +655,12 @@ struct fb_slider {
      * stops and nothing else - no fill, and no handle anywhere.
      *
      * §10's rule arriving on an axis: *a control that shows a set has to be able to say "not one
-     * of these"*. Almost every settings scale here opens with a value that is a word rather than
-     * a quantity - a "default" the firmware picks, LoRa's "max" - and neither belongs at the
-     * bottom of a bar. An empty track is not ambiguous with a value at the minimum, because a
-     * value at the minimum has a handle sitting on it.
+     * of these"*. Two things reach it. Almost every settings scale here opens with a value that
+     * is a word rather than a quantity - a "default" the firmware picks, LoRa's "max" - and
+     * neither belongs at the bottom of a bar; and two lists start above zero because the thing
+     * receiving the setting refuses anything below that, while an unconfigured radio still
+     * reports 0. An empty track is not ambiguous with a value at the minimum, because a value at
+     * the minimum has a handle sitting on it.
      */
     bool unplaced;
     /* The cursor is on this row: the handle stands up to its full height, and the track gets

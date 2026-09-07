@@ -1714,14 +1714,15 @@ MESH_TEST_CASE(ui_settings_number_track_places_a_value, unit) {
 }
 
 /*
- * A value that is a word rather than a quantity is off the track, not at the bottom of it.
+ * A value below the bottom stop is off the track, not at the bottom of it.
  *
  * LoRa's transmit power is the case that found this: 0 means "as much as this radio has", and
  * the first version of the slider drew it with the handle hard left - "max", reported at the
  * empty end of its own bar. Every "default" is the same mistake more quietly, because a value
- * the firmware picks is not the shortest interval, it is an interval nobody here knows.
+ * the firmware picks is not the shortest interval, it is an interval nobody here knows. And two
+ * lists reach it without any word at all, simply by starting above zero.
  */
-MESH_TEST_CASE(ui_settings_number_track_refuses_a_word, unit) {
+MESH_TEST_CASE(ui_settings_number_track_refuses_what_it_cannot_place, unit) {
     struct mesh_ui_settings_track track;
 
     MESH_TEST_FAIL_IF(!mesh_ui_settings_number_track(MESH_UI_FIELD_LORA_TX_POWER, 0U, &track),
@@ -1743,6 +1744,26 @@ MESH_TEST_CASE(ui_settings_number_track_refuses_a_word, unit) {
         !mesh_ui_settings_number_track(MESH_UI_FIELD_DISPLAY_SCREEN_ON, 0U, &track) ||
             !track.unplaced,
         "a screen timeout the firmware picks is not the shortest one this client offers");
+
+    /*
+     * And the same at the other source of an off-track value: a list that simply starts above
+     * zero. The public map drops a report under an hour and the firmware floors neighbour info at
+     * four, so those presets begin there - while a radio nobody has configured reports 0 for
+     * both, and MQTT's map settings are an optional submessage that is absent far more often than
+     * it is set. Nothing stands a zero aside on either field; the value is under the bottom stop,
+     * which is the whole of the test.
+     */
+    MESH_TEST_FAIL_IF(
+        !mesh_ui_settings_number_track(MESH_UI_FIELD_MQTT_MAP_INTERVAL, 0U, &track) ||
+            !track.unplaced,
+        "a map report interval of nothing at all is not the shortest one the map will accept");
+    MESH_TEST_FAIL_IF(
+        !mesh_ui_settings_number_track(MESH_UI_FIELD_MQTT_MAP_INTERVAL, 3600U, &track) ||
+            track.unplaced || track.position != 0,
+        "the first preset is the bottom of the track, not off it");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_number_track(MESH_UI_FIELD_NEIGHBOR_INTERVAL, 0U, &track) ||
+                          !track.unplaced,
+                      "a neighbour interval below the firmware's own floor is not four hours");
     record_success(test_name);
 }
 

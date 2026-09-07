@@ -1878,3 +1878,111 @@ MESH_TEST_CASE(ui_capture_slider_refuses_a_word, unit) {
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+/*
+ * The most runs of `gap` any single scanline has strictly *inside* runs of `ink`: marks cut out
+ * of a filled bar, which is what a slider's stops and a meter's band boundaries both are.
+ *
+ * Per row rather than summed, because the number on one row is what carries the claim. A filled
+ * slider's own handle is the same ink as its fill with a gap before it, so every correct frame
+ * and every broken one has at least one - and only a frame whose stops survived has several.
+ *
+ * No geometry, deliberately. Where the bar is depends on the theme's metrics, the glyph scale
+ * and how many rows the app bar took, and a test that worked that out would be a second opinion
+ * about the layout rather than a reading of the frame.
+ */
+static size_t gaps_inside_fill(const uint8_t *frame, size_t stride, uint32_t width, uint32_t y0,
+                               uint32_t y1, uint32_t ink, uint32_t gap) {
+    size_t most = 0U;
+    for (uint32_t y = y0; y <= y1; ++y) {
+        const uint8_t *row = frame + (size_t)y * stride;
+        bool seen_ink = false;
+        uint32_t run = 0U;
+        size_t gaps = 0U;
+        for (uint32_t x = 0; x < width; ++x) {
+            const uint32_t key = pixel_key(row + (size_t)x * 4U);
+            if (key == ink) {
+                /* A gap only counts once it is closed by more of the fill, which is what
+                   distinguishes a notch from the end of the bar. */
+                if (seen_ink && run > 0U) {
+                    ++gaps;
+                }
+                seen_ink = true;
+                run = 0U;
+            } else if (key == gap && seen_ink) {
+                ++run;
+            } else {
+                seen_ink = false;
+                run = 0U;
+            }
+        }
+        if (gaps > most) {
+            most = gaps;
+        }
+    }
+    return most;
+}
+
+/*
+ * A track that offers choices still shows them once the fill has passed them.
+ *
+ * The stops are notches cut out of the track in the ground colour, which is what lets them read
+ * the same over the filled half and the empty one and need no ink of their own - and the whole
+ * of that arrangement depends on the notches being drawn *after* both halves are down. Drawn
+ * before the fill they are gaps the fill closes: the stops behind the handle vanish one by one
+ * as the value climbs, and at the top of the scale a field offering ten choices shows none of
+ * them. That is the state this renders - screen-on at its longest, so the fill is the whole
+ * track - and the frame has to carry marks inside it.
+ */
+MESH_TEST_CASE(ui_capture_slider_stops_survive_the_fill, unit) {
+    const char *failure = NULL;
+
+    for (size_t t = 0; t < mesh_ui_theme_count() && failure == NULL; ++t) {
+        const struct mesh_ui_theme *theme = mesh_ui_theme_at(t);
+        struct mesh_ui_store store;
+        if (mesh_ui_store_init(&store) != 0) {
+            failure = "store init failed";
+            break;
+        }
+        mesh_test_nav_populate(&store);
+        struct mesh_ui_settings settings = store.settings;
+        settings.loaded = true;
+        settings.has_display = true;
+        settings.screen_on_secs = 3600U; /* the top of this field's scale */
+        mesh_ui_store_set_settings(&store, &settings);
+
+        struct mesh_ui_action action;
+        for (int i = 0; i < 4; ++i) {
+            mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+        }
+        uint32_t width = 0U;
+        uint32_t height = 0U;
+        size_t stride = 0U;
+        uint8_t *frame = NULL;
+        if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_DISPLAY)) {
+            failure = "could not open Settings > Display";
+        } else {
+            frame = capture_frame(&store, theme, 4, &width, &height, &stride);
+            if (frame == NULL) {
+                failure = "capture failed";
+            }
+        }
+        if (failure == NULL) {
+            const uint32_t ink = rgb_key(mesh_ui_theme_tone(theme, MESH_UI_TONE_PRIMARY));
+            const uint32_t ground = rgb_key(mesh_ui_theme_color(theme, MESH_UI_COLOR_BG));
+            const uint32_t body_top = height / 8U;
+            const uint32_t body_bottom = height - height / 8U;
+            /* Screen-on offers nine stops, so a filled track carries seven interior marks plus
+               the handle's own gap. More than the handle alone is the whole of the claim. */
+            if (gaps_inside_fill(frame, stride, width, body_top, body_bottom, ink, ground) < 3U) {
+                failure = "a full slider draws as one unbroken bar - the stops it offers are "
+                          "being painted over by the fill instead of cut out of it";
+            }
+        }
+        free(frame);
+        mesh_ui_store_shutdown(&store);
+    }
+
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}

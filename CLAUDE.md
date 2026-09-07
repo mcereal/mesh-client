@@ -97,7 +97,7 @@ suite needs it.
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Verified 2026-09-07: 253 unit tests, all passing, zero compiler warnings.
+Verified 2026-09-07: 254 unit tests, all passing, zero compiler warnings.
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
 vector — not against our own encoder — so a protobuf regeneration that changes field numbers or
 wire types fails loudly.
@@ -315,6 +315,10 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   default", and on LoRa's transmit power "as much as this radio has". Neither is a quantity, so
   `SCALE_PRESETS_AFTER_ZERO()` stands it outside the track and the row draws its stops with no
   handle anywhere - drawn the other way, `max` reported itself at the empty end of its own bar.
+  The same goes for a list that merely *starts* above zero (map reporting, neighbour info): the
+  test is anything under the first stop, not the field's word for it. And the stops are cut into
+  the track **after** both halves are filled, exactly as a meter's band boundaries are - painted
+  before the fill they are gaps the fill closes, and a full track shows none of them.
   Which lists are a scale at all is stated per field (`SCALE_PRESETS` / `NAMED_PRESETS`) and is
   not derivable: `{0, 1, ... 7}` is a hop limit under one field and a GPIO pin under the next.
 - **A card that can end up with no rows must not be given a verb.** A card with no rows is not

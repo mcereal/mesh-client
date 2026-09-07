@@ -426,11 +426,15 @@ struct mesh_ui_settings_track {
  * that climbs geometrically is a track the reader can aim at rather than eight choices crowded
  * into its first sixth.
  *
- * `unplaced` comes back true when the field's leading 0 is a word - "default", "max" - and that
- * is the value the row is showing. Such a value is not at the bottom of the scale, it is not on
- * the scale at all, and the honest drawing is a track with nothing on it rather than a handle
- * somewhere it does not belong. `position` is 0 and `stops` still counts the marks, so a caller
- * can lay the control out without testing first.
+ * `unplaced` comes back true for a value below the track's bottom stop, which happens two ways.
+ * The field's leading 0 may be a word - "default", "max" - stood outside the scale by
+ * SCALE_PRESETS_AFTER_ZERO(). Or the list may simply start above zero, because whatever receives
+ * the setting refuses anything below that (the public map drops a report under an hour, the
+ * firmware floors neighbour info at four) while a radio nobody has configured still reports 0.
+ * Either way the value is not at the bottom of the scale, it is not on the scale at all, and the
+ * honest drawing is a track with nothing on it rather than a handle somewhere it does not
+ * belong. `position` is 0 and `stops` still counts the marks, so a caller can lay the control out
+ * without testing first.
  *
  * One function answers position, count and placement together, for the reason
  * fb_segmented_cols() answers width and form together: a control measured twice is a control

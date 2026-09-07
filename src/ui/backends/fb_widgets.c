@@ -3235,6 +3235,38 @@ int fb_slider_height(const struct mesh_ui_backend_fb_state *state, int scale) {
     return fb_meter_thickness(state, scale) * FB_SLIDER_TRACK * FB_SLIDER_HANDLE_FOCUS / 2;
 }
 
+/*
+ * The choices, marked on the track.
+ *
+ * Cut out of it in the ground colour rather than laid on it in an ink of their own - the band
+ * notches' arrangement, and the same argument: a gap reads the same over the filled half as over
+ * the empty one, and a mark with a colour would be two more contracts every theme has to satisfy
+ * to say what an absence already says. It follows that this must run *after* whatever it is
+ * cutting into, which is the one thing about it that is easy to get wrong.
+ *
+ * Drawn only where they can be told apart. A settings field may offer four choices or twelve,
+ * and twelve notches on a narrow panel is a dashed line rather than a set of stops - so the
+ * component decides, from the width the row actually gave it, and an unmarked track is the
+ * honest answer for a list too long to mark. The ends are skipped for the reason the band's are:
+ * a notch at the very edge of a track is the edge of the track.
+ */
+static void fb_slider_stops(const struct mesh_ui_backend_fb_state *state,
+                            const struct fb_rect *track, int handle_w, uint32_t stops,
+                            struct mesh_ui_rgb ground) {
+    const int notch = fb_space(state, MESH_UI_SPACE_XS) > 0 ? fb_space(state, MESH_UI_SPACE_XS) : 1;
+    const int travel = track->w - handle_w;
+    if (stops < 2U || travel <= 0 || (uint32_t)travel < (stops - 1U) * (uint32_t)(notch * 4)) {
+        return;
+    }
+    for (uint32_t stop = 1U; stop + 1U < stops; ++stop) {
+        const int x = track->x + handle_w / 2 +
+                      (int)(((int64_t)travel * stop) / (int64_t)(stops - 1U)) - notch / 2;
+        if (x >= track->x && x + notch <= track->x + track->w) {
+            fb_fill_rect(state, x, track->y, notch, track->h, ground);
+        }
+    }
+}
+
 void fb_draw_slider(struct mesh_ui_backend_fb_state *state, const struct fb_slider *slider) {
     if (slider == NULL || slider->rect.w <= 0 || slider->rect.h <= 0) {
         return;
@@ -3280,37 +3312,10 @@ void fb_draw_slider(struct mesh_ui_backend_fb_state *state, const struct fb_slid
        the last stop and empty at the first instead of hanging off either end. */
     const int travel = track.w - handle_w;
 
-    /*
-     * The stops, cut out of the track in the ground colour rather than laid on it in an ink of
-     * their own - the band notches' arrangement, and the same argument: a gap reads the same over
-     * the filled half as over the empty one, and a mark with a colour would be two more contracts
-     * every theme has to satisfy to say what an absence already says.
-     *
-     * Drawn only where they can be told apart. A settings field may offer four choices or twelve,
-     * and twelve notches on a narrow panel is a dashed line rather than a set of stops - so the
-     * component decides, from the width the row actually gave it, and an unmarked track is the
-     * honest answer for a list too long to mark. The ends are skipped for the reason the band's
-     * are: a notch at the very edge of a track is the edge of the track.
-     *
-     * Before the fill and before the unplaced exit, because the marks are the one part of this
-     * control that is true whatever the value is - they are what the track *offers*, not what it
-     * is set to.
-     */
-    const int notch = fb_space(state, MESH_UI_SPACE_XS) > 0 ? fb_space(state, MESH_UI_SPACE_XS) : 1;
-    if (slider->stops >= 2U && travel > 0 &&
-        (uint32_t)travel >= (slider->stops - 1U) * (uint32_t)(notch * 4)) {
-        for (uint32_t stop = 1U; stop + 1U < slider->stops; ++stop) {
-            const int x = track.x + handle_w / 2 +
-                          (int)(((int64_t)travel * stop) / (int64_t)(slider->stops - 1U)) -
-                          notch / 2;
-            if (x >= track.x && x + notch <= track.x + track.w) {
-                fb_fill_rect(state, x, track.y, notch, track.h, ground);
-            }
-        }
-    }
-
-    /* A value the track has no room for: the marks, and nothing claiming to be among them. */
+    /* A value the track has no room for: the marks it offers, and nothing claiming to be among
+       them. Drawn here because there is no fill to draw them over. */
     if (slider->unplaced) {
+        fb_slider_stops(state, &track, handle_w, slider->stops, ground);
         return;
     }
 
@@ -3332,6 +3337,15 @@ void fb_draw_slider(struct mesh_ui_backend_fb_state *state, const struct fb_slid
     if (active > 0) {
         fb_fill_round_rect(state, track.x, track.y, active, track.h, radius, ink);
     }
+
+    /* After both halves of the track are down, never before either.
+     *
+     * A notch is a gap cut out of whatever is there, which is the whole reason it needs no ink
+     * of its own - and a gap painted before the fill is a gap the fill closes. Drawn early, the
+     * stops behind the handle vanished one by one as the value climbed, and at the top of the
+     * scale a track that offers a dozen choices showed none of them. Same order fb_draw_meter()
+     * cuts a band's boundaries in, for the same reason. */
+    fb_slider_stops(state, &track, handle_w, slider->stops, ground);
 
     /*
      * The handle, and the gap that separates it from the fill it ends.

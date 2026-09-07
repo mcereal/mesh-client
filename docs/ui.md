@@ -987,12 +987,15 @@ Four things decide whether it is honest, and each of them is a way it was wrong 
   what an axis can do that a set of alternatives cannot: the segmented button had to fall back to
   words for a value outside its set, and a slider does not need to, because a radio reporting 42
   seconds lands where 42 seconds is.
-- **A value that is a word is off the track, not at the bottom of it.** Most of these lists open
-  with a 0 the field reads as "whatever the firmware picks", and LoRa's transmit power reads it as
-  "as much as this radio has" — neither is a quantity. `SCALE_PRESETS_AFTER_ZERO()` says so, the
-  track spans what follows, and such a value comes back `unplaced`: the control draws its stops
-  and no handle anywhere. This is §2.11's rule on an axis. Drawn the other way, `max` had its
-  handle hard left, at the empty end of its own bar.
+- **Anything below the bottom stop is off the track, not at the bottom of it.** Two things reach
+  that. Most of these lists open with a 0 the field reads as "whatever the firmware picks", and
+  LoRa's transmit power reads it as "as much as this radio has" — neither is a quantity, and
+  `SCALE_PRESETS_AFTER_ZERO()` stands it outside the scale. And two lists simply start above zero
+  because what receives the setting refuses less (the public map drops a report under an hour, the
+  firmware floors neighbour info at four), while a radio nobody has configured still reports 0.
+  Either way the value comes back `unplaced` and the control draws its stops and no handle
+  anywhere. This is §2.11's rule on an axis. Drawn the other way, `max` had its handle hard left,
+  at the empty end of its own bar.
 - **The step is reserved from the field, never from the value.** `unplaced` is the only value in
   the client whose row would otherwise be a different height, and a height that moved with the
   value would reflow the whole section under the cursor the moment somebody pressed Right off
@@ -1001,7 +1004,9 @@ Four things decide whether it is honest, and each of them is a way it was wrong 
 
 The drawing reuses what the meter already argued for. The active track and the handle are one
 ink from one tone, `MESH_UI_COLOR_METER_TRACK` is the rest, the stops are notches cut out in the
-ground colour — the same mark a band's boundary is, for the same reason — and the handle is
+ground colour — the same mark a band's boundary is, for the same reason, and drawn **after** both
+halves of the track for the same reason too: a gap painted before the fill is a gap the fill
+closes, which quietly ate every stop behind the handle — and the handle is
 separated from the fill it ends by a gap in that ground, without which the two are one shape and
 there is no position to read. The handle is narrower than its track is thick because it marks a
 *position*, and a wide one is a range; it is drawn taller under the cursor, inside a box that

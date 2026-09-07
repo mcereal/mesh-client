@@ -1099,6 +1099,26 @@ rather than about the drawing, and the drawing was finished long before the answ
   range, and which stands taller under the cursor inside a box that always reserves the taller
   size - §8's focus ring rule, since a control that grew on focus would move the rows below it.
 
+Two things review found that the argument above had right in principle and wrong in the code, and
+both are worth recording because each is a rule already written here failing at its own edge:
+
+- **A notch has to be cut *after* what it is cutting into.** The stops moved above the fill while
+  the `unplaced` exit was being written, because the marks are the one part of the control that is
+  true whatever the value is - which is a correct sentence about *meaning* and the wrong order for
+  *ink*. A gap in the ground painted before the fill is a gap the fill closes, so the stops behind
+  the handle vanished one by one as the value climbed and a full track showed none of them. The
+  meter had the order right; this is the cost of a component reusing another's idea without its
+  sequence. `ui_capture_slider_stops_survive_the_fill` reads it off the frame - the most runs of
+  ground colour any scanline has *inside* runs of the fill - because where the bar is depends on
+  the theme, and a test that worked that out would be a second opinion about the layout.
+- **Below the bottom stop is off the track, and a word is only one way to get there.** The first
+  version tested for it only on the lists that stand a zero aside, which missed the two that
+  simply *start* above zero: the public map drops a report under an hour and the firmware floors
+  neighbour info at four, so those presets begin there - while a radio nobody has configured
+  reports 0, and MQTT's map settings are an optional submessage that is absent far more often than
+  it is present. "Off" was therefore drawn exactly as "every hour". The fix is that the test is
+  about the *track*, not about the field's vocabulary: anything under the first stop is unplaced.
+
 What remains of §3 is step 13 (screen transitions) and step 14 (the sparkline), and both are
 still what the audit said they were: the first is mostly nav work, and the second is a data
 change wearing a component's clothes.

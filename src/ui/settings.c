@@ -1185,10 +1185,13 @@ uint32_t mesh_ui_settings_number_step(enum mesh_ui_setting_field field, uint32_t
  * written by a phone app with a different list - lands where 42 seconds actually is, which is a
  * true statement about a number this client would not itself have offered.
  *
- * What an axis still cannot place is a value that is not a quantity, and most of these lists
- * open with one: a 0 the field reads as "the firmware's own default", or as "as much as this
- * radio has". That is `preset_zero_aside`, the track spans what follows it, and such a value
- * comes back `unplaced` rather than at the bottom - see the header.
+ * What an axis still cannot place is a value below its own bottom stop, and there are two ways
+ * to have one. Most of these lists open with a value that is not a quantity at all - a 0 the
+ * field reads as "the firmware's own default", or as "as much as this radio has" - which is
+ * `preset_zero_aside`, and the track spans what follows it. And two lists simply start above
+ * zero, because the thing at the other end refuses anything below that, while a radio nobody has
+ * configured still reports 0. Both come back `unplaced` rather than at the bottom, by the same
+ * test: anything under the first stop is off the track.
  *
  * The unsigned comparisons are the ones mesh_ui_settings_number_step() walks with, and they are
  * correct over the two signed RSSI lists for the reason stated there - every entry is negative,
@@ -1209,9 +1212,17 @@ bool mesh_ui_settings_number_track(enum mesh_ui_setting_field field, uint32_t va
     const size_t last = spec->preset_count - aside - 1U;
 
     struct mesh_ui_settings_track track = {.stops = (uint32_t)(last + 1U)};
-    if (aside > 0U && value < stops[0]) {
-        /* The word, not the bottom. Everything under the first real stop belongs to it: a field
-           whose 0 means "default" has no other value down there to confuse it with. */
+    if (value < stops[0]) {
+        /*
+         * Below the bottom stop is off the track, on every scale rather than only on the ones
+         * that stand a zero aside.
+         *
+         * Two lists here start above zero because the thing on the other end refuses anything
+         * below it - the public map drops a report under an hour, the firmware floors neighbour
+         * info at four - and a radio that has never been configured reports 0 for both. Placing
+         * that at the first stop would draw "off" exactly as "every hour", which is the same
+         * false claim `max` was making at the other end of transmit power's list.
+         */
         track.unplaced = true;
     } else if (value >= stops[last]) {
         track.position = MESH_UI_ANIM_ONE;
