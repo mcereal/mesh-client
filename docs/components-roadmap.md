@@ -27,10 +27,11 @@ trailing text/badge/switch/icon/meter, supporting line, accent edge, divider —
 every platform converged on, and it is the reason a new kind of row is a struct literal rather
 than a new function.
 
-`fb_screens.c` is correspondingly thin. Across the whole file there is one `fb_fill_rect` and
-there are two `fb_draw_text` calls, and all three are inside the two pieces of chrome that never
-became components (§2.2 and §2.3). The only renderer that still names a raw glyph scale is the
-on-screen keyboard, which is laying out a grid. Everything else is content.
+`fb_screens.c` is correspondingly thin. There is now **no** `fb_fill_rect` and there are **no**
+`fb_draw_text` calls anywhere in the file: at the time of the audit there were three, and all
+three were inside the two pieces of chrome that had never become components (§2.2 and §2.3).
+The only renderer that still names a raw glyph scale is the on-screen keyboard, which is laying
+out a grid. Everything else is content.
 
 So this is not a rewrite. It is: **three tokens the theme does not answer for yet**, and
 **a handful of components whose absence is visible on screen right now.**
@@ -140,6 +141,10 @@ list" to lines of code in the whole audit, and it needs nothing else on this lis
 > (see the note in `CLAUDE.md`), not facts about scroll position, and a rail derived from the list
 > model cannot express either. The title keeps its count.
 
+> **Landed.** `fb_draw_action_bar()`, over `mesh_ui_actions_for()` in `src/ui/actions.c`. The
+> paragraph below is kept as written because its last sentence turned out to be exactly right:
+> the catalog change *was* the bulk of it. §3 has what the tables do and do not say.
+
 **2.2 The footer is not a component.** `fb_draw_footer()` is static in `fb_screens.c` and draws
 two lines of plain text: `A open node  X pin  Y write  L/R tabs`, then the link summary. It is
 the last screen-level renderer that lays out its own pixels, and it is also the piece of chrome
@@ -156,6 +161,8 @@ layer exists to prevent. The action bar therefore needs the hints expressed as *
 data* first — a small table of (button, label string id) per screen, with a catalog entry per
 label — and the sentence hints retired as that table covers them. Budget the catalog change as the
 bulk of §2.2, not the drawing.
+
+> **Landed.** `fb_draw_nav_bar()`, over a reusable `fb_draw_chip_strip()`.
 
 **2.3 The tab strip is not a component.** `fb_draw_tabs()` is also static in `fb_screens.c`, and
 it is about thirty lines that fill a bar, run a three-step label-elision fallback, loop chips and
@@ -294,7 +301,7 @@ Each step is independently shippable and each is visible.
 | 2 | Scroll indicator (§2.1) | **done** | Highest value per line; needs nothing else |
 | 3 | Spacing scale (§1.2) | **done** | Mechanical, and every later step stops adding literals |
 | 4 | Type scale (§1.1) | **done** | The big one. Do it after spacing so the two land together |
-| 5 | Nav bar + action bar as components (§2.2, §2.3) |  | Both are moves into `fb_widgets.c`; both benefit from 3 and 4 |
+| 5 | Nav bar + action bar as components (§2.2, §2.3) | **done** | Both are moves into `fb_widgets.c`; both benefit from 3 and 4 |
 | 6 | Card variants and card actions (§2.4) |  | Where the type scale pays off most |
 | 7 | Checkbox / radio, segmented button (§2.5, §2.6) |  | Additive slots on components that already exist |
 | 8 | Banner, screen progress, standalone badge (§2.8–2.10) |  | New surfaces; want the fourth tier decided first |
@@ -325,6 +332,45 @@ absolutes would stop being a scale the moment somebody asked for larger text.
 > two different places. Giving those a type role means variable-height list items first, which
 > is a change to the list model rather than to the type scale.
 
+Step 5 is the first that changed what a screen can *say*, and the change is mostly in the
+catalog rather than in `fb_widgets.c`. The navigation bar was a move: `fb_draw_tabs()` became
+`fb_draw_nav_bar()` over a reusable `fb_draw_chip_strip()`, which is the piece §2.6's segmented
+button and a Nodes filter row both want and neither could reach while it was private to
+`fb_screens.c`. The action bar was not a move, because there was nothing to move: the hints
+were twenty-four whole sentences, and §2.2 was right that retiring them is the bulk of the
+work. What replaced them is `struct mesh_ui_button_action` — a button and a verb — built by
+`mesh_ui_actions_for()` in [`src/ui/actions.c`](../src/ui/actions.c), which is in the UI layer
+rather than beside the backend because *which buttons mean something in a given state* is a
+fact about the nav. Three consequences worth recording, because none of them was in the audit:
+
+- **The branch that picked a hint is gone from `fb_render_snapshot()`.** It was the same chain
+  of overlay tests as the branch that picks a renderer, written out twice — so a screen growing
+  a press had two places to remember and no way to notice missing one. The bar is now derived
+  from the snapshot, which also makes it the first piece of chrome a unit test can assert about
+  (`tests/suites/ui_actions.c` walks every overlay against every screen).
+- **A keycap is not a catalog id.** `mesh_ui_button_cap()` answers with what is printed on the
+  case, on the same footing as a region code, and the two directional pairs are drawn from the
+  font's arrows — which meant adding U+2191 and U+2193 to `font5x7.c`'s literals beside the
+  horizontal pair that was already there. `MESH_UI_BUTTON_QUIT` is the one cap that is not a
+  constant, because `MESHCLIENT_QUIT_KEYS` can move it somewhere with no printed name.
+- **One hint lost half of itself, deliberately.** `"Left/Right/A edit"` became `←→ edit`. A bar
+  names the gesture that works on every row of a settings section; A only opens something on
+  the rows that have a picker or a keyboard behind them, and a keycap that sometimes does
+  nothing is worse than one fewer keycap.
+
+One thing the audit assumed and got wrong: it treated §2.2 and §2.3 as two moves of similar
+size, both "moves into `fb_widgets.c`". They are not. §2.3 is a move; §2.2 is a catalog
+migration with a component on the end of it, and the ratio was about ten to one. §4's rule
+against a whole-sentence string id had already spotted why — it is the one rule in this document
+that was written before the work it describes and turned out to be load-bearing rather than
+tidy.
+
+The bar is a little taller than the two text lines it replaced, and that was checked rather than
+assumed: the Nodes tab renders the same sixteen rows before and after at the default scale. The
+same reasoning as the type scale in step 4 — the body height is a floored division carrying a
+remainder of most of a row, and the extra half-step above the keycaps and quarter-step under
+them come out of that remainder rather than out of a row.
+
 Steps 1 to 3 changed no screen's *content* and were reviewable as a `make ui-capture` diff
 against identical scene scripts — steps 1 and 3 were pixel-identical at the default theme, which
 is what a pure token extraction should be. Step 4 moves things, as a larger title must: what it
@@ -332,7 +378,7 @@ does not do, in the end, is cost a row. The body height is a floored division, s
 carried a remainder of most of a row that the row count never included; a title that takes some
 of that remainder takes nothing a list was using. `fb_draw_title()` therefore recomputes the row
 count from the body's real bottom rather than deducting what it spent — deducting charged the
-title for that remainder a second time and hid a row that did in fact fit. Steps 5 onwards change
+title for that remainder a second time and hid a row that did in fact fit. Steps 6 onwards change
 what screens can *say*, so each wants its own scene.
 
 ## 4. Rules this roadmap does not get to break
@@ -340,8 +386,10 @@ what screens can *say*, so each wants its own scene.
 - A component takes a **tone, a family or a role** — never a colour. §2.4's card variant is a
   variant, not a fill.
 - A component names a **string id**, never a sentence — and a *whole-sentence* string id is not
-  a way around that when the component's job is to draw the parts separately. See §2.2, where the
-  existing hint entries are the obstacle rather than the supply.
+  a way around that when the component's job is to draw the parts separately. §2.2 is the worked
+  example: the hint entries were the obstacle rather than the supply, and retiring them was most
+  of that step. The successor rule, now that the action bar exists: a screen names a **(button,
+  verb) pair**, and a verb is a word, not a clause.
 - A component names an **icon**, never a marker character.
 - `fb_widgets.h` stays a **component set, not a seam**: it is included only from
   `src/ui/backends/`. A type scale and a spacing scale are the opposite — they belong in

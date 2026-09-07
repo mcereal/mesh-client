@@ -1,3 +1,17 @@
+## [2.20.0](https://github.com/mcereal/mesh-client/compare/v2.19.0...v2.20.0) (2026-09-07)
+
+### Features
+
+* **ui:** draw the chrome as a navigation bar and an action bar ([9d81590](https://github.com/mcereal/mesh-client/commit/9d815905bfa7b3d3ad56b1ddd94b70d80e190b83))
+
+### Bug Fixes
+
+* **ui:** name the compose sheet's A for the row under the cursor ([fd769e7](https://github.com/mcereal/mesh-client/commit/fd769e76114e1fb399d975ed299ec554b0027f5d))
+
+### Documentation
+
+* correct the unit test count ([3eeeafc](https://github.com/mcereal/mesh-client/commit/3eeeafc8a957845c9cfad2d7a2e4b7b0ac7d9f25))
+
 ## [2.19.0](https://github.com/mcereal/mesh-client/compare/v2.18.0...v2.19.0) (2026-09-07)
 
 ### Features

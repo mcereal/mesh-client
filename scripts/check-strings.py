@@ -28,6 +28,7 @@ ROOT = Path(__file__).resolve().parent.parent
 # than this one - and the rest of those files is D-Bus paths and BlueZ diagnostics, which this
 # script would only be able to tell apart from prose with a very long ALLOWED list.
 CHECKED = [
+    "src/ui/actions.c",
     "src/ui/layout.c",
     "src/ui/nav.c",
     "src/ui/nav_canned.c",
@@ -74,6 +75,12 @@ ALLOWED = {
     '"r"': "fopen mode",
     '"w"': "fopen mode",
     '"\\r\\n"': "line endings when reading canned.txt",
+    # The keycaps in the action bar. These are printed on the Brick's case, so they read the
+    # same in every language for the same reason a region code does; the verb beside each is
+    # the translated half. See include/mesh/ui/actions.h.
+    '"START"': "a keycap: what is printed on the button",
+    '"MENU"': "a keycap: what is printed on the button",
+    '"K%u"': "a keycap for a quit key MESHCLIENT_QUIT_KEYS rebound, which has no printed name",
     # A glyph, drawn rather than read: the star beside a pinned node.
     '"\\xE2\\xAD\\x90"': "the pinned-node star",
     # The keyboard's own layers. These are the keys, not words about them: a locale that wants

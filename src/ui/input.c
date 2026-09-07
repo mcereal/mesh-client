@@ -41,6 +41,10 @@ static bool s_quit_keys_loaded;
 /* The hint's text is rebuilt per call (see mesh_ui_input_quit_hint); only which of the two
    forms it takes is settled when the keys are loaded. */
 static char s_quit_hint[64];
+/* The keycap form of the same fact - "MENU", or "K139" when somebody has rebound it. Separate
+   from the hint because it is not prose: a cap is what is printed on the plastic, and a key
+   code stands in when there is no plastic to read it off. */
+static char s_quit_cap[8];
 static bool s_quit_hint_is_key_code;
 
 static void mesh_ui_input_load_quit_keys(void) {
@@ -264,6 +268,7 @@ void mesh_ui_input_reload_quit_keys(void) {
     s_quit_key_count = 0U;
     memset(s_quit_keys, 0, sizeof s_quit_keys);
     memset(s_quit_hint, 0, sizeof s_quit_hint);
+    memset(s_quit_cap, 0, sizeof s_quit_cap);
     s_quit_hint_is_key_code = false;
     mesh_ui_input_load_quit_keys();
 }
@@ -294,6 +299,17 @@ const char *mesh_ui_input_quit_hint(void) {
         mesh_str_copy(s_quit_hint, sizeof s_quit_hint, mesh_str(MESH_STR_HINT_QUIT_MENU));
     }
     return s_quit_hint;
+}
+
+const char *mesh_ui_input_quit_cap(void) {
+    mesh_ui_input_load_quit_keys();
+    if (!s_quit_hint_is_key_code) {
+        return "MENU";
+    }
+    /* A code rather than a name, prefixed so it is read as a key and not as a quantity. The
+       buffer is file-scope for the same reason the hint's is: the pointer outlives the call. */
+    snprintf(s_quit_cap, sizeof s_quit_cap, "K%u", (unsigned)s_quit_keys[0]);
+    return s_quit_cap;
 }
 
 enum mesh_ui_key mesh_ui_input_map_key(uint16_t code) {

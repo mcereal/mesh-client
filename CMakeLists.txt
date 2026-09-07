@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.18)
-project(meshclient VERSION 2.19.0 LANGUAGES C)
+project(meshclient VERSION 2.20.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -56,6 +56,7 @@ add_library(meshclient_core
     src/utils/sha256.c
     src/utils/text.c
     src/utils/time.c
+    src/ui/actions.c
     src/ui/anim.c
     src/ui/store.c
     src/ui/controller.c

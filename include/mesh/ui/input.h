@@ -89,6 +89,16 @@ bool mesh_ui_input_is_quit_key(uint16_t code);
 /* Footer text for the UI backends, e.g. "Press MENU to quit". */
 const char *mesh_ui_input_quit_hint(void);
 
+/*
+ * The same fact as a keycap: "MENU", or "K139" when MESHCLIENT_QUIT_KEYS has moved quitting to
+ * a key whose name we do not know.
+ *
+ * What the action bar draws inside the pill, where the hint above is a sentence for the line
+ * that reports the transport. Never NULL, and never translated - a cap is what is printed on
+ * the case. See enum mesh_ui_button.
+ */
+const char *mesh_ui_input_quit_cap(void);
+
 /* The quit-key set is parsed from the environment once and cached. Exposed so tests can
    re-read MESHCLIENT_QUIT_KEYS after changing it; not needed in normal use. */
 void mesh_ui_input_reload_quit_keys(void);

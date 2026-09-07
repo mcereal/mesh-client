@@ -22,6 +22,7 @@
 
 #include "fb_internal.h"
 
+#include "mesh/ui/actions.h"
 #include "mesh/ui/icon.h"
 #include "mesh/ui/layout.h"
 #include "mesh/ui/theme.h"
@@ -137,6 +138,124 @@ int fb_button_width(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_i
    itself differently from the way it draws is a strip whose last tab falls off the panel. */
 int fb_chip_width(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_icon icon,
                   const char *label, int scale);
+
+/* ---- the chip strip ------------------------------------------------------------------------
+ *
+ * A row of chips laid out left to right, one of them active, sized to the room it is given.
+ *
+ * fb_draw_chip()'s own comment predicted this: a tab strip, a filter row and a segmented
+ * control are one shape. The strip was written out inside fb_screens.c for the tab bar's sake
+ * and was private to it, so a filter row on Nodes - All / Direct / Favourites - would have had
+ * to re-derive the measuring loop, which is the exact duplication fb_chip_width() was added to
+ * prevent. It is a component now, and the navigation bar below is its first caller.
+ *
+ * The elision is the part worth having in one place. A strip that does not fit drops the
+ * labels, and it drops them in two steps rather than one: first every label but the active
+ * one, then all of them. Keeping the selected label longest is Material's "selected" label
+ * mode, and it is the one state a row of icons cannot express on its own.
+ */
+
+struct fb_chip {
+    enum mesh_ui_icon icon;
+    const char *label;
+};
+
+/* How much of the labels a strip is showing. Picked by the draw call from the room it is
+   given; exposed because measuring and drawing have to agree about it. */
+enum fb_chip_labels {
+    FB_CHIP_LABELS_ALL = 0,
+    FB_CHIP_LABELS_SELECTED, /* only the active chip keeps its words */
+    FB_CHIP_LABELS_NONE,     /* icons alone */
+};
+
+/* What the strip takes at this setting, trailing gaps included. */
+int fb_chip_strip_width(const struct mesh_ui_backend_fb_state *state, const struct fb_chip *chips,
+                        size_t count, size_t active, enum fb_chip_labels labels, int scale);
+
+/* The most labels that fit in `room`. FB_CHIP_LABELS_NONE when even the icons overrun, which
+   is not a case any theme reaches - a strip of five icons is about a fifth of the panel. */
+enum fb_chip_labels fb_chip_strip_fit(const struct mesh_ui_backend_fb_state *state,
+                                      const struct fb_chip *chips, size_t count, size_t active,
+                                      int room, int scale);
+
+/* Draws the strip from `x`, eliding to fit `room`, and returns the x after the last chip.
+   `ground` is what the caller has filled behind it - see struct fb_button. */
+int fb_draw_chip_strip(const struct mesh_ui_backend_fb_state *state, int x, int y,
+                       const struct fb_chip *chips, size_t count, size_t active, int room,
+                       enum mesh_ui_color ground, int scale);
+
+/* ---- the navigation bar ---------------------------------------------------------------------
+ *
+ * The chrome across the top: a recessed bar, one chip per tab, and the rule that closes it off.
+ *
+ * The bar is the point. The strip used to float on the body's own ground, which left the tabs
+ * reading as the first row of content rather than as the frame around it; a recessed tier
+ * behind them says "this is chrome" before a word of it is read, which is what every phone's
+ * navigation bar is doing. It is the theme's lowest surface, so a palette decides how far from
+ * the ground that is - on the high-contrast theme it is barely anywhere, which is correct.
+ *
+ * Consumes the room it occupies: `layout->body_y` comes back pointing at the first body row.
+ */
+void fb_draw_nav_bar(const struct mesh_ui_backend_fb_state *state, struct fb_layout *layout,
+                     const struct fb_chip *tabs, size_t count, size_t active);
+
+/* ---- the action bar -------------------------------------------------------------------------
+ *
+ * The chrome across the bottom: what the buttons do here, as keycaps, over the line that says
+ * what the radio is doing.
+ *
+ * This was two lines of plain text, and it was the last screen-level renderer laying out its
+ * own pixels - which is also why it was the piece of chrome that most made the UI read as a
+ * terminal rather than as a handheld OS. A hint sentence is a row of controls written down as
+ * words: the letters in it are things on the case, and the verbs after them are what those
+ * things do. Drawing it as keycaps says both without the eye having to parse a sentence to
+ * find the one letter it was looking for.
+ *
+ * The keycap is FB_BUTTON_FILLED at MESH_UI_SHAPE_SM, which is the component set's existing
+ * answer for "a place to press" - the on-screen keyboard's keys are the same button - so a
+ * keycap here and a key there cannot drift apart.
+ *
+ * **What it draws is `struct mesh_ui_button_action`, never a sentence.** The bar has to iterate the
+ * pairs, so the pairs have to exist before the drawing does; that is why the hint catalog
+ * entries were retired in favour of the table in src/ui/actions.c. See
+ * include/mesh/ui/actions.h.
+ *
+ * It owns the whole bottom bar - the surface, the rule above it, the keycaps and the status
+ * line - for the same reason the card owns its own inset: a screen that placed the status line
+ * itself would be back to computing a y coordinate in fb_screens.c.
+ */
+
+struct fb_action_bar {
+    const struct mesh_ui_button_action *items;
+    size_t count;
+    /*
+     * The line under the keycaps: the transport state, and either the radio it is attached to
+     * or how to quit.
+     *
+     * It used to share a row with the transient notice, which took it whenever there was one -
+     * so every action blanked the answer to "is there a radio attached?" for four seconds. The
+     * notice has somewhere of its own now (fb_draw_snackbar), and this row says one thing,
+     * always. Clipped to the panel rather than wrapped: the bar is a fixed height.
+     */
+    const char *status;
+    enum mesh_ui_tone status_tone;
+};
+
+/* The room the bar wants at the foot of the panel - what a caller subtracts from the panel
+   height to find where the body ends. */
+int fb_action_bar_height(const struct mesh_ui_backend_fb_state *state,
+                         const struct fb_layout *layout);
+
+/*
+ * Draws it, with its top edge at `layout->footer_y`.
+ *
+ * Actions that do not fit are dropped from the *end*, which is why struct mesh_ui_action_bar
+ * is documented as being in priority order: on a narrow panel or in a long translation, the
+ * press the screen is for survives and "L/R tabs" - true everywhere, and therefore the least
+ * worth the room - is what goes.
+ */
+void fb_draw_action_bar(const struct mesh_ui_backend_fb_state *state,
+                        const struct fb_layout *layout, const struct fb_action_bar *bar);
 
 /*
  * A switch: a boolean the eye reads without reading a word.
