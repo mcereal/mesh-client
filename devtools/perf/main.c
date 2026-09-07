@@ -4,6 +4,7 @@
    reaches the drawing seam to compare the same rasterizer with and without its glyph cache. */
 #include "../../src/ui/backends/fb_internal.h"
 
+#include "mesh/ui/backends/fb_capture.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,6 +26,63 @@ static void render_text(struct mesh_ui_backend_fb_state *state) {
                                   : "BRVO  Messages 0123456789 café español",
                      4, ink, ground);
     }
+}
+
+static bool benchmark_transcript(bool animate) {
+    struct mesh_ui_snapshot *snapshot = calloc(1U, sizeof *snapshot);
+    struct mesh_ui_capture *capture[2] = {NULL, NULL};
+    uint8_t *pixels = malloc(1024U * 768U * 4U);
+    bool identical = false;
+    if (snapshot == NULL || pixels == NULL ||
+        mesh_ui_capture_open(&capture[0], 1024U, 768U, 4) != 0 ||
+        mesh_ui_capture_open(&capture[1], 1024U, 768U, 4) != 0)
+        goto cleanup;
+    mesh_ui_capture_set_reference(capture[0], true);
+    snapshot->nav.screen = MESH_UI_SCREEN_MESSAGES;
+    snapshot->nav.thread_open = true;
+    snapshot->nav.inbox = true;
+    snapshot->messages.count = MESH_UI_MAX_MESSAGES;
+    for (uint32_t i = 0U; i < MESH_UI_MAX_MESSAGES; ++i) {
+        struct mesh_ui_message *message = &snapshot->messages.entries[i];
+        message->packet_id = i + 1U;
+        message->peer = 2U;
+        message->rx_time = 1788000000U + i * 100U;
+        snprintf(message->peer_name, sizeof message->peer_name, "ALFA");
+        snprintf(message->text, sizeof message->text,
+                 "Message %u: repeated transcript layout with enough text to wrap across lines.",
+                 i);
+    }
+    double elapsed[2];
+    const unsigned frames = 300U;
+    for (unsigned pass = 0U; pass < 2U; ++pass) {
+        mesh_ui_capture_render(capture[pass], snapshot);
+        const double start = now_ms();
+        for (unsigned frame = 0U; frame < frames; ++frame) {
+            snapshot->nav.cursor[MESH_UI_SCREEN_MESSAGES] = animate ? 63U : 62U + frame % 2U;
+            if (animate) {
+                snprintf(snapshot->nav.toast, sizeof snapshot->nav.toast, "Saved");
+                snapshot->nav.toast_until_ms = 6000U + frame / 20U;
+                mesh_ui_capture_advance(capture[pass], 16U);
+            }
+            mesh_ui_capture_render(capture[pass], snapshot);
+        }
+        elapsed[pass] = (now_ms() - start) / frames;
+        if (pass == 0U)
+            memcpy(pixels, mesh_ui_capture_pixels(capture[pass], NULL, NULL, NULL),
+                   1024U * 768U * 4U);
+    }
+    identical = memcmp(pixels, mesh_ui_capture_pixels(capture[1], NULL, NULL, NULL),
+                       1024U * 768U * 4U) == 0;
+    printf("64-message transcript %s: reference %.3f ms/frame; cached %.3f ms/frame; "
+           "%.2fx; pixels %s\n",
+           animate ? "animation" : "navigation", elapsed[0], elapsed[1], elapsed[0] / elapsed[1],
+           identical ? "identical" : "DIFFERENT");
+cleanup:
+    mesh_ui_capture_close(capture[0]);
+    mesh_ui_capture_close(capture[1]);
+    free(snapshot);
+    free(pixels);
+    return identical;
 }
 
 int main(void) {
@@ -66,5 +124,5 @@ int main(void) {
     fb_glyph_cache_free(&state);
     free(reference);
     free(state.fb_ptr);
-    return identical ? 0 : 1;
+    return benchmark_transcript(false) && benchmark_transcript(true) && identical ? 0 : 1;
 }

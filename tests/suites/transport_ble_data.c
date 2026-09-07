@@ -329,6 +329,36 @@ MESH_TEST_CASE(ble_transport_messaging_mock, unit) {
         goto cleanup;
     }
 
+    /* A pending write retains the head, so the second send cannot overtake it. */
+    mock_config.write_result = -EAGAIN;
+    mesh_bluez_client_mock_enable(&mock_config);
+    if (mesh_ble_transport_send_text(ble, peer_node, 0U, "first queued", true, NULL) != 0 ||
+        mesh_ble_transport_send_text(ble, peer_node, 0U, "second queued", true, NULL) != 0) {
+        failure = "pending writes must be accepted without dropping the link";
+        goto cleanup;
+    }
+    meshtastic_ToRadio pending = meshtastic_ToRadio_init_default;
+    pb_istream_t pending_stream = pb_istream_from_buffer(write_capture, write_len);
+    if (!pb_decode(&pending_stream, meshtastic_ToRadio_fields, &pending) ||
+        pending.packet.decoded.payload.size != strlen("first queued") ||
+        memcmp(pending.packet.decoded.payload.bytes, "first queued", strlen("first queued")) != 0) {
+        failure = "second packet overtook the pending queue head";
+        goto cleanup;
+    }
+    mock_config.write_result = 0;
+    mesh_bluez_client_mock_enable(&mock_config);
+    writes_before = write_call_count;
+    ble->ops->tick(ble);
+    pending_stream = pb_istream_from_buffer(write_capture, write_len);
+    if (write_call_count != writes_before + 2U ||
+        !pb_decode(&pending_stream, meshtastic_ToRadio_fields, &pending) ||
+        pending.packet.decoded.payload.size != strlen("second queued") ||
+        memcmp(pending.packet.decoded.payload.bytes, "second queued", strlen("second queued")) !=
+            0) {
+        failure = "completion must drain both queued packets in FIFO order";
+        goto cleanup;
+    }
+
 cleanup:
     ble->ops->stop(ble);
     mesh_event_loop_shutdown(&loop);

@@ -429,6 +429,8 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
         mesh_log_info("app", "Auto-connect disabled by MESHCLIENT_AUTOCONNECT");
     }
     app->ui_handshake_cache_dirty = false;
+    app->ui_cache_timer_armed = false;
+    app->ui_cache_timer_fd = -1;
     app->ui_read_state_stamp = 0U;
 
     if (mesh_ui_preferences_default_path(app->ui_preferences_path,
@@ -589,6 +591,7 @@ void mesh_app_shutdown(struct mesh_app *app) {
        download to clean up. */
     mesh_updater_shutdown(&app->updater);
     mesh_ui_controller_shutdown(&app->ui_controller);
+    mesh_app_close_ui_cache_timer(app);
     if (app->ui_handshake_cache_path[0] != '\0') {
         mesh_ui_store_save(&app->ui_store, app->ui_handshake_cache_path);
         app->ui_handshake_cache_dirty = false;
