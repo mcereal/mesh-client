@@ -1,3 +1,18 @@
+## [2.24.0](https://github.com/mcereal/mesh-client/compare/v2.23.1...v2.24.0) (2026-09-07)
+
+### Features
+
+* **ui:** draw the UI in a rasterised face instead of a 5x7 bitmap ([c81c2b8](https://github.com/mcereal/mesh-client/commit/c81c2b8933433e4d1361af34ae3d8caa2edeefb3))
+
+### Bug Fixes
+
+* **package:** ship the third-party font licences in the pak ([bf68c03](https://github.com/mcereal/mesh-client/commit/bf68c03639ae331a9498281dbf9904e5299d9589))
+* **ui:** carry the ground through the signal slot, and format the generated table ([3c087b5](https://github.com/mcereal/mesh-client/commit/3c087b51258057b1920d3803a09e613216cf91f8))
+
+### Code Refactoring
+
+* **ui:** make a glyph coverage rather than a bitmask ([81bbc7c](https://github.com/mcereal/mesh-client/commit/81bbc7c222d977348a8730d36469d1e77e379321))
+
 ## [2.23.1](https://github.com/mcereal/mesh-client/compare/v2.23.0...v2.23.1) (2026-09-07)
 
 ### Bug Fixes
