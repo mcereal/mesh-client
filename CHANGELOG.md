@@ -1,3 +1,13 @@
+## [2.27.0](https://github.com/mcereal/mesh-client/compare/v2.26.1...v2.27.0) (2026-09-07)
+
+### Features
+
+* **ui:** give cards three weights and a verb, and make Status act ([0af9b19](https://github.com/mcereal/mesh-client/commit/0af9b194aea68fc579b8a0f3d10ca8093191f1e4))
+
+### Bug Fixes
+
+* **ui:** keep the focus ring out of card layout, and the Status verbs append-only ([864eff1](https://github.com/mcereal/mesh-client/commit/864eff1c274a10a9749365aee5b537eeed272ca0)), closes [#96](https://github.com/mcereal/mesh-client/issues/96)
+
 ## [2.26.1](https://github.com/mcereal/mesh-client/compare/v2.26.0...v2.26.1) (2026-09-07)
 
 ### Bug Fixes
