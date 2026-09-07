@@ -63,6 +63,11 @@ void fb_state_set_theme(struct mesh_ui_backend_fb_state *state, const struct mes
     /* Every position remembered in there is in pixels, measured against metrics this call has
        just replaced. Keeping them would slide a knob from where it sat under the old scale. */
     mesh_ui_anim_table_reset(&state->anim);
+    /* And the frame's own transition, for the same reason and one more: a theme switch is not a
+       move between screens, so a screen that slid in because the palette changed would be
+       animating an event that did not happen. */
+    memset(&state->slide, 0, sizeof state->slide);
+    state->slide_dir = 0;
 }
 
 void fb_state_set_now(struct mesh_ui_backend_fb_state *state, uint64_t now_ms) {
@@ -72,7 +77,114 @@ void fb_state_set_now(struct mesh_ui_backend_fb_state *state, uint64_t now_ms) {
 }
 
 bool fb_state_animating(const struct mesh_ui_backend_fb_state *state) {
-    return state != NULL && mesh_ui_anim_table_active(&state->anim, state->now_ms);
+    if (state == NULL) {
+        return false;
+    }
+    /* The transition is asked about separately from the table because it is kept separately -
+       see `slide` on the state. A frame owes another one while either has somewhere to be. */
+    return mesh_ui_anim_active(&state->slide, state->now_ms) ||
+           mesh_ui_anim_table_active(&state->anim, state->now_ms);
+}
+
+/*
+ * How far a screen travels on its way in, as a fraction of the panel: a quarter of it.
+ *
+ * Not the whole width, and this is the one measurement in the transition that had to be looked
+ * at rather than reasoned about. Only one screen is drawn (see fb_transition_offset()), so a
+ * screen that started a full panel out left the body *empty* on the frame the press landed -
+ * one blank frame, every time, before anything arrived. A blink is a worse artefact than no
+ * animation at all.
+ *
+ * A quarter is also what Material's shared-axis transition does, and for the same reason
+ * arrived at from the other end: there the displacement is small because the cross-fade is what
+ * carries the change of identity, and the slide only says which way. Here there is no fade to
+ * carry it - so the slide says which way *and* the content under the cursor is legible for the
+ * whole of the move, which is what a blank frame was spending.
+ */
+#define FB_TRANSITION_TRAVEL_NUM 1
+#define FB_TRANSITION_TRAVEL_DEN 4
+
+/*
+ * The move this frame is part of, as the distance the arriving screen still has to travel.
+ *
+ * Positive is a screen coming in from the right - which is what going a level deeper looks like
+ * on every handheld - negative one coming in from the left, and 0 a frame that is not moving,
+ * which is very nearly all of them.
+ *
+ * Where the "was" comes from is the whole design, and it is not in the snapshot: mesh/ui/route.h
+ * reads the nav and says which *place* it is showing, this remembers the last one, and the
+ * difference between two places is the direction. Nothing in the store or the nav records how it
+ * got here, so no call site that opens a level has to remember to say so.
+ *
+ * Only one screen is ever rendered. There is no alpha on this panel and nothing can read back
+ * what is already on it, so a cross-fade is out and so is carrying the outgoing screen along
+ * beside the incoming one - which would want a second page of pixels held for the length of the
+ * move. What is left is a displacement, and FB_TRANSITION_TRAVEL_NUM is how much of one.
+ *
+ * A theme that asks for no motion gets none: mesh_ui_anim_to() with a zero duration puts the
+ * value on its target, which lands the screen in place on the frame it arrives.
+ */
+int fb_transition_offset(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_nav *nav) {
+    if (state == NULL || nav == NULL) {
+        return 0;
+    }
+
+    struct mesh_ui_route route;
+    mesh_ui_route_of(nav, &route);
+
+    if (!state->route_valid) {
+        /* First sight adopts, the rule the animation table follows for an id it has not seen: a
+           screen that slid in on the frame the client came up would be announcing itself rather
+           than reporting a move. */
+        state->route = route;
+        state->route_valid = true;
+        return 0;
+    }
+
+    const enum mesh_ui_transition move = mesh_ui_route_move(&state->route, &route);
+    state->route = route;
+    if (move != MESH_UI_TRANSITION_NONE) {
+        state->slide_dir = (move == MESH_UI_TRANSITION_FORWARD) ? 1 : -1;
+        /* From the far end every time, including when a move interrupts one already running:
+           a second press is a second screen arriving, not the first one changing its mind about
+           where it was going. */
+        mesh_ui_anim_set(&state->slide, 0);
+        mesh_ui_anim_to(&state->slide, state->now_ms, MESH_UI_ANIM_ONE,
+                        /* MEDIUM rather than the SHORT the audit named. SHORT is what a control
+                           acknowledging a press takes, and it is also what anything *leaving*
+                           takes - and this is the one animation here with nothing leaving in it.
+                           The token whose stated meaning is "something arriving that was not
+                           there" is the one a screen arriving should be spending. */
+                        fb_motion(state, MESH_UI_MOTION_MEDIUM), MESH_UI_EASE_OUT);
+    }
+
+    if (state->slide_dir == 0) {
+        return 0;
+    }
+    const int32_t remaining = MESH_UI_ANIM_ONE - mesh_ui_anim_value(&state->slide, state->now_ms);
+    if (remaining <= 0) {
+        state->slide_dir = 0;
+        return 0;
+    }
+    const int travel = (int)state->var.xres * FB_TRANSITION_TRAVEL_NUM / FB_TRANSITION_TRAVEL_DEN;
+    return state->slide_dir * (int)(((int64_t)remaining * travel) / MESH_UI_ANIM_ONE);
+}
+
+void fb_shift_begin(struct mesh_ui_backend_fb_state *state, int dx, int top, int bottom) {
+    if (state == NULL || bottom <= top) {
+        return;
+    }
+    state->shift_x = dx;
+    state->shift_top = top;
+    state->shift_bottom = bottom;
+    state->shift_active = true;
+}
+
+void fb_shift_end(struct mesh_ui_backend_fb_state *state) {
+    if (state != NULL) {
+        state->shift_active = false;
+        state->shift_x = 0;
+    }
 }
 
 bool fb_state_follow_snapshot(struct mesh_ui_backend_fb_state *state,
@@ -224,6 +336,27 @@ static void fb_fill_packed(const struct mesh_ui_backend_fb_state *state, int x, 
                            uint32_t packed) {
     if (w <= 0 || h <= 0) {
         return;
+    }
+    /*
+     * The frame's transform, before anything is measured against the panel: a screen arriving
+     * from off the right-hand edge is drawn at coordinates that are not on the panel at all,
+     * and the clamp below is what turns that into the part of it that has arrived. The band is
+     * applied here rather than left to the caller for the same reason - a row whose glyphs
+     * overhang the top of the body must be cut off at the body, not drawn over the navigation
+     * bar it is sliding underneath. See fb_shift_begin().
+     */
+    if (state->shift_active) {
+        x += state->shift_x;
+        if (y < state->shift_top) {
+            h -= state->shift_top - y;
+            y = state->shift_top;
+        }
+        if (y + h > state->shift_bottom) {
+            h = state->shift_bottom - y;
+        }
+        if (h <= 0) {
+            return;
+        }
     }
     if (x < 0) {
         w += x;

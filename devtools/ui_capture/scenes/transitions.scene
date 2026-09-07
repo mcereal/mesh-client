@@ -1,0 +1,45 @@
+# Moving between screens: the four transitions a handheld animates, and what stays still.
+#
+# Every frame here was already correct before step 13. What the clip is for is the frames
+# *between* two of them, which is exactly what no screenshot can show. Watch the chrome: the
+# tab strip names the same tab throughout a push and the keycaps under the body change their
+# verbs without travelling, because neither of them is what the move replaced.
+scene demo
+scale 4
+delay 420
+
+# A level deeper, and back out. The same two frames in the opposite order, which is the whole
+# of what the route model exists to tell apart.
+hold 300
+key down 2
+key a
+hold 500
+key b
+
+# Sideways: the direction is the tab strip's own, so Nodes arrives from the right and Messages
+# comes back in from the left.
+hold 400
+key r1
+hold 400
+key l1
+
+# A node's detail, the second tab that is a hierarchy.
+hold 300
+key r1
+hold 300
+key down
+key a
+hold 500
+key b
+
+# And an overlay is a level too - the keyboard raised over a thread, then dropped.
+hold 300
+key l1
+hold 300
+key down 2
+key a
+hold 400
+key y
+hold 500
+key b
+hold 600

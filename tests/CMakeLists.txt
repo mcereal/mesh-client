@@ -39,6 +39,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/ui_nav_nodes.c
     suites/ui_nav_settings.c
     suites/ui_preferences.c
+    suites/ui_route.c
     suites/ui_settings.c
     suites/ui_status.c
     suites/ui_store.c

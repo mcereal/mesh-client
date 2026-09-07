@@ -97,7 +97,7 @@ suite needs it.
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Verified 2026-09-07: 254 unit tests, all passing, zero compiler warnings.
+Verified 2026-09-07: 260 unit tests, all passing, zero compiler warnings.
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
 vector — not against our own encoder — so a protobuf regeneration that changes field numbers or
 wire types fails loudly.
@@ -138,6 +138,7 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | Status verbs | `src/ui/status.c`, `include/mesh/ui/status.h` | which Status card carries which verb — read by `nav.c`, `actions.c` and the renderer alike |
 | Client-level chrome | `src/ui/chrome.c`, `include/mesh/ui/chrome.h` | what the frame says about the *client* rather than about a screen: whether anything is in flight (the progress bar) and which persistent banner it carries |
 | Animation | `src/ui/anim.c`, `src/ui/controller.c` | fixed-point easing + a table keyed per control; the repaint timerfd that feeds it |
+| Screen transitions | `src/ui/route.c`, `include/mesh/ui/route.h` | where the nav *is*, as a comparable place - so which way a move went is derived rather than recorded. The backend slides the body from it (`fb_transition_offset`, `fb_shift_begin`) |
 | Icons | `src/ui/icon.c`, `src/ui/icon_glyphs.c`, `include/mesh/ui/icons.def` | monochrome Material Symbols, tinted by the theme, in the row slots |
 | Themes | `src/ui/theme.c`, `src/ui/font.c` | palette by role, surface tiers, the shape scale, metrics, font registry; `MESHCLIENT_THEME` or Settings > About picks one |
 | Fonts | `src/ui/font_ui.c` + generated `font_ui_glyphs.c`, `src/ui/font5x7.c` | a glyph is **coverage**, resampled from the font's master into the cell; `ui` (JetBrains Mono) is the default, `5x7` is the pixel one |
@@ -336,6 +337,23 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   the tables alone.
 - **`devtools/` is not `Tools/`.** `Tools/` holds the device-facing pak assets, and macOS
   filesystems are case-insensitive by default, so a `tools/` directory would collide with it.
+- **A screen transition is derived from the nav, not declared by it.** Nothing records that a
+  press went in or out. `mesh_ui_route_of()` reads the nav and says which *place* it is showing,
+  the backend remembers the last one, and the difference between two is the direction - so a new
+  way to open a level animates correctly without being told to. A field on `struct mesh_ui_nav`
+  is the thing this deliberately is not: eleven call sites open a level and a forgotten one
+  animates backwards, which fails no build and is invisible in a screenshot. The cursor, the
+  draft and every armed press are excluded on purpose - a route that moved with the cursor would
+  restart the slide on every press of Down.
+- **Only the arriving screen is drawn, and it travels a quarter of the panel, not all of it.**
+  There is no alpha here and nothing can read back what is on the panel, so the outgoing screen
+  cannot be carried along. A full-panel travel therefore leaves the body *empty* on the frame the
+  press lands - one blank frame, every time. A quarter is also Material's shared-axis
+  displacement, and it keeps the arriving screen legible for the whole move.
+- **The navigation bar, the action bar, the progress bar and the banner do not slide with the
+  body.** The transform wraps the screen renderer only. A frame-wide offset would be the client
+  saying the whole application had been replaced when one level of one tab did; the two client
+  bars are drawn before the transform because the client did not go anywhere.
 - **The capture harness cannot act on a `mesh_ui_action`.** START in the keyboard raises
   `SEND_TEXT` and the store stops there; sending is `mesh_app`'s job and there is no app behind
   the harness. A scene stands in for the echo with `message out ...`.

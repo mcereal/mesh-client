@@ -2343,6 +2343,27 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
     layout.back = mesh_ui_action_bar_goes_back(&actions);
 
     /*
+     * And whether this frame is part of a move between two places, which is the one thing about
+     * it that is not a function of the snapshot - see fb_transition_offset().
+     *
+     * The band is everything below the navigation bar and above the action bar, because those
+     * two are the same on both sides of any move: the strip still names the tab it named, the
+     * keycaps still say what the buttons do. What is inside the band and drawn *before* the
+     * transform - the screen progress bar and the banner - stays put for the same reason, being
+     * about the client rather than about the screen that is arriving.
+     *
+     * It is also declared as animation damage, so the frame after this one repaints the whole
+     * band. Everything in there is a function of the clock while a move is running, and the
+     * partial-redraw path assumes the opposite of anything it has not been told about.
+     */
+    const int slide = fb_transition_offset(state, &snapshot->nav);
+    if (slide != 0) {
+        fb_animation_damage(state, 0, layout.nav_y, (int)state->var.xres,
+                            layout.footer_y - layout.nav_y);
+        fb_shift_begin(state, slide, layout.nav_y, layout.footer_y);
+    }
+
+    /*
      * One tail for every path through this function, which is what lets the chrome below it be
      * written once. The overlays used to draw the footer and return, and each of the four
      * carried its own copy of that call - so anything drawn over the whole frame (the notice
@@ -2380,6 +2401,7 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
             break;
         }
     }
+    fb_shift_end(state);
 
     struct mesh_ui_line summary;
     enum mesh_ui_tone summary_tone = MESH_UI_TONE_DIM;

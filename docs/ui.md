@@ -1337,6 +1337,67 @@ device, a number the scene script names in a capture — and never read inside t
 widget that read a clock of its own would draw two halves of one frame at two different times,
 and a capture could not pin either of them.
 
+#### Screen transitions — `mesh/ui/route.h` and `fb_shift_begin()`
+
+Every animation above is a *control* moving: a switch's knob, a meter's fill, the snackbar's
+rise. Moving between two screens is the one animation whose subject is the whole body, and it is
+the only one that needs something no frame contains — **which way the user went**. Opening a node
+and backing out of one are the same two frames in the opposite order.
+
+**`include/mesh/ui/route.h` answers it by deriving, not by recording.** A *route* is where the
+nav is: a `depth` (0 is a tab's own list, and every level opened over one adds one), the `screen`
+that orders two places equally deep, and enough of the level's own subject to tell two of them
+apart. `mesh_ui_route_move()` compares two and says forward, back, or neither — depth first,
+because in and out is what the four transitions worth animating are, and the tab order only when
+two places are equally deep.
+
+The audit ([`components-roadmap.md` §2.16](components-roadmap.md)) expected a *field* on `struct
+mesh_ui_nav` instead, written by every call site that opens or closes a level. There are eleven
+of those and nine that close one, and a new one that forgot to set it would animate the wrong way
+round — which is not a crash, fails no build, and is invisible in a screenshot. This is the top
+app bar's back arrow one level up: **a second opinion about the nav is a second opinion that can
+be wrong.** Nothing in the store or the nav records how it got here.
+
+A route deliberately excludes the cursor, the draft and every armed press. Those change
+constantly and change no *place*; a route that included them would restart the slide under the
+user's thumb on every press of Down.
+
+**The "was" lives in the backend**, on `struct mesh_ui_backend_fb_state` beside the animation
+table and for the same reasons — it is presentation, it dies with the frame buffer, and a second
+backend may animate differently or not at all. `fb_transition_offset()` compares the route this
+frame is drawing against the one the last frame drew, and on a change starts a
+`MESH_UI_MOTION_MEDIUM` ease-out. First sight adopts, so nothing slides on the frame the client
+comes up.
+
+**Only the arriving screen is drawn, and it travels a quarter of the panel.** There is no alpha
+here and nothing can read back what is already on the panel, so a cross-fade is out and so is
+carrying the outgoing screen along beside the incoming one. A full-panel travel was tried first
+and was wrong for a reason a still cannot show: with only one screen drawn, the body is *empty*
+on the frame the press lands — one blank frame, every time. A quarter is also what Material's
+shared-axis transition displaces, arrived at from the other end: there the slide only says which
+way because the cross-fade carries the change of identity, and here the short travel keeps the
+content legible for the whole of the move.
+
+**`fb_shift_begin()` is the one transform in the drawing layer**, applied inside
+`fb_fill_packed()` — which every pixel this backend writes goes through, so it covers glyphs,
+icons, emoji, fills and rounded corners at once, and covers anything added later without being
+told to. A screen renderer and a widget know nothing about it; threading an offset through them
+would be putting a pixel coordinate back into the layer that exists not to have one.
+
+**What slides is what changed.** The transform wraps the screen renderer only, so the navigation
+bar still names the tab it named and the keycaps change their verbs without travelling. The
+screen progress bar and the banner sit inside the band and are drawn *before* the transform, for
+the same reason: both are about the client rather than about the screen that is arriving.
+`fb_animation_damage()` is handed the whole band, because everything in there is a function of
+the clock while a move runs and the partial-redraw path assumes the opposite of anything it has
+not been told about.
+
+Two consequences worth knowing. **A theme that asks for no motion gets none** — a zero
+`MESH_UI_MOTION_MEDIUM` puts the value straight on its target, so the screen lands in place on
+the frame it arrives. And the ease is **derived from the clock, not accumulated over frames**, so
+a panel that cannot hold 30 fps through a full-body redraw gets a coarser slide rather than a
+longer one.
+
 ### Drawing
 
 `src/ui/backends/fb*.c` draw into **page 0** of the Brick's 1024x16384 framebuffer, then
