@@ -349,12 +349,15 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
     if (client->data_dir[0] != '\0') {
         item_text(list, MESH_STR_ABOUT_DATA, MESH_UI_SETTING_INFO, client->data_dir);
     }
-    /* A fact, not a switch, while the build ships one language: it says which one the catalog
-       resolved to, so MESHCLIENT_LANG naming a language this build does not have shows up here
-       rather than as a screen that is silently still in English. It is where the picker goes
-       when there is something to pick - see docs/i18n.md. */
+    /* Keep each language's own name visible so users can always find their way back. */
     if (client->language_name[0] != '\0') {
-        item_text(list, MESH_STR_ABOUT_LANGUAGE, MESH_UI_SETTING_INFO, client->language_name);
+        if (client->language_from_env) {
+            item_text(list, MESH_STR_ABOUT_LANGUAGE_ENV, MESH_UI_SETTING_INFO,
+                      client->language_name);
+        } else {
+            item_action(list, MESH_STR_ABOUT_LANGUAGE, client->language_name,
+                        MESH_UI_SETTINGS_ACTION_CYCLE_LANGUAGE);
+        }
     }
 
     /*

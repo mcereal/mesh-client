@@ -581,6 +581,7 @@ static void mesh_app_flatten_client_info(const struct mesh_app *app,
        every locale and is always that language's own name for itself, whereas a catalog entry
        is optional by design - a partial translation that had not got to it yet would fall back
        to English and make About report the wrong language. */
+    dst->language_from_env = mesh_i18n_is_overridden();
     snprintf(dst->language_name, sizeof dst->language_name, "%s", mesh_i18n_locale()->name);
     dst->theme_from_env = app->ui_theme_from_env;
 

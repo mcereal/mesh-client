@@ -28,6 +28,7 @@ MESH_TEST_CASE(ui_preferences_roundtrip, unit) {
     snprintf(prefs.preferred_channel, sizeof prefs.preferred_channel, "%s", "LongRange");
     prefs.update_channel = (uint8_t)MESH_UPDATE_CHANNEL_PRERELEASE;
     prefs.update_allow_dev = true;
+    snprintf(prefs.language, sizeof prefs.language, "%s", "es");
     snprintf(prefs.theme, sizeof prefs.theme, "%s", "light");
 
     if (mesh_ui_preferences_save(&prefs, prefab_path) != 0) {
@@ -48,7 +49,7 @@ MESH_TEST_CASE(ui_preferences_roundtrip, unit) {
         loaded.preferred_device_kind != prefs.preferred_device_kind ||
         loaded.update_channel != prefs.update_channel ||
         loaded.update_allow_dev != prefs.update_allow_dev ||
-        strcmp(loaded.theme, prefs.theme) != 0) {
+        strcmp(loaded.language, prefs.language) != 0 || strcmp(loaded.theme, prefs.theme) != 0) {
         unlink(prefab_path);
         record_failure(test_name, "roundtrip mismatch");
         return;

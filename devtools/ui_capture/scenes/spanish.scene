@@ -1,0 +1,18 @@
+# Spanish UI review: run with MESHCLIENT_LANG=es.
+# scripts/docker.sh env MESHCLIENT_LANG=es scripts/ui-capture.sh \
+#   devtools/ui_capture/scenes/spanish.scene -o build/spanish.gif
+scene demo
+scale 4
+delay 250
+config
+tab settings
+key a
+hold 1200
+key b
+tab nodes
+key a
+hold 1200
+key b
+tab messages
+key y
+hold 1200

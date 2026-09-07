@@ -131,6 +131,11 @@ bool mesh_i18n_set_locale(const char *id);
  */
 void mesh_i18n_init(void);
 
+/* Explicit MESHCLIENT_LANG overrides the saved id; otherwise a known saved id wins over
+   the system locale. Empty or unknown saved ids retain the environment's fallback. */
+void mesh_i18n_init_with_preference(const char *id);
+bool mesh_i18n_is_overridden(void);
+
 /*
  * Whether `locale` is fit to ship: the ids are in range, and every entry it does translate
  * carries the same %-specifiers, in the same order, as the English it replaces. A translation

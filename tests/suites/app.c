@@ -11,6 +11,7 @@
 #include "mesh/core/message.h"
 #include "mesh/core/radio_settings.h"
 #include "mesh/core/session.h"
+#include "mesh/i18n/strings.h"
 #include "mesh/proto/stream_framing.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/ble_bluez.h"
@@ -1377,7 +1378,54 @@ MESH_TEST_CASE(app_theme_switcher, unit) {
         goto cleanup;
     }
 
+    /* The language follows the same controller-to-disk path, rebuilding text immediately. */
+    uint32_t language_row = rows;
+    for (uint32_t i = 0; i < rows; ++i) {
+        if (mesh_ui_settings_item(&app.ui_store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, i, &item) &&
+            item.kind == MESH_UI_SETTING_ACTION &&
+            item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_LANGUAGE) {
+            language_row = i;
+        }
+        mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_UP);
+    }
+    if (language_row >= rows) {
+        failure = "About should offer the language action";
+        goto cleanup;
+    }
+    for (uint32_t i = 0; i < language_row; ++i) {
+        mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_DOWN);
+    }
+    mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_A);
+    if (strcmp(mesh_i18n_locale()->id, "es") != 0 ||
+        strcmp(app.ui_store.settings.client.language_name, "Español") != 0 ||
+        mesh_ui_preferences_load(&reloaded, app.ui_preferences_path) != 0 ||
+        strcmp(reloaded.language, "es") != 0) {
+        failure = "the language press must select, publish and persist Spanish";
+        goto cleanup;
+    }
+    mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_A);
+    if (strcmp(mesh_i18n_locale()->id, "en") != 0) {
+        failure = "the language picker must wrap back to English";
+        goto cleanup;
+    }
+    setenv("MESHCLIENT_LANG", "es", 1);
+    mesh_i18n_init_with_preference(reloaded.language);
+    mesh_app_publish_ui_state(&app);
+    if (!mesh_ui_settings_item(&app.ui_store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
+                               MESH_UI_SETTINGS_NO_CHANNEL, language_row, &item) ||
+        item.kind != MESH_UI_SETTING_INFO) {
+        failure = "an explicit language override must make the row read-only";
+        goto cleanup;
+    }
+    mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_A);
+    if (strcmp(mesh_i18n_locale()->id, "es") != 0) {
+        failure = "a read-only language row must not change the language";
+    }
+
 cleanup:
+    unsetenv("MESHCLIENT_LANG");
+    (void)mesh_i18n_set_locale("en");
     if (app_ready) {
         mesh_app_shutdown(&app);
     }

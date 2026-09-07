@@ -515,6 +515,7 @@ static void uicap_publish_theme(struct uicap *cap) {
     /* The About row that names the language. mesh_app_publish_ui_state() fills this in on the
        device; the harness has no app behind it, so a capture of About would otherwise be one
        row short of what a Brick draws. */
+    settings.client.language_from_env = mesh_i18n_is_overridden();
     snprintf(settings.client.language_name, sizeof settings.client.language_name, "%s",
              mesh_i18n_locale()->name);
     mesh_ui_store_set_settings(&cap->store, &settings);
@@ -1153,6 +1154,7 @@ static void uicap_usage(void) {
 }
 
 int main(int argc, char **argv) {
+    mesh_i18n_init();
     struct uicap cap;
     memset(&cap, 0, sizeof cap);
     cap.out_dir = "capture";
