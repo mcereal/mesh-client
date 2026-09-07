@@ -1,3 +1,13 @@
+## [2.15.0](https://github.com/mcereal/mesh-client/compare/v2.14.0...v2.15.0) (2026-09-07)
+
+### Features
+
+* **ui:** draw the transient notice as a Material snackbar ([740840b](https://github.com/mcereal/mesh-client/commit/740840bb7c5147579a989a060cdcb0798427d3f0))
+
+### Code Refactoring
+
+* **ui:** centre the snackbar on the panel ([d4329eb](https://github.com/mcereal/mesh-client/commit/d4329eb5dcd4d4f08c2c15e3d7557b362660aa74))
+
 ## [2.14.0](https://github.com/mcereal/mesh-client/compare/v2.13.0...v2.14.0) (2026-09-07)
 
 ### Features
