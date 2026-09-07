@@ -166,7 +166,12 @@ int32_t mesh_ui_anim_track(struct mesh_ui_anim_table *table, uint32_t id, uint64
 
     bool created = false;
     struct mesh_ui_anim_slot *slot = table_slot(table, id, now_ms, &created);
-    if (created) {
+    /* An id that was looping and is now being tracked is a widget that changed its mind about
+       which question it is asking - an indeterminate meter that learned its total, which is
+       exactly what the updater does when it starts reading bytes. Adopt the target rather than
+       transitioning from a sawtooth position that meant something else. */
+    if (created || slot->loop) {
+        slot->loop = false;
         mesh_ui_anim_set(&slot->anim, to);
     } else {
         mesh_ui_anim_to(&slot->anim, now_ms, to, duration_ms, ease);
@@ -174,12 +179,50 @@ int32_t mesh_ui_anim_track(struct mesh_ui_anim_table *table, uint32_t id, uint64
     return mesh_ui_anim_value(&slot->anim, now_ms);
 }
 
+int32_t mesh_ui_anim_loop(struct mesh_ui_anim_table *table, uint32_t id, uint64_t now_ms,
+                          uint32_t period_ms) {
+    if (table == NULL || id == 0U || period_ms == 0U) {
+        return 0;
+    }
+
+    bool created = false;
+    struct mesh_ui_anim_slot *slot = table_slot(table, id, now_ms, &created);
+    /* Fresh, or a slot that was carrying a transition for this id: either way the loop starts
+       from its own beginning rather than from wherever it would have been had it always been
+       running. A bar that appears mid-stride reads as one that was already there. */
+    if (created || !slot->loop || slot->loop_period_ms != period_ms) {
+        memset(&slot->anim, 0, sizeof slot->anim);
+        slot->loop = true;
+        slot->loop_period_ms = period_ms;
+        slot->loop_epoch_ms = now_ms;
+    }
+
+    /* Modulo the period rather than accumulated: a frame that never happened costs nothing, and
+       a capture that steps the clock by a second lands where the arithmetic says it should. */
+    const uint64_t elapsed = now_ms > slot->loop_epoch_ms ? now_ms - slot->loop_epoch_ms : 0U;
+    return (int32_t)((elapsed % (uint64_t)period_ms) * (uint64_t)MESH_UI_ANIM_ONE /
+                     (uint64_t)period_ms);
+}
+
 bool mesh_ui_anim_table_active(const struct mesh_ui_anim_table *table, uint64_t now_ms) {
     if (table == NULL) {
         return false;
     }
     for (size_t i = 0; i < MESH_UI_ANIM_SLOTS; ++i) {
-        if (table->slots[i].id != 0U && mesh_ui_anim_active(&table->slots[i].anim, now_ms)) {
+        const struct mesh_ui_anim_slot *slot = &table->slots[i];
+        if (slot->id == 0U) {
+            continue;
+        }
+        /* A loop has no end to reach, so what keeps it running is that something is still
+           drawing it - and what stops it is that nothing has for a beat. See
+           MESH_UI_ANIM_LOOP_STALE_MS. */
+        if (slot->loop) {
+            if (now_ms <= slot->touched_ms + (uint64_t)MESH_UI_ANIM_LOOP_STALE_MS) {
+                return true;
+            }
+            continue;
+        }
+        if (mesh_ui_anim_active(&slot->anim, now_ms)) {
             return true;
         }
     }

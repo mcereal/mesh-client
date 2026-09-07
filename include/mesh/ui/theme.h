@@ -114,6 +114,22 @@ enum mesh_ui_color {
      * different fill: a rule is tuned to disappear politely, an outline has to be found.
      */
     MESH_UI_COLOR_OUTLINE,
+    /*
+     * The empty part of a meter: the container a fill is read against.
+     *
+     * A role of its own because it is the one colour with a contract in *both* directions, and
+     * no existing role can hold both ends of it. It has to be findable on the two grounds a bar
+     * is drawn on - the body and a card - and every fill a meter can take has to be tellable
+     * from it. SURFACE_SEL was the obvious borrow and fails the first half on the light theme,
+     * where the cursor fill is within 1.2:1 of a card; OUTLINE passes that and fails the second
+     * half on the contrast theme, where it is the same near-white as the good tone. A track
+     * borrowed from a role tuned for something else is a bar that disappears on whichever theme
+     * nobody happened to open.
+     *
+     * Quiet is the goal, not contrast: this is the part of the widget that is meant to recede,
+     * and mesh_ui_theme_validate() is what stops quiet becoming absent.
+     */
+    MESH_UI_COLOR_METER_TRACK,
     MESH_UI_COLOR_BUBBLE_IN,     /* a message from someone else */
     MESH_UI_COLOR_BUBBLE_OUT,    /* one of ours */
     MESH_UI_COLOR_BUBBLE_IN_SEL, /* the same two under the cursor */
@@ -207,6 +223,16 @@ struct mesh_ui_metrics {
        text gets a proportionally roomier card, the same way the switch and the chat bubble
        already grow with the scale. */
     uint8_t card_pad;
+    /*
+     * How thick a meter's track is, in glyph-scale steps.
+     *
+     * A bar is the one widget here whose whole job is to be read without being looked at, so
+     * its thickness is the difference between "a line the eye finds in a column of text" and
+     * "an underline somebody forgot to remove". One step - four pixels at the device's scale -
+     * is Material's 4dp track at the size this panel actually is, and it grows with the glyph
+     * scale like everything else so a theme asking for bigger text gets a bar to match.
+     */
+    uint8_t meter_thickness;
     /* The shape scale, in glyph-scale steps, indexed by enum mesh_ui_shape. Sized to stop
        before MESH_UI_SHAPE_FULL because that one is not a step count - see the enum. Read it
        through mesh_ui_theme_radius(), which does the multiply and handles the pill. All zeroes
@@ -261,6 +287,22 @@ const struct mesh_ui_theme *mesh_ui_theme_next(const struct mesh_ui_theme *theme
 struct mesh_ui_rgb mesh_ui_theme_color(const struct mesh_ui_theme *theme, enum mesh_ui_color role);
 struct mesh_ui_rgb mesh_ui_theme_tone(const struct mesh_ui_theme *theme, enum mesh_ui_tone tone);
 enum mesh_ui_color mesh_ui_tone_role(enum mesh_ui_tone tone);
+
+/*
+ * The tone a fraction of some budget has earned: GOOD below `warn`, ACCENT from there up to
+ * `bad`, and BAD at or above it. All three arguments are permille, the same scale a meter's
+ * value is on (MESH_UI_ANIM_ONE).
+ *
+ * It is here, in the UI's vocabulary, rather than in whichever screen first needed it, because
+ * two things now say the same sentence about one number: the airtime figure is coloured by it
+ * and the meter beside the figure is filled by it. A screen that worked its own thresholds out
+ * for the text and handed a bar something else would be drawing a number and a picture that
+ * disagree - and the picture is the one people will believe.
+ *
+ * Thresholds are the caller's because they are domain facts, not palette ones: 25% of the air
+ * is a busy mesh, 25% of a download is a slow start.
+ */
+enum mesh_ui_tone mesh_ui_tone_for_load(int32_t permille, int32_t warn, int32_t bad);
 const struct mesh_ui_font *mesh_ui_theme_font(const struct mesh_ui_theme *theme);
 
 /*

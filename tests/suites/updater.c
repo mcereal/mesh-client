@@ -427,6 +427,9 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
     snprintf(shared_dir, sizeof shared_dir, "%s/bin/shared", dir);
     snprintf(install_path, sizeof install_path, "%s/bin/shared/meshclient", dir);
     snprintf(pak_json_path, sizeof pak_json_path, "%s/pak.json", dir);
+    /* The gate the fake curl waits on before finishing its download - see the script below. */
+    char gate_path[256];
+    snprintf(gate_path, sizeof gate_path, "%s/finish-download", dir);
     MESH_TEST_FAIL_IF(mkdir(bin_dir, 0755) != 0 || mkdir(shared_dir, 0755) != 0,
                       "could not create the pak layout");
     FILE *pak_json = fopen(pak_json_path, "wb");
@@ -437,6 +440,9 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
 
     /* The "new binary", and the digest the release will claim for it. */
     static const char k_payload[] = "#!/bin/sh\nexit 0\n";
+    /* What the fetcher writes before it stops, so the fraction the meter reads is an exact
+       number rather than however far the scheduler got. */
+    const size_t k_payload_half = (sizeof k_payload - 1U) / 2U;
     FILE *payload = fopen(payload_path, "wb");
     if (payload == NULL ||
         fwrite(k_payload, 1U, sizeof k_payload - 1U, payload) != sizeof k_payload - 1U) {
@@ -468,8 +474,17 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
             sizeof k_payload - 1U, digest_hex);
     fclose(json);
 
-    /* A stand-in for curl: with -o it "downloads" the payload, otherwise it prints the
-       release metadata on stdout, which is exactly the shape the real one is invoked in. */
+    /*
+     * A stand-in for curl: with -o it "downloads" the payload, otherwise it prints the release
+     * metadata on stdout, which is exactly the shape the real one is invoked in.
+     *
+     * The download half arrives in two pieces with the test holding the gate between them, and
+     * that is what makes the progress meter testable rather than raced. Byte progress is read
+     * by stat()ing the file the fetcher is writing (see `downloaded` in updater.h), so a
+     * fetcher that stops half way is precisely a download the UI has to be able to report a
+     * fraction of - and a fixed first piece makes that fraction an exact number rather than
+     * whatever the scheduler happened to allow.
+     */
     FILE *script = fopen(curl_path, "w");
     if (script == NULL) {
         failure = "could not write the fake curl";
@@ -483,8 +498,11 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
             "  if [ \"$prev\" = '-o' ]; then out=\"$a\"; fi\n"
             "  prev=\"$a\"\n"
             "done\n"
-            "if [ -n \"$out\" ]; then cp '%s' \"$out\"; else cat '%s'; fi\n",
-            payload_path, json_path);
+            "if [ -z \"$out\" ]; then cat '%s'; exit 0; fi\n"
+            "head -c %u '%s' > \"$out\"\n"
+            "while [ ! -f '%s' ]; do sleep 0.02; done\n"
+            "cp '%s' \"$out\"\n",
+            json_path, (unsigned)k_payload_half, payload_path, gate_path, payload_path);
     fclose(script);
     if (chmod(curl_path, 0755) != 0) {
         failure = "could not make the fake curl executable";
@@ -546,8 +564,52 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
         failure = "install should start";
         goto cleanup;
     }
+
+    /*
+     * The progress meter's data, which is the whole reason a forked fetcher can have one.
+     *
+     * Nothing has been written yet, and a download with a size to divide by is a *known* zero
+     * rather than an unknown - the distinction the About screen draws as an empty bar rather
+     * than as a moving one.
+     */
+    uint32_t permille = 999U;
+    if (!mesh_updater_progress(&updater, &permille) || permille != 0U) {
+        failure = "a download that has written nothing should report a known 0";
+        goto cleanup;
+    }
+
+    /* The fetcher has written its first piece and is waiting on the gate, so the reading is
+       exactly that piece over the asset's size and stays there until the test lets go. */
+    for (int i = 0; i < 200 && updater.downloaded == 0U; ++i) {
+        mesh_event_loop_run(&loop, 10);
+        mesh_updater_tick(&updater, (uint64_t)i * 10U);
+    }
+    if (updater.downloaded != k_payload_half) {
+        failure = "a half-written download should be read off the staged file";
+        goto cleanup;
+    }
+    const uint32_t expect = (uint32_t)(k_payload_half * 1000U / (sizeof k_payload - 1U));
+    if (!mesh_updater_progress(&updater, &permille) || permille != expect) {
+        failure = "a half-written download should report its own fraction";
+        goto cleanup;
+    }
+
+    FILE *gate = fopen(gate_path, "wb");
+    if (gate == NULL) {
+        failure = "could not open the download gate";
+        goto cleanup;
+    }
+    fclose(gate);
+
     if (!updater_wait_past(&loop, &updater, MESH_UPDATE_DOWNLOADING)) {
         failure = "the download never finished";
+        goto cleanup;
+    }
+    /* And once the download is behind us the fraction is gone rather than left at its last
+       reading: a step with no length is reported as one, not as a stale number. */
+    permille = 999U;
+    if (mesh_updater_progress(&updater, &permille) || permille != 0U) {
+        failure = "progress should be unknown once the download is over";
         goto cleanup;
     }
     if (updater.state != MESH_UPDATE_READY) {
@@ -664,6 +726,7 @@ cleanup:
     unlink(payload_path);
     unlink(json_path);
     unlink(curl_path);
+    unlink(gate_path);
     unlink(install_path);
     unlink(pak_json_path);
     rmdir(shared_dir);

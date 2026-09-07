@@ -93,7 +93,21 @@ enum mesh_ui_setting_kind {
        never added or removed by an edit - a row count that moves under the cursor mid-edit
        moves the cursor, which is the rule the LoRa trio is always listed for. */
     MESH_UI_SETTING_HEADING,
+    /*
+     * A read-only quantity whose *level* is the point: how far an update has downloaded, how
+     * much of something is used up. `number` is permille, or MESH_UI_METER_UNKNOWN when work is
+     * happening whose extent cannot be known.
+     *
+     * `value` is still filled in with the same fact in words, and that is deliberate rather than
+     * redundant: a backend that cannot draw a bar - the CLI one - shows the row as an ordinary
+     * fact and loses nothing. A kind is a description of the content, and it stays a description
+     * of the content even when only one backend can act on it.
+     */
+    MESH_UI_SETTING_METER,
 };
+
+/* MESH_UI_SETTING_METER: the `number` for a step that is running with no fraction to report. */
+#define MESH_UI_METER_UNKNOWN UINT32_MAX
 
 /* Editable settings. Each is one protobuf field; app.c turns an edit back into the protobuf
    (mesh_app_apply_setting_edit) and this module knows how to show and step it. */

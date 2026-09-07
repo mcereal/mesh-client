@@ -17,6 +17,7 @@
 #include "framework/mesh_test.h"
 #include "support/ui_fixture.h"
 
+#include "mesh/ui/anim.h"
 #include "mesh/ui/backends/fb_capture.h"
 #include "mesh/ui/font.h"
 #include "mesh/ui/store.h"
@@ -151,6 +152,80 @@ MESH_TEST_CASE(ui_theme_contrast_is_the_wcag_ratio, unit) {
 
 /* A theme that failed the contract has to say which pair failed, or the message is useless to
    whoever added it. Built here rather than registered, so no bad theme ships in the table. */
+/*
+ * The tone a level has earned - the one sentence the airtime figure, the card heading and the
+ * meter under them all speak, so that a number and the picture of it cannot disagree.
+ */
+MESH_TEST_CASE(ui_theme_tone_for_load_bands, unit) {
+    MESH_TEST_FAIL_IF(mesh_ui_tone_for_load(0, 250, 500) != MESH_UI_TONE_GOOD,
+                      "nothing used should be good news");
+    MESH_TEST_FAIL_IF(mesh_ui_tone_for_load(249, 250, 500) != MESH_UI_TONE_GOOD,
+                      "just under the warning is still good");
+    /* Both thresholds are inclusive lower bounds, which is the half of this most likely to be
+       got wrong later: exactly 25% of the air is already a mesh worth looking at. */
+    MESH_TEST_FAIL_IF(mesh_ui_tone_for_load(250, 250, 500) != MESH_UI_TONE_ACCENT,
+                      "the warning threshold itself should warn");
+    MESH_TEST_FAIL_IF(mesh_ui_tone_for_load(499, 250, 500) != MESH_UI_TONE_ACCENT,
+                      "just under the bad threshold is still a warning");
+    MESH_TEST_FAIL_IF(mesh_ui_tone_for_load(500, 250, 500) != MESH_UI_TONE_BAD,
+                      "the bad threshold itself should be bad");
+    MESH_TEST_FAIL_IF(mesh_ui_tone_for_load(1000, 250, 500) != MESH_UI_TONE_BAD,
+                      "a full track is bad news");
+
+    /* Thresholds handed over backwards must not make the middle band unreachable: a screen
+       permanently in the red reads as a mesh in trouble rather than as a caller's typo. */
+    MESH_TEST_FAIL_IF(mesh_ui_tone_for_load(300, 500, 250) != MESH_UI_TONE_ACCENT,
+                      "swapped thresholds should still band the middle");
+
+    /* Every tone it can answer with is one a meter is allowed to be filled in - which is what
+       mesh_ui_theme_validate() holds each theme to, and what fb_draw_meter() folds anything
+       else back to. The two lists are one contract and this is where they are checked to be. */
+    for (int32_t level = 0; level <= MESH_UI_ANIM_ONE; level += 50) {
+        const enum mesh_ui_tone tone = mesh_ui_tone_for_load(level, 250, 500);
+        MESH_TEST_FAIL_IF(tone != MESH_UI_TONE_GOOD && tone != MESH_UI_TONE_ACCENT &&
+                              tone != MESH_UI_TONE_BAD,
+                          "a load tone escaped the three a meter is validated for");
+    }
+    record_success(test_name);
+}
+
+/*
+ * A meter is a track with a fill in it, and a theme that loses either half loses the widget:
+ * an unfindable track is a bar that vanishes when the reading is low, a fill that matches its
+ * track is one that vanishes when the reading is high.
+ */
+MESH_TEST_CASE(ui_theme_validate_holds_the_meter_pairs, unit) {
+    char reason[128];
+
+    struct mesh_ui_theme flat = *mesh_ui_theme_default();
+    flat.colors[MESH_UI_COLOR_GOOD] = flat.colors[MESH_UI_COLOR_METER_TRACK];
+    reason[0] = '\0';
+    MESH_TEST_FAIL_IF(mesh_ui_theme_validate(&flat, reason, sizeof reason),
+                      "a meter fill the colour of its own track passed validation");
+    MESH_TEST_FAIL_IF(reason[0] == '\0', "validation failed without saying why");
+
+    struct mesh_ui_theme invisible_track = *mesh_ui_theme_default();
+    invisible_track.colors[MESH_UI_COLOR_METER_TRACK] = invisible_track.colors[MESH_UI_COLOR_BG];
+    MESH_TEST_FAIL_IF(mesh_ui_theme_validate(&invisible_track, reason, sizeof reason),
+                      "a meter track the colour of the ground passed validation");
+
+    /* And on a card, which is the half a borrowed SURFACE_SEL could not hold: a track validated
+       against the body and invisible on a surface is a bar that exists on one screen. */
+    struct mesh_ui_theme invisible_on_card = *mesh_ui_theme_default();
+    invisible_on_card.colors[MESH_UI_COLOR_METER_TRACK] =
+        invisible_on_card.colors[MESH_UI_COLOR_SURFACE];
+    MESH_TEST_FAIL_IF(mesh_ui_theme_validate(&invisible_on_card, reason, sizeof reason),
+                      "a meter track the colour of a card passed validation");
+
+    /* And the geometry half: a bar with no thickness draws nothing at all, which is the one
+       way a theme can turn the widget off without saying so. */
+    struct mesh_ui_theme thin = *mesh_ui_theme_default();
+    thin.metrics.meter_thickness = 0U;
+    MESH_TEST_FAIL_IF(mesh_ui_theme_validate(&thin, reason, sizeof reason),
+                      "a theme drawing meters no pixels tall passed validation");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_theme_validate_rejects_an_unreadable_palette, unit) {
     struct mesh_ui_theme broken = *mesh_ui_theme_default();
     broken.colors[MESH_UI_COLOR_TEXT] = broken.colors[MESH_UI_COLOR_BG];
@@ -187,6 +262,11 @@ MESH_TEST_CASE(ui_theme_states_its_geometry, unit) {
            them either way is already a quarter of a row on the Brick's panel; more than that is
            a theme spending its body rows on its own furniture. */
         MESH_TEST_FAIL_IF(metrics->card_pad > 4U, "a theme's card inset would eat the body");
+        /* Also in glyph-scale steps, and bounded from both ends: nothing is an invisible bar,
+           and a bar as tall as the text beside it is a block, not a meter. */
+        MESH_TEST_FAIL_IF(metrics->meter_thickness == 0U, "a theme draws meters no pixels tall");
+        MESH_TEST_FAIL_IF(metrics->meter_thickness > 3U,
+                          "a theme's meter is as tall as the row it sits in");
         /*
          * The shape scale has to be a scale: rounder as it goes up, and never so round that a
          * corner eats the row it belongs to. A flat table - every shape the same radius - is

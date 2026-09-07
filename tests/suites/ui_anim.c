@@ -176,6 +176,83 @@ MESH_TEST_CASE(anim_table_evicts_the_least_recently_drawn, unit) {
     record_success(test_name);
 }
 
+/*
+ * The loop: a value with no destination, which is what an indeterminate progress bar is made of.
+ *
+ * The two properties that matter are that it is a pure function of the clock - so a missed
+ * frame costs nothing and a capture stepping time lands exactly where the arithmetic says - and
+ * that it starts from its own beginning rather than from wherever the monotonic clock happened
+ * to be when the widget appeared.
+ */
+MESH_TEST_CASE(anim_loop_runs_a_sawtooth_off_the_clock, unit) {
+    struct mesh_ui_anim_table table;
+    mesh_ui_anim_table_reset(&table);
+
+    /* Whatever the clock reads on first sight, the loop is at its start. */
+    MESH_TEST_FAIL_IF(mesh_ui_anim_loop(&table, 1U, 987654U, 1000U) != 0,
+                      "a loop should begin at 0 whenever it is first drawn");
+    MESH_TEST_FAIL_IF(mesh_ui_anim_loop(&table, 1U, 987654U + 250U, 1000U) != MESH_UI_ANIM_ONE / 4,
+                      "a quarter of the period in should be a quarter of the way along");
+    MESH_TEST_FAIL_IF(mesh_ui_anim_loop(&table, 1U, 987654U + 750U, 1000U) !=
+                          3 * MESH_UI_ANIM_ONE / 4,
+                      "three quarters in should be three quarters along");
+
+    /* It wraps rather than stopping, and a clock that jumped a whole period lands where a clock
+       that walked there would have. */
+    MESH_TEST_FAIL_IF(mesh_ui_anim_loop(&table, 1U, 987654U + 1000U, 1000U) != 0,
+                      "a full period should be back at the start");
+    MESH_TEST_FAIL_IF(mesh_ui_anim_loop(&table, 1U, 987654U + 7250U, 1000U) != MESH_UI_ANIM_ONE / 4,
+                      "seven periods later should be exactly where one period later was");
+
+    /* A loop is never "finished", so what keeps the repaint timer coming is that something is
+       still drawing it - and what stops it is that nothing has for a beat. */
+    MESH_TEST_FAIL_IF(!mesh_ui_anim_table_active(&table, 987654U + 7250U),
+                      "a loop drawn this frame should be asking for the next one");
+    MESH_TEST_FAIL_IF(
+        !mesh_ui_anim_table_active(&table, 987654U + 7250U + MESH_UI_ANIM_LOOP_STALE_MS),
+        "a loop should survive right up to the stale window");
+    MESH_TEST_FAIL_IF(
+        mesh_ui_anim_table_active(&table, 987654U + 7250U + MESH_UI_ANIM_LOOP_STALE_MS + 1U),
+        "a loop nothing has drawn for a beat should stop asking for frames");
+
+    MESH_TEST_FAIL_IF(mesh_ui_anim_loop(NULL, 1U, 1000U, 1000U) != 0,
+                      "a NULL table should read 0 rather than crash");
+    MESH_TEST_FAIL_IF(mesh_ui_anim_loop(&table, 0U, 1000U, 1000U) != 0,
+                      "an id of 0 is not a key, exactly as it is not for a transition");
+    MESH_TEST_FAIL_IF(mesh_ui_anim_loop(&table, 1U, 1000U, 0U) != 0,
+                      "a period of nothing should read 0 rather than divide by it");
+    record_success(test_name);
+}
+
+/*
+ * A control that stops looping and starts reporting a position - which is exactly what the
+ * update meter does the moment the download learns the asset's size.
+ *
+ * It has to adopt the new value rather than transition to it: the sawtooth position it was
+ * carrying was never a reading, so easing from it would slide the bar out of a number that
+ * meant nothing into one that does.
+ */
+MESH_TEST_CASE(anim_loop_and_track_do_not_bleed_into_each_other, unit) {
+    struct mesh_ui_anim_table table;
+    mesh_ui_anim_table_reset(&table);
+
+    (void)mesh_ui_anim_loop(&table, 7U, 1000U, 1000U);
+    const int32_t mid_loop = mesh_ui_anim_loop(&table, 7U, 1600U, 1000U);
+    MESH_TEST_FAIL_IF(mid_loop == 0, "the loop should be somewhere in its stride");
+
+    MESH_TEST_FAIL_IF(mesh_ui_anim_track(&table, 7U, 1600U, MESH_UI_ANIM_ONE / 2, 200U,
+                                         MESH_UI_EASE_OUT) != MESH_UI_ANIM_ONE / 2,
+                      "a loop turning into a reading should adopt it, not slide from a sawtooth");
+    MESH_TEST_FAIL_IF(mesh_ui_anim_table_active(&table, 1600U + MESH_UI_ANIM_LOOP_STALE_MS + 1U),
+                      "the slot should stop asking for frames once it is no longer looping");
+
+    /* And back the other way: a reading that becomes indeterminate restarts the loop from its
+       beginning rather than resuming a stride it never had. */
+    MESH_TEST_FAIL_IF(mesh_ui_anim_loop(&table, 7U, 5000U, 1000U) != 0,
+                      "a reading turning back into a loop should start the loop at 0");
+    record_success(test_name);
+}
+
 /* A NULL animation or table answers rather than crashing: the drawing code calls these on every
    frame and a guard at each call site is a guard somebody eventually forgets. */
 MESH_TEST_CASE(anim_null_arguments_are_safe, unit) {

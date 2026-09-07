@@ -404,7 +404,7 @@ shoulder, revealed in the one place you went to change it.
 | File | Layer | What belongs there |
 |---|---|---|
 | `fb_draw.c` | ink | pixels, glyphs, the theme lookups, cell metrics (`fb_internal.h`) |
-| `fb_widgets.c` | components | cards, buttons, chips, list items, rules, bubbles, the snackbar (`fb_widgets.h`) |
+| `fb_widgets.c` | components | cards, buttons, chips, list items, switches, meters, rules, bubbles, the snackbar (`fb_widgets.h`) |
 | `fb_screens.c` | screens | one renderer per screen, plus the tab strip and footer |
 | `fb.c` | device | `/dev/fb0`, the page flip, the backend vtable |
 
@@ -640,6 +640,52 @@ was tried first and is wrong twice over: mid-fade the track is not a colour any 
 validated against, and on the dark theme the two ends are yellow and blue, so everything between
 them is mud.
 
+#### `struct fb_meter` — a quantity as a length
+
+`struct fb_meter` draws a track with a fill in it, and it is one component for two jobs that
+`fb_widgets.h` predicted before either existed — *a meter and a progress bar want the same
+table*. A meter reports a level that moves on its own; a progress bar reports a job that only
+goes forwards and then stops. Nothing about the drawing differs, so there is one of them.
+
+```c
+struct fb_meter meter = {.id = 0x03000000U | i, .kind = FB_METER_DETERMINATE,
+                         .value = permille, .tone = MESH_UI_TONE_ACCENT};
+const struct fb_list_item row = {..., .trailing = {.kind = FB_TRAILING_METER, .meter = &meter}};
+```
+
+It appears in two slots, and which one to use is a sentence about what the bar is for:
+
+- **`FB_TRAILING_METER`**, a short bar against a list row's trailing edge, where a switch would
+  go. Inline rather than a band under the row because the list's scroll window counts rows, and
+  a row that quietly grew a second tier would put the cursor and the fill in two different
+  places. `MESH_UI_SETTING_METER` rows get one — the About screen's update progress is the first.
+- **`FB_CARD_ROW_METER`**, a row inside a card. With a label it lines up with the field rows
+  above it; with `MESH_STR_NONE` it takes the card's whole content width, which is the shape for
+  a bar that is *about the row above it* — the Status card's airtime pair, where the words say
+  how busy the air is and the bar under them says busy.
+
+Four things are worth knowing before reusing it:
+
+- **`id` is the animation's key**, on exactly the switch's terms. It matters more here: a
+  determinate meter *eases towards* each value it is handed, which is what turns readings
+  sampled a second apart into a bar that moves rather than one that jumps. Without an id it
+  draws each sample exactly and stutters.
+- **Indeterminate is a kind, not a zero.** When the extent of the work cannot be known — a
+  request out on the network, a hash being taken — `FB_METER_INDETERMINATE` sends a pill
+  travelling the track instead of inventing a fraction. It is driven by `mesh_ui_anim_loop()`
+  and costs a repaint timer for as long as it is on screen, which is why a screen asks for it
+  deliberately.
+- **The track is its own role.** `MESH_UI_COLOR_METER_TRACK` exists because it is the one colour
+  with a contract in both directions: findable on the two grounds a bar is drawn on (the body
+  and a card) *and* distinguishable from every fill. `SURFACE_SEL` fails the first half on the
+  light theme, where the cursor fill is within 1.2:1 of a card; `OUTLINE` fails the second half
+  on the contrast theme, where it is the same near-white as the good tone. `mesh_ui_theme_validate()`
+  holds both halves.
+- **The fill takes `ACCENT`, `GOOD` or `BAD`**, and anything else is drawn accent. Those are the
+  three the validator holds against the track, and they are exactly what `mesh_ui_tone_for_load()`
+  answers with — so the figure's colour, the card heading's and the bar's fill are one sentence
+  about one number rather than three thresholds that can drift apart.
+
 #### `struct fb_snackbar` — the transient notice
 
 `mesh_ui_store_set_toast()` raises a one-line notice: *Sent to BRVO*, *Not connected*,
@@ -690,6 +736,15 @@ step off the ground, and this one is the furthest from the ground the theme has.
 
 A frame is a function of a snapshot, and a snapshot has no notion of *was*: it says a switch is
 on, never that it has just become on. Two pieces supply the difference.
+
+**`mesh_ui_anim_loop()`** answers a different question from the rest of the module. Everything
+else says "this value has changed, where is it on the way?"; a loop says nothing has changed,
+nothing is going to, and the widget still has to move — which is what an indeterminate progress
+bar needs. It is a sawtooth derived from the clock modulo a period, so a missed frame costs
+nothing, and because it never finishes, `mesh_ui_anim_table_active()` reports it as running for
+`MESH_UI_ANIM_LOOP_STALE_MS` after the last frame that drew it. That is what stops a slot left
+behind by a widget that scrolled off screen from pinning the repaint timer on for the rest of
+the run.
 
 **`src/ui/anim.c` (`include/mesh/ui/anim.h`)** is the arithmetic — a start value, a target, a
 start time, a duration and an easing curve, in fixed point over 0..1000. It knows nothing about
@@ -890,6 +945,7 @@ There are three of them, and the tier says how far a thing is from the ground:
 | `SURFACE` | a panel on the ground — a card |
 | `SURFACE_HIGH` | raised over the body — the keyboard's draft box |
 | `SURFACE_INVERSE` | over the whole UI — the snackbar |
+| `METER_TRACK` | the empty part of a meter — see [`struct fb_meter`](#struct-fb_meter--a-quantity-as-a-length) |
 
 Tonal, not shadowed, and that is forced rather than chosen: the Brick's display engine
 composites `fb0` against *its own* background layer, not against what we have already drawn (see
@@ -1098,6 +1154,8 @@ clock, so a `hold` past four seconds followed by a `frame` films it sliding back
 | `notice info\|warn\|error TEXT` | what the radio last said about itself, on the Status tab |
 | `queue FREE MAXLEN [refused]` | the radio's outgoing packet queue, on the Status tab. The row only appears once the queue is under pressure or has refused a send |
 | `reboots N` | times the radio has restarted under us, on the Status tab |
+| `airtime BUSY [TX]` | the radio's airtime report as whole percentages: how much of the channel is busy, and how much of that is ours. What the Status card's Airtime row and the meter under it both read |
+| `update check\|download [PERCENT]` | a self-update in flight, on Settings > About. `check` is the step with no length and draws the indeterminate bar; `download` with a percentage draws the fraction. There is no updater behind the harness - it forks curl and reaches the network - so this sets what the app would have published |
 | `offradio NAME\|all` | mark that node (or every node but ours) as one the radio's NodeDB no longer carries - what a NodeDB reset leaves behind. Its own verb because no press can reach it: the reset goes out over the air and the answer arrives on the next sync, and the harness has neither |
 
 `tab` walks the tabs with the buttons rather than assigning `nav.screen`, so a scene can only

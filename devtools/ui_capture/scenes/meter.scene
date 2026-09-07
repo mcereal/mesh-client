@@ -1,0 +1,64 @@
+# The meter: a quantity as a length, in both the places one belongs.
+#
+# Two clips in one, because the component is one component and the whole point is that the two
+# uses are the same widget with different content. Watch the Status card first - the airtime row
+# says a percentage and the bar under it says the same thing without being read - and then the
+# About screen, where the same track is what a download that used to say only "downloading..."
+# now reports.
+#
+# The bar eases between readings rather than jumping to each. That matters more than it sounds:
+# the numbers behind it arrive seconds apart (the radio reports airtime on its own schedule, the
+# download's byte count is whatever the staged file had grown to when the loop last looked), and
+# easing across that gap is what turns a row of samples into a rate the eye can read.
+
+scene demo
+config
+tab status
+airtime 4 1
+hold 900
+
+# A quiet mesh fills a little of the track in the good tone. Then the air gets busy - and the
+# tone, the figure's colour and the card's heading all change together, because all three ask
+# mesh_ui_tone_for_load() the same question about the same number.
+airtime 18 6
+hold 1100
+airtime 31 11
+hold 1100
+airtime 58 19
+hold 1300
+
+# The same bar in every theme. The track is a role (SURFACE_SEL) and the fill is a tone, so
+# nothing here is switched by hand - and mesh_ui_theme_validate() is what guarantees the two
+# stay tellable apart on a palette nobody has opened yet.
+theme light
+hold 1000
+theme contrast
+hold 1000
+theme colorblind
+hold 1200
+theme dark
+hold 900
+
+# And the other use: the updater, which had no progress affordance at all.
+#
+# A check is one request whose reply has no length until it arrives, so the bar travels instead
+# of filling - the one shape that says "working" without also claiming "this far along".
+tab settings
+hold 500
+key a
+hold 700
+key down 6
+update check
+hold 1600
+
+# Then the download, which does have a fraction: the release metadata said how big the asset
+# would be, and the bytes on disk say how much of it has landed. The row's words carry the exact
+# figure and the bar carries the shape of it.
+update download 8
+hold 900
+update download 34
+hold 900
+update download 71
+hold 900
+update download 100
+hold 1200

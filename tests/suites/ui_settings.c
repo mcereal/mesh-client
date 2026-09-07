@@ -1051,6 +1051,73 @@ MESH_TEST_CASE(ui_settings_about, unit) {
         }
     }
 
+    /*
+     * The working row while a child is running is a *meter*, and which of the two bars it asks
+     * for is the whole of what the progress plumbing is for.
+     *
+     * A download with a size to divide by carries a fraction, and the row's words are the figure
+     * alone - the row above already says which step is running, and repeating it here would clip
+     * the one thing this row adds. A step with no length carries MESH_UI_METER_UNKNOWN, which is
+     * a bar that moves without claiming a position rather than one parked at zero.
+     */
+    settings.client.update_progress_known = true;
+    settings.client.update_progress = 714U;
+    mesh_ui_store_set_settings(&store, &settings);
+    bool found_meter = false;
+    for (uint32_t i = 0; i < busy_rows; ++i) {
+        if (!mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, i, &item) ||
+            item.kind != MESH_UI_SETTING_METER) {
+            continue;
+        }
+        found_meter = true;
+        if (item.number != 714U) {
+            failure = "a download's meter should carry the permille the updater reported";
+            goto cleanup;
+        }
+        if (strcmp(item.value, "71%") != 0) {
+            failure = "a download's meter row should say the figure and nothing else";
+            goto cleanup;
+        }
+        /* A fact, not a control: nothing on it may be edited, or Left and Right on a progress
+           bar would try to set a download's position. */
+        if (item.field != MESH_UI_FIELD_NONE) {
+            failure = "a meter row should carry no editable field";
+            goto cleanup;
+        }
+    }
+    if (!found_meter) {
+        failure = "a running download should be shown as a meter";
+        goto cleanup;
+    }
+
+    settings.client.update_state = (uint8_t)MESH_UPDATE_CHECKING;
+    settings.client.update_progress_known = false;
+    settings.client.update_progress = 0U;
+    mesh_ui_store_set_settings(&store, &settings);
+    found_meter = false;
+    for (uint32_t i = 0; i < mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS);
+         ++i) {
+        if (!mesh_ui_settings_item(&store.settings, NULL, NULL, 0U, MESH_UI_SETTINGS_ABOUT,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, i, &item) ||
+            item.kind != MESH_UI_SETTING_METER) {
+            continue;
+        }
+        found_meter = true;
+        if (item.number != MESH_UI_METER_UNKNOWN) {
+            failure = "a step with no length should be an unknown meter, not a zero one";
+            goto cleanup;
+        }
+        if (strcmp(item.value, "checking...") != 0) {
+            failure = "a step with no length should still say what it is doing";
+            goto cleanup;
+        }
+    }
+    if (!found_meter) {
+        failure = "a running check should be shown as a meter";
+        goto cleanup;
+    }
+
     /* A device with no curl or wget says so instead of offering rows that cannot work. */
     memset(&settings.client, 0, sizeof settings.client);
     snprintf(settings.client.version, sizeof settings.client.version, "%s", "1.12.0");

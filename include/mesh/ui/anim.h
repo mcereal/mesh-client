@@ -111,10 +111,28 @@ bool mesh_ui_anim_active(const struct mesh_ui_anim *anim, uint64_t now_ms);
  */
 #define MESH_UI_ANIM_SLOTS 12U
 
+/*
+ * How long after its last frame a *looping* value keeps asking to be redrawn.
+ *
+ * A loop never finishes, so unlike a transition it cannot say "I have arrived" - and a table
+ * entry left behind by a widget that has scrolled off screen would otherwise pin the repaint
+ * timer on for the rest of the run. Every frame that draws the widget touches its slot, so the
+ * loop stays alive exactly as long as something is drawing it and stops one beat after nothing
+ * is. Long enough to survive a frame the loop itself did not ask for, short enough that the
+ * cost of being wrong is a single wasted repaint.
+ */
+#define MESH_UI_ANIM_LOOP_STALE_MS 250U
+
 struct mesh_ui_anim_slot {
     uint32_t id; /* 0 means free */
     uint64_t touched_ms;
     struct mesh_ui_anim anim;
+    /* A sawtooth rather than a transition: see mesh_ui_anim_loop(). The two are mutually
+       exclusive on a slot, because they are two answers to "where is this value now" and an id
+       identifies one control. */
+    bool loop;
+    uint32_t loop_period_ms;
+    uint64_t loop_epoch_ms;
 };
 
 struct mesh_ui_anim_table {
@@ -135,6 +153,28 @@ struct mesh_ui_anim_table {
  */
 int32_t mesh_ui_anim_track(struct mesh_ui_anim_table *table, uint32_t id, uint64_t now_ms,
                            int32_t to, uint32_t duration_ms, enum mesh_ui_ease ease);
+
+/*
+ * A value that runs 0 -> MESH_UI_ANIM_ONE over `period_ms` and then starts again.
+ *
+ * Everything above answers "this value has changed, where is it on the way?". A loop answers a
+ * different question, and it is the question an *indeterminate* progress bar asks: nothing has
+ * changed, nothing is going to, and the widget still has to move to say that work is happening.
+ * A spinner is the same idea in the same place.
+ *
+ * The position is derived from the clock modulo the period rather than accumulated, so a frame
+ * the loop missed does not leave it behind and a capture stepping time in jumps lands exactly
+ * where the arithmetic says. The epoch is taken on first sight of the id, which is what makes
+ * the bar start at the left when it appears rather than wherever the monotonic clock happens
+ * to be.
+ *
+ * Unlike a transition this is never "finished", so mesh_ui_anim_table_active() reports it as
+ * running for MESH_UI_ANIM_LOOP_STALE_MS after the last frame that drew it - see there.
+ *
+ * `id` of 0 is not a key, exactly as above: it reports 0 and animates nothing.
+ */
+int32_t mesh_ui_anim_loop(struct mesh_ui_anim_table *table, uint32_t id, uint64_t now_ms,
+                          uint32_t period_ms);
 
 /* Whether anything in the table is still moving - what a backend answers when the event loop
    asks whether it needs waking again. */
