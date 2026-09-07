@@ -1,3 +1,9 @@
+## [2.28.0](https://github.com/mcereal/mesh-client/compare/v2.27.0...v2.28.0) (2026-09-07)
+
+### Features
+
+* **ui:** count list windows in steps, not items ([d3516e0](https://github.com/mcereal/mesh-client/commit/d3516e08fa75f0bfd8c74951623492c4e5db3751))
+
 ## [2.27.0](https://github.com/mcereal/mesh-client/compare/v2.26.1...v2.27.0) (2026-09-07)
 
 ### Features
