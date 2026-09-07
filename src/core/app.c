@@ -394,12 +394,15 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
         return -EINVAL;
     }
 
-    if (config != NULL) {
-        app->config = *config;
-    } else {
-        app->config = mesh_app_config_default();
-        mesh_app_config_apply_env_overrides(&app->config);
+    /* main() supplies uninitialized storage. Initialize every owned field, including lazy
+       allocations and notification counters, without requiring callers to zero the app.
+       Copy the config first because callers may pass &app->config. */
+    struct mesh_app_config initial_config = config != NULL ? *config : mesh_app_config_default();
+    if (config == NULL) {
+        mesh_app_config_apply_env_overrides(&initial_config);
     }
+    memset(app, 0, sizeof *app);
+    app->config = initial_config;
 
     int result = mesh_event_loop_init(&app->loop);
     if (result < 0) {

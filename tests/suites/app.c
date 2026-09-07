@@ -1722,3 +1722,73 @@ cleanup:
     }
     record_success(test_name);
 }
+
+MESH_TEST_CASE(app_init_from_dirty_storage, unit) {
+    char temp_dir[] = "/tmp/mesh_app_dirty_initXXXXXX";
+    MESH_TEST_FAIL_IF(mkdtemp(temp_dir) == NULL, "temporary directory creation failed");
+    const char *original_home = getenv("HOME");
+    const char *original_backend = getenv("MESHCLIENT_UI_BACKEND");
+    char *saved_home = original_home != NULL ? strdup(original_home) : NULL;
+    char *saved_backend = original_backend != NULL ? strdup(original_backend) : NULL;
+    setenv("HOME", temp_dir, 1);
+    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
+    struct mesh_bluez_mock_config mock = {0};
+    mesh_bluez_client_mock_enable(&mock);
+    const char *failure = NULL;
+    for (unsigned publish = 0U; publish < 2U; ++publish) {
+        struct mesh_app app;
+        memset(&app, 0xA5, sizeof app);
+        app.config = mesh_app_config_default();
+        app.config.enable_ble = false;
+        app.config.enable_serial = false;
+        app.config.idle_timeout_ms = 17;
+        if (mesh_app_init(&app, &app.config) != 0) {
+            failure = "initialization from nonzero storage failed";
+            break;
+        }
+        /* Keep the regression test entirely in memory, including shutdown. */
+        app.ui_preferences_path[0] = '\0';
+        app.ui_handshake_cache_path[0] = '\0';
+        if (app.publish_cache != NULL) {
+            failure = "initialization must clear the lazy publication cache";
+            app.publish_cache = NULL; /* report cleanly instead of freeing the poison value */
+        } else if (app.config.enable_ble || app.config.enable_serial ||
+                   app.config.idle_timeout_ms != 17) {
+            failure = "initialization must preserve an aliased config";
+        } else if (publish != 0U) {
+            mesh_app_publish_ui_state(&app);
+            if (app.publish_cache == NULL) {
+                failure = "first publication must allocate the cache";
+            }
+        }
+        mesh_app_shutdown(&app);
+        if (app.publish_cache != NULL) {
+            failure = "shutdown must release and clear the cache";
+        }
+        if (failure != NULL) {
+            break;
+        }
+    }
+    mesh_bluez_client_mock_disable();
+    if (saved_home != NULL) {
+        setenv("HOME", saved_home, 1);
+    } else {
+        unsetenv("HOME");
+    }
+    if (saved_backend != NULL) {
+        setenv("MESHCLIENT_UI_BACKEND", saved_backend, 1);
+    } else {
+        unsetenv("MESHCLIENT_UI_BACKEND");
+    }
+    free(saved_home);
+    free(saved_backend);
+    char prefs_dir[256];
+    snprintf(prefs_dir, sizeof prefs_dir, "%s/.meshclient", temp_dir);
+    rmdir(prefs_dir);
+    rmdir(temp_dir);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}
