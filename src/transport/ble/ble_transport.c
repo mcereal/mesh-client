@@ -357,7 +357,12 @@ static void mesh_ble_schedule_drain(struct mesh_ble_transport_state *state, uint
             mesh_log_warn("ble", "drain wake write failed: %s", strerror(errno));
         }
     }
-    /* Delayed retries are picked up by tick(), which runs every loop turn. */
+    /* A delayed retry is picked up by tick() instead - deliberately, because an eventfd has no
+       clock and a busy-wait until the delay elapsed is exactly what the delay is avoiding. That
+       makes the retry only as prompt as the caller's own timeout, which is the contract
+       mesh_event_loop_run() now actually keeps: it used to return only on an idle epoll, so a
+       UI that was animating - the progress bar this stalled handshake is what raises - held the
+       loop and no tick ever ran. A single failed read then wedged the link permanently. */
 }
 
 static int mesh_ble_refresh_timer_callback(int fd, uint32_t events, void *userdata) {
@@ -1147,7 +1152,23 @@ static void mesh_ble_poll_connecting(struct mesh_ble_transport_state *state) {
     if (result == -EAGAIN) {
         return;
     }
-    if (result < 0) {
+    /*
+     * -ETIMEDOUT is not a discovery failure: it is BlueZ not having answered this one
+     * Properties.Get inside MESH_BLUEZ_PROPERTY_TIMEOUT_MS. That deadline exists to stop
+     * tracking a request whose reply may never come, not to end a link - and bluetoothd is
+     * slowest to answer exactly when it is busiest, which is mid-connect. Treating it as fatal
+     * ended the link seconds into a twenty-second budget and then retried into the same wall on
+     * the auto-connect timer, for ever. So it means what it says instead: services are not
+     * resolved *yet*. The request was cancelled on timeout, so the next poll issues a fresh
+     * Get, and MESH_BLE_SERVICES_TIMEOUT_MS below stays the only bound on how long discovery
+     * may take - which is what still ends the link on a genuinely wedged bluetoothd, with the
+     * error that says so.
+     */
+    if (result == -ETIMEDOUT) {
+        mesh_log_debug("ble", "%s: ServicesResolved poll timed out; reissuing",
+                       state->connected_address);
+        resolved = false;
+    } else if (result < 0) {
         mesh_log_warn("ble", "ServicesResolved query failed for %s (%d)", state->connected_address,
                       result);
         mesh_ble_set_error(state, MESH_STR_LINK_DISCOVERY_FAILED,

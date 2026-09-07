@@ -598,6 +598,106 @@ cleanup:
     record_success(test_name);
 }
 
+/* A Properties.Get(ServicesResolved) that does not come back inside
+   MESH_BLUEZ_PROPERTY_TIMEOUT_MS is bluetoothd being busy, not the GATT database being absent -
+   the state it is busiest in being the connect it is still scanning through. The poll is retried
+   and MESH_BLE_SERVICES_TIMEOUT_MS remains the only bound on discovery; treating the timeout as
+   fatal instead ended every connect a second in and retried on the auto-connect timer for ever. */
+MESH_TEST_CASE(ble_transport_services_resolved_timeout_retries, unit) {
+    const char *failure = NULL;
+
+    struct mesh_transport *ble = mesh_ble_transport();
+
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:0A", .name = "NodeTen", .rssi = -50, .paired = true},
+    };
+
+    uint8_t write_capture[64];
+    memset(write_capture, 0, sizeof(write_capture));
+    size_t write_len = 0U;
+    char write_path[128];
+    memset(write_path, 0, sizeof(write_path));
+
+    struct mesh_bluez_mock_config mock_config = {
+        .adapter_path = "/org/bluez/hci0",
+        /* Two polls time out, then the database is there on the first real answer. */
+        .services_resolved_timeout_polls = 2U,
+        .toradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_0A/service000a/char000b",
+        .fromradio_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_0A/service000a/char000d",
+        .fromnum_char_path = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_0A/service000a/char000f",
+        .devices = mock_devices,
+        .device_count = 1U,
+        .write_capture_buffer = write_capture,
+        .write_capture_capacity = sizeof(write_capture),
+        .write_capture_length = &write_len,
+        .write_capture_path = write_path,
+        .write_capture_path_capacity = sizeof(write_path),
+    };
+
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    struct mesh_app_config config = mesh_app_config_default();
+    struct mesh_event_loop loop;
+    mesh_event_loop_init(&loop);
+
+    if (ble->ops->start(ble, &config, &loop) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+        failure = "connect should be accepted";
+        goto cleanup;
+    }
+    /* The first poll happened inside connect() and timed out. The link must have survived it. */
+    if (!mesh_ble_transport_is_connecting(ble)) {
+        failure = "a timed-out ServicesResolved poll must not end the link";
+        goto cleanup;
+    }
+
+    /* Second poll: the other timeout. Still connecting, still no link failure recorded. */
+    test_sleep_ms(300U);
+    ble->ops->tick(ble);
+    if (!mesh_ble_transport_is_connecting(ble)) {
+        failure = "a second timed-out poll must not end the link either";
+        goto cleanup;
+    }
+
+    /* Third poll answers, and the connect completes off the back of a retry. */
+    test_sleep_ms(300U);
+    ble->ops->tick(ble);
+    if (mesh_ble_transport_is_connecting(ble)) {
+        failure = "connect should have completed once the poll answered";
+        goto cleanup;
+    }
+    const char *connected = mesh_ble_transport_connected_address(ble);
+    if (connected == NULL || strcmp(connected, mock_devices[0].address) != 0) {
+        failure = "connected address mismatch after retried service discovery";
+        goto cleanup;
+    }
+    if (write_len == 0U || strcmp(write_path, mock_config.toradio_char_path) != 0) {
+        failure = "want_config write missing after retried service discovery";
+        goto cleanup;
+    }
+
+    char error[128];
+    if (ble->ops->take_error != NULL && ble->ops->take_error(ble, error, sizeof error)) {
+        failure = "a retried timeout must not leave a link failure to report";
+        goto cleanup;
+    }
+
+cleanup:
+    ble->ops->stop(ble);
+    mesh_event_loop_shutdown(&loop);
+    mesh_bluez_client_mock_disable();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}
+
 /* Device1.Connect answers asynchronously; the link stays "connecting" (and the loop free)
    until the reply lands, and a refused connect drops back to disconnected. */
 MESH_TEST_CASE(ble_transport_connect_async_reply, unit) {
