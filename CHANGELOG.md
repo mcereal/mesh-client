@@ -1,3 +1,9 @@
+## [2.25.0](https://github.com/mcereal/mesh-client/compare/v2.24.0...v2.25.0) (2026-09-07)
+
+### Features
+
+* **ui:** fill the leading and marker slots the component set already had ([043ae0b](https://github.com/mcereal/mesh-client/commit/043ae0bb5e246d624c97e20d549a5548a4278b45))
+
 ## [2.24.0](https://github.com/mcereal/mesh-client/compare/v2.23.1...v2.24.0) (2026-09-07)
 
 ### Features
