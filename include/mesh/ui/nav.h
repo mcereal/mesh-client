@@ -424,19 +424,27 @@ bool mesh_ui_nav_picker_row(const struct mesh_ui_store *store, uint32_t index, u
                             uint8_t *out_channel, char *out_name, size_t out_name_len);
 
 /*
- * The disc a picker row wears: its two cells and the seed that tints them, for the row
- * addressing `node`/`channel` as mesh_ui_nav_picker_row() reports them.
+ * The disc worn by the channel or node that `node`/`channel` addresses - its two cells and the
+ * seed that tints them - in the same terms as nav.target_*.
  *
- * It is here rather than in a backend for one reason: the picker lists the same channels and
- * nodes the Messages tab does, and a node whose disc is a different colour or a different two
- * letters in the two lists is a node the user cannot follow between them. Deriving it twice is
- * how they come to disagree - the row's *display* name is "BRVO  Bravo Creek", whose first two
- * words both begin with B, while the conversation list names the same node "BRVO". So both go
- * through the node's own name here, and neither screen holds an opinion.
+ * It is here rather than in a backend because three lists draw the same discs for the same
+ * radios, and a node whose disc is a different colour or a different two letters between them
+ * is a node the user cannot follow from one to the next. Deriving it per screen is exactly how
+ * they come to disagree, and both ways it happened are worth keeping in mind:
+ *
+ *   - from the string a screen is showing. A picker row *reads* "BRVO  Bravo Creek", whose
+ *     first two words both begin with B, so its initials would be "BB" against Messages' "BR".
+ *   - from one field rather than the resolved name. A node with no short name shows the "----"
+ *     placeholder, which has no letters in it at all and yields an empty disc, while the other
+ *     lists fall through to the long name and then to the "!hex" id.
+ *
+ * So every caller comes through here, and the fallback order is mesh_ui_nav_node_name()'s once
+ * rather than each screen's own. A screen may still *show* the placeholder - what it displays
+ * and what identifies it are different questions.
  *
  * `out_initials` wants MESH_UI_CONVERSATION_INITIALS_MAX bytes; `out_tint` may be NULL.
  */
-void mesh_ui_nav_picker_avatar(const struct mesh_ui_store *store, uint32_t node, uint8_t channel,
+void mesh_ui_nav_target_avatar(const struct mesh_ui_store *store, uint32_t node, uint8_t channel,
                                char *out_initials, size_t out_len, uint32_t *out_tint);
 
 /* Compose overlay rows: 0 = the draft, then the canned replies. There is no To: row; the

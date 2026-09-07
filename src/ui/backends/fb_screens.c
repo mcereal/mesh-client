@@ -699,6 +699,10 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
     fb_draw_title(state, layout, title);
 
     const uint32_t me = hs->has_my_info ? hs->my_info.node_num : 0U;
+    /* The discs come from the nav layer, which wants a store rather than the handshake alone -
+       the same view the conversation list and the picker build, so all three ask one function. */
+    struct mesh_ui_store view;
+    fb_store_view(snapshot, &view);
     struct fb_list list = fb_list_begin(layout, count, nav->cursor[MESH_UI_SCREEN_NODES]);
     struct mesh_ui_line line;
     char right[32];
@@ -730,23 +734,36 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
         }
 
         /*
-         * The disc carries the short name's first half and is tinted by node number, which is
-         * the same rule and the same seed the conversation list uses - so a node the user has
-         * learned to find by colour in Messages is the same colour here.
+         * The disc carries the node's initials and is tinted by node number, both answered by
+         * the nav layer - so a node the user has learned to find by colour in Messages is the
+         * same two cells and the same colour here.
+         *
+         * It resolves the *node*, not `short_name`: a node with no short name is shown as the
+         * "----" placeholder, which has no letters in it and would give an empty disc, while
+         * Messages falls through to the long name and then to the "!hex" id. What a row
+         * displays and what identifies it are different questions.
          *
          * Ourselves is the one row that takes a stated fill instead of a tint. That is what the
          * '*' in the marker column used to say, and a disc says it without spending a cell of
          * the name: a node list is read by scanning the left edge, which is exactly where the
          * disc already is.
          */
-        mesh_ui_nav_initials(short_name, initials, sizeof initials);
         const bool is_me = (me != 0U && node->node_id == me);
+        uint32_t tint = 0U;
+        mesh_ui_nav_target_avatar(&view, node->node_id, 0U, initials, sizeof initials, &tint);
 
-        /* The star stays in the text: being pinned is a fact about the node rather than about
-           what it is, so it belongs beside the name and not in place of the identity the disc
-           is carrying. It costs one cell exactly like the ASCII stand-in it replaced. */
+        /*
+         * The star stays in the text: being pinned is a fact about the node rather than about
+         * what it is, so it belongs beside the name and not in place of the identity the disc
+         * is carrying.
+         *
+         * Never on ourselves, which is what the old marker column got right by ordering the two
+         * cases. A radio can carry a stale `is_favorite` on its own NodeDB entry, and nav.c and
+         * node_detail.c both refuse to pin our own node - so a star there would advertise a
+         * preference that no press can clear.
+         */
         mesh_ui_line_reset(&line);
-        if (node->is_favorite) {
+        if (node->is_favorite && !is_me) {
             /* The glyph stays a literal of its own and the space is format glue, which is how
                scripts/check-strings.py already knows the star is drawn rather than read. */
             mesh_ui_line_printf(&line, "%s ", "\xE2\xAD\x90");
@@ -771,7 +788,7 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
                 {
                     .kind = FB_LEADING_AVATAR,
                     .label = initials,
-                    .tint = node->node_id,
+                    .tint = tint,
                     .role = is_me ? MESH_UI_COLOR_ACCENT : MESH_UI_COLOR_COUNT,
                 },
             .text = mesh_ui_line_text(&line),
@@ -858,7 +875,7 @@ static void fb_render_picker(struct mesh_ui_backend_fb_state *state,
 
         /*
          * The same discs the conversation list draws, for the same rows. The nav layer answers
-         * both the cells and the tint (mesh_ui_nav_picker_avatar), which is what keeps a node
+         * both the cells and the tint (mesh_ui_nav_target_avatar), which is what keeps a node
          * the same two letters and the same colour in both lists - this row's *name* is
          * "BRVO  Bravo Creek", and initials taken from that would read "BB".
          *
@@ -867,7 +884,7 @@ static void fb_render_picker(struct mesh_ui_backend_fb_state *state,
          * current target, which is a stated accent fill here.
          */
         uint32_t tint = 0U;
-        mesh_ui_nav_picker_avatar(&view, node, channel, initials, sizeof initials, &tint);
+        mesh_ui_nav_target_avatar(&view, node, channel, initials, sizeof initials, &tint);
         const struct fb_list_item row = {
             .leading =
                 {

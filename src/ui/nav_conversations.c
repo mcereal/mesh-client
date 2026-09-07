@@ -501,11 +501,11 @@ static void mesh_ui_nav_conversation_avatar(struct mesh_ui_conversation *out) {
     }
 }
 
-/* The same two facts for a picker row. A channel is a place and wears '#' seeded by its slot,
-   exactly as MESH_UI_CONVERSATION_CHANNEL does; a node wears the initials of the name the
-   conversation list knows it by, which is why this resolves the node rather than taking the
-   caller's display string. */
-void mesh_ui_nav_picker_avatar(const struct mesh_ui_store *store, uint32_t node, uint8_t channel,
+/* The same two facts for any target a list can show. A channel is a place and wears '#' seeded
+   by its slot, exactly as MESH_UI_CONVERSATION_CHANNEL does; a node wears the initials of the
+   name the conversation list knows it by, which is why this resolves the node itself rather
+   than taking the caller's display string or one of the node's fields. */
+void mesh_ui_nav_target_avatar(const struct mesh_ui_store *store, uint32_t node, uint8_t channel,
                                char *out_initials, size_t out_len, uint32_t *out_tint) {
     if (out_initials == NULL || out_len == 0U) {
         return;

@@ -1068,7 +1068,7 @@ cleanup:
  * showing. The picker's row reads "ALFA  Alfa Node", whose first two words both begin with A;
  * initials taken from that read "AA" while Messages shows "AL" for the same radio.
  *
- * That is what mesh_ui_nav_picker_avatar() exists to prevent, and this is the case it was
+ * That is what mesh_ui_nav_target_avatar() exists to prevent, and this is the case it was
  * written for.
  */
 MESH_TEST_CASE(ui_nav_avatar_is_stable_across_lists, unit) {
@@ -1119,7 +1119,7 @@ MESH_TEST_CASE(ui_nav_avatar_is_stable_across_lists, unit) {
         if (node != 0x2000U) {
             continue;
         }
-        mesh_ui_nav_picker_avatar(&store, node, channel, picker_cells, sizeof picker_cells,
+        mesh_ui_nav_target_avatar(&store, node, channel, picker_cells, sizeof picker_cells,
                                   &picker_tint);
         found = true;
         break;
@@ -1145,10 +1145,30 @@ MESH_TEST_CASE(ui_nav_avatar_is_stable_across_lists, unit) {
 
     /* A channel is a place: the mark rather than initials, seeded by its slot so renaming it
        keeps the colour. */
-    mesh_ui_nav_picker_avatar(&store, MESH_MESSAGE_BROADCAST_ADDR, 3U, picker_cells,
+    mesh_ui_nav_target_avatar(&store, MESH_MESSAGE_BROADCAST_ADDR, 3U, picker_cells,
                               sizeof picker_cells, &picker_tint);
     if (strcmp(picker_cells, "#") != 0 || picker_tint != 0x0C000003U) {
         failure = "a channel should wear '#' seeded by its slot";
+        goto cleanup;
+    }
+
+    /*
+     * The fallback order is the node's, not any one field's. A roster entry with no short name
+     * is *shown* as the "----" placeholder, which has no letters in it at all - so an avatar
+     * derived from what the row displays would be empty while the same node wears its long
+     * name's initials everywhere else.
+     */
+    struct mesh_ui_handshake_state *hs = &store.handshake;
+    memset(&hs->nodes[1].short_name, 0, sizeof hs->nodes[1].short_name);
+    mesh_ui_nav_target_avatar(&store, 0x2000U, 0U, picker_cells, sizeof picker_cells, NULL);
+    if (strcmp(picker_cells, "AN") != 0) {
+        failure = "a node with no short name should fall through to its long name";
+        goto cleanup;
+    }
+    memset(&hs->nodes[1].long_name, 0, sizeof hs->nodes[1].long_name);
+    mesh_ui_nav_target_avatar(&store, 0x2000U, 0U, picker_cells, sizeof picker_cells, NULL);
+    if (picker_cells[0] == '\0') {
+        failure = "a node with no names at all should still wear its '!hex' id, not an empty disc";
         goto cleanup;
     }
 

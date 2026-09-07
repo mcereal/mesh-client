@@ -208,6 +208,9 @@ are mid-conversation with, which is also what keeps a quiet pinned node inside t
 list marks it with a star sprite before the name. Our own node is marked differently — its
 avatar disc takes the accent as a stated fill instead of a tint — because being *us* is an
 identity and being pinned is a preference, and the disc is the slot that carries identity.
+**Our own node never shows the star**, whatever its `is_favorite` says: the flag can arrive
+stale and neither `nav.c` nor `node_detail.c` will pin us, so a star there would advertise a
+preference no press can clear.
 
 A pin is **NodeDB state on the radio it was made on** — `is_favorite` is resolved per receiver —
 so it never follows the Brick from one of your radios to another. That cuts both ways and only
