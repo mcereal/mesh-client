@@ -4,7 +4,9 @@ A Meshtastic client for the TrimUI Brick and other NextUI/MinUI handhelds. Read 
 messages, browse the mesh, and edit your radio's settings over Bluetooth LE or USB — no phone
 needed.
 
-Small C core, pluggable transports, ships as a sideloadable `MeshClient.pak`.
+Small C core, pluggable transports, available in the
+[NextUI Pak Store](https://github.com/LoveRetro/nextui-pak-store) or as a sideloadable
+`MeshClient.pak`.
 
 <p align="center">
   <img src=".github/resources/screenshots/messages.png" width="180" alt="Messages">
@@ -15,9 +17,12 @@ Small C core, pluggable transports, ships as a sideloadable `MeshClient.pak`.
 
 ## Install on a Brick
 
-The easiest route is **Tools → Pak Store → MeshClient** on the device.
+MeshClient is now live in the [NextUI Pak Store](https://github.com/LoveRetro/nextui-pak-store).
+On your Brick, open **Tools → Pak Store**, find **MeshClient** under **Miscellaneous Tools**,
+and install it directly on the device. Launch it from **Tools → MeshClient** once installed.
 
-To install a release by hand, download `MeshClient.pak.zip` and unzip it *into* a folder you
+To install a release by hand instead, download `MeshClient.pak.zip` from the
+[latest release](https://github.com/mcereal/mesh-client/releases/latest) and unzip it *into* a folder you
 make — the zip holds the pak's contents, not the pak folder, because that is what the Pak Store
 expects:
 
