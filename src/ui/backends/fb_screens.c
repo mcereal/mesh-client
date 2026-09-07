@@ -25,6 +25,7 @@
 #include "mesh/ui/settings.h"
 #include "mesh/ui/status.h"
 #include "mesh/utils/text.h"
+#include "mesh/utils/time.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -265,9 +266,9 @@ static void fb_format_day(uint32_t rx_time, char *out, size_t out_len) {
     if (localtime_r(&stamp, &when) == NULL) {
         return;
     }
-    const time_t now = time(NULL);
+    const time_t now = (time_t)mesh_time_wall_s();
     struct tm today;
-    if (now != (time_t)-1 && localtime_r(&now, &today) != NULL) {
+    if (now > 0 && localtime_r(&now, &today) != NULL) {
         if (when.tm_year == today.tm_year && when.tm_yday == today.tm_yday) {
             snprintf(out, out_len, "%s", mesh_str(MESH_STR_DATE_TODAY));
             return;
@@ -552,7 +553,7 @@ static struct fb_thread_cache *fb_thread_cache_get(struct mesh_ui_backend_fb_sta
     }
     /* Include local calendar and zone, so midnight and a timezone change invalidate labels. */
     char calendar[80] = {0};
-    const time_t now = time(NULL);
+    const time_t now = (time_t)mesh_time_wall_s();
     struct tm local;
     if (localtime_r(&now, &local) != NULL) {
         (void)strftime(calendar, sizeof calendar, "%Y-%m-%d %Z %z", &local);
@@ -745,7 +746,7 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count = mesh_ui_node_detail_build(
-        node, is_self, (uint32_t)time(NULL), &snapshot->traceroute, nav->node_remove_armed,
+        node, is_self, mesh_time_wall_s(), &snapshot->traceroute, nav->node_remove_armed,
         &snapshot->handshake, items, MESH_UI_NODE_ITEMS_MAX);
     if (count == 0U) {
         fb_draw_empty(state, layout, MESH_UI_ICON_NODES, mesh_str(MESH_STR_NODES_DETAIL_EMPTY));
@@ -2253,7 +2254,7 @@ static void fb_render_begin(struct mesh_ui_backend_fb_state *state,
     }
     struct fb_render_cache *cache = state->render_cache;
     if (!state->partial_disabled && cache != NULL) {
-        const time_t second = time(NULL);
+        const time_t second = (time_t)mesh_time_wall_s();
         cache->snapshot.update_flags = snapshot->update_flags;
         state->clip_active = cache->valid && state->animation_damage.valid &&
                              cache->theme == state->theme && cache->locale == mesh_i18n_locale() &&

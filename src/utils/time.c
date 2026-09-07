@@ -11,3 +11,23 @@ uint64_t mesh_time_monotonic_ms(void) {
     }
     return (uint64_t)ts.tv_sec * 1000U + (uint64_t)ts.tv_nsec / 1000000U;
 }
+
+/*
+ * Zero means "follow the real clock", which is also what a caller that never pins it gets. A
+ * plain file-scope value rather than anything cleverer: this is read on the drawing path, and
+ * the only writer is a harness that runs before the first frame.
+ */
+static uint32_t g_wall_fixed = 0U;
+
+uint32_t mesh_time_wall_s(void) {
+    if (g_wall_fixed != 0U) {
+        return g_wall_fixed;
+    }
+    const time_t now = time(NULL);
+    if (now <= 0) {
+        return 0U;
+    }
+    return (uint32_t)now;
+}
+
+void mesh_time_wall_set_fixed(uint32_t epoch) { g_wall_fixed = epoch; }

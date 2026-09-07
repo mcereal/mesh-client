@@ -9,10 +9,10 @@ Small C core, pluggable transports, available in the
 `MeshClient.pak`.
 
 <p align="center">
-  <img src=".github/resources/screenshots/messages.png" width="180" alt="Messages">
-  <img src=".github/resources/screenshots/nodes.png" width="180" alt="Nodes">
-  <img src=".github/resources/screenshots/status.png" width="180" alt="Status">
-  <img src=".github/resources/screenshots/settings.png" width="180" alt="Settings">
+  <img src=".github/resources/screenshots/messages.png" width="180" alt="A channel thread, with sent and received messages">
+  <img src=".github/resources/screenshots/nodes.png" width="180" alt="The node roster, with age and signal per node">
+  <img src=".github/resources/screenshots/status.png" width="180" alt="The Status tab: link, mesh and radio cards">
+  <img src=".github/resources/screenshots/settings.png" width="180" alt="The LoRa settings section">
 </p>
 
 ## Install on a Brick
@@ -134,8 +134,11 @@ With the Brick on WiFi and the SSH Server pak installed, skip the SD card: set `
 listing. Its `version` must match the release tag, so `scripts/release-build.sh` stamps it and
 `@semantic-release/git` commits it — **do not bump it by hand**. The same step regenerates the
 `changelog` entry for the release from its commit subjects (`scripts/pak-changelog.py`), so that
-is not hand-maintained either. Its `screenshots` are real captures off a Brick's framebuffer
-(`make deploy-shot`).
+is not hand-maintained either. Its `screenshots` are the four stills above, rendered off-screen
+from the scenes in `devtools/ui_capture/scenes/shots/` by `make screenshots` — the renderer that
+ships, at the panel's own 1024x768, so they are the frames the device would draw. Refresh them
+after a UI change with that one command rather than by hand; `make deploy-shot` is still there
+for a picture of the real panel.
 
 The pak ships Mozilla's CA roots at `certs/certificates.crt`, from
 [curl.se/ca](https://curl.se/ca/cacert.pem). The Brick has no system CA store, so without it the

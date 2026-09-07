@@ -14,6 +14,7 @@
 #include "mesh/ui/emoji.h"
 #include "mesh/ui/icon.h"
 #include "mesh/utils/text.h"
+#include "mesh/utils/time.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1026,12 +1027,12 @@ void fb_format_age(uint32_t last_heard, char *out, size_t out_len) {
         snprintf(out, out_len, "%s", mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT));
         return;
     }
-    const time_t now = time(NULL);
-    if (now <= 0 || (uint32_t)now < last_heard) {
+    const uint32_t now = mesh_time_wall_s();
+    if (now == 0U || now < last_heard) {
         snprintf(out, out_len, "%s", mesh_str(MESH_STR_TIME_NOW));
         return;
     }
-    const uint32_t delta = (uint32_t)now - last_heard;
+    const uint32_t delta = now - last_heard;
     if (delta < 60U) {
         mesh_str_format(out, out_len, MESH_STR_TIME_SECONDS_SHORT, delta);
     } else if (delta < 3600U) {

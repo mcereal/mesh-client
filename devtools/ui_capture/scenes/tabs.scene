@@ -1,7 +1,13 @@
 # One pass along the tab bar. The cheapest way to see chrome changes on every screen at once.
+#
+# `config` and `stats` are what make it a pass over a working client rather than over a client
+# waiting to hear back: without them Settings is a column of "not loaded" and the Status tab's
+# Mesh card has no counters and no airtime bar.
 scene demo
 scale 4
 delay 220
+config
+stats
 
 hold 500
 tab nodes

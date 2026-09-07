@@ -22,6 +22,7 @@
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
 #include "mesh/ui/theme.h"
+#include "mesh/utils/time.h"
 
 #include "../../src/ui/backends/fb_internal.h"
 #include "../../src/ui/backends/fb_widgets.h"
@@ -987,6 +988,92 @@ MESH_TEST_CASE(ui_capture_app_bar_badges_unsaved_edits, unit) {
 }
 
 /* The PPM is what scripts/frames.py parses, so its header and its byte order are a contract. */
+/*
+ * A frame is drawn against a clock the caller can pin.
+ *
+ * Everything time-shaped on the panel - a message's "18:47", a node's "3m", the separator that
+ * says "Yesterday" - used to come from time(NULL) inside the renderer, which made a rendered
+ * frame a function of when it was rendered. That is invisible on a device and fatal for the
+ * screenshots in .github/resources: regenerating them an hour later rewrote the clock column,
+ * and either side of midnight moved the day separators. mesh_time_wall_set_fixed() is the seam
+ * that fixes it, and this is the contract it has to keep - the same pin draws the same bytes,
+ * and a different pin draws different ones, which is what proves the renderer reads it at all.
+ */
+MESH_TEST_CASE(ui_capture_draws_against_the_pinned_clock, unit) {
+    /* Fixed rather than derived from now: a case about a pinned clock must not depend on one. */
+    const uint32_t base = 1767200000U; /* 2025-12-31 in UTC, and any zone's version of it */
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    /* The fixture leaves rx_time at zero, which draws no clock and no age at all - so the two
+       renderings below would be identical for the wrong reason. */
+    struct mesh_ui_message_list messages;
+    memset(&messages, 0, sizeof messages);
+    messages.count = 1U;
+    messages.entries[0].packet_id = 21U;
+    messages.entries[0].peer = 0x2000U;
+    messages.entries[0].broadcast = true;
+    messages.entries[0].direction = MESH_MESSAGE_INBOUND;
+    messages.entries[0].rx_time = base;
+    snprintf(messages.entries[0].peer_name, sizeof messages.entries[0].peer_name, "%s", "ALFA");
+    snprintf(messages.entries[0].text, sizeof messages.entries[0].text, "%s", "hello all");
+    mesh_ui_store_set_messages(&store, &messages);
+
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_ui_store_consume_updates(&store, &snapshot),
+                              mesh_ui_store_shutdown(&store), "no snapshot to render");
+
+    struct mesh_ui_capture *capture = NULL;
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, 4) != 0,
+        mesh_ui_store_shutdown(&store), "capture open failed");
+
+    uint32_t width = 0U;
+    uint32_t height = 0U;
+    size_t stride = 0U;
+    const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+    const size_t page = (size_t)height * stride;
+    uint8_t *early = pixels != NULL ? malloc(page) : NULL;
+    uint8_t *later = pixels != NULL ? malloc(page) : NULL;
+    MESH_TEST_FAIL_IF_CLEANUP(pixels == NULL || early == NULL || later == NULL, free(early);
+                              free(later); mesh_ui_capture_close(capture);
+                              mesh_time_wall_set_fixed(0U);
+                              mesh_ui_store_shutdown(&store), "no page to compare");
+
+    /* Ten minutes after the message, then two hours after it: "10m" against "2h". */
+    mesh_time_wall_set_fixed(base + 600U);
+    mesh_ui_capture_render(capture, &snapshot);
+    memcpy(early, pixels, page);
+
+    mesh_time_wall_set_fixed(base + 7200U);
+    mesh_ui_capture_render(capture, &snapshot);
+    memcpy(later, pixels, page);
+
+    MESH_TEST_FAIL_IF_CLEANUP(memcmp(early, later, page) == 0, free(early); free(later);
+                              mesh_ui_capture_close(capture); mesh_time_wall_set_fixed(0U);
+                              mesh_ui_store_shutdown(&store), "the frame ignored the pinned clock");
+
+    /* And back: the same pin has to draw the same bytes, or a checked-in screenshot still
+       churns however carefully the scene pins its clock. */
+    mesh_time_wall_set_fixed(base + 600U);
+    mesh_ui_capture_render(capture, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(memcmp(early, pixels, page) != 0, free(early); free(later);
+                              mesh_ui_capture_close(capture); mesh_time_wall_set_fixed(0U);
+                              mesh_ui_store_shutdown(&store),
+                              "the same pinned clock drew a different frame");
+
+    free(early);
+    free(later);
+    mesh_ui_capture_close(capture);
+    mesh_time_wall_set_fixed(0U);
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_capture_writes_a_ppm, unit) {
     struct mesh_ui_capture *capture = NULL;
     MESH_TEST_FAIL_IF(mesh_ui_capture_open(&capture, 64U, 32U, 2) != 0, "capture open failed");
