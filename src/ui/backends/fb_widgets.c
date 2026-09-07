@@ -179,44 +179,6 @@ void fb_list_row_line(const struct mesh_ui_backend_fb_state *state, struct fb_li
     fb_list_row(state, list, index, mesh_ui_line_text(line), tone);
 }
 
-void fb_list_row_line_badge(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
-                            uint32_t index, struct mesh_ui_line *line, enum mesh_ui_tone tone,
-                            const char *badge) {
-    const size_t badge_cols = (badge != NULL) ? mesh_ui_text_cells(badge) : 0U;
-    if (badge_cols == 0U) {
-        fb_list_row_line(state, list, index, line, tone);
-        return;
-    }
-
-    /* The row is clipped to leave the badge its own space rather than drawn under it, and the
-       badge is measured in cells, so a count is a count whatever the row beside it holds. */
-    const int adv = fb_char_adv(state, state->scale);
-    const size_t room = list->cols > badge_cols + 2U ? list->cols - badge_cols - 2U : 1U;
-    mesh_ui_line_fit(line, room);
-
-    const int y = list->y;
-    fb_list_row(state, list, index, mesh_ui_line_text(line), tone);
-
-    const int width = (int)badge_cols * adv + adv;
-    const int x = (int)state->var.xres - fb_margin(state) - width;
-    /* A capsule, the way every messenger draws a count. The shape is doing the work here: a
-       filled rectangle of accent on the end of a row reads as part of the row, and the same
-       fill with its ends taken off reads as a thing sitting on top of it. */
-    fb_fill_round_rect(state, x, y - state->scale, width,
-                       fb_line_adv(state, state->scale) - state->scale,
-                       fb_radius(state, MESH_UI_SHAPE_FULL), fb_color(state, MESH_UI_COLOR_ACCENT));
-    /* Whatever the theme says reads on its own accent fill - on the dark theme that is the
-       ground colour, because white on that yellow is unreadable at this glyph size. */
-    fb_draw_text(state, x + adv / 2, y, badge, state->scale,
-                 fb_color(state, MESH_UI_COLOR_ON_ACCENT));
-}
-
-void fb_list_sub_row(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
-                     const char *text, enum mesh_ui_tone tone) {
-    fb_draw_text(state, fb_margin(state), list->y, text, state->scale, fb_tone_color(state, tone));
-    list->y += list->line;
-}
-
 /* ---- the conversation cell ----------------------------------------------------------------- */
 
 /* The disc and its initials. `size` is both its width and its height, so the radius is half
@@ -236,144 +198,323 @@ static void fb_draw_avatar(const struct mesh_ui_backend_fb_state *state, int x, 
                  fb_color(state, MESH_UI_COLOR_BG));
 }
 
-/* Text clipped to `cols` and drawn at `x`. The conversation cell indents past its avatar, so
-   it cannot use fb_draw_row's margin-anchored placement. */
-static void fb_draw_clipped(const struct mesh_ui_backend_fb_state *state, int x, int y,
-                            const char *text, size_t cols, struct mesh_ui_rgb color) {
-    struct mesh_ui_line line;
-    mesh_ui_line_reset(&line);
-    mesh_ui_line_printf(&line, "%s", text);
-    mesh_ui_line_fit(&line, cols);
-    fb_draw_text(state, x, y, mesh_ui_line_text(&line), state->scale, color);
-}
+/* ---- the list item ------------------------------------------------------------------------ */
 
-void fb_draw_conversation(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
-                          uint32_t index, const struct fb_conversation *conversation) {
+/*
+ * An item's geometry, all of it derived once so the fill, the text and the slots cannot
+ * disagree about where the row is. Every screen used to re-derive some part of this, and the
+ * parts that drifted were exactly the ones nothing else could see: how far a trailing control
+ * ate into the text, and which box a control centred itself on.
+ */
+struct fb_item_geom {
+    uint32_t rows;
+    int fill_top, fill_h; /* the box the cursor fill paints, and a control centres on */
+    int head_y;           /* headline baseline */
+    int supp_y;           /* supporting baseline; only meaningful on a two-row item */
+    int slot_h;           /* height of a box-shaped trailing - a badge */
+    int head_slot_top, supp_slot_top;
+    int text_x, text_right;
+    size_t cols; /* text columns between the leading slot and the trailing edge */
+};
+
+static struct fb_item_geom fb_item_measure(const struct mesh_ui_backend_fb_state *state,
+                                           const struct fb_list *list,
+                                           const struct fb_list_item *item) {
     const int scale = state->scale;
     const int adv = fb_char_adv(state, scale);
-    const int glyph = (int)fb_font(state)->height * scale;
     const int margin = fb_margin(state);
-    const bool selected = mesh_ui_list_is_cursor(&list->model, index);
+    struct fb_item_geom g;
+    memset(&g, 0, sizeof g);
 
-    /*
-     * The two rows are one item, so they are set closer together than two items are - the
-     * preview sits a scale above where a second list row would put it, and the space that
-     * frees becomes the gap between cells. Without that the cell fills every pixel of its two
-     * rows, and a list of them reads as one block of text with no way in.
-     */
-    const int name_y = list->y;
-    const int preview_y = list->y + list->line - scale;
-    const int top = name_y - scale / 2;
-    const int height = 2 * list->line - 2 * scale;
+    g.rows = item->supporting != NULL ? 2U : 1U;
+    g.head_y = list->y;
+    g.text_right = (int)state->var.xres - margin;
+    g.slot_h = list->line - scale;
+
+    if (g.rows == 2U) {
+        /* Two rows set closer together than two items are: the supporting line sits a scale
+           above where a second row would put it, and the space that frees becomes the gap to
+           the next item. */
+        g.supp_y = list->y + list->line - scale;
+        g.fill_top = g.head_y - scale / 2;
+        g.fill_h = 2 * list->line - 2 * scale;
+        g.head_slot_top = g.fill_top;
+        g.supp_slot_top = g.supp_y - scale / 2;
+    } else {
+        g.fill_top = g.head_y - scale;
+        g.fill_h = list->line;
+        g.head_slot_top = g.fill_top;
+        g.supp_slot_top = g.fill_top;
+    }
+
+    g.text_x = margin;
+    if (item->leading.kind == FB_LEADING_AVATAR) {
+        g.text_x = margin + (g.fill_h - scale) + adv / 2;
+    }
+    g.cols = g.text_right > g.text_x ? (size_t)((g.text_right - g.text_x) / adv) : 1U;
+    return g;
+}
+
+/*
+ * Cells a trailing slot takes out of a line `cols` wide, its breathing room included.
+ *
+ * Zero has one meaning and it covers both ways a slot can come to nothing: there is nothing in
+ * it, or the line is too narrow to give it its room. Either way the slot is not drawn and the
+ * line keeps every column it has - because a trailing figure is worth less than the row it
+ * would be laid across, and a row clipped to one cell has lost the thing it was about.
+ *
+ * The point of one function answering that is that *measuring and drawing ask it once*. A slot
+ * squeezed out of the line by one calculation and then painted over that line by another is
+ * exactly the bug this component exists to make unwritable - it is what a narrow panel or a
+ * large glyph scale used to turn an age into, drawn back across the avatar.
+ */
+static size_t fb_trailing_cols(const struct mesh_ui_backend_fb_state *state, size_t cols,
+                               const struct fb_trailing *trailing) {
+    const int adv = fb_char_adv(state, state->scale);
+    size_t want = 0U;
+    switch (trailing->kind) {
+    case FB_TRAILING_TEXT: {
+        const size_t cells = mesh_ui_text_cells(trailing->text);
+        want = cells > 0U ? cells + 1U : 0U;
+        break;
+    }
+    case FB_TRAILING_BADGE: {
+        const size_t cells = mesh_ui_text_cells(trailing->text);
+        want = cells > 0U ? cells + 2U : 0U;
+        break;
+    }
+    case FB_TRAILING_SWITCH: {
+        int width = 0;
+        fb_switch_size(state, state->scale, &width, NULL);
+        want = (size_t)((width + adv - 1) / adv) + 2U;
+        break;
+    }
+    case FB_TRAILING_NONE:
+    default:
+        return 0U;
+    }
+    /* Strictly greater: the line keeps at least one cell of its own, which is the test the
+       conversation cell made for its age before this was a shared slot. */
+    return (want > 0U && cols > want) ? want : 0U;
+}
+
+static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struct fb_item_geom *g,
+                             const struct fb_trailing *trailing, int baseline, int slot_top,
+                             bool selected) {
+    const int scale = state->scale;
+    const int adv = fb_char_adv(state, scale);
+    const size_t cells = (trailing->kind == FB_TRAILING_TEXT || trailing->kind == FB_TRAILING_BADGE)
+                             ? mesh_ui_text_cells(trailing->text)
+                             : 0U;
+
+    switch (trailing->kind) {
+    case FB_TRAILING_TEXT:
+        if (cells == 0U) {
+            return;
+        }
+        /* Always the quiet ink, on the ground and on the fill alike: a trailing figure is
+           something the eye glances at on its way past, never the row's own words. */
+        fb_draw_text(state, g->text_right - (int)cells * adv, baseline, trailing->text, scale,
+                     selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL_DIM)
+                              : fb_tone_color(state, MESH_UI_TONE_DIM));
+        return;
+    case FB_TRAILING_BADGE: {
+        if (cells == 0U) {
+            return;
+        }
+        /* A capsule, the way every messenger draws a count. The shape does the work: a filled
+           rectangle on the end of a row reads as part of it, and the same fill with its ends
+           taken off reads as something sitting on top. */
+        const int width = (int)(cells + 1U) * adv;
+        const int x = g->text_right - width;
+        fb_fill_round_rect(state, x, slot_top, width, g->slot_h,
+                           fb_radius(state, MESH_UI_SHAPE_FULL),
+                           fb_color(state, MESH_UI_COLOR_ACCENT));
+        /* Whatever the theme says reads on its own accent fill - on the dark palette that is
+           the ground colour, because white on that yellow is unreadable at this glyph size. */
+        fb_draw_text(state, x + adv / 2, baseline, trailing->text, scale,
+                     fb_color(state, MESH_UI_COLOR_ON_ACCENT));
+        return;
+    }
+    case FB_TRAILING_SWITCH: {
+        if (trailing->sw == NULL) {
+            return;
+        }
+        int width = 0;
+        int height = 0;
+        fb_switch_size(state, scale, &width, &height);
+        /*
+         * Centred on the row's *fill* rather than on the glyph body. The two coincide for the
+         * font that ships, but only the fill is what the control has to stay inside, and a
+         * switch that overhangs it notches the highlight on the one row the cursor is on.
+         */
+        trailing->sw->rect.w = width;
+        trailing->sw->rect.h = height;
+        trailing->sw->rect.x = g->text_right - width;
+        trailing->sw->rect.y = g->fill_top + (g->fill_h - height) / 2;
+        trailing->sw->selected = selected;
+        fb_draw_switch(state, trailing->sw);
+        return;
+    }
+    case FB_TRAILING_NONE:
+    default:
+        return;
+    }
+}
+
+/* The headline, as one line: either the whole row, or a label column with a marker and a value
+   after it. */
+static void fb_item_headline(struct mesh_ui_line *line, const struct fb_list_item *item) {
+    mesh_ui_line_reset(line);
+    if (item->label_cols > 0U) {
+        /* The label occupies its column exactly - clipped when long, padded when short -
+           measured in cells so a value column still lines up under a label that is not all
+           ASCII. */
+        mesh_ui_line_column(line, item->label != NULL ? item->label : "", item->label_cols);
+        mesh_ui_line_printf(line, " %s%s", item->marker != NULL ? item->marker : "",
+                            item->value != NULL ? item->value : "");
+        return;
+    }
+    mesh_ui_line_printf(line, "%s", item->text != NULL ? item->text : "");
+}
+
+void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, uint32_t index,
+                  const struct fb_list_item *item) {
+    const int scale = state->scale;
+    const bool selected = mesh_ui_list_is_cursor(&list->model, index);
+    const struct fb_item_geom g = fb_item_measure(state, list, item);
 
     if (selected) {
-        /*
-         * The same shape a plain list row's cursor takes, and the bar down its outer edge is
-         * laid the way a card's edge is: the accent shape first, the fill over it a scale
-         * narrower on the left only. Both share their right edge, so the accent survives just
-         * where the bar is meant to be - and it follows the corner instead of poking a square
-         * end out of it, which is what a straight bar does once the row has ends.
-         *
-         * The bar is not decoration: a fill one step off the ground is not by itself findable
-         * on a small panel in sunlight, and gives a colour-blind eye nothing at all.
-         */
         const int radius = fb_radius(state, MESH_UI_SHAPE_SM);
-        const int row_x = margin / 2;
-        const int row_w = (int)state->var.xres - margin;
-        fb_fill_round_rect(state, row_x, top, row_w, height, radius,
-                           fb_color(state, MESH_UI_COLOR_ACCENT));
-        fb_fill_round_rect(state, row_x + scale, top, row_w - scale, height, radius,
-                           fb_color(state, MESH_UI_COLOR_SURFACE_SEL));
-    }
-
-    /* The disc, and the text column that starts after it. */
-    const int avatar_size = height - scale;
-    const int text_x = margin + avatar_size + adv / 2;
-    const int text_right = (int)state->var.xres - margin;
-    const size_t cols = text_right > text_x ? (size_t)((text_right - text_x) / adv) : 1U;
-    fb_draw_avatar(state, margin, top + scale / 2, avatar_size, conversation->avatar,
-                   conversation->armed    ? fb_color(state, MESH_UI_COLOR_BAD)
-                   : conversation->accent ? fb_color(state, MESH_UI_COLOR_ACCENT)
-                                          : mesh_ui_theme_avatar(state->theme, conversation->tint));
-
-    /* Under the cursor everything is drawn against that fill instead of against the ground,
-       which is a different pair of colours and not a dimmer version of the same one. */
-    const struct mesh_ui_rgb quiet = selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL_DIM)
-                                              : fb_tone_color(state, MESH_UI_TONE_DIM);
-    const struct mesh_ui_rgb name_ink = selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL)
-                                                 : fb_tone_color(state, conversation->name_tone);
-    /* An unread preview is the row's own words at full weight - never the name's tone, which
-       says what kind of conversation this is rather than how much of it is new. */
-    const struct mesh_ui_rgb loud = selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL)
-                                             : fb_tone_color(state, MESH_UI_TONE_STRONG);
-
-    /* The name row: the age sits against the right edge, quietly, the way a messenger dates a
-       conversation - it is a fact you glance at, not one you read. */
-    const size_t age_cells = mesh_ui_text_cells(conversation->age);
-    size_t name_cols = cols;
-    if (age_cells > 0U && cols > age_cells + 1U) {
-        name_cols = cols - age_cells - 1U;
-        fb_draw_text(state, text_right - (int)age_cells * adv, name_y, conversation->age, scale,
-                     quiet);
-    }
-    fb_draw_clipped(state, text_x, name_y, conversation->name, name_cols, name_ink);
-
-    /* The preview row, and the unread count as a pill after it. */
-    const size_t badge_cells = mesh_ui_text_cells(conversation->badge);
-    size_t preview_cols = cols;
-    if (badge_cells > 0U) {
-        const int pill_w = (int)(badge_cells + 1U) * adv;
-        const int pill_h = glyph + scale;
-        fb_fill_round_rect(state, text_right - pill_w, preview_y - scale / 2, pill_w, pill_h,
-                           pill_h / 2, fb_color(state, MESH_UI_COLOR_ACCENT));
-        fb_draw_text(state, text_right - pill_w + adv / 2, preview_y, conversation->badge, scale,
-                     fb_color(state, MESH_UI_COLOR_ON_ACCENT));
-        preview_cols = cols > badge_cells + 2U ? cols - badge_cells - 2U : 1U;
-    }
-
-    if (conversation->armed) {
-        /* The armed row says what the next press does, in place of the preview it would take
-           away. Nothing else on screen changes, so the warning is on the row it is about. */
-        fb_draw_clipped(state, text_x, preview_y, mesh_str(MESH_STR_MESSAGES_DELETE_ARMED),
-                        preview_cols,
-                        selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL)
-                                 : fb_tone_color(state, MESH_UI_TONE_BAD));
-    } else {
-        struct mesh_ui_line line;
-        mesh_ui_line_reset(&line);
-        if (conversation->preview[0] != '\0') {
-            /* "> " says the last word was ours, which is what tells you whether a quiet thread
-               is waiting on you or on them. */
-            mesh_ui_line_printf(&line, "%s%s", conversation->preview_outbound ? "> " : "",
-                                conversation->preview);
+        const int row_x = fb_margin(state) / 2;
+        const int row_w = (int)state->var.xres - fb_margin(state);
+        if (item->accent_edge) {
+            /*
+             * The bar is laid the way a card's edge is: the accent shape first, the fill over
+             * it a scale narrower on the left only. Both share their right edge, so the accent
+             * survives just where the bar is meant to be - and it follows the corner instead
+             * of poking a square end out of it, which is what a straight bar does once the row
+             * has ends.
+             */
+            fb_fill_round_rect(state, row_x, g.fill_top, row_w, g.fill_h, radius,
+                               fb_color(state, MESH_UI_COLOR_ACCENT));
+            fb_fill_round_rect(state, row_x + scale, g.fill_top, row_w - scale, g.fill_h, radius,
+                               fb_color(state, MESH_UI_COLOR_SURFACE_SEL));
         } else {
-            mesh_ui_line_printf(&line, "%s", mesh_str(MESH_STR_MESSAGES_NO_MESSAGES_YET));
+            fb_fill_round_rect(state, row_x, g.fill_top, row_w, g.fill_h, radius,
+                               fb_color(state, MESH_UI_COLOR_SURFACE_SEL));
         }
-        /* Full weight when there is something unread and quiet when there is not, which is
-           the other half of what the badge says - and the half that still reads once the
-           badge has been marked away. */
-        mesh_ui_line_fit(&line, preview_cols);
-        fb_draw_text(state, text_x, preview_y, mesh_ui_line_text(&line), scale,
-                     conversation->unread ? loud : quiet);
+    }
+
+    if (item->leading.kind == FB_LEADING_AVATAR) {
+        const int size = g.fill_h - scale;
+        const struct mesh_ui_rgb tint =
+            item->leading.role < MESH_UI_COLOR_COUNT
+                ? fb_color(state, item->leading.role)
+                : mesh_ui_theme_avatar(state->theme, item->leading.tint);
+        fb_draw_avatar(state, fb_margin(state), g.fill_top + scale / 2, size, item->leading.label,
+                       tint);
     }
 
     /*
-     * A hairline in the gap the tightened leading opened up, inset to where the text starts
-     * rather than run edge to edge: the avatar column already separates the cells, and a
-     * full-width rule under a disc reads as a box drawn around it.
-     *
-     * Not under the cursor, whose fill is doing that job, and not under the last cell on
-     * screen - a rule separates two things, and below the last one there is nothing to
-     * separate it from.
+     * Under the cursor everything is drawn against that fill instead of against the ground,
+     * which is a different pair of colours and not a dimmer version of the same one.
+     */
+    const struct mesh_ui_rgb head_ink =
+        selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL) : fb_tone_color(state, item->tone);
+
+    struct mesh_ui_line line;
+    fb_item_headline(&line, item);
+    const size_t head_take = fb_trailing_cols(state, g.cols, &item->trailing);
+    mesh_ui_line_fit(&line, g.cols - head_take);
+    fb_draw_text(state, g.text_x, g.head_y, mesh_ui_line_text(&line), scale, head_ink);
+    if (head_take > 0U) {
+        fb_draw_trailing(state, &g, &item->trailing, g.head_y, g.head_slot_top, selected);
+    }
+
+    if (g.rows == 2U) {
+        const struct mesh_ui_rgb supp_ink =
+            selected ? fb_color(state, item->supporting_quiet ? MESH_UI_COLOR_TEXT_ON_SEL_DIM
+                                                              : MESH_UI_COLOR_TEXT_ON_SEL)
+                     : fb_tone_color(state, item->supporting_tone);
+        const size_t supp_take = fb_trailing_cols(state, g.cols, &item->supporting_trailing);
+        mesh_ui_line_reset(&line);
+        mesh_ui_line_printf(&line, "%s", item->supporting);
+        mesh_ui_line_fit(&line, g.cols - supp_take);
+        fb_draw_text(state, g.text_x, g.supp_y, mesh_ui_line_text(&line), scale, supp_ink);
+        if (supp_take > 0U) {
+            fb_draw_trailing(state, &g, &item->supporting_trailing, g.supp_y, g.supp_slot_top,
+                             selected);
+        }
+    }
+
+    /*
+     * The divider goes in the gap the tightened leading opened up, inset to where the text
+     * starts rather than run edge to edge: a leading disc already separates the items, and a
+     * full-width rule under one reads as a box drawn around it.
      */
     const bool last = (index + 1U >= list->model.count) ||
                       (index + 1U >= list->model.first + list->model.visible);
-    if (!selected && !last) {
-        fb_draw_rule(state, text_x, top + height + scale / 2, text_right - text_x, scale,
-                     MESH_UI_COLOR_RULE);
+    if (item->divider && !selected && !last) {
+        fb_draw_rule(state, g.text_x, g.fill_top + g.fill_h + scale / 2, g.text_right - g.text_x,
+                     scale, MESH_UI_COLOR_RULE);
     }
 
-    list->y += 2 * list->line;
+    list->y += (int)g.rows * list->line;
+}
+
+/*
+ * A conversation is a two-line item with a disc on the front, a time on the first line and an
+ * unread count on the second - which is the whole of what it is, now that the item can say
+ * that. What is left here is the *translation*: which of a conversation's facts goes in which
+ * slot, and which of them changes what the row says rather than how it looks.
+ */
+void fb_draw_conversation(struct mesh_ui_backend_fb_state *state, struct fb_list *list,
+                          uint32_t index, const struct fb_conversation *conversation) {
+    struct mesh_ui_line preview;
+    mesh_ui_line_reset(&preview);
+    if (conversation->armed) {
+        /* The armed row says what the next press does, in place of the preview it would take
+           away. Nothing else on screen changes, so the warning is on the row it is about - and
+           it stays loud under the cursor, which a preview does not. */
+        mesh_ui_line_printf(&preview, "%s", mesh_str(MESH_STR_MESSAGES_DELETE_ARMED));
+    } else if (conversation->preview[0] != '\0') {
+        /* "> " says the last word was ours, which is what tells you whether a quiet thread is
+           waiting on you or on them. */
+        mesh_ui_line_printf(&preview, "%s%s", conversation->preview_outbound ? "> " : "",
+                            conversation->preview);
+    } else {
+        mesh_ui_line_printf(&preview, "%s", mesh_str(MESH_STR_MESSAGES_NO_MESSAGES_YET));
+    }
+
+    const struct fb_list_item item = {
+        .leading =
+            {
+                .kind = FB_LEADING_AVATAR,
+                .label = conversation->avatar,
+                .tint = conversation->tint,
+                .role = conversation->armed    ? MESH_UI_COLOR_BAD
+                        : conversation->accent ? MESH_UI_COLOR_ACCENT
+                                               : MESH_UI_COLOR_COUNT,
+            },
+        .text = conversation->name,
+        .tone = conversation->name_tone,
+        /* The age sits against the right edge, quietly, the way a messenger dates a
+           conversation - a fact you glance at, not one you read. */
+        .trailing = {.kind = FB_TRAILING_TEXT, .text = conversation->age},
+        .supporting = mesh_ui_line_text(&preview),
+        /* An unread preview is the row's own words at full weight - never the name's tone,
+           which says what kind of conversation this is rather than how much of it is new. The
+           half that still reads once the badge has been marked away. */
+        .supporting_tone = conversation->armed    ? MESH_UI_TONE_BAD
+                           : conversation->unread ? MESH_UI_TONE_STRONG
+                                                  : MESH_UI_TONE_DIM,
+        .supporting_quiet = !conversation->armed && !conversation->unread,
+        .supporting_trailing = {.kind = FB_TRAILING_BADGE, .text = conversation->badge},
+        .accent_edge = true,
+        .divider = true,
+    };
+    fb_list_item(state, list, index, &item);
 }
 
 /* ---- chat bubbles ------------------------------------------------------------------------- */
@@ -615,18 +756,6 @@ size_t fb_field_label_cols(const struct mesh_ui_backend_fb_state *state,
         preferred = metrics->field_label_cols;
     }
     return layout->cols < metrics->narrow_cols ? layout->cols / 2U : preferred;
-}
-
-void fb_list_field_row(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
-                       uint32_t index, const char *label, size_t label_cols, const char *marker,
-                       const char *value, enum mesh_ui_tone tone) {
-    struct mesh_ui_line line;
-    mesh_ui_line_reset(&line);
-    /* The label occupies its column exactly - clipped when long, padded when short - measured
-       in cells so a value column still lines up under a label that is not all ASCII. */
-    mesh_ui_line_column(&line, label, label_cols);
-    mesh_ui_line_printf(&line, " %s%s", marker != NULL ? marker : "", value != NULL ? value : "");
-    fb_list_row_line(state, list, index, &line, tone);
 }
 
 /* ---- cards -------------------------------------------------------------------------------- */
@@ -1066,43 +1195,4 @@ void fb_draw_switch(struct mesh_ui_backend_fb_state *state, const struct fb_swit
     const int x = sw->rect.x + inset + (travel > 0 ? (travel * position) / MESH_UI_ANIM_ONE : 0);
     fb_fill_round_rect(state, x, sw->rect.y + inset, knob, knob, knob / 2,
                        fb_color(state, knob_role));
-}
-
-void fb_list_field_row_switch(struct mesh_ui_backend_fb_state *state, struct fb_list *list,
-                              uint32_t index, const char *label, size_t label_cols,
-                              const char *marker, enum mesh_ui_tone tone, struct fb_switch *sw) {
-    int width = 0;
-    int height = 0;
-    fb_switch_size(state, state->scale, &width, &height);
-
-    /* Clip the text to leave the control its column, measured in cells like every other width
-       on a row - the same arithmetic the unread badge does, for the same reason. */
-    const int adv = fb_char_adv(state, state->scale);
-    const size_t control_cols = (size_t)((width + adv - 1) / adv) + 1U;
-    const size_t room = list->cols > control_cols + 1U ? list->cols - control_cols - 1U : 1U;
-
-    struct mesh_ui_line line;
-    mesh_ui_line_reset(&line);
-    mesh_ui_line_column(&line, label, label_cols);
-    mesh_ui_line_printf(&line, " %s", marker != NULL ? marker : "");
-    mesh_ui_line_fit(&line, room);
-
-    const int y = list->y;
-    const bool selected = mesh_ui_list_is_cursor(&list->model, index);
-    fb_list_row_line(state, list, index, &line, tone);
-
-    /*
-     * Centred on the row's fill - the box fb_draw_row() paints under a selected row - rather
-     * than on the glyph body. They coincide for the font that ships, but only the fill is what
-     * the control has to stay inside, and a switch that overhangs it notches the highlight bar
-     * on the one row the cursor is on.
-     */
-    const int fill_top = y - state->scale;
-    const int fill_height = fb_line_adv(state, state->scale);
-    sw->rect.w = width;
-    sw->rect.h = height;
-    sw->rect.x = (int)state->var.xres - fb_margin(state) - width;
-    sw->rect.y = fill_top + (fill_height - height) / 2;
-    sw->selected = selected;
-    fb_draw_switch(state, sw);
 }
