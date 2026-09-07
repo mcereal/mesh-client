@@ -399,11 +399,53 @@ bool mesh_ui_nav_conversation_is_armed(const struct mesh_ui_nav *nav,
 /* Inbound messages across every channel and peer that have not been read. */
 uint32_t mesh_ui_nav_unread_total(const struct mesh_ui_store *store);
 
+/*
+ * The two cells an avatar shows for `name`, upper-cased.
+ *
+ * The rule every messenger uses: the first letter of each of the first two words, or the first
+ * two letters when there is only one - which for a Meshtastic short name ("BRVO") is its first
+ * half. Non-alphanumerics are skipped, so the "!a1b2c3d4" a node with no User falls back to
+ * gives "A1" rather than "!A", and a channel's leading '#' does not eat one of the two cells.
+ * Anything outside ASCII is taken as-is and counted as one cell.
+ *
+ * Public because it is the *same* rule on four screens, not just the conversation list: a node
+ * row, a device row and a picker row all want the disc the eye has already learned. Two screens
+ * deriving initials two ways is two nodes with different colours for the same radio.
+ *
+ * `out` wants MESH_UI_CONVERSATION_INITIALS_MAX bytes. An empty result is legal - a name with
+ * no letters in it draws an empty disc rather than a wrong one.
+ */
+void mesh_ui_nav_initials(const char *name, char *out, size_t out_len);
+
 /* The picker's rows: channels first (node_id = MESH_MESSAGE_BROADCAST_ADDR, channel set), then
    nodes other than ourselves. Returns the row count; mesh_ui_nav_picker_row() describes one. */
 uint32_t mesh_ui_nav_picker_count(const struct mesh_ui_store *store);
 bool mesh_ui_nav_picker_row(const struct mesh_ui_store *store, uint32_t index, uint32_t *out_node,
                             uint8_t *out_channel, char *out_name, size_t out_name_len);
+
+/*
+ * The disc worn by the channel or node that `node`/`channel` addresses - its two cells and the
+ * seed that tints them - in the same terms as nav.target_*.
+ *
+ * It is here rather than in a backend because three lists draw the same discs for the same
+ * radios, and a node whose disc is a different colour or a different two letters between them
+ * is a node the user cannot follow from one to the next. Deriving it per screen is exactly how
+ * they come to disagree, and both ways it happened are worth keeping in mind:
+ *
+ *   - from the string a screen is showing. A picker row *reads* "BRVO  Bravo Creek", whose
+ *     first two words both begin with B, so its initials would be "BB" against Messages' "BR".
+ *   - from one field rather than the resolved name. A node with no short name shows the "----"
+ *     placeholder, which has no letters in it at all and yields an empty disc, while the other
+ *     lists fall through to the long name and then to the "!hex" id.
+ *
+ * So every caller comes through here, and the fallback order is mesh_ui_nav_node_name()'s once
+ * rather than each screen's own. A screen may still *show* the placeholder - what it displays
+ * and what identifies it are different questions.
+ *
+ * `out_initials` wants MESH_UI_CONVERSATION_INITIALS_MAX bytes; `out_tint` may be NULL.
+ */
+void mesh_ui_nav_target_avatar(const struct mesh_ui_store *store, uint32_t node, uint8_t channel,
+                               char *out_initials, size_t out_len, uint32_t *out_tint);
 
 /* Compose overlay rows: 0 = the draft, then the canned replies. There is no To: row; the
    overlay only ever opens over a thread, and that thread is the destination. */

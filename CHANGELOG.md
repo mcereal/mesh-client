@@ -1,3 +1,13 @@
+## [2.12.2](https://github.com/mcereal/mesh-client/compare/v2.12.1...v2.12.2) (2026-09-07)
+
+### Bug Fixes
+
+* **ui:** resolve a node's disc through the node, and never star ourselves ([954f5da](https://github.com/mcereal/mesh-client/commit/954f5da5499c8d009212ad203726010e0ecf8f37))
+
+### Code Refactoring
+
+* **ui:** draw the node, device, picker and compose lists as list items ([bf6fa74](https://github.com/mcereal/mesh-client/commit/bf6fa7467c96624357239df33ed0e0693c8262b9))
+
 ## [2.12.1](https://github.com/mcereal/mesh-client/compare/v2.12.0...v2.12.1) (2026-09-07)
 
 ### Bug Fixes

@@ -28,7 +28,7 @@ Why the axes and the crop are what they are:
              dozen pixels across.
   SIZE=32    Bigger than the cell an icon usually lands in (28 px at the body scale), because
              the empty screens draw one at several times that and a sprite scaled up 5x reads
-             as a smudge. The whole set is still about 10 KB.
+             as a smudge. The whole set is still under 10 KB.
 """
 
 import re

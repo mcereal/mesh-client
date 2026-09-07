@@ -50,10 +50,13 @@ MESH_ICON_ENTRY(UNSAVED,   "fiber_manual_record")
 MESH_ICON_ENTRY(CHECK,     "check")
 MESH_ICON_ENTRY(CLOSE,     "close")
 
-/* ---- who and where -------------------------------------------------------------------------- */
+/* ---- who and where --------------------------------------------------------------------------
+ *
+ * A row's *identity* is not here and should not be: the conversation, node, picker and device
+ * lists all carry a tinted disc, and what goes in one is initials the nav layer answers with.
+ * These are the discs whose row is not somebody - a place, a view, a button - plus the two
+ * things a device row's disc says instead. */
 
-MESH_ICON_ENTRY(PERSON,    "person")
-MESH_ICON_ENTRY(STAR,      "star")
 MESH_ICON_ENTRY(CHANNEL,   "tag")
 MESH_ICON_ENTRY(BROADCAST, "public")
 MESH_ICON_ENTRY(COMPOSE,   "add")
@@ -63,14 +66,10 @@ MESH_ICON_ENTRY(DELETE,    "delete")
 
 /* ---- what the mesh is doing ----------------------------------------------------------------- */
 
-/* The radio's NodeDB no longer carries this node; we do. */
-MESH_ICON_ENTRY(OFF_RADIO, "link_off")
-MESH_ICON_ENTRY(MQTT,      "cloud")
 MESH_ICON_ENTRY(BLUETOOTH, "bluetooth")
 MESH_ICON_ENTRY(USB,       "usb")
 MESH_ICON_ENTRY(RADIO,     "cell_tower")
 MESH_ICON_ENTRY(LINK,      "link")
-MESH_ICON_ENTRY(WARNING,   "warning")
 
 /* ---- the keyboard's action row --------------------------------------------------------------- */
 

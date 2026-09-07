@@ -205,7 +205,12 @@ is: us, pinned nodes, our other radios, message peers, RF nodes by `last_heard`,
 
 **Pinning** (X, `MESH_UI_ACTION_TOGGLE_FAVORITE`) puts a node at rank 1, above even a node you
 are mid-conversation with, which is also what keeps a quiet pinned node inside the budget. The
-list marks it with a star sprite in the same column our own node's `*` uses.
+list marks it with a star sprite before the name. Our own node is marked differently — its
+avatar disc takes the accent as a stated fill instead of a tint — because being *us* is an
+identity and being pinned is a preference, and the disc is the slot that carries identity.
+**Our own node never shows the star**, whatever its `is_favorite` says: the flag can arrive
+stale and neither `nav.c` nor `node_detail.c` will pin us, so a star there would advertise a
+preference no press can clear.
 
 A pin is **NodeDB state on the radio it was made on** — `is_favorite` is resolved per receiver —
 so it never follows the Brick from one of your radios to another. That cuts both ways and only
@@ -467,11 +472,29 @@ are actually hard**, and each got them slightly differently:
 `supporting_quiet` is the one piece of that worth knowing: it says whether a secondary line
 stays secondary *under the cursor*. A message preview does; a delete warning does not.
 
+An avatar draws its cells at the largest glyph multiplier **that fits the disc**, which is not
+always the body's. A two-row item gives the disc two lines to be round in and the body scale
+fits; a one-row item — a node, a picker row — gives it one, and two cells at the body scale
+overhang a circle barely taller than one glyph. `fb_draw_avatar()` measures rather than assumes,
+because which scale fits is a fact about the component's geometry and a screen that worked it
+out would be computing a glyph size.
+
 `fb_list_item()` takes the state **mutably**, unlike `fb_list_row_line()`. A trailing switch
 steps an animation kept on the backend and keyed by the control's identity, and a meter or a
 progress bar will want the same table — so the item API carries it rather than growing a second
 entry point per animated slot. `fb_draw_conversation()` is a thin translation on top: which of a
 conversation's facts goes in which slot.
+
+The Nodes, Devices, Picker and Compose lists are items too. They were plain `fb_list_row_line()`
+rows for as long as the conversation list was the only thing with slots, and the result was one
+app that looked like two: a node was a monospace table line with its signal right-aligned by
+hand, next to a Messages tab with discs and dividers. The discs are the part that carries: a node
+is the **same two cells and the same colour** in Messages, in Nodes and in the picker, because
+all three resolve them through the node's own name — `mesh_ui_nav_initials()` and
+`mesh_ui_nav_picker_avatar()` in the nav layer, never from the string a screen happens to be
+showing. (The picker's row *reads* "BRVO  Bravo Creek", whose first two words both begin with B;
+initials taken from that would be "BB" and the same radio would wear two different discs one
+screen apart.)
 
 `struct fb_bubble` is the other component that earns its keep, and it is the one place the
 thread's geometry lives. A bubble sizes itself to its own text (never past three quarters of the
@@ -716,7 +739,7 @@ are why there is a second sprite table rather than a bigger first one:
 - **An icon is named by the UI, an emoji is looked up by codepoint.** `MESH_UI_ICON_CHEVRON`
   is chosen by a renderer; an emoji arrives inside a name somebody typed.
 
-Coverage is 4 bits per pixel over a 32x32 sprite, run-length encoded — about 10 KB for the whole
+Coverage is 4 bits per pixel over a 32x32 sprite, run-length encoded — about 8 KB for the whole
 set. Sprites are larger than the cell they usually land in (28 px at the body scale, 21 in the
 chrome) so that the one place that draws an icon *big* — the symbol on an empty screen — is not
 resampling a thumbnail. `fb_draw_icon()` samples them **bilinearly** and blends between an ink

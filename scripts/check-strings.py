@@ -74,6 +74,8 @@ ALLOWED = {
     '"r"': "fopen mode",
     '"w"': "fopen mode",
     '"\\r\\n"': "line endings when reading canned.txt",
+    # A glyph, drawn rather than read: the star beside a pinned node.
+    '"\\xE2\\xAD\\x90"': "the pinned-node star",
     # The keyboard's own layers. These are the keys, not words about them: a locale that wants
     # AZERTY needs a second layout table rather than a translation of this one. See docs/i18n.md.
     '"1234567890"': "the keyboard's number row",
