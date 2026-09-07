@@ -86,6 +86,7 @@ void mesh_ui_capture_close(struct mesh_ui_capture *capture) {
     if (capture == NULL) {
         return;
     }
+    fb_glyph_cache_free(&capture->state);
     free(capture->state.fb_ptr);
     free(capture);
 }

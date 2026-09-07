@@ -17,6 +17,8 @@
 #include "mesh/ui/nav.h"
 #include "mesh/ui/settings.h"
 
+#include <errno.h>
+
 #include <pb_decode.h>
 #include <pb_encode.h>
 
@@ -141,6 +143,7 @@ MESH_TEST_CASE(ble_transport_messaging_mock, unit) {
         .read_payloads = read_payloads,
         .read_payload_lengths = read_payload_lengths,
         .read_payload_count = 3U,
+        .read_pending_polls = 2U,
         .read_index = &read_index,
         .devices = mock_devices,
         .device_count = sizeof(mock_devices) / sizeof(mock_devices[0]),
@@ -1026,4 +1029,80 @@ cleanup:
     } else {
         record_success(test_name);
     }
+}
+
+static void test_read_ready(void *userdata) { ++*(unsigned *)userdata; }
+
+MESH_TEST_CASE(bluez_async_read_pending_cancel_timeout_and_bounds, unit) {
+    const uint8_t payload[] = {0x08, 0x01, 0x12, 0x00};
+    const uint8_t *payloads[] = {payload, payload};
+    const size_t lengths[] = {sizeof payload, sizeof payload};
+    size_t index = 0U;
+    struct mesh_bluez_mock_config config = {
+        .read_payloads = payloads,
+        .read_payload_lengths = lengths,
+        .read_payload_count = 2U,
+        .read_index = &index,
+        .read_pending_polls = 2U,
+    };
+    mesh_bluez_client_mock_enable(&config);
+    struct mesh_bluez_client client = {0};
+    const char *failure = NULL;
+    if (mesh_bluez_client_init(&client) != 0) {
+        failure = "mock client init failed";
+        goto cleanup;
+    }
+    unsigned ready = 0U;
+    client.read_ready = test_read_ready;
+    client.read_userdata = &ready;
+    uint8_t buffer[16];
+    size_t len = 99U;
+    if (mesh_bluez_client_read(&client, "/fromradio", buffer, sizeof buffer, &len) != -EAGAIN ||
+        len != 0U || index != 0U) {
+        failure = "starting a read must yield without consuming a payload";
+        goto cleanup;
+    }
+    mesh_bluez_client_process(&client);
+    if (ready != 0U ||
+        mesh_bluez_client_read(&client, "/fromradio", buffer, sizeof buffer, &len) != -EAGAIN) {
+        failure = "an unfinished read must stay pending";
+        goto cleanup;
+    }
+    mesh_bluez_client_process(&client);
+    if (ready != 1U ||
+        mesh_bluez_client_read(&client, "/fromradio", buffer, sizeof buffer, &len) != 0 ||
+        len != sizeof payload || memcmp(buffer, payload, len) != 0 || index != 1U) {
+        failure = "completion must wake the caller and return exactly one packet";
+        goto cleanup;
+    }
+    (void)mesh_bluez_client_read(&client, "/fromradio", buffer, sizeof buffer, &len);
+    mesh_bluez_client_read_cancel(&client);
+    mesh_bluez_client_process(&client);
+    mesh_bluez_client_process(&client);
+    if (ready != 1U || index != 1U) {
+        failure = "cancelled reads must not complete or consume another packet";
+        goto cleanup;
+    }
+    (void)mesh_bluez_client_read(&client, "/fromradio", buffer, sizeof buffer, &len);
+    client.read_deadline_ms = 0U;
+    mesh_bluez_client_process(&client);
+    if (ready != 2U ||
+        mesh_bluez_client_read(&client, "/fromradio", buffer, sizeof buffer, &len) != -ETIMEDOUT) {
+        failure = "a missing reply must complete as a timeout";
+        goto cleanup;
+    }
+    (void)mesh_bluez_client_read(&client, "/fromradio", buffer, sizeof buffer, &len);
+    mesh_bluez_client_process(&client);
+    mesh_bluez_client_process(&client);
+    if (mesh_bluez_client_read(&client, "/fromradio", buffer, 1U, &len) != -EMSGSIZE || len != 0U) {
+        failure = "oversized replies must fail instead of being truncated";
+    }
+cleanup:
+    mesh_bluez_client_shutdown(&client);
+    mesh_bluez_client_mock_disable();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
 }

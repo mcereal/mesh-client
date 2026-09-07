@@ -33,3 +33,11 @@ On macOS the core does not build natively, so go through the container:
 
 The scene language and the rest of the workflow are documented in
 [`docs/ui.md`](../docs/ui.md#looking-at-a-ui-change); `scenes/` holds worked examples.
+
+## `perf` — `meshclient_perf`
+
+Measures the same text rasterizer with its glyph cache disabled and warm, and verifies that
+both outputs match. Build with `make release`, then run
+`build/release/devtools/meshclient_perf` (`./scripts/docker.sh make release` and
+`./scripts/docker.sh build/linux/release/devtools/meshclient_perf` on macOS).
+See [`docs/performance.md`](../docs/performance.md) for the workload and measurement limits.

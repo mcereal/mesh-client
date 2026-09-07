@@ -33,7 +33,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+struct fb_glyph_cache;
+
 struct mesh_ui_backend_fb_state {
+    struct fb_glyph_cache *glyph_cache;
+    uint8_t *draw_buffer;
+    uint8_t *previous_frame;
+    bool frame_valid;
     int fb_fd;
     uint8_t *fb_ptr;
     size_t fb_size;
@@ -197,6 +203,12 @@ struct fb_layout {
      */
     bool back;
 };
+
+/* Copies changed row spans from ordinary RAM into page 0 and its display mirror.
+   Returns bytes written across both pages; force initializes pages owned by the launcher. */
+size_t fb_copy_damage(struct mesh_ui_backend_fb_state *state, const uint8_t *frame,
+                      uint8_t *previous, bool force);
+void fb_glyph_cache_free(struct mesh_ui_backend_fb_state *state);
 
 /* ---- fb_draw.c: the drawing toolkit ------------------------------------------------------ */
 

@@ -90,3 +90,13 @@ references, and every case inside them would go quiet. `tests/CMakeLists.txt` sa
   model: it pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte vector rather
   than against our own encoder, so a protobuf regeneration that changes field numbers or wire
   types fails loudly instead of silently agreeing with itself.
+
+## Isolated D-Bus reads
+
+When `dbus-run-session` is available, `meshclient_bluez_bus` starts a private bus and fake
+GATT service. It verifies actual `ReadValue` marshalling, socket watches, UI-event dispatch
+while a reply is withheld, malformed responses, and timeout/late-reply behavior. It uses the
+mock configuration's explicit test-bus address and never contacts the system bus or real
+BlueZ. Install `dbus-daemon` to run it; the dev container and CI include it.
+
+See [performance.md](performance.md) for the renderer benchmark and cache validation.

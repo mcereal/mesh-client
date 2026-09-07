@@ -32,7 +32,7 @@ struct mesh_bluez_meshtastic_chars {
     char logradio_path[128]; /* empty if the node does not expose it */
 };
 
-#ifdef MESH_HAVE_DBUS
+/* Keep the public client layout identical with and without D-Bus in the caller. */
 struct DBusWatch;
 
 struct mesh_bluez_watch_entry {
@@ -42,7 +42,6 @@ struct mesh_bluez_watch_entry {
     bool registered;
     struct mesh_bluez_client *client;
 };
-#endif
 
 /*
  * What BlueZ is asking the user for while a Pair is in flight. We register an org.bluez.Agent1
@@ -67,6 +66,18 @@ struct mesh_bluez_agent_request {
 typedef void (*mesh_bluez_notification_callback)(const uint8_t *data, size_t len, void *userdata);
 
 struct mesh_bluez_client {
+    /* One FromRadio read at a time. Completion wakes the transport, never decodes inline. */
+    uint32_t read_serial;
+    int read_state; /* 0 idle, 1 pending, 2 done */
+    int read_result;
+    int read_timer_fd;
+    uint64_t read_deadline_ms;
+    unsigned read_mock_polls;
+    uint8_t read_payload[MESH_BLE_MAX_PACKET_SIZE];
+    size_t read_length;
+    void (*read_ready)(void *userdata);
+    void *read_userdata;
+    bool connection_private;
     void *connection;
     bool connected;
     struct mesh_event_loop *loop;
@@ -87,9 +98,7 @@ struct mesh_bluez_client {
     bool agent_registered;
     struct mesh_bluez_agent_request agent_request;
     void *agent_pending_message; /* DBusMessage* held until the user answers */
-#ifdef MESH_HAVE_DBUS
     struct mesh_bluez_watch_entry watches[8];
-#endif
 };
 
 struct mesh_bluez_device_info {
@@ -102,6 +111,9 @@ struct mesh_bluez_device_info {
 };
 
 struct mesh_bluez_mock_config {
+    /* Optional isolated test bus: exercise read marshalling/watches against a fake service.
+       Other operations remain mocked. Never points at the system bus. */
+    const char *read_bus_address;
     int init_result;
     int check_ready_result;
     int find_adapter_result;
@@ -146,6 +158,7 @@ struct mesh_bluez_mock_config {
     size_t read_payload_count;
     size_t *read_index;
     int read_result;
+    unsigned read_pending_polls; /* simulated asynchronous latency; zero completes immediately */
     const struct mesh_bluez_device_info *devices;
     size_t device_count;
     int list_result;
@@ -219,6 +232,9 @@ int mesh_bluez_client_subscribe(struct mesh_bluez_client *client, const char *de
                                 const char *char_uuid);
 int mesh_bluez_client_write(struct mesh_bluez_client *client, const char *device_path,
                             const char *char_uuid, const uint8_t *data, size_t len);
+/* Starts a read or consumes its completion. -EAGAIN means pending, never a failed read.
+   Register read_ready to wake the caller; process() also enforces deadlines without a loop. */
+void mesh_bluez_client_read_cancel(struct mesh_bluez_client *client);
 int mesh_bluez_client_read(struct mesh_bluez_client *client, const char *char_path, uint8_t *out,
                            size_t capacity, size_t *out_len);
 int mesh_bluez_client_find_meshtastic_characteristics(struct mesh_bluez_client *client,

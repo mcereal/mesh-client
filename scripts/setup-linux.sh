@@ -40,7 +40,7 @@ run_privileged() {
 
 # apt package list, mirroring the dev stage of docker/Dockerfile.
 APT_PACKAGES="build-essential clang clang-format cmake ninja-build pkg-config
-              libdbus-1-dev protobuf-compiler python3 python3-pip git zip"
+              libdbus-1-dev dbus-daemon protobuf-compiler python3 python3-pip git zip"
 
 apt_install_done=0
 # Install the whole toolchain in one shot the first time anything turns out to be missing.

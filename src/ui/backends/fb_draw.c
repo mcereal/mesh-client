@@ -16,8 +16,31 @@
 #include "mesh/utils/text.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+/* Coverage is independent of the palette. A bounded, four-way cache holds the common
+   glyph/scale pairs without retaining framebuffers or growing with incoming text. */
+#define FB_GLYPH_CACHE_SETS 64U
+#define FB_GLYPH_CACHE_WAYS 4U
+#define FB_GLYPH_CACHE_PIXELS 2048U
+struct fb_cached_glyph {
+    const struct mesh_ui_font *font;
+    uint32_t codepoint;
+    int scale;
+    uint64_t used;
+    uint8_t steps[FB_GLYPH_CACHE_PIXELS];
+};
+struct fb_glyph_cache {
+    uint64_t clock;
+    struct fb_cached_glyph entries[FB_GLYPH_CACHE_SETS][FB_GLYPH_CACHE_WAYS];
+};
+
+void fb_glyph_cache_free(struct mesh_ui_backend_fb_state *state) {
+    free(state->glyph_cache);
+    state->glyph_cache = NULL;
+}
 
 /* ---- the theme on the state --------------------------------------------------------------- */
 
@@ -31,6 +54,9 @@ void fb_state_set_theme(struct mesh_ui_backend_fb_state *state, const struct mes
                         int scale) {
     if (state == NULL) {
         return;
+    }
+    if (state->glyph_cache == NULL) {
+        state->glyph_cache = calloc(1U, sizeof *state->glyph_cache);
     }
     state->theme = theme != NULL ? theme : mesh_ui_theme_default();
     state->scale = mesh_ui_theme_clamp_scale(state->theme, scale);
@@ -389,27 +415,58 @@ static void fb_draw_glyph_ramp(const struct mesh_ui_backend_fb_state *state, int
         return;
     }
 
-    struct mesh_ui_glyph glyph;
-    (void)mesh_ui_font_glyph(font, codepoint, &glyph);
+    struct fb_cached_glyph *cached = NULL;
+    bool hit = false;
+    if (state->glyph_cache != NULL && (size_t)box_w * (size_t)full_h <= FB_GLYPH_CACHE_PIXELS) {
+        struct fb_glyph_cache *cache = state->glyph_cache;
+        const size_t set = (codepoint * 31U + (uint32_t)scale * 17U) % FB_GLYPH_CACHE_SETS;
+        cached = &cache->entries[set][0];
+        for (size_t i = 0; i < FB_GLYPH_CACHE_WAYS; ++i) {
+            struct fb_cached_glyph *entry = &cache->entries[set][i];
+            if (entry->font == font && entry->codepoint == codepoint && entry->scale == scale) {
+                cached = entry;
+                hit = true;
+                break;
+            }
+            if (entry->used < cached->used) {
+                cached = entry;
+            }
+        }
+        cached->used = ++cache->clock;
+    }
 
-    /* Source column per destination column: identical for every row, so the division runs once
-       per column instead of once per pixel. */
+    struct mesh_ui_glyph glyph;
     struct fb_glyph_tap taps[FB_GLYPH_BOX_MAX];
-    for (int dx = 0; dx < box_w; ++dx) {
-        taps[dx] = fb_glyph_tap(dx, box_w, (int)font->master_w, font->sampling);
+    if (!hit) {
+        (void)mesh_ui_font_glyph(font, codepoint, &glyph);
+        for (int dx = 0; dx < box_w; ++dx) {
+            taps[dx] = fb_glyph_tap(dx, box_w, (int)font->master_w, font->sampling);
+        }
+        if (cached != NULL) {
+            cached->font = font;
+            cached->codepoint = codepoint;
+            cached->scale = scale;
+        }
     }
 
     const int top = y - top_off;
     for (int dy = 0; dy < full_h; ++dy) {
-        const struct fb_glyph_tap row =
-            fb_glyph_tap(dy, full_h, (int)font->master_h, font->sampling);
-        const uint8_t *row_lo = &glyph.alpha[(size_t)row.lo * font->master_w];
-        const uint8_t *row_hi = &glyph.alpha[(size_t)row.hi * font->master_w];
+        uint8_t scratch[FB_GLYPH_BOX_MAX];
+        uint8_t *steps = cached != NULL ? &cached->steps[(size_t)dy * (size_t)box_w] : scratch;
+        if (!hit) {
+            const struct fb_glyph_tap row =
+                fb_glyph_tap(dy, full_h, (int)font->master_h, font->sampling);
+            const uint8_t *row_lo = &glyph.alpha[(size_t)row.lo * font->master_w];
+            const uint8_t *row_hi = &glyph.alpha[(size_t)row.hi * font->master_w];
+            for (int dx = 0; dx < box_w; ++dx) {
+                steps[dx] = (uint8_t)fb_glyph_step(row_lo, row_hi, &taps[dx], row.frac);
+            }
+        }
         int dx = 0;
         while (dx < box_w) {
-            const int step = fb_glyph_step(row_lo, row_hi, &taps[dx], row.frac);
+            const int step = steps[dx];
             int end = dx + 1;
-            while (end < box_w && fb_glyph_step(row_lo, row_hi, &taps[end], row.frac) == step) {
+            while (end < box_w && steps[end] == step) {
                 ++end;
             }
             if (step > 0) {

@@ -27,6 +27,8 @@ typedef void (*mesh_ui_action_handler)(void *userdata, const struct mesh_ui_acti
 
 struct mesh_ui_controller {
     struct mesh_ui_store *store;
+    struct mesh_ui_snapshot snapshot;
+    bool snapshot_valid;
     const struct mesh_ui_backend *backend;
     void *backend_state;
     void *backend_userdata;

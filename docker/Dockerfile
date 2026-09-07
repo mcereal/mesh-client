@@ -12,7 +12,7 @@ FROM ubuntu:24.04 AS dev
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential clang clang-format cmake ninja-build pkg-config \
-        libdbus-1-dev protobuf-compiler python3 python3-pip \
+        libdbus-1-dev dbus-daemon protobuf-compiler python3 python3-pip \
         git zip ca-certificates \
     && python3 -m pip install --no-cache-dir --break-system-packages protobuf grpcio-tools \
     && rm -rf /var/lib/apt/lists/*

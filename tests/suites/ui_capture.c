@@ -19,6 +19,8 @@
 #include "mesh/ui/store.h"
 #include "mesh/ui/theme.h"
 
+#include "../../src/ui/backends/fb_internal.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -831,5 +833,82 @@ MESH_TEST_CASE(ui_capture_dialog_actions_stay_inside_the_panel, unit) {
     }
     mesh_ui_store_shutdown(&store);
     MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/* These device-memory boundaries are independent of the renderer's theme and content. */
+
+MESH_TEST_CASE(fb_damage_preserves_mirror_and_padding, unit) {
+    uint8_t mapping[80];
+    uint8_t previous[32] = {0};
+    uint8_t frame[32];
+    memset(mapping, 0xA5, sizeof mapping);
+    memset(frame, 0x31, sizeof frame);
+    struct mesh_ui_backend_fb_state state = {0};
+    state.fb_ptr = mapping;
+    state.fb_size = sizeof mapping;
+    state.line_bytes = 16U;
+    state.bytes_per_pixel = 4U;
+    state.var.xres = 3U; /* a padded row */
+    state.var.yres = 2U;
+    state.var.yres_virtual = 5U;
+    MESH_TEST_FAIL_IF(fb_copy_damage(&state, frame, previous, true) != 64U,
+                      "first frame must initialize both pages");
+    MESH_TEST_FAIL_IF(memcmp(mapping, frame, 32U) != 0 || memcmp(mapping + 32U, frame, 32U) != 0,
+                      "display pages must match the rendered frame");
+    MESH_TEST_FAIL_IF(fb_copy_damage(&state, frame, previous, false) != 0U,
+                      "an unchanged frame must not write display memory");
+    frame[19] ^= 1U;
+    MESH_TEST_FAIL_IF(fb_copy_damage(&state, frame, previous, false) != 8U,
+                      "one changed pixel must write only one pixel per page");
+    MESH_TEST_FAIL_IF(memcmp(mapping, frame, 32U) != 0 || memcmp(mapping + 32U, frame, 32U) != 0,
+                      "partial updates must preserve both complete pages");
+    for (size_t i = 64U; i < sizeof mapping; ++i) {
+        MESH_TEST_FAIL_IF(mapping[i] != 0xA5, "updates must not touch extra virtual pages");
+    }
+    state.var.yres_virtual = 2U;
+    frame[0] ^= 1U;
+    MESH_TEST_FAIL_IF(fb_copy_damage(&state, frame, previous, false) != 4U,
+                      "a single-page display must receive one copy");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(fb_glyph_cache_matches_uncached_colors_and_scales, unit) {
+    uint8_t cached_pixels[256U * 128U * 4U];
+    uint8_t reference[sizeof cached_pixels];
+    struct mesh_ui_backend_fb_state state = {0};
+    state.fb_size = sizeof cached_pixels;
+    state.var.xres = 256U;
+    state.var.yres = 128U;
+    state.var.bits_per_pixel = 32U;
+    state.fix.line_length = 256U * 4U;
+    state.bytes_per_pixel = 4U;
+    const char *failure = NULL;
+    fb_state_set_theme(&state, mesh_ui_theme_default(), 4);
+    struct fb_glyph_cache *cache = state.glyph_cache;
+    for (int scale = 2; scale <= 6 && failure == NULL; ++scale) {
+        for (unsigned pass = 0; pass < 3U; ++pass) {
+            const struct mesh_ui_rgb ink = {(uint8_t)(pass * 91U), 170U, 250U};
+            const struct mesh_ui_rgb ground = {30U, (uint8_t)(pass * 71U), 10U};
+            state.fb_ptr = cached_pixels;
+            state.glyph_cache = cache;
+            fb_clear(&state, ground);
+            fb_draw_text(&state, -3, 10, "Ab éñ!?", scale, ink, ground);
+            state.fb_ptr = reference;
+            state.glyph_cache = NULL;
+            fb_clear(&state, ground);
+            fb_draw_text(&state, -3, 10, "Ab éñ!?", scale, ink, ground);
+            if (memcmp(reference, cached_pixels, sizeof reference) != 0) {
+                failure = "cached glyphs must match uncached output after color and scale changes";
+                break;
+            }
+        }
+    }
+    state.glyph_cache = cache;
+    fb_glyph_cache_free(&state);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
     record_success(test_name);
 }

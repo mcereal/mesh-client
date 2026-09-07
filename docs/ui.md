@@ -1545,3 +1545,9 @@ make deploy-clip ARGS="-d 10 -n 30 -o open.gif"   # 30 frames as a GIF
 A page is 3 MB and there is nothing on the device to shrink it, so a clip comes back at a handful
 of frames a second over WiFi — it is not real time. `-r MS` sets how fast it plays back rather
 than how fast it was shot. See [`docs/device.md`](device.md).
+
+### Rendering cost
+
+Animation frames reuse the latest store snapshot, and scaled glyph coverage is cached. The
+device renders in RAM and copies only changed row spans to both framebuffer pages. See
+[performance.md](performance.md) for memory costs, benchmarks and visual-equivalence checks.

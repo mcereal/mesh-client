@@ -1650,3 +1650,145 @@ cleanup:
     }
     record_success(test_name);
 }
+
+MESH_TEST_CASE(app_publish_cache_invalidates_data_dependencies, unit) {
+    struct mesh_app *app = calloc(1U, sizeof *app);
+    MESH_TEST_FAIL_IF(app == NULL, "app allocation failed");
+    mesh_session_init(&app->session);
+    if (mesh_ui_store_init(&app->ui_store) != 0) {
+        free(app);
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    struct mesh_bluez_mock_config mock = {0};
+    mesh_bluez_client_mock_enable(&mock);
+    const char *failure = NULL;
+    struct mesh_handshake_status *handshake = &app->session.handshake;
+    handshake->has_my_info = true;
+    handshake->my_info.my_node_num = 1U;
+    handshake->config_complete = true;
+    handshake->node_count = 2U;
+    handshake->nodes[0].node_id = 1U;
+    handshake->nodes[1].node_id = 2U;
+    snprintf(handshake->nodes[1].short_name, sizeof handshake->nodes[1].short_name, "OLD");
+    struct mesh_message message = {0};
+    message.packet_id = 100U;
+    message.from = 2U;
+    message.to = 1U;
+    message.direction = MESH_MESSAGE_INBOUND;
+    snprintf(message.text, sizeof message.text, "hello");
+    mesh_message_log_append(&app->session.messages, &message);
+    mesh_app_publish_ui_state(app);
+    mesh_app_publish_ui_state(app); /* warm unchanged inputs */
+    snprintf(handshake->nodes[1].short_name, sizeof handshake->nodes[1].short_name, "NEW");
+    mesh_app_publish_ui_state(app);
+    if (strcmp(app->ui_store.messages.entries[0].peer_name, "NEW") != 0) {
+        failure = "renaming a node must invalidate formatted message names";
+        goto cleanup;
+    }
+    struct mesh_message *live = mesh_message_log_find(&app->session.messages, 100U);
+    snprintf(live->text, sizeof live->text, "edited");
+    mesh_app_publish_ui_state(app);
+    if (strcmp(app->ui_store.messages.entries[0].text, "edited") != 0) {
+        failure = "in-place message changes must invalidate the cached view";
+        goto cleanup;
+    }
+    handshake->nodes[1].is_favorite = true;
+    mesh_app_publish_ui_state(app);
+    if (!app->ui_store.handshake.nodes[1].is_favorite) {
+        failure = "favorite changes must reach the cached roster";
+        goto cleanup;
+    }
+    app->session.roster_node = 2U;
+    mesh_app_publish_ui_state(app);
+    if (app->ui_store.handshake.roster_owner != 2U) {
+        failure = "roster ownership must be an independent invalidation input";
+        goto cleanup;
+    }
+    /* Disconnect resets the live handshake/settings while retaining messages. */
+    mesh_session_detach(&app->session);
+    mesh_app_publish_ui_state(app);
+    if (app->ui_store.handshake.config_complete || app->ui_store.messages.count != 1U) {
+        failure = "disconnect must clear live state without losing cached messages";
+    }
+cleanup:
+    free(app->publish_cache);
+    mesh_ui_store_shutdown(&app->ui_store);
+    free(app);
+    mesh_bluez_client_mock_disable();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(app_init_from_dirty_storage, unit) {
+    char temp_dir[] = "/tmp/mesh_app_dirty_initXXXXXX";
+    MESH_TEST_FAIL_IF(mkdtemp(temp_dir) == NULL, "temporary directory creation failed");
+    const char *original_home = getenv("HOME");
+    const char *original_backend = getenv("MESHCLIENT_UI_BACKEND");
+    char *saved_home = original_home != NULL ? strdup(original_home) : NULL;
+    char *saved_backend = original_backend != NULL ? strdup(original_backend) : NULL;
+    setenv("HOME", temp_dir, 1);
+    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
+    struct mesh_bluez_mock_config mock = {0};
+    mesh_bluez_client_mock_enable(&mock);
+    const char *failure = NULL;
+    for (unsigned publish = 0U; publish < 2U; ++publish) {
+        struct mesh_app app;
+        memset(&app, 0xA5, sizeof app);
+        app.config = mesh_app_config_default();
+        app.config.enable_ble = false;
+        app.config.enable_serial = false;
+        app.config.idle_timeout_ms = 17;
+        if (mesh_app_init(&app, &app.config) != 0) {
+            failure = "initialization from nonzero storage failed";
+            break;
+        }
+        /* Keep the regression test entirely in memory, including shutdown. */
+        app.ui_preferences_path[0] = '\0';
+        app.ui_handshake_cache_path[0] = '\0';
+        if (app.publish_cache != NULL) {
+            failure = "initialization must clear the lazy publication cache";
+            app.publish_cache = NULL; /* report cleanly instead of freeing the poison value */
+        } else if (app.config.enable_ble || app.config.enable_serial ||
+                   app.config.idle_timeout_ms != 17) {
+            failure = "initialization must preserve an aliased config";
+        } else if (publish != 0U) {
+            mesh_app_publish_ui_state(&app);
+            if (app.publish_cache == NULL) {
+                failure = "first publication must allocate the cache";
+            }
+        }
+        mesh_app_shutdown(&app);
+        if (app.publish_cache != NULL) {
+            failure = "shutdown must release and clear the cache";
+        }
+        if (failure != NULL) {
+            break;
+        }
+    }
+    mesh_bluez_client_mock_disable();
+    if (saved_home != NULL) {
+        setenv("HOME", saved_home, 1);
+    } else {
+        unsetenv("HOME");
+    }
+    if (saved_backend != NULL) {
+        setenv("MESHCLIENT_UI_BACKEND", saved_backend, 1);
+    } else {
+        unsetenv("MESHCLIENT_UI_BACKEND");
+    }
+    free(saved_home);
+    free(saved_backend);
+    char prefs_dir[256];
+    snprintf(prefs_dir, sizeof prefs_dir, "%s/.meshclient", temp_dir);
+    rmdir(prefs_dir);
+    rmdir(temp_dir);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}
