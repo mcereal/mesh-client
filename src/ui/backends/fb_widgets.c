@@ -98,10 +98,11 @@ void fb_draw_button(const struct mesh_ui_backend_fb_state *state, const struct f
     const struct mesh_ui_rgb ink =
         paint.has_fill ? fb_color(state, paint.ink) : fb_tone_color(state, button->idle_tone);
     if (has_icon) {
-        /* Blended against the fill the button has just laid down, or against the ground when it
-           laid none - the two colours the ink was chosen against. */
+        /* Blended against the fill the button has just laid down, or against whatever the
+           caller says it is sitting on when it laid none - the two colours the ink was chosen
+           against. */
         fb_draw_icon(state, x, y, button->icon, button->scale, ink,
-                     fb_color(state, paint.has_fill ? paint.fill : MESH_UI_COLOR_BG));
+                     fb_color(state, paint.has_fill ? paint.fill : button->ground));
         x += fb_icon_box(state, button->scale) + (has_label ? adv / 2 : 0);
     }
     if (has_label) {
@@ -136,7 +137,7 @@ int fb_chip_width(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_ico
 }
 
 int fb_draw_chip(const struct mesh_ui_backend_fb_state *state, int x, int y, enum mesh_ui_icon icon,
-                 const char *label, bool active, int scale) {
+                 const char *label, bool active, enum mesh_ui_color ground, int scale) {
     const int width = fb_chip_width(state, icon, label, scale);
     const struct fb_button button = {
         .rect = {.x = x,
@@ -149,6 +150,7 @@ int fb_draw_chip(const struct mesh_ui_backend_fb_state *state, int x, int y, enu
         .variant = active ? FB_BUTTON_TONAL : FB_BUTTON_TEXT,
         .shape = MESH_UI_SHAPE_FULL,
         .idle_tone = MESH_UI_TONE_DIM,
+        .ground = ground,
         .scale = scale,
     };
     fb_draw_button(state, &button);

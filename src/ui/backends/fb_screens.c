@@ -156,8 +156,10 @@ static void fb_draw_tabs(const struct mesh_ui_backend_fb_state *state,
 
     for (int i = 0; i < MESH_UI_SCREEN_COUNT; ++i) {
         const enum mesh_ui_screen screen = (enum mesh_ui_screen)i;
+        /* The bar under them, not the body ground: an unselected tab draws no fill of its own,
+           and its icon has to blend into what the strip filled behind it. */
         x = fb_draw_chip(state, x, y, fb_screen_icon(screen), fb_tab_label(labels, screen, current),
-                         current == screen, small);
+                         current == screen, MESH_UI_COLOR_SURFACE_LOW, small);
     }
 
     fb_draw_rule(state, 0, bar_h, (int)state->var.xres, small, MESH_UI_COLOR_RULE_STRONG);

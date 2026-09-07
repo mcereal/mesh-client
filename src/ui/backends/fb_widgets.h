@@ -82,6 +82,17 @@ struct fb_button {
        against that state's fill; a tone chosen against the ground says nothing about a fill
        over it. */
     enum mesh_ui_tone idle_tone;
+    /*
+     * What the button is sitting on, for the same state: the colour an icon's partial coverage
+     * is blended into when the button has laid down no fill of its own.
+     *
+     * MESH_UI_COLOR_BG is the zero value and the usual answer - a keyboard key sits on the body
+     * ground. A tab does not: the strip fills its own bar in MESH_UI_COLOR_SURFACE_LOW first,
+     * and an icon blended against the ground there is drawn with a halo of the wrong colour
+     * around every antialiased edge. Text does not care - a glyph is solid ink - which is why
+     * this arrives with the icons and not before.
+     */
+    enum mesh_ui_color ground;
     int scale; /* glyph multiplier for the label */
 };
 
@@ -97,7 +108,7 @@ void fb_draw_button(const struct mesh_ui_backend_fb_state *state, const struct f
  * label rather than as a box, and a strip of them is read as a set.
  */
 int fb_draw_chip(const struct mesh_ui_backend_fb_state *state, int x, int y, enum mesh_ui_icon icon,
-                 const char *label, bool active, int scale);
+                 const char *label, bool active, enum mesh_ui_color ground, int scale);
 
 /* What one chip takes, its trailing gap included - so a strip can ask whether it fits before it
    draws anything. The same arithmetic fb_draw_chip() advances by, because a strip that measured
