@@ -97,7 +97,7 @@ suite needs it.
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Verified 2026-09-07: 261 unit tests, all passing, zero compiler warnings.
+Verified 2026-09-07: 271 unit tests, all passing, zero compiler warnings.
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
 vector — not against our own encoder — so a protobuf regeneration that changes field numbers or
 wire types fails loudly.
@@ -132,8 +132,8 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | Messaging | `src/core/message.c` | text packets, message ring, ack correlation |
 | App glue | `src/core/app*.c` | `app` lifecycle/link, `_actions` UI actions, `_publish` to store, `_settings` writes |
 | Self-update | `src/core/updater.c`, `version.c` | forks curl, SemVer, digest-verified install |
-| UI | `src/ui/` | store/controller + `nav*.c` + `settings*.c` + `layout.c` + `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
-| UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window (counted in **steps**, so one row may be taller than its neighbours); cards (filled/elevated/outlined, with verbs on the heading line), buttons, chips, badges, list items (leading/marker/supporting/trailing slots, an optional full-width bar on a second step), section subheaders, switches, selection controls (checkbox/radio), segmented buttons (which fall back to the chosen word when the row is too narrow), meters (with domains and drawn threshold bands), sliders (a settings number on the scale of the values it could have had, with a value the scale cannot place drawn as a track with no handle), signal staircases, bubbles, the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar |
+| UI | `src/ui/` | store/controller + `nav*.c` + `settings*.c` + `layout.c` + `history.c` + `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
+| UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window (counted in **steps**, so one row may be taller than its neighbours); cards (filled/elevated/outlined, with verbs on the heading line), buttons, chips, badges, list items (leading/marker/supporting/trailing slots, an optional full-width bar on a second step), section subheaders, switches, selection controls (checkbox/radio), segmented buttons (which fall back to the chosen word when the row is too narrow), meters (with domains and drawn threshold bands), sliders (a settings number on the scale of the values it could have had, with a value the scale cannot place drawn as a track with no handle), signal staircases, sparklines (a reading over time, on the bar's own domain, from a sample ring the client keeps), bubbles, the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar |
 | Button hints | `src/ui/actions.c`, `include/mesh/ui/actions.h` | what the buttons do here, as (button, verb) pairs the action bar iterates |
 | Status verbs | `src/ui/status.c`, `include/mesh/ui/status.h` | which Status card carries which verb — read by `nav.c`, `actions.c` and the renderer alike |
 | Client-level chrome | `src/ui/chrome.c`, `include/mesh/ui/chrome.h` | what the frame says about the *client* rather than about a screen: whether anything is in flight (the progress bar) and which persistent banner it carries |
@@ -335,6 +335,18 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   differently each time, which is what keeps the enum, the table and - for the catalog - the
   translation template from drifting apart. Their `.def` extension is why clang-format leaves
   the tables alone.
+- **A trend's axes are not its data.** A sparkline's x is *time* and its y is the reading's own
+  `struct mesh_ui_scale` - the same one the bar beside it fills against - never the range the
+  samples happen to span. Every spreadsheet does the opposite, and on the two readings this draws
+  it is wrong both times: a battery that fell two percent overnight becomes a cliff, and a quiet
+  mesh becomes a mesh in trouble. A silence longer than the series' own `gap_ms` breaks the line
+  rather than sloping across it, for the same reason. And **the history is never persisted**: the
+  roster is what we know and survives a restart, a trend is what we *watched*, and the hours the
+  client was not running are not a silence it can draw.
+- **A history sample is stamped with the client's clock, and a new reading is detected by the
+  report having changed.** The radio's own `time` fields are our clock when the packet landed,
+  and a Brick has no wall clock - so on the device they are 0 on every report, and a series keyed
+  on either question would hold exactly one sample forever.
 - **`devtools/` is not `Tools/`.** `Tools/` holds the device-facing pak assets, and macOS
   filesystems are case-insensitive by default, so a `tools/` directory would collide with it.
 - **A screen transition is derived from the nav, not declared by it.** Nothing records that a

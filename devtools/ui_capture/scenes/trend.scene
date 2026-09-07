@@ -1,0 +1,73 @@
+# The third quantitative component: the one that is not about now.
+#
+# A meter says how much of the air is in use and a staircase says how well we hear a node. Both
+# are read against a track that is right there, and neither can answer the two questions this
+# client is actually opened for - is the mesh getting worse, and is that battery going to last
+# the night. Those need the readings before this one, so the client keeps them (history.h) and
+# this is what it does with them.
+#
+# Two shapes, and the scene is arranged so the difference between them is the thing on screen:
+# a full-width line on a card, for a reading somebody has stopped to look at, and six cells
+# against a row's trailing edge, for one the eye is passing.
+
+scene demo
+scale 4
+delay 220
+
+# ---- the row: a battery going down ------------------------------------------------------------
+#
+# Alfa Ridge is the demo's node with a battery worth watching, and these are six telemetry
+# reports of it - half an hour apart on a real mesh, which is why a node's series breaks its line
+# at a silence of two hours rather than at one of fifteen minutes.
+#
+# The trend rides in the row's trailing slot rather than under it, because the row already has a
+# picture: the banded bar on its second step is where the reading sits between flat and full, and
+# that is the thing this screen is for. Six cells of line beside the figure is the direction, and
+# the two together are what the percentage on its own has never been able to say - the bar is
+# amber because 24% is low, and the line is why that matters.
+tab nodes
+battery ALFA 87
+hold 260
+battery ALFA 72
+hold 260
+battery ALFA 58
+hold 260
+battery ALFA 45
+hold 260
+battery ALFA 33
+hold 260
+battery ALFA 24
+hold 260
+
+# Open it and walk down to the device metrics, where the battery row is.
+key down 1
+key a
+key down 26
+hold 2000
+
+# ---- the card: the mesh getting busier -------------------------------------------------------
+#
+# Each `airtime` line is one LocalStats report, which is what the radio sends its attached
+# client every few minutes - so this is an hour of mesh compressed into a few seconds. Watch the
+# three rows together: the figure says 58%, the bar says that is past both of its marks, and only
+# the line says it was 6% when we started. The first two are the same sentence at two levels of
+# effort; the third is a different sentence, and it is the one that says whether to wait.
+#
+# The line appears on the second report and not before. A trend needs two readings, and a box
+# drawn empty against a radio that has reported once would say the mesh is quiet when nothing
+# has been said about it at all.
+tab status
+airtime 6 1
+hold 500
+airtime 9 2
+hold 500
+airtime 14 3
+hold 500
+airtime 21 5
+hold 500
+airtime 33 9
+hold 500
+airtime 47 14
+hold 500
+airtime 58 19
+hold 1600

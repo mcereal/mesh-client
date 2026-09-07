@@ -40,6 +40,7 @@ int mesh_ui_store_init(struct mesh_ui_store *store) {
 
     memset(store, 0, sizeof *store);
     mesh_ui_nav_init(&store->nav);
+    mesh_ui_history_reset(&store->history);
     store->event_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     if (store->event_fd < 0) {
         const int err = -errno;
@@ -164,6 +165,9 @@ void mesh_ui_store_tick(struct mesh_ui_store *store, uint64_t now_ms) {
     if (store == NULL) {
         return;
     }
+    /* The clock a history sample is stamped with. Kept here rather than passed to the setters
+       because a publish reaches the store from wherever the reading arrived - see the field. */
+    store->now_ms = now_ms;
     if (mesh_ui_nav_tick(&store->nav, now_ms)) {
         mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
     }
@@ -203,6 +207,66 @@ void mesh_ui_store_set_discovery(struct mesh_ui_store *store, const struct mesh_
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_DISCOVERY);
 }
 
+/* The node with that id in a published roster, or NULL. A linear walk because the roster is
+   ranked by last_heard and re-ranked on every publish, so a row index means a different node
+   from one frame to the next - the same reason the open node detail is remembered by id. */
+static const struct mesh_ui_node_summary *
+mesh_ui_store_find_node(const struct mesh_ui_handshake_state *handshake, uint32_t node_id) {
+    if (handshake == NULL || node_id == 0U) {
+        return NULL;
+    }
+    const uint32_t count = handshake->node_count < MESH_UI_MAX_HANDSHAKE_NODES
+                               ? handshake->node_count
+                               : MESH_UI_MAX_HANDSHAKE_NODES;
+    for (uint32_t i = 0U; i < count; ++i) {
+        if (handshake->nodes[i].node_id == node_id) {
+            return &handshake->nodes[i];
+        }
+    }
+    return NULL;
+}
+
+/*
+ * What the incoming roster adds to the client's memory of the mesh.
+ *
+ * Called before the roster is replaced, because the question each node asks is whether *this*
+ * report is one we already have - and the answer is in the copy about to be overwritten. A
+ * node's device metrics carry no usable stamp for the reason the radio's own report does not
+ * (see mesh_ui_store_set_settings), so the test is again the reading having changed: the
+ * telemetry group as a whole, which carries an uptime that moves even when the battery has not.
+ *
+ * A different radio drops everything first. Node numbers are the mesh's, not the radio's, but a
+ * different radio is a different mesh - and a trend stitched across the swap would draw one
+ * node's battery falling into another node's.
+ */
+static void mesh_ui_store_note_roster(struct mesh_ui_store *store,
+                                      const struct mesh_ui_handshake_state *next) {
+    /* A swap makes the roster about to be replaced no evidence at all: the readings it holds
+       belong to the mesh we have just left, so every node in the arriving one is a first
+       report rather than a repeat of one. */
+    const bool swapped =
+        store->handshake.roster_owner != 0U && next->roster_owner != store->handshake.roster_owner;
+    if (swapped) {
+        mesh_ui_history_forget(&store->history);
+    }
+    const uint32_t count = next->node_count < MESH_UI_MAX_HANDSHAKE_NODES
+                               ? next->node_count
+                               : MESH_UI_MAX_HANDSHAKE_NODES;
+    for (uint32_t i = 0U; i < count; ++i) {
+        const struct mesh_ui_node_summary *node = &next->nodes[i];
+        if (!node->metrics.valid || !node->metrics.has_battery) {
+            continue;
+        }
+        const struct mesh_ui_node_summary *was =
+            swapped ? NULL : mesh_ui_store_find_node(&store->handshake, node->node_id);
+        if (was != NULL && memcmp(&was->metrics, &node->metrics, sizeof node->metrics) == 0) {
+            continue;
+        }
+        mesh_ui_history_note_battery(&store->history, (uint32_t)store->now_ms, node->node_id,
+                                     node->metrics.battery_level);
+    }
+}
+
 void mesh_ui_store_set_handshake(struct mesh_ui_store *store,
                                  const struct mesh_ui_handshake_state *handshake) {
     if (store == NULL) {
@@ -225,6 +289,7 @@ void mesh_ui_store_set_handshake(struct mesh_ui_store *store,
     }
 
     if (next_valid) {
+        mesh_ui_store_note_roster(store, &next_state);
         store->handshake = next_state;
     } else {
         memset(&store->handshake, 0, sizeof store->handshake);
@@ -266,6 +331,22 @@ void mesh_ui_store_set_settings(struct mesh_ui_store *store,
     }
     if (memcmp(&store->settings, &next, sizeof next) == 0) {
         return;
+    }
+    /*
+     * A new LocalStats report is a reading to remember, and the test for one is the report
+     * itself having changed rather than any field of it in particular.
+     *
+     * Its own stamp would be the obvious key and is not usable: `time` is our clock when it
+     * arrived, and on a Brick with no wall clock that is 0 on every report - so a series keyed
+     * on it would hold exactly one sample for the life of the session. The whole struct is the
+     * honest test, because a LocalStats always carries the packet counters and those move
+     * whether or not the airtime figures did. A radio that genuinely repeated a report byte for
+     * byte contributes no sample, which is the right way round: nothing new was said.
+     */
+    if (next.stats.valid && memcmp(&next.stats, &store->settings.stats, sizeof next.stats) != 0) {
+        mesh_ui_history_note_airtime(&store->history, (uint32_t)store->now_ms,
+                                     mesh_ui_percent_permille(next.stats.channel_utilization),
+                                     mesh_ui_percent_permille(next.stats.air_util_tx));
     }
     store->settings = next;
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_SETTINGS);
@@ -587,6 +668,7 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
     snapshot->read_state = store->read_state;
     snapshot->settings = store->settings;
     snapshot->traceroute = store->traceroute;
+    snapshot->history = store->history;
 
     memcpy(snapshot->transport_status, store->transport_status, sizeof snapshot->transport_status);
 

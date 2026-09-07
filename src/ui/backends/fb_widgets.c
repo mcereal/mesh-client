@@ -1172,6 +1172,16 @@ static size_t fb_trailing_cols(const struct mesh_ui_backend_fb_state *state, siz
         want = FB_SIGNAL_CELLS + 1U + (cells > 0U ? cells + 1U : 0U);
         break;
     }
+    case FB_TRAILING_SPARK:
+        /* The line and the cell of air between it and the words, stated the way the two above
+           are. A trend with nothing in it costs nothing: the slot is not reserved against a
+           second reading arriving, because a row whose value column was short by six cells
+           until the radio repeated itself would reflow while being read. */
+        want = (trailing->spark != NULL && trailing->spark->points != NULL &&
+                trailing->spark->points->count >= 2U)
+                   ? FB_SPARK_CELLS + 1U
+                   : 0U;
+        break;
     case FB_TRAILING_CHECKBOX:
     case FB_TRAILING_RADIO: {
         int width = 0;
@@ -1370,6 +1380,30 @@ static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struc
             fb_draw_text(state, box.x - adv - (int)figure * adv, baseline, trailing->text, scale,
                          quiet, ground);
         }
+        return;
+    }
+    case FB_TRAILING_SPARK: {
+        if (trailing->spark == NULL) {
+            return;
+        }
+        /*
+         * On the *line's* slot rather than centred on the row's fill, which is where the switch,
+         * the meter and the staircase sit.
+         *
+         * The difference only shows on the row this was built for and it shows badly: the node
+         * detail's battery row is two steps, a fact on the first and a banded bar across the
+         * second, so a trend centred on the fill lands in the gap between them and draws its
+         * floor through the bar. Every other slot in this column is on a row whose fill is one
+         * step, which is why the fill and the line were the same box until now. The slot is the
+         * box that means "beside these words", and beside the words is where this belongs.
+         */
+        const int height = g->slot_h > 0 ? g->slot_h : fb_sparkline_height(state, scale);
+        trailing->spark->rect.w = (int)FB_SPARK_CELLS * adv;
+        trailing->spark->rect.h = height;
+        trailing->spark->rect.x = g->text_right - trailing->spark->rect.w;
+        trailing->spark->rect.y = slot_top;
+        trailing->spark->selected = selected;
+        fb_draw_sparkline(state, trailing->spark);
         return;
     }
     case FB_TRAILING_NONE:
@@ -2092,8 +2126,24 @@ static struct fb_card_metrics fb_card_measure(const struct mesh_ui_backend_fb_st
     return m;
 }
 
-/* Body rows one row of content occupies. Only a note is ever more than one. */
+/*
+ * Body rows one row of content occupies. A note and a trend are the two that are more than one,
+ * and they are more than one for opposite reasons - a note has more words than fit on a line,
+ * and a trend has a second dimension.
+ *
+ * That is also why a bar costs a card nothing and a line costs it a row. A meter's whole
+ * reading is a length, so it can be as thin as the theme likes and still say everything it has
+ * to say; a sparkline's reading is a *shape*, and a shape squeezed into the height of a hairline
+ * is a hairline. One extra body row is what makes the difference between a climb and a fall
+ * legible at arm's length, and it is the honest price of the only row on a card that can say
+ * which way something is going.
+ */
+#define FB_CARD_SPARK_LINES 2U
+
 static uint32_t fb_card_row_lines(const struct fb_card_row *row, size_t cols) {
+    if (row->kind == FB_CARD_ROW_SPARK) {
+        return FB_CARD_SPARK_LINES;
+    }
     if (row->kind != FB_CARD_ROW_NOTE) {
         return 1U;
     }
@@ -2231,6 +2281,26 @@ void fb_card_meter(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_i
     row->meter_id = id;
 }
 
+void fb_card_spark(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_id label,
+                   const struct mesh_ui_series *series, struct mesh_ui_scale scale) {
+    struct mesh_ui_polyline points;
+    mesh_ui_series_project(series, scale, &points);
+    /* No row at all rather than an empty one, and the test is here rather than at the call site
+       so that every card asking for a trend answers it the same way. A box with one reading in
+       it is a level; a box with none says the radio has gone quiet, which it has not. */
+    if (points.count < 2U) {
+        return;
+    }
+    struct fb_card_row *row = fb_card_next_row(card, FB_CARD_ROW_SPARK, tone);
+    if (row == NULL) {
+        return;
+    }
+    if (label != MESH_STR_NONE) {
+        mesh_text_sanitise_str(mesh_str(label), row->label, sizeof row->label);
+    }
+    row->spark = points;
+}
+
 void fb_card_note(struct fb_card *card, enum mesh_ui_tone tone, const char *text) {
     if (text == NULL || text[0] == '\0') {
         return;
@@ -2327,6 +2397,37 @@ static uint32_t fb_draw_card_row(struct mesh_ui_backend_fb_state *state,
             fb_draw_meter(state, &meter);
         }
         return 1U;
+    }
+
+    if (row->kind == FB_CARD_ROW_SPARK) {
+        /* The same shape and the same arithmetic as the bar above, so a card carrying both puts
+           them in one column and on one rhythm - which is the whole reason the trend is a row
+           of this card rather than a picture somewhere else on the screen. */
+        const int adv = fb_char_adv(state, state->scale);
+        int line_x = m->content_x;
+        if (row->label[0] != '\0') {
+            struct mesh_ui_line label;
+            mesh_ui_line_reset(&label);
+            mesh_ui_line_column(&label, row->label, m->label_cols);
+            mesh_ui_line_fit(&label, m->cols);
+            fb_draw_text(state, m->content_x, y, mesh_ui_line_text(&label), state->scale, color,
+                         ground);
+            line_x = m->content_x + (int)(m->label_cols + 1U) * adv;
+        }
+        const int line_right = m->content_x + (int)m->cols * adv;
+        /* The rows it was measured for, less the leading that keeps it off the row above and
+           the row below - so a trend sits inside its two rows the way a bar sits inside its
+           one, rather than touching the words either side of it. */
+        const int height = (int)FB_CARD_SPARK_LINES * layout->line - state->scale * 2;
+        if (line_right - line_x > 0 && height > 0) {
+            const struct fb_sparkline spark = {
+                .rect = {.x = line_x, .y = y + state->scale, .w = line_right - line_x, .h = height},
+                .points = &row->spark,
+                .tone = row->tone,
+            };
+            fb_draw_sparkline(state, &spark);
+        }
+        return FB_CARD_SPARK_LINES;
     }
 
     struct mesh_ui_line line;
@@ -3407,6 +3508,145 @@ void fb_draw_signal(const struct mesh_ui_backend_fb_state *state, const struct f
         const int x = box->x + i * (rung + gap);
         fb_fill_round_rect(state, x, bottom - h, rung, h, radius, i < (int)level ? ink : unlit);
     }
+}
+
+/* ---- the sparkline ------------------------------------------------------------------------- */
+
+int fb_sparkline_height(const struct mesh_ui_backend_fb_state *state, int scale) {
+    const int height = fb_line_adv(state, scale) - scale;
+    return height > 1 ? height : 1;
+}
+
+/*
+ * How thick the line is drawn, and how thick its floor is.
+ *
+ * A stroke a single pixel wide is what a line on a desktop is and it is the wrong answer on a
+ * panel with 1024 pixels across 3.2 inches and no anti-aliasing: a diagonal run of single pixels
+ * is a dotted line held at arm's length. The glyph scale is what everything else here grows
+ * with, so the stroke grows with it too - a theme picked for legibility gets a legible line
+ * rather than the same hairline beside larger type.
+ */
+static int fb_spark_stroke(int scale) {
+    const int stroke = (scale > 0 ? scale : 1) / 2;
+    return stroke > 1 ? stroke : 1;
+}
+
+/*
+ * One segment, drawn a pixel column at a time.
+ *
+ * Bresenham's is the usual answer and this is not it, deliberately: what a column-wise walk
+ * gives that a line rasteriser does not is that consecutive columns are *joined* by
+ * construction - each fills from where the last one ended to where this one lands - so a steep
+ * segment is a connected stroke rather than a ladder of separated pixels. On a series whose x
+ * axis is time, steep is the ordinary case: two readings a minute apart on a line spanning an
+ * hour land within a few columns of each other.
+ */
+static void fb_spark_segment(const struct mesh_ui_backend_fb_state *state, int x0, int y0, int x1,
+                             int y1, int stroke, struct mesh_ui_rgb color) {
+    if (x1 < x0) {
+        const int swap_x = x0, swap_y = y0;
+        x0 = x1;
+        y0 = y1;
+        x1 = swap_x;
+        y1 = swap_y;
+    }
+    const int columns = x1 - x0;
+    if (columns == 0) {
+        /* Two readings the clock could not separate, or a series projected onto a box narrower
+           than it has samples: a vertical connector rather than nothing, so the line still
+           passes through both values. */
+        const int top = y0 < y1 ? y0 : y1;
+        const int bottom = y0 > y1 ? y0 : y1;
+        fb_fill_rect(state, x0, top, stroke, bottom - top + stroke, color);
+        return;
+    }
+    int previous = y0;
+    for (int i = 0; i <= columns; ++i) {
+        const int y = y0 + (int)(((int64_t)(y1 - y0) * i) / columns);
+        const int top = y < previous ? y : previous;
+        const int bottom = y > previous ? y : previous;
+        fb_fill_rect(state, x0 + i, top, stroke, bottom - top + stroke, color);
+        previous = y;
+    }
+}
+
+void fb_draw_sparkline(const struct mesh_ui_backend_fb_state *state,
+                       const struct fb_sparkline *spark) {
+    if (spark == NULL || spark->points == NULL || spark->rect.w <= 0 || spark->rect.h <= 0) {
+        return;
+    }
+    const struct mesh_ui_polyline *points = spark->points;
+    /* One reading is a level, not a trend - and an empty box drawn against a radio that has
+       reported once says "nothing is happening", which is the claim the whole component exists
+       to avoid making by accident. Nothing is drawn, floor included. */
+    if (points->count < 2U) {
+        return;
+    }
+
+    const struct fb_rect r = spark->rect;
+    const int stroke = fb_spark_stroke(state->scale);
+    /* The line is placed so that both ends of the domain are inside the box: a reading at the
+       top of its scale draws its stroke against the top edge rather than half outside it. */
+    const int travel = r.h > stroke ? r.h - stroke : 0;
+    const int span = r.w > 1 ? r.w - 1 : 0;
+
+    /*
+     * The floor: the bottom of the domain, drawn in the same role the meter's empty track takes
+     * - which is what gives a line something to be read against without adding a colour any
+     * theme has to be validated for.
+     *
+     * Under the cursor it takes the row's quiet ink instead, exactly as an unlit rung does and
+     * for the same reason: two of the four themes make the track the cursor fill, so a floor in
+     * that role would vanish on precisely the row being pointed at.
+     */
+    const struct mesh_ui_rgb floor_ink = spark->selected
+                                             ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL_DIM)
+                                             : fb_color(state, MESH_UI_COLOR_METER_TRACK);
+    fb_fill_rect(state, r.x, r.y + r.h - stroke, r.w, stroke, floor_ink);
+
+    const struct mesh_ui_rgb ink = fb_tone_color(state, fb_meter_tone(spark->tone));
+    int previous_x = 0;
+    int previous_y = 0;
+    for (uint32_t i = 0U; i < points->count && i < MESH_UI_SERIES_MAX; ++i) {
+        const struct mesh_ui_point *point = &points->items[i];
+        const int x = r.x + (int)(((int64_t)point->x * span) / MESH_UI_ANIM_ONE);
+        /* Up from the bottom: permille of the domain is a height, and a height on a panel whose
+           origin is its top corner is a subtraction. */
+        const int y = r.y + travel - (int)(((int64_t)point->y * travel) / MESH_UI_ANIM_ONE);
+        if (!point->gap && i > 0U) {
+            fb_spark_segment(state, previous_x, previous_y, x, y, stroke, ink);
+        }
+        previous_x = x;
+        previous_y = y;
+    }
+
+    /*
+     * The newest reading, marked.
+     *
+     * A line has two ends and nothing about a stroke says which of them is now. On a trend that
+     * is the whole reading - a line that falls left to right and one that rises are the same
+     * picture read backwards - so the end that is the present carries a square three times the
+     * stroke, which is the smallest mark that is still findable against the line it ends.
+     */
+    const int mark = stroke * 3;
+    /* Centred on the stroke's own centre, then held inside the box: the newest reading is at the
+       trailing edge by construction, so an uncentred square would hang over whatever the slot
+       was measured to keep clear of. */
+    int mark_x = previous_x + stroke / 2 - mark / 2;
+    int mark_y = previous_y + stroke / 2 - mark / 2;
+    if (mark_x > r.x + r.w - mark) {
+        mark_x = r.x + r.w - mark;
+    }
+    if (mark_x < r.x) {
+        mark_x = r.x;
+    }
+    if (mark_y > r.y + r.h - mark) {
+        mark_y = r.y + r.h - mark;
+    }
+    if (mark_y < r.y) {
+        mark_y = r.y;
+    }
+    fb_fill_rect(state, mark_x, mark_y, mark, mark, ink);
 }
 
 /* ---- the text field ------------------------------------------------------------------------ */

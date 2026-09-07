@@ -746,7 +746,7 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count = mesh_ui_node_detail_build(
         node, is_self, (uint32_t)time(NULL), &snapshot->traceroute, nav->node_remove_armed,
-        &snapshot->handshake, items, MESH_UI_NODE_ITEMS_MAX);
+        &snapshot->handshake, &snapshot->history, items, MESH_UI_NODE_ITEMS_MAX);
     if (count == 0U) {
         fb_draw_empty(state, layout, MESH_UI_ICON_NODES, mesh_str(MESH_STR_NODES_DETAIL_EMPTY));
         return;
@@ -798,16 +798,27 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
                 .band = item->banded ? &item->band : NULL,
                 .tone = MESH_UI_TONE_SUCCESS,
             };
-            /* Under the words rather than beside them, which is the second step this row was
-               given. Eight cells of trailing bar could show a level; it could not show where
-               the thresholds are, and on this screen where the reading falls between them is
-               the whole question. */
+            /*
+             * And, where the client has been watching one, which way the reading has been
+             * going - in the trailing slot, beside the figure rather than under it.
+             *
+             * The two pictures on this row are deliberately different sizes, because they are
+             * different weights of question. Where a battery sits between flat and full is what
+             * the screen is for, so it gets the row's second step and the bands with it;
+             * whether it has been falling is a glance, so it gets six cells against the edge.
+             * A trend given the full-width treatment would have taken a third step and said the
+             * word "battery" three times down one screen.
+             */
+            struct mesh_ui_polyline points;
+            mesh_ui_series_project(item->trend, item->scale, &points);
+            struct fb_sparkline trend = {.points = &points, .tone = MESH_UI_TONE_PRIMARY};
             const struct fb_list_item row = {
                 .label = item->label,
                 .label_cols = label_cols,
                 .value = item->value,
                 .tone = MESH_UI_TONE_NORMAL,
                 .meter = &meter,
+                .trailing = {.kind = FB_TRAILING_SPARK, .spark = &trend},
             };
             fb_list_item(state, &list, i, &row);
         } else {
@@ -1642,6 +1653,24 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
         if (have_util) {
             fb_card_meter(&card, MESH_UI_TONE_SUCCESS, MESH_STR_NONE, util_permille,
                           (struct mesh_ui_scale){0, 0}, &fb_air_band, FB_ANIM_ID_AIRTIME);
+            /*
+             * And the same number again, over the reports before this one: whether the mesh is
+             * getting busier.
+             *
+             * The third row about one figure, and the one the other two cannot cover between
+             * them. A percentage says how busy, a bar says whether that is a lot, and neither
+             * distinguishes a mesh at 31% and settling from a mesh at 31% on its way past 50 -
+             * which is the difference between waiting and moving. On the same domain and drawn
+             * directly under the bar, so the line's height and the fill's length are one scale
+             * read twice.
+             *
+             * It costs a row and only ever when there is a trend to draw: the radio has to have
+             * reported twice, which on a fresh link is a few minutes in. A card that reserved
+             * the row against a second report would spend it saying nothing on exactly the
+             * screen that has least room to spare.
+             */
+            fb_card_spark(&card, air_tone, MESH_STR_NONE, &snapshot->history.channel_utilization,
+                          (struct mesh_ui_scale){0, 0});
         }
     }
 

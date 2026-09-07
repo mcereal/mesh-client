@@ -942,6 +942,51 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         return;
     }
 
+    /*
+     * One node's next telemetry report: a battery level, and the uptime that moves with it.
+     *
+     * Its own verb for the reason `airtime` is one - the reading arrives from the mesh and no
+     * key press can produce it - and it takes one figure at a time on purpose. A trend is what
+     * several of these lines make, and a command that took the whole series would let a scene
+     * declare a shape the client could not actually have been told.
+     *
+     * The uptime moves because that is what makes it a *report*: the store records a reading
+     * when the telemetry group changes, so a node repeating the same percentage twice is one
+     * report on the wire and one point on the line. See mesh_ui_store_set_handshake().
+     */
+    if (strcmp(command, "battery") == 0) {
+        char *name = uicap_word(&rest);
+        char *percent = uicap_word(&rest);
+        if (name == NULL || percent == NULL) {
+            fprintf(stderr, "uicap: line %u: 'battery' needs a short name and a percentage\n",
+                    line_number);
+            exit(1);
+        }
+        uicap_start(cap);
+        struct mesh_ui_handshake_state handshake = cap->store.handshake;
+        bool matched = false;
+        for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+            struct mesh_ui_node_summary *node = &handshake.nodes[i];
+            if (strcmp(node->short_name, name) != 0) {
+                continue;
+            }
+            node->metrics.valid = true;
+            node->metrics.has_battery = true;
+            node->metrics.battery_level = (uint8_t)uicap_number(percent, "battery");
+            node->metrics.has_uptime = true;
+            node->metrics.uptime_seconds += 1800U;
+            matched = true;
+        }
+        if (!matched) {
+            fprintf(stderr, "uicap: line %u: no node in the scene called '%s'\n", line_number,
+                    name);
+            exit(1);
+        }
+        mesh_ui_store_set_handshake(&cap->store, &handshake);
+        uicap_emit(cap);
+        return;
+    }
+
     /* The state a NodeDB reset leaves the roster in: the nodes are still ours, and the radio
        has stopped carrying them. Its own verb because no key press can reach it - the reset
        goes out over the air and the answer comes back on the next sync, neither of which

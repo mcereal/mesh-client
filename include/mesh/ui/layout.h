@@ -390,4 +390,111 @@ uint8_t mesh_ui_signal_level(float snr);
 #define MESH_UI_BATTERY_LOW 30
 #define MESH_UI_BATTERY_CRITICAL 15
 
+/* ---- a series ------------------------------------------------------------------------------
+ *
+ * The same reading, kept over time, so that something can say which *way* it is going.
+ *
+ * A meter and a staircase both report a level: how busy the air is now, how well we hear a node
+ * now. Neither can answer "is it climbing", and that is the question behind both of the ones a
+ * client like this is actually opened for - is the mesh getting worse, is this battery going to
+ * last the night. A level answers them only for a reader who happened to look an hour ago and
+ * remembers what it said.
+ *
+ * So the client remembers instead, and a series is that memory: a bounded ring of stamped
+ * readings in the reading's own units. It is here with the rest of the readings because what a
+ * widget needs from it is arithmetic with no pixels in it - where each sample sits across a box
+ * and up it - and because the fb backend must not be the only thing that can ask.
+ *
+ * Three rules the shape encodes, each of them a way a trend line can be wrong quietly:
+ *
+ *   - **The x axis is time, not the sample number.** Telemetry arrives on the radio's schedule
+ *     and a reconnect resumes it whenever it resumes; spacing samples evenly would draw four
+ *     readings taken over ten minutes and four taken over four hours as the same picture.
+ *   - **A gap is a break, not a slope.** A line drawn straight across the hour the radio was
+ *     away claims readings nobody took, and it is exactly the hour a reader would most want to
+ *     see was missing. `gap_ms` is how long a silence has to be before the pen lifts.
+ *   - **The y axis is the reading's own domain**, the same `struct mesh_ui_scale` the bar beside
+ *     it uses - never the range the samples happen to span. Auto-scaling is what a spreadsheet
+ *     does, and on a battery that fell two percent overnight it draws a cliff.
+ *
+ * The clock is the *client's* monotonic one rather than the radio's stamp, because the client
+ * is the thing that has been watching: a Brick with no wall clock still knows how long ago it
+ * was told something, and a wall clock arriving mid-session would otherwise jump every reading
+ * taken before it into the far past. mesh_ui_series_push() drops the whole series if the clock
+ * goes backwards, which is what a wrap or a step change leaves behind - the samples are still
+ * true and *when* they were taken is no longer known, and that is not a series.
+ */
+
+/* Readings held per series. Two dozen is what a line the width of a list row can still be read
+   as a shape rather than as a scribble, and at the intervals telemetry actually arrives on -
+   minutes for the radio's own report, half an hour for a node's - it is a session's worth. */
+#define MESH_UI_SERIES_MAX 24U
+
+struct mesh_ui_sample {
+    uint32_t time; /* the client's monotonic clock, in milliseconds */
+    int32_t value; /* the reading, in whatever units the series is stated in */
+};
+
+struct mesh_ui_series {
+    struct mesh_ui_sample items[MESH_UI_SERIES_MAX];
+    uint32_t first; /* ring head: where the oldest sample sits */
+    uint32_t count;
+    /* Longer than this between two readings and the line breaks rather than sloping across it.
+       Stated by whoever fills the series, because how long a silence is remarkable is a fact
+       about the source - the radio's own report is minutes apart and a node's is half an hour -
+       and travels with the data so nothing downstream has to be told twice. 0 never breaks. */
+    uint32_t gap_ms;
+};
+
+/* Empties it and states how long a silence counts as a break. */
+void mesh_ui_series_reset(struct mesh_ui_series *series, uint32_t gap_ms);
+
+/*
+ * Appends a reading, evicting the oldest once the ring is full.
+ *
+ * `time` going backwards empties the series first: see above. A repeated `time` is kept - two
+ * readings the clock could not separate are still two readings, and mesh_ui_series_project()
+ * says what it does with them.
+ */
+void mesh_ui_series_push(struct mesh_ui_series *series, uint32_t time, int32_t value);
+
+/* The `index`th oldest, or NULL past the end. */
+const struct mesh_ui_sample *mesh_ui_series_at(const struct mesh_ui_series *series, uint32_t index);
+
+/* The newest, or NULL for an empty series - the reading a caller would draw a figure from. */
+const struct mesh_ui_sample *mesh_ui_series_newest(const struct mesh_ui_series *series);
+
+/*
+ * One projected sample: where it sits across the box and up it, both in permille.
+ *
+ * `gap` is the pen: true means "this sample does not continue the one before it", which is the
+ * first sample of the line and every sample that follows a silence longer than the series'
+ * `gap_ms`.
+ */
+struct mesh_ui_point {
+    int16_t x;
+    int16_t y;
+    bool gap;
+};
+
+struct mesh_ui_polyline {
+    struct mesh_ui_point items[MESH_UI_SERIES_MAX];
+    uint32_t count;
+};
+
+/*
+ * The series as a normalised polyline, oldest first: x across the series' own time span, y on
+ * `scale` exactly as a meter's fill would place it.
+ *
+ * Fewer than two points is not a trend, and a widget handed one draws nothing - a single
+ * reading is a level, and there is already a component for that.
+ *
+ * A span of zero - every sample stamped alike, which only a clock too coarse to separate two
+ * pushes produces - falls back to even spacing, because their order is then all that is known
+ * about them. That is the one case where the sample number is the axis, and it is stated here
+ * rather than discovered in a renderer.
+ */
+void mesh_ui_series_project(const struct mesh_ui_series *series, struct mesh_ui_scale scale,
+                            struct mesh_ui_polyline *out);
+
 #endif /* MESH_UI_LAYOUT_H */
