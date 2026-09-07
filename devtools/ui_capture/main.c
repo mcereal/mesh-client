@@ -19,6 +19,8 @@
  *   scene demo|empty       which invented radio to start from     (setup, default demo)
  *   scale N                glyph multiplier, 2..6                 (setup, default the theme's)
  *   delay MS               per-frame delay written to the manifest (setup, default 140)
+ *   clock YYYY-MM-DD HH:MM  pin the wall clock, as local time, so a scene renders the same
+ *                          frames on any host at any hour        (setup, default the real one)
  *   theme NAME             dark|light|contrast|colorblind - before the first frame it picks
  *                          the look, after it switches and emits one, so a single script can
  *                          show the same screen in every theme
@@ -45,7 +47,7 @@
  *   pin NAME               pin that node, which is what X on the Nodes tab does on a device -
  *                          the star in a row's marker gutter
  *
- * Every command but the setup three emits one frame (`key ... 3` emits three), and the screen
+ * Every command but the setup four emits one frame (`key ... 3` emits three), and the screen
  * the script starts on is emitted before any of them.
  */
 
@@ -56,6 +58,7 @@
 #include "mesh/ui/nav.h"
 #include "mesh/ui/store.h"
 #include "mesh/ui/theme.h"
+#include "mesh/utils/time.h"
 
 #include <errno.h>
 #include <stdbool.h>
@@ -185,7 +188,7 @@ static void uicap_scene_demo(struct uicap *cap) {
     snprintf(handshake.primary_channel, sizeof handshake.primary_channel, "%s", "LongFast");
     snprintf(handshake.my_short_name, sizeof handshake.my_short_name, "%s", "HOME");
 
-    const uint32_t now = (uint32_t)time(NULL);
+    const uint32_t now = mesh_time_wall_s();
     handshake.node_count = (uint32_t)(sizeof seeds / sizeof seeds[0]);
     for (uint32_t i = 0U; i < handshake.node_count; ++i) {
         struct mesh_ui_node_summary *node = &handshake.nodes[i];
@@ -678,7 +681,7 @@ static void uicap_append_message(struct uicap *cap, bool outbound, enum mesh_mes
     memset(entry, 0, sizeof *entry);
     entry->packet_id = cap->next_packet_id++;
     entry->peer = peer;
-    entry->rx_time = (uint32_t)time(NULL);
+    entry->rx_time = mesh_time_wall_s();
     snprintf(entry->peer_name, sizeof entry->peer_name, "%s", name);
     snprintf(entry->text, sizeof entry->text, "%s", text);
     entry->direction = outbound ? (uint8_t)MESH_MESSAGE_OUTBOUND : (uint8_t)MESH_MESSAGE_INBOUND;
@@ -733,7 +736,7 @@ static void uicap_append_reaction(struct uicap *cap, const char *name, const cha
     memset(entry, 0, sizeof *entry);
     entry->packet_id = cap->next_packet_id++;
     entry->peer = peer;
-    entry->rx_time = (uint32_t)time(NULL);
+    entry->rx_time = mesh_time_wall_s();
     entry->channel = channel;
     entry->broadcast = broadcast;
     snprintf(entry->peer_name, sizeof entry->peer_name, "%s", name);
@@ -809,6 +812,57 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         } else {
             cap->delay_ms = uicap_number(value, "delay");
         }
+        return;
+    }
+
+    /*
+     * A fixed wall clock, as local time - "clock 2026-01-12 19:12".
+     *
+     * The scene seeds its message log and its last-heard times against this, and the renderer
+     * draws its "18:47", its "3m" and its "Yesterday" from the same value, so a scene renders
+     * the same frames on any host at any hour. That is what a checked-in screenshot needs:
+     * without it, running `make screenshots` an hour later rewrote every pixel of the clock
+     * column, and running it either side of midnight moved the day separators and changed which
+     * rows fit.
+     *
+     * Local rather than UTC because it is read back through localtime_r: a time written here is
+     * the time on the panel, whatever zone the machine rendering it is in.
+     */
+    if (strcmp(command, "clock") == 0) {
+        if (cap->started) {
+            fprintf(stderr, "uicap: line %u: 'clock' has to come before the first frame\n",
+                    line_number);
+            exit(1);
+        }
+        const char *when = uicap_tail(rest);
+        int year = 0;
+        int month = 0;
+        int day = 0;
+        int hour = 0;
+        int minute = 0;
+        /* sscanf rather than strptime: the format is fixed, and strptime is behind a feature
+           macro this file would otherwise have no reason to raise. */
+        if (when == NULL ||
+            sscanf(when, "%4d-%2d-%2d %2d:%2d", &year, &month, &day, &hour, &minute) != 5) {
+            fprintf(stderr, "uicap: line %u: 'clock' needs a local time as YYYY-MM-DD HH:MM\n",
+                    line_number);
+            exit(1);
+        }
+        struct tm parts;
+        memset(&parts, 0, sizeof parts);
+        parts.tm_year = year - 1900;
+        parts.tm_mon = month - 1;
+        parts.tm_mday = day;
+        parts.tm_hour = hour;
+        parts.tm_min = minute;
+        parts.tm_isdst = -1; /* let mktime work out the offset in force on that date */
+        const time_t pinned = mktime(&parts);
+        if (pinned <= 0) {
+            fprintf(stderr, "uicap: line %u: 'clock' cannot represent that time here\n",
+                    line_number);
+            exit(1);
+        }
+        mesh_time_wall_set_fixed((uint32_t)pinned);
         return;
     }
 
@@ -1040,7 +1094,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
             exit(1);
         }
         settings.notice.seq++;
-        settings.notice.received = (uint32_t)time(NULL);
+        settings.notice.received = mesh_time_wall_s();
         snprintf(settings.notice.text, sizeof settings.notice.text, "%s", uicap_tail(rest));
         mesh_ui_store_set_settings(&cap->store, &settings);
         uicap_emit(cap);
@@ -1276,7 +1330,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         uicap_start(cap);
         struct mesh_ui_settings settings = cap->store.settings;
         settings.stats.valid = true;
-        settings.stats.time = (uint32_t)time(NULL);
+        settings.stats.time = mesh_time_wall_s();
         settings.stats.uptime_seconds = 806400U;
         settings.stats.channel_utilization = 11.5F;
         settings.stats.air_util_tx = 3.2F;

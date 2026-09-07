@@ -4,8 +4,13 @@
 # online count and the airtime bar all come from the radio's own LocalStats report. Nothing here
 # is wrong, on purpose - the queue rows and the radio's own words have their own scenes, and a
 # listing screenshot should be the state a working client is in.
+#
+# `clock` is what makes this file a screenshot rather than a picture of when it was taken: the
+# seeded log and the clock column both come from it, so re-rendering next month produces the
+# same bytes and `git status` stays quiet unless the UI actually moved.
 scene demo
 scale 4
+clock 2026-01-12 19:12
 config
 stats
 tab status

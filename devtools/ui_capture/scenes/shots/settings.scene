@@ -3,8 +3,13 @@
 # The index above it is a column of chevrons; this is the screen with the controls on it - a
 # region, a preset, a hop limit on the scale of the hop limits it could have had, a transmit
 # switch and a power reading the scale cannot place.
+#
+# `clock` is what makes this file a screenshot rather than a picture of when it was taken: the
+# seeded log and the clock column both come from it, so re-rendering next month produces the
+# same bytes and `git status` stays quiet unless the UI actually moved.
 scene demo
 scale 4
+clock 2026-01-12 19:12
 config
 tab settings
 key down 7

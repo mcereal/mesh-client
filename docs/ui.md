@@ -1854,6 +1854,7 @@ device would see it, and no scene script has to know an animation exists.
 | `scale N` | glyph multiplier, 2..6. Setup only; the default is the theme's own |
 | `theme NAME` | `dark\|light\|contrast\|colorblind`. Before the first frame it picks the look and emits nothing; after it, it switches and emits a frame |
 | `delay MS` | default per-frame delay. Setup only |
+| `clock YYYY-MM-DD HH:MM` | pin the wall clock, as local time. The scene seeds its message log and its last-heard times against it, and the renderer draws its clocks, its ages and its day separators from the same value — so the scene renders the same frames on any host at any hour, which is what a checked-in screenshot needs. Setup only; the default is the machine's own clock |
 | `tab NAME` | walk Left/Right to `messages`, `nodes`, `devices`, `status` or `settings` |
 | `key NAME [COUNT]` | `up down left right a b x y l1 r1 start select` |
 | `hold MS` | lengthen the frame just emitted, rather than emitting a duplicate. It also moves the clock on, so an animation that was mid-flight has advanced by the next line |
@@ -1900,6 +1901,14 @@ fails — so the fix is that regenerating them is a command rather than an after
 They are rendered at the panel's own 1024x768 by the renderer that ships, which is what makes
 them the frames the device would draw rather than an approximation: `pak.json` lists the same
 four paths, and `scripts/screenshots.sh` is what refreshes both.
+
+Each of those scenes pins its clock, which is what makes them files rather than pictures of when
+they were taken. A frame drawn from the real clock is a function of the minute it was drawn in —
+the clock column moves, and either side of midnight the day separators move with it — so
+regenerating an unchanged UI still rewrote all four. `clock` and the seam under it
+(`mesh_time_wall_s()`, beside the monotonic clock in `src/utils/time.c`) make the rendering
+reproducible: the same scene draws the same bytes on any host at any hour. Nothing on the device
+pins it, so there the clock is the clock.
 
 ### Off the device
 

@@ -4,8 +4,13 @@
 # carry - so it is the one scene here whose last frame is the point. The channel thread rather
 # than the conversation list: bubbles either side of the panel, an outbound one carrying its
 # delivery mark, and the separators a log that crosses a day boundary earns.
+#
+# `clock` is what makes this file a screenshot rather than a picture of when it was taken: the
+# seeded log and the clock column both come from it, so re-rendering next month produces the
+# same bytes and `git status` stays quiet unless the UI actually moved.
 scene demo
 scale 4
+clock 2026-01-12 19:12
 config
 key down 1
 key a
