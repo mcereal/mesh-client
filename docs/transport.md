@@ -68,8 +68,11 @@ with the link in `connecting` (the reply is matched by serial in `bluez_client.c
 a slow or unanswered connect never stalls the UI. `tick()` then waits for `ServicesResolved`
 (250 ms polls, 20 s cap) before wiring the characteristics — the GATT database is not on the bus
 yet when nothing is cached. `connected_address()` is NULL until then; `status()` reads
-`connecting`/`connected` meanwhile. Everything else on the bus (reads, writes, `StartNotify`) is
-still a blocking call.
+`connecting`/`connected` meanwhile. FromRadio reads also complete asynchronously: `-EAGAIN`
+means pending, and a reply or three-second timeout wakes the drain through its eventfd. Reads
+remain sequential; disconnect cancels the pending request and late replies are ignored.
+Writes, property queries and `StartNotify` still block. See [performance.md](performance.md)
+for the tradeoffs and isolated D-Bus test.
 
 **BlueZ never tells us about a dropped link** (only characteristic properties are watched), so
 `tick()` reads `Device1.Connected` every 2 s while CONNECTED (`mesh_ble_transport_check_link`),

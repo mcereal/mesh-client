@@ -1650,3 +1650,75 @@ cleanup:
     }
     record_success(test_name);
 }
+
+MESH_TEST_CASE(app_publish_cache_invalidates_data_dependencies, unit) {
+    struct mesh_app *app = calloc(1U, sizeof *app);
+    MESH_TEST_FAIL_IF(app == NULL, "app allocation failed");
+    mesh_session_init(&app->session);
+    if (mesh_ui_store_init(&app->ui_store) != 0) {
+        free(app);
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    struct mesh_bluez_mock_config mock = {0};
+    mesh_bluez_client_mock_enable(&mock);
+    const char *failure = NULL;
+    struct mesh_handshake_status *handshake = &app->session.handshake;
+    handshake->has_my_info = true;
+    handshake->my_info.my_node_num = 1U;
+    handshake->config_complete = true;
+    handshake->node_count = 2U;
+    handshake->nodes[0].node_id = 1U;
+    handshake->nodes[1].node_id = 2U;
+    snprintf(handshake->nodes[1].short_name, sizeof handshake->nodes[1].short_name, "OLD");
+    struct mesh_message message = {0};
+    message.packet_id = 100U;
+    message.from = 2U;
+    message.to = 1U;
+    message.direction = MESH_MESSAGE_INBOUND;
+    snprintf(message.text, sizeof message.text, "hello");
+    mesh_message_log_append(&app->session.messages, &message);
+    mesh_app_publish_ui_state(app);
+    mesh_app_publish_ui_state(app); /* warm unchanged inputs */
+    snprintf(handshake->nodes[1].short_name, sizeof handshake->nodes[1].short_name, "NEW");
+    mesh_app_publish_ui_state(app);
+    if (strcmp(app->ui_store.messages.entries[0].peer_name, "NEW") != 0) {
+        failure = "renaming a node must invalidate formatted message names";
+        goto cleanup;
+    }
+    struct mesh_message *live = mesh_message_log_find(&app->session.messages, 100U);
+    snprintf(live->text, sizeof live->text, "edited");
+    mesh_app_publish_ui_state(app);
+    if (strcmp(app->ui_store.messages.entries[0].text, "edited") != 0) {
+        failure = "in-place message changes must invalidate the cached view";
+        goto cleanup;
+    }
+    handshake->nodes[1].is_favorite = true;
+    mesh_app_publish_ui_state(app);
+    if (!app->ui_store.handshake.nodes[1].is_favorite) {
+        failure = "favorite changes must reach the cached roster";
+        goto cleanup;
+    }
+    app->session.roster_node = 2U;
+    mesh_app_publish_ui_state(app);
+    if (app->ui_store.handshake.roster_owner != 2U) {
+        failure = "roster ownership must be an independent invalidation input";
+        goto cleanup;
+    }
+    /* Disconnect resets the live handshake/settings while retaining messages. */
+    mesh_session_detach(&app->session);
+    mesh_app_publish_ui_state(app);
+    if (app->ui_store.handshake.config_complete || app->ui_store.messages.count != 1U) {
+        failure = "disconnect must clear live state without losing cached messages";
+    }
+cleanup:
+    free(app->publish_cache);
+    mesh_ui_store_shutdown(&app->ui_store);
+    free(app);
+    mesh_bluez_client_mock_disable();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}

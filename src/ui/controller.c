@@ -59,22 +59,17 @@ static int mesh_ui_controller_event_callback(int fd, uint32_t events, void *user
         return 0;
     }
 
-    struct mesh_ui_snapshot snapshot;
-    while (mesh_ui_store_consume_updates(controller->store, &snapshot)) {
-        mesh_ui_controller_present(controller, &snapshot);
+    if (mesh_ui_store_consume_updates(controller->store, &controller->snapshot)) {
+        controller->snapshot_valid = true;
+        mesh_ui_controller_present(controller, &controller->snapshot);
     }
 
     mesh_ui_controller_schedule_frame(controller, mesh_ui_controller_backend_moving(controller));
     return 0;
 }
 
-/*
- * The frame timer fired: draw the same snapshot again.
- *
- * Nothing in the store has changed - that is the point. The snapshot is asked for again rather
- * than cached here, because it is the store that decides what a frame is made of, and a second
- * copy of that in the controller is a second thing to keep in step.
- */
+/* Animation frames reuse the last published snapshot. Consume any real update first so
+   timer/store readiness in the same epoll batch cannot render stale data. */
 static int mesh_ui_controller_frame_callback(int fd, uint32_t events, void *userdata) {
     struct mesh_ui_controller *controller = (struct mesh_ui_controller *)userdata;
     if (controller == NULL || (events & EPOLLIN) == 0U) {
@@ -86,10 +81,13 @@ static int mesh_ui_controller_frame_callback(int fd, uint32_t events, void *user
         mesh_log_warn("ui", "frame timer read failed: %s", strerror(errno));
     }
 
-    struct mesh_ui_snapshot snapshot;
-    mesh_ui_store_request_refresh(controller->store);
-    if (mesh_ui_store_consume_updates(controller->store, &snapshot)) {
-        mesh_ui_controller_present(controller, &snapshot);
+    if (mesh_ui_store_consume_updates(controller->store, &controller->snapshot)) {
+        controller->snapshot_valid = true;
+    } else {
+        controller->snapshot.update_flags = MESH_UI_UPDATE_NONE;
+    }
+    if (controller->snapshot_valid) {
+        mesh_ui_controller_present(controller, &controller->snapshot);
     }
 
     mesh_ui_controller_schedule_frame(controller, mesh_ui_controller_backend_moving(controller));

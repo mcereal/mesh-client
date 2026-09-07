@@ -25,9 +25,8 @@
 
 #define MESH_BLE_MAX_OUTBOUND_PACKETS 8U
 /*
- * FromRadio reads are synchronous D-Bus round trips (~60 ms each on the Brick). Read at most this
- * many per event-loop turn, then wake the loop via eventfd to continue, so UI input, timers and
- * disconnects keep flowing during a large NodeDB sync.
+ * FromRadio reads complete through the event loop. Bound immediately available completions
+ * as well (including mocks), so a large NodeDB sync cannot monopolize a callback.
  */
 #define MESH_BLE_READS_PER_TURN 4U
 /* Transient ReadValue failures are retried with exponential backoff, then the link is dropped. */
@@ -115,6 +114,7 @@ struct mesh_ble_transport_state {
     /* Why the transport is parked, so a retry every couple of seconds logs a change of reason
        rather than the same line forever. */
     char waiting_reason[256];
+    bool drain_again;           /* a notification raced an in-flight read */
     bool drain_pending;         /* more FromRadio packets may be waiting */
     uint64_t drain_retry_at_ms; /* earliest time to run the pending drain (0 = now) */
     unsigned drain_failures;    /* consecutive ReadValue failures */
@@ -216,6 +216,13 @@ static int mesh_ble_do_connect(struct mesh_ble_transport_state *state, const cha
                                bool allow_pair);
 static void mesh_ble_bring_up(struct mesh_transport *transport);
 static void mesh_ble_demote(struct mesh_ble_transport_state *state);
+
+static void mesh_ble_read_ready(void *userdata) {
+    struct mesh_ble_transport_state *state = userdata;
+    if (state->link_state == MESH_BLE_LINK_CONNECTED) {
+        mesh_ble_schedule_drain(state, 0U);
+    }
+}
 
 static void mesh_ble_tick(struct mesh_transport *transport) {
     if (transport == NULL) {
@@ -545,6 +552,7 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     state->waiting_reason[0] = '\0';
     state->drain_retry_at_ms = 0U;
     state->drain_failures = 0U;
+    state->drain_again = false;
     state->loop = loop;
     state->link_state = MESH_BLE_LINK_DISCONNECTED;
     state->connected_address[0] = '\0';
@@ -598,6 +606,8 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     }
 
     mesh_bluez_client_set_notification_handler(&state->bluez, mesh_ble_notification_handler, state);
+    state->bluez.read_ready = mesh_ble_read_ready;
+    state->bluez.read_userdata = state;
 
     mesh_ble_bring_up(transport);
     if (state->state == MESH_BLE_STATE_READY && config->preferred_ble_device[0] != '\0') {
@@ -893,6 +903,9 @@ static void mesh_ble_drain_from_radio(struct mesh_ble_transport_state *state) {
         size_t len = 0U;
         int result = mesh_bluez_client_read(&state->bluez, state->chars.fromradio_path, packet,
                                             sizeof(packet), &len);
+        if (result == -EAGAIN) {
+            return; /* completion or timeout wakes us; pending is not a failed read */
+        }
         if (result < 0) {
             state->drain_failures += 1U;
             if (state->drain_failures >= MESH_BLE_DRAIN_MAX_FAILURES) {
@@ -910,6 +923,10 @@ static void mesh_ble_drain_from_radio(struct mesh_ble_transport_state *state) {
         }
         state->drain_failures = 0U;
         if (len == 0U) {
+            if (state->drain_again) {
+                state->drain_again = false;
+                mesh_ble_schedule_drain(state, 0U);
+            }
             return; /* FIFO drained */
         }
 
@@ -940,6 +957,9 @@ static void mesh_ble_notification_handler(const uint8_t *data, size_t len, void 
         from_num |= (uint32_t)data[i] << (8U * i);
     }
     mesh_log_trace("ble", "FromNum notification (%u)", from_num);
+    if (state->bluez.read_state != 0) {
+        state->drain_again = true;
+    }
     mesh_ble_drain_from_radio(state);
 }
 
@@ -1174,6 +1194,7 @@ static int mesh_ble_complete_connect(struct mesh_ble_transport_state *state) {
     state->drain_pending = false;
     state->drain_retry_at_ms = 0U;
     state->drain_failures = 0U;
+    state->drain_again = false;
     state->frames_received = 0U;
     state->bytes_received = 0U;
     mesh_bluez_client_process(&state->bluez);
@@ -1192,6 +1213,7 @@ static void mesh_ble_reset_link(struct mesh_ble_transport_state *state, const ch
     if (state == NULL) {
         return;
     }
+    mesh_bluez_client_read_cancel(&state->bluez);
     if (state->client_initialised && state->connected_device_path[0] != '\0') {
         int result = mesh_bluez_client_disconnect(&state->bluez, state->connected_device_path);
         if (result < 0) {
@@ -1208,6 +1230,7 @@ static void mesh_ble_reset_link(struct mesh_ble_transport_state *state, const ch
     state->drain_pending = false;
     state->drain_retry_at_ms = 0U;
     state->drain_failures = 0U;
+    state->drain_again = false;
     state->connected_address[0] = '\0';
     state->connected_device_path[0] = '\0';
     memset(&state->chars, 0, sizeof(state->chars));

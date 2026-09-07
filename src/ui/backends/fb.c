@@ -3,9 +3,9 @@
 /*
  * The device UI: /dev/fb0, the page flip, and the backend vtable.
  *
- * Three steps or the screen stays black - draw into page 0, FBIOPAN_DISPLAY, then mirror into
- * page 1. The Brick's display engine composites fb0 with per-pixel alpha, so every pixel is
- * written opaque; see compose_color() in fb_draw.c.
+ * Copy changed spans into page 0 and its page 1 mirror, then request FBIOPAN_DISPLAY. The Brick's
+ * display engine composites fb0 with per-pixel alpha, so every pixel is written opaque; see
+ * compose_color() in fb_draw.c.
  */
 
 #include "fb_internal.h"
@@ -51,7 +51,6 @@ static int mesh_ui_backend_fb_init(void **state_out, void *userdata) {
     static struct mesh_ui_backend_fb_state state_storage;
     struct mesh_ui_backend_fb_state *state = &state_storage;
     memset(state, 0, sizeof *state);
-    fb_apply_theme_from_env(state);
 
     state->fb_fd = open("/dev/fb0", O_RDWR);
     if (state->fb_fd < 0) {
@@ -84,6 +83,20 @@ static int mesh_ui_backend_fb_init(void **state_out, void *userdata) {
         return -errno;
     }
 
+    const size_t page_bytes = (size_t)state->line_bytes * state->var.yres;
+    if (page_bytes <= state->fb_size) {
+        state->draw_buffer = calloc(1U, page_bytes);
+        state->previous_frame = calloc(1U, page_bytes);
+        if (state->draw_buffer == NULL || state->previous_frame == NULL) {
+            free(state->draw_buffer);
+            free(state->previous_frame);
+            state->draw_buffer = NULL;
+            state->previous_frame = NULL;
+            mesh_log_warn("ui", "Frame buffers unavailable; drawing directly");
+        }
+    }
+    fb_apply_theme_from_env(state);
+
     mesh_log_info("ui",
                   "Framebuffer UI backend active (%ux%u %u bpp, virtual %ux%u, offset %u,%u, "
                   "theme %s at scale %d)",
@@ -100,6 +113,11 @@ static int mesh_ui_backend_fb_init(void **state_out, void *userdata) {
 static void mesh_ui_backend_fb_shutdown(void *state_ptr, void *userdata) {
     struct mesh_ui_backend_fb_state *state = (struct mesh_ui_backend_fb_state *)state_ptr;
     if (state != NULL) {
+        fb_glyph_cache_free(state);
+        free(state->draw_buffer);
+        free(state->previous_frame);
+        state->draw_buffer = NULL;
+        state->previous_frame = NULL;
         if (state->fb_ptr != NULL && state->fb_ptr != MAP_FAILED) {
             munmap(state->fb_ptr, state->fb_size);
             state->fb_ptr = NULL;
@@ -117,16 +135,55 @@ static void mesh_ui_backend_fb_shutdown(void *state_ptr, void *userdata) {
  * the Allwinner display engine keeps showing whichever page SDL last presented (observed:
  * rows 768..1535, i.e. page 1) after the launcher hands over. Drawing at row 0 is then
  * invisible. Pan the display back to page 0 after each frame and, in case the driver ignores
- * the pan, mirror the frame into page 1 as well - a 3 MB copy per HUD update is nothing.
+ * the pan, mirror changed spans into page 1 as well. Compare in ordinary RAM: reading
+ * the display mapping to find differences would itself be expensive on the device.
  */
-static size_t fb_show_page0(struct mesh_ui_backend_fb_state *state) {
-    const size_t page_bytes = (size_t)state->line_bytes * state->var.yres;
-    size_t written = page_bytes;
-    if (state->var.yres_virtual >= 2U * state->var.yres && 2U * page_bytes <= state->fb_size) {
-        memcpy(state->fb_ptr + page_bytes, state->fb_ptr, page_bytes);
-        written = 2U * page_bytes;
+size_t fb_copy_damage(struct mesh_ui_backend_fb_state *state, const uint8_t *frame,
+                      uint8_t *previous, bool force) {
+    const size_t stride = state->line_bytes;
+    const size_t page_bytes = stride * state->var.yres;
+    const size_t bpp = state->bytes_per_pixel;
+    if (bpp == 0U || page_bytes > state->fb_size) {
+        return 0U;
     }
+    const bool mirror =
+        state->var.yres_virtual >= 2U * state->var.yres && page_bytes <= state->fb_size / 2U;
+    size_t written = 0U;
+    for (uint32_t y = 0U; y < state->var.yres; ++y) {
+        const size_t offset = (size_t)y * stride;
+        const uint8_t *src = frame + offset;
+        uint8_t *old = previous + offset;
+        size_t first = 0U;
+        size_t end = stride;
+        if (!force) {
+            if (memcmp(src, old, stride) == 0) {
+                continue;
+            }
+            while (first < end && src[first] == old[first]) {
+                ++first;
+            }
+            while (end > first && src[end - 1U] == old[end - 1U]) {
+                --end;
+            }
+            /* Whole pixels, including when the stride itself has padding. */
+            first -= first % bpp;
+            end = ((end + bpp - 1U) / bpp) * bpp;
+            if (end > stride) {
+                end = stride;
+            }
+        }
+        const size_t bytes = end - first;
+        memcpy(state->fb_ptr + offset + first, src + first, bytes);
+        if (mirror) {
+            memcpy(state->fb_ptr + page_bytes + offset + first, src + first, bytes);
+        }
+        memcpy(old + first, src + first, bytes);
+        written += bytes * (mirror ? 2U : 1U);
+    }
+    return written;
+}
 
+static void fb_show_page0(struct mesh_ui_backend_fb_state *state) {
     struct fb_var_screeninfo var = state->var;
     var.xoffset = 0U;
     var.yoffset = 0U;
@@ -137,7 +194,6 @@ static size_t fb_show_page0(struct mesh_ui_backend_fb_state *state) {
             state->pan_failed_logged = true;
         }
     }
-    return written > state->fb_size ? state->fb_size : written;
 }
 
 static void mesh_ui_backend_fb_present(void *state_ptr, const struct mesh_ui_snapshot *snapshot,
@@ -152,14 +208,35 @@ static void mesh_ui_backend_fb_present(void *state_ptr, const struct mesh_ui_sna
        that read the clock for itself would draw two halves of one frame at two different
        times, and a capture could not pin either of them. */
     fb_state_set_now(state, mesh_time_monotonic_ms());
-    fb_render_snapshot(state, snapshot);
-    /*
-     * Flush only the pages the frame actually wrote. fb0 on the Brick is 1024x16384 - a 64 MB
-     * mapping - but a frame touches page 0 and its mirror, 6 MB in all, so syncing the whole
-     * mapping walked ten times the page tables the frame dirtied.
-     */
-    const size_t dirty_bytes = fb_show_page0(state);
-    msync(state->fb_ptr, dirty_bytes, MS_ASYNC);
+    const size_t page_bytes = (size_t)state->line_bytes * state->var.yres;
+    size_t written;
+    if (state->draw_buffer != NULL) {
+        uint8_t *mapping = state->fb_ptr;
+        const size_t mapping_size = state->fb_size;
+        state->fb_ptr = state->draw_buffer;
+        state->fb_size = page_bytes;
+        fb_render_snapshot(state, snapshot);
+        state->fb_ptr = mapping;
+        state->fb_size = mapping_size;
+        written =
+            fb_copy_damage(state, state->draw_buffer, state->previous_frame, !state->frame_valid);
+        state->frame_valid = true;
+    } else {
+        fb_render_snapshot(state, snapshot);
+        written = page_bytes;
+        if (state->var.yres_virtual >= 2U * state->var.yres && page_bytes <= state->fb_size / 2U) {
+            memcpy(state->fb_ptr + page_bytes, state->fb_ptr, page_bytes);
+            written *= 2U;
+        }
+    }
+    if (written > 0U) {
+        fb_show_page0(state);
+        const size_t pages =
+            state->var.yres_virtual >= 2U * state->var.yres && page_bytes <= state->fb_size / 2U
+                ? 2U
+                : 1U;
+        msync(state->fb_ptr, page_bytes * pages, MS_ASYNC);
+    }
 }
 
 static bool mesh_ui_backend_fb_animating(void *state_ptr, void *userdata) {

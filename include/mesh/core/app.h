@@ -21,7 +21,10 @@
 extern "C" {
 #endif
 
+struct mesh_app_publish_cache;
+
 struct mesh_app {
+    struct mesh_app_publish_cache *publish_cache;
     struct mesh_app_config config;
     struct mesh_event_loop loop;
     struct mesh_transport_registry transport_registry;

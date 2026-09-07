@@ -578,6 +578,8 @@ void mesh_app_shutdown(struct mesh_app *app) {
     /* The transports are process-wide singletons but the session lives in `app`; leaving them
        pointed at it would dangle for anything that uses a transport after this. */
     mesh_transport_registry_set_session(&app->transport_registry, NULL);
+    free(app->publish_cache);
+    app->publish_cache = NULL;
     mesh_ui_input_shutdown(&app->ui_input);
     mesh_signals_shutdown(&app->signals);
     /* Before the loop goes: the updater has an fd registered with it, and a half-finished

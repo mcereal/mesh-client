@@ -24,7 +24,24 @@
 
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+/* Compare source state before formatting, ranking and merging it. Exact comparisons avoid
+   missed updates from mutation paths that do not yet expose revision counters. Padding can
+   cause an extra rebuild, but cannot hide a changed field. Allocation failure keeps the
+   uncached path working. Dynamic client status is deliberately rebuilt every publish. */
+struct mesh_app_publish_cache {
+    bool valid;
+    const struct mesh_i18n_locale *locale;
+    uint32_t roster_owner;
+    struct mesh_handshake_status handshake;
+    struct mesh_message_log messages;
+    struct mesh_ui_message_list restored_messages;
+    struct mesh_ui_preferences preferences;
+    struct mesh_radio_settings settings;
+    struct mesh_ui_settings flat_settings;
+};
 
 /* Resolves a node number to something a human can read, preferring the short name the NodeDB
    gave us and falling back to the Meshtastic-style "!hex" id. */
@@ -1202,20 +1219,40 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         }
     }
 
-    struct mesh_handshake_status status = *mesh_session_handshake(&app->session);
-    const bool handshake_active = status.request_in_flight || status.config_complete ||
-                                  status.has_my_info || status.has_config ||
-                                  (status.node_count > 0U);
+    if (app->publish_cache == NULL) {
+        app->publish_cache = calloc(1U, sizeof *app->publish_cache);
+    }
+    struct mesh_app_publish_cache *cache = app->publish_cache;
+    const struct mesh_handshake_status *source_status = mesh_session_handshake(&app->session);
+    const struct mesh_message_log *source_messages = mesh_session_messages(&app->session);
+    const bool handshake_changed =
+        cache == NULL || !cache->valid ||
+        memcmp(&cache->handshake, source_status, sizeof *source_status) != 0;
+    const bool messages_changed =
+        cache == NULL || !cache->valid ||
+        memcmp(&cache->messages, source_messages, sizeof *source_messages) != 0;
+    const bool roster_changed =
+        handshake_changed || messages_changed ||
+        cache->roster_owner != mesh_session_roster_owner(&app->session) ||
+        memcmp(&cache->preferences, &app->ui_preferences, sizeof app->ui_preferences) != 0;
+    const bool message_view_changed = handshake_changed || messages_changed ||
+                                      cache->locale != mesh_i18n_locale() ||
+                                      memcmp(&cache->restored_messages, &app->ui_messages_cached,
+                                             sizeof app->ui_messages_cached) != 0;
+    const struct mesh_handshake_status *status = source_status;
+    const bool handshake_active = status->request_in_flight || status->config_complete ||
+                                  status->has_my_info || status->has_config ||
+                                  (status->node_count > 0U);
 
-    if (handshake_active) {
+    if (roster_changed && handshake_active) {
         struct mesh_ui_handshake_state ui_handshake;
         memset(&ui_handshake, 0, sizeof(ui_handshake));
-        ui_handshake.request_in_flight = status.request_in_flight;
-        ui_handshake.request_id = status.request_id;
-        ui_handshake.config_complete = status.config_complete;
-        ui_handshake.config_complete_id = status.config_complete_id;
-        ui_handshake.has_my_info = status.has_my_info;
-        ui_handshake.has_config = status.has_config;
+        ui_handshake.request_in_flight = status->request_in_flight;
+        ui_handshake.request_id = status->request_id;
+        ui_handshake.config_complete = status->config_complete;
+        ui_handshake.config_complete_id = status->config_complete_id;
+        ui_handshake.has_my_info = status->has_my_info;
+        ui_handshake.has_config = status->has_config;
         /* The roster outlives the connection, so a node list on screen is not proof of a live
            sync: what makes it live is something from this connection having arrived. */
         ui_handshake.roster_owner = mesh_session_roster_owner(&app->session);
@@ -1227,23 +1264,23 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         ui_handshake.nodes_forgettable_off_radio =
             mesh_session_forgettable_nodes(&app->session, true);
         ui_handshake.nodes_forgettable_all = mesh_session_forgettable_nodes(&app->session, false);
-        ui_handshake.cached = !status.config_complete && !status.has_my_info &&
-                              !status.request_in_flight && !status.has_config;
-        if (status.has_my_info) {
-            const uint32_t my_node = status.my_info.my_node_num;
+        ui_handshake.cached = !status->config_complete && !status->has_my_info &&
+                              !status->request_in_flight && !status->has_config;
+        if (status->has_my_info) {
+            const uint32_t my_node = status->my_info.my_node_num;
             /* Remember this radio as one of ours. Pins live in the radio's own NodeDB, so
                without this the node you connect to today is a stranger on the node you
                connect to tomorrow; see mesh_app_node_rank(). */
             if (mesh_ui_preferences_note_radio(&app->ui_preferences, my_node)) {
                 preferences_modified = true;
             }
-            ui_handshake.my_info.node_num = status.my_info.my_node_num;
-            ui_handshake.my_info.nodedb_entries = status.my_info.nodedb_count;
-            ui_handshake.my_info.reboot_count = status.my_info.reboot_count;
-            for (size_t i = 0; i < status.node_count && i < MESH_SESSION_MAX_NODES; ++i) {
-                if (status.nodes[i].node_id == my_node && status.nodes[i].short_name[0] != '\0') {
+            ui_handshake.my_info.node_num = status->my_info.my_node_num;
+            ui_handshake.my_info.nodedb_entries = status->my_info.nodedb_count;
+            ui_handshake.my_info.reboot_count = status->my_info.reboot_count;
+            for (size_t i = 0; i < status->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+                if (status->nodes[i].node_id == my_node && status->nodes[i].short_name[0] != '\0') {
                     snprintf(ui_handshake.my_short_name, sizeof(ui_handshake.my_short_name), "%s",
-                             status.nodes[i].short_name);
+                             status->nodes[i].short_name);
                     break;
                 }
             }
@@ -1259,16 +1296,16 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         const struct mesh_message_log *message_log = mesh_session_messages(&app->session);
         size_t order[MESH_SESSION_MAX_NODES];
         unsigned rank[MESH_SESSION_MAX_NODES];
-        size_t total =
-            status.node_count > MESH_SESSION_MAX_NODES ? MESH_SESSION_MAX_NODES : status.node_count;
-        const uint32_t my_node = status.has_my_info ? status.my_info.my_node_num : 0U;
+        size_t total = status->node_count > MESH_SESSION_MAX_NODES ? MESH_SESSION_MAX_NODES
+                                                                   : status->node_count;
+        const uint32_t my_node = status->has_my_info ? status->my_info.my_node_num : 0U;
         for (size_t i = 0; i < total; ++i) {
-            const struct mesh_node_summary *node = &status.nodes[i];
+            const struct mesh_node_summary *node = &status->nodes[i];
             rank[i] = mesh_app_node_rank(node, my_node, message_log, &app->ui_preferences);
             size_t j = i;
             while (j > 0U) {
                 const size_t prev_index = order[j - 1U];
-                const struct mesh_node_summary *prev = &status.nodes[prev_index];
+                const struct mesh_node_summary *prev = &status->nodes[prev_index];
                 if (rank[prev_index] < rank[i] ||
                     (rank[prev_index] == rank[i] && prev->last_heard >= node->last_heard)) {
                     break;
@@ -1284,7 +1321,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             copy_count = MESH_UI_MAX_HANDSHAKE_NODES;
         }
         for (size_t i = 0; i < copy_count; ++i) {
-            const struct mesh_node_summary *src = &status.nodes[order[i]];
+            const struct mesh_node_summary *src = &status->nodes[order[i]];
             struct mesh_ui_node_summary *dst = &ui_handshake.nodes[i];
             dst->node_id = src->node_id;
             snprintf(dst->long_name, sizeof(dst->long_name), "%s", src->long_name);
@@ -1316,22 +1353,22 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         }
         ui_handshake.node_count = (uint32_t)copy_count;
 
-        size_t channel_count = status.channel_count;
+        size_t channel_count = status->channel_count;
         if (channel_count > MESH_UI_MAX_CHANNELS) {
             channel_count = MESH_UI_MAX_CHANNELS;
         }
         for (size_t i = 0; i < channel_count; ++i) {
-            ui_handshake.channels[i].index = status.channels[i].index;
-            ui_handshake.channels[i].role = status.channels[i].role;
-            ui_handshake.channels[i].psk_len = status.channels[i].psk_len;
-            ui_handshake.channels[i].uplink_enabled = status.channels[i].uplink_enabled;
-            ui_handshake.channels[i].downlink_enabled = status.channels[i].downlink_enabled;
-            ui_handshake.channels[i].position_precision = status.channels[i].position_precision;
+            ui_handshake.channels[i].index = status->channels[i].index;
+            ui_handshake.channels[i].role = status->channels[i].role;
+            ui_handshake.channels[i].psk_len = status->channels[i].psk_len;
+            ui_handshake.channels[i].uplink_enabled = status->channels[i].uplink_enabled;
+            ui_handshake.channels[i].downlink_enabled = status->channels[i].downlink_enabled;
+            ui_handshake.channels[i].position_precision = status->channels[i].position_precision;
             snprintf(ui_handshake.channels[i].name, sizeof(ui_handshake.channels[i].name), "%s",
-                     status.channels[i].name);
-            if (status.channels[i].role == 1U /* PRIMARY */) {
+                     status->channels[i].name);
+            if (status->channels[i].role == 1U /* PRIMARY */) {
                 snprintf(ui_handshake.primary_channel, sizeof(ui_handshake.primary_channel), "%s",
-                         status.channels[i].name);
+                         status->channels[i].name);
             }
         }
         ui_handshake.channel_count = (uint32_t)channel_count;
@@ -1351,7 +1388,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
                      ui_handshake.primary_channel);
             preferences_modified = true;
         }
-    } else {
+    } else if (roster_changed) {
         mesh_ui_update_flags prev_flags = app->ui_store.pending_flags;
         mesh_ui_store_set_handshake(&app->ui_store, NULL);
         if (app->ui_handshake_cache_path[0] != '\0' &&
@@ -1361,20 +1398,31 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         }
     }
 
-    mesh_app_publish_messages(app, &status);
+    if (message_view_changed) {
+        mesh_app_publish_messages(app, status);
+    }
 
     const struct mesh_radio_settings *radio_settings = mesh_session_settings(&app->session);
     struct mesh_ui_settings ui_settings;
-    mesh_app_flatten_settings(radio_settings, &ui_settings);
+    if (cache == NULL || !cache->valid ||
+        memcmp(&cache->settings, radio_settings, sizeof *radio_settings) != 0) {
+        mesh_app_flatten_settings(radio_settings, &ui_settings);
+        if (cache != NULL) {
+            cache->settings = *radio_settings;
+            cache->flat_settings = ui_settings;
+        }
+    } else {
+        ui_settings = cache->flat_settings;
+    }
     /* flatten_settings() zeroes the struct, so the client's own facts go in after it. */
     mesh_app_flatten_client_info(app, &ui_settings.client);
     /* Where the radio says it is, which is not part of PositionConfig: it comes from our own
        node's record, and it is what the Position section's coordinate rows start from. */
-    if (status.has_my_info) {
+    if (status->has_my_info) {
         const struct mesh_node_summary *self = NULL;
-        for (size_t i = 0; i < status.node_count && i < MESH_SESSION_MAX_NODES; ++i) {
-            if (status.nodes[i].node_id == status.my_info.my_node_num) {
-                self = &status.nodes[i];
+        for (size_t i = 0; i < status->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+            if (status->nodes[i].node_id == status->my_info.my_node_num) {
+                self = &status->nodes[i];
                 break;
             }
         }
@@ -1394,10 +1442,26 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     mesh_app_track_settings_save(app, radio_settings, link_connected);
 
     struct mesh_ui_traceroute ui_traceroute;
-    mesh_app_flatten_traceroute(&status, mesh_session_traceroute(&app->session),
-                                status.has_my_info ? status.my_info.my_node_num : 0U,
+    mesh_app_flatten_traceroute(status, mesh_session_traceroute(&app->session),
+                                status->has_my_info ? status->my_info.my_node_num : 0U,
                                 &ui_traceroute);
     mesh_ui_store_set_traceroute(&app->ui_store, &ui_traceroute);
+
+    if (cache != NULL) {
+        if (handshake_changed) {
+            cache->handshake = *source_status;
+        }
+        if (messages_changed) {
+            cache->messages = *source_messages;
+        }
+        if (message_view_changed) {
+            cache->restored_messages = app->ui_messages_cached;
+        }
+        cache->preferences = app->ui_preferences;
+        cache->roster_owner = mesh_session_roster_owner(&app->session);
+        cache->locale = mesh_i18n_locale();
+        cache->valid = true;
+    }
 
     if (preferences_modified && app->ui_preferences_path[0] != '\0') {
         if (mesh_ui_preferences_save(&app->ui_preferences, app->ui_preferences_path) == 0) {

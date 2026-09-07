@@ -17,7 +17,10 @@
 
 #include <errno.h>
 #include <linux/input.h>
+#include <poll.h>
 #include <stdbool.h>
+#include <sys/timerfd.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -503,6 +506,87 @@ MESH_TEST_CASE(input_brick_face_buttons, unit) {
             record_failure(test_name, detail);
             return;
         }
+    }
+    record_success(test_name);
+}
+
+struct test_animation_backend {
+    unsigned frames;
+    char status[128];
+    mesh_ui_update_flags flags;
+};
+
+static void test_animation_present(void *state, const struct mesh_ui_snapshot *snapshot,
+                                   void *userdata) {
+    (void)state;
+    struct test_animation_backend *capture = userdata;
+    ++capture->frames;
+    snprintf(capture->status, sizeof capture->status, "%s", snapshot->transport_status);
+    capture->flags = snapshot->update_flags;
+}
+
+static bool test_animation_moving(void *state, void *userdata) {
+    (void)state;
+    (void)userdata;
+    return true;
+}
+
+MESH_TEST_CASE(ui_controller_animation_reuses_snapshot_and_consumes_changes, unit) {
+    struct mesh_event_loop loop;
+    struct mesh_ui_store store;
+    struct mesh_ui_controller controller;
+    struct test_animation_backend capture = {0};
+    const struct mesh_ui_backend backend = {
+        .name = "test-animation",
+        .present = test_animation_present,
+        .animating = test_animation_moving,
+    };
+    MESH_TEST_FAIL_IF(mesh_event_loop_init(&loop) != 0, "loop init failed");
+    if (mesh_ui_store_init(&store) != 0) {
+        mesh_event_loop_shutdown(&loop);
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    if (mesh_ui_controller_init(&controller, &store, &backend, &capture, &loop) != 0) {
+        mesh_ui_store_shutdown(&store);
+        mesh_event_loop_shutdown(&loop);
+        record_failure(test_name, "controller init failed");
+        return;
+    }
+    const char *failure = NULL;
+    mesh_ui_store_set_transport_status(&store, "initial");
+    mesh_event_loop_run(&loop, 0);
+    for (unsigned pass = 0U; pass < 2U; ++pass) {
+        const struct itimerspec spec = {.it_value = {.tv_nsec = 1L}};
+        if (timerfd_settime(controller.frame_timer_fd, 0, &spec, NULL) < 0) {
+            failure = "frame timer could not be armed";
+            break;
+        }
+        struct pollfd poll_fd = {.fd = controller.frame_timer_fd, .events = POLLIN};
+        if (poll(&poll_fd, 1, 1000) != 1) {
+            failure = "frame timer did not become ready";
+            break;
+        }
+        if (pass == 1U) {
+            mesh_ui_store_set_transport_status(&store, "changed");
+        }
+        mesh_event_loop_run(&loop, 0);
+        if (store.pending_flags != MESH_UI_UPDATE_NONE ||
+            strcmp(capture.status, pass == 0U ? "initial" : "changed") != 0 ||
+            (pass == 0U && capture.flags != MESH_UI_UPDATE_NONE)) {
+            failure = "animation must reuse clean data and consume concurrent store changes";
+            break;
+        }
+    }
+    if (capture.frames < 3U) {
+        failure = "timer frames were not presented";
+    }
+    mesh_ui_controller_shutdown(&controller);
+    mesh_ui_store_shutdown(&store);
+    mesh_event_loop_shutdown(&loop);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
     }
     record_success(test_name);
 }
