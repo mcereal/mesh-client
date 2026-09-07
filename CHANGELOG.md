@@ -1,3 +1,9 @@
+## [2.23.1](https://github.com/mcereal/mesh-client/compare/v2.23.0...v2.23.1) (2026-09-07)
+
+### Bug Fixes
+
+* **codex:** run repository setup in the environment ([f2eca2f](https://github.com/mcereal/mesh-client/commit/f2eca2f08bc709e6368df6eb1ea77221f530eadf))
+
 ## [2.23.0](https://github.com/mcereal/mesh-client/compare/v2.22.0...v2.23.0) (2026-09-07)
 
 ### Features
