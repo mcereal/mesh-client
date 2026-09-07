@@ -97,7 +97,7 @@ suite needs it.
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Verified 2026-09-07: 191 unit tests, all passing, zero compiler warnings.
+Verified 2026-09-07: 196 unit tests, all passing, zero compiler warnings.
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
 vector — not against our own encoder — so a protobuf regeneration that changes field numbers or
 wire types fails loudly.
@@ -169,12 +169,26 @@ monochrome sprite the row draws in its own ink. The set is one line per icon in
 [`docs/ui.md`](docs/ui.md#srcuiiconc--the-generated-srcuiicon_glyphsc).
 
 **No colour, margin, glyph size or corner radius is spelled out in a renderer.** A screen names
-a *tone* (`MESH_UI_TONE_BAD`), a widget names a *role* (`MESH_UI_COLOR_SURFACE_SEL`) or a
-*shape* (`MESH_UI_SHAPE_FULL`), and `src/ui/theme.c` answers all three - which is what makes a
-theme switch total instead of a hunt. Geometry is the same: the margin, the glyph scale, the
-bubble width and the shape scale all live in `struct mesh_ui_metrics`. Adding a theme is a table entry, and
-`mesh_ui_theme_validate()` holds it to a contrast contract in the tests. See
-[`docs/ui.md`](docs/ui.md#themes).
+a *tone* (`MESH_UI_TONE_WARNING`), a widget that fills something names a *family*
+(`MESH_UI_FAMILY_ERROR`) and takes the fill and its ink together from
+`mesh_ui_theme_paint()`, a widget drawing neutral furniture names a *role*
+(`MESH_UI_COLOR_SURFACE_SEL`), and anything with corners names a *shape*
+(`MESH_UI_SHAPE_FULL`). `src/ui/theme.c` answers all four - which is what makes a theme switch
+total instead of a hunt.
+
+The palette is Material's shape: six families - primary, secondary, tertiary, success, warning,
+error - of four roles each (`BASE`, `ON_BASE`, `CONTAINER`, `ON_CONTAINER`), over a neutral
+spine of surfaces and text. **A fill and the label on it always come from one call**, because
+a widget that took them separately would be drawing a pair no theme was measured against.
+`enum mesh_ui_state` is a modifier rather than a colour: a selected element is its resting fill
+with its own ink mixed in, which is why a chat bubble under the cursor is no longer four extra
+roles every theme had to state and match by eye.
+
+Geometry is the same: the margin, the glyph scale, the bubble width and the shape scale all
+live in `struct mesh_ui_metrics`. Adding a theme is a table entry, and `mesh_ui_theme_validate()`
+holds it to a contrast contract in the tests - looping over the families rather than over a
+hand-written list of pairs, so a family cannot be added without all six of its contracts being
+checked. See [`docs/ui.md`](docs/ui.md#themes).
 
 `src/ui/backends/fb_widgets.h` is the one exception, and it is deliberate: it is a **component
 set**, not a seam. The fb backend stacks `fb_draw.c` (ink) → `fb_widgets.c` (buttons, list rows,

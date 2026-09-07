@@ -122,6 +122,22 @@ struct mesh_ui_rgb fb_color(const struct mesh_ui_backend_fb_state *state, enum m
 /* A colour by what the content means. What screens use; see enum mesh_ui_tone. */
 struct mesh_ui_rgb fb_tone_color(const struct mesh_ui_backend_fb_state *state,
                                  enum mesh_ui_tone tone);
+/*
+ * A fill and the ink that goes on it, for one family, one slot and one interaction state.
+ *
+ * This is what a widget that *fills* something asks for, and fb_color() is what one that only
+ * writes ink asks for. The difference matters: a fill and its label are a pair the theme was
+ * validated as a pair, and every component that picked them up separately - the button, the
+ * switch, the chat bubble - is a component that could be handed a combination nothing checked.
+ */
+struct mesh_ui_paint fb_paint(const struct mesh_ui_backend_fb_state *state,
+                              enum mesh_ui_family family, enum mesh_ui_slot slot,
+                              enum mesh_ui_state ui_state);
+/* A stated fill with a state layer over it, for the neutral surfaces - which have no family to
+   ask, but are still drawn under a cursor. `ink` is what the layer mixes in. */
+struct mesh_ui_rgb fb_state_layer(const struct mesh_ui_backend_fb_state *state,
+                                  enum mesh_ui_color fill, enum mesh_ui_color ink,
+                                  enum mesh_ui_state ui_state);
 /* Pixels between the panel edge and the body. */
 int fb_margin(const struct mesh_ui_backend_fb_state *state);
 /* The corner radius for a kind of container, at the frame's own glyph scale. The only way a

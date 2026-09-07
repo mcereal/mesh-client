@@ -78,6 +78,18 @@ struct mesh_ui_rgb fb_tone_color(const struct mesh_ui_backend_fb_state *state,
     return mesh_ui_theme_tone(state != NULL ? state->theme : NULL, tone);
 }
 
+struct mesh_ui_paint fb_paint(const struct mesh_ui_backend_fb_state *state,
+                              enum mesh_ui_family family, enum mesh_ui_slot slot,
+                              enum mesh_ui_state ui_state) {
+    return mesh_ui_theme_paint(state != NULL ? state->theme : NULL, family, slot, ui_state);
+}
+
+struct mesh_ui_rgb fb_state_layer(const struct mesh_ui_backend_fb_state *state,
+                                  enum mesh_ui_color fill, enum mesh_ui_color ink,
+                                  enum mesh_ui_state ui_state) {
+    return mesh_ui_theme_state_layer(fb_color(state, fill), fb_color(state, ink), ui_state);
+}
+
 const struct mesh_ui_metrics *fb_metrics(const struct mesh_ui_backend_fb_state *state) {
     return mesh_ui_theme_metrics(state != NULL ? state->theme : NULL);
 }

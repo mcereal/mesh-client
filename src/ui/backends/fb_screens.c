@@ -195,7 +195,7 @@ static void fb_draw_footer(const struct mesh_ui_backend_fb_state *state,
     const struct mesh_ui_device *device = fb_connected_device(snapshot);
     if (device != NULL) {
         mesh_ui_line_str(&line, MESH_STR_HEADER_STATUS_CONNECTED, status, fb_device_label(device));
-        tone = MESH_UI_TONE_GOOD;
+        tone = MESH_UI_TONE_SUCCESS;
     } else {
         mesh_ui_line_str(&line, MESH_STR_HEADER_STATUS_QUIT, status, mesh_ui_input_quit_hint());
     }
@@ -290,7 +290,7 @@ static void fb_render_conversations(struct mesh_ui_backend_fb_state *state,
                That frees the strong tone to mean what it means everywhere else on this
                screen: there is something here you have not read. */
             .name_tone = is_new                                            ? MESH_UI_TONE_DIM
-                         : (conversation.kind == MESH_UI_CONVERSATION_ALL) ? MESH_UI_TONE_ACCENT
+                         : (conversation.kind == MESH_UI_CONVERSATION_ALL) ? MESH_UI_TONE_PRIMARY
                          : (conversation.unread > 0U)                      ? MESH_UI_TONE_STRONG
                                                                            : MESH_UI_TONE_NORMAL,
         };
@@ -735,7 +735,7 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
         } else if (item->kind == MESH_UI_NODE_ROW_ACTION) {
             const struct fb_list_item row = {
                 .text = item->label,
-                .tone = MESH_UI_TONE_ACCENT,
+                .tone = MESH_UI_TONE_PRIMARY,
                 .trailing = {.kind = FB_TRAILING_ICON, .icon = MESH_UI_ICON_CHEVRON},
             };
             fb_list_item(state, &list, i, &row);
@@ -867,7 +867,7 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
            are talking to is the one thing the cursor colour is for. */
         enum mesh_ui_tone tone = MESH_UI_TONE_NORMAL;
         if (node->node_id == nav->target_node) {
-            tone = MESH_UI_TONE_ACCENT;
+            tone = MESH_UI_TONE_PRIMARY;
         } else if (!node->in_nodedb) {
             tone = MESH_UI_TONE_DIM;
         }
@@ -878,7 +878,7 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
                     .kind = FB_LEADING_AVATAR,
                     .label = initials,
                     .tint = tint,
-                    .role = is_me ? MESH_UI_COLOR_ACCENT : MESH_UI_COLOR_COUNT,
+                    .role = is_me ? MESH_UI_COLOR_PRIMARY : MESH_UI_COLOR_COUNT,
                 },
             .text = mesh_ui_line_text(&line),
             .tone = tone,
@@ -923,7 +923,10 @@ static void fb_render_compose(struct mesh_ui_backend_fb_state *state,
         }
         const struct fb_list_item row = {
             .text = mesh_ui_line_text(&line),
-            .tone = is_draft ? MESH_UI_TONE_ACCENT : MESH_UI_TONE_NORMAL,
+            /* A started-but-unsent message is in flight, which is the tertiary - and the
+               edge bar follows the tone, so the row is marked in the colour of the reason it
+               is marked. */
+            .tone = is_draft ? MESH_UI_TONE_TERTIARY : MESH_UI_TONE_NORMAL,
             .accent_edge = is_draft,
             .divider = true,
         };
@@ -983,10 +986,10 @@ static void fb_render_picker(struct mesh_ui_backend_fb_state *state,
                        back, which is what the conversation list puts in the same disc. */
                     .icon = is_channel ? MESH_UI_ICON_CHANNEL : MESH_UI_ICON_NONE,
                     .tint = tint,
-                    .role = current ? MESH_UI_COLOR_ACCENT : MESH_UI_COLOR_COUNT,
+                    .role = current ? MESH_UI_COLOR_PRIMARY : MESH_UI_COLOR_COUNT,
                 },
             .text = name,
-            .tone = is_channel ? MESH_UI_TONE_ACCENT : MESH_UI_TONE_NORMAL,
+            .tone = is_channel ? MESH_UI_TONE_PRIMARY : MESH_UI_TONE_NORMAL,
             .divider = true,
         };
         fb_list_item(state, &list, i, &row);
@@ -1161,9 +1164,9 @@ static void fb_render_devices(struct mesh_ui_backend_fb_state *state,
         const bool armed = nav->devices_forget_armed && nav->devices_forget_row == i;
         enum mesh_ui_tone tone = MESH_UI_TONE_NORMAL;
         if (device->connected) {
-            tone = MESH_UI_TONE_GOOD;
+            tone = MESH_UI_TONE_SUCCESS;
         } else if (armed) {
-            tone = MESH_UI_TONE_BAD;
+            tone = MESH_UI_TONE_ERROR;
         }
 
         /* The disc states its fill rather than taking a tint: a device list is four rows about
@@ -1179,8 +1182,8 @@ static void fb_render_devices(struct mesh_ui_backend_fb_state *state,
                     .icon = device->kind == (uint8_t)MESH_UI_DEVICE_SERIAL ? MESH_UI_ICON_USB
                                                                            : MESH_UI_ICON_BLUETOOTH,
                     .tint = i,
-                    .role = device->connected ? MESH_UI_COLOR_GOOD
-                            : armed           ? MESH_UI_COLOR_BAD
+                    .role = device->connected ? MESH_UI_COLOR_SUCCESS
+                            : armed           ? MESH_UI_COLOR_ERROR
                                               : MESH_UI_COLOR_COUNT,
                 },
             .text = name,
@@ -1237,6 +1240,15 @@ static const struct mesh_ui_node_summary *fb_self_node(const struct mesh_ui_snap
 #define FB_AIR_BUSY_BAD 500
 
 /*
+ * Where a radio's free heap stops being comfortable, in bytes.
+ *
+ * Stated here for the reason the pair above is: the figure's colour and the card heading's are
+ * two readings of one number, and a threshold written out at each of them is a card that can
+ * head itself "fine" over a row it has just drawn as a warning.
+ */
+#define FB_HEAP_LOW_BYTES 20480U
+
+/*
  * The airtime meter's key in the animation table.
  *
  * At the top of the range with the snackbar's, and for the same reason: every other id in here
@@ -1287,12 +1299,12 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
     const struct mesh_ui_device *connected = fb_connected_device(snapshot);
 
     fb_card_begin(&card, MESH_UI_ICON_LINK, MESH_STR_STATUS_CARD_LINK,
-                  connected != NULL ? MESH_UI_TONE_GOOD : MESH_UI_TONE_BAD);
+                  connected != NULL ? MESH_UI_TONE_SUCCESS : MESH_UI_TONE_ERROR);
     fb_card_row_text(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_TRANSPORT,
                      snapshot->transport_status[0] != '\0'
                          ? snapshot->transport_status
                          : mesh_str(MESH_STR_HEADER_TRANSPORT_STARTING));
-    fb_card_row_text(&card, connected != NULL ? MESH_UI_TONE_GOOD : MESH_UI_TONE_BAD,
+    fb_card_row_text(&card, connected != NULL ? MESH_UI_TONE_SUCCESS : MESH_UI_TONE_ERROR,
                      MESH_STR_STATUS_LABEL_RADIO,
                      connected != NULL ? fb_device_label(connected)
                                        : mesh_str(MESH_STR_STATUS_NOT_CONNECTED));
@@ -1362,7 +1374,7 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
                   : MESH_UI_TONE_NORMAL;
 
     fb_card_begin(&card, MESH_UI_ICON_NODES, MESH_STR_STATUS_CARD_MESH,
-                  air_tone != MESH_UI_TONE_NORMAL ? air_tone : MESH_UI_TONE_ACCENT);
+                  air_tone != MESH_UI_TONE_NORMAL ? air_tone : MESH_UI_TONE_PRIMARY);
     if (snapshot->handshake_valid) {
         const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
         /* One line for the NodeDB, and LocalStats' online count when the radio has sent it:
@@ -1434,7 +1446,7 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
         /* Bad and dropped packets are the two numbers that explain a mesh that "works but loses
            messages", so they get their own row instead of being folded into Packets. */
         const bool losing = stats->num_packets_rx_bad > 0U || stats->num_tx_dropped > 0U;
-        fb_card_row(&card, losing ? MESH_UI_TONE_ACCENT : MESH_UI_TONE_DIM,
+        fb_card_row(&card, losing ? MESH_UI_TONE_WARNING : MESH_UI_TONE_DIM,
                     MESH_STR_STATUS_LABEL_DROPPED, MESH_STR_STATUS_DROPPED,
                     stats->num_packets_rx_bad, stats->num_rx_dupe, stats->num_tx_dropped);
     } else if (snapshot->handshake_valid) {
@@ -1477,8 +1489,8 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
      */
     const struct mesh_ui_radio_notice *notice = &snapshot->settings.notice;
     const bool have_notice = notice->seq != 0U && notice->text[0] != '\0';
-    const enum mesh_ui_tone notice_tone = notice->level >= 40U   ? MESH_UI_TONE_BAD
-                                          : notice->level >= 30U ? MESH_UI_TONE_ACCENT
+    const enum mesh_ui_tone notice_tone = notice->level >= 40U   ? MESH_UI_TONE_ERROR
+                                          : notice->level >= 30U ? MESH_UI_TONE_WARNING
                                                                  : MESH_UI_TONE_NORMAL;
     const struct mesh_ui_queue_status *queue = &snapshot->settings.queue;
     /* The radio's send queue is only worth a row once it is under pressure or has just refused
@@ -1488,13 +1500,22 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
     const bool have_queue =
         queue->valid && queue->maxlen > 0U && (queue->res != 0 || queue->free < queue->maxlen / 2U);
 
+    /* Two more rows that only appear when something is off. Derived here rather than at the
+       rows themselves because the heading is a reading of the same two facts, and a predicate
+       written out twice is the pair that drifts. */
+    const bool rebooted = snapshot->settings.reboot_notices > 0U;
+    const bool low_heap =
+        stats->valid && stats->has_heap && stats->heap_free_bytes < FB_HEAP_LOW_BYTES;
+
     /* The card reports the worst thing it holds. A refused packet and an ERROR notice are both
-       the radio saying no; a flat battery is the reason it is about to. */
-    enum mesh_ui_tone radio_tone = MESH_UI_TONE_ACCENT;
+       the radio saying no; a flat battery is the reason it is about to. Below that, anything
+       drawn in the warning tone heads the card in it too - a card saying "fine" over a row it
+       has just drawn as a warning is the summary being wrong about its own contents. */
+    enum mesh_ui_tone radio_tone = MESH_UI_TONE_PRIMARY;
     if (low_battery || (have_queue && queue->res != 0) || (have_notice && notice->level >= 40U)) {
-        radio_tone = MESH_UI_TONE_BAD;
-    } else if (have_notice && notice->level >= 30U) {
-        radio_tone = MESH_UI_TONE_ACCENT;
+        radio_tone = MESH_UI_TONE_ERROR;
+    } else if ((have_notice && notice->level >= 30U) || rebooted || low_heap) {
+        radio_tone = MESH_UI_TONE_WARNING;
     }
 
     /*
@@ -1523,7 +1544,7 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
             mesh_str_format(second, sizeof second, MESH_STR_STATUS_UPTIME_SUFFIX,
                             buffer[0] != '\0' ? ", " : "", uptime);
         }
-        fb_card_row(&card, low_battery ? MESH_UI_TONE_BAD : MESH_UI_TONE_NORMAL,
+        fb_card_row(&card, low_battery ? MESH_UI_TONE_ERROR : MESH_UI_TONE_NORMAL,
                     MESH_STR_STATUS_LABEL_BATTERY, MESH_STR_STATUS_SYNC_VALUE,
                     buffer[0] != '\0' ? buffer : mesh_str(MESH_STR_STATUS_BATTERY_UNKNOWN), second);
     }
@@ -1545,17 +1566,21 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
         fb_card_note(&card, notice_tone, notice->text);
     }
     if (have_queue) {
-        fb_card_row(&card, queue->res != 0 ? MESH_UI_TONE_BAD : MESH_UI_TONE_ACCENT,
+        /* A queue under pressure is work in flight, not a fault - the tertiary. A refusal is
+           a fault, and takes the error family. */
+        fb_card_row(&card, queue->res != 0 ? MESH_UI_TONE_ERROR : MESH_UI_TONE_TERTIARY,
                     MESH_STR_STATUS_LABEL_TX_QUEUE, MESH_STR_STATUS_TX_QUEUE, (unsigned)queue->free,
                     (unsigned)queue->maxlen,
                     queue->res != 0 ? mesh_str(MESH_STR_STATUS_TX_QUEUE_REFUSED) : "");
     }
-    if (snapshot->settings.reboot_notices > 0U) {
-        fb_card_row(&card, MESH_UI_TONE_ACCENT, MESH_STR_STATUS_LABEL_REBOOTS,
+    if (rebooted) {
+        /* A radio that has restarted since we attached is not broken, but it is the first thing
+           to know when something else looks wrong. */
+        fb_card_row(&card, MESH_UI_TONE_WARNING, MESH_STR_STATUS_LABEL_REBOOTS,
                     MESH_STR_STATUS_REBOOTS_SINCE, snapshot->settings.reboot_notices);
     }
     if (stats->valid && stats->has_heap) {
-        fb_card_row(&card, stats->heap_free_bytes < 20480U ? MESH_UI_TONE_ACCENT : MESH_UI_TONE_DIM,
+        fb_card_row(&card, low_heap ? MESH_UI_TONE_WARNING : MESH_UI_TONE_DIM,
                     MESH_STR_STATUS_LABEL_HEAP, MESH_STR_STATUS_HEAP,
                     stats->heap_free_bytes / 1024U, stats->heap_total_bytes / 1024U);
     }
@@ -1706,7 +1731,7 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                     .id = 0x03000000U | i,
                     .kind = unknown ? FB_METER_INDETERMINATE : FB_METER_DETERMINATE,
                     .value = unknown ? 0 : (int32_t)item.number,
-                    .tone = MESH_UI_TONE_ACCENT,
+                    .tone = MESH_UI_TONE_PRIMARY,
                 };
                 const struct fb_list_item row = {
                     .label = item.label,

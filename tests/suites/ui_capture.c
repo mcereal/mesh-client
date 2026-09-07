@@ -256,7 +256,7 @@ MESH_TEST_CASE(ui_capture_draws_the_conversation_items, unit) {
     mesh_ui_capture_render(capture, &snapshot);
 
     const unsigned shape =
-        widest_row_run(capture, pixels, width, height, stride, MESH_UI_COLOR_ACCENT);
+        widest_row_run(capture, pixels, width, height, stride, MESH_UI_COLOR_PRIMARY);
     MESH_TEST_FAIL_IF_CLEANUP(shape < 2U, mesh_ui_capture_close(capture);
                               mesh_ui_store_shutdown(&store),
                               "the conversation list draws no filled accent slot");
