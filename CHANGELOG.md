@@ -1,3 +1,13 @@
+## [2.29.0](https://github.com/mcereal/mesh-client/compare/v2.28.0...v2.29.0) (2026-09-07)
+
+### Features
+
+* **ui:** add the selection control and the segmented button ([f50b612](https://github.com/mcereal/mesh-client/commit/f50b612ef2f6d4c7fac0282d6f578c59aa18aa75))
+
+### Bug Fixes
+
+* **ui:** do not reserve the plain row's gutter twice, or clamp an unknown choice ([0a1bcd2](https://github.com/mcereal/mesh-client/commit/0a1bcd2a228f9dcb8068a31d4393062b0e4b4843))
+
 ## [2.28.0](https://github.com/mcereal/mesh-client/compare/v2.27.0...v2.28.0) (2026-09-07)
 
 ### Features

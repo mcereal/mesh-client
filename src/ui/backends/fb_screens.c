@@ -1074,12 +1074,25 @@ static void fb_render_picker(struct mesh_ui_backend_fb_state *state,
          * the same two letters and the same colour in both lists - this row's *name* is
          * "BRVO  Bravo Creek", and initials taken from that would read "BB".
          *
-         * Between them the disc carries both of the things this row used to spell out in
-         * characters: the "(channel)" suffix that the '#' already says, and the '*' marking the
-         * current target, which is a stated accent fill here.
+         * The disc also carries the "(channel)" suffix the row used to spell out, as the tag.
+         *
+         * What it no longer carries is which row is the current target. That was a stated
+         * accent fill, and the fill is exactly the thing the disc is *for*: a node is the same
+         * two letters and the same colour everywhere in this client, and marking the target
+         * overwrote the second of those on precisely the row the eye was looking for. It is a
+         * radio in the trailing slot now - identity at the leading edge, selection at the
+         * trailing one, which is the division every list of choices makes and the reason the
+         * two were fighting over one disc.
          */
         uint32_t tint = 0U;
         mesh_ui_nav_target_avatar(&view, node, channel, initials, sizeof initials, &tint);
+        /* Keyed on the row, above everything the settings fields reach. The picker closes on the
+           press that changes the answer, so this never animates in place - it is the same
+           control the rest of the UI uses, drawn at rest. */
+        struct fb_selection sel = {
+            .id = 0x04000000U | i,
+            .on = current,
+        };
         const struct fb_list_item row = {
             .leading =
                 {
@@ -1089,10 +1102,11 @@ static void fb_render_picker(struct mesh_ui_backend_fb_state *state,
                        back, which is what the conversation list puts in the same disc. */
                     .icon = is_channel ? MESH_UI_ICON_CHANNEL : MESH_UI_ICON_NONE,
                     .tint = tint,
-                    .role = current ? MESH_UI_COLOR_PRIMARY : MESH_UI_COLOR_COUNT,
+                    .role = MESH_UI_COLOR_COUNT,
                 },
             .text = name,
             .tone = is_channel ? MESH_UI_TONE_PRIMARY : MESH_UI_TONE_NORMAL,
+            .trailing = {.kind = FB_TRAILING_RADIO, .sel = &sel},
             .divider = true,
         };
         fb_list_item(state, &list, i, &row);
@@ -2026,6 +2040,44 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                     .marker_icon = marker,
                     .tone = tone,
                     .trailing = {.kind = FB_TRAILING_SWITCH, .sw = &sw},
+                };
+                fb_list_item(state, &list, i, &row);
+                continue;
+            }
+            /*
+             * A small set of alternatives gets the whole set rather than the one word.
+             *
+             * On the same terms as a boolean getting a switch: the item already says what it is
+             * and what it is set to, and this is the fb backend choosing how to say it on a
+             * screen. The CLI backend still draws the word, and so does this one when the value
+             * column is too narrow for the segments - which is what `value` on the struct is
+             * for, and why the choice between the two is the component's rather than a test
+             * written out here.
+             *
+             * Two to four, because five equal shares of a value column are five clipped words.
+             * The larger enums - thirty-eight regions, seventeen presets - are stepped exactly
+             * as they were; a set nobody can take in at a glance is better read one at a time.
+             */
+            const uint32_t choices =
+                item.kind == MESH_UI_SETTING_ENUM ? mesh_ui_settings_enum_count(item.field) : 0U;
+            if (choices >= 2U && choices <= FB_SEGMENTED_MAX) {
+                struct fb_segmented segmented = {
+                    .count = choices,
+                    .active = item.number,
+                    .value = item.value,
+                };
+                for (uint32_t c = 0U; c < choices; ++c) {
+                    segmented.labels[c] = mesh_ui_settings_enum_name(item.field, c);
+                }
+                const struct fb_list_item row = {
+                    .leading = leading,
+                    .label = item.label,
+                    .label_cols = label_cols,
+                    .marker_icon = marker,
+                    /* No value column: the set is the value, and the word for the chosen one is
+                       inside the control that decides which of the two forms to draw. */
+                    .tone = tone,
+                    .trailing = {.kind = FB_TRAILING_SEGMENTED, .segmented = &segmented},
                 };
                 fb_list_item(state, &list, i, &row);
                 continue;

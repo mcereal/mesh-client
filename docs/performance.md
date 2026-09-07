@@ -36,8 +36,8 @@ radio data or rendered pixels have not changed.
   both pages. This preserves the launcher workaround without reading display memory. Two
   1024×768×4 buffers cost 6 MiB; allocation failure keeps the original direct-render path.
   For unchanged snapshots, subsequent animation frames clip drawing to the union of switch,
-  meter and snackbar bounds, and skip comparing unaffected rows. Composition still runs in
-  normal order to restore overlapping content; layout is not a retained widget tree. Any
+  selection-control, meter and snackbar bounds, and skip comparing unaffected rows. Composition
+  still runs in normal order to restore overlapping content; layout is not a retained widget tree. Any
   snapshot, theme, scale, geometry, locale or wall-clock-second change requests a full render.
   Allocation failure and the direct-display fallback use full rendering.
 
@@ -71,7 +71,7 @@ Use a separate native build root if the normal release tree contains a cross-com
 ./scripts/docker.sh build/perf-native/release/devtools/meshclient_perf
 ```
 
-All **737 frames across 26 capture scenes** matched the full-render reference byte-for-byte
+All **784 frames across 27 capture scenes** matched the full-render reference byte-for-byte
 with a fixed wall clock. `meshclient_uicap --reference` disables the transcript cache and partial
 redraws for comparisons; pass the same scene and pinned wall clock to both runs. The unit suite
 also compares clipped animation frames through arrival, dismissal, screen and scale changes,

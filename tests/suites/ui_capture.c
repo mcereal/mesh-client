@@ -16,12 +16,14 @@
 #include "mesh/core/message.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/backends/fb_capture.h"
+#include "mesh/ui/font.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
 #include "mesh/ui/theme.h"
 
 #include "../../src/ui/backends/fb_internal.h"
+#include "../../src/ui/backends/fb_widgets.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -997,6 +999,286 @@ MESH_TEST_CASE(ui_capture_dialog_actions_stay_inside_the_panel, unit) {
     record_success(test_name);
 }
 
+/*
+ * ---- step 10's two selection components ----------------------------------------------------
+ *
+ * Both are asserted the same way, and it is the way the dialog case above is: render the same
+ * screen twice with one thing changed, and require the pixels in the region that should have
+ * answered to differ. A control that says which of a set is chosen has exactly one job, and a
+ * palette or a layout can take it away silently - which is the failure these exist for.
+ */
+
+/*
+ * Where a settings row's label column ends, in pixels: the room the row has promised to its own
+ * words before any trailing slot gets a say.
+ *
+ * Derived from the theme's own tokens rather than guessed at, because that is what the renderer
+ * measures it from - the narrow case included, where a panel too tight for the stated column
+ * gives the label half the line instead. A test that assumed the stated width would pass at the
+ * scales where it is right and accuse the renderer at the two where it is not.
+ */
+static uint32_t settings_label_right(const struct mesh_ui_theme *theme, uint32_t width, int scale) {
+    const struct mesh_ui_font *font = mesh_ui_font_by_id(theme->font_id);
+    const int advance = mesh_ui_font_advance(font, scale);
+    const int margin = (int)theme->metrics.margin;
+    const int usable = (int)width - 2 * margin;
+    const size_t cols = usable > 0 ? (size_t)(usable / advance) : 1U;
+    const size_t label_cols =
+        cols < theme->metrics.narrow_cols ? cols / 2U : theme->metrics.field_label_cols;
+    return (uint32_t)(margin + (int)label_cols * advance);
+}
+
+/* Renders `store` as it stands into a fresh capture at `scale`, and hands back a copy of the
+   page. The caller frees it. */
+static uint8_t *capture_frame(struct mesh_ui_store *store, const struct mesh_ui_theme *theme,
+                              int scale, uint32_t *out_w, uint32_t *out_h, size_t *out_stride) {
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(store);
+    if (!mesh_ui_store_consume_updates(store, &snapshot)) {
+        return NULL;
+    }
+    struct mesh_ui_capture *capture = NULL;
+    if (mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, scale) != 0) {
+        return NULL;
+    }
+    mesh_ui_capture_set_theme(capture, theme);
+    /* After the theme, not before: a theme carries a scale of its own and adopting one unpins
+       whatever was asked for at open. This is the same order the scene scripts' `theme` and
+       `scale` lines are read in. */
+    mesh_ui_capture_set_scale(capture, scale);
+    const uint8_t *pixels = mesh_ui_capture_pixels(capture, out_w, out_h, out_stride);
+    mesh_ui_capture_render(capture, &snapshot);
+    uint8_t *frame = malloc(*out_stride * (size_t)*out_h);
+    if (frame != NULL) {
+        memcpy(frame, pixels, *out_stride * (size_t)*out_h);
+    }
+    mesh_ui_capture_close(capture);
+    return frame;
+}
+
+/*
+ * A short enum's row says *which* of its choices is set, and says it without touching the label.
+ *
+ * Two frames of Settings > Bluetooth with the pairing mode moved from the first of its three
+ * values to the last. Two things have to hold and the second is the one that is easy to lose:
+ * the value column must change, because a control that shows the set and not the choice is
+ * worse than the word it replaced - and the *label* column must not, because the segmented
+ * button is the first trailing slot wide enough to reach it, and a slot fitted against the
+ * whole line rather than against the room actually free lands on the row's own words.
+ *
+ * Across the scale range as well as across the themes: the fit is a measurement, and the point
+ * at which the segments stop fitting is precisely where a bad measurement stops being visible
+ * on the one panel this ships on.
+ */
+MESH_TEST_CASE(ui_capture_segmented_marks_the_chosen_value, unit) {
+    const char *failure = NULL;
+
+    for (size_t t = 0; t < mesh_ui_theme_count() && failure == NULL; ++t) {
+        const struct mesh_ui_theme *theme = mesh_ui_theme_at(t);
+        for (int scale = MESH_UI_SCALE_MIN; scale <= MESH_UI_SCALE_MAX && failure == NULL;
+             ++scale) {
+            uint8_t *frames[2] = {NULL, NULL};
+            uint32_t width = 0U;
+            uint32_t height = 0U;
+            size_t stride = 0U;
+
+            for (unsigned pass = 0U; pass < 2U && failure == NULL; ++pass) {
+                struct mesh_ui_store store;
+                if (mesh_ui_store_init(&store) != 0) {
+                    failure = "store init failed";
+                    break;
+                }
+                mesh_test_nav_populate(&store);
+                struct mesh_ui_settings settings = store.settings;
+                settings.loaded = true;
+                settings.has_bluetooth = true;
+                settings.bluetooth_enabled = true;
+                /* 0 and 2 of the three: the ends of the set, so the fill has moved the whole
+                   width of the control and no theme can pass by accident. */
+                settings.pairing_mode = pass == 0U ? 0U : 2U;
+                mesh_ui_store_set_settings(&store, &settings);
+
+                struct mesh_ui_action action;
+                for (int i = 0; i < 4; ++i) {
+                    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+                }
+                if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_BLUETOOTH)) {
+                    failure = "could not open Settings > Bluetooth";
+                } else {
+                    frames[pass] = capture_frame(&store, theme, scale, &width, &height, &stride);
+                    if (frames[pass] == NULL) {
+                        failure = "capture failed";
+                    }
+                }
+                mesh_ui_store_shutdown(&store);
+            }
+
+            if (failure == NULL) {
+                /*
+                 * The pairing row is the second body row of the section, and the body starts
+                 * under the app bar - so rather than deriving where that is, the whole body is
+                 * swept in two columns. Nothing else on this screen moved between the frames.
+                 */
+                const uint32_t body_top = height / 8U;
+                const uint32_t body_bottom = height - height / 8U;
+                const uint32_t label_right = settings_label_right(theme, width, scale);
+                const size_t label_changed =
+                    differing_in(frames[0], frames[1], stride, theme->metrics.margin,
+                                 label_right < width ? label_right : width, body_top, body_bottom);
+                const size_t value_changed = differing_in(frames[0], frames[1], stride,
+                                                          label_right < width ? label_right : 0U,
+                                                          width - 1U, body_top, body_bottom);
+                if (value_changed == 0U) {
+                    failure = "the pairing row draws the same for two different values - which "
+                              "of the set is chosen cannot be told";
+                } else if (label_changed != 0U) {
+                    failure = "changing a row's value redrew its label column, so the trailing "
+                              "slot is being laid over the row's own words";
+                }
+            }
+            free(frames[0]);
+            free(frames[1]);
+        }
+    }
+
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A choice the set does not contain is drawn as words, not as the first segment lit.
+ *
+ * The radio can report an enum value outside what this build knows - a newer firmware's, or a
+ * corrupt one - and the settings item keeps it and formats it as "Unknown". A segmented button
+ * that clamped it into range would answer that by lighting `Random PIN`, which states a
+ * configuration nobody knows. So the two frames below, one with a value in the set and one with
+ * a value outside it, have to *differ*: under the clamp they render identically, which is the
+ * whole of the bug.
+ */
+MESH_TEST_CASE(ui_capture_segmented_refuses_an_unknown_value, unit) {
+    const char *failure = NULL;
+
+    for (size_t t = 0; t < mesh_ui_theme_count() && failure == NULL; ++t) {
+        const struct mesh_ui_theme *theme = mesh_ui_theme_at(t);
+        uint8_t *frames[2] = {NULL, NULL};
+        uint32_t width = 0U;
+        uint32_t height = 0U;
+        size_t stride = 0U;
+
+        for (unsigned pass = 0U; pass < 2U && failure == NULL; ++pass) {
+            struct mesh_ui_store store;
+            if (mesh_ui_store_init(&store) != 0) {
+                failure = "store init failed";
+                break;
+            }
+            mesh_test_nav_populate(&store);
+            struct mesh_ui_settings settings = store.settings;
+            settings.loaded = true;
+            settings.has_bluetooth = true;
+            settings.bluetooth_enabled = true;
+            /* The first of the three, then one past the last of them. */
+            settings.pairing_mode = pass == 0U ? 0U : 9U;
+            mesh_ui_store_set_settings(&store, &settings);
+
+            struct mesh_ui_action action;
+            for (int i = 0; i < 4; ++i) {
+                mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+            }
+            if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_BLUETOOTH)) {
+                failure = "could not open Settings > Bluetooth";
+            } else {
+                frames[pass] = capture_frame(&store, theme, 4, &width, &height, &stride);
+                if (frames[pass] == NULL) {
+                    failure = "capture failed";
+                }
+            }
+            mesh_ui_store_shutdown(&store);
+        }
+
+        if (failure == NULL) {
+            const uint32_t body_top = height / 8U;
+            const uint32_t body_bottom = height - height / 8U;
+            if (differing_in(frames[0], frames[1], stride, 0U, width - 1U, body_top, body_bottom) ==
+                0U) {
+                failure = "a pairing mode outside the set draws exactly as the first one does - "
+                          "the control is claiming a configuration the radio never reported";
+            }
+        }
+        free(frames[0]);
+        free(frames[1]);
+    }
+
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * The picker marks the current target, and marks it in the trailing slot rather than in the disc.
+ *
+ * Two frames with the target moved from the first row to the second. What has to change is the
+ * trailing column of both rows - the mark left one and arrived at the other - and what has to
+ * stay put is the leading column, because the disc carries the node's identity and the whole
+ * reason this became a radio is that a stated accent fill was overwriting it.
+ */
+MESH_TEST_CASE(ui_capture_picker_marks_the_current_target, unit) {
+    const char *failure = NULL;
+
+    for (size_t t = 0; t < mesh_ui_theme_count() && failure == NULL; ++t) {
+        const struct mesh_ui_theme *theme = mesh_ui_theme_at(t);
+        uint8_t *frames[2] = {NULL, NULL};
+        uint32_t width = 0U;
+        uint32_t height = 0U;
+        size_t stride = 0U;
+
+        for (unsigned pass = 0U; pass < 2U && failure == NULL; ++pass) {
+            struct mesh_ui_store store;
+            if (mesh_ui_store_init(&store) != 0) {
+                failure = "store init failed";
+                break;
+            }
+            mesh_test_nav_populate(&store);
+            store.nav.screen = MESH_UI_SCREEN_MESSAGES;
+            store.nav.picker_open = true;
+            store.nav.picker_cursor = 0U;
+            /* The first two rows of the picker are the two channels the fixture carries, so
+               the target moves one row without the list itself changing. */
+            store.nav.target_node = MESH_MESSAGE_BROADCAST_ADDR;
+            store.nav.target_channel = (uint8_t)pass;
+            frames[pass] = capture_frame(&store, theme, 4, &width, &height, &stride);
+            if (frames[pass] == NULL) {
+                failure = "capture failed";
+            }
+            mesh_ui_store_shutdown(&store);
+        }
+
+        if (failure == NULL) {
+            const uint32_t body_top = height / 8U;
+            const uint32_t body_bottom = height / 2U;
+            /* The trailing column: the last tenth of the panel, which is where every trailing
+               slot in this UI ends up whatever the row is. */
+            const size_t trailing_changed =
+                differing_in(frames[0], frames[1], stride, (width * 9U) / 10U, width - 1U, body_top,
+                             body_bottom);
+            /* The leading column: the discs, and the one thing that must be the same in both. */
+            const size_t leading_changed =
+                differing_in(frames[0], frames[1], stride, 0U, width / 12U, body_top, body_bottom);
+            if (trailing_changed < 20U) {
+                failure = "moving the target did not move the mark in the picker's trailing "
+                          "column - which row is chosen cannot be told on this theme";
+            } else if (leading_changed != 0U) {
+                failure = "moving the target redrew a row's avatar, so identity and selection "
+                          "are being said in the same slot again";
+            }
+        }
+        free(frames[0]);
+        free(frames[1]);
+    }
+
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
 /* These device-memory boundaries are independent of the renderer's theme and content. */
 
 MESH_TEST_CASE(fb_damage_preserves_mirror_and_padding, unit) {
@@ -1188,6 +1470,14 @@ MESH_TEST_CASE(fb_animation_clip_matches_full_composition, unit) {
         for (unsigned i = 0U; i < 2U; ++i) {
             fb_state_set_now(&state[i], 1000U + frame * 16U);
             fb_render_snapshot(&state[i], snapshot);
+            /* A second animation above the snackbar must participate in the next clip. */
+            const struct fb_selection selection = {
+                .id = 0x7FFFFFFEU,
+                .rect = {.x = 80, .y = 200, .w = 24, .h = 24},
+                .shape = FB_SELECTION_RADIO,
+                .on = frame >= 5U && frame < 18U,
+            };
+            fb_draw_selection(&state[i], &selection);
         }
         if (state[0].clip_active)
             clipped++;

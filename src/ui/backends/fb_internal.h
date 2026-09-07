@@ -267,6 +267,12 @@ void fb_draw_text(const struct mesh_ui_backend_fb_state *state, int x, int y, co
 /* The box an icon is drawn in: one text cell, so a row that puts one in front of its words is
    still measured in columns like every other row. */
 int fb_icon_box(const struct mesh_ui_backend_fb_state *state, int scale);
+/* What an icon is actually *drawn* at, which is a little wider than the cell it occupies - a
+   symbol has to stand as tall as the capitals beside it, and the advance is narrower than the
+   glyph body is tall. Beside fb_icon_box() because it answers the other half of "how big is an
+   icon": the cell is what the column arithmetic counts, this is what a component fitting one
+   inside a box of its own - a checkbox's tick - has to measure against. */
+int fb_icon_drawn(const struct mesh_ui_backend_fb_state *state, int scale);
 /* The largest multiplier fb_draw_icon() will draw at: everything in a row is drawn at the
    text's scale, and the empty state's symbol is the one thing bigger than that. */
 #define FB_ICON_SCALE_MAX (MESH_UI_SCALE_MAX * 3)

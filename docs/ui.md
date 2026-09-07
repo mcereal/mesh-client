@@ -778,6 +778,89 @@ was tried first and is wrong twice over: mid-fade the track is not a colour any 
 validated against, and on the dark theme the two ends are yellow and blue, so everything between
 them is mud.
 
+#### `struct fb_selection` — the checkbox and the radio
+
+The other two answers to *which of these*, and one component: a circle is "one of these", a
+square is "any of these", and the shape is the only part of either control a reader takes in
+before they have counted the column.
+
+```c
+struct fb_selection sel = {.id = 0x04000000U | i, .on = current};
+const struct fb_list_item row = {..., .trailing = {.kind = FB_TRAILING_RADIO, .sel = &sel}};
+```
+
+The kind names the shape, and `fb_draw_trailing()` writes it into the struct — a caller cannot
+name a radio and be handed a checkbox. Everything else is the switch's: `id` keys the same
+animation table, the geometry is the switch's height squared so the two stand the same distance
+off a row's edges, and a control on the cursor's row lays its own ground first for exactly the
+reason the switch does.
+
+What separates it from the switch is what it *means*, not how it looks. A switch is a boolean
+that acts — flick it and the thing it names is on. A radio is one of a set of alternatives, so
+it says as much about the rows it is not on as about the row it is on; one radio alone is a
+switch that has forgotten how to say off. That is why both live in a list's trailing slot and
+the switch is the only one of the three that also makes sense on its own.
+
+The "send to" picker is the first caller, and it is a correction as much as an addition. That
+list marked the current target by giving its avatar a *stated accent fill* — which works for one
+choice, does not generalise, and costs the row the very thing the disc is there for: a node is
+the same two letters and the same colour everywhere in this client, and marking the target
+overwrote the second of those on precisely the row the eye was hunting for. **Identity is the
+leading slot's job and selection is the trailing slot's**, and a row that said both in one disc
+was a row where turning the second on turned the first off.
+
+#### `struct fb_segmented` — a small set of alternatives, all on screen
+
+`fb_draw_chip()`'s own comment has said since it was written that a tab strip, a filter row and a
+segmented control are one shape. This is the third: the same buttons, sized to a *share* of the
+room rather than to their own words, inside one outlined container that says they are
+alternatives rather than a row of separate offers.
+
+```c
+struct fb_segmented segmented = {.count = choices, .active = item.number, .value = item.value};
+for (uint32_t c = 0U; c < choices; ++c) {
+    segmented.labels[c] = mesh_ui_settings_enum_name(item.field, c);
+}
+const struct fb_list_item row = {..., .trailing = {.kind = FB_TRAILING_SEGMENTED,
+                                                   .segmented = &segmented}};
+```
+
+Four things it decided that the next component of this shape will meet again:
+
+- **It takes no input of its own.** Left and Right already step an `ENUM` field, the marker
+  gutter already carries the pencil that says so, and a control that grew its own cursor would be
+  a second opinion about a row the list is already highlighting. What the control adds is that
+  the *set* is visible: `Metric` alone gives no sign that there is an `Imperial` behind it.
+- **Equal shares, not chips.** A strip whose segments were each sized to their own words is a
+  chip strip. What separates the two components is that these are alternatives — the eye has to
+  compare them, and three boxes of three different widths read as three different kinds of
+  thing. Each segment is `fb_button_width()` of the *widest* label, because that is the function
+  that draws them.
+- **Labels at `MESH_UI_TYPE_LABEL`, height at the row's scale.** The type role is Material's
+  answer and is also what makes the component reach the settings it exists for — a segmented
+  button spends its width `count` times over, and `Random PIN / Fixed PIN / No PIN` at body
+  scale does not fit a value column at any scale that ships. The *height* stays the switch's at
+  the row's own scale: two controls in one column have to stand the same distance off their
+  rows, and it is the labels that are chrome-sized, not the control.
+- **It is the one trailing slot with a second form.** Every other kind either fits or is
+  dropped; a set of choices always has the chosen one in words to fall back on, so
+  `struct fb_segmented` carries `value` — the same string the row would have drawn — and one
+  function (`fb_segmented_cols()`) decides between the two for the measure and the draw alike.
+  Two to four choices, because five equal shares of a value column are five clipped words; the
+  thirty-eight regions and seventeen presets are still stepped one at a time, which is the
+  honest answer for a set nobody can take in at a glance.
+- **An `active` outside the set is drawn as the words too, and is never clamped.** A radio can
+  report an enum value this build does not know — a newer firmware's, or a corrupt one — and the
+  settings item keeps it and formats it as `Unknown`. Clamping it into range would have the panel
+  state a configuration nobody reported; lighting no segment at all would say *none of these*.
+  Both are claims. The words are what the row knows.
+
+It is also what put `reserved` into `fb_trailing_cols()`. A headline is clipped from its *tail*,
+so a slot fitted against the whole line eats the value first and then the label — and a label
+column is the one thing on a settings row that may not move. Every slot is now fitted against
+what is free rather than against the line; the narrow ones never reached it, and this one
+reaches it at every scale.
+
 #### `struct fb_meter` — a quantity as a length
 
 `struct fb_meter` draws a track with a fill in it, and it is one component for two jobs that

@@ -629,7 +629,7 @@ int fb_icon_box(const struct mesh_ui_backend_fb_state *state, int scale) {
  * shape on the capitals' height rather than the air - drawing the window at the body's height
  * instead would sit every symbol a fifth short of the text it labels.
  */
-static int fb_icon_drawn(const struct mesh_ui_backend_fb_state *state, int scale) {
+int fb_icon_drawn(const struct mesh_ui_backend_fb_state *state, int scale) {
     const int body = mesh_ui_font_cap(fb_font(state), scale);
     return (body * MESH_UI_ICON_WINDOW + MESH_UI_ICON_BODY / 2) / MESH_UI_ICON_BODY;
 }
