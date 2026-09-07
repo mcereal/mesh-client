@@ -46,18 +46,27 @@ The theme answers for colour, for shape and for metrics. It does not answer for 
 has is two numbers — `metrics.scale` for the body and `metrics.chrome_scale_down` for the tab
 strip and the footer — and everything on screen is drawn at one of them.
 
-Look at the Status tab: the screen title, a card heading, a card label, a card value and the
-footer hint are all the same size, and the entire visual hierarchy is carried by colour. That is
-why a column of cards reads as a wall of text with tinted headings rather than as a set of
-grouped panels. M3 gets its hierarchy from a type scale first and colour second, and so does
-every desktop UI that reads as modern.
+Those two are a *content / chrome* split, not a hierarchy, and the difference shows. Open
+Settings or Nodes: `fb_draw_title()` draws the screen title at `state->scale` — the same size as
+every list row beneath it — and separates it from them with `MESH_UI_TONE_PRIMARY` and nothing
+else. A heading and its content are the same size, distinguished only by colour.
+
+The card goes the other way: `fb_draw_card()` draws its heading at `layout->small`, deliberately
+(a section label "is not something to read, it is something to find", and a body-scale heading
+costs a row on a fifteen-row panel), while its labels and values stay at `state->scale`. That is
+a sound call for the room available, but it means a card heading is *smaller* than the content it
+heads — which is a reasonable answer to "there are only two sizes" and not an answer a type scale
+would ever give.
+
+So there is no size a renderer can reach for that means *more important*. M3 gets its hierarchy
+from a type scale first and colour second, and so does every desktop UI that reads as modern;
+here colour is doing the whole job alone.
 
 The fix is the move this codebase has already made twice. A renderer should name a *type role* —
 `MESH_UI_TYPE_TITLE`, `MESH_UI_TYPE_LABEL`, `MESH_UI_TYPE_BODY`, `MESH_UI_TYPE_SUPPORTING` — and
 `theme.c` should answer with a scale, exactly as it answers a colour role with an RGB and a shape
 with a radius. The table lives in `struct mesh_ui_metrics` beside `shape[]`, adding a theme stays
-a table entry, and `fb_draw_title()` stops being the only thing on screen that is bigger than
-everything else by accident of being the only caller that passes `state->scale`.
+a table entry, and a screen title stops being the same size as its own list.
 
 This is the single largest structural gap, and it is the one that would most change how the UI
 looks.
@@ -107,12 +116,19 @@ Tiered by whether the absence is visible on the device today.
 
 ### Tier 1 — visible now
 
-**2.1 No scroll indicator.** The Nodes tab says `Nodes (8 of 42)` in its title because the title
-is the only place it can say it. There is no scroll rail anywhere in the tree — `grep -rn scroll
-src/ui/backends` finds only comments. `struct mesh_ui_list` already carries `count`, `first` and
-`visible`, so a rail is three numbers it is already holding and a rounded rect. This is the
-highest ratio of "reads as a modern list" to lines of code in the whole audit, and it removes the
-count from the title as a side effect.
+**2.1 No scroll indicator.** There is no scroll rail anywhere in the tree — `grep -rn scroll
+src/ui/backends` finds only comments. A list of forty-two nodes shows a window of eight with
+nothing on screen saying where in the list that window sits, or that there is more of it in
+either direction. `struct mesh_ui_list` already carries `count`, `first` and `visible`, so a rail
+is three numbers it is already holding and a rounded rect. Highest ratio of "reads as a modern
+list" to lines of code in the whole audit, and it needs nothing else on this list first.
+
+> The `Nodes (8 of 42)` in that tab's title is **not** what a rail would replace, and the two must
+> not be confused. That title is local rows against `my_info.nodedb_entries` — how much of the
+> radio's NodeDB we are holding — and its sibling form, `NODES_TITLE_OFF_RADIO`, reports nodes the
+> radio has forgotten and we have kept. Both are facts about the roster outliving the connection
+> (see the note in `CLAUDE.md`), not facts about scroll position, and a rail derived from the list
+> model cannot express either. The title keeps its count.
 
 **2.2 The footer is not a component.** `fb_draw_footer()` is static in `fb_screens.c` and draws
 two lines of plain text: `A open node  X pin  Y write  L/R tabs`, then the link summary. It is
@@ -121,6 +137,15 @@ that most makes the UI read as a terminal rather than as a handheld OS. The butt
 already draws a keycap (`FB_BUTTON_FILLED` at `MESH_UI_SHAPE_SM` is exactly one); a bottom action
 bar of keycap-plus-label pairs is that component in a loop. Both DRY and aesthetics point the
 same way here.
+
+**This one has a prerequisite in the catalog, and it is the real work.** The hints are whole
+localised sentences — `HINT_NODES` is `"A open node  X pin  Y write  L/R tabs"`, one entry — so a
+keycap loop has nothing to iterate: it would either draw the entire sentence on every key or parse
+translated text to find the button letters, and parsing a translation is the one thing the i18n
+layer exists to prevent. The action bar therefore needs the hints expressed as *structured action
+data* first — a small table of (button, label string id) per screen, with a catalog entry per
+label — and the sentence hints retired as that table covers them. Budget the catalog change as the
+bulk of §2.2, not the drawing.
 
 **2.3 The tab strip is not a component.** `fb_draw_tabs()` is also static in `fb_screens.c`, and
 it is about thirty lines that fill a bar, run a three-step label-elision fallback, loop chips and
@@ -207,8 +232,9 @@ scene.
 
 - A component takes a **tone, a family or a role** — never a colour. §2.4's card variant is a
   variant, not a fill.
-- A component names a **string id**, never a sentence. The action bar in §2.2 names the same
-  catalog entries the footer hints already use.
+- A component names a **string id**, never a sentence — and a *whole-sentence* string id is not
+  a way around that when the component's job is to draw the parts separately. See §2.2, where the
+  existing hint entries are the obstacle rather than the supply.
 - A component names an **icon**, never a marker character.
 - `fb_widgets.h` stays a **component set, not a seam**: it is included only from
   `src/ui/backends/`. A type scale and a spacing scale are the opposite — they belong in
