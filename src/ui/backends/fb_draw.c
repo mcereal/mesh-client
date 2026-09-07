@@ -691,9 +691,13 @@ void fb_format_clock(uint32_t rx_time, char *out, size_t out_len) {
     strftime(out, out_len, "%H:%M", &tm_buf);
 }
 
-/* Wraps `text` into at most `max_lines` lines of `cols` columns, drawing each. */
-int fb_draw_wrapped(const struct mesh_ui_backend_fb_state *state, int y, const char *text,
-                    size_t cols, int max_lines, struct mesh_ui_rgb color) {
+/* Wraps `text` into at most `max_lines` lines of `cols` columns, drawing each from `x`.
+
+   The x is a parameter because a dialog's paragraph is inset from its panel's edge rather than
+   from the body's - the body margin was the only answer while the only wrapped text on screen
+   was a screen's own. */
+int fb_draw_wrapped_at(const struct mesh_ui_backend_fb_state *state, int x, int y, const char *text,
+                       size_t cols, int max_lines, struct mesh_ui_rgb color) {
     int lines = 0;
     const char *cursor = text;
     char line[160];
@@ -715,7 +719,7 @@ int fb_draw_wrapped(const struct mesh_ui_backend_fb_state *state, int y, const c
         }
         memcpy(line, cursor, take);
         line[take] = '\0';
-        fb_draw_text(state, fb_margin(state), y, line, state->scale, color);
+        fb_draw_text(state, x, y, line, state->scale, color);
         y += fb_line_adv(state, state->scale);
         lines++;
         cursor += take;
@@ -724,4 +728,10 @@ int fb_draw_wrapped(const struct mesh_ui_backend_fb_state *state, int y, const c
         }
     }
     return lines;
+}
+
+/* The same, from the body's left margin - which is where a screen's own wrapped text starts. */
+int fb_draw_wrapped(const struct mesh_ui_backend_fb_state *state, int y, const char *text,
+                    size_t cols, int max_lines, struct mesh_ui_rgb color) {
+    return fb_draw_wrapped_at(state, fb_margin(state), y, text, cols, max_lines, color);
 }
