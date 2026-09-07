@@ -536,11 +536,11 @@ void fb_draw_rule(const struct mesh_ui_backend_fb_state *state, int x, int y, in
                  fb_color(state, role));
 }
 
-struct fb_list fb_list_begin_visible(const struct fb_layout *layout, uint32_t count,
-                                     uint32_t cursor, uint32_t visible) {
+/* Everything but the window, which is the one thing the three entry points differ in. */
+static struct fb_list fb_list_open(const struct fb_layout *layout, struct mesh_ui_list model) {
     struct fb_list list;
     memset(&list, 0, sizeof list);
-    list.model = mesh_ui_list_begin(count, cursor, visible);
+    list.model = model;
     list.y = layout->body_y;
     list.line = layout->line;
     list.cols = layout->cols;
@@ -552,14 +552,36 @@ struct fb_list fb_list_begin_visible(const struct fb_layout *layout, uint32_t co
     return list;
 }
 
+struct fb_list fb_list_begin_visible(const struct fb_layout *layout, uint32_t count,
+                                     uint32_t cursor, uint32_t visible) {
+    return fb_list_open(layout, mesh_ui_list_begin(count, cursor, visible));
+}
+
 struct fb_list fb_list_begin(const struct fb_layout *layout, uint32_t count, uint32_t cursor) {
     return fb_list_begin_visible(layout, count, cursor, layout->rows);
 }
 
 struct fb_list fb_list_begin_rows(const struct fb_layout *layout, uint32_t count, uint32_t cursor,
                                   uint32_t per_item) {
-    const uint32_t rows = per_item > 0U ? layout->rows / per_item : layout->rows;
-    return fb_list_begin_visible(layout, count, cursor, rows > 0U ? rows : 1U);
+    /*
+     * The division is the model's now rather than this line's, and that is not tidying: a body
+     * of fifteen rows holding two-row items used to arrive here as a window of seven, and the
+     * fifteenth row was rounded away before anything could know it had been there. The model is
+     * told fifteen and two, so the slack stays a fact about the window - which is what lets a
+     * list of mixed heights spend it on a one-row item.
+     */
+    const uint32_t step = per_item > 0U && per_item < 0xFFU ? per_item : 1U;
+    return fb_list_open(layout,
+                        mesh_ui_list_begin_step(count, cursor, layout->rows, (uint8_t)step));
+}
+
+struct fb_list fb_list_begin_heights(const struct fb_layout *layout, uint32_t count,
+                                     uint32_t cursor, const uint8_t *heights) {
+    return fb_list_open(layout, mesh_ui_list_begin_heights(count, cursor, layout->rows, heights));
+}
+
+uint32_t fb_list_row_height(const struct fb_list *list, uint32_t index) {
+    return mesh_ui_list_item_height(&list->model, index);
 }
 
 /*
@@ -623,7 +645,41 @@ void fb_list_row(const struct mesh_ui_backend_fb_state *state, struct fb_list *l
     fb_list_rail(state, list);
     fb_draw_row(state, list->y, text, fb_tone_color(state, tone),
                 mesh_ui_list_is_cursor(&list->model, index));
-    list->y += list->line;
+    /* By what the model says this row is, not by one row: a plain row in a list of mixed
+       heights is still whatever height that list gave it, and advancing by a row would put
+       every row under it in the wrong place. */
+    list->y += (int)fb_list_row_height(list, index) * list->line;
+}
+
+void fb_list_subheader(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
+                       uint32_t index, const char *text) {
+    fb_list_rail(state, list);
+    const int scale = mesh_ui_theme_type_scale(state->theme, MESH_UI_TYPE_LABEL, state->scale);
+    const uint32_t rows = fb_list_row_height(list, index);
+    const bool selected = mesh_ui_list_is_cursor(&list->model, index);
+
+    /* The fill is the whole step whatever size the words are, and it is the same rectangle a
+       plain row lays down - a highlight that shrank to the label would be a cursor that changes
+       shape as it walks down a list. */
+    const struct mesh_ui_rgb ground = fb_draw_row_fill(state, list->y, rows, selected);
+
+    /*
+     * Sat on the bottom of the step, so the space the smaller glyphs free is air above the
+     * heading rather than under it. That is the whole of what makes it read as a section break:
+     * the gap belongs to the group beginning, not to the row that ended.
+     */
+    const int baseline = list->y + fb_line_adv(state, state->scale) - fb_line_adv(state, scale);
+    struct mesh_ui_line line;
+    mesh_ui_line_reset(&line);
+    mesh_ui_line_printf(&line, "%s", text != NULL ? text : "");
+    mesh_ui_line_fit(&line, fb_cols(state, scale));
+    /* Quiet on the ground and quiet on the fill alike: a heading names the group under it, and
+       it is not one of the rows the cursor came here to read. */
+    fb_draw_text(state, fb_margin(state), baseline, mesh_ui_line_text(&line), scale,
+                 selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL_DIM)
+                          : fb_tone_color(state, MESH_UI_TONE_DIM),
+                 ground);
+    list->y += (int)rows * list->line;
 }
 
 void fb_list_row_line(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
@@ -706,31 +762,42 @@ struct fb_item_geom {
     int slot_h;           /* height of a box-shaped trailing - a badge */
     int head_slot_top, supp_slot_top;
     int text_x, text_right;
-    int marker_x; /* a plain row's marker cell; only meaningful when the row reserved one */
-    size_t cols;  /* text columns between the leading slot and the trailing edge */
+    int marker_x;     /* a plain row's marker cell; only meaningful when the row reserved one */
+    size_t cols;      /* text columns between the leading slot and the trailing edge */
+    int bar_y, bar_h; /* a stacked meter's track; bar_h of 0 is a row that has none */
 };
 
 static struct fb_item_geom fb_item_measure(const struct mesh_ui_backend_fb_state *state,
                                            const struct fb_list *list,
-                                           const struct fb_list_item *item) {
+                                           const struct fb_list_item *item, uint32_t rows) {
     const int scale = state->scale;
     const int adv = fb_char_adv(state, scale);
     const int margin = fb_margin(state);
     struct fb_item_geom g;
     memset(&g, 0, sizeof g);
 
-    g.rows = item->supporting != NULL ? 2U : 1U;
+    /*
+     * The height is the *list's* answer, not this item's.
+     *
+     * It used to be read off the item - two rows if it had a supporting line, one otherwise -
+     * which was a second opinion about something the window had already decided, and the two
+     * were only ever equal because every list happened to be uniform. Once a list can mix
+     * heights the model is the one that has to be right: it is what placed the window, what
+     * the cursor's highlight is measured against and what the scroll thumb reports. So a row
+     * that draws taller than the list was told simply cannot happen from here.
+     */
+    g.rows = rows > 0U ? rows : 1U;
     g.head_y = list->y;
     g.text_right = (int)state->var.xres - margin;
     g.slot_h = list->line - scale;
 
-    if (g.rows == 2U) {
+    if (g.rows >= 2U) {
         /* Two rows set closer together than two items are: the supporting line sits a scale
            above where a second row would put it, and the space that frees becomes the gap to
            the next item. */
         g.supp_y = list->y + list->line - scale;
         g.fill_top = g.head_y - fb_space(state, MESH_UI_SPACE_XS);
-        g.fill_h = 2 * list->line - fb_space(state, MESH_UI_SPACE_MD);
+        g.fill_h = (int)g.rows * list->line - fb_space(state, MESH_UI_SPACE_MD);
         g.head_slot_top = g.fill_top;
         g.supp_slot_top = g.supp_y - fb_space(state, MESH_UI_SPACE_XS);
     } else {
@@ -757,6 +824,29 @@ static struct fb_item_geom fb_item_measure(const struct mesh_ui_backend_fb_state
         g.text_x += fb_icon_box(state, scale) + adv / 2;
     }
     g.cols = g.text_right > g.text_x ? (size_t)((g.text_right - g.text_x) / adv) : 1U;
+
+    /*
+     * A stacked meter's track, and the one thing on a two-step item that the fill has to be
+     * grown for.
+     *
+     * The supporting line's box overhangs the fill by design - a glyph's ink sits high in its
+     * cell, so text stays comfortably inside a fill that stops short of the box, and the space
+     * that leaves is the gap between one item and the next. A bar has no such slack: its ink is
+     * the whole of its box, so a fill measured for text left the cursor's highlight ending a few
+     * pixels above the bar it was meant to be under. The fill therefore takes the bar in, plus
+     * the same breathing room it has at the top.
+     */
+    if (item->meter != NULL && g.rows >= 2U) {
+        g.bar_h = fb_meter_thickness(state, scale);
+        /* On the supporting line's geometry: a second line set closer to its headline than two
+           rows would be, which is what keeps the bar reading as part of the row above it rather
+           than as something floating between two rows. */
+        g.bar_y = g.supp_y + ((int)fb_font(state)->height * scale - g.bar_h) / 2;
+        const int bottom = g.bar_y + g.bar_h + fb_space(state, MESH_UI_SPACE_XS);
+        if (bottom - g.fill_top > g.fill_h) {
+            g.fill_h = bottom - g.fill_top;
+        }
+    }
     return g;
 }
 
@@ -986,7 +1076,8 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
     fb_list_rail(state, list);
     const int scale = state->scale;
     const bool selected = mesh_ui_list_is_cursor(&list->model, index);
-    const struct fb_item_geom g = fb_item_measure(state, list, item);
+    const uint32_t rows = fb_list_row_height(list, index);
+    const struct fb_item_geom g = fb_item_measure(state, list, item, rows);
 
     if (selected) {
         const int radius = fb_radius(state, MESH_UI_SHAPE_SM);
@@ -1060,7 +1151,7 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
         fb_draw_trailing(state, &g, &item->trailing, g.head_y, g.head_slot_top, selected, ground);
     }
 
-    if (g.rows == 2U) {
+    if (g.rows >= 2U && item->supporting != NULL) {
         const struct mesh_ui_rgb supp_ink =
             selected ? fb_color(state, item->supporting_quiet ? MESH_UI_COLOR_TEXT_ON_SEL_DIM
                                                               : MESH_UI_COLOR_TEXT_ON_SEL)
@@ -1082,6 +1173,24 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
             fb_draw_trailing(state, &g, &item->supporting_trailing, g.supp_y, g.supp_slot_top,
                              selected, ground);
         }
+    }
+
+    /*
+     * The bar the row gave a step to, across the width the words had.
+     *
+     * Only when the list actually gave it that step. A screen that declared a meter row one
+     * step tall has made a mistake, and the two ways of answering it are to draw the bar over
+     * whatever is under this row or to leave it out; leaving it out is the one a screen notices
+     * and the one that cannot corrupt the frame. It is the same rule the trailing slots follow
+     * when the line is too narrow for them.
+     */
+    if (item->meter != NULL && g.bar_h > 0) {
+        item->meter->rect.x = g.text_x;
+        item->meter->rect.w = g.text_right - g.text_x;
+        item->meter->rect.h = g.bar_h;
+        item->meter->rect.y = g.bar_y;
+        item->meter->selected = selected;
+        fb_draw_meter(state, item->meter);
     }
 
     /*

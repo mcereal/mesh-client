@@ -127,8 +127,9 @@ distinct from looking it.
 
 ### 1.4 A list row is one height, chosen for the whole list
 
-> Raised out of §3's closing note, where it sat as a caveat on the type scale. It is the last
-> structural gap in the layout model, and four things below are waiting behind it.
+> **Landed.** `mesh_ui_list` counts steps rather than items; `mesh_ui_list_begin_heights()` and
+> `fb_list_begin_heights()` are the entry points. Kept below as written - what it got wrong is
+> in §9.
 
 `fb_list_begin_rows()` takes a *`per_item`* — one number, for the list. The conversation cell
 spends two rows and every settings row spends one, and each list picks its number once at
@@ -480,7 +481,7 @@ Each step is independently shippable and each is visible.
 | 6 | Leading icon and badge, wired up (§2.14) | **done** | No new component: a slot with no caller, one only the conversation cell reaches, and two marker characters |
 | 7 | Top app bar (§2.15) | **done** | Retires the breadcrumb format strings, and is where 8 and 11 land |
 | 8 | Card variants and card actions (§2.4) | **done** | Where the type scale pays off most |
-| 9 | Variable-height list rows (§1.4) |  | Structural. §1.1's unfinished half and three components below wait on it |
+| 9 | Variable-height list rows (§1.4) | **done** | Structural. §1.1's unfinished half and three components below wait on it |
 | 10 | Checkbox / radio, segmented button (§2.5, §2.6) |  | Additive slots on components that already exist |
 | 11 | Banner and screen progress (§2.9, §2.10) |  | New surfaces; the bar from 7 is where progress hangs |
 | 12 | Slider (§2.7) |  | Genuinely new interaction |
@@ -504,13 +505,14 @@ a preference and `MESHCLIENT_SCALE` both override the body scale at runtime, and
 absolutes would stop being a scale the moment somebody asked for larger text.
 `metrics.chrome_scale_down` is gone; chrome is `MESH_UI_TYPE_LABEL`.
 
-> One thing §1.1 asked for that is **not** done, and cannot be done this way: a section heading
-> inside a list (`MESH_UI_SETTING_HEADING`, and the node detail's group rows) still carries its
-> hierarchy in colour alone. It is a list row, and `struct mesh_ui_list` counts rows of one
-> fixed height — a heading drawn a step down would put the cursor and the row it highlights in
-> two different places. Giving those a type role means variable-height list items first, which
-> is a change to the list model rather than to the type scale. That is now §1.4, promoted out of
-> this note because three later components turned out to be waiting behind the same thing.
+> One thing §1.1 asked for that was **not** done at the time, and could not be done that way: a
+> section heading inside a list (`MESH_UI_SETTING_HEADING`, and the node detail's group rows)
+> still carried its hierarchy in colour alone. It is a list row, and `struct mesh_ui_list`
+> counted rows of one fixed height — a heading drawn a step down would put the cursor and the row
+> it highlights in two different places. Giving those a type role meant variable-height list
+> items first, which is a change to the list model rather than to the type scale. That became
+> §1.4, promoted out of this note because three later components turned out to be waiting behind
+> the same thing. Step 9 closed it, though not in the shape this note expected — see §9.
 
 Step 5 is the first that changed what a screen can *say*, and the change is mostly in the
 catalog rather than in `fb_widgets.c`. The navigation bar was a move: `fb_draw_tabs()` became
@@ -763,3 +765,76 @@ banner rather than here. The two verbs the cards do carry — disconnect and ref
 presses that already existed on other screens, which was the point: this step gives a card
 somewhere to put a verb, and a verb invented for the occasion would have been arguing two things
 at once.
+
+## 9. What doing step 9 changed
+
+The entry called this "a layout-model change with a component set on the far side", and that is
+right. What it did not have is which of its two shapes wins, what the step is *made of*, and the
+fact that the model being right is not the same as the two things reading it agreeing.
+
+- **The measure pass and the height field are not alternatives.** §1.4 presents them as a
+  choice: a callback the list asks per row, or a field on `struct fb_list_item` with the model
+  counting steps. The shipped answer is both halves of the second one and neither half of the
+  first. The heights are an **array the caller builds and hands over** — which is a measure pass,
+  just one the screen has already done for its own reasons and does not need a function pointer
+  to repeat — and the model then counts steps over it. `mesh_ui_transcript_window()` had taken
+  exactly that shape since the transcript was written, for exactly this reason, and the entry
+  missed it because it was reading the list model rather than the file the list model is in. A
+  second entry point beside an existing one is cheaper than a new mechanism, every time.
+- **A field on the item would have been the bug.** The first draft did put `height` on `struct
+  fb_list_item`, because the entry says to. It is a second opinion about something the window
+  has already decided — the same shape as the back-arrow flag §7 refused and the `bool focused`
+  §8 refused — and here it is worse than either, because the two opinions are *both used*: the
+  model places the window and the item advances the y cursor, so they disagree silently and only
+  when they differ. The item's height is gone; `fb_list_row_height()` asks the model, and every
+  entry point that advances — the plain row, the subheader, the item — advances by that. A screen
+  that forgets to declare a tall row now draws it **short**, which is visible, rather than over
+  the row beneath it, which is not.
+- **A step is a body row, and there is no half of one.** The entry's first bullet — a section
+  heading "a step down from the rows it heads" — reads as though variable heights would make a
+  heading *cheaper*. They do not, and could not: a label-scale line is about three quarters of a
+  body line at the scales this ships with, so a finer step would have to be quarters, and a list
+  model dividing rows into quarters to save a fifth of one is not a trade. What the type role
+  actually buys the heading is the **air**: `fb_list_subheader()` draws at `MESH_UI_TYPE_LABEL`
+  and sits on the *bottom* of its step, so the space the smaller glyphs free becomes the gap
+  above it — which is where a section break wants its space anyway, and it costs nothing because
+  the row was already that tall. §1.1's unfinished half is closed, by the type scale alone; §1.4
+  was never what was standing in its way.
+- **The scroll thumb was the third thing counting items, and the only one that had to be told
+  twice.** `mesh_ui_list_scroll()` moved from `count`/`first`/`visible` to `total`/`first_step`/
+  `used`, which for a uniform list is the same numbers and the same pixels. What it also needed
+  is `last_first_step` — where the thumb runs out of travel — because on a list of mixed heights
+  the window at the bottom need not be as many *items* as the one being drawn, and measuring the
+  travel against the current window overshoots the end of the rail by the difference. That is
+  derived once with the window rather than inside the scroll call, because it is a walk bounded
+  by the window and the alternative was one bounded by the list.
+- **The unit test that poked the struct was the one that broke.** `ui_layout_scroll_reports_the_
+  window` set `middle.first = 15U` on a settled list to test the halfway case. That was fine
+  while `first` was the only thing the offset was derived from and became a lie the moment the
+  struct carried a step count beside it. It asks for the window it wants now
+  (`mesh_ui_list_begin(40, 24, 10)`), which is a better test of the same thing: a test that
+  reaches past the constructor is testing a state the code cannot be in.
+- **The fill had to grow, and only for the bar.** A two-step item's fill deliberately stops short
+  of the second line's glyph box — a glyph's ink sits high in its cell, so text stays inside it,
+  and the slack is the gap between one conversation cell and the next. A bar has no such slack:
+  its ink is the whole of its box, so the cursor's highlight ended a few pixels above the bar it
+  was meant to be under. The fill takes the bar in explicitly. The general form: **a fill
+  measured for text is not a fill measured for a shape**, and the next slot that draws a solid
+  thing on a second line meets this again.
+
+One thing left where the entry put it. §1.4 lists four things waiting on this; two are here (the
+heading's type role, the stacked meter row) and two are still ahead — §2.9's in-list banner and
+§2.13's sparkline. Both are now a component and a heights array rather than a layout-model
+change, which was the whole point of doing this first. What neither of them has yet is a reason
+for the model to answer *where inside the window* a given row sits - a `mesh_ui_list_step_offset()`
+was written, went unused because every entry point advances its own y cursor, and was deleted
+again. §5's finding about capability the set is not spending applies to the model too, and the
+day a component places a row rather than advancing past one is the day to put it back.
+
+And one cost, stated because §2.13 will meet it: **a stacked row costs a row.** The node detail
+screen has four gauges, so it is four rows longer than it was. That is the trade §8 refused for
+a card's action row and takes here, and the difference is what the row buys — an action row moved
+buttons that already had a home, while eight cells against a trailing edge genuinely cannot draw
+a threshold mark, and where a reading falls between its marks is the whole of what that screen is
+for. A row of content is worth spending on something the screen could not otherwise say. It is
+not worth spending on somewhere else to put something it already says.

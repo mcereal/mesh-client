@@ -187,6 +187,95 @@ MESH_TEST_CASE(layout_list_iterates_its_window, unit) {
 }
 
 /*
+ * Items of differing heights.
+ *
+ * The window is measured in steps rather than items, so every one of these asks the same
+ * question twice: how many items came back, and how many *steps* they were. A model that got
+ * one right and the other wrong is exactly the failure the fixed row height was hiding - the
+ * cursor lands on a row the highlight is not under, and nothing in an item count says so.
+ */
+MESH_TEST_CASE(layout_list_window_counts_steps, unit) {
+    /* A uniform list is the same window it always was, said in the new unit. */
+    struct mesh_ui_list flat = mesh_ui_list_begin(20U, 19U, 5U);
+    MESH_TEST_FAIL_IF(flat.total != 20U || flat.capacity != 5U,
+                      "a list of one-step items should total its own count");
+    MESH_TEST_FAIL_IF(flat.first != 15U || flat.visible != 5U || flat.used != 5U,
+                      "a uniform list's window moved when the unit changed");
+    MESH_TEST_FAIL_IF(flat.first_step != 15U, "steps above the window should be its first index");
+
+    /* Two-step items in a window that does not divide evenly: seven of them fit in fifteen
+       rows, and the fifteenth row is slack rather than half a row of an eighth item. */
+    struct mesh_ui_list pairs = mesh_ui_list_begin_step(20U, 0U, 15U, 2U);
+    MESH_TEST_FAIL_IF(pairs.visible != 7U, "two-step items should fill the window seven deep");
+    MESH_TEST_FAIL_IF(pairs.used != 14U, "the window should report the steps it actually spent");
+    MESH_TEST_FAIL_IF(pairs.total != 40U, "twenty two-step items are forty steps");
+
+    /* Mixed: a tall row among short ones. Five steps of window over 1,3,1,1,2,1 - the window
+       around a cursor on the last item is the three items that fit above it. */
+    static const uint8_t heights[] = {1U, 3U, 1U, 1U, 2U, 1U};
+    struct mesh_ui_list mixed = mesh_ui_list_begin_heights(6U, 5U, 5U, heights);
+    MESH_TEST_FAIL_IF(mixed.total != 9U, "the total should be the sum of the heights");
+    MESH_TEST_FAIL_IF(mixed.first != 2U, "the window should fill upward from the cursor");
+    MESH_TEST_FAIL_IF(mixed.visible != 4U || mixed.used != 5U,
+                      "the window should take every item that fits and no more");
+    MESH_TEST_FAIL_IF(mixed.first_step != 4U, "steps above the window should sum the heights");
+    MESH_TEST_FAIL_IF(mesh_ui_list_item_height(&mixed, 1U) != 3U,
+                      "an item should report the height it was given");
+    MESH_TEST_FAIL_IF(mesh_ui_list_item_height(&mixed, 99U) != 0U,
+                      "an item past the end has no height");
+
+    /* A whole short list still fits, however the heights fall. */
+    struct mesh_ui_list roomy = mesh_ui_list_begin_heights(6U, 5U, 20U, heights);
+    MESH_TEST_FAIL_IF(roomy.first != 0U || roomy.visible != 6U,
+                      "a list that fits should start at its top");
+
+    /* One item taller than the whole window is drawn clipped rather than not drawn: refusing it
+       leaves the cursor on a row the screen does not contain, which is wrong and invisible. */
+    static const uint8_t giant[] = {1U, 9U, 1U};
+    struct mesh_ui_list clipped = mesh_ui_list_begin_heights(3U, 1U, 4U, giant);
+    MESH_TEST_FAIL_IF(clipped.first != 1U || clipped.visible != 1U,
+                      "an over-tall item should still be the window");
+    MESH_TEST_FAIL_IF(!mesh_ui_list_is_cursor(&clipped, 1U), "the cursor should be on it");
+
+    /* A height of 0 is read as 1. An item occupying nothing could be scrolled onto and never
+       appear, so the window would stop moving rather than draw an invisible row. */
+    static const uint8_t zeroed[] = {0U, 0U, 0U};
+    struct mesh_ui_list zeros = mesh_ui_list_begin_heights(3U, 2U, 2U, zeroed);
+    MESH_TEST_FAIL_IF(zeros.total != 3U, "a zero height should count as one step");
+    MESH_TEST_FAIL_IF(zeros.first != 1U || zeros.visible != 2U,
+                      "a list of zero-height items should still scroll");
+    record_success(test_name);
+}
+
+/*
+ * The scroll thumb over items of differing heights.
+ *
+ * The case an item count gets wrong: half the items on screen is not half the list when the
+ * ones on screen are the tall ones.
+ */
+MESH_TEST_CASE(layout_list_scroll_counts_steps, unit) {
+    /* Four one-step items then four two-step ones: twelve steps, a window of four. At the top
+       the four short items are a third of the list, not a half. */
+    static const uint8_t heights[] = {1U, 1U, 1U, 1U, 2U, 2U, 2U, 2U};
+    struct mesh_ui_list top = mesh_ui_list_begin_heights(8U, 0U, 4U, heights);
+    MESH_TEST_FAIL_IF(top.visible != 4U || top.used != 4U, "the short rows should all fit");
+    struct mesh_ui_scroll at_top = mesh_ui_list_scroll(&top, 120, 4);
+    MESH_TEST_FAIL_IF(at_top.length != 40, "the thumb should be the steps on screen, not the rows");
+    MESH_TEST_FAIL_IF(at_top.offset != 0, "a list at its start reported an offset");
+
+    /* At the bottom the window holds two tall items and the thumb still ends on the end of the
+       track - the property the whole travel-rather-than-track derivation exists for, and the one
+       a window whose step count changes with position is most likely to break. */
+    struct mesh_ui_list bottom = mesh_ui_list_begin_heights(8U, 7U, 4U, heights);
+    MESH_TEST_FAIL_IF(bottom.visible != 2U || bottom.used != 4U,
+                      "two tall rows should fill a window of four steps");
+    struct mesh_ui_scroll at_bottom = mesh_ui_list_scroll(&bottom, 120, 4);
+    MESH_TEST_FAIL_IF(at_bottom.offset + at_bottom.length != 120,
+                      "a list scrolled to its end left the thumb short of the track");
+    record_success(test_name);
+}
+
+/*
  * The wrap walk. Both the measure pass and the draw pass go through it, so what it counts is
  * literally what a bubble draws - the failure it exists to prevent is a bubble that reserves
  * five rows and paints six over the message below it.
@@ -315,9 +404,12 @@ MESH_TEST_CASE(ui_layout_scroll_reports_the_window, unit) {
     MESH_TEST_FAIL_IF(at_bottom.offset + at_bottom.length != 400,
                       "a list scrolled to its end left the thumb short of the track");
 
-    /* Halfway along the travel, within the rounding a integer division costs. */
-    struct mesh_ui_list middle = mesh_ui_list_begin(40U, 0U, 10U);
-    middle.first = 15U; /* 15 of a travel of 30 */
+    /* Halfway along the travel, within the rounding a integer division costs. The window is
+       asked for rather than poked into the struct: the offset is now derived from the steps
+       above `first`, so a `first` written straight over the top of a settled list describes a
+       window nothing else in it agrees with. */
+    struct mesh_ui_list middle = mesh_ui_list_begin(40U, 24U, 10U); /* first 15, travel 30 */
+    MESH_TEST_FAIL_IF(middle.first != 15U, "the window did not start where the cursor put it");
     struct mesh_ui_scroll at_middle = mesh_ui_list_scroll(&middle, 400, 8);
     const int centre = (400 - at_middle.length) / 2;
     MESH_TEST_FAIL_IF(at_middle.offset < centre - 1 || at_middle.offset > centre + 1,

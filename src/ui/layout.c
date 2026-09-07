@@ -140,32 +140,161 @@ size_t mesh_ui_line_width(const struct mesh_ui_line *line) {
 
 const char *mesh_ui_line_text(const struct mesh_ui_line *line) { return line->text; }
 
-uint32_t mesh_ui_list_first_visible(uint32_t cursor, uint32_t count, uint32_t visible) {
-    if (visible == 0U || count <= visible) {
+/* Steps item `index` occupies, read off whichever of the two shapes the list was opened with.
+   A height of 0 is read as 1: an item occupying nothing could never be scrolled onto, so the
+   cursor would walk into a row that is not on screen and the window would never move. */
+static uint32_t list_height(const struct mesh_ui_list *list, uint32_t index) {
+    if (index >= list->count) {
         return 0U;
     }
-    if (cursor + 1U > visible) {
-        uint32_t first = cursor + 1U - visible;
-        if (first + visible > count) {
-            first = count - visible;
-        }
-        return first;
+    const uint8_t h = list->heights != NULL ? list->heights[index] : list->step;
+    return h > 0U ? (uint32_t)h : 1U;
+}
+
+/* Steps items [from, to) occupy. */
+static uint32_t list_sum(const struct mesh_ui_list *list, uint32_t from, uint32_t to) {
+    if (to > list->count) {
+        to = list->count;
     }
-    return 0U;
+    if (from >= to) {
+        return 0U;
+    }
+    if (list->heights == NULL) {
+        return (to - from) * (list->step > 0U ? (uint32_t)list->step : 1U);
+    }
+    uint32_t steps = 0U;
+    for (uint32_t i = from; i < to; ++i) {
+        steps += list_height(list, i);
+    }
+    return steps;
+}
+
+/*
+ * How many items starting at `from` fit in `capacity` steps.
+ *
+ * The one item that is taller than the whole window is taken anyway. It draws clipped, which
+ * is wrong-looking; refusing it draws nothing at all and leaves the cursor sitting on a row the
+ * screen does not contain, which is wrong and also invisible.
+ */
+static uint32_t list_fits_forward(const struct mesh_ui_list *list, uint32_t from, uint32_t capacity,
+                                  uint32_t *used) {
+    uint32_t taken = 0U;
+    uint32_t steps = 0U;
+    for (uint32_t i = from; i < list->count; ++i) {
+        const uint32_t h = list_height(list, i);
+        if (steps + h > capacity && taken > 0U) {
+            break;
+        }
+        steps += h;
+        taken += 1U;
+        if (steps >= capacity) {
+            break;
+        }
+    }
+    if (used != NULL) {
+        *used = steps;
+    }
+    return taken;
+}
+
+/* The lowest `first` that still keeps `last` on screen: the window filled upward from it. The
+   counterpart of list_fits_forward(), and what puts the cursor on the last line that fits. */
+static uint32_t list_fits_backward(const struct mesh_ui_list *list, uint32_t last,
+                                   uint32_t capacity) {
+    uint32_t first = last;
+    uint32_t steps = list_height(list, last);
+    while (first > 0U) {
+        const uint32_t h = list_height(list, first - 1U);
+        if (steps + h > capacity) {
+            break;
+        }
+        steps += h;
+        first -= 1U;
+    }
+    return first;
+}
+
+/*
+ * The common core of the three entry points.
+ *
+ * `heights` and `step` are already on `list`; everything else is derived here, in the order the
+ * window is actually decided: where it starts, then what fits from there. Deriving `visible` by
+ * walking forward from `first` rather than by reusing the backward walk's count is deliberate -
+ * the two agree in every case but the clipped one, and the forward walk is the one the iterator
+ * and the draw loop both follow.
+ */
+static void list_settle(struct mesh_ui_list *list, uint32_t cursor, uint32_t capacity) {
+    list->capacity = capacity;
+    if (list->count == 0U) {
+        return;
+    }
+    list->cursor = cursor < list->count ? cursor : list->count - 1U;
+    /* A uniform list is multiplication rather than a walk. It matters: the Nodes tab holds every
+       node the radio has ever mentioned, and the two totals below are the only places here that
+       would otherwise be linear in the whole list rather than in the window. */
+    list->total = list_sum(list, 0U, list->count);
+    if (capacity == 0U) {
+        return;
+    }
+    /* Everything fits, so nothing scrolls - the check `count <= visible` used to make, said in
+       the unit the window is measured in. */
+    list->first = list->total <= capacity ? 0U : list_fits_backward(list, list->cursor, capacity);
+    list->first_step = list_sum(list, 0U, list->first);
+    list->visible = list_fits_forward(list, list->first, capacity, &list->used);
+    list->next = list->first;
+    /* Where the scroll rail's thumb runs out of travel: the steps above the window that ends on
+       the last item. It is derived here, with the rest of the window, rather than inside
+       mesh_ui_list_scroll() - a rail asks for it once per list and this is the walk that is
+       already bounded by the window rather than by the list. */
+    if (list->total > capacity) {
+        list->last_first_step =
+            list_sum(list, 0U, list_fits_backward(list, list->count - 1U, capacity));
+    }
 }
 
 struct mesh_ui_list mesh_ui_list_begin(uint32_t count, uint32_t cursor, uint32_t visible) {
+    return mesh_ui_list_begin_step(count, cursor, visible, 1U);
+}
+
+struct mesh_ui_list mesh_ui_list_begin_step(uint32_t count, uint32_t cursor, uint32_t capacity,
+                                            uint8_t step) {
     struct mesh_ui_list list;
     memset(&list, 0, sizeof list);
     list.count = count;
-    list.visible = visible;
-    if (count == 0U) {
-        return list;
-    }
-    list.cursor = cursor < count ? cursor : count - 1U;
-    list.first = mesh_ui_list_first_visible(list.cursor, count, visible);
-    list.next = list.first;
+    list.step = step > 0U ? step : 1U;
+    list_settle(&list, cursor, capacity);
     return list;
+}
+
+struct mesh_ui_list mesh_ui_list_begin_heights(uint32_t count, uint32_t cursor, uint32_t capacity,
+                                               const uint8_t *heights) {
+    struct mesh_ui_list list;
+    memset(&list, 0, sizeof list);
+    list.count = count;
+    list.step = 1U;
+    list.heights = heights;
+    list_settle(&list, cursor, capacity);
+    return list;
+}
+
+/*
+ * Asked of the model rather than derived a second time.
+ *
+ * It used to be the closed form for a list of one-row items, and mesh_ui_list_begin() called
+ * it. Once a window can be a sum of heights rather than a multiplication, a closed form beside
+ * it is a second opinion about where a list starts - and the two would agree until the day one
+ * of them was taught about a taller row, which is the day nobody would look here.
+ */
+uint32_t mesh_ui_list_first_visible(uint32_t cursor, uint32_t count, uint32_t visible) {
+    return mesh_ui_list_begin(count, cursor, visible).first;
+}
+
+uint8_t mesh_ui_list_item_height(const struct mesh_ui_list *list, uint32_t index) {
+    if (list == NULL) {
+        return 0U;
+    }
+    const uint32_t h = list_height(list, index);
+    return h > 0xFFU ? 0xFFU : (uint8_t)h;
 }
 
 bool mesh_ui_list_next(struct mesh_ui_list *list, uint32_t *index) {
@@ -341,16 +470,25 @@ struct mesh_ui_scroll mesh_ui_list_scroll(const struct mesh_ui_list *list, int t
         return scroll;
     }
 
-    const uint32_t count = list->count;
-    const uint32_t visible = list->visible;
+    /*
+     * Measured in steps rather than in items, which is the same arithmetic while every item is
+     * one step and the only honest one once they are not: a list of forty rows where four of
+     * them are twice as tall has a thumb that is shorter than four-fortieths, and an item count
+     * cannot say so.
+     */
+    const uint32_t total = list->total;
+    /* Clamped, for the one item taller than the whole window: it is drawn clipped, so the steps
+       it occupies on screen are the window and not its own height. Unclamped, a list holding
+       one such item reported most of itself on screen. */
+    const uint32_t used = list->used < list->capacity ? list->used : list->capacity;
     /* Nothing off screen is nothing to report. */
-    if (count == 0U || visible == 0U || count <= visible) {
+    if (total == 0U || used == 0U || total <= used) {
         return scroll;
     }
 
     /* The fraction on screen, floored at something findable: on a list of two hundred a true
        proportion is a pixel or two, which is an indicator reporting a position nobody can see. */
-    int64_t length = ((int64_t)visible * (int64_t)track) / (int64_t)count;
+    int64_t length = ((int64_t)used * (int64_t)track) / (int64_t)total;
     if (minimum > 0 && length < (int64_t)minimum) {
         length = minimum;
     }
@@ -358,11 +496,18 @@ struct mesh_ui_scroll mesh_ui_list_scroll(const struct mesh_ui_list *list, int t
         length = track;
     }
 
-    const uint32_t last_first = count - visible;
+    /*
+     * Where the thumb runs out of track: the steps above the *last* window rather than
+     * `total - used`, because on a list of mixed heights the window at the bottom need not be
+     * the same number of steps as the one being drawn. Measuring it against the window we are
+     * in makes the thumb overshoot the end of the rail by the difference, which reads as a
+     * scroll indicator that is a few pixels wrong exactly where the eye checks it.
+     */
+    const uint32_t last_first = list->last_first_step;
     const int64_t travel = (int64_t)track - length;
     int64_t offset = 0;
     if (last_first > 0U && travel > 0) {
-        uint32_t first = list->first;
+        uint32_t first = list->first_step;
         if (first > last_first) {
             first = last_first;
         }
