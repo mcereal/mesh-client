@@ -405,6 +405,22 @@ keeps using the system's. Because the bundle ships in the pak and not through se
 device installed before it has to reinstall the pak once; curl's exit 60 is mapped to
 "No CA certificates; reinstall the pak" so the About screen says so.
 
+**Byte progress comes from the file, not from the fetcher.** A forked `curl` looks like it
+cannot report progress — its meter goes to *stderr*, redrawn with carriage returns in a format
+that is curl's to change and that `wget` does not share, so reading it would mean a second pipe,
+a second reader on the loop and two scrapers for two fetchers. It never has to be read. The
+download is not going to a pipe: it is going to `staged_path`, a file this process named, and
+the release metadata already said how large that file will be when it is done. So the fraction
+is `stat()` over `asset_size` — one syscall, identical for both fetchers. `mesh_updater_tick()`
+samples it and bumps `revision` only on a change; `mesh_updater_progress()` reports it, and
+returns **false** for a step that has no length at all (a check is one request whose reply has no
+size until it arrives), which the About screen draws as an indeterminate bar rather than as a
+zero. The transport being opaque turns out not to matter, because the destination is ours.
+
+Its resolution is however often the event loop turns: a second when nothing else is happening,
+and every frame while the bar beside it is animating. Neither is smooth, and neither has to be —
+the widget eases between samples, which is where smoothness belongs.
+
 **`--insecure` is not an alternative and must not be added.** The release metadata is what
 carries the digest every download is checked against, so trusting it unauthenticated would defeat
 the verification rather than route around a missing file.

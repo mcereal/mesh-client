@@ -309,6 +309,19 @@ struct mesh_ui_client_info {
        an env override the user cannot see would otherwise look like a row that ignores them. */
     bool update_allow_dev;
     bool update_allow_dev_from_env;
+    /*
+     * How far the step in flight has got, in permille, and whether it is a real fraction.
+     *
+     * Two fields rather than a sentinel because they answer two different questions and a
+     * renderer needs both: "is anything happening" is `update_busy`, "how much of it is left"
+     * is this pair. Unknown is the ordinary case, not a failure - a check has no length and a
+     * hash is taken in one go - and it is what a bar draws as motion without a position.
+     *
+     * Only ever the download sets `known`, and only once GitHub told us the asset's size. See
+     * mesh_updater_progress().
+     */
+    uint16_t update_progress;
+    bool update_progress_known;
 };
 
 /*

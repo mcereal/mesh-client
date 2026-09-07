@@ -119,6 +119,28 @@ struct mesh_updater {
        which is refused rather than installed unverified. */
     char asset_sha256[65];
     uint64_t asset_size;
+    /*
+     * Bytes of the asset that have landed, sampled from the staged file rather than read out of
+     * the fetcher.
+     *
+     * This is what makes a progress bar possible at all with a forked curl, and it is worth
+     * writing down because the obvious answer is worse. curl reports progress on *stderr*, as a
+     * meter drawn for a terminal - not a number, redrawn with carriage returns, in a format
+     * that is curl's to change and that wget does not share. Parsing it would mean a second
+     * pipe, a second reader on the loop, and two scrapers for two fetchers.
+     *
+     * But the download is not going to a pipe: it is going to a file we named, and the release
+     * metadata already told us how big that file will be when it is done. So the fraction is
+     * stat() on staged_path over asset_size, which is one syscall, needs nothing from the
+     * fetcher, and is identical for curl and wget. The transport being opaque turns out not to
+     * matter, because the *destination* is ours.
+     *
+     * Sampled in mesh_updater_tick(), so its resolution is however often the event loop turns -
+     * a second when nothing else is happening, and every frame while the bar beside it is
+     * animating. Neither is smooth on its own; the widget eases between samples, which is where
+     * smoothness belongs.
+     */
+    uint64_t downloaded;
     /* The binary being replaced (/proc/self/exe) and the temporary name next to it. */
     char install_path[MESH_UPDATE_PATH_MAX];
     /* Room for install_path plus the ".update" suffix, so staging can never truncate. */
@@ -158,6 +180,20 @@ int mesh_updater_install(struct mesh_updater *updater, uint64_t now_ms);
 
 /* Enforces the per-step timeout and reaps a finished child. Call every loop turn. */
 void mesh_updater_tick(struct mesh_updater *updater, uint64_t now_ms);
+
+/*
+ * How far the step in flight has got, in permille, and whether that is a real fraction.
+ *
+ * False means "working, extent unknown" rather than "nothing is happening": a check is one
+ * request whose reply has no length until it arrives, and a verify is a hash taken in one go.
+ * Both are steps the UI should show as *moving*, and neither has a position - so the caller is
+ * told that outright instead of being handed a zero it would have to guess the meaning of.
+ * `*permille` is set to 0 in that case, so a caller that ignores the return draws an empty bar
+ * rather than reading uninitialised memory.
+ *
+ * True is only ever the download, and only once the release metadata gave a size to divide by.
+ */
+bool mesh_updater_progress(const struct mesh_updater *updater, uint32_t *permille);
 
 const char *mesh_update_state_name(enum mesh_update_state state);
 

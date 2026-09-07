@@ -854,6 +854,11 @@ MESH_STR_ENTRY(ABOUT_UPDATE_STATUS,       "Update status")
 MESH_STR_ENTRY(ABOUT_WORKING,             "Working")
 MESH_STR_ENTRY(ABOUT_WORKING_DOWNLOAD,    "downloading...")
 MESH_STR_ENTRY(ABOUT_WORKING_CHECK,       "checking...")
+/* The same row once the download has a size to divide by. Just the figure: the bar beside it
+   carries the shape, and the row above it already says which step is running - so repeating
+   "downloading" here would clip the one thing this row adds. A whole percent, because
+   tenths on a number that moves every second are noise. */
+MESH_STR_ENTRY(ABOUT_WORKING_PERCENT,     "%u%%")
 MESH_STR_ENTRY(ABOUT_INSTALLED,           "Installed")
 MESH_STR_ENTRY(ABOUT_INSTALLED_RELAUNCH,  "quit and relaunch")
 MESH_STR_ENTRY(ABOUT_CHECK_UPDATES,       "Check for updates")

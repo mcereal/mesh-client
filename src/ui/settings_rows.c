@@ -102,6 +102,23 @@ static void item_toggle(struct item_list *list, enum mesh_str_id label, bool val
     item->number = value ? 1U : 0U;
 }
 
+/*
+ * A read-only quantity with a level: `permille` is 0..1000, or MESH_UI_METER_UNKNOWN for work
+ * whose extent nobody can know.
+ *
+ * The words go in the value column as they would on any other read-only row, so a backend that
+ * draws no bar shows a complete fact rather than a blank - see MESH_UI_SETTING_METER.
+ */
+static void item_meter(struct item_list *list, enum mesh_str_id label, const char *value,
+                       uint32_t permille) {
+    struct mesh_ui_settings_item *item = item_add(list, label, MESH_UI_SETTING_METER);
+    if (item == NULL) {
+        return;
+    }
+    mesh_str_copy(item->value, sizeof item->value, value);
+    item->number = permille;
+}
+
 /* A group title. No value, no field, nothing happens when A lands on it. Headings are emitted
    unconditionally - never behind the group's own Enabled toggle - so an edit can never change
    the row count under the cursor. */
@@ -417,12 +434,31 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
               client->update_message[0] != '\0' ? client->update_message
                                                 : mesh_update_state_name(state));
 
-    /* While a child is running neither update row does anything, so both say so rather than
-       inviting a press that would be swallowed. */
+    /*
+     * While a child is running neither update row does anything, so both say so rather than
+     * inviting a press that would be swallowed.
+     *
+     * It is a meter rather than a fact because "downloading..." answers whether something is
+     * happening and nothing else - and the question anybody watching a four-megabyte download
+     * over a handheld's wifi actually has is whether it is *still* happening. A bar answers
+     * that without being read. Which of the two bars it is comes from whether the step has a
+     * fraction at all: the download does, once GitHub has told us the asset's size; the check
+     * is one request whose reply has no length until it arrives.
+     */
     if (client->update_busy) {
-        item_str(list, MESH_STR_ABOUT_WORKING, MESH_UI_SETTING_INFO,
-                 state == MESH_UPDATE_DOWNLOADING ? MESH_STR_ABOUT_WORKING_DOWNLOAD
-                                                  : MESH_STR_ABOUT_WORKING_CHECK);
+        char working[MESH_UI_SETTINGS_VALUE_MAX];
+        uint32_t level = MESH_UI_METER_UNKNOWN;
+        if (client->update_progress_known) {
+            level = client->update_progress;
+            mesh_str_format(working, sizeof working, MESH_STR_ABOUT_WORKING_PERCENT,
+                            (unsigned)(level / 10U));
+        } else {
+            mesh_str_copy(working, sizeof working,
+                          mesh_str(state == MESH_UPDATE_DOWNLOADING
+                                       ? MESH_STR_ABOUT_WORKING_DOWNLOAD
+                                       : MESH_STR_ABOUT_WORKING_CHECK));
+        }
+        item_meter(list, MESH_STR_ABOUT_WORKING, working, level);
         return;
     }
     if (state == MESH_UPDATE_READY) {

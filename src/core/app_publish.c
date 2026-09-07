@@ -593,6 +593,9 @@ static void mesh_app_flatten_client_info(const struct mesh_app *app,
     dst->update_is_release = mesh_version_is_release();
     dst->update_allow_dev = updater->allow_dev;
     dst->update_allow_dev_from_env = updater->allow_dev_from_env;
+    uint32_t progress = 0U;
+    dst->update_progress_known = mesh_updater_progress(updater, &progress);
+    dst->update_progress = (uint16_t)progress;
     snprintf(dst->update_message, sizeof dst->update_message, "%s", updater->message);
     snprintf(dst->update_latest, sizeof dst->update_latest, "%s", updater->latest);
     snprintf(dst->update_channel, sizeof dst->update_channel, "%s",

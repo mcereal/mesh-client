@@ -47,7 +47,7 @@
 #define MESH_UI_METRICS_DEFAULT                                                                    \
     {                                                                                              \
         .margin = 16U, .scale = 4U, .chrome_scale_down = 1U, .bubble_width_pct = 75U,              \
-        .field_label_cols = 20U, .narrow_cols = 40U, .card_pad = 2U,                               \
+        .field_label_cols = 20U, .narrow_cols = 40U, .card_pad = 2U, .meter_thickness = 1U,        \
         .shape = {                                                                                 \
             [MESH_UI_SHAPE_NONE] = 0U,                                                             \
             [MESH_UI_SHAPE_SM] = 2U,                                                               \
@@ -100,6 +100,9 @@ static const struct mesh_ui_theme k_themes[] = {
                 /* A step brighter than the rule: an edge has to be found against two fills at
                    once, where a separator only has to divide one. */
                 [MESH_UI_COLOR_OUTLINE] = RGB(62, 100, 140),
+                /* The cursor fill's own colour, which is where a track wants to sit on a
+                   dark palette: one step off the surface and well under every fill. */
+                [MESH_UI_COLOR_METER_TRACK] = RGB(40, 80, 120),
                 /* Bubble fills. Theirs is the neutral ground, ours is the one with colour in
                    it - the same "you are the blue one" every messenger has trained everybody
                    on. The selected pair are the same hues lifted, so the cursor reads as a
@@ -167,6 +170,10 @@ static const struct mesh_ui_theme k_themes[] = {
                 [MESH_UI_COLOR_RULE] = RGB(188, 199, 213),
                 [MESH_UI_COLOR_RULE_STRONG] = RGB(120, 160, 205),
                 [MESH_UI_COLOR_OUTLINE] = RGB(160, 174, 192),
+                /* A shade under the hairline. The cursor fill is too close to a card here -
+                   1.18:1, so a track drawn in it vanishes on the Status screen - and this
+                   is the quietest step that still separates from both grounds. */
+                [MESH_UI_COLOR_METER_TRACK] = RGB(186, 198, 214),
                 [MESH_UI_COLOR_BUBBLE_IN] = RGB(219, 225, 234),
                 [MESH_UI_COLOR_BUBBLE_OUT] = RGB(203, 224, 248),
                 [MESH_UI_COLOR_BUBBLE_IN_SEL] = RGB(193, 208, 228),
@@ -227,6 +234,10 @@ static const struct mesh_ui_theme k_themes[] = {
                 [MESH_UI_COLOR_RULE] = RGB(140, 140, 140),
                 [MESH_UI_COLOR_RULE_STRONG] = RGB(255, 214, 0),
                 [MESH_UI_COLOR_OUTLINE] = RGB(200, 200, 200),
+                /* Mid grey rather than the near-white the cursor fill is: on this palette
+                   SURFACE_SEL and the good tone are both effectively white, so a track
+                   borrowed from either would swallow the fill it is meant to contain. */
+                [MESH_UI_COLOR_METER_TRACK] = RGB(96, 96, 96),
                 [MESH_UI_COLOR_BUBBLE_IN] = RGB(28, 28, 28),
                 [MESH_UI_COLOR_BUBBLE_OUT] = RGB(0, 48, 84),
                 [MESH_UI_COLOR_BUBBLE_IN_SEL] = RGB(80, 80, 80),
@@ -282,6 +293,9 @@ static const struct mesh_ui_theme k_themes[] = {
                 [MESH_UI_COLOR_RULE] = RGB(40, 80, 120),
                 [MESH_UI_COLOR_RULE_STRONG] = RGB(86, 180, 233),
                 [MESH_UI_COLOR_OUTLINE] = RGB(62, 100, 140),
+                /* The cursor fill's own colour, which is where a track wants to sit on a
+                   dark palette: one step off the surface and well under every fill. */
+                [MESH_UI_COLOR_METER_TRACK] = RGB(40, 80, 120),
                 [MESH_UI_COLOR_BUBBLE_IN] = RGB(30, 44, 60),
                 [MESH_UI_COLOR_BUBBLE_OUT] = RGB(34, 66, 104),
                 [MESH_UI_COLOR_BUBBLE_IN_SEL] = RGB(52, 72, 94),
@@ -411,6 +425,24 @@ enum mesh_ui_color mesh_ui_tone_role(enum mesh_ui_tone tone) {
     default:
         return MESH_UI_COLOR_TEXT;
     }
+}
+
+enum mesh_ui_tone mesh_ui_tone_for_load(int32_t permille, int32_t warn, int32_t bad) {
+    /* Thresholds handed over the wrong way round would otherwise make the middle band
+       unreachable and every reading BAD, which is the failure that hides itself: a screen
+       permanently in the red looks like a mesh in trouble rather than like a caller's typo. */
+    if (warn > bad) {
+        const int32_t swap = warn;
+        warn = bad;
+        bad = swap;
+    }
+    if (permille >= bad) {
+        return MESH_UI_TONE_BAD;
+    }
+    if (permille >= warn) {
+        return MESH_UI_TONE_ACCENT;
+    }
+    return MESH_UI_TONE_GOOD;
 }
 
 struct mesh_ui_rgb mesh_ui_theme_tone(const struct mesh_ui_theme *theme, enum mesh_ui_tone tone) {
@@ -653,6 +685,12 @@ bool mesh_ui_theme_validate(const struct mesh_ui_theme *theme, char *reason, siz
         }
         return false;
     }
+    if (theme->metrics.meter_thickness == 0U) {
+        if (reason != NULL) {
+            snprintf(reason, reason_len, "%s", "a meter with no thickness draws nothing");
+        }
+        return false;
+    }
     if (theme->metrics.bubble_width_pct == 0U || theme->metrics.bubble_width_pct > 100U) {
         if (reason != NULL) {
             snprintf(reason, reason_len, "bubble width %u%% is not a fraction of the body",
@@ -686,6 +724,59 @@ bool mesh_ui_theme_validate(const struct mesh_ui_theme *theme, char *reason, siz
                          (int)pair->ink, (int)pair->ground, ratio, pair->ratio);
             }
             return false;
+        }
+    }
+
+    /*
+     * A meter is an empty track with a fill inside it, and both halves have to be visible or it
+     * is not a meter: an unfindable track is a bar that vanishes when the reading is low, and a
+     * fill that matches its track is one that vanishes when the reading is high. The track is
+     * SURFACE_SEL on the ground and every fill is a tone, so the pairs to hold are those.
+     *
+     * 1.4:1 rather than a text ratio because neither half carries a word - this is the "a
+     * hairline only has to be visible at all" bar, applied to something the eye is meant to
+     * read as a length.
+     *
+     * These three and no others, because these three are the whole of what a meter can be
+     * filled with: mesh_ui_tone_for_load() answers with them and fb_draw_meter() folds anything
+     * else back to the accent. Validating a tone a meter cannot take would hold every theme to
+     * a pair nothing draws - and the contrast theme, whose STRONG *is* the cursor fill, would
+     * fail for a bar it will never render.
+     */
+    {
+        static const enum mesh_ui_tone k_meter_tones[] = {
+            MESH_UI_TONE_ACCENT,
+            MESH_UI_TONE_GOOD,
+            MESH_UI_TONE_BAD,
+        };
+        const struct mesh_ui_rgb track = theme->colors[MESH_UI_COLOR_METER_TRACK];
+        /* Both grounds a meter is actually drawn on: the body, for the bar in a settings row,
+           and a card's surface, for the one under the Status screen's airtime figures. A track
+           validated against one and invisible on the other is a bar that exists on one screen. */
+        static const enum mesh_ui_color k_meter_grounds[] = {MESH_UI_COLOR_BG,
+                                                             MESH_UI_COLOR_SURFACE};
+        for (size_t i = 0; i < sizeof k_meter_grounds / sizeof k_meter_grounds[0]; ++i) {
+            const double ratio = mesh_ui_theme_contrast(track, theme->colors[k_meter_grounds[i]]);
+            if (ratio + 0.005 < 1.2) {
+                if (reason != NULL) {
+                    snprintf(reason, reason_len,
+                             "the meter track on role %d is %.2f:1, needs 1.2:1",
+                             (int)k_meter_grounds[i], ratio);
+                }
+                return false;
+            }
+        }
+        for (size_t i = 0; i < sizeof k_meter_tones / sizeof k_meter_tones[0]; ++i) {
+            const struct mesh_ui_rgb fill = mesh_ui_theme_tone(theme, k_meter_tones[i]);
+            const double ratio = mesh_ui_theme_contrast(fill, track);
+            if (ratio + 0.005 < 1.4) {
+                if (reason != NULL) {
+                    snprintf(reason, reason_len,
+                             "meter tone %d on its track is %.2f:1, needs 1.4:1",
+                             (int)k_meter_tones[i], ratio);
+                }
+                return false;
+            }
         }
     }
 

@@ -366,6 +366,17 @@ static struct fb_item_geom fb_item_measure(const struct mesh_ui_backend_fb_state
 }
 
 /*
+ * How wide an inline meter is, in cells.
+ *
+ * A length only means something against the container it is in, so the container has to be long
+ * enough for the eye to divide: at four cells a half-full bar and a two-thirds-full one are the
+ * same picture. Eight is about where they part company at this glyph scale, and it is still
+ * short enough to leave a settings row its label and its value - which is the whole reason the
+ * inline meter is a trailing slot and not a band across the row.
+ */
+#define FB_METER_INLINE_CELLS 8U
+
+/*
  * Cells a trailing slot takes out of a line `cols` wide, its breathing room included.
  *
  * Zero has one meaning and it covers both ways a slot can come to nothing: there is nothing in
@@ -401,6 +412,12 @@ static size_t fb_trailing_cols(const struct mesh_ui_backend_fb_state *state, siz
     }
     case FB_TRAILING_ICON:
         want = mesh_ui_icon_is_valid(trailing->icon) ? 2U : 0U;
+        break;
+    case FB_TRAILING_METER:
+        /* Stated in cells rather than measured from anything, because unlike a switch a bar has
+           no natural width - it is as long as it is given. FB_METER_INLINE_CELLS is that
+           choice, and the extra cell is the gap to the words. */
+        want = trailing->meter != NULL ? FB_METER_INLINE_CELLS + 1U : 0U;
         break;
     case FB_TRAILING_NONE:
     default:
@@ -476,6 +493,21 @@ static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struc
         trailing->sw->rect.y = g->fill_top + (g->fill_h - height) / 2;
         trailing->sw->selected = selected;
         fb_draw_switch(state, trailing->sw);
+        return;
+    }
+    case FB_TRAILING_METER: {
+        if (trailing->meter == NULL) {
+            return;
+        }
+        /* Centred on the row's fill, exactly as the switch is and for the same reason: the fill
+           is what the control has to stay inside. */
+        const int height = fb_meter_thickness(state, scale);
+        trailing->meter->rect.w = (int)FB_METER_INLINE_CELLS * adv;
+        trailing->meter->rect.h = height;
+        trailing->meter->rect.x = g->text_right - trailing->meter->rect.w;
+        trailing->meter->rect.y = g->fill_top + (g->fill_h - height) / 2;
+        trailing->meter->selected = selected;
+        fb_draw_meter(state, trailing->meter);
         return;
     }
     case FB_TRAILING_NONE:
@@ -983,9 +1015,13 @@ static struct fb_card_metrics fb_card_measure(const struct mesh_ui_backend_fb_st
      */
     size_t widest = 0U;
     for (uint32_t i = 0U; i < card->count; ++i) {
-        if (card->rows[i].kind != FB_CARD_ROW_FIELD) {
-            continue;
-        }
+        /*
+         * Every row that *uses* the label column, which is the question - not every row of one
+         * kind. A note has no label and a meter may or may not have one, so the label itself is
+         * what says whether the row is in this measurement, and a kind check here was a card of
+         * labelled meters measuring its column against no labels at all and clipping each one
+         * to a single cell. Measuring and drawing have to ask the same question.
+         */
         const size_t cells = mesh_ui_text_cells(card->rows[i].label);
         if (cells > widest) {
             widest = cells;
@@ -1124,6 +1160,19 @@ void fb_card_row(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_id 
     fb_card_row_text(card, tone, label, text);
 }
 
+void fb_card_meter(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_id label,
+                   int32_t permille, uint32_t id) {
+    struct fb_card_row *row = fb_card_next_row(card, FB_CARD_ROW_METER, tone);
+    if (row == NULL) {
+        return;
+    }
+    if (label != MESH_STR_NONE) {
+        mesh_text_sanitise_str(mesh_str(label), row->label, sizeof row->label);
+    }
+    row->meter_value = permille;
+    row->meter_id = id;
+}
+
 void fb_card_note(struct fb_card *card, enum mesh_ui_tone tone, const char *text) {
     if (text == NULL || text[0] == '\0') {
         return;
@@ -1149,7 +1198,7 @@ int fb_card_height(const struct mesh_ui_backend_fb_state *state, const struct fb
 
 /* One row of content, drawn at `y` and returning the rows it used. `max_lines` of 0 means the
    row's own count; anything else is the budget a clipped note has been given. */
-static uint32_t fb_draw_card_row(const struct mesh_ui_backend_fb_state *state,
+static uint32_t fb_draw_card_row(struct mesh_ui_backend_fb_state *state,
                                  const struct fb_card_metrics *m, const struct fb_layout *layout,
                                  int y, const struct fb_card_row *row, uint32_t max_lines) {
     const struct mesh_ui_rgb color = fb_tone_color(state, row->tone);
@@ -1168,6 +1217,43 @@ static uint32_t fb_draw_card_row(const struct mesh_ui_backend_fb_state *state,
         return drawn > 0U ? drawn : 1U;
     }
 
+    if (row->kind == FB_CARD_ROW_METER) {
+        /*
+         * A label in its own column and the bar across the rest, or - with no label - the bar
+         * across the card's whole content width. Which of the two is the caller's sentence
+         * about what the bar is for; see fb_card_meter().
+         *
+         * Vertically it sits on the middle of the line the text would have used, which is what
+         * keeps a card of rows evenly spaced whether or not one of them is a bar.
+         */
+        const int adv = fb_char_adv(state, state->scale);
+        int bar_x = m->content_x;
+        if (row->label[0] != '\0') {
+            struct mesh_ui_line line;
+            mesh_ui_line_reset(&line);
+            mesh_ui_line_column(&line, row->label, m->label_cols);
+            mesh_ui_line_fit(&line, m->cols);
+            fb_draw_text(state, m->content_x, y, mesh_ui_line_text(&line), state->scale, color);
+            bar_x = m->content_x + (int)(m->label_cols + 1U) * adv;
+        }
+        const int bar_right = m->content_x + (int)m->cols * adv;
+        const int height = fb_meter_thickness(state, state->scale);
+        if (bar_right - bar_x > 0) {
+            const struct fb_meter meter = {
+                .rect = {.x = bar_x,
+                         .y = y + (layout->line - state->scale - height) / 2,
+                         .w = bar_right - bar_x,
+                         .h = height},
+                .id = row->meter_id,
+                .kind = FB_METER_DETERMINATE,
+                .value = row->meter_value,
+                .tone = row->tone,
+            };
+            fb_draw_meter(state, &meter);
+        }
+        return 1U;
+    }
+
     struct mesh_ui_line line;
     mesh_ui_line_reset(&line);
     mesh_ui_line_column(&line, row->label, m->label_cols);
@@ -1177,8 +1263,8 @@ static uint32_t fb_draw_card_row(const struct mesh_ui_backend_fb_state *state,
     return 1U;
 }
 
-bool fb_draw_card(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
-                  int *y, const struct fb_card *card) {
+bool fb_draw_card(struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout, int *y,
+                  const struct fb_card *card) {
     if (y == NULL || fb_card_is_empty(card)) {
         return false;
     }
@@ -1500,6 +1586,158 @@ void fb_draw_switch(struct mesh_ui_backend_fb_state *state, const struct fb_swit
     const int x = sw->rect.x + inset + (travel > 0 ? (travel * position) / MESH_UI_ANIM_ONE : 0);
     fb_fill_round_rect(state, x, sw->rect.y + inset, knob, knob, knob / 2,
                        fb_color(state, knob_role));
+}
+
+/* ---- the meter ----------------------------------------------------------------------------- */
+
+/*
+ * How long a determinate fill takes to reach a new reading.
+ *
+ * Longer than the switch's, and for the opposite reason. A switch answers a press, so it has to
+ * feel immediate; a meter answers a *sample*, and the samples are seconds apart - the airtime
+ * figures arrive on the radio's own schedule, the download's byte count is whatever the file on
+ * disk had grown to when the loop last looked. Easing across that gap is the whole trick: the
+ * bar spends its time moving between two readings instead of sitting still and then jumping,
+ * and what the eye gets is the rate rather than the samples.
+ */
+#define FB_METER_MS 320U
+
+/* One pass of an indeterminate pill. Slow enough to read as travel rather than as flicker, fast
+   enough that a screen with one on it does not feel stalled. */
+#define FB_METER_LOOP_MS 1400U
+
+/* How much of the track the pill covers. A third is the proportion Material's indeterminate bar
+   settles at, and it is about the shortest that still reads as a bar rather than as a dot. */
+#define FB_METER_PILL_PCT 34
+
+/*
+ * Where in its cycle the pill starts, in permille.
+ *
+ * A loop begins at 0, which for the travel below is the pill entirely off the leading edge -
+ * so a bar drawn on the frame it first appears would be an empty track, and the one frame that
+ * has to say "this is working" would say the opposite. Roughly two fifths in is where the eased
+ * travel first brings the whole pill onto the track, so the widget appears with something in
+ * it and loops normally from there.
+ *
+ * A rotation of a periodic function, not a special case for the first frame: every cycle starts
+ * here, so nothing has to remember whether this is the first one.
+ */
+#define FB_METER_PILL_PHASE 400
+
+int fb_meter_thickness(const struct mesh_ui_backend_fb_state *state, int scale) {
+    const int thickness = (int)fb_metrics(state)->meter_thickness * (scale > 0 ? scale : 1);
+    return thickness > 1 ? thickness : 1;
+}
+
+/*
+ * The fill's colour.
+ *
+ * Only the three tones mesh_ui_theme_validate() holds against MESH_UI_COLOR_METER_TRACK can be
+ * drawn, and anything else folds back to the accent rather than being drawn as asked. That is
+ * not defensiveness: a fill nobody has validated against the track is a bar that vanishes on
+ * some theme somebody has not opened yet, and the accent is the one answer that is always right
+ * for "something is here". Keep this list and the one in the validator together.
+ */
+static enum mesh_ui_tone fb_meter_tone(enum mesh_ui_tone tone) {
+    switch (tone) {
+    case MESH_UI_TONE_GOOD:
+    case MESH_UI_TONE_BAD:
+    case MESH_UI_TONE_ACCENT:
+        return tone;
+    default:
+        return MESH_UI_TONE_ACCENT;
+    }
+}
+
+void fb_draw_meter(struct mesh_ui_backend_fb_state *state, const struct fb_meter *meter) {
+    if (meter == NULL || meter->rect.w <= 0 || meter->rect.h <= 0) {
+        return;
+    }
+    const struct fb_rect r = meter->rect;
+    /* A pill, always: a bar with square ends reads as a region of the screen that has been
+       filled in, and one with round ends reads as a quantity in a container. */
+    const int radius = fb_radius(state, MESH_UI_SHAPE_FULL);
+
+    /*
+     * Its own ground under a cursor fill, for the reason the switch lays one.
+     *
+     * The track is validated against the body and against a card, which are the two grounds a
+     * meter is drawn on - not against the cursor fill, and on two of the four themes it *is*
+     * the cursor fill. Without this the track would disappear on precisely the row being
+     * pointed at, leaving a fill floating in space with no length to be read against.
+     */
+    if (meter->selected) {
+        const int pad = state->scale / 2 > 0 ? state->scale / 2 : 1;
+        fb_fill_round_rect(state, r.x - pad, r.y - pad, r.w + 2 * pad, r.h + 2 * pad, radius + pad,
+                           fb_color(state, MESH_UI_COLOR_BG));
+    }
+
+    fb_fill_round_rect(state, r.x, r.y, r.w, r.h, radius,
+                       fb_color(state, MESH_UI_COLOR_METER_TRACK));
+
+    const struct mesh_ui_rgb ink = fb_tone_color(state, fb_meter_tone(meter->tone));
+
+    if (meter->kind == FB_METER_INDETERMINATE) {
+        /*
+         * A pill crossing the track, from entirely off the leading edge to entirely off the
+         * trailing one. Both ends of the travel are off the track on purpose: the loop's wrap
+         * from ONE back to 0 then happens while nothing is drawn, so a bar that never finishes
+         * also never visibly restarts.
+         *
+         * Eased rather than linear, so it accelerates in and settles out instead of sliding at
+         * one speed - which is the difference between a thing that is working and a thing on a
+         * conveyor belt.
+         */
+        const int pill = r.w * FB_METER_PILL_PCT / 100 > 1 ? r.w * FB_METER_PILL_PCT / 100 : 1;
+        /* The phase is added before the curve, not after: shifting the sawtooth rotates where
+           the cycle begins and leaves the wrap exactly where it was - at the point the pill is
+           off the track entirely, which is what keeps a loop that never ends from visibly
+           restarting. Shifting the eased value instead would put a jump in the middle of the
+           travel. */
+        const int32_t phase =
+            (mesh_ui_anim_loop(&state->anim, meter->id, state->now_ms, FB_METER_LOOP_MS) +
+             FB_METER_PILL_PHASE) %
+            MESH_UI_ANIM_ONE;
+        const int32_t t = mesh_ui_ease(MESH_UI_EASE_IN_OUT, phase);
+        const int travel = r.w + pill;
+        int x = r.x - pill + (int)(((int64_t)travel * t) / MESH_UI_ANIM_ONE);
+        int w = pill;
+        /* Clipped to the track rather than drawn past it: fb_fill_round_rect() is happy to fill
+           outside a container it knows nothing about, and the container here is the thing that
+           gives the pill its meaning. */
+        if (x < r.x) {
+            w -= r.x - x;
+            x = r.x;
+        }
+        if (x + w > r.x + r.w) {
+            w = r.x + r.w - x;
+        }
+        if (w > 0) {
+            fb_fill_round_rect(state, x, r.y, w, r.h, radius, ink);
+        }
+        return;
+    }
+
+    /* Where the fill has got to, which is not where the reading is: see FB_METER_MS. */
+    int32_t value = meter->value;
+    if (value < 0) {
+        value = 0;
+    } else if (value > MESH_UI_ANIM_ONE) {
+        value = MESH_UI_ANIM_ONE;
+    }
+    const int32_t position = mesh_ui_anim_track(&state->anim, meter->id, state->now_ms, value,
+                                                FB_METER_MS, MESH_UI_EASE_OUT);
+
+    int fill = (int)(((int64_t)r.w * position) / MESH_UI_ANIM_ONE);
+    if (fill <= 0) {
+        /* A reading that is not zero draws something, however small. Rounding a real 0.4% down
+           to no pixels at all says "nothing is happening", which is the one thing the bar is
+           there to distinguish from. Exactly zero draws an empty track, as it should. */
+        fill = position > 0 ? 1 : 0;
+    }
+    if (fill > 0) {
+        fb_fill_round_rect(state, r.x, r.y, fill, r.h, radius, ink);
+    }
 }
 
 /* ---- the text field ------------------------------------------------------------------------ */

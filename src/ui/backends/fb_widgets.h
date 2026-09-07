@@ -168,6 +168,70 @@ void fb_switch_size(const struct mesh_ui_backend_fb_state *state, int scale, int
    is stepping lives there. */
 void fb_draw_switch(struct mesh_ui_backend_fb_state *state, const struct fb_switch *sw);
 
+/* ---- the meter --------------------------------------------------------------------------- *
+ *
+ * A quantity as a length: how much of the air the mesh is using, how much of a download has
+ * arrived.
+ *
+ * The two are the same widget on purpose, and this file predicted it before either existed - a
+ * meter and a progress bar want the same table. What separates them is not the drawing but
+ * *what the number means*: a meter reports a level that will go up and down on its own, a
+ * progress bar reports a job that only goes forwards and then stops. Both are a track with a
+ * fill in it, both take their fill from a tone, and both animate through the same keyed slot,
+ * so there is one of them.
+ *
+ * Why a bar and not the number it sits next to. Channel utilization was a coloured percentage,
+ * and a percentage has to be read and then compared against a threshold nobody carries around;
+ * a length is compared against the track it is in, which is right there. The number is still
+ * drawn - it is what says *how* busy - but the bar is what says *busy*, and that is the part
+ * that should not need reading.
+ *
+ * What it is not: a spinner with a percentage bolted on. When the extent of the work is
+ * unknown the widget says so with FB_METER_INDETERMINATE and moves without claiming a
+ * position, rather than inventing a fraction. A bar that sat at 30% because somebody had to
+ * pick a number is worse than no bar.
+ */
+
+enum fb_meter_kind {
+    /* A known fraction of a known whole: `value` is where the fill ends. */
+    FB_METER_DETERMINATE = 0,
+    /*
+     * Something is happening and how much of it is left cannot be known - a request out on the
+     * network, a hash being taken. A pill travels the track instead of a fill growing, which is
+     * the one shape that says "working" without also saying "this far along".
+     *
+     * It costs a repaint timer for as long as it is on screen, which is the reason it is a
+     * separate kind rather than the default: a screen asks for motion deliberately.
+     */
+    FB_METER_INDETERMINATE,
+};
+
+struct fb_meter {
+    struct fb_rect rect; /* the track; fb_meter_thickness() is the height one wants */
+    /*
+     * Identity for the animation, 0 for none - the same contract the switch has.
+     *
+     * It matters more here than it does there. A determinate meter *eases towards* each value
+     * it is given, which is what lets a reading sampled once a second look like a bar moving
+     * rather than a bar jumping; without an id it draws each sample exactly and stutters.
+     */
+    uint32_t id;
+    enum fb_meter_kind kind;
+    int32_t value; /* DETERMINATE: permille, 0..MESH_UI_ANIM_ONE, clamped */
+    /* The fill. ACCENT, GOOD or BAD - the three mesh_ui_theme_validate() holds against
+       MESH_UI_COLOR_METER_TRACK - and anything else is drawn in the accent. */
+    enum mesh_ui_tone tone;
+    bool selected; /* the row under it carries the cursor fill */
+};
+
+/* The height a meter wants at `scale`, in pixels. From the theme's metrics, so a bar keeps its
+   proportion to the text beside it when a theme changes the glyph scale. */
+int fb_meter_thickness(const struct mesh_ui_backend_fb_state *state, int scale);
+
+/* Draws it, advancing the fill towards its target - or the pill along its loop. Needs the
+   mutable state for the same reason the switch does. */
+void fb_draw_meter(struct mesh_ui_backend_fb_state *state, const struct fb_meter *meter);
+
 /*
  * The accented heading a screen opens with. Consumes the body row it occupies, so a screen
  * calls this and then lays its list out against the layout it hands back.
@@ -268,6 +332,15 @@ enum fb_trailing_kind {
     /* One cell against the trailing edge: the chevron that says a row opens something, the
        check that says this is the one in use. The slot every platform's list rows end with. */
     FB_TRAILING_ICON,
+    /*
+     * A short bar against the trailing edge: how far a download has got, how full something is.
+     *
+     * Inline rather than a band under the row because the list's scroll window counts rows, and
+     * a row that quietly grew a second tier would put the cursor and the fill in two different
+     * places. A bar the width of a few cells is enough to be read as a length, which is the
+     * whole of what it is for - the exact figure is what the value column beside it is for.
+     */
+    FB_TRAILING_METER,
 };
 
 struct fb_trailing {
@@ -276,6 +349,7 @@ struct fb_trailing {
     enum mesh_ui_icon icon; /* ICON */
     struct fb_switch *sw;   /* SWITCH. Its rect is filled in by the row: where the value column
                                ends is the row's business, not the caller's. */
+    struct fb_meter *meter; /* METER. Its rect is filled in by the row, as the switch's is. */
 };
 
 /* What sits at the row's leading edge. */
@@ -515,6 +589,10 @@ size_t fb_field_label_cols(const struct mesh_ui_backend_fb_state *state,
 enum fb_card_row_kind {
     FB_CARD_ROW_FIELD = 0, /* a label column and a value, as the field rows have */
     FB_CARD_ROW_NOTE,      /* a wrapped paragraph across the card's full width, no label */
+    /* A label column and a meter across the rest of the row, in place of the value. One line
+       like a field row, so a card with one costs no more room and the clip arithmetic above is
+       unchanged - a bar is thinner than the text it sits among, not taller. */
+    FB_CARD_ROW_METER,
 };
 
 struct fb_card_row {
@@ -522,6 +600,11 @@ struct fb_card_row {
     enum mesh_ui_tone tone;
     char label[FB_CARD_LABEL_MAX];
     char value[FB_CARD_VALUE_MAX];
+    /* METER: what the bar reads and what it is keyed on. Held by value rather than by pointer
+       because a card is built, handed over and drawn - there is no caller-owned control to
+       point at, unlike a list row's switch. */
+    int32_t meter_value;
+    uint32_t meter_id;
 };
 
 struct fb_card {
@@ -558,6 +641,26 @@ void fb_card_row_text(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_st
    about itself goes here: a firmware sentence in the value gutter is three words and a cut. */
 void fb_card_note(struct fb_card *card, enum mesh_ui_tone tone, const char *text);
 
+/*
+ * A bar: the row for a number whose *level* is the point.
+ *
+ * `permille` is 0..MESH_UI_ANIM_ONE and `id` keys the animation, on the same terms as a
+ * switch's - stable while the row is on screen, unique within the frame, 0 for a bar that never
+ * moves of its own accord.
+ *
+ * `label` of MESH_STR_NONE gives the bar the card's whole content width instead of a label
+ * column, and that is the shape to reach for when the bar is *about the row above it* - which
+ * is what the airtime pair on the Status card is. The words there already say what the number
+ * is and how large it is; a label on the bar would be the third time, and it would cost the
+ * track the third of its length that makes a fill readable as a proportion. A label is for a
+ * bar that stands alone in a card of unrelated rows.
+ *
+ * It never carries the figure either way. A row that drew both would spend the card's width
+ * saying one thing twice.
+ */
+void fb_card_meter(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_id label,
+                   int32_t permille, uint32_t id);
+
 /* Whether anything was added. A card with no rows is not drawn, so a screen can build one
    unconditionally and let it disappear when the radio has reported nothing. */
 bool fb_card_is_empty(const struct fb_card *card);
@@ -583,8 +686,8 @@ int fb_card_height(const struct mesh_ui_backend_fb_state *state, const struct fb
  * case nothing is drawn and `*y` is untouched. That is also the answer for every card after it,
  * so a screen can stop.
  */
-bool fb_draw_card(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
-                  int *y, const struct fb_card *card);
+bool fb_draw_card(struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout, int *y,
+                  const struct fb_card *card);
 
 /* ---- the text field -------------------------------------------------------------------------
  *

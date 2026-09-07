@@ -1226,6 +1226,38 @@ static const struct mesh_ui_node_summary *fb_self_node(const struct mesh_ui_snap
 }
 
 /*
+ * Where a busy mesh stops being healthy, in permille of the air.
+ *
+ * Not a look-and-feel number: above roughly a quarter, LoRa's listen-before-talk backs
+ * everything off and multi-hop delivery starts failing outright, and by half the mesh is
+ * effectively a single-hop one. They are stated here once and read by the figure's colour, the
+ * card heading's, and the bar's fill - see mesh_ui_tone_for_load().
+ */
+#define FB_AIR_BUSY_WARN 250
+#define FB_AIR_BUSY_BAD 500
+
+/*
+ * The airtime meter's key in the animation table.
+ *
+ * At the top of the range with the snackbar's, and for the same reason: every other id in here
+ * is a row index or a field, handed in by a list that has many of them, and this is a control a
+ * screen has exactly one of.
+ */
+#define FB_ANIM_ID_AIRTIME 0xFFFFFF02U
+
+/* A percentage as the permille a meter reads, clamped to the track. The radio's airtime figures
+   are floats off the air and nothing upstream promises they are in range. */
+static int32_t fb_percent_permille(float percent) {
+    if (!(percent > 0.0f)) { /* also catches NaN, which no comparison the other way round does */
+        return 0;
+    }
+    if (percent >= 100.0f) {
+        return MESH_UI_ANIM_ONE;
+    }
+    return (int32_t)(percent * 10.0f + 0.5f);
+}
+
+/*
  * The Status tab, as three cards.
  *
  * It used to be eighteen label/value lines on the bare ground, in one column, and nothing in it
@@ -1243,7 +1275,7 @@ static const struct mesh_ui_node_summary *fb_self_node(const struct mesh_ui_snap
  * either: fb_draw_card() drops what does not fit and refuses a card outright when nothing does,
  * which is the check this screen used to write out per row, and in two different ways.
  */
-static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
+static void fb_render_status(struct mesh_ui_backend_fb_state *state,
                              const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     int y = layout->body_y;
     struct fb_card card;
@@ -1313,16 +1345,21 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
     const float util_value = air_from_stats
                                  ? stats->channel_utilization
                                  : (metrics != NULL ? metrics->channel_utilization : 0.0f);
-    /* Above ~25% channel utilization the mesh is saturated and hop delivery collapses, so the
-       number is coloured rather than left as one more figure to interpret - and the card's
-       heading takes the same tone, which is what makes a saturated mesh visible from the shape
-       of the screen rather than from reading a percentage. */
-    enum mesh_ui_tone air_tone = MESH_UI_TONE_NORMAL;
-    if (have_util) {
-        air_tone = util_value >= 50.0f   ? MESH_UI_TONE_BAD
-                   : util_value >= 25.0f ? MESH_UI_TONE_ACCENT
-                                         : MESH_UI_TONE_GOOD;
-    }
+    /*
+     * Above ~25% channel utilization the mesh is saturated and hop delivery collapses, so the
+     * number is coloured rather than left as one more figure to interpret - and the card's
+     * heading takes the same tone, which is what makes a saturated mesh visible from the shape
+     * of the screen rather than from reading a percentage.
+     *
+     * The thresholds are stated once, here, and answer for the figure's colour, the heading's
+     * and the meter's fill alike - see mesh_ui_tone_for_load(). A screen that worked them out
+     * separately for the words and for the bar would be drawing a picture and a number that can
+     * disagree, and the picture is the one that gets believed.
+     */
+    const int32_t util_permille = fb_percent_permille(util_value);
+    const enum mesh_ui_tone air_tone =
+        have_util ? mesh_ui_tone_for_load(util_permille, FB_AIR_BUSY_WARN, FB_AIR_BUSY_BAD)
+                  : MESH_UI_TONE_NORMAL;
 
     fb_card_begin(&card, MESH_UI_ICON_NODES, MESH_STR_STATUS_CARD_MESH,
                   air_tone != MESH_UI_TONE_NORMAL ? air_tone : MESH_UI_TONE_ACCENT);
@@ -1369,6 +1406,24 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
         } else {
             fb_card_row(&card, air_tone, MESH_STR_STATUS_LABEL_AIRTIME, MESH_STR_STATUS_AIRTIME,
                         util, tx);
+        }
+        /*
+         * And the same number as a length, directly under the words.
+         *
+         * The row above says how busy the air is; this one says *busy*, and it is the one that
+         * works from across a table. A percentage has to be read and then held against a
+         * threshold nobody carries around - "is 31% a lot?" - where a bar a third full is
+         * compared against the track it sits in, which is right there. The pair is the point:
+         * neither replaces the other.
+         *
+         * Only when there is a real reading. A track drawn empty because the radio has not
+         * reported yet says the mesh is quiet, which is a different claim from saying nothing.
+         *
+         * No label: the row above already names it twice over, and a label column here would
+         * cost the track the third of its length that makes a fill readable as a proportion.
+         */
+        if (have_util) {
+            fb_card_meter(&card, air_tone, MESH_STR_NONE, util_permille, FB_ANIM_ID_AIRTIME);
         }
     }
 
@@ -1639,6 +1694,31 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
              * channel is mixed in. A read-only toggle has no field at all and is keyed on its
              * row instead, above everything the field enum can reach.
              */
+            /*
+             * A level gets a bar next to the words, on the same terms as a boolean getting a
+             * switch instead of them: the fb backend deciding how to say what the item already
+             * says. The row is keyed on its index, above everything the field enum can reach,
+             * because a meter row has no field of its own - it is a fact, not a control.
+             */
+            if (item.kind == MESH_UI_SETTING_METER) {
+                const bool unknown = item.number == MESH_UI_METER_UNKNOWN;
+                struct fb_meter meter = {
+                    .id = 0x03000000U | i,
+                    .kind = unknown ? FB_METER_INDETERMINATE : FB_METER_DETERMINATE,
+                    .value = unknown ? 0 : (int32_t)item.number,
+                    .tone = MESH_UI_TONE_ACCENT,
+                };
+                const struct fb_list_item row = {
+                    .label = item.label,
+                    .label_cols = label_cols,
+                    .marker_icon = marker,
+                    .value = item.value,
+                    .tone = tone,
+                    .trailing = {.kind = FB_TRAILING_METER, .meter = &meter},
+                };
+                fb_list_item(state, &list, i, &row);
+                continue;
+            }
             if (item.kind == MESH_UI_SETTING_TOGGLE) {
                 struct fb_switch sw = {
                     .id = item.field != MESH_UI_FIELD_NONE

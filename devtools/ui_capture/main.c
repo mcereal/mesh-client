@@ -46,6 +46,7 @@
  */
 
 #include "mesh/core/message.h"
+#include "mesh/core/updater.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/backends/fb_capture.h"
 #include "mesh/ui/nav.h"
@@ -410,8 +411,13 @@ static void uicap_emit(struct uicap *cap) { uicap_emit_delay(cap, cap->delay_ms)
  * script having to know an animation exists.
  *
  * Each frame's delay is uicap_emit_delay()'s decision, not this loop's: a frame that is still
- * moving takes the animation's interval and the one it lands on takes the scene's. The cap is a
- * guard against a widget that never settles - a bug, but not one that should hang a capture.
+ * moving takes the animation's interval and the one it lands on takes the scene's.
+ *
+ * The cap was a guard against a widget that never settles - a bug, but not one that should hang
+ * a capture - and it is now also the length of one legitimate case: an *indeterminate* meter
+ * loops for as long as it is on screen and has no landing frame to reach, so it films until the
+ * cap and stops. That is the right amount of it to put in a clip, and a scene that wants more
+ * asks for it with another `frame`.
  */
 #define UICAP_MAX_ANIM_FRAMES 40U
 
@@ -959,6 +965,72 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         settings.queue.res = (refused != NULL && strcmp(refused, "refused") == 0) ? 1 : 0;
         mesh_ui_store_set_settings(&cap->store, &settings);
         uicap_emit(cap);
+        return;
+    }
+
+    /*
+     * The radio's own airtime report: how much of the channel is busy, and how much of that is
+     * ours. Two figures because they are the pair the Status card draws - the row's words and
+     * the meter under them are the same number, and a scene that could only set one of them
+     * could not show them agreeing.
+     */
+    if (strcmp(command, "airtime") == 0) {
+        char *busy = uicap_word(&rest);
+        if (busy == NULL) {
+            fprintf(stderr, "uicap: line %u: 'airtime' needs a busy percentage\n", line_number);
+            exit(1);
+        }
+        const char *tx = uicap_word(&rest);
+        uicap_start(cap);
+        struct mesh_ui_settings settings = cap->store.settings;
+        settings.stats.valid = true;
+        settings.stats.channel_utilization = (float)uicap_number(busy, "airtime");
+        settings.stats.air_util_tx = tx != NULL ? (float)uicap_number(tx, "airtime") : 0.0f;
+        mesh_ui_store_set_settings(&cap->store, &settings);
+        uicap_emit(cap);
+        /* The bar eases to the new reading rather than jumping to it, so the frames between the
+           two figures are the point - the same reason a press settles. */
+        uicap_settle(cap);
+        return;
+    }
+
+    /*
+     * A self-update in flight, which the About screen draws as a meter.
+     *
+     * `update check` is the step with no length - the request is out and its reply has no size
+     * until it lands - and `update download PERCENT` is the one that has a fraction, because
+     * the release metadata said how big the asset would be. There is no updater behind the
+     * harness (it forks curl and reaches the network, which a capture must not), so this sets
+     * what mesh_app_publish_ui_state() would have published: the state, and the progress read
+     * off the staged file.
+     */
+    if (strcmp(command, "update") == 0) {
+        char *step = uicap_word(&rest);
+        if (step == NULL) {
+            fprintf(stderr, "uicap: line %u: 'update' needs check or download\n", line_number);
+            exit(1);
+        }
+        const bool downloading = strcmp(step, "download") == 0;
+        if (!downloading && strcmp(step, "check") != 0) {
+            fprintf(stderr, "uicap: line %u: 'update' takes check or download\n", line_number);
+            exit(1);
+        }
+        const char *percent = uicap_word(&rest);
+        uicap_start(cap);
+        struct mesh_ui_settings settings = cap->store.settings;
+        settings.client.update_supported = true;
+        settings.client.update_busy = true;
+        settings.client.update_state =
+            (uint8_t)(downloading ? MESH_UPDATE_DOWNLOADING : MESH_UPDATE_CHECKING);
+        settings.client.update_progress_known = downloading && percent != NULL;
+        settings.client.update_progress =
+            (uint16_t)(settings.client.update_progress_known ? uicap_number(percent, "update") * 10U
+                                                             : 0U);
+        snprintf(settings.client.update_latest, sizeof settings.client.update_latest, "%s",
+                 "999.0.0");
+        mesh_ui_store_set_settings(&cap->store, &settings);
+        uicap_emit(cap);
+        uicap_settle(cap);
         return;
     }
 

@@ -123,6 +123,12 @@ static void updater_invalidate_check(struct mesh_updater *updater, const char *w
 
 static void updater_set(struct mesh_updater *updater, enum mesh_update_state state,
                         const char *message) {
+    /* A byte count belongs to the download it was counted for. Leaving it behind would show the
+       next step - or the next attempt - starting from wherever the last one stopped, which for
+       a failed download is a bar that reports the failure as progress. */
+    if (state != MESH_UPDATE_DOWNLOADING) {
+        updater->downloaded = 0U;
+    }
     updater->state = state;
     snprintf(updater->message, sizeof updater->message, "%s", message != NULL ? message : "");
     updater->revision++;
@@ -991,6 +997,10 @@ int mesh_updater_install(struct mesh_updater *updater, uint64_t now_ms) {
     }
     updater_close_child(updater);
     (void)unlink(updater->staged_path);
+    /* The staged file is the byte counter, so the unlink above is also the reset - but say it
+       here too, because a failed attempt whose file could not be removed would otherwise start
+       the next one at 100%. */
+    updater->downloaded = 0U;
 
     int result;
     if (strcmp(updater->fetcher, "curl") == 0) {
@@ -1180,9 +1190,58 @@ static void updater_finish_download(struct mesh_updater *updater, int exit_statu
     updater_set(updater, MESH_UPDATE_READY, message);
 }
 
+/*
+ * How much of the asset is on disk, if it has changed since the last look.
+ *
+ * The whole of the byte-progress mechanism, and it is four lines because the download's
+ * destination is a file this process named - see `downloaded` in the header for why that is the
+ * answer rather than reading curl's own meter.
+ *
+ * A missing file is not an error: between the fork and the fetcher's first write there is a
+ * moment with nothing there, and the honest reading for that moment is zero. The revision is
+ * bumped only on a change, so a stalled download does not republish a snapshot every turn.
+ */
+static void updater_sample_download(struct mesh_updater *updater) {
+    struct stat info;
+    uint64_t size = 0U;
+    if (stat(updater->staged_path, &info) == 0 && info.st_size > 0) {
+        size = (uint64_t)info.st_size;
+    }
+    /* A file longer than the release said it would be is a download that is no longer the asset
+       we asked for; the digest will refuse it in a moment. Until then, report it as complete
+       rather than as a fraction over one. */
+    if (updater->asset_size > 0U && size > updater->asset_size) {
+        size = updater->asset_size;
+    }
+    if (size != updater->downloaded) {
+        updater->downloaded = size;
+        updater->revision++;
+    }
+}
+
+bool mesh_updater_progress(const struct mesh_updater *updater, uint32_t *permille) {
+    if (permille != NULL) {
+        *permille = 0U;
+    }
+    if (updater == NULL || updater->state != MESH_UPDATE_DOWNLOADING || updater->asset_size == 0U) {
+        return false;
+    }
+    if (permille != NULL) {
+        const uint64_t value = updater->downloaded * 1000U / updater->asset_size;
+        *permille = value > 1000U ? 1000U : (uint32_t)value;
+    }
+    return true;
+}
+
 void mesh_updater_tick(struct mesh_updater *updater, uint64_t now_ms) {
     if (updater == NULL || updater->child <= 0) {
         return;
+    }
+    /* Before the child is reaped below, not after: the last sample of a download that has just
+       finished is the one that puts the bar at the end, and a tick that reaped first would
+       leave it stopped at whatever the second-to-last turn saw. */
+    if (updater->state == MESH_UPDATE_DOWNLOADING) {
+        updater_sample_download(updater);
     }
     /* A child that exited without closing stdout, or whose EOF the loop did not deliver, is
        finished here. Drains first, exactly as the fd callback does. */
