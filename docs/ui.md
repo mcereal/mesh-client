@@ -278,13 +278,14 @@ Two consequences worth knowing:
   free-heap figure is the row a user would have scrolled past anyway.
 - **There is no screen title and no quit hint in the body.** The tab strip already says Status
   and each card names itself, so a title would be the third time; the quit hint moved to the
-  footer, where every other screen says what the buttons do. Those two rows are what the cards
-  spend on their headings. The footer only says it while a radio is attached — the line under it
-  already ends in the quit hint when there is not.
+  action bar, where every other screen says what the buttons do — as a keycap and the verb
+  *quit*, like every other press. Those two rows are what the cards spend on their headings. The
+  bar only offers it while a radio is attached — the line under it already ends in the quit hint
+  when there is not.
 
 Status does not scroll. On a radio reporting everything at once the last row or two of the Radio
-card are dropped rather than drawn over the footer, which is the card's own contract; a scrolling
-Status is the obvious next step and is a nav change, not a rendering one.
+card are dropped rather than drawn over the action bar, which is the card's own contract; a
+scrolling Status is the obvious next step and is a nav change, not a rendering one.
 
 ### Settings — `src/ui/settings*.c`
 
@@ -404,8 +405,8 @@ shoulder, revealed in the one place you went to change it.
 | File | Layer | What belongs there |
 |---|---|---|
 | `fb_draw.c` | ink | pixels, glyphs, the theme lookups, cell metrics (`fb_internal.h`) |
-| `fb_widgets.c` | components | cards, buttons, chips, list items, switches, meters, rules, bubbles, the snackbar (`fb_widgets.h`) |
-| `fb_screens.c` | screens | one renderer per screen, plus the tab strip and footer |
+| `fb_widgets.c` | components | cards, buttons, chips, list items, switches, meters, rules, bubbles, the navigation bar, the action bar, the snackbar (`fb_widgets.h`) |
+| `fb_screens.c` | screens | one renderer per screen, and nothing else |
 | `fb.c` | device | `/dev/fb0`, the page flip, the backend vtable |
 
 **A screen renderer should read as a description of its content** — what the list holds, what
@@ -742,6 +743,65 @@ wording changes length instead of growing rightwards out of a fixed corner.
 `SURFACE_INVERSE` carries it with no outline: a card needs a hairline because its fill is one
 step off the ground, and this one is the furthest from the ground the theme has.
 
+#### `fb_draw_nav_bar()` and `fb_draw_action_bar()` — the chrome
+
+The tab strip and the two lines under the body were the last two screen-level renderers laying
+out their own pixels, and they were also the two pieces of chrome that most made the UI read as
+a terminal rather than as a handheld OS. Both are components now, and `fb_screens.c` is left
+holding only the *content*: which tabs there are, which one is up, and what the bottom line has
+to say about the radio.
+
+The **navigation bar** is a recessed surface, a chip strip, and the rule that closes it off. The
+strip underneath it is the reusable half — `fb_draw_chip_strip()` takes an array of
+`struct fb_chip`, an active index and the room it has, and owns the label elision described
+under [icons](#srcuiiconc--the-generated-srcuiicon_glyphsc). It was private to `fb_screens.c`
+before, which meant a filter row on Nodes (*All / Direct / Favourites*) would have had to
+re-derive the measuring loop — the exact duplication `fb_chip_width()` was added to prevent.
+
+The **action bar** is the same surface on the other edge, holding a keycap and a verb per
+action, over the line that says what the transport is doing.
+
+```c
+struct mesh_ui_action_bar actions;
+mesh_ui_actions_for(snapshot, &actions);
+const struct fb_action_bar bar = {
+    .items = actions.items,
+    .count = actions.count,
+    .status = mesh_ui_line_text(&summary),
+    .status_tone = summary_tone,
+};
+fb_draw_action_bar(state, &layout, &bar);
+```
+
+**The catalog change was the work, not the drawing.** The hints were whole localised sentences —
+`HINT_NODES` was `"A open node  X pin  Y write  L/R tabs"`, one entry — and a sentence is the
+right shape for exactly one renderer: a single line of text. The moment the buttons are drawn as
+keycaps the renderer needs the letters and the verbs *apart*, and the only place they were apart
+was inside a translation. Going looking for them there is the one thing `src/i18n` exists to
+prevent.
+
+So the answer is the one the colours, the icons and the shapes all got: a screen names a token
+and a table answers. The token is a `(button, verb)` pair, and the table is
+[`src/ui/actions.c`](../src/ui/actions.c) — which lives in the UI layer rather than beside this
+backend because *which buttons mean something in a given state* is a fact about the nav, not
+about drawing. Three things follow from that:
+
+- **A cap is not translated.** `mesh_ui_button_cap()` answers with what is printed on the case
+  — `A`, `START`, `L/R` — for the same reason a region code stays as it is. The two directional
+  pairs are drawn from the font's arrows rather than spelled `Up/Down`, and `MESH_UI_BUTTON_QUIT`
+  is the one cap that is not a constant: `mesh_ui_input_quit_cap()` says `MENU`, or a bare key
+  code when `MESHCLIENT_QUIT_KEYS` has moved it somewhere with no printed name.
+- **The order is priority.** A bar that does not fit drops from the *end*, so each table is
+  written with the press the screen is for at the front and `L/R tabs` — true everywhere, and so
+  the least worth the room — at the back. Nothing is clipped: half a verb is a button whose
+  meaning has to be guessed.
+- **It is testable now.** `fb_render_snapshot()` used to decide which buttons meant something
+  in a branch alongside the one picking a renderer — the same conditions written out twice, so a
+  screen that grew a press had two places to remember. `tests/suites/ui_actions.c` walks every
+  combination of overlay and screen and holds the tables to the things a screenshot would not
+  catch: that an armed destructive action says so, that no table overruns
+  `MESH_UI_ACTIONS_MAX`, and that every verb named is one the catalog has.
+
 ### Animation
 
 A frame is a function of a snapshot, and a snapshot has no notion of *was*: it says a switch is
@@ -912,9 +972,9 @@ sprite, because a sprite is a window a little wider than Material's grid
 around the outside: `fb_icon_drawn()` scales the height it is matching by that ratio, so what
 lands on the capitals' height is the shape and what overhangs is the air.
 
-The tab strip is the one place that measures before it draws: five labelled tabs fit at the
-scale the device ships with and do not at the two above it, so `fb_draw_tabs()` asks
-`fb_chip_width()` for the total and drops to labelling only the selected tab, then to no labels
+The chip strip is the one place that measures before it draws: five labelled tabs fit at the
+scale the device ships with and do not at the two above it, so `fb_chip_strip_fit()` asks
+`fb_chip_width()` for the total and drops to labelling only the selected chip, then to no labels
 at all, rather than pushing a tab off the edge of the panel. That is Material's "selected" label
 mode, arrived at by measurement.
 

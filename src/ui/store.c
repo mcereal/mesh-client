@@ -1406,3 +1406,16 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_HANDSHAKE | MESH_UI_UPDATE_MESSAGES);
     return 0;
 }
+
+const struct mesh_ui_device *
+mesh_ui_snapshot_connected_device(const struct mesh_ui_snapshot *snapshot) {
+    if (snapshot == NULL) {
+        return NULL;
+    }
+    for (size_t i = 0; i < snapshot->device_count; ++i) {
+        if (snapshot->devices[i].connected) {
+            return &snapshot->devices[i];
+        }
+    }
+    return NULL;
+}

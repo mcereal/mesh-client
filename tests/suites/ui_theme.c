@@ -618,20 +618,20 @@ MESH_TEST_CASE(ui_theme_fonts_measure, unit) {
     record_success(test_name);
 }
 
-/* The pixel at the corner of the panel: fb_render_snapshot() clears to the theme's ground
-   before it draws, so this is the whole frame's background by construction. */
 /*
- * The colour of the frame's ground, sampled from the bottom-left pixel.
+ * The colour of the frame's ground, sampled from the right-hand edge halfway down.
  *
- * The bottom rather than the top, and that is not arbitrary: the tab strip lays its own
- * recessed surface across the whole width of the first rows, so the top-left pixel now reports
- * the chrome's tier rather than the ground the frame was cleared to. The last row is below
- * everything any screen draws - the footer's text starts a margin in - so it is the one pixel
- * that is still the ground on every screen.
+ * Neither corner works, and where the sample has had to move twice is itself the argument for
+ * this one. It was the top-left until the tab strip grew a recessed surface across the first
+ * rows; it was the bottom-left until the footer became an action bar and grew the same surface
+ * across the last ones. The chrome now frames the body top and bottom, so the only pixels left
+ * that are still the ground on every screen are the ones the *body* never reaches: rows fill to
+ * `xres - margin` and the scroll rail lives in the half-margin gutter but stops a quarter of one
+ * short of the edge, so the last column is untouched by anything a screen draws.
  */
-static bool ground_is(const uint8_t *pixels, size_t stride, uint32_t height,
+static bool ground_is(const uint8_t *pixels, size_t stride, uint32_t width, uint32_t height,
                       struct mesh_ui_rgb color) {
-    const uint8_t *px = pixels + stride * (size_t)(height - 1U);
+    const uint8_t *px = pixels + stride * (size_t)(height / 2U) + 4U * (size_t)(width - 1U);
     /* 32 bpp with every bitfield zero, which is what the capture fabricates: B,G,R,X. */
     return px[0] == color.b && px[1] == color.g && px[2] == color.r;
 }
@@ -677,7 +677,7 @@ MESH_TEST_CASE(ui_theme_switch_repaints_the_frame, unit) {
     mesh_ui_capture_set_scale(capture, 2);
     mesh_ui_capture_render(capture, &snapshot);
     MESH_TEST_FAIL_IF_CLEANUP(
-        !ground_is(pixels, stride, height, mesh_ui_theme_color(first, MESH_UI_COLOR_BG)),
+        !ground_is(pixels, stride, width, height, mesh_ui_theme_color(first, MESH_UI_COLOR_BG)),
         THEME_CLEANUP, "the frame is not drawn on the theme's background");
     memcpy(reference, pixels, page_bytes);
 
@@ -690,7 +690,7 @@ MESH_TEST_CASE(ui_theme_switch_repaints_the_frame, unit) {
         mesh_ui_capture_render(capture, &snapshot);
 
         MESH_TEST_FAIL_IF_CLEANUP(
-            !ground_is(pixels, stride, height, mesh_ui_theme_color(theme, MESH_UI_COLOR_BG)),
+            !ground_is(pixels, stride, width, height, mesh_ui_theme_color(theme, MESH_UI_COLOR_BG)),
             THEME_CLEANUP, "a theme's frame is not drawn on that theme's background");
         MESH_TEST_FAIL_IF_CLEANUP(memcmp(reference, pixels, page_bytes) == 0, THEME_CLEANUP,
                                   "two themes rendered the same snapshot identically");
@@ -750,7 +750,7 @@ MESH_TEST_CASE(ui_theme_follows_the_snapshot, unit) {
        which is what lets the capture harness, where no app fills the client info, work at all. */
     mesh_ui_capture_render(capture, &snapshot);
     MESH_TEST_FAIL_IF_CLEANUP(
-        !ground_is(pixels, stride, height,
+        !ground_is(pixels, stride, width, height,
                    mesh_ui_theme_color(mesh_ui_theme_default(), MESH_UI_COLOR_BG)),
         SNAPSHOT_CLEANUP, "an unnamed theme did not leave the capture's own in place");
 
@@ -763,7 +763,7 @@ MESH_TEST_CASE(ui_theme_follows_the_snapshot, unit) {
         MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_theme(capture) != theme, SNAPSHOT_CLEANUP,
                                   "the renderer did not adopt the theme the snapshot named");
         MESH_TEST_FAIL_IF_CLEANUP(
-            !ground_is(pixels, stride, height, mesh_ui_theme_color(theme, MESH_UI_COLOR_BG)),
+            !ground_is(pixels, stride, width, height, mesh_ui_theme_color(theme, MESH_UI_COLOR_BG)),
             SNAPSHOT_CLEANUP, "the frame is not drawn on the named theme's background");
     }
 

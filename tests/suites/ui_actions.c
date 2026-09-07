@@ -1,0 +1,236 @@
+#define _POSIX_C_SOURCE 200809L
+
+/*
+ * The action bar's contents.
+ *
+ * What the buttons do here used to be a sentence per screen, and a sentence is only checkable
+ * by looking at it. Now that it is a table of (button, verb) pairs it is checkable by a test,
+ * and these are the four things worth holding it to:
+ *
+ *   - the overlays win over the screen underneath them, in the order they stack. A bar
+ *     describing a screen the user cannot reach is worse than no bar at all, and the chain that
+ *     decides it is written out twice - once here and once in fb_render_snapshot() - so a
+ *     screen that grows an overlay has two places to remember.
+ *   - an armed destructive action says so. That was the one thing the old sentences got
+ *     unmistakably right ("X again to delete this conversation") and the one most easily lost
+ *     in a refactor to single verbs.
+ *   - nothing overruns MESH_UI_ACTIONS_MAX, because the bar drops from the end and an overrun
+ *     is silent.
+ *   - every action a table names carries a verb the catalog actually has.
+ */
+
+#include "framework/mesh_test.h"
+
+#include "mesh/ui/actions.h"
+#include "mesh/ui/settings.h"
+#include "mesh/ui/store.h"
+
+#include <string.h>
+
+/* A snapshot with nothing in it but the nav, which is all the bar reads. */
+static void actions_snapshot(struct mesh_ui_snapshot *snapshot) {
+    memset(snapshot, 0, sizeof *snapshot);
+    snapshot->nav.screen = MESH_UI_SCREEN_MESSAGES;
+    snapshot->nav.settings_section = MESH_UI_SETTINGS_NO_SECTION;
+    snapshot->nav.settings_channel = MESH_UI_SETTINGS_NO_CHANNEL;
+}
+
+/* Whether the bar offers `button`, and with which verb. MESH_STR_NONE when it does not. */
+static enum mesh_str_id actions_label_for(const struct mesh_ui_action_bar *bar,
+                                          enum mesh_ui_button button) {
+    for (size_t i = 0; i < bar->count; ++i) {
+        if (bar->items[i].button == button) {
+            return bar->items[i].label;
+        }
+    }
+    return MESH_STR_NONE;
+}
+
+MESH_TEST_CASE(actions_screens_offer_their_own_presses, unit) {
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_action_bar bar;
+
+    actions_snapshot(&snapshot);
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_OPEN,
+                      "A should open the conversation the cursor is on");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_SHOULDERS) != MESH_STR_ACTION_TABS,
+                      "the shoulders move between tabs on every screen that is not an overlay");
+
+    snapshot.nav.screen = MESH_UI_SCREEN_DEVICES;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_CONNECT,
+                      "A should connect on the Devices tab");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_Y) != MESH_STR_ACTION_FORGET,
+                      "Y should forget a radio on the Devices tab");
+
+    /*
+     * Status has no controls of its own, so it offers the way out - but only while a radio is
+     * attached, because the line under the bar already ends in the quit hint when there is
+     * none, and the same instruction twice reads as a rendering fault.
+     */
+    snapshot.nav.screen = MESH_UI_SCREEN_STATUS;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_QUIT) != MESH_STR_NONE,
+                      "Status should not repeat the quit hint while nothing is connected");
+
+    snapshot.device_count = 1U;
+    snapshot.devices[0].connected = true;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_QUIT) != MESH_STR_ACTION_QUIT,
+                      "Status should say how to leave once a radio is attached");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(actions_overlays_win_over_the_screen, unit) {
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_action_bar bar;
+
+    /* Every overlay raised at once: they are answered in the order fb_render_snapshot() draws
+       them, so the confirmation - the innermost - is the one the bar describes. */
+    actions_snapshot(&snapshot);
+    snapshot.nav.compose_open = true;
+    snapshot.nav.keyboard_open = true;
+    snapshot.nav.picker_open = true;
+    snapshot.nav.confirm_open = true;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_CONFIRM,
+                      "a confirmation should outrank every other overlay");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_SHOULDERS) != MESH_STR_NONE,
+                      "an overlay should not offer the tabs it cannot reach");
+
+    snapshot.nav.confirm_open = false;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_CHOOSE,
+                      "the picker should outrank the keyboard under it");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_SHOULDERS) != MESH_STR_ACTION_JUMP,
+                      "the shoulders should jump ten rows inside a long picker");
+
+    /* The keyboard's START is the one verb that changes with what is being typed: a message is
+       sent, a settings field is finished with. */
+    snapshot.nav.picker_open = false;
+    snapshot.nav.keyboard_field = MESH_UI_FIELD_NONE;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_START) != MESH_STR_ACTION_SEND,
+                      "START should send a message being composed");
+
+    snapshot.nav.keyboard_field = (uint8_t)MESH_UI_FIELD_USER_LONG_NAME;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_START) != MESH_STR_ACTION_DONE,
+                      "START should finish a settings field rather than send it");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(actions_arm_before_they_destroy, unit) {
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_action_bar bar;
+
+    actions_snapshot(&snapshot);
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_X) != MESH_STR_ACTION_DELETE,
+                      "X should offer to delete a conversation");
+
+    snapshot.nav.messages_delete_armed = true;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_X) != MESH_STR_ACTION_CONFIRM_DELETE,
+                      "an armed delete should say that the next press goes through with it");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_B) != MESH_STR_ACTION_CANCEL,
+                      "an armed action should offer the way out of it");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_SHOULDERS) != MESH_STR_NONE,
+                      "an armed bar should say one thing, not four");
+
+    actions_snapshot(&snapshot);
+    snapshot.nav.screen = MESH_UI_SCREEN_NODES;
+    snapshot.nav.node_remove_armed = true;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_CONFIRM_REMOVE,
+                      "an armed node removal should say so");
+
+    actions_snapshot(&snapshot);
+    snapshot.nav.screen = MESH_UI_SCREEN_DEVICES;
+    snapshot.nav.devices_forget_armed = true;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_Y) != MESH_STR_ACTION_CONFIRM_FORGET,
+                      "an armed forget should say so");
+
+    actions_snapshot(&snapshot);
+    snapshot.nav.screen = MESH_UI_SCREEN_SETTINGS;
+    snapshot.nav.settings_section = (uint8_t)MESH_UI_SETTINGS_DEVICE;
+    snapshot.nav.settings_discard_armed = true;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_B) != MESH_STR_ACTION_CONFIRM_DISCARD,
+                      "an armed discard should say so");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_Y) != MESH_STR_ACTION_SAVE,
+                      "the way to keep the edits should stay on the bar beside the way to lose "
+                      "them");
+    record_success(test_name);
+}
+
+/*
+ * Every state the bar can be in, walked exhaustively rather than by hand.
+ *
+ * The bar drops actions it cannot fit, and it drops them silently - so a table that overran
+ * MESH_UI_ACTIONS_MAX would lose its last entry on the device and nowhere else. The same walk
+ * catches a table naming a string id the catalog does not have, which is the other failure
+ * that would only show up as a blank on screen.
+ */
+MESH_TEST_CASE(actions_every_state_is_well_formed, unit) {
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_action_bar bar;
+
+    for (unsigned flags = 0U; flags < 64U; ++flags) {
+        for (int screen = 0; screen < MESH_UI_SCREEN_COUNT; ++screen) {
+            actions_snapshot(&snapshot);
+            snapshot.nav.screen = (enum mesh_ui_screen)screen;
+            snapshot.nav.confirm_open = (flags & 1U) != 0U;
+            snapshot.nav.picker_open = (flags & 2U) != 0U;
+            snapshot.nav.keyboard_open = (flags & 4U) != 0U;
+            snapshot.nav.compose_open = (flags & 8U) != 0U;
+            snapshot.nav.thread_open = (flags & 16U) != 0U;
+            snapshot.nav.node_detail_open = (flags & 16U) != 0U;
+            snapshot.nav.settings_edit_count = (flags & 16U) != 0U ? 1U : 0U;
+            snapshot.nav.inbox = (flags & 32U) != 0U;
+            snapshot.nav.keyboard_passkey = (flags & 32U) != 0U;
+            snapshot.nav.pairing_confirm = (flags & 16U) != 0U;
+
+            mesh_ui_actions_for(&snapshot, &bar);
+            MESH_TEST_FAIL_IF(bar.count > MESH_UI_ACTIONS_MAX,
+                              "a table overran the bar and would lose its last action");
+            MESH_TEST_FAIL_IF(bar.count == 0U, "every state should say what its buttons do");
+            for (size_t i = 0; i < bar.count; ++i) {
+                MESH_TEST_FAIL_IF(bar.items[i].label == MESH_STR_NONE,
+                                  "an action should carry a verb");
+                MESH_TEST_FAIL_IF(mesh_str(bar.items[i].label)[0] == '\0',
+                                  "an action's verb should be in the catalog");
+                const char *cap = mesh_ui_button_cap(bar.items[i].button);
+                MESH_TEST_FAIL_IF(cap == NULL || cap[0] == '\0',
+                                  "every button on the bar should have a keycap to draw");
+            }
+        }
+    }
+    record_success(test_name);
+}
+
+/* A cap is what is printed on the case, so it is never a catalog id and never empty - including
+   for a button outside the enum, which a backend must be able to draw rather than crash on. */
+MESH_TEST_CASE(actions_keycaps_are_always_drawable, unit) {
+    for (int i = 0; i < MESH_UI_BUTTON_COUNT; ++i) {
+        const char *cap = mesh_ui_button_cap((enum mesh_ui_button)i);
+        MESH_TEST_FAIL_IF(cap == NULL || cap[0] == '\0', "every button should have a keycap");
+    }
+    MESH_TEST_FAIL_IF(mesh_ui_button_cap((enum mesh_ui_button)MESH_UI_BUTTON_COUNT) == NULL,
+                      "a button outside the enum should still return something to draw");
+    MESH_TEST_FAIL_IF(strcmp(mesh_ui_button_cap(MESH_UI_BUTTON_A), "A") != 0,
+                      "A's cap is what is printed beside it");
+    record_success(test_name);
+}
+
+/* A snapshot that is not there is not a screen with default controls. */
+MESH_TEST_CASE(actions_no_snapshot_is_an_empty_bar, unit) {
+    struct mesh_ui_action_bar bar;
+    memset(&bar, 0xAB, sizeof bar);
+    mesh_ui_actions_for(NULL, &bar);
+    MESH_TEST_FAIL_IF(bar.count != 0U, "a missing snapshot should describe nothing");
+    mesh_ui_actions_for(NULL, NULL); /* must not crash */
+    record_success(test_name);
+}
