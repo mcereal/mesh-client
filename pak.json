@@ -1,17 +1,17 @@
 {
   "name": "MeshClient",
-  "version": "v2.33.0",
+  "version": "v2.33.1",
   "type": "TOOL",
   "description": "A Meshtastic client for your handheld: read and send messages, browse the mesh, and edit your radio's settings over Bluetooth LE or USB.",
   "author": "mcereal",
   "repo_url": "https://github.com/mcereal/mesh-client",
   "release_filename": "MeshClient.pak.zip",
   "changelog": {
+    "v2.33.1": "Retry a timed-out ServicesResolved poll instead of ending the link; Return from the event loop within its own timeout.",
     "v2.33.0": "A sparkline, and the sample ring behind it; Break a battery trend across external power, and keep the line legible under the cursor.",
     "v2.32.1": "Draw the clock from a seam, so a screenshot is reproducible.",
     "v2.32.0": "Slide between screens, from a route derived off the nav; Let the tab strip decide a transition's direction, both ways round.",
-    "v2.31.0": "Add the slider, and say which numbers are a scale; Place a slider's stops after the fill, and refuse anything under its bottom stop.",
-    "v2.30.0": "Add the screen progress bar and the banner."
+    "v2.31.0": "Add the slider, and say which numbers are a scale; Place a slider's stops after the fill, and refuse anything under its bottom stop."
   },
   "screenshots": [
     ".github/resources/screenshots/nodes.png",

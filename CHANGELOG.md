@@ -1,3 +1,10 @@
+## [2.33.1](https://github.com/mcereal/mesh-client/compare/v2.33.0...v2.33.1) (2026-09-07)
+
+### Bug Fixes
+
+* **ble:** retry a timed-out ServicesResolved poll instead of ending the link ([e65e566](https://github.com/mcereal/mesh-client/commit/e65e566631e1d3ad448a9ee5b9cbe3fb28c3e578))
+* **core:** return from the event loop within its own timeout ([3ce22c0](https://github.com/mcereal/mesh-client/commit/3ce22c005649464cd58e2324c3ac17832e019030))
+
 ## [2.33.0](https://github.com/mcereal/mesh-client/compare/v2.32.1...v2.33.0) (2026-09-07)
 
 ### Features
