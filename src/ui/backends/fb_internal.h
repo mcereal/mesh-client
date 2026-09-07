@@ -69,6 +69,21 @@ struct mesh_ui_backend_fb_state {
      */
     uint64_t now_ms;
     struct mesh_ui_anim_table anim;
+    /*
+     * The notice the snackbar is showing.
+     *
+     * The animation table remembers where the container has slid to; this remembers *what is
+     * written on it*, and it is here for the second half of the same reason. A snackbar leaves
+     * by sliding out, and by the time it does the store has already forgotten the text - the
+     * nav clears an expired toast, which is what makes the next frame happen at all. Without a
+     * copy the container would slide out blank, or more likely vanish on the frame it expired
+     * and never slide at all.
+     *
+     * It is also what tells one notice from the next: a toast arriving while another is up is
+     * a second arrival, not a text swap, and comparing against this is how the widget knows.
+     */
+    char snackbar[MESH_UI_NAV_TOAST_MAX];
+    uint64_t snackbar_until_ms; /* the deadline that identifies it; see struct fb_snackbar */
 };
 
 /*

@@ -677,6 +677,53 @@ struct fb_dialog {
 void fb_draw_dialog(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
                     const struct fb_dialog *dialog);
 
+/* ---- the snackbar -------------------------------------------------------------------------
+ *
+ * The transient notice: "Sent to BRVO", "Not connected", "Rebooting".
+ *
+ * It used to be the footer's second line, in the accent, sharing that row with the link
+ * summary - which meant the two competed for one line and the notice won, so for four seconds
+ * after every action the frame stopped saying whether there was a radio attached. Neither is
+ * secondary to the other; they were only sharing a row because a row was what a notice had.
+ *
+ * So it is a container of its own, over the body rather than in the chrome, and it arrives by
+ * sliding up from below the panel and leaves the same way. That is the whole point of the
+ * shape: a notice that appears in place has to be *noticed* to be read, and on a handheld the
+ * eye is usually somewhere else at the moment it appears. Movement is what gets it back.
+ *
+ * Everything about it that cannot come from the snapshot - where it has slid to, what it says
+ * while it slides back out after the store has forgotten it - is remembered on the state, next
+ * to the animation table and for the same reason. See struct mesh_ui_backend_fb_state.
+ *
+ * Drawn last of everything on the frame, because it is over the UI rather than in it.
+ */
+struct fb_snackbar {
+    /* The notice; NULL or empty means there is none, which is also what makes one already on
+       screen start sliding back out. */
+    const char *text;
+    /*
+     * When the store means to take it away, which the widget uses as the notice's *identity*
+     * rather than as a deadline - expiry is the nav's business and it has already done it by
+     * the time the text arrives empty.
+     *
+     * It is here because two notices can read the same: pressing send twice with no radio
+     * attached raises "Not connected" twice, and the second one has to arrive rather than sit
+     * there looking like the first never left. A deadline moves every time a notice is raised,
+     * so it tells them apart when the words cannot.
+     */
+    uint64_t until_ms;
+};
+
+/*
+ * Draws the notice, advancing it towards its resting place - or off the bottom of the panel
+ * when there is none left to show. Nothing is drawn once it has gone.
+ *
+ * Mutable state, like every animated component here: the position it is coming from and the
+ * words it is still carrying both live on the state.
+ */
+void fb_draw_snackbar(struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                      const struct fb_snackbar *bar);
+
 /* "Messages (12)", or "Messages (12, +40 older)" when a ring has dropped some. */
 void fb_title_count(char *out, size_t out_len, const char *name, uint32_t count, uint32_t dropped);
 

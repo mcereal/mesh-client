@@ -1256,6 +1256,143 @@ bool fb_draw_card(const struct mesh_ui_backend_fb_state *state, const struct fb_
     return true;
 }
 
+/* ---- the snackbar ------------------------------------------------------------------------ */
+
+/*
+ * The snackbar's key in the animation table.
+ *
+ * Every other id in there is a control's identity handed in by a screen - a settings field, a
+ * row index - and those are small enumerator values. There is exactly one snackbar and no
+ * screen owns it, so it takes a constant from the far end of the range, where nothing a screen
+ * can pass will ever land.
+ */
+#define FB_ANIM_ID_SNACKBAR 0xFFFFFF01U
+
+/*
+ * How long it takes to arrive, and how long to leave.
+ *
+ * Not the same number, and the asymmetry is the point: arriving is the part that has to be
+ * seen, leaving is the part that has to be out of the way. It is the shape of every platform's
+ * transient-notice motion, and roughly Material's own 150/75 stretched for a panel this size.
+ */
+#define FB_SNACKBAR_IN_MS 220U
+#define FB_SNACKBAR_OUT_MS 150U
+
+/* Material allows one line or two, and two is where a notice stops being one on a 3.2" panel.
+   Anything longer is clipped rather than allowed to grow into the body. */
+#define FB_SNACKBAR_LINES_MAX 2U
+
+void fb_draw_snackbar(struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                      const struct fb_snackbar *bar) {
+    if (state == NULL || layout == NULL) {
+        return;
+    }
+
+    const char *const text = (bar != NULL && bar->text != NULL) ? bar->text : "";
+    const bool showing = (text[0] != '\0');
+
+    if (showing &&
+        (bar->until_ms != state->snackbar_until_ms || strcmp(text, state->snackbar) != 0)) {
+        /*
+         * A different notice, so it *arrives* rather than swapping its words.
+         *
+         * The table is put back to nothing with a zero duration first, then aimed at the
+         * resting place below - which is the only way to get an entrance out of it, since
+         * re-aiming at a target it already holds is deliberately a no-op and a slot seen for
+         * the first time adopts its target rather than animating to it. Both of those are what
+         * stops a switch sliding on the frame a screen opens; here they have to be stepped
+         * around, because a notice appearing is exactly the thing worth showing.
+         */
+        (void)mesh_str_copy(state->snackbar, sizeof state->snackbar, text);
+        state->snackbar_until_ms = bar->until_ms;
+        (void)mesh_ui_anim_track(&state->anim, FB_ANIM_ID_SNACKBAR, state->now_ms, 0, 0U,
+                                 MESH_UI_EASE_OUT);
+    }
+    if (state->snackbar[0] == '\0') {
+        return;
+    }
+
+    const int32_t position = mesh_ui_anim_track(
+        &state->anim, FB_ANIM_ID_SNACKBAR, state->now_ms, showing ? MESH_UI_ANIM_ONE : 0,
+        showing ? FB_SNACKBAR_IN_MS : FB_SNACKBAR_OUT_MS, MESH_UI_EASE_OUT);
+    if (!showing && position == 0) {
+        /* All the way out. The store forgot the words several frames ago; now so does this,
+           and the next notice starts from an empty slot rather than from this one's. */
+        state->snackbar[0] = '\0';
+        state->snackbar_until_ms = 0U;
+        return;
+    }
+
+    const int scale = state->scale;
+    const int adv = fb_char_adv(state, scale);
+    const int line = fb_line_adv(state, scale);
+    const int margin = fb_margin(state);
+    /* A cell in from each edge and a proportional band above and below: a container's padding
+       is measured in the same units as what it holds, so a theme asking for bigger text gets a
+       proportionally roomier bar rather than a tighter one. */
+    const int pad_x = adv;
+    const int pad_y = scale * 2;
+
+    const int room = (int)state->var.xres - 2 * margin - 2 * pad_x;
+    if (room < adv || line <= 0) {
+        return; /* a geometry too small to hold one cell of it; nothing to say here */
+    }
+    const size_t max_cols = (size_t)(room / adv);
+
+    uint32_t lines = mesh_ui_wrap_lines(state->snackbar, max_cols);
+    if (lines == 0U) {
+        lines = 1U;
+    }
+    if (lines > FB_SNACKBAR_LINES_MAX) {
+        lines = FB_SNACKBAR_LINES_MAX;
+    }
+    /* Sized to its own words rather than to the panel, the way a bubble is: a bar the full
+       width of the screen is a region of the chrome, and a notice is one thing that arrived. */
+    size_t cols = mesh_ui_wrap_widest(state->snackbar, max_cols);
+    if (cols == 0U) {
+        cols = 1U;
+    }
+
+    const int box_w = (int)cols * adv + 2 * pad_x;
+    /* Centred on the panel rather than against the leading margin. A bar sized to its own words
+       and pinned to the left edge reads as the start of a row that ran out of things to say -
+       which is what the footer line it replaced was. Centred, it reads as one object placed
+       over the screen, and it stays put as the wording changes length instead of growing
+       rightwards out of a fixed corner. */
+    const int box_x = ((int)state->var.xres - box_w) / 2;
+    const int box_h = (int)lines * line + 2 * pad_y;
+    /* Where it comes to rest: over the bottom of the body, a full margin clear of the footer.
+       A card stops half a margin short of the footer because a card is *in* the body and the
+       body's own bottom edge is where it belongs; this one is over everything, so it keeps the
+       distance the panel edge keeps rather than the one the body does. */
+    const int rest_y = layout->footer_y - margin - box_h;
+    /* And where it comes from: entirely below the panel. A container that slid in from just
+       off its resting place reads as a nudge; one that comes up from off-screen reads as
+       something arriving, which is the whole of what this shape is for. */
+    const int off_y = (int)state->var.yres;
+    const int y = off_y + (int)(((int64_t)(rest_y - off_y) * position) / MESH_UI_ANIM_ONE);
+
+    /*
+     * The inverted surface, and no edge on it.
+     *
+     * A card needs a hairline because its fill is one step off the ground and the step alone is
+     * not findable in daylight. This one is the other end of the palette - the furthest from
+     * the ground the theme has - so the fill is the whole cue, and an outline over it would be
+     * drawing a border around the most obvious thing on the panel.
+     */
+    fb_fill_round_rect(state, box_x, y, box_w, box_h, fb_radius(state, MESH_UI_SHAPE_SM),
+                       fb_color(state, MESH_UI_COLOR_SURFACE_INVERSE));
+
+    const struct mesh_ui_rgb ink = fb_color(state, MESH_UI_COLOR_TEXT_ON_INVERSE);
+    struct mesh_ui_wrap wrap;
+    mesh_ui_wrap_begin(&wrap, state->snackbar, max_cols);
+    int text_y = y + pad_y;
+    for (uint32_t drawn = 0U; drawn < lines && mesh_ui_wrap_next(&wrap); ++drawn) {
+        fb_draw_text(state, box_x + pad_x, text_y, wrap.line, scale, ink);
+        text_y += line;
+    }
+}
+
 void fb_title_count(char *out, size_t out_len, const char *name, uint32_t count, uint32_t dropped) {
     if (dropped > 0U) {
         mesh_str_format(out, out_len, MESH_STR_LIST_TITLE_COUNT_OLDER, name, count, dropped);

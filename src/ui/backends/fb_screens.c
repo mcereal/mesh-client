@@ -166,7 +166,14 @@ static void fb_draw_tabs(const struct mesh_ui_backend_fb_state *state,
     layout->body_y = bar_h + 2 * small + margin / 2;
 }
 
-/* Two lines under the body: what the buttons do here, then a toast or the link summary. */
+/*
+ * Two lines under the body: what the buttons do here, then the link summary.
+ *
+ * The second line used to be shared with the transient notice, which took it whenever there was
+ * one. That made every action blank the answer to "is there a radio attached?" for four
+ * seconds - two unrelated facts taking turns on one row because the notice had nowhere else to
+ * be. It has somewhere now (fb_draw_snackbar), so both lines say one thing each, always.
+ */
 static void fb_draw_footer(const struct mesh_ui_backend_fb_state *state,
                            const struct mesh_ui_snapshot *snapshot, const struct fb_layout *layout,
                            const char *hint) {
@@ -180,24 +187,17 @@ static void fb_draw_footer(const struct mesh_ui_backend_fb_state *state,
     fb_draw_text(state, fb_margin(state), layout->footer_y, mesh_ui_line_text(&line), small,
                  fb_tone_color(state, MESH_UI_TONE_DIM));
 
-    const struct mesh_ui_nav *nav = &snapshot->nav;
     enum mesh_ui_tone tone = MESH_UI_TONE_DIM;
     mesh_ui_line_reset(&line);
-    if (nav->toast[0] != '\0') {
-        mesh_ui_line_printf(&line, "%s", nav->toast);
-        tone = MESH_UI_TONE_ACCENT;
+    const char *status = snapshot->transport_status[0] != '\0'
+                             ? snapshot->transport_status
+                             : mesh_str(MESH_STR_HEADER_TRANSPORT_STARTING);
+    const struct mesh_ui_device *device = fb_connected_device(snapshot);
+    if (device != NULL) {
+        mesh_ui_line_str(&line, MESH_STR_HEADER_STATUS_CONNECTED, status, fb_device_label(device));
+        tone = MESH_UI_TONE_GOOD;
     } else {
-        const char *status = snapshot->transport_status[0] != '\0'
-                                 ? snapshot->transport_status
-                                 : mesh_str(MESH_STR_HEADER_TRANSPORT_STARTING);
-        const struct mesh_ui_device *device = fb_connected_device(snapshot);
-        if (device != NULL) {
-            mesh_ui_line_str(&line, MESH_STR_HEADER_STATUS_CONNECTED, status,
-                             fb_device_label(device));
-            tone = MESH_UI_TONE_GOOD;
-        } else {
-            mesh_ui_line_str(&line, MESH_STR_HEADER_STATUS_QUIT, status, mesh_ui_input_quit_hint());
-        }
+        mesh_ui_line_str(&line, MESH_STR_HEADER_STATUS_QUIT, status, mesh_ui_input_quit_hint());
     }
     mesh_ui_line_fit(&line, cols);
     fb_draw_text(state, fb_margin(state), layout->footer_y + fb_line_adv(state, small),
@@ -1706,20 +1706,20 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
     const int body_height = layout.footer_y - layout.body_y - margin / 2;
     layout.rows = body_height > 0 ? (uint32_t)(body_height / layout.line) : 0U;
 
+    /*
+     * One tail for every path through this function, which is what lets the chrome below it be
+     * written once. The overlays used to draw the footer and return, and each of the four
+     * carried its own copy of that call - so anything drawn over the whole frame (the notice
+     * below is the first) had to be added in five places or be missing from four screens.
+     */
     const char *hint = mesh_str(MESH_STR_HINT_DEFAULT);
     if (snapshot->nav.confirm_open) {
         hint = mesh_str(MESH_STR_HINT_CONFIRM);
         fb_render_confirm(state, snapshot, &layout);
-        fb_draw_footer(state, snapshot, &layout, hint);
-        return;
-    }
-    if (snapshot->nav.picker_open) {
+    } else if (snapshot->nav.picker_open) {
         hint = mesh_str(MESH_STR_HINT_ENUM_PICKER);
         fb_render_picker(state, snapshot, &layout);
-        fb_draw_footer(state, snapshot, &layout, hint);
-        return;
-    }
-    if (snapshot->nav.keyboard_open) {
+    } else if (snapshot->nav.keyboard_open) {
         if (snapshot->nav.keyboard_passkey) {
             hint = snapshot->nav.pairing_confirm ? mesh_str(MESH_STR_HINT_PAIRING_CONFIRM)
                                                  : mesh_str(MESH_STR_HINT_PAIRING_ENTRY);
@@ -1729,74 +1729,81 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
                        : mesh_str(MESH_STR_HINT_KEYBOARD_MESSAGE);
         }
         fb_render_keyboard(state, snapshot, &layout);
-        fb_draw_footer(state, snapshot, &layout, hint);
-        return;
-    }
-    if (snapshot->nav.compose_open) {
+    } else if (snapshot->nav.compose_open) {
         hint = mesh_str(MESH_STR_HINT_CANNED);
         fb_render_compose(state, snapshot, &layout);
-        fb_draw_footer(state, snapshot, &layout, hint);
-        return;
-    }
-    switch (snapshot->nav.screen) {
-    case MESH_UI_SCREEN_MESSAGES:
-        if (!snapshot->nav.thread_open) {
-            hint = snapshot->nav.messages_delete_armed ? mesh_str(MESH_STR_HINT_CONVERSATION_DELETE)
-                                                       : mesh_str(MESH_STR_HINT_CONVERSATIONS);
-            fb_render_conversations(state, snapshot, &layout);
-        } else {
-            hint = snapshot->nav.inbox ? mesh_str(MESH_STR_HINT_INBOX)
-                                       : mesh_str(MESH_STR_HINT_THREAD);
-            fb_render_thread(state, snapshot, &layout);
+    } else {
+        switch (snapshot->nav.screen) {
+        case MESH_UI_SCREEN_MESSAGES:
+            if (!snapshot->nav.thread_open) {
+                hint = snapshot->nav.messages_delete_armed
+                           ? mesh_str(MESH_STR_HINT_CONVERSATION_DELETE)
+                           : mesh_str(MESH_STR_HINT_CONVERSATIONS);
+                fb_render_conversations(state, snapshot, &layout);
+            } else {
+                hint = snapshot->nav.inbox ? mesh_str(MESH_STR_HINT_INBOX)
+                                           : mesh_str(MESH_STR_HINT_THREAD);
+                fb_render_thread(state, snapshot, &layout);
+            }
+            break;
+        case MESH_UI_SCREEN_NODES:
+            hint = snapshot->nav.node_remove_armed  ? mesh_str(MESH_STR_HINT_NODE_REMOVE)
+                   : snapshot->nav.node_detail_open ? mesh_str(MESH_STR_HINT_NODE_DETAIL)
+                                                    : mesh_str(MESH_STR_HINT_NODES);
+            fb_render_nodes(state, snapshot, &layout);
+            break;
+        case MESH_UI_SCREEN_DEVICES:
+            hint = snapshot->nav.devices_forget_armed ? mesh_str(MESH_STR_HINT_DEVICES_FORGET)
+                                                      : mesh_str(MESH_STR_HINT_DEVICES);
+            fb_render_devices(state, snapshot, &layout);
+            break;
+        case MESH_UI_SCREEN_SETTINGS:
+            if (snapshot->nav.settings_section == MESH_UI_SETTINGS_NO_SECTION) {
+                hint = mesh_str(MESH_STR_HINT_SETTINGS_ROOT);
+            } else if (snapshot->nav.settings_discard_armed) {
+                hint = mesh_str(MESH_STR_HINT_SETTINGS_DISCARD);
+            } else if (snapshot->nav.settings_edit_count > 0U) {
+                hint = mesh_str(MESH_STR_HINT_SETTINGS_EDIT_SAVE);
+            } else if (snapshot->nav.settings_section == MESH_UI_SETTINGS_CHANNELS &&
+                       snapshot->nav.settings_channel == MESH_UI_SETTINGS_NO_CHANNEL) {
+                hint = mesh_str(MESH_STR_HINT_SETTINGS_CHANNELS);
+            } else if (snapshot->nav.settings_section == MESH_UI_SETTINGS_MODULES) {
+                /* A list, not a section: nothing on it is editable, so the edit keys would be
+                   advertising a press that does nothing. The same branch the channel list has. */
+                hint = mesh_str(MESH_STR_HINT_SETTINGS_MODULES);
+            } else if (snapshot->nav.settings_section == MESH_UI_SETTINGS_ABOUT) {
+                /* Nothing here is editable and nothing here comes from the radio, so neither the
+                   edit keys nor X mean anything. */
+                hint = mesh_str(MESH_STR_HINT_SETTINGS_ACTIONS);
+            } else {
+                hint = mesh_str(MESH_STR_HINT_SETTINGS_SECTION);
+            }
+            fb_render_settings(state, snapshot, &layout);
+            break;
+        case MESH_UI_SCREEN_STATUS:
+        default:
+            /* Status has no controls of its own, so the footer says the one thing the Brick's
+               chrome cannot: how to get out. It used to be a body row on this screen, which is the
+               only screen that ever put a hint in the body - the footer is where every other screen
+               says what the buttons do, and the body row it frees is one the cards spend. Only
+               while a radio is attached, though: the line under this one already ends in the quit
+               hint when there is none, and the same sentence twice reads as a rendering fault. */
+            hint = fb_connected_device(snapshot) != NULL ? mesh_ui_input_quit_hint()
+                                                         : mesh_str(MESH_STR_HINT_TABS_ONLY);
+            fb_render_status(state, snapshot, &layout);
+            break;
         }
-        break;
-    case MESH_UI_SCREEN_NODES:
-        hint = snapshot->nav.node_remove_armed  ? mesh_str(MESH_STR_HINT_NODE_REMOVE)
-               : snapshot->nav.node_detail_open ? mesh_str(MESH_STR_HINT_NODE_DETAIL)
-                                                : mesh_str(MESH_STR_HINT_NODES);
-        fb_render_nodes(state, snapshot, &layout);
-        break;
-    case MESH_UI_SCREEN_DEVICES:
-        hint = snapshot->nav.devices_forget_armed ? mesh_str(MESH_STR_HINT_DEVICES_FORGET)
-                                                  : mesh_str(MESH_STR_HINT_DEVICES);
-        fb_render_devices(state, snapshot, &layout);
-        break;
-    case MESH_UI_SCREEN_SETTINGS:
-        if (snapshot->nav.settings_section == MESH_UI_SETTINGS_NO_SECTION) {
-            hint = mesh_str(MESH_STR_HINT_SETTINGS_ROOT);
-        } else if (snapshot->nav.settings_discard_armed) {
-            hint = mesh_str(MESH_STR_HINT_SETTINGS_DISCARD);
-        } else if (snapshot->nav.settings_edit_count > 0U) {
-            hint = mesh_str(MESH_STR_HINT_SETTINGS_EDIT_SAVE);
-        } else if (snapshot->nav.settings_section == MESH_UI_SETTINGS_CHANNELS &&
-                   snapshot->nav.settings_channel == MESH_UI_SETTINGS_NO_CHANNEL) {
-            hint = mesh_str(MESH_STR_HINT_SETTINGS_CHANNELS);
-        } else if (snapshot->nav.settings_section == MESH_UI_SETTINGS_MODULES) {
-            /* A list, not a section: nothing on it is editable, so the edit keys would be
-               advertising a press that does nothing. The same branch the channel list has. */
-            hint = mesh_str(MESH_STR_HINT_SETTINGS_MODULES);
-        } else if (snapshot->nav.settings_section == MESH_UI_SETTINGS_ABOUT) {
-            /* Nothing here is editable and nothing here comes from the radio, so neither the
-               edit keys nor X mean anything. */
-            hint = mesh_str(MESH_STR_HINT_SETTINGS_ACTIONS);
-        } else {
-            hint = mesh_str(MESH_STR_HINT_SETTINGS_SECTION);
-        }
-        fb_render_settings(state, snapshot, &layout);
-        break;
-    case MESH_UI_SCREEN_STATUS:
-    default:
-        /* Status has no controls of its own, so the footer says the one thing the Brick's chrome
-           cannot: how to get out. It used to be a body row on this screen, which is the only
-           screen that ever put a hint in the body - the footer is where every other screen says
-           what the buttons do, and the body row it frees is one the cards spend. Only while a
-           radio is attached, though: the line under this one already ends in the quit hint when
-           there is none, and the same sentence twice reads as a rendering fault. */
-        hint = fb_connected_device(snapshot) != NULL ? mesh_ui_input_quit_hint()
-                                                     : mesh_str(MESH_STR_HINT_TABS_ONLY);
-        fb_render_status(state, snapshot, &layout);
-        break;
     }
 
     fb_draw_footer(state, snapshot, &layout, hint);
+    /*
+     * Last, because it is over the UI rather than in it: a notice that a screen could paint
+     * over is a notice that is only visible on the screens that happen not to reach the bottom
+     * of the body.
+     */
+    const struct fb_snackbar snackbar = {
+        .text = snapshot->nav.toast,
+        .until_ms = snapshot->nav.toast_until_ms,
+    };
+    fb_draw_snackbar(state, &layout, &snackbar);
 }

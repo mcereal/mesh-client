@@ -74,11 +74,16 @@ static const struct mesh_ui_theme k_themes[] = {
                 [MESH_UI_COLOR_SURFACE_HIGH] = RGB(0x1C, 0x2E, 0x42),
                 [MESH_UI_COLOR_SURFACE_SEL] = RGB(40, 80, 120),
                 [MESH_UI_COLOR_SURFACE_ACTIVE] = RGB(60, 110, 170),
+                /* The other end of the palette: near enough to the light theme's ground that a
+                   notice on it reads as a piece of another UI laid over this one, which is
+                   exactly what a snackbar is meant to look like. */
+                [MESH_UI_COLOR_SURFACE_INVERSE] = RGB(226, 232, 240),
                 [MESH_UI_COLOR_TEXT] = RGB(220, 230, 240),
                 [MESH_UI_COLOR_TEXT_DIM] = RGB(140, 150, 165),
                 [MESH_UI_COLOR_TEXT_STRONG] = RGB(255, 255, 255),
                 [MESH_UI_COLOR_TEXT_ON_SEL] = RGB(255, 255, 255),
                 [MESH_UI_COLOR_TEXT_ON_SEL_DIM] = RGB(190, 208, 226),
+                [MESH_UI_COLOR_TEXT_ON_INVERSE] = RGB(16, 27, 40),
                 [MESH_UI_COLOR_ACCENT] = RGB(255, 220, 120),
                 /* Dark text on the accent fill: white on that yellow is unreadable at this
                    glyph size. */
@@ -141,11 +146,15 @@ static const struct mesh_ui_theme k_themes[] = {
                 [MESH_UI_COLOR_SURFACE_HIGH] = RGB(220, 226, 235),
                 [MESH_UI_COLOR_SURFACE_SEL] = RGB(200, 219, 242),
                 [MESH_UI_COLOR_SURFACE_ACTIVE] = RGB(154, 193, 236),
+                /* Downwards here too: on paper the far end is a slate the ink comes off, not a
+                   deeper tier of the same paper. */
+                [MESH_UI_COLOR_SURFACE_INVERSE] = RGB(42, 51, 64),
                 [MESH_UI_COLOR_TEXT] = RGB(24, 32, 44),
                 [MESH_UI_COLOR_TEXT_DIM] = RGB(92, 104, 120),
                 [MESH_UI_COLOR_TEXT_STRONG] = RGB(8, 14, 24),
                 [MESH_UI_COLOR_TEXT_ON_SEL] = RGB(12, 20, 32),
                 [MESH_UI_COLOR_TEXT_ON_SEL_DIM] = RGB(70, 84, 104),
+                [MESH_UI_COLOR_TEXT_ON_INVERSE] = RGB(238, 241, 246),
                 [MESH_UI_COLOR_ACCENT] = RGB(160, 72, 0),
                 [MESH_UI_COLOR_ON_ACCENT] = RGB(255, 255, 255),
                 /* An apricot rather than the palest tint of the accent: on a paper ground the
@@ -195,11 +204,16 @@ static const struct mesh_ui_theme k_themes[] = {
                 [MESH_UI_COLOR_SURFACE_HIGH] = RGB(42, 42, 42),
                 [MESH_UI_COLOR_SURFACE_SEL] = RGB(255, 255, 255),
                 [MESH_UI_COLOR_SURFACE_ACTIVE] = RGB(255, 214, 0),
+                /* The same inverse video the cursor is, because on this theme that *is* the
+                   other end of the palette - there is nothing between black and white to hold
+                   back to. */
+                [MESH_UI_COLOR_SURFACE_INVERSE] = RGB(255, 255, 255),
                 [MESH_UI_COLOR_TEXT] = RGB(255, 255, 255),
                 [MESH_UI_COLOR_TEXT_DIM] = RGB(196, 196, 196),
                 [MESH_UI_COLOR_TEXT_STRONG] = RGB(255, 255, 255),
                 [MESH_UI_COLOR_TEXT_ON_SEL] = RGB(0, 0, 0),
                 [MESH_UI_COLOR_TEXT_ON_SEL_DIM] = RGB(72, 72, 72),
+                [MESH_UI_COLOR_TEXT_ON_INVERSE] = RGB(0, 0, 0),
                 [MESH_UI_COLOR_ACCENT] = RGB(255, 214, 0),
                 [MESH_UI_COLOR_ON_ACCENT] = RGB(0, 0, 0),
                 /* The accent at full strength, exactly as ACCENT/ON_ACCENT. A container is the
@@ -247,11 +261,15 @@ static const struct mesh_ui_theme k_themes[] = {
                 [MESH_UI_COLOR_SURFACE_HIGH] = RGB(0x1C, 0x2E, 0x42),
                 [MESH_UI_COLOR_SURFACE_SEL] = RGB(40, 80, 120),
                 [MESH_UI_COLOR_SURFACE_ACTIVE] = RGB(60, 110, 170),
+                /* A neutral, as on the dark theme: the notice is found by being the wrong way
+                   up rather than by a hue, which is the one cue this theme can always spend. */
+                [MESH_UI_COLOR_SURFACE_INVERSE] = RGB(226, 232, 240),
                 [MESH_UI_COLOR_TEXT] = RGB(226, 232, 240),
                 [MESH_UI_COLOR_TEXT_DIM] = RGB(146, 156, 170),
                 [MESH_UI_COLOR_TEXT_STRONG] = RGB(255, 255, 255),
                 [MESH_UI_COLOR_TEXT_ON_SEL] = RGB(255, 255, 255),
                 [MESH_UI_COLOR_TEXT_ON_SEL_DIM] = RGB(190, 208, 226),
+                [MESH_UI_COLOR_TEXT_ON_INVERSE] = RGB(12, 22, 34),
                 [MESH_UI_COLOR_ACCENT] = RGB(204, 121, 167),
                 [MESH_UI_COLOR_ON_ACCENT] = RGB(0x0A, 0x14, 0x1E),
                 /* The reddish purple taken down to a plum, with a pale tint of the same hue on
@@ -565,6 +583,10 @@ static const struct theme_pair k_required[] = {
        drawn dim, and the active one is the container pair below. */
     {MESH_UI_COLOR_TEXT_DIM, MESH_UI_COLOR_SURFACE_LOW, 3.0},
     {MESH_UI_COLOR_ON_ACCENT_CONTAINER, MESH_UI_COLOR_ACCENT_CONTAINER, 4.5},
+    /* The snackbar. It is a sentence the user has four seconds to read while looking at
+       something else, so it gets the body threshold rather than the secondary one - and the
+       inverted fill is only worth having if what is written on it is legible. */
+    {MESH_UI_COLOR_TEXT_ON_INVERSE, MESH_UI_COLOR_SURFACE_INVERSE, 4.5},
     /* Two colours outside the avatar palette are drawn as avatar tints, and an avatar's
        initials are the ground colour: the accent, on the conversation-list rows that are not
        somebody, and the bad tone, on a row armed to be deleted. Both owe the ground what every

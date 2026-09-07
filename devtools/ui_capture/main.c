@@ -27,7 +27,9 @@
  *   key NAME [COUNT]       up down left right a b x y l1 r1 start select
  *   hold MS                add MS to the delay of the frame just emitted
  *   frame                  emit the current screen again
- *   toast TEXT             raise the transient notice backends draw in the footer
+ *   toast TEXT             raise the transient notice - the snackbar. It times out on the
+ *                          scene's own clock, so a `hold` past four seconds and a `frame`
+ *                          film it sliding back out again
  *   message in|out NAME TEXT   append a message to the log, as if the radio had just said so
  *   react NAME EMOJI       react to the newest message, as another node would
  *   alert NAME TEXT        a critical alert (ALERT_APP) on the channel
@@ -338,6 +340,11 @@ static void uicap_scene_empty(struct uicap *cap) {
 static void uicap_advance(struct uicap *cap, unsigned ms) {
     cap->now_ms += ms;
     mesh_ui_capture_advance(cap->capture, ms);
+    /* The housekeeping the event loop does on every turn, which for the store is one thing: a
+       transient notice expiring. Without it the scene's clock ran but nothing timed out, so a
+       `toast` stayed up for the rest of the script and a notice sliding *away* - the half of
+       that transition a still cannot show - was not filmable at all. */
+    mesh_ui_store_tick(&cap->store, cap->now_ms);
 }
 
 /*
@@ -770,6 +777,9 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
     if (strcmp(command, "frame") == 0) {
         uicap_start(cap);
         uicap_emit(cap);
+        /* Whatever the clock has started since the last frame - a notice that timed out during
+           a `hold` is the case - plays out here, the same way a press's does. */
+        uicap_settle(cap);
         return;
     }
 
@@ -788,6 +798,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         uicap_start(cap);
         mesh_ui_store_set_toast(&cap->store, cap->now_ms, uicap_tail(rest));
         uicap_emit(cap);
+        uicap_settle(cap);
         return;
     }
 

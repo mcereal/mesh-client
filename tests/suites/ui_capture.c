@@ -272,6 +272,141 @@ MESH_TEST_CASE(ui_capture_draws_the_conversation_items, unit) {
     record_success(test_name);
 }
 
+/*
+ * The topmost scanline carrying an unbroken run of `role` at least `min_run` pixels wide, or
+ * `height` when there is none. What says *where* a container is rather than whether it exists,
+ * which is the only way to ask whether something slid.
+ */
+static uint32_t topmost_row_run(const struct mesh_ui_capture *capture, const uint8_t *pixels,
+                                uint32_t width, uint32_t height, size_t stride,
+                                enum mesh_ui_color role, unsigned min_run) {
+    for (uint32_t y = 0U; y < height; ++y) {
+        const uint8_t *row = pixels + (size_t)y * stride;
+        unsigned run = 0U;
+        for (uint32_t x = 0U; x < width; ++x) {
+            run = pixel_is_role(capture, row + (size_t)x * 4U, role) ? run + 1U : 0U;
+            if (run >= min_run) {
+                return y;
+            }
+        }
+    }
+    return height;
+}
+
+/* Draws frames until nothing is moving, exactly as the event loop's repaint timer does. The
+   guard is against a widget that never settles - a bug, but not one that should hang a test. */
+static void render_until_still(struct mesh_ui_capture *capture,
+                               const struct mesh_ui_snapshot *snapshot) {
+    mesh_ui_capture_render(capture, snapshot);
+    for (unsigned i = 0U; i < 60U && mesh_ui_capture_animating(capture); ++i) {
+        mesh_ui_capture_advance(capture, 33U);
+        mesh_ui_capture_render(capture, snapshot);
+    }
+}
+
+/*
+ * The transient notice is a container that slides, not a line of accent text in the footer.
+ *
+ * Four things, and the middle two are the ones a still could not show:
+ *
+ *   - nothing of the inverted surface is on a frame with no notice up. That role has exactly
+ *     one user, so its absence and its presence are the whole test for "is there a snackbar".
+ *   - it is below its resting place on the frame it is raised on, and higher once the
+ *     animation has run out. That is the arrival, and it is the reason the notice moved out of
+ *     the footer at all.
+ *   - it comes to rest over the body rather than in the chrome: below the middle of the panel,
+ *     and spanning enough pixels to be a container rather than a glyph.
+ *   - it is gone again once the nav has dropped it *and* the slide back out has finished -
+ *     which is the half that needs the backend to keep the words after the store has forgotten
+ *     them, and would fail if it did not.
+ */
+MESH_TEST_CASE(ui_capture_slides_the_snackbar_in_and_out, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_capture *capture = NULL;
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, 4) != 0,
+        mesh_ui_store_shutdown(&store), "capture open failed");
+
+    uint32_t width = 0U;
+    uint32_t height = 0U;
+    size_t stride = 0U;
+    const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+
+    /* Wide enough that only a fill can produce it: a glyph at this scale is a few pixels of
+       stroke and the panel is 1024 across. */
+    const unsigned container_run = width / 8U;
+
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_ui_store_consume_updates(&store, &snapshot),
+                              mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store), "no snapshot to render");
+    render_until_still(capture, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(topmost_row_run(capture, pixels, width, height, stride,
+                                              MESH_UI_COLOR_SURFACE_INVERSE,
+                                              container_run) < height,
+                              mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "a frame with no notice up still draws the snackbar's surface");
+
+    mesh_ui_store_set_toast(&store, 1000U, "Sent to BRVO");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !mesh_ui_store_consume_updates(&store, &snapshot), mesh_ui_capture_close(capture);
+        mesh_ui_store_shutdown(&store), "raising a notice published no snapshot");
+
+    mesh_ui_capture_render(capture, &snapshot);
+    const uint32_t arriving = topmost_row_run(capture, pixels, width, height, stride,
+                                              MESH_UI_COLOR_SURFACE_INVERSE, container_run);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_ui_capture_animating(capture), mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "the notice appeared in place instead of sliding in");
+
+    render_until_still(capture, &snapshot);
+    const uint32_t resting = topmost_row_run(capture, pixels, width, height, stride,
+                                             MESH_UI_COLOR_SURFACE_INVERSE, container_run);
+    MESH_TEST_FAIL_IF_CLEANUP(resting >= height, mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "the notice never drew a container of the inverted surface");
+    MESH_TEST_FAIL_IF_CLEANUP(resting >= arriving, mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "the notice did not travel upwards into its resting place");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        resting < height / 2U, mesh_ui_capture_close(capture);
+        mesh_ui_store_shutdown(&store),
+        "the notice came to rest somewhere other than the bottom of the body");
+
+    /* Past the four seconds the nav gives it. The store forgets the words here; the backend has
+       to keep them long enough to draw the way out. */
+    mesh_ui_store_tick(&store, 9000U);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.toast[0] != '\0', mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store), "the notice did not expire");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !mesh_ui_store_consume_updates(&store, &snapshot), mesh_ui_capture_close(capture);
+        mesh_ui_store_shutdown(&store), "an expired notice published no snapshot");
+
+    mesh_ui_capture_render(capture, &snapshot);
+    const uint32_t leaving = topmost_row_run(capture, pixels, width, height, stride,
+                                             MESH_UI_COLOR_SURFACE_INVERSE, container_run);
+    MESH_TEST_FAIL_IF_CLEANUP(leaving >= height, mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "the notice vanished on expiry instead of sliding out");
+
+    render_until_still(capture, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        topmost_row_run(capture, pixels, width, height, stride, MESH_UI_COLOR_SURFACE_INVERSE,
+                        container_run) < height,
+        mesh_ui_capture_close(capture);
+        mesh_ui_store_shutdown(&store), "the notice is still on the panel after sliding out");
+
+    mesh_ui_capture_close(capture);
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_capture_follows_the_nav, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
