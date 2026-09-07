@@ -292,16 +292,38 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
         goto cleanup;
     }
 
-    /* Status has no rows; the cursor must stay at zero and A must be inert. */
+    /*
+     * Status has no list: its rows are the verbs its cards offer, walked flat. The fixture has
+     * a radio attached and a completed handshake, so both are on offer - Disconnect on the Link
+     * card and Refresh on the Radio card - and Down steps from one card's button to the other's.
+     */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
     if (store.nav.screen != MESH_UI_SCREEN_STATUS ||
-        store.nav.cursor[MESH_UI_SCREEN_STATUS] != 0U ||
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action) ||
-        action.type != MESH_UI_ACTION_NONE) {
-        failure = "Status tab must be inert";
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_STATUS) != 2U ||
+        store.nav.cursor[MESH_UI_SCREEN_STATUS] != 0U) {
+        failure = "Status should offer the two verbs its cards carry";
         goto cleanup;
     }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_DISCONNECT ||
+        strcmp(action.identifier, "AA:BB:CC:DD:EE:01") != 0) {
+        failure = "A on the Link card should drop the link it names";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.cursor[MESH_UI_SCREEN_STATUS] != 1U ||
+        action.type != MESH_UI_ACTION_REFRESH_SETTINGS) {
+        failure = "A on the Radio card should re-read the configuration";
+        goto cleanup;
+    }
+    /* And the cursor stops there: two verbs, no third card to step onto. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    if (store.nav.cursor[MESH_UI_SCREEN_STATUS] != 1U) {
+        failure = "DOWN must clamp at the last verb on Status";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
 
     /* Back in the all-traffic thread, a cursor on the newest line follows new traffic; one
        that was moved up stays where it was. */

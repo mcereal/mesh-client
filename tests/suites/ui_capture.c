@@ -207,6 +207,112 @@ MESH_TEST_CASE(ui_capture_draws_the_status_cards, unit) {
 }
 
 /*
+ * The three card variants, and the ring that says which card the next press acts on.
+ *
+ * Same approach as the case above - structure, never pixels. What is asked for is that the
+ * Status column is drawn at more than one weight: a card is one of three surface tiers, and a
+ * screen that lost the variant would draw all three in MESH_UI_COLOR_SURFACE and leave the
+ * raised tier nowhere on the frame. SURFACE_HIGH spanning most of the width is the Link card
+ * and nothing else on this screen; the fixture's radio has said nothing about itself, so its
+ * Radio card is the outlined one and carries no fill of its own at all.
+ *
+ * The ring is the second half. A card holding the selected verb draws its edge in the primary
+ * rather than in the outline, so a full-width run of MESH_UI_COLOR_PRIMARY appears in the body
+ * and appears nowhere else: the navigation bar's active chip is the primary *container*, and
+ * every other use of the base colour here is a glyph, which is at most a stroke wide.
+ */
+MESH_TEST_CASE(ui_capture_draws_the_card_variants, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_action action;
+    while (store.nav.screen != MESH_UI_SCREEN_STATUS) {
+        const enum mesh_ui_screen before = store.nav.screen;
+        memset(&action, 0, sizeof action);
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+        MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen == before, mesh_ui_store_shutdown(&store),
+                                  "Right stopped moving before the Status tab");
+    }
+
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_ui_store_consume_updates(&store, &snapshot),
+                              mesh_ui_store_shutdown(&store), "no snapshot to render");
+
+    struct mesh_ui_capture *capture = NULL;
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, 4) != 0,
+        mesh_ui_store_shutdown(&store), "capture open failed");
+
+    uint32_t width = 0U;
+    uint32_t height = 0U;
+    size_t stride = 0U;
+    const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+    mesh_ui_capture_render(capture, &snapshot);
+
+    const unsigned raised =
+        widest_row_run(capture, pixels, width, height, stride, MESH_UI_COLOR_SURFACE_HIGH);
+    MESH_TEST_FAIL_IF_CLEANUP(raised < 80U, mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "no card is drawn on the raised tier, so the variant is lost");
+
+    const unsigned ring =
+        widest_row_run(capture, pixels, width, height, stride, MESH_UI_COLOR_PRIMARY);
+    MESH_TEST_FAIL_IF_CLEANUP(ring < 80U, mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "the focused card draws no ring, so nothing says what A acts on");
+
+    /* And it moves. The cursor steps to the Radio card's verb, which is a different card, so
+       the ring has to end up on a different scanline - a ring painted at a fixed place would
+       pass every check above and still be wrong. */
+    unsigned first_ring_y = height;
+    for (uint32_t y = 0U; y < height && first_ring_y == height; ++y) {
+        const uint8_t *row = pixels + (size_t)y * stride;
+        unsigned run = 0U;
+        for (uint32_t x = 0U; x < width; ++x) {
+            run =
+                pixel_is_role(capture, row + (size_t)x * 4U, MESH_UI_COLOR_PRIMARY) ? run + 1U : 0U;
+            if ((uint64_t)run * 100U / width >= 80U) {
+                first_ring_y = y;
+                break;
+            }
+        }
+    }
+
+    memset(&action, 0, sizeof action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_ui_store_consume_updates(&store, &snapshot),
+                              mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store), "no second snapshot");
+    mesh_ui_capture_render(capture, &snapshot);
+
+    unsigned moved_ring_y = height;
+    for (uint32_t y = 0U; y < height && moved_ring_y == height; ++y) {
+        const uint8_t *row = pixels + (size_t)y * stride;
+        unsigned run = 0U;
+        for (uint32_t x = 0U; x < width; ++x) {
+            run =
+                pixel_is_role(capture, row + (size_t)x * 4U, MESH_UI_COLOR_PRIMARY) ? run + 1U : 0U;
+            if ((uint64_t)run * 100U / width >= 80U) {
+                moved_ring_y = y;
+                break;
+            }
+        }
+    }
+    MESH_TEST_FAIL_IF_CLEANUP(
+        moved_ring_y == height || moved_ring_y == first_ring_y, mesh_ui_capture_close(capture);
+        mesh_ui_store_shutdown(&store), "Down did not move the ring onto the next card's verb");
+
+    mesh_ui_capture_close(capture);
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
  * Two screens must not render identically. This is the check that would have caught a capture
  * tool that rendered the same snapshot over and over - a clip of one frame repeated looks
  * plausible right up until you notice nothing moves.

@@ -70,6 +70,7 @@ add_library(meshclient_core
     src/ui/settings.c
     src/ui/settings_codec.c
     src/ui/settings_rows.c
+    src/ui/status.c
     src/ui/node_detail.c
     src/ui/backends/stub.c
     src/ui/backends/cli.c

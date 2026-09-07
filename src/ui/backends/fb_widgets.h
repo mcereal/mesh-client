@@ -905,13 +905,41 @@ size_t fb_field_label_cols(const struct mesh_ui_backend_fb_state *state,
  * that do not fit are dropped and the card says how many, rather than the screen re-deriving
  * the "does another row fit" test that was written out by hand on every dense screen.
  *
- * Colours are the theme's: the fill is MESH_UI_COLOR_SURFACE, which every theme already owes
- * body text 4.5:1 and the four card tones 3:1, and the edge is MESH_UI_COLOR_OUTLINE, which has
- * to be visible against both. Its corners are MESH_UI_SHAPE_MD, so how round a card is belongs
- * to the theme like everything else about it. The heading takes the card's own tone, so a card
- * reports the state of what it holds - the Link card goes bad when the radio is gone - without
- * a second cue to invent.
+ * Colours are the theme's: the fill is a surface role picked by the card's variant, which every
+ * theme already owes body text 4.5:1 and the four card tones 3:1, and the edge is
+ * MESH_UI_COLOR_OUTLINE, which has to be visible against all of them. Its corners are
+ * MESH_UI_SHAPE_MD, so how round a card is belongs to the theme like everything else about it.
+ * The heading takes the card's own tone, so a card reports the state of what it holds - the
+ * Link card goes bad when the radio is gone - without a second cue to invent.
  */
+
+/*
+ * How much weight a card is asking for.
+ *
+ * A column of cards drawn at one weight has no shape: Link and Mesh sat side by side on the
+ * Status tab with nothing to say which one to read first, which is the same complaint the
+ * button variants answer for a screen full of controls. Material has the same three and uses
+ * them for the same thing.
+ *
+ * Here they are three *surface tiers* rather than three shadows. The Brick's display engine
+ * composites fb0 against its own background layer, so there is no alpha and nothing to cast a
+ * shadow into - the distance a card is off the ground is carried by its fill alone, which is
+ * how Material's tonal elevation works and why it survives a light palette as well as a dark
+ * one (see the tier comment in include/mesh/ui/theme.h).
+ *
+ * All three keep the hairline. The edge is not decoration on a theme whose surface is a step
+ * off the ground - it is the whole of what says a card is there - and an outlined card, whose
+ * fill *is* the ground, would otherwise not be a card at all.
+ */
+enum fb_card_variant {
+    /* A panel on the ground: MESH_UI_COLOR_SURFACE. The ordinary weight, and the zero value. */
+    FB_CARD_FILLED = 0,
+    /* A step further up: MESH_UI_COLOR_SURFACE_HIGH. The card to read first. */
+    FB_CARD_ELEVATED,
+    /* The ground itself, held by its edge. The card that is on screen because the set would be
+       incomplete without it, not because it has something to say. */
+    FB_CARD_OUTLINED,
+};
 
 #define FB_CARD_ROWS_MAX 12U
 #define FB_CARD_LABEL_MAX 24U
@@ -948,7 +976,39 @@ struct fb_card_row {
     uint32_t meter_id;
 };
 
+/*
+ * A verb the card offers, drawn as a button against the far edge of its heading's line.
+ *
+ * "Radio actions" was a settings row that opened a screen because a card could not offer a
+ * verb, and disconnecting meant walking to the Devices tab to press X on a card that was
+ * already naming the radio. A card that reports on something is the place to act on it.
+ *
+ * The heading's line rather than a row under the content, which is where a phone puts card
+ * actions and where this was first written. That cost a row per card carrying a verb, and the
+ * screen it cost them on is the one that can outgrow the panel - so the two rows the Status
+ * tab lost were a refused packet and a reboot count, which are the rows that card exists to
+ * show. A heading is three or four cells of an otherwise empty line; the verbs go in the rest
+ * of it and cost nothing.
+ *
+ * They are drawn at the chrome scale for the same reason the action bar's verbs are: a verb is
+ * read beside the content rather than as part of it. A body-scale button here would also have
+ * grown the header line by the difference and given a third of a row back.
+ *
+ * A button carries a word and no icon. The verbs the Status tab spends are the same ones the
+ * action bar names for the same press, and the bar draws a keycap beside each - a symbol here
+ * as well would be a third thing on the frame saying one press.
+ */
+struct fb_card_action {
+    char label[FB_CARD_LABEL_MAX];
+    bool selected; /* the screen's cursor is on this button */
+};
+
+/* What fits beside a heading at the largest glyph scale with room for the words. A card wanting
+   a fourth verb is a card that wants a screen. */
+#define FB_CARD_ACTIONS_MAX 3U
+
 struct fb_card {
+    enum fb_card_variant variant;
     char heading[FB_CARD_LABEL_MAX];
     /* Beside the heading: what the card is about, said in one cell. A column of cards is a
        column of headings otherwise, and the icon is what the eye finds first when it is looking
@@ -960,13 +1020,21 @@ struct fb_card {
        outgrown one card rather than that the panel ran out, and wants two. */
     struct fb_card_row rows[FB_CARD_ROWS_MAX];
     uint32_t count;
+    /* The verbs. They are on the header line, so they are never among the rows dropped to make
+       a card fit - a card that shed its buttons would leave the action bar naming a press with
+       nothing behind it. A card whose heading and verbs together overrun its width keeps the
+       verbs and cuts the heading, for the same reason. */
+    struct fb_card_action actions[FB_CARD_ACTIONS_MAX];
+    uint32_t action_count;
 };
 
 /* Starts a card. `heading` of MESH_STR_NONE is a card with no heading - a panel, not a
    section - and takes MESH_UI_ICON_NONE with it. Always call this first: it is what clears the
-   row list. */
-void fb_card_begin(struct fb_card *card, enum mesh_ui_icon icon, enum mesh_str_id heading,
-                   enum mesh_ui_tone tone);
+   row list. The variant is stated here rather than defaulted, because which of three weights a
+   card is asking for is a decision about the column it sits in and not a property of the card
+   on its own. */
+void fb_card_begin(struct fb_card *card, enum fb_card_variant variant, enum mesh_ui_icon icon,
+                   enum mesh_str_id heading, enum mesh_ui_tone tone);
 
 /* A label and a value formatted from the catalog, which is the shape most rows have. */
 void fb_card_row(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_id label,
@@ -1008,8 +1076,21 @@ void fb_card_meter(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_i
                    int32_t value, struct mesh_ui_scale scale, const struct mesh_ui_band *band,
                    uint32_t id);
 
+/*
+ * A verb, as a button on the card's heading line. Declared left to right: the first call is the
+ * leftmost button, which is also the first the screen cursor reaches.
+ *
+ * `selected` says the cursor is on it, which is also what makes the card itself read as
+ * focused - see fb_draw_card().
+ *
+ * A card carries the whole verb and nothing about the press: which button runs it is the action
+ * bar's business, and a keycap drawn twice on one frame is a screen disagreeing with itself.
+ */
+void fb_card_action(struct fb_card *card, enum mesh_str_id label, bool selected);
+
 /* Whether anything was added. A card with no rows is not drawn, so a screen can build one
-   unconditionally and let it disappear when the radio has reported nothing. */
+   unconditionally and let it disappear when the radio has reported nothing. A card with verbs
+   and no rows is still empty: an action row alone is a button strip, not a card. */
 bool fb_card_is_empty(const struct fb_card *card);
 
 /* Pixels the card occupies, the gap to the next card included. What fb_draw_card() measures
@@ -1032,6 +1113,13 @@ int fb_card_height(const struct mesh_ui_backend_fb_state *state, const struct fb
  * Returns false when not even the heading and one row - or one line of a note - fit, in which
  * case nothing is drawn and `*y` is untouched. That is also the answer for every card after it,
  * so a screen can stop.
+ *
+ * A card holding the selected action draws its edge in the primary instead of in
+ * MESH_UI_COLOR_OUTLINE, and draws it thicker: that is the focus ring, and it is the one cue
+ * here that is not a state layer. A layer mixed into a fill this large is a change nobody
+ * notices from across a table, and every tone written on the card would owe the result its own
+ * contrast contract; the accent edge is the indicator Material uses for focus, it is read at a
+ * glance, and PRIMARY already owes both grounds 3:1.
  */
 bool fb_draw_card(struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout, int *y,
                   const struct fb_card *card);

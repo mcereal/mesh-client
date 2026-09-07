@@ -255,20 +255,38 @@ message to that node will do.
 
 ### Status — cards
 
-The Status tab is the one screen with nothing to select: it is a readout, and it used to be
-eighteen label/value lines in one column on the bare ground, with a half-line of extra space
-every so often standing in for a grouping. It is now three **cards** (`struct fb_card`, below),
-which is the same information with the grouping said out loud:
+The Status tab used to be eighteen label/value lines in one column on the bare ground, with a
+half-line of extra space every so often standing in for a grouping. It is now three **cards**
+(`struct fb_card`, below), which is the same information with the grouping said out loud:
 
-| Card | What it holds | What its heading colour says |
-|---|---|---|
-| **Link** | transport, radio, sync, our node, the primary channel, devices in range | good when a radio is attached, bad when none is |
-| **Mesh** | NodeDB and roster counts, airtime, packets, what the ring is holding | the airtime tone — warning past 25% channel utilization, error past 50% |
-| **Radio** | battery and uptime, what the firmware last said, reboots, the TX queue, free heap | the worst thing on it: bad for a flat battery, a refused packet or an `ERROR` notice |
+| Card | What it holds | Variant | Heading colour | Verb |
+|---|---|---|---|---|
+| **Link** | transport, radio, sync, our node, the primary channel, devices in range | elevated, always | good when a radio is attached, bad when none is | *disconnect*, while one is |
+| **Mesh** | NodeDB and roster counts, airtime, packets, what the ring is holding | filled | the airtime tone — warning past 25% channel utilization, error past 50% | none |
+| **Radio** | battery and uptime, what the firmware last said, reboots, the TX queue, free heap | outlined while quiet, elevated when not | the worst thing on it: bad for a flat battery, a refused packet or an `ERROR` notice | *refresh*, once the radio has synced |
 
 The heading colour is the point. Every row on the Radio card exists only when something is
 wrong, so on a healthy link that card is small and primary-coloured and there is nothing to read;
-when it turns red, the screen has answered "is anything wrong" before a number has been.
+when it turns red, the screen has answered "is anything wrong" before a number has been. Its
+**variant is the same reading** — a card with nothing to report recedes into the ground rather
+than spending a panel of fill saying nothing, and lifts to the raised tier when the tone does.
+Link is elevated always, because it answers the screen's first question; a column of three equal
+weights had nothing to say which one to look at.
+
+**It is no longer inert.** Up and Down walk the *verbs* the cards carry — a flat list, so a card
+with none is stepped over and a card is focused because the cursor is on one of its buttons — and
+A runs the one it lands on. The table is
+[`include/mesh/ui/status.h`](../include/mesh/ui/status.h), read by the three places that have to
+agree about it: `nav.c` moves the cursor and raises the action, `actions.c` names the press in
+the action bar, and `fb_screens.c` hangs the buttons on the cards. It is flat rather than
+per-card because Left and Right are the tab switch here as everywhere, so there was no second
+axis to spend on a cursor inside a card.
+
+Both verbs are presses that already existed elsewhere — X on Devices and X on Settings — which is
+deliberate: the step gave a card somewhere to put a verb, and a verb invented for it would have
+been arguing two things at once. What is *not* there is a destructive one: the confirmation
+dialog is still keyed on `nav->settings_section`, so "reboot the radio" from this screen means
+decoupling the dialog from the settings model first.
 
 Two consequences worth knowing:
 
@@ -282,10 +300,19 @@ Two consequences worth knowing:
   *quit*, like every other press. Those two rows are what the cards spend on their headings. The
   bar only offers it while a radio is attached — the line under it already ends in the quit hint
   when there is not.
+- **The Radio card says "no report yet" rather than disappearing.** It used to vanish on a radio
+  that had told us nothing about itself, because every row on it is conditional and a card with
+  no rows is not drawn. That was fine while it was a readout and is not now that it carries a
+  verb: the action bar would be naming a press whose button is not on the frame, and the cursor
+  would step onto nothing. The Mesh card already had the same row for the same reason.
 
 Status does not scroll. On a radio reporting everything at once the last row or two of the Radio
 card are dropped rather than drawn over the action bar, which is the card's own contract; a
 scrolling Status is the obvious next step and is a nav change, not a rendering one.
+
+`make ui-capture ARGS="devtools/ui_capture/scenes/card-actions.scene -o cards.gif"` walks the
+three weights, the ring moving between cards, and the Radio card lifting as the radio gets into
+trouble, in all four themes.
 
 ### Settings — `src/ui/settings*.c`
 
@@ -407,7 +434,7 @@ shoulder, revealed in the one place you went to change it.
 | File | Layer | What belongs there |
 |---|---|---|
 | `fb_draw.c` | ink | pixels, glyphs, the theme lookups, cell metrics (`fb_internal.h`) |
-| `fb_widgets.c` | components | cards, buttons, chips, badges, list items, switches, meters, signal staircases, rules, bubbles, the top app bar, the navigation bar, the action bar, the snackbar (`fb_widgets.h`) |
+| `fb_widgets.c` | components | cards (three variants, with verbs), buttons, chips, badges, list items, switches, meters, signal staircases, rules, bubbles, the top app bar, the navigation bar, the action bar, the snackbar (`fb_widgets.h`) |
 | `fb_screens.c` | screens | one renderer per screen, and nothing else |
 | `fb.c` | device | `/dev/fb0`, the page flip, the backend vtable |
 
@@ -620,7 +647,7 @@ row is in:
 
 ```c
 struct fb_card card;
-fb_card_begin(&card, MESH_UI_ICON_LINK, MESH_STR_STATUS_CARD_LINK,
+fb_card_begin(&card, FB_CARD_ELEVATED, MESH_UI_ICON_LINK, MESH_STR_STATUS_CARD_LINK,
               connected ? MESH_UI_TONE_SUCCESS : MESH_UI_TONE_ERROR);
 fb_card_row_text(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_TRANSPORT, status);
 if (handshake_valid) {
@@ -628,6 +655,7 @@ if (handshake_valid) {
                 MESH_STR_STATUS_MY_NODE, short_name, node_num);   /* formatted from the catalog */
 }
 fb_card_note(&card, notice_tone, notice->text);                   /* a wrapped paragraph */
+fb_card_action(&card, MESH_STR_ACTION_DISCONNECT, focused);       /* a verb on the heading line */
 (void)fb_draw_card(state, layout, &y, &card);
 ```
 
@@ -645,12 +673,34 @@ Declaring first buys three things beyond the drawing it saves:
   the "does another row fit" test the dense screens used to write out per row — and Status wrote
   two of them, differently.
 
-The fill is `MESH_UI_COLOR_SURFACE` and the edge is `MESH_UI_COLOR_RULE`, and the edge is not
+A card states one of three **variants**, which is how a column of them gets a shape. There is no
+alpha on this panel and nothing to cast a shadow into, so the three are three [surface
+tiers](#surfaces-are-tiered) rather than three elevations — Material's tonal elevation, which is
+also why they survive a light palette as well as a dark one:
+
+| Variant | Fill | What it says |
+|---|---|---|
+| `FB_CARD_FILLED` | `SURFACE` | the ordinary weight, and the zero value |
+| `FB_CARD_ELEVATED` | `SURFACE_HIGH` | the card to read first |
+| `FB_CARD_OUTLINED` | `BG` | on screen because the set would be incomplete without it |
+
+All three keep the hairline, including the outlined one whose fill *is* the ground.
+
+A card can also carry up to three **verbs**, as text buttons against the far edge of its heading's
+line — `fb_card_action()`, drawn at the chrome scale. They are on the heading's line rather than
+in a row under the content because a row of their own costs a row of content, and on the one
+screen dense enough to notice, the rows it cost were the ones that card exists to show. A card
+holding the *selected* verb draws its edge in the primary and draws it thicker: that is the focus
+ring, and it is derived from the buttons rather than declared, so the card and its verb cannot
+disagree about which one the next press acts on.
+
+The fill is the variant's and the edge is `MESH_UI_COLOR_OUTLINE`, and the edge is not
 decoration: on every theme that ships, the surface is deliberately close to the ground — a
 surface far from it is one body text is no longer validated against — so in daylight the
-hairline is the whole of what says a card is there. `mesh_ui_theme_validate()` holds `RULE`
-against both the ground and the surface for that reason, and holds the four tones a card row can
-take against the surface as well. The inset is the `card_pad` metric in glyph-scale steps and
+hairline is the whole of what says a card is there. `mesh_ui_theme_validate()` holds `OUTLINE`
+against the ground and both surfaces for that reason, and holds the tones a card row can take
+against every ground a variant can put them on — including `SURFACE_HIGH`, which the elevated
+variant added. The inset is the `card_pad` metric in glyph-scale steps and
 the corners are `MESH_UI_SHAPE_MD` off the [shape scale](#shape-is-a-scale), so a card grows with
 the text; the vertical inset is deliberately half the horizontal one, because a row is a line
 *advance* tall and the leading it already carries is counted twice in a stack of rows and once

@@ -1468,16 +1468,21 @@ size_t fb_field_label_cols(const struct mesh_ui_backend_fb_state *state,
  * one reported.
  */
 struct fb_card_metrics {
-    int x, width;  /* the panel, edge included */
-    int pad;       /* the inset from the side edges to the content */
-    int pad_y;     /* the inset from the top and bottom edges */
-    int edge;      /* the hairline's thickness */
-    int radius;    /* corner radius, clamped by fb_fill_round_rect() anyway */
-    int heading_h; /* what the heading costs, 0 when there is none */
+    int x, width; /* the panel, edge included */
+    int pad;      /* the inset from the side edges to the content */
+    int pad_y;    /* the inset from the top and bottom edges */
+    int edge;     /* the hairline's thickness */
+    int radius;   /* corner radius, clamped by fb_fill_round_rect() anyway */
+    /* The header line: the heading, and the verbs against its far edge. 0 when there is
+       neither. */
+    int heading_h;
+    int button_h;  /* one action button, 0 when the card has no verbs */
     int content_x; /* where a row's text starts */
     size_t cols;   /* content width in cells */
     size_t label_cols;
-    int gap; /* to the next card */
+    int gap;                     /* to the next card */
+    enum mesh_ui_color fill;     /* the variant's surface */
+    struct mesh_ui_rgb edge_ink; /* the hairline, or the focus ring when a verb is selected */
 };
 
 static struct fb_card_metrics fb_card_measure(const struct mesh_ui_backend_fb_state *state,
@@ -1498,11 +1503,64 @@ static struct fb_card_metrics fb_card_measure(const struct mesh_ui_backend_fb_st
        and on a panel with fifteen body rows it costs the better part of one per card. */
     m.pad_y = m.pad / 2 > 0 ? m.pad / 2 : m.pad;
     m.edge = fb_edge(state);
+    /*
+     * The variant, as a fill and nothing else. Three tiers rather than three shadows: there is
+     * no alpha on this panel to cast one into, so how far a card is off the ground is carried
+     * by the surface it is drawn on - which is Material's tonal elevation, and is why the
+     * three survive a light palette as well as a dark one.
+     */
+    switch (card->variant) {
+    case FB_CARD_ELEVATED:
+        m.fill = MESH_UI_COLOR_SURFACE_HIGH;
+        break;
+    case FB_CARD_OUTLINED:
+        m.fill = MESH_UI_COLOR_BG;
+        break;
+    case FB_CARD_FILLED:
+    default:
+        m.fill = MESH_UI_COLOR_SURFACE;
+        break;
+    }
+    /*
+     * The focus ring. A card holding the selected verb is the one the next press acts on, and
+     * that has to be findable before any of it is read - so it is the edge that changes rather
+     * than the fill, drawn in the accent and at twice the thickness. See fb_draw_card().
+     */
+    bool focused = false;
+    for (uint32_t i = 0U; i < card->action_count && i < FB_CARD_ACTIONS_MAX; ++i) {
+        focused = focused || card->actions[i].selected;
+    }
+    if (focused) {
+        m.edge *= 2;
+        m.edge_ink = fb_tone_color(state, MESH_UI_TONE_PRIMARY);
+    } else {
+        m.edge_ink = fb_color(state, MESH_UI_COLOR_OUTLINE);
+    }
     m.radius = fb_radius(state, MESH_UI_SHAPE_MD);
     /* A heading is drawn at the chrome scale, the size the tab strip and the footer are: a
        section label is not something to read, it is something to find, and at the body scale it
        costs a whole row of content on a panel that has fifteen of them. */
     m.heading_h = card->heading[0] != '\0' ? fb_line_adv(state, layout->small) : 0;
+    /*
+     * The verbs sit on the heading's line, against the far edge, and they are drawn at the
+     * chrome scale the heading is.
+     *
+     * A row of buttons under the content is where a card puts its actions on a phone, and it is
+     * what this was first written as. It cost two rows off the bottom of the Status screen -
+     * one per card carrying a verb - and that screen is the one that can outgrow the panel, so
+     * the two rows it lost were a refused packet and a reboot count: the exact rows the card
+     * exists to show. A heading is three or four cells of a line that is otherwise empty, and
+     * putting the verbs in the rest of it costs nothing at all.
+     *
+     * The scale follows for the same reason it does on the action bar, which draws every other
+     * verb on the frame: a keycap and a verb are chrome, read beside the content rather than as
+     * part of it. It also keeps this line the height it already was - a body-scale button here
+     * would have grown the header by the difference and given a third of a row back.
+     */
+    m.button_h = card->action_count > 0U ? fb_line_adv(state, layout->small) : 0;
+    if (m.button_h > m.heading_h) {
+        m.heading_h = m.button_h;
+    }
 
     const int inset = m.pad + m.edge;
     m.content_x = m.x + inset;
@@ -1617,12 +1675,13 @@ static struct fb_card_fit fb_card_clip(const struct fb_card_metrics *m,
     return fit;
 }
 
-void fb_card_begin(struct fb_card *card, enum mesh_ui_icon icon, enum mesh_str_id heading,
-                   enum mesh_ui_tone tone) {
+void fb_card_begin(struct fb_card *card, enum fb_card_variant variant, enum mesh_ui_icon icon,
+                   enum mesh_str_id heading, enum mesh_ui_tone tone) {
     if (card == NULL) {
         return;
     }
     memset(card, 0, sizeof *card);
+    card->variant = variant;
     card->tone = tone;
     if (heading != MESH_STR_NONE) {
         card->icon = icon;
@@ -1700,6 +1759,16 @@ void fb_card_note(struct fb_card *card, enum mesh_ui_tone tone, const char *text
     mesh_text_sanitise_str(text, row->value, sizeof row->value);
 }
 
+void fb_card_action(struct fb_card *card, enum mesh_str_id label, bool selected) {
+    if (card == NULL || card->action_count >= FB_CARD_ACTIONS_MAX || label == MESH_STR_NONE) {
+        return;
+    }
+    struct fb_card_action *action = &card->actions[card->action_count++];
+    memset(action, 0, sizeof *action);
+    mesh_text_sanitise_str(mesh_str(label), action->label, sizeof action->label);
+    action->selected = selected;
+}
+
 bool fb_card_is_empty(const struct fb_card *card) { return card == NULL || card->count == 0U; }
 
 int fb_card_height(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
@@ -1718,8 +1787,10 @@ static uint32_t fb_draw_card_row(struct mesh_ui_backend_fb_state *state,
                                  const struct fb_card_metrics *m, const struct fb_layout *layout,
                                  int y, const struct fb_card_row *row, uint32_t max_lines) {
     const struct mesh_ui_rgb color = fb_tone_color(state, row->tone);
-    /* Every row here is inside the panel fb_draw_card() filled, not on the ground it sits on. */
-    const struct mesh_ui_rgb ground = fb_color(state, MESH_UI_COLOR_SURFACE);
+    /* Every row here is inside the panel fb_draw_card() filled, not on the ground it sits on -
+       and which fill that is depends on the card's variant, so it comes from the metrics rather
+       than from the surface role a card used to be. */
+    const struct mesh_ui_rgb ground = fb_color(state, m->fill);
     if (row->kind == FB_CARD_ROW_NOTE) {
         /* fb_draw_wrapped() lays out from the left margin, and a card's content starts inside
            it, so the note is wrapped here against the card's own column. */
@@ -1821,35 +1892,98 @@ bool fb_draw_card(struct mesh_ui_backend_fb_state *state, const struct fb_layout
      * longer validated against - the fill alone is nearly invisible in daylight, and the
      * hairline is the whole of what says a card is there. It is drawn in OUTLINE rather than
      * RULE for that reason: a separator may fade politely into what it divides, an edge may
-     * not. mesh_ui_theme_validate() holds OUTLINE against both the ground and the surface.
+     * not. mesh_ui_theme_validate() holds OUTLINE against the ground and both surfaces, which
+     * is every fill a variant can put behind it - and the outlined variant, whose fill *is* the
+     * ground, is why it has to hold against all three rather than against the panel's own.
+     *
+     * On the card holding the selected verb both of those change: the ink is the accent and the
+     * thickness is doubled, which is the focus ring. See fb_card_measure().
      */
     const int top = *y;
-    fb_fill_round_rect(state, m.x, top, m.width, height, m.radius + m.edge,
-                       fb_color(state, MESH_UI_COLOR_OUTLINE));
+    fb_fill_round_rect(state, m.x, top, m.width, height, m.radius + m.edge, m.edge_ink);
     fb_fill_round_rect(state, m.x + m.edge, top + m.edge, m.width - 2 * m.edge, height - 2 * m.edge,
-                       m.radius, fb_color(state, MESH_UI_COLOR_SURFACE));
+                       m.radius, fb_color(state, m.fill));
 
     int row_y = top + m.pad_y + m.edge;
-    if (m.heading_h > 0) {
+    /*
+     * The verbs, against the far edge of the heading's line.
+     *
+     * Laid out from the right so the first one declared ends up leftmost, which is the order
+     * the screen cursor walks them in - a strip that packed from the left would have reversed
+     * that on any card with two. They are text buttons: a word in the accent, and a fill only
+     * under the cursor, which is what keeps three cards' worth of verbs from competing with the
+     * numbers they are about and makes the selected one unmistakable with no second cue.
+     */
+    const int content_right = m.content_x + (int)m.cols * fb_char_adv(state, state->scale);
+    const int gap = fb_space(state, MESH_UI_SPACE_XS);
+    int actions_x = content_right;
+    if (m.button_h > 0) {
+        /*
+         * How many of them there is room for, dropped from the *end* rather than from wherever
+         * the layout ran out. Laying out from the right and stopping when the next one no
+         * longer fits would drop the leftmost, which is the first the cursor reaches - so a
+         * card too narrow for its verbs would lose the one A runs first.
+         */
+        uint32_t drawn = card->action_count;
+        while (drawn > 0U) {
+            int total = 0;
+            for (uint32_t i = 0U; i < drawn; ++i) {
+                total += fb_button_width(state, MESH_UI_ICON_NONE, card->actions[i].label,
+                                         layout->small);
+                if (i > 0U) {
+                    total += gap;
+                }
+            }
+            if (m.content_x + total <= content_right) {
+                break;
+            }
+            drawn -= 1U;
+        }
+        for (uint32_t i = drawn; i-- > 0U;) {
+            const int width =
+                fb_button_width(state, MESH_UI_ICON_NONE, card->actions[i].label, layout->small);
+            actions_x -= width;
+            const struct fb_button button = {
+                .rect = {.x = actions_x, .y = row_y, .w = width, .h = m.button_h},
+                .icon = MESH_UI_ICON_NONE,
+                .label = card->actions[i].label,
+                .selected = card->actions[i].selected,
+                .variant = FB_BUTTON_TEXT,
+                .shape = MESH_UI_SHAPE_FULL,
+                .idle_tone = MESH_UI_TONE_PRIMARY,
+                .ground = m.fill,
+                .scale = layout->small,
+            };
+            fb_draw_button(state, &button);
+            actions_x -= gap;
+        }
+    }
+    if (m.heading_h > 0 && card->heading[0] != '\0') {
         /* The heading takes the card's tone, which is how a card reports on what it holds
            without a second cue: the Link card goes bad when the radio has gone. Every tone a
            card can take is validated against the surface, so none of them can go quiet here. */
         struct mesh_ui_line line;
         mesh_ui_line_reset(&line);
         mesh_ui_line_printf(&line, "%s", card->heading);
-        mesh_ui_line_fit(&line, fb_cols(state, layout->small));
         const struct mesh_ui_rgb ink = fb_tone_color(state, card->tone);
         int heading_x = m.content_x;
         if (mesh_ui_icon_is_valid(card->icon)) {
             /* On the card's own surface, which is what it was just filled with - the icon is
                inside the panel, not on the ground the panel sits on. */
             fb_draw_icon(state, heading_x, row_y, card->icon, layout->small, ink,
-                         fb_color(state, MESH_UI_COLOR_SURFACE));
+                         fb_color(state, m.fill));
             /* The same half-cell a button leaves between its symbol and its word. */
             heading_x += fb_icon_box(state, layout->small) + fb_char_adv(state, layout->small) / 2;
         }
+        /* Fitted to what the verbs left rather than to the card, so a long heading is cut on a
+           cell boundary instead of running under the first button. */
+        const int heading_adv = fb_char_adv(state, layout->small);
+        const int heading_w = actions_x - heading_x;
+        mesh_ui_line_fit(&line, heading_w >= heading_adv ? (size_t)(heading_w / heading_adv) : 1U);
         fb_draw_text(state, heading_x, row_y, mesh_ui_line_text(&line), layout->small, ink,
-                     fb_color(state, MESH_UI_COLOR_SURFACE));
+                     fb_color(state, m.fill));
+    }
+    if (m.heading_h > 0) {
         row_y += m.heading_h;
     }
 

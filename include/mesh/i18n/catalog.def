@@ -384,6 +384,11 @@ MESH_STR_ENTRY(STATUS_PACKETS,            "%u tx, %u rx, %u relayed")
 MESH_STR_ENTRY(STATUS_DROPPED,            "%u bad rx, %u dupe, %u tx")
 MESH_STR_ENTRY(STATUS_HEAP,               "%u KB free of %u KB")
 MESH_STR_ENTRY(STATUS_MESH_NO_REPORT,     "no report yet")
+/* The same, on the Radio card: every row there appears only when the radio has said
+   something about itself, so a radio that has said nothing leaves it empty. The card
+   stays up regardless, because it is the one carrying the refresh verb. */
+MESH_STR_ENTRY(STATUS_RADIO_NO_REPORT,    "no report yet")
+MESH_STR_ENTRY(STATUS_LABEL_RADIO_SELF,   "Reported")
 /* Room left in the radio's transmit queue, and whether it is currently refusing sends. */
 MESH_STR_ENTRY(STATUS_TX_QUEUE,           "%u/%u free%s")
 MESH_STR_ENTRY(STATUS_TX_QUEUE_REFUSED,   ", send refused")
