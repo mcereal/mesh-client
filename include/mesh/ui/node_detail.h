@@ -141,6 +141,30 @@ uint32_t mesh_ui_node_detail_count(const struct mesh_ui_node_summary *node, bool
                                    const struct mesh_ui_handshake_state *roster);
 
 /*
+ * Whether `node`'s SNR is a measurement of *this node's own link*, and so whether it can be
+ * drawn rather than merely printed.
+ *
+ * Three ways it is not, and the reading is a true number about something else in all of them:
+ *
+ *   - `via_mqtt`: the packet did not cross the air to us at all.
+ *   - `hops_away > 0`: the SNR is the last relay's, not this node's.
+ *   - `!has_hops_away`: the firmware did not say. Unknown is not zero - older firmware and
+ *     replayed NodeDB entries both leave it unset - and treating it as zero is how a node that
+ *     may never have been heard directly gets a confident-looking staircase.
+ *
+ * And one way the reading itself is not there: `snr` of exactly 0.0 is the session layer's own
+ * "no measurement" - mesh_session_apply_packet() declines to store a zero for that reason,
+ * while a NodeDB entry carrying none assigns one anyway. The two are indistinguishable by the
+ * time they reach here, so a bar drawn on that value would put three of four rungs against a
+ * node nothing has been heard from. A genuine 0.0 dB link loses its rungs to this and keeps its
+ * figure, which is the right way round: the printed number is a fact either way.
+ *
+ * The distinction is the whole rule this screen and the Nodes list are held to. Printing a
+ * number that describes something else is unhelpful; drawing it is a claim.
+ */
+bool mesh_ui_node_signal_heard(const struct mesh_ui_node_summary *node);
+
+/*
  * The node with that id, or NULL when it is not in the list. The open detail is remembered by
  * id rather than by row because app.c re-ranks the node list on every publish (by last_heard,
  * which changes constantly) - a row index would quietly slide onto a different node while the

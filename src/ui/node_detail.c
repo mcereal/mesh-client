@@ -130,6 +130,15 @@ static const struct mesh_ui_band node_snr_band = {.warn = MESH_UI_SNR_FAIR,
                                                   .bad = MESH_UI_SNR_POOR};
 
 /*
+ * An SNR in whole decibels, rounded rather than truncated.
+ *
+ * A cast alone truncates toward zero, which on a negative reading always moves it *up* - so a
+ * link at -7.6 dB would be banded as though it were at -7, and the one direction a signal bar
+ * must not err in is optimism.
+ */
+static int32_t snr_db(float snr) { return (int32_t)(snr < 0.0f ? snr - 0.5f : snr + 0.5f); }
+
+/*
  * The fourth way a fact gets onto this screen, and it is a modifier on the other three rather
  * than a way of its own: the row has already said what it says, and this adds the ends the
  * figure is measured between.
@@ -266,14 +275,12 @@ static void node_rows_signal(struct node_rows *rows, const struct mesh_ui_node_s
          * And where that sits between the demodulator's floor and a link that could not be
          * better, which is the part decibels do not say to anyone who has not memorised them.
          *
-         * Only when the packet it was measured on came from this node. An SNR is a property of
-         * the arrival, so for a node reached over relays it describes the last one and for a
-         * node arriving over MQTT it describes nothing that was on the air - and a bar drawn
-         * there would be reporting somebody else's link against this node's name. The figure
-         * above stays either way: it is true, it is just not about what the label says.
+         * Only when the reading is this node's own - see mesh_ui_node_signal_heard(). The
+         * figure above stays either way: it is true, it is just not always about what the label
+         * says, and that is the difference between printing it and drawing it.
          */
-        if (!node->via_mqtt && (!node->has_hops_away || node->hops_away == 0U)) {
-            rows_gauge(rows, (int32_t)node->snr, node_snr_scale, &node_snr_band);
+        if (mesh_ui_node_signal_heard(node)) {
+            rows_gauge(rows, snr_db(node->snr), node_snr_scale, &node_snr_band);
         }
         /* Beside it rather than instead of it: SNR is how far above the noise the packet was
            and RSSI is how loud it was, and a link can be good on one and poor on the other. */
@@ -802,6 +809,18 @@ uint32_t mesh_ui_node_detail_count(const struct mesh_ui_node_summary *node, bool
 static uint32_t node_list_count(const struct mesh_ui_handshake_state *handshake) {
     return handshake->node_count > MESH_UI_MAX_HANDSHAKE_NODES ? MESH_UI_MAX_HANDSHAKE_NODES
                                                                : handshake->node_count;
+}
+
+bool mesh_ui_node_signal_heard(const struct mesh_ui_node_summary *node) {
+    if (node == NULL || node->via_mqtt) {
+        return false;
+    }
+    /* Unknown is not zero: `hops_away` is only meaningful once the firmware has said so. */
+    if (!node->has_hops_away || node->hops_away > 0U) {
+        return false;
+    }
+    /* And the session layer's own test for a reading that exists at all. */
+    return node->snr != 0.0f;
 }
 
 const struct mesh_ui_node_summary *

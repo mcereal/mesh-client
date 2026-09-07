@@ -837,13 +837,19 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
          * whenever we last heard it, while "off radio" is why a DM to it may never leave -
          * there is no stored key to encrypt with. The detail screen spells the same thing out.
          *
-         * The three that say something instead of a signal are the three where there is no
+         * The branches that say something instead of a signal are the ones where there is no
          * signal *to this node* to say. An SNR is measured on the packet that arrived, so for a
          * node reached over several hops it describes the last relay and for one arriving over
          * MQTT it describes nothing on the air at all - a staircase there would be reporting
-         * somebody else's link as this node's. That was already the rule these branches
-         * encoded; drawing the reading rather than printing it is what makes getting it wrong
-         * visible, so it is worth restating.
+         * somebody else's link as this node's.
+         *
+         * The last branch is the one that matters and it is not the same test as the others:
+         * `hops_away` unset means the firmware did not say, which is not the same as zero, and
+         * an SNR of 0.0 is the session layer's own "no reading". Either would give a node
+         * nothing was ever heard from three of four rungs. mesh_ui_node_signal_heard() is the
+         * whole of that question, and everything it declines falls through to the figure this
+         * column drew before - which is the right way round, because printing a number that
+         * describes something else is unhelpful where drawing it is a claim.
          */
         bool direct = false;
         if (!node->in_nodedb) {
@@ -853,19 +859,24 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
                             age);
         } else if (node->via_mqtt) {
             mesh_str_format(right, sizeof right, MESH_STR_NODES_ROW_MQTT, age);
-        } else {
+        } else if (mesh_ui_node_signal_heard(node)) {
             /*
-             * Heard directly: rungs and the age, and the decibels go to the node's own screen.
+             * Heard directly, with a reading of its own: rungs and the age, and the decibels go
+             * to the node's own screen.
              *
              * The figure was the column's whole content and it is the part a list cannot use.
              * "4.2dB" has to be read and then held against a threshold to mean anything, and a
              * list is forty-two of them - whereas rungs are compared against the rungs above
              * and below without being read, which is the only thing a column of signals is
-             * scanned for. MESH_STR_NODES_ROW_SNR keeps its entry: the CLI backend has no
-             * staircase to draw and wants the sentence.
+             * scanned for.
              */
             direct = true;
             mesh_str_copy(right, sizeof right, age);
+        } else {
+            /* Hops the firmware never reported, or no reading behind the figure. Exactly the
+               column this list drew before, which is why MESH_STR_NODES_ROW_SNR keeps its
+               entry - and what the CLI backend, which has no staircase, draws throughout. */
+            mesh_str_format(right, sizeof right, MESH_STR_NODES_ROW_SNR, (double)node->snr, age);
         }
 
         /*

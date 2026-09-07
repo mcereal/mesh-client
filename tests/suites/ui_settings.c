@@ -1209,6 +1209,58 @@ MESH_TEST_CASE(ui_settings_coords, unit) {
 }
 
 /*
+ * When an SNR may be drawn rather than merely printed.
+ *
+ * The rule the signal staircase and the node detail's SNR bar are both held to, and the reason
+ * it is a function rather than a condition written twice: a reading that describes the last
+ * relay, or a reading that was never taken, is a true number about something else. Printing it
+ * is unhelpful; drawing it is a claim, and the two failures below are the ones that look like
+ * a good link rather than like a bug.
+ */
+MESH_TEST_CASE(node_detail_signal_heard, unit) {
+    struct mesh_ui_node_summary node;
+    memset(&node, 0, sizeof node);
+    node.node_id = 0x1234U;
+    node.in_nodedb = true;
+    node.has_hops_away = true;
+    node.hops_away = 0U;
+    node.snr = 4.5f;
+    MESH_TEST_FAIL_IF(!mesh_ui_node_signal_heard(&node),
+                      "a node heard directly with a real reading should be drawable");
+
+    /* Unknown is not zero. Older firmware and replayed NodeDB entries leave hop metadata unset,
+       and reading that as "zero hops" hands a possibly-relayed node a staircase. */
+    node.has_hops_away = false;
+    MESH_TEST_FAIL_IF(mesh_ui_node_signal_heard(&node),
+                      "a node whose hop count the firmware never reported was drawn as direct");
+
+    node.has_hops_away = true;
+    node.hops_away = 2U;
+    MESH_TEST_FAIL_IF(mesh_ui_node_signal_heard(&node),
+                      "a relayed node's SNR describes the relay and must not be drawn");
+
+    node.hops_away = 0U;
+    node.via_mqtt = true;
+    MESH_TEST_FAIL_IF(mesh_ui_node_signal_heard(&node),
+                      "a node arriving over MQTT was never on the air and must not be drawn");
+
+    /* An SNR of exactly 0.0 is the session layer's own "no measurement" - it declines to store
+       a zero - so a zeroed record must not read as the middling link 0 dB bands to. */
+    node.via_mqtt = false;
+    node.snr = 0.0f;
+    MESH_TEST_FAIL_IF(mesh_ui_node_signal_heard(&node),
+                      "a node with no reading behind its figure was drawn as a good link");
+
+    /* And the pair that makes the point: the same record with a real reading is drawable, so
+       the test is about the measurement rather than about the node. */
+    node.snr = -12.0f;
+    MESH_TEST_FAIL_IF(!mesh_ui_node_signal_heard(&node),
+                      "a weak but real reading should still be drawable");
+    MESH_TEST_FAIL_IF(mesh_ui_node_signal_heard(NULL), "a missing node answered yes");
+    record_success(test_name);
+}
+
+/*
  * The four sensor groups a node can report beyond device metrics and environment, and the row
  * budget they all have to fit inside.
  *
