@@ -699,10 +699,15 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
     fb_draw_title(state, layout, title);
 
     const uint32_t me = hs->has_my_info ? hs->my_info.node_num : 0U;
+    /* The discs come from the nav layer, which wants a store rather than the handshake alone -
+       the same view the conversation list and the picker build, so all three ask one function. */
+    struct mesh_ui_store view;
+    fb_store_view(snapshot, &view);
     struct fb_list list = fb_list_begin(layout, count, nav->cursor[MESH_UI_SCREEN_NODES]);
     struct mesh_ui_line line;
     char right[32];
     char age[8];
+    char initials[MESH_UI_CONVERSATION_INITIALS_MAX];
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         const struct mesh_ui_node_summary *node = &hs->nodes[i];
@@ -728,17 +733,46 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
             mesh_str_format(right, sizeof right, MESH_STR_NODES_ROW_SNR, (double)node->snr, age);
         }
 
-        /* The marker column: ourselves, then pinned. A star sprite rather than an ASCII
-           stand-in because the row is measured in cells, so it costs one column exactly like
-           the '*' does. */
-        const char *marker = (me != 0U && node->node_id == me) ? "*"
-                             : node->is_favorite               ? "\xE2\xAD\x90"
-                                                               : " ";
+        /*
+         * The disc carries the node's initials and is tinted by node number, both answered by
+         * the nav layer - so a node the user has learned to find by colour in Messages is the
+         * same two cells and the same colour here.
+         *
+         * It resolves the *node*, not `short_name`: a node with no short name is shown as the
+         * "----" placeholder, which has no letters in it and would give an empty disc, while
+         * Messages falls through to the long name and then to the "!hex" id. What a row
+         * displays and what identifies it are different questions.
+         *
+         * Ourselves is the one row that takes a stated fill instead of a tint. That is what the
+         * '*' in the marker column used to say, and a disc says it without spending a cell of
+         * the name: a node list is read by scanning the left edge, which is exactly where the
+         * disc already is.
+         */
+        const bool is_me = (me != 0U && node->node_id == me);
+        uint32_t tint = 0U;
+        mesh_ui_nav_target_avatar(&view, node->node_id, 0U, initials, sizeof initials, &tint);
+
+        /*
+         * The star stays in the text: being pinned is a fact about the node rather than about
+         * what it is, so it belongs beside the name and not in place of the identity the disc
+         * is carrying.
+         *
+         * Never on ourselves, which is what the old marker column got right by ordering the two
+         * cases. A radio can carry a stale `is_favorite` on its own NodeDB entry, and nav.c and
+         * node_detail.c both refuse to pin our own node - so a star there would advertise a
+         * preference that no press can clear.
+         */
         mesh_ui_line_reset(&line);
-        mesh_ui_line_printf(&line, "%s", marker);
+        if (node->is_favorite && !is_me) {
+            /* The glyph stays a literal of its own and the space is format glue, which is how
+               scripts/check-strings.py already knows the star is drawn rather than read. */
+            mesh_ui_line_printf(&line, "%s ", "\xE2\xAD\x90");
+        }
         mesh_ui_line_column(&line, short_name, 4U);
-        mesh_ui_line_printf(&line, " %s", long_name);
-        mesh_ui_line_right(&line, layout->cols, right);
+        if (long_name[0] != '\0') {
+            mesh_ui_line_printf(&line, " %s", long_name);
+        }
+
         /* Dim behind the words, so a list that is mostly off-radio reads as one at a glance.
            The open thread's node keeps the accent whatever its NodeDB state: which node you
            are talking to is the one thing the cursor colour is for. */
@@ -748,13 +782,27 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
         } else if (!node->in_nodedb) {
             tone = MESH_UI_TONE_DIM;
         }
-        fb_list_row_line(state, &list, i, &line, tone);
+
+        const struct fb_list_item row = {
+            .leading =
+                {
+                    .kind = FB_LEADING_AVATAR,
+                    .label = initials,
+                    .tint = tint,
+                    .role = is_me ? MESH_UI_COLOR_ACCENT : MESH_UI_COLOR_COUNT,
+                },
+            .text = mesh_ui_line_text(&line),
+            .tone = tone,
+            .trailing = {.kind = FB_TRAILING_TEXT, .text = right},
+            .divider = true,
+        };
+        fb_list_item(state, &list, i, &row);
     }
 }
 
 /* Compose overlay: it writes to the open thread, so the destination is a heading rather than
    an editable row. */
-static void fb_render_compose(const struct mesh_ui_backend_fb_state *state,
+static void fb_render_compose(struct mesh_ui_backend_fb_state *state,
                               const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     char title[96];
@@ -770,23 +818,33 @@ static void fb_render_compose(const struct mesh_ui_backend_fb_state *state,
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         mesh_ui_line_reset(&line);
-        if (i == MESH_UI_COMPOSE_ROW_DRAFT) {
+        /* The draft is the row that opens the keyboard and the rest are texts to send as they
+           stand, which is a difference in kind rather than in indentation - so it is the
+           accent tone and the accent edge that say so, and the two spaces the canned rows used
+           to be pushed over by are gone. */
+        const bool is_draft = (i == MESH_UI_COMPOSE_ROW_DRAFT);
+        if (is_draft) {
             if (nav->draft[0] != '\0') {
                 mesh_ui_line_str(&line, MESH_STR_COMPOSE_DRAFT, nav->draft);
             } else {
                 mesh_ui_line_printf(&line, "%s", mesh_str(MESH_STR_COMPOSE_DRAFT_EMPTY));
             }
-            fb_list_row_line(state, &list, i, &line, MESH_UI_TONE_ACCENT);
         } else {
-            mesh_ui_line_printf(&line, "  %s",
-                                mesh_ui_canned_text(i - MESH_UI_COMPOSE_FIRST_CANNED));
-            fb_list_row_line(state, &list, i, &line, MESH_UI_TONE_NORMAL);
+            mesh_ui_line_printf(&line, "%s", mesh_ui_canned_text(i - MESH_UI_COMPOSE_FIRST_CANNED));
         }
+        const struct fb_list_item row = {
+            .text = mesh_ui_line_text(&line),
+            .tone = is_draft ? MESH_UI_TONE_ACCENT : MESH_UI_TONE_NORMAL,
+            .accent_edge = is_draft,
+            .divider = true,
+        };
+        fb_list_item(state, &list, i, &row);
     }
 }
 
-/* "Send to" list: channels, then nodes, cursor on the current target. */
-static void fb_render_picker(const struct mesh_ui_backend_fb_state *state,
+/* "Send to" list: channels, then nodes, cursor on the current target. Mutable state, like
+   every fb_list_item() caller. */
+static void fb_render_picker(struct mesh_ui_backend_fb_state *state,
                              const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     struct mesh_ui_store view;
@@ -802,8 +860,8 @@ static void fb_render_picker(const struct mesh_ui_backend_fb_state *state,
     }
 
     struct fb_list list = fb_list_begin(layout, count, nav->picker_cursor);
-    struct mesh_ui_line line;
     char name[96];
+    char initials[MESH_UI_CONVERSATION_INITIALS_MAX];
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         uint32_t node = 0U;
@@ -814,11 +872,32 @@ static void fb_render_picker(const struct mesh_ui_backend_fb_state *state,
         const bool is_channel = (node == MESH_MESSAGE_BROADCAST_ADDR);
         const bool current =
             (node == nav->target_node) && (!is_channel || channel == nav->target_channel);
-        mesh_ui_line_reset(&line);
-        mesh_ui_line_printf(&line, "%c %s%s", current ? '*' : ' ', name,
-                            is_channel ? mesh_str(MESH_STR_COMPOSE_SUFFIX_CHANNEL) : "");
-        fb_list_row_line(state, &list, i, &line,
-                         is_channel ? MESH_UI_TONE_ACCENT : MESH_UI_TONE_NORMAL);
+
+        /*
+         * The same discs the conversation list draws, for the same rows. The nav layer answers
+         * both the cells and the tint (mesh_ui_nav_target_avatar), which is what keeps a node
+         * the same two letters and the same colour in both lists - this row's *name* is
+         * "BRVO  Bravo Creek", and initials taken from that would read "BB".
+         *
+         * Between them the disc carries both of the things this row used to spell out in
+         * characters: the "(channel)" suffix that the '#' already says, and the '*' marking the
+         * current target, which is a stated accent fill here.
+         */
+        uint32_t tint = 0U;
+        mesh_ui_nav_target_avatar(&view, node, channel, initials, sizeof initials, &tint);
+        const struct fb_list_item row = {
+            .leading =
+                {
+                    .kind = FB_LEADING_AVATAR,
+                    .label = initials,
+                    .tint = tint,
+                    .role = current ? MESH_UI_COLOR_ACCENT : MESH_UI_COLOR_COUNT,
+                },
+            .text = name,
+            .tone = is_channel ? MESH_UI_TONE_ACCENT : MESH_UI_TONE_NORMAL,
+            .divider = true,
+        };
+        fb_list_item(state, &list, i, &row);
     }
 }
 
@@ -938,7 +1017,9 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
     }
 }
 
-static void fb_render_devices(const struct mesh_ui_backend_fb_state *state,
+/* Takes the state mutably, like every fb_list_item() caller: the item is the component that
+   can carry an animated slot, so the whole entry point takes the table it would step. */
+static void fb_render_devices(struct mesh_ui_backend_fb_state *state,
                               const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     char title[96];
@@ -951,9 +1032,17 @@ static void fb_render_devices(const struct mesh_ui_backend_fb_state *state,
         return;
     }
 
-    struct fb_list list = fb_list_begin(layout, (uint32_t)snapshot->device_count,
-                                        nav->cursor[MESH_UI_SCREEN_DEVICES]);
-    struct mesh_ui_line line;
+    /*
+     * Two body rows an item: the radio's name with how it is attached against the right edge,
+     * then what it is doing under that. The list is short - a handful of radios in range - so
+     * the rows are affordable here in a way they would not be on the node list, and the state
+     * is the thing this screen exists to answer. It used to be one line with the state
+     * concatenated onto the end of the name, where a long name pushed it off the panel.
+     */
+    struct fb_list list = fb_list_begin_rows(layout, (uint32_t)snapshot->device_count,
+                                             nav->cursor[MESH_UI_SCREEN_DEVICES], 2U);
+    char trailing[16];
+    char initials[MESH_UI_CONVERSATION_INITIALS_MAX];
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         const struct mesh_ui_device *device = &snapshot->devices[i];
@@ -964,34 +1053,59 @@ static void fb_render_devices(const struct mesh_ui_backend_fb_state *state,
         /* What pressing A on this row would do. An unpaired BLE node is the case worth
            calling out: it connects and then fails on StartNotify unless it is bonded first,
            which is exactly what A now does for it. */
-        const char *badge = "";
+        const char *status = "";
         if (device->connected) {
-            badge = mesh_str(MESH_STR_DEVICES_BADGE_CONNECTED);
+            status = mesh_str(MESH_STR_DEVICES_BADGE_CONNECTED);
         } else if (device->busy) {
-            badge = mesh_str(MESH_STR_DEVICES_BADGE_WORKING);
+            status = mesh_str(MESH_STR_DEVICES_BADGE_WORKING);
         } else if (device->kind == (uint8_t)MESH_UI_DEVICE_BLE && !device->paired) {
-            badge = mesh_str(MESH_STR_DEVICES_BADGE_NEEDS_PAIR);
+            status = mesh_str(MESH_STR_DEVICES_BADGE_NEEDS_PAIR);
         } else if (device->kind == (uint8_t)MESH_UI_DEVICE_BLE) {
-            badge = mesh_str(MESH_STR_DEVICES_BADGE_PAIRED);
+            status = mesh_str(MESH_STR_DEVICES_BADGE_PAIRED);
         }
 
-        mesh_ui_line_reset(&line);
-        /* A USB port has no RSSI to show; the badge is what tells the two kinds apart. */
+        /* A USB port has no RSSI to show, so it says which bus it is instead - the trailing
+           slot answers "how is this attached" either way. */
         if (device->kind == (uint8_t)MESH_UI_DEVICE_SERIAL) {
-            mesh_ui_line_str(&line, MESH_STR_DEVICES_ROW_USB, device->connected ? '*' : ' ', name,
-                             badge);
+            mesh_str_copy(trailing, sizeof trailing, mesh_str(MESH_STR_DEVICES_TRAILING_USB));
         } else {
-            mesh_ui_line_str(&line, MESH_STR_DEVICES_ROW_BLE, device->connected ? '*' : ' ', name,
-                             (int)device->rssi, badge);
+            mesh_str_format(trailing, sizeof trailing, MESH_STR_DEVICES_TRAILING_RSSI,
+                            (int)device->rssi);
         }
 
+        const bool armed = nav->devices_forget_armed && nav->devices_forget_row == i;
         enum mesh_ui_tone tone = MESH_UI_TONE_NORMAL;
         if (device->connected) {
             tone = MESH_UI_TONE_GOOD;
-        } else if (nav->devices_forget_armed && nav->devices_forget_row == i) {
+        } else if (armed) {
             tone = MESH_UI_TONE_BAD;
         }
-        fb_list_row_line(state, &list, i, &line, tone);
+
+        /* The disc states its fill rather than taking a tint: a device list is four rows about
+           one question - which of these am I on - and six hues would be answering a question
+           nobody asked. Connected is the good tone, armed to be forgotten is the bad one. */
+        mesh_ui_nav_initials(name, initials, sizeof initials);
+        const struct fb_list_item row = {
+            .leading =
+                {
+                    .kind = FB_LEADING_AVATAR,
+                    .label = initials,
+                    .tint = i,
+                    .role = device->connected ? MESH_UI_COLOR_GOOD
+                            : armed           ? MESH_UI_COLOR_BAD
+                                              : MESH_UI_COLOR_COUNT,
+                },
+            .text = name,
+            .tone = tone,
+            .trailing = {.kind = FB_TRAILING_TEXT, .text = trailing},
+            .supporting = status,
+            .supporting_tone = MESH_UI_TONE_DIM,
+            /* The state stays quiet under the cursor - it is a fact about the row, not the
+               row's own words - except when it is the warning, which has to stay loud. */
+            .supporting_quiet = !armed,
+            .divider = true,
+        };
+        fb_list_item(state, &list, i, &row);
     }
 }
 

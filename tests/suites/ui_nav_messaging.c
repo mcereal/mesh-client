@@ -1058,3 +1058,122 @@ cleanup:
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+/*
+ * A node wears the same disc wherever it is listed.
+ *
+ * The Messages tab, the Nodes tab and the send-to picker all draw a tinted disc with two cells
+ * in it, and the whole job of that disc is to be recognised across the three - so the two cells
+ * and the tint have to be derived from the *node*, never from the string a screen happens to be
+ * showing. The picker's row reads "ALFA  Alfa Node", whose first two words both begin with A;
+ * initials taken from that read "AA" while Messages shows "AL" for the same radio.
+ *
+ * That is what mesh_ui_nav_target_avatar() exists to prevent, and this is the case it was
+ * written for.
+ */
+MESH_TEST_CASE(ui_nav_avatar_is_stable_across_lists, unit) {
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    /* The initials rule itself: one word gives its first half, two words give their firsts,
+       and punctuation is skipped rather than spent. */
+    char cells[MESH_UI_CONVERSATION_INITIALS_MAX];
+    mesh_ui_nav_initials("BRVO", cells, sizeof cells);
+    if (strcmp(cells, "BR") != 0) {
+        failure = "a one-word name should give its first two cells";
+        goto cleanup;
+    }
+    mesh_ui_nav_initials("Home Base", cells, sizeof cells);
+    if (strcmp(cells, "HB") != 0) {
+        failure = "a two-word name should give the first letter of each";
+        goto cleanup;
+    }
+    mesh_ui_nav_initials("!a1b2c3d4", cells, sizeof cells);
+    if (strcmp(cells, "A1") != 0) {
+        failure = "a '!hex' fallback name should skip the '!' and upper-case";
+        goto cleanup;
+    }
+    mesh_ui_nav_initials("", cells, sizeof cells);
+    if (cells[0] != '\0') {
+        failure = "a nameless node should draw an empty disc rather than a wrong one";
+        goto cleanup;
+    }
+
+    /* Now the agreement that matters. Find ALFA in both lists and compare what each would
+       draw - the fixture gives it the long name that makes the naive derivation wrong. */
+    char picker_cells[MESH_UI_CONVERSATION_INITIALS_MAX];
+    char picker_name[96];
+    uint32_t picker_tint = 0U;
+    bool found = false;
+    const uint32_t rows = mesh_ui_nav_picker_count(&store);
+    for (uint32_t i = 0; i < rows; ++i) {
+        uint32_t node = 0U;
+        uint8_t channel = 0U;
+        if (!mesh_ui_nav_picker_row(&store, i, &node, &channel, picker_name, sizeof picker_name)) {
+            break;
+        }
+        if (node != 0x2000U) {
+            continue;
+        }
+        mesh_ui_nav_target_avatar(&store, node, channel, picker_cells, sizeof picker_cells,
+                                  &picker_tint);
+        found = true;
+        break;
+    }
+    if (!found) {
+        failure = "the picker should list ALFA";
+        goto cleanup;
+    }
+    /* The premise of the test: the picker's display name is the one that derives wrongly. */
+    mesh_ui_nav_initials(picker_name, cells, sizeof cells);
+    if (strcmp(cells, "AL") == 0) {
+        failure = "the picker's row name no longer reproduces the bug this test pins";
+        goto cleanup;
+    }
+    if (strcmp(picker_cells, "AL") != 0) {
+        failure = "the picker's disc should come from the node's own name, not the row's";
+        goto cleanup;
+    }
+    if (picker_tint != 0x2000U) {
+        failure = "a node's tint is its number, so it survives a rename";
+        goto cleanup;
+    }
+
+    /* A channel is a place: the mark rather than initials, seeded by its slot so renaming it
+       keeps the colour. */
+    mesh_ui_nav_target_avatar(&store, MESH_MESSAGE_BROADCAST_ADDR, 3U, picker_cells,
+                              sizeof picker_cells, &picker_tint);
+    if (strcmp(picker_cells, "#") != 0 || picker_tint != 0x0C000003U) {
+        failure = "a channel should wear '#' seeded by its slot";
+        goto cleanup;
+    }
+
+    /*
+     * The fallback order is the node's, not any one field's. A roster entry with no short name
+     * is *shown* as the "----" placeholder, which has no letters in it at all - so an avatar
+     * derived from what the row displays would be empty while the same node wears its long
+     * name's initials everywhere else.
+     */
+    struct mesh_ui_handshake_state *hs = &store.handshake;
+    memset(&hs->nodes[1].short_name, 0, sizeof hs->nodes[1].short_name);
+    mesh_ui_nav_target_avatar(&store, 0x2000U, 0U, picker_cells, sizeof picker_cells, NULL);
+    if (strcmp(picker_cells, "AN") != 0) {
+        failure = "a node with no short name should fall through to its long name";
+        goto cleanup;
+    }
+    memset(&hs->nodes[1].long_name, 0, sizeof hs->nodes[1].long_name);
+    mesh_ui_nav_target_avatar(&store, 0x2000U, 0U, picker_cells, sizeof picker_cells, NULL);
+    if (picker_cells[0] == '\0') {
+        failure = "a node with no names at all should still wear its '!hex' id, not an empty disc";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}

@@ -262,15 +262,16 @@ MESH_STR_ENTRY(CANNED_PING,               "Ping")
 MESH_STR_ENTRY(DEVICES_EMPTY,             "Scanning for Meshtastic nodes...")
 /* A device the adapter has not named. The angle brackets mark it as a stand-in, not a name. */
 MESH_STR_ENTRY(DEVICES_UNNAMED,           "<unknown>")
-/* The badge after a device's name. Each begins with two spaces to hold it off the name. */
-MESH_STR_ENTRY(DEVICES_BADGE_CONNECTED,   "  connected")
-MESH_STR_ENTRY(DEVICES_BADGE_WORKING,     "  working...")
-MESH_STR_ENTRY(DEVICES_BADGE_NEEDS_PAIR,  "  needs pairing")
-MESH_STR_ENTRY(DEVICES_BADGE_PAIRED,      "  paired")
-/* A row: the cursor mark, the name, how it is attached, then the badge. USB is a bus name and
-   stays as it is; dBm is the signal strength of a Bluetooth node. */
-MESH_STR_ENTRY(DEVICES_ROW_USB,           "%c %s  USB%s")
-MESH_STR_ENTRY(DEVICES_ROW_BLE,           "%c %s  %ddBm%s")
+/* What the device is doing, on the row's supporting line. No leading spaces: the line is a
+   slot of its own now rather than something concatenated onto the end of the name. */
+MESH_STR_ENTRY(DEVICES_BADGE_CONNECTED,   "connected")
+MESH_STR_ENTRY(DEVICES_BADGE_WORKING,     "working...")
+MESH_STR_ENTRY(DEVICES_BADGE_NEEDS_PAIR,  "needs pairing")
+MESH_STR_ENTRY(DEVICES_BADGE_PAIRED,      "paired")
+/* How the device is attached, against the row's trailing edge. USB is a bus name and stays as
+   it is; dBm is the signal strength of a Bluetooth node. */
+MESH_STR_ENTRY(DEVICES_TRAILING_USB,      "USB")
+MESH_STR_ENTRY(DEVICES_TRAILING_RSSI,     "%ddBm")
 /* The name given to a radio we are talking to but never saw advertise. */
 MESH_STR_ENTRY(DEVICES_CONNECTED_NAME,    "Connected")
 
