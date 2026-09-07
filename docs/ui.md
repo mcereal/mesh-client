@@ -496,6 +496,40 @@ showing. (The picker's row *reads* "BRVO  Bravo Creek", whose first two words bo
 initials taken from that would be "BB" and the same radio would wear two different discs one
 screen apart.)
 
+#### `struct fb_text_field` and `struct fb_dialog`
+
+The last two things a screen renderer was drawing by hand.
+
+**The text field** is the keyboard's draft box. The outline, the fill inside it, the corner
+radius, the caret, which tail of an overlong draft to show and where the counter sits were all
+spelled out in `fb_render_keyboard()`, which is exactly the pixel arithmetic `fb_screens.c` is
+not supposed to contain. There is one field on screen at a time and it is always the thing being
+edited, so it has no unfocused state and takes no cursor: a text field here is a *focused* text
+field. It owns the two things the screen got wrong when it owned them — the draft scrolls to show
+its **tail**, because the end is where the caret is, measured in cells so a draft of emoji moves
+a glyph at a time; and the counter sits **outside** the box, because text inside the fill that is
+not the value reads as the value.
+
+**The dialog** is the confirmation screen. It was a title, four lines of wrapped text on the bare
+ground, and the two answers as ordinary list rows — which is to say it looked like every other
+list in the app, at the one moment the app is asking rather than showing. It fills the body
+rather than floating over it, and that is deliberate: a dialog elsewhere dims what is behind it
+with a scrim, and a scrim is alpha, which this framebuffer has none of (see **Surfaces are
+tiered**). What stands in for it is that `fb_render_confirm()` is a screen rather than an
+overlay, so there is nothing left to dim. Only the supporting paragraph gives way when the panel
+is short: the buttons, the headline and the icon are reserved first, because a dialog that
+dropped a button to fit its explanation would be unanswerable.
+
+> **Exactly one button carries a fill, and it is always the focused one.** The obvious design
+> gives the accept a standing tonal fill so it reads as the proposed answer, and lets the cursor
+> promote it to the full accent. That works on three themes and fails on the fourth: the
+> high-contrast palette deliberately collapses `ACCENT`, `ACCENT_CONTAINER` and `SURFACE_ACTIVE`
+> onto one yellow, because a theme built for legibility has no held-back version of its one
+> accent. The accept then renders identically whether or not it is selected. So the fill means
+> *focus* and nothing else, and what marks the affirmative is its check and its accent-coloured
+> label — ink on the panel, which survives every palette. `ui_capture_dialog_marks_the_selected_answer`
+> pins it, and fails on the design that looked right.
+
 `struct fb_bubble` is the other component that earns its keep, and it is the one place the
 thread's geometry lives. A bubble sizes itself to its own text (never past three quarters of the
 body), sits against the edge its direction names, and reports its height with

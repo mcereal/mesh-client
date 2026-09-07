@@ -1026,47 +1026,24 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
     int y = layout->body_y;
 
     /*
-     * Draft box: two wrapped lines plus a cursor and a byte count.
-     *
-     * A container in its own right, so it is drawn as one - the raised surface tier, the panel
-     * shape, and an edge in OUTLINE laid down first with the fill inside it, exactly as a card
-     * is built. What it holds is the thing being typed, which is the one piece of text on this
-     * screen that has to stay legible while it changes; the tier is what lifts it off the
-     * keyboard below rather than leaving it as another row on the same ground.
+     * What is being typed, in the one text field this UI has. Everything about how it is drawn
+     * - the raised tier that lifts it off the keyboard, the panel shape, the edge, which tail
+     * of an overlong draft to show and where the counter sits - belongs to the component; what
+     * is left here is the two facts only this screen knows, which is what it holds and how full
+     * it is.
      */
-    const int box_lines = 2;
-    const int margin = fb_margin(state);
-    const int box_x = margin / 2;
-    const int box_w = (int)state->var.xres - margin;
-    const int box_h = box_lines * line + scale;
-    const int edge = fb_edge(state);
-    const int radius = fb_radius(state, MESH_UI_SHAPE_MD);
-    fb_fill_round_rect(state, box_x, y - scale, box_w, box_h, radius + edge,
-                       fb_color(state, MESH_UI_COLOR_OUTLINE));
-    fb_fill_round_rect(state, box_x + edge, y - scale + edge, box_w - 2 * edge, box_h - 2 * edge,
-                       radius, fb_color(state, MESH_UI_COLOR_SURFACE_HIGH));
-    char draft[MESH_UI_DRAFT_MAX + 2U];
-    snprintf(draft, sizeof draft, "%s_", nav->draft);
-    /* Show the tail when the draft outgrows the box. */
-    const size_t visible = layout->cols * (size_t)box_lines;
-    const char *shown = draft;
-    const size_t draft_width = mesh_ui_text_cells(draft);
-    if (draft_width > visible) {
-        shown = draft + mesh_ui_text_cell_offset(draft, draft_width - visible);
-    }
-    fb_draw_wrapped(state, y, shown, layout->cols, box_lines,
-                    fb_tone_color(state, MESH_UI_TONE_STRONG));
-    y += box_lines * line;
-
     char meter[32];
     snprintf(meter, sizeof meter, "%zu/%zu", strlen(nav->draft), draft_cap);
-    fb_draw_text(state,
-                 (int)state->var.xres - margin -
-                     (int)mesh_ui_text_cells(meter) * fb_char_adv(state, layout->small),
-                 y, meter, layout->small, fb_tone_color(state, MESH_UI_TONE_DIM));
-    y += fb_line_adv(state, layout->small) + scale;
+    const struct fb_text_field field = {
+        .value = nav->draft,
+        .caret = true,
+        .lines = 2U,
+        .counter = meter,
+    };
+    fb_draw_text_field(state, layout, &y, &field);
 
     /* The character grid and the action row are the same button, sized differently. */
+    const int margin = fb_margin(state);
     const int grid_w = (int)state->var.xres - 2 * margin;
     const int cell_w = grid_w / (int)MESH_UI_KB_COLS;
     const int cell_h = line + 2 * scale;
@@ -1542,32 +1519,27 @@ static void fb_render_confirm(struct mesh_ui_backend_fb_state *state,
         (enum mesh_ui_settings_action)nav->confirm_action;
     char title[96];
     mesh_ui_settings_confirm_title(section, nav->settings_channel, confirmed, title, sizeof title);
-    fb_draw_title(state, layout, title);
-
     char text[256];
     mesh_ui_settings_confirm_text(section, confirmed, text, sizeof text);
-    const int text_lines = 4;
-    fb_draw_wrapped(state, layout->body_y, text, layout->cols, text_lines,
-                    fb_tone_color(state, MESH_UI_TONE_NORMAL));
 
-    /* The two choices are a list of their own, below the wrapped body text. */
-    struct fb_layout choices = *layout;
-    choices.body_y = layout->body_y + text_lines * layout->line + layout->line / 2;
-    struct fb_list list = fb_list_begin(&choices, 2U, nav->confirm_cursor);
-    const char *const rows[] = {mesh_ui_settings_confirm_accept(confirmed),
-                                mesh_str(MESH_STR_COMMON_CANCEL)};
-    /* Go through with it, or do not: the two answers a confirmation has, said the way every
-       dialog says them. */
-    const enum mesh_ui_icon icons[] = {MESH_UI_ICON_CHECK, MESH_UI_ICON_CLOSE};
-    uint32_t i;
-    while (fb_list_next(&list, &i)) {
-        const struct fb_list_item row = {
-            .leading = {.kind = FB_LEADING_ICON, .icon = icons[i]},
-            .text = rows[i],
-            .tone = i == 0U ? MESH_UI_TONE_ACCENT : MESH_UI_TONE_NORMAL,
-        };
-        fb_list_item(state, &list, i, &row);
-    }
+    /*
+     * A dialog rather than a screen. There is no title bar and no list: the question is the
+     * panel's own headline and the two answers are buttons on it, which is the shape that says
+     * "this is being asked of you" rather than "here is another list to walk".
+     */
+    const struct fb_dialog dialog = {
+        .icon = MESH_UI_ICON_WARNING,
+        .headline = title,
+        .text = text,
+        .accept = mesh_ui_settings_confirm_accept(confirmed),
+        .cancel = mesh_str(MESH_STR_COMMON_CANCEL),
+        .cursor = nav->confirm_cursor,
+        /* A radio action cannot be taken back - a reboot drops the link, a NodeDB reset empties
+           the roster - while a section save is only the settings the user has just been
+           editing. The two deserve different-coloured answers. */
+        .destructive = confirmed != (uint8_t)MESH_UI_SETTINGS_ACTION_NONE,
+    };
+    fb_draw_dialog(state, layout, &dialog);
 }
 
 /* Settings: the section list, or one section's label/value rows. Editable rows show a
