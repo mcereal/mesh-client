@@ -196,6 +196,59 @@ MESH_TEST_CASE(actions_arm_before_they_destroy, unit) {
 }
 
 /*
+ * The back affordance, which the top app bar's leading slot draws.
+ *
+ * It is read off the bar rather than decided by a screen renderer, so that the arrow at the top
+ * of the panel and the B keycap at the bottom cannot disagree. The cases worth pinning are the
+ * three where "B does something" and "B leaves" come apart, because a flag on a screen would
+ * have got all three wrong.
+ */
+MESH_TEST_CASE(actions_back_arrow_follows_the_verb_not_the_key, unit) {
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_action_bar bar;
+
+    MESH_TEST_FAIL_IF(mesh_ui_action_bar_goes_back(NULL), "no bar is not a bar offering a way out");
+
+    /* A tab's own list has nothing behind it. */
+    actions_snapshot(&snapshot);
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(mesh_ui_action_bar_goes_back(&bar),
+                      "the conversation list is a tab's root and has nowhere to go back to");
+
+    /* A thread does. */
+    snapshot.nav.thread_open = true;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(!mesh_ui_action_bar_goes_back(&bar), "B leaves an open thread");
+
+    /* A settings section does - until it is holding edits, where B is discard. An arrow there
+       would be the chrome promising something the key does not do. */
+    actions_snapshot(&snapshot);
+    snapshot.nav.screen = MESH_UI_SCREEN_SETTINGS;
+    snapshot.nav.settings_section = MESH_UI_SETTINGS_DISPLAY;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(!mesh_ui_action_bar_goes_back(&bar), "B leaves an open settings section");
+    snapshot.nav.settings_edit_count = 2U;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(mesh_ui_action_bar_goes_back(&bar),
+                      "B discards pending edits rather than leaving, so no arrow");
+
+    /* The two overlays where B is offered and is not a way back. */
+    actions_snapshot(&snapshot);
+    snapshot.nav.picker_open = true;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(mesh_ui_action_bar_goes_back(&bar),
+                      "B cancels the picker, it does not go back");
+
+    actions_snapshot(&snapshot);
+    snapshot.nav.keyboard_open = true;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(mesh_ui_action_bar_goes_back(&bar),
+                      "B deletes a character on the keyboard, it does not go back");
+
+    record_success(test_name);
+}
+
+/*
  * Every state the bar can be in, walked exhaustively rather than by hand.
  *
  * The bar drops actions it cannot fit, and it drops them silently - so a table that overran

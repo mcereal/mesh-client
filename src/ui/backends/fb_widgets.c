@@ -314,8 +314,88 @@ void fb_draw_action_bar(const struct mesh_ui_backend_fb_state *state,
                  fb_color(state, MESH_UI_COLOR_SURFACE_LOW));
 }
 
-void fb_draw_title(const struct mesh_ui_backend_fb_state *state, struct fb_layout *layout,
-                   const char *title) {
+/* ---- the badge ------------------------------------------------------------------------------
+ *
+ * A capsule of text, filled from one family and inked with the ink that family was validated
+ * with. The shape does the work: a filled rectangle on the end of a row reads as part of it,
+ * and the same fill with its ends taken off reads as something sitting on top.
+ *
+ * It is drawn here rather than inside the trailing slot because it now has two callers - a
+ * list row's unread count, and the top app bar's "3 unsaved" - and a capsule that two places
+ * drew separately is a capsule that would end up two different shapes.
+ */
+
+int fb_badge_width(const struct mesh_ui_backend_fb_state *state, const char *text, int scale) {
+    const size_t cells = text != NULL ? mesh_ui_text_cells(text) : 0U;
+    /* Half a cell either side of the words: enough to clear the capsule's own curve at every
+       glyph scale a theme may pick, and it is what the row's badge has always taken. */
+    return cells > 0U ? (int)(cells + 1U) * fb_char_adv(state, scale) : 0;
+}
+
+void fb_draw_badge(const struct mesh_ui_backend_fb_state *state, const struct fb_rect *box,
+                   int text_y, const char *text, enum mesh_ui_family family, int scale) {
+    if (text == NULL || text[0] == '\0' || box->w <= 0) {
+        return;
+    }
+    /* One call for both halves: whatever the theme says reads on that family's own fill - on
+       the dark palette that is the ground colour, because white on its yellow is unreadable at
+       this glyph size. */
+    const struct mesh_ui_paint paint =
+        fb_paint(state, family, MESH_UI_SLOT_BASE, MESH_UI_STATE_REST);
+    fb_fill_round_rect(state, box->x, box->y, box->w, box->h, fb_radius(state, MESH_UI_SHAPE_FULL),
+                       paint.fill);
+    fb_draw_text(state, box->x + fb_char_adv(state, scale) / 2, text_y, text, scale, paint.ink,
+                 paint.fill);
+}
+
+/* ---- the top app bar ------------------------------------------------------------------------ */
+
+/* The trail, drawn left to right with a chevron between the levels, from `x`. Returns nothing:
+   a trail that runs out of room stops, because the level nearest the title is the one worth
+   keeping and it is drawn last. */
+static void fb_draw_app_bar_trail(const struct mesh_ui_backend_fb_state *state,
+                                  const struct fb_app_bar *bar, int x, int y, int right,
+                                  int scale) {
+    const int adv = fb_char_adv(state, scale);
+    const struct mesh_ui_rgb ink = fb_tone_color(state, MESH_UI_TONE_DIM);
+    const struct mesh_ui_rgb ground = fb_color(state, MESH_UI_COLOR_BG);
+    const int step = fb_icon_box(state, scale);
+
+    struct mesh_ui_line word;
+    for (size_t i = 0; i < bar->trail_count; ++i) {
+        const char *text = bar->trail[i];
+        if (text == NULL || text[0] == '\0') {
+            continue;
+        }
+        if (i > 0U) {
+            /* The separator is an icon, not a character. The breadcrumb this replaced spelled
+               it "> " inside the translated title, which handed a translator the trail's
+               grammar along with its words; a chevron drawn from the icon set is the same mark
+               the rows that open something already use, and it is untranslated for the same
+               reason an arrow on a keycap is. */
+            if (x + step + adv / 2 > right) {
+                return;
+            }
+            /* A quarter of a cell either side. The chevron sprite fills its cell, so a
+               separator advanced by the bare icon box has the two level names touching it and
+               the trail reads as one word. */
+            fb_draw_icon(state, x + adv / 4, y, MESH_UI_ICON_CHEVRON, scale, ink, ground);
+            x += step + adv / 2;
+        }
+        const int room = (right - x) / adv;
+        if (room <= 0) {
+            return;
+        }
+        mesh_ui_line_reset(&word);
+        mesh_ui_line_printf(&word, "%s", text);
+        mesh_ui_line_fit(&word, (size_t)room);
+        fb_draw_text(state, x, y, mesh_ui_line_text(&word), scale, ink, ground);
+        x += (int)mesh_ui_text_cells(mesh_ui_line_text(&word)) * adv;
+    }
+}
+
+void fb_draw_app_bar(const struct mesh_ui_backend_fb_state *state, struct fb_layout *layout,
+                     const struct fb_app_bar *bar) {
     /*
      * A title is drawn at MESH_UI_TYPE_TITLE, which is a step above the body.
      *
@@ -325,16 +405,77 @@ void fb_draw_title(const struct mesh_ui_backend_fb_state *state, struct fb_layou
      * size already said, which is what a heading is supposed to look like.
      */
     const int scale = fb_type_scale(state, MESH_UI_TYPE_TITLE);
+    const int small = layout->small;
+    const int adv = fb_char_adv(state, scale);
+    const int margin = fb_margin(state);
+    const struct mesh_ui_rgb ground = fb_color(state, MESH_UI_COLOR_BG);
+
+    int y = layout->body_y;
+    /* The content column: the trail and the title share a left edge, and the back arrow hangs
+       in the gutter to the left of both - which is where every platform puts it, and what keeps
+       the two lines reading as one block rather than as two things that happen to be stacked. */
+    const int text_x = layout->back ? margin + fb_icon_box(state, scale) + adv / 2 : margin;
+
+    /*
+     * The overline, when this screen is somewhere rather than at a tab's root.
+     *
+     * It costs a label-scale line and it buys the whole of the breadcrumb's width back: at the
+     * title scale "Settings > Modules > Telemetry" is thirty cells of a thirty-four cell line,
+     * so the leaf - the one word saying which screen this is - was the half that got elided.
+     * Above the title, at the label scale, the same trail is half as wide and the title has the
+     * panel to itself.
+     */
+    if (bar->trail_count > 0U) {
+        fb_draw_app_bar_trail(state, bar, text_x, y, (int)state->var.xres - margin, small);
+        /* The glyph body and a hair, not the label scale's whole line advance. The advance
+           carries the gap between two lines of running text, and the trail is not running text
+           - it is a caption sitting on the title. Spending the advance here cost a body row on
+           every screen with a trail, which is a row of content for a gap nobody sees. */
+        y += (int)fb_font(state)->height * small + fb_space_at(state, MESH_UI_SPACE_XS, small);
+    }
+
+    /*
+     * The leading affordance: what B does, said by the chrome rather than only by the keycap
+     * at the bottom of the panel. layout->back is the action bar's own answer (see
+     * mesh_ui_action_bar_goes_back), so the arrow and the keycap cannot disagree.
+     */
+    if (layout->back) {
+        fb_draw_icon(state, margin, y, MESH_UI_ICON_BACK, scale,
+                     fb_tone_color(state, MESH_UI_TONE_DIM), ground);
+    }
+
+    /*
+     * The trailing slot: a fact about the *screen*, which is the one thing a title could not
+     * carry. "3 unsaved" used to be a " (unsaved)" glued onto the end of the title with a %s,
+     * where it was neither countable nor a badge - a capsule cannot be spelled inside a
+     * sentence.
+     */
+    int right = (int)state->var.xres - margin;
+    const int badge_w = fb_badge_width(state, bar->badge, small);
+    if (badge_w > 0) {
+        /* Centred on the title's glyph body rather than on its line advance: the advance
+           carries the gap accents hang in, and counting it would sit the capsule low. */
+        const int title_h = (int)fb_font(state)->height * scale;
+        const int badge_h = (int)fb_font(state)->height * small;
+        const int text_y = y + (title_h - badge_h) / 2;
+        const struct fb_rect box = {.x = right - badge_w,
+                                    .y = text_y - small,
+                                    .w = badge_w,
+                                    .h = fb_line_adv(state, small) - small};
+        fb_draw_badge(state, &box, text_y, bar->badge, bar->badge_family, small);
+        right -= badge_w + fb_char_adv(state, small);
+    }
 
     struct mesh_ui_line line;
     mesh_ui_line_reset(&line);
-    mesh_ui_line_printf(&line, "%s", title);
-    /* Fitted to the columns *this* scale has, not the body's. Bigger glyphs mean fewer of them,
-       and a breadcrumb like "Settings > Modules > Telemetry" is exactly long enough to run off
-       the panel if it is measured against a column count it is not drawn at. */
-    mesh_ui_line_fit(&line, fb_cols(state, scale));
-    fb_draw_text(state, fb_margin(state), layout->body_y, mesh_ui_line_text(&line), scale,
-                 fb_tone_color(state, MESH_UI_TONE_PRIMARY), fb_color(state, MESH_UI_COLOR_BG));
+    mesh_ui_line_printf(&line, "%s", bar->title != NULL ? bar->title : "");
+    /* Fitted to the room *this* scale leaves between the two slots, not to the body's column
+       count. Bigger glyphs mean fewer of them, and a title measured against a column count it
+       is not drawn at is a title that runs off the panel. */
+    const int room = right > text_x ? (right - text_x) / adv : 0;
+    mesh_ui_line_fit(&line, (size_t)(room > 0 ? room : 0));
+    fb_draw_text(state, text_x, y, mesh_ui_line_text(&line), scale,
+                 fb_tone_color(state, MESH_UI_TONE_PRIMARY), ground);
 
     /*
      * What is left of the body, recomputed rather than deducted.
@@ -346,7 +487,7 @@ void fb_draw_title(const struct mesh_ui_backend_fb_state *state, struct fb_layou
      * Deducting a rounded-up row count is not the fix either, and that is the subtle part:
      * `rows` is a *floored* division of the body height, so the body carries a remainder of up
      * to one row that the count never included. Subtracting ceil(advance / line) from it
-     * charges the title for that remainder a second time and hides a row that does in fact
+     * charges the bar for that remainder a second time and hides a row that does in fact
      * fit - on the Brick's panel the remainder is most of a row, so every titled screen lost
      * one for nothing.
      *
@@ -354,7 +495,7 @@ void fb_draw_title(const struct mesh_ui_backend_fb_state *state, struct fb_layou
      * the body's real bottom. Measuring it the same way twice is what keeps the two answers
      * from disagreeing.
      */
-    layout->body_y += fb_line_adv(state, scale) + fb_space(state, MESH_UI_SPACE_SM);
+    layout->body_y = y + fb_line_adv(state, scale) + fb_space(state, MESH_UI_SPACE_SM);
     if (layout->line > 0) {
         const int remaining = layout->footer_y - fb_gutter(state) - layout->body_y;
         layout->rows = remaining > 0 ? (uint32_t)(remaining / layout->line) : 0U;
@@ -695,9 +836,8 @@ static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struc
                              bool selected, struct mesh_ui_rgb ground) {
     const int scale = state->scale;
     const int adv = fb_char_adv(state, scale);
-    const size_t cells = (trailing->kind == FB_TRAILING_TEXT || trailing->kind == FB_TRAILING_BADGE)
-                             ? mesh_ui_text_cells(trailing->text)
-                             : 0U;
+    const size_t cells =
+        trailing->kind == FB_TRAILING_TEXT ? mesh_ui_text_cells(trailing->text) : 0U;
 
     switch (trailing->kind) {
     case FB_TRAILING_TEXT:
@@ -712,22 +852,13 @@ static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struc
                      ground);
         return;
     case FB_TRAILING_BADGE: {
-        if (cells == 0U) {
-            return;
-        }
-        /* A capsule, the way every messenger draws a count. The shape does the work: a filled
-           rectangle on the end of a row reads as part of it, and the same fill with its ends
-           taken off reads as something sitting on top. */
-        const int width = (int)(cells + 1U) * adv;
-        const int x = g->text_right - width;
-        /* One call for both halves: whatever the theme says reads on that family's own fill -
-           on the dark palette that is the ground colour, because white on its yellow is
-           unreadable at this glyph size. */
-        const struct mesh_ui_paint badge =
-            fb_paint(state, trailing->family, MESH_UI_SLOT_BASE, MESH_UI_STATE_REST);
-        fb_fill_round_rect(state, x, slot_top, width, g->slot_h,
-                           fb_radius(state, MESH_UI_SHAPE_FULL), badge.fill);
-        fb_draw_text(state, x + adv / 2, baseline, trailing->text, scale, badge.ink, badge.fill);
+        /* The capsule is fb_draw_badge()'s, not this slot's: the top app bar's trailing slot
+           draws the same thing, and two places filling their own round rect is two capsules
+           that drift. What the row supplies is the box - a row knows where its own slot is. */
+        const int width = fb_badge_width(state, trailing->text, scale);
+        const struct fb_rect box = {
+            .x = g->text_right - width, .y = slot_top, .w = width, .h = g->slot_h};
+        fb_draw_badge(state, &box, baseline, trailing->text, trailing->family, scale);
         return;
     }
     case FB_TRAILING_ICON:

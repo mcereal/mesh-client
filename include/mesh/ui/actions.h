@@ -24,6 +24,7 @@
 
 #include "mesh/i18n/strings.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 
 struct mesh_ui_snapshot;
@@ -114,5 +115,22 @@ struct mesh_ui_action_bar {
  * because there is no state to be describing.
  */
 void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_action_bar *out);
+
+/*
+ * Whether this bar offers a way back to the screen behind - what the top app bar's leading slot
+ * draws, and the one question about a bar that something other than the bar asks.
+ *
+ * It is answered from the table rather than by the screen renderers because the tables are
+ * already the place that decides it, and a second opinion would be the same mistake the hint
+ * sentences were: fb_render_snapshot() used to pick a hint with a chain of overlay tests
+ * written out beside the chain that picks a renderer, and a screen growing a press had two
+ * places to remember.
+ *
+ * Reading it off the bar also makes it exactly as conditional as the press is, which a flag on
+ * a screen would not be. A settings section with edits pending offers B as *discard*, not as
+ * back, and it is right that no arrow appears there: B does not leave that screen, and an arrow
+ * saying it does would be the chrome disagreeing with the keys.
+ */
+bool mesh_ui_action_bar_goes_back(const struct mesh_ui_action_bar *bar);
 
 #endif /* MESH_UI_ACTIONS_H */

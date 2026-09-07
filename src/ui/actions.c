@@ -269,3 +269,19 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct mesh_ui
         break;
     }
 }
+
+bool mesh_ui_action_bar_goes_back(const struct mesh_ui_action_bar *bar) {
+    if (bar == NULL) {
+        return false;
+    }
+    /* The verb rather than the key, because B is not always the way out - it discards a
+       section's pending edits, deletes a character on the keyboard and cancels the picker, and
+       none of those three is a screen leaving. Matching MESH_STR_ACTION_BACK is matching what
+       the bar is already telling the user. */
+    for (size_t i = 0; i < bar->count; ++i) {
+        if (bar->items[i].label == MESH_STR_ACTION_BACK) {
+            return true;
+        }
+    }
+    return false;
+}

@@ -310,7 +310,9 @@ carrying their target section in `number`, `nav.c` intercepts A on them ahead of
 ACTION handling, and `nav.settings_parent` is what B reads to know it goes back to the Modules
 list rather than to the top. It reports itself loaded with no radio attached, because a module
 the radio has not sent is listed as `not loaded` rather than hidden — "which of these has not
-arrived" is most of what the screen is for.
+arrived" is most of what the screen is for. It is also the only thing on this tab with an
+overline: `nav.settings_parent` is what the [top app bar](#fb_draw_app_bar--the-top-app-bar)
+puts above a module's title, and the two-level Channels list is the same shape.
 
 **Headings** (kind `MESH_UI_SETTING_HEADING`) group the rows in a section long enough to need it;
 Telemetry is five groups of a toggle, an interval and sometimes a screen flag. They are dimmed,
@@ -405,7 +407,7 @@ shoulder, revealed in the one place you went to change it.
 | File | Layer | What belongs there |
 |---|---|---|
 | `fb_draw.c` | ink | pixels, glyphs, the theme lookups, cell metrics (`fb_internal.h`) |
-| `fb_widgets.c` | components | cards, buttons, chips, list items, switches, meters, signal staircases, rules, bubbles, the navigation bar, the action bar, the snackbar (`fb_widgets.h`) |
+| `fb_widgets.c` | components | cards, buttons, chips, badges, list items, switches, meters, signal staircases, rules, bubbles, the top app bar, the navigation bar, the action bar, the snackbar (`fb_widgets.h`) |
 | `fb_screens.c` | screens | one renderer per screen, and nothing else |
 | `fb.c` | device | `/dev/fb0`, the page flip, the backend vtable |
 
@@ -443,7 +445,7 @@ vocabulary that covers every row a list wants.
 | leading | `FB_LEADING_NONE`, `FB_LEADING_AVATAR` (a tinted disc with initials or an icon in it), `FB_LEADING_ICON` |
 | headline | plain `text` — with `marker_slot` for a gutter before it — or a `label` column of `label_cols` cells then the `marker_icon` gutter and `value` |
 | supporting | a second line, with its own `supporting_icon`; non-NULL is what makes the item two rows tall |
-| trailing | `FB_TRAILING_NONE` / `_TEXT` (right-aligned and quiet) / `_BADGE` (a filled capsule) / `_SWITCH` / `_ICON` |
+| trailing | `FB_TRAILING_NONE` / `_TEXT` (right-aligned and quiet) / `_BADGE` (a filled capsule, drawn by [`fb_draw_badge()`](#fb_draw_app_bar--the-top-app-bar)) / `_SWITCH` / `_ICON` / `_METER` / `_SIGNAL` |
 
 ```c
 const struct fb_list_item row = {
@@ -825,6 +827,64 @@ wording changes length instead of growing rightwards out of a fixed corner.
 
 `SURFACE_INVERSE` carries it with no outline: a card needs a hairline because its fill is one
 step off the ground, and this one is the furthest from the ground the theme has.
+
+#### `fb_draw_app_bar()` — the top app bar
+
+A screen's heading used to be a `const char *`, so everything a heading had to carry got glued
+into that string. Settings built `"Settings > %s%s%s"` out of two catalog entries, with the
+unsaved marker arriving as the third `%s`.
+
+That is a whole-sentence string id doing structural work — the same mistake the button hints
+were, and worse here on three counts. The `>` separators handed a translator the breadcrumb's
+*grammar* along with its words. A count glued in with `%s` cannot be a badge. And at the title's
+glyph scale `Settings > Modules > Telemetry` is thirty of the thirty-four cells on the line, so
+the part that was elided when it overran was the leaf — the one word naming *this* screen.
+
+The bar has four slots and a screen fills the ones it needs:
+
+```c
+struct fb_app_bar bar = {.title = mesh_ui_settings_section_name(section)};
+if (nav->settings_parent != MESH_UI_SETTINGS_NO_SECTION) {
+    bar.trail[bar.trail_count++] = mesh_ui_settings_section_name(nav->settings_parent);
+}
+if (nav->settings_edit_count > 0U) {
+    mesh_str_format(unsaved, sizeof unsaved, MESH_STR_SETTINGS_UNSAVED, edits);
+    bar.badge = unsaved;
+    bar.badge_family = MESH_UI_FAMILY_WARNING;
+}
+fb_draw_app_bar(state, layout, &bar);
+```
+
+| Slot | What it holds |
+|---|---|
+| leading | the back affordance — **not a field**; see below |
+| overline | `trail[]`, one entry per level, separated by a drawn `MESH_UI_ICON_CHEVRON` |
+| title | what this screen is, one line at `MESH_UI_TYPE_TITLE` |
+| trailing | `badge` + `badge_family`, a capsule saying one thing about the whole screen |
+
+Three things doing it settled, and each is a rule the next screen meets again.
+
+- **The trail names only the levels between the tab and here.** The navigation bar is already
+  saying `Settings`, selected, three rows above; a trail that repeated it would spend a body row
+  on a word the frame already carries. So a top-level section has no overline at all, the node
+  detail has none (`Nodes > Bravo Creek` became an arrow and a name), and what is left is the one
+  level nothing else says: `Modules` over a module's own section, `Channels` over one channel.
+  The general form of the rule: **an overline says only what nothing else on the frame says.**
+  It is why the thread keeps `channel` in its title rather than above it — a channel's name
+  already begins with a `#`, and every bubble under it is tagged.
+- **The arrow is derived, not declared.** `layout->back` comes from
+  `mesh_ui_action_bar_goes_back()`, which looks for `MESH_STR_ACTION_BACK` in the bar
+  [`src/ui/actions.c`](../src/ui/actions.c) has already built — so the arrow at the top of the
+  panel and the `B` keycap at the bottom read one table and cannot disagree. That also makes it
+  exactly as conditional as the press is, which a flag on a screen would not be: a settings
+  section holding edits offers `B` as *discard*, and the arrow correctly goes away.
+- **A badge is a component now.** `FB_TRAILING_BADGE` used to fill its own capsule inside the
+  trailing slot; it and the app bar both call `fb_draw_badge()`, because two places drawing their
+  own round rect are two capsules that drift. The caller supplies the box — a list row's slot is
+  its cursor fill, which is one shape on a one-line row and another on a two-line one, while the
+  app bar's is centred on the title's glyph body.
+
+`make ui-capture ARGS="devtools/ui_capture/scenes/app-bar.scene -o app-bar.gif"` walks all four.
 
 #### `fb_draw_nav_bar()` and `fb_draw_action_bar()` — the chrome
 

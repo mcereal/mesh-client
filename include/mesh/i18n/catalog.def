@@ -239,7 +239,6 @@ MESH_STR_ENTRY(NODES_DETAIL_EMPTY,        "Nothing reported for this node yet.")
 /* Titles: how many of the radio's NodeDB we hold, or how many we keep that it has evicted. */
 MESH_STR_ENTRY(NODES_TITLE_OF,            "Nodes (%u of %u)")
 MESH_STR_ENTRY(NODES_TITLE_OFF_RADIO,     "Nodes (%u, %u off radio)")
-MESH_STR_ENTRY(NODES_TITLE_DETAIL,        "Nodes > %s")
 /* Who a broadcast went to, where a direct message would name one node. It is a peer name, so
    it lands wherever a name does - the bubble header reads "to all". */
 MESH_STR_ENTRY(PEER_EVERYONE,             "all")
@@ -878,13 +877,13 @@ MESH_STR_ENTRY(SETTINGS_NOT_LOADED,       "not loaded")
 MESH_STR_ENTRY(SETTINGS_NOT_CONNECTED,    "not connected")
 MESH_STR_ENTRY(SETTINGS_EMPTY_DISCONNECT, "Connect to a radio to read its settings")
 MESH_STR_ENTRY(SETTINGS_EMPTY_SECTION,    "Not sent by the radio yet; X to refresh")
-/* Titles down the Settings tree: "Settings", then "Settings > Display", with "Modules > "
-   inserted for a module's own section and "(unsaved)" while edits are pending. */
+/* Titles down the Settings tree. Each is one level's *name* and nothing else: the breadcrumb
+   used to be "Settings > %s%s%s", which handed a translator the trail's grammar along with its
+   words and glued a badge on with a %s. The app bar stacks the levels itself and draws the
+   separators as icons, so what is left here is a word per level and a count per badge. */
 MESH_STR_ENTRY(SETTINGS_TITLE,            "Settings")
-MESH_STR_ENTRY(SETTINGS_TITLE_SECTION,    "Settings > %s%s%s")
-MESH_STR_ENTRY(SETTINGS_TITLE_CHANNEL,    "Settings > Channel %u%s")
-MESH_STR_ENTRY(SETTINGS_TRAIL_MODULES,    "Modules > ")
-MESH_STR_ENTRY(SETTINGS_UNSAVED,          " (unsaved)")
+MESH_STR_ENTRY(SETTINGS_TITLE_CHANNEL,    "Channel %u")
+MESH_STR_ENTRY(SETTINGS_UNSAVED,          "%u unsaved")
 
 /* About. */
 MESH_STR_ENTRY(ABOUT_VERSION,             "Version")

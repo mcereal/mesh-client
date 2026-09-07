@@ -127,7 +127,7 @@ static void fb_render_conversations(struct mesh_ui_backend_fb_state *state,
     char title[96];
     fb_title_count(title, sizeof title, mesh_str(MESH_STR_TAB_MESSAGES), count,
                    snapshot->messages.dropped);
-    fb_draw_title(state, layout, title);
+    fb_draw_app_bar(state, layout, &(const struct fb_app_bar){.title = title});
     if (count == 0U) {
         fb_draw_empty(state, layout, MESH_UI_ICON_MESSAGES, mesh_str(MESH_STR_MESSAGES_EMPTY));
         return;
@@ -538,7 +538,10 @@ static void fb_render_thread(const struct mesh_ui_backend_fb_state *state,
                                      ? MESH_STR_THREAD_KIND_CHANNEL
                                      : MESH_STR_THREAD_KIND_DIRECT));
     }
-    fb_draw_title(state, layout, title);
+    /* No overline. Which kind of conversation this is stays in the title, because a channel's
+       name already starts with a '#' and every bubble under it is tagged - so a trail would be
+       spending a body row of transcript to repeat what two other things on the frame say. */
+    fb_draw_app_bar(state, layout, &(const struct fb_app_bar){.title = title});
 
     if (count == 0U) {
         fb_draw_empty(state, layout, MESH_UI_ICON_MESSAGES,
@@ -613,7 +616,8 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
     const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
     const struct mesh_ui_node_summary *node = mesh_ui_node_detail_find(hs, nav->node_detail_node);
     if (node == NULL) {
-        fb_draw_title(state, layout, mesh_str(MESH_STR_TAB_NODES));
+        fb_draw_app_bar(state, layout,
+                        &(const struct fb_app_bar){.title = mesh_str(MESH_STR_TAB_NODES)});
         fb_draw_empty(state, layout, MESH_UI_ICON_NODES, mesh_str(MESH_STR_NODES_GONE));
         return;
     }
@@ -624,13 +628,19 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
                        : node->short_name[0] != '\0' ? node->short_name
                                                      : NULL;
     if (name != NULL) {
-        mesh_str_format(title, sizeof title, MESH_STR_NODES_TITLE_DETAIL, name);
+        mesh_str_copy(title, sizeof title, name);
     } else {
-        char fallback[24];
-        mesh_str_format(fallback, sizeof fallback, MESH_STR_NODE_VAL_USER_ID_HEX, node->node_id);
-        mesh_str_format(title, sizeof title, MESH_STR_NODES_TITLE_DETAIL, fallback);
+        /* A node with no User is named after its node number, exactly as the phone apps do. */
+        mesh_str_format(title, sizeof title, MESH_STR_NODE_VAL_USER_ID_HEX, node->node_id);
     }
-    fb_draw_title(state, layout, title);
+    /*
+     * "Nodes > %s" was a breadcrumb inside a translated string, and the "Nodes >" half of it
+     * was the navigation bar's job all along: the tab is up there, selected, three rows above.
+     * So the trail is empty and the node keeps the whole title line for a name the radio chose
+     * and we cannot bound. What the breadcrumb was really carrying - that B leaves - is the
+     * leading arrow now, which says it in a cell rather than in seven.
+     */
+    fb_draw_app_bar(state, layout, &(const struct fb_app_bar){.title = title});
 
     struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
     const uint32_t count = mesh_ui_node_detail_build(
@@ -704,7 +714,8 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
         return;
     }
     if (!snapshot->handshake_valid || snapshot->handshake.node_count == 0U) {
-        fb_draw_title(state, layout, mesh_str(MESH_STR_TAB_NODES));
+        fb_draw_app_bar(state, layout,
+                        &(const struct fb_app_bar){.title = mesh_str(MESH_STR_TAB_NODES)});
         fb_draw_empty(state, layout, MESH_UI_ICON_NODES,
                       mesh_str(snapshot->handshake_valid ? MESH_STR_NODES_EMPTY_WAITING
                                                          : MESH_STR_NODES_EMPTY_DISCONNECTED));
@@ -730,7 +741,7 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
     } else {
         fb_title_count(title, sizeof title, mesh_str(MESH_STR_TAB_NODES), count, 0U);
     }
-    fb_draw_title(state, layout, title);
+    fb_draw_app_bar(state, layout, &(const struct fb_app_bar){.title = title});
 
     const uint32_t me = hs->has_my_info ? hs->my_info.node_num : 0U;
     /* The discs come from the nav layer, which wants a store rather than the handshake alone -
@@ -876,7 +887,7 @@ static void fb_render_compose(struct mesh_ui_backend_fb_state *state,
                     mesh_str(nav->target_node == MESH_MESSAGE_BROADCAST_ADDR
                                  ? MESH_STR_COMPOSE_SUFFIX_CHANNEL
                                  : MESH_STR_COMPOSE_SUFFIX_DIRECT));
-    fb_draw_title(state, layout, title);
+    fb_draw_app_bar(state, layout, &(const struct fb_app_bar){.title = title});
 
     struct fb_list list =
         fb_list_begin(layout, mesh_ui_nav_compose_row_count(), nav->compose_cursor);
@@ -922,7 +933,7 @@ static void fb_render_picker(struct mesh_ui_backend_fb_state *state,
     const uint32_t count = mesh_ui_nav_picker_count(&view);
     char title[96];
     fb_title_count(title, sizeof title, mesh_str(MESH_STR_PICKER_TITLE), count, 0U);
-    fb_draw_title(state, layout, title);
+    fb_draw_app_bar(state, layout, &(const struct fb_app_bar){.title = title});
     if (count == 0U) {
         fb_draw_empty(state, layout, MESH_UI_ICON_MESSAGES, mesh_str(MESH_STR_PICKER_EMPTY));
         return;
@@ -999,7 +1010,7 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
     } else {
         mesh_str_format(title, sizeof title, MESH_STR_COMPOSE_TO, nav->target_name);
     }
-    fb_draw_title(state, layout, title);
+    fb_draw_app_bar(state, layout, &(const struct fb_app_bar){.title = title});
 
     const int scale = state->scale;
     const int line = layout->line;
@@ -1091,7 +1102,7 @@ static void fb_render_devices(struct mesh_ui_backend_fb_state *state,
     char title[96];
     fb_title_count(title, sizeof title, mesh_str(MESH_STR_TAB_DEVICES),
                    (uint32_t)snapshot->device_count, 0U);
-    fb_draw_title(state, layout, title);
+    fb_draw_app_bar(state, layout, &(const struct fb_app_bar){.title = title});
 
     if (snapshot->device_count == 0U) {
         fb_draw_empty(state, layout, MESH_UI_ICON_DEVICES, mesh_str(MESH_STR_DEVICES_EMPTY));
@@ -1665,24 +1676,59 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
     const enum mesh_ui_settings_section section =
         (enum mesh_ui_settings_section)nav->settings_section;
 
-    /* The breadcrumb names every level that is open, so a module reads
-       "Settings > Modules > Telemetry" and B has a visible target. */
-    const char *const trail = nav->settings_parent == MESH_UI_SETTINGS_MODULES
-                                  ? mesh_str(MESH_STR_SETTINGS_TRAIL_MODULES)
-                                  : "";
+    /*
+     * The breadcrumb, as slots rather than as a sentence.
+     *
+     * It used to be one catalog entry - "Settings > %s%s%s" - with "Modules > " for the third
+     * level and " (unsaved)" arriving as the trailing %s. Three things were wrong with that and
+     * the app bar answers all three: a translator was handed the trail's grammar along with its
+     * words, a count glued in with %s cannot be a badge, and at the title's glyph scale
+     * "Settings > Modules > Telemetry" is thirty of the thirty-four cells on the line, so the
+     * leaf - the only part naming *this* screen - was the half that got elided.
+     *
+     * What is left here is a level per slot. The separators are the component's, and it draws
+     * them as chevrons.
+     */
+    struct fb_app_bar bar = {.title = mesh_str(MESH_STR_SETTINGS_TITLE)};
     char title[96];
-    if (section_open && nav->settings_channel != MESH_UI_SETTINGS_NO_CHANNEL) {
-        mesh_str_format(title, sizeof title, MESH_STR_SETTINGS_TITLE_CHANNEL,
-                        (unsigned)nav->settings_channel,
-                        nav->settings_edit_count > 0U ? mesh_str(MESH_STR_SETTINGS_UNSAVED) : "");
-    } else if (section_open) {
-        mesh_str_format(title, sizeof title, MESH_STR_SETTINGS_TITLE_SECTION, trail,
-                        mesh_ui_settings_section_name(section),
-                        nav->settings_edit_count > 0U ? mesh_str(MESH_STR_SETTINGS_UNSAVED) : "");
-    } else {
-        snprintf(title, sizeof title, "%s", mesh_str(MESH_STR_SETTINGS_TITLE));
+    char unsaved[32];
+    if (section_open) {
+        /*
+         * The levels *between* the tab and this screen, which for most sections is none: the
+         * navigation bar is already saying "Settings", selected, three rows above, and a trail
+         * that repeated it would spend a body row on a word the frame already carries. What is
+         * left is the one level nothing else says - "Modules" over a module's own section, and
+         * "Channels" over one channel - which is exactly where the breadcrumb was earning its
+         * keep and nowhere else.
+         */
+        if (nav->settings_channel != MESH_UI_SETTINGS_NO_CHANNEL) {
+            /* One channel out of the Channels list: the list is the level above it, and unlike
+               Modules it is not in settings_parent - a channel is identified by its number
+               rather than by a section of its own. */
+            bar.trail[bar.trail_count++] = mesh_ui_settings_section_name(MESH_UI_SETTINGS_CHANNELS);
+            mesh_str_format(title, sizeof title, MESH_STR_SETTINGS_TITLE_CHANNEL,
+                            (unsigned)nav->settings_channel);
+            bar.title = title;
+        } else {
+            if (nav->settings_parent != MESH_UI_SETTINGS_NO_SECTION) {
+                bar.trail[bar.trail_count++] = mesh_ui_settings_section_name(
+                    (enum mesh_ui_settings_section)nav->settings_parent);
+            }
+            bar.title = mesh_ui_settings_section_name(section);
+        }
+        /*
+         * How many rows are edited and not yet written, in the slot that is about the screen
+         * rather than about a row. The warning family because that is what it is: the radio
+         * does not know about these yet, and leaving the section is what loses them.
+         */
+        if (nav->settings_edit_count > 0U) {
+            mesh_str_format(unsaved, sizeof unsaved, MESH_STR_SETTINGS_UNSAVED,
+                            (unsigned)nav->settings_edit_count);
+            bar.badge = unsaved;
+            bar.badge_family = MESH_UI_FAMILY_WARNING;
+        }
     }
-    fb_draw_title(state, layout, title);
+    fb_draw_app_bar(state, layout, &bar);
 
     /* Every other section describes the radio, but About describes this client, so the tab
        stays usable with nothing connected: the section list still draws (About is the only
@@ -1863,6 +1909,24 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
     layout.rows = body_height > 0 ? (uint32_t)(body_height / layout.line) : 0U;
 
     /*
+     * Which buttons mean something here is no longer decided in this function.
+     *
+     * It used to be a branch per screen alongside the one below - the same conditions written
+     * out twice, once to pick a renderer and once to pick a hint sentence, which is two places
+     * to remember when a screen grows a press. mesh_ui_actions_for() answers from the snapshot
+     * instead, walking the same chain of overlays, and it is a unit test's business rather than
+     * a screenshot's.
+     *
+     * It is asked *before* the screen draws because both ends of the frame read it now: the
+     * action bar at the bottom says what B does, and the top app bar's leading slot draws an
+     * arrow when what B does is leave. Two answers from one table is the whole point - a screen
+     * deciding its own back arrow would be free to disagree with the keycap under it.
+     */
+    struct mesh_ui_action_bar actions;
+    mesh_ui_actions_for(snapshot, &actions);
+    layout.back = mesh_ui_action_bar_goes_back(&actions);
+
+    /*
      * One tail for every path through this function, which is what lets the chrome below it be
      * written once. The overlays used to draw the footer and return, and each of the four
      * carried its own copy of that call - so anything drawn over the whole frame (the notice
@@ -1901,17 +1965,6 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
         }
     }
 
-    /*
-     * Which buttons mean something here is no longer decided in this function.
-     *
-     * It used to be a branch per screen alongside the one above - the same conditions written
-     * out twice, once to pick a renderer and once to pick a hint sentence, which is two places
-     * to remember when a screen grows a press. mesh_ui_actions_for() answers from the snapshot
-     * instead, walking the same chain of overlays, and it is a unit test's business rather than
-     * a screenshot's.
-     */
-    struct mesh_ui_action_bar actions;
-    mesh_ui_actions_for(snapshot, &actions);
     struct mesh_ui_line summary;
     enum mesh_ui_tone summary_tone = MESH_UI_TONE_DIM;
     fb_link_summary(snapshot, &summary, &summary_tone);
