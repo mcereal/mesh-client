@@ -1,3 +1,9 @@
+## [2.32.1](https://github.com/mcereal/mesh-client/compare/v2.32.0...v2.32.1) (2026-09-07)
+
+### Bug Fixes
+
+* **ui:** draw the clock from a seam, so a screenshot is reproducible ([774d142](https://github.com/mcereal/mesh-client/commit/774d14296d557d799cc3e538995888699b281f19))
+
 ## [2.32.0](https://github.com/mcereal/mesh-client/compare/v2.31.0...v2.32.0) (2026-09-07)
 
 ### Features
