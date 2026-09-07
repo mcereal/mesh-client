@@ -689,6 +689,193 @@ MESH_TEST_CASE(ui_capture_slides_the_snackbar_in_and_out, unit) {
     record_success(test_name);
 }
 
+/* The topmost and bottom-most rows with anything drawn on them, which on a full frame are
+   inside the navigation bar and inside the status line under the keycaps. Found rather than
+   stated, so a test about chrome not moving does not carry its own copy of the layout. */
+static uint32_t topmost_drawn_row(const struct mesh_ui_capture *capture, const uint8_t *pixels,
+                                  uint32_t width, uint32_t height, size_t stride) {
+    for (uint32_t y = 0U; y < height; ++y) {
+        const uint8_t *row = pixels + (size_t)y * stride;
+        for (uint32_t x = 0U; x < width; ++x) {
+            if (!pixel_is_background(capture, row + (size_t)x * 4U)) {
+                return y;
+            }
+        }
+    }
+    return height;
+}
+
+static uint32_t bottommost_drawn_row(const struct mesh_ui_capture *capture, const uint8_t *pixels,
+                                     uint32_t width, uint32_t height, size_t stride) {
+    for (uint32_t y = height; y > 0U; --y) {
+        const uint8_t *row = pixels + (size_t)(y - 1U) * stride;
+        for (uint32_t x = 0U; x < width; ++x) {
+            if (!pixel_is_background(capture, row + (size_t)x * 4U)) {
+                return y - 1U;
+            }
+        }
+    }
+    return height;
+}
+
+/*
+ * The leftmost and rightmost drawn column of `page`, counted only over the rows on which it
+ * differs from `other`.
+ *
+ * The band a transition is confined to, read off the two frames rather than recomputed from a
+ * layout this file does not have - and the restriction matters: the action bar starts at the
+ * body margin on every frame, so a leftmost column taken over the whole page would report the
+ * keycaps rather than the screen that is moving.
+ */
+static void band_extents(const struct mesh_ui_capture *capture, const uint8_t *page,
+                         const uint8_t *other, uint32_t width, uint32_t height, size_t stride,
+                         uint32_t *out_left, uint32_t *out_right) {
+    uint32_t left = width;
+    uint32_t right = 0U;
+    for (uint32_t y = 0U; y < height; ++y) {
+        const uint8_t *row = page + (size_t)y * stride;
+        if (memcmp(row, other + (size_t)y * stride, (size_t)width * 4U) == 0) {
+            continue;
+        }
+        for (uint32_t x = 0U; x < width; ++x) {
+            if (pixel_is_background(capture, row + (size_t)x * 4U)) {
+                continue;
+            }
+            if (x < left) {
+                left = x;
+            }
+            if (x > right) {
+                right = x;
+            }
+        }
+    }
+    *out_left = left;
+    *out_right = right;
+}
+
+/*
+ * A screen arriving travels, and only the screen travels.
+ *
+ * Two claims, and the second is the one that is easy to get wrong. A frame is a function of a
+ * snapshot, so the obvious way to animate a move is to offset the whole frame - which slides
+ * the tab strip and the keycaps along with the body and says the entire application has been
+ * replaced, when what changed is one level of one tab. So the assertions here are: the body is
+ * somewhere else on the frame the press lands and back in place once it settles, in the
+ * direction the move went; and the topmost and bottom-most drawn rows of the frame - which are
+ * the navigation bar and the line under the keycaps - are untouched throughout.
+ *
+ * Which way round is checked from opposite ends for a reason. A thread is left-anchored, so it
+ * announces a rightwards displacement by starting further from the left edge; the conversation
+ * list's rows run the width of the panel, so its leftmost column is 0 either way and what moves
+ * is where they stop. Measuring the same end for both would pass on a transition that never
+ * moved at all.
+ */
+MESH_TEST_CASE(ui_capture_slides_a_screen_in_and_settles, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    /* Off the all-traffic row, onto a conversation with a transcript in it. */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+
+    struct mesh_ui_capture *capture = NULL;
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, 4) != 0,
+        mesh_ui_store_shutdown(&store), "capture open failed");
+
+    uint32_t width = 0U;
+    uint32_t height = 0U;
+    size_t stride = 0U;
+    const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_ui_store_consume_updates(&store, &snapshot),
+                              mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store), "no snapshot to render");
+    /* The first frame adopts the place it is looking at rather than arriving at it. */
+    render_until_still(capture, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_animating(capture), mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "the first frame drawn animated something");
+    uint8_t *list_settled = snapshot_page(pixels, height, stride);
+    MESH_TEST_FAIL_IF_CLEANUP(list_settled == NULL, mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store), "out of memory");
+
+    const uint32_t chrome_top = topmost_drawn_row(capture, pixels, width, height, stride);
+    const uint32_t chrome_bottom = bottommost_drawn_row(capture, pixels, width, height, stride);
+
+    /* ---- a level deeper: the thread comes in from the right --------------------------- */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(!store.nav.thread_open, free(list_settled);
+                              mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store), "A did not open the thread");
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    mesh_ui_capture_render(capture, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !mesh_ui_capture_animating(capture), free(list_settled); mesh_ui_capture_close(capture);
+        mesh_ui_store_shutdown(&store), "the thread appeared in place instead of arriving");
+    uint8_t *arriving = snapshot_page(pixels, height, stride);
+    MESH_TEST_FAIL_IF_CLEANUP(arriving == NULL, free(list_settled); mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store), "out of memory");
+
+    render_until_still(capture, &snapshot);
+
+    uint32_t arriving_left = 0U;
+    uint32_t arriving_right = 0U;
+    uint32_t settled_left = 0U;
+    uint32_t settled_right = 0U;
+    band_extents(capture, arriving, pixels, width, height, stride, &arriving_left, &arriving_right);
+    band_extents(capture, pixels, arriving, width, height, stride, &settled_left, &settled_right);
+    const bool travelled_right = arriving_left > settled_left + width / 8U;
+    const bool chrome_held =
+        memcmp(arriving + (size_t)chrome_top * stride, pixels + (size_t)chrome_top * stride,
+               (size_t)width * 4U) == 0 &&
+        memcmp(arriving + (size_t)chrome_bottom * stride, pixels + (size_t)chrome_bottom * stride,
+               (size_t)width * 4U) == 0;
+    free(arriving);
+    MESH_TEST_FAIL_IF_CLEANUP(!chrome_held, free(list_settled); mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "the navigation bar or the status line travelled with the screen");
+    MESH_TEST_FAIL_IF_CLEANUP(!travelled_right, free(list_settled); mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "the thread did not arrive from the right");
+
+    /* ---- and back out: the list comes in from the left --------------------------------- */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    MESH_TEST_FAIL_IF_CLEANUP(store.nav.thread_open, free(list_settled);
+                              mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store), "B did not leave the thread");
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    mesh_ui_capture_render(capture, &snapshot);
+    uint8_t *returning = snapshot_page(pixels, height, stride);
+    MESH_TEST_FAIL_IF_CLEANUP(returning == NULL, free(list_settled); mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store), "out of memory");
+
+    band_extents(capture, returning, list_settled, width, height, stride, &arriving_left,
+                 &arriving_right);
+    band_extents(capture, list_settled, returning, width, height, stride, &settled_left,
+                 &settled_right);
+    const bool travelled_left = arriving_right + width / 8U < settled_right;
+    free(returning);
+    free(list_settled);
+    MESH_TEST_FAIL_IF_CLEANUP(!travelled_left, mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "the conversation list did not come back from the left");
+
+    /* And it does come to rest where it started, which is the half a moving frame cannot say. */
+    render_until_still(capture, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_ui_capture_animating(capture), mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store), "the move never finished");
+
+    mesh_ui_capture_close(capture);
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_capture_follows_the_nav, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
@@ -1578,6 +1765,10 @@ MESH_TEST_CASE(fb_animation_clip_matches_full_composition, unit) {
         }
         if (frame == 15U || frame == 35U)
             snapshot->nav.toast[0] = '\0';
+        /* A move between tabs, which since step 13 is also a screen transition: the body is
+           redrawn at an offset for the length of one, off a snapshot that does not change while
+           it runs. Whatever that declares as damage has to be enough for the clipped
+           composition below to still match the full one. */
         if (frame == 25U)
             snapshot->nav.screen = MESH_UI_SCREEN_NODES;
         if (frame == 30U) {

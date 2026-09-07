@@ -25,6 +25,7 @@
 
 #include "mesh/ui/anim.h"
 #include "mesh/ui/icon.h"
+#include "mesh/ui/route.h"
 #include "mesh/ui/store.h"
 #include "mesh/ui/theme.h"
 
@@ -104,6 +105,33 @@ struct mesh_ui_backend_fb_state {
      */
     char snackbar[MESH_UI_NAV_TOAST_MAX];
     uint64_t snackbar_until_ms; /* the deadline that identifies it; see struct fb_snackbar */
+    /*
+     * The place the last frame was drawn for, and how far the current one has slid into view.
+     *
+     * This is the snackbar's problem one level up, and it is here for the same reason: a
+     * snapshot says where the user *is*, never that they have just arrived, so the only thing
+     * that can tell an entrance from an exit is something that remembers the previous frame.
+     * The backend is where that legitimately lives - see the note at the top of anim.h - and
+     * mesh/ui/route.h is where the comparison itself lives, so a second backend that wants to
+     * animate differently, or not at all, asks the same question and answers it its own way.
+     *
+     * `slide` runs 0 -> ONE as the arriving screen travels the last of the panel's width;
+     * `slide_dir` is the side it came from, +1 for the right and -1 for the left, and 0 when
+     * nothing is travelling. Not a slot in the animation table because that table is for
+     * widgets with nowhere of their own to keep a position, and the frame is not one of those.
+     */
+    struct mesh_ui_route route;
+    bool route_valid;
+    struct mesh_ui_anim slide;
+    int slide_dir;
+    /*
+     * The frame's content transform: what fb_shift_begin() has moved the body by, and the band
+     * it is confined to while it is moved. See fb_shift_begin().
+     */
+    int shift_x;
+    int shift_top;
+    int shift_bottom;
+    bool shift_active;
 };
 
 /*
@@ -118,6 +146,39 @@ void fb_state_set_now(struct mesh_ui_backend_fb_state *state, uint64_t now_ms);
 /* Whether anything on the last frame is still moving, and so whether another frame is owed.
    What the controller's repaint timer asks. */
 bool fb_state_animating(const struct mesh_ui_backend_fb_state *state);
+
+/*
+ * The move this frame is part of, as the distance the arriving screen still has to travel: a
+ * positive offset for one coming in from the right, negative from the left, 0 for a frame that
+ * is not moving. Reads the nav's *place* (mesh/ui/route.h) against the one the last frame was
+ * drawn for, so nothing outside this backend has to record how it got here.
+ *
+ * Call once per frame, before fb_shift_begin(): it is what advances the remembered place.
+ */
+int fb_transition_offset(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_nav *nav);
+
+/*
+ * Slides everything drawn until fb_shift_end() by `dx` pixels, clipped to rows [top, bottom).
+ *
+ * The one transform in the drawing layer, and the only thing here that knows content can come
+ * from off the panel. It is a single call rather than an offset threaded through the widgets
+ * because a component that took one would be a component with a pixel coordinate in it: a
+ * screen renderer describes its content and a widget places it against `struct fb_layout`, and
+ * neither has any business knowing the frame is mid-transition. Every pixel this backend writes
+ * goes through fb_fill_packed(), so putting it there covers glyphs, icons, emoji, fills and
+ * rounded corners at once - and covers anything added later without being told to.
+ *
+ * The band is what keeps a transition to the part of the frame that changed: the navigation bar
+ * and the action bar are the same on both sides of a move, and chrome that slid with the body
+ * would be the client claiming the whole application had been replaced. It is stated in rows
+ * rather than derived from the layout because the caller is the only thing that knows where the
+ * body it is about to draw begins and ends.
+ *
+ * Not nestable, deliberately: there is one transform per frame and a second would be a second
+ * opinion about where the body is.
+ */
+void fb_shift_begin(struct mesh_ui_backend_fb_state *state, int dx, int top, int bottom);
+void fb_shift_end(struct mesh_ui_backend_fb_state *state);
 
 /*
  * Adopts the theme the snapshot names, when it names one this build knows and is not already

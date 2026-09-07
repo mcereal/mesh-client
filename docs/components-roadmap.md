@@ -366,7 +366,10 @@ linear indeterminate bar under the nav bar during handshake or sync. Open Settin
 radio has answered and eight rows say `not loaded` with no sign that anything is happening. One
 bar under the tab strip answers that for every screen at once.
 
-**2.16 Nothing transitions.** §1.3 gave the theme durations and every one of them is spent on a
+**2.16 Nothing transitions.** *(Landed - see §13, including the two things this entry did not
+have: that a direction recorded by every call site is a direction that can be wrong, and that
+"one screen per frame" and a full-panel travel cannot both be true.)* §1.3 gave the theme
+durations and every one of them is spent on a
 *control*: a switch's knob, a meter's fill, the snackbar's rise. Moving between screens is a cut.
 Opening a node, entering a settings section, raising the keyboard, pressing B to go back — each
 replaces the frame with a different frame in one repaint, and those four are precisely the
@@ -488,7 +491,7 @@ Each step is independently shippable and each is visible.
 | 10 | Checkbox / radio, segmented button (§2.5, §2.6) | **done** (the checkbox is held, see §10) | Additive slots on components that already exist |
 | 11 | Banner and screen progress (§2.9, §2.10) | **done** (the banner's table is two entries, see §11) | New surfaces; the bar from 7 is where progress hangs |
 | 12 | Slider (§2.7) | **done** (and it found what a scale is not, see §12) | Genuinely new interaction |
-| 13 | Screen transitions (§2.16) |  | Wants a direction on the nav first; the only step whose work is mostly outside the backend |
+| 13 | Screen transitions (§2.16) | **done** (and the direction is derived rather than recorded, see §13) | Wants a direction on the nav first; the only step whose work is mostly outside the backend |
 | — | Meter domain and bands, signal staircase (§2.11, §2.12) | **done** | Out of order on purpose: both were visible on the device and neither needed anything above |
 | 14 | Sparkline (§2.13) |  | A sample ring in the store first; the component is the small half |
 
@@ -1122,3 +1125,80 @@ both are worth recording because each is a rule already written here failing at 
 What remains of §3 is step 13 (screen transitions) and step 14 (the sparkline), and both are
 still what the audit said they were: the first is mostly nav work, and the second is a data
 change wearing a component's clothes.
+
+## 13. What doing step 13 changed
+
+The entry was right that this is the largest remaining gap in how the thing *feels*, right that
+the work is mostly outside the backend, and right about both of the costs it named. It was wrong
+about the shape of the first one, and the correction is the step.
+
+- **The nav does have to say which way, and a field is the wrong way for it to say so.** §2.16
+  read this as "a field and a rule about who clears it — the same shape as `settings_parent`",
+  and `settings_parent` is exactly the precedent that shows why not: it is a fact the nav needs
+  in order to *work*, so a call site that forgot to set it breaks B and somebody notices. A
+  direction is not; a push that forgot to declare itself animates backwards, which fails no
+  build, crashes nothing, and cannot be seen in a screenshot. There are eleven places that open
+  a level and nine that close one. So the direction is **derived**: `mesh_ui_route_of()`
+  ([`route.h`](../include/mesh/ui/route.h)) reads the nav the way a renderer does and says which
+  *place* it is showing — a depth, a screen, and enough of the level's own subject to tell two
+  of them apart — and `mesh_ui_route_move()` is arithmetic on two of those. This is
+  `mesh_ui_action_bar_goes_back()` (§7) one level up, and it is the same sentence: *a second
+  opinion about the nav is a second opinion that can be wrong.* Nothing in the store, the nav or
+  a snapshot records how it got here.
+- **A route is defined as much by what it leaves out.** The cursor, the draft, and every armed
+  press are not part of one. That is not tidiness: a route that moved when the cursor did would
+  restart the slide under the user's thumb on every press of Down, which is the one way this
+  could have been worse than no transition at all.
+- **The tab strip decides ahead of the depth, and it decides the short way round.** This is the
+  one thing in the step that was shipped wrong and corrected in review, and both halves of it
+  are the same mistake: treating the strip as a consequence of the move rather than as the
+  statement of it. Depth-first was written on the assumption that L/R are a shallow gesture, and
+  they are not — each tab keeps its own place, so Right off an open node detail is one tab
+  rightwards *and* a level shallower at the same time, and the depth answer slid the new tab in
+  from the left while the strip above it travelled right: the frame contradicting itself in two
+  places at once. And the strip is a **ring** — `mesh_ui_nav_switch_screen()` wraps — so
+  comparing two tab indices called Right off the last tab the largest leftwards move there is.
+  The distance is measured both ways round the ring and the shorter wins, which is the same
+  answer for every ordinary step and the right one at both ends. Within one tab the hierarchy
+  still decides, which is what the four transitions the entry names actually are — and the
+  correction costs nothing on the move that first argued for depth-first, the node detail's
+  "Message this node": one tab to the left is what the strip does there too.
+- **The second cost was real and its size was not.** "No alpha compositing, so a cross-fade is
+  out" is correct, and so is the conclusion that an x-offset slide is what is left. What the
+  entry did not follow through is that *one screen per frame* and *a full-panel travel* are not
+  compatible: with nothing drawn where the outgoing screen was, a screen starting a whole panel
+  out leaves the body **empty** on the frame the press lands. One blank frame, every time, and a
+  blink is a worse artefact than no animation. The travel is a quarter of the panel, which is
+  also what Material's shared-axis transition displaces — arrived at from the other end, since
+  there the slide only says which way because a cross-fade carries the change of identity. Here
+  there is no fade to carry it, and the short travel buys back what the blank frame was
+  spending: the arriving screen is legible for the whole of the move.
+- **MEDIUM, not the SHORT the entry named — and the entry could not have known.** §2.16 was
+  written before step 1 existed, so "one `MESH_UI_MOTION_SHORT`" was a duration, not a token.
+  The token it became means "a control acknowledging a press, and anything leaving", and this is
+  the one animation in the client with nothing leaving in it. `MEDIUM` is the one whose stated
+  meaning is *something arriving that was not there*. At 140 ms a screen crossing the panel is
+  four frames and reads as a jump with two smears in it.
+- **What slides is what changed, which is not the frame.** The transform wraps the screen
+  renderer and nothing else, so the navigation bar still names the tab it named and the action
+  bar changes its verbs without travelling — a frame-wide offset would be the client claiming
+  the whole application had been replaced when one level of one tab did. The screen progress bar
+  and the banner sit inside the band and are drawn *before* the transform for the same reason,
+  which is §11's distinction arriving on a new axis: they are about the *client*, and the client
+  did not go anywhere.
+- **One transform, at the one place that touches the mapping.** `fb_shift_begin()` is applied
+  inside `fb_fill_packed()`, which every pixel this backend writes already goes through — so it
+  covers glyphs, icons, emoji, fills and rounded corners at once, and covers whatever is added
+  next without being told to. The alternative was an offset threaded through `struct fb_layout`,
+  which is putting a pixel coordinate back into the two layers that exist not to have one.
+- **The partial-redraw path had to be told, and the test that catches it was already written.**
+  A move runs off a snapshot that does not change while it runs, which is precisely the
+  condition `fb_render_begin()` treats as "nothing outside the declared damage can have moved" —
+  so the band is handed to `fb_animation_damage()` every frame of a slide.
+  `fb_animation_clip_matches_full_composition` changes tab at frame 25 and has compared the
+  clipped composition against the full one ever since step 1; that press is now a transition, and
+  it was covering this before there was anything to cover.
+- **It is the first step that draws nothing.** No component, no token, no string, no icon, no
+  row. Every pixel it writes is one the screen was going to write anyway, somewhere else on the
+  panel — which is why the whole of it is 60 lines of backend under a model with no drawing in
+  it at all, and why the only way to review it is `make ui-capture ARGS="scenes/transitions.scene"`.
