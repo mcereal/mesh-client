@@ -1,17 +1,17 @@
 {
   "name": "MeshClient",
-  "version": "v2.29.1",
+  "version": "v2.30.0",
   "type": "TOOL",
   "description": "A Meshtastic client for your handheld: read and send messages, browse the mesh, and edit your radio's settings over Bluetooth LE or USB.",
   "author": "mcereal",
   "repo_url": "https://github.com/mcereal/mesh-client",
   "release_filename": "MeshClient.pak.zip",
   "changelog": {
+    "v2.30.0": "Add the screen progress bar and the banner.",
     "v2.29.1": "Keep Bluetooth and animated UI updates responsive.",
     "v2.29.0": "Add the selection control and the segmented button; Do not reserve the plain row's gutter twice, or clamp an unknown choice.",
     "v2.28.0": "Count list windows in steps, not items.",
-    "v2.27.0": "Give cards three weights and a verb, and make Status act; Keep the focus ring out of card layout, and the Status verbs append-only.",
-    "v2.26.1": "Keep BLE sync responsive and cache UI rendering work; Initialize owned state before publishing or shutdown."
+    "v2.27.0": "Give cards three weights and a verb, and make Status act; Keep the focus ring out of card layout, and the Status verbs append-only."
   },
   "screenshots": [
     ".github/resources/screenshots/nodes.png",

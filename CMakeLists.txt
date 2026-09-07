@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.18)
-project(meshclient VERSION 2.29.1 LANGUAGES C)
+project(meshclient VERSION 2.30.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)

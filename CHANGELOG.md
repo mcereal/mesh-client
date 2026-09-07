@@ -1,3 +1,9 @@
+## [2.30.0](https://github.com/mcereal/mesh-client/compare/v2.29.1...v2.30.0) (2026-09-07)
+
+### Features
+
+* **ui:** add the screen progress bar and the banner ([236306a](https://github.com/mcereal/mesh-client/commit/236306a730c67d196aa55ff98afcf9809a65e7d2))
+
 ## [2.29.1](https://github.com/mcereal/mesh-client/compare/v2.29.0...v2.29.1) (2026-09-07)
 
 ### Performance Improvements
