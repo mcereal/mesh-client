@@ -259,10 +259,13 @@ absolutes would stop being a scale the moment somebody asked for larger text.
 
 Steps 1 to 3 changed no screen's *content* and were reviewable as a `make ui-capture` diff
 against identical scene scripts — steps 1 and 3 were pixel-identical at the default theme, which
-is what a pure token extraction should be. Step 4 was the exception and always would be: a title
-a step larger is a title that takes more of the panel, so every screen with one gives up a body
-row. That was the trade the step was for. Steps 5 onwards change what screens can *say*, so each
-wants its own scene.
+is what a pure token extraction should be. Step 4 moves things, as a larger title must: what it
+does not do, in the end, is cost a row. The body height is a floored division, so it already
+carried a remainder of most of a row that the row count never included; a title that takes some
+of that remainder takes nothing a list was using. `fb_draw_title()` therefore recomputes the row
+count from the body's real bottom rather than deducting what it spent — deducting charged the
+title for that remainder a second time and hid a row that did in fact fit. Steps 5 onwards change
+what screens can *say*, so each wants its own scene.
 
 ## 4. Rules this roadmap does not get to break
 

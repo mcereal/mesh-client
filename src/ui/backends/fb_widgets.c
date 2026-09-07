@@ -192,18 +192,27 @@ void fb_draw_title(const struct mesh_ui_backend_fb_state *state, struct fb_layou
                  fb_tone_color(state, MESH_UI_TONE_PRIMARY));
 
     /*
-     * What the title cost the body, measured rather than assumed.
+     * What is left of the body, recomputed rather than deducted.
      *
-     * This advanced by the body's line advance and then deducted exactly one row, which was
+     * This used to advance by the body's line advance and deduct exactly one row, which was
      * already slightly out - the advance included a gap the deduction did not - and would be
-     * properly wrong now that the line being advanced past is taller than a body row. Rounding
-     * up is what keeps the first list row from being drawn into the space the title is using.
+     * properly wrong now that the line being advanced past is taller than a body row.
+     *
+     * Deducting a rounded-up row count is not the fix either, and that is the subtle part:
+     * `rows` is a *floored* division of the body height, so the body carries a remainder of up
+     * to one row that the count never included. Subtracting ceil(advance / line) from it
+     * charges the title for that remainder a second time and hides a row that does in fact
+     * fit - on the Brick's panel the remainder is most of a row, so every titled screen lost
+     * one for nothing.
+     *
+     * So the count is taken again from the same two numbers fb_render_snapshot() used, against
+     * the body's real bottom. Measuring it the same way twice is what keeps the two answers
+     * from disagreeing.
      */
-    const int advance = fb_line_adv(state, scale) + fb_space(state, MESH_UI_SPACE_SM);
-    layout->body_y += advance;
+    layout->body_y += fb_line_adv(state, scale) + fb_space(state, MESH_UI_SPACE_SM);
     if (layout->line > 0) {
-        const uint32_t used = (uint32_t)((advance + layout->line - 1) / layout->line);
-        layout->rows = layout->rows > used ? layout->rows - used : 1U;
+        const int remaining = layout->footer_y - fb_gutter(state) - layout->body_y;
+        layout->rows = remaining > 0 ? (uint32_t)(remaining / layout->line) : 0U;
     }
 }
 
