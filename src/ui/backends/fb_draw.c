@@ -411,9 +411,16 @@ int fb_icon_box(const struct mesh_ui_backend_fb_state *state, int scale) {
  * never allowed to be. It is drawn at the body's height instead and centred on its cell, so the
  * overhang is a couple of pixels into the gaps either side and the column arithmetic above is
  * untouched.
+ *
+ * The height being matched is the *symbol's*, not the sprite's: a sprite is a window a little
+ * wider than Material's grid (MESH_UI_ICON_WINDOW), and the shape lives in the central body of
+ * it (MESH_UI_ICON_BODY) with air around the outside. Scaling by the ratio is what puts the
+ * shape on the capitals' height rather than the air - drawing the window at the body's height
+ * instead would sit every symbol a fifth short of the text it labels.
  */
 static int fb_icon_drawn(const struct mesh_ui_backend_fb_state *state, int scale) {
-    return (int)fb_font(state)->height * scale;
+    const int body = (int)fb_font(state)->height * scale;
+    return (body * MESH_UI_ICON_WINDOW + MESH_UI_ICON_BODY / 2) / MESH_UI_ICON_BODY;
 }
 
 /* Coverage steps a blended icon is drawn in. The sprites carry 16 levels and the sampling
@@ -421,6 +428,11 @@ static int fb_icon_drawn(const struct mesh_ui_backend_fb_state *state, int scale
    32 is below what the eye separates on a 24 px symbol, and packing a colour per pixel was
    the thing fb_fill_packed() exists to avoid. */
 #define FB_ICON_BLEND_STEPS 32
+
+/* The largest box fb_draw_icon() can be asked for: the empty state's symbol at the largest glyph
+   scale, plus the air its window carries around it. */
+#define FB_ICON_DRAWN_MAX                                                                          \
+    (MESH_UI_GLYPH_MAX_HEIGHT * FB_ICON_SCALE_MAX * MESH_UI_ICON_WINDOW / MESH_UI_ICON_BODY)
 
 /*
  * Coverage at one destination pixel, as a blend step.
@@ -479,7 +491,7 @@ void fb_draw_icon(const struct mesh_ui_backend_fb_state *state, int x, int y,
     /* Source column per destination column, as a 8.8 fixed-point position: identical for every
        row, so the division runs once per column instead of once per pixel. Sized for the
        largest icon anything asks for, which is the empty state's - the rest are one text cell. */
-    int32_t sx[MESH_UI_GLYPH_MAX_HEIGHT * FB_ICON_SCALE_MAX];
+    int32_t sx[FB_ICON_DRAWN_MAX];
     if (box <= 0 || box > (int)(sizeof sx / sizeof sx[0])) {
         return;
     }
