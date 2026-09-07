@@ -1,3 +1,9 @@
+## [2.26.0](https://github.com/mcereal/mesh-client/compare/v2.25.0...v2.26.0) (2026-09-07)
+
+### Features
+
+* **ui:** add the top app bar, with a trail, a back arrow and a badge ([3bb71e3](https://github.com/mcereal/mesh-client/commit/3bb71e36fc3c4864faba43262edb0948b908ec3c))
+
 ## [2.25.0](https://github.com/mcereal/mesh-client/compare/v2.24.0...v2.25.0) (2026-09-07)
 
 ### Features
