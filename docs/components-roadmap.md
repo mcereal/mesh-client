@@ -208,12 +208,78 @@ linear indeterminate bar under the nav bar during handshake or sync. Open Settin
 radio has answered and eight rows say `not loaded` with no sign that anything is happening. One
 bar under the tab strip answers that for every screen at once.
 
+### Tier 1.5 — the quantitative gap
+
+> **Landed.** `struct mesh_ui_scale` and `mesh_ui_signal_level()` in
+> [`layout.h`](../include/mesh/ui/layout.h), `struct mesh_ui_band` and `mesh_ui_band_tone()` in
+> [`theme.h`](../include/mesh/ui/theme.h), the notches and the domain in `fb_draw_meter()`, and
+> `FB_TRAILING_SIGNAL`. Kept below because the argument is what the next visualization has to
+> keep answering.
+
+**2.11 A meter had no marks on it.** This is the one the set got *nearly* right and it is worth
+separating from the components that were simply absent. `fb_draw_meter()` could say how far
+along a reading was and could turn amber when it crossed a threshold — but nothing on screen
+said where the threshold *was*. The colour therefore reported a boundary the reader could not
+locate, which is half of an answer to the question the bar exists for: the Status card's own
+comment says a percentage "has to be read and then held against a threshold nobody carries
+around", and a bare track is a threshold nobody can see either.
+
+Two things were missing and they are one change. A **domain** (`struct mesh_ui_scale`), because
+a bar that fills from zero cannot express a reading measured between −20 dB and +10 at all, and
+because a caller normalising by hand is free to pick ends that the thresholds colouring the
+number know nothing about. And a **band** (`struct mesh_ui_band`), stated in the reading's own
+units and *drawn* — a notch cut into the track at each boundary — so the mark and the colour are
+two readings of one statement. Order is meaning there: `bad` above `warn` climbs, `bad` below
+`warn` falls, which is what lets a battery use the same component as airtime.
+
+The band lives in `theme.h` beside `mesh_ui_tone_for_load()`, which it generalises and delegates
+to; the scale lives in `layout.h` beside `mesh_ui_list_scroll()`, which is proportion arithmetic
+for the same reason. What a number *means* is the theme's half; where it *goes* is layout's.
+
+**2.12 A list had no way to show a signal.** The Nodes tab's trailing column was `4.2dB 3m` on
+every row — a figure with a scale nobody carries around, forty-two times down one screen — and
+the node detail's readings were text throughout. `FB_TRAILING_SIGNAL` is four rungs in the slot
+the trailing text already had, and `MESH_UI_NODE_ROW_METER` is the node detail's row model
+gaining the same "a fact, and a length beside it" shape the settings rows had.
+
+Three rules came out of doing it, and they are the ones a sparkline or a stacked bar will face:
+
+- **A picture cannot be wrong quietly.** The Nodes list already knew that a relayed node's SNR
+  describes the relay and an MQTT node's describes nothing on the air — that is what the `Nhop`
+  and `mqtt` branches were. Printing a number there was merely unhelpful; drawing a staircase
+  would have been a claim. Each new visualization has to be checked against the branch it is
+  replacing rather than dropped over it.
+- **Quantise where the reading is noisy.** An SNR is measured off one packet. Four rungs is a
+  claim its error bars support; a smooth bar is not, and easing between buckets would invent the
+  intermediate values that bucketing was meant to refuse. `mesh_ui_signal_level()` is in
+  `layout.c` so the ladder is arithmetic a test can reach.
+- **Reuse the row's own pair.** A staircase takes the row's ink and the meter's track role, not
+  a colour of its own. Anything else is a contract every theme has to be re-validated for, to
+  say something the existing pairing already says.
+
+**2.13 There is still no sparkline.** The gap that remains, and the only one on this list whose
+cost is not in the component. A meter and a staircase both report a *level*; nothing reports a
+**trend**, and "is the airtime climbing" and "is this battery going to last the night" are the
+two questions the Status and node screens cannot answer at all. The drawing is a polyline in a
+row's height. The work is that nothing in the store keeps history: `struct mesh_ui_snapshot`
+holds the present, so this wants a small sample ring — a fixed number of readings per series,
+written where the telemetry lands — before there is anything to draw. Worth doing, worth doing
+last, and worth being honest that it is a data change wearing a component's clothes.
+
 ### Tier 3 — worth knowing, not worth doing yet
 
 - **Surface tiers stop at three plus two states.** M3 has five container levels. Only worth a
   fourth once §2.4 and §2.9 land and there is something that needs to sit above a card.
 - **No menu, no tooltip.** Correctly absent: both are pointer affordances, and this device has a
   d-pad and four face buttons.
+- **No radial gauge, and there should not be one.** The obvious answer to "where does this
+  reading sit" is a dial, and it is the wrong one here twice over. `fb_internal.h` says there is
+  no anti-aliasing, deliberately, because the panel is 1024 px across 3.2 inches — and a dial
+  reads through a swept needle against tick marks, which are the two things that need it most; a
+  staircase and a bar are axis-aligned rectangles and lose nothing. And a dial wants a square of
+  screen where a list row is one line tall, so a screen of readings would become a screen of one
+  reading. The banded meter says the same sentence in a row's height. "Gauge" here means a
+  meter with marks on it, not a dial.
 - **No FAB.** Also arguably correct. The "start a new thread" row is a list row with a plus in
   its avatar slot, which is the right answer on a device with no touch — a floating button that
   cannot be pointed at is a button that has to be reached by scrolling past everything else.
@@ -233,6 +299,8 @@ Each step is independently shippable and each is visible.
 | 7 | Checkbox / radio, segmented button (§2.5, §2.6) |  | Additive slots on components that already exist |
 | 8 | Banner, screen progress, standalone badge (§2.8–2.10) |  | New surfaces; want the fourth tier decided first |
 | 9 | Slider (§2.7) |  | Genuinely new interaction; do it last |
+| — | Meter domain and bands, signal staircase (§2.11, §2.12) | **done** | Out of order on purpose: both were visible on the device and neither needed anything above |
+| 10 | Sparkline (§2.13) |  | A sample ring in the store first; the component is the small half |
 
 Steps 1 to 4 have landed. The motion tokens are `enum mesh_ui_motion` in
 [`theme.h`](../include/mesh/ui/theme.h), answered by `mesh_ui_theme_motion()`; the five

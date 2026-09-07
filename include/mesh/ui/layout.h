@@ -200,4 +200,134 @@ struct mesh_ui_scroll {
 
 struct mesh_ui_scroll mesh_ui_list_scroll(const struct mesh_ui_list *list, int track, int minimum);
 
+/* ---- readings ------------------------------------------------------------------------------
+ *
+ * Turning a number into a length, which is the one piece of arithmetic every quantitative
+ * widget needs and none of them should own.
+ *
+ * It is here for the reason mesh_ui_list_scroll() is: it is proportion arithmetic with no
+ * pixels in it, it is unit tested directly (tests/suites/ui_layout.c), and a second backend
+ * that grew a bar would want the same answer rather than a second derivation of it.
+ */
+
+/*
+ * The domain a reading is measured on.
+ *
+ * A bar is a fraction of its track, so every reading that is not already a fraction has to be
+ * turned into one - and doing that at each call site is how a picture and the words beside it
+ * come to disagree. The airtime figure is a percentage, a battery is 0..100, and a LoRa
+ * signal-to-noise ratio runs from about -20 dB to +10 and is the case that makes the point: a
+ * bar that can only fill from zero cannot express it at all, and a caller normalising by hand
+ * is free to pick ends that the thresholds it colours the number by know nothing about.
+ *
+ * So a reading travels as itself, with the ends it is measured between, and the widget asks
+ * once.
+ *
+ * A scale with min == max - which a zeroed struct is - means the reading is *already* permille.
+ * That is the identity domain rather than a special case smuggled in, and it is what lets a
+ * caller that genuinely holds a fraction say nothing at all.
+ */
+struct mesh_ui_scale {
+    int32_t min;
+    int32_t max;
+};
+
+/*
+ * Where `value` sits on `scale`, in permille - the unit a meter's fill and the animation table
+ * are both already on (MESH_UI_ANIM_ONE). Clamped to the ends, because a reading off the air
+ * carries no promise of being inside them.
+ *
+ * A descending scale (min > max) is legal and reads backwards, which is what a figure that is
+ * better when it is smaller wants.
+ */
+int32_t mesh_ui_scale_permille(struct mesh_ui_scale scale, int32_t value);
+
+/*
+ * A percentage the radio reports as a float, as the permille the rest of this speaks.
+ *
+ * The mesh's own figures - channel utilization, transmit airtime - arrive as floats with a
+ * tenth of a percent of real precision, and nothing upstream promises they are in range. This
+ * is where that becomes an integer exactly once, so the two screens that draw those readings
+ * cannot round them differently and then disagree by a pixel that looks like a bug.
+ *
+ * The guard is written as `!(percent > 0)` rather than `percent <= 0` so that a NaN - which
+ * compares false against everything - is caught by it. Written the other way round a reading
+ * the radio never made would sail through and be cast to whatever the platform felt like.
+ */
+int32_t mesh_ui_percent_permille(float percent);
+
+/*
+ * Where a LoRa link's signal-to-noise ratio changes meaning, in dB.
+ *
+ * Whole numbers rather than floats so that a threshold band can be stated in the same terms,
+ * and named here rather than in a renderer because two things now read them: the staircase on
+ * a node row and the bar on its detail screen.
+ *
+ * The values are the ones the firmware's own decode margin implies. LongFast demodulates down
+ * to about -17.5 dB, so -15 is the last rung that is still a working link and below it is a
+ * node that is about to stop arriving; 0 dB is where the signal has climbed above the noise
+ * rather than merely out of it.
+ */
+#define MESH_UI_SNR_EXCELLENT 5
+#define MESH_UI_SNR_GOOD 0
+#define MESH_UI_SNR_FAIR (-7)
+#define MESH_UI_SNR_POOR (-15)
+
+/* The two ends a signal-to-noise ratio is drawn between: the demodulator's floor at the widest
+   spreading factor, and a link so strong that more of it would not mean anything. */
+#define MESH_UI_SNR_FLOOR (-20)
+#define MESH_UI_SNR_CEILING 10
+
+/* Rungs a signal indicator has. Four is what a handset shows, and it is about the most a
+   staircase two cells wide can still be counted at a glance. */
+#define MESH_UI_SIGNAL_STEPS 4U
+
+/*
+ * How many of the MESH_UI_SIGNAL_STEPS rungs `snr` lights: 0 at the floor, 4 for a link
+ * that could not be better.
+ *
+ * Quantised rather than continuous, and deliberately: an SNR is measured off *one* packet, so
+ * its error bars are wide enough that a smooth bar would be claiming a precision the number
+ * does not have. Four rungs is a claim it can support.
+ *
+ * Signal-to-noise rather than RSSI, which is the reading a cellular indicator would use. LoRa
+ * decodes *below* the noise floor, so received strength on its own says nothing about whether
+ * a packet arrives - a loud band with a loud noise floor is a good RSSI and a dead link. SNR
+ * is the figure that decides it, so it is the figure the rungs count.
+ *
+ * 0 is a real rung and means "heard, at the floor", not "unknown". Whether there is a reading
+ * at all is the caller's question: a node reached over several hops or over MQTT has an SNR
+ * for the last leg rather than for itself, and that is not this function's to guess at.
+ */
+uint8_t mesh_ui_signal_level(float snr);
+
+/*
+ * Where the mesh's two airtime figures stop being healthy, in permille of the air.
+ *
+ * Not look-and-feel numbers. Above roughly a quarter of channel utilization, LoRa's
+ * listen-before-talk backs everything off and multi-hop delivery starts failing outright, and
+ * by half the mesh is effectively a single-hop one. Transmit airtime is a different limit and a
+ * much lower one: the ISM duty-cycle rules a radio has to keep to are around a tenth, so five
+ * percent is a radio approaching its own ceiling rather than a busy band.
+ *
+ * Here, with the signal-to-noise rungs, because two screens read each of them - the Status
+ * card's heading, figure, bar and the marks on that bar all take the first pair, and a node's
+ * own detail screen takes both - and a threshold stated twice is a screen that can mark one
+ * boundary while colouring another.
+ */
+#define MESH_UI_AIRTIME_BUSY_WARN 250
+#define MESH_UI_AIRTIME_BUSY_BAD 500
+#define MESH_UI_AIRTIME_TX_WARN 50
+#define MESH_UI_AIRTIME_TX_BAD 100
+
+/*
+ * Where a battery stops being comfortable, in percent - a descending band, because this is the
+ * one reading on the mesh that is worse when it is smaller.
+ *
+ * Percent rather than permille: it arrives from the radio as a whole percent, so a finer unit
+ * would be a precision the wire does not carry.
+ */
+#define MESH_UI_BATTERY_LOW 30
+#define MESH_UI_BATTERY_CRITICAL 15
+
 #endif /* MESH_UI_LAYOUT_H */

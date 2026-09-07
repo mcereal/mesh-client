@@ -11,6 +11,7 @@
 
 #include "framework/mesh_test.h"
 
+#include "mesh/ui/anim.h"
 #include "mesh/ui/emoji.h"
 #include "mesh/ui/layout.h"
 
@@ -334,5 +335,126 @@ MESH_TEST_CASE(ui_layout_scroll_reports_the_window, unit) {
     struct mesh_ui_scroll clipped = mesh_ui_list_scroll(&stubby, 4, 40);
     MESH_TEST_FAIL_IF(clipped.length > 4, "the thumb is longer than the track holding it");
     MESH_TEST_FAIL_IF(clipped.offset + clipped.length > 4, "the thumb ran past a short track");
+    record_success(test_name);
+}
+
+/*
+ * A reading onto a track.
+ *
+ * The arithmetic under every bar on the device, and the reason it is here rather than in the
+ * framebuffer backend: a domain with a negative end is the case a fill-from-zero bar cannot
+ * express at all, and it is one division to get wrong quietly.
+ */
+MESH_TEST_CASE(ui_layout_scale_permille, unit) {
+    /* The identity domain: a caller that already holds a fraction says nothing and is clamped
+       rather than rescaled. A zeroed struct is this, which is what keeps it free. */
+    const struct mesh_ui_scale identity = {0, 0};
+    MESH_TEST_FAIL_IF(mesh_ui_scale_permille(identity, 314) != 314,
+                      "the identity domain rescaled a reading that was already permille");
+    MESH_TEST_FAIL_IF(mesh_ui_scale_permille(identity, -1) != 0,
+                      "the identity domain did not clamp below the track");
+    MESH_TEST_FAIL_IF(mesh_ui_scale_permille(identity, 4000) != MESH_UI_ANIM_ONE,
+                      "the identity domain did not clamp above the track");
+
+    /* A percentage. */
+    const struct mesh_ui_scale percent = {0, 100};
+    MESH_TEST_FAIL_IF(mesh_ui_scale_permille(percent, 0) != 0, "an empty reading is not empty");
+    MESH_TEST_FAIL_IF(mesh_ui_scale_permille(percent, 50) != 500, "half a scale is not half");
+    MESH_TEST_FAIL_IF(mesh_ui_scale_permille(percent, 100) != MESH_UI_ANIM_ONE,
+                      "a full reading did not fill the track");
+
+    /*
+     * A domain that starts below zero, which is the one this exists for: an SNR of -20 dB is
+     * the demodulator's floor and belongs at the *start* of the track, not off the end of it.
+     */
+    const struct mesh_ui_scale snr = {MESH_UI_SNR_FLOOR, MESH_UI_SNR_CEILING};
+    MESH_TEST_FAIL_IF(mesh_ui_scale_permille(snr, MESH_UI_SNR_FLOOR) != 0,
+                      "the floor of a signed domain is not the start of the track");
+    MESH_TEST_FAIL_IF(mesh_ui_scale_permille(snr, MESH_UI_SNR_CEILING) != MESH_UI_ANIM_ONE,
+                      "the ceiling of a signed domain is not the end of the track");
+    MESH_TEST_FAIL_IF(mesh_ui_scale_permille(snr, -5) != 500,
+                      "the middle of a signed domain is not the middle of the track");
+    MESH_TEST_FAIL_IF(mesh_ui_scale_permille(snr, -40) != 0,
+                      "a reading under a signed domain did not clamp to the start");
+
+    /* Descending, which is what a figure that is better when it is smaller reads as. */
+    const struct mesh_ui_scale descending = {100, 0};
+    MESH_TEST_FAIL_IF(mesh_ui_scale_permille(descending, 0) != MESH_UI_ANIM_ONE,
+                      "a descending domain did not run backwards");
+    MESH_TEST_FAIL_IF(mesh_ui_scale_permille(descending, 100) != 0,
+                      "a descending domain did not start at its own minimum");
+    MESH_TEST_FAIL_IF(mesh_ui_scale_permille(descending, 25) != 750,
+                      "a descending domain did not place its middle");
+    record_success(test_name);
+}
+
+/*
+ * A float percentage as permille.
+ *
+ * One function because two screens draw the mesh's airtime and a second rounding of the same
+ * float is a bar and a figure that disagree by a pixel nobody can explain. The NaN case is the
+ * one worth pinning: a radio that has reported nothing must read as nothing, not as whatever a
+ * cast happens to produce.
+ */
+MESH_TEST_CASE(ui_layout_percent_permille, unit) {
+    MESH_TEST_FAIL_IF(mesh_ui_percent_permille(0.0f) != 0, "an idle channel was not idle");
+    MESH_TEST_FAIL_IF(mesh_ui_percent_permille(31.0f) != 310, "a percentage did not scale");
+    MESH_TEST_FAIL_IF(mesh_ui_percent_permille(4.25f) != 43,
+                      "a fractional percentage was not rounded to the nearest permille");
+    MESH_TEST_FAIL_IF(mesh_ui_percent_permille(100.0f) != MESH_UI_ANIM_ONE,
+                      "a saturated channel did not fill the track");
+    MESH_TEST_FAIL_IF(mesh_ui_percent_permille(140.0f) != MESH_UI_ANIM_ONE,
+                      "a reading past the end of the scale was not clamped");
+    MESH_TEST_FAIL_IF(mesh_ui_percent_permille(-3.0f) != 0,
+                      "a negative reading was not clamped to nothing");
+    MESH_TEST_FAIL_IF(mesh_ui_percent_permille(0.0f / 0.0f) != 0,
+                      "a reading that is not a number escaped the guard");
+    /* A reading small enough to round to nothing still has to *be* something, because the meter
+       distinguishes a real trickle from an empty track and cannot if this floors it away. */
+    MESH_TEST_FAIL_IF(mesh_ui_percent_permille(0.4f) != 4, "a small real reading was lost");
+    record_success(test_name);
+}
+
+/*
+ * Signal as rungs.
+ *
+ * The bucket boundaries are the contract - a node at exactly the fair threshold should show the
+ * fair number of rungs and not one fewer - and so is what a reading nobody can use does, which
+ * is fall to the bottom rather than land in the middle.
+ */
+MESH_TEST_CASE(ui_layout_signal_level_rungs, unit) {
+    MESH_TEST_FAIL_IF(mesh_ui_signal_level(20.0f) != MESH_UI_SIGNAL_STEPS,
+                      "a strong link did not light every rung");
+    MESH_TEST_FAIL_IF(mesh_ui_signal_level((float)MESH_UI_SNR_EXCELLENT) != 4U,
+                      "the excellent threshold itself did not read as excellent");
+    MESH_TEST_FAIL_IF(mesh_ui_signal_level((float)MESH_UI_SNR_EXCELLENT - 0.1f) != 3U,
+                      "just under excellent did not step down exactly one rung");
+    MESH_TEST_FAIL_IF(mesh_ui_signal_level((float)MESH_UI_SNR_GOOD) != 3U,
+                      "the good threshold itself did not read as good");
+    MESH_TEST_FAIL_IF(mesh_ui_signal_level((float)MESH_UI_SNR_FAIR) != 2U,
+                      "the fair threshold itself did not read as fair");
+    MESH_TEST_FAIL_IF(mesh_ui_signal_level((float)MESH_UI_SNR_POOR) != 1U,
+                      "the poor threshold itself did not read as poor");
+    MESH_TEST_FAIL_IF(mesh_ui_signal_level(-40.0f) != 0U, "a link under the floor lit a rung");
+
+    /*
+     * A reading the radio never made. The ladder is walked downwards from the top precisely so
+     * that a NaN - which compares false against every threshold - falls through to the bottom
+     * rung: a comparison written the other way round would hand it a middling signal, which is
+     * the failure that hides itself.
+     */
+    const float nothing = 0.0f / 0.0f;
+    MESH_TEST_FAIL_IF(mesh_ui_signal_level(nothing) != 0U,
+                      "a reading that is not a number was drawn as a middling link");
+
+    /* Monotonic across the whole useful range, in tenths of a decibel: a staircase that ever
+       went down as the signal went up would be worse than no staircase. */
+    uint8_t previous = 0U;
+    for (int tenths = -400; tenths <= 300; tenths++) {
+        const uint8_t level = mesh_ui_signal_level((float)tenths / 10.0f);
+        MESH_TEST_FAIL_IF(level < previous, "the rungs fell as the signal rose");
+        MESH_TEST_FAIL_IF(level > MESH_UI_SIGNAL_STEPS, "a reading lit more rungs than there are");
+        previous = level;
+    }
     record_success(test_name);
 }

@@ -9,6 +9,7 @@
 
 #include "mesh/ui/layout.h"
 
+#include "mesh/ui/anim.h"
 #include "mesh/ui/emoji.h"
 
 #include <stdio.h>
@@ -371,4 +372,61 @@ struct mesh_ui_scroll mesh_ui_list_scroll(const struct mesh_ui_list *list, int t
     scroll.offset = (int)offset;
     scroll.length = (int)length;
     return scroll;
+}
+
+int32_t mesh_ui_scale_permille(struct mesh_ui_scale scale, int32_t value) {
+    int64_t permille;
+    if (scale.min == scale.max) {
+        /* The identity domain: the caller already holds a fraction. */
+        permille = value;
+    } else {
+        /*
+         * Both terms carry the scale's direction, so a descending domain divides two negatives
+         * and comes out reading backwards - which is the whole of what "descending" has to
+         * mean. 64-bit because the ends are a caller's and nothing stops a domain being wide.
+         */
+        const int64_t span = (int64_t)scale.max - (int64_t)scale.min;
+        const int64_t offset = (int64_t)value - (int64_t)scale.min;
+        permille = (offset * MESH_UI_ANIM_ONE) / span;
+    }
+    if (permille < 0) {
+        return 0;
+    }
+    if (permille > MESH_UI_ANIM_ONE) {
+        return MESH_UI_ANIM_ONE;
+    }
+    return (int32_t)permille;
+}
+
+int32_t mesh_ui_percent_permille(float percent) {
+    if (!(percent > 0.0f)) { /* also catches NaN, which no comparison the other way round does */
+        return 0;
+    }
+    if (percent >= 100.0f) {
+        return MESH_UI_ANIM_ONE;
+    }
+    /* Rounded rather than truncated: a reading of 3.99% that drew as 3.9 would be a bar that is
+       consistently short of the figure printed beside it. */
+    return (int32_t)(percent * 10.0f + 0.5f);
+}
+
+uint8_t mesh_ui_signal_level(float snr) {
+    /*
+     * A ladder of `>=` walked from the top, so a NaN - which compares false against everything
+     * - falls all the way through to the bottom rung rather than matching a middle one. A radio
+     * that has reported nothing usable should read as a bad link, not as a middling one.
+     */
+    if (snr >= (float)MESH_UI_SNR_EXCELLENT) {
+        return 4U;
+    }
+    if (snr >= (float)MESH_UI_SNR_GOOD) {
+        return 3U;
+    }
+    if (snr >= (float)MESH_UI_SNR_FAIR) {
+        return 2U;
+    }
+    if (snr >= (float)MESH_UI_SNR_POOR) {
+        return 1U;
+    }
+    return 0U;
 }
