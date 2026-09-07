@@ -62,17 +62,33 @@ enum mesh_ui_color {
     MESH_UI_COLOR_SURFACE_HIGH,   /* raised over the body: the keyboard's draft box */
     MESH_UI_COLOR_SURFACE_SEL,    /* the fill under the cursor, and a button at rest */
     MESH_UI_COLOR_SURFACE_ACTIVE, /* a pressed button */
-    MESH_UI_COLOR_TEXT,           /* body text */
-    MESH_UI_COLOR_TEXT_DIM,       /* headings, secondary lines, anything not yet loaded */
-    MESH_UI_COLOR_TEXT_STRONG,    /* unread, unsaved: the row the eye should land on */
-    MESH_UI_COLOR_TEXT_ON_SEL,    /* text drawn on SURFACE_SEL or SURFACE_ACTIVE */
+    /*
+     * The surface from the other end of the palette: a light fill on a dark theme, a dark one
+     * on a light theme.
+     *
+     * The three tiers above say how far a thing is from the ground, which works for anything
+     * that belongs to the screen it is on. A transient notice does not - it is over the whole
+     * UI, it was not there a second ago and will not be there in four - and no tier can say
+     * that on a panel with no shadow and no alpha to raise it with. Inverting the ground can:
+     * a fill that reads as "not part of this screen" is found before it is read, which is the
+     * whole job of a snackbar.
+     *
+     * Material calls this pair inverse-surface and inverse-on-surface, for the same reason and
+     * with the same one user.
+     */
+    MESH_UI_COLOR_SURFACE_INVERSE,
+    MESH_UI_COLOR_TEXT,        /* body text */
+    MESH_UI_COLOR_TEXT_DIM,    /* headings, secondary lines, anything not yet loaded */
+    MESH_UI_COLOR_TEXT_STRONG, /* unread, unsaved: the row the eye should land on */
+    MESH_UI_COLOR_TEXT_ON_SEL, /* text drawn on SURFACE_SEL or SURFACE_ACTIVE */
     /* The secondary line of a selected item: a timestamp, a message preview. TEXT_DIM is
        chosen against the ground and says nothing about a fill over it, so a row that carries
        two tiers of text under the cursor - which the conversation list does - needs its own
        quiet colour rather than flattening to TEXT_ON_SEL. */
     MESH_UI_COLOR_TEXT_ON_SEL_DIM,
-    MESH_UI_COLOR_ACCENT,    /* titles, actions, channels, the current target */
-    MESH_UI_COLOR_ON_ACCENT, /* text drawn on an accent fill: the unread badge */
+    MESH_UI_COLOR_TEXT_ON_INVERSE, /* text drawn on SURFACE_INVERSE */
+    MESH_UI_COLOR_ACCENT,          /* titles, actions, channels, the current target */
+    MESH_UI_COLOR_ON_ACCENT,       /* text drawn on an accent fill: the unread badge */
     /*
      * The accent's quiet half: a fill that says "this one" without shouting it, and the ink
      * that goes on it.

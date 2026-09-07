@@ -404,7 +404,7 @@ shoulder, revealed in the one place you went to change it.
 | File | Layer | What belongs there |
 |---|---|---|
 | `fb_draw.c` | ink | pixels, glyphs, the theme lookups, cell metrics (`fb_internal.h`) |
-| `fb_widgets.c` | components | cards, buttons, chips, list items, rules, bubbles (`fb_widgets.h`) |
+| `fb_widgets.c` | components | cards, buttons, chips, list items, rules, bubbles, the snackbar (`fb_widgets.h`) |
 | `fb_screens.c` | screens | one renderer per screen, plus the tab strip and footer |
 | `fb.c` | device | `/dev/fb0`, the page flip, the backend vtable |
 
@@ -597,6 +597,49 @@ The track flips colour as the knob passes the midpoint rather than crossfading w
 was tried first and is wrong twice over: mid-fade the track is not a colour any knob colour was
 validated against, and on the dark theme the two ends are yellow and blue, so everything between
 them is mud.
+
+#### `struct fb_snackbar` — the transient notice
+
+`mesh_ui_store_set_toast()` raises a one-line notice: *Sent to BRVO*, *Not connected*,
+*Rebooting*. It used to be drawn as accent text on the footer's **second line**, which is also
+where the link summary lives — so for the four seconds after every action the frame stopped
+saying whether there was a radio attached. Two unrelated facts were taking turns on one row
+because the notice had nowhere else to be.
+
+It has somewhere now: a container of its own, drawn **last of everything on the frame**, that
+slides up from below the panel and slides back down when the nav drops it. The shape is the
+point. A notice that appears in place has to be noticed before it can be read, and on a handheld
+the eye is usually somewhere else at the moment it appears; movement is what brings it back.
+
+```c
+const struct fb_snackbar snackbar = {
+    .text = snapshot->nav.toast,
+    .until_ms = snapshot->nav.toast_until_ms,
+};
+fb_draw_snackbar(state, &layout, &snackbar);
+```
+
+Three things are worth knowing:
+
+- **The backend keeps the words, not just the position.** A snackbar leaves by sliding out, and
+  by then the store has already forgotten the text — `mesh_ui_nav_tick()` clearing an expired
+  toast is the very thing that causes the frame where it starts leaving. So
+  `mesh_ui_backend_fb_state` carries a copy alongside the animation table, for the same reason
+  the table is there at all: it is presentation, and it dies with the frame buffer.
+- **`until_ms` is identity, not a deadline.** Expiry is the nav's business. Two notices can read
+  the same — pressing send twice with no radio raises *Not connected* twice — and the second has
+  to arrive rather than sit there looking like the first never left. The deadline moves every
+  time one is raised, so it tells them apart when the words cannot.
+- **Entering has to be forced.** The animation table adopts its target on first sight and treats
+  re-aiming at the current target as a no-op, which is exactly what stops a switch sliding on
+  the frame a screen opens. A snackbar wants the opposite, so on a new notice it is put back to
+  zero with a zero duration before being aimed at the resting place.
+
+It is sized to its own words rather than to the panel, up to two lines — a three-word notice in
+a full-width bar is a status area that happens to be empty on the right, which is what the
+footer line already was. `SURFACE_INVERSE` carries it with no outline: a card needs a hairline
+because its fill is one step off the ground, and this one is the furthest from the ground the
+theme has.
 
 ### Animation
 
@@ -801,6 +844,7 @@ There are three of them, and the tier says how far a thing is from the ground:
 | `SURFACE_LOW` | recessed chrome — the bar behind the tab strip |
 | `SURFACE` | a panel on the ground — a card |
 | `SURFACE_HIGH` | raised over the body — the keyboard's draft box |
+| `SURFACE_INVERSE` | over the whole UI — the snackbar |
 
 Tonal, not shadowed, and that is forced rather than chosen: the Brick's display engine
 composites `fb0` against *its own* background layer, not against what we have already drawn (see
@@ -810,6 +854,13 @@ the useful property of surviving a light palette, where a dark shadow would have
 tonal step just changes direction. Lower is nearer the ground, so a dark theme's tiers get
 lighter as they rise and a light theme's get darker; nothing that draws knows which way its
 palette went.
+
+`SURFACE_INVERSE`/`TEXT_ON_INVERSE` is the odd one out and deliberately so. The three tiers say
+how far a thing is from the ground, which works for anything belonging to the screen it is on. A
+transient notice does not belong to it — it was not there a second ago and will not be there in
+four — and with no shadow and no alpha there is no tier that can say so. Inverting the ground
+can: a light fill on a dark theme, a dark one on a light theme, found before it is read. It is
+Material's `inverse-surface` pair, and the snackbar is its one user.
 
 `ACCENT_CONTAINER`/`ON_ACCENT_CONTAINER` is the accent's quiet half. A full accent fill is right
 for a badge — small, and it has to be found across the panel — and wrong for anything the size
@@ -992,7 +1043,8 @@ device would see it, and no scene script has to know an animation exists.
 | `hold MS` | lengthen the frame just emitted, rather than emitting a duplicate. It also moves the clock on, so an animation that was mid-flight has advanced by the next line |
 | `config` | a radio that has answered the config handshake, so the Settings sections have rows instead of "not loaded". Plausible values; what is on show is the rows |
 | `frame` | emit the current screen again |
-| `toast TEXT` | raise the transient notice the footer draws |
+| `toast TEXT` | raise the transient notice — the snackbar. It times out on the scene's own
+clock, so a `hold` past four seconds followed by a `frame` films it sliding back out |
 | `message in\|out NAME TEXT` | append a message, as if the radio had just said so |
 | `react NAME EMOJI` | react to the newest message, as another node would. The transcript draws it on that message rather than as a bubble of its own |
 | `alert NAME TEXT` | a critical alert (`ALERT_APP`) on the channel |

@@ -1,0 +1,31 @@
+# The transient notice, arriving and leaving.
+#
+# It used to be accent text on the footer's second line, sharing that row with the link
+# summary. It is a container of its own now - the theme's inverted surface, sized to its own
+# words - that slides up from below the panel and slides back down when it times out. Both
+# halves of that are why this is a clip and not a screenshot: a notice that appears in place
+# has to be noticed before it can be read, and movement is what does the noticing.
+#
+# The footer underneath it keeps saying what the radio is doing throughout, which is the other
+# half of the change: the two facts no longer take turns on one row.
+scene demo
+scale 4
+delay 130
+
+hold 500
+key down 4
+key a
+hold 600
+# A short one: the bar is sized to its text, not to the panel.
+toast Sent to BRVO
+hold 1400
+# Four seconds after it was raised the nav drops it, and the frame after that films it leave.
+hold 3000
+frame
+hold 800
+# A second notice arriving while the first has gone: it enters from below rather than appearing.
+toast Not connected
+hold 1400
+hold 3000
+frame
+hold 900
