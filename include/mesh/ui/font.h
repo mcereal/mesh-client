@@ -24,6 +24,13 @@
  * the way it always was. For a rasterised face the master is bigger than the cell at most
  * scales and the sampling is bilinear, the same trade fb_draw_icon() already makes: nearest
  * neighbour on a 2 px stroke is the difference between a smooth diagonal and a staircase.
+ *
+ * The overhang - `master_top` - is where a diacritic goes when the cell has no room for it.
+ * Every font this small has the problem: 5x7's capitals fill all seven of its rows, and a face
+ * rasterised to fill its cell puts an acute above the cap height by definition. So the master
+ * is allowed to be taller than the cell, its top `master_top` rows are drawn in the gap the
+ * line advance leaves above, and a font sizes that gap by its own `line_gap`. One mechanism
+ * for both fonts, rather than the single hard-coded accent row this replaced.
  */
 
 #include <stdbool.h>
@@ -44,7 +51,7 @@ extern "C" {
    is rasterised once at a resolution that survives being drawn small, and the cell it lands
    in is whatever the theme's scale works out to. */
 #define MESH_UI_GLYPH_MASTER_MAX_WIDTH 24
-#define MESH_UI_GLYPH_MASTER_MAX_HEIGHT 32
+#define MESH_UI_GLYPH_MASTER_MAX_HEIGHT 40
 
 /* Solid. Coverage runs 0..this inclusive, 4 bits, the same range an icon sprite carries. */
 #define MESH_UI_GLYPH_MAX_ALPHA 15
@@ -61,16 +68,9 @@ enum mesh_ui_font_sampling {
     MESH_UI_FONT_SMOOTH,    /* bilinear: an outline keeps its curves at any cell size */
 };
 
-/*
- * One character's coverage, row-major over the font's master.
- *
- * `above` is the single extra row a font may draw immediately above the cell for accents that
- * do not fit inside it - see src/ui/font5x7.c for why that row exists. A font whose master is
- * tall enough to hold its own diacritics leaves it zero.
- */
+/* One character's coverage, row-major over the font's master. */
 struct mesh_ui_glyph {
     uint8_t alpha[MESH_UI_GLYPH_MASTER_MAX_WIDTH * MESH_UI_GLYPH_MASTER_MAX_HEIGHT];
-    uint8_t above[MESH_UI_GLYPH_MASTER_MAX_WIDTH];
 };
 
 /*
@@ -88,7 +88,19 @@ struct mesh_ui_font {
     uint8_t advance_gap;
     uint8_t line_gap;
     uint8_t master_w; /* coverage master width; the cell width when the font is pixel art */
-    uint8_t master_h; /* coverage master height */
+    uint8_t master_h; /* coverage master height, overhang rows included */
+    /* How many of the master's top rows hang *above* the cell rather than inside it.
+       See the note on the overhang below. */
+    uint8_t master_top;
+    /*
+     * How many master rows the capitals stand on the baseline, which is not the cell.
+     *
+     * Anything sized to match the text - an icon in a row slot, above all - wants the height of
+     * a capital beside it, and for 5x7 that is the cell, because its capitals fill it. A face
+     * with real ascenders and descenders keeps both inside the cell, so its capitals are a good
+     * bit shorter than it - and an icon sized off the cell there comes out overbearing.
+     */
+    uint8_t cap_rows;
     enum mesh_ui_font_sampling sampling;
     /* Fills `out` with the glyph for `codepoint`. Returns false when it fell back to the
        replacement box, which is still a drawable glyph. */
@@ -100,6 +112,9 @@ struct mesh_ui_font {
 /* Pixels from one cell's origin to the next, and from one baseline to the next. */
 int mesh_ui_font_advance(const struct mesh_ui_font *font, int scale);
 int mesh_ui_font_line(const struct mesh_ui_font *font, int scale);
+
+/* How tall a capital is drawn, in pixels - what anything standing beside the text matches. */
+int mesh_ui_font_cap(const struct mesh_ui_font *font, int scale);
 
 /* Safe wrappers: a NULL font, or one missing a hook, resolves to the default. */
 bool mesh_ui_font_glyph(const struct mesh_ui_font *font, uint32_t codepoint,

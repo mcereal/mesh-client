@@ -863,12 +863,76 @@ already been through `compose_color`. That is the rule worth keeping: `compose_c
 bitfields and branches on the pixel format, and a full screen of text is around 200k scaled
 sub-pixels, so running it per pixel was roughly a third of the frame.
 
-Everything above therefore packs once and then describes rectangles. `fb_draw_glyph` transposes
-the column-major font into horizontal runs of lit pixels and fills one span per run;
-`fb_draw_emoji` packs the 255-entry sprite palette once per pixel format, precomputes the
-nearest-neighbour column map so the scaling division runs per column rather than per pixel, and
-coalesces equal-index neighbours into spans. **A per-pixel drawing helper is a regression** — it
-was one, and reintroducing it costs about 5x on every text frame.
+Everything above therefore packs once and then describes rectangles. `fb_draw_glyph` resamples
+the glyph's coverage into its cell and fills one span per run of equal coverage; `fb_draw_emoji`
+packs the 255-entry sprite palette once per pixel format, precomputes the nearest-neighbour
+column map so the scaling division runs per column rather than per pixel, and coalesces
+equal-index neighbours into spans. **A per-pixel drawing helper is a regression** — it was one,
+and reintroducing it costs about 5x on every text frame.
+
+The coverage ramp is the same trick one level up: `fb_blend_table()` quantises ink-over-ground
+into `FB_BLEND_STEPS` packed colours *once*, so blending is one multiply per channel per step
+rather than per pixel, and `fb_draw_text` builds it once for a whole run rather than per
+character. Text and icons share it, because they are the same operation.
+
+### A glyph is coverage
+
+`struct mesh_ui_glyph` holds one value per pixel, `0` to `MESH_UI_GLYPH_MAX_ALPHA`, exactly as an
+icon sprite does — not one bit per pixel. That is not a refinement, it is the difference between
+a UI that can look modern and one that cannot: at the body scale a source pixel is a 4×4 block,
+and no amount of Material chrome survives text made of visible squares.
+
+A font declares two sizes. Its **cell** (`width`/`height`, in scale steps) is what every
+measurement above derives from. Its **master** (`master_w`/`master_h`) is the resolution the
+coverage is stored at, and `fb_draw_glyph` resamples one into the other:
+
+| | `5x7` | `ui` |
+|---|---|---|
+| cell at scale 1 | 5×7, gaps 1 and 2 | 5×8, gaps 0 and 1 |
+| master | 5×8 | 20×36 |
+| sampling | `MESH_UI_FONT_PIXEL` (nearest) | `MESH_UI_FONT_SMOOTH` (bilinear) |
+| at the body scale | 42 columns × 21 rows | 51 columns × 21 rows |
+
+The sampling is declared rather than inferred, and it is not a preference: pixel art resampled
+bilinearly reads as a smudge, and an outline resampled with nearest neighbour drops every fourth
+row. On the integer ratio a pixel font is drawn at, nearest is exact block replication — which is
+why moving 5x7 onto this path left every frame pixel-identical.
+
+`master_top` is the **overhang**: master rows drawn *above* the cell, where a diacritic goes when
+the cell has no room for it. Both fonts need it — 5x7's capitals fill all seven of its rows, and a
+face rasterised to fill its cell puts an acute above the cap height by definition — so it is one
+mechanism rather than the single hard-coded accent row it replaced. A font sizes the overhang by
+its own `line_gap`.
+
+`cap_rows` is how tall the capitals actually stand. Anything sized to match the text — an icon in
+a row slot above all — uses `mesh_ui_font_cap()` rather than the cell height. For 5x7 the two are
+the same, which is why the cell height stood in for it until a face with real ascenders and
+descenders arrived and every icon came out a seventh too big.
+
+Text is drawn in `ink` **over `ground`**, and `ground` is a parameter for the reason
+`fb_draw_icon`'s is: what is already on the panel is not readable from the drawing code, and a
+widget that has just filled a row is the only thing that knows what colour it filled it with.
+Getting it wrong does not lose the text — it puts a faint halo of the wrong colour around it.
+
+### `src/ui/font_ui.c` — the generated face
+
+`scripts/gen-font.py` rasterises JetBrains Mono (SIL OFL 1.1, `licenses/`) into
+`src/ui/font_ui_glyphs.c`, which is **committed**; the build rasterises nothing and never reaches
+the network, exactly as the icon set works. It is not part of the build — run it by hand and
+commit the result.
+
+The face is rasterised at the size the device draws it (a 20×36 master for a 20×32 cell at the
+body scale), so on the Brick a glyph is blitted 1:1 and resampled only when a theme asks for
+another scale. Each glyph is stored as its ink box, packed four bits a pixel: 50 KB, against 95 KB
+for the run-length encoding the icons use — a letter at this size is a small dense patch of
+varying coverage rather than the long flat runs a filled symbol is.
+
+The coverage set is **whatever `src/ui/font5x7.c` can draw**, parsed out of it by the generator
+rather than listed twice; `ui_theme_fonts_agree_on_coverage` holds the two to that, because a
+face that covers less turns a node name into a row of boxes only for the people whose names need
+the letters it dropped. `EM` and `BASELINE` were found by search, not arithmetic — the binding
+constraint is a different character at each end (an accented capital above, C-cedilla below), and
+neither is the one the face's own ascent and descent metrics describe.
 
 ### Text is measured in cells, not bytes
 
@@ -890,20 +954,24 @@ places still working on a bare `char[]`.
 columns, so an emoji stands as tall as the capitals next to it; the sprites' own transparent
 margins keep neighbours apart.
 
-### `src/ui/font5x7.c`
+### `src/ui/font5x7.c` — the pixel face
 
-The framebuffer font, reached through the `struct mesh_ui_font` descriptor it publishes
-(`mesh_ui_font5x7()`) and keyed by **codepoint** rather than by byte: ASCII plus Latin-1 Supplement
-and Latin Extended-A. Accented letters are **composed** from a base letter and a mark
-(`k_composed`) rather than drawn, so adding one is a line. Lowercase leaves rows 0 and 1 of the
-cell free and the mark goes there; capitals and ascenders fill all seven rows, so their mark
-collapses to a one-row silhouette in `glyph.above`, which `fb_draw_glyph` hangs in the gap
-`fb_line_adv` leaves between lines.
+The original framebuffer font, still registered and still selectable by a theme, reached through
+the `struct mesh_ui_font` descriptor it publishes (`mesh_ui_font5x7()`) and keyed by **codepoint**
+rather than by byte: ASCII plus Latin-1 Supplement and Latin Extended-A. Accented letters are
+**composed** from a base letter and a mark (`k_composed`) rather than drawn, so adding one is a
+line. Lowercase leaves rows 0 and 1 of the cell free and the mark goes there; capitals and
+ascenders fill all seven rows, so their mark collapses to a one-row silhouette, which the font
+publishes as row 0 of its master — the overhang every font now has.
 
-Consequences of a seven-row cell, all deliberate: circumflex/caron/macron/ring are
-indistinguishable over a capital, and marks that sit *under* a letter have nowhere to go, so `Ç`
-draws as `C`. Anything with no glyph gets the replacement box — except what the emoji table
-covers.
+Its tables are still 1-bit, and the descriptor widens them to coverage on the way out (0 or
+`MESH_UI_GLYPH_MAX_ALPHA`, nothing between). That is what keeps it a font you can edit five hex
+bytes at a time, and it is why it comes out of the resampler as exactly the spans it always drew.
+
+Consequences of a seven-row cell, all deliberate and all this font's alone: circumflex, caron,
+macron and ring are indistinguishable over a capital, and marks that sit *under* a letter have
+nowhere to go, so `Ç` draws as `C`. The `ui` face has room for both. Anything with no glyph gets
+the replacement box — except what the emoji table covers.
 
 ### `src/ui/emoji.c` + the generated `src/ui/emoji_glyphs.c`
 
@@ -1153,11 +1221,15 @@ pixels at the device's scale, and four pixels off the corner of a row highlight 
 pixels wide and forty tall is not a rounded rectangle, it is a rectangle somebody sanded.
 
 The font is a seam too (`include/mesh/ui/font.h`). `struct mesh_ui_font` is a cell size, two
-gaps and a glyph lookup; `src/ui/font5x7.c` provides the one that ships, and a theme names it by
-id. Every measurement in the UI — columns per line, button widths, bubble heights, the scroll
-window — comes from `mesh_ui_font_advance()`/`mesh_ui_font_line()` rather than from a constant,
-so a second font is a table entry rather than a refactor. `MESH_UI_GLYPH_MAX_WIDTH`/`_HEIGHT`
-bound the buffers a glyph is decoded into; raise them when a font needs it.
+gaps, a cap height and a glyph lookup, and a theme names one by id. Every measurement in the UI —
+columns per line, button widths, bubble heights, the scroll window — comes from
+`mesh_ui_font_advance()`/`mesh_ui_font_line()` rather than from a constant, which is what made a
+second font a table entry rather than a refactor. `MESH_UI_GLYPH_MAX_WIDTH`/`_HEIGHT` bound the
+cell; `MESH_UI_GLYPH_MASTER_MAX_WIDTH`/`_HEIGHT` bound the coverage a glyph is decoded into.
+
+Two ship: `src/ui/font_ui.c` (`"ui"`, JetBrains Mono, the default) and `src/ui/font5x7.c`
+(`"5x7"`, the pixel one). See [A glyph is coverage](#a-glyph-is-coverage) for what separates
+them.
 
 ### Adding a theme
 

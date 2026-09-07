@@ -659,6 +659,75 @@ MESH_TEST_CASE(ui_theme_fonts_measure, unit) {
 }
 
 /*
+ * Every font draws every character every other font can.
+ *
+ * A theme picks a font, so a face that covers less than another turns a node name the UI could
+ * draw into a row of replacement boxes - and it does it only for the people whose names need
+ * the letters it dropped, which is exactly the kind of bug nobody here would hit. The set is
+ * whatever the fonts agree on rather than a list in this file, so adding a character to one
+ * font is what makes this fail for the others.
+ *
+ * The range stops after the arrows and the ideographic space: past there is emoji, which is a
+ * sprite table rather than a font, and no text face is expected to carry it.
+ */
+MESH_TEST_CASE(ui_theme_fonts_agree_on_coverage, unit) {
+    for (uint32_t codepoint = 0x20U; codepoint <= 0x3000U; ++codepoint) {
+        size_t covering = 0;
+        for (size_t i = 0; i < mesh_ui_font_count(); ++i) {
+            if (mesh_ui_font_has_glyph(mesh_ui_font_at(i), codepoint)) {
+                ++covering;
+            }
+        }
+        if (covering != 0 && covering != mesh_ui_font_count()) {
+            char reason[96];
+            snprintf(reason, sizeof reason, "only %zu of %zu fonts can draw U+%04X", covering,
+                     mesh_ui_font_count(), (unsigned)codepoint);
+            record_failure(test_name, reason);
+            return;
+        }
+    }
+    record_success(test_name);
+}
+
+/*
+ * A font's capitals are as tall as it says they are, and no taller than its cell.
+ *
+ * Anything standing beside the text is sized off this - an icon in a row slot above all - so a
+ * font whose cap height is a guess puts an overbearing symbol next to every row it appears in.
+ * That is not hypothetical: it is what the first face with real ascenders did, because the cell
+ * height had been standing in for the cap height while every font had the two the same.
+ */
+MESH_TEST_CASE(ui_theme_fonts_cap_height, unit) {
+    for (size_t i = 0; i < mesh_ui_font_count(); ++i) {
+        const struct mesh_ui_font *font = mesh_ui_font_at(i);
+        for (int scale = MESH_UI_SCALE_MIN; scale <= MESH_UI_SCALE_MAX; ++scale) {
+            const int cap = mesh_ui_font_cap(font, scale);
+            MESH_TEST_FAIL_IF(cap <= 0, "a font's capitals have no height");
+            MESH_TEST_FAIL_IF(cap > (int)font->height * scale,
+                              "a font's capitals are taller than its cell");
+        }
+
+        /* And the number is the truth about the glyphs: a capital must not reach into the
+           overhang, which is the diacritics' room and nothing else's. */
+        struct mesh_ui_glyph glyph;
+        (void)mesh_ui_font_glyph(font, (uint32_t)'H', &glyph);
+        int highest = (int)font->master_h;
+        for (int row = 0; row < highest; ++row) {
+            for (int col = 0; col < (int)font->master_w; ++col) {
+                if (glyph.alpha[(size_t)row * font->master_w + (size_t)col] > 0U) {
+                    highest = row;
+                    break;
+                }
+            }
+        }
+        MESH_TEST_FAIL_IF(highest >= (int)font->master_h, "a capital H has no ink");
+        MESH_TEST_FAIL_IF(highest < (int)font->master_top,
+                          "a capital reaches into the accent overhang");
+    }
+    record_success(test_name);
+}
+
+/*
  * The colour of the frame's ground, sampled from the right-hand edge halfway down.
  *
  * Neither corner works, and where the sample has had to move twice is itself the argument for

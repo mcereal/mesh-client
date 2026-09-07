@@ -79,6 +79,8 @@ add_library(meshclient_core
     src/ui/backends/fb_screens.c
     src/ui/font.c
     src/ui/font5x7.c
+    src/ui/font_ui.c
+    src/ui/font_ui_glyphs.c
     src/ui/theme.c
     src/ui/emoji.c
     src/ui/emoji_glyphs.c

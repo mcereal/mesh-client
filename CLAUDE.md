@@ -138,6 +138,7 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | Animation | `src/ui/anim.c`, `src/ui/controller.c` | fixed-point easing + a table keyed per control; the repaint timerfd that feeds it |
 | Icons | `src/ui/icon.c`, `src/ui/icon_glyphs.c`, `include/mesh/ui/icons.def` | monochrome Material Symbols, tinted by the theme, in the row slots |
 | Themes | `src/ui/theme.c`, `src/ui/font.c` | palette by role, surface tiers, the shape scale, metrics, font registry; `MESHCLIENT_THEME` or Settings > About picks one |
+| Fonts | `src/ui/font_ui.c` + generated `font_ui_glyphs.c`, `src/ui/font5x7.c` | a glyph is **coverage**, resampled from the font's master into the cell; `ui` (JetBrains Mono) is the default, `5x7` is the pixel one |
 | Text | `src/utils/text.c`, `src/ui/{font5x7,emoji}.c` | UTF-8 sanitising, cell-based measurement |
 | Strings | `src/i18n/strings.c`, `include/mesh/i18n/catalog.def` | the string catalog and the locale registry |
 | Dev tools | `devtools/`, `scripts/{ui-capture.sh,frames.py}` | off-screen UI capture; PNG/GIF encoding, stdlib only |
@@ -245,8 +246,13 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   does. Changing either forces a pak reinstall, so treat them as a compatibility boundary.
 - **`scripts/gen-emoji.py` is not part of the build.** Run it by hand and commit the result.
   The same goes for `scripts/gen-icons.py`, which rasterises the icon set out of Material
-  Symbols, and for `scripts/gen-locale.py`, which turns the string catalog into a translation
-  template or a locale skeleton.
+  Symbols, for `scripts/gen-font.py`, which rasterises the `ui` face out of JetBrains Mono, and
+  for `scripts/gen-locale.py`, which turns the string catalog into a translation template or a
+  locale skeleton.
+- **A font's cell height is not its cap height.** Anything sized to stand beside the text - an
+  icon in a row slot - uses `mesh_ui_font_cap()`. They are equal for `5x7`, whose capitals fill
+  its cell, and they are not for a face with real ascenders and descenders; using the cell there
+  makes every icon a seventh too big and overflows the confirm dialog's panel.
 - **Neither `include/mesh/i18n/catalog.def` nor `include/mesh/ui/icons.def` is a header, and
   `make format` does not touch either.** Each is included several times with the macros defined
   differently each time, which is what keeps the enum, the table and - for the catalog - the

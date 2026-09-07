@@ -364,15 +364,28 @@ static int fb_glyph_step(const uint8_t *row_lo, const uint8_t *row_hi,
  * The master is resampled into `width * scale` by `height * scale` and emitted as spans of
  * equal coverage, the way fb_draw_icon() emits a symbol. Taking the ramp rather than a colour
  * pair is what keeps a line of text to one table build instead of one per character.
+ *
+ * The master's overhang rows are drawn too, above `y` - they are the same resample continued
+ * upward, not a second pass, which is why the whole glyph is one box placed by its baseline
+ * rather than a cell plus an accent stuck on top of it.
  */
 static void fb_draw_glyph_ramp(const struct mesh_ui_backend_fb_state *state, int x, int y,
                                uint32_t codepoint, int scale,
                                const uint32_t blend[FB_BLEND_STEPS]) {
     const struct mesh_ui_font *font = fb_font(state);
+    const int cell_rows = (int)font->master_h - (int)font->master_top;
     const int box_w = (int)font->width * scale;
     const int box_h = (int)font->height * scale;
     if (scale <= 0 || box_w <= 0 || box_h <= 0 || box_w > FB_GLYPH_BOX_MAX ||
-        font->master_w == 0U || font->master_h == 0U) {
+        font->master_w == 0U || cell_rows <= 0) {
+        return;
+    }
+    /* The cell is `cell_rows` of the master, so the whole of it - overhang included - is that
+       much taller, and starts that much higher. Both from the one division, so the overhang
+       lands exactly on the row the cell starts at. */
+    const int full_h = box_h * (int)font->master_h / cell_rows;
+    const int top_off = box_h * (int)font->master_top / cell_rows;
+    if (full_h <= 0) {
         return;
     }
 
@@ -386,9 +399,10 @@ static void fb_draw_glyph_ramp(const struct mesh_ui_backend_fb_state *state, int
         taps[dx] = fb_glyph_tap(dx, box_w, (int)font->master_w, font->sampling);
     }
 
-    for (int dy = 0; dy < box_h; ++dy) {
+    const int top = y - top_off;
+    for (int dy = 0; dy < full_h; ++dy) {
         const struct fb_glyph_tap row =
-            fb_glyph_tap(dy, box_h, (int)font->master_h, font->sampling);
+            fb_glyph_tap(dy, full_h, (int)font->master_h, font->sampling);
         const uint8_t *row_lo = &glyph.alpha[(size_t)row.lo * font->master_w];
         const uint8_t *row_hi = &glyph.alpha[(size_t)row.hi * font->master_w];
         int dx = 0;
@@ -399,29 +413,10 @@ static void fb_draw_glyph_ramp(const struct mesh_ui_backend_fb_state *state, int
                 ++end;
             }
             if (step > 0) {
-                fb_fill_packed(state, x + dx, y + dy, end - dx, 1, blend[step]);
+                fb_fill_packed(state, x + dx, top + dy, end - dx, 1, blend[step]);
             }
             dx = end;
         }
-    }
-
-    /* An accent that would not fit in the cell hangs in the gap above the line, one master row
-       tall - which at the integer ratio a pixel font draws at is the scale step it always was. */
-    int above_h = box_h / (int)font->master_h;
-    if (above_h < 1) {
-        above_h = 1;
-    }
-    int dx = 0;
-    while (dx < box_w) {
-        const int step = fb_glyph_step(glyph.above, glyph.above, &taps[dx], 0);
-        int end = dx + 1;
-        while (end < box_w && fb_glyph_step(glyph.above, glyph.above, &taps[end], 0) == step) {
-            ++end;
-        }
-        if (step > 0) {
-            fb_fill_packed(state, x + dx, y - above_h, end - dx, above_h, blend[step]);
-        }
-        dx = end;
     }
 }
 
@@ -565,7 +560,7 @@ int fb_icon_box(const struct mesh_ui_backend_fb_state *state, int scale) {
  * instead would sit every symbol a fifth short of the text it labels.
  */
 static int fb_icon_drawn(const struct mesh_ui_backend_fb_state *state, int scale) {
-    const int body = (int)fb_font(state)->height * scale;
+    const int body = mesh_ui_font_cap(fb_font(state), scale);
     return (body * MESH_UI_ICON_WINDOW + MESH_UI_ICON_BODY / 2) / MESH_UI_ICON_BODY;
 }
 

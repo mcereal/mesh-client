@@ -457,14 +457,15 @@ bool mesh_font5x7_has_glyph(uint32_t codepoint) {
 static bool font5x7_glyph(uint32_t codepoint, struct mesh_ui_glyph *out) {
     struct mesh_font_glyph glyph;
     const bool known = mesh_font5x7_glyph(codepoint, &glyph);
+    /* Row 0 of the master is the overhang, which is this font's `above`; the cell follows. */
+    for (int col = 0; col < MESH_FONT_WIDTH; ++col) {
+        out->alpha[col] = (glyph.above[col] & 0x01U) != 0U ? MESH_UI_GLYPH_MAX_ALPHA : 0U;
+    }
     for (int row = 0; row < MESH_FONT_HEIGHT; ++row) {
-        uint8_t *dst = &out->alpha[(size_t)row * MESH_FONT_WIDTH];
+        uint8_t *dst = &out->alpha[(size_t)(row + 1) * MESH_FONT_WIDTH];
         for (int col = 0; col < MESH_FONT_WIDTH; ++col) {
             dst[col] = (glyph.columns[col] & (1U << row)) != 0U ? MESH_UI_GLYPH_MAX_ALPHA : 0U;
         }
-    }
-    for (int col = 0; col < MESH_FONT_WIDTH; ++col) {
-        out->above[col] = (glyph.above[col] & 0x01U) != 0U ? MESH_UI_GLYPH_MAX_ALPHA : 0U;
     }
     return known;
 }
@@ -483,7 +484,13 @@ const struct mesh_ui_font *mesh_ui_font5x7(void) {
         .advance_gap = 1U,
         .line_gap = 2U,
         .master_w = MESH_FONT_WIDTH,
-        .master_h = MESH_FONT_HEIGHT,
+        /* One row taller than the cell: the overhang an accented capital's mark hangs in, which
+           is the top half of the two-row line gap above. */
+        .master_h = MESH_FONT_HEIGHT + 1U,
+        .master_top = 1U,
+        /* Its capitals fill the cell - that is why an accented one has nowhere to put its mark
+           but the overhang. */
+        .cap_rows = MESH_FONT_HEIGHT,
         .sampling = MESH_UI_FONT_PIXEL,
         .glyph = font5x7_glyph,
         .has_glyph = mesh_font5x7_has_glyph,
