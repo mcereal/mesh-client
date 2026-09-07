@@ -97,7 +97,7 @@ suite needs it.
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Verified 2026-09-07: 233 unit tests, all passing, zero compiler warnings.
+Verified 2026-09-07: 244 unit tests, all passing, zero compiler warnings.
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
 vector — not against our own encoder — so a protobuf regeneration that changes field numbers or
 wire types fails loudly.
@@ -133,9 +133,10 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | App glue | `src/core/app*.c` | `app` lifecycle/link, `_actions` UI actions, `_publish` to store, `_settings` writes |
 | Self-update | `src/core/updater.c`, `version.c` | forks curl, SemVer, digest-verified install |
 | UI | `src/ui/` | store/controller + `nav*.c` + `settings*.c` + `layout.c` + `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
-| UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window (counted in **steps**, so one row may be taller than its neighbours); cards (filled/elevated/outlined, with verbs on the heading line), buttons, chips, badges, list items (leading/marker/supporting/trailing slots, an optional full-width bar on a second step), section subheaders, switches, selection controls (checkbox/radio), segmented buttons (which fall back to the chosen word when the row is too narrow), meters (with domains and drawn threshold bands), signal staircases, bubbles, the top app bar, the navigation bar, the action bar, the snackbar |
+| UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window (counted in **steps**, so one row may be taller than its neighbours); cards (filled/elevated/outlined, with verbs on the heading line), buttons, chips, badges, list items (leading/marker/supporting/trailing slots, an optional full-width bar on a second step), section subheaders, switches, selection controls (checkbox/radio), segmented buttons (which fall back to the chosen word when the row is too narrow), meters (with domains and drawn threshold bands), signal staircases, bubbles, the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar |
 | Button hints | `src/ui/actions.c`, `include/mesh/ui/actions.h` | what the buttons do here, as (button, verb) pairs the action bar iterates |
 | Status verbs | `src/ui/status.c`, `include/mesh/ui/status.h` | which Status card carries which verb — read by `nav.c`, `actions.c` and the renderer alike |
+| Client-level chrome | `src/ui/chrome.c`, `include/mesh/ui/chrome.h` | what the frame says about the *client* rather than about a screen: whether anything is in flight (the progress bar) and which persistent banner it carries |
 | Animation | `src/ui/anim.c`, `src/ui/controller.c` | fixed-point easing + a table keyed per control; the repaint timerfd that feeds it |
 | Icons | `src/ui/icon.c`, `src/ui/icon_glyphs.c`, `include/mesh/ui/icons.def` | monochrome Material Symbols, tinted by the theme, in the row slots |
 | Themes | `src/ui/theme.c`, `src/ui/font.c` | palette by role, surface tiers, the shape scale, metrics, font registry; `MESHCLIENT_THEME` or Settings > About picks one |
@@ -289,6 +290,17 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   the Status tab lost the TX queue and the reboot count off the end of the Radio card. A heading
   is three or four cells of a line that is otherwise empty; the verbs go in the rest of it, at
   the chrome scale, and cost nothing.
+- **The screen progress bar deliberately costs no body row, and the banner deliberately costs
+  rows.** They are the moving half and the settled half of one idea: a request already sent must
+  not reflow the list it went out from, so the bar hangs in the gap the navigation bar already
+  leaves and takes a `const` layout; a banner is content about the client, so it consumes rows
+  and hands back what is left, exactly as the app bar does. Which states raise either is
+  `src/ui/chrome.c`, never a renderer.
+- **A banner says only what nothing else on the frame says, and must be able to resolve.** That
+  is why there is no "radio disconnected" banner - the status line under the keycaps already
+  says it on every frame - why the update banner stands down inside Settings > About, and why an
+  update a build cannot install raises nothing. There is no dismissal, on purpose: dismissal is
+  a nav change, and refusing it is what keeps the table to states that go away on their own.
 - **The Status cursor is an index into the verbs its cards offer, so that list may only ever
   grow at its end.** Both verbs are gated on the link being up for that reason as much as for
   their own: a verb appearing *ahead* of the cursor changes what the next A press does without

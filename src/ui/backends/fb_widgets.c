@@ -228,7 +228,165 @@ void fb_draw_nav_bar(const struct mesh_ui_backend_fb_state *state, struct fb_lay
                              width - fb_margin(state), MESH_UI_COLOR_SURFACE_LOW, small);
     fb_draw_rule(state, 0, bar_h, width, small, MESH_UI_COLOR_RULE_STRONG);
 
+    layout->nav_y = bar_h + fb_rule_height(state, small);
     layout->body_y = bar_h + fb_space_at(state, MESH_UI_SPACE_MD, small) + fb_gutter(state);
+}
+
+/* ---- the screen progress bar ---------------------------------------------------------------- */
+
+/*
+ * Its key in the animation table, from the far end of the range where no screen's own id lands
+ * - the same reasoning as FB_ANIM_ID_SNACKBAR, and the same neighbourhood.
+ */
+#define FB_ANIM_ID_PROGRESS 0xFFFFFF03U
+
+/*
+ * How tall the bar is.
+ *
+ * The meter's own thickness at the *body* scale rather than at the chrome scale it sits in.
+ * Chrome is drawn smaller because it is text and text has to stay legible in less room; a
+ * hairline has no such reason, and one scaled down with the tab labels is a bar nobody notices
+ * on the screens it exists for.
+ */
+static int fb_progress_thickness(const struct mesh_ui_backend_fb_state *state) {
+    return fb_meter_thickness(state, state->scale);
+}
+
+void fb_draw_progress(struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                      bool busy) {
+    if (state == NULL || layout == NULL || !busy) {
+        return;
+    }
+    const int height = fb_progress_thickness(state);
+    if (height <= 0 || layout->nav_y <= 0) {
+        return;
+    }
+    /*
+     * Full bleed, which is the one place in this UI a container reaches the panel edge.
+     *
+     * Everything else is inset by the margin because everything else is content. This is not:
+     * it is the navigation bar's rule saying something, so it runs the width of the rule it
+     * hangs off. Inset, it would read as the first row of the body - which is exactly the
+     * mistake the tab strip made before it was given a surface of its own.
+     */
+    struct fb_meter meter = {
+        .rect = {.x = 0, .y = layout->nav_y, .w = (int)state->var.xres, .h = height},
+        .kind = FB_METER_INDETERMINATE,
+        .tone = MESH_UI_TONE_PRIMARY,
+        .id = FB_ANIM_ID_PROGRESS,
+    };
+    fb_draw_meter(state, &meter);
+}
+
+/* ---- the banner ------------------------------------------------------------------------------ */
+
+void fb_draw_banner(const struct mesh_ui_backend_fb_state *state, struct fb_layout *layout,
+                    const struct fb_banner *banner) {
+    if (state == NULL || layout == NULL || banner == NULL || banner->text == NULL ||
+        banner->text[0] == '\0') {
+        return;
+    }
+
+    const int scale = state->scale;
+    const int small = layout->small;
+    const int adv = fb_char_adv(state, scale);
+    const int small_adv = fb_char_adv(state, small);
+    const int margin = fb_margin(state);
+    const int pad_x = fb_space(state, MESH_UI_SPACE_MD);
+    const int pad_y = fb_space(state, MESH_UI_SPACE_SM);
+    const int top = layout->body_y;
+    const int width = (int)state->var.xres - 2 * margin;
+    if (width <= 2 * pad_x || adv <= 0 || layout->line <= 0) {
+        return;
+    }
+
+    /*
+     * Measured in glyph *bodies* rather than in line advances, which is the same correction the
+     * app bar's overline made: an advance carries the gap between two lines of running text,
+     * and neither of these lines is running text. Spending it here would have cost a body row
+     * for space nobody sees.
+     */
+    const int font_h = (int)fb_font(state)->height;
+    const int head_top = top + pad_y;
+    const int head_h = font_h * scale;
+    const int sup_gap = fb_space_at(state, MESH_UI_SPACE_XS, small);
+    const int sup_h = font_h * small;
+    const int gap = fb_space(state, MESH_UI_SPACE_SM);
+
+    /*
+     * Whether the second line is affordable.
+     *
+     * A banner is chrome that eats content, so the rule is that it may not eat all of it: when
+     * taking the supporting line would leave the screen under it with no row at all, the
+     * supporting line is what goes. The headline is the half that says what is true; the hint
+     * is the half that says where to go about it, and a hint over an empty screen is worse than
+     * no hint.
+     */
+    bool supporting = banner->supporting != NULL && banner->supporting[0] != '\0';
+    int height = 2 * pad_y + head_h + (supporting ? sup_gap + sup_h : 0);
+    if (supporting && layout->footer_y - fb_gutter(state) - (top + height + gap) < layout->line) {
+        supporting = false;
+        height = 2 * pad_y + head_h;
+    }
+
+    const struct mesh_ui_paint paint =
+        fb_paint(state, banner->family, MESH_UI_SLOT_CONTAINER, MESH_UI_STATE_REST);
+    fb_fill_round_rect(state, margin, top, width, height, fb_radius(state, MESH_UI_SHAPE_MD),
+                       paint.fill);
+
+    int x = margin + pad_x;
+    int right = margin + width - pad_x;
+
+    if (banner->icon != MESH_UI_ICON_NONE) {
+        fb_draw_icon(state, x, head_top, banner->icon, scale, paint.ink, paint.fill);
+        x += fb_icon_box(state, scale) + adv / 2;
+    }
+
+    /*
+     * The detail, against the trailing edge and at the label scale.
+     *
+     * It recedes by *size* rather than by colour, and that is the type scale doing the job a
+     * second ink would otherwise have been invented for: the container has one validated pair,
+     * and a dimmed variant of its ink is a contract no theme has been held to.
+     */
+    if (banner->detail != NULL && banner->detail[0] != '\0') {
+        const int detail_w = (int)mesh_ui_text_cells(banner->detail) * small_adv;
+        if (detail_w > 0 && right - detail_w > x) {
+            right -= detail_w;
+            /* Centred on the headline's glyph body rather than sharing its top edge: a smaller
+               face hung from the same line reads as having slipped up off it. */
+            fb_draw_text(state, right, head_top + (head_h - sup_h) / 2, banner->detail, small,
+                         paint.ink, paint.fill);
+            right -= small_adv;
+        }
+    }
+
+    struct mesh_ui_line headline;
+    mesh_ui_line_reset(&headline);
+    mesh_ui_line_printf(&headline, "%s", banner->text);
+    mesh_ui_line_fit(&headline, (size_t)(right > x ? (right - x) / adv : 0));
+    fb_draw_text(state, x, head_top, mesh_ui_line_text(&headline), scale, paint.ink, paint.fill);
+
+    if (supporting) {
+        const int room = margin + width - pad_x - x;
+        struct mesh_ui_line hint;
+        mesh_ui_line_reset(&hint);
+        mesh_ui_line_printf(&hint, "%s", banner->supporting);
+        mesh_ui_line_fit(&hint, (size_t)(room > 0 ? room / small_adv : 0));
+        /* Indented to the headline's own left edge, past the icon: the symbol leads the whole
+           banner rather than only its first line, so a hint starting under it would read as a
+           second, unmarked notice. */
+        fb_draw_text(state, x, head_top + head_h + sup_gap, mesh_ui_line_text(&hint), small,
+                     paint.ink, paint.fill);
+    }
+
+    /* What is left of the body, recomputed from its real bottom rather than deducted - see the
+       tail of fb_draw_app_bar() for why a deduction is wrong here. */
+    layout->body_y = top + height + gap;
+    if (layout->line > 0) {
+        const int remaining = layout->footer_y - fb_gutter(state) - layout->body_y;
+        layout->rows = remaining > 0 ? (uint32_t)(remaining / layout->line) : 0U;
+    }
 }
 
 /* The cap's pill and the verb after it, with the half cell between them that every icon-plus-
@@ -530,10 +688,13 @@ void fb_draw_empty(const struct mesh_ui_backend_fb_state *state, const struct fb
                           fb_color(state, MESH_UI_COLOR_BG));
 }
 
+int fb_rule_height(const struct mesh_ui_backend_fb_state *state, int scale) {
+    return fb_space_at(state, MESH_UI_SPACE_XS, scale);
+}
+
 void fb_draw_rule(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int scale,
                   enum mesh_ui_color role) {
-    fb_fill_rect(state, x, y, w, fb_space_at(state, MESH_UI_SPACE_XS, scale),
-                 fb_color(state, role));
+    fb_fill_rect(state, x, y, w, fb_rule_height(state, scale), fb_color(state, role));
 }
 
 /* Everything but the window, which is the one thing the three entry points differ in. */

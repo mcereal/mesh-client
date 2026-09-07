@@ -14,6 +14,7 @@
 #include "support/ui_fixture.h"
 
 #include "mesh/core/message.h"
+#include "mesh/core/updater.h"
 #include "mesh/ui/backends/fb_capture.h"
 #include "mesh/ui/font.h"
 #include "mesh/ui/nav.h"
@@ -465,6 +466,122 @@ static void render_until_still(struct mesh_ui_capture *capture,
         mesh_ui_capture_advance(capture, 33U);
         mesh_ui_capture_render(capture, snapshot);
     }
+}
+
+/*
+ * The lowest scanline on which two frames differ, or `height` when they are identical.
+ *
+ * The two chrome containers this file cares about are told apart by exactly this number: one is
+ * required to change nothing below the navigation bar and the other is required to move the
+ * whole body, so "where does the difference stop" is the assertion in both cases, with the
+ * comparison in opposite directions.
+ */
+static uint32_t last_differing_row(const uint8_t *a, const uint8_t *b, uint32_t width,
+                                   uint32_t height, size_t stride) {
+    uint32_t last = height;
+    for (uint32_t y = 0U; y < height; ++y) {
+        if (memcmp(a + (size_t)y * stride, b + (size_t)y * stride, (size_t)width * 4U) != 0) {
+            last = y;
+        }
+    }
+    return last;
+}
+
+/* A copy of the page as it stands, so a second render can be compared against it. */
+static uint8_t *snapshot_page(const uint8_t *pixels, uint32_t height, size_t stride) {
+    uint8_t *copy = malloc((size_t)height * stride);
+    if (copy != NULL) {
+        memcpy(copy, pixels, (size_t)height * stride);
+    }
+    return copy;
+}
+
+/*
+ * The screen progress bar costs no row, and the banner costs the rows it takes.
+ *
+ * These are one case because they are one rule read from both ends. An indicator that changes
+ * the layout is an indicator that moves what it is pointing at - which is why a request going
+ * out must not reflow the list it was sent from, and it is the same correction the card's focus
+ * ring needed. A banner is the deliberate exception: it is content about the client, it is
+ * meant to cost rows, and a banner that did not shorten the body would be drawing over it.
+ *
+ * Both are checked by where two frames stop differing rather than by a pixel anywhere, because
+ * that is the only form of the assertion that survives a legitimate change to either drawing.
+ */
+MESH_TEST_CASE(ui_capture_progress_costs_no_row_and_the_banner_costs_rows, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_capture *capture = NULL;
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, 4) != 0,
+        mesh_ui_store_shutdown(&store), "capture open failed");
+
+    uint32_t width = 0U;
+    uint32_t height = 0U;
+    size_t stride = 0U;
+    const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_ui_store_consume_updates(&store, &snapshot),
+                              mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store), "no snapshot to render");
+    mesh_ui_capture_render(capture, &snapshot);
+    uint8_t *quiet = snapshot_page(pixels, height, stride);
+    MESH_TEST_FAIL_IF_CLEANUP(quiet == NULL, mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store), "out of memory");
+
+    /* An admin read on its way back: work outstanding, and nothing else about the frame
+       changed. */
+    struct mesh_ui_settings settings = store.settings;
+    settings.admin_busy = true;
+    mesh_ui_store_set_settings(&store, &settings);
+    mesh_ui_store_request_refresh(&store);
+    memset(&snapshot, 0, sizeof snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_ui_store_consume_updates(&store, &snapshot), free(quiet);
+                              mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store), "no busy snapshot");
+    mesh_ui_capture_render(capture, &snapshot);
+
+    const uint32_t bar_last = last_differing_row(quiet, pixels, width, height, stride);
+    MESH_TEST_FAIL_IF_CLEANUP(bar_last == height, free(quiet); mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store), "work in flight drew nothing at all");
+    /* An eighth of the panel is far more room than the tab strip and its rule take, and far
+       less than the first body row reaches. A bar that consumed rows would push the whole list
+       down and put this at the bottom of the frame. */
+    MESH_TEST_FAIL_IF_CLEANUP(bar_last >= height / 8U, free(quiet); mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "the progress bar moved the body, so a request reflows the list");
+
+    /* And the other end of the rule. An installed release is a banner, a banner is content, and
+       content moves the list under it. */
+    settings.admin_busy = false;
+    settings.client.update_state = (uint8_t)MESH_UPDATE_READY;
+    snprintf(settings.client.update_latest, sizeof settings.client.update_latest, "%s", "9.9.9");
+    mesh_ui_store_set_settings(&store, &settings);
+    mesh_ui_store_request_refresh(&store);
+    memset(&snapshot, 0, sizeof snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_ui_store_consume_updates(&store, &snapshot), free(quiet);
+                              mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store), "no banner snapshot");
+    mesh_ui_capture_render(capture, &snapshot);
+
+    const unsigned container =
+        widest_row_run(capture, pixels, width, height, stride, MESH_UI_COLOR_SUCCESS_CONTAINER);
+    MESH_TEST_FAIL_IF_CLEANUP(container < 80U, free(quiet); mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store), "no banner container on the frame");
+    const uint32_t banner_last = last_differing_row(quiet, pixels, width, height, stride);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        banner_last <= height / 2U, free(quiet); mesh_ui_capture_close(capture);
+        mesh_ui_store_shutdown(&store), "the banner drew over the body instead of shortening it");
+
+    free(quiet);
+    mesh_ui_capture_close(capture);
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
 }
 
 /*
