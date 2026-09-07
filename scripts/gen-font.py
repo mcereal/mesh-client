@@ -43,6 +43,7 @@ travels with the generated data. Point the script at another mono face to try on
 geometry is the contract, not the file.
 """
 
+import os
 import re
 import sys
 
@@ -176,7 +177,10 @@ def main():
         print(__doc__)
         return 1
     font_path, out_path = sys.argv[1], sys.argv[2]
-    root = __file__.rsplit("/", 2)[0]
+    # The repo root, spelled out rather than sliced off `__file__`: it is only absolute here
+    # because Python has made it so since 3.9, and this script's whole job depends on finding
+    # font5x7.c next to it.
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     wanted = coverage(root + "/src/ui/font5x7.c")
     cmap = TTFont(font_path, lazy=True).getBestCmap()
