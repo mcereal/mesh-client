@@ -873,9 +873,102 @@ static struct fb_item_geom fb_item_measure(const struct mesh_ui_backend_fb_state
  * squeezed out of the line by one calculation and then painted over that line by another is
  * exactly the bug this component exists to make unwritable - it is what a narrow panel or a
  * large glyph scale used to turn an age into, drawn back across the avatar.
+ *
+ * `reserved` is what the row has already promised to something else - the label column and its
+ * marker gutter, or a plain row's marker cell. A slot is fitted against what is *free*, not
+ * against the whole line: the headline is clipped from its tail, so a slot measured against the
+ * line ate the value first and then the label, and a label column is the one thing on a settings
+ * row that may not move. The wide slots are why this arrived - a switch is four cells and never
+ * reached it, a segmented button is most of a value column and reaches it at every scale.
  */
+/*
+ * What the segmented slot takes out of a line `cols` wide, and which of its two forms it takes.
+ *
+ * The one slot with a second form, so it is the one slot that needs a function of its own: every
+ * other kind either fits or is dropped, and a set of choices always has the chosen one in words
+ * to fall back on. `out_as_text` comes back true when the control could not have its room -
+ * which is a value column too narrow for the segments, not a caller that forgot to fill one in.
+ *
+ * Measuring and drawing both ask *this*, for the reason they both ask fb_trailing_cols(): a slot
+ * sized by one rule and painted by another is what turned a trailing age into a smear across an
+ * avatar, and a control that decided its own form twice would do it again.
+ */
+/*
+ * The glyph multiplier a row's segments are set at: the label role, not the row's own.
+ *
+ * Which is what Material asks for and, more to the point here, what makes the component reach
+ * the settings it exists for. A segmented button spends its width `count` times over, so a
+ * three-valued setting at body scale wants most of a panel - "Random PIN / Fixed PIN / No PIN"
+ * does not fit a value column at any scale this ships with, and would have fallen back to the
+ * word it was meant to replace on every theme. It is also the right answer on its own terms: a
+ * control's label is chrome, which is the type role the action bar's verbs and the navigation
+ * bar's tabs already take.
+ */
+static int fb_segmented_scale(const struct mesh_ui_backend_fb_state *state) {
+    return fb_type_scale(state, MESH_UI_TYPE_LABEL);
+}
+
+/* The chosen word instead of the control, on the terms an ordinary trailing text takes. Both
+   ways of ending up there - no room, and no drawable choice - go through this, so a slot that
+   fell back for one reason is measured exactly like a slot that fell back for the other. */
+static size_t fb_segmented_as_text(const struct mesh_ui_backend_fb_state *state, size_t cols,
+                                   const struct fb_segmented *segmented, bool *out_as_text) {
+    (void)state;
+    if (out_as_text != NULL) {
+        *out_as_text = true;
+    }
+    if (segmented == NULL) {
+        return 0U;
+    }
+    const size_t cells = mesh_ui_text_cells(segmented->value);
+    return (cells > 0U && cols > cells + 1U) ? cells + 1U : 0U;
+}
+
+static size_t fb_segmented_cols(const struct mesh_ui_backend_fb_state *state, size_t cols,
+                                const struct fb_segmented *segmented, bool *out_as_text) {
+    if (out_as_text != NULL) {
+        *out_as_text = true;
+    }
+    if (segmented == NULL || segmented->count == 0U || segmented->count > FB_SEGMENTED_MAX ||
+        segmented->active >= segmented->count) {
+        /*
+         * A choice outside the set is a choice this control cannot draw, and it is a state the
+         * radio can genuinely be in: an enum value from a newer firmware, or a corrupt one. The
+         * item still carries it and still formats it - "Unknown" - so the words are the honest
+         * answer and they are already here. Highlighting the first segment instead would have
+         * the panel state that pairing is set to Random PIN when nobody knows what it is set to,
+         * which is the one thing a picture is not allowed to do quietly.
+         *
+         * Not "every segment unlit" either: a set with nothing chosen says *none of these*,
+         * which is a different false claim.
+         */
+        return fb_segmented_as_text(state, cols, segmented, out_as_text);
+    }
+    const int adv = fb_char_adv(state, state->scale);
+    const int width = fb_segmented_width(state, segmented, fb_segmented_scale(state));
+    /*
+     * Counted in the *row's* cells whatever the segments are set at, because what it is being
+     * fitted into is a line of the row's own text.
+     *
+     * And with no cell of air added, unlike every other slot here. The others sit next to the
+     * row's value and the extra cell is the gap to it; this one *is* the value - the words it
+     * replaces are inside it - so the only thing left of the line is the label column, which the
+     * caller has already reserved. The gap is then exactly the cell the strictly-greater test
+     * below keeps back, and adding a second one cost the three-valued settings the control at
+     * the shipping scale by a single column.
+     */
+    const size_t want = (size_t)((width + adv - 1) / adv);
+    if (width > 0 && cols > want) {
+        if (out_as_text != NULL) {
+            *out_as_text = false;
+        }
+        return want;
+    }
+    return fb_segmented_as_text(state, cols, segmented, out_as_text);
+}
+
 static size_t fb_trailing_cols(const struct mesh_ui_backend_fb_state *state, size_t cols,
-                               const struct fb_trailing *trailing) {
+                               size_t reserved, const struct fb_trailing *trailing) {
     const int adv = fb_char_adv(state, state->scale);
     size_t want = 0U;
     switch (trailing->kind) {
@@ -912,18 +1005,32 @@ static size_t fb_trailing_cols(const struct mesh_ui_backend_fb_state *state, siz
         want = FB_SIGNAL_CELLS + 1U + (cells > 0U ? cells + 1U : 0U);
         break;
     }
+    case FB_TRAILING_CHECKBOX:
+    case FB_TRAILING_RADIO: {
+        int width = 0;
+        fb_selection_size(state, state->scale, &width, NULL);
+        want = (size_t)((width + adv - 1) / adv) + 2U;
+        break;
+    }
+    case FB_TRAILING_SEGMENTED:
+        return fb_segmented_cols(state, cols > reserved ? cols - reserved : 0U, trailing->segmented,
+                                 NULL);
     case FB_TRAILING_NONE:
     default:
         return 0U;
     }
     /* Strictly greater: the line keeps at least one cell of its own, which is the test the
        conversation cell made for its age before this was a shared slot. */
-    return (want > 0U && cols > want) ? want : 0U;
+    return (want > 0U && cols > want + reserved) ? want : 0U;
 }
 
+/* `reserved` is the same figure fb_trailing_cols() was given - see there. Only the slot with
+   two forms reads it, and it has to: a segmented button that measured itself against the free
+   room and then drew itself against the whole line would be the one kind able to disagree with
+   the measure that placed it. */
 static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struct fb_item_geom *g,
-                             const struct fb_trailing *trailing, int baseline, int slot_top,
-                             bool selected, struct mesh_ui_rgb ground) {
+                             size_t reserved, const struct fb_trailing *trailing, int baseline,
+                             int slot_top, bool selected, struct mesh_ui_rgb ground) {
     const int scale = state->scale;
     const int adv = fb_char_adv(state, scale);
     const size_t cells =
@@ -978,6 +1085,60 @@ static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struc
         trailing->sw->rect.y = g->fill_top + (g->fill_h - height) / 2;
         trailing->sw->selected = selected;
         fb_draw_switch(state, trailing->sw);
+        return;
+    }
+    case FB_TRAILING_CHECKBOX:
+    case FB_TRAILING_RADIO: {
+        if (trailing->sel == NULL) {
+            return;
+        }
+        int width = 0;
+        int height = 0;
+        fb_selection_size(state, scale, &width, &height);
+        /* Centred on the row's *fill* rather than on the glyph body, for the reason the switch
+           is: only the fill is what the control has to stay inside, and one that overhangs it
+           notches the highlight on the one row the cursor is on. */
+        trailing->sel->rect.w = width;
+        trailing->sel->rect.h = height;
+        trailing->sel->rect.x = g->text_right - width;
+        trailing->sel->rect.y = g->fill_top + (g->fill_h - height) / 2;
+        trailing->sel->selected = selected;
+        /* Set from the kind, so a caller cannot name a radio and be handed a checkbox. There is
+           one statement about which of the two this is and it is the slot's. */
+        trailing->sel->shape =
+            trailing->kind == FB_TRAILING_RADIO ? FB_SELECTION_RADIO : FB_SELECTION_CHECKBOX;
+        fb_draw_selection(state, trailing->sel);
+        return;
+    }
+    case FB_TRAILING_SEGMENTED: {
+        bool as_text = true;
+        const size_t want = fb_segmented_cols(state, g->cols > reserved ? g->cols - reserved : 0U,
+                                              trailing->segmented, &as_text);
+        if (want == 0U) {
+            return;
+        }
+        if (as_text) {
+            /* The chosen word, drawn exactly as a trailing text is - because that is what it
+               now is. Quiet ink on the ground and on the fill alike. */
+            fb_draw_text(state,
+                         g->text_right - (int)mesh_ui_text_cells(trailing->segmented->value) * adv,
+                         baseline, trailing->segmented->value, scale,
+                         selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL_DIM)
+                                  : fb_tone_color(state, MESH_UI_TONE_DIM),
+                         ground);
+            return;
+        }
+        const int seg_scale = fb_segmented_scale(state);
+        const int width = fb_segmented_width(state, trailing->segmented, seg_scale);
+        /* The switch's height at the *row's* scale, not the segments': two controls in one
+           column have to stand the same distance off their rows, and it is the labels that are
+           chrome-sized, not the control. */
+        const int height = fb_segmented_height(state, scale);
+        const struct fb_rect box = {.x = g->text_right - width,
+                                    .y = g->fill_top + (g->fill_h - height) / 2,
+                                    .w = width,
+                                    .h = height};
+        fb_draw_segmented(state, &box, trailing->segmented, selected, MESH_UI_COLOR_BG, seg_scale);
         return;
     }
     case FB_TRAILING_METER: {
@@ -1130,7 +1291,17 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
 
     struct mesh_ui_line line;
     fb_item_headline(&line, item);
-    const size_t head_take = fb_trailing_cols(state, g.cols, &item->trailing);
+    /*
+     * What the headline has already spent *inside `g.cols`* before its trailing slot gets a say.
+     *
+     * Only the label column, and that is the whole of the subtlety. A plain row's marker gutter
+     * is spent too, but it is spent by fb_item_measure() moving `g.text_x` past it before the
+     * columns are counted - so it is already outside this number, and reserving it again took a
+     * cell off every row with a marker slot. The label column is the other way round: it lives
+     * inside the line fb_item_headline() builds, so nothing has counted it yet.
+     */
+    const size_t reserved = item->label_cols > 0U ? item->label_cols + FB_ITEM_MARKER_CELLS : 0U;
+    const size_t head_take = fb_trailing_cols(state, g.cols, reserved, &item->trailing);
     mesh_ui_line_fit(&line, g.cols - head_take);
     fb_draw_text(state, g.text_x, g.head_y, mesh_ui_line_text(&line), scale, head_ink, ground);
     /* Into the blank cell fb_item_headline() left between the label column and the value, and
@@ -1148,7 +1319,8 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
         fb_draw_icon(state, g.marker_x, g.head_y, item->marker_icon, scale, head_ink, ground);
     }
     if (head_take > 0U) {
-        fb_draw_trailing(state, &g, &item->trailing, g.head_y, g.head_slot_top, selected, ground);
+        fb_draw_trailing(state, &g, reserved, &item->trailing, g.head_y, g.head_slot_top, selected,
+                         ground);
     }
 
     if (g.rows >= 2U && item->supporting != NULL) {
@@ -1156,7 +1328,9 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
             selected ? fb_color(state, item->supporting_quiet ? MESH_UI_COLOR_TEXT_ON_SEL_DIM
                                                               : MESH_UI_COLOR_TEXT_ON_SEL)
                      : fb_tone_color(state, item->supporting_tone);
-        const size_t supp_take = fb_trailing_cols(state, g.cols, &item->supporting_trailing);
+        /* Nothing reserved: a supporting line has no label column, and the icon that may take
+           its first cell is tested against what the slot leaves rather than before it. */
+        const size_t supp_take = fb_trailing_cols(state, g.cols, 0U, &item->supporting_trailing);
         /* An icon on the supporting line takes the first cell and the words move over, which is
            what "> " did when it was two characters of the preview. */
         const bool supp_icon =
@@ -1170,7 +1344,7 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
         mesh_ui_line_fit(&line, g.cols - supp_take - (supp_icon ? 1U : 0U));
         fb_draw_text(state, supp_x, g.supp_y, mesh_ui_line_text(&line), scale, supp_ink, ground);
         if (supp_take > 0U) {
-            fb_draw_trailing(state, &g, &item->supporting_trailing, g.supp_y, g.supp_slot_top,
+            fb_draw_trailing(state, &g, 0U, &item->supporting_trailing, g.supp_y, g.supp_slot_top,
                              selected, ground);
         }
     }
@@ -2387,6 +2561,251 @@ void fb_draw_switch(struct mesh_ui_backend_fb_state *state, const struct fb_swit
     const int travel = sw->rect.w - 2 * inset - knob_size;
     const int x = sw->rect.x + inset + (travel > 0 ? (travel * position) / MESH_UI_ANIM_ONE : 0);
     fb_fill_round_rect(state, x, sw->rect.y + inset, knob_size, knob_size, knob_size / 2, knob);
+}
+
+/* ---- the selection control ----------------------------------------------------------------- */
+
+/*
+ * The same token as the switch's, and for the same reason: both answer a press, so both have to
+ * be somewhere by the time the eye gets back to them.
+ */
+#define FB_SELECTION_MOTION MESH_UI_MOTION_SHORT
+
+void fb_selection_size(const struct mesh_ui_backend_fb_state *state, int scale, int *w, int *h) {
+    /* A square of the switch's height, so a list mixing the two controls has them the same
+       distance off its rows' top and bottom edges. */
+    const int side = fb_switch_height(state, scale);
+    if (w != NULL) {
+        *w = side;
+    }
+    if (h != NULL) {
+        *h = side;
+    }
+}
+
+/*
+ * The largest glyph multiplier whose icon fits inside `box` pixels.
+ *
+ * A checkbox's tick is an icon, on the same terms as every other symbol in this UI, and an icon
+ * is sized in glyph scales rather than in pixels - so fitting one inside a control means asking
+ * the drawing code how big each scale comes out rather than picking a number. Zero when even the
+ * smallest overruns, which is a checkbox that draws its fill and no tick: at that size the fill
+ * is the whole of what can be read anyway.
+ */
+static int fb_icon_scale_within(const struct mesh_ui_backend_fb_state *state, int box) {
+    for (int scale = state->scale; scale > 0; --scale) {
+        if (fb_icon_drawn(state, scale) <= box) {
+            return scale;
+        }
+    }
+    return 0;
+}
+
+void fb_draw_selection(struct mesh_ui_backend_fb_state *state, const struct fb_selection *sel) {
+    if (sel == NULL || sel->rect.w <= 0 || sel->rect.h <= 0) {
+        return;
+    }
+
+    /*
+     * How far the mark has grown, which - exactly as with the switch's knob - is the one thing
+     * the snapshot cannot say: it knows on or off, not where between them this control is. The
+     * table answers with the target the first time it sees an id, so a screen opening does not
+     * animate and a press does.
+     */
+    const int32_t position =
+        mesh_ui_anim_track(&state->anim, sel->id, state->now_ms, sel->on ? MESH_UI_ANIM_ONE : 0,
+                           fb_motion(state, FB_SELECTION_MOTION), MESH_UI_EASE_OUT);
+
+    const bool radio = (sel->shape == FB_SELECTION_RADIO);
+    const int side = sel->rect.w < sel->rect.h ? sel->rect.w : sel->rect.h;
+    /* A circle for one-of-these, a rounded square for any-of-these. The shape scale answers the
+       square, because that is what a small container is; the circle is not a radius a theme gets
+       to have an opinion about - a radio that is not round is not a radio. */
+    const int radius = radio ? side / 2 : fb_radius(state, MESH_UI_SHAPE_SM);
+    const int edge = fb_edge(state);
+    /* Two hairlines, not one: this ring has to be countable down a column at arm's length, and
+       a card's edge is drawn against a fill that is doing half the work of saying it is there. */
+    const int ring = edge * 2 > side / 2 ? edge : edge * 2;
+
+    /*
+     * Its own ground under a cursor fill, for the reason the switch lays one: the pairs below
+     * are contracted against the ground, and on two of the four themes the cursor fill is the
+     * colour the resting control is drawn in - so without this the control would vanish on
+     * precisely the row being pointed at.
+     */
+    const struct mesh_ui_rgb ground = fb_color(state, MESH_UI_COLOR_BG);
+    if (sel->selected) {
+        const int pad = fb_space(state, MESH_UI_SPACE_XS);
+        fb_fill_round_rect(state, sel->rect.x - pad, sel->rect.y - pad, sel->rect.w + 2 * pad,
+                           sel->rect.h + 2 * pad, radius + pad, ground);
+    }
+
+    /*
+     * The colours flip at the midpoint rather than fading, which is the rule fb_draw_switch()
+     * arrived at and wrote down: the theme validates pairs, and a colour halfway between two of
+     * them is validated against neither - so the one moment the eye is following the control is
+     * the moment its contrast is unaccounted for.
+     *
+     * A dim control reports a state rather than offering one, so it never takes the accent.
+     */
+    const bool past_middle = position > MESH_UI_ANIM_ONE / 2;
+    const struct mesh_ui_paint on_paint =
+        fb_paint(state, sel->family, MESH_UI_SLOT_BASE, MESH_UI_STATE_REST);
+    struct mesh_ui_rgb mark = on_paint.fill;
+    struct mesh_ui_rgb outline = fb_color(state, MESH_UI_COLOR_OUTLINE);
+    if (sel->dim) {
+        mark = fb_color(state, MESH_UI_COLOR_TEXT_DIM);
+        outline = fb_color(state, MESH_UI_COLOR_RULE);
+    } else if (past_middle) {
+        /* The ring joins the mark once the mark is the thing being read: an accent dot inside a
+           grey ring reads as a dot that has landed in the wrong control. */
+        outline = mark;
+    }
+
+    /* The ring, hollowed out. Two fills, the way every outline in this file is drawn. */
+    fb_fill_round_rect(state, sel->rect.x, sel->rect.y, side, side, radius, outline);
+    fb_fill_round_rect(state, sel->rect.x + ring, sel->rect.y + ring, side - 2 * ring,
+                       side - 2 * ring, radius - ring > 0 ? radius - ring : 0, ground);
+
+    /*
+     * The mark, grown from the centre.
+     *
+     * A radio's dot stays inside its ring - the ring is what says there are others, so it never
+     * goes away. A checkbox's fill takes the whole box, ring included, because a checked box is
+     * a filled box on every platform there is and the tick has to have a validated fill under
+     * it: `on_paint` is a pair, and drawing its ink over the ground would be using half of one.
+     */
+    const int room = radio ? side - 2 * (ring + ring) : side;
+    const int size = room > 0 ? (room * position) / MESH_UI_ANIM_ONE : 0;
+    if (size <= 0) {
+        return;
+    }
+    const int mark_x = sel->rect.x + (side - size) / 2;
+    const int mark_y = sel->rect.y + (side - size) / 2;
+    fb_fill_round_rect(state, mark_x, mark_y, size, size,
+                       radio ? size / 2 : (radius < size / 2 ? radius : size / 2), mark);
+    if (radio || !past_middle) {
+        return;
+    }
+
+    /* The tick, once there is a fill validated to draw it on. Sized to the box rather than to
+       the row's text, and centred on the control: fb_draw_icon() places an icon against a text
+       baseline, so what it is handed here is the baseline that would put one there. */
+    const int icon_scale = fb_icon_scale_within(state, size - 2 * ring);
+    if (icon_scale <= 0) {
+        return;
+    }
+    fb_draw_icon(state, sel->rect.x + (side - fb_icon_box(state, icon_scale)) / 2,
+                 sel->rect.y + (side - (int)fb_font(state)->height * icon_scale) / 2,
+                 MESH_UI_ICON_CHECK, icon_scale, on_paint.ink, mark);
+}
+
+/* ---- the segmented button ------------------------------------------------------------------ */
+
+int fb_segmented_height(const struct mesh_ui_backend_fb_state *state, int scale) {
+    return fb_switch_height(state, scale);
+}
+
+int fb_segmented_width(const struct mesh_ui_backend_fb_state *state,
+                       const struct fb_segmented *segmented, int scale) {
+    if (segmented == NULL || segmented->count == 0U || segmented->count > FB_SEGMENTED_MAX) {
+        return 0;
+    }
+    /*
+     * Every segment as wide as the widest label, and a segment is exactly a button's worth of
+     * room around it - fb_button_width() rather than a padding of this component's own, because
+     * that is what actually draws here and a strip that measured itself differently from the
+     * way it draws is a strip whose last segment falls off the row.
+     *
+     * Equal shares are not a simplification. A strip whose segments were each sized to their own
+     * words is a chip strip, and what separates the two components is precisely that these are
+     * *alternatives*: the eye has to compare them, and three boxes of three different widths are
+     * read as three different kinds of thing.
+     */
+    int widest = 0;
+    for (size_t i = 0; i < segmented->count; ++i) {
+        const int width = fb_button_width(state, MESH_UI_ICON_NONE, segmented->labels[i], scale);
+        widest = width > widest ? width : widest;
+    }
+    return (int)segmented->count * widest;
+}
+
+void fb_draw_segmented(const struct mesh_ui_backend_fb_state *state, const struct fb_rect *rect,
+                       const struct fb_segmented *segmented, bool selected,
+                       enum mesh_ui_color ground, int scale) {
+    /* `active` is checked rather than clamped, and that is the point: fb_segmented_cols() sends
+       a choice outside the set to the words, so reaching here with one means the measure and
+       the draw have disagreed - and drawing the first segment lit would answer the disagreement
+       with a claim about the radio's configuration. Nothing is the safe answer. */
+    if (rect == NULL || segmented == NULL || segmented->count == 0U ||
+        segmented->count > FB_SEGMENTED_MAX || segmented->active >= segmented->count ||
+        rect->w <= 0 || rect->h <= 0) {
+        return;
+    }
+    const int radius = fb_radius(state, MESH_UI_SHAPE_FULL);
+    const int edge = fb_edge(state);
+
+    /* Its own ground under a cursor fill, on the same terms as the switch's and the selection
+       control's: the container is an outline, so what shows through it is whatever is behind -
+       and behind it on the row the cursor is on is a fill the outline was never contracted
+       against. */
+    struct mesh_ui_rgb behind = fb_color(state, ground);
+    if (selected) {
+        const int pad = fb_space(state, MESH_UI_SPACE_XS);
+        behind = fb_color(state, MESH_UI_COLOR_BG);
+        fb_fill_round_rect(state, rect->x - pad, rect->y - pad, rect->w + 2 * pad,
+                           rect->h + 2 * pad, radius, behind);
+    }
+
+    /* The container: one outline around the set, which is the whole of what says these are
+       alternatives rather than a row of separate offers. Two fills, as every outline here is. */
+    fb_fill_round_rect(state, rect->x, rect->y, rect->w, rect->h, radius,
+                       fb_color(state, MESH_UI_COLOR_OUTLINE));
+    fb_fill_round_rect(state, rect->x + edge, rect->y + edge, rect->w - 2 * edge,
+                       rect->h - 2 * edge, radius, behind);
+
+    const size_t active = segmented->active;
+    for (size_t i = 0; i < segmented->count; ++i) {
+        /* Divided by multiplying rather than by accumulating a width, so the rounding error is
+           spread over the strip instead of piling up on the last segment. */
+        const int left = rect->x + (int)((size_t)rect->w * i / segmented->count);
+        const int right = rect->x + (int)((size_t)rect->w * (i + 1U) / segmented->count);
+
+        /*
+         * A hairline between two segments, and not against the selected one - which is
+         * Material's rule and is right for the reason the divider exists at all: a separator
+         * says "these two are different things", and a filled segment has already said it.
+         */
+        if (i > 0U && i != active && i - 1U != active) {
+            fb_fill_rect(state, left, rect->y + edge, edge, rect->h - 2 * edge,
+                         fb_color(state, MESH_UI_COLOR_OUTLINE));
+        }
+
+        /*
+         * The segment itself is a button, because that is what it is: the tonal fill on the
+         * chosen one and a dim label on the rest is the pairing fb_draw_chip() already uses for
+         * a tab, and a second opinion about it here would be a segmented control that drifted
+         * away from the tab strip it is a sibling of.
+         *
+         * Inset by the hairline so the container's outline survives underneath the fill, and by
+         * it again at the two ends so a full-radius fill follows the container's corner rather
+         * than squaring it off.
+         */
+        const struct fb_button segment = {
+            .rect = {.x = left + (i == 0U ? edge : 0),
+                     .y = rect->y + edge,
+                     .w = right - left - (i == 0U ? edge : 0) -
+                          (i + 1U == segmented->count ? edge : 0),
+                     .h = rect->h - 2 * edge},
+            .label = segmented->labels[i],
+            .variant = i == active ? FB_BUTTON_TONAL : FB_BUTTON_TEXT,
+            .shape = MESH_UI_SHAPE_FULL,
+            .idle_tone = MESH_UI_TONE_DIM,
+            .ground = selected ? MESH_UI_COLOR_BG : ground,
+            .scale = scale,
+        };
+        fb_draw_button(state, &segment);
+    }
 }
 
 /* ---- the meter ----------------------------------------------------------------------------- */
