@@ -1,3 +1,14 @@
+## [2.18.0](https://github.com/mcereal/mesh-client/compare/v2.17.0...v2.18.0) (2026-09-07)
+
+### Features
+
+* **ui:** add motion tokens and a list scroll rail ([212cd49](https://github.com/mcereal/mesh-client/commit/212cd49ade047355a94fce6e1c623c5e48760197))
+
+### Documentation
+
+* audit the UI component set against Material 3 ([12a442e](https://github.com/mcereal/mesh-client/commit/12a442ea2bd6254239109bba1741b9ac42214723))
+* correct three claims in the component audit ([d109046](https://github.com/mcereal/mesh-client/commit/d109046bcfc804bcb0270974bf60ec7434b59861))
+
 ## [2.17.0](https://github.com/mcereal/mesh-client/compare/v2.16.0...v2.17.0) (2026-09-07)
 
 ### Features
