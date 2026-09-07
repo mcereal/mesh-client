@@ -1149,12 +1149,20 @@ about the shape of the first one, and the correction is the step.
   press are not part of one. That is not tidiness: a route that moved when the cursor did would
   restart the slide under the user's thumb on every press of Down, which is the one way this
   could have been worse than no transition at all.
-- **Depth decides, and the tab order only breaks a tie.** In and out is what the four
-  transitions the entry names actually are. The tie-break earns its place on L/R, and it also
-  settles the one move that changes tab without changing depth — the node detail's "Message this
-  node", which lands on a thread one level in, on a tab to the left. It slides leftwards, and
-  that is the honest answer rather than a special case: the strip does travel left, so the body
-  should too.
+- **The tab strip decides ahead of the depth, and it decides the short way round.** This is the
+  one thing in the step that was shipped wrong and corrected in review, and both halves of it
+  are the same mistake: treating the strip as a consequence of the move rather than as the
+  statement of it. Depth-first was written on the assumption that L/R are a shallow gesture, and
+  they are not — each tab keeps its own place, so Right off an open node detail is one tab
+  rightwards *and* a level shallower at the same time, and the depth answer slid the new tab in
+  from the left while the strip above it travelled right: the frame contradicting itself in two
+  places at once. And the strip is a **ring** — `mesh_ui_nav_switch_screen()` wraps — so
+  comparing two tab indices called Right off the last tab the largest leftwards move there is.
+  The distance is measured both ways round the ring and the shorter wins, which is the same
+  answer for every ordinary step and the right one at both ends. Within one tab the hierarchy
+  still decides, which is what the four transitions the entry names actually are — and the
+  correction costs nothing on the move that first argued for depth-first, the node detail's
+  "Message this node": one tab to the left is what the strip does there too.
 - **The second cost was real and its size was not.** "No alpha compositing, so a cross-fade is
   out" is correct, and so is the conclusion that an x-offset slide is what is left. What the
   entry did not follow through is that *one screen per frame* and *a full-panel travel* are not

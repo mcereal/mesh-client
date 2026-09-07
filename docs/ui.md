@@ -1347,9 +1347,13 @@ and backing out of one are the same two frames in the opposite order.
 **`include/mesh/ui/route.h` answers it by deriving, not by recording.** A *route* is where the
 nav is: a `depth` (0 is a tab's own list, and every level opened over one adds one), the `screen`
 that orders two places equally deep, and enough of the level's own subject to tell two of them
-apart. `mesh_ui_route_move()` compares two and says forward, back, or neither — depth first,
-because in and out is what the four transitions worth animating are, and the tab order only when
-two places are equally deep.
+apart. `mesh_ui_route_move()` compares two and says forward, back, or neither. **A change of tab decides
+first**, by the shorter way round the strip: L/R work from a nested screen, so Right off an open
+node detail is one tab rightwards *and* a level shallower at once, and the strip is on the panel
+above the body already saying which way that went. The strip is a ring too — `switch_screen()`
+wraps — so measuring both ways round is what keeps Right off the last tab a step rightwards
+rather than the largest leftwards move there is. **Within one tab the hierarchy decides**, which
+is what the four transitions worth animating actually are.
 
 The audit ([`components-roadmap.md` §2.16](components-roadmap.md)) expected a *field* on `struct
 mesh_ui_nav` instead, written by every call site that opens or closes a level. There are eleven

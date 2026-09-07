@@ -110,8 +110,7 @@ MESH_TEST_CASE(ui_route_settings_goes_three_deep, unit) {
         goto cleanup;
     }
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
-    if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_MQTT) ||
-        route_now(&store).depth != 2U) {
+    if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_MQTT) || route_now(&store).depth != 2U) {
         failure = "a module section is two levels in";
         goto cleanup;
     }
@@ -149,13 +148,64 @@ MESH_TEST_CASE(ui_route_in_and_out_are_opposite, unit) {
         goto cleanup;
     }
     (void)press(&store, MESH_UI_KEY_RIGHT);
-    if (press(&store, MESH_UI_KEY_A) != MESH_UI_TRANSITION_FORWARD ||
-        !store.nav.node_detail_open) {
+    if (press(&store, MESH_UI_KEY_A) != MESH_UI_TRANSITION_FORWARD || !store.nav.node_detail_open) {
         failure = "opening a node should move forward";
         goto cleanup;
     }
     if (press(&store, MESH_UI_KEY_B) != MESH_UI_TRANSITION_BACK) {
         failure = "backing out of a node should move back";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * The tab strip decides whenever the tab changed, and it decides the short way round.
+ *
+ * Both halves are cases the first version of this got wrong, and both are cases a screenshot
+ * cannot show. L/R work from a nested screen - each tab keeps its own place - so Right off an
+ * open node detail is one tab rightwards *and* a level shallower, and reading the depth there
+ * slid the new tab in from the left while the strip above it travelled right. And the strip
+ * wraps, so comparing two tab indices called Right off the last tab the largest leftwards move
+ * there is.
+ */
+MESH_TEST_CASE(ui_route_the_tab_strip_decides, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.node_detail_open || store.nav.screen != MESH_UI_SCREEN_NODES) {
+        failure = "could not open a node detail to leave from";
+        goto cleanup;
+    }
+    /* One tab rightwards and one level shallower at the same time. The strip is what the eye
+       is following, so the strip is what the body has to agree with. */
+    if (press(&store, MESH_UI_KEY_R1) != MESH_UI_TRANSITION_FORWARD ||
+        store.nav.screen != MESH_UI_SCREEN_DEVICES || route_now(&store).depth != 0U) {
+        failure = "Right off a nested screen should still move rightwards";
+        goto cleanup;
+    }
+
+    while (store.nav.screen != MESH_UI_SCREEN_SETTINGS) {
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
+    }
+    if (press(&store, MESH_UI_KEY_R1) != MESH_UI_TRANSITION_FORWARD ||
+        store.nav.screen != MESH_UI_SCREEN_MESSAGES) {
+        failure = "Right off the last tab wraps to the first, and is still rightwards";
+        goto cleanup;
+    }
+    if (press(&store, MESH_UI_KEY_L1) != MESH_UI_TRANSITION_BACK ||
+        store.nav.screen != MESH_UI_SCREEN_SETTINGS) {
+        failure = "Left off the first tab wraps to the last, and is still leftwards";
         goto cleanup;
     }
 

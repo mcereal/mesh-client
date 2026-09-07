@@ -64,9 +64,9 @@ enum mesh_ui_route_level {
  * A place in the navigation model.
  *
  * `depth` is how many levels in it is - 0 is a tab's own list, and every level opened over one
- * adds one - which is what says whether a move went further in or back out. `screen` is what
- * orders two places that are equally deep, because the one thing the panel already shows about
- * them is the tab strip, and a move between tabs should slide the way the strip does.
+ * adds one - which is what says whether a move went further in or back out *within one tab*.
+ * `screen` decides ahead of it whenever the tab changed, because the strip is on the panel
+ * already saying which way that went and the body must not contradict it.
  */
 struct mesh_ui_route {
     uint8_t depth;
@@ -97,11 +97,15 @@ bool mesh_ui_route_same(const struct mesh_ui_route *a, const struct mesh_ui_rout
 /*
  * Which way the move from `from` to `to` went.
  *
- * Depth decides first, because in and out is what the four transitions worth animating are
- * (2.16: opening a node, entering a section, raising the keyboard, pressing B). Only when two
- * places are equally deep does the tab order decide, which is the case that matters for L/R -
- * and it is also the honest answer for the one move that changes tab without changing depth,
- * the node detail's "Message this node": the strip does travel left, so the screen should too.
+ * A change of tab decides first, and by the *shorter way round the strip*, because the strip is
+ * a ring that wraps and because L/R work from a nested screen: Right off an open node detail
+ * lands on the Devices list, one tab rightwards and a level shallower at the same time. The tab
+ * strip is on the panel above the body saying which way that went, so it is what the body has
+ * to agree with. It is also the honest answer for the move that changes tab without a press -
+ * the node detail's "Message this node", which lands on a thread one tab to the left.
+ *
+ * Within one tab the hierarchy decides, because in and out is what the four transitions worth
+ * animating are (2.16: opening a node, entering a section, raising the keyboard, pressing B).
  *
  * A change with neither to go on - an overlay replaced in place, which is what a pairing prompt
  * standing down onto the keyboard it displaced is - reads as forward, because something new

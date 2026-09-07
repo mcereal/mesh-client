@@ -154,11 +154,32 @@ enum mesh_ui_transition mesh_ui_route_move(const struct mesh_ui_route *from,
     if (from == NULL || to == NULL || mesh_ui_route_same(from, to)) {
         return MESH_UI_TRANSITION_NONE;
     }
+
+    /*
+     * A change of tab is the tab strip's to decide, whatever it did to the depth.
+     *
+     * L/R work from a nested screen - each tab keeps its own place, so Right off an open node
+     * detail lands on the Devices list - and that is a move one tab rightwards that happens to
+     * be a level shallower. Reading the depth there would slide the new tab in from the left
+     * while the strip above it travelled right, which is the frame contradicting itself.
+     *
+     * And the strip is a ring: mesh_ui_nav_switch_screen() wraps, so Right off the last tab
+     * lands on the first. Comparing the two indices would call that the biggest leftwards move
+     * there is, when it is one step right. The distance is therefore measured both ways round
+     * and the shorter one wins, which is the same answer for every ordinary step and the right
+     * one at both ends. A dead heat - only reachable with an even number of tabs - goes
+     * forward, because a tie is not a reason to run the animation backwards.
+     */
+    if (to->screen != from->screen) {
+        const unsigned span = (unsigned)MESH_UI_SCREEN_COUNT;
+        const unsigned rightwards = (span + to->screen - from->screen) % span;
+        const unsigned leftwards = (span + from->screen - to->screen) % span;
+        return rightwards <= leftwards ? MESH_UI_TRANSITION_FORWARD : MESH_UI_TRANSITION_BACK;
+    }
+
+    /* Within one tab, the hierarchy decides: in is forward and out is back. */
     if (to->depth != from->depth) {
         return to->depth > from->depth ? MESH_UI_TRANSITION_FORWARD : MESH_UI_TRANSITION_BACK;
-    }
-    if (to->screen != from->screen) {
-        return to->screen > from->screen ? MESH_UI_TRANSITION_FORWARD : MESH_UI_TRANSITION_BACK;
     }
     return MESH_UI_TRANSITION_FORWARD;
 }
