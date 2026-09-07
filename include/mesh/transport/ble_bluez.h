@@ -65,7 +65,19 @@ struct mesh_bluez_agent_request {
 
 typedef void (*mesh_bluez_notification_callback)(const uint8_t *data, size_t len, void *userdata);
 
+/* Independent requests: ToRadio, ServicesResolved and Connected. */
+struct mesh_bluez_pending {
+    struct mesh_bluez_client *client;
+    uint32_t serial;
+    int state; /* 0 idle, 1 pending, 2 done */
+    int result;
+    int timer_fd;
+    uint64_t deadline_ms;
+    bool value;
+};
+
 struct mesh_bluez_client {
+    struct mesh_bluez_pending requests[3];
     /* One FromRadio read at a time. Completion wakes the transport, never decodes inline. */
     uint32_t read_serial;
     int read_state; /* 0 idle, 1 pending, 2 done */
@@ -75,6 +87,7 @@ struct mesh_bluez_client {
     unsigned read_mock_polls;
     uint8_t read_payload[MESH_BLE_MAX_PACKET_SIZE];
     size_t read_length;
+    void (*requests_ready)(void *userdata);
     void (*read_ready)(void *userdata);
     void *read_userdata;
     bool connection_private;
@@ -113,7 +126,7 @@ struct mesh_bluez_device_info {
 struct mesh_bluez_mock_config {
     /* Optional isolated test bus: exercise read marshalling/watches against a fake service.
        Other operations remain mocked. Never points at the system bus. */
-    const char *read_bus_address;
+    const char *read_bus_address; /* also routes writes/property queries to the isolated bus */
     int init_result;
     int check_ready_result;
     int find_adapter_result;
@@ -222,7 +235,8 @@ int mesh_bluez_client_agent_confirm(struct mesh_bluez_client *client);
 int mesh_bluez_client_agent_reject(struct mesh_bluez_client *client);
 /* Device1.ServicesResolved. BlueZ's Connect returns once the link is up, but the GATT
    characteristics only appear on the bus after service discovery, which can take several
-   seconds when nothing is cached. Callers poll this before looking them up. */
+   seconds when nothing is cached. Callers poll this before looking them up.
+   Both property getters return -EAGAIN while their independent request is pending. */
 /* Device1.Connected. False once BlueZ has seen the radio drop the link. */
 int mesh_bluez_client_device_connected(struct mesh_bluez_client *client, const char *device_path,
                                        bool *out_connected);
@@ -230,6 +244,9 @@ int mesh_bluez_client_services_resolved(struct mesh_bluez_client *client, const 
                                         bool *out_resolved);
 int mesh_bluez_client_subscribe(struct mesh_bluez_client *client, const char *device_path,
                                 const char *char_uuid);
+/* Cancel writes and property queries when their link is discarded. */
+void mesh_bluez_client_requests_cancel(struct mesh_bluez_client *client);
+/* -EAGAIN retains the caller's queue head until its reply is consumed. */
 int mesh_bluez_client_write(struct mesh_bluez_client *client, const char *device_path,
                             const char *char_uuid, const uint8_t *data, size_t len);
 /* Starts a read or consumes its completion. -EAGAIN means pending, never a failed read.

@@ -22,10 +22,74 @@
 #include "mesh/utils/text.h"
 #include "mesh/utils/time.h"
 
+#include <errno.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/epoll.h>
+#include <sys/timerfd.h>
+#include <unistd.h>
+
+/* A fixed two-second batching window, not a sliding debounce: a busy radio must still
+   reach disk. A failed save stays dirty and is retried in the next window. */
+void mesh_app_flush_ui_cache(struct mesh_app *app) {
+    if (app->ui_handshake_cache_dirty && app->ui_handshake_cache_path[0] != '\0') {
+        const int result = mesh_ui_store_save(&app->ui_store, app->ui_handshake_cache_path);
+        if (result == 0) {
+            app->ui_handshake_cache_dirty = false;
+        } else {
+            mesh_log_debug("app", "Failed to persist handshake cache: %d", result);
+        }
+    }
+}
+
+void mesh_app_close_ui_cache_timer(struct mesh_app *app) {
+    if (app->ui_cache_timer_armed) {
+        mesh_event_loop_remove_fd(&app->loop, app->ui_cache_timer_fd);
+        close(app->ui_cache_timer_fd);
+        app->ui_cache_timer_armed = false;
+        app->ui_cache_timer_fd = -1;
+    }
+}
+
+static void mesh_app_schedule_ui_cache(struct mesh_app *app);
+
+static int mesh_app_ui_cache_timer(int fd, uint32_t events, void *userdata) {
+    (void)events;
+    uint64_t count;
+    if (read(fd, &count, sizeof count) != sizeof count) {
+        return 0;
+    }
+    struct mesh_app *app = userdata;
+    mesh_app_close_ui_cache_timer(app);
+    mesh_app_flush_ui_cache(app);
+    mesh_app_schedule_ui_cache(app);
+    return 0;
+}
+
+static void mesh_app_schedule_ui_cache(struct mesh_app *app) {
+    if (!app->ui_handshake_cache_dirty || app->ui_handshake_cache_path[0] == '\0' ||
+        app->ui_cache_timer_armed) {
+        return;
+    }
+    const int fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+    if (fd >= 0) {
+        int result = mesh_event_loop_add_fd(&app->loop, fd, EPOLLIN, mesh_app_ui_cache_timer, app);
+        const struct itimerspec spec = {.it_value = {.tv_sec = 2}};
+        if (result == 0) {
+            if (timerfd_settime(fd, 0, &spec, NULL) == 0) {
+                app->ui_cache_timer_fd = fd;
+                app->ui_cache_timer_armed = true;
+                return;
+            }
+            mesh_event_loop_remove_fd(&app->loop, fd);
+        }
+        close(fd);
+    }
+    /* Persistence still works when an event source cannot be allocated. */
+    mesh_app_flush_ui_cache(app);
+}
 
 /* Compare source state before formatting, ranking and merging it. Exact comparisons avoid
    missed updates from mutation paths that do not yet expose revision counters. Padding can
@@ -1483,12 +1547,5 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         }
     }
 
-    if (app->ui_handshake_cache_dirty && app->ui_handshake_cache_path[0] != '\0') {
-        int save_handshake = mesh_ui_store_save(&app->ui_store, app->ui_handshake_cache_path);
-        if (save_handshake == 0) {
-            app->ui_handshake_cache_dirty = false;
-        } else {
-            mesh_log_debug("app", "Failed to persist handshake cache: %d", save_handshake);
-        }
-    }
+    mesh_app_schedule_ui_cache(app);
 }

@@ -87,8 +87,19 @@ void mesh_ui_capture_close(struct mesh_ui_capture *capture) {
         return;
     }
     fb_glyph_cache_free(&capture->state);
+    fb_thread_cache_free(&capture->state);
+    fb_render_cache_free(&capture->state);
     free(capture->state.fb_ptr);
     free(capture);
+}
+
+void mesh_ui_capture_set_reference(struct mesh_ui_capture *capture, bool reference) {
+    if (capture != NULL) {
+        capture->state.partial_disabled = reference;
+        capture->state.thread_cache_disabled = reference;
+        fb_render_cache_free(&capture->state);
+        fb_thread_cache_free(&capture->state);
+    }
 }
 
 void mesh_ui_capture_set_scale(struct mesh_ui_capture *capture, int scale) {
