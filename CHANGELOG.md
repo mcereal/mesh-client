@@ -1,3 +1,13 @@
+## [2.32.0](https://github.com/mcereal/mesh-client/compare/v2.31.0...v2.32.0) (2026-09-07)
+
+### Features
+
+* **ui:** slide between screens, from a route derived off the nav ([d0ee590](https://github.com/mcereal/mesh-client/commit/d0ee590069fd717a93c050c8ccc95e3eb5f59951))
+
+### Bug Fixes
+
+* **ui:** let the tab strip decide a transition's direction, both ways round ([e7ab47b](https://github.com/mcereal/mesh-client/commit/e7ab47b6fb4a91514029bbbce7bf331aaf82d429))
+
 ## [2.31.0](https://github.com/mcereal/mesh-client/compare/v2.30.0...v2.31.0) (2026-09-07)
 
 ### Features
