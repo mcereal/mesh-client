@@ -885,11 +885,27 @@ caller - and that one of the three controls it names still has no second half.
   line. A headline is clipped from its tail, so a slot too wide ate the row's value and then its
   label - and the wide slots never existed to notice: a switch is four cells and a badge is two.
   A segmented button is most of a value column and reaches it at every scale. Slots are fitted
-  against what is *free* now (`reserved` - the label column and its marker gutter), which is
-  the number the row already knew and had never passed on. The capture test pins it by rendering
-  one row at two values across every theme and every scale and requiring the *label* column to be
-  pixel-identical, which is the only form of the assertion that does not have to know where the
-  control ended up.
+  against what is *free* now (`reserved`), which is the number the row already knew and had never
+  passed on. The capture test pins it by rendering one row at two values across every theme and
+  every scale and requiring the *label* column to be pixel-identical, which is the only form of
+  the assertion that does not have to know where the control ended up.
+
+  `reserved` is the **label column only**, and the first draft got that wrong in a way worth
+  recording: it reserved the plain row's marker gutter too, which is spent by `fb_item_measure()`
+  advancing `g.text_x` past it *before* the columns are counted - so it is already outside the
+  number and reserving it again took a cell off every row with a marker slot. Two things spend
+  room on a row and only one of them spends it inside `g.cols`. The label column is the one,
+  because it lives in the line `fb_item_headline()` builds and nothing has counted it yet.
+
+- **A control that shows a set has to be able to say "not one of these".** `active` outside
+  `count` is a state the radio can genuinely report - an enum value from a newer firmware, or a
+  corrupt one - and the settings item already keeps it and formats it as "Unknown". Clamping it
+  into range, which is the obvious defensive thing to write, turns that into the panel stating a
+  configuration nobody reported: `Random PIN`, lit, for a value the radio never sent. It falls
+  back to the words instead, through the same exit the narrow case takes. Nor is "every segment
+  unlit" the answer - a set with nothing chosen says *none of these*, which is a different false
+  claim. This is §2.11's rule arriving somewhere it was not expected: **a picture cannot be wrong
+  quietly**, and a control is a picture.
 
 One thing the entry got right that is worth recording because it is unusual: this step needed no
 input work at all. Left and Right already stepped an `ENUM` field, the marker gutter already

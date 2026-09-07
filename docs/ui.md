@@ -849,6 +849,11 @@ Four things it decided that the next component of this shape will meet again:
   Two to four choices, because five equal shares of a value column are five clipped words; the
   thirty-eight regions and seventeen presets are still stepped one at a time, which is the
   honest answer for a set nobody can take in at a glance.
+- **An `active` outside the set is drawn as the words too, and is never clamped.** A radio can
+  report an enum value this build does not know — a newer firmware's, or a corrupt one — and the
+  settings item keeps it and formats it as `Unknown`. Clamping it into range would have the panel
+  state a configuration nobody reported; lighting no segment at all would say *none of these*.
+  Both are claims. The words are what the row knows.
 
 It is also what put `reserved` into `fb_trailing_cols()`. A headline is clipped from its *tail*,
 so a slot fitted against the whole line eats the value first and then the label — and a label

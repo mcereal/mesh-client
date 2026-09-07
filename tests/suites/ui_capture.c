@@ -1145,6 +1145,73 @@ MESH_TEST_CASE(ui_capture_segmented_marks_the_chosen_value, unit) {
 }
 
 /*
+ * A choice the set does not contain is drawn as words, not as the first segment lit.
+ *
+ * The radio can report an enum value outside what this build knows - a newer firmware's, or a
+ * corrupt one - and the settings item keeps it and formats it as "Unknown". A segmented button
+ * that clamped it into range would answer that by lighting `Random PIN`, which states a
+ * configuration nobody knows. So the two frames below, one with a value in the set and one with
+ * a value outside it, have to *differ*: under the clamp they render identically, which is the
+ * whole of the bug.
+ */
+MESH_TEST_CASE(ui_capture_segmented_refuses_an_unknown_value, unit) {
+    const char *failure = NULL;
+
+    for (size_t t = 0; t < mesh_ui_theme_count() && failure == NULL; ++t) {
+        const struct mesh_ui_theme *theme = mesh_ui_theme_at(t);
+        uint8_t *frames[2] = {NULL, NULL};
+        uint32_t width = 0U;
+        uint32_t height = 0U;
+        size_t stride = 0U;
+
+        for (unsigned pass = 0U; pass < 2U && failure == NULL; ++pass) {
+            struct mesh_ui_store store;
+            if (mesh_ui_store_init(&store) != 0) {
+                failure = "store init failed";
+                break;
+            }
+            mesh_test_nav_populate(&store);
+            struct mesh_ui_settings settings = store.settings;
+            settings.loaded = true;
+            settings.has_bluetooth = true;
+            settings.bluetooth_enabled = true;
+            /* The first of the three, then one past the last of them. */
+            settings.pairing_mode = pass == 0U ? 0U : 9U;
+            mesh_ui_store_set_settings(&store, &settings);
+
+            struct mesh_ui_action action;
+            for (int i = 0; i < 4; ++i) {
+                mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+            }
+            if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_BLUETOOTH)) {
+                failure = "could not open Settings > Bluetooth";
+            } else {
+                frames[pass] = capture_frame(&store, theme, 4, &width, &height, &stride);
+                if (frames[pass] == NULL) {
+                    failure = "capture failed";
+                }
+            }
+            mesh_ui_store_shutdown(&store);
+        }
+
+        if (failure == NULL) {
+            const uint32_t body_top = height / 8U;
+            const uint32_t body_bottom = height - height / 8U;
+            if (differing_in(frames[0], frames[1], stride, 0U, width - 1U, body_top, body_bottom) ==
+                0U) {
+                failure = "a pairing mode outside the set draws exactly as the first one does - "
+                          "the control is claiming a configuration the radio never reported";
+            }
+        }
+        free(frames[0]);
+        free(frames[1]);
+    }
+
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * The picker marks the current target, and marks it in the trailing slot rather than in the disc.
  *
  * Two frames with the target moved from the first row to the second. What has to change is the

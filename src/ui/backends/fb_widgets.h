@@ -397,9 +397,17 @@ void fb_draw_selection(struct mesh_ui_backend_fb_state *state, const struct fb_s
 struct fb_segmented {
     const char *labels[FB_SEGMENTED_MAX];
     size_t count;
+    /* Which one is set. Outside `count` is not clamped anywhere - see `value` below: a choice
+       the set does not contain is drawn as the words, never as the first segment lit. */
     size_t active;
     /*
-     * The same choice in words, for when the control cannot have the room.
+     * The same choice in words, for when the control cannot draw it.
+     *
+     * Two ways that happens and they are equally ordinary. There is not the room - a value
+     * column too narrow for the segments - or `active` is outside the set, which is a state a
+     * radio can genuinely report: an enum value from a newer firmware, or a corrupt one. The
+     * item carries and formats it either way ("Unknown"), so the words are always the honest
+     * answer and they are always already here.
      *
      * Not a fallback bolted on: it is what the row would have drawn anyway - `item.value` is
      * this string - and naming it here is what lets one function decide between the two. A

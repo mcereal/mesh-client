@@ -908,13 +908,41 @@ static int fb_segmented_scale(const struct mesh_ui_backend_fb_state *state) {
     return fb_type_scale(state, MESH_UI_TYPE_LABEL);
 }
 
+/* The chosen word instead of the control, on the terms an ordinary trailing text takes. Both
+   ways of ending up there - no room, and no drawable choice - go through this, so a slot that
+   fell back for one reason is measured exactly like a slot that fell back for the other. */
+static size_t fb_segmented_as_text(const struct mesh_ui_backend_fb_state *state, size_t cols,
+                                   const struct fb_segmented *segmented, bool *out_as_text) {
+    (void)state;
+    if (out_as_text != NULL) {
+        *out_as_text = true;
+    }
+    if (segmented == NULL) {
+        return 0U;
+    }
+    const size_t cells = mesh_ui_text_cells(segmented->value);
+    return (cells > 0U && cols > cells + 1U) ? cells + 1U : 0U;
+}
+
 static size_t fb_segmented_cols(const struct mesh_ui_backend_fb_state *state, size_t cols,
                                 const struct fb_segmented *segmented, bool *out_as_text) {
     if (out_as_text != NULL) {
         *out_as_text = true;
     }
-    if (segmented == NULL || segmented->count == 0U || segmented->count > FB_SEGMENTED_MAX) {
-        return 0U;
+    if (segmented == NULL || segmented->count == 0U || segmented->count > FB_SEGMENTED_MAX ||
+        segmented->active >= segmented->count) {
+        /*
+         * A choice outside the set is a choice this control cannot draw, and it is a state the
+         * radio can genuinely be in: an enum value from a newer firmware, or a corrupt one. The
+         * item still carries it and still formats it - "Unknown" - so the words are the honest
+         * answer and they are already here. Highlighting the first segment instead would have
+         * the panel state that pairing is set to Random PIN when nobody knows what it is set to,
+         * which is the one thing a picture is not allowed to do quietly.
+         *
+         * Not "every segment unlit" either: a set with nothing chosen says *none of these*,
+         * which is a different false claim.
+         */
+        return fb_segmented_as_text(state, cols, segmented, out_as_text);
     }
     const int adv = fb_char_adv(state, state->scale);
     const int width = fb_segmented_width(state, segmented, fb_segmented_scale(state));
@@ -936,9 +964,7 @@ static size_t fb_segmented_cols(const struct mesh_ui_backend_fb_state *state, si
         }
         return want;
     }
-    /* The chosen word instead, on the terms an ordinary trailing text takes. */
-    const size_t cells = mesh_ui_text_cells(segmented->value);
-    return (cells > 0U && cols > cells + 1U) ? cells + 1U : 0U;
+    return fb_segmented_as_text(state, cols, segmented, out_as_text);
 }
 
 static size_t fb_trailing_cols(const struct mesh_ui_backend_fb_state *state, size_t cols,
@@ -1265,11 +1291,16 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
 
     struct mesh_ui_line line;
     fb_item_headline(&line, item);
-    /* What the headline has already spent before its trailing slot gets a say. Both shapes of
-       row are here because both have a gutter: a label column carries its marker between the
-       label and the value, a plain row carries it before the words. */
-    const size_t reserved = item->label_cols > 0U ? item->label_cols + FB_ITEM_MARKER_CELLS
-                                                  : (item->marker_slot ? 1U : 0U);
+    /*
+     * What the headline has already spent *inside `g.cols`* before its trailing slot gets a say.
+     *
+     * Only the label column, and that is the whole of the subtlety. A plain row's marker gutter
+     * is spent too, but it is spent by fb_item_measure() moving `g.text_x` past it before the
+     * columns are counted - so it is already outside this number, and reserving it again took a
+     * cell off every row with a marker slot. The label column is the other way round: it lives
+     * inside the line fb_item_headline() builds, so nothing has counted it yet.
+     */
+    const size_t reserved = item->label_cols > 0U ? item->label_cols + FB_ITEM_MARKER_CELLS : 0U;
     const size_t head_take = fb_trailing_cols(state, g.cols, reserved, &item->trailing);
     mesh_ui_line_fit(&line, g.cols - head_take);
     fb_draw_text(state, g.text_x, g.head_y, mesh_ui_line_text(&line), scale, head_ink, ground);
@@ -2702,8 +2733,13 @@ int fb_segmented_width(const struct mesh_ui_backend_fb_state *state,
 void fb_draw_segmented(const struct mesh_ui_backend_fb_state *state, const struct fb_rect *rect,
                        const struct fb_segmented *segmented, bool selected,
                        enum mesh_ui_color ground, int scale) {
+    /* `active` is checked rather than clamped, and that is the point: fb_segmented_cols() sends
+       a choice outside the set to the words, so reaching here with one means the measure and
+       the draw have disagreed - and drawing the first segment lit would answer the disagreement
+       with a claim about the radio's configuration. Nothing is the safe answer. */
     if (rect == NULL || segmented == NULL || segmented->count == 0U ||
-        segmented->count > FB_SEGMENTED_MAX || rect->w <= 0 || rect->h <= 0) {
+        segmented->count > FB_SEGMENTED_MAX || segmented->active >= segmented->count ||
+        rect->w <= 0 || rect->h <= 0) {
         return;
     }
     const int radius = fb_radius(state, MESH_UI_SHAPE_FULL);
@@ -2728,7 +2764,7 @@ void fb_draw_segmented(const struct mesh_ui_backend_fb_state *state, const struc
     fb_fill_round_rect(state, rect->x + edge, rect->y + edge, rect->w - 2 * edge,
                        rect->h - 2 * edge, radius, behind);
 
-    const size_t active = segmented->active < segmented->count ? segmented->active : 0U;
+    const size_t active = segmented->active;
     for (size_t i = 0; i < segmented->count; ++i) {
         /* Divided by multiplying rather than by accumulating a width, so the rounding error is
            spread over the strip instead of piling up on the last segment. */
