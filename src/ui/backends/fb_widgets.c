@@ -1015,9 +1015,13 @@ static struct fb_card_metrics fb_card_measure(const struct mesh_ui_backend_fb_st
      */
     size_t widest = 0U;
     for (uint32_t i = 0U; i < card->count; ++i) {
-        if (card->rows[i].kind != FB_CARD_ROW_FIELD) {
-            continue;
-        }
+        /*
+         * Every row that *uses* the label column, which is the question - not every row of one
+         * kind. A note has no label and a meter may or may not have one, so the label itself is
+         * what says whether the row is in this measurement, and a kind check here was a card of
+         * labelled meters measuring its column against no labels at all and clipping each one
+         * to a single cell. Measuring and drawing have to ask the same question.
+         */
         const size_t cells = mesh_ui_text_cells(card->rows[i].label);
         if (cells > widest) {
             widest = cells;
