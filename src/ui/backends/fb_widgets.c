@@ -811,7 +811,7 @@ static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struc
         const size_t figure = mesh_ui_text_cells(trailing->text);
         if (figure > 0U) {
             fb_draw_text(state, box.x - adv - (int)figure * adv, baseline, trailing->text, scale,
-                         quiet);
+                         quiet, ground);
         }
         return;
     }

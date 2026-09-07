@@ -9,6 +9,8 @@ has, and for the same reasons.
     curl -sSLo JetBrainsMono-Regular.ttf 'https://raw.githubusercontent.com/JetBrains/\
 JetBrainsMono/master/fonts/ttf/JetBrainsMono-Regular.ttf'
     .venv/bin/python scripts/gen-font.py JetBrainsMono-Regular.ttf src/ui/font_ui_glyphs.c
+    make format   # the table is emitted twelve values a line and clang-format repacks it
+
 
 The set of characters covered is not a list in this file: it is whatever the 5x7 font can draw,
 read out of src/ui/font5x7.c, because a second font that covers less is a font that turns some

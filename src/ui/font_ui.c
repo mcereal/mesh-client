@@ -48,8 +48,8 @@ static void font_ui_tofu(uint8_t *out) {
     const int stroke = 2;
     for (int y = top; y <= bottom; ++y) {
         for (int x = left; x <= right; ++x) {
-            const bool edge = y < top + stroke || y > bottom - stroke || x < left + stroke ||
-                              x > right - stroke;
+            const bool edge =
+                y < top + stroke || y > bottom - stroke || x < left + stroke || x > right - stroke;
             if (edge) {
                 out[(size_t)y * MESH_UI_FONT_UI_MASTER_W + (size_t)x] = MESH_UI_GLYPH_MAX_ALPHA;
             }
