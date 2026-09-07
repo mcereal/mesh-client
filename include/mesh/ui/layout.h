@@ -177,4 +177,27 @@ bool mesh_ui_list_is_cursor(const struct mesh_ui_list *list, uint32_t index);
 /* Where the window starts so that `cursor` is inside it. */
 uint32_t mesh_ui_list_first_visible(uint32_t cursor, uint32_t count, uint32_t visible);
 
+/*
+ * Where a scroll indicator's thumb sits, and how long it is.
+ *
+ * Here rather than in the framebuffer backend for the reason the rest of this header is: it is
+ * proportion arithmetic over `count`, `first` and `visible`, it touches no pixels, and a second
+ * backend that grew a scroll indicator would want the same answer rather than a second
+ * derivation of it. `track` is however long the indicator is - pixels in the fb backend, and it
+ * could as well be rows - and `minimum` is the shortest a thumb may be drawn.
+ *
+ * `length` of 0 means *draw nothing*: the list fits, so there is nothing off screen to report
+ * and an indicator would be furniture.
+ *
+ * The offset is measured against the *travel* - the track less the thumb - rather than against
+ * the track, which is the difference between a thumb that reaches the end exactly when the last
+ * item is on screen and one that stops short and reports that there is more below.
+ */
+struct mesh_ui_scroll {
+    int offset; /* from the start of the track */
+    int length;
+};
+
+struct mesh_ui_scroll mesh_ui_list_scroll(const struct mesh_ui_list *list, int track, int minimum);
+
 #endif /* MESH_UI_LAYOUT_H */

@@ -357,6 +357,31 @@ enum mesh_ui_shape {
 };
 
 /*
+ * How long a thing takes to move.
+ *
+ * Four rather than a number at each call site, for the reason the colour families are six roles
+ * rather than a hex per widget: what a duration means is "this kind of movement", and a theme
+ * that wants a calmer or a snappier feel should be able to say so once. The curve is still named
+ * at the call site (enum mesh_ui_ease) because every animation here currently wants the same one
+ * - a token pairing duration with a curve is the right shape the first time two of them differ.
+ */
+enum mesh_ui_motion {
+    /* A control acknowledging a press, and anything leaving. Exits are shorter than entrances
+       because a thing on its way out has nothing left to say. The switch knob, the snackbar
+       going away. */
+    MESH_UI_MOTION_SHORT = 0,
+    /* Something arriving that was not there: the snackbar coming up. */
+    MESH_UI_MOTION_MEDIUM,
+    /* A value easing to a new reading rather than jumping to it - long enough that a bar
+       sampled once a second reads as movement instead of as a series of positions. */
+    MESH_UI_MOTION_LONG,
+    /* One pass of something that has no end: the pill travelling an indeterminate meter. Not a
+       transition at all, which is why it is an order of magnitude longer than the rest. */
+    MESH_UI_MOTION_LOOP,
+    MESH_UI_MOTION_COUNT
+};
+
+/*
  * The geometry a theme owns.
  *
  * Everything here was a literal in a drawing function once. They are theme data because a
@@ -384,6 +409,20 @@ struct mesh_ui_metrics {
      * scale like everything else so a theme asking for bigger text gets a bar to match.
      */
     uint8_t meter_thickness;
+    /*
+     * How long a transition takes, in milliseconds, indexed by enum mesh_ui_motion. Read it
+     * through mesh_ui_theme_motion().
+     *
+     * Here rather than beside each widget because a set of controls that each picked its own
+     * duration is a set that moves as five things rather than as one system - which is what
+     * these were before they were tokens: a switch at 140ms, a snackbar at 220 in and 150 out,
+     * a meter at 320. Those numbers were independent guesses that happened to agree, and the
+     * next widget would have been a sixth.
+     *
+     * Milliseconds rather than steps, unlike the shape scale: a duration is not a proportion of
+     * anything on the panel, and a theme that draws bigger does not want to animate slower.
+     */
+    uint16_t motion_ms[MESH_UI_MOTION_COUNT];
     /* The shape scale, in glyph-scale steps, indexed by enum mesh_ui_shape. Sized to stop
        before MESH_UI_SHAPE_FULL because that one is not a step count - see the enum. Read it
        through mesh_ui_theme_radius(), which does the multiply and handles the pill. All zeroes
@@ -526,6 +565,10 @@ int mesh_ui_theme_clamp_scale(const struct mesh_ui_theme *theme, int scale);
  * already known. Every other shape is its step count times the scale.
  */
 int mesh_ui_theme_radius(const struct mesh_ui_theme *theme, enum mesh_ui_shape shape, int scale);
+
+/* How long `motion` lasts, in milliseconds. 0 for a token a theme left unset, which every
+   animation here reads as "already there" - so an incomplete theme is still a drawable one. */
+uint32_t mesh_ui_theme_motion(const struct mesh_ui_theme *theme, enum mesh_ui_motion motion);
 
 /*
  * The WCAG contrast ratio between two colours, from 1.0 (identical) to 21.0 (black on white).

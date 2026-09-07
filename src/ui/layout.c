@@ -333,3 +333,42 @@ struct mesh_ui_transcript mesh_ui_transcript_window(const uint8_t *heights, uint
     window.count = last > cursor ? last - cursor : 1U;
     return window;
 }
+
+struct mesh_ui_scroll mesh_ui_list_scroll(const struct mesh_ui_list *list, int track, int minimum) {
+    struct mesh_ui_scroll scroll = {0, 0};
+    if (list == NULL || track <= 0) {
+        return scroll;
+    }
+
+    const uint32_t count = list->count;
+    const uint32_t visible = list->visible;
+    /* Nothing off screen is nothing to report. */
+    if (count == 0U || visible == 0U || count <= visible) {
+        return scroll;
+    }
+
+    /* The fraction on screen, floored at something findable: on a list of two hundred a true
+       proportion is a pixel or two, which is an indicator reporting a position nobody can see. */
+    int64_t length = ((int64_t)visible * (int64_t)track) / (int64_t)count;
+    if (minimum > 0 && length < (int64_t)minimum) {
+        length = minimum;
+    }
+    if (length > (int64_t)track) {
+        length = track;
+    }
+
+    const uint32_t last_first = count - visible;
+    const int64_t travel = (int64_t)track - length;
+    int64_t offset = 0;
+    if (last_first > 0U && travel > 0) {
+        uint32_t first = list->first;
+        if (first > last_first) {
+            first = last_first;
+        }
+        offset = ((int64_t)first * travel) / (int64_t)last_first;
+    }
+
+    scroll.offset = (int)offset;
+    scroll.length = (int)length;
+    return scroll;
+}

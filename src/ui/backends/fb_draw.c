@@ -102,6 +102,10 @@ int fb_radius(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_shape s
     return mesh_ui_theme_radius(state->theme, shape, state->scale);
 }
 
+uint32_t fb_motion(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_motion motion) {
+    return mesh_ui_theme_motion(state->theme, motion);
+}
+
 int fb_edge(const struct mesh_ui_backend_fb_state *state) {
     const int edge = state->scale / 2;
     return edge > 0 ? edge : 1;

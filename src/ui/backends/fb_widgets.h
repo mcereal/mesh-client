@@ -287,6 +287,15 @@ struct fb_list {
     int y;    /* next row's baseline */
     int line; /* row advance */
     size_t cols;
+    /* The body the list was opened against, for the scroll rail: where it starts and how tall
+       it is. Taken from the layout at fb_list_begin*() rather than accumulated as rows are
+       drawn, because a rail has to be the length of the *window* whether or not the items
+       filled it. */
+    int track_y;
+    int track_h;
+    /* Whether the rail has been drawn for this list. It is drawn by the first row that draws,
+       not by the screen - see fb_list_rail() in fb_widgets.c. */
+    bool rail_drawn;
 };
 
 /* One row per item, filling the body. */
@@ -301,6 +310,33 @@ struct fb_list fb_list_begin_visible(const struct fb_layout *layout, uint32_t co
                                      uint32_t cursor, uint32_t visible);
 
 bool fb_list_next(struct fb_list *list, uint32_t *index);
+
+/*
+ * ---- the scroll rail ----
+ *
+ * A list longer than its window draws a rail in the right-hand gutter: a track the height of
+ * the body, with a thumb whose length is the fraction of the list on screen and whose position
+ * is how far down it is. Nothing else in the frame says either of those - a screen title that
+ * carries a count is answering a different question, and on the Nodes tab a very different one
+ * (how much of the radio's NodeDB we hold, which is not a scroll position and is not this).
+ * A window that gives no sign there is more of the list is the one thing every list UI on every
+ * platform has an answer for.
+ *
+ * **No screen asks for it.** It is drawn by the first row that draws, from the list model,
+ * because a rail is derived entirely from `count`, `first` and `visible` - a screen has nothing
+ * to say about it and a screen that had to remember the call is a screen that would forget on
+ * one list out of nine. That is the same reasoning the list item's clipping follows: geometry
+ * belongs down here, and the screen describes content.
+ *
+ * It lives in the half-margin *outside* the row fill, so it overlaps nothing: rows clip their
+ * text at `xres - margin` and the cursor fill stops at `xres - margin / 2`. It is therefore
+ * invisible to every measurement a row already makes, which is why adding it changed no row.
+ *
+ * It does not animate. The row entry points that draw it take the state immutably - unlike the
+ * switch and the meter, whose sliding is the reason they take it mutably - and a rail that
+ * eased would need a keyed slot per list. A thumb that jumps a row when the cursor moves a row
+ * is not the thing motion was for.
+ */
 
 /* Draws the row - highlighted when `index` is the cursor - and advances. */
 void fb_list_row(const struct mesh_ui_backend_fb_state *state, struct fb_list *list, uint32_t index,

@@ -143,6 +143,24 @@ static void uicap_scene_demo(struct uicap *cap) {
         {0x8F21B008U, "ECHO", "Echo Repeater", 9000U, 6.75F, 3U, true, false},
         {0x8F21B009U, "FXTR", "Foxtrot Mobile", 21600U, -8.0F, 0U, false, true},
         {0x8F21B00AU, "GOLF", "Golf Cabin", 76000U, 2.5F, 2U, true, false},
+        /* Past here the list is longer than any body this renders into, which is the point:
+           the scroll rail only draws when there is something off screen, so a demo roster that
+           fit the panel could not show one. NATO order so a reviewer can tell at a glance
+           which way a list has scrolled. */
+        {0x8F21B00BU, "HOTL", "Hotel Saddle", 88000U, -1.5F, 3U, true, false},
+        {0x8F21B00CU, "INDA", "India Point", 91000U, 5.0F, 1U, true, false},
+        {0x8F21B00DU, "JULT", "Juliet Fire Road", 99000U, -6.25F, 0U, false, true},
+        {0x8F21B00EU, "KILO", "Kilo Meadow", 105000U, 3.75F, 2U, true, false},
+        {0x8F21B00FU, "LIMA", "Lima Crossing", 112000U, 9.0F, 1U, true, false},
+        {0x8F21B010U, "MIKE", "Mike Hollow", 120000U, -4.0F, 4U, true, false},
+        {0x8F21B011U, "NOVM", "November Bend", 133000U, 1.25F, 0U, false, true},
+        {0x8F21B012U, "OSCR", "Oscar Summit", 140000U, 7.5F, 2U, true, false},
+        {0x8F21B013U, "PAPA", "Papa Landing", 158000U, -2.75F, 3U, true, false},
+        {0x8F21B014U, "QBEC", "Quebec Draw", 166000U, 4.5F, 1U, true, false},
+        {0x8F21B015U, "ROMO", "Romeo Spur", 174000U, 0.5F, 2U, true, false},
+        {0x8F21B016U, "SIER", "Sierra Notch", 188000U, -9.5F, 0U, false, true},
+        {0x8F21B017U, "TNGO", "Tango Basin", 195000U, 6.0F, 1U, true, false},
+        {0x8F21B018U, "UNIF", "Uniform Gap", 210000U, 2.0F, 3U, true, false},
     };
 
     struct mesh_ui_handshake_state handshake;

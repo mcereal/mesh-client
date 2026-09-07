@@ -212,17 +212,25 @@ bar under the tab strip answers that for every screen at once.
 
 Each step is independently shippable and each is visible.
 
-| # | Work | Why here |
-|---|---|---|
-| 1 | Motion tokens (§1.3) | Smallest change, no layout risk, immediately felt |
-| 2 | Scroll indicator (§2.1) | Highest value per line; needs nothing else |
-| 3 | Spacing scale (§1.2) | Mechanical, and every later step stops adding literals |
-| 4 | Type scale (§1.1) | The big one. Do it after spacing so the two land together |
-| 5 | Nav bar + action bar as components (§2.2, §2.3) | Both are moves into `fb_widgets.c`; both benefit from 3 and 4 |
-| 6 | Card variants and card actions (§2.4) | Where the type scale pays off most |
-| 7 | Checkbox / radio, segmented button (§2.5, §2.6) | Additive slots on components that already exist |
-| 8 | Banner, screen progress, standalone badge (§2.8–2.10) | New surfaces; want the fourth tier decided first |
-| 9 | Slider (§2.7) | Genuinely new interaction; do it last |
+| # | Work | Status | Why here |
+|---|---|---|---|
+| 1 | Motion tokens (§1.3) | **done** | Smallest change, no layout risk, immediately felt |
+| 2 | Scroll indicator (§2.1) | **done** | Highest value per line; needs nothing else |
+| 3 | Spacing scale (§1.2) |  | Mechanical, and every later step stops adding literals |
+| 4 | Type scale (§1.1) |  | The big one. Do it after spacing so the two land together |
+| 5 | Nav bar + action bar as components (§2.2, §2.3) |  | Both are moves into `fb_widgets.c`; both benefit from 3 and 4 |
+| 6 | Card variants and card actions (§2.4) |  | Where the type scale pays off most |
+| 7 | Checkbox / radio, segmented button (§2.5, §2.6) |  | Additive slots on components that already exist |
+| 8 | Banner, screen progress, standalone badge (§2.8–2.10) |  | New surfaces; want the fourth tier decided first |
+| 9 | Slider (§2.7) |  | Genuinely new interaction; do it last |
+
+Steps 1 and 2 have landed. The motion tokens are `enum mesh_ui_motion` in
+[`theme.h`](../include/mesh/ui/theme.h), answered by `mesh_ui_theme_motion()`; the five
+per-widget duration constants are gone. The scroll rail is drawn by `fb_list_rail()` from the
+list model, with its proportion arithmetic in `mesh_ui_list_scroll()`
+([`layout.c`](../src/ui/layout.c)) so it is unit tested and available to a second backend. No
+screen calls either: a rail is derived entirely from `count`, `first` and `visible`, so the
+first row that draws puts it up.
 
 Steps 1–4 change no screen's content and should be reviewable as a `make ui-capture` diff with
 identical scene scripts. Steps 5 onwards change what screens can say, so each wants its own
