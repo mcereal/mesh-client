@@ -1,3 +1,13 @@
+## [2.19.0](https://github.com/mcereal/mesh-client/compare/v2.18.0...v2.19.0) (2026-09-07)
+
+### Features
+
+* **ui:** add a spacing scale and a type scale ([3f9c769](https://github.com/mcereal/mesh-client/commit/3f9c769516b1b20d7d54667b318fa6826ef209bf))
+
+### Bug Fixes
+
+* **ui:** keep the row a title did not actually cost ([315c95d](https://github.com/mcereal/mesh-client/commit/315c95df0a124ad8b6a65db54bd6295245d5e84d))
+
 ## [2.18.0](https://github.com/mcereal/mesh-client/compare/v2.17.0...v2.18.0) (2026-09-07)
 
 ### Features
