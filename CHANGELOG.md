@@ -1,3 +1,13 @@
+## [2.12.1](https://github.com/mcereal/mesh-client/compare/v2.12.0...v2.12.1) (2026-09-07)
+
+### Bug Fixes
+
+* **ui:** drop a trailing slot that does not fit instead of drawing it ([50f1e64](https://github.com/mcereal/mesh-client/commit/50f1e648afc0dec0e821e5361cbc8780ca65800c))
+
+### Code Refactoring
+
+* **ui:** one list item with slots, replacing four row variants ([ab32a39](https://github.com/mcereal/mesh-client/commit/ab32a3967f4449f680fcbe3e087f95924f8c0261))
+
 ## [2.12.0](https://github.com/mcereal/mesh-client/compare/v2.11.0...v2.12.0) (2026-09-06)
 
 ### Features
