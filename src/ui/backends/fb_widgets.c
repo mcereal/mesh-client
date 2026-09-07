@@ -255,35 +255,47 @@ static struct fb_item_geom fb_item_measure(const struct mesh_ui_backend_fb_state
     return g;
 }
 
-/* Cells a trailing slot needs kept clear, its breathing room included. Zero when there is
-   nothing there, so a row with no trailing keeps every column it has. */
-static size_t fb_trailing_cols(const struct mesh_ui_backend_fb_state *state,
+/*
+ * Cells a trailing slot takes out of a line `cols` wide, its breathing room included.
+ *
+ * Zero has one meaning and it covers both ways a slot can come to nothing: there is nothing in
+ * it, or the line is too narrow to give it its room. Either way the slot is not drawn and the
+ * line keeps every column it has - because a trailing figure is worth less than the row it
+ * would be laid across, and a row clipped to one cell has lost the thing it was about.
+ *
+ * The point of one function answering that is that *measuring and drawing ask it once*. A slot
+ * squeezed out of the line by one calculation and then painted over that line by another is
+ * exactly the bug this component exists to make unwritable - it is what a narrow panel or a
+ * large glyph scale used to turn an age into, drawn back across the avatar.
+ */
+static size_t fb_trailing_cols(const struct mesh_ui_backend_fb_state *state, size_t cols,
                                const struct fb_trailing *trailing) {
     const int adv = fb_char_adv(state, state->scale);
+    size_t want = 0U;
     switch (trailing->kind) {
     case FB_TRAILING_TEXT: {
         const size_t cells = mesh_ui_text_cells(trailing->text);
-        return cells > 0U ? cells + 1U : 0U;
+        want = cells > 0U ? cells + 1U : 0U;
+        break;
     }
     case FB_TRAILING_BADGE: {
         const size_t cells = mesh_ui_text_cells(trailing->text);
-        return cells > 0U ? cells + 2U : 0U;
+        want = cells > 0U ? cells + 2U : 0U;
+        break;
     }
     case FB_TRAILING_SWITCH: {
         int width = 0;
         fb_switch_size(state, state->scale, &width, NULL);
-        return (size_t)((width + adv - 1) / adv) + 2U;
+        want = (size_t)((width + adv - 1) / adv) + 2U;
+        break;
     }
     case FB_TRAILING_NONE:
     default:
         return 0U;
     }
-}
-
-/* Text columns left for a line once its trailing slot has taken its room. Never zero: a row
-   clipped to nothing is a row that has lost the thing it was about. */
-static size_t fb_line_room(size_t cols, size_t taken) {
-    return cols > taken + 1U ? cols - taken : 1U;
+    /* Strictly greater: the line keeps at least one cell of its own, which is the test the
+       conversation cell made for its age before this was a shared slot. */
+    return (want > 0U && cols > want) ? want : 0U;
 }
 
 static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struct fb_item_geom *g,
@@ -413,24 +425,27 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
 
     struct mesh_ui_line line;
     fb_item_headline(&line, item);
-    const size_t head_room = fb_line_room(g.cols, fb_trailing_cols(state, &item->trailing));
-    mesh_ui_line_fit(&line, head_room);
+    const size_t head_take = fb_trailing_cols(state, g.cols, &item->trailing);
+    mesh_ui_line_fit(&line, g.cols - head_take);
     fb_draw_text(state, g.text_x, g.head_y, mesh_ui_line_text(&line), scale, head_ink);
-    fb_draw_trailing(state, &g, &item->trailing, g.head_y, g.head_slot_top, selected);
+    if (head_take > 0U) {
+        fb_draw_trailing(state, &g, &item->trailing, g.head_y, g.head_slot_top, selected);
+    }
 
     if (g.rows == 2U) {
         const struct mesh_ui_rgb supp_ink =
             selected ? fb_color(state, item->supporting_quiet ? MESH_UI_COLOR_TEXT_ON_SEL_DIM
                                                               : MESH_UI_COLOR_TEXT_ON_SEL)
                      : fb_tone_color(state, item->supporting_tone);
-        const size_t supp_room =
-            fb_line_room(g.cols, fb_trailing_cols(state, &item->supporting_trailing));
+        const size_t supp_take = fb_trailing_cols(state, g.cols, &item->supporting_trailing);
         mesh_ui_line_reset(&line);
         mesh_ui_line_printf(&line, "%s", item->supporting);
-        mesh_ui_line_fit(&line, supp_room);
+        mesh_ui_line_fit(&line, g.cols - supp_take);
         fb_draw_text(state, g.text_x, g.supp_y, mesh_ui_line_text(&line), scale, supp_ink);
-        fb_draw_trailing(state, &g, &item->supporting_trailing, g.supp_y, g.supp_slot_top,
-                         selected);
+        if (supp_take > 0U) {
+            fb_draw_trailing(state, &g, &item->supporting_trailing, g.supp_y, g.supp_slot_top,
+                             selected);
+        }
     }
 
     /*
