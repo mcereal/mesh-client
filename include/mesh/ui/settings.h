@@ -11,6 +11,7 @@
  * answered here so the nav never has to know what a field means.
  */
 
+#include "mesh/ui/icon.h"
 #include "mesh/ui/store.h"
 
 #include <stdbool.h>
@@ -357,9 +358,38 @@ struct mesh_ui_settings_item {
     bool dirty;                          /* value shown is a pending edit */
     uint32_t number;                     /* toggle 0/1, enum index, raw number, or key choice */
     char text[MESH_UI_SETTING_TEXT_MAX]; /* TEXT: the raw string; KEY: the key as hex */
+    /*
+     * What this row is *about*, for the leading slot: the cloud on MQTT, the shield on
+     * Security. MESH_UI_ICON_NONE on a row that is a setting rather than a subject, which is
+     * every row of every section except the one that lists the modules.
+     *
+     * A section gives every row an icon or gives none, and that is a rule rather than an
+     * observation: a leading slot is reserved for a whole list, so a list whose rows disagreed
+     * would start its words in two different columns. mesh_ui_settings_section_icons_rows()
+     * answers it for a caller, and a test holds every section to it.
+     */
+    enum mesh_ui_icon icon;
 };
 
 const char *mesh_ui_settings_section_name(enum mesh_ui_settings_section section);
+
+/*
+ * What a section is about, as an icon: the leading slot on a row that *opens* that section.
+ *
+ * Beside the name because it is the same kind of fact - what this section is - answered for the
+ * same two lists: the settings root, and Modules, which is a list of sections wearing a
+ * section's clothes. A backend with no icons (the CLI) ignores it exactly as it ignores the
+ * chevron.
+ *
+ * Three sections answer with an icon another part of the UI already owns, because they are
+ * saying the same thing it says: "About radio" with MESH_UI_ICON_RADIO, Bluetooth and Channels
+ * with their own runes.
+ */
+enum mesh_ui_icon mesh_ui_settings_section_icon(enum mesh_ui_settings_section section);
+
+/* Whether this section's *items* carry a leading icon - true only of Modules, whose rows are
+   sections. What lets a renderer declare the slot once for the list instead of testing a row. */
+bool mesh_ui_settings_section_icons_rows(enum mesh_ui_settings_section section);
 
 /* Field descriptions for the nav and the keyboard title. */
 const char *mesh_ui_settings_field_label(enum mesh_ui_setting_field field);

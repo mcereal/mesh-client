@@ -655,8 +655,22 @@ struct fb_list_item {
      * It is one cell wide whether or not there is an icon in it, so the value column starts in
      * the same place on every row of a list - which is the whole reason this is a slot rather
      * than two characters somebody prepended to the value.
+     *
+     * On a plain row - `label_cols` of 0, `text` the whole line - the gutter goes *before* the
+     * words instead, and `marker_slot` is what puts it there. The star on a pinned node is the
+     * case: a fact about the row, one cell, and neither the identity the leading disc carries
+     * nor one of the row's own words.
      */
     enum mesh_ui_icon marker_icon;
+    /*
+     * Reserve the marker cell on a plain row, whether or not this row filled it.
+     *
+     * A label column measures the gutter for the rows that have one; a plain row has nothing to
+     * measure it against, so the list declares it - on every row, exactly as it declares a
+     * leading slot, because a list that indents only the rows with a marker is a list whose
+     * text starts in two columns. Ignored when `label_cols` is set, which already has a gutter.
+     */
+    bool marker_slot;
     const char *value;
     enum mesh_ui_tone tone;
     struct fb_trailing trailing;
@@ -760,9 +774,20 @@ struct fb_bubble {
     const char *name;      /* sender line inside the bubble; "" when it repeats the one above */
     const char *text;      /* the message */
     const char *meta;      /* clock and delivery state, tucked onto the last line when it fits */
-    bool outbound;         /* ours: drawn against the right edge */
-    bool selected;         /* the cursor is on it */
-    bool failed;           /* the radio said it did not get there */
+    /*
+     * One icon at the head of the meta run: the padlock on a direct message the radio decrypted
+     * with our key pair rather than with a channel PSK.
+     *
+     * A slot rather than a character in `meta` because the meta line is assembled from three
+     * different things - a clock, what became of the message, the reactions on it - and a mark
+     * that is a *fact about the message* is none of the three. It is also the one mark on a
+     * bubble that no word on screen repeats, which is why it is worth a slot of its own rather
+     * than another clause in the delivery state.
+     */
+    enum mesh_ui_icon meta_icon;
+    bool outbound; /* ours: drawn against the right edge */
+    bool selected; /* the cursor is on it */
+    bool failed;   /* the radio said it did not get there */
     /* A critical alert (ALERT_APP). Draws the name line in the bad tone rather than the accent,
        which is the one line every bubble in a channel already has - so an alert is picked out
        without a bubble fill that would then mean two different things in one colour. */
