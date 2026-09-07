@@ -1240,6 +1240,15 @@ static const struct mesh_ui_node_summary *fb_self_node(const struct mesh_ui_snap
 #define FB_AIR_BUSY_BAD 500
 
 /*
+ * Where a radio's free heap stops being comfortable, in bytes.
+ *
+ * Stated here for the reason the pair above is: the figure's colour and the card heading's are
+ * two readings of one number, and a threshold written out at each of them is a card that can
+ * head itself "fine" over a row it has just drawn as a warning.
+ */
+#define FB_HEAP_LOW_BYTES 20480U
+
+/*
  * The airtime meter's key in the animation table.
  *
  * At the top of the range with the snackbar's, and for the same reason: every other id in here
@@ -1491,12 +1500,21 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
     const bool have_queue =
         queue->valid && queue->maxlen > 0U && (queue->res != 0 || queue->free < queue->maxlen / 2U);
 
+    /* Two more rows that only appear when something is off. Derived here rather than at the
+       rows themselves because the heading is a reading of the same two facts, and a predicate
+       written out twice is the pair that drifts. */
+    const bool rebooted = snapshot->settings.reboot_notices > 0U;
+    const bool low_heap =
+        stats->valid && stats->has_heap && stats->heap_free_bytes < FB_HEAP_LOW_BYTES;
+
     /* The card reports the worst thing it holds. A refused packet and an ERROR notice are both
-       the radio saying no; a flat battery is the reason it is about to. */
+       the radio saying no; a flat battery is the reason it is about to. Below that, anything
+       drawn in the warning tone heads the card in it too - a card saying "fine" over a row it
+       has just drawn as a warning is the summary being wrong about its own contents. */
     enum mesh_ui_tone radio_tone = MESH_UI_TONE_PRIMARY;
     if (low_battery || (have_queue && queue->res != 0) || (have_notice && notice->level >= 40U)) {
         radio_tone = MESH_UI_TONE_ERROR;
-    } else if (have_notice && notice->level >= 30U) {
+    } else if ((have_notice && notice->level >= 30U) || rebooted || low_heap) {
         radio_tone = MESH_UI_TONE_WARNING;
     }
 
@@ -1555,15 +1573,14 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
                     (unsigned)queue->maxlen,
                     queue->res != 0 ? mesh_str(MESH_STR_STATUS_TX_QUEUE_REFUSED) : "");
     }
-    if (snapshot->settings.reboot_notices > 0U) {
+    if (rebooted) {
         /* A radio that has restarted since we attached is not broken, but it is the first thing
            to know when something else looks wrong. */
         fb_card_row(&card, MESH_UI_TONE_WARNING, MESH_STR_STATUS_LABEL_REBOOTS,
                     MESH_STR_STATUS_REBOOTS_SINCE, snapshot->settings.reboot_notices);
     }
     if (stats->valid && stats->has_heap) {
-        fb_card_row(&card,
-                    stats->heap_free_bytes < 20480U ? MESH_UI_TONE_WARNING : MESH_UI_TONE_DIM,
+        fb_card_row(&card, low_heap ? MESH_UI_TONE_WARNING : MESH_UI_TONE_DIM,
                     MESH_STR_STATUS_LABEL_HEAP, MESH_STR_STATUS_HEAP,
                     stats->heap_free_bytes / 1024U, stats->heap_total_bytes / 1024U);
     }

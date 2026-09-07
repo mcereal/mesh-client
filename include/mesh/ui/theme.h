@@ -227,16 +227,33 @@ enum mesh_ui_slot {
     MESH_UI_SLOT_COUNT
 };
 
-/* The families are laid out family-major, slot-minor, so the lookup is a multiply. Pinned
-   here rather than trusted: reordering the enum above would otherwise silently repaint the UI
-   in the wrong colours rather than failing to build. */
-_Static_assert(MESH_UI_COLOR_ON_PRIMARY == MESH_UI_COLOR_PRIMARY + MESH_UI_SLOT_ON_BASE,
-               "family slots must be contiguous and in slot order");
-_Static_assert(MESH_UI_COLOR_SECONDARY == MESH_UI_COLOR_PRIMARY + MESH_UI_SLOT_COUNT,
-               "families must be contiguous");
-_Static_assert(MESH_UI_COLOR_ON_ERROR_CONTAINER ==
-                   MESH_UI_COLOR_PRIMARY + (MESH_UI_FAMILY_COUNT * MESH_UI_SLOT_COUNT) - 1,
-               "every family must state all four slots");
+/*
+ * The families are laid out family-major, slot-minor, so the lookup is a multiply. Pinned here
+ * rather than trusted: reordering the enum above would otherwise silently repaint the UI in the
+ * wrong colours rather than failing to build.
+ *
+ * Spelled through a macro because of the extern "C" block above. That block says this header may
+ * be included from C++, and `_Static_assert` is a C keyword g++ rejects outright - C++ has
+ * spelled it `static_assert` since C++11 and C only since C23, so there is no one name that
+ * works in both without the bridge. The comparisons cast to int for the same reason: arithmetic
+ * between two unscoped enums is deprecated in C++20.
+ */
+#ifdef __cplusplus
+#define MESH_UI_STATIC_ASSERT(cond, msg) static_assert(cond, msg)
+#else
+#define MESH_UI_STATIC_ASSERT(cond, msg) _Static_assert(cond, msg)
+#endif
+
+MESH_UI_STATIC_ASSERT((int)MESH_UI_COLOR_ON_PRIMARY ==
+                          (int)MESH_UI_COLOR_PRIMARY + (int)MESH_UI_SLOT_ON_BASE,
+                      "family slots must be contiguous and in slot order");
+MESH_UI_STATIC_ASSERT((int)MESH_UI_COLOR_SECONDARY ==
+                          (int)MESH_UI_COLOR_PRIMARY + (int)MESH_UI_SLOT_COUNT,
+                      "families must be contiguous");
+MESH_UI_STATIC_ASSERT((int)MESH_UI_COLOR_ON_ERROR_CONTAINER ==
+                          (int)MESH_UI_COLOR_PRIMARY +
+                              ((int)MESH_UI_FAMILY_COUNT * (int)MESH_UI_SLOT_COUNT) - 1,
+                      "every family must state all four slots");
 
 /*
  * How a control is being interacted with, which is a *modifier* on a colour rather than a
@@ -289,8 +306,9 @@ enum mesh_ui_tone {
     MESH_UI_TONE_COUNT
 };
 
-_Static_assert(MESH_UI_TONE_COUNT - MESH_UI_TONE_PRIMARY == MESH_UI_FAMILY_COUNT,
-               "one tone per family, contiguous, in family order");
+MESH_UI_STATIC_ASSERT((int)MESH_UI_TONE_COUNT - (int)MESH_UI_TONE_PRIMARY ==
+                          (int)MESH_UI_FAMILY_COUNT,
+                      "one tone per family, contiguous, in family order");
 
 /* The glyph multipliers the UI will accept, whatever a theme asks for. The lower bound is
    legibility on the Brick's 3.2" panel; the upper is the buffers sized off it. */
