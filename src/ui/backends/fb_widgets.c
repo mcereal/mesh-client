@@ -171,15 +171,39 @@ int fb_draw_chip(const struct mesh_ui_backend_fb_state *state, int x, int y, enu
 
 void fb_draw_title(const struct mesh_ui_backend_fb_state *state, struct fb_layout *layout,
                    const char *title) {
+    /*
+     * A title is drawn at MESH_UI_TYPE_TITLE, which is a step above the body.
+     *
+     * It used to be drawn at the body scale and told apart from the rows beneath it by
+     * MESH_UI_TONE_PRIMARY alone - a heading exactly the size of its own content, with colour
+     * carrying the whole of the hierarchy. The tone stays; it is now saying the same thing the
+     * size already said, which is what a heading is supposed to look like.
+     */
+    const int scale = fb_type_scale(state, MESH_UI_TYPE_TITLE);
+
     struct mesh_ui_line line;
     mesh_ui_line_reset(&line);
     mesh_ui_line_printf(&line, "%s", title);
-    mesh_ui_line_fit(&line, layout->cols);
-    fb_draw_text(state, fb_margin(state), layout->body_y, mesh_ui_line_text(&line), state->scale,
+    /* Fitted to the columns *this* scale has, not the body's. Bigger glyphs mean fewer of them,
+       and a breadcrumb like "Settings > Modules > Telemetry" is exactly long enough to run off
+       the panel if it is measured against a column count it is not drawn at. */
+    mesh_ui_line_fit(&line, fb_cols(state, scale));
+    fb_draw_text(state, fb_margin(state), layout->body_y, mesh_ui_line_text(&line), scale,
                  fb_tone_color(state, MESH_UI_TONE_PRIMARY));
-    layout->body_y += layout->line + state->scale;
-    if (layout->rows > 1U) {
-        layout->rows -= 1U;
+
+    /*
+     * What the title cost the body, measured rather than assumed.
+     *
+     * This advanced by the body's line advance and then deducted exactly one row, which was
+     * already slightly out - the advance included a gap the deduction did not - and would be
+     * properly wrong now that the line being advanced past is taller than a body row. Rounding
+     * up is what keeps the first list row from being drawn into the space the title is using.
+     */
+    const int advance = fb_line_adv(state, scale) + fb_space(state, MESH_UI_SPACE_SM);
+    layout->body_y += advance;
+    if (layout->line > 0) {
+        const uint32_t used = (uint32_t)((advance + layout->line - 1) / layout->line);
+        layout->rows = layout->rows > used ? layout->rows - used : 1U;
     }
 }
 
@@ -212,7 +236,8 @@ void fb_draw_empty(const struct mesh_ui_backend_fb_state *state, const struct fb
 
 void fb_draw_rule(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int scale,
                   enum mesh_ui_color role) {
-    fb_fill_rect(state, x, y, w, scale / 2 > 0 ? scale / 2 : 1, fb_color(state, role));
+    fb_fill_rect(state, x, y, w, fb_space_at(state, MESH_UI_SPACE_XS, scale),
+                 fb_color(state, role));
 }
 
 struct fb_list fb_list_begin_visible(const struct fb_layout *layout, uint32_t count,
@@ -258,7 +283,6 @@ static void fb_list_rail(const struct mesh_ui_backend_fb_state *state, struct fb
         return;
     }
 
-    const int margin = fb_margin(state);
     /*
      * Sized from the gutter it lives in rather than from the glyph scale, unlike every other
      * control here. The gutter is half a margin wide and does not grow when a theme asks for
@@ -266,7 +290,7 @@ static void fb_list_rail(const struct mesh_ui_backend_fb_state *state, struct fb
      * against the panel edge at the larger scales. A quarter-margin leaves the same gap either
      * side at every scale, which is what makes it read as inset rather than as a screen edge.
      */
-    int width = margin / 4;
+    int width = fb_gutter(state) / 2;
     if (width < 2) {
         width = 2;
     }
@@ -280,7 +304,7 @@ static void fb_list_rail(const struct mesh_ui_backend_fb_state *state, struct fb
     }
 
     /* Centred in the gutter between the row fill's right edge and the panel edge. */
-    const int x = (int)state->var.xres - margin / 4 - width / 2;
+    const int x = (int)state->var.xres - fb_gutter(state) / 2 - width / 2;
     const int radius = fb_radius(state, MESH_UI_SHAPE_FULL);
 
     /* The track is the role that already means one - the same groove a meter's fill sits in -
@@ -408,10 +432,10 @@ static struct fb_item_geom fb_item_measure(const struct mesh_ui_backend_fb_state
            above where a second row would put it, and the space that frees becomes the gap to
            the next item. */
         g.supp_y = list->y + list->line - scale;
-        g.fill_top = g.head_y - scale / 2;
-        g.fill_h = 2 * list->line - 2 * scale;
+        g.fill_top = g.head_y - fb_space(state, MESH_UI_SPACE_XS);
+        g.fill_h = 2 * list->line - fb_space(state, MESH_UI_SPACE_MD);
         g.head_slot_top = g.fill_top;
-        g.supp_slot_top = g.supp_y - scale / 2;
+        g.supp_slot_top = g.supp_y - fb_space(state, MESH_UI_SPACE_XS);
     } else {
         g.fill_top = g.head_y - scale;
         g.fill_h = list->line;
@@ -654,8 +678,8 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
             item->leading.role < MESH_UI_COLOR_COUNT
                 ? fb_color(state, item->leading.role)
                 : mesh_ui_theme_avatar(state->theme, item->leading.tint);
-        fb_draw_avatar(state, fb_margin(state), g.fill_top + scale / 2, size, item->leading.label,
-                       item->leading.icon, tint);
+        fb_draw_avatar(state, fb_margin(state), g.fill_top + fb_space(state, MESH_UI_SPACE_XS),
+                       size, item->leading.label, item->leading.icon, tint);
     } else if (item->leading.kind == FB_LEADING_ICON) {
         fb_draw_icon(state, fb_margin(state), g.head_y, item->leading.icon, scale, head_ink,
                      ground);
@@ -711,8 +735,8 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
     const bool last = (index + 1U >= list->model.count) ||
                       (index + 1U >= list->model.first + list->model.visible);
     if (item->divider && !selected && !last) {
-        fb_draw_rule(state, g.text_x, g.fill_top + g.fill_h + scale / 2, g.text_right - g.text_x,
-                     scale, MESH_UI_COLOR_RULE);
+        fb_draw_rule(state, g.text_x, g.fill_top + g.fill_h + fb_space(state, MESH_UI_SPACE_XS),
+                     g.text_right - g.text_x, scale, MESH_UI_COLOR_RULE);
     }
 
     list->y += (int)g.rows * list->line;
@@ -1604,7 +1628,7 @@ void fb_title_count(char *out, size_t out_len, const char *name, uint32_t count,
 /* Shorter than the line advance, which carries the gap between rows: a control as tall as the
    advance touches the row above it. */
 static int fb_switch_height(const struct mesh_ui_backend_fb_state *state, int scale) {
-    const int height = fb_line_adv(state, scale) - 2 * scale;
+    const int height = fb_line_adv(state, scale) - fb_space_at(state, MESH_UI_SPACE_MD, scale);
     return height < 6 ? 6 : height;
 }
 
@@ -1652,7 +1676,7 @@ void fb_draw_switch(struct mesh_ui_backend_fb_state *state, const struct fb_swit
         /* The ring is a fraction of the glyph scale rather than of the control, because the row
            fill it has to stay inside is measured from the scale too - a ring sized off the
            control overhung the highlight bar top and bottom and notched it. */
-        const int pad = state->scale / 2 > 0 ? state->scale / 2 : 1;
+        const int pad = fb_space(state, MESH_UI_SPACE_XS);
         fb_fill_round_rect(state, sw->rect.x - pad, sw->rect.y - pad, sw->rect.w + 2 * pad,
                            sw->rect.h + 2 * pad, radius + pad, fb_color(state, MESH_UI_COLOR_BG));
     }
@@ -1771,7 +1795,7 @@ void fb_draw_meter(struct mesh_ui_backend_fb_state *state, const struct fb_meter
      * pointed at, leaving a fill floating in space with no length to be read against.
      */
     if (meter->selected) {
-        const int pad = state->scale / 2 > 0 ? state->scale / 2 : 1;
+        const int pad = fb_space(state, MESH_UI_SPACE_XS);
         fb_fill_round_rect(state, r.x - pad, r.y - pad, r.w + 2 * pad, r.h + 2 * pad, radius + pad,
                            fb_color(state, MESH_UI_COLOR_BG));
     }
@@ -1887,7 +1911,7 @@ void fb_draw_text_field(const struct mesh_ui_backend_fb_state *state,
     }
     const int scale = state->scale;
     const int margin = fb_margin(state);
-    const int box_x = margin / 2;
+    const int box_x = fb_gutter(state);
     const int box_w = (int)state->var.xres - margin;
     const int box_h = fb_text_field_box_h(state, layout, field);
     const uint32_t lines = field->lines > 0U ? field->lines : 1U;
@@ -1994,7 +2018,7 @@ void fb_draw_dialog(const struct mesh_ui_backend_fb_state *state, const struct f
         dialog->destructive ? MESH_UI_FAMILY_ERROR : MESH_UI_FAMILY_PRIMARY;
     const enum mesh_ui_tone accent_tone = mesh_ui_family_tone(accept_family);
 
-    const int panel_x = margin / 2;
+    const int panel_x = fb_gutter(state);
     const int panel_w = (int)state->var.xres - margin;
     /* The panel's own text column, which is narrower than the body's - a dialog is inset from
        the screen and its words are inset again from its edge. */
@@ -2008,7 +2032,7 @@ void fb_draw_dialog(const struct mesh_ui_backend_fb_state *state, const struct f
     /* A little more than a line: the headline and the paragraph under it are the same glyph
        size, so the gap is the only thing distinguishing a question from its explanation. */
     const int head_h = has_headline ? line + scale : 0;
-    const int button_h = line + 2 * scale;
+    const int button_h = line + fb_space(state, MESH_UI_SPACE_MD);
     const int room = layout->footer_y - layout->body_y - line;
 
     /*

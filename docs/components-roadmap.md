@@ -42,6 +42,9 @@ exist, and several of them are only worth adding once they do.
 
 ### 1.1 There is no type scale
 
+> **Landed.** `enum mesh_ui_type` in `theme.h`. Kept below as written, because the reasoning is
+> what the scale has to keep answering for; the limitation it did not reach is in §3.
+
 The theme answers for colour, for shape and for metrics. It does not answer for type. What it
 has is two numbers — `metrics.scale` for the body and `metrics.chrome_scale_down` for the tab
 strip and the footer — and everything on screen is drawn at one of them.
@@ -77,6 +80,9 @@ looks.
 
 ### 1.2 There is no spacing scale
 
+> **Landed.** `enum mesh_ui_space`, in half-steps, plus `fb_gutter()` for the panel inset that
+> is not glyph-relative and does not belong in it.
+
 `margin / 2`, `2 * small`, `line / 2`, `2 * scale` and friends appear on about a dozen lines
 across `fb_draw.c`, `fb_widgets.c` and `fb_screens.c`. Each is correct; collectively they are the same
 thing the colour literals were before `theme.c`. A theme that wants a denser or a roomier layout
@@ -89,6 +95,8 @@ change and it is worth doing before the components in §2, because each new comp
 adds two or three more literals to the pile.
 
 ### 1.3 There are no motion tokens
+
+> **Landed.** `enum mesh_ui_motion` in `theme.h`; the five per-widget constants below are gone.
 
 `src/ui/anim.c` is good: fixed-point easing, a table keyed per control, a repaint timerfd that
 only runs while something is moving. What it has no answer for is *how long*. Five durations are
@@ -115,6 +123,8 @@ distinct from looking it.
 Tiered by whether the absence is visible on the device today.
 
 ### Tier 1 — visible now
+
+> **Landed.** `fb_list_rail()`, drawn from the list model with no screen asking for it.
 
 **2.1 No scroll indicator.** There is no scroll rail anywhere in the tree — `grep -rn scroll
 src/ui/backends` finds only comments. A list of forty-two nodes shows a window of eight with
@@ -216,15 +226,15 @@ Each step is independently shippable and each is visible.
 |---|---|---|---|
 | 1 | Motion tokens (§1.3) | **done** | Smallest change, no layout risk, immediately felt |
 | 2 | Scroll indicator (§2.1) | **done** | Highest value per line; needs nothing else |
-| 3 | Spacing scale (§1.2) |  | Mechanical, and every later step stops adding literals |
-| 4 | Type scale (§1.1) |  | The big one. Do it after spacing so the two land together |
+| 3 | Spacing scale (§1.2) | **done** | Mechanical, and every later step stops adding literals |
+| 4 | Type scale (§1.1) | **done** | The big one. Do it after spacing so the two land together |
 | 5 | Nav bar + action bar as components (§2.2, §2.3) |  | Both are moves into `fb_widgets.c`; both benefit from 3 and 4 |
 | 6 | Card variants and card actions (§2.4) |  | Where the type scale pays off most |
 | 7 | Checkbox / radio, segmented button (§2.5, §2.6) |  | Additive slots on components that already exist |
 | 8 | Banner, screen progress, standalone badge (§2.8–2.10) |  | New surfaces; want the fourth tier decided first |
 | 9 | Slider (§2.7) |  | Genuinely new interaction; do it last |
 
-Steps 1 and 2 have landed. The motion tokens are `enum mesh_ui_motion` in
+Steps 1 to 4 have landed. The motion tokens are `enum mesh_ui_motion` in
 [`theme.h`](../include/mesh/ui/theme.h), answered by `mesh_ui_theme_motion()`; the five
 per-widget duration constants are gone. The scroll rail is drawn by `fb_list_rail()` from the
 list model, with its proportion arithmetic in `mesh_ui_list_scroll()`
@@ -232,9 +242,27 @@ list model, with its proportion arithmetic in `mesh_ui_list_scroll()`
 screen calls either: a rail is derived entirely from `count`, `first` and `visible`, so the
 first row that draws puts it up.
 
-Steps 1–4 change no screen's content and should be reviewable as a `make ui-capture` diff with
-identical scene scripts. Steps 5 onwards change what screens can say, so each wants its own
-scene.
+The spacing scale is `enum mesh_ui_space` in half-steps of the glyph scale, read through
+`fb_space()` / `fb_space_at()`; the half-margin panel inset it deliberately does *not* cover is
+`fb_gutter()`, because that tracks the body margin rather than the text size. The type scale is
+`enum mesh_ui_type` held as offsets from the body scale — offsets rather than absolutes because
+a preference and `MESHCLIENT_SCALE` both override the body scale at runtime, and a table of
+absolutes would stop being a scale the moment somebody asked for larger text.
+`metrics.chrome_scale_down` is gone; chrome is `MESH_UI_TYPE_LABEL`.
+
+> One thing §1.1 asked for that is **not** done, and cannot be done this way: a section heading
+> inside a list (`MESH_UI_SETTING_HEADING`, and the node detail's group rows) still carries its
+> hierarchy in colour alone. It is a list row, and `struct mesh_ui_list` counts rows of one
+> fixed height — a heading drawn a step down would put the cursor and the row it highlights in
+> two different places. Giving those a type role means variable-height list items first, which
+> is a change to the list model rather than to the type scale.
+
+Steps 1 to 3 changed no screen's *content* and were reviewable as a `make ui-capture` diff
+against identical scene scripts — steps 1 and 3 were pixel-identical at the default theme, which
+is what a pure token extraction should be. Step 4 was the exception and always would be: a title
+a step larger is a title that takes more of the panel, so every screen with one gives up a body
+row. That was the trade the step was for. Steps 5 onwards change what screens can *say*, so each
+wants its own scene.
 
 ## 4. Rules this roadmap does not get to break
 

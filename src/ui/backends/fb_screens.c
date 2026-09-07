@@ -139,10 +139,10 @@ static void fb_draw_tabs(const struct mesh_ui_backend_fb_state *state,
                          const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const int small = layout->small;
     const int margin = fb_margin(state);
-    const int y = margin / 2 + small;
+    const int y = fb_gutter(state) + small;
     const int line = fb_line_adv(state, small);
     const int bar_h = y + line;
-    int x = margin / 2;
+    int x = fb_gutter(state);
 
     fb_fill_rect(state, 0, 0, (int)state->var.xres, bar_h,
                  fb_color(state, MESH_UI_COLOR_SURFACE_LOW));
@@ -163,7 +163,7 @@ static void fb_draw_tabs(const struct mesh_ui_backend_fb_state *state,
     }
 
     fb_draw_rule(state, 0, bar_h, (int)state->var.xres, small, MESH_UI_COLOR_RULE_STRONG);
-    layout->body_y = bar_h + 2 * small + margin / 2;
+    layout->body_y = bar_h + fb_space_at(state, MESH_UI_SPACE_MD, small) + fb_gutter(state);
 }
 
 /*
@@ -1049,7 +1049,7 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
     const int margin = fb_margin(state);
     const int grid_w = (int)state->var.xres - 2 * margin;
     const int cell_w = grid_w / (int)MESH_UI_KB_COLS;
-    const int cell_h = line + 2 * scale;
+    const int cell_h = line + fb_space(state, MESH_UI_SPACE_MD);
     for (unsigned row = 0; row < MESH_UI_KB_CHAR_ROWS; ++row) {
         for (unsigned col = 0; col < MESH_UI_KB_COLS; ++col) {
             const char ch = mesh_ui_kb_char((enum mesh_ui_kb_layer)nav->kb_layer, row, col);
@@ -1799,7 +1799,7 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
 
     struct fb_layout layout;
     memset(&layout, 0, sizeof layout);
-    layout.small = mesh_ui_theme_chrome_scale(state->theme, state->scale);
+    layout.small = mesh_ui_theme_type_scale(state->theme, MESH_UI_TYPE_LABEL, state->scale);
     layout.line = fb_line_adv(state, state->scale);
     layout.cols = fb_cols(state, state->scale);
 
@@ -1808,7 +1808,7 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
     const int margin = fb_margin(state);
     const int footer_height = 2 * fb_line_adv(state, layout.small) + margin;
     layout.footer_y = (int)state->var.yres - footer_height;
-    const int body_height = layout.footer_y - layout.body_y - margin / 2;
+    const int body_height = layout.footer_y - layout.body_y - fb_gutter(state);
     layout.rows = body_height > 0 ? (uint32_t)(body_height / layout.line) : 0U;
 
     /*

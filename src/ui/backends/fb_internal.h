@@ -145,6 +145,27 @@ int fb_margin(const struct mesh_ui_backend_fb_state *state);
    does; see enum mesh_ui_shape. */
 int fb_radius(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_shape shape);
 
+/* The gap `space` asks for, in pixels, at the body scale. */
+int fb_space(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_space space);
+
+/* The same gap at an explicit glyph multiplier, for the widgets that are drawn at one that is
+   not the body's - a rule under the tab strip, a switch on a chrome-scale row. A gap beside
+   smaller text has to be smaller too, or the scale stops being a scale. */
+int fb_space_at(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_space space, int scale);
+
+/* The glyph multiplier `type` is drawn at, given this state's body scale. */
+int fb_type_scale(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_type type);
+
+/*
+ * The half-margin: the inset a panel sits in, and the gutter the scroll rail lives in.
+ *
+ * Not part of the spacing scale, deliberately. The spacing scale is glyph-relative - it is the
+ * room around *text* - and this tracks the body margin instead, because what it measures is how
+ * far a panel is from the edge of the screen. A theme that asks for bigger text wants roomier
+ * padding and the same inset; one that asks for a roomier margin wants the opposite.
+ */
+int fb_gutter(const struct mesh_ui_backend_fb_state *state);
+
 /* How long `motion` lasts on this state's theme, in milliseconds. The duration half of an
    animation; the curve is still named at the call site. */
 uint32_t fb_motion(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_motion motion);
@@ -161,7 +182,9 @@ struct fb_layout {
     int line;      /* body line advance */
     uint32_t rows; /* body rows available */
     size_t cols;   /* body columns */
-    int small;     /* scale for chrome text */
+    /* The glyph multiplier chrome is drawn at: MESH_UI_TYPE_LABEL, resolved once in
+       fb_render_snapshot() and carried here so every piece of chrome in the frame agrees. */
+    int small;
 };
 
 /* ---- fb_draw.c: the drawing toolkit ------------------------------------------------------ */
