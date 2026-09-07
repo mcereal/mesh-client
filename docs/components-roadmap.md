@@ -240,12 +240,21 @@ is a list row that opens a screen because a card cannot offer a verb), and a car
 > blue, so the resting `paired` capsule came out the same colour as the warning beside it on the
 > first and as `connected` on the second. The resting state is a quiet word in the same
 > right-aligned slot now, and the colour is left to the rows that have something to report. The
-> leading-icon half and the pinned star are still open.
+> leading-icon half, the pinned star and the bubble's padlock are still open.
 
-**2.14 Two slots are built and nothing draws them.** `FB_LEADING_ICON` and `FB_TRAILING_BADGE`
-are implemented in `fb_widgets.c` and have no caller anywhere outside it. This is the one entry
+**2.14 A slot with no caller, and a slot only one component can reach.** This is the one entry
 on the list where the component is not missing — the *wiring* is — and it is therefore the
-cheapest visible change left.
+cheapest visible change left. The two slots are not in the same state, and an earlier draft of
+this section flattened them into one claim that was wrong about the second:
+
+- `FB_LEADING_ICON` is **never set**. The two branches that draw it in `fb_widgets.c` are
+  the implementation; nothing anywhere assigns the kind, so they are unreachable.
+- `FB_TRAILING_BADGE` has **exactly one**, and it is not a screen: `fb_draw_conversation()`
+  names it internally for a thread's unread count, so a badge is on screen on the Messages tab
+  and always has been. What no screen had done is reach for it while composing an
+  `fb_list_item` of its own — which is a much narrower finding than "nothing draws it", and
+  worth stating carefully, because a slot that is exercised through one hardcoded caller is
+  covered by that caller's rendering and cannot be assumed dead.
 
 The header's own examples for the leading slot name three screens and none of the three does it.
 Nodes and Devices both took the avatar instead, and in Devices' case that is right: a disc
@@ -255,18 +264,29 @@ list and the root rows, which have no leading anything and are the one list here
 column of words.
 
 The pinned star is the sharper finding. It is still `"\xE2\xAD\x90"` prepended to the row's text
-in `fb_render_nodes()` — the last marker character in the tree, and a live exception to §4's
-third rule. Its comment argues the star belongs beside the name rather than in place of the
+in `fb_render_nodes()` — a live exception to §4's third rule. Its comment argues the star belongs beside the name rather than in place of the
 identity the disc is carrying, which is a sound layout call and not an argument for a literal:
 the marker gutter is exactly the slot for "a fact about this row, one cell, before the words",
 and it is already reserved on every row of a list that declares it. Moving it there costs one
 entry in `icons.def` and a `gen-icons.py` run (§1.5).
 
-The badge is worth more than either. Devices puts `Connected` / `Working` / `Needs pairing` on
-the supporting line as dim text — a state word set as prose, where every platform draws a filled
-capsule, and where `FB_TRAILING_BADGE` with a family already draws exactly that. Success for
-connected, warning for needs-pairing: the tones are already chosen on that screen, they are just
-being spent on the row's ink instead of on a pill. That is a struct field, not a component.
+It is **not** the only one, and the second is the harder half. `fb_thread_row_build()` appends a
+literal `\U0001F512` to a bubble's meta line for a direct message the radio decrypted with our key
+pair rather than with a channel PSK, and that padlock is saying something no other mark on the
+screen says. The star can move because a list row has a marker gutter waiting for it; the meta
+line has no slots at all — it is a text run assembled by the line builder out of the delivered
+or pending word, the padlock and the reactions, in that order — so retiring this one means
+giving the bubble a slot first, which is a change to `struct fb_bubble` rather than a struct
+field. Budget it with the components, not with the star.
+
+The badge is still the cheapest of the three, one caller or none. Devices puts `Connected` /
+`Working` / `Needs pairing` on the supporting line as dim text — a state word set as prose,
+where every platform draws a filled capsule, and where `FB_TRAILING_BADGE` with a family already
+draws exactly that. Success for connected, warning for needs-pairing: the tones are already
+chosen on that screen, they are just being spent on the row's ink instead of on a pill. That is
+a struct field, not a component. That the conversation cell had been drawing one all along is an
+argument *for* doing it, not against: the slot is proven, and Messages and Devices saying the
+same thing the same way is the whole point of a component set.
 
 **2.15 There is no top app bar.** `fb_draw_title()` takes a `const char *`. A screen's heading is
 therefore a *string*, and everything a heading has to carry gets glued into that string:
@@ -440,7 +460,7 @@ Each step is independently shippable and each is visible.
 | 3 | Spacing scale (§1.2) | **done** | Mechanical, and every later step stops adding literals |
 | 4 | Type scale (§1.1) | **done** | The big one. Do it after spacing so the two land together |
 | 5 | Nav bar + action bar as components (§2.2, §2.3) | **done** | Both are moves into `fb_widgets.c`; both benefit from 3 and 4 |
-| 6 | Leading icon and badge, wired up (§2.14) | badge **done** | No new component: two built slots with no caller, and the last marker character |
+| 6 | Leading icon and badge, wired up (§2.14) | badge **done** | No new component: a slot with no caller, one only the conversation cell reaches, and two marker characters |
 | 7 | Top app bar (§2.15) |  | Retires the breadcrumb format strings, and is where 8 and 11 land |
 | 8 | Card variants and card actions (§2.4) |  | Where the type scale pays off most |
 | 9 | Variable-height list rows (§1.4) |  | Structural. §1.1's unfinished half and three components below wait on it |
@@ -533,9 +553,10 @@ what screens can *say*, so each wants its own scene.
   example: the hint entries were the obstacle rather than the supply, and retiring them was most
   of that step. The successor rule, now that the action bar exists: a screen names a **(button,
   verb) pair**, and a verb is a word, not a clause.
-- A component names an **icon**, never a marker character. One exception is still on
-  screen: the pinned node's star is a literal in the row's text (§2.14), and it is the
-  only one left.
+- A component names an **icon**, never a marker character. Two exceptions are still on screen
+  and they cost differently (§2.14): the pinned node's star is a literal in a list row's text,
+  and a marker gutter is already waiting for it; the padlock on a PKI-encrypted direct message
+  is a literal in a bubble's meta line, which has no slots to move it into.
 - `fb_widgets.h` stays a **component set, not a seam**: it is included only from
   `src/ui/backends/`. A type scale and a spacing scale are the opposite — they belong in
   `include/mesh/ui/theme.h` with the colours, because a second backend that grows colour should
@@ -549,11 +570,14 @@ Steps 1 to 5 landed between the two passes, so the re-audit was mostly a check t
 above still describes the tree. Four things it did not describe, and they are why the order in §3
 moved:
 
-- **The set has capability it is not spending.** `FB_LEADING_ICON` and `FB_TRAILING_BADGE` have
-  no caller (§2.14). The original audit read the component set by its header, which is the one
-  way to miss this — a slot that is implemented, documented and unused reads exactly like a slot
-  that is in use. Worth a `grep` for every kind in every enum before the next pass concludes
-  anything is missing.
+- **The set has capability it is not spending.** `FB_LEADING_ICON` has no caller at all, and
+  `FB_TRAILING_BADGE` had exactly one — `fb_draw_conversation()`, internally (§2.14). The
+  original audit read the component set by its header, which is the one way to miss the first:
+  a slot that is implemented, documented and unused reads exactly like a slot that is in use.
+  The correction is worth as much as the finding. A first draft of §2.14 called both of them
+  unused, which was wrong about the badge and would have mis-scoped step 6 — so the `grep` this
+  wants is over every kind in every enum, and it has to count callers *inside* `fb_widgets.c`
+  as well as outside, because a component that composes another component is a caller.
 - **The title is a string, and that is the last sentence-shaped string id doing structural
   work** (§2.15). §4's second rule caught the button hints and did not catch this, because
   `"Settings > %s%s%s"` looks like a format rather than like a sentence. It is both.
