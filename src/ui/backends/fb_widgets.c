@@ -1472,6 +1472,30 @@ void fb_draw_text_field(const struct mesh_ui_backend_fb_state *state,
    word of it has been - and clamped by fb_draw_icon() to what the sprite can carry. */
 #define FB_DIALOG_ICON_SCALE 3
 
+/*
+ * `src` shortened until the button holding it fits `max_w`.
+ *
+ * Measured with fb_button_width() rather than by dividing the width by a cell, because a
+ * button's padding and the gap after its icon are the button's business - a caller that did the
+ * arithmetic itself would disagree with the thing it is sizing the moment either changes.
+ *
+ * Cut on cell boundaries, so a label with an emoji or an accented character in it loses a whole
+ * glyph rather than half of a UTF-8 sequence. A label that cannot be made to fit at all keeps
+ * its first cell: something is drawn, and the button still marks where the press lands.
+ */
+static void fb_fit_button_label(const struct mesh_ui_backend_fb_state *state,
+                                enum mesh_ui_icon icon, const char *src, int scale, int max_w,
+                                char *out, size_t out_len) {
+    mesh_str_copy(out, out_len, src != NULL ? src : "");
+    while (fb_button_width(state, icon, out, scale) > max_w) {
+        const size_t cells = mesh_ui_text_cells(out);
+        if (cells <= 1U) {
+            return;
+        }
+        mesh_ui_text_cell_truncate(out, cells - 1U);
+    }
+}
+
 void fb_draw_dialog(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
                     const struct fb_dialog *dialog) {
     if (dialog == NULL) {
@@ -1505,6 +1529,31 @@ void fb_draw_dialog(const struct mesh_ui_backend_fb_state *state, const struct f
     const int room = layout->footer_y - layout->body_y - line;
 
     /*
+     * The action row, measured before the panel is: how tall the panel has to be depends on
+     * whether the two answers fit beside each other.
+     *
+     * They do not always. "Reset the node database" at the largest glyph scale wants more than
+     * the whole panel on its own, and side by side with Cancel it ran the cancel button off the
+     * left-hand edge of the *screen* - on a destructive confirmation, where the safe answer is
+     * the one that disappeared. So the row stacks when it has to, which is what every platform
+     * does with dialog actions too long to sit in a line, and each label is fitted to the panel
+     * so a single button can never overhang it either.
+     */
+    const int gap = scale * 2;
+    char accept_label[MESH_UI_LINE_MAX];
+    char cancel_label[MESH_UI_LINE_MAX];
+    fb_fit_button_label(state, MESH_UI_ICON_CHECK, dialog->accept, scale, text_w, accept_label,
+                        sizeof accept_label);
+    fb_fit_button_label(state, MESH_UI_ICON_CLOSE, dialog->cancel, scale, text_w, cancel_label,
+                        sizeof cancel_label);
+    const int cancel_w = fb_button_width(state, MESH_UI_ICON_CLOSE, cancel_label, scale);
+    const int accept_w = fb_button_width(state, MESH_UI_ICON_CHECK, accept_label, scale);
+    /* Stacked puts the answer that acts on top, the way a stacked dialog orders them - the
+       dismissive one stays nearest the thumb. */
+    const bool stacked = (accept_w + gap + cancel_w) > text_w;
+    const int actions_h = stacked ? (2 * button_h + gap) : button_h;
+
+    /*
      * Measure before drawing, as a card does and for the same reason: the fill has to go down
      * before the text, and how tall it is depends on how far the paragraph wraps.
      *
@@ -1513,7 +1562,7 @@ void fb_draw_dialog(const struct mesh_ui_backend_fb_state *state, const struct f
      * its explanation would be unanswerable - so the buttons, the headline and the icon are
      * reserved first and the supporting text takes what is left.
      */
-    const int fixed = pad + icon_h + head_h + line / 2 + button_h + pad;
+    const int fixed = pad + icon_h + head_h + line / 2 + actions_h + pad;
     const int text_room = room - fixed;
     const uint32_t fits = text_room > 0 ? (uint32_t)(text_room / line) : 0U;
     uint32_t text_lines = (dialog->text != NULL && dialog->text[0] != '\0')
@@ -1563,21 +1612,20 @@ void fb_draw_dialog(const struct mesh_ui_backend_fb_state *state, const struct f
     }
 
     /*
-     * The action row, against the panel's trailing edge and in the order every platform puts
-     * them: the answer that does nothing on the left, the one that acts on the right, so the
-     * press that costs something is never the one nearest a thumb resting where it was.
+     * Side by side, the answer that does nothing goes on the left and the one that acts on the
+     * right, so the press that costs something is never the one nearest a thumb resting where
+     * it was. Stacked, the same reasoning puts the acting answer on top.
      */
-    const int gap = scale * 2;
-    const int cancel_w = fb_button_width(state, MESH_UI_ICON_CLOSE, dialog->cancel, scale);
-    const int accept_w = fb_button_width(state, MESH_UI_ICON_CHECK, dialog->accept, scale);
-    const int row_y = panel_y + panel_h - pad - button_h;
-    const int accept_x = panel_x + panel_w - pad - accept_w;
-    const int cancel_x = accept_x - gap - cancel_w;
+    const int right = panel_x + panel_w - pad;
+    const int accept_y = panel_y + panel_h - pad - (stacked ? (2 * button_h + gap) : button_h);
+    const int cancel_y = stacked ? (accept_y + button_h + gap) : accept_y;
+    const int accept_x = right - accept_w;
+    const int cancel_x = stacked ? (right - cancel_w) : (accept_x - gap - cancel_w);
 
     const struct fb_button cancel = {
-        .rect = {cancel_x, row_y, cancel_w, button_h},
+        .rect = {cancel_x, cancel_y, cancel_w, button_h},
         .icon = MESH_UI_ICON_CLOSE,
-        .label = dialog->cancel,
+        .label = cancel_label,
         .selected = dialog->cursor != 0U,
         .variant = FB_BUTTON_TEXT,
         .shape = MESH_UI_SHAPE_FULL,
@@ -1604,9 +1652,9 @@ void fb_draw_dialog(const struct mesh_ui_backend_fb_state *state, const struct f
      */
     const bool accept_selected = dialog->cursor == 0U;
     const struct fb_button accept = {
-        .rect = {accept_x, row_y, accept_w, button_h},
+        .rect = {accept_x, accept_y, accept_w, button_h},
         .icon = MESH_UI_ICON_CHECK,
-        .label = dialog->accept,
+        .label = accept_label,
         .selected = accept_selected,
         .variant = accept_selected ? FB_BUTTON_TONAL : FB_BUTTON_TEXT,
         .shape = MESH_UI_SHAPE_FULL,

@@ -530,6 +530,14 @@ dropped a button to fit its explanation would be unanswerable.
 > label — ink on the panel, which survives every palette. `ui_capture_dialog_marks_the_selected_answer`
 > pins it, and fails on the design that looked right.
 
+The action row **stacks when the two answers will not fit side by side**, and each label is
+fitted to the panel first. Both halves are needed: "Reset the node database" at
+`MESH_UI_SCALE_MAX` wants more than the whole panel on its own, and beside Cancel it put the
+cancel button off the left-hand edge of the *screen* — on a destructive confirmation, where the
+answer that vanished was the safe one. Stacked, the acting answer goes on top and the dismissive
+one stays nearest the thumb. `ui_capture_dialog_actions_stay_inside_the_panel` renders every
+confirmable action at the largest scale and fails if anything lands outside the panel.
+
 `struct fb_bubble` is the other component that earns its keep, and it is the one place the
 thread's geometry lives. A bubble sizes itself to its own text (never past three quarters of the
 body), sits against the edge its direction names, and reports its height with
