@@ -27,29 +27,37 @@
  */
 struct fb_button_paint {
     bool has_fill;
-    enum mesh_ui_color fill;
-    enum mesh_ui_color ink;
+    struct mesh_ui_paint paint;
 };
 
-static struct fb_button_paint fb_button_paint(enum fb_button_variant variant, bool selected) {
-    switch (variant) {
+static struct fb_button_paint fb_button_paint(const struct mesh_ui_backend_fb_state *state,
+                                              const struct fb_button *button) {
+    const bool selected = button->selected;
+    switch (button->variant) {
     case FB_BUTTON_FILLED:
+        /* The neutral cursor surface, not a family: a keyboard key is a place to press, not a
+           statement about what pressing it means. */
         return (struct fb_button_paint){
-            true, selected ? MESH_UI_COLOR_SURFACE_ACTIVE : MESH_UI_COLOR_SURFACE_SEL,
-            MESH_UI_COLOR_TEXT_ON_SEL};
+            true,
+            {fb_color(state, selected ? MESH_UI_COLOR_SURFACE_ACTIVE : MESH_UI_COLOR_SURFACE_SEL),
+             fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL)}};
     case FB_BUTTON_TONAL:
-        /* Under the cursor a tonal control commits to the full accent: the held-back fill is
-           there so a label can be read over it, and a control being pressed has stopped being
-           something to read. */
-        return selected
-                   ? (struct fb_button_paint){true, MESH_UI_COLOR_ACCENT, MESH_UI_COLOR_ON_ACCENT}
-                   : (struct fb_button_paint){true, MESH_UI_COLOR_ACCENT_CONTAINER,
-                                              MESH_UI_COLOR_ON_ACCENT_CONTAINER};
+        /* Under the cursor a tonal control commits to the family's full strength: the container
+           is there so a label can be read over it, and a control being pressed has stopped
+           being something to read. One call, so the fill and the ink cannot come from different
+           halves of the family. */
+        return (struct fb_button_paint){
+            true,
+            fb_paint(state, button->family, selected ? MESH_UI_SLOT_BASE : MESH_UI_SLOT_CONTAINER,
+                     MESH_UI_STATE_REST)};
     case FB_BUTTON_TEXT:
     default:
-        return selected ? (struct fb_button_paint){true, MESH_UI_COLOR_SURFACE_ACTIVE,
-                                                   MESH_UI_COLOR_TEXT_ON_SEL}
-                        : (struct fb_button_paint){false, MESH_UI_COLOR_BG, MESH_UI_COLOR_TEXT};
+        return selected ? (struct fb_button_paint){true,
+                                                   {fb_color(state, MESH_UI_COLOR_SURFACE_ACTIVE),
+                                                    fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL)}}
+                        : (struct fb_button_paint){false,
+                                                   {fb_color(state, MESH_UI_COLOR_BG),
+                                                    fb_color(state, MESH_UI_COLOR_TEXT)}};
     }
 }
 
@@ -66,10 +74,10 @@ static int fb_button_content_w(const struct mesh_ui_backend_fb_state *state,
 }
 
 void fb_draw_button(const struct mesh_ui_backend_fb_state *state, const struct fb_button *button) {
-    const struct fb_button_paint paint = fb_button_paint(button->variant, button->selected);
+    const struct fb_button_paint paint = fb_button_paint(state, button);
     if (paint.has_fill) {
         fb_fill_round_rect(state, button->rect.x, button->rect.y, button->rect.w, button->rect.h,
-                           fb_radius(state, button->shape), fb_color(state, paint.fill));
+                           fb_radius(state, button->shape), paint.paint.fill);
     }
 
     const bool has_label = button->label != NULL && button->label[0] != '\0';
@@ -96,13 +104,13 @@ void fb_draw_button(const struct mesh_ui_backend_fb_state *state, const struct f
        the ground - reading the tone over a fill is how the keyboard's action row came out
        white on white. */
     const struct mesh_ui_rgb ink =
-        paint.has_fill ? fb_color(state, paint.ink) : fb_tone_color(state, button->idle_tone);
+        paint.has_fill ? paint.paint.ink : fb_tone_color(state, button->idle_tone);
     if (has_icon) {
         /* Blended against the fill the button has just laid down, or against whatever the
            caller says it is sitting on when it laid none - the two colours the ink was chosen
            against. */
         fb_draw_icon(state, x, y, button->icon, button->scale, ink,
-                     fb_color(state, paint.has_fill ? paint.fill : button->ground));
+                     paint.has_fill ? paint.paint.fill : fb_color(state, button->ground));
         x += fb_icon_box(state, button->scale) + (has_label ? adv / 2 : 0);
     }
     if (has_label) {
@@ -168,7 +176,7 @@ void fb_draw_title(const struct mesh_ui_backend_fb_state *state, struct fb_layou
     mesh_ui_line_printf(&line, "%s", title);
     mesh_ui_line_fit(&line, layout->cols);
     fb_draw_text(state, fb_margin(state), layout->body_y, mesh_ui_line_text(&line), state->scale,
-                 fb_tone_color(state, MESH_UI_TONE_ACCENT));
+                 fb_tone_color(state, MESH_UI_TONE_PRIMARY));
     layout->body_y += layout->line + state->scale;
     if (layout->rows > 1U) {
         layout->rows -= 1U;
@@ -457,13 +465,14 @@ static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struc
            taken off reads as something sitting on top. */
         const int width = (int)(cells + 1U) * adv;
         const int x = g->text_right - width;
+        /* One call for both halves: whatever the theme says reads on that family's own fill -
+           on the dark palette that is the ground colour, because white on its yellow is
+           unreadable at this glyph size. */
+        const struct mesh_ui_paint badge =
+            fb_paint(state, trailing->family, MESH_UI_SLOT_BASE, MESH_UI_STATE_REST);
         fb_fill_round_rect(state, x, slot_top, width, g->slot_h,
-                           fb_radius(state, MESH_UI_SHAPE_FULL),
-                           fb_color(state, MESH_UI_COLOR_ACCENT));
-        /* Whatever the theme says reads on its own accent fill - on the dark palette that is
-           the ground colour, because white on that yellow is unreadable at this glyph size. */
-        fb_draw_text(state, x + adv / 2, baseline, trailing->text, scale,
-                     fb_color(state, MESH_UI_COLOR_ON_ACCENT));
+                           fb_radius(state, MESH_UI_SHAPE_FULL), badge.fill);
+        fb_draw_text(state, x + adv / 2, baseline, trailing->text, scale, badge.ink);
         return;
     }
     case FB_TRAILING_ICON:
@@ -549,14 +558,17 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
         const int row_w = (int)state->var.xres - fb_margin(state);
         if (item->accent_edge) {
             /*
-             * The bar is laid the way a card's edge is: the accent shape first, the fill over
-             * it a scale narrower on the left only. Both share their right edge, so the accent
+             * The bar is laid the way a card's edge is: the marker shape first, the fill over
+             * it a scale narrower on the left only. Both share their right edge, so the marker
              * survives just where the bar is meant to be - and it follows the corner instead
              * of poking a square end out of it, which is what a straight bar does once the row
              * has ends.
              */
+            const enum mesh_ui_family edge_family = mesh_ui_tone_family(item->tone);
             fb_fill_round_rect(state, row_x, g.fill_top, row_w, g.fill_h, radius,
-                               fb_color(state, MESH_UI_COLOR_ACCENT));
+                               fb_tone_color(state, edge_family != MESH_UI_FAMILY_COUNT
+                                                        ? item->tone
+                                                        : MESH_UI_TONE_PRIMARY));
             fb_fill_round_rect(state, row_x + scale, g.fill_top, row_w - scale, g.fill_h, radius,
                                fb_color(state, MESH_UI_COLOR_SURFACE_SEL));
         } else {
@@ -676,8 +688,8 @@ void fb_draw_conversation(struct mesh_ui_backend_fb_state *state, struct fb_list
                    wearing the bad tone: the question and the answer in one place. */
                 .icon = conversation->armed ? MESH_UI_ICON_DELETE : conversation->avatar_icon,
                 .tint = conversation->tint,
-                .role = conversation->armed    ? MESH_UI_COLOR_BAD
-                        : conversation->accent ? MESH_UI_COLOR_ACCENT
+                .role = conversation->armed    ? MESH_UI_COLOR_ERROR
+                        : conversation->accent ? MESH_UI_COLOR_PRIMARY
                                                : MESH_UI_COLOR_COUNT,
             },
         .text = conversation->name,
@@ -695,7 +707,7 @@ void fb_draw_conversation(struct mesh_ui_backend_fb_state *state, struct fb_list
         /* An unread preview is the row's own words at full weight - never the name's tone,
            which says what kind of conversation this is rather than how much of it is new. The
            half that still reads once the badge has been marked away. */
-        .supporting_tone = conversation->armed    ? MESH_UI_TONE_BAD
+        .supporting_tone = conversation->armed    ? MESH_UI_TONE_ERROR
                            : conversation->unread ? MESH_UI_TONE_STRONG
                                                   : MESH_UI_TONE_DIM,
         .supporting_quiet = !conversation->armed && !conversation->unread,
@@ -731,18 +743,50 @@ static size_t fb_bubble_max_cols(const struct mesh_ui_backend_fb_state *state,
 static bool fb_bubble_has(const char *text) { return text != NULL && text[0] != '\0'; }
 
 /*
- * The tone for a bubble's quieter lines - the sender on one of ours, the clock on any of them.
+ * The fill and the ink a bubble is drawn in.
  *
- * Dim while the bubble sits at rest, and the bubble's own body colour once the cursor is on it.
- * The selected fills are a step lighter by design, and dim over one of those is the pairing a
- * theme has least room for: on the dark palette it measured 1.9:1, well under the 3:1 a
- * secondary line is held to, and the body colour is a pair the theme is already validated on.
+ * Three cases, and each is a *container* rather than a colour of its own: ours is the secondary
+ * family, one that failed is the error family, and one of theirs is the neutral raised tier -
+ * because "somebody else said this" is not a verdict, and a hue there would compete with the
+ * sender line, which is a verdict. The cursor is a state layer over whichever of the three it
+ * is, not a second fill.
+ *
+ * This replaced five roles - three fills, two more for the same fills under the cursor - that
+ * every theme had to state and match by eye against each other. The pairs it answers with are
+ * the ones mesh_ui_theme_validate() already holds, selected included.
  */
-static enum mesh_ui_tone fb_bubble_quiet_tone(const struct fb_bubble *bubble) {
-    if (!bubble->selected || bubble->failed) {
-        return MESH_UI_TONE_DIM;
+static struct mesh_ui_paint fb_bubble_paint(const struct mesh_ui_backend_fb_state *state,
+                                            const struct fb_bubble *bubble) {
+    const enum mesh_ui_state ui_state =
+        bubble->selected ? MESH_UI_STATE_SELECTED : MESH_UI_STATE_REST;
+    if (bubble->failed) {
+        return fb_paint(state, MESH_UI_FAMILY_ERROR, MESH_UI_SLOT_CONTAINER, ui_state);
     }
-    return bubble->outbound ? MESH_UI_TONE_OUTBOUND : MESH_UI_TONE_INBOUND;
+    if (bubble->outbound) {
+        return fb_paint(state, MESH_UI_FAMILY_SECONDARY, MESH_UI_SLOT_CONTAINER, ui_state);
+    }
+    return (struct mesh_ui_paint){
+        .fill = fb_state_layer(state, MESH_UI_COLOR_SURFACE_HIGH, MESH_UI_COLOR_TEXT, ui_state),
+        .ink = fb_color(state, MESH_UI_COLOR_TEXT),
+    };
+}
+
+/*
+ * The colour for a bubble's quieter lines - the sender on one of ours, the clock on any of them.
+ *
+ * Dim while the bubble sits at rest, and the bubble's own ink once the cursor is on it or the
+ * fill has gone red. The selected fills are a step towards their ink by design, and dim over
+ * one of those is the pairing a theme has least room for: on the dark palette it measured
+ * 1.9:1, well under the 3:1 a secondary line is held to, and the bubble's own ink is a pair the
+ * theme is validated on by construction.
+ */
+static struct mesh_ui_rgb fb_bubble_quiet(const struct mesh_ui_backend_fb_state *state,
+                                          const struct fb_bubble *bubble,
+                                          struct mesh_ui_paint paint) {
+    if (bubble->selected || bubble->failed) {
+        return paint.ink;
+    }
+    return fb_tone_color(state, MESH_UI_TONE_DIM);
 }
 
 static struct fb_bubble_metrics fb_bubble_measure(const struct mesh_ui_backend_fb_state *state,
@@ -852,15 +896,8 @@ void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct f
     const uint32_t box_rows = metrics.rows - (fb_bubble_has(bubble->separator) ? 1U : 0U);
     const int box_h = (int)box_rows * layout->line - scale;
 
-    enum mesh_ui_color fill_role;
-    if (bubble->failed) {
-        fill_role = MESH_UI_COLOR_BUBBLE_FAILED;
-    } else if (bubble->outbound) {
-        fill_role = bubble->selected ? MESH_UI_COLOR_BUBBLE_OUT_SEL : MESH_UI_COLOR_BUBBLE_OUT;
-    } else {
-        fill_role = bubble->selected ? MESH_UI_COLOR_BUBBLE_IN_SEL : MESH_UI_COLOR_BUBBLE_IN;
-    }
-    const struct mesh_ui_rgb fill = fb_color(state, fill_role);
+    const struct mesh_ui_paint paint = fb_bubble_paint(state, bubble);
+    const struct mesh_ui_rgb fill = paint.fill;
     /*
      * Rounded, because a bubble is the one shape in this UI that everybody already has a
      * picture of: a transcript of square boxes reads as a log, and the same boxes with their
@@ -876,31 +913,34 @@ void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct f
     const int radius = fb_radius(state, MESH_UI_SHAPE_MD);
     if (bubble->selected) {
         fb_fill_round_rect(state, box_x, y - scale, box_w, box_h, radius,
-                           fb_color(state, MESH_UI_COLOR_ACCENT));
+                           fb_color(state, MESH_UI_COLOR_PRIMARY));
     }
     const int fill_x = (bubble->selected && !bubble->outbound) ? box_x + scale : box_x;
     const int fill_w = bubble->selected ? box_w - scale : box_w;
     fb_fill_round_rect(state, fill_x, y - scale, fill_w, box_h, radius, fill);
 
     const int text_x = box_x + pad;
-    const struct mesh_ui_rgb body =
-        fb_tone_color(state, bubble->outbound ? MESH_UI_TONE_OUTBOUND : MESH_UI_TONE_INBOUND);
+    const struct mesh_ui_rgb body = paint.ink;
 
     if (fb_bubble_has(bubble->name)) {
         struct mesh_ui_line line;
         mesh_ui_line_reset(&line);
         mesh_ui_line_printf(&line, "%s", bubble->name);
         mesh_ui_line_fit(&line, metrics.cols);
-        /* Ours is dimmed and theirs is accented: on our own bubble the name is a reminder, on
-           theirs it is the thing being looked for. An alert overrides both - it is the one
-           bubble whose heading is the point rather than the label on the point. */
-        enum mesh_ui_tone name_tone =
-            bubble->outbound ? fb_bubble_quiet_tone(bubble) : MESH_UI_TONE_ACCENT;
-        if (bubble->alert) {
-            name_tone = MESH_UI_TONE_BAD;
+        /* Ours is dimmed and theirs takes the primary: on our own bubble the name is a
+           reminder, on theirs it is the thing being looked for. An alert overrides both - it is
+           the one bubble whose heading is the point rather than the label on the point. A
+           bubble that failed takes its own ink for all three, because the fill has already said
+           the only thing a hue on top of it could add. */
+        struct mesh_ui_rgb name_color = fb_bubble_quiet(state, bubble, paint);
+        if (!bubble->failed) {
+            if (bubble->alert) {
+                name_color = fb_tone_color(state, MESH_UI_TONE_ERROR);
+            } else if (!bubble->outbound) {
+                name_color = fb_tone_color(state, MESH_UI_TONE_PRIMARY);
+            }
         }
-        fb_draw_text(state, text_x, y, mesh_ui_line_text(&line), scale,
-                     fb_tone_color(state, name_tone));
+        fb_draw_text(state, text_x, y, mesh_ui_line_text(&line), scale, name_color);
         y += layout->line;
     }
 
@@ -925,8 +965,7 @@ void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct f
         return;
     }
     const int meta_w = (int)mesh_ui_text_cells(bubble->meta) * adv;
-    const struct mesh_ui_rgb meta_color =
-        fb_tone_color(state, bubble->failed ? MESH_UI_TONE_BAD : fb_bubble_quiet_tone(bubble));
+    const struct mesh_ui_rgb meta_color = fb_bubble_quiet(state, bubble, paint);
     if (metrics.meta_own_line) {
         fb_draw_text(state, box_x + box_w - pad - meta_w, y, bubble->meta, scale, meta_color);
     } else {
@@ -1570,22 +1609,29 @@ void fb_draw_switch(struct mesh_ui_backend_fb_state *state, const struct fb_swit
      * never takes the accent.
      */
     const bool past_middle = position > MESH_UI_ANIM_ONE / 2;
-    const enum mesh_ui_color track_role =
-        sw->dim ? (past_middle ? MESH_UI_COLOR_RULE_STRONG : MESH_UI_COLOR_RULE)
-                : (past_middle ? MESH_UI_COLOR_ACCENT : MESH_UI_COLOR_SURFACE_SEL);
-    const enum mesh_ui_color knob_role =
-        sw->dim ? MESH_UI_COLOR_TEXT_DIM
-                : (past_middle ? MESH_UI_COLOR_ON_ACCENT : MESH_UI_COLOR_TEXT_ON_SEL);
-    fb_fill_round_rect(state, sw->rect.x, sw->rect.y, sw->rect.w, sw->rect.h, radius,
-                       fb_color(state, track_role));
+    const struct mesh_ui_paint on_paint =
+        fb_paint(state, sw->family, MESH_UI_SLOT_BASE, MESH_UI_STATE_REST);
+    struct mesh_ui_rgb track;
+    struct mesh_ui_rgb knob;
+    if (sw->dim) {
+        track = fb_color(state, past_middle ? MESH_UI_COLOR_RULE_STRONG : MESH_UI_COLOR_RULE);
+        knob = fb_color(state, MESH_UI_COLOR_TEXT_DIM);
+    } else if (past_middle) {
+        /* The on end is the family, fill and knob taken from the one pair. */
+        track = on_paint.fill;
+        knob = on_paint.ink;
+    } else {
+        track = fb_color(state, MESH_UI_COLOR_SURFACE_SEL);
+        knob = fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL);
+    }
+    fb_fill_round_rect(state, sw->rect.x, sw->rect.y, sw->rect.w, sw->rect.h, radius, track);
 
     /* The knob: a disc inside a ring of track, travelling the width less that ring. */
     const int inset = sw->rect.h / 8 + 1;
-    const int knob = sw->rect.h - 2 * inset;
-    const int travel = sw->rect.w - 2 * inset - knob;
+    const int knob_size = sw->rect.h - 2 * inset;
+    const int travel = sw->rect.w - 2 * inset - knob_size;
     const int x = sw->rect.x + inset + (travel > 0 ? (travel * position) / MESH_UI_ANIM_ONE : 0);
-    fb_fill_round_rect(state, x, sw->rect.y + inset, knob, knob, knob / 2,
-                       fb_color(state, knob_role));
+    fb_fill_round_rect(state, x, sw->rect.y + inset, knob_size, knob_size, knob_size / 2, knob);
 }
 
 /* ---- the meter ----------------------------------------------------------------------------- */
@@ -1632,21 +1678,16 @@ int fb_meter_thickness(const struct mesh_ui_backend_fb_state *state, int scale) 
 /*
  * The fill's colour.
  *
- * Only the three tones mesh_ui_theme_validate() holds against MESH_UI_COLOR_METER_TRACK can be
- * drawn, and anything else folds back to the accent rather than being drawn as asked. That is
- * not defensiveness: a fill nobody has validated against the track is a bar that vanishes on
- * some theme somebody has not opened yet, and the accent is the one answer that is always right
- * for "something is here". Keep this list and the one in the validator together.
+ * A family tone and nothing else. The neutral three - normal, dim, strong - fold back to the
+ * primary rather than being drawn as asked, and that is not defensiveness: a fill nobody has
+ * validated against MESH_UI_COLOR_METER_TRACK is a bar that vanishes on some theme somebody has
+ * not opened yet, and the primary is the one answer that is always right for "something is
+ * here". Every family *is* validated against the track, so this is now a question about the
+ * kind of tone rather than a list to keep in step with the validator - which is what the list
+ * that used to be here was, and it went stale the moment a fourth fill existed.
  */
 static enum mesh_ui_tone fb_meter_tone(enum mesh_ui_tone tone) {
-    switch (tone) {
-    case MESH_UI_TONE_GOOD:
-    case MESH_UI_TONE_BAD:
-    case MESH_UI_TONE_ACCENT:
-        return tone;
-    default:
-        return MESH_UI_TONE_ACCENT;
-    }
+    return mesh_ui_tone_family(tone) != MESH_UI_FAMILY_COUNT ? tone : MESH_UI_TONE_PRIMARY;
 }
 
 void fb_draw_meter(struct mesh_ui_backend_fb_state *state, const struct fb_meter *meter) {
@@ -1790,7 +1831,7 @@ void fb_draw_text_field(const struct mesh_ui_backend_fb_state *state,
 
     if (fb_text_field_label_h(state, layout, field) > 0) {
         fb_draw_text(state, margin, top, field->label, layout->small,
-                     fb_tone_color(state, field->error ? MESH_UI_TONE_BAD : MESH_UI_TONE_DIM));
+                     fb_tone_color(state, field->error ? MESH_UI_TONE_ERROR : MESH_UI_TONE_DIM));
         top += fb_text_field_label_h(state, layout, field);
     }
 
@@ -1802,7 +1843,7 @@ void fb_draw_text_field(const struct mesh_ui_backend_fb_state *state,
     const int edge = fb_edge(state);
     const int radius = fb_radius(state, MESH_UI_SHAPE_MD);
     fb_fill_round_rect(state, box_x, top, box_w, box_h, radius + edge,
-                       fb_color(state, field->error ? MESH_UI_COLOR_BAD : MESH_UI_COLOR_OUTLINE));
+                       fb_color(state, field->error ? MESH_UI_COLOR_ERROR : MESH_UI_COLOR_OUTLINE));
     fb_fill_round_rect(state, box_x + edge, top + edge, box_w - 2 * edge, box_h - 2 * edge, radius,
                        fb_color(state, MESH_UI_COLOR_SURFACE_HIGH));
 
@@ -1833,7 +1874,7 @@ void fb_draw_text_field(const struct mesh_ui_backend_fb_state *state,
         const int adv = fb_char_adv(state, layout->small);
         const int x = box_x + box_w - (int)mesh_ui_text_cells(field->counter) * adv;
         fb_draw_text(state, x, top, field->counter, layout->small,
-                     fb_tone_color(state, field->error ? MESH_UI_TONE_BAD : MESH_UI_TONE_DIM));
+                     fb_tone_color(state, field->error ? MESH_UI_TONE_ERROR : MESH_UI_TONE_DIM));
         top += fb_text_field_counter_h(state, layout, field);
     }
 
@@ -1883,8 +1924,11 @@ void fb_draw_dialog(const struct mesh_ui_backend_fb_state *state, const struct f
     const int pad = margin;
     const int adv = fb_char_adv(state, scale);
 
-    const enum mesh_ui_tone accent_tone =
-        dialog->destructive ? MESH_UI_TONE_BAD : MESH_UI_TONE_ACCENT;
+    /* One decision for the whole panel: the icon, the headline and the accept button's fill all
+       come off this, so a destructive dialog cannot end up half red. */
+    const enum mesh_ui_family accept_family =
+        dialog->destructive ? MESH_UI_FAMILY_ERROR : MESH_UI_FAMILY_PRIMARY;
+    const enum mesh_ui_tone accent_tone = mesh_ui_family_tone(accept_family);
 
     const int panel_x = margin / 2;
     const int panel_w = (int)state->var.xres - margin;
@@ -2016,13 +2060,13 @@ void fb_draw_dialog(const struct mesh_ui_backend_fb_state *state, const struct f
      * The obvious design gives the accept a standing fill so it reads as the proposed answer,
      * and lets the cursor pick between them. That works on three of the four themes and fails
      * on the one where it matters most: the high-contrast palette deliberately collapses
-     * ACCENT, ACCENT_CONTAINER and SURFACE_ACTIVE onto a single yellow, because a theme built
+     * PRIMARY, PRIMARY_CONTAINER and SURFACE_ACTIVE onto a single yellow, because a theme built
      * for legibility does not have a "held back" version of its one accent. Two buttons whose
      * fills both resolve to that yellow are two buttons a user cannot tell apart, on the theme
      * chosen by the people least able to guess.
      *
      * So the fill means focus and nothing else, and what marks the accept as the affirmative is
-     * its check and its accent-coloured label - a cue that survives every palette because it is
+     * its check and its family-coloured label - a cue that survives every palette because it is
      * ink on the panel rather than one fill against another.
      */
     const bool accept_selected = dialog->cursor == 0U;
@@ -2032,6 +2076,9 @@ void fb_draw_dialog(const struct mesh_ui_backend_fb_state *state, const struct f
         .label = accept_label,
         .selected = accept_selected,
         .variant = accept_selected ? FB_BUTTON_TONAL : FB_BUTTON_TEXT,
+        /* The dialog's family, so a destructive confirm is a red pill rather than a red word on
+           the ordinary one - and the ink on it is the one checked against that red. */
+        .family = accept_family,
         .shape = MESH_UI_SHAPE_FULL,
         .idle_tone = accent_tone,
         .ground = MESH_UI_COLOR_SURFACE_HIGH,

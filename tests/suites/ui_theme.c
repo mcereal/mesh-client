@@ -69,8 +69,8 @@ MESH_TEST_CASE(ui_theme_tables_are_readable, unit) {
         /* Every tone has to resolve to a role a theme actually filled in, and the tones that
            mean opposite things must not come out the same colour - "connected" and "failed"
            telling you nothing apart is the whole failure the colour-blind theme is about. */
-        const struct mesh_ui_rgb good = mesh_ui_theme_tone(theme, MESH_UI_TONE_GOOD);
-        const struct mesh_ui_rgb bad = mesh_ui_theme_tone(theme, MESH_UI_TONE_BAD);
+        const struct mesh_ui_rgb good = mesh_ui_theme_tone(theme, MESH_UI_TONE_SUCCESS);
+        const struct mesh_ui_rgb bad = mesh_ui_theme_tone(theme, MESH_UI_TONE_ERROR);
         MESH_TEST_FAIL_IF(good.r == bad.r && good.g == bad.g && good.b == bad.b,
                           "a theme draws good and bad in the same colour");
     }
@@ -131,7 +131,7 @@ MESH_TEST_CASE(ui_theme_avatar_palettes, unit) {
     struct mesh_ui_theme bare = *mesh_ui_theme_default();
     bare.avatar_count = 0U;
     const struct mesh_ui_rgb fallback = mesh_ui_theme_avatar(&bare, 7U);
-    const struct mesh_ui_rgb accent = mesh_ui_theme_color(&bare, MESH_UI_COLOR_ACCENT);
+    const struct mesh_ui_rgb accent = mesh_ui_theme_color(&bare, MESH_UI_COLOR_PRIMARY);
     MESH_TEST_FAIL_IF(fallback.r != accent.r || fallback.g != accent.g || fallback.b != accent.b,
                       "a theme with no palette should fall back to the accent it already owes");
     record_success(test_name);
@@ -157,34 +157,34 @@ MESH_TEST_CASE(ui_theme_contrast_is_the_wcag_ratio, unit) {
  * meter under them all speak, so that a number and the picture of it cannot disagree.
  */
 MESH_TEST_CASE(ui_theme_tone_for_load_bands, unit) {
-    MESH_TEST_FAIL_IF(mesh_ui_tone_for_load(0, 250, 500) != MESH_UI_TONE_GOOD,
+    MESH_TEST_FAIL_IF(mesh_ui_tone_for_load(0, 250, 500) != MESH_UI_TONE_SUCCESS,
                       "nothing used should be good news");
-    MESH_TEST_FAIL_IF(mesh_ui_tone_for_load(249, 250, 500) != MESH_UI_TONE_GOOD,
+    MESH_TEST_FAIL_IF(mesh_ui_tone_for_load(249, 250, 500) != MESH_UI_TONE_SUCCESS,
                       "just under the warning is still good");
     /* Both thresholds are inclusive lower bounds, which is the half of this most likely to be
        got wrong later: exactly 25% of the air is already a mesh worth looking at. */
-    MESH_TEST_FAIL_IF(mesh_ui_tone_for_load(250, 250, 500) != MESH_UI_TONE_ACCENT,
+    MESH_TEST_FAIL_IF(mesh_ui_tone_for_load(250, 250, 500) != MESH_UI_TONE_WARNING,
                       "the warning threshold itself should warn");
-    MESH_TEST_FAIL_IF(mesh_ui_tone_for_load(499, 250, 500) != MESH_UI_TONE_ACCENT,
+    MESH_TEST_FAIL_IF(mesh_ui_tone_for_load(499, 250, 500) != MESH_UI_TONE_WARNING,
                       "just under the bad threshold is still a warning");
-    MESH_TEST_FAIL_IF(mesh_ui_tone_for_load(500, 250, 500) != MESH_UI_TONE_BAD,
+    MESH_TEST_FAIL_IF(mesh_ui_tone_for_load(500, 250, 500) != MESH_UI_TONE_ERROR,
                       "the bad threshold itself should be bad");
-    MESH_TEST_FAIL_IF(mesh_ui_tone_for_load(1000, 250, 500) != MESH_UI_TONE_BAD,
+    MESH_TEST_FAIL_IF(mesh_ui_tone_for_load(1000, 250, 500) != MESH_UI_TONE_ERROR,
                       "a full track is bad news");
 
     /* Thresholds handed over backwards must not make the middle band unreachable: a screen
        permanently in the red reads as a mesh in trouble rather than as a caller's typo. */
-    MESH_TEST_FAIL_IF(mesh_ui_tone_for_load(300, 500, 250) != MESH_UI_TONE_ACCENT,
+    MESH_TEST_FAIL_IF(mesh_ui_tone_for_load(300, 500, 250) != MESH_UI_TONE_WARNING,
                       "swapped thresholds should still band the middle");
 
-    /* Every tone it can answer with is one a meter is allowed to be filled in - which is what
-       mesh_ui_theme_validate() holds each theme to, and what fb_draw_meter() folds anything
-       else back to. The two lists are one contract and this is where they are checked to be. */
+    /* Every tone it can answer with names a family, which is exactly what a meter is allowed
+       to be filled with: mesh_ui_theme_validate() holds every family against the track and
+       fb_draw_meter() folds anything that names none back to the primary. The two are one
+       contract and this is where it is checked. */
     for (int32_t level = 0; level <= MESH_UI_ANIM_ONE; level += 50) {
         const enum mesh_ui_tone tone = mesh_ui_tone_for_load(level, 250, 500);
-        MESH_TEST_FAIL_IF(tone != MESH_UI_TONE_GOOD && tone != MESH_UI_TONE_ACCENT &&
-                              tone != MESH_UI_TONE_BAD,
-                          "a load tone escaped the three a meter is validated for");
+        MESH_TEST_FAIL_IF(mesh_ui_tone_family(tone) == MESH_UI_FAMILY_COUNT,
+                          "a load tone escaped the families a meter is validated for");
     }
     record_success(test_name);
 }
@@ -198,7 +198,7 @@ MESH_TEST_CASE(ui_theme_validate_holds_the_meter_pairs, unit) {
     char reason[128];
 
     struct mesh_ui_theme flat = *mesh_ui_theme_default();
-    flat.colors[MESH_UI_COLOR_GOOD] = flat.colors[MESH_UI_COLOR_METER_TRACK];
+    flat.colors[MESH_UI_COLOR_SUCCESS] = flat.colors[MESH_UI_COLOR_METER_TRACK];
     reason[0] = '\0';
     MESH_TEST_FAIL_IF(mesh_ui_theme_validate(&flat, reason, sizeof reason),
                       "a meter fill the colour of its own track passed validation");
@@ -317,7 +317,7 @@ MESH_TEST_CASE(ui_theme_states_its_geometry, unit) {
 
     char reason[128];
     struct mesh_ui_theme swallowed = *mesh_ui_theme_default();
-    swallowed.colors[MESH_UI_COLOR_SURFACE] = swallowed.colors[MESH_UI_COLOR_ACCENT];
+    swallowed.colors[MESH_UI_COLOR_SURFACE] = swallowed.colors[MESH_UI_COLOR_PRIMARY];
     reason[0] = '\0';
     MESH_TEST_FAIL_IF(mesh_ui_theme_validate(&swallowed, reason, sizeof reason),
                       "a card fill that swallows the accent heading passed validation");
@@ -715,5 +715,173 @@ MESH_TEST_CASE(ui_theme_carries_its_own_scale, unit) {
     free(at_theme_scale);
     mesh_ui_capture_close(capture);
     mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * The families are an index, not a switch: mesh_ui_family_role() multiplies, and the enum is
+ * laid out so that it can. The _Static_asserts in the header pin the three corners of that
+ * layout; this walks the whole grid, because an enum that is right at the corners and wrong in
+ * the middle would build and then paint the warning colour onto the success rows.
+ */
+MESH_TEST_CASE(ui_theme_family_slots_are_an_index, unit) {
+    for (int f = 0; f < MESH_UI_FAMILY_COUNT; ++f) {
+        const enum mesh_ui_family family = (enum mesh_ui_family)f;
+        for (int sl = 0; sl < MESH_UI_SLOT_COUNT; ++sl) {
+            const enum mesh_ui_color role = mesh_ui_family_role(family, (enum mesh_ui_slot)sl);
+            MESH_TEST_FAIL_IF(role >= MESH_UI_COLOR_COUNT, "a family slot left the palette");
+            MESH_TEST_FAIL_IF((int)role != (int)MESH_UI_COLOR_PRIMARY + f * MESH_UI_SLOT_COUNT + sl,
+                              "a family slot is not where the arithmetic says it is");
+        }
+        /* Tone and family name the same thing from two directions, and a round trip that lost
+           its way would silently recolour every screen that speaks tones. */
+        MESH_TEST_FAIL_IF(mesh_ui_tone_family(mesh_ui_family_tone(family)) != family,
+                          "a family did not survive the trip through its tone");
+        MESH_TEST_FAIL_IF(mesh_ui_tone_role(mesh_ui_family_tone(family)) !=
+                              mesh_ui_family_role(family, MESH_UI_SLOT_BASE),
+                          "a family tone did not resolve to its own base");
+    }
+
+    /* The neutral three name no family - which is the answer fb_draw_meter() acts on. */
+    MESH_TEST_FAIL_IF(mesh_ui_tone_family(MESH_UI_TONE_NORMAL) != MESH_UI_FAMILY_COUNT,
+                      "the normal tone claimed a family");
+    MESH_TEST_FAIL_IF(mesh_ui_tone_family(MESH_UI_TONE_DIM) != MESH_UI_FAMILY_COUNT,
+                      "the dim tone claimed a family");
+    MESH_TEST_FAIL_IF(mesh_ui_tone_family(MESH_UI_TONE_STRONG) != MESH_UI_FAMILY_COUNT,
+                      "the strong tone claimed a family");
+
+    /* Nonsense answers with the primary rather than with nothing, for the reason an unknown
+       MESHCLIENT_THEME warns rather than failing: a bad enum must not leave a widget unpainted. */
+    MESH_TEST_FAIL_IF(mesh_ui_family_role((enum mesh_ui_family) - 1, MESH_UI_SLOT_BASE) !=
+                          MESH_UI_COLOR_PRIMARY,
+                      "an out-of-range family did not fall back to the primary");
+    MESH_TEST_FAIL_IF(mesh_ui_family_role(MESH_UI_FAMILY_ERROR, (enum mesh_ui_slot)99) !=
+                          MESH_UI_COLOR_ERROR,
+                      "an out-of-range slot did not fall back to the base");
+    record_success(test_name);
+}
+
+/*
+ * The state layer replaced five stated roles with one operation, so the operation has to hold
+ * the properties those roles were picked by hand to have: it moves the fill towards its own
+ * ink, it moves further when pressed than when selected, and it never arrives.
+ *
+ * The last is the one worth a test. A layer that overshot would hand a widget the ink colour as
+ * its fill, which is a control that vanishes at exactly the moment it is being used.
+ */
+MESH_TEST_CASE(ui_theme_state_layer_moves_towards_the_ink, unit) {
+    const struct mesh_ui_rgb fill = {10, 20, 30};
+    const struct mesh_ui_rgb ink = {250, 240, 230};
+
+    const struct mesh_ui_rgb rest = mesh_ui_theme_state_layer(fill, ink, MESH_UI_STATE_REST);
+    MESH_TEST_FAIL_IF(rest.r != fill.r || rest.g != fill.g || rest.b != fill.b,
+                      "resting is not the fill untouched");
+
+    const struct mesh_ui_rgb sel = mesh_ui_theme_state_layer(fill, ink, MESH_UI_STATE_SELECTED);
+    const struct mesh_ui_rgb act = mesh_ui_theme_state_layer(fill, ink, MESH_UI_STATE_ACTIVE);
+    MESH_TEST_FAIL_IF(sel.r <= fill.r || sel.g <= fill.g || sel.b <= fill.b,
+                      "the selected layer did not move towards the ink");
+    MESH_TEST_FAIL_IF(act.r <= sel.r || act.g <= sel.g || act.b <= sel.b,
+                      "pressed is not a step further than selected");
+    MESH_TEST_FAIL_IF(act.r >= ink.r || act.g >= ink.g || act.b >= ink.b,
+                      "the layer reached the ink, so the fill and its label are one colour");
+
+    /* On a light palette the same call has to darken, which is the whole reason the layer mixes
+       the *ink* in rather than white: one rule, both directions, neither spelled out. */
+    const struct mesh_ui_rgb pale = {245, 245, 245};
+    const struct mesh_ui_rgb dark_ink = {20, 20, 20};
+    const struct mesh_ui_rgb pale_sel =
+        mesh_ui_theme_state_layer(pale, dark_ink, MESH_UI_STATE_SELECTED);
+    MESH_TEST_FAIL_IF(pale_sel.r >= pale.r, "the layer lightened a light fill");
+
+    /* Two colours a hair apart still have to separate: truncating the mix towards zero is how a
+       state layer becomes a no-op on exactly the themes whose tiers are closest together. */
+    const struct mesh_ui_rgb near_a = {100, 100, 100};
+    const struct mesh_ui_rgb near_b = {104, 104, 104};
+    const struct mesh_ui_rgb nudged =
+        mesh_ui_theme_state_layer(near_a, near_b, MESH_UI_STATE_SELECTED);
+    MESH_TEST_FAIL_IF(nudged.r == near_a.r, "a near-flat pair produced no state layer at all");
+    record_success(test_name);
+}
+
+/*
+ * mesh_ui_theme_paint() exists so that a fill and the label on it can only ever be chosen
+ * together. This is that promise: for every theme, family and slot, what comes back is a pair
+ * validate() has already held to 4.5:1 - selected included, because the state layer moves the
+ * fill towards the ink and so can only ever cost contrast.
+ */
+MESH_TEST_CASE(ui_theme_paint_returns_a_validated_pair, unit) {
+    static const enum mesh_ui_slot k_slots[] = {MESH_UI_SLOT_BASE, MESH_UI_SLOT_CONTAINER};
+    static const enum mesh_ui_state k_states[] = {MESH_UI_STATE_REST, MESH_UI_STATE_SELECTED,
+                                                  MESH_UI_STATE_ACTIVE};
+    for (size_t i = 0; i < mesh_ui_theme_count(); ++i) {
+        const struct mesh_ui_theme *theme = mesh_ui_theme_at(i);
+        for (int f = 0; f < MESH_UI_FAMILY_COUNT; ++f) {
+            for (size_t sl = 0; sl < sizeof k_slots / sizeof k_slots[0]; ++sl) {
+                for (size_t st = 0; st < sizeof k_states / sizeof k_states[0]; ++st) {
+                    const struct mesh_ui_paint paint = mesh_ui_theme_paint(
+                        theme, (enum mesh_ui_family)f, k_slots[sl], k_states[st]);
+                    /* A base takes no state layer at all - it is already the full-strength end
+                       a pressed control commits to - so every state must answer with the same
+                       fill there. Anything else is a saturated pair being diluted. */
+                    if (k_slots[sl] == MESH_UI_SLOT_BASE) {
+                        const struct mesh_ui_rgb base =
+                            mesh_ui_theme_family(theme, (enum mesh_ui_family)f, MESH_UI_SLOT_BASE);
+                        MESH_TEST_FAIL_IF(paint.fill.r != base.r || paint.fill.g != base.g ||
+                                              paint.fill.b != base.b,
+                                          "a state layer was applied to a family's base");
+                    }
+                    const double ratio = mesh_ui_theme_contrast(paint.ink, paint.fill);
+                    char why[160];
+                    snprintf(why, sizeof why, "%s family %d slot %d state %d is %.2f:1", theme->id,
+                             f, (int)k_slots[sl], (int)k_states[st], ratio);
+                    MESH_TEST_FAIL_IF(ratio + 0.005 < 4.5, why);
+                }
+            }
+        }
+        /* Naming the ink half selects the same pair, so a caller cannot invert one by asking
+           for it the other way round. */
+        const struct mesh_ui_paint by_fill = mesh_ui_theme_paint(
+            theme, MESH_UI_FAMILY_ERROR, MESH_UI_SLOT_CONTAINER, MESH_UI_STATE_REST);
+        const struct mesh_ui_paint by_ink = mesh_ui_theme_paint(
+            theme, MESH_UI_FAMILY_ERROR, MESH_UI_SLOT_ON_CONTAINER, MESH_UI_STATE_REST);
+        MESH_TEST_FAIL_IF(by_fill.fill.r != by_ink.fill.r || by_fill.ink.r != by_ink.ink.r,
+                          "asking for a slot by its ink returned a different pair");
+    }
+    record_success(test_name);
+}
+
+/*
+ * The two contracts that only exist because the palette has families, and that nothing else
+ * would catch: a theme may not hand two verdicts one colour, and it may not hide a marker bar
+ * by making a family the colour of the cursor fill it is laid under.
+ */
+MESH_TEST_CASE(ui_theme_validate_holds_the_family_contracts, unit) {
+    char reason[128];
+
+    /* Success and error the same colour passes every contrast rule there is - both are perfectly
+       readable - and makes "connected" and "failed" indistinguishable. */
+    struct mesh_ui_theme collapsed = *mesh_ui_theme_default();
+    collapsed.colors[MESH_UI_COLOR_WARNING] = collapsed.colors[MESH_UI_COLOR_ERROR];
+    reason[0] = '\0';
+    MESH_TEST_FAIL_IF(mesh_ui_theme_validate(&collapsed, reason, sizeof reason),
+                      "a theme with one colour for warning and error passed validation");
+    MESH_TEST_FAIL_IF(reason[0] == '\0', "validation failed without saying why");
+
+    /* A family whose base is the cursor fill draws a marker bar nobody can see - which is what
+       the contrast theme's secondary and tertiary would have been, left as white. */
+    struct mesh_ui_theme invisible_marker = *mesh_ui_theme_default();
+    invisible_marker.colors[MESH_UI_COLOR_TERTIARY] =
+        invisible_marker.colors[MESH_UI_COLOR_SURFACE_SEL];
+    MESH_TEST_FAIL_IF(mesh_ui_theme_validate(&invisible_marker, reason, sizeof reason),
+                      "a family the colour of the cursor fill passed validation");
+
+    /* A container with no ink checked against it is the failure the four-slot family exists to
+       make impossible, so it has to be caught for every family and not just the primary. */
+    struct mesh_ui_theme flat_container = *mesh_ui_theme_default();
+    flat_container.colors[MESH_UI_COLOR_ON_SUCCESS_CONTAINER] =
+        flat_container.colors[MESH_UI_COLOR_SUCCESS_CONTAINER];
+    MESH_TEST_FAIL_IF(mesh_ui_theme_validate(&flat_container, reason, sizeof reason),
+                      "a container and its own ink in one colour passed validation");
     record_success(test_name);
 }

@@ -7,6 +7,11 @@
  * theme: nothing here draws, and nothing that draws knows which of these it is drawing with.
  * Adding one is adding an entry to k_themes.
  *
+ * Most of the table is the six families - primary, secondary, tertiary, success, warning,
+ * error - four roles each. A theme states all twenty-four and every widget reaches them the
+ * same way, through mesh_ui_theme_paint(), which is what stops a component from picking a fill
+ * here and a label colour there and landing on a pair nothing has checked.
+ *
  * The four that ship cover the reasons a handheld needs a different look at all:
  *
  *   dark        the original palette, unchanged - a dark ground for a lit room
@@ -18,7 +23,8 @@
  * man in twelve cannot separate the green of "connected" from the red of "failed"; the fix is
  * to encode the difference in hue *and* lightness with colours that stay distinct - the
  * Okabe-Ito set below is the standard choice - and that is a palette change only because no
- * renderer ever said "green".
+ * renderer ever said "green". mesh_ui_theme_validate() holds the three status families apart
+ * numerically, so a theme cannot quietly hand two of them the same colour.
  *
  * Every table is checked by mesh_ui_theme_validate() in the tests, so a palette that reads
  * nicely on a desktop monitor and not at all on the Brick fails before it ships.
@@ -56,271 +62,349 @@
         },                                                                                         \
     }
 
-static const struct mesh_ui_theme k_themes[] = {
-    {
-        .id = "dark",
-        .name = "Dark",
-        .font_id = "5x7",
-        .dark = true,
-        .colors =
+static const struct mesh_ui_theme
+    k_themes[] =
+        {
             {
-                /* Dark ground, cool greys for chrome, one warm colour for what needs the eye. */
-                [MESH_UI_COLOR_BG] = RGB(0x0A, 0x14, 0x1E),
-                /* The three tiers walk away from the ground in even steps. Far enough apart to
-                   tell one from another indoors, near enough that body text keeps the contrast
-                   it is validated for on all of them. */
-                [MESH_UI_COLOR_SURFACE_LOW] = RGB(0x10, 0x1B, 0x28),
-                [MESH_UI_COLOR_SURFACE] = RGB(0x14, 0x22, 0x32),
-                [MESH_UI_COLOR_SURFACE_HIGH] = RGB(0x1C, 0x2E, 0x42),
-                [MESH_UI_COLOR_SURFACE_SEL] = RGB(40, 80, 120),
-                [MESH_UI_COLOR_SURFACE_ACTIVE] = RGB(60, 110, 170),
-                /* The other end of the palette: near enough to the light theme's ground that a
-                   notice on it reads as a piece of another UI laid over this one, which is
-                   exactly what a snackbar is meant to look like. */
-                [MESH_UI_COLOR_SURFACE_INVERSE] = RGB(226, 232, 240),
-                [MESH_UI_COLOR_TEXT] = RGB(220, 230, 240),
-                [MESH_UI_COLOR_TEXT_DIM] = RGB(140, 150, 165),
-                [MESH_UI_COLOR_TEXT_STRONG] = RGB(255, 255, 255),
-                [MESH_UI_COLOR_TEXT_ON_SEL] = RGB(255, 255, 255),
-                [MESH_UI_COLOR_TEXT_ON_SEL_DIM] = RGB(190, 208, 226),
-                [MESH_UI_COLOR_TEXT_ON_INVERSE] = RGB(16, 27, 40),
-                [MESH_UI_COLOR_ACCENT] = RGB(255, 220, 120),
-                /* Dark text on the accent fill: white on that yellow is unreadable at this
-                   glyph size. */
-                [MESH_UI_COLOR_ON_ACCENT] = RGB(0x0A, 0x14, 0x1E),
-                /* The accent held back to a fill that text sits on: the same yellow taken down
-                   to an olive that reads as "the accent, quietly", with a pale tint of it for
-                   the ink. */
-                [MESH_UI_COLOR_ACCENT_CONTAINER] = RGB(86, 68, 24),
-                [MESH_UI_COLOR_ON_ACCENT_CONTAINER] = RGB(255, 232, 170),
-                [MESH_UI_COLOR_GOOD] = RGB(120, 220, 150),
-                [MESH_UI_COLOR_BAD] = RGB(240, 120, 120),
-                [MESH_UI_COLOR_RULE] = RGB(40, 80, 120),
-                [MESH_UI_COLOR_RULE_STRONG] = RGB(60, 110, 170),
-                /* A step brighter than the rule: an edge has to be found against two fills at
-                   once, where a separator only has to divide one. */
-                [MESH_UI_COLOR_OUTLINE] = RGB(62, 100, 140),
-                /* The cursor fill's own colour, which is where a track wants to sit on a
-                   dark palette: one step off the surface and well under every fill. */
-                [MESH_UI_COLOR_METER_TRACK] = RGB(40, 80, 120),
-                /* Bubble fills. Theirs is the neutral ground, ours is the one with colour in
-                   it - the same "you are the blue one" every messenger has trained everybody
-                   on. The selected pair are the same hues lifted, so the cursor reads as a
-                   highlight rather than as a different kind of message. */
-                [MESH_UI_COLOR_BUBBLE_IN] = RGB(30, 44, 60),
-                [MESH_UI_COLOR_BUBBLE_OUT] = RGB(34, 66, 104),
-                [MESH_UI_COLOR_BUBBLE_IN_SEL] = RGB(52, 72, 94),
-                [MESH_UI_COLOR_BUBBLE_OUT_SEL] = RGB(58, 104, 154),
-                [MESH_UI_COLOR_BUBBLE_FAILED] = RGB(84, 40, 44),
-                [MESH_UI_COLOR_TEXT_INBOUND] = RGB(235, 245, 255),
-                /* Bright enough to read on its own bubble fill. It used to be the dim grey
-                   that said "ours" on a bare row; the bubble says that now. */
-                [MESH_UI_COLOR_TEXT_OUTBOUND] = RGB(228, 238, 248),
+                .id = "dark",
+                .name = "Dark",
+                .font_id = "5x7",
+                .dark = true,
+                .colors =
+                    {
+                        [MESH_UI_COLOR_BG] = RGB(0x0A, 0x14, 0x1E),
+                        /* The three tiers walk away from the ground in even steps. Far enough apart
+                           to tell one from another indoors, near enough that body text keeps the
+                           contrast it is validated for on all of them - and SURFACE_HIGH now
+                           carries an inbound bubble as well as the draft box, so it is read at
+                           length rather than glanced at. */
+                        [MESH_UI_COLOR_SURFACE_LOW] = RGB(0x10, 0x1B, 0x28),
+                        [MESH_UI_COLOR_SURFACE] = RGB(0x14, 0x22, 0x32),
+                        [MESH_UI_COLOR_SURFACE_HIGH] = RGB(0x1C, 0x2E, 0x42),
+                        [MESH_UI_COLOR_SURFACE_SEL] = RGB(40, 80, 120),
+                        [MESH_UI_COLOR_SURFACE_ACTIVE] = RGB(60, 110, 170),
+                        /* The other end of the palette: near enough to the light theme's ground
+                           that a notice on it reads as a piece of another UI laid over this one,
+                           which is exactly what a snackbar is meant to look like. */
+                        [MESH_UI_COLOR_SURFACE_INVERSE] = RGB(226, 232, 240),
+                        [MESH_UI_COLOR_TEXT] = RGB(220, 230, 240),
+                        [MESH_UI_COLOR_TEXT_DIM] = RGB(140, 150, 165),
+                        [MESH_UI_COLOR_TEXT_STRONG] = RGB(255, 255, 255),
+                        [MESH_UI_COLOR_TEXT_ON_SEL] = RGB(255, 255, 255),
+                        [MESH_UI_COLOR_TEXT_ON_SEL_DIM] = RGB(190, 208, 226),
+                        [MESH_UI_COLOR_TEXT_ON_INVERSE] = RGB(0x10, 0x1B, 0x28),
+                        /* The brand yellow, unchanged. Dark text on it because white on that yellow
+                           is unreadable at this glyph size; the container is the same hue taken
+                           down to an olive that reads as "the primary, quietly", with a pale tint
+                           of it for the ink. */
+                        [MESH_UI_COLOR_PRIMARY] = RGB(255, 220, 120),
+                        [MESH_UI_COLOR_ON_PRIMARY] = RGB(0x0A, 0x14, 0x1E),
+                        [MESH_UI_COLOR_PRIMARY_CONTAINER] = RGB(86, 68, 24),
+                        [MESH_UI_COLOR_ON_PRIMARY_CONTAINER] = RGB(255, 232, 170),
+                        /* The blue our own messages are drawn in. The container is the outbound
+                           bubble's old fill and the ink on it the old outbound text colour, so the
+                           transcript is unchanged - it is simply no longer four roles nothing else
+                           could reach. */
+                        [MESH_UI_COLOR_SECONDARY] = RGB(120, 175, 240),
+                        [MESH_UI_COLOR_ON_SECONDARY] = RGB(0x0A, 0x14, 0x1E),
+                        [MESH_UI_COLOR_SECONDARY_CONTAINER] = RGB(34, 66, 104),
+                        [MESH_UI_COLOR_ON_SECONDARY_CONTAINER] = RGB(228, 238, 248),
+                        /* A lavender: adjacent to neither the yellow that means "here" nor the
+                           green and red that mean "fine" and "not fine", which is the whole
+                           requirement for a colour that says "not finished yet". */
+                        [MESH_UI_COLOR_TERTIARY] = RGB(190, 160, 235),
+                        [MESH_UI_COLOR_ON_TERTIARY] = RGB(0x0A, 0x14, 0x1E),
+                        [MESH_UI_COLOR_TERTIARY_CONTAINER] = RGB(58, 50, 92),
+                        [MESH_UI_COLOR_ON_TERTIARY_CONTAINER] = RGB(222, 208, 255),
+                        [MESH_UI_COLOR_SUCCESS] = RGB(120, 220, 150),
+                        [MESH_UI_COLOR_ON_SUCCESS] = RGB(0x0A, 0x14, 0x1E),
+                        [MESH_UI_COLOR_SUCCESS_CONTAINER] = RGB(0x1A, 0x42, 0x2C),
+                        [MESH_UI_COLOR_ON_SUCCESS_CONTAINER] = RGB(170, 240, 196),
+                        /* Orange rather than the brand yellow. They are neighbours, which is why
+                           this had to stop being one colour: a warning drawn in the primary is a
+                           warning that cannot be told from a heading. */
+                        [MESH_UI_COLOR_WARNING] = RGB(255, 167, 38),
+                        [MESH_UI_COLOR_ON_WARNING] = RGB(0x0A, 0x14, 0x1E),
+                        [MESH_UI_COLOR_WARNING_CONTAINER] = RGB(78, 46, 8),
+                        [MESH_UI_COLOR_ON_WARNING_CONTAINER] = RGB(255, 208, 156),
+                        /* The container is the failed bubble's fill, which every theme used to
+                           restate. */
+                        [MESH_UI_COLOR_ERROR] = RGB(240, 120, 120),
+                        [MESH_UI_COLOR_ON_ERROR] = RGB(0x0A, 0x14, 0x1E),
+                        [MESH_UI_COLOR_ERROR_CONTAINER] = RGB(84, 40, 44),
+                        [MESH_UI_COLOR_ON_ERROR_CONTAINER] = RGB(255, 190, 190),
+                        /* A step brighter than the rule for the outline: an edge has to be found
+                           against two fills at once, where a separator only has to divide one. */
+                        [MESH_UI_COLOR_RULE] = RGB(40, 80, 120),
+                        [MESH_UI_COLOR_RULE_STRONG] = RGB(60, 110, 170),
+                        [MESH_UI_COLOR_OUTLINE] = RGB(62, 100, 140),
+                        /* The cursor fill's own colour, which is where a track wants to sit on a
+                           dark palette: one step off the surface and well under every fill. */
+                        [MESH_UI_COLOR_METER_TRACK] = RGB(40, 80, 120),
+                    },
+                /* Bright tints for a dark ground: the initials over them are the ground colour, so
+                   a tint has to carry the contrast the way the accent fill does. */
+                .avatars =
+                    {
+                        RGB(120, 190, 255), /* sky */
+                        RGB(255, 200, 120), /* amber */
+                        RGB(150, 220, 170), /* mint */
+                        RGB(230, 160, 220), /* orchid */
+                        RGB(255, 162, 140), /* coral */
+                        RGB(180, 200, 255), /* periwinkle */
+                    },
+                .avatar_count = 6U,
+                .metrics = MESH_UI_METRICS_DEFAULT,
             },
-        /* Bright tints for a dark ground: the initials over them are the ground colour, so a
-           tint has to carry the contrast the way the accent fill does. */
-        .avatars =
             {
-                RGB(120, 190, 255), /* sky */
-                RGB(255, 200, 120), /* amber */
-                RGB(150, 220, 170), /* mint */
-                RGB(230, 160, 220), /* orchid */
-                RGB(255, 162, 140), /* coral */
-                RGB(180, 200, 255), /* periwinkle */
+                .id = "light",
+                .name = "Light",
+                .font_id = "5x7",
+                .dark = false,
+                .colors =
+                    {
+                        /* A paper ground. The primary goes amber-brown rather than yellow: it is a
+                           fill as well as a text colour, and pale yellow under dark text is a
+                           highlighter pen. */
+                        [MESH_UI_COLOR_BG] = RGB(247, 248, 250),
+                        /* Downwards, because here the ground is the light one: a surface rises by
+                           getting further from paper, not nearer to it. */
+                        [MESH_UI_COLOR_SURFACE_LOW] = RGB(238, 241, 246),
+                        [MESH_UI_COLOR_SURFACE] = RGB(231, 235, 241),
+                        [MESH_UI_COLOR_SURFACE_HIGH] = RGB(220, 226, 235),
+                        [MESH_UI_COLOR_SURFACE_SEL] = RGB(200, 219, 242),
+                        [MESH_UI_COLOR_SURFACE_ACTIVE] = RGB(154, 193, 236),
+                        /* Downwards here too: on paper the far end is a slate the ink comes off,
+                           not a deeper tier of the same paper. */
+                        [MESH_UI_COLOR_SURFACE_INVERSE] = RGB(42, 51, 64),
+                        [MESH_UI_COLOR_TEXT] = RGB(24, 32, 44),
+                        [MESH_UI_COLOR_TEXT_DIM] = RGB(92, 104, 120),
+                        [MESH_UI_COLOR_TEXT_STRONG] = RGB(8, 14, 24),
+                        [MESH_UI_COLOR_TEXT_ON_SEL] = RGB(12, 20, 32),
+                        [MESH_UI_COLOR_TEXT_ON_SEL_DIM] = RGB(70, 84, 104),
+                        [MESH_UI_COLOR_TEXT_ON_INVERSE] = RGB(238, 241, 246),
+                        /* An apricot container rather than the palest tint of the primary: on a
+                           paper ground the two nearest surface tiers are already near-white, so a
+                           container has to come down far enough to be a fill at all before it is a
+                           quiet one. */
+                        [MESH_UI_COLOR_PRIMARY] = RGB(160, 72, 0),
+                        [MESH_UI_COLOR_ON_PRIMARY] = RGB(255, 255, 255),
+                        [MESH_UI_COLOR_PRIMARY_CONTAINER] = RGB(250, 192, 142),
+                        [MESH_UI_COLOR_ON_PRIMARY_CONTAINER] = RGB(98, 40, 0),
+                        /* The outbound bubble's blue, as on the dark theme. */
+                        [MESH_UI_COLOR_SECONDARY] = RGB(26, 88, 160),
+                        [MESH_UI_COLOR_ON_SECONDARY] = RGB(255, 255, 255),
+                        [MESH_UI_COLOR_SECONDARY_CONTAINER] = RGB(203, 224, 248),
+                        [MESH_UI_COLOR_ON_SECONDARY_CONTAINER] = RGB(18, 32, 52),
+                        /* A violet, for the same reason the dark theme's is a lavender. */
+                        [MESH_UI_COLOR_TERTIARY] = RGB(98, 58, 150),
+                        [MESH_UI_COLOR_ON_TERTIARY] = RGB(255, 255, 255),
+                        [MESH_UI_COLOR_TERTIARY_CONTAINER] = RGB(223, 210, 248),
+                        [MESH_UI_COLOR_ON_TERTIARY_CONTAINER] = RGB(58, 30, 100),
+                        [MESH_UI_COLOR_SUCCESS] = RGB(20, 110, 60),
+                        [MESH_UI_COLOR_ON_SUCCESS] = RGB(255, 255, 255),
+                        [MESH_UI_COLOR_SUCCESS_CONTAINER] = RGB(190, 232, 205),
+                        [MESH_UI_COLOR_ON_SUCCESS_CONTAINER] = RGB(10, 64, 34),
+                        /* A dark amber. It has to be tellable from the primary's burnt orange above
+                           it and from the error's red below it, which is what the distinctness
+                           check in mesh_ui_theme_validate() holds it to. */
+                        [MESH_UI_COLOR_WARNING] = RGB(150, 100, 0),
+                        [MESH_UI_COLOR_ON_WARNING] = RGB(255, 255, 255),
+                        [MESH_UI_COLOR_WARNING_CONTAINER] = RGB(250, 222, 170),
+                        [MESH_UI_COLOR_ON_WARNING_CONTAINER] = RGB(92, 58, 0),
+                        [MESH_UI_COLOR_ERROR] = RGB(176, 32, 40),
+                        [MESH_UI_COLOR_ON_ERROR] = RGB(255, 255, 255),
+                        [MESH_UI_COLOR_ERROR_CONTAINER] = RGB(250, 214, 214),
+                        [MESH_UI_COLOR_ON_ERROR_CONTAINER] = RGB(120, 16, 22),
+                        [MESH_UI_COLOR_RULE] = RGB(188, 199, 213),
+                        [MESH_UI_COLOR_RULE_STRONG] = RGB(120, 160, 205),
+                        [MESH_UI_COLOR_OUTLINE] = RGB(160, 174, 192),
+                        /* A shade under the hairline. The cursor fill is too close to a card here -
+                           1.18:1, so a track drawn in it vanishes on the Status screen - and this
+                           is the quietest step that still separates from both grounds. */
+                        [MESH_UI_COLOR_METER_TRACK] = RGB(186, 198, 214),
+                    },
+                /* The dark half of each hue, because here the initials are the paper ground. */
+                .avatars =
+                    {
+                        RGB(30, 90, 160),  /* deep blue */
+                        RGB(150, 60, 20),  /* rust */
+                        RGB(20, 110, 80),  /* pine */
+                        RGB(110, 45, 130), /* plum */
+                        RGB(150, 40, 80),  /* berry */
+                        RGB(60, 80, 130),  /* slate */
+                    },
+                .avatar_count = 6U,
+                .metrics = MESH_UI_METRICS_DEFAULT,
             },
-        .avatar_count = 6U,
-        .metrics = MESH_UI_METRICS_DEFAULT,
-    },
-    {
-        .id = "light",
-        .name = "Light",
-        .font_id = "5x7",
-        .dark = false,
-        .colors =
             {
-                /* A paper ground. The accent goes amber-brown rather than yellow: an accent is
-                   a fill as well as a text colour, and pale yellow under dark text is a
-                   highlighter pen, not a badge. */
-                [MESH_UI_COLOR_BG] = RGB(247, 248, 250),
-                /* Downwards, because here the ground is the light one: a surface rises by
-                   getting further from paper, not nearer to it. */
-                [MESH_UI_COLOR_SURFACE_LOW] = RGB(238, 241, 246),
-                [MESH_UI_COLOR_SURFACE] = RGB(231, 235, 241),
-                [MESH_UI_COLOR_SURFACE_HIGH] = RGB(220, 226, 235),
-                [MESH_UI_COLOR_SURFACE_SEL] = RGB(200, 219, 242),
-                [MESH_UI_COLOR_SURFACE_ACTIVE] = RGB(154, 193, 236),
-                /* Downwards here too: on paper the far end is a slate the ink comes off, not a
-                   deeper tier of the same paper. */
-                [MESH_UI_COLOR_SURFACE_INVERSE] = RGB(42, 51, 64),
-                [MESH_UI_COLOR_TEXT] = RGB(24, 32, 44),
-                [MESH_UI_COLOR_TEXT_DIM] = RGB(92, 104, 120),
-                [MESH_UI_COLOR_TEXT_STRONG] = RGB(8, 14, 24),
-                [MESH_UI_COLOR_TEXT_ON_SEL] = RGB(12, 20, 32),
-                [MESH_UI_COLOR_TEXT_ON_SEL_DIM] = RGB(70, 84, 104),
-                [MESH_UI_COLOR_TEXT_ON_INVERSE] = RGB(238, 241, 246),
-                [MESH_UI_COLOR_ACCENT] = RGB(160, 72, 0),
-                [MESH_UI_COLOR_ON_ACCENT] = RGB(255, 255, 255),
-                /* An apricot rather than the palest tint of the accent: on a paper ground the
-                   two nearest surface tiers are already near-white, so a container has to come
-                   down far enough to be a fill at all before it is a quiet one. */
-                [MESH_UI_COLOR_ACCENT_CONTAINER] = RGB(248, 182, 128),
-                [MESH_UI_COLOR_ON_ACCENT_CONTAINER] = RGB(110, 46, 0),
-                [MESH_UI_COLOR_GOOD] = RGB(20, 110, 60),
-                [MESH_UI_COLOR_BAD] = RGB(176, 32, 40),
-                [MESH_UI_COLOR_RULE] = RGB(188, 199, 213),
-                [MESH_UI_COLOR_RULE_STRONG] = RGB(120, 160, 205),
-                [MESH_UI_COLOR_OUTLINE] = RGB(160, 174, 192),
-                /* A shade under the hairline. The cursor fill is too close to a card here -
-                   1.18:1, so a track drawn in it vanishes on the Status screen - and this
-                   is the quietest step that still separates from both grounds. */
-                [MESH_UI_COLOR_METER_TRACK] = RGB(186, 198, 214),
-                [MESH_UI_COLOR_BUBBLE_IN] = RGB(219, 225, 234),
-                [MESH_UI_COLOR_BUBBLE_OUT] = RGB(203, 224, 248),
-                [MESH_UI_COLOR_BUBBLE_IN_SEL] = RGB(193, 208, 228),
-                [MESH_UI_COLOR_BUBBLE_OUT_SEL] = RGB(176, 208, 244),
-                [MESH_UI_COLOR_BUBBLE_FAILED] = RGB(250, 214, 214),
-                [MESH_UI_COLOR_TEXT_INBOUND] = RGB(22, 30, 42),
-                [MESH_UI_COLOR_TEXT_OUTBOUND] = RGB(18, 32, 52),
+                .id = "contrast",
+                .name = "High contrast",
+                .font_id = "5x7",
+                .dark = true,
+                .colors =
+                    {
+                        /* Inverse video for the cursor - a white bar with black text - because a
+                           fill one step lighter than the ground is what stops being findable first
+                           in sunlight, and it is the cue this theme exists to make loud. */
+                        [MESH_UI_COLOR_BG] = RGB(0, 0, 0),
+                        [MESH_UI_COLOR_SURFACE_LOW] = RGB(18, 18, 18),
+                        [MESH_UI_COLOR_SURFACE] = RGB(26, 26, 26),
+                        [MESH_UI_COLOR_SURFACE_HIGH] = RGB(42, 42, 42),
+                        [MESH_UI_COLOR_SURFACE_SEL] = RGB(255, 255, 255),
+                        [MESH_UI_COLOR_SURFACE_ACTIVE] = RGB(255, 214, 0),
+                        /* The same inverse video the cursor is, because on this theme that *is* the
+                           other end of the palette - there is nothing between black and white to
+                           hold back to. */
+                        [MESH_UI_COLOR_SURFACE_INVERSE] = RGB(255, 255, 255),
+                        [MESH_UI_COLOR_TEXT] = RGB(255, 255, 255),
+                        [MESH_UI_COLOR_TEXT_DIM] = RGB(196, 196, 196),
+                        [MESH_UI_COLOR_TEXT_STRONG] = RGB(255, 255, 255),
+                        [MESH_UI_COLOR_TEXT_ON_SEL] = RGB(0, 0, 0),
+                        [MESH_UI_COLOR_TEXT_ON_SEL_DIM] = RGB(72, 72, 72),
+                        [MESH_UI_COLOR_TEXT_ON_INVERSE] = RGB(0, 0, 0),
+                        /* The container is the primary at full strength, exactly as BASE/ON_BASE.
+                           Holding a colour back is the one thing this theme exists not to do - so
+                           it declines, the same way it declines four of its six avatar tints. */
+                        [MESH_UI_COLOR_PRIMARY] = RGB(255, 214, 0),
+                        [MESH_UI_COLOR_ON_PRIMARY] = RGB(0, 0, 0),
+                        [MESH_UI_COLOR_PRIMARY_CONTAINER] = RGB(255, 214, 0),
+                        [MESH_UI_COLOR_ON_PRIMARY_CONTAINER] = RGB(0, 0, 0),
+                        /* White, with the outbound bubble's navy kept as its container: the
+                           transcript is the one place this theme does hold a colour back, because
+                           two white blocks in a row would say nothing about who said what. */
+                        [MESH_UI_COLOR_SECONDARY] = RGB(255, 214, 0),
+                        [MESH_UI_COLOR_ON_SECONDARY] = RGB(0, 0, 0),
+                        [MESH_UI_COLOR_SECONDARY_CONTAINER] = RGB(0, 48, 84),
+                        [MESH_UI_COLOR_ON_SECONDARY_CONTAINER] = RGB(255, 255, 255),
+                        /* The yellow again for both bases rather than the white they would
+                           naturally be: this theme's cursor fill *is* white, and a marker bar laid
+                           under it in white is a marker bar nobody can see. Collapsing them onto
+                           the one accent is what this theme does everywhere else, and their
+                           containers still differ. */
+                        [MESH_UI_COLOR_TERTIARY] = RGB(255, 214, 0),
+                        [MESH_UI_COLOR_ON_TERTIARY] = RGB(0, 0, 0),
+                        [MESH_UI_COLOR_TERTIARY_CONTAINER] = RGB(42, 42, 42),
+                        [MESH_UI_COLOR_ON_TERTIARY_CONTAINER] = RGB(255, 255, 255),
+                        [MESH_UI_COLOR_SUCCESS] = RGB(0, 230, 118),
+                        [MESH_UI_COLOR_ON_SUCCESS] = RGB(0, 0, 0),
+                        [MESH_UI_COLOR_SUCCESS_CONTAINER] = RGB(0, 64, 34),
+                        [MESH_UI_COLOR_ON_SUCCESS_CONTAINER] = RGB(255, 255, 255),
+                        /* The same yellow as the primary, deliberately. This theme has three
+                           colours and spends them on the distinction that matters: warning against
+                           success and error, which the distinctness check holds - not warning
+                           against a heading. */
+                        [MESH_UI_COLOR_WARNING] = RGB(255, 214, 0),
+                        [MESH_UI_COLOR_ON_WARNING] = RGB(0, 0, 0),
+                        [MESH_UI_COLOR_WARNING_CONTAINER] = RGB(72, 56, 0),
+                        [MESH_UI_COLOR_ON_WARNING_CONTAINER] = RGB(255, 255, 255),
+                        [MESH_UI_COLOR_ERROR] = RGB(255, 120, 120),
+                        [MESH_UI_COLOR_ON_ERROR] = RGB(0, 0, 0),
+                        [MESH_UI_COLOR_ERROR_CONTAINER] = RGB(96, 0, 0),
+                        [MESH_UI_COLOR_ON_ERROR_CONTAINER] = RGB(255, 255, 255),
+                        [MESH_UI_COLOR_RULE] = RGB(140, 140, 140),
+                        [MESH_UI_COLOR_RULE_STRONG] = RGB(255, 214, 0),
+                        [MESH_UI_COLOR_OUTLINE] = RGB(200, 200, 200),
+                        /* Mid grey rather than the near-white the cursor fill is: on this palette
+                           SURFACE_SEL and the success colour are both effectively white, so a track
+                           borrowed from either would swallow the fill it is meant to contain. */
+                        [MESH_UI_COLOR_METER_TRACK] = RGB(96, 96, 96),
+                    },
+                /* Two, not six. A palette of hues is exactly what this theme exists to do without,
+                   so an avatar here is the yellow or the white and the initials carry the rest. */
+                .avatars =
+                    {
+                        RGB(255, 214, 0),
+                        RGB(255, 255, 255),
+                    },
+                .avatar_count = 2U,
+                .metrics = MESH_UI_METRICS_DEFAULT,
             },
-        /* The dark half of each hue, because here the initials are the paper ground. */
-        .avatars =
             {
-                RGB(30, 90, 160),  /* deep blue */
-                RGB(150, 60, 20),  /* rust */
-                RGB(20, 110, 80),  /* pine */
-                RGB(110, 45, 130), /* plum */
-                RGB(150, 40, 80),  /* berry */
-                RGB(60, 80, 130),  /* slate */
+                .id = "colorblind",
+                .name = "Colour-blind safe",
+                .font_id = "5x7",
+                .dark = true,
+                .colors =
+                    {
+                        /* Okabe-Ito: sky blue for success, orange for error, yellow for warning,
+                           reddish purple for the primary. All four stay distinct under deuteranopia
+                           and protanopia, where the original green/yellow/red collapse into one
+                           another. */
+                        [MESH_UI_COLOR_BG] = RGB(0x0A, 0x14, 0x1E),
+                        [MESH_UI_COLOR_SURFACE_LOW] = RGB(0x10, 0x1B, 0x28),
+                        [MESH_UI_COLOR_SURFACE] = RGB(0x14, 0x22, 0x32),
+                        [MESH_UI_COLOR_SURFACE_HIGH] = RGB(0x1C, 0x2E, 0x42),
+                        [MESH_UI_COLOR_SURFACE_SEL] = RGB(40, 80, 120),
+                        [MESH_UI_COLOR_SURFACE_ACTIVE] = RGB(60, 110, 170),
+                        /* A neutral, as on the dark theme: the notice is found by being the wrong
+                           way up rather than by a hue, which is the one cue this theme can always
+                           spend. */
+                        [MESH_UI_COLOR_SURFACE_INVERSE] = RGB(226, 232, 240),
+                        [MESH_UI_COLOR_TEXT] = RGB(226, 232, 240),
+                        [MESH_UI_COLOR_TEXT_DIM] = RGB(146, 156, 170),
+                        [MESH_UI_COLOR_TEXT_STRONG] = RGB(255, 255, 255),
+                        [MESH_UI_COLOR_TEXT_ON_SEL] = RGB(255, 255, 255),
+                        [MESH_UI_COLOR_TEXT_ON_SEL_DIM] = RGB(190, 208, 226),
+                        [MESH_UI_COLOR_TEXT_ON_INVERSE] = RGB(0x0C, 0x16, 0x22),
+                        /* The reddish purple taken down to a plum, with a pale tint of the same hue
+                           on it. Held back in lightness rather than towards a neighbouring hue, so
+                           the pair stays the primary under every dichromacy the theme is for. */
+                        [MESH_UI_COLOR_PRIMARY] = RGB(204, 121, 167),
+                        [MESH_UI_COLOR_ON_PRIMARY] = RGB(0x0A, 0x14, 0x1E),
+                        [MESH_UI_COLOR_PRIMARY_CONTAINER] = RGB(80, 46, 66),
+                        [MESH_UI_COLOR_ON_PRIMARY_CONTAINER] = RGB(240, 194, 220),
+                        /* A navy, not one of the Okabe-Ito eight: an outbound bubble is not a
+                           status, so it must not spend one of the colours the statuses need to stay
+                           separable in. */
+                        [MESH_UI_COLOR_SECONDARY] = RGB(120, 175, 240),
+                        [MESH_UI_COLOR_ON_SECONDARY] = RGB(0x0A, 0x14, 0x1E),
+                        [MESH_UI_COLOR_SECONDARY_CONTAINER] = RGB(34, 66, 104),
+                        [MESH_UI_COLOR_ON_SECONDARY_CONTAINER] = RGB(228, 238, 248),
+                        /* Bluish green. Decorative rather than a status, so it may sit nearer the
+                           success sky blue than any two statuses are allowed to. */
+                        [MESH_UI_COLOR_TERTIARY] = RGB(0, 158, 115),
+                        [MESH_UI_COLOR_ON_TERTIARY] = RGB(0x0A, 0x14, 0x1E),
+                        [MESH_UI_COLOR_TERTIARY_CONTAINER] = RGB(0x10, 0x40, 0x34),
+                        [MESH_UI_COLOR_ON_TERTIARY_CONTAINER] = RGB(150, 226, 200),
+                        [MESH_UI_COLOR_SUCCESS] = RGB(86, 180, 233),
+                        [MESH_UI_COLOR_ON_SUCCESS] = RGB(0x0A, 0x14, 0x1E),
+                        [MESH_UI_COLOR_SUCCESS_CONTAINER] = RGB(18, 58, 80),
+                        [MESH_UI_COLOR_ON_SUCCESS_CONTAINER] = RGB(170, 220, 246),
+                        /* Yellow. Against the error's orange it is separated by lightness rather
+                           than by hue, which is the separation that survives dichromacy - and the
+                           check in mesh_ui_theme_validate() is what proves it did. */
+                        [MESH_UI_COLOR_WARNING] = RGB(240, 228, 66),
+                        [MESH_UI_COLOR_ON_WARNING] = RGB(0x0A, 0x14, 0x1E),
+                        [MESH_UI_COLOR_WARNING_CONTAINER] = RGB(0x4A, 0x44, 0x14),
+                        [MESH_UI_COLOR_ON_WARNING_CONTAINER] = RGB(244, 236, 150),
+                        /* The container is a brown rather than a red: a failed bubble has to differ
+                           from an outbound one without relying on the hue half the point of this
+                           theme is to avoid. */
+                        [MESH_UI_COLOR_ERROR] = RGB(230, 159, 0),
+                        [MESH_UI_COLOR_ON_ERROR] = RGB(0x0A, 0x14, 0x1E),
+                        [MESH_UI_COLOR_ERROR_CONTAINER] = RGB(96, 52, 20),
+                        [MESH_UI_COLOR_ON_ERROR_CONTAINER] = RGB(250, 206, 150),
+                        [MESH_UI_COLOR_RULE] = RGB(40, 80, 120),
+                        [MESH_UI_COLOR_RULE_STRONG] = RGB(86, 180, 233),
+                        [MESH_UI_COLOR_OUTLINE] = RGB(62, 100, 140),
+                        [MESH_UI_COLOR_METER_TRACK] = RGB(40, 80, 120),
+                    },
+                /* The Okabe-Ito set again, this time as fills. They are the six that stay separable
+                   under every common dichromacy, which is the only reason to spend six on avatars
+                   at all - two tints that collapse into one for the reader are one tint. */
+                .avatars =
+                    {
+                        RGB(86, 180, 233),  /* sky blue */
+                        RGB(230, 159, 0),   /* orange */
+                        RGB(0, 158, 115),   /* bluish green */
+                        RGB(240, 228, 66),  /* yellow */
+                        RGB(213, 94, 0),    /* vermillion */
+                        RGB(204, 121, 167), /* reddish purple */
+                    },
+                .avatar_count = 6U,
+                .metrics = MESH_UI_METRICS_DEFAULT,
             },
-        .avatar_count = 6U,
-        .metrics = MESH_UI_METRICS_DEFAULT,
-    },
-    {
-        .id = "contrast",
-        .name = "High contrast",
-        .font_id = "5x7",
-        .dark = true,
-        .colors =
-            {
-                /* Inverse video for the cursor - a white bar with black text - because a fill
-                   one step lighter than the ground is what stops being findable first in
-                   sunlight, and it is the cue this theme exists to make loud. */
-                [MESH_UI_COLOR_BG] = RGB(0, 0, 0),
-                [MESH_UI_COLOR_SURFACE_LOW] = RGB(18, 18, 18),
-                [MESH_UI_COLOR_SURFACE] = RGB(26, 26, 26),
-                [MESH_UI_COLOR_SURFACE_HIGH] = RGB(42, 42, 42),
-                [MESH_UI_COLOR_SURFACE_SEL] = RGB(255, 255, 255),
-                [MESH_UI_COLOR_SURFACE_ACTIVE] = RGB(255, 214, 0),
-                /* The same inverse video the cursor is, because on this theme that *is* the
-                   other end of the palette - there is nothing between black and white to hold
-                   back to. */
-                [MESH_UI_COLOR_SURFACE_INVERSE] = RGB(255, 255, 255),
-                [MESH_UI_COLOR_TEXT] = RGB(255, 255, 255),
-                [MESH_UI_COLOR_TEXT_DIM] = RGB(196, 196, 196),
-                [MESH_UI_COLOR_TEXT_STRONG] = RGB(255, 255, 255),
-                [MESH_UI_COLOR_TEXT_ON_SEL] = RGB(0, 0, 0),
-                [MESH_UI_COLOR_TEXT_ON_SEL_DIM] = RGB(72, 72, 72),
-                [MESH_UI_COLOR_TEXT_ON_INVERSE] = RGB(0, 0, 0),
-                [MESH_UI_COLOR_ACCENT] = RGB(255, 214, 0),
-                [MESH_UI_COLOR_ON_ACCENT] = RGB(0, 0, 0),
-                /* The accent at full strength, exactly as ACCENT/ON_ACCENT. A container is the
-                   accent held back so text can sit on it, and holding a colour back is the one
-                   thing this theme exists not to do - so it declines, the same way it declines
-                   four of its six avatar tints. */
-                [MESH_UI_COLOR_ACCENT_CONTAINER] = RGB(255, 214, 0),
-                [MESH_UI_COLOR_ON_ACCENT_CONTAINER] = RGB(0, 0, 0),
-                [MESH_UI_COLOR_GOOD] = RGB(0, 230, 118),
-                [MESH_UI_COLOR_BAD] = RGB(255, 120, 120),
-                [MESH_UI_COLOR_RULE] = RGB(140, 140, 140),
-                [MESH_UI_COLOR_RULE_STRONG] = RGB(255, 214, 0),
-                [MESH_UI_COLOR_OUTLINE] = RGB(200, 200, 200),
-                /* Mid grey rather than the near-white the cursor fill is: on this palette
-                   SURFACE_SEL and the good tone are both effectively white, so a track
-                   borrowed from either would swallow the fill it is meant to contain. */
-                [MESH_UI_COLOR_METER_TRACK] = RGB(96, 96, 96),
-                [MESH_UI_COLOR_BUBBLE_IN] = RGB(28, 28, 28),
-                [MESH_UI_COLOR_BUBBLE_OUT] = RGB(0, 48, 84),
-                [MESH_UI_COLOR_BUBBLE_IN_SEL] = RGB(80, 80, 80),
-                [MESH_UI_COLOR_BUBBLE_OUT_SEL] = RGB(0, 84, 140),
-                [MESH_UI_COLOR_BUBBLE_FAILED] = RGB(96, 0, 0),
-                [MESH_UI_COLOR_TEXT_INBOUND] = RGB(255, 255, 255),
-                [MESH_UI_COLOR_TEXT_OUTBOUND] = RGB(255, 255, 255),
-            },
-        /* Two, not six. A palette of hues is exactly what this theme exists to do without, so
-           an avatar here is the yellow or the white and the initials carry the rest. */
-        .avatars =
-            {
-                RGB(255, 214, 0),
-                RGB(255, 255, 255),
-            },
-        .avatar_count = 2U,
-        .metrics = MESH_UI_METRICS_DEFAULT,
-    },
-    {
-        .id = "colorblind",
-        .name = "Colour-blind safe",
-        .font_id = "5x7",
-        .dark = true,
-        .colors =
-            {
-                /* Okabe-Ito: sky blue for good, orange for bad, reddish purple for the accent.
-                   The three stay distinct under deuteranopia and protanopia, where the
-                   original green/yellow/red collapse into one another. */
-                [MESH_UI_COLOR_BG] = RGB(0x0A, 0x14, 0x1E),
-                [MESH_UI_COLOR_SURFACE_LOW] = RGB(0x10, 0x1B, 0x28),
-                [MESH_UI_COLOR_SURFACE] = RGB(0x14, 0x22, 0x32),
-                [MESH_UI_COLOR_SURFACE_HIGH] = RGB(0x1C, 0x2E, 0x42),
-                [MESH_UI_COLOR_SURFACE_SEL] = RGB(40, 80, 120),
-                [MESH_UI_COLOR_SURFACE_ACTIVE] = RGB(60, 110, 170),
-                /* A neutral, as on the dark theme: the notice is found by being the wrong way
-                   up rather than by a hue, which is the one cue this theme can always spend. */
-                [MESH_UI_COLOR_SURFACE_INVERSE] = RGB(226, 232, 240),
-                [MESH_UI_COLOR_TEXT] = RGB(226, 232, 240),
-                [MESH_UI_COLOR_TEXT_DIM] = RGB(146, 156, 170),
-                [MESH_UI_COLOR_TEXT_STRONG] = RGB(255, 255, 255),
-                [MESH_UI_COLOR_TEXT_ON_SEL] = RGB(255, 255, 255),
-                [MESH_UI_COLOR_TEXT_ON_SEL_DIM] = RGB(190, 208, 226),
-                [MESH_UI_COLOR_TEXT_ON_INVERSE] = RGB(12, 22, 34),
-                [MESH_UI_COLOR_ACCENT] = RGB(204, 121, 167),
-                [MESH_UI_COLOR_ON_ACCENT] = RGB(0x0A, 0x14, 0x1E),
-                /* The reddish purple taken down to a plum, with a pale tint of the same hue on
-                   it. Held back in lightness rather than towards a neighbouring hue, so the
-                   pair stays the accent under every dichromacy the theme is for. */
-                [MESH_UI_COLOR_ACCENT_CONTAINER] = RGB(80, 46, 66),
-                [MESH_UI_COLOR_ON_ACCENT_CONTAINER] = RGB(240, 194, 220),
-                [MESH_UI_COLOR_GOOD] = RGB(86, 180, 233),
-                [MESH_UI_COLOR_BAD] = RGB(230, 159, 0),
-                [MESH_UI_COLOR_RULE] = RGB(40, 80, 120),
-                [MESH_UI_COLOR_RULE_STRONG] = RGB(86, 180, 233),
-                [MESH_UI_COLOR_OUTLINE] = RGB(62, 100, 140),
-                /* The cursor fill's own colour, which is where a track wants to sit on a
-                   dark palette: one step off the surface and well under every fill. */
-                [MESH_UI_COLOR_METER_TRACK] = RGB(40, 80, 120),
-                [MESH_UI_COLOR_BUBBLE_IN] = RGB(30, 44, 60),
-                [MESH_UI_COLOR_BUBBLE_OUT] = RGB(34, 66, 104),
-                [MESH_UI_COLOR_BUBBLE_IN_SEL] = RGB(52, 72, 94),
-                [MESH_UI_COLOR_BUBBLE_OUT_SEL] = RGB(58, 104, 154),
-                /* Brown rather than red: a failed bubble has to differ from an outbound one
-                   without relying on the hue half the point of this theme is to avoid. */
-                [MESH_UI_COLOR_BUBBLE_FAILED] = RGB(96, 52, 20),
-                [MESH_UI_COLOR_TEXT_INBOUND] = RGB(235, 245, 255),
-                [MESH_UI_COLOR_TEXT_OUTBOUND] = RGB(228, 238, 248),
-            },
-        /* The Okabe-Ito set again, this time as fills. They are the six that stay separable
-           under every common dichromacy, which is the only reason to spend six on avatars at
-           all - two tints that collapse into one for the reader are one tint. */
-        .avatars =
-            {
-                RGB(86, 180, 233),  /* sky blue */
-                RGB(230, 159, 0),   /* orange */
-                RGB(0, 158, 115),   /* bluish green */
-                RGB(240, 228, 66),  /* yellow */
-                RGB(213, 94, 0),    /* vermillion */
-                RGB(204, 121, 167), /* reddish purple */
-            },
-        .avatar_count = 6U,
-        .metrics = MESH_UI_METRICS_DEFAULT,
-    },
 };
 
 #define MESH_UI_THEME_COUNT (sizeof k_themes / sizeof k_themes[0])
@@ -404,27 +488,125 @@ struct mesh_ui_rgb mesh_ui_theme_color(const struct mesh_ui_theme *theme, enum m
     return theme->colors[role];
 }
 
+enum mesh_ui_color mesh_ui_family_role(enum mesh_ui_family family, enum mesh_ui_slot slot) {
+    if ((int)family < 0 || family >= MESH_UI_FAMILY_COUNT) {
+        family = MESH_UI_FAMILY_PRIMARY;
+    }
+    if ((int)slot < 0 || slot >= MESH_UI_SLOT_COUNT) {
+        slot = MESH_UI_SLOT_BASE;
+    }
+    /* Arithmetic rather than a table because the enum is laid out for it, and the
+       _Static_asserts in the header are what keep that true. */
+    return (enum mesh_ui_color)(MESH_UI_COLOR_PRIMARY + (int)family * MESH_UI_SLOT_COUNT +
+                                (int)slot);
+}
+
+struct mesh_ui_rgb mesh_ui_theme_family(const struct mesh_ui_theme *theme,
+                                        enum mesh_ui_family family, enum mesh_ui_slot slot) {
+    return mesh_ui_theme_color(theme, mesh_ui_family_role(family, slot));
+}
+
+enum mesh_ui_family mesh_ui_tone_family(enum mesh_ui_tone tone) {
+    if (tone < MESH_UI_TONE_PRIMARY || tone >= MESH_UI_TONE_COUNT) {
+        return MESH_UI_FAMILY_COUNT; /* the neutral three name no family */
+    }
+    return (enum mesh_ui_family)((int)tone - (int)MESH_UI_TONE_PRIMARY);
+}
+
+enum mesh_ui_tone mesh_ui_family_tone(enum mesh_ui_family family) {
+    if ((int)family < 0 || family >= MESH_UI_FAMILY_COUNT) {
+        return MESH_UI_TONE_NORMAL;
+    }
+    return (enum mesh_ui_tone)((int)MESH_UI_TONE_PRIMARY + (int)family);
+}
+
 enum mesh_ui_color mesh_ui_tone_role(enum mesh_ui_tone tone) {
+    const enum mesh_ui_family family = mesh_ui_tone_family(tone);
+    if (family != MESH_UI_FAMILY_COUNT) {
+        /* A tone is ink, and BASE is the slot a family states for ink on the ground. */
+        return mesh_ui_family_role(family, MESH_UI_SLOT_BASE);
+    }
     switch (tone) {
     case MESH_UI_TONE_DIM:
         return MESH_UI_COLOR_TEXT_DIM;
     case MESH_UI_TONE_STRONG:
         return MESH_UI_COLOR_TEXT_STRONG;
-    case MESH_UI_TONE_ACCENT:
-        return MESH_UI_COLOR_ACCENT;
-    case MESH_UI_TONE_GOOD:
-        return MESH_UI_COLOR_GOOD;
-    case MESH_UI_TONE_BAD:
-        return MESH_UI_COLOR_BAD;
-    case MESH_UI_TONE_INBOUND:
-        return MESH_UI_COLOR_TEXT_INBOUND;
-    case MESH_UI_TONE_OUTBOUND:
-        return MESH_UI_COLOR_TEXT_OUTBOUND;
     case MESH_UI_TONE_NORMAL:
-    case MESH_UI_TONE_COUNT:
     default:
         return MESH_UI_COLOR_TEXT;
     }
+}
+
+/*
+ * The state layer, as a fixed-point mix.
+ *
+ * The percentages are the whole of the design: enough that the cursor is found without looking
+ * for it, little enough that the ink the theme was validated against still reads on the result.
+ * mesh_ui_theme_validate() checks the selected variant of every pair drawn this way, so these
+ * two numbers cannot be raised without the tests saying which theme it broke.
+ */
+static const uint8_t k_state_mix_pct[MESH_UI_STATE_COUNT] = {
+    [MESH_UI_STATE_REST] = 0U,
+    [MESH_UI_STATE_SELECTED] = 12U,
+    [MESH_UI_STATE_ACTIVE] = 20U,
+};
+
+static uint8_t mix_channel(uint8_t fill, uint8_t ink, unsigned pct) {
+    const int delta = (int)ink - (int)fill;
+    if (delta == 0) {
+        return fill;
+    }
+    int scaled = (delta * (int)pct + (delta >= 0 ? 50 : -50)) / 100;
+    if (scaled == 0) {
+        /*
+         * A twelfth of a four-step difference rounds to nothing, and a layer that resolves to
+         * its own fill is a cursor that has left no mark. So a channel that differs at all
+         * moves at least one step: the point of the layer is to be *found*, and one step is the
+         * smallest amount of being found there is. It can never overshoot, because a delta of
+         * one moved by one lands exactly on the ink and nothing here is asked for more.
+         */
+        scaled = delta > 0 ? 1 : -1;
+    }
+    return (uint8_t)((int)fill + scaled);
+}
+
+struct mesh_ui_rgb mesh_ui_theme_state_layer(struct mesh_ui_rgb fill, struct mesh_ui_rgb ink,
+                                             enum mesh_ui_state state) {
+    if ((int)state <= (int)MESH_UI_STATE_REST || state >= MESH_UI_STATE_COUNT) {
+        return fill;
+    }
+    const unsigned pct = k_state_mix_pct[state];
+    return (struct mesh_ui_rgb){
+        .r = mix_channel(fill.r, ink.r, pct),
+        .g = mix_channel(fill.g, ink.g, pct),
+        .b = mix_channel(fill.b, ink.b, pct),
+    };
+}
+
+struct mesh_ui_paint mesh_ui_theme_paint(const struct mesh_ui_theme *theme,
+                                         enum mesh_ui_family family, enum mesh_ui_slot slot,
+                                         enum mesh_ui_state state) {
+    /* The pair is resolved from one slot, so an ink can only ever be the one checked against
+       the fill beside it. A caller asking for ON_BASE gets the BASE pair, not an inverted one:
+       there is one pair per half of a family and naming either half selects it. */
+    const bool container = (slot == MESH_UI_SLOT_CONTAINER || slot == MESH_UI_SLOT_ON_CONTAINER);
+    const enum mesh_ui_slot fill_slot = container ? MESH_UI_SLOT_CONTAINER : MESH_UI_SLOT_BASE;
+    const enum mesh_ui_slot ink_slot = container ? MESH_UI_SLOT_ON_CONTAINER : MESH_UI_SLOT_ON_BASE;
+    const struct mesh_ui_rgb fill = mesh_ui_theme_family(theme, family, fill_slot);
+    const struct mesh_ui_rgb ink = mesh_ui_theme_family(theme, family, ink_slot);
+    /*
+     * A state layer goes on a container and never on a base, which is not a special case but
+     * the definition of the two slots. A container is the colour held back so text can sit on
+     * it, and the room it was held back by is exactly the room a layer has to move in; a base
+     * is already the full-strength end - it is *what a pressed tonal control commits to* - so
+     * there is nowhere further for it to go. Mixing its ink in anyway costs the contrast that
+     * makes a saturated fill legible in the first place: it took every BASE/ON_BASE pair in
+     * three of the four themes under 4.5:1, because those pairs sit near the floor by design.
+     */
+    return (struct mesh_ui_paint){
+        .fill = container ? mesh_ui_theme_state_layer(fill, ink, state) : fill,
+        .ink = ink,
+    };
 }
 
 enum mesh_ui_tone mesh_ui_tone_for_load(int32_t permille, int32_t warn, int32_t bad) {
@@ -437,12 +619,12 @@ enum mesh_ui_tone mesh_ui_tone_for_load(int32_t permille, int32_t warn, int32_t 
         bad = swap;
     }
     if (permille >= bad) {
-        return MESH_UI_TONE_BAD;
+        return MESH_UI_TONE_ERROR;
     }
     if (permille >= warn) {
-        return MESH_UI_TONE_ACCENT;
+        return MESH_UI_TONE_WARNING;
     }
-    return MESH_UI_TONE_GOOD;
+    return MESH_UI_TONE_SUCCESS;
 }
 
 struct mesh_ui_rgb mesh_ui_theme_tone(const struct mesh_ui_theme *theme, enum mesh_ui_tone tone) {
@@ -455,9 +637,9 @@ struct mesh_ui_rgb mesh_ui_theme_avatar(const struct mesh_ui_theme *theme, uint3
                                ? theme->avatar_count
                                : 0U;
     if (count == 0U) {
-        /* A theme that states no palette still has to answer, and the accent is the one fill
-           it already promises reads with the ground colour over it. */
-        return theme->colors[MESH_UI_COLOR_ACCENT];
+        /* A theme that states no palette still has to answer, and the primary is a fill it
+           already promises reads with the ground colour over it. */
+        return theme->colors[MESH_UI_COLOR_PRIMARY];
     }
     /*
      * Knuth's multiplicative hash before the modulo. A node number is not random in its low
@@ -600,56 +782,32 @@ static const struct theme_pair k_required[] = {
     {MESH_UI_COLOR_TEXT_STRONG, MESH_UI_COLOR_BG, 4.5},
     {MESH_UI_COLOR_TEXT, MESH_UI_COLOR_SURFACE, 4.5},
     /* A card is a SURFACE panel with the ordinary tones written on it, so every tone a card row
-       can take owes that fill what it already owes the ground. Without these four rows a theme
-       could put its surface anywhere it liked and only the plain body text would notice. */
+       can take owes that fill what it already owes the ground. Without these rows a theme could
+       put its surface anywhere it liked and only the plain body text would notice. */
     {MESH_UI_COLOR_TEXT_STRONG, MESH_UI_COLOR_SURFACE, 4.5},
     {MESH_UI_COLOR_TEXT_ON_SEL, MESH_UI_COLOR_SURFACE_SEL, 4.5},
     {MESH_UI_COLOR_TEXT_ON_SEL, MESH_UI_COLOR_SURFACE_ACTIVE, 4.5},
     {MESH_UI_COLOR_TEXT_ON_SEL_DIM, MESH_UI_COLOR_SURFACE_SEL, 3.0},
-    {MESH_UI_COLOR_ON_ACCENT, MESH_UI_COLOR_ACCENT, 4.5},
-    /* The raised tier is the keyboard's draft box, and what is written in it is the thing the
-       user is composing - the one piece of text on that screen that has to be legible while
-       being typed, so it gets the body threshold and not the secondary one. */
+    /* The raised tier carries two things now: the keyboard's draft box, and an inbound chat
+       bubble. The draft box holds the text being composed and the bubble holds a message being
+       read, so both want the body threshold rather than the secondary one - and TEXT is on it
+       as well as TEXT_STRONG, because a bubble is written in the ordinary ink. */
+    {MESH_UI_COLOR_TEXT, MESH_UI_COLOR_SURFACE_HIGH, 4.5},
     {MESH_UI_COLOR_TEXT_STRONG, MESH_UI_COLOR_SURFACE_HIGH, 4.5},
+    {MESH_UI_COLOR_TEXT_DIM, MESH_UI_COLOR_SURFACE_HIGH, 3.0},
+    /* The clock on a resting outbound bubble: dim on the secondary container. Under the cursor
+       the bubble switches to its own ink instead, which the family rules already cover. */
+    {MESH_UI_COLOR_TEXT_DIM, MESH_UI_COLOR_SECONDARY_CONTAINER, 3.0},
     /* The recessed tier is the tab strip's bar. Its labels are chrome - the inactive ones are
-       drawn dim, and the active one is the container pair below. */
+       drawn dim, and the active one is the primary container. */
     {MESH_UI_COLOR_TEXT_DIM, MESH_UI_COLOR_SURFACE_LOW, 3.0},
-    {MESH_UI_COLOR_ON_ACCENT_CONTAINER, MESH_UI_COLOR_ACCENT_CONTAINER, 4.5},
     /* The snackbar. It is a sentence the user has four seconds to read while looking at
        something else, so it gets the body threshold rather than the secondary one - and the
        inverted fill is only worth having if what is written on it is legible. */
     {MESH_UI_COLOR_TEXT_ON_INVERSE, MESH_UI_COLOR_SURFACE_INVERSE, 4.5},
-    /* Two colours outside the avatar palette are drawn as avatar tints, and an avatar's
-       initials are the ground colour: the accent, on the conversation-list rows that are not
-       somebody, and the bad tone, on a row armed to be deleted. Both owe the ground what every
-       stated tint owes it - and the armed one is the disc that must not go quiet. */
-    {MESH_UI_COLOR_BG, MESH_UI_COLOR_ACCENT, 4.5},
-    {MESH_UI_COLOR_BG, MESH_UI_COLOR_BAD, 4.5},
-    {MESH_UI_COLOR_TEXT_INBOUND, MESH_UI_COLOR_BUBBLE_IN, 4.5},
-    {MESH_UI_COLOR_TEXT_INBOUND, MESH_UI_COLOR_BUBBLE_IN_SEL, 4.5},
-    {MESH_UI_COLOR_TEXT_OUTBOUND, MESH_UI_COLOR_BUBBLE_OUT, 4.5},
-    {MESH_UI_COLOR_TEXT_OUTBOUND, MESH_UI_COLOR_BUBBLE_OUT_SEL, 4.5},
     /* Secondary: still has to be read, just not for long. */
     {MESH_UI_COLOR_TEXT_DIM, MESH_UI_COLOR_BG, 3.0},
     {MESH_UI_COLOR_TEXT_DIM, MESH_UI_COLOR_SURFACE, 3.0},
-    {MESH_UI_COLOR_ACCENT, MESH_UI_COLOR_SURFACE, 3.0},
-    {MESH_UI_COLOR_GOOD, MESH_UI_COLOR_SURFACE, 3.0},
-    {MESH_UI_COLOR_BAD, MESH_UI_COLOR_SURFACE, 3.0},
-    {MESH_UI_COLOR_ACCENT, MESH_UI_COLOR_BG, 3.0},
-    {MESH_UI_COLOR_GOOD, MESH_UI_COLOR_BG, 3.0},
-    {MESH_UI_COLOR_BAD, MESH_UI_COLOR_BG, 3.0},
-    {MESH_UI_COLOR_ACCENT, MESH_UI_COLOR_BUBBLE_IN, 3.0},
-    {MESH_UI_COLOR_ACCENT, MESH_UI_COLOR_BUBBLE_IN_SEL, 3.0},
-    /* A critical alert heads its bubble in the bad tone rather than the accent, so that pairing
-       has to hold everywhere the accent one does - otherwise the one message a theme must not
-       swallow is the one it swallows. */
-    {MESH_UI_COLOR_BAD, MESH_UI_COLOR_BUBBLE_IN, 3.0},
-    {MESH_UI_COLOR_BAD, MESH_UI_COLOR_BUBBLE_IN_SEL, 3.0},
-    {MESH_UI_COLOR_TEXT_DIM, MESH_UI_COLOR_BUBBLE_IN, 3.0},
-    {MESH_UI_COLOR_TEXT_DIM, MESH_UI_COLOR_BUBBLE_OUT, 3.0},
-    {MESH_UI_COLOR_TEXT_INBOUND, MESH_UI_COLOR_BUBBLE_FAILED, 3.0},
-    {MESH_UI_COLOR_TEXT_OUTBOUND, MESH_UI_COLOR_BUBBLE_FAILED, 3.0},
-    {MESH_UI_COLOR_BAD, MESH_UI_COLOR_BUBBLE_FAILED, 3.0},
     /* Furniture: visible at all. An edge has to be findable from both sides - against the
        ground it sits on and against the fill it encloses - because on a theme whose surface is
        a step off the ground the edge is the whole of what says a container is there at all.
@@ -659,12 +817,68 @@ static const struct theme_pair k_required[] = {
     {MESH_UI_COLOR_OUTLINE, MESH_UI_COLOR_BG, 1.4},
     {MESH_UI_COLOR_OUTLINE, MESH_UI_COLOR_SURFACE, 1.4},
     {MESH_UI_COLOR_OUTLINE, MESH_UI_COLOR_SURFACE_HIGH, 1.4},
-    /* The rule that closes the tab strip off now meets the strip's own bar rather than the
-       ground, and the active tab's pill sits on that same bar. Neither has to be *read*, but a
-       tab indicator nobody can find is a tab strip with no current tab. */
+    /* The rule that closes the tab strip off meets the strip's own bar rather than the ground,
+       and the active tab's pill - the primary container, and the only container drawn up
+       there - sits on that same bar. Neither has to be *read*, but a tab indicator nobody can
+       find is a tab strip with no current tab. */
     {MESH_UI_COLOR_RULE_STRONG, MESH_UI_COLOR_SURFACE_LOW, 1.4},
-    {MESH_UI_COLOR_ACCENT_CONTAINER, MESH_UI_COLOR_SURFACE_LOW, 1.4},
+    {MESH_UI_COLOR_PRIMARY_CONTAINER, MESH_UI_COLOR_SURFACE_LOW, 1.4},
 };
+
+/*
+ * Pairs whose ground is not a colour any theme states: a fill with a state layer over it.
+ *
+ * A selected chat bubble used to be a role of its own, matched by eye against the resting one
+ * in every theme. It is derived now, which removes four roles - and derived is only safe if
+ * what is written on the result is still checked, because the layer moves a fill *towards* its
+ * own ink and so can only ever cost contrast. `layer` is the ink being mixed in, which is not
+ * always the ink being checked: a timestamp on a selected bubble is TEXT_DIM read against a
+ * fill that TEXT was mixed into.
+ */
+struct theme_state_pair {
+    enum mesh_ui_color ink;
+    enum mesh_ui_color ground;
+    enum mesh_ui_color layer;
+    enum mesh_ui_state state;
+    double ratio;
+};
+
+static const struct theme_state_pair k_required_state[] = {
+    /* The inbound bubble under the cursor: SURFACE_HIGH with its own body ink mixed in. */
+    {MESH_UI_COLOR_TEXT, MESH_UI_COLOR_SURFACE_HIGH, MESH_UI_COLOR_TEXT, MESH_UI_STATE_SELECTED,
+     4.5},
+    {MESH_UI_COLOR_TEXT_DIM, MESH_UI_COLOR_SURFACE_HIGH, MESH_UI_COLOR_TEXT, MESH_UI_STATE_SELECTED,
+     3.0},
+    /* A bubble's sender line is the primary, and a critical alert heads its bubble in the error
+       colour instead - so that pairing has to hold everywhere the primary one does, or the one
+       message a theme must not swallow is the one it swallows. Both at rest and selected. */
+    {MESH_UI_COLOR_PRIMARY, MESH_UI_COLOR_SURFACE_HIGH, MESH_UI_COLOR_TEXT, MESH_UI_STATE_REST,
+     3.0},
+    {MESH_UI_COLOR_PRIMARY, MESH_UI_COLOR_SURFACE_HIGH, MESH_UI_COLOR_TEXT, MESH_UI_STATE_SELECTED,
+     3.0},
+    {MESH_UI_COLOR_ERROR, MESH_UI_COLOR_SURFACE_HIGH, MESH_UI_COLOR_TEXT, MESH_UI_STATE_REST, 3.0},
+    {MESH_UI_COLOR_ERROR, MESH_UI_COLOR_SURFACE_HIGH, MESH_UI_COLOR_TEXT, MESH_UI_STATE_SELECTED,
+     3.0},
+};
+
+/*
+ * How far apart two colours have to be before they are two colours.
+ *
+ * Contrast cannot answer this: two hues of the same lightness sit at 1.0:1 however different
+ * they look, which is exactly the case that matters here - a green success and a red error are
+ * near-identical by luminance and completely distinct to the eye. So this is a plain
+ * channel-sum distance, out of a possible 765, and it is a crude guard rather than a
+ * perceptual measure: it is here to catch a theme that has handed two *meanings* one colour,
+ * not to rank palettes. 120 is roughly "these differ by half a channel somewhere".
+ */
+#define MESH_UI_STATUS_DISTANCE 120
+
+static unsigned theme_distance(struct mesh_ui_rgb a, struct mesh_ui_rgb b) {
+    const int dr = (int)a.r - (int)b.r;
+    const int dg = (int)a.g - (int)b.g;
+    const int db = (int)a.b - (int)b.b;
+    return (unsigned)((dr < 0 ? -dr : dr) + (dg < 0 ? -dg : dg) + (db < 0 ? -db : db));
+}
 
 bool mesh_ui_theme_validate(const struct mesh_ui_theme *theme, char *reason, size_t reason_len) {
     theme = theme_or_default(theme);
@@ -727,6 +941,127 @@ bool mesh_ui_theme_validate(const struct mesh_ui_theme *theme, char *reason, siz
         }
     }
 
+    for (size_t i = 0; i < sizeof k_required_state / sizeof k_required_state[0]; ++i) {
+        const struct theme_state_pair *pair = &k_required_state[i];
+        const struct mesh_ui_rgb ground = mesh_ui_theme_state_layer(
+            theme->colors[pair->ground], theme->colors[pair->layer], pair->state);
+        const double ratio = mesh_ui_theme_contrast(theme->colors[pair->ink], ground);
+        if (ratio + 0.005 < pair->ratio) {
+            if (reason != NULL) {
+                snprintf(reason, reason_len,
+                         "role %d on role %d in state %d is %.2f:1, needs %.1f:1", (int)pair->ink,
+                         (int)pair->ground, (int)pair->state, ratio, pair->ratio);
+            }
+            return false;
+        }
+    }
+
+    /*
+     * Every family, the same six rules - which is the point of having families at all.
+     *
+     * This replaced two dozen hand-written rows, and the rows were the problem: a pair missing
+     * from the table was a pair nothing checked, and that is how dim text on a selected
+     * outbound bubble stayed at 1.9:1 on the dark palette for as long as it did. A family
+     * cannot be added now without every one of its six contracts being checked, because there
+     * is no list to forget to add it to.
+     */
+    for (int f = 0; f < MESH_UI_FAMILY_COUNT; ++f) {
+        const enum mesh_ui_family family = (enum mesh_ui_family)f;
+        static const struct {
+            enum mesh_ui_slot ink; /* MESH_UI_SLOT_COUNT means "against a fixed role" */
+            enum mesh_ui_slot fill;
+            enum mesh_ui_color ground;
+            enum mesh_ui_state state;
+            double ratio;
+        } k_family_rules[] = {
+            /* Each half of a family is a fill with an ink checked against it. The container
+               gets two more rows for the two state layers, because the layer moves a fill
+               towards its own ink and can therefore only ever cost contrast - without them a
+               container could be picked so close to its ink that being pressed tips it out.
+               The base takes no layer, so it needs no such row; see mesh_ui_theme_paint(). */
+            {MESH_UI_SLOT_ON_BASE, MESH_UI_SLOT_BASE, MESH_UI_COLOR_COUNT, MESH_UI_STATE_REST, 4.5},
+            {MESH_UI_SLOT_ON_CONTAINER, MESH_UI_SLOT_CONTAINER, MESH_UI_COLOR_COUNT,
+             MESH_UI_STATE_REST, 4.5},
+            {MESH_UI_SLOT_ON_CONTAINER, MESH_UI_SLOT_CONTAINER, MESH_UI_COLOR_COUNT,
+             MESH_UI_STATE_SELECTED, 4.5},
+            {MESH_UI_SLOT_ON_CONTAINER, MESH_UI_SLOT_CONTAINER, MESH_UI_COLOR_COUNT,
+             MESH_UI_STATE_ACTIVE, 4.5},
+            /* BASE is ink as often as it is a fill - a status word on a card, a title on the
+               body - so it owes both grounds the secondary threshold. */
+            {MESH_UI_SLOT_COUNT, MESH_UI_SLOT_BASE, MESH_UI_COLOR_BG, MESH_UI_STATE_REST, 3.0},
+            {MESH_UI_SLOT_COUNT, MESH_UI_SLOT_BASE, MESH_UI_COLOR_SURFACE, MESH_UI_STATE_REST, 3.0},
+            /* A container is a fill on the body ground. It only has to be found, not read -
+               the same "visible at all" bar the meter track gets, and for the same reason. */
+            {MESH_UI_SLOT_COUNT, MESH_UI_SLOT_CONTAINER, MESH_UI_COLOR_BG, MESH_UI_STATE_REST, 1.2},
+            /* The marker bar down a selected row is a family's BASE laid under the cursor
+               fill, so it has to be tellable from that fill. The same "found, not read" bar,
+               deliberately, rather than the 3:1 an ink would owe: the contrast theme's cursor
+               fill is white and its one accent is a yellow that clears 1.4:1 by a hair, so a
+               text threshold here would fail the shipped palette for a bar that is not text.
+               It still catches the case that matters - a family whose base *is* the cursor
+               fill, which is a marker nobody can see. */
+            {MESH_UI_SLOT_COUNT, MESH_UI_SLOT_BASE, MESH_UI_COLOR_SURFACE_SEL, MESH_UI_STATE_REST,
+             1.2},
+        };
+        for (size_t i = 0; i < sizeof k_family_rules / sizeof k_family_rules[0]; ++i) {
+            const struct mesh_ui_rgb fill =
+                mesh_ui_theme_family(theme, family, k_family_rules[i].fill);
+            struct mesh_ui_rgb ink;
+            struct mesh_ui_rgb ground;
+            if (k_family_rules[i].ink == MESH_UI_SLOT_COUNT) {
+                /* The family colour read *against* a neutral ground rather than written on. */
+                ink = fill;
+                ground = theme->colors[k_family_rules[i].ground];
+            } else {
+                ink = mesh_ui_theme_family(theme, family, k_family_rules[i].ink);
+                ground = mesh_ui_theme_state_layer(fill, ink, k_family_rules[i].state);
+            }
+            const double ratio = mesh_ui_theme_contrast(ink, ground);
+            if (ratio + 0.005 < k_family_rules[i].ratio) {
+                if (reason != NULL) {
+                    snprintf(reason, reason_len,
+                             "family %d slot %d in state %d is %.2f:1, needs %.1f:1", f,
+                             (int)k_family_rules[i].fill, (int)k_family_rules[i].state, ratio,
+                             k_family_rules[i].ratio);
+                }
+                return false;
+            }
+        }
+    }
+
+    /*
+     * The three families that carry a verdict have to be three colours.
+     *
+     * Nothing above catches this: success, warning and error each pass their own contrast
+     * contract perfectly well while being the same colour as each other, and a theme where
+     * "connected", "busy" and "failed" all read identically is worse than one that is merely
+     * hard to read - it is confidently wrong. The other three families are exempt: primary,
+     * secondary and tertiary are identity rather than verdict, and the contrast theme spends
+     * its whole palette on making the verdicts loud.
+     */
+    {
+        static const enum mesh_ui_family k_status[] = {
+            MESH_UI_FAMILY_SUCCESS,
+            MESH_UI_FAMILY_WARNING,
+            MESH_UI_FAMILY_ERROR,
+        };
+        const size_t count = sizeof k_status / sizeof k_status[0];
+        for (size_t i = 0; i < count; ++i) {
+            for (size_t j = i + 1U; j < count; ++j) {
+                const unsigned d =
+                    theme_distance(mesh_ui_theme_family(theme, k_status[i], MESH_UI_SLOT_BASE),
+                                   mesh_ui_theme_family(theme, k_status[j], MESH_UI_SLOT_BASE));
+                if (d < MESH_UI_STATUS_DISTANCE) {
+                    if (reason != NULL) {
+                        snprintf(reason, reason_len, "families %d and %d are %u apart, needs %d",
+                                 (int)k_status[i], (int)k_status[j], d, MESH_UI_STATUS_DISTANCE);
+                    }
+                    return false;
+                }
+            }
+        }
+    }
+
     /*
      * A meter is an empty track with a fill inside it, and both halves have to be visible or it
      * is not a meter: an unfindable track is a bar that vanishes when the reading is low, and a
@@ -737,18 +1072,14 @@ bool mesh_ui_theme_validate(const struct mesh_ui_theme *theme, char *reason, siz
      * hairline only has to be visible at all" bar, applied to something the eye is meant to
      * read as a length.
      *
-     * These three and no others, because these three are the whole of what a meter can be
-     * filled with: mesh_ui_tone_for_load() answers with them and fb_draw_meter() folds anything
-     * else back to the accent. Validating a tone a meter cannot take would hold every theme to
-     * a pair nothing draws - and the contrast theme, whose STRONG *is* the cursor fill, would
-     * fail for a bar it will never render.
+     * Every family and nothing else, because a family is the whole of what a meter can be
+     * filled with: fb_draw_meter() folds any tone that names no family back to the primary.
+     * Checking the neutral tones instead would hold every theme to a pair nothing draws - the
+     * contrast theme, whose STRONG *is* the cursor fill, would fail for a bar it will never
+     * render - and checking a hand-written list of families is how the list went stale when a
+     * fourth fill appeared.
      */
     {
-        static const enum mesh_ui_tone k_meter_tones[] = {
-            MESH_UI_TONE_ACCENT,
-            MESH_UI_TONE_GOOD,
-            MESH_UI_TONE_BAD,
-        };
         const struct mesh_ui_rgb track = theme->colors[MESH_UI_COLOR_METER_TRACK];
         /* Both grounds a meter is actually drawn on: the body, for the bar in a settings row,
            and a card's surface, for the one under the Status screen's airtime figures. A track
@@ -766,14 +1097,14 @@ bool mesh_ui_theme_validate(const struct mesh_ui_theme *theme, char *reason, siz
                 return false;
             }
         }
-        for (size_t i = 0; i < sizeof k_meter_tones / sizeof k_meter_tones[0]; ++i) {
-            const struct mesh_ui_rgb fill = mesh_ui_theme_tone(theme, k_meter_tones[i]);
+        for (int f = 0; f < MESH_UI_FAMILY_COUNT; ++f) {
+            const struct mesh_ui_rgb fill =
+                mesh_ui_theme_family(theme, (enum mesh_ui_family)f, MESH_UI_SLOT_BASE);
             const double ratio = mesh_ui_theme_contrast(fill, track);
             if (ratio + 0.005 < 1.4) {
                 if (reason != NULL) {
                     snprintf(reason, reason_len,
-                             "meter tone %d on its track is %.2f:1, needs 1.4:1",
-                             (int)k_meter_tones[i], ratio);
+                             "meter family %d on its track is %.2f:1, needs 1.4:1", f, ratio);
                 }
                 return false;
             }

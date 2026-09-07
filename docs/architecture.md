@@ -227,7 +227,7 @@ They belong in the conversation they were sent to, but not as ordinary messages,
 - The transcript **always** heads an alert or a detection, whatever it would otherwise have
   decided about naming and even in a direct conversation where the title already says who is
   talking. A run of identical-looking bubbles is precisely what a critical alert must not be.
-- An alert's heading is drawn in the bad tone rather than the accent, which is why
+- An alert's heading is drawn in the error tone rather than the primary, which is why
   `{BAD, BUBBLE_IN}` and `{BAD, BUBBLE_IN_SEL}` joined the theme contrast contract: the one
   message a theme must not swallow is the one it would otherwise swallow.
 - An alert also **toasts wherever the user is**, because the Messages tab may not be the one on

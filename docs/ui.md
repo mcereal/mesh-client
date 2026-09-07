@@ -81,7 +81,7 @@ Five tabs: Messages, Nodes, Devices, Status, Settings.
 The strip is drawn on a bar of its own — `SURFACE_LOW`, the theme's recessed tier — with the
 current tab as a tonal pill. Both halves of that are saying "this is chrome, not the first row
 of content", which is the job every phone's navigation bar does with the same two devices. The
-pill is `FB_BUTTON_TONAL`: an accent *container* rather than the accent itself, because a block
+pill is `FB_BUTTON_TONAL`: a primary *container* rather than the primary itself, because a block
 of saturated colour the size of a tab stops being an indicator and starts being the thing you
 read instead of the label on it.
 
@@ -116,7 +116,7 @@ in `fb_screens.c` because they are content decisions:
 
 The cursor still selects a message (A drills into its conversation from all-traffic; `nav.c`'s
 clamp keeps it pinned to the newest as traffic arrives), so a bubble carries both a lifted fill
-and an accent bar down its outer edge — a fill one step lighter is not, by itself, findable on a
+and a marker bar down its outer edge — a fill one step lighter is not, by itself, findable on a
 3.2" panel, and gives a colour-blind eye nothing at all.
 
 The conversation list is the two-row shape a phone messenger has, drawn as one component
@@ -206,7 +206,7 @@ is: us, pinned nodes, our other radios, message peers, RF nodes by `last_heard`,
 **Pinning** (X, `MESH_UI_ACTION_TOGGLE_FAVORITE`) puts a node at rank 1, above even a node you
 are mid-conversation with, which is also what keeps a quiet pinned node inside the budget. The
 list marks it with a star sprite before the name. Our own node is marked differently — its
-avatar disc takes the accent as a stated fill instead of a tint — because being *us* is an
+avatar disc takes the primary as a stated fill instead of a tint — because being *us* is an
 identity and being pinned is a preference, and the disc is the slot that carries identity.
 **Our own node never shows the star**, whatever its `is_favorite` says: the flag can arrive
 stale and neither `nav.c` nor `node_detail.c` will pin us, so a star there would advertise a
@@ -263,11 +263,11 @@ which is the same information with the grouping said out loud:
 | Card | What it holds | What its heading colour says |
 |---|---|---|
 | **Link** | transport, radio, sync, our node, the primary channel, devices in range | good when a radio is attached, bad when none is |
-| **Mesh** | NodeDB and roster counts, airtime, packets, what the ring is holding | the airtime tone — accent past 25% channel utilization, bad past 50% |
+| **Mesh** | NodeDB and roster counts, airtime, packets, what the ring is holding | the airtime tone — warning past 25% channel utilization, error past 50% |
 | **Radio** | battery and uptime, what the firmware last said, reboots, the TX queue, free heap | the worst thing on it: bad for a flat battery, a refused packet or an `ERROR` notice |
 
 The heading colour is the point. Every row on the Radio card exists only when something is
-wrong, so on a healthy link that card is small and accent-coloured and there is nothing to read;
+wrong, so on a healthy link that card is small and primary-coloured and there is nothing to read;
 when it turns red, the screen has answered "is anything wrong" before a number has been.
 
 Two consequences worth knowing:
@@ -526,7 +526,7 @@ dropped a button to fit its explanation would be unanswerable.
 > high-contrast palette deliberately collapses `ACCENT`, `ACCENT_CONTAINER` and `SURFACE_ACTIVE`
 > onto one yellow, because a theme built for legibility has no held-back version of its one
 > accent. The accept then renders identically whether or not it is selected. So the fill means
-> *focus* and nothing else, and what marks the affirmative is its check and its accent-coloured
+> *focus* and nothing else, and what marks the affirmative is its check and its family-coloured
 > label — ink on the panel, which survives every palette. `ui_capture_dialog_marks_the_selected_answer`
 > pins it, and fails on the design that looked right.
 
@@ -547,19 +547,26 @@ paint over the message below it, and the transcript places the next bubble from 
 one reported. A second way of measuring the same text — a `strlen`, a second wrapper — is how
 that happens.
 
-Screens name a **tone** (`MESH_UI_TONE_ACCENT`, `MESH_UI_TONE_BAD`, …) rather than a colour, and
-components take a tone or a **role** (`MESH_UI_COLOR_SURFACE_SEL`) rather than an RGB — see
-[Themes](#themes) below. Same idea as a stylesheet with a token called `danger` instead of a hex
-value.
+Screens name a **tone** (`MESH_UI_TONE_WARNING`, `MESH_UI_TONE_ERROR`, …) rather than a colour;
+components that fill something take a **family** (`MESH_UI_FAMILY_ERROR`) and ask the theme for
+the fill and ink together; components that only draw neutral furniture take a **role**
+(`MESH_UI_COLOR_SURFACE_SEL`). None of them takes an RGB — see [Themes](#themes) below. Same
+idea as a stylesheet with a token called `danger` instead of a hex value.
 
 `struct fb_button` is the smallest of them and carries a **variant** rather than a fill colour:
 `FB_BUTTON_TEXT` shows nothing until the cursor arrives (the keyboard's character keys),
-`FB_BUTTON_FILLED` is always visibly a control (its action row), and `FB_BUTTON_TONAL` is the
-accent held back far enough to sit behind a label (the selected tab, and what a filter chip
-would be). Each variant is a *pair* of theme colours at rest and under the cursor, resolved in
-one table in `fb_button_paint()` — they travel together because every pair is one
+`FB_BUTTON_FILLED` is always visibly a control (its action row), and `FB_BUTTON_TONAL` is a
+family held back far enough to sit behind a label (the selected tab, and what a filter chip
+would be). Each variant resolves to a *pair* of theme colours at rest and under the cursor in
+one place, `fb_button_paint()` — they travel together because every pair is one
 `mesh_ui_theme_validate()` holds to 4.5:1, and splitting them across branches is how a label
 ends up on a fill nothing checked it against.
+
+A tonal button also carries a **family**, which defaults to the primary. That is what lets one
+component be the selected tab *and* the destructive confirm in a delete dialog: the dialog names
+`MESH_UI_FAMILY_ERROR` once and its icon, its headline and its accept button's fill all change
+together, instead of a red word being painted onto the ordinary pill. `struct fb_switch` and the
+badge slot of `struct fb_trailing` take one for the same reason.
 
 `struct fb_card` is the container the others sit in: a titled panel that groups rows belonging to
 one subject, which is what the [Status tab](#status--cards) is now made of. It is the odd one out
@@ -570,7 +577,7 @@ row is in:
 ```c
 struct fb_card card;
 fb_card_begin(&card, MESH_UI_ICON_LINK, MESH_STR_STATUS_CARD_LINK,
-              connected ? MESH_UI_TONE_GOOD : MESH_UI_TONE_BAD);
+              connected ? MESH_UI_TONE_SUCCESS : MESH_UI_TONE_ERROR);
 fb_card_row_text(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_TRANSPORT, status);
 if (handshake_valid) {
     fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_MY_NODE,
@@ -649,7 +656,7 @@ goes forwards and then stops. Nothing about the drawing differs, so there is one
 
 ```c
 struct fb_meter meter = {.id = 0x03000000U | i, .kind = FB_METER_DETERMINATE,
-                         .value = permille, .tone = MESH_UI_TONE_ACCENT};
+                         .value = permille, .tone = MESH_UI_TONE_PRIMARY};
 const struct fb_list_item row = {..., .trailing = {.kind = FB_TRAILING_METER, .meter = &meter}};
 ```
 
@@ -679,17 +686,20 @@ Four things are worth knowing before reusing it:
   with a contract in both directions: findable on the two grounds a bar is drawn on (the body
   and a card) *and* distinguishable from every fill. `SURFACE_SEL` fails the first half on the
   light theme, where the cursor fill is within 1.2:1 of a card; `OUTLINE` fails the second half
-  on the contrast theme, where it is the same near-white as the good tone. `mesh_ui_theme_validate()`
+  on the contrast theme, where it is the same near-white as the success colour. `mesh_ui_theme_validate()`
   holds both halves.
-- **The fill takes `ACCENT`, `GOOD` or `BAD`**, and anything else is drawn accent. Those are the
-  three the validator holds against the track, and they are exactly what `mesh_ui_tone_for_load()`
-  answers with — so the figure's colour, the card heading's and the bar's fill are one sentence
-  about one number rather than three thresholds that can drift apart.
+- **The fill takes any family tone**, and a tone that names no family is drawn in the primary.
+  Every family is held against the track by `mesh_ui_theme_validate()`, so the widget's rule is
+  a question about the *kind* of tone rather than a list to keep in step with the validator —
+  which is what it used to be, and the list went stale the moment a fourth fill existed.
+  `mesh_ui_tone_for_load()` answers with success, warning and error, so the figure's colour, the
+  card heading's and the bar's fill are one sentence about one number rather than three
+  thresholds that can drift apart.
 
 #### `struct fb_snackbar` — the transient notice
 
 `mesh_ui_store_set_toast()` raises a one-line notice: *Sent to BRVO*, *Not connected*,
-*Rebooting*. It used to be drawn as accent text on the footer's **second line**, which is also
+*Rebooting*. It used to be drawn as primary-coloured text on the footer's **second line**, which is also
 where the link summary lives — so for the four seconds after every action the frame stopped
 saying whether there was a radio attached. Two unrelated facts were taking turns on one row
 because the notice had nowhere else to be.
@@ -941,13 +951,67 @@ Three vocabularies, from most abstract to least:
 
 | Layer | What it is | Who speaks it |
 |---|---|---|
-| **Tone** (`enum mesh_ui_tone`) | what a piece of content *means*: normal, dim, strong, accent, good, bad, inbound, outbound | screens, and every widget that takes text |
-| **Role** (`enum mesh_ui_color`) | what a colour *does*: the ground, the fill under the cursor, text on an accent fill, an inbound bubble | widgets, for the things that are not text |
+| **Tone** (`enum mesh_ui_tone`) | what a piece of *text* means: normal, dim, strong, and one per family | screens, and every widget that takes text |
+| **Family** (`enum mesh_ui_family`) | what a *fill* means: primary, secondary, tertiary, success, warning, error | widgets that fill something — a button, a switch, a badge, a bubble |
+| **Role** (`enum mesh_ui_color`) | what a colour *does*: the ground, the fill under the cursor, the ink on an error container | widgets, for the neutral spine |
 | **RGB** (`struct mesh_ui_rgb`) | an actual colour | `src/ui/theme.c` and `fb_fill_packed()`, nothing between |
 
-A tone resolves to a role and a role resolves to an RGB, both through the theme. `fb_color()`
-and `fb_tone_color()` on the backend state are the only path, which is what makes a switch
-total: a renderer cannot keep a colour back, because it has nowhere to put one.
+A tone resolves to a role and a role resolves to an RGB, both through the theme. `fb_color()`,
+`fb_tone_color()` and `fb_paint()` on the backend state are the only path, which is what makes a
+switch total: a renderer cannot keep a colour back, because it has nowhere to put one.
+
+#### The six families
+
+Most of the palette is six colours that carry meaning, four roles each:
+
+| Family | What it means | Where it shows |
+|---|---|---|
+| `PRIMARY` | the brand colour, and "the one you are looking at" | titles, the compose target, the active tab, an unread badge |
+| `SECONDARY` | the other side of a pair, without being better or worse | our own chat bubbles |
+| `TERTIARY` | in flight — started, not finished | an unsent draft, a send queue under pressure |
+| `SUCCESS` | connected, healthy, delivered | the link card, a meter below its warn threshold |
+| `WARNING` | not wrong yet | packet loss, a radio low on heap, a `WARNING`-level notice |
+| `ERROR` | disconnected, failed, armed to destroy something | a failed bubble, a destructive dialog, an armed row |
+
+The four slots are `BASE`, `ON_BASE`, `CONTAINER`, `ON_CONTAINER` — Material's shape, and for
+Material's reason. A colour used as ink and the same colour used as a fill are not the same
+colour, and a fill the size of a badge and one the size of a tab are not either. `BASE` is the
+saturated value: right as ink on the ground, and as a fill only where the fill is a mark rather
+than a field. `CONTAINER` is it held back until text can sit on it — a tab, a chip, a chat
+bubble. Each comes with the ink checked against it.
+
+**The pair is the unit.** `mesh_ui_theme_paint(theme, family, slot, state)` returns the fill and
+the ink together, and every widget that fills something goes through it. A widget that took its
+fill from one slot and its label colour from another would be drawing a combination no theme was
+ever measured against, which is exactly how the chat bubbles, the switch and the dialog each
+ended up with a colour decision of their own.
+
+Adding a family means every theme answers for all four of its slots and
+`mesh_ui_theme_validate()` checks all six of its contracts — there is no list to forget to add
+it to, because the validator loops over `MESH_UI_FAMILY_COUNT` rather than over hand-written
+rows. That is the difference from the palette this replaced, where a missing row was a pair
+nothing checked.
+
+#### State is a layer, not a second colour
+
+`enum mesh_ui_state` — `REST`, `SELECTED`, `ACTIVE` — is a *modifier* on a colour. Material calls
+it a state layer: the resting fill with its own ink mixed in a little (12% and 20% here), so
+"the cursor is on this" is one operation applied to whatever the thing is already painted in.
+
+Mixing the **ink** in rather than white or black is what makes one rule work on both a dark
+ground and a light one: the layer always moves a fill towards the thing written on it, so it
+lightens on dark and darkens on light without either being spelled out.
+
+It applies to a **container and never to a base**, which is a definition rather than a special
+case. A container is the colour held back so text can sit on it, and the room it was held back
+by is the room a layer has to move in; a base is already the full-strength end — it is what a
+pressed tonal button commits to — so there is nowhere further for it to go. Mixing its ink in
+anyway takes a saturated pair under 4.5:1, which it did in three of the four themes before the
+rule was written down.
+
+This is what removed the four bubble roles: a selected chat bubble used to be a stated colour
+matched by eye against the resting one in every theme. `mesh_ui_theme_validate()` computes the
+layer and checks what is written on the result, so derived is not the same as unchecked.
 
 Geometry works the same way. `struct mesh_ui_metrics` holds the margin, the body scale, how many
 steps smaller chrome text is, how much of the body a bubble may fill, and the width below which
@@ -963,7 +1027,7 @@ There are three of them, and the tier says how far a thing is from the ground:
 |---|---|
 | `SURFACE_LOW` | recessed chrome — the bar behind the tab strip |
 | `SURFACE` | a panel on the ground — a card |
-| `SURFACE_HIGH` | raised over the body — the keyboard's draft box |
+| `SURFACE_HIGH` | raised over the body — the keyboard's draft box, an inbound bubble |
 | `SURFACE_INVERSE` | over the whole UI — the snackbar |
 | `METER_TRACK` | the empty part of a meter — see [`struct fb_meter`](#struct-fb_meter--a-quantity-as-a-length) |
 
@@ -983,13 +1047,20 @@ four — and with no shadow and no alpha there is no tier that can say so. Inver
 can: a light fill on a dark theme, a dark one on a light theme, found before it is read. It is
 Material's `inverse-surface` pair, and the snackbar is its one user.
 
-`ACCENT_CONTAINER`/`ON_ACCENT_CONTAINER` is the accent's quiet half. A full accent fill is right
-for a badge — small, and it has to be found across the panel — and wrong for anything the size
-of a tab, where a block of saturated colour under a label becomes the loudest thing on screen
-and the label stops being read. The container is the same hue held back far enough to sit behind
-text. The `contrast` theme declines and states the full accent for both, the same way it states
-two avatar tints instead of six: holding a colour back is the one thing that theme exists not to
-do.
+The `contrast` theme declines to hold the primary back and states the full colour for both its
+`BASE` and its `CONTAINER`, the same way it states two avatar tints instead of six: holding a
+colour back is the one thing that theme exists not to do. It also collapses `SECONDARY` and
+`TERTIARY` onto that one yellow, because its cursor fill *is* white and a marker bar laid under
+it in white is a marker bar nobody can see — which is a rule the validator now holds rather than
+a thing to remember.
+
+Two contracts exist only because the palette has families, and nothing else would catch either.
+**The three verdicts must be three colours**: success, warning and error each pass every
+contrast rule while being identical to one another, and a device where "connected", "busy" and
+"failed" read the same is worse than one that is merely hard to read. Contrast cannot measure
+that — two hues of one lightness sit at 1.0:1 however different they look — so it is a plain
+channel-sum distance, a crude guard rather than a perceptual measure. **A family's base must be
+tellable from the cursor fill**, because the marker bar down a selected row is drawn in it.
 
 `OUTLINE` is the edge of a container, which is not the job `RULE` does. A rule divides content
 that is already on one surface and may fade politely into it; an outline is what says a surface
@@ -1050,7 +1121,7 @@ would be the only thing in this tree pulling libm into the static aarch64 link.
 
 The `colorblind` theme is why roles are named for meaning. Roughly one man in twelve cannot
 separate the green of "connected" from the red of "failed"; that theme swaps the pair for the
-Okabe–Ito blue and orange and moves the accent to reddish purple, and it is a palette change
+Okabe–Ito blue and orange and moves the primary to reddish purple, and it is a palette change
 only because no renderer ever said "green".
 
 ### Switching a theme

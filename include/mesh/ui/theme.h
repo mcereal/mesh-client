@@ -37,6 +37,28 @@ struct mesh_ui_rgb {
 /*
  * Every colour a frame can use, named for the job it does.
  *
+ * There are two kinds of entry here, and the difference is the whole shape of the palette.
+ *
+ * The *surfaces* and the *text* are the neutral spine: the ground, the tiers above it, the ink
+ * that goes on each. There is one of each and nothing chooses between them.
+ *
+ * The *families* are the six colours that carry meaning - primary, secondary, tertiary,
+ * success, warning, error - and each is four roles rather than one:
+ *
+ *   PRIMARY               the saturated colour: ink on the ground, or a fill that must be found
+ *   ON_PRIMARY            ink for that fill
+ *   PRIMARY_CONTAINER     the same colour held back far enough to sit behind text
+ *   ON_PRIMARY_CONTAINER  ink for that
+ *
+ * Four rather than one because a colour used as ink and a colour used as a fill are not the
+ * same colour, and a fill the size of a badge and a fill the size of a tab are not either. A
+ * family that stated only its saturated value would leave every widget to work the other three
+ * out - which is what a chat bubble, a snackbar and an armed row each did separately, in four
+ * themes, before this. See enum mesh_ui_slot.
+ *
+ * The four slots of a family are contiguous and in slot order, so mesh_ui_family_role() is
+ * arithmetic rather than a switch; the _Static_assert below the slot enum pins that.
+ *
  * Adding a role is how a new visual element gets themed. Adding it means every theme answers
  * for it, which is the point - a role that only one theme fills is a hardcoded colour with
  * extra steps.
@@ -59,7 +81,7 @@ enum mesh_ui_color {
      */
     MESH_UI_COLOR_SURFACE_LOW,    /* recessed chrome: the ground the tab strip sits on */
     MESH_UI_COLOR_SURFACE,        /* a panel on the ground: a card */
-    MESH_UI_COLOR_SURFACE_HIGH,   /* raised over the body: the keyboard's draft box */
+    MESH_UI_COLOR_SURFACE_HIGH,   /* raised over the body: the draft box, an inbound bubble */
     MESH_UI_COLOR_SURFACE_SEL,    /* the fill under the cursor, and a button at rest */
     MESH_UI_COLOR_SURFACE_ACTIVE, /* a pressed button */
     /*
@@ -77,7 +99,7 @@ enum mesh_ui_color {
      * with the same one user.
      */
     MESH_UI_COLOR_SURFACE_INVERSE,
-    MESH_UI_COLOR_TEXT,        /* body text */
+    MESH_UI_COLOR_TEXT,        /* body text; also the ink on an inbound bubble */
     MESH_UI_COLOR_TEXT_DIM,    /* headings, secondary lines, anything not yet loaded */
     MESH_UI_COLOR_TEXT_STRONG, /* unread, unsaved: the row the eye should land on */
     MESH_UI_COLOR_TEXT_ON_SEL, /* text drawn on SURFACE_SEL or SURFACE_ACTIVE */
@@ -87,22 +109,58 @@ enum mesh_ui_color {
        quiet colour rather than flattening to TEXT_ON_SEL. */
     MESH_UI_COLOR_TEXT_ON_SEL_DIM,
     MESH_UI_COLOR_TEXT_ON_INVERSE, /* text drawn on SURFACE_INVERSE */
-    MESH_UI_COLOR_ACCENT,          /* titles, actions, channels, the current target */
-    MESH_UI_COLOR_ON_ACCENT,       /* text drawn on an accent fill: the unread badge */
-    /*
-     * The accent's quiet half: a fill that says "this one" without shouting it, and the ink
-     * that goes on it.
+
+    /* ---- the families -------------------------------------------------------------------
      *
-     * A full accent fill is the right answer for a badge, which is small and has to be found
-     * across the panel. It is the wrong one for anything the size of a tab, where a block of
-     * saturated colour under a label becomes the loudest thing on the screen and the label
-     * stops being read. The container is the same hue held back far enough to sit behind text -
-     * which is what a selected tab, a tonal button and an assist chip all want.
+     * Six colours that mean something, four roles each, in the order enum mesh_ui_family and
+     * enum mesh_ui_slot name them. Keep them contiguous and keep the slots in order: the
+     * lookup is arithmetic.
      */
-    MESH_UI_COLOR_ACCENT_CONTAINER,
-    MESH_UI_COLOR_ON_ACCENT_CONTAINER,
-    MESH_UI_COLOR_GOOD,        /* connected, healthy */
-    MESH_UI_COLOR_BAD,         /* disconnected, failed, armed to destroy something */
+
+    /* Titles, the current target, the compose destination, the active tab. The brand colour:
+       what the eye is meant to follow through the app when nothing is wrong. */
+    MESH_UI_COLOR_PRIMARY,
+    MESH_UI_COLOR_ON_PRIMARY,
+    MESH_UI_COLOR_PRIMARY_CONTAINER,
+    MESH_UI_COLOR_ON_PRIMARY_CONTAINER,
+    /* The second voice: our own messages, and anything that is "the other side" of a pair
+       without being better or worse than it. An outbound bubble is the whole reason this
+       family exists - "you are the blue one" is a convention every messenger has trained
+       everybody on, and it is not the primary because a transcript full of the brand colour
+       is a transcript nobody can find a title in. */
+    MESH_UI_COLOR_SECONDARY,
+    MESH_UI_COLOR_ON_SECONDARY,
+    MESH_UI_COLOR_SECONDARY_CONTAINER,
+    MESH_UI_COLOR_ON_SECONDARY_CONTAINER,
+    /* In flight: a draft not sent, an edit not saved, a request the radio has not answered.
+       Neither good nor bad nor the thing you are looking at - which is three meanings the
+       primary used to carry at once, so a pending row and the screen's own title were the
+       same colour. */
+    MESH_UI_COLOR_TERTIARY,
+    MESH_UI_COLOR_ON_TERTIARY,
+    MESH_UI_COLOR_TERTIARY_CONTAINER,
+    MESH_UI_COLOR_ON_TERTIARY_CONTAINER,
+    MESH_UI_COLOR_SUCCESS, /* connected, healthy, delivered */
+    MESH_UI_COLOR_ON_SUCCESS,
+    MESH_UI_COLOR_SUCCESS_CONTAINER,
+    MESH_UI_COLOR_ON_SUCCESS_CONTAINER,
+    /* Not wrong yet: a mesh over its airtime budget, a radio low on heap, packets going
+       missing. It is a family of its own and not the primary held sideways, which is what it
+       was - and the airtime meter's warning band was therefore, by construction, the same
+       colour as the "this is the current channel" marker beside it. */
+    MESH_UI_COLOR_WARNING,
+    MESH_UI_COLOR_ON_WARNING,
+    MESH_UI_COLOR_WARNING_CONTAINER,
+    MESH_UI_COLOR_ON_WARNING_CONTAINER,
+    /* Disconnected, failed, armed to destroy something. The container is the failed bubble's
+       fill, which used to be a role of its own restated in every theme. */
+    MESH_UI_COLOR_ERROR,
+    MESH_UI_COLOR_ON_ERROR,
+    MESH_UI_COLOR_ERROR_CONTAINER,
+    MESH_UI_COLOR_ON_ERROR_CONTAINER,
+
+    /* ---- furniture ---------------------------------------------------------------------- */
+
     MESH_UI_COLOR_RULE,        /* hairline separators */
     MESH_UI_COLOR_RULE_STRONG, /* the rule under the tab strip */
     /*
@@ -122,22 +180,83 @@ enum mesh_ui_color {
      * is drawn on - the body and a card - and every fill a meter can take has to be tellable
      * from it. SURFACE_SEL was the obvious borrow and fails the first half on the light theme,
      * where the cursor fill is within 1.2:1 of a card; OUTLINE passes that and fails the second
-     * half on the contrast theme, where it is the same near-white as the good tone. A track
-     * borrowed from a role tuned for something else is a bar that disappears on whichever theme
-     * nobody happened to open.
+     * half on the contrast theme, where it is the same near-white as the success colour. A
+     * track borrowed from a role tuned for something else is a bar that disappears on whichever
+     * theme nobody happened to open.
      *
      * Quiet is the goal, not contrast: this is the part of the widget that is meant to recede,
      * and mesh_ui_theme_validate() is what stops quiet becoming absent.
      */
     MESH_UI_COLOR_METER_TRACK,
-    MESH_UI_COLOR_BUBBLE_IN,     /* a message from someone else */
-    MESH_UI_COLOR_BUBBLE_OUT,    /* one of ours */
-    MESH_UI_COLOR_BUBBLE_IN_SEL, /* the same two under the cursor */
-    MESH_UI_COLOR_BUBBLE_OUT_SEL,
-    MESH_UI_COLOR_BUBBLE_FAILED, /* the radio said it did not get there */
-    MESH_UI_COLOR_TEXT_INBOUND,  /* text on an inbound bubble */
-    MESH_UI_COLOR_TEXT_OUTBOUND, /* text on one of ours */
     MESH_UI_COLOR_COUNT
+};
+
+/*
+ * The six colours that mean something.
+ *
+ * A widget takes one of these rather than a fill and an ink, and asks the theme for the slot it
+ * needs. That is what lets one `fb_draw_button` be the plain button, the destructive confirm
+ * and the "connected" pill without three branches inside it - and what stops the fourth caller
+ * inventing a fill nothing has checked the label against.
+ */
+enum mesh_ui_family {
+    MESH_UI_FAMILY_PRIMARY = 0,
+    MESH_UI_FAMILY_SECONDARY,
+    MESH_UI_FAMILY_TERTIARY,
+    MESH_UI_FAMILY_SUCCESS,
+    MESH_UI_FAMILY_WARNING,
+    MESH_UI_FAMILY_ERROR,
+    MESH_UI_FAMILY_COUNT
+};
+
+/*
+ * Which of a family's four colours is wanted.
+ *
+ * BASE is the saturated one: correct as ink on the ground, and as a fill only where the fill is
+ * small enough to be a mark rather than a field - a badge, a meter, a switch track. CONTAINER
+ * is the same colour held back until text can sit on it, which is what anything the size of a
+ * tab, a chip or a chat bubble wants. Each comes with the ink that has been checked against it,
+ * and the two always travel together: a fill taken from one slot and an ink from another is a
+ * pair mesh_ui_theme_validate() never looked at.
+ */
+enum mesh_ui_slot {
+    MESH_UI_SLOT_BASE = 0,
+    MESH_UI_SLOT_ON_BASE,
+    MESH_UI_SLOT_CONTAINER,
+    MESH_UI_SLOT_ON_CONTAINER,
+    MESH_UI_SLOT_COUNT
+};
+
+/* The families are laid out family-major, slot-minor, so the lookup is a multiply. Pinned
+   here rather than trusted: reordering the enum above would otherwise silently repaint the UI
+   in the wrong colours rather than failing to build. */
+_Static_assert(MESH_UI_COLOR_ON_PRIMARY == MESH_UI_COLOR_PRIMARY + MESH_UI_SLOT_ON_BASE,
+               "family slots must be contiguous and in slot order");
+_Static_assert(MESH_UI_COLOR_SECONDARY == MESH_UI_COLOR_PRIMARY + MESH_UI_SLOT_COUNT,
+               "families must be contiguous");
+_Static_assert(MESH_UI_COLOR_ON_ERROR_CONTAINER ==
+                   MESH_UI_COLOR_PRIMARY + (MESH_UI_FAMILY_COUNT * MESH_UI_SLOT_COUNT) - 1,
+               "every family must state all four slots");
+
+/*
+ * How a control is being interacted with, which is a *modifier* on a colour rather than a
+ * colour of its own.
+ *
+ * Material calls this a state layer: the resting fill with its own ink mixed into it a little,
+ * so "the cursor is on this" is one operation applied to whatever the thing is already painted
+ * in. Before this, every element that could be selected stated a second colour - the chat
+ * bubbles alone cost two extra roles in four themes - and each of those was a value somebody
+ * had matched by eye to the one above it.
+ *
+ * Mixing the *ink* in rather than white or black is what makes one rule work on a dark ground
+ * and a light one: the layer always moves the fill towards the thing written on it, so it
+ * lightens on dark and darkens on light without either being spelled out.
+ */
+enum mesh_ui_state {
+    MESH_UI_STATE_REST = 0,
+    MESH_UI_STATE_SELECTED, /* the cursor is on it */
+    MESH_UI_STATE_ACTIVE,   /* pressed */
+    MESH_UI_STATE_COUNT
 };
 
 /*
@@ -146,18 +265,32 @@ enum mesh_ui_color {
  * This is the vocabulary screens speak. It is a level above the roles above: a screen says
  * "this row is bad news" and the theme decides both which role that maps to and what colour
  * the role holds. Same reason a stylesheet has a token called `danger` instead of a hex.
+ *
+ * A tone is always the colour a piece of *text* takes. The six that name a family resolve to
+ * that family's BASE, because ink on the ground is exactly what BASE is for; a screen that
+ * wants the family as a fill hands the family itself to a widget and lets the widget ask for
+ * the container and the ink that goes with it. Splitting it that way is what keeps a fill and
+ * the label on it from being chosen in two different places.
  */
 enum mesh_ui_tone {
+    /* The neutral three: what a line is, when what it is has nothing to do with meaning. */
     MESH_UI_TONE_NORMAL = 0,
     MESH_UI_TONE_DIM,
     MESH_UI_TONE_STRONG,
-    MESH_UI_TONE_ACCENT,
-    MESH_UI_TONE_GOOD,
-    MESH_UI_TONE_BAD,
-    MESH_UI_TONE_INBOUND,
-    MESH_UI_TONE_OUTBOUND,
+    /* One per family, in the same order, so mesh_ui_tone_family() is a subtraction. A screen
+       that wants a family's colour as *ink* names the tone; one that wants it as a *fill* names
+       the family and the slot. Keep these contiguous - the _Static_assert below says so. */
+    MESH_UI_TONE_PRIMARY,
+    MESH_UI_TONE_SECONDARY,
+    MESH_UI_TONE_TERTIARY,
+    MESH_UI_TONE_SUCCESS,
+    MESH_UI_TONE_WARNING,
+    MESH_UI_TONE_ERROR,
     MESH_UI_TONE_COUNT
 };
+
+_Static_assert(MESH_UI_TONE_COUNT - MESH_UI_TONE_PRIMARY == MESH_UI_FAMILY_COUNT,
+               "one tone per family, contiguous, in family order");
 
 /* The glyph multipliers the UI will accept, whatever a theme asks for. The lower bound is
    legibility on the Brick's 3.2" panel; the upper is the buffers sized off it. */
@@ -177,7 +310,7 @@ enum mesh_ui_tone {
  *
  * The initials are drawn in MESH_UI_COLOR_BG - a tint is a fill punched out of the ground - so
  * every tint owes the ground the body-text contrast, and mesh_ui_theme_validate() holds it to
- * that. Same contract as ACCENT/ON_ACCENT, one level up.
+ * that. Same contract a family's BASE/ON_BASE pair has, one level up.
  */
 #define MESH_UI_AVATAR_TINTS 6U
 
@@ -288,10 +421,56 @@ struct mesh_ui_rgb mesh_ui_theme_color(const struct mesh_ui_theme *theme, enum m
 struct mesh_ui_rgb mesh_ui_theme_tone(const struct mesh_ui_theme *theme, enum mesh_ui_tone tone);
 enum mesh_ui_color mesh_ui_tone_role(enum mesh_ui_tone tone);
 
+/* The role holding one slot of one family. Out-of-range arguments answer with the primary's
+   equivalent rather than with nothing, for the reason an unknown MESHCLIENT_THEME warns rather
+   than failing: a bad enum should not leave a handheld with an unpainted widget. */
+enum mesh_ui_color mesh_ui_family_role(enum mesh_ui_family family, enum mesh_ui_slot slot);
+struct mesh_ui_rgb mesh_ui_theme_family(const struct mesh_ui_theme *theme,
+                                        enum mesh_ui_family family, enum mesh_ui_slot slot);
+
+/* The family a tone names, or MESH_UI_FAMILY_COUNT for the three neutral tones - which is the
+   answer a widget wants when it has to decide whether a tone can fill something at all. */
+enum mesh_ui_family mesh_ui_tone_family(enum mesh_ui_tone tone);
+
+/* The tone that draws in a family's BASE. The inverse of mesh_ui_tone_family(). */
+enum mesh_ui_tone mesh_ui_family_tone(enum mesh_ui_family family);
+
 /*
- * The tone a fraction of some budget has earned: GOOD below `warn`, ACCENT from there up to
- * `bad`, and BAD at or above it. All three arguments are permille, the same scale a meter's
- * value is on (MESH_UI_ANIM_ONE).
+ * `fill` with `ink` mixed into it by however much `state` calls for: the state layer.
+ *
+ * REST returns `fill` untouched, so a caller can hand the state straight through rather than
+ * branching on it. The percentages are Material's, near enough - a selected element is a
+ * visible step and a pressed one is a step further - and they are small on purpose: the layer
+ * has to be findable without taking the fill far enough that the ink checked against it stops
+ * being readable, which mesh_ui_theme_validate() then confirms for every pair that is drawn
+ * this way.
+ */
+struct mesh_ui_rgb mesh_ui_theme_state_layer(struct mesh_ui_rgb fill, struct mesh_ui_rgb ink,
+                                             enum mesh_ui_state state);
+
+/*
+ * The fill and the ink for one family, one slot and one state, resolved together.
+ *
+ * The pair is the unit because splitting it is the bug: a widget that took its fill from here
+ * and its label colour from somewhere else is a widget drawing a combination no theme was ever
+ * checked against. Every component that can be filled goes through this.
+ */
+struct mesh_ui_paint {
+    struct mesh_ui_rgb fill;
+    struct mesh_ui_rgb ink;
+};
+
+struct mesh_ui_paint mesh_ui_theme_paint(const struct mesh_ui_theme *theme,
+                                         enum mesh_ui_family family, enum mesh_ui_slot slot,
+                                         enum mesh_ui_state state);
+
+/*
+ * The tone a fraction of some budget has earned: SUCCESS below `warn`, WARNING from there up
+ * to `bad`, and ERROR at or above it. All three arguments are permille, the same scale a
+ * meter's value is on (MESH_UI_ANIM_ONE).
+ *
+ * The middle band was the primary until the warning family existed, which made the airtime
+ * meter's caution colour the same one the screen drew its title in.
  *
  * It is here, in the UI's vocabulary, rather than in whichever screen first needed it, because
  * two things now say the same sentence about one number: the airtime figure is coloured by it

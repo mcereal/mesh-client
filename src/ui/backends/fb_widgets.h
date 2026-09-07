@@ -76,6 +76,15 @@ struct fb_button {
     const char *label;
     bool selected; /* the cursor is on it */
     enum fb_button_variant variant;
+    /*
+     * Which family a TONAL button is tinted with. Zero is MESH_UI_FAMILY_PRIMARY, which is what
+     * a tab, a chip and an ordinary affirmative all want; a destructive confirm names the error
+     * family instead and gets a red pill with the ink the theme checked against it.
+     *
+     * Ignored by the other two variants: FILLED is the neutral cursor surface - a keyboard key
+     * is not a statement about meaning - and TEXT lays down no fill to tint.
+     */
+    enum mesh_ui_family family;
     enum mesh_ui_shape shape; /* how round; MESH_UI_SHAPE_FULL is a pill */
     /* Label tone for a button showing no fill at all, which is FB_BUTTON_TEXT at rest and
        nothing else. Every other state draws its label in the colour the theme is validated on
@@ -156,6 +165,10 @@ int fb_chip_width(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_ico
 struct fb_switch {
     struct fb_rect rect; /* the box it is drawn in; fb_switch_size() measures one */
     uint32_t id;         /* identity for the animation, 0 for none */
+    /* The family the track takes once the knob is past the middle. Zero is
+       MESH_UI_FAMILY_PRIMARY, which is what a plain preference wants; a toggle that arms
+       something can name the error family and be red while it is on. */
+    enum mesh_ui_family family;
     bool on;
     bool selected; /* the row under it carries the cursor fill */
     bool dim;      /* it reports a state rather than offering one: drawn muted */
@@ -345,6 +358,9 @@ enum fb_trailing_kind {
 
 struct fb_trailing {
     enum fb_trailing_kind kind;
+    /* BADGE: which family the capsule is filled with. Zero is MESH_UI_FAMILY_PRIMARY - an
+       unread count - and a row counting failures can name the error family instead. */
+    enum mesh_ui_family family;
     const char *text;       /* TEXT and BADGE */
     enum mesh_ui_icon icon; /* ICON */
     struct fb_switch *sw;   /* SWITCH. Its rect is filled in by the row: where the value column
@@ -375,8 +391,8 @@ struct fb_leading {
     const char *label;      /* AVATAR: initials */
     enum mesh_ui_icon icon; /* ICON, and AVATAR when a disc holds a symbol rather than letters */
     uint32_t tint;          /* AVATAR: seeds the disc's colour through the theme's avatar palette */
-    /* AVATAR: a stated fill instead of a tint - the accent for "all traffic", the bad tone for a
-       row armed to be deleted. MESH_UI_COLOR_COUNT means "use the tint". */
+    /* AVATAR: a stated fill instead of a tint - the primary for "all traffic", the error
+       colour for a row armed to be deleted. MESH_UI_COLOR_COUNT means "use the tint". */
     enum mesh_ui_color role;
 };
 
@@ -438,9 +454,13 @@ struct fb_list_item {
     bool supporting_quiet;
     struct fb_trailing supporting_trailing;
 
-    /* A bar down the leading edge in the accent when the cursor is on the row. Not decoration:
-       a fill one step off the ground is not by itself findable on a small panel in sunlight,
-       and gives a colour-blind eye nothing at all. */
+    /* A bar down the leading edge when the cursor is on the row. Not decoration: a fill one
+       step off the ground is not by itself findable on a small panel in sunlight, and gives a
+       colour-blind eye nothing at all.
+
+       Drawn in the row's own tone when that tone names a family, and in the primary otherwise -
+       so a row marked because it has an unsaved draft gets a bar the colour of "unsaved" rather
+       than one the colour of everything else that is merely marked. */
     bool accent_edge;
     /* An inset hairline below, between this item and the next. Skipped under the cursor, whose
        fill is already doing that job, and below the last item on screen - a rule separates two
@@ -554,10 +574,10 @@ size_t fb_field_label_cols(const struct mesh_ui_backend_fb_state *state,
  * height is not known until the last row is in. So a screen fills a struct and hands it over:
  *
  *     struct fb_card card;
- *     fb_card_begin(&card, MESH_STR_STATUS_CARD_LINK, MESH_UI_TONE_ACCENT);
+ *     fb_card_begin(&card, MESH_STR_STATUS_CARD_LINK, MESH_UI_TONE_PRIMARY);
  *     fb_card_row_text(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_TRANSPORT, status);
  *     if (connected) {
- *         fb_card_row_text(&card, MESH_UI_TONE_GOOD, MESH_STR_STATUS_LABEL_RADIO, name);
+ *         fb_card_row_text(&card, MESH_UI_TONE_SUCCESS, MESH_STR_STATUS_LABEL_RADIO, name);
  *     }
  *     fb_draw_card(state, layout, &y, &card);
  *
@@ -755,13 +775,14 @@ void fb_draw_text_field(const struct mesh_ui_backend_fb_state *state,
  *
  * The action row is the reason the two answers move off the list. Both are one press away
  * whichever is under the cursor, so the pair reads as a choice rather than as a menu; and the
- * accept is a filled button while the cancel shows no fill at all, which is how every dialog
+ * accept is a tonal button while the cancel shows no fill at all, which is how every dialog
  * says which answer it is proposing without the words having to.
  */
 
 struct fb_dialog {
-    /* Over the headline, drawn large in the accent - or in the bad tone when `destructive`.
-       MESH_UI_ICON_NONE for none, and the panel closes up the room it would have taken. */
+    /* Over the headline, drawn large in the primary - or in the error colour when
+       `destructive`. MESH_UI_ICON_NONE for none, and the panel closes up the room it would
+       have taken. */
     enum mesh_ui_icon icon;
     const char *headline;
     /* The supporting paragraph, wrapped across the panel. "" for a question that needs none. */
@@ -771,8 +792,9 @@ struct fb_dialog {
     /* 0 is accept, 1 is cancel - the same index nav.confirm_cursor carries, which every
        direction toggles. */
     uint32_t cursor;
-    /* What it goes through with cannot be undone: the icon and the accept button take the bad
-       tone instead of the accent. */
+    /* What it goes through with cannot be undone: the whole dialog switches from the primary
+       family to the error one, so the icon, the headline and the accept button's fill all
+       change together rather than each being decided separately. */
     bool destructive;
 };
 
