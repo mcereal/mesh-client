@@ -263,6 +263,28 @@ static void fb_fill_packed(const struct mesh_ui_backend_fb_state *state, int x, 
     }
 }
 
+/*
+ * The coverage ramp a tinted sprite - a glyph or an icon - is drawn in.
+ *
+ * 32 steps is below what the eye separates at this size, and packing a colour per pixel was
+ * the thing fb_fill_packed() exists to avoid: quantising first makes the blend one multiply
+ * per channel per *step* rather than per pixel, and lets equal steps coalesce into spans.
+ * Text and icons share it because they are the same operation - coverage, tinted with the
+ * ink, over a ground the caller has just filled.
+ */
+#define FB_BLEND_STEPS 32
+
+static void fb_blend_table(const struct mesh_ui_backend_fb_state *state, struct mesh_ui_rgb ink,
+                           struct mesh_ui_rgb ground, uint32_t out[FB_BLEND_STEPS]) {
+    for (int step = 0; step < FB_BLEND_STEPS; ++step) {
+        const int32_t a = (int32_t)step * 255 / (FB_BLEND_STEPS - 1);
+        const uint8_t r = (uint8_t)(((int32_t)ink.r * a + (int32_t)ground.r * (255 - a)) / 255);
+        const uint8_t g = (uint8_t)(((int32_t)ink.g * a + (int32_t)ground.g * (255 - a)) / 255);
+        const uint8_t b = (uint8_t)(((int32_t)ink.b * a + (int32_t)ground.b * (255 - a)) / 255);
+        out[step] = compose_color(state, r, g, b);
+    }
+}
+
 /* Glyph metrics for a given multiplier. The gaps are the font's, not this file's: a taller
    font with a different line gap changes every measurement above without touching one. */
 int fb_char_adv(const struct mesh_ui_backend_fb_state *state, int scale) {
@@ -272,51 +294,142 @@ int fb_line_adv(const struct mesh_ui_backend_fb_state *state, int scale) {
     return mesh_ui_font_line(fb_font(state), scale);
 }
 
-void fb_draw_glyph(const struct mesh_ui_backend_fb_state *state, int x, int y, uint32_t codepoint,
-                   int scale, struct mesh_ui_rgb color) {
+/* The widest cell fb_draw_glyph() will resample into: the largest cell a font may declare, at
+   the largest scale the type scale can clamp to. */
+#define FB_GLYPH_BOX_MAX (MESH_UI_GLYPH_MAX_WIDTH * MESH_UI_SCALE_MAX)
+
+/*
+ * One axis of the resample: the two master samples a destination pixel sits between, and how
+ * far between them it is.
+ *
+ * A pixel-art font sets `lo == hi` and `frac == 0`, which collapses the interpolation below
+ * into a plain lookup - so one formula serves both samplings with no per-pixel branch, and
+ * 5x7 comes out of it as the same hard-edged blocks it has always drawn.
+ */
+struct fb_glyph_tap {
+    int16_t lo;
+    int16_t hi;
+    int16_t frac; /* 0..255, the position between `lo` and `hi` */
+};
+
+static struct fb_glyph_tap fb_glyph_tap(int index, int box, int master,
+                                        enum mesh_ui_font_sampling sampling) {
+    struct fb_glyph_tap tap = {0, 0, 0};
+    if (master <= 0 || box <= 0) {
+        return tap;
+    }
+    /* Half-pixel offsets at both ends: sampling from the pixel's centre is what keeps a
+       symmetric glyph symmetric after the scale. */
+    int32_t pos = (((int32_t)index * 2 + 1) * master * 128) / box - 128;
+    if (pos < 0) {
+        pos = 0;
+    }
+    if (sampling == MESH_UI_FONT_PIXEL) {
+        /* Nearest, which on the integer ratio a pixel font is drawn at is exactly the source
+           block - rounding rather than truncating is what keeps the block boundaries where
+           they were. */
+        int32_t at = (pos + 128) >> 8;
+        if (at > master - 1) {
+            at = master - 1;
+        }
+        tap.lo = (int16_t)at;
+        tap.hi = (int16_t)at;
+        return tap;
+    }
+    int32_t lo = pos >> 8;
+    if (lo > master - 1) {
+        lo = master - 1;
+    }
+    tap.lo = (int16_t)lo;
+    tap.hi = (int16_t)(lo + 1 < master ? lo + 1 : lo);
+    tap.frac = (int16_t)(pos & 0xFF);
+    return tap;
+}
+
+/* Coverage at one destination pixel, quantised into the blend table's index. The rounding
+   lives here rather than at the call site for the reason fb_icon_step()'s does: measuring a
+   span and drawing it must round identically or the span boundaries move. */
+static int fb_glyph_step(const uint8_t *row_lo, const uint8_t *row_hi,
+                         const struct fb_glyph_tap *tap, int32_t fy) {
+    const int32_t fx = tap->frac;
+    const int32_t upper = row_lo[tap->lo] * (256 - fx) + row_lo[tap->hi] * fx;
+    const int32_t lower = row_hi[tap->lo] * (256 - fx) + row_hi[tap->hi] * fx;
+    const int32_t alpha = upper * (256 - fy) + lower * fy; /* 0 .. MAX_ALPHA << 16 */
+    return (int)((alpha * (FB_BLEND_STEPS - 1)) / (MESH_UI_GLYPH_MAX_ALPHA * 65536));
+}
+
+/*
+ * Draw one glyph's coverage into its cell, in a ramp the caller has already built.
+ *
+ * The master is resampled into `width * scale` by `height * scale` and emitted as spans of
+ * equal coverage, the way fb_draw_icon() emits a symbol. Taking the ramp rather than a colour
+ * pair is what keeps a line of text to one table build instead of one per character.
+ */
+static void fb_draw_glyph_ramp(const struct mesh_ui_backend_fb_state *state, int x, int y,
+                               uint32_t codepoint, int scale,
+                               const uint32_t blend[FB_BLEND_STEPS]) {
     const struct mesh_ui_font *font = fb_font(state);
+    const int box_w = (int)font->width * scale;
+    const int box_h = (int)font->height * scale;
+    if (scale <= 0 || box_w <= 0 || box_h <= 0 || box_w > FB_GLYPH_BOX_MAX ||
+        font->master_w == 0U || font->master_h == 0U) {
+        return;
+    }
+
     struct mesh_ui_glyph glyph;
     (void)mesh_ui_font_glyph(font, codepoint, &glyph);
 
-    const uint32_t packed = compose_color(state, color.r, color.g, color.b);
+    /* Source column per destination column: identical for every row, so the division runs once
+       per column instead of once per pixel. */
+    struct fb_glyph_tap taps[FB_GLYPH_BOX_MAX];
+    for (int dx = 0; dx < box_w; ++dx) {
+        taps[dx] = fb_glyph_tap(dx, box_w, (int)font->master_w, font->sampling);
+    }
 
-    /*
-     * The glyph is stored column-major and the framebuffer is row-major, so walk rows and emit
-     * each horizontal run of lit columns as one span. A typical glyph row is one or two runs,
-     * where the old per-pixel loop was up to one clipped write per lit pixel.
-     */
-    for (int row = 0; row < (int)font->height; ++row) {
-        const uint16_t bit = (uint16_t)(1U << row);
-        int col = 0;
-        while (col < (int)font->width) {
-            if ((glyph.columns[col] & bit) == 0U) {
-                ++col;
-                continue;
-            }
-            int end = col;
-            while (end < (int)font->width && (glyph.columns[end] & bit) != 0U) {
+    for (int dy = 0; dy < box_h; ++dy) {
+        const struct fb_glyph_tap row =
+            fb_glyph_tap(dy, box_h, (int)font->master_h, font->sampling);
+        const uint8_t *row_lo = &glyph.alpha[(size_t)row.lo * font->master_w];
+        const uint8_t *row_hi = &glyph.alpha[(size_t)row.hi * font->master_w];
+        int dx = 0;
+        while (dx < box_w) {
+            const int step = fb_glyph_step(row_lo, row_hi, &taps[dx], row.frac);
+            int end = dx + 1;
+            while (end < box_w && fb_glyph_step(row_lo, row_hi, &taps[end], row.frac) == step) {
                 ++end;
             }
-            fb_fill_packed(state, x + col * scale, y + row * scale, (end - col) * scale, scale,
-                           packed);
-            col = end;
+            if (step > 0) {
+                fb_fill_packed(state, x + dx, y + dy, end - dx, 1, blend[step]);
+            }
+            dx = end;
         }
     }
 
-    /* An accent that would not fit in the cell hangs in the gap above the line. */
-    int col = 0;
-    while (col < (int)font->width) {
-        if ((glyph.above[col] & 0x01U) == 0U) {
-            ++col;
-            continue;
-        }
-        int end = col;
-        while (end < (int)font->width && (glyph.above[end] & 0x01U) != 0U) {
+    /* An accent that would not fit in the cell hangs in the gap above the line, one master row
+       tall - which at the integer ratio a pixel font draws at is the scale step it always was. */
+    int above_h = box_h / (int)font->master_h;
+    if (above_h < 1) {
+        above_h = 1;
+    }
+    int dx = 0;
+    while (dx < box_w) {
+        const int step = fb_glyph_step(glyph.above, glyph.above, &taps[dx], 0);
+        int end = dx + 1;
+        while (end < box_w && fb_glyph_step(glyph.above, glyph.above, &taps[end], 0) == step) {
             ++end;
         }
-        fb_fill_packed(state, x + col * scale, y - scale, (end - col) * scale, scale, packed);
-        col = end;
+        if (step > 0) {
+            fb_fill_packed(state, x + dx, y - above_h, end - dx, above_h, blend[step]);
+        }
+        dx = end;
     }
+}
+
+void fb_draw_glyph(const struct mesh_ui_backend_fb_state *state, int x, int y, uint32_t codepoint,
+                   int scale, struct mesh_ui_rgb ink, struct mesh_ui_rgb ground) {
+    uint32_t blend[FB_BLEND_STEPS];
+    fb_blend_table(state, ink, ground, blend);
+    fb_draw_glyph_ramp(state, x, y, codepoint, scale, blend);
 }
 
 /*
@@ -456,12 +569,6 @@ static int fb_icon_drawn(const struct mesh_ui_backend_fb_state *state, int scale
     return (body * MESH_UI_ICON_WINDOW + MESH_UI_ICON_BODY / 2) / MESH_UI_ICON_BODY;
 }
 
-/* Coverage steps a blended icon is drawn in. The sprites carry 16 levels and the sampling
-   between them is continuous, so this is about how many colours one icon costs to pack:
-   32 is below what the eye separates on a 24 px symbol, and packing a colour per pixel was
-   the thing fb_fill_packed() exists to avoid. */
-#define FB_ICON_BLEND_STEPS 32
-
 /* The largest box fb_draw_icon() can be asked for: the empty state's symbol at the largest glyph
    scale, plus the air its window carries around it. Rounded the way fb_icon_drawn() rounds, not
    merely scaled the same way - a bound a pixel under what it is bounding fails the check below,
@@ -487,7 +594,7 @@ static int fb_icon_step(const uint8_t *row0, const uint8_t *row1, int32_t sample
     const int32_t upper = row0[x0] * (256 - fx) + row0[x1] * fx;
     const int32_t lower = row1[x0] * (256 - fx) + row1[x1] * fx;
     const int32_t alpha = upper * (256 - fy) + lower * fy; /* 0 .. MESH_UI_ICON_MAX_ALPHA << 16 */
-    return (int)((alpha * (FB_ICON_BLEND_STEPS - 1)) / (MESH_UI_ICON_MAX_ALPHA * 65536));
+    return (int)((alpha * (FB_BLEND_STEPS - 1)) / (MESH_UI_ICON_MAX_ALPHA * 65536));
 }
 
 /*
@@ -511,7 +618,7 @@ static int fb_icon_step(const uint8_t *row0, const uint8_t *row1, int32_t sample
  * screen's symbol, several times that size, would duplicate them instead. On a flat-filled
  * emoji either is invisible; on a 2 px chevron stroke it is the difference between a smooth
  * diagonal and a staircase. The blend is one multiply per channel per step rather than per
- * pixel, because coverage is quantised into FB_ICON_BLEND_STEPS packed colours first.
+ * pixel, because coverage is quantised into FB_BLEND_STEPS packed colours first.
  */
 void fb_draw_icon(const struct mesh_ui_backend_fb_state *state, int x, int y,
                   enum mesh_ui_icon icon, int scale, struct mesh_ui_rgb ink,
@@ -542,14 +649,8 @@ void fb_draw_icon(const struct mesh_ui_backend_fb_state *state, int x, int y,
     uint8_t pixels[MESH_UI_ICON_SIZE * MESH_UI_ICON_SIZE];
     mesh_ui_icon_alpha(icon, pixels);
 
-    uint32_t blend[FB_ICON_BLEND_STEPS];
-    for (int step = 0; step < FB_ICON_BLEND_STEPS; ++step) {
-        const int32_t a = (int32_t)step * 255 / (FB_ICON_BLEND_STEPS - 1);
-        const uint8_t r = (uint8_t)(((int32_t)ink.r * a + (int32_t)ground.r * (255 - a)) / 255);
-        const uint8_t g = (uint8_t)(((int32_t)ink.g * a + (int32_t)ground.g * (255 - a)) / 255);
-        const uint8_t b = (uint8_t)(((int32_t)ink.b * a + (int32_t)ground.b * (255 - a)) / 255);
-        blend[step] = compose_color(state, r, g, b);
-    }
+    uint32_t blend[FB_BLEND_STEPS];
+    fb_blend_table(state, ink, ground, blend);
 
     for (int dy = 0; dy < box; ++dy) {
         const int32_t pos_y = (((int32_t)dy * 2 + 1) * MESH_UI_ICON_SIZE * 128) / box - 128;
@@ -587,7 +688,12 @@ void fb_draw_icon(const struct mesh_ui_backend_fb_state *state, int x, int y,
  * as wide as it draws.
  */
 void fb_draw_text(const struct mesh_ui_backend_fb_state *state, int x, int y, const char *text,
-                  int scale, struct mesh_ui_rgb color) {
+                  int scale, struct mesh_ui_rgb ink, struct mesh_ui_rgb ground) {
+    /* One ramp for the whole run: every character in it is the same ink over the same ground,
+       and building the table per glyph would cost more than drawing one. */
+    uint32_t blend[FB_BLEND_STEPS];
+    fb_blend_table(state, ink, ground, blend);
+
     int cursor = x;
     size_t offset = 0;
     for (;;) {
@@ -604,7 +710,7 @@ void fb_draw_text(const struct mesh_ui_backend_fb_state *state, int x, int y, co
             cursor = x;
             continue;
         } else {
-            fb_draw_glyph(state, cursor, y, cell.codepoint, scale, color);
+            fb_draw_glyph_ramp(state, cursor, y, cell.codepoint, scale, blend);
         }
         cursor += fb_char_adv(state, scale);
     }
@@ -694,13 +800,14 @@ void fb_draw_row(const struct mesh_ui_backend_fb_state *state, int y, const char
                  struct mesh_ui_rgb color, bool selected) {
     const int margin = fb_margin(state);
     const int line = fb_line_adv(state, state->scale);
+    struct mesh_ui_rgb ground = fb_color(state, MESH_UI_COLOR_BG);
     if (selected) {
+        ground = fb_color(state, MESH_UI_COLOR_SURFACE_SEL);
         fb_fill_round_rect(state, fb_gutter(state), y - state->scale, (int)state->var.xres - margin,
-                           line, fb_radius(state, MESH_UI_SHAPE_SM),
-                           fb_color(state, MESH_UI_COLOR_SURFACE_SEL));
+                           line, fb_radius(state, MESH_UI_SHAPE_SM), ground);
         color = fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL);
     }
-    fb_draw_text(state, margin, y, text, state->scale, color);
+    fb_draw_text(state, margin, y, text, state->scale, color, ground);
 }
 
 /* "3m", "2h", "5d" since a radio-reported epoch; "?" when either clock is unusable. */
@@ -746,7 +853,8 @@ void fb_format_clock(uint32_t rx_time, char *out, size_t out_len) {
    from the body's - the body margin was the only answer while the only wrapped text on screen
    was a screen's own. */
 int fb_draw_wrapped_at(const struct mesh_ui_backend_fb_state *state, int x, int y, const char *text,
-                       size_t cols, int max_lines, struct mesh_ui_rgb color) {
+                       size_t cols, int max_lines, struct mesh_ui_rgb color,
+                       struct mesh_ui_rgb ground) {
     int lines = 0;
     const char *cursor = text;
     char line[160];
@@ -768,7 +876,7 @@ int fb_draw_wrapped_at(const struct mesh_ui_backend_fb_state *state, int x, int 
         }
         memcpy(line, cursor, take);
         line[take] = '\0';
-        fb_draw_text(state, x, y, line, state->scale, color);
+        fb_draw_text(state, x, y, line, state->scale, color, ground);
         y += fb_line_adv(state, state->scale);
         lines++;
         cursor += take;
@@ -781,6 +889,7 @@ int fb_draw_wrapped_at(const struct mesh_ui_backend_fb_state *state, int x, int 
 
 /* The same, from the body's left margin - which is where a screen's own wrapped text starts. */
 int fb_draw_wrapped(const struct mesh_ui_backend_fb_state *state, int y, const char *text,
-                    size_t cols, int max_lines, struct mesh_ui_rgb color) {
-    return fb_draw_wrapped_at(state, fb_margin(state), y, text, cols, max_lines, color);
+                    size_t cols, int max_lines, struct mesh_ui_rgb color,
+                    struct mesh_ui_rgb ground) {
+    return fb_draw_wrapped_at(state, fb_margin(state), y, text, cols, max_lines, color, ground);
 }

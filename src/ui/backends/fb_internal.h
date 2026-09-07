@@ -194,12 +194,24 @@ int fb_char_adv(const struct mesh_ui_backend_fb_state *state, int scale);
 int fb_line_adv(const struct mesh_ui_backend_fb_state *state, int scale);
 void fb_clear(const struct mesh_ui_backend_fb_state *state, struct mesh_ui_rgb color);
 size_t fb_cols(const struct mesh_ui_backend_fb_state *state, int scale);
+/*
+ * Text and one glyph of it, in `ink` over `ground`.
+ *
+ * `ground` is the colour the caller has just filled behind the text, and it is a parameter for
+ * the same reason fb_draw_icon()'s is: a glyph carries coverage, not a mask, and blending its
+ * edges needs to know what they are blending into. What is already on the panel is not
+ * readable from here, and a caller that has just filled a row is the only thing that knows
+ * what colour it filled it with. Getting it wrong does not lose the text - it puts a faint
+ * halo of the wrong colour around it.
+ */
 void fb_draw_glyph(const struct mesh_ui_backend_fb_state *state, int x, int y, uint32_t codepoint,
-                   int scale, struct mesh_ui_rgb color);
+                   int scale, struct mesh_ui_rgb ink, struct mesh_ui_rgb ground);
+/* A whole row from the body margin, drawing its own cursor fill - so it knows its own ground
+   and does not take one. */
 void fb_draw_row(const struct mesh_ui_backend_fb_state *state, int y, const char *text,
                  struct mesh_ui_rgb color, bool selected);
 void fb_draw_text(const struct mesh_ui_backend_fb_state *state, int x, int y, const char *text,
-                  int scale, struct mesh_ui_rgb color);
+                  int scale, struct mesh_ui_rgb ink, struct mesh_ui_rgb ground);
 /* The box an icon is drawn in: one text cell, so a row that puts one in front of its words is
    still measured in columns like every other row. */
 int fb_icon_box(const struct mesh_ui_backend_fb_state *state, int scale);
@@ -216,11 +228,13 @@ void fb_draw_icon(const struct mesh_ui_backend_fb_state *state, int x, int y,
                   enum mesh_ui_icon icon, int scale, struct mesh_ui_rgb ink,
                   struct mesh_ui_rgb ground);
 int fb_draw_wrapped(const struct mesh_ui_backend_fb_state *state, int y, const char *text,
-                    size_t cols, int max_lines, struct mesh_ui_rgb color);
+                    size_t cols, int max_lines, struct mesh_ui_rgb color,
+                    struct mesh_ui_rgb ground);
 /* The same from an explicit left edge, for text inset into a container rather than into the
    body - a dialog's supporting paragraph. */
 int fb_draw_wrapped_at(const struct mesh_ui_backend_fb_state *state, int x, int y, const char *text,
-                       size_t cols, int max_lines, struct mesh_ui_rgb color);
+                       size_t cols, int max_lines, struct mesh_ui_rgb color,
+                       struct mesh_ui_rgb ground);
 void fb_fill_rect(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h,
                   struct mesh_ui_rgb color);
 /*

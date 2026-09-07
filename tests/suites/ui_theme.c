@@ -594,6 +594,15 @@ MESH_TEST_CASE(ui_theme_fonts_measure, unit) {
                           "a font is wider than the glyph buffer");
         MESH_TEST_FAIL_IF(font->height == 0U || font->height > MESH_UI_GLYPH_MAX_HEIGHT,
                           "a font is taller than the glyph buffer");
+        /* The master is what the coverage is stored at, and it is what the resampler indexes
+           with - a font declaring one bigger than the buffer would read off the end of it. */
+        MESH_TEST_FAIL_IF(font->master_w == 0U || font->master_w > MESH_UI_GLYPH_MASTER_MAX_WIDTH,
+                          "a font's master is wider than the glyph buffer");
+        MESH_TEST_FAIL_IF(font->master_h == 0U || font->master_h > MESH_UI_GLYPH_MASTER_MAX_HEIGHT,
+                          "a font's master is taller than the glyph buffer");
+        MESH_TEST_FAIL_IF(font->sampling != MESH_UI_FONT_PIXEL &&
+                              font->sampling != MESH_UI_FONT_SMOOTH,
+                          "a font asks for a sampling this layer does not have");
 
         /* Advances have to grow with the multiplier, or every measurement above breaks. */
         MESH_TEST_FAIL_IF(mesh_ui_font_advance(font, 2) <= mesh_ui_font_advance(font, 1),
@@ -607,6 +616,37 @@ MESH_TEST_CASE(ui_theme_fonts_measure, unit) {
                           "the font has no capital A");
         MESH_TEST_FAIL_IF(mesh_ui_font_glyph(font, 0x10FFFDU, &glyph),
                           "the font claims a private-use codepoint");
+
+        /*
+         * Coverage, not a mask. Every value has to be inside the ramp the renderer quantises
+         * against - one above it indexes past the blend table - and a capital A has to carry
+         * some, or the font is drawing nothing and reporting success.
+         */
+        (void)mesh_ui_font_glyph(font, (uint32_t)'A', &glyph);
+        bool inked = false;
+        bool in_range = true;
+        for (size_t px = 0; px < (size_t)font->master_w * (size_t)font->master_h; ++px) {
+            if (glyph.alpha[px] > MESH_UI_GLYPH_MAX_ALPHA) {
+                in_range = false;
+            }
+            if (glyph.alpha[px] > 0U) {
+                inked = true;
+            }
+        }
+        MESH_TEST_FAIL_IF(!in_range, "a glyph carries coverage above the ramp");
+        MESH_TEST_FAIL_IF(!inked, "a capital A has no coverage at all");
+
+        /* A pixel font is a mask stored as coverage: every value is off or solid, which is what
+           lets the resampler block-replicate it and land on exactly the old spans. */
+        if (font->sampling == MESH_UI_FONT_PIXEL) {
+            bool binary = true;
+            for (size_t px = 0; px < (size_t)font->master_w * (size_t)font->master_h; ++px) {
+                if (glyph.alpha[px] != 0U && glyph.alpha[px] != MESH_UI_GLYPH_MAX_ALPHA) {
+                    binary = false;
+                }
+            }
+            MESH_TEST_FAIL_IF(!binary, "a pixel font carries partial coverage");
+        }
     }
 
     /* A theme always resolves to a font, even asking for one that does not exist. */

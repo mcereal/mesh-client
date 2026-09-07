@@ -67,16 +67,25 @@ int mesh_ui_font_line(const struct mesh_ui_font *font, int scale) {
     return (int)font->height * scale + (int)font->line_gap * scale;
 }
 
+/*
+ * Clearing only the master the font actually uses, rather than the whole struct.
+ *
+ * `struct mesh_ui_glyph` is sized for the largest master any font may declare, and a full
+ * frame of body text is several hundred of these calls - zeroing the unused tail of every one
+ * would be most of the work of drawing a character. The font fills the rest.
+ */
 bool mesh_ui_font_glyph(const struct mesh_ui_font *font, uint32_t codepoint,
                         struct mesh_ui_glyph *out) {
     if (out == NULL) {
         return false;
     }
-    memset(out, 0, sizeof *out);
     font = font_or_default(font);
     if (font == NULL || font->glyph == NULL) {
+        memset(out, 0, sizeof *out);
         return false;
     }
+    memset(out->alpha, 0, (size_t)font->master_w * (size_t)font->master_h);
+    memset(out->above, 0, font->master_w);
     return font->glyph(codepoint, out);
 }
 

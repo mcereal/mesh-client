@@ -114,7 +114,8 @@ void fb_draw_button(const struct mesh_ui_backend_fb_state *state, const struct f
         x += fb_icon_box(state, button->scale) + (has_label ? adv / 2 : 0);
     }
     if (has_label) {
-        fb_draw_text(state, x, y, button->label, button->scale, ink);
+        fb_draw_text(state, x, y, button->label, button->scale, ink,
+                     paint.has_fill ? paint.paint.fill : fb_color(state, button->ground));
     }
 }
 
@@ -292,7 +293,8 @@ void fb_draw_action_bar(const struct mesh_ui_backend_fb_state *state,
 
         x += cap_w + fb_char_adv(state, small) / 2;
         fb_draw_text(state, x, keys_y, mesh_str(action->label), small,
-                     fb_tone_color(state, MESH_UI_TONE_DIM));
+                     fb_tone_color(state, MESH_UI_TONE_DIM),
+                     fb_color(state, MESH_UI_COLOR_SURFACE_LOW));
         x += (int)mesh_ui_text_cells(mesh_str(action->label)) * fb_char_adv(state, small) + gap;
     }
 
@@ -308,7 +310,8 @@ void fb_draw_action_bar(const struct mesh_ui_backend_fb_state *state,
     fb_draw_text(state, fb_margin(state),
                  keys_y - small + fb_line_adv(state, small) +
                      fb_space_at(state, MESH_UI_SPACE_XS, small),
-                 status, small, fb_tone_color(state, bar->status_tone));
+                 status, small, fb_tone_color(state, bar->status_tone),
+                 fb_color(state, MESH_UI_COLOR_SURFACE_LOW));
 }
 
 void fb_draw_title(const struct mesh_ui_backend_fb_state *state, struct fb_layout *layout,
@@ -331,7 +334,7 @@ void fb_draw_title(const struct mesh_ui_backend_fb_state *state, struct fb_layou
        the panel if it is measured against a column count it is not drawn at. */
     mesh_ui_line_fit(&line, fb_cols(state, scale));
     fb_draw_text(state, fb_margin(state), layout->body_y, mesh_ui_line_text(&line), scale,
-                 fb_tone_color(state, MESH_UI_TONE_PRIMARY));
+                 fb_tone_color(state, MESH_UI_TONE_PRIMARY), fb_color(state, MESH_UI_COLOR_BG));
 
     /*
      * What is left of the body, recomputed rather than deducted.
@@ -382,7 +385,8 @@ void fb_draw_empty(const struct mesh_ui_backend_fb_state *state, const struct fb
     /* Wrapped rather than drawn flat: these strings say which button to press next, and at a
        large glyph scale a flat one ran off the right edge with the verb on it. */
     (void)fb_draw_wrapped(state, y, text, layout->cols, (int)rows,
-                          fb_tone_color(state, MESH_UI_TONE_DIM));
+                          fb_tone_color(state, MESH_UI_TONE_DIM),
+                          fb_color(state, MESH_UI_COLOR_BG));
 }
 
 void fb_draw_rule(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int scale,
@@ -542,7 +546,7 @@ static void fb_draw_avatar(const struct mesh_ui_backend_fb_state *state, int x, 
     }
     const int text_w = (int)cells * fb_char_adv(state, scale);
     fb_draw_text(state, x + (size - text_w) / 2, content_y, label, scale,
-                 fb_color(state, MESH_UI_COLOR_BG));
+                 fb_color(state, MESH_UI_COLOR_BG), tint);
 }
 
 /* ---- the list item ------------------------------------------------------------------------ */
@@ -672,7 +676,7 @@ static size_t fb_trailing_cols(const struct mesh_ui_backend_fb_state *state, siz
 
 static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struct fb_item_geom *g,
                              const struct fb_trailing *trailing, int baseline, int slot_top,
-                             bool selected) {
+                             bool selected, struct mesh_ui_rgb ground) {
     const int scale = state->scale;
     const int adv = fb_char_adv(state, scale);
     const size_t cells = (trailing->kind == FB_TRAILING_TEXT || trailing->kind == FB_TRAILING_BADGE)
@@ -688,7 +692,8 @@ static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struc
            something the eye glances at on its way past, never the row's own words. */
         fb_draw_text(state, g->text_right - (int)cells * adv, baseline, trailing->text, scale,
                      selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL_DIM)
-                              : fb_tone_color(state, MESH_UI_TONE_DIM));
+                              : fb_tone_color(state, MESH_UI_TONE_DIM),
+                     ground);
         return;
     case FB_TRAILING_BADGE: {
         if (cells == 0U) {
@@ -706,7 +711,7 @@ static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struc
             fb_paint(state, trailing->family, MESH_UI_SLOT_BASE, MESH_UI_STATE_REST);
         fb_fill_round_rect(state, x, slot_top, width, g->slot_h,
                            fb_radius(state, MESH_UI_SHAPE_FULL), badge.fill);
-        fb_draw_text(state, x + adv / 2, baseline, trailing->text, scale, badge.ink);
+        fb_draw_text(state, x + adv / 2, baseline, trailing->text, scale, badge.ink, badge.fill);
         return;
     }
     case FB_TRAILING_ICON:
@@ -840,7 +845,7 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
     fb_item_headline(&line, item);
     const size_t head_take = fb_trailing_cols(state, g.cols, &item->trailing);
     mesh_ui_line_fit(&line, g.cols - head_take);
-    fb_draw_text(state, g.text_x, g.head_y, mesh_ui_line_text(&line), scale, head_ink);
+    fb_draw_text(state, g.text_x, g.head_y, mesh_ui_line_text(&line), scale, head_ink, ground);
     /* Into the blank cell fb_item_headline() left between the label column and the value, and
        only when the value column actually got that far - a label column wider than the row is
        clipped, and a marker drawn at a column the line no longer reaches would sit on top of
@@ -851,7 +856,7 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
                      g.head_y, item->marker_icon, scale, head_ink, ground);
     }
     if (head_take > 0U) {
-        fb_draw_trailing(state, &g, &item->trailing, g.head_y, g.head_slot_top, selected);
+        fb_draw_trailing(state, &g, &item->trailing, g.head_y, g.head_slot_top, selected, ground);
     }
 
     if (g.rows == 2U) {
@@ -871,10 +876,10 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
         mesh_ui_line_reset(&line);
         mesh_ui_line_printf(&line, "%s", item->supporting);
         mesh_ui_line_fit(&line, g.cols - supp_take - (supp_icon ? 1U : 0U));
-        fb_draw_text(state, supp_x, g.supp_y, mesh_ui_line_text(&line), scale, supp_ink);
+        fb_draw_text(state, supp_x, g.supp_y, mesh_ui_line_text(&line), scale, supp_ink, ground);
         if (supp_take > 0U) {
             fb_draw_trailing(state, &g, &item->supporting_trailing, g.supp_y, g.supp_slot_top,
-                             selected);
+                             selected, ground);
         }
     }
 
@@ -1108,7 +1113,8 @@ void fb_draw_separator(const struct mesh_ui_backend_fb_state *state, int y, cons
     fb_draw_rule(state, left, rule_y, x - left - adv, state->scale, MESH_UI_COLOR_RULE);
     fb_draw_rule(state, x + width + adv, rule_y, right - (x + width + adv), state->scale,
                  MESH_UI_COLOR_RULE);
-    fb_draw_text(state, x, y, label, state->scale, fb_tone_color(state, MESH_UI_TONE_DIM));
+    fb_draw_text(state, x, y, label, state->scale, fb_tone_color(state, MESH_UI_TONE_DIM),
+                 fb_color(state, MESH_UI_COLOR_BG));
 }
 
 void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
@@ -1176,7 +1182,7 @@ void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct f
                 name_color = fb_tone_color(state, MESH_UI_TONE_PRIMARY);
             }
         }
-        fb_draw_text(state, text_x, y, mesh_ui_line_text(&line), scale, name_color);
+        fb_draw_text(state, text_x, y, mesh_ui_line_text(&line), scale, name_color, fill);
         y += layout->line;
     }
 
@@ -1187,7 +1193,7 @@ void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct f
     size_t last_cols = 0U;
     uint32_t drawn = 0U;
     while (mesh_ui_wrap_next(&wrap)) {
-        fb_draw_text(state, text_x, y, wrap.line, scale, body);
+        fb_draw_text(state, text_x, y, wrap.line, scale, body, fill);
         last_y = y;
         last_cols = mesh_ui_text_cells(wrap.line);
         y += layout->line;
@@ -1203,13 +1209,13 @@ void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct f
     const int meta_w = (int)mesh_ui_text_cells(bubble->meta) * adv;
     const struct mesh_ui_rgb meta_color = fb_bubble_quiet(state, bubble, paint);
     if (metrics.meta_own_line) {
-        fb_draw_text(state, box_x + box_w - pad - meta_w, y, bubble->meta, scale, meta_color);
+        fb_draw_text(state, box_x + box_w - pad - meta_w, y, bubble->meta, scale, meta_color, fill);
     } else {
         /* Tucked against the right edge of the line it shares, which is where every messenger
            puts it - and which is why the measure widened the bubble to make room. */
         const int x = box_x + box_w - pad - meta_w;
         fb_draw_text(state, x > text_x + (int)last_cols * adv ? x : text_x + (int)last_cols * adv,
-                     last_y, bubble->meta, scale, meta_color);
+                     last_y, bubble->meta, scale, meta_color, fill);
     }
 }
 
@@ -1477,6 +1483,8 @@ static uint32_t fb_draw_card_row(struct mesh_ui_backend_fb_state *state,
                                  const struct fb_card_metrics *m, const struct fb_layout *layout,
                                  int y, const struct fb_card_row *row, uint32_t max_lines) {
     const struct mesh_ui_rgb color = fb_tone_color(state, row->tone);
+    /* Every row here is inside the panel fb_draw_card() filled, not on the ground it sits on. */
+    const struct mesh_ui_rgb ground = fb_color(state, MESH_UI_COLOR_SURFACE);
     if (row->kind == FB_CARD_ROW_NOTE) {
         /* fb_draw_wrapped() lays out from the left margin, and a card's content starts inside
            it, so the note is wrapped here against the card's own column. */
@@ -1486,7 +1494,7 @@ static uint32_t fb_draw_card_row(struct mesh_ui_backend_fb_state *state,
         uint32_t drawn = 0U;
         while (drawn < budget && mesh_ui_wrap_next(&wrap)) {
             fb_draw_text(state, m->content_x, y + (int)drawn * layout->line, wrap.line,
-                         state->scale, color);
+                         state->scale, color, ground);
             drawn += 1U;
         }
         return drawn > 0U ? drawn : 1U;
@@ -1508,7 +1516,8 @@ static uint32_t fb_draw_card_row(struct mesh_ui_backend_fb_state *state,
             mesh_ui_line_reset(&line);
             mesh_ui_line_column(&line, row->label, m->label_cols);
             mesh_ui_line_fit(&line, m->cols);
-            fb_draw_text(state, m->content_x, y, mesh_ui_line_text(&line), state->scale, color);
+            fb_draw_text(state, m->content_x, y, mesh_ui_line_text(&line), state->scale, color,
+                         ground);
             bar_x = m->content_x + (int)(m->label_cols + 1U) * adv;
         }
         const int bar_right = m->content_x + (int)m->cols * adv;
@@ -1534,7 +1543,7 @@ static uint32_t fb_draw_card_row(struct mesh_ui_backend_fb_state *state,
     mesh_ui_line_column(&line, row->label, m->label_cols);
     mesh_ui_line_printf(&line, " %s", row->value);
     mesh_ui_line_fit(&line, m->cols);
-    fb_draw_text(state, m->content_x, y, mesh_ui_line_text(&line), state->scale, color);
+    fb_draw_text(state, m->content_x, y, mesh_ui_line_text(&line), state->scale, color, ground);
     return 1U;
 }
 
@@ -1602,7 +1611,8 @@ bool fb_draw_card(struct mesh_ui_backend_fb_state *state, const struct fb_layout
             /* The same half-cell a button leaves between its symbol and its word. */
             heading_x += fb_icon_box(state, layout->small) + fb_char_adv(state, layout->small) / 2;
         }
-        fb_draw_text(state, heading_x, row_y, mesh_ui_line_text(&line), layout->small, ink);
+        fb_draw_text(state, heading_x, row_y, mesh_ui_line_text(&line), layout->small, ink,
+                     fb_color(state, MESH_UI_COLOR_SURFACE));
         row_y += m.heading_h;
     }
 
@@ -1751,7 +1761,8 @@ void fb_draw_snackbar(struct mesh_ui_backend_fb_state *state, const struct fb_la
     mesh_ui_wrap_begin(&wrap, state->snackbar, max_cols);
     int text_y = y + pad_y;
     for (uint32_t drawn = 0U; drawn < lines && mesh_ui_wrap_next(&wrap); ++drawn) {
-        fb_draw_text(state, box_x + pad_x, text_y, wrap.line, scale, ink);
+        fb_draw_text(state, box_x + pad_x, text_y, wrap.line, scale, ink,
+                     fb_color(state, MESH_UI_COLOR_SURFACE_INVERSE));
         text_y += line;
     }
 }
@@ -2070,7 +2081,8 @@ void fb_draw_text_field(const struct mesh_ui_backend_fb_state *state,
 
     if (fb_text_field_label_h(state, layout, field) > 0) {
         fb_draw_text(state, margin, top, field->label, layout->small,
-                     fb_tone_color(state, field->error ? MESH_UI_TONE_ERROR : MESH_UI_TONE_DIM));
+                     fb_tone_color(state, field->error ? MESH_UI_TONE_ERROR : MESH_UI_TONE_DIM),
+                     fb_color(state, MESH_UI_COLOR_BG));
         top += fb_text_field_label_h(state, layout, field);
     }
 
@@ -2104,7 +2116,8 @@ void fb_draw_text_field(const struct mesh_ui_backend_fb_state *state,
     /* The value sits a scale down from the box's own top edge, which is the inset every other
        container here gives its contents. */
     fb_draw_wrapped(state, top + scale, tail, layout->cols, (int)lines,
-                    fb_tone_color(state, MESH_UI_TONE_STRONG));
+                    fb_tone_color(state, MESH_UI_TONE_STRONG),
+                    fb_color(state, MESH_UI_COLOR_SURFACE_HIGH));
     top += box_h;
 
     if (fb_text_field_counter_h(state, layout, field) > 0) {
@@ -2113,7 +2126,8 @@ void fb_draw_text_field(const struct mesh_ui_backend_fb_state *state,
         const int adv = fb_char_adv(state, layout->small);
         const int x = box_x + box_w - (int)mesh_ui_text_cells(field->counter) * adv;
         fb_draw_text(state, x, top, field->counter, layout->small,
-                     fb_tone_color(state, field->error ? MESH_UI_TONE_ERROR : MESH_UI_TONE_DIM));
+                     fb_tone_color(state, field->error ? MESH_UI_TONE_ERROR : MESH_UI_TONE_DIM),
+                     fb_color(state, MESH_UI_COLOR_BG));
         top += fb_text_field_counter_h(state, layout, field);
     }
 
@@ -2260,13 +2274,15 @@ void fb_draw_dialog(const struct mesh_ui_backend_fb_state *state, const struct f
         mesh_ui_line_printf(&headline, "%s", dialog->headline);
         mesh_ui_line_fit(&headline, text_cols);
         fb_draw_text(state, content_x, y, mesh_ui_line_text(&headline), scale,
-                     fb_tone_color(state, accent_tone));
+                     fb_tone_color(state, accent_tone),
+                     fb_color(state, MESH_UI_COLOR_SURFACE_HIGH));
         y += head_h;
     }
 
     if (text_lines > 0U) {
         fb_draw_wrapped_at(state, content_x, y, dialog->text, text_cols, (int)text_lines,
-                           fb_tone_color(state, MESH_UI_TONE_NORMAL));
+                           fb_tone_color(state, MESH_UI_TONE_NORMAL),
+                           fb_color(state, MESH_UI_COLOR_SURFACE_HIGH));
     }
 
     /*
