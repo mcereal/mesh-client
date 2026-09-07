@@ -661,6 +661,14 @@ static size_t fb_trailing_cols(const struct mesh_ui_backend_fb_state *state, siz
            choice, and the extra cell is the gap to the words. */
         want = trailing->meter != NULL ? FB_METER_INLINE_CELLS + 1U : 0U;
         break;
+    case FB_TRAILING_SIGNAL: {
+        /* The staircase, its gap to whatever is left of it, and the figure it carries - which
+           may be nothing, and then costs nothing. Stated the same way the meter's width is, and
+           for the same reason: rungs have no natural width either. */
+        const size_t cells = mesh_ui_text_cells(trailing->text);
+        want = FB_SIGNAL_CELLS + 1U + (cells > 0U ? cells + 1U : 0U);
+        break;
+    }
     case FB_TRAILING_NONE:
     default:
         return 0U;
@@ -751,6 +759,55 @@ static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struc
         trailing->meter->rect.y = g->fill_top + (g->fill_h - height) / 2;
         trailing->meter->selected = selected;
         fb_draw_meter(state, trailing->meter);
+        return;
+    }
+    case FB_TRAILING_SIGNAL: {
+        /*
+         * The rungs against the trailing edge and the figure to their left, which is the order
+         * a status bar puts the two in - the signal is the thing being scanned down the column,
+         * so it is the thing that keeps the fixed edge.
+         *
+         * Both take the row's quiet pairing, exactly as a trailing age does, and the lit rungs
+         * take the row's own ink. That is deliberately the same two colours the slot already
+         * draws everything else in: a staircase is furniture the eye passes on its way down a
+         * list, not one of the row's words, and giving quality a colour of its own would put a
+         * third statement about the link on a row that has made two.
+         */
+        const struct mesh_ui_rgb quiet = selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL_DIM)
+                                                  : fb_tone_color(state, MESH_UI_TONE_DIM);
+        const struct mesh_ui_rgb ink =
+            fb_color(state, selected ? MESH_UI_COLOR_TEXT_ON_SEL : MESH_UI_COLOR_TEXT);
+        /*
+         * An unlit rung is the meter's track and not the dim text colour, which is what it was
+         * first drawn as. The two are different jobs: dim text is held *above* the ground so it
+         * stays readable, and a rung that is not lit has nothing to read - it is there to be
+         * counted against the lit ones, so it wants the role the theme already validates as the
+         * empty part of an indicator. As dim text the gap between two rungs and four was there
+         * but had to be looked for.
+         *
+         * Except under the cursor, where the track is not a colour that can be relied on: two of
+         * the four themes make it exactly the cursor fill, which is the reason fb_draw_meter()
+         * lays a ground of its own. Rungs have gaps between them and no ground to lay, so they
+         * take the pairing the cursor does validate.
+         */
+        const struct mesh_ui_rgb unlit =
+            selected ? quiet : fb_color(state, MESH_UI_COLOR_METER_TRACK);
+        const int width = (int)FB_SIGNAL_CELLS * adv;
+        const int height = fb_icon_box(state, scale);
+        const struct fb_rect box = {
+            .x = g->text_right - width,
+            /* Centred on the row's fill, as the switch and the meter are, so a list of them
+               sits on one line however the glyph body and the fill differ. */
+            .y = g->fill_top + (g->fill_h - height) / 2,
+            .w = width,
+            .h = height,
+        };
+        fb_draw_signal(state, &box, trailing->signal, ink, unlit);
+        const size_t figure = mesh_ui_text_cells(trailing->text);
+        if (figure > 0U) {
+            fb_draw_text(state, box.x - adv - (int)figure * adv, baseline, trailing->text, scale,
+                         quiet);
+        }
         return;
     }
     case FB_TRAILING_NONE:
@@ -1436,7 +1493,8 @@ void fb_card_row(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_id 
 }
 
 void fb_card_meter(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_id label,
-                   int32_t permille, uint32_t id) {
+                   int32_t value, struct mesh_ui_scale scale, const struct mesh_ui_band *band,
+                   uint32_t id) {
     struct fb_card_row *row = fb_card_next_row(card, FB_CARD_ROW_METER, tone);
     if (row == NULL) {
         return;
@@ -1444,7 +1502,12 @@ void fb_card_meter(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_i
     if (label != MESH_STR_NONE) {
         mesh_text_sanitise_str(mesh_str(label), row->label, sizeof row->label);
     }
-    row->meter_value = permille;
+    row->meter_value = value;
+    row->meter_scale = scale;
+    row->meter_banded = band != NULL;
+    if (band != NULL) {
+        row->meter_band = *band;
+    }
     row->meter_id = id;
 }
 
@@ -1522,6 +1585,8 @@ static uint32_t fb_draw_card_row(struct mesh_ui_backend_fb_state *state,
                 .id = row->meter_id,
                 .kind = FB_METER_DETERMINATE,
                 .value = row->meter_value,
+                .scale = row->meter_scale,
+                .band = row->meter_banded ? &row->meter_band : NULL,
                 .tone = row->tone,
             };
             fb_draw_meter(state, &meter);
@@ -1928,6 +1993,22 @@ static enum mesh_ui_tone fb_meter_tone(enum mesh_ui_tone tone) {
     return mesh_ui_tone_family(tone) != MESH_UI_FAMILY_COUNT ? tone : MESH_UI_TONE_PRIMARY;
 }
 
+/*
+ * Where a boundary is marked on the track, or -1 for one there is no point marking.
+ *
+ * The ends are refused deliberately. A notch at 0 or at the full width is not a threshold the
+ * eye can locate against anything - it is the edge of the track, which is already drawn - and a
+ * band whose boundary sits off the scale is a caller's domain and threshold disagreeing, which
+ * is better shown as an unmarked bar than as a mark in the wrong place.
+ */
+static int fb_band_mark(const struct fb_meter *meter, int32_t boundary) {
+    const int32_t permille = mesh_ui_scale_permille(meter->scale, boundary);
+    if (permille <= 0 || permille >= MESH_UI_ANIM_ONE) {
+        return -1;
+    }
+    return (int)(((int64_t)meter->rect.w * permille) / MESH_UI_ANIM_ONE);
+}
+
 void fb_draw_meter(struct mesh_ui_backend_fb_state *state, const struct fb_meter *meter) {
     if (meter == NULL || meter->rect.w <= 0 || meter->rect.h <= 0) {
         return;
@@ -1954,9 +2035,10 @@ void fb_draw_meter(struct mesh_ui_backend_fb_state *state, const struct fb_meter
     fb_fill_round_rect(state, r.x, r.y, r.w, r.h, radius,
                        fb_color(state, MESH_UI_COLOR_METER_TRACK));
 
-    const struct mesh_ui_rgb ink = fb_tone_color(state, fb_meter_tone(meter->tone));
-
     if (meter->kind == FB_METER_INDETERMINATE) {
+        /* A band says where a reading changes meaning and an indeterminate bar has no reading,
+           so nothing here consults one: the pill is drawn in the tone it was given. */
+        const struct mesh_ui_rgb ink = fb_tone_color(state, fb_meter_tone(meter->tone));
         /*
          * A pill crossing the track, from entirely off the leading edge to entirely off the
          * trailing one. Both ends of the travel are off the track on purpose: the loop's wrap
@@ -1997,13 +2079,18 @@ void fb_draw_meter(struct mesh_ui_backend_fb_state *state, const struct fb_meter
         return;
     }
 
+    /*
+     * The reading onto the track. Once, here, rather than at the call site - which is the whole
+     * reason the domain travels with the reading: the fill's length and the boundary marks
+     * below are then measured by one piece of arithmetic and cannot land in different places.
+     */
+    const int32_t value = mesh_ui_scale_permille(meter->scale, meter->value);
+    /* The band is asked in the meter's own units rather than in permille, so a boundary is
+       compared against the figure a caller stated rather than against a rounded position. */
+    const struct mesh_ui_rgb ink = fb_tone_color(
+        state, fb_meter_tone(mesh_ui_band_tone(meter->band, meter->value, meter->tone)));
+
     /* Where the fill has got to, which is not where the reading is: see FB_METER_MOTION. */
-    int32_t value = meter->value;
-    if (value < 0) {
-        value = 0;
-    } else if (value > MESH_UI_ANIM_ONE) {
-        value = MESH_UI_ANIM_ONE;
-    }
     const int32_t position =
         mesh_ui_anim_track(&state->anim, meter->id, state->now_ms, value,
                            fb_motion(state, FB_METER_MOTION), MESH_UI_EASE_OUT);
@@ -2017,6 +2104,88 @@ void fb_draw_meter(struct mesh_ui_backend_fb_state *state, const struct fb_meter
     }
     if (fill > 0) {
         fb_fill_round_rect(state, r.x, r.y, fill, r.h, radius, ink);
+    }
+
+    if (meter->band == NULL) {
+        return;
+    }
+    /*
+     * The boundaries, cut *out* of the bar rather than laid on top of it.
+     *
+     * A notch in the ground colour is the one mark that reads the same whether or not the fill
+     * has reached it: over the track it is a gap in the track, over the fill it is a gap in the
+     * fill, and either way the eye sees the bar divided where the meaning divides. A mark drawn
+     * in an ink of its own would need a colour validated against both, which is two more
+     * contracts every theme would have to satisfy to say something the absence of ink already
+     * says.
+     *
+     * Same ground the widget lays under a selected track above, for the same reason: that is
+     * what is behind the bar on the row the cursor is on.
+     */
+    const int notch = fb_space(state, MESH_UI_SPACE_XS) > 0 ? fb_space(state, MESH_UI_SPACE_XS) : 1;
+    const struct mesh_ui_rgb ground = fb_color(state, MESH_UI_COLOR_BG);
+    const int32_t bounds[] = {meter->band->warn, meter->band->bad};
+    for (size_t i = 0U; i < sizeof bounds / sizeof bounds[0]; i++) {
+        const int mark = fb_band_mark(meter, bounds[i]);
+        if (mark < 0) {
+            continue;
+        }
+        int x = r.x + mark - notch / 2;
+        int w = notch;
+        if (x < r.x) {
+            w -= r.x - x;
+            x = r.x;
+        }
+        if (x + w > r.x + r.w) {
+            w = r.x + r.w - x;
+        }
+        if (w > 0) {
+            fb_fill_rect(state, x, r.y, w, r.h, ground);
+        }
+    }
+}
+
+/* ---- the signal staircase ------------------------------------------------------------------ */
+
+void fb_draw_signal(const struct mesh_ui_backend_fb_state *state, const struct fb_rect *box,
+                    uint8_t level, struct mesh_ui_rgb ink, struct mesh_ui_rgb unlit) {
+    if (box == NULL || box->w <= 0 || box->h <= 0) {
+        return;
+    }
+    /*
+     * Rungs and the gaps between them out of the width the slot was given, rather than a stated
+     * pixel size: this is drawn beside text at whatever glyph scale the theme picked, and a
+     * staircase that did not grow with it would be a set of ticks next to large type on the one
+     * theme somebody chose for legibility.
+     *
+     * The gap is taken first and floored at a pixel. A staircase whose rungs touch is a filled
+     * block, and a block has no rungs to count - which is the entire content of the widget.
+     */
+    const int steps = (int)MESH_UI_SIGNAL_STEPS;
+    int gap = box->w / (steps * 4);
+    if (gap < 1) {
+        gap = 1;
+    }
+    int rung = (box->w - (steps - 1) * gap) / steps;
+    if (rung < 1) {
+        rung = 1;
+    }
+    const int bottom = box->y + box->h;
+    const int radius = fb_radius(state, MESH_UI_SHAPE_SM);
+
+    for (int i = 0; i < steps; i++) {
+        /*
+         * Rising left to right, bottom aligned, the shortest rung a quarter of the tallest.
+         * Every rung is drawn whether or not it is lit - see FB_TRAILING_SIGNAL: what is being
+         * read is lit rungs against a constant total, and an indicator that shortened as the
+         * signal fell would be claiming a proportion four buckets cannot support.
+         */
+        int h = box->h * (i + 1) / steps;
+        if (h < 1) {
+            h = 1;
+        }
+        const int x = box->x + i * (rung + gap);
+        fb_fill_round_rect(state, x, bottom - h, rung, h, radius, i < (int)level ? ink : unlit);
     }
 }
 

@@ -1,0 +1,42 @@
+# The two quantitative components, on the screens that have something to measure.
+#
+# A meter answers "how far along"; these answer "where does this sit on a scale I do not carry
+# around". Both are the same argument as the airtime bar's - a length is compared against the
+# track it is in, which is right there - taken to the readings that have absolute ends.
+
+scene demo
+scale 4
+delay 220
+
+# The Nodes list: the trailing column is a signal staircase on every node we heard ourselves,
+# and the old "Nhop" or "mqtt" on every node we did not. That split is the point - an SNR from a
+# relayed packet describes the relay, so those rows have no signal of their own to draw.
+tab nodes
+hold 1200
+
+# Foxtrot Mobile: a handheld on a weak link with a battery running down, which is the node that
+# puts every band on one screen. Watch the notches rather than the fills: the battery bar is red
+# because it is past a mark that is drawn where it actually is, not because a threshold nobody
+# can see was crossed.
+key down 6
+key a
+key down 26
+hold 1600
+key b
+
+# Alfa Ridge: the same rows resting. Same scales, same marks, nothing over a boundary - so the
+# two screens are readable against each other rather than each against its own colour.
+key down 1
+key a
+key down 26
+hold 1600
+key b
+
+# And the airtime bar the band came from, climbing past both of its marks.
+tab status
+airtime 8 2
+hold 700
+airtime 31 11
+hold 700
+airtime 58 19
+hold 1400

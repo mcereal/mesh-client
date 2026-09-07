@@ -14,7 +14,9 @@
  * lives. The backend builds once per frame and the nav asks for the count.
  */
 
+#include "mesh/ui/layout.h"
 #include "mesh/ui/store.h"
+#include "mesh/ui/theme.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -54,6 +56,23 @@ enum mesh_ui_node_row_kind {
     MESH_UI_NODE_ROW_INFO = 0, /* label and value */
     MESH_UI_NODE_ROW_HEADING,  /* a group title; no value, not selectable */
     MESH_UI_NODE_ROW_ACTION,   /* A does something; `action` says what */
+    /*
+     * A reading with an absolute scale, on the same terms as a setting's MESH_UI_SETTING_METER:
+     * still a fact with a label and a formatted value, and additionally a number a backend that
+     * can draw one may draw.
+     *
+     * It is a description of the content rather than an instruction to a renderer, which is why
+     * the row keeps its `value` text: the CLI backend has no bar and shows a complete fact, and
+     * the fb backend shows the same fact with a length beside it.
+     *
+     * Which readings get one is the whole of the judgement here, and the test is not "is this a
+     * number" - most of this screen is numbers. It is whether the figure has *ends the reader
+     * does not know*. A battery percentage is meaningless without knowing that 15 is nearly
+     * flat; an SNR in decibels is meaningless without knowing the demodulator gives up near
+     * -17. A node number, an altitude and a satellite count have no such ends, and a bar under
+     * one of them would be inventing a scale to draw against.
+     */
+    MESH_UI_NODE_ROW_METER,
 };
 
 enum mesh_ui_node_action {
@@ -76,6 +95,21 @@ struct mesh_ui_node_item {
     char value[MESH_UI_NODE_VALUE_MAX];
     uint8_t kind;   /* enum mesh_ui_node_row_kind */
     uint8_t action; /* enum mesh_ui_node_action */
+    /*
+     * METER: the reading, the ends it is measured between, and where it changes meaning.
+     *
+     * Held as whole units of whatever the row is about - percent, decibels - rather than
+     * normalised here, because the two ends and the two thresholds are one statement about the
+     * reading and normalising would split it: a builder that handed over a fraction would have
+     * had to convert the thresholds too, by arithmetic nothing could check against the ends it
+     * used. mesh_ui_scale_permille() does it once, where the bar is drawn.
+     *
+     * `banded` is the NULL a pointer would have carried; a row without one is a plain bar.
+     */
+    int32_t number;
+    struct mesh_ui_scale scale;
+    struct mesh_ui_band band;
+    bool banded;
 };
 
 /*
@@ -105,6 +139,30 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
 uint32_t mesh_ui_node_detail_count(const struct mesh_ui_node_summary *node, bool is_self,
                                    const struct mesh_ui_traceroute *trace,
                                    const struct mesh_ui_handshake_state *roster);
+
+/*
+ * Whether `node`'s SNR is a measurement of *this node's own link*, and so whether it can be
+ * drawn rather than merely printed.
+ *
+ * Three ways it is not, and the reading is a true number about something else in all of them:
+ *
+ *   - `via_mqtt`: the packet did not cross the air to us at all.
+ *   - `hops_away > 0`: the SNR is the last relay's, not this node's.
+ *   - `!has_hops_away`: the firmware did not say. Unknown is not zero - older firmware and
+ *     replayed NodeDB entries both leave it unset - and treating it as zero is how a node that
+ *     may never have been heard directly gets a confident-looking staircase.
+ *
+ * And one way the reading itself is not there: `snr` of exactly 0.0 is the session layer's own
+ * "no measurement" - mesh_session_apply_packet() declines to store a zero for that reason,
+ * while a NodeDB entry carrying none assigns one anyway. The two are indistinguishable by the
+ * time they reach here, so a bar drawn on that value would put three of four rungs against a
+ * node nothing has been heard from. A genuine 0.0 dB link loses its rungs to this and keeps its
+ * figure, which is the right way round: the printed number is a fact either way.
+ *
+ * The distinction is the whole rule this screen and the Nodes list are held to. Printing a
+ * number that describes something else is unhelpful; drawing it is a claim.
+ */
+bool mesh_ui_node_signal_heard(const struct mesh_ui_node_summary *node);
 
 /*
  * The node with that id, or NULL when it is not in the list. The open detail is remembered by

@@ -338,6 +338,19 @@ enum fb_meter_kind {
     FB_METER_INDETERMINATE,
 };
 
+/*
+ * A meter's band is `struct mesh_ui_band` (include/mesh/ui/theme.h), and it lives there rather
+ * than here because it is not this backend's idea: it is what a number means, in the same
+ * vocabulary a tone is, and the node detail's row model states one without knowing a
+ * framebuffer exists. mesh_ui_band_tone() is what reads it.
+ *
+ * The bar with no marks on it was the gap this closes. "Is 31% a lot?" is the question the
+ * meter exists to answer without arithmetic, and a bare track answers it only for somebody who
+ * already carries the threshold around: the fill turned amber at a quarter, but nothing on
+ * screen said where a quarter *was*, so the colour reported a boundary that could not be
+ * located. A notch cut into the track at each boundary is that boundary, drawn where it is.
+ */
+
 struct fb_meter {
     struct fb_rect rect; /* the track; fb_meter_thickness() is the height one wants */
     /*
@@ -349,7 +362,19 @@ struct fb_meter {
      */
     uint32_t id;
     enum fb_meter_kind kind;
-    int32_t value; /* DETERMINATE: permille, 0..MESH_UI_ANIM_ONE, clamped */
+    /* DETERMINATE: the reading, in whatever units `scale` is stated in. Clamped to the ends. */
+    int32_t value;
+    /* The domain `value` and `band` are on. A zeroed scale means permille, which is what every
+       meter that already holds a fraction wants and why it costs those callers nothing. */
+    struct mesh_ui_scale scale;
+    /*
+     * Where the reading changes meaning, or NULL for a plain bar.
+     *
+     * A banded meter takes its fill's tone from where the reading falls and draws the
+     * boundaries on its track, so the colour and the marks are two readings of one statement
+     * rather than two statements. `tone` is then what it rests in - see fb_band_tone().
+     */
+    const struct mesh_ui_band *band;
     /* The fill. ACCENT, GOOD or BAD - the three mesh_ui_theme_validate() holds against
        MESH_UI_COLOR_METER_TRACK - and anything else is drawn in the accent. */
     enum mesh_ui_tone tone;
@@ -363,6 +388,34 @@ int fb_meter_thickness(const struct mesh_ui_backend_fb_state *state, int scale);
 /* Draws it, advancing the fill towards its target - or the pill along its loop. Needs the
    mutable state for the same reason the switch does. */
 void fb_draw_meter(struct mesh_ui_backend_fb_state *state, const struct fb_meter *meter);
+
+/* ---- the signal staircase -------------------------------------------------------------------
+ *
+ * Its own component rather than a variant of the meter, because it is answering a different
+ * question. A meter reports a level on a continuum and eases between samples; a staircase
+ * reports a *bucket*, and easing between buckets would be inventing the intermediate values
+ * that quantising them was meant to refuse. Nothing here animates, and that is the design.
+ *
+ * The rungs it does not light are drawn rather than left out, in the quiet ink the slot's other
+ * furniture takes: an indicator that shortened as the signal fell would be a length, and a
+ * length is a claim about proportion that four buckets cannot support. What the eye counts is
+ * lit rungs against a constant total.
+ */
+
+/* Cells a staircase occupies, its trailing gap excluded. Stated rather than measured, for the
+   reason the inline meter's width is: rungs have no natural width, and two cells is where four
+   of them are still individually countable at the smallest glyph scale a theme may pick. */
+#define FB_SIGNAL_CELLS 2U
+
+/*
+ * Draws `level` of MESH_UI_SIGNAL_STEPS rungs inside `box`, rising left to right.
+ *
+ * `ink` and `unlit` are handed in rather than looked up, so that a staircase takes its pair
+ * from the row it is on - which is what the trailing slot already does for every other thing it
+ * draws, and what keeps this from being a fifth colour every theme has to be validated for.
+ */
+void fb_draw_signal(const struct mesh_ui_backend_fb_state *state, const struct fb_rect *box,
+                    uint8_t level, struct mesh_ui_rgb ink, struct mesh_ui_rgb unlit);
 
 /*
  * The accented heading a screen opens with. Consumes the body row it occupies, so a screen
@@ -509,6 +562,21 @@ enum fb_trailing_kind {
      * whole of what it is for - the exact figure is what the value column beside it is for.
      */
     FB_TRAILING_METER,
+    /*
+     * A staircase of rungs against the trailing edge: how well we hear a node, said the way
+     * every handset says it.
+     *
+     * The one slot that carries two things, and the pair is why it exists. A node row's
+     * trailing column was "4.2dB 3m" - a figure whose scale nobody carries around, next to an
+     * age - and on a list of forty-two nodes that is forty-two numbers to read in order to
+     * find the one that is fading. Rungs are counted at a glance and compared against each
+     * other down the column without being read at all, which is the whole of what a list wants
+     * from a signal; the exact figure is on the node's own screen, where there is one of it.
+     *
+     * `text` still draws, quietly, to the left of the rungs - the age, which the rungs have
+     * nothing to say about. Rightmost is the signal, exactly as a status bar orders the two.
+     */
+    FB_TRAILING_SIGNAL,
 };
 
 struct fb_trailing {
@@ -516,11 +584,14 @@ struct fb_trailing {
     /* BADGE: which family the capsule is filled with. Zero is MESH_UI_FAMILY_PRIMARY - an
        unread count - and a row counting failures can name the error family instead. */
     enum mesh_ui_family family;
-    const char *text;       /* TEXT and BADGE */
+    const char *text;       /* TEXT and BADGE, and the quiet figure beside SIGNAL */
     enum mesh_ui_icon icon; /* ICON */
     struct fb_switch *sw;   /* SWITCH. Its rect is filled in by the row: where the value column
                                ends is the row's business, not the caller's. */
     struct fb_meter *meter; /* METER. Its rect is filled in by the row, as the switch's is. */
+    /* SIGNAL: rungs lit, 0..MESH_UI_SIGNAL_STEPS. mesh_ui_signal_level() is what answers it, so
+       that the quantising is arithmetic a test can reach rather than a ladder in a renderer. */
+    uint8_t signal;
 };
 
 /* What sits at the row's leading edge. */
@@ -775,10 +846,15 @@ struct fb_card_row {
     enum mesh_ui_tone tone;
     char label[FB_CARD_LABEL_MAX];
     char value[FB_CARD_VALUE_MAX];
-    /* METER: what the bar reads and what it is keyed on. Held by value rather than by pointer
-       because a card is built, handed over and drawn - there is no caller-owned control to
-       point at, unlike a list row's switch. */
+    /* METER: what the bar reads, the domain it reads it on, and what it is keyed on. Held by
+       value rather than by pointer because a card is built, handed over and drawn - there is no
+       caller-owned control to point at, unlike a list row's switch. The band goes the same way
+       and for the same reason, with `meter_banded` standing in for the NULL a pointer would
+       have carried. */
     int32_t meter_value;
+    struct mesh_ui_scale meter_scale;
+    struct mesh_ui_band meter_band;
+    bool meter_banded;
     uint32_t meter_id;
 };
 
@@ -819,9 +895,14 @@ void fb_card_note(struct fb_card *card, enum mesh_ui_tone tone, const char *text
 /*
  * A bar: the row for a number whose *level* is the point.
  *
- * `permille` is 0..MESH_UI_ANIM_ONE and `id` keys the animation, on the same terms as a
- * switch's - stable while the row is on screen, unique within the frame, 0 for a bar that never
- * moves of its own accord.
+ * `value` is a reading on `scale` - a zeroed scale meaning it is already permille - and `id`
+ * keys the animation, on the same terms as a switch's: stable while the row is on screen,
+ * unique within the frame, 0 for a bar that never moves of its own accord.
+ *
+ * `band` may be NULL for a plain bar. When it is not, the bar marks the boundaries on its track
+ * and takes its fill from where the reading falls, resting in `tone` - so a card that colours
+ * its heading by the same band is stating one threshold rather than agreeing with itself by
+ * hand. It is copied, not retained.
  *
  * `label` of MESH_STR_NONE gives the bar the card's whole content width instead of a label
  * column, and that is the shape to reach for when the bar is *about the row above it* - which
@@ -834,7 +915,8 @@ void fb_card_note(struct fb_card *card, enum mesh_ui_tone tone, const char *text
  * saying one thing twice.
  */
 void fb_card_meter(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_id label,
-                   int32_t permille, uint32_t id);
+                   int32_t value, struct mesh_ui_scale scale, const struct mesh_ui_band *band,
+                   uint32_t id);
 
 /* Whether anything was added. A card with no rows is not drawn, so a screen can build one
    unconditionally and let it disappear when the radio has reported nothing. */

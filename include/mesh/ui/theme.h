@@ -604,6 +604,41 @@ struct mesh_ui_paint mesh_ui_theme_paint(const struct mesh_ui_theme *theme,
  * is a busy mesh, 25% of a download is a slow start.
  */
 enum mesh_ui_tone mesh_ui_tone_for_load(int32_t permille, int32_t warn, int32_t bad);
+
+/*
+ * Where a reading changes meaning, on whatever scale the reading is stated in.
+ *
+ * The generalisation of the two thresholds above, and it is here for the same reason they are
+ * answered here: what a number *means* is the UI's vocabulary, in the way a colour role and a
+ * shape are. Its counterpart, `struct mesh_ui_scale` in layout.h, answers the other half - how
+ * far along a track the number sits - and the split is the one this file already draws: the
+ * theme says what a thing is, layout says where it goes.
+ *
+ * Two things beyond the tone now read a band: a bar fills to a boundary and *marks* it on its
+ * own track, which is what turns "31%" into "past the first mark" for a reader who does not
+ * carry the threshold around. A screen that stated the thresholds twice would be marking one
+ * boundary and colouring another.
+ *
+ * Order is meaning. `bad` above `warn` is a figure that gets worse as it climbs - airtime,
+ * channel utilization; `bad` below `warn` is one that gets worse as it falls - a battery, a
+ * signal-to-noise ratio. There is no third case, and the reversed pair mesh_ui_tone_for_load()
+ * defends against by swapping is here a sentence rather than a typo.
+ */
+struct mesh_ui_band {
+    int32_t warn;
+    int32_t bad;
+};
+
+/*
+ * The tone `value` has earned against `band`, or `resting` when it has earned none. A NULL band
+ * earns nothing, so a caller with no thresholds need not branch.
+ *
+ * `resting` rather than a stated SUCCESS, because "below the first boundary" is not always good
+ * news to report: an airtime bar resting green is a mesh with room, while a download resting
+ * green would be claiming something about a job that has merely not gone wrong yet.
+ */
+enum mesh_ui_tone mesh_ui_band_tone(const struct mesh_ui_band *band, int32_t value,
+                                    enum mesh_ui_tone resting);
 const struct mesh_ui_font *mesh_ui_theme_font(const struct mesh_ui_theme *theme);
 
 /*

@@ -647,6 +647,32 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
                 .trailing = {.kind = FB_TRAILING_ICON, .icon = MESH_UI_ICON_CHEVRON},
             };
             fb_list_item(state, &list, i, &row);
+        } else if (item->kind == MESH_UI_NODE_ROW_METER) {
+            /*
+             * The figure and, beside it, where that figure sits between its own two ends - which
+             * is the half of a reading that decibels and percentages do not carry. The row still
+             * says the number; the bar is what says whether the number is a problem.
+             *
+             * Keyed on the row index above everything the settings rows can reach, for the
+             * reason a meter row there is: a reading is a fact rather than a control, so it has
+             * no field of its own to be identified by.
+             */
+            struct fb_meter meter = {
+                .id = 0x04000000U | i,
+                .kind = FB_METER_DETERMINATE,
+                .value = item->number,
+                .scale = item->scale,
+                .band = item->banded ? &item->band : NULL,
+                .tone = MESH_UI_TONE_SUCCESS,
+            };
+            const struct fb_list_item row = {
+                .label = item->label,
+                .label_cols = label_cols,
+                .value = item->value,
+                .tone = MESH_UI_TONE_NORMAL,
+                .trailing = {.kind = FB_TRAILING_METER, .meter = &meter},
+            };
+            fb_list_item(state, &list, i, &row);
         } else {
             const struct fb_list_item row = {
                 .label = item->label,
@@ -718,7 +744,22 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
          * otherwise hold its signal, because that is the more useful fact: the SNR is from
          * whenever we last heard it, while "off radio" is why a DM to it may never leave -
          * there is no stored key to encrypt with. The detail screen spells the same thing out.
+         *
+         * The branches that say something instead of a signal are the ones where there is no
+         * signal *to this node* to say. An SNR is measured on the packet that arrived, so for a
+         * node reached over several hops it describes the last relay and for one arriving over
+         * MQTT it describes nothing on the air at all - a staircase there would be reporting
+         * somebody else's link as this node's.
+         *
+         * The last branch is the one that matters and it is not the same test as the others:
+         * `hops_away` unset means the firmware did not say, which is not the same as zero, and
+         * an SNR of 0.0 is the session layer's own "no reading". Either would give a node
+         * nothing was ever heard from three of four rungs. mesh_ui_node_signal_heard() is the
+         * whole of that question, and everything it declines falls through to the figure this
+         * column drew before - which is the right way round, because printing a number that
+         * describes something else is unhelpful where drawing it is a claim.
          */
+        bool direct = false;
         if (!node->in_nodedb) {
             mesh_str_format(right, sizeof right, MESH_STR_NODES_ROW_OFF_RADIO, age);
         } else if (node->has_hops_away && node->hops_away > 0U) {
@@ -726,7 +767,23 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
                             age);
         } else if (node->via_mqtt) {
             mesh_str_format(right, sizeof right, MESH_STR_NODES_ROW_MQTT, age);
+        } else if (mesh_ui_node_signal_heard(node)) {
+            /*
+             * Heard directly, with a reading of its own: rungs and the age, and the decibels go
+             * to the node's own screen.
+             *
+             * The figure was the column's whole content and it is the part a list cannot use.
+             * "4.2dB" has to be read and then held against a threshold to mean anything, and a
+             * list is forty-two of them - whereas rungs are compared against the rungs above
+             * and below without being read, which is the only thing a column of signals is
+             * scanned for.
+             */
+            direct = true;
+            mesh_str_copy(right, sizeof right, age);
         } else {
+            /* Hops the firmware never reported, or no reading behind the figure. Exactly the
+               column this list drew before, which is why MESH_STR_NODES_ROW_SNR keeps its
+               entry - and what the CLI backend, which has no staircase, draws throughout. */
             mesh_str_format(right, sizeof right, MESH_STR_NODES_ROW_SNR, (double)node->snr, age);
         }
 
@@ -790,7 +847,10 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
                 },
             .text = mesh_ui_line_text(&line),
             .tone = tone,
-            .trailing = {.kind = FB_TRAILING_TEXT, .text = right},
+            .trailing = direct ? (struct fb_trailing){.kind = FB_TRAILING_SIGNAL,
+                                                      .text = right,
+                                                      .signal = mesh_ui_signal_level(node->snr)}
+                               : (struct fb_trailing){.kind = FB_TRAILING_TEXT, .text = right},
             .divider = true,
         };
         fb_list_item(state, &list, i, &row);
@@ -1141,11 +1201,19 @@ static const struct mesh_ui_node_summary *fb_self_node(const struct mesh_ui_snap
  *
  * Not a look-and-feel number: above roughly a quarter, LoRa's listen-before-talk backs
  * everything off and multi-hop delivery starts failing outright, and by half the mesh is
- * effectively a single-hop one. They are stated here once and read by the figure's colour, the
- * card heading's, and the bar's fill - see mesh_ui_tone_for_load().
+ * effectively a single-hop one.
+ *
+ * One band rather than two constants, and it is handed to the bar rather than consulted
+ * alongside it. Four things on this card now read these two numbers - the figure's colour, the
+ * card heading's, the bar's fill and the notches cut into the bar's track - and the last of
+ * those is the reason the shape changed: a threshold that is drawn has to be the same threshold
+ * that is compared, or the screen is marking one boundary and colouring another.
+ *
+ * The numbers themselves moved to layout.h once a node's own detail screen started reading
+ * them too. This is the band they make; where the mesh's limits actually are is stated there.
  */
-#define FB_AIR_BUSY_WARN 250
-#define FB_AIR_BUSY_BAD 500
+static const struct mesh_ui_band fb_air_band = {.warn = MESH_UI_AIRTIME_BUSY_WARN,
+                                                .bad = MESH_UI_AIRTIME_BUSY_BAD};
 
 /*
  * Where a radio's free heap stops being comfortable, in bytes.
@@ -1164,18 +1232,6 @@ static const struct mesh_ui_node_summary *fb_self_node(const struct mesh_ui_snap
  * screen has exactly one of.
  */
 #define FB_ANIM_ID_AIRTIME 0xFFFFFF02U
-
-/* A percentage as the permille a meter reads, clamped to the track. The radio's airtime figures
-   are floats off the air and nothing upstream promises they are in range. */
-static int32_t fb_percent_permille(float percent) {
-    if (!(percent > 0.0f)) { /* also catches NaN, which no comparison the other way round does */
-        return 0;
-    }
-    if (percent >= 100.0f) {
-        return MESH_UI_ANIM_ONE;
-    }
-    return (int32_t)(percent * 10.0f + 0.5f);
-}
 
 /*
  * The Status tab, as three cards.
@@ -1271,14 +1327,14 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
      * heading takes the same tone, which is what makes a saturated mesh visible from the shape
      * of the screen rather than from reading a percentage.
      *
-     * The thresholds are stated once, here, and answer for the figure's colour, the heading's
-     * and the meter's fill alike - see mesh_ui_tone_for_load(). A screen that worked them out
-     * separately for the words and for the bar would be drawing a picture and a number that can
-     * disagree, and the picture is the one that gets believed.
+     * The thresholds are stated once, in fb_air_band, and answer for the figure's colour, the
+     * heading's, the meter's fill and the marks on its track alike - see mesh_ui_band_tone(). A
+     * screen that worked them out separately for the words and for the bar would be drawing a
+     * picture and a number that can disagree, and the picture is the one that gets believed.
      */
-    const int32_t util_permille = fb_percent_permille(util_value);
+    const int32_t util_permille = mesh_ui_percent_permille(util_value);
     const enum mesh_ui_tone air_tone =
-        have_util ? mesh_ui_tone_for_load(util_permille, FB_AIR_BUSY_WARN, FB_AIR_BUSY_BAD)
+        have_util ? mesh_ui_band_tone(&fb_air_band, util_permille, MESH_UI_TONE_SUCCESS)
                   : MESH_UI_TONE_NORMAL;
 
     fb_card_begin(&card, MESH_UI_ICON_NODES, MESH_STR_STATUS_CARD_MESH,
@@ -1341,9 +1397,16 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
          *
          * No label: the row above already names it twice over, and a label column here would
          * cost the track the third of its length that makes a fill readable as a proportion.
+         *
+         * The band goes with it, so the track carries a notch at a quarter and one at a half -
+         * which is what turns "a bar a third full" into "a bar past the first mark". The reader
+         * no longer has to know the threshold to see that it has been crossed.
+         *
+         * A zeroed scale: this reading is already permille, so there is no domain to state.
          */
         if (have_util) {
-            fb_card_meter(&card, air_tone, MESH_STR_NONE, util_permille, FB_ANIM_ID_AIRTIME);
+            fb_card_meter(&card, MESH_UI_TONE_SUCCESS, MESH_STR_NONE, util_permille,
+                          (struct mesh_ui_scale){0, 0}, &fb_air_band, FB_ANIM_ID_AIRTIME);
         }
     }
 

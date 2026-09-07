@@ -107,6 +107,65 @@ static void rows_named(struct node_rows *rows, const char *label, enum mesh_str_
     va_end(args);
 }
 
+/*
+ * The ends and the boundaries the readings on this screen are drawn against.
+ *
+ * Where they come from is stated with them in layout.h, because the Status card reads the same
+ * airtime limits. What is decided here is only which *unit* each reading travels in, and the
+ * rule is that a scale, a value and a band are always three numbers in one unit: airtime in
+ * permille because that is the precision the radio reports it at, battery in whole percent
+ * because that is all the wire carries, signal in decibels because that is what it is.
+ */
+static const struct mesh_ui_scale node_battery_scale = {0, 100};
+static const struct mesh_ui_band node_battery_band = {.warn = MESH_UI_BATTERY_LOW,
+                                                      .bad = MESH_UI_BATTERY_CRITICAL};
+/* A zeroed scale is the identity domain: these readings are already permille. */
+static const struct mesh_ui_scale node_permille_scale = {0, 0};
+static const struct mesh_ui_band node_channel_util_band = {.warn = MESH_UI_AIRTIME_BUSY_WARN,
+                                                           .bad = MESH_UI_AIRTIME_BUSY_BAD};
+static const struct mesh_ui_band node_air_tx_band = {.warn = MESH_UI_AIRTIME_TX_WARN,
+                                                     .bad = MESH_UI_AIRTIME_TX_BAD};
+static const struct mesh_ui_scale node_snr_scale = {MESH_UI_SNR_FLOOR, MESH_UI_SNR_CEILING};
+static const struct mesh_ui_band node_snr_band = {.warn = MESH_UI_SNR_FAIR,
+                                                  .bad = MESH_UI_SNR_POOR};
+
+/*
+ * An SNR in whole decibels, rounded rather than truncated.
+ *
+ * A cast alone truncates toward zero, which on a negative reading always moves it *up* - so a
+ * link at -7.6 dB would be banded as though it were at -7, and the one direction a signal bar
+ * must not err in is optimism.
+ */
+static int32_t snr_db(float snr) { return (int32_t)(snr < 0.0f ? snr - 0.5f : snr + 0.5f); }
+
+/*
+ * The fourth way a fact gets onto this screen, and it is a modifier on the other three rather
+ * than a way of its own: the row has already said what it says, and this adds the ends the
+ * figure is measured between.
+ *
+ * Written that way round deliberately. A reading with a scale is still a reading, so it keeps
+ * the same builder, the same label and the same formatted value - which is what lets a backend
+ * with nothing to draw a bar with show exactly what it showed before. A separate rows_meter()
+ * would have had to restate the formatting, and the two copies would have drifted the first
+ * time a unit changed.
+ */
+static void rows_gauge(struct node_rows *rows, int32_t value, struct mesh_ui_scale scale,
+                       const struct mesh_ui_band *band) {
+    /* The row builder counts past the end so its totals stay honest, so "there is a row behind
+       me" is not the same question as "a row was written". */
+    if (rows->items == NULL || rows->count == 0U || rows->count > rows->capacity) {
+        return;
+    }
+    struct mesh_ui_node_item *item = &rows->items[rows->count - 1U];
+    item->kind = MESH_UI_NODE_ROW_METER;
+    item->number = value;
+    item->scale = scale;
+    if (band != NULL) {
+        item->band = *band;
+        item->banded = true;
+    }
+}
+
 /* "4m", "3h", "2d" - the same shorthand the Nodes list uses, so the two agree. An unset or
    future stamp reads as "?" rather than a wrapped enormous age. */
 static void format_age(uint32_t stamp, uint32_t now, char *out, size_t out_len) {
@@ -212,6 +271,17 @@ static void node_rows_signal(struct node_rows *rows, const struct mesh_ui_node_s
 
     if (!is_self) {
         rows_info(rows, MESH_STR_NODE_SNR, MESH_STR_NODE_VAL_SNR, (double)node->snr);
+        /*
+         * And where that sits between the demodulator's floor and a link that could not be
+         * better, which is the part decibels do not say to anyone who has not memorised them.
+         *
+         * Only when the reading is this node's own - see mesh_ui_node_signal_heard(). The
+         * figure above stays either way: it is true, it is just not always about what the label
+         * says, and that is the difference between printing it and drawing it.
+         */
+        if (mesh_ui_node_signal_heard(node)) {
+            rows_gauge(rows, snr_db(node->snr), node_snr_scale, &node_snr_band);
+        }
         /* Beside it rather than instead of it: SNR is how far above the noise the packet was
            and RSSI is how loud it was, and a link can be good on one and poor on the other. */
         if (node->has_rssi) {
@@ -254,6 +324,8 @@ static void node_rows_power(struct node_rows *rows, const struct mesh_ui_node_su
         } else {
             rows_info(rows, MESH_STR_NODE_BATTERY, MESH_STR_NODE_VAL_PERCENT,
                       (unsigned)metrics->battery_level);
+            rows_gauge(rows, (int32_t)metrics->battery_level, node_battery_scale,
+                       &node_battery_band);
         }
     }
     if (metrics->has_voltage) {
@@ -262,10 +334,16 @@ static void node_rows_power(struct node_rows *rows, const struct mesh_ui_node_su
     if (metrics->has_channel_utilization) {
         rows_info(rows, MESH_STR_NODE_CHANNEL_UTIL, MESH_STR_NODE_VAL_PERCENT_FINE,
                   (double)metrics->channel_utilization);
+        rows_gauge(rows, mesh_ui_percent_permille(metrics->channel_utilization),
+                   node_permille_scale, &node_channel_util_band);
     }
     if (metrics->has_air_util_tx) {
         rows_info(rows, MESH_STR_NODE_AIR_UTIL_TX, MESH_STR_NODE_VAL_PERCENT_FINE,
                   (double)metrics->air_util_tx);
+        /* Its own band, an order of magnitude below the one above: this is the radio's own
+           transmit duty cycle rather than how busy the band is. */
+        rows_gauge(rows, mesh_ui_percent_permille(metrics->air_util_tx), node_permille_scale,
+                   &node_air_tx_band);
     }
     if (metrics->has_uptime) {
         char uptime[24];
@@ -731,6 +809,18 @@ uint32_t mesh_ui_node_detail_count(const struct mesh_ui_node_summary *node, bool
 static uint32_t node_list_count(const struct mesh_ui_handshake_state *handshake) {
     return handshake->node_count > MESH_UI_MAX_HANDSHAKE_NODES ? MESH_UI_MAX_HANDSHAKE_NODES
                                                                : handshake->node_count;
+}
+
+bool mesh_ui_node_signal_heard(const struct mesh_ui_node_summary *node) {
+    if (node == NULL || node->via_mqtt) {
+        return false;
+    }
+    /* Unknown is not zero: `hops_away` is only meaningful once the firmware has said so. */
+    if (!node->has_hops_away || node->hops_away > 0U) {
+        return false;
+    }
+    /* And the session layer's own test for a reading that exists at all. */
+    return node->snr != 0.0f;
 }
 
 const struct mesh_ui_node_summary *
