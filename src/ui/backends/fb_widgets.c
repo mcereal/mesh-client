@@ -1342,15 +1342,20 @@ void fb_draw_snackbar(struct mesh_ui_backend_fb_state *state, const struct fb_la
     if (lines > FB_SNACKBAR_LINES_MAX) {
         lines = FB_SNACKBAR_LINES_MAX;
     }
-    /* Sized to its own words rather than to the panel, the way a bubble is: a three-word
-       notice in a bar the full width of the screen reads as a status area that happens to be
-       empty on the right, which is what the footer line already was. */
+    /* Sized to its own words rather than to the panel, the way a bubble is: a bar the full
+       width of the screen is a region of the chrome, and a notice is one thing that arrived. */
     size_t cols = mesh_ui_wrap_widest(state->snackbar, max_cols);
     if (cols == 0U) {
         cols = 1U;
     }
 
     const int box_w = (int)cols * adv + 2 * pad_x;
+    /* Centred on the panel rather than against the leading margin. A bar sized to its own words
+       and pinned to the left edge reads as the start of a row that ran out of things to say -
+       which is what the footer line it replaced was. Centred, it reads as one object placed
+       over the screen, and it stays put as the wording changes length instead of growing
+       rightwards out of a fixed corner. */
+    const int box_x = ((int)state->var.xres - box_w) / 2;
     const int box_h = (int)lines * line + 2 * pad_y;
     /* Where it comes to rest: over the bottom of the body, a full margin clear of the footer.
        A card stops half a margin short of the footer because a card is *in* the body and the
@@ -1371,7 +1376,7 @@ void fb_draw_snackbar(struct mesh_ui_backend_fb_state *state, const struct fb_la
      * the ground the theme has - so the fill is the whole cue, and an outline over it would be
      * drawing a border around the most obvious thing on the panel.
      */
-    fb_fill_round_rect(state, margin, y, box_w, box_h, fb_radius(state, MESH_UI_SHAPE_SM),
+    fb_fill_round_rect(state, box_x, y, box_w, box_h, fb_radius(state, MESH_UI_SHAPE_SM),
                        fb_color(state, MESH_UI_COLOR_SURFACE_INVERSE));
 
     const struct mesh_ui_rgb ink = fb_color(state, MESH_UI_COLOR_TEXT_ON_INVERSE);
@@ -1379,7 +1384,7 @@ void fb_draw_snackbar(struct mesh_ui_backend_fb_state *state, const struct fb_la
     mesh_ui_wrap_begin(&wrap, state->snackbar, max_cols);
     int text_y = y + pad_y;
     for (uint32_t drawn = 0U; drawn < lines && mesh_ui_wrap_next(&wrap); ++drawn) {
-        fb_draw_text(state, margin + pad_x, text_y, wrap.line, scale, ink);
+        fb_draw_text(state, box_x + pad_x, text_y, wrap.line, scale, ink);
         text_y += line;
     }
 }

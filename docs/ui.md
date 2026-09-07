@@ -635,11 +635,14 @@ Three things are worth knowing:
   the frame a screen opens. A snackbar wants the opposite, so on a new notice it is put back to
   zero with a zero duration before being aimed at the resting place.
 
-It is sized to its own words rather than to the panel, up to two lines — a three-word notice in
-a full-width bar is a status area that happens to be empty on the right, which is what the
-footer line already was. `SURFACE_INVERSE` carries it with no outline: a card needs a hairline
-because its fill is one step off the ground, and this one is the furthest from the ground the
-theme has.
+It is sized to its own words rather than to the panel, up to two lines, and **centred** — a bar
+the full width of the screen is a region of the chrome, and one pinned to the leading margin
+reads as the start of a row that ran out of things to say, which is exactly what the footer line
+it replaced was. Centred, it is one object placed over the screen, and it stays put as the
+wording changes length instead of growing rightwards out of a fixed corner.
+
+`SURFACE_INVERSE` carries it with no outline: a card needs a hairline because its fill is one
+step off the ground, and this one is the furthest from the ground the theme has.
 
 ### Animation
 
