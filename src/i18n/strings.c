@@ -57,6 +57,8 @@ static uint8_t plural_english(uint32_t n) { return (uint8_t)(n == 1U ? 0 : 1); }
  * `const char *const mesh_i18n_table_<id>[MESH_STR_COUNT]`, a row here, and the file in
  * CMakeLists.txt - nothing else. docs/i18n.md walks through it.
  */
+extern const char *const mesh_i18n_table_es[MESH_STR_COUNT];
+
 static const struct mesh_i18n_locale k_locales[] = {
     {
         .id = "en",
@@ -64,6 +66,7 @@ static const struct mesh_i18n_locale k_locales[] = {
         .table = NULL,
         .plural_form = plural_english,
     },
+    {.id = "es", .name = "Español", .table = mesh_i18n_table_es, .plural_form = plural_english},
 };
 
 #define MESH_I18N_LOCALE_COUNT (sizeof k_locales / sizeof k_locales[0])
@@ -154,6 +157,18 @@ void mesh_i18n_init(void) {
         break;
     }
     s_current = &k_locales[0];
+}
+
+bool mesh_i18n_is_overridden(void) {
+    const char *tag = getenv("MESHCLIENT_LANG");
+    return tag != NULL && tag[0] != '\0' && strcmp(tag, "C") != 0 && strcmp(tag, "POSIX") != 0;
+}
+
+void mesh_i18n_init_with_preference(const char *id) {
+    mesh_i18n_init();
+    if (!mesh_i18n_is_overridden()) {
+        (void)mesh_i18n_set_locale(id);
+    }
 }
 
 /* ---- lookup -------------------------------------------------------------------------------- */

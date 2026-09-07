@@ -3,6 +3,7 @@
 /* The UI store: state, persistence, refresh requests and the message list. */
 
 #include "framework/mesh_test.h"
+#include "mesh/i18n/strings.h"
 #include "support/ui_fixture.h"
 
 #include "mesh/core/message.h"
@@ -632,6 +633,14 @@ MESH_TEST_CASE(ui_canned_load, unit) {
     if (loaded != 3 || mesh_ui_canned_count() != 3U || strcmp(mesh_ui_canned_text(0), "Ack") != 0 ||
         strcmp(mesh_ui_canned_text(2), "Be there in 5") != 0) {
         failure = "canned file not parsed as expected";
+        goto cleanup;
+    }
+    const char *previous_language = mesh_i18n_locale()->id;
+    (void)mesh_i18n_set_locale("es");
+    const bool custom_preserved = strcmp(mesh_ui_canned_text(2), "Be there in 5") == 0;
+    (void)mesh_i18n_set_locale(previous_language);
+    if (!custom_preserved) {
+        failure = "switching languages must preserve custom quick replies";
         goto cleanup;
     }
     if (mesh_ui_canned_text(3)[0] != '\0') {
