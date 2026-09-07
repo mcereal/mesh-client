@@ -997,8 +997,14 @@ static struct fb_item_geom fb_item_measure(const struct mesh_ui_backend_fb_state
      * pixels above the bar it was meant to be under. The fill therefore takes the bar in, plus
      * the same breathing room it has at the top.
      */
-    if (item->meter != NULL && g.rows >= 2U) {
-        g.bar_h = fb_meter_thickness(state, scale);
+    if ((item->meter != NULL || item->slider != NULL) && g.rows >= 2U) {
+        /* One answer for both of the things that can be in that step, because the step is one
+           step: a screen that swapped a reading for a control on the same row must not find the
+           row a few pixels shorter. The slider is the taller of the two - it reserves the room
+           its handle stands up into under the cursor - so it is what the step is measured by
+           wherever it is the one present. */
+        g.bar_h = item->slider != NULL ? fb_slider_height(state, scale)
+                                       : fb_meter_thickness(state, scale);
         /* On the supporting line's geometry: a second line set closer to its headline than two
            rows would be, which is what keeps the bar reading as part of the row above it rather
            than as something floating between two rows. */
@@ -1526,6 +1532,16 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
         item->meter->rect.y = g.bar_y;
         item->meter->selected = selected;
         fb_draw_meter(state, item->meter);
+    } else if (item->slider != NULL && g.bar_h > 0) {
+        /* The same box the meter would have had, and the control centres its own track in it -
+           so a reading and the control that sets it start and end in the same two columns, which
+           is what lets a section mix the two without the eye finding two different lists. */
+        item->slider->rect.x = g.text_x;
+        item->slider->rect.w = g.text_right - g.text_x;
+        item->slider->rect.h = g.bar_h;
+        item->slider->rect.y = g.bar_y;
+        item->slider->selected = selected;
+        fb_draw_slider(state, item->slider);
     }
 
     /*
@@ -3185,6 +3201,154 @@ void fb_draw_meter(struct mesh_ui_backend_fb_state *state, const struct fb_meter
             fb_fill_rect(state, x, r.y, w, r.h, ground);
         }
     }
+}
+
+/* ---- the slider ----------------------------------------------------------------------------- */
+
+/*
+ * The handle travels to each new value rather than appearing at it, on the meter's terms and
+ * for the same reason - a control the reader just pressed should be seen to move, because that
+ * is what says the press landed. EASE_OUT rather than IN_OUT: this follows a button press, and
+ * a press wants a control that leaves immediately and settles.
+ */
+#define FB_SLIDER_MOTION MESH_UI_MOTION_SHORT
+
+/*
+ * The track, as a multiple of a meter's, and the handle as a multiple of the track.
+ *
+ * A control is drawn heavier than a reading of the same width, and that is not a preference: a
+ * meter is looked at when the eye is already on the row, while a slider has to be *found* before
+ * it can be aimed at, from wherever the cursor was. At a meter's thickness across a whole row it
+ * reads as a rule with a mark on it.
+ *
+ * Two handle heights rather than one, because the row has to reserve the taller of them whether
+ * or not the cursor is here: a handle that grew the row it is on would push every row below it
+ * down as the cursor arrived, which is the correction §11 made to the progress bar and §8 made
+ * to a card's focus ring. So the box is always the focused size and the resting handle is drawn
+ * short inside it.
+ */
+#define FB_SLIDER_TRACK 2
+#define FB_SLIDER_HANDLE_REST 3 /* in halves of a track */
+#define FB_SLIDER_HANDLE_FOCUS 4
+
+int fb_slider_height(const struct mesh_ui_backend_fb_state *state, int scale) {
+    return fb_meter_thickness(state, scale) * FB_SLIDER_TRACK * FB_SLIDER_HANDLE_FOCUS / 2;
+}
+
+void fb_draw_slider(struct mesh_ui_backend_fb_state *state, const struct fb_slider *slider) {
+    if (slider == NULL || slider->rect.w <= 0 || slider->rect.h <= 0) {
+        return;
+    }
+    const struct fb_rect box = slider->rect;
+    const int damage_pad = fb_space(state, MESH_UI_SPACE_XS);
+    fb_animation_damage(state, box.x - damage_pad, box.y - damage_pad, box.w + 2 * damage_pad,
+                        box.h + 2 * damage_pad);
+
+    /* The track is a slice of the box the handle has the rest of, centred in it - so the ends of
+       the track and the middle of the handle are on one line however tall either is. Recovered
+       from the box rather than measured again, because a row may have been given less than it
+       asked for and the control has to stay inside what it got. */
+    const int full = box.h * 2 / FB_SLIDER_HANDLE_FOCUS;
+    const int thickness = full > 1 ? full : 1;
+    const struct fb_rect track = {
+        .x = box.x, .y = box.y + (box.h - thickness) / 2, .w = box.w, .h = thickness};
+    const int radius = fb_radius(state, MESH_UI_SHAPE_FULL);
+    const struct mesh_ui_rgb ground = fb_color(state, MESH_UI_COLOR_BG);
+
+    /*
+     * Its own ground under a cursor fill, the meter's arrangement and the switch's: the track
+     * and the handle are both contracted against the body, and on two of the four themes the
+     * cursor fill *is* the resting track - so without this the control disappears on precisely
+     * the row it is being edited from.
+     *
+     * The whole box rather than the track, because the handle stands outside the track and the
+     * gaps that separate it from the fill are drawn in this colour.
+     */
+    if (slider->selected) {
+        const int pad = fb_space(state, MESH_UI_SPACE_XS);
+        fb_fill_round_rect(state, box.x - pad, box.y - pad, box.w + 2 * pad, box.h + 2 * pad,
+                           radius + pad, ground);
+    }
+
+    fb_fill_round_rect(state, track.x, track.y, track.w, track.h, radius,
+                       fb_color(state, MESH_UI_COLOR_METER_TRACK));
+
+    /* Narrower than the track is thick, which is the shape Material settled on and the right one
+       here for a reason of its own: the handle marks a *position*, and a wide one is a range. */
+    const int handle_w = thickness * 3 / 4 > 2 ? thickness * 3 / 4 : 2;
+    /* The handle's centre travels the track less its own width, so the control reads as full at
+       the last stop and empty at the first instead of hanging off either end. */
+    const int travel = track.w - handle_w;
+
+    /*
+     * The stops, cut out of the track in the ground colour rather than laid on it in an ink of
+     * their own - the band notches' arrangement, and the same argument: a gap reads the same over
+     * the filled half as over the empty one, and a mark with a colour would be two more contracts
+     * every theme has to satisfy to say what an absence already says.
+     *
+     * Drawn only where they can be told apart. A settings field may offer four choices or twelve,
+     * and twelve notches on a narrow panel is a dashed line rather than a set of stops - so the
+     * component decides, from the width the row actually gave it, and an unmarked track is the
+     * honest answer for a list too long to mark. The ends are skipped for the reason the band's
+     * are: a notch at the very edge of a track is the edge of the track.
+     *
+     * Before the fill and before the unplaced exit, because the marks are the one part of this
+     * control that is true whatever the value is - they are what the track *offers*, not what it
+     * is set to.
+     */
+    const int notch = fb_space(state, MESH_UI_SPACE_XS) > 0 ? fb_space(state, MESH_UI_SPACE_XS) : 1;
+    if (slider->stops >= 2U && travel > 0 &&
+        (uint32_t)travel >= (slider->stops - 1U) * (uint32_t)(notch * 4)) {
+        for (uint32_t stop = 1U; stop + 1U < slider->stops; ++stop) {
+            const int x = track.x + handle_w / 2 +
+                          (int)(((int64_t)travel * stop) / (int64_t)(slider->stops - 1U)) -
+                          notch / 2;
+            if (x >= track.x && x + notch <= track.x + track.w) {
+                fb_fill_rect(state, x, track.y, notch, track.h, ground);
+            }
+        }
+    }
+
+    /* A value the track has no room for: the marks, and nothing claiming to be among them. */
+    if (slider->unplaced) {
+        return;
+    }
+
+    int32_t target = slider->position;
+    if (target < 0) {
+        target = 0;
+    } else if (target > MESH_UI_ANIM_ONE) {
+        target = MESH_UI_ANIM_ONE;
+    }
+    const int32_t position =
+        slider->id != 0U ? mesh_ui_anim_track(&state->anim, slider->id, state->now_ms, target,
+                                              fb_motion(state, FB_SLIDER_MOTION), MESH_UI_EASE_OUT)
+                         : target;
+
+    const struct mesh_ui_rgb ink = fb_tone_color(state, fb_meter_tone(slider->tone));
+    const int handle_x =
+        track.x + (travel > 0 ? (int)(((int64_t)travel * position) / MESH_UI_ANIM_ONE) : 0);
+    const int active = handle_x - track.x;
+    if (active > 0) {
+        fb_fill_round_rect(state, track.x, track.y, active, track.h, radius, ink);
+    }
+
+    /*
+     * The handle, and the gap that separates it from the fill it ends.
+     *
+     * Material leaves that gap and it is not decoration here either: the active track and the
+     * handle are one ink, so without it the two are a single shape and the control has no
+     * position to read - it is a bar with a bulge. A gap in the ground is what makes the handle a
+     * thing sitting *on* the track.
+     */
+    const int handle_h =
+        thickness * (slider->selected ? FB_SLIDER_HANDLE_FOCUS : FB_SLIDER_HANDLE_REST) / 2;
+    const int handle_y = box.y + (box.h - handle_h) / 2;
+    /* Wide enough to be a gap rather than a seam: the handle and the fill it ends are one ink,
+       so this is the whole of what separates them. */
+    const int gap = fb_space(state, MESH_UI_SPACE_SM) > 1 ? fb_space(state, MESH_UI_SPACE_SM) : 1;
+    fb_fill_rect(state, handle_x - gap, track.y, handle_w + 2 * gap, track.h, ground);
+    fb_fill_round_rect(state, handle_x, handle_y, handle_w, handle_h, handle_w / 2, ink);
 }
 
 /* ---- the signal staircase ------------------------------------------------------------------ */

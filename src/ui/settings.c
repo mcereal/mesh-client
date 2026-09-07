@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "mesh/ui/anim.h"
 #include "mesh/ui/settings.h"
 
 #include "mesh/core/radio_settings.h"
@@ -593,8 +594,32 @@ static void format_count(uint32_t value, char *out, size_t out_len) {
     }
 }
 
-#define PRESETS(array) (array), MESH_ARRAY_LEN(array)
-#define NO_PRESETS NULL, 0U
+/*
+ * A NUMBER field's presets, and what its numbers *are*.
+ *
+ * SCALE_PRESETS: they measure something - seconds, metres, packets, dBm - so where a value sits
+ * between the ends of the list is a fact about it, and a row may draw that as a length.
+ *
+ * SCALE_PRESETS_AFTER_ZERO: all but the first. These lists open with a 0 the field reads as a
+ * word - "default" on most of them, "max" on LoRa's transmit power - and a word is not a
+ * quantity: the scale is what follows it, and 0 is off the track rather than at the bottom of
+ * it. The distinction is not pedantic. Transmit power drawn the other way put "max" at the
+ * empty end of its own bar.
+ *
+ * NAMED_PRESETS: they name something that happens to be written as a number - a GPIO pin, a
+ * spreading factor, a bandwidth, a count of coordinate bits. Stepping them is still the right
+ * way to edit them; drawing one as a length is a claim about magnitude that none of them makes.
+ *
+ * Every field states which, because nothing in a preset list says it: {0, 1, ... 7} is a hop
+ * limit under MESH_UI_FIELD_LORA_HOPS and a pin under MESH_UI_FIELD_DETECT_PIN, and a leading 0
+ * is "never" on one field and "the firmware decides" on the next.
+ */
+#define SCALE_PRESETS(array) (array), MESH_ARRAY_LEN(array), true, false
+/* The same, for a list whose leading 0 is "the firmware's own default" or "as much as this
+   radio has" rather than the bottom of the scale: the track spans what follows it. */
+#define SCALE_PRESETS_AFTER_ZERO(array) (array), MESH_ARRAY_LEN(array), true, true
+#define NAMED_PRESETS(array) (array), MESH_ARRAY_LEN(array), false, false
+#define NO_PRESETS NULL, 0U, false, false
 
 /* User.long_name is 39 bytes on the wire but the firmware truncates to 24 (mesh.proto). */
 static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
@@ -627,7 +652,7 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                           rebroadcast_name, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_DEVICE_NODEINFO_SECS] = {MESH_STR_SETTINGS_FIELD_DEVICE_NODEINFO_SECS,
                                             MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_DEVICE, 0U,
-                                            NULL, PRESETS(k_nodeinfo_presets),
+                                            NULL, SCALE_PRESETS_AFTER_ZERO(k_nodeinfo_presets),
                                             MESH_STR_ZERO_DEFAULT, NULL, 0U},
     [MESH_UI_FIELD_DEVICE_LED_HEARTBEAT] = {MESH_STR_SETTINGS_FIELD_DEVICE_LED_HEARTBEAT,
                                             MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_DEVICE, 0U,
@@ -640,54 +665,61 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                          gps_mode_name, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_POSITION_BROADCAST_SECS] = {MESH_STR_SETTINGS_FIELD_POSITION_BROADCAST_SECS,
                                                MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_POSITION,
-                                               0U, NULL, PRESETS(k_interval_presets),
+                                               0U, NULL,
+                                               SCALE_PRESETS_AFTER_ZERO(k_interval_presets),
                                                MESH_STR_ZERO_DEFAULT, NULL, 0U},
     [MESH_UI_FIELD_POSITION_SMART] = {MESH_STR_SETTINGS_FIELD_POSITION_SMART,
                                       MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_POSITION, 0U, NULL,
                                       NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_POSITION_SMART_DISTANCE] = {MESH_STR_SETTINGS_FIELD_POSITION_SMART_DISTANCE,
                                                MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_POSITION,
-                                               0U, NULL, PRESETS(k_smart_distance_presets),
+                                               0U, NULL, SCALE_PRESETS(k_smart_distance_presets),
                                                MESH_STR_NONE, format_metres, 0U},
     [MESH_UI_FIELD_POSITION_SMART_INTERVAL] = {MESH_STR_SETTINGS_FIELD_POSITION_SMART_INTERVAL,
                                                MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_POSITION,
-                                               0U, NULL, PRESETS(k_smart_interval_presets),
+                                               0U, NULL,
+                                               SCALE_PRESETS_AFTER_ZERO(k_smart_interval_presets),
                                                MESH_STR_ZERO_DEFAULT, NULL, 0U},
     [MESH_UI_FIELD_POSITION_GPS_INTERVAL] = {MESH_STR_SETTINGS_FIELD_POSITION_GPS_INTERVAL,
                                              MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_POSITION, 0U,
-                                             NULL, PRESETS(k_gps_interval_presets),
+                                             NULL, SCALE_PRESETS_AFTER_ZERO(k_gps_interval_presets),
                                              MESH_STR_ZERO_DEFAULT, NULL, 0U},
     [MESH_UI_FIELD_POSITION_LATITUDE] = {MESH_STR_SETTINGS_FIELD_POSITION_LATITUDE,
                                          MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_POSITION, 15U, NULL,
-                                         NULL, 0U, MESH_STR_NONE, NULL, 0U},
+                                         NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_POSITION_LONGITUDE] = {MESH_STR_SETTINGS_FIELD_POSITION_LONGITUDE,
                                           MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_POSITION, 15U,
-                                          NULL, NULL, 0U, MESH_STR_NONE, NULL, 0U},
+                                          NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_POSITION_ALTITUDE] = {MESH_STR_SETTINGS_FIELD_POSITION_ALTITUDE,
                                          MESH_UI_SETTING_TEXT, MESH_UI_SETTINGS_POSITION, 7U, NULL,
-                                         NULL, 0U, MESH_STR_NONE, NULL, 0U},
+                                         NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_POWER_SAVING] = {MESH_STR_SETTINGS_FIELD_POWER_SAVING, MESH_UI_SETTING_TOGGLE,
                                     MESH_UI_SETTINGS_POWER, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
                                     NULL, 0U},
     [MESH_UI_FIELD_POWER_LS_SECS] = {MESH_STR_SETTINGS_FIELD_POWER_LS_SECS, MESH_UI_SETTING_NUMBER,
-                                     MESH_UI_SETTINGS_POWER, 0U, NULL, PRESETS(k_sleep_presets),
+                                     MESH_UI_SETTINGS_POWER, 0U, NULL,
+                                     SCALE_PRESETS_AFTER_ZERO(k_sleep_presets),
                                      MESH_STR_ZERO_DEFAULT, NULL, 0U},
     [MESH_UI_FIELD_POWER_MIN_WAKE] = {MESH_STR_SETTINGS_FIELD_POWER_MIN_WAKE,
                                       MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_POWER, 0U, NULL,
-                                      PRESETS(k_wake_presets), MESH_STR_ZERO_DEFAULT, NULL, 0U},
+                                      SCALE_PRESETS_AFTER_ZERO(k_wake_presets),
+                                      MESH_STR_ZERO_DEFAULT, NULL, 0U},
     [MESH_UI_FIELD_POWER_WAIT_BT] = {MESH_STR_SETTINGS_FIELD_POWER_WAIT_BT, MESH_UI_SETTING_NUMBER,
-                                     MESH_UI_SETTINGS_POWER, 0U, NULL, PRESETS(k_wait_bt_presets),
+                                     MESH_UI_SETTINGS_POWER, 0U, NULL,
+                                     SCALE_PRESETS_AFTER_ZERO(k_wait_bt_presets),
                                      MESH_STR_ZERO_DEFAULT, NULL, 0U},
     [MESH_UI_FIELD_POWER_SHUTDOWN] = {MESH_STR_SETTINGS_FIELD_POWER_SHUTDOWN,
                                       MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_POWER, 0U, NULL,
-                                      PRESETS(k_shutdown_presets), MESH_STR_ZERO_OFF, NULL, 0U},
+                                      SCALE_PRESETS(k_shutdown_presets), MESH_STR_ZERO_OFF, NULL,
+                                      0U},
     [MESH_UI_FIELD_DISPLAY_SCREEN_ON] = {MESH_STR_SETTINGS_FIELD_DISPLAY_SCREEN_ON,
                                          MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_DISPLAY, 0U, NULL,
-                                         PRESETS(k_screen_on_presets), MESH_STR_ZERO_DEFAULT, NULL,
-                                         0U},
+                                         SCALE_PRESETS_AFTER_ZERO(k_screen_on_presets),
+                                         MESH_STR_ZERO_DEFAULT, NULL, 0U},
     [MESH_UI_FIELD_DISPLAY_CAROUSEL] = {MESH_STR_SETTINGS_FIELD_DISPLAY_CAROUSEL,
                                         MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_DISPLAY, 0U, NULL,
-                                        PRESETS(k_carousel_presets), MESH_STR_ZERO_OFF, NULL, 0U},
+                                        SCALE_PRESETS(k_carousel_presets), MESH_STR_ZERO_OFF, NULL,
+                                        0U},
     [MESH_UI_FIELD_DISPLAY_COMPASS] = {MESH_STR_SETTINGS_FIELD_DISPLAY_COMPASS,
                                        MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_DISPLAY, 8U,
                                        compass_name, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
@@ -728,10 +760,11 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                           NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_MQTT_MAP_INTERVAL] = {MESH_STR_SETTINGS_FIELD_MQTT_MAP_INTERVAL,
                                          MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_MQTT, 0U, NULL,
-                                         PRESETS(k_map_interval_presets), MESH_STR_NONE, NULL, 0U},
+                                         SCALE_PRESETS(k_map_interval_presets), MESH_STR_NONE, NULL,
+                                         0U},
     [MESH_UI_FIELD_MQTT_MAP_PRECISION] = {MESH_STR_SETTINGS_FIELD_MQTT_MAP_PRECISION,
                                           MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_MQTT, 0U, NULL,
-                                          PRESETS(k_precision_presets), MESH_STR_ZERO_OFF,
+                                          NAMED_PRESETS(k_precision_presets), MESH_STR_ZERO_OFF,
                                           format_precision, 0U},
     [MESH_UI_FIELD_MQTT_MAP_LOCATION] = {MESH_STR_SETTINGS_FIELD_MQTT_MAP_LOCATION,
                                          MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_MQTT, 0U, NULL,
@@ -747,15 +780,16 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                  MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_SF_RECORDS] = {MESH_STR_SETTINGS_FIELD_SF_RECORDS, MESH_UI_SETTING_NUMBER,
                                   MESH_UI_SETTINGS_STORE_FORWARD, 0U, NULL,
-                                  PRESETS(k_sf_records_presets), MESH_STR_NONE, format_count, 0U},
+                                  SCALE_PRESETS_AFTER_ZERO(k_sf_records_presets), MESH_STR_NONE,
+                                  format_count, 0U},
     [MESH_UI_FIELD_SF_HISTORY_MAX] = {MESH_STR_SETTINGS_FIELD_SF_HISTORY_MAX,
                                       MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_STORE_FORWARD, 0U,
-                                      NULL, PRESETS(k_sf_history_presets), MESH_STR_NONE,
-                                      format_count, 0U},
+                                      NULL, SCALE_PRESETS_AFTER_ZERO(k_sf_history_presets),
+                                      MESH_STR_NONE, format_count, 0U},
     [MESH_UI_FIELD_SF_HISTORY_WINDOW] = {MESH_STR_SETTINGS_FIELD_SF_HISTORY_WINDOW,
                                          MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_STORE_FORWARD, 0U,
-                                         NULL, PRESETS(k_sf_window_presets), MESH_STR_ZERO_DEFAULT,
-                                         NULL, 0U},
+                                         NULL, SCALE_PRESETS_AFTER_ZERO(k_sf_window_presets),
+                                         MESH_STR_ZERO_DEFAULT, NULL, 0U},
     /* The five telemetry groups each sit under a heading, so their rows are named for what
        they are inside the group rather than repeating it ("Enabled", not "Env enabled"). The
        only consumer of a field label outside the row list is the keyboard title, and none of
@@ -765,14 +799,15 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                         NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_TELEMETRY_INTERVAL] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_INTERVAL,
                                           MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TELEMETRY, 0U,
-                                          NULL, PRESETS(k_interval_presets), MESH_STR_ZERO_DEFAULT,
-                                          NULL, 0U},
+                                          NULL, SCALE_PRESETS_AFTER_ZERO(k_interval_presets),
+                                          MESH_STR_ZERO_DEFAULT, NULL, 0U},
     [MESH_UI_FIELD_TELEMETRY_ENVIRONMENT] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_ENVIRONMENT,
                                              MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY, 0U,
                                              NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_TELEMETRY_ENV_INTERVAL] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_ENV_INTERVAL,
                                               MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TELEMETRY,
-                                              0U, NULL, PRESETS(k_interval_presets),
+                                              0U,
+                                              NULL, SCALE_PRESETS_AFTER_ZERO(k_interval_presets),
                                               MESH_STR_ZERO_DEFAULT, NULL, 0U},
     [MESH_UI_FIELD_TELEMETRY_ENV_SCREEN] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_ENV_SCREEN,
                                             MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY, 0U,
@@ -785,7 +820,8 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                              NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_TELEMETRY_AIR_INTERVAL] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_AIR_INTERVAL,
                                               MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TELEMETRY,
-                                              0U, NULL, PRESETS(k_interval_presets),
+                                              0U,
+                                              NULL, SCALE_PRESETS_AFTER_ZERO(k_interval_presets),
                                               MESH_STR_ZERO_DEFAULT, NULL, 0U},
     [MESH_UI_FIELD_TELEMETRY_AIR_SCREEN] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_AIR_SCREEN,
                                             MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY, 0U,
@@ -795,7 +831,8 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                        NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_TELEMETRY_POWER_INTERVAL] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_POWER_INTERVAL,
                                                 MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TELEMETRY,
-                                                0U, NULL, PRESETS(k_interval_presets),
+                                                0U, NULL,
+                                                SCALE_PRESETS_AFTER_ZERO(k_interval_presets),
                                                 MESH_STR_ZERO_DEFAULT, NULL, 0U},
     [MESH_UI_FIELD_TELEMETRY_POWER_SCREEN] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_POWER_SCREEN,
                                               MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY,
@@ -805,7 +842,8 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                         NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_TELEMETRY_HEALTH_INTERVAL] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_HEALTH_INTERVAL,
                                                  MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TELEMETRY,
-                                                 0U, NULL, PRESETS(k_interval_presets),
+                                                 0U, NULL,
+                                                 SCALE_PRESETS_AFTER_ZERO(k_interval_presets),
                                                  MESH_STR_ZERO_DEFAULT, NULL, 0U},
     [MESH_UI_FIELD_TELEMETRY_HEALTH_SCREEN] = {MESH_STR_SETTINGS_FIELD_TELEMETRY_HEALTH_SCREEN,
                                                MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_TELEMETRY,
@@ -827,7 +865,7 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                         NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_CHANNEL_POSITION] = {MESH_STR_SETTINGS_FIELD_CHANNEL_POSITION,
                                         MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_CHANNELS, 0U, NULL,
-                                        PRESETS(k_precision_presets), MESH_STR_ZERO_OFF,
+                                        NAMED_PRESETS(k_precision_presets), MESH_STR_ZERO_OFF,
                                         format_precision, 0U},
     [MESH_UI_FIELD_BT_ENABLED] = {MESH_STR_SETTINGS_FIELD_BT_ENABLED, MESH_UI_SETTING_TOGGLE,
                                   MESH_UI_SETTINGS_BLUETOOTH, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
@@ -849,23 +887,24 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                    MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_LORA_BANDWIDTH] = {MESH_STR_SETTINGS_FIELD_LORA_BANDWIDTH,
                                       MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_LORA, 0U, NULL,
-                                      PRESETS(k_bandwidth_presets), MESH_STR_NONE, format_bandwidth,
-                                      0U},
+                                      NAMED_PRESETS(k_bandwidth_presets), MESH_STR_NONE,
+                                      format_bandwidth, 0U},
     [MESH_UI_FIELD_LORA_SPREAD] = {MESH_STR_SETTINGS_FIELD_LORA_SPREAD, MESH_UI_SETTING_NUMBER,
-                                   MESH_UI_SETTINGS_LORA, 0U, NULL, PRESETS(k_spread_presets),
+                                   MESH_UI_SETTINGS_LORA, 0U, NULL, NAMED_PRESETS(k_spread_presets),
                                    MESH_STR_NONE, format_plain, 0U},
     [MESH_UI_FIELD_LORA_CODING] = {MESH_STR_SETTINGS_FIELD_LORA_CODING, MESH_UI_SETTING_NUMBER,
-                                   MESH_UI_SETTINGS_LORA, 0U, NULL, PRESETS(k_coding_presets),
+                                   MESH_UI_SETTINGS_LORA, 0U, NULL, NAMED_PRESETS(k_coding_presets),
                                    MESH_STR_NONE, format_coding_rate, 0U},
     [MESH_UI_FIELD_LORA_HOPS] = {MESH_STR_SETTINGS_FIELD_LORA_HOPS, MESH_UI_SETTING_NUMBER,
-                                 MESH_UI_SETTINGS_LORA, 0U, NULL, PRESETS(k_hop_presets),
+                                 MESH_UI_SETTINGS_LORA, 0U, NULL, SCALE_PRESETS(k_hop_presets),
                                  MESH_STR_NONE, format_plain, 0U},
     [MESH_UI_FIELD_LORA_TX_ENABLED] = {MESH_STR_SETTINGS_FIELD_LORA_TX_ENABLED,
                                        MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_LORA, 0U, NULL,
                                        NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_LORA_TX_POWER] = {MESH_STR_SETTINGS_FIELD_LORA_TX_POWER, MESH_UI_SETTING_NUMBER,
-                                     MESH_UI_SETTINGS_LORA, 0U, NULL, PRESETS(k_tx_power_presets),
-                                     MESH_STR_NONE, format_tx_power, 0U},
+                                     MESH_UI_SETTINGS_LORA, 0U, NULL,
+                                     SCALE_PRESETS_AFTER_ZERO(k_tx_power_presets), MESH_STR_NONE,
+                                     format_tx_power, 0U},
     [MESH_UI_FIELD_LORA_IGNORE_MQTT] = {MESH_STR_SETTINGS_FIELD_LORA_IGNORE_MQTT,
                                         MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_LORA, 0U, NULL,
                                         NO_PRESETS, MESH_STR_NONE, NULL, 0U},
@@ -905,8 +944,8 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                         NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_NEIGHBOR_INTERVAL] = {MESH_STR_SETTINGS_FIELD_NEIGHBOR_INTERVAL,
                                          MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_NEIGHBOR_INFO, 0U,
-                                         NULL, PRESETS(k_neighbor_presets), MESH_STR_NONE, NULL,
-                                         0U},
+                                         NULL, SCALE_PRESETS(k_neighbor_presets), MESH_STR_NONE,
+                                         NULL, 0U},
     [MESH_UI_FIELD_NEIGHBOR_OVER_LORA] = {MESH_STR_SETTINGS_FIELD_NEIGHBOR_OVER_LORA,
                                           MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_NEIGHBOR_INFO,
                                           0U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
@@ -915,8 +954,8 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                           NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_RANGE_TEST_SENDER] = {MESH_STR_SETTINGS_FIELD_RANGE_TEST_SENDER,
                                          MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_RANGE_TEST, 0U,
-                                         NULL, PRESETS(k_range_test_presets), MESH_STR_ZERO_NEVER,
-                                         NULL, 0U},
+                                         NULL, SCALE_PRESETS(k_range_test_presets),
+                                         MESH_STR_ZERO_NEVER, NULL, 0U},
     [MESH_UI_FIELD_RANGE_TEST_SAVE] = {MESH_STR_SETTINGS_FIELD_RANGE_TEST_SAVE,
                                        MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_RANGE_TEST, 0U,
                                        NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
@@ -928,15 +967,16 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                    NULL, 0U},
     [MESH_UI_FIELD_PAX_INTERVAL] = {MESH_STR_SETTINGS_FIELD_PAX_INTERVAL, MESH_UI_SETTING_NUMBER,
                                     MESH_UI_SETTINGS_PAXCOUNTER, 0U, NULL,
-                                    PRESETS(k_interval_presets), MESH_STR_ZERO_DEFAULT, NULL, 0U},
+                                    SCALE_PRESETS_AFTER_ZERO(k_interval_presets),
+                                    MESH_STR_ZERO_DEFAULT, NULL, 0U},
     [MESH_UI_FIELD_PAX_WIFI_THRESHOLD] = {MESH_STR_SETTINGS_FIELD_PAX_WIFI_THRESHOLD,
                                           MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_PAXCOUNTER, 0U,
-                                          NULL, PRESETS(k_rssi_presets), MESH_STR_NONE, format_rssi,
-                                          0U},
+                                          NULL, SCALE_PRESETS(k_rssi_presets), MESH_STR_NONE,
+                                          format_rssi, 0U},
     [MESH_UI_FIELD_PAX_BLE_THRESHOLD] = {MESH_STR_SETTINGS_FIELD_PAX_BLE_THRESHOLD,
                                          MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_PAXCOUNTER, 0U,
-                                         NULL, PRESETS(k_rssi_presets), MESH_STR_NONE, format_rssi,
-                                         0U},
+                                         NULL, SCALE_PRESETS(k_rssi_presets), MESH_STR_NONE,
+                                         format_rssi, 0U},
     [MESH_UI_FIELD_TAK_TEAM] = {MESH_STR_SETTINGS_FIELD_TAK_TEAM, MESH_UI_SETTING_ENUM,
                                 MESH_UI_SETTINGS_TAK, 15U, tak_team_name, NO_PRESETS, MESH_STR_NONE,
                                 NULL, 0U},
@@ -948,17 +988,20 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                    NULL, 0U},
     [MESH_UI_FIELD_AMBIENT_CURRENT] = {MESH_STR_SETTINGS_FIELD_AMBIENT_CURRENT,
                                        MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_AMBIENT, 0U, NULL,
-                                       PRESETS(k_led_current_presets), MESH_STR_NONE,
+                                       SCALE_PRESETS(k_led_current_presets), MESH_STR_NONE,
                                        format_milliamps, 0U},
     [MESH_UI_FIELD_AMBIENT_RED] = {MESH_STR_SETTINGS_FIELD_AMBIENT_RED, MESH_UI_SETTING_NUMBER,
-                                   MESH_UI_SETTINGS_AMBIENT, 0U, NULL, PRESETS(k_led_level_presets),
-                                   MESH_STR_NONE, format_level, 0U},
+                                   MESH_UI_SETTINGS_AMBIENT, 0U, NULL,
+                                   SCALE_PRESETS(k_led_level_presets), MESH_STR_NONE, format_level,
+                                   0U},
     [MESH_UI_FIELD_AMBIENT_GREEN] = {MESH_STR_SETTINGS_FIELD_AMBIENT_GREEN, MESH_UI_SETTING_NUMBER,
                                      MESH_UI_SETTINGS_AMBIENT, 0U, NULL,
-                                     PRESETS(k_led_level_presets), MESH_STR_NONE, format_level, 0U},
+                                     SCALE_PRESETS(k_led_level_presets), MESH_STR_NONE,
+                                     format_level, 0U},
     [MESH_UI_FIELD_AMBIENT_BLUE] = {MESH_STR_SETTINGS_FIELD_AMBIENT_BLUE, MESH_UI_SETTING_NUMBER,
                                     MESH_UI_SETTINGS_AMBIENT, 0U, NULL,
-                                    PRESETS(k_led_level_presets), MESH_STR_NONE, format_level, 0U},
+                                    SCALE_PRESETS(k_led_level_presets), MESH_STR_NONE, format_level,
+                                    0U},
     /* 79 bytes on the wire; MESH_UI_SETTING_TEXT_MAX was raised to 80 to hold it. */
     [MESH_UI_FIELD_STATUS_TEXT] = {MESH_STR_SETTINGS_FIELD_STATUS_TEXT, MESH_UI_SETTING_TEXT,
                                    MESH_UI_SETTINGS_STATUS_MESSAGE, 79U, NULL, NO_PRESETS,
@@ -972,18 +1015,18 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                    NULL, 0U},
     [MESH_UI_FIELD_DETECT_MIN_BROADCAST] = {MESH_STR_SETTINGS_FIELD_DETECT_MIN_BROADCAST,
                                             MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_DETECTION, 0U,
-                                            NULL, PRESETS(k_detect_min_presets), MESH_STR_ZERO_NONE,
-                                            NULL, 0U},
+                                            NULL, SCALE_PRESETS(k_detect_min_presets),
+                                            MESH_STR_ZERO_NONE, NULL, 0U},
     [MESH_UI_FIELD_DETECT_STATE_BROADCAST] = {MESH_STR_SETTINGS_FIELD_DETECT_STATE_BROADCAST,
                                               MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_DETECTION,
-                                              0U, NULL, PRESETS(k_detect_state_presets),
+                                              0U, NULL, SCALE_PRESETS(k_detect_state_presets),
                                               MESH_STR_ZERO_OFF, NULL, 0U},
     [MESH_UI_FIELD_DETECT_SEND_BELL] = {MESH_STR_SETTINGS_FIELD_DETECT_SEND_BELL,
                                         MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_DETECTION, 0U,
                                         NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_DETECT_PIN] = {MESH_STR_SETTINGS_FIELD_DETECT_PIN, MESH_UI_SETTING_NUMBER,
-                                  MESH_UI_SETTINGS_DETECTION, 0U, NULL, PRESETS(k_gpio_presets),
-                                  MESH_STR_NONE, format_pin, 0U},
+                                  MESH_UI_SETTINGS_DETECTION, 0U, NULL,
+                                  NAMED_PRESETS(k_gpio_presets), MESH_STR_NONE, format_pin, 0U},
     [MESH_UI_FIELD_DETECT_TRIGGER] = {MESH_STR_SETTINGS_FIELD_DETECT_TRIGGER, MESH_UI_SETTING_ENUM,
                                       MESH_UI_SETTINGS_DETECTION, 6U, trigger_name, NO_PRESETS,
                                       MESH_STR_NONE, NULL, 0U},
@@ -998,11 +1041,11 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                        0U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_EXTNOTIF_OUTPUT_MS] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_OUTPUT_MS,
                                           MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_EXT_NOTIFICATION,
-                                          0U, NULL, PRESETS(k_output_ms_presets), MESH_STR_NONE,
-                                          format_millis, 0U},
+                                          0U, NULL, SCALE_PRESETS(k_output_ms_presets),
+                                          MESH_STR_NONE, format_millis, 0U},
     [MESH_UI_FIELD_EXTNOTIF_NAG] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_NAG, MESH_UI_SETTING_NUMBER,
                                     MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
-                                    PRESETS(k_nag_presets), MESH_STR_ZERO_ONCE, NULL, 0U},
+                                    SCALE_PRESETS(k_nag_presets), MESH_STR_ZERO_ONCE, NULL, 0U},
     [MESH_UI_FIELD_EXTNOTIF_PWM] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_PWM, MESH_UI_SETTING_TOGGLE,
                                     MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL, NO_PRESETS,
                                     MESH_STR_NONE, NULL, 0U},
@@ -1013,7 +1056,7 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
        telemetry groups are, because the heading above it says which output it belongs to. */
     [MESH_UI_FIELD_EXTNOTIF_PIN] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_PIN, MESH_UI_SETTING_NUMBER,
                                     MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
-                                    PRESETS(k_gpio_presets), MESH_STR_NONE, format_pin, 0U},
+                                    NAMED_PRESETS(k_gpio_presets), MESH_STR_NONE, format_pin, 0U},
     [MESH_UI_FIELD_EXTNOTIF_ALERT_MSG] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_ALERT_MSG,
                                           MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_EXT_NOTIFICATION,
                                           0U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
@@ -1023,7 +1066,7 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                            MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_EXTNOTIF_PIN_VIBRA] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_PIN_VIBRA,
                                           MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_EXT_NOTIFICATION,
-                                          0U, NULL, PRESETS(k_gpio_presets), MESH_STR_NONE,
+                                          0U, NULL, NAMED_PRESETS(k_gpio_presets), MESH_STR_NONE,
                                           format_pin, 0U},
     [MESH_UI_FIELD_EXTNOTIF_ALERT_MSG_VIBRA] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_ALERT_MSG_VIBRA,
                                                 MESH_UI_SETTING_TOGGLE,
@@ -1036,7 +1079,8 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
     [MESH_UI_FIELD_EXTNOTIF_PIN_BUZZER] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_PIN_BUZZER,
                                            MESH_UI_SETTING_NUMBER,
                                            MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
-                                           PRESETS(k_gpio_presets), MESH_STR_NONE, format_pin, 0U},
+                                           NAMED_PRESETS(k_gpio_presets), MESH_STR_NONE, format_pin,
+                                           0U},
     [MESH_UI_FIELD_EXTNOTIF_ALERT_MSG_BUZZER] = {MESH_STR_SETTINGS_FIELD_EXTNOTIF_ALERT_MSG_BUZZER,
                                                  MESH_UI_SETTING_TOGGLE,
                                                  MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL,
@@ -1046,23 +1090,24 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
          MESH_UI_SETTINGS_EXT_NOTIFICATION, 0U, NULL, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_TRAFFIC_POSITION_INTERVAL] = {MESH_STR_SETTINGS_FIELD_TRAFFIC_POSITION_INTERVAL,
                                                  MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TRAFFIC,
-                                                 0U, NULL, PRESETS(k_traffic_interval_presets),
+                                                 0U, NULL,
+                                                 SCALE_PRESETS(k_traffic_interval_presets),
                                                  MESH_STR_ZERO_OFF, NULL, 0U},
     [MESH_UI_FIELD_TRAFFIC_NODEINFO_HOPS] = {MESH_STR_SETTINGS_FIELD_TRAFFIC_NODEINFO_HOPS,
                                              MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TRAFFIC, 0U,
-                                             NULL, PRESETS(k_traffic_hops_presets),
+                                             NULL, SCALE_PRESETS(k_traffic_hops_presets),
                                              MESH_STR_ZERO_OFF, format_count, 0U},
     [MESH_UI_FIELD_TRAFFIC_RATE_WINDOW] = {MESH_STR_SETTINGS_FIELD_TRAFFIC_RATE_WINDOW,
                                            MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TRAFFIC, 0U,
-                                           NULL, PRESETS(k_traffic_interval_presets),
+                                           NULL, SCALE_PRESETS(k_traffic_interval_presets),
                                            MESH_STR_ZERO_OFF, NULL, 0U},
     [MESH_UI_FIELD_TRAFFIC_RATE_PACKETS] = {MESH_STR_SETTINGS_FIELD_TRAFFIC_RATE_PACKETS,
                                             MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TRAFFIC, 0U,
-                                            NULL, PRESETS(k_traffic_packets_presets),
+                                            NULL, SCALE_PRESETS(k_traffic_packets_presets),
                                             MESH_STR_ZERO_OFF, format_count, 0U},
     [MESH_UI_FIELD_TRAFFIC_UNKNOWN_THRESHOLD] = {MESH_STR_SETTINGS_FIELD_TRAFFIC_UNKNOWN_THRESHOLD,
                                                  MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_TRAFFIC,
-                                                 0U, NULL, PRESETS(k_traffic_packets_presets),
+                                                 0U, NULL, SCALE_PRESETS(k_traffic_packets_presets),
                                                  MESH_STR_ZERO_OFF, format_count, 0U},
     [MESH_UI_FIELD_SECURITY_SIGNATURE_POLICY] = {MESH_STR_SETTINGS_FIELD_SECURITY_SIGNATURE_POLICY,
                                                  MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_SECURITY,
@@ -1121,6 +1166,72 @@ uint32_t mesh_ui_settings_number_step(enum mesh_ui_setting_field field, uint32_t
         }
     }
     return value;
+}
+
+/*
+ * Where `value` sits on a NUMBER field's own scale.
+ *
+ * In *stop* space rather than in value space, and that is the arithmetic worth explaining. The
+ * presets a field offers climb geometrically - screen-on is 15s, 30s, a minute, two, five, ten,
+ * fifteen, half an hour, an hour - so a handle placed at value/3600 would put eight of the ten
+ * choices inside the first sixth of the track and leave the last two with the rest of it. What
+ * the reader is choosing between is the *choices*, so the stops are evenly spaced and the
+ * position is the index among them.
+ *
+ * A value the list does not contain still gets a position, interpolated between the two stops it
+ * falls between, and that is one thing this can do that a segmented button cannot: a set of
+ * alternatives has no room between its members, so an unknown value there had to fall back to
+ * words (§10). An axis has room. A radio reporting 42 seconds - a firmware default, a value
+ * written by a phone app with a different list - lands where 42 seconds actually is, which is a
+ * true statement about a number this client would not itself have offered.
+ *
+ * What an axis still cannot place is a value that is not a quantity, and most of these lists
+ * open with one: a 0 the field reads as "the firmware's own default", or as "as much as this
+ * radio has". That is `preset_zero_aside`, the track spans what follows it, and such a value
+ * comes back `unplaced` rather than at the bottom - see the header.
+ *
+ * The unsigned comparisons are the ones mesh_ui_settings_number_step() walks with, and they are
+ * correct over the two signed RSSI lists for the reason stated there - every entry is negative,
+ * so two's complement keeps their order, and an unsigned difference of two of them is the true
+ * distance between them.
+ */
+bool mesh_ui_settings_number_track(enum mesh_ui_setting_field field, uint32_t value,
+                                   struct mesh_ui_settings_track *out) {
+    const struct field_spec *spec = field_spec(field);
+    if (spec->kind != MESH_UI_SETTING_NUMBER || !spec->preset_scale || spec->presets == NULL) {
+        return false;
+    }
+    const size_t aside = spec->preset_zero_aside ? 1U : 0U;
+    if (spec->preset_count < aside + 2U) {
+        return false;
+    }
+    const uint32_t *stops = spec->presets + aside;
+    const size_t last = spec->preset_count - aside - 1U;
+
+    struct mesh_ui_settings_track track = {.stops = (uint32_t)(last + 1U)};
+    if (aside > 0U && value < stops[0]) {
+        /* The word, not the bottom. Everything under the first real stop belongs to it: a field
+           whose 0 means "default" has no other value down there to confuse it with. */
+        track.unplaced = true;
+    } else if (value >= stops[last]) {
+        track.position = MESH_UI_ANIM_ONE;
+    } else if (value > stops[0]) {
+        size_t i = 0U;
+        while (i < last && stops[i + 1U] <= value) {
+            ++i;
+        }
+        /* The stop itself, plus however far past it the value has got towards the next one. The
+           span cannot be zero - a preset list is strictly increasing - but a list edited into
+           holding a repeat would divide by it, and the stop is the honest answer for that. */
+        const uint32_t span = stops[i + 1U] - stops[i];
+        const uint64_t within =
+            span > 0U ? ((uint64_t)(value - stops[i]) * MESH_UI_ANIM_ONE) / span : 0U;
+        track.position = (int32_t)(((uint64_t)i * MESH_UI_ANIM_ONE + within) / last);
+    }
+    if (out != NULL) {
+        *out = track;
+    }
+    return true;
 }
 
 uint32_t mesh_ui_settings_text_max(enum mesh_ui_setting_field field) {

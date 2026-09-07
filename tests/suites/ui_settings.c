@@ -1664,3 +1664,161 @@ MESH_TEST_CASE(ui_settings_row_icons_are_all_or_nothing, unit) {
     }
     record_success(test_name);
 }
+
+/*
+ * The slider's model: where a NUMBER field's value sits on the field's own scale.
+ *
+ * Four claims, and each one is a way the picture could have been wrong. The ends are the ends.
+ * A geometric preset list is walked in *stop* space, so the middle preset is halfway along -
+ * value space would put screen-on's 10m at a sixth of a track that runs to an hour. A value the
+ * list does not contain lands between the two stops it falls between rather than being refused,
+ * which is the whole of what an axis can do that a set of alternatives cannot. And a field whose
+ * numbers name something has no scale at all.
+ */
+MESH_TEST_CASE(ui_settings_number_track_places_a_value, unit) {
+    struct mesh_ui_settings_track track;
+
+    /* {0, 10, 15, 30, 60, 120, 300, 600}, and the 0 is "off" - a true bottom, on the scale. */
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_number_track(MESH_UI_FIELD_DISPLAY_CAROUSEL, 0U, &track),
+                      "a carousel interval is a scale and should place a value");
+    MESH_TEST_FAIL_IF(track.unplaced, "\"off\" is the bottom of this scale, not off it");
+    MESH_TEST_FAIL_IF(track.position != 0, "the first preset should sit at the start of the track");
+    MESH_TEST_FAIL_IF(track.stops != 8U, "the carousel offers eight choices to mark");
+
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_number_track(MESH_UI_FIELD_DISPLAY_CAROUSEL, 600U, &track),
+                      "the last preset should place");
+    MESH_TEST_FAIL_IF(track.position != 1000, "the last preset should sit at the end of the track");
+
+    /* The fourth of eight stops: three sevenths along, not 30/600 of the way. A value-space
+       placement would answer 50, which is what makes this the assertion worth writing. */
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_number_track(MESH_UI_FIELD_DISPLAY_CAROUSEL, 30U, &track),
+                      "a listed preset should place");
+    MESH_TEST_FAIL_IF(track.position != 3 * 1000 / 7,
+                      "the stops are evenly spaced, so the fourth of eight is three sevenths in");
+
+    /* 45 is not on the list: half of the way from 30 to 60, so half a stop past the fourth. */
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_number_track(MESH_UI_FIELD_DISPLAY_CAROUSEL, 45U, &track),
+                      "a value between two presets should still place");
+    MESH_TEST_FAIL_IF(track.unplaced, "an axis has room between its stops; nothing is refused");
+    MESH_TEST_FAIL_IF(track.position != (3 * 1000 + 500) / 7,
+                      "a value between two stops belongs between them");
+
+    /* A GPIO pin is a name written as a number. Nothing about pin 24 is two thirds of anything. */
+    MESH_TEST_FAIL_IF(mesh_ui_settings_number_track(MESH_UI_FIELD_DETECT_PIN, 24U, &track),
+                      "a GPIO pin is not a magnitude and must not be drawn as a length");
+    MESH_TEST_FAIL_IF(mesh_ui_settings_number_track(MESH_UI_FIELD_LORA_SPREAD, 10U, &track),
+                      "a spreading factor is an alternative, not a quantity");
+    MESH_TEST_FAIL_IF(mesh_ui_settings_number_track(MESH_UI_FIELD_DEVICE_ROLE, 1U, &track),
+                      "only a NUMBER field has a preset scale");
+    record_success(test_name);
+}
+
+/*
+ * A value that is a word rather than a quantity is off the track, not at the bottom of it.
+ *
+ * LoRa's transmit power is the case that found this: 0 means "as much as this radio has", and
+ * the first version of the slider drew it with the handle hard left - "max", reported at the
+ * empty end of its own bar. Every "default" is the same mistake more quietly, because a value
+ * the firmware picks is not the shortest interval, it is an interval nobody here knows.
+ */
+MESH_TEST_CASE(ui_settings_number_track_refuses_a_word, unit) {
+    struct mesh_ui_settings_track track;
+
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_number_track(MESH_UI_FIELD_LORA_TX_POWER, 0U, &track),
+                      "transmit power is a scale; the row still draws one");
+    MESH_TEST_FAIL_IF(!track.unplaced, "\"max\" is not a point on a power scale");
+    MESH_TEST_FAIL_IF(track.stops == 0U,
+                      "an unplaced value still has a track to draw its stops on");
+
+    /* And the rest of the same list is a scale: 2 dBm is its bottom, 30 its top. */
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_number_track(MESH_UI_FIELD_LORA_TX_POWER, 2U, &track),
+                      "a stated power should place");
+    MESH_TEST_FAIL_IF(track.unplaced || track.position != 0,
+                      "the lowest stated power is the bottom of the track");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_number_track(MESH_UI_FIELD_LORA_TX_POWER, 30U, &track),
+                      "the highest stated power should place");
+    MESH_TEST_FAIL_IF(track.position != 1000, "the highest stated power is the top of the track");
+
+    MESH_TEST_FAIL_IF(
+        !mesh_ui_settings_number_track(MESH_UI_FIELD_DISPLAY_SCREEN_ON, 0U, &track) ||
+            !track.unplaced,
+        "a screen timeout the firmware picks is not the shortest one this client offers");
+    record_success(test_name);
+}
+
+/*
+ * Every scale runs the length of its own track, in one direction, with nothing unplaced in the
+ * middle of it.
+ *
+ * A table invariant rather than a behaviour, walked over every field the client has. Three ways
+ * a preset list can be malformed and none of them is visible from the entry that declares it: a
+ * list that does not climb draws a handle that goes backwards when the reader presses Right; a
+ * list whose zero was stood aside but which never had one loses its first real choice off the
+ * end of the track; and a list too short to have two stops is a point rather than an axis. Each
+ * would show up on exactly one section of one screen, which is the kind of thing a device gets
+ * shipped with.
+ */
+MESH_TEST_CASE(ui_settings_number_scales_are_well_formed, unit) {
+    char message[192];
+    for (int f = 0; f < (int)MESH_UI_FIELD_COUNT; ++f) {
+        const enum mesh_ui_setting_field field = (enum mesh_ui_setting_field)f;
+        struct mesh_ui_settings_track track;
+        if (!mesh_ui_settings_number_track(field, 0U, &track)) {
+            continue;
+        }
+        if (track.stops < 2U) {
+            snprintf(message, sizeof message, "%s draws a track with %u stops on it",
+                     mesh_ui_settings_field_label(field), (unsigned)track.stops);
+            record_failure(test_name, message);
+            return;
+        }
+        /* Up the preset list with the same walk Right does, from the bottom to wherever it
+           stops. Only the field's own zero may be unplaced, and only if it is the first thing
+           the walk sees. */
+        uint32_t value = 0U;
+        int32_t last = -1;
+        uint32_t seen = 0U;
+        uint32_t unplaced = 0U;
+        for (;;) {
+            if (!mesh_ui_settings_number_track(field, value, &track)) {
+                record_failure(test_name, "a field stopped being a scale mid-walk");
+                return;
+            }
+            if (track.unplaced) {
+                /* At most one, and it must be the first thing the walk sees. Two would mean a
+                   list marked SCALE_PRESETS_AFTER_ZERO() that does not in fact start at 0, which
+                   silently drops its first real choice off the bottom of the track. */
+                if (seen > 0U || ++unplaced > 1U) {
+                    snprintf(message, sizeof message, "%s has an unplaced value inside its scale",
+                             mesh_ui_settings_field_label(field));
+                    record_failure(test_name, message);
+                    return;
+                }
+            } else {
+                if (track.position < last) {
+                    snprintf(message, sizeof message, "%s steps up and its handle goes backwards",
+                             mesh_ui_settings_field_label(field));
+                    record_failure(test_name, message);
+                    return;
+                }
+                last = track.position;
+                ++seen;
+            }
+            const uint32_t next = mesh_ui_settings_number_step(field, value, 1);
+            if (next == value) {
+                break;
+            }
+            value = next;
+        }
+        /* Stepping up until it stops has to arrive at the end of the track. A list whose top
+           preset placed anywhere short of it would draw a control the reader cannot fill. */
+        if (seen < 2U || last != 1000) {
+            snprintf(message, sizeof message,
+                     "%s walks %u placed values and ends at %d rather than the end of its track",
+                     mesh_ui_settings_field_label(field), (unsigned)seen, (int)last);
+            record_failure(test_name, message);
+            return;
+        }
+    }
+    record_success(test_name);
+}

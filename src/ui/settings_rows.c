@@ -1211,6 +1211,21 @@ uint32_t mesh_ui_settings_item_count(const struct mesh_ui_settings *settings,
     return list.count;
 }
 
+uint32_t mesh_ui_settings_items(const struct mesh_ui_settings *settings,
+                                const struct mesh_ui_handshake_state *handshake,
+                                const struct mesh_ui_setting_edit *edits, size_t edit_count,
+                                enum mesh_ui_settings_section section, uint8_t channel,
+                                struct mesh_ui_settings_item *out, uint32_t max) {
+    if (out == NULL || max == 0U) {
+        return 0U;
+    }
+    struct item_list list;
+    build_section(settings, handshake, edits, edit_count, section, channel, &list);
+    const uint32_t count = list.count < max ? list.count : max;
+    memcpy(out, list.items, (size_t)count * sizeof *out);
+    return count;
+}
+
 bool mesh_ui_settings_item(const struct mesh_ui_settings *settings,
                            const struct mesh_ui_handshake_state *handshake,
                            const struct mesh_ui_setting_edit *edits, size_t edit_count,

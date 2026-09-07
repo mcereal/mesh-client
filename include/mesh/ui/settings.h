@@ -401,6 +401,43 @@ const char *mesh_ui_settings_enum_name(enum mesh_ui_setting_field field, uint32_
 /* NUMBER fields step through a preset list: the next preset above (delta > 0) or below
    (delta < 0) `value`, or `value` itself at either end. */
 uint32_t mesh_ui_settings_number_step(enum mesh_ui_setting_field field, uint32_t value, int delta);
+/*
+ * Where a NUMBER field's value sits on the field's own scale, for a row that draws it as one.
+ *
+ * `position` is on the same 0..1000 a meter's fill is on and `stops` is how many choices there
+ * are to mark. `unplaced` is the answer for a value the track has no room for - see
+ * mesh_ui_settings_number_track().
+ */
+struct mesh_ui_settings_track {
+    int32_t position;
+    uint32_t stops;
+    bool unplaced;
+};
+
+/*
+ * Fills `out` for a NUMBER field whose presets measure something, and returns false for every
+ * other kind of field - including a NUMBER field whose numbers *name* something rather than
+ * measure it (a GPIO pin, a spreading factor, a count of coordinate bits), because a length
+ * drawn across one of those is a claim about magnitude that the number does not make. A field
+ * says which it is in its own table entry; nothing here derives it, because nothing in a list of
+ * integers says whether they are seconds or pins.
+ *
+ * The stops are evenly spaced and a value between two of them is interpolated, so a preset list
+ * that climbs geometrically is a track the reader can aim at rather than eight choices crowded
+ * into its first sixth.
+ *
+ * `unplaced` comes back true when the field's leading 0 is a word - "default", "max" - and that
+ * is the value the row is showing. Such a value is not at the bottom of the scale, it is not on
+ * the scale at all, and the honest drawing is a track with nothing on it rather than a handle
+ * somewhere it does not belong. `position` is 0 and `stops` still counts the marks, so a caller
+ * can lay the control out without testing first.
+ *
+ * One function answers position, count and placement together, for the reason
+ * fb_segmented_cols() answers width and form together: a control measured twice is a control
+ * that disagrees with itself.
+ */
+bool mesh_ui_settings_number_track(enum mesh_ui_setting_field field, uint32_t value,
+                                   struct mesh_ui_settings_track *out);
 /* TEXT fields: the longest value the radio accepts, in bytes without the NUL. */
 uint32_t mesh_ui_settings_text_max(enum mesh_ui_setting_field field);
 
@@ -468,6 +505,24 @@ bool mesh_ui_settings_item(const struct mesh_ui_settings *settings,
                            const struct mesh_ui_setting_edit *edits, size_t edit_count,
                            enum mesh_ui_settings_section section, uint8_t channel, uint32_t row,
                            struct mesh_ui_settings_item *out);
+
+/*
+ * The whole section at once: fills `out` and returns how many rows were written, at most `max`.
+ *
+ * The same rows mesh_ui_settings_item() answers one at a time, and the reason to have both is
+ * that a screen which has to *measure* before it draws needs every row before it places the
+ * first one - the shape mesh_ui_node_detail_build() already has, for the same reason: a list
+ * whose rows are not all one height is a list the model must be told about up front.
+ *
+ * It is also the cheaper of the two by a whole order. Each singular call rebuilds the section
+ * from the radio's config, so a screen asking row by row builds it once per row; this builds it
+ * once.
+ */
+uint32_t mesh_ui_settings_items(const struct mesh_ui_settings *settings,
+                                const struct mesh_ui_handshake_state *handshake,
+                                const struct mesh_ui_setting_edit *edits, size_t edit_count,
+                                enum mesh_ui_settings_section section, uint8_t channel,
+                                struct mesh_ui_settings_item *out, uint32_t max);
 
 #ifdef __cplusplus
 }

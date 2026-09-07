@@ -1692,3 +1692,189 @@ cleanup:
         record_success(test_name);
     }
 }
+
+/*
+ * A slider says where the value is, and nothing under it moves when it says something else.
+ *
+ * Two frames of Settings > Display with the screen timeout at the bottom of its scale and then
+ * at the top. Two things have to hold and the second is the one this component could get wrong
+ * in a way nothing on a single frame would reveal.
+ *
+ * The control must change, because a track that draws the same for the shortest timeout this
+ * field offers and the longest is a decoration rather than a reading. And every row *below* it
+ * must be pixel-identical, which is what says the row's second step was reserved from the field
+ * rather than from the value: a height that depended on what the radio last reported would
+ * reflow the whole section under the cursor every time somebody pressed Right, and the reflow
+ * would be invisible in any screenshot taken one value at a time.
+ *
+ * The row's own bar takes the width the words had rather than the width left after them - that
+ * is what a second step is *for* - so unlike the segmented button there is no label column to
+ * hold still here. What holds still is everything the row is not.
+ *
+ * Across every theme and every scale, because both are measurements and the narrow end of the
+ * scale range is where a measurement stops fitting.
+ */
+MESH_TEST_CASE(ui_capture_slider_places_the_value, unit) {
+    const char *failure = NULL;
+
+    for (size_t t = 0; t < mesh_ui_theme_count() && failure == NULL; ++t) {
+        const struct mesh_ui_theme *theme = mesh_ui_theme_at(t);
+        for (int scale = MESH_UI_SCALE_MIN; scale <= MESH_UI_SCALE_MAX && failure == NULL;
+             ++scale) {
+            uint8_t *frames[2] = {NULL, NULL};
+            uint32_t width = 0U;
+            uint32_t height = 0U;
+            size_t stride = 0U;
+
+            for (unsigned pass = 0U; pass < 2U && failure == NULL; ++pass) {
+                struct mesh_ui_store store;
+                if (mesh_ui_store_init(&store) != 0) {
+                    failure = "store init failed";
+                    break;
+                }
+                mesh_test_nav_populate(&store);
+                struct mesh_ui_settings settings = store.settings;
+                settings.loaded = true;
+                settings.has_display = true;
+                /* The two ends of the scale this field states: 15 seconds and an hour. Its 0 is
+                   "the firmware decides" and stands outside the track, so neither end is it. */
+                settings.screen_on_secs = pass == 0U ? 15U : 3600U;
+                mesh_ui_store_set_settings(&store, &settings);
+
+                struct mesh_ui_action action;
+                for (int i = 0; i < 4; ++i) {
+                    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+                }
+                if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_DISPLAY)) {
+                    failure = "could not open Settings > Display";
+                } else {
+                    frames[pass] = capture_frame(&store, theme, scale, &width, &height, &stride);
+                    if (frames[pass] == NULL) {
+                        failure = "capture failed";
+                    }
+                }
+                mesh_ui_store_shutdown(&store);
+            }
+
+            if (failure == NULL) {
+                /* Screen on is the section's first row, so everything further down is rows this
+                   value has nothing to do with. */
+                const uint32_t body_top = height / 8U;
+                const uint32_t body_bottom = height - height / 8U;
+                /* A third of the way down clears the row itself at every scale that ships and
+                   still leaves four of this section's rows below it - which is what has to be
+                   identical, and what would not be if the row's height moved. */
+                const uint32_t below = body_top + (body_bottom - body_top) / 3U;
+                const size_t row_changed =
+                    differing_in(frames[0], frames[1], stride, 0U, width - 1U, body_top, below);
+                const size_t under_changed =
+                    differing_in(frames[0], frames[1], stride, 0U, width - 1U, below, body_bottom);
+                if (row_changed == 0U) {
+                    failure = "the screen timeout draws identically at both ends of its scale - "
+                              "the track is reporting nothing";
+                } else if (under_changed != 0U) {
+                    failure = "changing a value moved the rows below it, so a slider row's height "
+                              "is coming from the value rather than from the field";
+                }
+            }
+            free(frames[0]);
+            free(frames[1]);
+        }
+    }
+
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A value that is a word rather than a quantity draws no handle at all - and still costs the row
+ * the same step.
+ *
+ * "Default" and LoRa's "max" are not the bottom of their scales, and the whole of the first bug
+ * this pins is that they render identically to the bottom if the control clamps them into range.
+ * So the two frames below - the firmware's own default, and the shortest timeout this field
+ * actually offers - have to *differ*. Under the clamp they are the same frame, which is §2.11's
+ * rule caught in the act: a picture cannot be wrong quietly.
+ *
+ * And this is the pair that pins the other half of it. These are the only two values in the
+ * client whose rows a value-dependent height would draw at different heights - one places and
+ * one does not - so if the second step were reserved from the value rather than from the field,
+ * everything below this row would sit one step further up in one of these frames. Pressing Right
+ * off "default" would then reflow the section under the cursor, which no screenshot taken one
+ * value at a time can show.
+ */
+MESH_TEST_CASE(ui_capture_slider_refuses_a_word, unit) {
+    const char *failure = NULL;
+
+    for (size_t t = 0; t < mesh_ui_theme_count() && failure == NULL; ++t) {
+        const struct mesh_ui_theme *theme = mesh_ui_theme_at(t);
+        uint8_t *frames[2] = {NULL, NULL};
+        uint32_t width = 0U;
+        uint32_t height = 0U;
+        size_t stride = 0U;
+
+        for (unsigned pass = 0U; pass < 2U && failure == NULL; ++pass) {
+            struct mesh_ui_store store;
+            if (mesh_ui_store_init(&store) != 0) {
+                failure = "store init failed";
+                break;
+            }
+            mesh_test_nav_populate(&store);
+            struct mesh_ui_settings settings = store.settings;
+            settings.loaded = true;
+            settings.has_display = true;
+            settings.screen_on_secs = pass == 0U ? 0U : 15U;
+            mesh_ui_store_set_settings(&store, &settings);
+
+            struct mesh_ui_action action;
+            for (int i = 0; i < 4; ++i) {
+                mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+            }
+            if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_DISPLAY)) {
+                failure = "could not open Settings > Display";
+            } else {
+                frames[pass] = capture_frame(&store, theme, 4, &width, &height, &stride);
+                if (frames[pass] == NULL) {
+                    failure = "capture failed";
+                }
+            }
+            mesh_ui_store_shutdown(&store);
+        }
+
+        if (failure == NULL) {
+            const uint32_t body_top = height / 8U;
+            const uint32_t body_bottom = height - height / 8U;
+            const uint32_t below = body_top + (body_bottom - body_top) / 3U;
+            /*
+             * The *label column*, which is the one part of this row where the two frames can only
+             * differ because of the control.
+             *
+             * The words to the right of it differ whatever happens - one row says "default" and
+             * the other says "15s" - so a comparison across the whole width is satisfied by the
+             * value column alone and never looks at the track at all. Inside the label column the
+             * words are identical, and what is left is the left end of the bar: a handle sitting
+             * at the bottom of the scale under the clamp, and nothing at all when the value is
+             * one the track cannot place.
+             */
+            const uint32_t label_right = settings_label_right(theme, width, 4);
+            const size_t row_changed =
+                differing_in(frames[0], frames[1], stride, theme->metrics.margin,
+                             label_right < width ? label_right : width, body_top, below);
+            const size_t under_changed =
+                differing_in(frames[0], frames[1], stride, 0U, width - 1U, below, body_bottom);
+            if (row_changed == 0U) {
+                failure = "a screen timeout the firmware picks puts a handle exactly where the "
+                          "shortest one this client offers does - the track is claiming a value "
+                          "nobody reported";
+            } else if (under_changed != 0U) {
+                failure = "a value the track cannot place changed the height of its row, so the "
+                          "rows below it move when somebody steps off \"default\"";
+            }
+        }
+        free(frames[0]);
+        free(frames[1]);
+    }
+
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}

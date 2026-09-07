@@ -1,0 +1,68 @@
+# The slider: a number the reader is choosing, on the scale of the numbers they could have
+# chosen instead.
+#
+# A NUMBER setting used to be Left/Right over a preset list with the chosen value in the value
+# column - "10m", and nothing at all about whether ten minutes was near the short end of what the
+# field offers or near the long one. The figure still says how long; the track under it says how
+# far along, and that is the half a column of durations cannot answer without the reader already
+# carrying the list around.
+#
+# Watch Display first, where two rows carry one, and then LoRa - which is where the whole
+# argument is on one screen: hop limit and transmit power get a track, and bandwidth, spreading
+# factor and coding rate do not, because those numbers *name* a modem setting rather than
+# measuring anything.
+
+scene demo
+scale 4
+delay 200
+config
+
+tab settings
+hold 500
+
+# Display. Screen-on is ten minutes on a scale that runs from fifteen seconds to an hour; the
+# carousel is off, which is the bottom of its own scale rather than off it - so it keeps its
+# handle, hard left.
+key down 4
+hold 700
+key a
+hold 900
+
+# Stepping it. The handle travels rather than jumping, because a press should be seen to land -
+# and the value column and the track move together, since both are readings of one number.
+key right
+hold 700
+key right
+hold 700
+key right 2
+hold 900
+key left 3
+hold 1000
+
+# The same control on every palette. The track is a role and the fill is a tone, so nothing here
+# is switched by hand.
+theme light
+hold 900
+theme contrast
+hold 900
+theme colorblind
+hold 900
+theme dark
+hold 900
+
+# And LoRa, where three of the five numbers deliberately have no track under them.
+key b
+hold 600
+key down 3
+hold 500
+key a
+hold 1200
+
+# Transmit power reads "max", which is the firmware's word for "as much as this radio has". It is
+# not the bottom of a power scale and it is not the top of one either, so the track draws its
+# stops and puts no handle anywhere - and stepping off it brings one in from the low end, where
+# 2 dBm actually is.
+key down 8
+hold 900
+key right
+hold 1200

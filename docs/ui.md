@@ -441,7 +441,7 @@ shoulder, revealed in the one place you went to change it.
 | File | Layer | What belongs there |
 |---|---|---|
 | `fb_draw.c` | ink | pixels, glyphs, the theme lookups, cell metrics (`fb_internal.h`) |
-| `fb_widgets.c` | components | cards (three variants, with verbs), buttons, chips, badges, list items, switches, meters, signal staircases, rules, bubbles, the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar (`fb_widgets.h`) |
+| `fb_widgets.c` | components | cards (three variants, with verbs), buttons, chips, badges, list items, switches, meters, sliders, signal staircases, rules, bubbles, the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar (`fb_widgets.h`) |
 | `fb_screens.c` | screens | one renderer per screen, and nothing else |
 | `fb.c` | device | `/dev/fb0`, the page flip, the backend vtable |
 
@@ -470,9 +470,16 @@ that reserves body rows for something else.
 #### Rows that are not all the same height
 
 `fb_list_begin_heights()` takes one row count per item and is what a list of *mixed* heights
-opens with. The node detail screen is the only caller today: its readings get a bar with a row
-to themselves and everything else on the screen gets one row, so no single number describes the
-list.
+opens with. Two screens call it. The node detail's readings get a bar with a row to themselves
+and everything else on the screen gets one row; a Settings section gives a second step to the
+number rows that draw a [slider](#the-slider), and one row to everything else. Neither list is
+described by a single number.
+
+The settings screen's arrival is why `mesh_ui_settings_items()` exists: measuring means holding
+every row before placing the first one, which is the shape `mesh_ui_node_detail_build()` already
+had. It is also the cheaper of the two accessors by a whole order — `mesh_ui_settings_item()`
+rebuilds the section from the radio's config for each row it answers, so a renderer asking row
+by row built it once per visible row.
 
 The whole of why this needs the model rather than the widget is the **cursor**. `struct
 mesh_ui_list` used to count items and multiply — the first row on screen, the scroll thumb and
@@ -509,7 +516,8 @@ vocabulary that covers every row a list wants.
 | leading | `FB_LEADING_NONE`, `FB_LEADING_AVATAR` (a tinted disc with initials or an icon in it), `FB_LEADING_ICON` |
 | headline | plain `text` — with `marker_slot` for a gutter before it — or a `label` column of `label_cols` cells then the `marker_icon` gutter and `value` |
 | supporting | a second line, with its own `supporting_icon`; non-NULL is what makes the item two rows tall |
-| trailing | `FB_TRAILING_NONE` / `_TEXT` (right-aligned and quiet) / `_BADGE` (a filled capsule, drawn by [`fb_draw_badge()`](#fb_draw_app_bar--the-top-app-bar)) / `_SWITCH` / `_ICON` / `_METER` / `_SIGNAL` |
+| trailing | `FB_TRAILING_NONE` / `_TEXT` (right-aligned and quiet) / `_BADGE` (a filled capsule, drawn by [`fb_draw_badge()`](#fb_draw_app_bar--the-top-app-bar)) / `_SWITCH` / `_ICON` / `_METER` / `_SIGNAL` / `_CHECKBOX` / `_RADIO` / `_SEGMENTED` |
+| bar | `meter` or [`slider`](#the-slider): a track across the width the words had, on a second step, rather than against the trailing edge. Drawn only when the list gave the row that step |
 
 ```c
 const struct fb_list_item row = {
@@ -934,6 +942,70 @@ Four things are worth knowing before reusing it:
   own, so it reads the same over the track and over the fill and needs no new contract.
   Order is meaning: `bad` above `warn` is worse as it climbs (airtime), `bad` below `warn` is
   worse as it falls (a battery), and there is no third case.
+
+#### The slider
+
+`struct fb_slider` is a quantity the reader is **choosing**, where the meter is a quantity they
+are being told. That is the whole of what separates the two, and it is why this is not a flag on
+the meter: a meter reports and eases towards each reading handed to it, while a slider says where
+a value sits among the values that could have been picked instead, marks those choices on its own
+track, and shows which one the cursor is on. The first is a picture; the second is a control, and
+a control has states a picture has no word for.
+
+What it replaced: a `MESH_UI_SETTING_NUMBER` row was Left/Right over a preset list with the
+chosen value in the value column — `5m`, and nothing about whether five minutes is near the short
+end of what the field offers or the long one. The figure still says *how long*; the track says
+*how far along*.
+
+```c
+struct mesh_ui_settings_track track;
+if (mesh_ui_settings_number_track(item.field, item.number, &track)) {
+    struct fb_slider slider = {.id = 0x05000000U | (uint32_t)item.field,
+                               .position = track.position, .stops = track.stops,
+                               .unplaced = track.unplaced, .tone = MESH_UI_TONE_PRIMARY};
+    const struct fb_list_item row = {..., .value = item.value, .slider = &slider};
+}
+```
+
+It goes in the row's **bar slot** — the second step, where the node detail's banded meters go —
+and not in the trailing slot, by the rule that slot was written with: *inline is for a figure the
+eye passes, a step is for one it stops on*. A settings control is by definition the second kind,
+and eight cells cannot hold a dozen stops any more than they could hold threshold marks.
+
+Four things decide whether it is honest, and each of them is a way it was wrong first:
+
+- **Only a field whose numbers measure something gets one.** `{0, 1, … 7}` is a hop limit under
+  one field and a GPIO pin under the next, so nothing derives this: a field states it in its own
+  table entry through `SCALE_PRESETS()` or `NAMED_PRESETS()` (`src/ui/settings.c`), and a
+  spreading factor, a bandwidth, a coding rate, a pin and a count of coordinate bits all say
+  *named*. Drawing a length across one of those is a claim about magnitude the number does not
+  make.
+- **The stops are evenly spaced, and a value between two of them is interpolated.** The preset
+  lists climb geometrically — screen-on runs 15s, 30s, a minute, two, five, ten, fifteen, half an
+  hour, an hour — so a handle at `value/3600` would crowd eight of the ten choices into the first
+  sixth of the track. What is being chosen between is the *choices*. Interpolating between them is
+  what an axis can do that a set of alternatives cannot: the segmented button had to fall back to
+  words for a value outside its set, and a slider does not need to, because a radio reporting 42
+  seconds lands where 42 seconds is.
+- **A value that is a word is off the track, not at the bottom of it.** Most of these lists open
+  with a 0 the field reads as "whatever the firmware picks", and LoRa's transmit power reads it as
+  "as much as this radio has" — neither is a quantity. `SCALE_PRESETS_AFTER_ZERO()` says so, the
+  track spans what follows, and such a value comes back `unplaced`: the control draws its stops
+  and no handle anywhere. This is §2.11's rule on an axis. Drawn the other way, `max` had its
+  handle hard left, at the empty end of its own bar.
+- **The step is reserved from the field, never from the value.** `unplaced` is the only value in
+  the client whose row would otherwise be a different height, and a height that moved with the
+  value would reflow the whole section under the cursor the moment somebody pressed Right off
+  `default`. `ui_capture_slider_refuses_a_word` pins it from both ends: the row must differ
+  between the two values and every row below it must be pixel-identical.
+
+The drawing reuses what the meter already argued for. The active track and the handle are one
+ink from one tone, `MESH_UI_COLOR_METER_TRACK` is the rest, the stops are notches cut out in the
+ground colour — the same mark a band's boundary is, for the same reason — and the handle is
+separated from the fill it ends by a gap in that ground, without which the two are one shape and
+there is no position to read. The handle is narrower than its track is thick because it marks a
+*position*, and a wide one is a range; it is drawn taller under the cursor, inside a box that
+always reserves the taller size.
 
 #### `fb_draw_signal()` — signal as rungs
 
