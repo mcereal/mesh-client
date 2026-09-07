@@ -53,6 +53,18 @@ static struct fb_button_paint fb_button_paint(enum fb_button_variant variant, bo
     }
 }
 
+/* What a button's content occupies: its icon, the gap after it, and its label - all in cells
+   except that gap, which is half of one. */
+static int fb_button_content_w(const struct mesh_ui_backend_fb_state *state,
+                               const struct fb_button *button) {
+    const int adv = fb_char_adv(state, button->scale);
+    const bool has_label = button->label != NULL && button->label[0] != '\0';
+    const bool has_icon = mesh_ui_icon_is_valid(button->icon);
+    const int label_w = has_label ? (int)mesh_ui_text_cells(button->label) * adv : 0;
+    return label_w + (has_icon ? fb_icon_box(state, button->scale) : 0) +
+           ((has_icon && has_label) ? adv / 2 : 0);
+}
+
 void fb_draw_button(const struct mesh_ui_backend_fb_state *state, const struct fb_button *button) {
     const struct fb_button_paint paint = fb_button_paint(button->variant, button->selected);
     if (paint.has_fill) {
@@ -60,58 +72,89 @@ void fb_draw_button(const struct mesh_ui_backend_fb_state *state, const struct f
                            fb_radius(state, button->shape), fb_color(state, paint.fill));
     }
 
-    if (button->label == NULL || button->label[0] == '\0') {
+    const bool has_label = button->label != NULL && button->label[0] != '\0';
+    const bool has_icon = mesh_ui_icon_is_valid(button->icon);
+    if (!has_label && !has_icon) {
         return;
     }
 
     /* Centre by cells, so a label holding an emoji sits where it looks centred rather than
-       where its byte count says it does. Vertically it is the glyph body that is centred, not
-       the line advance: the advance carries the gap that accents hang in, and counting it
-       would push every label low in its box. */
-    const int text_w = (int)mesh_ui_text_cells(button->label) * fb_char_adv(state, button->scale);
+       where its byte count says it does. An icon is one cell, so it centres by the same count.
+       Vertically it is the glyph body that is centred, not the line advance: the advance
+       carries the gap that accents hang in, and counting it would push every label low in its
+       box. */
+    const int adv = fb_char_adv(state, button->scale);
+    /* Half a cell between a symbol and the word after it, which is the gap Material puts
+       there and about what the eye needs to stop reading them as one shape. fb_button_content_w()
+       is the same sum, so a caller sizing a box around this gets the box this fills. */
+    const int text_w = fb_button_content_w(state, button);
     const int text_h = (int)fb_font(state)->height * button->scale;
-    const int x = button->rect.x + (button->rect.w - text_w) / 2;
+    int x = button->rect.x + (button->rect.w - text_w) / 2;
     const int y = button->rect.y + (button->rect.h - text_h) / 2;
     /* Any fill at all means the label is drawn in the colour the theme validates against that
        fill. Only a button with no fill is free to take its idle tone, which is chosen against
        the ground - reading the tone over a fill is how the keyboard's action row came out
        white on white. */
-    fb_draw_text(state, x, y, button->label, button->scale,
-                 paint.has_fill ? fb_color(state, paint.ink)
-                                : fb_tone_color(state, button->idle_tone));
+    const struct mesh_ui_rgb ink =
+        paint.has_fill ? fb_color(state, paint.ink) : fb_tone_color(state, button->idle_tone);
+    if (has_icon) {
+        /* Blended against the fill the button has just laid down, or against whatever the
+           caller says it is sitting on when it laid none - the two colours the ink was chosen
+           against. */
+        fb_draw_icon(state, x, y, button->icon, button->scale, ink,
+                     fb_color(state, paint.has_fill ? paint.fill : button->ground));
+        x += fb_icon_box(state, button->scale) + (has_label ? adv / 2 : 0);
+    }
+    if (has_label) {
+        fb_draw_text(state, x, y, button->label, button->scale, ink);
+    }
 }
 
-int fb_draw_chip(const struct mesh_ui_backend_fb_state *state, int x, int y, const char *label,
-                 bool active, int scale) {
-    const int adv = fb_char_adv(state, scale);
-    /*
-     * Padding enough to clear the capsule's own curve, and derived from the *glyph scale*
-     * rather than from the cell advance.
-     *
-     * A capsule's ends eat into their own corners, so a label needs room the flat-sided chip
-     * did not: the pill's radius is half its height - (7 + 2) / 2 scale steps for the 5x7 font
-     * - and at the top and bottom of a glyph body the edge has curved inwards by about 1.7
-     * steps. Two either side clears that with room to spare.
-     *
-     * Why not measure it in cells, which is how everything else here is measured? Because a
-     * cell is six scale steps wide, so a cell of padding either side is three times what the
-     * curve needs, and the strip has to *fit*: five tabs at MESHCLIENT_FB_SCALE=5 leave about
-     * 60 px of slack across a 1024 px panel, and a padding that generous spends 240 of it. The
-     * last tab and its indicator then fall off the right-hand edge, which is a navigation tab
-     * the user can no longer see rather than a cosmetic overflow.
-     */
-    const int width = (int)mesh_ui_text_cells(label) * adv + 4 * scale;
+/*
+ * Padding enough to clear the capsule's own curve, and derived from the *glyph scale* rather
+ * than from the cell advance.
+ *
+ * A capsule's ends eat into their own corners, so a label needs room the flat-sided chip did
+ * not: the pill's radius is half its height - (7 + 2) / 2 scale steps for the 5x7 font - and at
+ * the top and bottom of a glyph body the edge has curved inwards by about 1.7 steps. Two either
+ * side clears that with room to spare.
+ *
+ * Why not measure it in cells, which is how everything else here is measured? Because a cell is
+ * six scale steps wide, so a cell of padding either side is three times what the curve needs,
+ * and the strip has to *fit*: five tabs at MESHCLIENT_FB_SCALE=5 leave about 60 px of slack
+ * across a 1024 px panel, and a padding that generous spends 240 of it. The last tab and its
+ * indicator then fall off the right-hand edge, which is a navigation tab the user can no longer
+ * see rather than a cosmetic overflow.
+ */
+#define FB_CHIP_PAD_STEPS 4
+
+int fb_chip_width(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_icon icon,
+                  const char *label, int scale) {
+    const struct fb_button button = {.icon = icon, .label = label, .scale = scale};
+    /* The pill itself, then the gap before the next one. */
+    return fb_button_content_w(state, &button) + FB_CHIP_PAD_STEPS * scale +
+           fb_char_adv(state, scale);
+}
+
+int fb_draw_chip(const struct mesh_ui_backend_fb_state *state, int x, int y, enum mesh_ui_icon icon,
+                 const char *label, bool active, enum mesh_ui_color ground, int scale) {
+    const int width = fb_chip_width(state, icon, label, scale);
     const struct fb_button button = {
-        .rect = {.x = x, .y = y - scale, .w = width, .h = fb_line_adv(state, scale)},
+        .rect = {.x = x,
+                 .y = y - scale,
+                 .w = width - fb_char_adv(state, scale), /* the pill, without the gap after it */
+                 .h = fb_line_adv(state, scale)},
+        .icon = icon,
         .label = label,
         .selected = false,
         .variant = active ? FB_BUTTON_TONAL : FB_BUTTON_TEXT,
         .shape = MESH_UI_SHAPE_FULL,
         .idle_tone = MESH_UI_TONE_DIM,
+        .ground = ground,
         .scale = scale,
     };
     fb_draw_button(state, &button);
-    return x + width + adv;
+    return x + width;
 }
 
 void fb_draw_title(const struct mesh_ui_backend_fb_state *state, struct fb_layout *layout,
@@ -129,10 +172,29 @@ void fb_draw_title(const struct mesh_ui_backend_fb_state *state, struct fb_layou
 }
 
 void fb_draw_empty(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
-                   const char *text) {
+                   enum mesh_ui_icon icon, const char *text) {
+    int y = layout->body_y;
+    uint32_t rows = layout->rows;
+
+    /*
+     * The icon is drawn at three glyph scales - a cell is one line tall, so three of them is
+     * three body rows and about a fifth of the panel - and it is only drawn when the screen has
+     * the rows to spare. An empty state is the one place with room for it, and the one place
+     * where a symbol says "nothing here yet" faster than the sentence under it does.
+     */
+    const int big = state->scale * 3;
+    const uint32_t cost = 4U; /* three rows for the symbol, one of air under it */
+    if (mesh_ui_icon_is_valid(icon) && big <= FB_ICON_SCALE_MAX && rows > cost + 1U) {
+        const int box = fb_icon_box(state, big);
+        fb_draw_icon(state, ((int)state->var.xres - box) / 2, y, icon, big,
+                     fb_tone_color(state, MESH_UI_TONE_DIM), fb_color(state, MESH_UI_COLOR_BG));
+        y += (int)cost * layout->line;
+        rows -= cost;
+    }
+
     /* Wrapped rather than drawn flat: these strings say which button to press next, and at a
        large glyph scale a flat one ran off the right edge with the verb on it. */
-    (void)fb_draw_wrapped(state, layout->body_y, text, layout->cols, (int)layout->rows,
+    (void)fb_draw_wrapped(state, y, text, layout->cols, (int)rows,
                           fb_tone_color(state, MESH_UI_TONE_DIM));
 }
 
@@ -182,24 +244,31 @@ void fb_list_row_line(const struct mesh_ui_backend_fb_state *state, struct fb_li
 /* ---- the conversation cell ----------------------------------------------------------------- */
 
 /*
- * The disc and its initials. `size` is both its width and its height, so the radius is half of
- * it and the shape is a circle.
+ * The disc and what is in it: a node's initials, or an icon for the rows that are not a person.
+ * `size` is both its width and its height, so the radius is half of it and the shape is a
+ * circle.
  *
- * The label is drawn at the largest multiplier that *fits inside the disc*, which is not always
- * the body's. A two-row item gives the disc two lines to be round in and the body scale fits
- * with room; a one-row item - a node, a picker row - gives it one, and two cells at the body
- * scale then overhang a circle barely taller than a single glyph. That drew initials sliced off
- * at both ends, which is worse than no disc at all: the whole job of the colour and the two
- * letters is to be recognised without being read.
+ * What it holds is drawn at the largest multiplier that *fits inside the disc*, which is not
+ * always the body's. A two-row item gives the disc two lines to be round in and the body scale
+ * fits with room; a one-row item - a node, a picker row - gives it one, and two cells at the
+ * body scale then overhang a circle barely taller than a single glyph. That drew initials
+ * sliced off at both ends, which is worse than no disc at all: the whole job of the colour and
+ * the two letters is to be recognised without being read.
  *
  * So the fit is measured rather than assumed. It is done here, once, because the caller cannot
  * answer it - which scale fits is a fact about this component's geometry, and a screen that had
- * to work it out would be computing a glyph size, which is the thing screens do not do.
+ * to work it out would be computing a glyph size, which is the thing screens do not do. An icon
+ * is measured by the same loop: it is one cell wide and drawn at the glyph body's height, which
+ * is the taller of the two the loop tests.
+ *
+ * An icon takes the same ink the initials do - the ground colour, which every avatar tint is
+ * validated against - and is blended over the tint it is standing on.
  */
 static void fb_draw_avatar(const struct mesh_ui_backend_fb_state *state, int x, int y, int size,
-                           const char *label, struct mesh_ui_rgb tint) {
+                           const char *label, enum mesh_ui_icon icon, struct mesh_ui_rgb tint) {
     fb_fill_round_rect(state, x, y, size, size, size / 2, tint);
-    if (label == NULL || label[0] == '\0') {
+    const bool has_icon = mesh_ui_icon_is_valid(icon);
+    if (!has_icon && (label == NULL || label[0] == '\0')) {
         return;
     }
     /*
@@ -208,7 +277,7 @@ static void fb_draw_avatar(const struct mesh_ui_backend_fb_state *state, int x, 
      * on each side is what keeps two cells clear of it at every scale the theme allows.
      */
     const int room = size - size / 4;
-    const size_t cells = mesh_ui_text_cells(label);
+    const size_t cells = has_icon ? 1U : mesh_ui_text_cells(label);
     int scale = state->scale;
     while (scale > 1 && ((int)cells * fb_char_adv(state, scale) > room ||
                          (int)fb_font(state)->height * scale > room)) {
@@ -218,9 +287,15 @@ static void fb_draw_avatar(const struct mesh_ui_backend_fb_state *state, int x, 
     /* Centred in cells, and vertically on the glyph body rather than the line advance - the
        advance carries the gap accents hang in, and counting it sits the initials low in the
        disc. The same reasoning as fb_draw_button's label. */
-    const int text_w = (int)cells * fb_char_adv(state, scale);
     const int text_h = (int)fb_font(state)->height * scale;
-    fb_draw_text(state, x + (size - text_w) / 2, y + (size - text_h) / 2, label, scale,
+    const int content_y = y + (size - text_h) / 2;
+    if (has_icon) {
+        fb_draw_icon(state, x + (size - fb_icon_box(state, scale)) / 2, content_y, icon, scale,
+                     fb_color(state, MESH_UI_COLOR_BG), tint);
+        return;
+    }
+    const int text_w = (int)cells * fb_char_adv(state, scale);
+    fb_draw_text(state, x + (size - text_w) / 2, content_y, label, scale,
                  fb_color(state, MESH_UI_COLOR_BG));
 }
 
@@ -276,6 +351,11 @@ static struct fb_item_geom fb_item_measure(const struct mesh_ui_backend_fb_state
     g.text_x = margin;
     if (item->leading.kind == FB_LEADING_AVATAR) {
         g.text_x = margin + (g.fill_h - scale) + adv / 2;
+    } else if (item->leading.kind == FB_LEADING_ICON) {
+        /* Reserved whether or not this row filled it, so every row's words start in the same
+           column - a list that indents only the rows with something to say is a list the eye
+           cannot run down. */
+        g.text_x = margin + fb_icon_box(state, scale) + adv / 2;
     }
     g.cols = g.text_right > g.text_x ? (size_t)((g.text_right - g.text_x) / adv) : 1U;
     return g;
@@ -315,6 +395,9 @@ static size_t fb_trailing_cols(const struct mesh_ui_backend_fb_state *state, siz
         want = (size_t)((width + adv - 1) / adv) + 2U;
         break;
     }
+    case FB_TRAILING_ICON:
+        want = mesh_ui_icon_is_valid(trailing->icon) ? 2U : 0U;
+        break;
     case FB_TRAILING_NONE:
     default:
         return 0U;
@@ -362,6 +445,15 @@ static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struc
                      fb_color(state, MESH_UI_COLOR_ON_ACCENT));
         return;
     }
+    case FB_TRAILING_ICON:
+        /* The quiet ink a trailing figure takes, for the same reason: a chevron is something the
+           eye passes on its way down the list, never one of the row's own words. */
+        fb_draw_icon(state, g->text_right - fb_icon_box(state, scale), baseline, trailing->icon,
+                     scale,
+                     selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL_DIM)
+                              : fb_tone_color(state, MESH_UI_TONE_DIM),
+                     fb_color(state, selected ? MESH_UI_COLOR_SURFACE_SEL : MESH_UI_COLOR_BG));
+        return;
     case FB_TRAILING_SWITCH: {
         if (trailing->sw == NULL) {
             return;
@@ -388,8 +480,13 @@ static void fb_draw_trailing(struct mesh_ui_backend_fb_state *state, const struc
     }
 }
 
-/* The headline, as one line: either the whole row, or a label column with a marker and a value
-   after it. */
+/* Cells between the end of the label column and the start of the value: a space, the marker's
+   own cell, a space. Reserved on every row of a list whether or not that row has a marker in
+   it, which is what keeps the values in one column. */
+#define FB_ITEM_MARKER_CELLS 3U
+
+/* The headline, as one line: either the whole row, or a label column with the marker gutter and
+   a value after it. The gutter is left blank here and the icon is drawn into it afterwards. */
 static void fb_item_headline(struct mesh_ui_line *line, const struct fb_list_item *item) {
     mesh_ui_line_reset(line);
     if (item->label_cols > 0U) {
@@ -397,8 +494,8 @@ static void fb_item_headline(struct mesh_ui_line *line, const struct fb_list_ite
            measured in cells so a value column still lines up under a label that is not all
            ASCII. */
         mesh_ui_line_column(line, item->label != NULL ? item->label : "", item->label_cols);
-        mesh_ui_line_printf(line, " %s%s", item->marker != NULL ? item->marker : "",
-                            item->value != NULL ? item->value : "");
+        mesh_ui_line_pad_to(line, item->label_cols + FB_ITEM_MARKER_CELLS);
+        mesh_ui_line_printf(line, "%s", item->value != NULL ? item->value : "");
         return;
     }
     mesh_ui_line_printf(line, "%s", item->text != NULL ? item->text : "");
@@ -432,6 +529,17 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
         }
     }
 
+    /*
+     * Under the cursor everything is drawn against that fill instead of against the ground,
+     * which is a different pair of colours and not a dimmer version of the same one.
+     */
+    const struct mesh_ui_rgb head_ink =
+        selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL) : fb_tone_color(state, item->tone);
+    /* What every icon on this row is blended against: the fill if the cursor laid one down, the
+       ground otherwise. The row is the only thing that knows. */
+    const struct mesh_ui_rgb ground =
+        fb_color(state, selected ? MESH_UI_COLOR_SURFACE_SEL : MESH_UI_COLOR_BG);
+
     if (item->leading.kind == FB_LEADING_AVATAR) {
         const int size = g.fill_h - scale;
         const struct mesh_ui_rgb tint =
@@ -439,21 +547,26 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
                 ? fb_color(state, item->leading.role)
                 : mesh_ui_theme_avatar(state->theme, item->leading.tint);
         fb_draw_avatar(state, fb_margin(state), g.fill_top + scale / 2, size, item->leading.label,
-                       tint);
+                       item->leading.icon, tint);
+    } else if (item->leading.kind == FB_LEADING_ICON) {
+        fb_draw_icon(state, fb_margin(state), g.head_y, item->leading.icon, scale, head_ink,
+                     ground);
     }
-
-    /*
-     * Under the cursor everything is drawn against that fill instead of against the ground,
-     * which is a different pair of colours and not a dimmer version of the same one.
-     */
-    const struct mesh_ui_rgb head_ink =
-        selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL) : fb_tone_color(state, item->tone);
 
     struct mesh_ui_line line;
     fb_item_headline(&line, item);
     const size_t head_take = fb_trailing_cols(state, g.cols, &item->trailing);
     mesh_ui_line_fit(&line, g.cols - head_take);
     fb_draw_text(state, g.text_x, g.head_y, mesh_ui_line_text(&line), scale, head_ink);
+    /* Into the blank cell fb_item_headline() left between the label column and the value, and
+       only when the value column actually got that far - a label column wider than the row is
+       clipped, and a marker drawn at a column the line no longer reaches would sit on top of
+       the label. */
+    if (item->label_cols > 0U && mesh_ui_icon_is_valid(item->marker_icon) &&
+        g.cols > item->label_cols + FB_ITEM_MARKER_CELLS) {
+        fb_draw_icon(state, g.text_x + (int)(item->label_cols + 1U) * fb_char_adv(state, scale),
+                     g.head_y, item->marker_icon, scale, head_ink, ground);
+    }
     if (head_take > 0U) {
         fb_draw_trailing(state, &g, &item->trailing, g.head_y, g.head_slot_top, selected);
     }
@@ -464,10 +577,18 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
                                                               : MESH_UI_COLOR_TEXT_ON_SEL)
                      : fb_tone_color(state, item->supporting_tone);
         const size_t supp_take = fb_trailing_cols(state, g.cols, &item->supporting_trailing);
+        /* An icon on the supporting line takes the first cell and the words move over, which is
+           what "> " did when it was two characters of the preview. */
+        const bool supp_icon =
+            mesh_ui_icon_is_valid(item->supporting_icon) && g.cols > supp_take + 1U;
+        const int supp_x = g.text_x + (supp_icon ? fb_char_adv(state, scale) : 0);
+        if (supp_icon) {
+            fb_draw_icon(state, g.text_x, g.supp_y, item->supporting_icon, scale, supp_ink, ground);
+        }
         mesh_ui_line_reset(&line);
         mesh_ui_line_printf(&line, "%s", item->supporting);
-        mesh_ui_line_fit(&line, g.cols - supp_take);
-        fb_draw_text(state, g.text_x, g.supp_y, mesh_ui_line_text(&line), scale, supp_ink);
+        mesh_ui_line_fit(&line, g.cols - supp_take - (supp_icon ? 1U : 0U));
+        fb_draw_text(state, supp_x, g.supp_y, mesh_ui_line_text(&line), scale, supp_ink);
         if (supp_take > 0U) {
             fb_draw_trailing(state, &g, &item->supporting_trailing, g.supp_y, g.supp_slot_top,
                              selected);
@@ -505,10 +626,7 @@ void fb_draw_conversation(struct mesh_ui_backend_fb_state *state, struct fb_list
            it stays loud under the cursor, which a preview does not. */
         mesh_ui_line_printf(&preview, "%s", mesh_str(MESH_STR_MESSAGES_DELETE_ARMED));
     } else if (conversation->preview[0] != '\0') {
-        /* "> " says the last word was ours, which is what tells you whether a quiet thread is
-           waiting on you or on them. */
-        mesh_ui_line_printf(&preview, "%s%s", conversation->preview_outbound ? "> " : "",
-                            conversation->preview);
+        mesh_ui_line_printf(&preview, "%s", conversation->preview);
     } else {
         mesh_ui_line_printf(&preview, "%s", mesh_str(MESH_STR_MESSAGES_NO_MESSAGES_YET));
     }
@@ -518,6 +636,9 @@ void fb_draw_conversation(struct mesh_ui_backend_fb_state *state, struct fb_list
             {
                 .kind = FB_LEADING_AVATAR,
                 .label = conversation->avatar,
+                /* A row armed to be deleted says so inside its own disc, which is already
+                   wearing the bad tone: the question and the answer in one place. */
+                .icon = conversation->armed ? MESH_UI_ICON_DELETE : conversation->avatar_icon,
                 .tint = conversation->tint,
                 .role = conversation->armed    ? MESH_UI_COLOR_BAD
                         : conversation->accent ? MESH_UI_COLOR_ACCENT
@@ -529,6 +650,12 @@ void fb_draw_conversation(struct mesh_ui_backend_fb_state *state, struct fb_list
            conversation - a fact you glance at, not one you read. */
         .trailing = {.kind = FB_TRAILING_TEXT, .text = conversation->age},
         .supporting = mesh_ui_line_text(&preview),
+        /* The reply arrow says the last word in the thread was ours, which is what tells you
+           whether a quiet thread is waiting on you or on them. It was "> " until it was an
+           icon slot, and it is dropped on an armed row - what that row says is the warning. */
+        .supporting_icon = (conversation->preview_outbound && !conversation->armed)
+                               ? MESH_UI_ICON_REPLY
+                               : MESH_UI_ICON_NONE,
         /* An unread preview is the row's own words at full weight - never the name's tone,
            which says what kind of conversation this is rather than how much of it is new. The
            half that still reads once the badge has been marked away. */
@@ -940,13 +1067,15 @@ static struct fb_card_fit fb_card_clip(const struct fb_card_metrics *m,
     return fit;
 }
 
-void fb_card_begin(struct fb_card *card, enum mesh_str_id heading, enum mesh_ui_tone tone) {
+void fb_card_begin(struct fb_card *card, enum mesh_ui_icon icon, enum mesh_str_id heading,
+                   enum mesh_ui_tone tone) {
     if (card == NULL) {
         return;
     }
     memset(card, 0, sizeof *card);
     card->tone = tone;
     if (heading != MESH_STR_NONE) {
+        card->icon = icon;
         mesh_text_sanitise_str(mesh_str(heading), card->heading, sizeof card->heading);
     }
 }
@@ -1098,8 +1227,17 @@ bool fb_draw_card(const struct mesh_ui_backend_fb_state *state, const struct fb_
         mesh_ui_line_reset(&line);
         mesh_ui_line_printf(&line, "%s", card->heading);
         mesh_ui_line_fit(&line, fb_cols(state, layout->small));
-        fb_draw_text(state, m.content_x, row_y, mesh_ui_line_text(&line), layout->small,
-                     fb_tone_color(state, card->tone));
+        const struct mesh_ui_rgb ink = fb_tone_color(state, card->tone);
+        int heading_x = m.content_x;
+        if (mesh_ui_icon_is_valid(card->icon)) {
+            /* On the card's own surface, which is what it was just filled with - the icon is
+               inside the panel, not on the ground the panel sits on. */
+            fb_draw_icon(state, heading_x, row_y, card->icon, layout->small, ink,
+                         fb_color(state, MESH_UI_COLOR_SURFACE));
+            /* The same half-cell a button leaves between its symbol and its word. */
+            heading_x += fb_icon_box(state, layout->small) + fb_char_adv(state, layout->small) / 2;
+        }
+        fb_draw_text(state, heading_x, row_y, mesh_ui_line_text(&line), layout->small, ink);
         row_y += m.heading_h;
     }
 

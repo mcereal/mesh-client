@@ -12,6 +12,7 @@
 
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/emoji.h"
+#include "mesh/ui/icon.h"
 #include "mesh/utils/text.h"
 
 #include <stdio.h>
@@ -389,6 +390,138 @@ static void fb_draw_emoji(const struct mesh_ui_backend_fb_state *state, int x, i
             }
             if (opaque[index]) {
                 fb_fill_packed(state, x + dx, top + dy, end - dx, 1, palette[index]);
+            }
+            dx = end;
+        }
+    }
+}
+
+/* An icon occupies exactly one text cell, which is what lets a screen put one in a line's
+   leading slot and keep counting the rest of the row in columns. */
+int fb_icon_box(const struct mesh_ui_backend_fb_state *state, int scale) {
+    return fb_char_adv(state, scale);
+}
+
+/*
+ * What it is actually drawn at, which is a little wider than the cell it occupies.
+ *
+ * A symbol has to stand as tall as the capitals beside it to read as their equal, and the cell
+ * advance is narrower than the glyph body is tall - so an icon drawn at the advance comes out
+ * visibly smaller than the text it is labelling, which is the one thing a Material icon is
+ * never allowed to be. It is drawn at the body's height instead and centred on its cell, so the
+ * overhang is a couple of pixels into the gaps either side and the column arithmetic above is
+ * untouched.
+ */
+static int fb_icon_drawn(const struct mesh_ui_backend_fb_state *state, int scale) {
+    return (int)fb_font(state)->height * scale;
+}
+
+/* Coverage steps a blended icon is drawn in. The sprites carry 16 levels and the sampling
+   between them is continuous, so this is about how many colours one icon costs to pack:
+   32 is below what the eye separates on a 24 px symbol, and packing a colour per pixel was
+   the thing fb_fill_packed() exists to avoid. */
+#define FB_ICON_BLEND_STEPS 32
+
+/*
+ * Coverage at one destination pixel, as a blend step.
+ *
+ * Bilinear between the four sprite pixels around it: `sample_x` is an 8.8 position along the
+ * sprite's row, `fy` the fraction between the two rows the caller has already picked out. The
+ * result is the index into the packed-colour table below, which is why the quantisation lives
+ * here rather than at the call site - measuring a span and drawing it must round identically or
+ * the span boundaries move.
+ */
+static int fb_icon_step(const uint8_t *row0, const uint8_t *row1, int32_t sample_x, int32_t fy) {
+    const int32_t x0 = sample_x >> 8;
+    const int32_t x1 = (x0 + 1 < MESH_UI_ICON_SIZE) ? x0 + 1 : x0;
+    const int32_t fx = sample_x & 0xFF;
+    const int32_t upper = row0[x0] * (256 - fx) + row0[x1] * fx;
+    const int32_t lower = row1[x0] * (256 - fx) + row1[x1] * fx;
+    const int32_t alpha = upper * (256 - fy) + lower * fy; /* 0 .. MESH_UI_ICON_MAX_ALPHA << 16 */
+    return (int)((alpha * (FB_ICON_BLEND_STEPS - 1)) / (MESH_UI_ICON_MAX_ALPHA * 65536));
+}
+
+/*
+ * Draw one icon sprite into the cell, in `ink` over `ground`.
+ *
+ * The two colours are the whole difference from fb_draw_emoji(). An emoji carries its own
+ * palette; an icon carries coverage only and is *tinted*, so a chevron on a selected row is the
+ * selected row's ink and a warning is the bad tone - it is themed like the text it stands
+ * beside, because it is doing that text's job.
+ *
+ * `ground` is what it is blended against, and it has to be passed in for the same reason
+ * fb_draw_emoji() does not blend at all: what is already on the panel is not readable from
+ * here - an icon sits on the ground on one row and on the cursor fill on the next - and the
+ * display engine composites fb0 against its own layer rather than against what we have drawn,
+ * so there is no alpha to leave the job to. A caller that has just filled a row knows the
+ * colour it filled it with; nothing else does.
+ *
+ * Sampling is bilinear, unlike the emoji path's nearest neighbour, and that is not a
+ * preference: the sprite is 32 px and the cell it lands in is 28 at the body scale and 21 in
+ * the chrome, so nearest neighbour would drop every fourth source row - and on the empty
+ * screen's symbol, several times that size, would duplicate them instead. On a flat-filled
+ * emoji either is invisible; on a 2 px chevron stroke it is the difference between a smooth
+ * diagonal and a staircase. The blend is one multiply per channel per step rather than per
+ * pixel, because coverage is quantised into FB_ICON_BLEND_STEPS packed colours first.
+ */
+void fb_draw_icon(const struct mesh_ui_backend_fb_state *state, int x, int y,
+                  enum mesh_ui_icon icon, int scale, struct mesh_ui_rgb ink,
+                  struct mesh_ui_rgb ground) {
+    if (!mesh_ui_icon_is_valid(icon) || scale <= 0 || scale > FB_ICON_SCALE_MAX) {
+        return;
+    }
+    const int box = fb_icon_drawn(state, scale);
+    /* Centred on the cell in both directions, so it sits on the same optical line as the
+       capitals beside it and in the same column the layout above counted. */
+    const int left = x - (box - fb_icon_box(state, scale)) / 2;
+    const int top = y + ((int)fb_font(state)->height * scale - box) / 2;
+
+    /* Source column per destination column, as a 8.8 fixed-point position: identical for every
+       row, so the division runs once per column instead of once per pixel. Sized for the
+       largest icon anything asks for, which is the empty state's - the rest are one text cell. */
+    int32_t sx[MESH_UI_GLYPH_MAX_HEIGHT * FB_ICON_SCALE_MAX];
+    if (box <= 0 || box > (int)(sizeof sx / sizeof sx[0])) {
+        return;
+    }
+    for (int dx = 0; dx < box; ++dx) {
+        /* Half-pixel offsets at both ends: sampling from the pixel's centre is what keeps a
+           symmetric symbol symmetric after the scale. */
+        const int32_t pos = (((int32_t)dx * 2 + 1) * MESH_UI_ICON_SIZE * 128) / box - 128;
+        sx[dx] = pos < 0 ? 0 : pos;
+    }
+
+    uint8_t pixels[MESH_UI_ICON_SIZE * MESH_UI_ICON_SIZE];
+    mesh_ui_icon_alpha(icon, pixels);
+
+    uint32_t blend[FB_ICON_BLEND_STEPS];
+    for (int step = 0; step < FB_ICON_BLEND_STEPS; ++step) {
+        const int32_t a = (int32_t)step * 255 / (FB_ICON_BLEND_STEPS - 1);
+        const uint8_t r = (uint8_t)(((int32_t)ink.r * a + (int32_t)ground.r * (255 - a)) / 255);
+        const uint8_t g = (uint8_t)(((int32_t)ink.g * a + (int32_t)ground.g * (255 - a)) / 255);
+        const uint8_t b = (uint8_t)(((int32_t)ink.b * a + (int32_t)ground.b * (255 - a)) / 255);
+        blend[step] = compose_color(state, r, g, b);
+    }
+
+    for (int dy = 0; dy < box; ++dy) {
+        const int32_t pos_y = (((int32_t)dy * 2 + 1) * MESH_UI_ICON_SIZE * 128) / box - 128;
+        const int32_t py = pos_y < 0 ? 0 : pos_y;
+        const int32_t y0 = py >> 8;
+        const int32_t y1 = (y0 + 1 < MESH_UI_ICON_SIZE) ? y0 + 1 : y0;
+        const int32_t fy = py & 0xFF;
+        const uint8_t *row0 = &pixels[y0 * MESH_UI_ICON_SIZE];
+        const uint8_t *row1 = &pixels[y1 * MESH_UI_ICON_SIZE];
+
+        int dx = 0;
+        while (dx < box) {
+            const int step = fb_icon_step(row0, row1, sx[dx], fy);
+            /* Runs of equal coverage - which most of a filled symbol is - become one span, the
+               way the emoji path coalesces equal palette indices. */
+            int end = dx + 1;
+            while (end < box && fb_icon_step(row0, row1, sx[end], fy) == step) {
+                ++end;
+            }
+            if (step > 0) {
+                fb_fill_packed(state, left + dx, top + dy, end - dx, 1, blend[step]);
             }
             dx = end;
         }

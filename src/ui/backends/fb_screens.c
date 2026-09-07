@@ -57,7 +57,74 @@ static const char *fb_device_label(const struct mesh_ui_device *device) {
     return device->name[0] != '\0' ? device->name : device->identifier;
 }
 
+/*
+ * The icon a screen is known by: on its tab, and again on the empty state that stands in for
+ * its list. One answer in one place, because a tab and its empty screen showing two different
+ * symbols for the same thing is exactly the drift a table like this prevents.
+ */
+static enum mesh_ui_icon fb_screen_icon(enum mesh_ui_screen screen) {
+    switch (screen) {
+    case MESH_UI_SCREEN_MESSAGES:
+        return MESH_UI_ICON_MESSAGES;
+    case MESH_UI_SCREEN_NODES:
+        return MESH_UI_ICON_NODES;
+    case MESH_UI_SCREEN_DEVICES:
+        return MESH_UI_ICON_DEVICES;
+    case MESH_UI_SCREEN_STATUS:
+        return MESH_UI_ICON_STATUS;
+    case MESH_UI_SCREEN_SETTINGS:
+        return MESH_UI_ICON_SETTINGS;
+    default:
+        return MESH_UI_ICON_NONE;
+    }
+}
+
 /* ---- chrome ------------------------------------------------------------------------------ */
+
+/*
+ * The tab strip: a bar of its own, one chip per screen, then the rule that closes it off.
+ *
+ * The bar is the point. The strip used to float on the body's own ground, which left the tabs
+ * reading as the first row of content rather than as the frame around it; a recessed tier
+ * behind them says "this is chrome" before a word of it is read, which is what every phone's
+ * navigation bar is doing. It is the theme's lowest surface, so a palette decides how far from
+ * the ground that is - on the high-contrast theme it is barely anywhere, which is correct.
+ */
+/*
+ * How much of itself the strip can afford to say.
+ *
+ * Five labelled tabs fit at the scale the device ships with and do not at the two above it -
+ * the panel is 1024 px and the labels are the widest thing on it - so the strip drops what it
+ * cannot fit rather than pushing the last tab off the edge, which is how a navigation bar loses
+ * a screen the user can no longer reach. Labels go before icons do, and the tab you are on
+ * keeps its label longest: that is Material's "selected" label mode, and it is the one state
+ * that cannot be worked out from the icons alone.
+ */
+enum fb_tab_labels {
+    FB_TAB_LABELS_ALL = 0,
+    FB_TAB_LABELS_SELECTED,
+    FB_TAB_LABELS_NONE,
+};
+
+static const char *fb_tab_label(enum fb_tab_labels labels, enum mesh_ui_screen screen,
+                                enum mesh_ui_screen current) {
+    if (labels == FB_TAB_LABELS_ALL || (labels == FB_TAB_LABELS_SELECTED && screen == current)) {
+        return mesh_ui_screen_name(screen);
+    }
+    return "";
+}
+
+/* What the whole strip takes at this setting, measured with the same function that draws it. */
+static int fb_tabs_width(const struct mesh_ui_backend_fb_state *state, enum fb_tab_labels labels,
+                         enum mesh_ui_screen current, int small) {
+    int width = 0;
+    for (int i = 0; i < MESH_UI_SCREEN_COUNT; ++i) {
+        const enum mesh_ui_screen screen = (enum mesh_ui_screen)i;
+        width += fb_chip_width(state, fb_screen_icon(screen), fb_tab_label(labels, screen, current),
+                               small);
+    }
+    return width;
+}
 
 /*
  * The tab strip: a bar of its own, one chip per screen, then the rule that closes it off.
@@ -80,10 +147,19 @@ static void fb_draw_tabs(const struct mesh_ui_backend_fb_state *state,
     fb_fill_rect(state, 0, 0, (int)state->var.xres, bar_h,
                  fb_color(state, MESH_UI_COLOR_SURFACE_LOW));
 
+    const enum mesh_ui_screen current = snapshot->nav.screen;
+    const int room = (int)state->var.xres - margin;
+    enum fb_tab_labels labels = FB_TAB_LABELS_ALL;
+    while (labels < FB_TAB_LABELS_NONE && fb_tabs_width(state, labels, current, small) > room) {
+        labels = (enum fb_tab_labels)(labels + 1);
+    }
+
     for (int i = 0; i < MESH_UI_SCREEN_COUNT; ++i) {
         const enum mesh_ui_screen screen = (enum mesh_ui_screen)i;
-        x = fb_draw_chip(state, x, y, mesh_ui_screen_name(screen), snapshot->nav.screen == screen,
-                         small);
+        /* The bar under them, not the body ground: an unselected tab draws no fill of its own,
+           and its icon has to blend into what the strip filled behind it. */
+        x = fb_draw_chip(state, x, y, fb_screen_icon(screen), fb_tab_label(labels, screen, current),
+                         current == screen, MESH_UI_COLOR_SURFACE_LOW, small);
     }
 
     fb_draw_rule(state, 0, bar_h, (int)state->var.xres, small, MESH_UI_COLOR_RULE_STRONG);
@@ -145,7 +221,7 @@ static void fb_render_conversations(struct mesh_ui_backend_fb_state *state,
                    snapshot->messages.dropped);
     fb_draw_title(state, layout, title);
     if (count == 0U) {
-        fb_draw_empty(state, layout, mesh_str(MESH_STR_MESSAGES_EMPTY));
+        fb_draw_empty(state, layout, MESH_UI_ICON_MESSAGES, mesh_str(MESH_STR_MESSAGES_EMPTY));
         return;
     }
 
@@ -186,6 +262,17 @@ static void fb_render_conversations(struct mesh_ui_backend_fb_state *state,
 
         const struct fb_conversation cell = {
             .avatar = conversation.initials,
+            /*
+             * The three rows that are not a person say so with a symbol instead of initials.
+             * Which symbol is this backend's business, not the store's: the store publishes
+             * what a row *is* (its kind) and the CLI backend still draws the "#" and "+" it
+             * always did.
+             */
+            .avatar_icon =
+                is_new                                                ? MESH_UI_ICON_COMPOSE
+                : (conversation.kind == MESH_UI_CONVERSATION_ALL)     ? MESH_UI_ICON_BROADCAST
+                : (conversation.kind == MESH_UI_CONVERSATION_CHANNEL) ? MESH_UI_ICON_CHANNEL
+                                                                      : MESH_UI_ICON_NONE,
             .tint = conversation.tint,
             /* The two rows that are not somebody: a view over the others, and a button. */
             .accent = is_view,
@@ -199,7 +286,7 @@ static void fb_render_conversations(struct mesh_ui_backend_fb_state *state,
             .unread = (conversation.unread > 0U),
             .armed = mesh_ui_nav_conversation_is_armed(nav, &conversation),
             /* All traffic is accented because it is a view rather than somebody; a channel
-               used to be too, and no longer needs to be now that its avatar carries the '#'.
+               used to be too, and no longer needs to be now that its avatar carries the tag.
                That frees the strong tone to mean what it means everywhere else on this
                screen: there is something here you have not read. */
             .name_tone = is_new                                            ? MESH_UI_TONE_DIM
@@ -535,7 +622,7 @@ static void fb_render_thread(const struct mesh_ui_backend_fb_state *state,
     fb_draw_title(state, layout, title);
 
     if (count == 0U) {
-        fb_draw_empty(state, layout,
+        fb_draw_empty(state, layout, MESH_UI_ICON_MESSAGES,
                       mesh_str(nav->inbox ? MESH_STR_THREAD_EMPTY_INBOX : MESH_STR_THREAD_EMPTY));
         return;
     }
@@ -594,9 +681,9 @@ static void fb_render_thread(const struct mesh_ui_backend_fb_state *state,
 
 /*
  * One node's detail: the same list-of-rows shape the Settings tab draws, so the two screens
- * scroll and clip identically. Headings are dimmed and get no value column; the action row
- * carries the "> " marker an editable settings row uses, for the same reason - it is the only
- * thing on the screen A does anything to.
+ * scroll and clip identically. Headings are dimmed and get no value column; the action row ends
+ * in the chevron a settings row that opens something ends in, for the same reason - it is the
+ * only thing on the screen A does anything to.
  */
 /* Mutable state, as every screen drawing a fb_list_item is: an item may carry a control
    that animates, and where such a control has got to is kept on the backend. */
@@ -608,7 +695,7 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
     const struct mesh_ui_node_summary *node = mesh_ui_node_detail_find(hs, nav->node_detail_node);
     if (node == NULL) {
         fb_draw_title(state, layout, mesh_str(MESH_STR_TAB_NODES));
-        fb_draw_empty(state, layout, mesh_str(MESH_STR_NODES_GONE));
+        fb_draw_empty(state, layout, MESH_UI_ICON_NODES, mesh_str(MESH_STR_NODES_GONE));
         return;
     }
 
@@ -631,7 +718,7 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
         node, is_self, (uint32_t)time(NULL), &snapshot->traceroute, nav->node_remove_armed,
         &snapshot->handshake, items, MESH_UI_NODE_ITEMS_MAX);
     if (count == 0U) {
-        fb_draw_empty(state, layout, mesh_str(MESH_STR_NODES_DETAIL_EMPTY));
+        fb_draw_empty(state, layout, MESH_UI_ICON_NODES, mesh_str(MESH_STR_NODES_DETAIL_EMPTY));
         return;
     }
 
@@ -646,14 +733,16 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
             mesh_ui_line_printf(&line, "%s", item->label);
             fb_list_row_line(state, &list, i, &line, MESH_UI_TONE_DIM);
         } else if (item->kind == MESH_UI_NODE_ROW_ACTION) {
-            mesh_ui_line_reset(&line);
-            mesh_ui_line_printf(&line, "> %s", item->label);
-            fb_list_row_line(state, &list, i, &line, MESH_UI_TONE_ACCENT);
+            const struct fb_list_item row = {
+                .text = item->label,
+                .tone = MESH_UI_TONE_ACCENT,
+                .trailing = {.kind = FB_TRAILING_ICON, .icon = MESH_UI_ICON_CHEVRON},
+            };
+            fb_list_item(state, &list, i, &row);
         } else {
             const struct fb_list_item row = {
                 .label = item->label,
                 .label_cols = label_cols,
-                .marker = " ",
                 .value = item->value,
                 .tone = MESH_UI_TONE_NORMAL,
             };
@@ -671,7 +760,7 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
     }
     if (!snapshot->handshake_valid || snapshot->handshake.node_count == 0U) {
         fb_draw_title(state, layout, mesh_str(MESH_STR_TAB_NODES));
-        fb_draw_empty(state, layout,
+        fb_draw_empty(state, layout, MESH_UI_ICON_NODES,
                       mesh_str(snapshot->handshake_valid ? MESH_STR_NODES_EMPTY_WAITING
                                                          : MESH_STR_NODES_EMPTY_DISCONNECTED));
         return;
@@ -817,12 +906,12 @@ static void fb_render_compose(struct mesh_ui_backend_fb_state *state,
     struct mesh_ui_line line;
     uint32_t i;
     while (fb_list_next(&list, &i)) {
+        const bool is_draft = (i == MESH_UI_COMPOSE_ROW_DRAFT);
         mesh_ui_line_reset(&line);
         /* The draft is the row that opens the keyboard and the rest are texts to send as they
            stand, which is a difference in kind rather than in indentation - so it is the
            accent tone and the accent edge that say so, and the two spaces the canned rows used
            to be pushed over by are gone. */
-        const bool is_draft = (i == MESH_UI_COMPOSE_ROW_DRAFT);
         if (is_draft) {
             if (nav->draft[0] != '\0') {
                 mesh_ui_line_str(&line, MESH_STR_COMPOSE_DRAFT, nav->draft);
@@ -855,7 +944,7 @@ static void fb_render_picker(struct mesh_ui_backend_fb_state *state,
     fb_title_count(title, sizeof title, mesh_str(MESH_STR_PICKER_TITLE), count, 0U);
     fb_draw_title(state, layout, title);
     if (count == 0U) {
-        fb_draw_empty(state, layout, mesh_str(MESH_STR_PICKER_EMPTY));
+        fb_draw_empty(state, layout, MESH_UI_ICON_MESSAGES, mesh_str(MESH_STR_PICKER_EMPTY));
         return;
     }
 
@@ -890,6 +979,9 @@ static void fb_render_picker(struct mesh_ui_backend_fb_state *state,
                 {
                     .kind = FB_LEADING_AVATAR,
                     .label = initials,
+                    /* A channel's disc carries the tag rather than the '#' the nav layer hands
+                       back, which is what the conversation list puts in the same disc. */
+                    .icon = is_channel ? MESH_UI_ICON_CHANNEL : MESH_UI_ICON_NONE,
                     .tint = tint,
                     .role = current ? MESH_UI_COLOR_ACCENT : MESH_UI_COLOR_COUNT,
                 },
@@ -1001,12 +1093,29 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
 
     const int action_w = grid_w / (int)MESH_UI_KB_ACTIONS;
     for (unsigned col = 0; col < MESH_UI_KB_ACTIONS; ++col) {
+        const enum mesh_ui_kb_action action = (enum mesh_ui_kb_action)col;
+        /*
+         * Four of the five keys are symbols, which is what a soft keyboard's action row is on
+         * every platform: the words for them ("space", "delete", "send") are among the longest
+         * strings in the catalog and these are the narrowest boxes on the screen. The layer key
+         * keeps its label, because what it says - "ABC", "abc", "#!" - is the layer it switches
+         * to, and no symbol carries that.
+         */
+        const enum mesh_ui_icon icon =
+            action == MESH_UI_KB_ACTION_SPACE    ? MESH_UI_ICON_SPACE
+            : action == MESH_UI_KB_ACTION_DELETE ? MESH_UI_ICON_BACKSPACE
+            : action == MESH_UI_KB_ACTION_CANCEL ? MESH_UI_ICON_CLOSE
+            : action == MESH_UI_KB_ACTION_SEND
+                ? (nav->keyboard_field != MESH_UI_FIELD_NONE ? MESH_UI_ICON_CHECK
+                                                             : MESH_UI_ICON_SEND)
+                : MESH_UI_ICON_NONE;
         const struct fb_button button = {
             .rect = {.x = margin + (int)col * action_w,
                      .y = y,
                      .w = action_w - scale,
                      .h = cell_h - scale},
-            .label = mesh_ui_kb_action_label(nav, (enum mesh_ui_kb_action)col),
+            .icon = icon,
+            .label = icon == MESH_UI_ICON_NONE ? mesh_ui_kb_action_label(nav, action) : "",
             .selected = (nav->kb_row == MESH_UI_KB_CHAR_ROWS && nav->kb_col == col),
             .variant = FB_BUTTON_FILLED,
             .shape = MESH_UI_SHAPE_SM,
@@ -1028,7 +1137,7 @@ static void fb_render_devices(struct mesh_ui_backend_fb_state *state,
     fb_draw_title(state, layout, title);
 
     if (snapshot->device_count == 0U) {
-        fb_draw_empty(state, layout, mesh_str(MESH_STR_DEVICES_EMPTY));
+        fb_draw_empty(state, layout, MESH_UI_ICON_DEVICES, mesh_str(MESH_STR_DEVICES_EMPTY));
         return;
     }
 
@@ -1042,7 +1151,6 @@ static void fb_render_devices(struct mesh_ui_backend_fb_state *state,
     struct fb_list list = fb_list_begin_rows(layout, (uint32_t)snapshot->device_count,
                                              nav->cursor[MESH_UI_SCREEN_DEVICES], 2U);
     char trailing[16];
-    char initials[MESH_UI_CONVERSATION_INITIALS_MAX];
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         const struct mesh_ui_device *device = &snapshot->devices[i];
@@ -1083,13 +1191,16 @@ static void fb_render_devices(struct mesh_ui_backend_fb_state *state,
 
         /* The disc states its fill rather than taking a tint: a device list is four rows about
            one question - which of these am I on - and six hues would be answering a question
-           nobody asked. Connected is the good tone, armed to be forgotten is the bad one. */
-        mesh_ui_nav_initials(name, initials, sizeof initials);
+           nobody asked. Connected is the good tone, armed to be forgotten is the bad one.
+           What it carries is the transport, not initials: the name is already the next thing
+           on the row, and which bus a radio is on is the one fact about it the words do not
+           repeat. */
         const struct fb_list_item row = {
             .leading =
                 {
                     .kind = FB_LEADING_AVATAR,
-                    .label = initials,
+                    .icon = device->kind == (uint8_t)MESH_UI_DEVICE_SERIAL ? MESH_UI_ICON_USB
+                                                                           : MESH_UI_ICON_BLUETOOTH,
                     .tint = i,
                     .role = device->connected ? MESH_UI_COLOR_GOOD
                             : armed           ? MESH_UI_COLOR_BAD
@@ -1166,7 +1277,7 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
 
     const struct mesh_ui_device *connected = fb_connected_device(snapshot);
 
-    fb_card_begin(&card, MESH_STR_STATUS_CARD_LINK,
+    fb_card_begin(&card, MESH_UI_ICON_LINK, MESH_STR_STATUS_CARD_LINK,
                   connected != NULL ? MESH_UI_TONE_GOOD : MESH_UI_TONE_BAD);
     fb_card_row_text(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_TRANSPORT,
                      snapshot->transport_status[0] != '\0'
@@ -1236,7 +1347,7 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
                                          : MESH_UI_TONE_GOOD;
     }
 
-    fb_card_begin(&card, MESH_STR_STATUS_CARD_MESH,
+    fb_card_begin(&card, MESH_UI_ICON_NODES, MESH_STR_STATUS_CARD_MESH,
                   air_tone != MESH_UI_TONE_NORMAL ? air_tone : MESH_UI_TONE_ACCENT);
     if (snapshot->handshake_valid) {
         const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
@@ -1361,7 +1472,7 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
      * So the battery and the radio's own words come first and the heap figure last, because a
      * free-heap number is the row a user would have scrolled past anyway.
      */
-    fb_card_begin(&card, MESH_STR_STATUS_CARD_RADIO, radio_tone);
+    fb_card_begin(&card, MESH_UI_ICON_RADIO, MESH_STR_STATUS_CARD_RADIO, radio_tone);
     if (have_battery || have_uptime) {
         buffer[0] = '\0';
         if (have_battery) {
@@ -1422,7 +1533,7 @@ static void fb_render_status(const struct mesh_ui_backend_fb_state *state,
 /* "Save <section>?" for the sections whose write can cut this client off, and "Reboot the
    radio?" and its siblings for the Radio actions section. Which of the two it is standing in
    front of is nav->confirm_action; all three strings come from settings.c. */
-static void fb_render_confirm(const struct mesh_ui_backend_fb_state *state,
+static void fb_render_confirm(struct mesh_ui_backend_fb_state *state,
                               const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     const enum mesh_ui_settings_section section =
@@ -1445,14 +1556,22 @@ static void fb_render_confirm(const struct mesh_ui_backend_fb_state *state,
     struct fb_list list = fb_list_begin(&choices, 2U, nav->confirm_cursor);
     const char *const rows[] = {mesh_ui_settings_confirm_accept(confirmed),
                                 mesh_str(MESH_STR_COMMON_CANCEL)};
+    /* Go through with it, or do not: the two answers a confirmation has, said the way every
+       dialog says them. */
+    const enum mesh_ui_icon icons[] = {MESH_UI_ICON_CHECK, MESH_UI_ICON_CLOSE};
     uint32_t i;
     while (fb_list_next(&list, &i)) {
-        fb_list_row(state, &list, i, rows[i], i == 0U ? MESH_UI_TONE_ACCENT : MESH_UI_TONE_NORMAL);
+        const struct fb_list_item row = {
+            .leading = {.kind = FB_LEADING_ICON, .icon = icons[i]},
+            .text = rows[i],
+            .tone = i == 0U ? MESH_UI_TONE_ACCENT : MESH_UI_TONE_NORMAL,
+        };
+        fb_list_item(state, &list, i, &row);
     }
 }
 
 /* Settings: the section list, or one section's label/value rows. Editable rows show a
-   pending edit in place of the radio's value with a marker until Y saves it. */
+   pending edit in place of the radio's value, marked with a dot until Y saves it. */
 /* Takes the state mutably, unlike its neighbours: the switches on the toggle rows step an
    animation kept on it. Nothing else here writes to the state. */
 static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
@@ -1491,7 +1610,8 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
        radio, and each of its rows says "not loaded" on its own. */
     if (!settings->loaded && (handshake == NULL || !handshake->has_my_info) && section_open &&
         section != MESH_UI_SETTINGS_ABOUT && section != MESH_UI_SETTINGS_MODULES) {
-        fb_draw_empty(state, layout, mesh_str(MESH_STR_SETTINGS_EMPTY_DISCONNECT));
+        fb_draw_empty(state, layout, MESH_UI_ICON_SETTINGS,
+                      mesh_str(MESH_STR_SETTINGS_EMPTY_DISCONNECT));
         return;
     }
 
@@ -1499,7 +1619,8 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                                                                       nav->settings_channel)
                                         : mesh_ui_settings_root_count();
     if (count == 0U) {
-        fb_draw_empty(state, layout, mesh_str(MESH_STR_SETTINGS_EMPTY_SECTION));
+        fb_draw_empty(state, layout, MESH_UI_ICON_SETTINGS,
+                      mesh_str(MESH_STR_SETTINGS_EMPTY_SECTION));
         return;
     }
 
@@ -1524,12 +1645,16 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                 fb_list_row_line(state, &list, i, &line, MESH_UI_TONE_DIM);
                 continue;
             }
-            /* Editable rows carry a marker so the eye can tell what Left/Right will act on;
-               channel rows open with A. */
-            const char *marker = item.dirty                            ? "* "
-                                 : item.field != MESH_UI_FIELD_NONE    ? "> "
-                                 : item.kind == MESH_UI_SETTING_ACTION ? "> "
-                                                                       : "  ";
+            /*
+             * What the row offers, in the marker gutter: the pencil on one Left and Right
+             * change, and the dot on one already changed and not yet written. An action row
+             * offers something else - it opens - and says so with the chevron every row that
+             * opens something ends in, on the trailing edge rather than in the gutter.
+             */
+            const enum mesh_ui_icon marker = item.dirty ? MESH_UI_ICON_UNSAVED
+                                             : item.field != MESH_UI_FIELD_NONE ? MESH_UI_ICON_EDIT
+                                                                                : MESH_UI_ICON_NONE;
+            const bool opens = (item.kind == MESH_UI_SETTING_ACTION);
             const enum mesh_ui_tone tone = item.dirty ? MESH_UI_TONE_STRONG : MESH_UI_TONE_NORMAL;
             /*
              * A boolean gets a switch rather than the words. The words are still what the CLI
@@ -1554,7 +1679,7 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                 const struct fb_list_item row = {
                     .label = item.label,
                     .label_cols = label_cols,
-                    .marker = marker,
+                    .marker_icon = marker,
                     .tone = tone,
                     .trailing = {.kind = FB_TRAILING_SWITCH, .sw = &sw},
                 };
@@ -1564,9 +1689,11 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
             const struct fb_list_item row = {
                 .label = item.label,
                 .label_cols = label_cols,
-                .marker = marker,
+                .marker_icon = marker,
                 .value = item.value,
                 .tone = tone,
+                .trailing = {.kind = FB_TRAILING_ICON,
+                             .icon = opens ? MESH_UI_ICON_CHEVRON : MESH_UI_ICON_NONE},
             };
             fb_list_item(state, &list, i, &row);
         } else {
@@ -1575,9 +1702,10 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
             const struct fb_list_item row = {
                 .label = mesh_ui_settings_section_name(section_row),
                 .label_cols = label_cols,
-                .marker = "",
                 .value = loaded ? "" : mesh_str(MESH_STR_SETTINGS_NOT_LOADED),
                 .tone = loaded ? MESH_UI_TONE_NORMAL : MESH_UI_TONE_DIM,
+                /* Every row here opens a section, which is what the section list *is*. */
+                .trailing = {.kind = FB_TRAILING_ICON, .icon = MESH_UI_ICON_CHEVRON},
             };
             fb_list_item(state, &list, i, &row);
         }

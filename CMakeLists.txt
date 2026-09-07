@@ -81,6 +81,8 @@ add_library(meshclient_core
     src/ui/theme.c
     src/ui/emoji.c
     src/ui/emoji_glyphs.c
+    src/ui/icon.c
+    src/ui/icon_glyphs.c
     src/ui/preferences.c
     src/ui/layout.c
 )

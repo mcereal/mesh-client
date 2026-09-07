@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+"""Rasterise Material Symbols into the monochrome sprite table the UI draws its icons from.
+
+This is not part of the build. Run it by hand when include/mesh/ui/icons.def changes and commit
+the generated file, so the build stays dependency-free and CI never reaches the network.
+
+    python3 -m venv .venv && .venv/bin/pip install fonttools pillow
+    curl -sSLo MaterialSymbolsRounded.ttf 'https://raw.githubusercontent.com/google/\
+material-design-icons/master/variablefont/MaterialSymbolsRounded%5BFILL%2CGRAD%2Copsz%2Cwght%5D.ttf'
+    .venv/bin/python scripts/gen-icons.py MaterialSymbolsRounded.ttf src/ui/icon_glyphs.c
+
+The icons and their glyph names come from include/mesh/ui/icons.def, which is also what builds
+`enum mesh_ui_icon` - so the enum and the sprites are generated from one list and cannot drift.
+
+Material Symbols is under the Apache License 2.0; licenses/Apache-2.0-MaterialSymbols.txt
+travels with the generated data.
+
+Why the axes and the crop are what they are:
+
+  FILL=1     A filled symbol survives being drawn at a couple of dozen pixels; an outlined one
+             is a 1 px stroke by then, and thins to nothing wherever it curves. Compare `star`.
+  wght=500   Half a step heavier than the default, which is what keeps the strokes that stay
+             strokes at any fill - the chevron, the check, the bluetooth rune - above one pixel.
+  opsz=20    The optical size the font itself is drawn for at this scale.
+  crop       Material draws on a 24 grid with the symbol inside the central 20, so cropping to
+             that 20 spends every pixel of the sprite on the symbol. Keeping the padding would
+             throw a sixth of the height away on a panel where the whole icon is a couple of
+             dozen pixels across.
+  SIZE=32    Bigger than the cell an icon usually lands in (28 px at the body scale), because
+             the empty screens draw one at several times that and a sprite scaled up 5x reads
+             as a smudge. The whole set is still under 10 KB.
+"""
+
+import re
+import sys
+
+from fontTools.ttLib import TTFont
+from PIL import Image, ImageDraw, ImageFont
+
+SIZE = 32  # sprite edge, in pixels
+LEVELS = 16  # coverage values per pixel: 4 bits, 0 to 15
+GRID = 240  # design grid the glyph is rasterised at before it is scaled down
+BODY = 200  # the part of that grid the symbol occupies, on Material's 24/20 proportions
+AXES = {"FILL": 1.0, "GRAD": 0.0, "opsz": 20.0, "wght": 500.0}
+
+ENTRY = re.compile(r'^MESH_ICON_ENTRY\(\s*(\w+)\s*,\s*"([^"]+)"\s*\)')
+
+
+def catalog(path):
+    """(id, glyph name) for every icon in icons.def, in enum order."""
+    out = []
+    for line in open(path):
+        match = ENTRY.match(line.strip())
+        if match is not None:
+            out.append((match.group(1), match.group(2)))
+    return out
+
+
+def render(font, codepoint):
+    """One glyph as SIZE x SIZE coverage values, 0 to LEVELS - 1."""
+    canvas = Image.new("L", (GRID * 2, GRID * 2), 0)
+    ImageDraw.Draw(canvas).text((GRID // 2, GRID // 2), chr(codepoint), fill=255, font=font)
+    # The text origin puts the design grid at (GRID/2, GRID/2), one em square across.
+    pad = (GRID - BODY) // 2
+    body = canvas.crop((GRID // 2 + pad, GRID // 2 + pad, GRID // 2 + pad + BODY, GRID // 2 + pad + BODY))
+    small = body.resize((SIZE, SIZE), Image.LANCZOS)
+    step = 255 // (LEVELS - 1)
+    return [min(LEVELS - 1, (value + step // 2) // step) for value in small.getdata()]
+
+
+def rle(values):
+    """(count, value) pairs, counts capped at 255."""
+    out = []
+    for value in values:
+        if out and out[-1][1] == value and out[-1][0] < 255:
+            out[-1][0] += 1
+        else:
+            out.append([1, value])
+    return out
+
+
+def main():
+    if len(sys.argv) != 3:
+        print(__doc__)
+        return 1
+    font_path, out_path = sys.argv[1], sys.argv[2]
+
+    root = __file__.rsplit("/", 2)[0]
+    icons = catalog(root + "/include/mesh/ui/icons.def")
+
+    cmap = {name: cp for cp, name in TTFont(font_path, lazy=True).getBestCmap().items()}
+    missing = [glyph for _, glyph in icons if glyph not in cmap]
+    if missing:
+        print("not in the font: " + ", ".join(missing), file=sys.stderr)
+        return 1
+
+    face = ImageFont.truetype(font_path, GRID)
+    face.set_variation_by_axes([AXES[axis.axisTag] for axis in TTFont(font_path, lazy=True)["fvar"].axes])
+
+    # MESH_UI_ICON_NONE is enum id 0 and draws nothing, so it gets a blank sprite rather than a
+    # special case in the decoder.
+    sprites = [(("NONE", "-"), [0] * (SIZE * SIZE))]
+    sprites += [((name, glyph), render(face, cmap[glyph])) for name, glyph in icons]
+
+    runs = []
+    offsets = []
+    for _, pixels in sprites:
+        offsets.append(len(runs) // 2)
+        for count, value in rle(pixels):
+            runs.append(count)
+            runs.append(value)
+    offsets.append(len(runs) // 2)
+
+    with open(out_path, "w") as f:
+        w = f.write
+        w("/*\n")
+        w(" * Generated by scripts/gen-icons.py from Material Symbols Rounded - do not edit by hand.\n")
+        w(" *\n")
+        w(" * Material Symbols is licensed under the Apache License 2.0; the licence text is in\n")
+        w(" * licenses/Apache-2.0-MaterialSymbols.txt and covers this derived data too.\n")
+        w(" *\n")
+        w(" * %d sprites of %dx%d at %d coverage levels, %d runs. The icons and their glyph names\n"
+          % (len(sprites), SIZE, SIZE, LEVELS, len(runs) // 2))
+        w(" * are include/mesh/ui/icons.def; the axes are FILL %g, GRAD %g, opsz %g, wght %g.\n"
+          % (AXES["FILL"], AXES["GRAD"], AXES["opsz"], AXES["wght"]))
+        w(" */\n\n")
+        w('#include "mesh/ui/icon.h"\n\n')
+
+        w("/* (count, coverage) pairs, one run after another, icon by icon. */\n")
+        w("static const uint8_t k_runs[] = {\n")
+        for i in range(0, len(runs), 12):
+            w("    " + " ".join("0x%02X," % value for value in runs[i:i + 12]) + "\n")
+        w("};\n\n")
+
+        w("/* Where each icon's runs start, plus a final entry so the last icon has an end.\n")
+        w("   One line per icon, named, because this is the table a bad merge shows up in. */\n")
+        w("static const uint32_t k_run_offsets[MESH_UI_ICON_COUNT + 1] = {\n")
+        for index, ((name, glyph), _) in enumerate(sprites):
+            w("    %-6s /* MESH_UI_ICON_%s (%s) */\n" % (str(offsets[index]) + ",", name, glyph))
+        w("    %-6s /* end */\n" % (str(offsets[-1]) + ","))
+        w("};\n\n")
+
+        w("const struct mesh_ui_icon_table mesh_ui_icon_table = {\n")
+        w("    .runs = k_runs,\n")
+        w("    .run_offsets = k_run_offsets,\n")
+        w("};\n")
+
+    print("%s: %d sprites, %d runs, %d bytes of run data"
+          % (out_path, len(sprites), len(runs) // 2, len(runs)))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

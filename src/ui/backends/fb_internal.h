@@ -24,6 +24,7 @@
  */
 
 #include "mesh/ui/anim.h"
+#include "mesh/ui/icon.h"
 #include "mesh/ui/store.h"
 #include "mesh/ui/theme.h"
 
@@ -141,6 +142,21 @@ void fb_draw_row(const struct mesh_ui_backend_fb_state *state, int y, const char
                  struct mesh_ui_rgb color, bool selected);
 void fb_draw_text(const struct mesh_ui_backend_fb_state *state, int x, int y, const char *text,
                   int scale, struct mesh_ui_rgb color);
+/* The box an icon is drawn in: one text cell, so a row that puts one in front of its words is
+   still measured in columns like every other row. */
+int fb_icon_box(const struct mesh_ui_backend_fb_state *state, int scale);
+/* The largest multiplier fb_draw_icon() will draw at: everything in a row is drawn at the
+   text's scale, and the empty state's symbol is the one thing bigger than that. */
+#define FB_ICON_SCALE_MAX (MESH_UI_SCALE_MAX * 3)
+
+/*
+ * One icon, in `ink`, blended against `ground` - the colour the caller has just filled behind
+ * it. Placed like a glyph: `x` is the cell's left edge and `y` the text baseline it lines up
+ * with. MESH_UI_ICON_NONE draws nothing, so a slot that is empty needs no test.
+ */
+void fb_draw_icon(const struct mesh_ui_backend_fb_state *state, int x, int y,
+                  enum mesh_ui_icon icon, int scale, struct mesh_ui_rgb ink,
+                  struct mesh_ui_rgb ground);
 int fb_draw_wrapped(const struct mesh_ui_backend_fb_state *state, int y, const char *text,
                     size_t cols, int max_lines, struct mesh_ui_rgb color);
 void fb_fill_rect(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h,

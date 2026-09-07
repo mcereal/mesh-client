@@ -30,6 +30,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/transport_serial.c
     suites/ui_anim.c
     suites/ui_capture.c
+    suites/ui_icon.c
     suites/ui_input.c
     suites/ui_layout.c
     suites/ui_nav_messaging.c
