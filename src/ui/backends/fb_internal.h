@@ -174,6 +174,10 @@ void fb_draw_icon(const struct mesh_ui_backend_fb_state *state, int x, int y,
                   struct mesh_ui_rgb ground);
 int fb_draw_wrapped(const struct mesh_ui_backend_fb_state *state, int y, const char *text,
                     size_t cols, int max_lines, struct mesh_ui_rgb color);
+/* The same from an explicit left edge, for text inset into a container rather than into the
+   body - a dialog's supporting paragraph. */
+int fb_draw_wrapped_at(const struct mesh_ui_backend_fb_state *state, int x, int y, const char *text,
+                       size_t cols, int max_lines, struct mesh_ui_rgb color);
 void fb_fill_rect(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h,
                   struct mesh_ui_rgb color);
 /*

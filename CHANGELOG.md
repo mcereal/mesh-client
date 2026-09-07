@@ -1,3 +1,13 @@
+## [2.14.0](https://github.com/mcereal/mesh-client/compare/v2.13.0...v2.14.0) (2026-09-07)
+
+### Features
+
+* **ui:** draw the draft box and the confirmation as components ([56befdc](https://github.com/mcereal/mesh-client/commit/56befdcc7d0952916780efb57c52cc2c58526fe4))
+
+### Bug Fixes
+
+* **ui:** stack a dialog's answers when they will not fit side by side ([47a6d53](https://github.com/mcereal/mesh-client/commit/47a6d537d92bd0a59dce2d345c71c88d579a8f07))
+
 ## [2.13.0](https://github.com/mcereal/mesh-client/compare/v2.12.2...v2.13.0) (2026-09-07)
 
 ### Features

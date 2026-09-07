@@ -49,6 +49,10 @@ MESH_ICON_ENTRY(EDIT,      "edit")
 MESH_ICON_ENTRY(UNSAVED,   "fiber_manual_record")
 MESH_ICON_ENTRY(CHECK,     "check")
 MESH_ICON_ENTRY(CLOSE,     "close")
+/* This asks before it acts, and what it would do cannot be taken back - a reboot drops the
+   link, a NodeDB reset empties the roster. The one icon a dialog draws, and only when the
+   answer is that kind. */
+MESH_ICON_ENTRY(WARNING,   "warning")
 
 /* ---- who and where --------------------------------------------------------------------------
  *

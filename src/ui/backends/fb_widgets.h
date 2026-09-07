@@ -110,6 +110,19 @@ void fb_draw_button(const struct mesh_ui_backend_fb_state *state, const struct f
 int fb_draw_chip(const struct mesh_ui_backend_fb_state *state, int x, int y, enum mesh_ui_icon icon,
                  const char *label, bool active, enum mesh_ui_color ground, int scale);
 
+/*
+ * What a button wants to be, for the content it carries: its icon, its label, and the padding
+ * either side of them.
+ *
+ * A button is normally given a rect by whatever is laying a grid out - the keyboard's keys are
+ * all one cell wide because they are a grid. A dialog's action row is not a grid: two buttons
+ * sit against a trailing edge and each is as wide as its own words, which is a measurement, and
+ * a caller that worked it out itself would be padding a button by a number the button did not
+ * agree with.
+ */
+int fb_button_width(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_icon icon,
+                    const char *label, int scale);
+
 /* What one chip takes, its trailing gap included - so a strip can ask whether it fits before it
    draws anything. The same arithmetic fb_draw_chip() advances by, because a strip that measured
    itself differently from the way it draws is a strip whose last tab falls off the panel. */
@@ -572,6 +585,97 @@ int fb_card_height(const struct mesh_ui_backend_fb_state *state, const struct fb
  */
 bool fb_draw_card(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
                   int *y, const struct fb_card *card);
+
+/* ---- the text field -------------------------------------------------------------------------
+ *
+ * A box holding text that is being typed, with a label over it and a counter under it.
+ *
+ * The on-screen keyboard drew this by hand: the outline, the fill inside it, the corner radius,
+ * where the caret goes, which tail of an overlong draft to show, and the right edge the counter
+ * is aligned against. That is a container's geometry written out in a screen renderer, which is
+ * the one thing fb_screens.c is not supposed to contain - and it was the last of it.
+ *
+ * There is one field on screen at a time and it is always the thing being edited, so there is
+ * no unfocused state to draw: a text field here is a *focused* text field, which is why it has
+ * no `selected` and takes no cursor index. What it does have is the two things the keyboard got
+ * wrong when it owned them:
+ *
+ *   - **the tail, not the head.** A draft longer than the box shows its *end*, because the end
+ *     is where the caret is and the caret is what the next press moves. Measured in cells, so a
+ *     draft of emoji scrolls by glyphs rather than by bytes.
+ *   - **the counter is outside the box.** It reports on the field rather than being part of
+ *     what is typed, and text inside the fill that is not the value reads as the value.
+ */
+
+struct fb_text_field {
+    /* Over the box, at the chrome scale - what Material would float on the outline. "" for a
+       field whose screen title already says what it holds. */
+    const char *label;
+    const char *value;
+    /* The caret after the value. A block rather than a bar, because at this glyph scale a
+       one-pixel rule beside a five-pixel-wide cell is not findable. */
+    bool caret;
+    /* Wrapped lines the box holds. 0 is read as 1; the box is this tall whether or not the
+       value fills it, so it does not change height as somebody types. */
+    uint32_t lines;
+    /* Under the box, against its trailing edge: "12/233". "" for none. */
+    const char *counter;
+    /* The value is not something the field will accept - the outline and the counter take the
+       bad tone. Nothing here decides that; a screen does. */
+    bool error;
+};
+
+/* Pixels the field occupies, label and counter included - what a screen laying something out
+   under it needs, and what fb_draw_text_field() advances by. */
+int fb_text_field_height(const struct mesh_ui_backend_fb_state *state,
+                         const struct fb_layout *layout, const struct fb_text_field *field);
+
+/* Draws it with its top edge at `*y` and advances `*y` past it. */
+void fb_draw_text_field(const struct mesh_ui_backend_fb_state *state,
+                        const struct fb_layout *layout, int *y, const struct fb_text_field *field);
+
+/* ---- the dialog -------------------------------------------------------------------------------
+ *
+ * A raised panel that asks one question and offers two answers.
+ *
+ * The confirmation screen was a title, four lines of wrapped text on the bare ground, and the
+ * two answers as ordinary list rows under them - which is to say it looked exactly like every
+ * other list in the app, at the one moment the app is asking rather than showing. A dialog is
+ * the shape that difference has everywhere else: the question lifted onto its own surface, and
+ * the answers as *buttons* rather than as rows.
+ *
+ * It fills the body rather than floating over it, and that is deliberate rather than a
+ * shortcut. A dialog elsewhere dims what is behind it with a scrim, and a scrim is alpha; the
+ * Brick's display engine composites fb0 against its own layer, so there is nothing to blend
+ * against and no scrim to draw. What stands in for it is that nothing else is on screen -
+ * fb_render_confirm() is a screen, not an overlay - so there is nothing left to dim.
+ *
+ * The action row is the reason the two answers move off the list. Both are one press away
+ * whichever is under the cursor, so the pair reads as a choice rather than as a menu; and the
+ * accept is a filled button while the cancel shows no fill at all, which is how every dialog
+ * says which answer it is proposing without the words having to.
+ */
+
+struct fb_dialog {
+    /* Over the headline, drawn large in the accent - or in the bad tone when `destructive`.
+       MESH_UI_ICON_NONE for none, and the panel closes up the room it would have taken. */
+    enum mesh_ui_icon icon;
+    const char *headline;
+    /* The supporting paragraph, wrapped across the panel. "" for a question that needs none. */
+    const char *text;
+    const char *accept;
+    const char *cancel;
+    /* 0 is accept, 1 is cancel - the same index nav.confirm_cursor carries, which every
+       direction toggles. */
+    uint32_t cursor;
+    /* What it goes through with cannot be undone: the icon and the accept button take the bad
+       tone instead of the accent. */
+    bool destructive;
+};
+
+/* Draws the dialog into the body. It owns the whole of it, so there is no `y` to advance. */
+void fb_draw_dialog(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                    const struct fb_dialog *dialog);
 
 /* ---- the snackbar -------------------------------------------------------------------------
  *

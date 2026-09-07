@@ -15,6 +15,7 @@
 
 #include "mesh/ui/backends/fb_capture.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
 #include "mesh/ui/theme.h"
 
@@ -487,5 +488,282 @@ MESH_TEST_CASE(ui_capture_writes_a_ppm, unit) {
                               "the PPM is not header plus one RGB triple per pixel");
 
     mesh_ui_capture_close(capture);
+    record_success(test_name);
+}
+
+/* Long runs of one colour on a single scanline, ignoring the two grounds a dialog is built
+   from - the body behind it and the panel itself. A filled control is such a run; a glyph, a
+   hairline outline and an antialiased icon edge are all far shorter. */
+static uint32_t pixel_key(const uint8_t *pixel) {
+    /* 32 bpp with every bitfield zero, which is what the capture fabricates: B,G,R,X. */
+    return (uint32_t)pixel[0] | ((uint32_t)pixel[1] << 8) | ((uint32_t)pixel[2] << 16);
+}
+
+static uint32_t rgb_key(struct mesh_ui_rgb rgb) {
+    return (uint32_t)rgb.b | ((uint32_t)rgb.g << 8) | ((uint32_t)rgb.r << 16);
+}
+
+/* Rows the dialog's raised panel covers, found by its fill rather than by re-deriving the
+   layout here - a test that computed the panel's geometry itself would agree with a broken
+   renderer. */
+static void panel_rows(const uint8_t *pixels, uint32_t width, uint32_t height, size_t stride,
+                       const struct mesh_ui_theme *theme, uint32_t *top, uint32_t *bottom) {
+    const uint32_t panel = rgb_key(mesh_ui_theme_color(theme, MESH_UI_COLOR_SURFACE_HIGH));
+    *top = height;
+    *bottom = 0U;
+    for (uint32_t y = 0; y < height; ++y) {
+        const uint8_t *row = pixels + (size_t)y * stride;
+        uint32_t run = 0U;
+        for (uint32_t x = 0; x < width; ++x) {
+            run = (pixel_key(row + (size_t)x * 4U) == panel) ? run + 1U : 0U;
+            if (run < 40U) {
+                continue;
+            }
+            if (y < *top) {
+                *top = y;
+            }
+            *bottom = y;
+            break;
+        }
+    }
+}
+
+/* Pixels that differ between two frames inside a rectangle. */
+static size_t differing_in(const uint8_t *a, const uint8_t *b, size_t stride, uint32_t x0,
+                           uint32_t x1, uint32_t y0, uint32_t y1) {
+    size_t differing = 0U;
+    for (uint32_t y = y0; y <= y1; ++y) {
+        for (uint32_t x = x0; x < x1; ++x) {
+            const size_t i = (size_t)y * stride + (size_t)x * 4U;
+            if (pixel_key(a + i) != pixel_key(b + i)) {
+                ++differing;
+            }
+        }
+    }
+    return differing;
+}
+
+/*
+ * Moving the cursor visibly changes the accept button, on every theme.
+ *
+ * This is the one thing a dialog has to get right and the one thing a palette can quietly take
+ * away. The obvious design gives the accept a standing tonal fill so it reads as the proposed
+ * answer and lets the cursor promote it to the full accent, and it looks correct on three of
+ * the four themes. On the high-contrast one it is unusable: that palette deliberately collapses
+ * ACCENT, ACCENT_CONTAINER and SURFACE_ACTIVE onto a single yellow, because a theme built for
+ * legibility has no "held back" version of its one accent. The accept then renders *identically*
+ * whether or not it is selected, and which answer A would press cannot be told at all - on the
+ * theme chosen by the people least able to guess.
+ *
+ * Two weaker assertions were tried first and both passed on the broken design, which is why the
+ * shape of this one matters. "The two frames differ" passes because the *cancel* button still
+ * changes. "Only one control is filled" cannot be counted from scanlines at all: a button's own
+ * label splits its fill into four separate runs of the same colour, so a single filled button
+ * already looks like four.
+ *
+ * So the assertion is narrowed to the accept button's own corner of the panel, across the two
+ * cursor positions. That region has to change, whatever the palette collapses.
+ */
+MESH_TEST_CASE(ui_capture_dialog_marks_the_selected_answer, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_capture *capture = NULL;
+    uint8_t *frames[2] = {NULL, NULL};
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    for (size_t t = 0; t < mesh_ui_theme_count() && failure == NULL; ++t) {
+        const struct mesh_ui_theme *theme = mesh_ui_theme_at(t);
+        uint32_t width = 0U;
+        uint32_t height = 0U;
+        size_t stride = 0U;
+
+        for (unsigned cursor = 0U; cursor < 2U && failure == NULL; ++cursor) {
+            store.nav.confirm_open = true;
+            store.nav.confirm_cursor = (uint8_t)cursor;
+            store.nav.screen = MESH_UI_SCREEN_SETTINGS;
+
+            struct mesh_ui_snapshot snapshot;
+            memset(&snapshot, 0, sizeof snapshot);
+            mesh_ui_store_request_refresh(&store);
+            if (!mesh_ui_store_consume_updates(&store, &snapshot) || !snapshot.nav.confirm_open) {
+                failure = "no snapshot carrying the confirm overlay";
+                break;
+            }
+            if (mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, 4) !=
+                0) {
+                failure = "capture open failed";
+                break;
+            }
+            mesh_ui_capture_set_theme(capture, theme);
+            const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+            mesh_ui_capture_render(capture, &snapshot);
+
+            frames[cursor] = malloc(stride * (size_t)height);
+            if (frames[cursor] == NULL) {
+                failure = "out of memory";
+            } else {
+                memcpy(frames[cursor], pixels, stride * (size_t)height);
+            }
+            mesh_ui_capture_close(capture);
+            capture = NULL;
+        }
+
+        if (failure == NULL) {
+            uint32_t top = 0U;
+            uint32_t bottom = 0U;
+            panel_rows(frames[0], width, height, stride, theme, &top, &bottom);
+            if (top >= bottom) {
+                failure = "the dialog drew no raised panel";
+            } else {
+                /* The action row is the foot of the panel, and the accept is the button against
+                   its trailing edge - so this rectangle is inside that button on every theme
+                   without the test having to know how wide its label is. */
+                const uint32_t band = bottom - (bottom - top) / 6U;
+                const uint32_t x0 = (width * 3U) / 4U;
+                const uint32_t x1 = (width * 93U) / 100U;
+                const size_t changed =
+                    differing_in(frames[0], frames[1], stride, x0, x1, band, bottom);
+                if (changed < 200U) {
+                    failure = "the accept button looks the same selected and not - which answer "
+                              "is chosen cannot be told on this theme";
+                }
+            }
+        }
+
+        free(frames[0]);
+        free(frames[1]);
+        frames[0] = NULL;
+        frames[1] = NULL;
+    }
+
+    free(frames[0]);
+    free(frames[1]);
+    if (capture != NULL) {
+        mesh_ui_capture_close(capture);
+    }
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A dialog's answers stay inside its panel, whatever the labels say and whatever the scale.
+ *
+ * The action row is laid out from the panel's trailing edge backwards, and the arithmetic is
+ * happy to produce a negative x: at the largest glyph scale "Reset the node database" wants more
+ * than the whole panel on its own, and beside Cancel it put the cancel button off the left-hand
+ * edge of the *screen*. On a destructive confirmation, where the answer that disappeared is the
+ * safe one.
+ *
+ * So the row stacks when the pair will not fit, and each label is fitted to the panel so a
+ * single button cannot overhang it either. What that has to mean, and what is asserted here, is
+ * that nothing the dialog draws lands outside the panel it belongs to.
+ */
+MESH_TEST_CASE(ui_capture_dialog_actions_stay_inside_the_panel, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_capture *capture = NULL;
+
+    /* Every action whose confirmation this screen can raise, so the longest label in the
+       catalog is covered rather than assumed - and the two factory resets with it. */
+    static const enum mesh_ui_settings_action actions[] = {
+        MESH_UI_SETTINGS_ACTION_NONE,
+        MESH_UI_SETTINGS_ACTION_REBOOT,
+        MESH_UI_SETTINGS_ACTION_SHUTDOWN,
+        MESH_UI_SETTINGS_ACTION_RESET_NODEDB,
+        MESH_UI_SETTINGS_ACTION_FORGET_OFF_RADIO_NODES,
+        MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES,
+        MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG,
+        MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE,
+    };
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    /* The largest multiplier the UI accepts, which is where the row overflowed. */
+    for (size_t a = 0; a < sizeof actions / sizeof actions[0] && failure == NULL; ++a) {
+        for (unsigned cursor = 0U; cursor < 2U && failure == NULL; ++cursor) {
+            store.nav.confirm_open = true;
+            store.nav.confirm_cursor = (uint8_t)cursor;
+            store.nav.confirm_action = (uint8_t)actions[a];
+            store.nav.screen = MESH_UI_SCREEN_SETTINGS;
+
+            struct mesh_ui_snapshot snapshot;
+            memset(&snapshot, 0, sizeof snapshot);
+            mesh_ui_store_request_refresh(&store);
+            if (!mesh_ui_store_consume_updates(&store, &snapshot) || !snapshot.nav.confirm_open) {
+                failure = "no snapshot carrying the confirm overlay";
+                break;
+            }
+            if (mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT,
+                                     MESH_UI_SCALE_MAX) != 0) {
+                failure = "capture open failed";
+                break;
+            }
+
+            uint32_t width = 0U;
+            uint32_t height = 0U;
+            size_t stride = 0U;
+            const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+            mesh_ui_capture_render(capture, &snapshot);
+
+            const struct mesh_ui_theme *theme = mesh_ui_capture_theme(capture);
+            const uint32_t bg = rgb_key(mesh_ui_theme_color(theme, MESH_UI_COLOR_BG));
+            const uint32_t panel_fill =
+                rgb_key(mesh_ui_theme_color(theme, MESH_UI_COLOR_SURFACE_HIGH));
+
+            uint32_t top = 0U;
+            uint32_t bottom = 0U;
+            panel_rows(pixels, width, height, stride, theme, &top, &bottom);
+            if (top >= bottom) {
+                failure = "the dialog drew no raised panel";
+                mesh_ui_capture_close(capture);
+                capture = NULL;
+                break;
+            }
+
+            /* The panel's left edge, taken from the widest of its rows so a rounded corner is
+               not mistaken for the inset. */
+            uint32_t left = width;
+            for (uint32_t y = top; y <= bottom; ++y) {
+                const uint8_t *row = pixels + (size_t)y * stride;
+                for (uint32_t x = 0; x < left; ++x) {
+                    if (pixel_key(row + (size_t)x * 4U) == panel_fill) {
+                        left = x;
+                        break;
+                    }
+                }
+            }
+
+            /* Anything drawn to the left of the panel, on the rows the panel covers, escaped
+               it - the clipped cancel button landed exactly here. The panel's own edge is laid
+               down just outside its fill and is not an escape. */
+            const uint32_t outline = rgb_key(mesh_ui_theme_color(theme, MESH_UI_COLOR_OUTLINE));
+            size_t escaped = 0U;
+            for (uint32_t y = top; y <= bottom && left > 0U; ++y) {
+                const uint8_t *row = pixels + (size_t)y * stride;
+                for (uint32_t x = 0; x < left; ++x) {
+                    const uint32_t key = pixel_key(row + (size_t)x * 4U);
+                    if (key != bg && key != outline) {
+                        ++escaped;
+                    }
+                }
+            }
+            mesh_ui_capture_close(capture);
+            capture = NULL;
+
+            if (escaped > 0U) {
+                failure = "a dialog control is drawn outside its own panel";
+            }
+        }
+    }
+
+    if (capture != NULL) {
+        mesh_ui_capture_close(capture);
+    }
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }

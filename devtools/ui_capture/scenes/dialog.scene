@@ -1,0 +1,33 @@
+# The confirmation dialog and the text field - the two containers that used to be drawn by hand.
+#
+# Watch the action row rather than the panel: exactly one button carries a fill and it is always
+# the one the cursor is on. The dialog opens on Cancel deliberately, so the first frame shows the
+# safe answer filled and "Reboot now" as an accent-labelled text button - then Right moves the
+# fill across. That is the whole of how it says which answer A would press, and it is a fill
+# rather than a pair of fills because the high-contrast palette has only one yellow to spend.
+
+scene demo
+scale 4
+delay 200
+
+tab settings
+key down 12
+key a
+hold 700
+
+# Radio actions: the row under the "Power" heading is Reboot, whose confirmation is destructive -
+# the warning icon and the headline take the bad tone rather than the accent.
+key down 1
+key a
+hold 1200
+key right
+hold 1200
+key left
+hold 1200
+
+# The same panel on a palette with one accent and no held-back version of it. The buttons cannot
+# be told apart by hue here, which is exactly why the fill moves instead of being shared.
+theme contrast
+hold 1600
+theme light
+hold 1600
