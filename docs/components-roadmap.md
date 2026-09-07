@@ -160,13 +160,13 @@ layout-model change with a component set on the far side, not as a widget.
 
 ### 1.5 The icon set is a prerequisite, not a detail
 
-`include/mesh/ui/icons.def` holds twenty-three entries, and four of the components below name a
-glyph that is not among them: §2.5's checkbox and radio, §2.9's banner (an `info` and an
-`error`), §2.15's back affordance, §2.14's star. Adding one is not a line of code. It is a line
-in the `.def`, then `scripts/gen-icons.py` against a Material Symbols Rounded font that is not
-in this tree, then committing the regenerated `src/ui/icon_glyphs.c` — a step CI cannot run and
-a contributor without the font cannot run either (`CLAUDE.md` says as much, under the generators
-that are not part of the build).
+`include/mesh/ui/icons.def` held twenty-three entries when this was written, and four of the
+components below name a glyph that is not among them: §2.5's checkbox and radio, §2.9's banner
+(an `info` and an `error`), §2.15's back affordance, §2.14's star. Adding one is not a line of
+code. It is a line in the `.def`, then `scripts/gen-icons.py` against a Material Symbols Rounded
+font that is not in this tree, then committing the regenerated `src/ui/icon_glyphs.c` — a step
+CI cannot run and a contributor without the font cannot run either (`CLAUDE.md` says as much,
+under the generators that are not part of the build).
 
 So an icon is a real line item in a component's budget, in the same way §2.2 discovered the
 catalog was. Every entry below that needs one says so.
@@ -241,6 +241,11 @@ is a list row that opens a screen because a card cannot offer a verb), and a car
 > first and as `connected` on the second. The resting state is a quiet word in the same
 > right-aligned slot now, and the colour is left to the rows that have something to report. The
 > leading-icon half, the pinned star and the bubble's padlock are still open.
+
+> **Landed.** `FB_LEADING_ICON` has its callers - the settings root and the Modules list, over
+> `mesh_ui_settings_section_icon()` - the star is `MESH_UI_ICON_PINNED` in a plain row's marker
+> gutter, and the padlock is `struct fb_bubble`'s own `meta_icon`. §5's third-pass note has what
+> doing it changed about the entry below.
 
 **2.14 A slot with no caller, and a slot only one component can reach.** This is the one entry
 on the list where the component is not missing — the *wiring* is — and it is therefore the
@@ -460,7 +465,7 @@ Each step is independently shippable and each is visible.
 | 3 | Spacing scale (§1.2) | **done** | Mechanical, and every later step stops adding literals |
 | 4 | Type scale (§1.1) | **done** | The big one. Do it after spacing so the two land together |
 | 5 | Nav bar + action bar as components (§2.2, §2.3) | **done** | Both are moves into `fb_widgets.c`; both benefit from 3 and 4 |
-| 6 | Leading icon and badge, wired up (§2.14) | badge **done** | No new component: a slot with no caller, one only the conversation cell reaches, and two marker characters |
+| 6 | Leading icon and badge, wired up (§2.14) | **done** | No new component: a slot with no caller, one only the conversation cell reaches, and two marker characters |
 | 7 | Top app bar (§2.15) |  | Retires the breadcrumb format strings, and is where 8 and 11 land |
 | 8 | Card variants and card actions (§2.4) |  | Where the type scale pays off most |
 | 9 | Variable-height list rows (§1.4) |  | Structural. §1.1's unfinished half and three components below wait on it |
@@ -553,10 +558,11 @@ what screens can *say*, so each wants its own scene.
   example: the hint entries were the obstacle rather than the supply, and retiring them was most
   of that step. The successor rule, now that the action bar exists: a screen names a **(button,
   verb) pair**, and a verb is a word, not a clause.
-- A component names an **icon**, never a marker character. Two exceptions are still on screen
-  and they cost differently (§2.14): the pinned node's star is a literal in a list row's text,
-  and a marker gutter is already waiting for it; the padlock on a PKI-encrypted direct message
-  is a literal in a bubble's meta line, which has no slots to move it into.
+- A component names an **icon**, never a marker character. There are no exceptions left on
+  screen: the pinned node's star and the padlock on a PKI-encrypted direct message were the last
+  two, and §2.14 retired both. The rule's successor, from doing it: *a slot is declared for a
+  list and filled by a row*, which is what the two halves of the marker gutter and the leading
+  slot have in common and what `marker_slot` exists to say on a row with no label column.
 - `fb_widgets.h` stays a **component set, not a seam**: it is included only from
   `src/ui/backends/`. A type scale and a spacing scale are the opposite — they belong in
   `include/mesh/ui/theme.h` with the colours, because a second backend that grows colour should
@@ -592,3 +598,29 @@ One thing the first pass got right and is worth restating: the ordering heuristi
 the device today, cheapest first*, and it keeps winning. The two highest-value entries this pass
 found (§2.14, §2.15) are both wiring and retirement rather than new components, which is the same
 shape §2.2 turned out to have.
+
+## 6. What doing step 6 changed
+
+Three notes worth keeping, because none of them was in either audit and each is a cost the next
+entry will meet again.
+
+- **The marker gutter was not waiting for the star.** §2.14 said it was "already reserved on
+  every row of a list that declares it", and that is true of a *label/value* row, which measures
+  the gutter out of `label_cols`. A node row is a plain row - `text` is the whole line - and had
+  nothing to measure a gutter against, so the slot had to grow a way of being declared:
+  `marker_slot`, set on every row of the list, exactly as `FB_LEADING_ICON` is. Small, but it is
+  a component change rather than the struct field the entry budgeted for, and the same will be
+  true of any "one cell before the words" mark on a list that is not settings-shaped.
+- **An icon per settings section is twenty-two icons.** §1.5 warned that an icon is a real line
+  item, and the leading slot's own callers turned out to be the two lists with twenty-five rows
+  between them. Three of those rows answer with an icon another part of the UI already owns -
+  "About radio" with the Status card's `RADIO`, Bluetooth and Channels with their own runes -
+  because they are saying the thing that icon already says; the other twenty-two are new
+  entries and one `gen-icons.py` run. The generated table went from 8 KB to about 15 KB.
+- **The harness could not show either mark.** Pinning is a `mesh_ui_action` and the store stops
+  there, so no scene could put a star on screen; the capture harness grew a `pin NAME` verb
+  beside `offradio`, for the same reason `offradio` exists. The padlock needed nothing - the
+  demo's direct messages already carry `pki_encrypted` - which is the difference between a
+  fact the harness seeds and a press it cannot make. A component whose state is only reachable
+  through an action needs a scene verb before it can be reviewed as a picture, and that is
+  worth budgeting alongside the icon.

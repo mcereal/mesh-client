@@ -486,9 +486,13 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot, const u
      * channel still using the default key every node on the mesh holds that key, so a DM that
      * did *not* go out PKI-encrypted was readable by all of them, and nothing else on the
      * screen distinguishes the two.
+     *
+     * The bubble's own slot rather than a character in the meta run: the run is a clock, what
+     * became of the message and the reactions on it, assembled in that order, and this is a
+     * fact about the message rather than any of the three.
      */
     if (message->pki_encrypted && !message->broadcast) {
-        mesh_ui_line_printf(&meta, "%s\U0001F512", mesh_ui_line_width(&meta) > 0U ? " " : "");
+        row->bubble.meta_icon = MESH_UI_ICON_ENCRYPTED;
     }
 
     /* Reactions ride on the meta line rather than taking a row: they are an annotation on this
@@ -814,9 +818,10 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
         mesh_ui_nav_target_avatar(&view, node->node_id, 0U, initials, sizeof initials, &tint);
 
         /*
-         * The star stays in the text: being pinned is a fact about the node rather than about
-         * what it is, so it belongs beside the name and not in place of the identity the disc
-         * is carrying.
+         * The star sits in the marker gutter, beside the name rather than in place of the
+         * identity the disc is carrying: being pinned is a fact about the node, and a fact one
+         * cell wide before the words is exactly what that slot is. It is reserved on every row
+         * of this list and filled on the pinned ones, so the names stay in one column.
          *
          * Never on ourselves, which is what the old marker column got right by ordering the two
          * cases. A radio can carry a stale `is_favorite` on its own NodeDB entry, and nav.c and
@@ -824,11 +829,6 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
          * preference that no press can clear.
          */
         mesh_ui_line_reset(&line);
-        if (node->is_favorite && !is_me) {
-            /* The glyph stays a literal of its own and the space is format glue, which is how
-               scripts/check-strings.py already knows the star is drawn rather than read. */
-            mesh_ui_line_printf(&line, "%s ", "\xE2\xAD\x90");
-        }
         mesh_ui_line_column(&line, short_name, 4U);
         if (long_name[0] != '\0') {
             mesh_ui_line_printf(&line, " %s", long_name);
@@ -853,6 +853,8 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
                     .role = is_me ? MESH_UI_COLOR_PRIMARY : MESH_UI_COLOR_COUNT,
                 },
             .text = mesh_ui_line_text(&line),
+            .marker_icon = (node->is_favorite && !is_me) ? MESH_UI_ICON_PINNED : MESH_UI_ICON_NONE,
+            .marker_slot = true,
             .tone = tone,
             .trailing = direct ? (struct fb_trailing){.kind = FB_TRAILING_SIGNAL,
                                                       .text = right,
@@ -1703,6 +1705,15 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
         return;
     }
 
+    /*
+     * The leading slot is declared for the whole list or not at all - a list that indents only
+     * the rows with something in it is a list the eye cannot run down - so it is decided here,
+     * once, rather than per row. Two lists here are lists of *subjects*: the section list, and
+     * Modules, which is one wearing a section's clothes. Everything else is settings, and a
+     * setting's row already says what it is in its label column.
+     */
+    const bool rows_lead_with_icon = !section_open || mesh_ui_settings_section_icons_rows(section);
+
     /* Label column: a fixed width so values line up, capped for narrow scales. */
     const size_t label_cols = fb_field_label_cols(state, layout, 0U);
     struct fb_list list = fb_list_begin(layout, count, nav->cursor[MESH_UI_SCREEN_SETTINGS]);
@@ -1735,6 +1746,13 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                                                                                 : MESH_UI_ICON_NONE;
             const bool opens = (item.kind == MESH_UI_SETTING_ACTION);
             const enum mesh_ui_tone tone = item.dirty ? MESH_UI_TONE_STRONG : MESH_UI_TONE_NORMAL;
+            /* Empty on every list but Modules, and reserved on all of that one's rows - which
+               is what the kind means, and why it is set from the list's answer rather than
+               from whether this particular row filled it. */
+            const struct fb_leading leading =
+                rows_lead_with_icon
+                    ? (struct fb_leading){.kind = FB_LEADING_ICON, .icon = item.icon}
+                    : (struct fb_leading){.kind = FB_LEADING_NONE};
             /*
              * A boolean gets a switch rather than the words. The words are still what the CLI
              * backend draws and still what item.value holds - this is the fb backend deciding
@@ -1761,6 +1779,7 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                     .tone = MESH_UI_TONE_PRIMARY,
                 };
                 const struct fb_list_item row = {
+                    .leading = leading,
                     .label = item.label,
                     .label_cols = label_cols,
                     .marker_icon = marker,
@@ -1781,6 +1800,7 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                     .dim = item.field == MESH_UI_FIELD_NONE,
                 };
                 const struct fb_list_item row = {
+                    .leading = leading,
                     .label = item.label,
                     .label_cols = label_cols,
                     .marker_icon = marker,
@@ -1791,6 +1811,7 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
                 continue;
             }
             const struct fb_list_item row = {
+                .leading = leading,
                 .label = item.label,
                 .label_cols = label_cols,
                 .marker_icon = marker,
@@ -1804,6 +1825,10 @@ static void fb_render_settings(struct mesh_ui_backend_fb_state *state,
             const enum mesh_ui_settings_section section_row = mesh_ui_settings_root_at(i);
             const bool loaded = mesh_ui_settings_section_loaded(settings, handshake, section_row);
             const struct fb_list_item row = {
+                /* What the section is, in the slot the eye reaches first. The one list on this
+                   screen that was a column of words with nothing to aim at. */
+                .leading = {.kind = FB_LEADING_ICON,
+                            .icon = mesh_ui_settings_section_icon(section_row)},
                 .label = mesh_ui_settings_section_name(section_row),
                 .label_cols = label_cols,
                 .value = loaded ? "" : mesh_str(MESH_STR_SETTINGS_NOT_LOADED),

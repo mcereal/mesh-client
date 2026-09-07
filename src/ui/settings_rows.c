@@ -774,6 +774,10 @@ static void build_modules(const struct mesh_ui_settings *s,
             continue;
         }
         item->number = (uint32_t)section;
+        /* The one list of items whose rows are subjects rather than settings, so the one that
+           fills the leading slot. Set before the "not loaded" branch below: a module the radio has
+           not answered for is still that module. */
+        item->icon = mesh_ui_settings_section_icon(section);
         if (!mesh_ui_settings_section_loaded(s, hs, section)) {
             mesh_str_copy(item->value, sizeof item->value, mesh_str(MESH_STR_SETTINGS_NOT_LOADED));
             continue;

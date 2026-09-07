@@ -441,7 +441,7 @@ vocabulary that covers every row a list wants.
 | Slot | Kinds |
 |---|---|
 | leading | `FB_LEADING_NONE`, `FB_LEADING_AVATAR` (a tinted disc with initials or an icon in it), `FB_LEADING_ICON` |
-| headline | plain `text`, or a `label` column of `label_cols` cells then the `marker_icon` gutter and `value` |
+| headline | plain `text` — with `marker_slot` for a gutter before it — or a `label` column of `label_cols` cells then the `marker_icon` gutter and `value` |
 | supporting | a second line, with its own `supporting_icon`; non-NULL is what makes the item two rows tall |
 | trailing | `FB_TRAILING_NONE` / `_TEXT` (right-aligned and quiet) / `_BADGE` (a filled capsule) / `_SWITCH` / `_ICON` |
 
@@ -459,6 +459,21 @@ Three of those four slots hold an [icon](#srcuiiconc--the-generated-srcuiicon_gl
 markers used to be. `FB_LEADING_ICON` **reserves its cell whether or not the row filled it** —
 `MESH_UI_ICON_NONE` included — because a list that indents only the rows with something to say
 is a list the eye cannot run down.
+
+The **marker gutter** works the same way and reaches it differently depending on the row's
+shape. A label/value row measures the gutter out of `label_cols`, so it is there for free. A
+plain row — `text` the whole line — has nothing to measure it against, so the list declares it
+with `marker_slot` on **every** row and fills `marker_icon` on the ones with something to say.
+The Nodes tab is the caller: a pinned node's star sits between the avatar and the name, which is
+where a fact about the row belongs when the leading slot is already carrying the row's identity.
+
+The settings root and the Modules list under it are the leading slot's own callers, and they are
+what it was added for: twenty-five rows of prose in two lists where every other list here gives
+the eye a disc or a rune. `mesh_ui_settings_section_icon()` answers what a section is about,
+beside `mesh_ui_settings_section_name()` because it is the same kind of fact, and
+`mesh_ui_settings_section_icons_rows()` is what lets a renderer declare the slot once for the
+list rather than test a row — a section gives every row an icon or gives none, and
+`ui_settings_row_icons_are_all_or_nothing` holds it to that.
 
 There were four of these functions and they were the same row four times — a settings row, a
 toggle row, a badge row, a conversation cell. Each carried its own copy of the **two things that
@@ -564,6 +579,15 @@ walk**, which is not an optimisation: a bubble that reserved five rows and paint
 paint over the message below it, and the transcript places the next bubble from the count this
 one reported. A second way of measuring the same text — a `strlen`, a second wrapper — is how
 that happens.
+
+The bubble's **`meta_icon`** leads its meta run: the padlock on a direct message the radio
+decrypted with our key pair rather than with a channel PSK. A slot rather than a character
+because the run is three things assembled in order — a clock, what became of the message, the
+reactions on it — and a fact *about* the message is none of the three. It is also the one mark
+on a bubble that no word on screen repeats: on a channel still using the default key every node
+on the mesh holds that key, so a DM that did not go out PKI-encrypted was readable by all of
+them and nothing else distinguishes the two. The measure and the draw both ask
+`fb_bubble_meta_cells()`, for the reason above.
 
 Screens name a **tone** (`MESH_UI_TONE_WARNING`, `MESH_UI_TONE_ERROR`, …) rather than a colour;
 components that fill something take a **family** (`MESH_UI_FAMILY_ERROR`) and ask the theme for
@@ -1079,8 +1103,8 @@ are why there is a second sprite table rather than a bigger first one:
 - **An icon is named by the UI, an emoji is looked up by codepoint.** `MESH_UI_ICON_CHEVRON`
   is chosen by a renderer; an emoji arrives inside a name somebody typed.
 
-Coverage is 4 bits per pixel over a 32x32 sprite, run-length encoded — about 8 KB for the whole
-set. Sprites are larger than the cell they usually land in (28 px at the body scale, 21 in the
+Coverage is 4 bits per pixel over a 32x32 sprite, run-length encoded — about 15 KB for the whole
+set, most of which is the icon per settings section the leading slot spends. Sprites are larger than the cell they usually land in (28 px at the body scale, 21 in the
 chrome) so that the one place that draws an icon *big* — the symbol on an empty screen — is not
 resampling a thumbnail. `fb_draw_icon()` samples them **bilinearly** and blends between an ink
 and a ground the caller passes in, which is the one place this differs from the emoji path's
@@ -1439,6 +1463,7 @@ clock, so a `hold` past four seconds followed by a `frame` films it sliding back
 | `airtime BUSY [TX]` | the radio's airtime report as whole percentages: how much of the channel is busy, and how much of that is ours. What the Status card's Airtime row and the meter under it both read |
 | `update check\|download [PERCENT]` | a self-update in flight, on Settings > About. `check` is the step with no length and draws the indeterminate bar; `download` with a percentage draws the fraction. There is no updater behind the harness - it forks curl and reaches the network - so this sets what the app would have published |
 | `offradio NAME\|all` | mark that node (or every node but ours) as one the radio's NodeDB no longer carries - what a NodeDB reset leaves behind. Its own verb because no press can reach it: the reset goes out over the air and the answer arrives on the next sync, and the harness has neither |
+| `pin NAME` | pin that node — the star in a row's marker gutter. Its own verb for the same reason: X on the Nodes tab raises a `mesh_ui_action` and the store stops there, so the press the harness can make never reaches the flag |
 
 `tab` walks the tabs with the buttons rather than assigning `nav.screen`, so a scene can only
 ever reach a screen the device can reach.

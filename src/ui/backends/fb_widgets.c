@@ -565,7 +565,8 @@ struct fb_item_geom {
     int slot_h;           /* height of a box-shaped trailing - a badge */
     int head_slot_top, supp_slot_top;
     int text_x, text_right;
-    size_t cols; /* text columns between the leading slot and the trailing edge */
+    int marker_x; /* a plain row's marker cell; only meaningful when the row reserved one */
+    size_t cols;  /* text columns between the leading slot and the trailing edge */
 };
 
 static struct fb_item_geom fb_item_measure(const struct mesh_ui_backend_fb_state *state,
@@ -606,6 +607,13 @@ static struct fb_item_geom fb_item_measure(const struct mesh_ui_backend_fb_state
            column - a list that indents only the rows with something to say is a list the eye
            cannot run down. */
         g.text_x = margin + fb_icon_box(state, scale) + adv / 2;
+    }
+    /* The plain row's marker gutter, between whatever the leading slot put down and the words.
+       Reserved for the whole list rather than for the rows that filled it, on the same terms as
+       the leading slot above - and only where there is no label column, which measures its own. */
+    g.marker_x = g.text_x;
+    if (item->label_cols == 0U && item->marker_slot) {
+        g.text_x += fb_icon_box(state, scale) + adv / 2;
     }
     g.cols = g.text_right > g.text_x ? (size_t)((g.text_right - g.text_x) / adv) : 1U;
     return g;
@@ -911,6 +919,11 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
         g.cols > item->label_cols + FB_ITEM_MARKER_CELLS) {
         fb_draw_icon(state, g.text_x + (int)(item->label_cols + 1U) * fb_char_adv(state, scale),
                      g.head_y, item->marker_icon, scale, head_ink, ground);
+    } else if (item->label_cols == 0U && item->marker_slot &&
+               mesh_ui_icon_is_valid(item->marker_icon)) {
+        /* Into the cell the measure held back before the words. In the row's own ink, like every
+           other icon in a row's slots: the star is as loud as the name it sits beside. */
+        fb_draw_icon(state, g.marker_x, g.head_y, item->marker_icon, scale, head_ink, ground);
     }
     if (head_take > 0U) {
         fb_draw_trailing(state, &g, &item->trailing, g.head_y, g.head_slot_top, selected, ground);
@@ -1087,6 +1100,22 @@ static struct mesh_ui_rgb fb_bubble_quiet(const struct mesh_ui_backend_fb_state 
     return fb_tone_color(state, MESH_UI_TONE_DIM);
 }
 
+/* What the meta line's mark costs: the icon's own cell, and the gap between it and the words. */
+#define FB_BUBBLE_META_ICON_CELLS 2U
+
+/*
+ * The meta run's width in cells - the mark, then the clock and whatever followed it.
+ *
+ * One function because the measure and the draw both need it, and a bubble that measured its
+ * meta line one way and painted it another is how a transcript comes to overlap itself. Zero
+ * when there is neither a mark nor any words, which is the test for "there is no meta line".
+ */
+static size_t fb_bubble_meta_cells(const struct fb_bubble *bubble) {
+    const size_t words = fb_bubble_has(bubble->meta) ? mesh_ui_text_cells(bubble->meta) : 0U;
+    const size_t mark = mesh_ui_icon_is_valid(bubble->meta_icon) ? FB_BUBBLE_META_ICON_CELLS : 0U;
+    return words + mark;
+}
+
 static struct fb_bubble_metrics fb_bubble_measure(const struct mesh_ui_backend_fb_state *state,
                                                   const struct fb_layout *layout,
                                                   const struct fb_bubble *bubble) {
@@ -1121,8 +1150,8 @@ static struct fb_bubble_metrics fb_bubble_measure(const struct mesh_ui_backend_f
 
     /* The clock rides the last line when there is room for it there, which is what keeps a
        three-word message three words tall instead of doubling it. */
-    if (fb_bubble_has(bubble->meta)) {
-        const size_t meta_cols = mesh_ui_text_cells(bubble->meta);
+    if (fb_bubble_meta_cells(bubble) > 0U) {
+        const size_t meta_cols = fb_bubble_meta_cells(bubble);
         if (last + 1U + meta_cols <= max) {
             const size_t tucked = last + 1U + meta_cols;
             if (tucked > metrics.cols) {
@@ -1260,19 +1289,31 @@ void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct f
         y += layout->line; /* the measure reserves a row for an empty message; spend it */
     }
 
-    if (!fb_bubble_has(bubble->meta)) {
+    const size_t meta_cells = fb_bubble_meta_cells(bubble);
+    if (meta_cells == 0U) {
         return;
     }
-    const int meta_w = (int)mesh_ui_text_cells(bubble->meta) * adv;
+    const int meta_w = (int)meta_cells * adv;
     const struct mesh_ui_rgb meta_color = fb_bubble_quiet(state, bubble, paint);
-    if (metrics.meta_own_line) {
-        fb_draw_text(state, box_x + box_w - pad - meta_w, y, bubble->meta, scale, meta_color, fill);
-    } else {
+    int meta_x = box_x + box_w - pad - meta_w;
+    int meta_y = y;
+    if (!metrics.meta_own_line) {
         /* Tucked against the right edge of the line it shares, which is where every messenger
            puts it - and which is why the measure widened the bubble to make room. */
-        const int x = box_x + box_w - pad - meta_w;
-        fb_draw_text(state, x > text_x + (int)last_cols * adv ? x : text_x + (int)last_cols * adv,
-                     last_y, bubble->meta, scale, meta_color, fill);
+        const int floor_x = text_x + (int)last_cols * adv;
+        if (meta_x < floor_x) {
+            meta_x = floor_x;
+        }
+        meta_y = last_y;
+    }
+    /* The mark leads the run, so the words after it stay where a bubble without one puts them
+       and the padlock is the first thing on a line the eye is already skimming. */
+    if (mesh_ui_icon_is_valid(bubble->meta_icon)) {
+        fb_draw_icon(state, meta_x, meta_y, bubble->meta_icon, scale, meta_color, fill);
+        meta_x += (int)FB_BUBBLE_META_ICON_CELLS * adv;
+    }
+    if (fb_bubble_has(bubble->meta)) {
+        fb_draw_text(state, meta_x, meta_y, bubble->meta, scale, meta_color, fill);
     }
 }
 

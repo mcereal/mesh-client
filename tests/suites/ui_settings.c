@@ -1582,3 +1582,85 @@ MESH_TEST_CASE(node_detail_rssi_is_stamped, unit) {
 
     record_success(test_name);
 }
+
+/*
+ * Every section answers with an icon, and the two lists of sections can therefore fill their
+ * leading slot on every row.
+ *
+ * A leading slot is declared for a whole list, so one section with no icon is not one row
+ * missing a picture: it is a row whose words start where every other row's icon is, in a list
+ * the eye is meant to run straight down. A section added without a line in k_section_icons
+ * compiles perfectly happily, which is what this is here to catch.
+ */
+MESH_TEST_CASE(ui_settings_every_section_has_an_icon, unit) {
+    char message[128];
+    for (int i = 0; i < (int)MESH_UI_SETTINGS_SECTION_COUNT; ++i) {
+        const enum mesh_ui_settings_section section = (enum mesh_ui_settings_section)i;
+        if (!mesh_ui_icon_is_valid(mesh_ui_settings_section_icon(section))) {
+            snprintf(message, sizeof message, "section %s has no icon",
+                     mesh_ui_settings_section_name(section));
+            record_failure(test_name, message);
+            return;
+        }
+    }
+    /* Out of range is the absence of one rather than whatever sits past the table. */
+    MESH_TEST_FAIL_IF(mesh_ui_settings_section_icon(
+                          (enum mesh_ui_settings_section)MESH_UI_SETTINGS_SECTION_COUNT) !=
+                          MESH_UI_ICON_NONE,
+                      "an unknown section should answer with no icon");
+    record_success(test_name);
+}
+
+/*
+ * The invariant struct mesh_ui_settings_item's `icon` is documented with: a section gives every
+ * one of its rows an icon or gives none of them one, and mesh_ui_settings_section_icons_rows()
+ * is the answer a renderer declares the slot from.
+ *
+ * The list is built with everything loaded, because a module row that has not been answered for
+ * still names its module - and that is the row most likely to be the one that forgets.
+ */
+MESH_TEST_CASE(ui_settings_row_icons_are_all_or_nothing, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_lora = true;
+    settings.has_device = true;
+    settings.has_display = true;
+    settings.has_position = true;
+    settings.has_power = true;
+    settings.has_bluetooth = true;
+    settings.has_security = true;
+    settings.has_mqtt = true;
+    settings.has_store_forward = true;
+    settings.has_telemetry = true;
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.channel_count = 1U;
+
+    char message[160];
+    for (int i = 0; i < (int)MESH_UI_SETTINGS_SECTION_COUNT; ++i) {
+        const enum mesh_ui_settings_section section = (enum mesh_ui_settings_section)i;
+        const bool declared = mesh_ui_settings_section_icons_rows(section);
+        const uint32_t count = mesh_ui_settings_item_count(&settings, &handshake, section,
+                                                           MESH_UI_SETTINGS_NO_CHANNEL);
+        for (uint32_t row = 0; row < count; ++row) {
+            struct mesh_ui_settings_item item;
+            if (!mesh_ui_settings_item(&settings, &handshake, NULL, 0U, section,
+                                       MESH_UI_SETTINGS_NO_CHANNEL, row, &item)) {
+                break;
+            }
+            if (mesh_ui_icon_is_valid(item.icon) != declared) {
+                snprintf(message, sizeof message,
+                         "%s row %u %s an icon, and the section says it %s",
+                         mesh_ui_settings_section_name(section), row,
+                         mesh_ui_icon_is_valid(item.icon) ? "has" : "has no",
+                         declared ? "should" : "should not");
+                record_failure(test_name, message);
+                return;
+            }
+        }
+    }
+    record_success(test_name);
+}

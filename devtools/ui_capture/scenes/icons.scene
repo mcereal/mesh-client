@@ -4,9 +4,11 @@
 # a globe for the view over all of them, a plus on the row that starts a thread, and the reply
 # arrow on a preview whose last word was ours. Then the two lists whose marker column says
 # something a character could not: which node is us, which the radio has forgotten, which
-# device is Bluetooth and which is the one we are attached to. Then a settings section, where
-# the pencil says Left and Right act on a row and the dot says it has been changed and not yet
-# saved.
+# device is Bluetooth and which is the one we are attached to - and, since a plain row has a
+# marker gutter of its own, which two nodes are pinned. Then the settings root and the Modules
+# list under it, which are the leading slot's own callers: one icon per section, in the place
+# the eye reaches before it has read a word. Then a settings section, where the pencil says
+# Left and Right act on a row and the dot says it has been changed and not yet saved.
 #
 # The tab strip's own fallback - at a glyph scale where five labels do not fit it labels only
 # the tab you are on - needs a scale set before the first frame, so it is its own capture:
@@ -19,15 +21,21 @@ delay 260
 # The radio's settings, so the Settings rows below are real values rather than "not loaded".
 config
 
+# Two pinned nodes, which is a fact no press this harness can make will set.
+pin ECHO
+pin GOLF
+
 hold 600
 tab nodes
 hold 700
 tab devices
 hold 700
 
-# Settings > Display: three editable rows, then one of them changed.
+# The section list, one icon per row.
 tab settings
-hold 400
+hold 900
+
+# Settings > Display: three editable rows, then one of them changed.
 key down 4
 key a
 hold 600
@@ -35,10 +43,17 @@ key down 3
 key right
 hold 900
 
-# The first B discards the pending edit, the second leaves the section: a tab cannot be reached
-# with one open. Messages last, because the leading slot says the most there.
+# The first B discards the pending edit, the second leaves the section, which parks the cursor
+# back on Display. Then Modules, the other list of subjects.
 key b
 key b
 hold 500
+key down 7
+key a
+hold 900
+key b
+hold 500
+
+# Messages last, because the leading slot says the most there.
 tab messages
 hold 900

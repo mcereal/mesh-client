@@ -80,3 +80,55 @@ MESH_ICON_ENTRY(LINK,      "link")
 MESH_ICON_ENTRY(SEND,      "send")
 MESH_ICON_ENTRY(BACKSPACE, "backspace")
 MESH_ICON_ENTRY(SPACE,     "space_bar")
+
+/* ---- what a settings row is about ------------------------------------------------------------
+ *
+ * One per section, because the settings root and the Modules list under it are the two lists
+ * here that were columns of words - twenty-five rows of prose with nothing for the eye to aim
+ * at, on a screen every other list gives a disc or a rune. These are the leading slot's own
+ * entries, and they are the reason it has a caller at all.
+ *
+ * Three sections do not appear here and that is deliberate: "About radio" takes NODES' sibling
+ * RADIO, Bluetooth takes BLUETOOTH and Channels takes CHANNEL, because each is saying exactly
+ * what that icon already says somewhere else. A fourth id drawing the same glyph would be a
+ * second sprite for one meaning. */
+
+MESH_ICON_ENTRY(ABOUT,       "info")
+MESH_ICON_ENTRY(USER,        "person")
+MESH_ICON_ENTRY(DEVICE,      "tune")
+MESH_ICON_ENTRY(DISPLAY,     "monitor")
+MESH_ICON_ENTRY(POSITION,    "place")
+MESH_ICON_ENTRY(POWER,       "battery_charging_full")
+MESH_ICON_ENTRY(LORA,        "wifi_tethering")
+MESH_ICON_ENTRY(SECURITY,    "shield")
+MESH_ICON_ENTRY(MODULES,     "extension")
+/* Reboot, shutdown, factory reset: the section is a list of things done to the radio rather
+   than settings written to it, and the power rune is what every OS puts on that menu. */
+MESH_ICON_ENTRY(ACTIONS,     "power_settings_new")
+
+/* ---- the modules ----------------------------------------------------------------------------- */
+
+MESH_ICON_ENTRY(MQTT,        "cloud")
+MESH_ICON_ENTRY(STORE_FWD,   "inventory_2")
+MESH_ICON_ENTRY(TELEMETRY,   "monitoring")
+MESH_ICON_ENTRY(RANGE_TEST,  "straighten")
+MESH_ICON_ENTRY(NEIGHBORS,   "group")
+MESH_ICON_ENTRY(AMBIENT,     "lightbulb")
+MESH_ICON_ENTRY(PAXCOUNTER,  "groups")
+MESH_ICON_ENTRY(STATUS_MSG,  "campaign")
+MESH_ICON_ENTRY(TAK,         "military_tech")
+MESH_ICON_ENTRY(DETECTION,   "sensors")
+MESH_ICON_ENTRY(EXT_NOTIFY,  "notifications")
+MESH_ICON_ENTRY(TRAFFIC,     "traffic")
+
+/* ---- what a row or a message is ---------------------------------------------------------------
+ *
+ * The two marks that were still characters in a text run. Each says a fact about the thing it
+ * sits on rather than offering anything, which is the marker gutter's whole job. */
+
+/* This node is pinned. */
+MESH_ICON_ENTRY(PINNED,      "star")
+/* This direct message was decrypted with our key pair rather than with a channel PSK, so it was
+   readable by its recipient and by nobody else on the mesh. Distinct from SECURITY's shield: one
+   is a section of settings, the other is a fact about one message. */
+MESH_ICON_ENTRY(ENCRYPTED,   "lock")

@@ -40,6 +40,8 @@
  *   reboots N              times the radio has restarted under us (Status tab)
  *   offradio NAME|all      mark that node (or every node but ours) as one the radio's NodeDB
  *                          no longer carries - what a NodeDB reset leaves behind
+ *   pin NAME               pin that node, which is what X on the Nodes tab does on a device -
+ *                          the star in a row's marker gutter
  *
  * Every command but the setup three emits one frame (`key ... 3` emits three), and the screen
  * the script starts on is emitted before any of them.
@@ -888,6 +890,55 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         }
         uicap_start(cap);
         uicap_append_reaction(cap, name, uicap_tail(rest));
+        return;
+    }
+
+    /* A pinned node. Its own verb for the same reason `offradio` is: X on the Nodes tab raises
+       a mesh_ui_action and the store stops there, so the press this harness can make does not
+       reach the flag. Without it the marker gutter's star has nothing to draw and the one row
+       shape that carries it cannot be looked at. */
+    if (strcmp(command, "pin") == 0) {
+        char *name = uicap_word(&rest);
+        if (name == NULL) {
+            fprintf(stderr, "uicap: line %u: 'pin' needs a short name\n", line_number);
+            exit(1);
+        }
+        uicap_start(cap);
+        struct mesh_ui_handshake_state handshake = cap->store.handshake;
+        bool matched = false;
+        for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+            struct mesh_ui_node_summary *node = &handshake.nodes[i];
+            /* Our own node is never pinned - nav.c and node_detail.c both refuse it - so the
+               harness refuses it too rather than drawing a star no press could clear. */
+            if (node->node_id == handshake.my_info.node_num) {
+                continue;
+            }
+            if (strcmp(node->short_name, name) == 0) {
+                node->is_favorite = true;
+                matched = true;
+            }
+        }
+        if (!matched) {
+            fprintf(stderr, "uicap: line %u: no node in the scene called '%s'\n", line_number,
+                    name);
+            exit(1);
+        }
+        /* A pinned node survives a forget, so it leaves the counts the Settings rows offer -
+           the same arithmetic `offradio` below makes for the same reason. */
+        handshake.nodes_forgettable_off_radio = 0U;
+        handshake.nodes_forgettable_all = 0U;
+        for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+            const struct mesh_ui_node_summary *node = &handshake.nodes[i];
+            if (node->is_favorite || node->node_id == handshake.my_info.node_num) {
+                continue;
+            }
+            ++handshake.nodes_forgettable_all;
+            if (!node->in_nodedb) {
+                ++handshake.nodes_forgettable_off_radio;
+            }
+        }
+        mesh_ui_store_set_handshake(&cap->store, &handshake);
+        uicap_emit(cap);
         return;
     }
 

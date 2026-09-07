@@ -88,6 +88,52 @@ const char *mesh_ui_settings_section_name(enum mesh_ui_settings_section section)
 }
 
 /*
+ * What each section is about, in one line each, in the enum's own order.
+ *
+ * A table rather than a switch because it is a lookup with no cases in it, and because a
+ * section added without an icon then comes out as MESH_UI_ICON_NONE - which draws nothing and
+ * leaves the row where it was, rather than failing to compile in a file that has nothing to do
+ * with icons.
+ */
+static const enum mesh_ui_icon k_section_icons[MESH_UI_SETTINGS_SECTION_COUNT] = {
+    [MESH_UI_SETTINGS_ABOUT] = MESH_UI_ICON_ABOUT,
+    /* Facts about the radio, which is what the Status tab's Radio card holds - the same
+       sentence, so the same icon. */
+    [MESH_UI_SETTINGS_RADIO] = MESH_UI_ICON_RADIO,
+    [MESH_UI_SETTINGS_USER] = MESH_UI_ICON_USER,
+    [MESH_UI_SETTINGS_DEVICE] = MESH_UI_ICON_DEVICE,
+    [MESH_UI_SETTINGS_DISPLAY] = MESH_UI_ICON_DISPLAY,
+    [MESH_UI_SETTINGS_LORA] = MESH_UI_ICON_LORA,
+    [MESH_UI_SETTINGS_BLUETOOTH] = MESH_UI_ICON_BLUETOOTH,
+    [MESH_UI_SETTINGS_CHANNELS] = MESH_UI_ICON_CHANNEL,
+    [MESH_UI_SETTINGS_SECURITY] = MESH_UI_ICON_SECURITY,
+    [MESH_UI_SETTINGS_POSITION] = MESH_UI_ICON_POSITION,
+    [MESH_UI_SETTINGS_POWER] = MESH_UI_ICON_POWER,
+    [MESH_UI_SETTINGS_MQTT] = MESH_UI_ICON_MQTT,
+    [MESH_UI_SETTINGS_STORE_FORWARD] = MESH_UI_ICON_STORE_FWD,
+    [MESH_UI_SETTINGS_TELEMETRY] = MESH_UI_ICON_TELEMETRY,
+    [MESH_UI_SETTINGS_ACTIONS] = MESH_UI_ICON_ACTIONS,
+    [MESH_UI_SETTINGS_MODULES] = MESH_UI_ICON_MODULES,
+    [MESH_UI_SETTINGS_NEIGHBOR_INFO] = MESH_UI_ICON_NEIGHBORS,
+    [MESH_UI_SETTINGS_RANGE_TEST] = MESH_UI_ICON_RANGE_TEST,
+    [MESH_UI_SETTINGS_PAXCOUNTER] = MESH_UI_ICON_PAXCOUNTER,
+    [MESH_UI_SETTINGS_TAK] = MESH_UI_ICON_TAK,
+    [MESH_UI_SETTINGS_AMBIENT] = MESH_UI_ICON_AMBIENT,
+    [MESH_UI_SETTINGS_STATUS_MESSAGE] = MESH_UI_ICON_STATUS_MSG,
+    [MESH_UI_SETTINGS_DETECTION] = MESH_UI_ICON_DETECTION,
+    [MESH_UI_SETTINGS_EXT_NOTIFICATION] = MESH_UI_ICON_EXT_NOTIFY,
+    [MESH_UI_SETTINGS_TRAFFIC] = MESH_UI_ICON_TRAFFIC,
+};
+
+enum mesh_ui_icon mesh_ui_settings_section_icon(enum mesh_ui_settings_section section) {
+    return section < MESH_UI_SETTINGS_SECTION_COUNT ? k_section_icons[section] : MESH_UI_ICON_NONE;
+}
+
+bool mesh_ui_settings_section_icons_rows(enum mesh_ui_settings_section section) {
+    return section == MESH_UI_SETTINGS_MODULES;
+}
+
+/*
  * The two lists, as tables.
  *
  * k_root is the top level in the order it is read, which is roughly "this client, then what
