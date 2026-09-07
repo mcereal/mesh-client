@@ -1098,7 +1098,7 @@ static void fb_render_devices(struct mesh_ui_backend_fb_state *state,
      */
     struct fb_list list = fb_list_begin_rows(layout, (uint32_t)snapshot->device_count,
                                              nav->cursor[MESH_UI_SCREEN_DEVICES], 2U);
-    char trailing[16];
+    char attach[16];
     uint32_t i;
     while (fb_list_next(&list, &i)) {
         const struct mesh_ui_device *device = &snapshot->devices[i];
@@ -1106,26 +1106,51 @@ static void fb_render_devices(struct mesh_ui_backend_fb_state *state,
         if (name[0] == '\0') {
             name = mesh_str(MESH_STR_DEVICES_UNNAMED);
         }
-        /* What pressing A on this row would do. An unpaired BLE node is the case worth
-           calling out: it connects and then fails on StartNotify unless it is bonded first,
-           which is exactly what A now does for it. */
+        /*
+         * What pressing A on this row would do. An unpaired BLE node is the case worth
+         * calling out: it connects and then fails on StartNotify unless it is bonded first,
+         * which is exactly what A now does for it.
+         *
+         * It is a capsule rather than a word, which is what the catalog ids have called it
+         * since they were written. A device list is four rows about one question - which of
+         * these am I on - so the state is the thing the eye is scanning for, and a state set
+         * as prose on a supporting line is the one shape that cannot be scanned: every row
+         * reads the same until it has been read. The family is the sentence: good for the one
+         * we are on, the accent for a step in flight, warning for the one that will fail on
+         * StartNotify until it is bonded.
+         *
+         * `paired` gets no capsule, and that is the whole of what the other three are worth.
+         * It is the resting state of a bonded radio - every row in a list of known radios has
+         * it - so a pill there is on every row at once, which is a column of colour reporting
+         * nothing. Worse than nothing on two themes: the contrast palette has one yellow and
+         * the colourblind palette one blue, so a resting capsule came out the same colour as
+         * the warning beside it on the first and as `connected` on the second. A quiet word in
+         * the same slot says the same thing and leaves the colour to the rows that have
+         * something to report. Anything a badge does not shout is a badge that should not be
+         * there.
+         */
         const char *status = "";
+        enum mesh_ui_family status_family = MESH_UI_FAMILY_PRIMARY;
+        bool status_badge = true;
         if (device->connected) {
             status = mesh_str(MESH_STR_DEVICES_BADGE_CONNECTED);
+            status_family = MESH_UI_FAMILY_SUCCESS;
         } else if (device->busy) {
             status = mesh_str(MESH_STR_DEVICES_BADGE_WORKING);
         } else if (device->kind == (uint8_t)MESH_UI_DEVICE_BLE && !device->paired) {
             status = mesh_str(MESH_STR_DEVICES_BADGE_NEEDS_PAIR);
+            status_family = MESH_UI_FAMILY_WARNING;
         } else if (device->kind == (uint8_t)MESH_UI_DEVICE_BLE) {
             status = mesh_str(MESH_STR_DEVICES_BADGE_PAIRED);
+            status_badge = false;
         }
 
-        /* A USB port has no RSSI to show, so it says which bus it is instead - the trailing
-           slot answers "how is this attached" either way. */
+        /* A USB port has no RSSI to show, so it says which bus it is instead - the supporting
+           line answers "how is this attached" either way. */
         if (device->kind == (uint8_t)MESH_UI_DEVICE_SERIAL) {
-            mesh_str_copy(trailing, sizeof trailing, mesh_str(MESH_STR_DEVICES_TRAILING_USB));
+            mesh_str_copy(attach, sizeof attach, mesh_str(MESH_STR_DEVICES_TRAILING_USB));
         } else {
-            mesh_str_format(trailing, sizeof trailing, MESH_STR_DEVICES_TRAILING_RSSI,
+            mesh_str_format(attach, sizeof attach, MESH_STR_DEVICES_TRAILING_RSSI,
                             (int)device->rssi);
         }
 
@@ -1135,6 +1160,14 @@ static void fb_render_devices(struct mesh_ui_backend_fb_state *state,
             tone = MESH_UI_TONE_SUCCESS;
         } else if (armed) {
             tone = MESH_UI_TONE_ERROR;
+        }
+        /* A row armed to be forgotten says so in every part of itself, the resting state
+           included: the capsule reports the link, which is a different fact, but a red row
+           carrying a green pill is two rows' worth of statement in one and the press being
+           asked about is the destructive one. */
+        if (armed) {
+            status_family = MESH_UI_FAMILY_ERROR;
+            status_badge = true;
         }
 
         /* The disc states its fill rather than taking a tint: a device list is four rows about
@@ -1156,12 +1189,28 @@ static void fb_render_devices(struct mesh_ui_backend_fb_state *state,
                 },
             .text = name,
             .tone = tone,
-            .trailing = {.kind = FB_TRAILING_TEXT, .text = trailing},
-            .supporting = status,
+            /*
+             * The two facts swap lines, and the order is the point. The capsule takes the
+             * headline's trailing edge because how a radio is attached is a detail and whether
+             * it is the one we are on is not; how well we hear it drops to the supporting line,
+             * where it keeps the dim ink it already had.
+             *
+             * A row with nothing to report - a USB port that is merely present - draws no
+             * capsule and loses nothing: the slot is right-aligned, so unlike the leading
+             * gutter an empty one costs no column, and neither kind draws at all on an empty
+             * string.
+             */
+            .trailing = status_badge
+                            ? (struct fb_trailing){.kind = FB_TRAILING_BADGE,
+                                                   .family = status_family,
+                                                   .text = status}
+                            : (struct fb_trailing){.kind = FB_TRAILING_TEXT, .text = status},
+            .supporting = attach,
             .supporting_tone = MESH_UI_TONE_DIM,
-            /* The state stays quiet under the cursor - it is a fact about the row, not the
-               row's own words - except when it is the warning, which has to stay loud. */
-            .supporting_quiet = !armed,
+            /* A figure is something the eye glances at on its way past, on the ground and under
+               the cursor alike - which is what the trailing slot it used to sit in already did
+               for it, and what it keeps here. */
+            .supporting_quiet = true,
             .divider = true,
         };
         fb_list_item(state, &list, i, &row);

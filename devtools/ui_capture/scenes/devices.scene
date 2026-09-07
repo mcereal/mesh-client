@@ -1,0 +1,40 @@
+# The Devices tab, and what a device says about itself.
+#
+# The state used to be a word on the supporting line - "connected", "paired", "needs pairing" -
+# in the dim ink every supporting line takes, which meant a list of radios read as three
+# identical rows until each one had been read. It is a capsule now, in the family that says
+# what the state *is*: the good tone for the one we are on, warning for the one that will fail
+# on StartNotify until it is bonded, the quiet accent for a radio we merely know about.
+#
+# The two facts swapped lines to make room, and that is the half worth watching for: how well
+# we hear a radio drops to the supporting line, because how a radio is attached is a detail and
+# whether it is the one we are on is not.
+
+scene demo
+tab devices
+hold 1200
+
+# Down the list. The cursor's fill is the other pairing the capsule has to survive - a badge is
+# a stated family either way, so it does not restate itself under the cursor.
+key down
+hold 900
+key down
+hold 900
+
+# Armed to be forgotten. The row goes bad in every part of itself, the capsule included: a red
+# row carrying a quiet accent pill would be two statements where the press is asking one.
+key y
+hold 1400
+key b
+hold 900
+
+# The same list in every theme. The capsule's fill and its ink come from one call, so nothing
+# here is a pair anybody matched by eye.
+key up
+key up
+theme light
+hold 1000
+theme contrast
+hold 1000
+theme colorblind
+hold 1400

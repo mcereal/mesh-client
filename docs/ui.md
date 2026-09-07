@@ -497,6 +497,23 @@ showing. (The picker's row *reads* "BRVO  Bravo Creek", whose first two words bo
 initials taken from that would be "BB" and the same radio would wear two different discs one
 screen apart.)
 
+The Devices row is where the trailing **badge** slot earns itself outside the conversation cell.
+A device's state - connected, working, needs pairing - used to be a word on the supporting line
+in the dim ink every supporting line takes, which meant a list of radios read as three identical
+rows until each had been read; it is a capsule in the family that says what the state *is*, and
+the signal figure it displaced drops to the supporting line, because how a radio is attached is
+a detail and whether it is the one we are on is not.
+
+`paired` is deliberately **not** a capsule. It is the resting state of a bonded radio, so a pill
+there is on every row at once - a column of colour reporting nothing - and on two of the four
+themes it was worse than nothing: the contrast palette has one yellow and the colourblind
+palette one blue, so a resting capsule came out the same colour as the warning beside it on the
+first and as `connected` on the second. The rule that came out of it is the one to apply to the
+next badge: **anything a badge does not shout is a badge that should not be there**, and a quiet
+word in the same right-aligned slot says it without spending a colour. A row armed to be
+forgotten is the exception that proves it - the capsule comes back, in the error family, because
+the row is being asked a destructive question and every part of it should say so.
+
 #### `struct fb_text_field` and `struct fb_dialog`
 
 The last two things a screen renderer was drawing by hand.
