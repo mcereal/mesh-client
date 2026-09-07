@@ -879,6 +879,17 @@ void mesh_ui_store_request_refresh(struct mesh_ui_store *store);
  */
 bool mesh_ui_store_mark_open_conversation_read(struct mesh_ui_store *store);
 
+/*
+ * The radio this snapshot is attached to, or NULL.
+ *
+ * Four places ask it - the action bar, the bottom bar's status line, the Status tab's Link card
+ * and the Devices screen - and each used to write the loop out again. They have to agree: one
+ * of them saying "connected" while another says "not connected" is the worst possible answer to
+ * the question, and two copies of a loop is how that happens.
+ */
+const struct mesh_ui_device *
+mesh_ui_snapshot_connected_device(const struct mesh_ui_snapshot *snapshot);
+
 bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_snapshot *snapshot);
 
 int mesh_ui_store_save(const struct mesh_ui_store *store, const char *path);

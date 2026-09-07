@@ -169,6 +169,148 @@ int fb_draw_chip(const struct mesh_ui_backend_fb_state *state, int x, int y, enu
     return x + width;
 }
 
+/* ---- the chip strip, the navigation bar and the action bar -------------------------------- */
+
+/* Whether this chip keeps its words at this setting. See enum fb_chip_labels. */
+static const char *fb_chip_strip_label(const struct fb_chip *chip, size_t index, size_t active,
+                                       enum fb_chip_labels labels) {
+    if (labels == FB_CHIP_LABELS_ALL || (labels == FB_CHIP_LABELS_SELECTED && index == active)) {
+        return chip->label;
+    }
+    return "";
+}
+
+int fb_chip_strip_width(const struct mesh_ui_backend_fb_state *state, const struct fb_chip *chips,
+                        size_t count, size_t active, enum fb_chip_labels labels, int scale) {
+    int width = 0;
+    for (size_t i = 0; i < count; ++i) {
+        width += fb_chip_width(state, chips[i].icon,
+                               fb_chip_strip_label(&chips[i], i, active, labels), scale);
+    }
+    return width;
+}
+
+enum fb_chip_labels fb_chip_strip_fit(const struct mesh_ui_backend_fb_state *state,
+                                      const struct fb_chip *chips, size_t count, size_t active,
+                                      int room, int scale) {
+    enum fb_chip_labels labels = FB_CHIP_LABELS_ALL;
+    while (labels < FB_CHIP_LABELS_NONE &&
+           fb_chip_strip_width(state, chips, count, active, labels, scale) > room) {
+        labels = (enum fb_chip_labels)(labels + 1);
+    }
+    return labels;
+}
+
+int fb_draw_chip_strip(const struct mesh_ui_backend_fb_state *state, int x, int y,
+                       const struct fb_chip *chips, size_t count, size_t active, int room,
+                       enum mesh_ui_color ground, int scale) {
+    const enum fb_chip_labels labels = fb_chip_strip_fit(state, chips, count, active, room, scale);
+    for (size_t i = 0; i < count; ++i) {
+        x = fb_draw_chip(state, x, y, chips[i].icon,
+                         fb_chip_strip_label(&chips[i], i, active, labels), i == active, ground,
+                         scale);
+    }
+    return x;
+}
+
+void fb_draw_nav_bar(const struct mesh_ui_backend_fb_state *state, struct fb_layout *layout,
+                     const struct fb_chip *tabs, size_t count, size_t active) {
+    const int small = layout->small;
+    const int y = fb_gutter(state) + small;
+    const int bar_h = y + fb_line_adv(state, small);
+    const int width = (int)state->var.xres;
+
+    fb_fill_rect(state, 0, 0, width, bar_h, fb_color(state, MESH_UI_COLOR_SURFACE_LOW));
+    /* The bar under them, not the body ground: an unselected tab draws no fill of its own, and
+       its icon has to blend into what the bar filled behind it. */
+    (void)fb_draw_chip_strip(state, fb_gutter(state), y, tabs, count, active,
+                             width - fb_margin(state), MESH_UI_COLOR_SURFACE_LOW, small);
+    fb_draw_rule(state, 0, bar_h, width, small, MESH_UI_COLOR_RULE_STRONG);
+
+    layout->body_y = bar_h + fb_space_at(state, MESH_UI_SPACE_MD, small) + fb_gutter(state);
+}
+
+/* The cap's pill and the verb after it, with the half cell between them that every icon-plus-
+   label pair in this file uses. Measured rather than assumed, because the pill's padding is
+   the button's business (see FB_CHIP_PAD_STEPS). */
+static int fb_action_width(const struct mesh_ui_backend_fb_state *state,
+                           const struct mesh_ui_button_action *action, int scale) {
+    const int adv = fb_char_adv(state, scale);
+    const char *label = mesh_str(action->label);
+    return fb_button_width(state, MESH_UI_ICON_NONE, mesh_ui_button_cap(action->button), scale) +
+           adv / 2 + (int)mesh_ui_text_cells(label) * adv;
+}
+
+int fb_action_bar_height(const struct mesh_ui_backend_fb_state *state,
+                         const struct fb_layout *layout) {
+    const int small = layout->small;
+    /* The keycap row, the status line under it, and a margin below - the same margin the two
+       plain lines this replaced left, so the bar sits off the panel edge by the amount the rest
+       of the frame does rather than by an amount of its own. */
+    return fb_space_at(state, MESH_UI_SPACE_SM, small) + fb_line_adv(state, small) +
+           fb_space_at(state, MESH_UI_SPACE_XS, small) + fb_line_adv(state, small) +
+           fb_margin(state);
+}
+
+void fb_draw_action_bar(const struct mesh_ui_backend_fb_state *state,
+                        const struct fb_layout *layout, const struct fb_action_bar *bar) {
+    const int small = layout->small;
+    const int width = (int)state->var.xres;
+    const int top = layout->footer_y;
+
+    /* The mirror of the navigation bar: the same recessed tier, the same rule, on the other
+       edge. Chrome that is a surface at the top and bare ground at the bottom reads as a frame
+       with one side missing. */
+    fb_fill_rect(state, 0, top, width, (int)state->var.yres - top,
+                 fb_color(state, MESH_UI_COLOR_SURFACE_LOW));
+    fb_draw_rule(state, 0, top, width, small, MESH_UI_COLOR_RULE_STRONG);
+
+    const int keys_y = top + fb_space_at(state, MESH_UI_SPACE_SM, small) + small;
+    const int gap = fb_space_at(state, MESH_UI_SPACE_MD, small);
+    const int right = width - fb_gutter(state);
+    int x = fb_gutter(state);
+
+    for (size_t i = 0; i < bar->count; ++i) {
+        const struct mesh_ui_button_action *action = &bar->items[i];
+        const char *cap = mesh_ui_button_cap(action->button);
+        const int cap_w = fb_button_width(state, MESH_UI_ICON_NONE, cap, small);
+        /* Dropped from the end rather than clipped: half a verb is a button whose meaning has
+           to be guessed, and the tables are written with the least important action last. */
+        if (x + fb_action_width(state, action, small) > right) {
+            break;
+        }
+
+        const struct fb_button key = {
+            .rect = {.x = x, .y = keys_y - small, .w = cap_w, .h = fb_line_adv(state, small)},
+            .label = cap,
+            .variant = FB_BUTTON_FILLED,
+            .shape = MESH_UI_SHAPE_SM,
+            .ground = MESH_UI_COLOR_SURFACE_LOW,
+            .scale = small,
+        };
+        fb_draw_button(state, &key);
+
+        x += cap_w + fb_char_adv(state, small) / 2;
+        fb_draw_text(state, x, keys_y, mesh_str(action->label), small,
+                     fb_tone_color(state, MESH_UI_TONE_DIM));
+        x += (int)mesh_ui_text_cells(mesh_str(action->label)) * fb_char_adv(state, small) + gap;
+    }
+
+    if (bar->status == NULL || bar->status[0] == '\0') {
+        return;
+    }
+    /* Sized to the line builder that produced it, not to the toast that used to share this row:
+       a status line is a transport state and a radio's advertised name, and a name is only
+       bounded by what the radio says it is called. */
+    char status[MESH_UI_LINE_MAX];
+    mesh_str_copy(status, sizeof status, bar->status);
+    fb_fit(status, fb_cols(state, small));
+    fb_draw_text(state, fb_margin(state),
+                 keys_y - small + fb_line_adv(state, small) +
+                     fb_space_at(state, MESH_UI_SPACE_XS, small),
+                 status, small, fb_tone_color(state, bar->status_tone));
+}
+
 void fb_draw_title(const struct mesh_ui_backend_fb_state *state, struct fb_layout *layout,
                    const char *title) {
     /*

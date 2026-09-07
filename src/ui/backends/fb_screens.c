@@ -40,18 +40,6 @@ static void fb_store_view(const struct mesh_ui_snapshot *snapshot, struct mesh_u
     view->event_fd = -1;
 }
 
-/* The radio this frame is attached to, or NULL. Three places asked it and each wrote the loop
-   out again; the footer and the Status card also have to agree, because one of them saying
-   "connected" while the other says "not connected" is the worst way to answer the question. */
-static const struct mesh_ui_device *fb_connected_device(const struct mesh_ui_snapshot *snapshot) {
-    for (size_t i = 0; i < snapshot->device_count; ++i) {
-        if (snapshot->devices[i].connected) {
-            return &snapshot->devices[i];
-        }
-    }
-    return NULL;
-}
-
 /* What to call it: the advertised name when it has one, otherwise whatever we addressed it by. */
 static const char *fb_device_label(const struct mesh_ui_device *device) {
     return device->name[0] != '\0' ? device->name : device->identifier;
@@ -82,126 +70,46 @@ static enum mesh_ui_icon fb_screen_icon(enum mesh_ui_screen screen) {
 /* ---- chrome ------------------------------------------------------------------------------ */
 
 /*
- * The tab strip: a bar of its own, one chip per screen, then the rule that closes it off.
- *
- * The bar is the point. The strip used to float on the body's own ground, which left the tabs
- * reading as the first row of content rather than as the frame around it; a recessed tier
- * behind them says "this is chrome" before a word of it is read, which is what every phone's
- * navigation bar is doing. It is the theme's lowest surface, so a palette decides how far from
- * the ground that is - on the high-contrast theme it is barely anywhere, which is correct.
+ * The tab strip and the two lines under the body were both written out here, and both were the
+ * last screen-level renderers laying out their own pixels. They are components now
+ * (fb_draw_nav_bar, fb_draw_action_bar), so what is left in this file is the *content*: which
+ * tabs there are, which one is up, and what the bottom line has to say about the radio.
  */
-/*
- * How much of itself the strip can afford to say.
- *
- * Five labelled tabs fit at the scale the device ships with and do not at the two above it -
- * the panel is 1024 px and the labels are the widest thing on it - so the strip drops what it
- * cannot fit rather than pushing the last tab off the edge, which is how a navigation bar loses
- * a screen the user can no longer reach. Labels go before icons do, and the tab you are on
- * keeps its label longest: that is Material's "selected" label mode, and it is the one state
- * that cannot be worked out from the icons alone.
- */
-enum fb_tab_labels {
-    FB_TAB_LABELS_ALL = 0,
-    FB_TAB_LABELS_SELECTED,
-    FB_TAB_LABELS_NONE,
-};
 
-static const char *fb_tab_label(enum fb_tab_labels labels, enum mesh_ui_screen screen,
-                                enum mesh_ui_screen current) {
-    if (labels == FB_TAB_LABELS_ALL || (labels == FB_TAB_LABELS_SELECTED && screen == current)) {
-        return mesh_ui_screen_name(screen);
-    }
-    return "";
-}
-
-/* What the whole strip takes at this setting, measured with the same function that draws it. */
-static int fb_tabs_width(const struct mesh_ui_backend_fb_state *state, enum fb_tab_labels labels,
-                         enum mesh_ui_screen current, int small) {
-    int width = 0;
+/* One chip per screen, in tab order. Static because the set never changes and the strip only
+   reads it; what moves is which index is active. */
+static const struct fb_chip *fb_tab_chips(void) {
+    static struct fb_chip chips[MESH_UI_SCREEN_COUNT];
     for (int i = 0; i < MESH_UI_SCREEN_COUNT; ++i) {
         const enum mesh_ui_screen screen = (enum mesh_ui_screen)i;
-        width += fb_chip_width(state, fb_screen_icon(screen), fb_tab_label(labels, screen, current),
-                               small);
+        chips[i].icon = fb_screen_icon(screen);
+        chips[i].label = mesh_ui_screen_name(screen);
     }
-    return width;
+    return chips;
 }
 
 /*
- * The tab strip: a bar of its own, one chip per screen, then the rule that closes it off.
+ * The line under the keycaps: what the transport is doing, and either the radio it found or
+ * how to leave.
  *
- * The bar is the point. The strip used to float on the body's own ground, which left the tabs
- * reading as the first row of content rather than as the frame around it; a recessed tier
- * behind them says "this is chrome" before a word of it is read, which is what every phone's
- * navigation bar is doing. It is the theme's lowest surface, so a palette decides how far from
- * the ground that is - on the high-contrast theme it is barely anywhere, which is correct.
+ * `tone` is the second half of the same sentence - a link that is up is worth saying in the
+ * success colour, and one that is not is not worth shouting about - so the two are decided
+ * together here rather than by the widget, which has no idea what the words mean.
  */
-static void fb_draw_tabs(const struct mesh_ui_backend_fb_state *state,
-                         const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
-    const int small = layout->small;
-    const int margin = fb_margin(state);
-    const int y = fb_gutter(state) + small;
-    const int line = fb_line_adv(state, small);
-    const int bar_h = y + line;
-    int x = fb_gutter(state);
-
-    fb_fill_rect(state, 0, 0, (int)state->var.xres, bar_h,
-                 fb_color(state, MESH_UI_COLOR_SURFACE_LOW));
-
-    const enum mesh_ui_screen current = snapshot->nav.screen;
-    const int room = (int)state->var.xres - margin;
-    enum fb_tab_labels labels = FB_TAB_LABELS_ALL;
-    while (labels < FB_TAB_LABELS_NONE && fb_tabs_width(state, labels, current, small) > room) {
-        labels = (enum fb_tab_labels)(labels + 1);
-    }
-
-    for (int i = 0; i < MESH_UI_SCREEN_COUNT; ++i) {
-        const enum mesh_ui_screen screen = (enum mesh_ui_screen)i;
-        /* The bar under them, not the body ground: an unselected tab draws no fill of its own,
-           and its icon has to blend into what the strip filled behind it. */
-        x = fb_draw_chip(state, x, y, fb_screen_icon(screen), fb_tab_label(labels, screen, current),
-                         current == screen, MESH_UI_COLOR_SURFACE_LOW, small);
-    }
-
-    fb_draw_rule(state, 0, bar_h, (int)state->var.xres, small, MESH_UI_COLOR_RULE_STRONG);
-    layout->body_y = bar_h + fb_space_at(state, MESH_UI_SPACE_MD, small) + fb_gutter(state);
-}
-
-/*
- * Two lines under the body: what the buttons do here, then the link summary.
- *
- * The second line used to be shared with the transient notice, which took it whenever there was
- * one. That made every action blank the answer to "is there a radio attached?" for four
- * seconds - two unrelated facts taking turns on one row because the notice had nowhere else to
- * be. It has somewhere now (fb_draw_snackbar), so both lines say one thing each, always.
- */
-static void fb_draw_footer(const struct mesh_ui_backend_fb_state *state,
-                           const struct mesh_ui_snapshot *snapshot, const struct fb_layout *layout,
-                           const char *hint) {
-    const int small = layout->small;
-    const size_t cols = fb_cols(state, small);
-
-    struct mesh_ui_line line;
-    mesh_ui_line_reset(&line);
-    mesh_ui_line_printf(&line, "%s", hint);
-    mesh_ui_line_fit(&line, cols);
-    fb_draw_text(state, fb_margin(state), layout->footer_y, mesh_ui_line_text(&line), small,
-                 fb_tone_color(state, MESH_UI_TONE_DIM));
-
-    enum mesh_ui_tone tone = MESH_UI_TONE_DIM;
-    mesh_ui_line_reset(&line);
+static void fb_link_summary(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_line *line,
+                            enum mesh_ui_tone *tone) {
+    mesh_ui_line_reset(line);
     const char *status = snapshot->transport_status[0] != '\0'
                              ? snapshot->transport_status
                              : mesh_str(MESH_STR_HEADER_TRANSPORT_STARTING);
-    const struct mesh_ui_device *device = fb_connected_device(snapshot);
+    const struct mesh_ui_device *device = mesh_ui_snapshot_connected_device(snapshot);
     if (device != NULL) {
-        mesh_ui_line_str(&line, MESH_STR_HEADER_STATUS_CONNECTED, status, fb_device_label(device));
-        tone = MESH_UI_TONE_SUCCESS;
-    } else {
-        mesh_ui_line_str(&line, MESH_STR_HEADER_STATUS_QUIT, status, mesh_ui_input_quit_hint());
+        mesh_ui_line_str(line, MESH_STR_HEADER_STATUS_CONNECTED, status, fb_device_label(device));
+        *tone = MESH_UI_TONE_SUCCESS;
+        return;
     }
-    mesh_ui_line_fit(&line, cols);
-    fb_draw_text(state, fb_margin(state), layout->footer_y + fb_line_adv(state, small),
-                 mesh_ui_line_text(&line), small, fb_tone_color(state, tone));
+    mesh_ui_line_str(line, MESH_STR_HEADER_STATUS_QUIT, status, mesh_ui_input_quit_hint());
+    *tone = MESH_UI_TONE_DIM;
 }
 
 /* ---- screens ----------------------------------------------------------------------------- */
@@ -1296,7 +1204,7 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
 
     /* ---- the link: what we are talking to, and whether it has told us who it is ---- */
 
-    const struct mesh_ui_device *connected = fb_connected_device(snapshot);
+    const struct mesh_ui_device *connected = mesh_ui_snapshot_connected_device(snapshot);
 
     fb_card_begin(&card, MESH_UI_ICON_LINK, MESH_STR_STATUS_CARD_LINK,
                   connected != NULL ? MESH_UI_TONE_SUCCESS : MESH_UI_TONE_ERROR);
@@ -1803,11 +1711,10 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
     layout.line = fb_line_adv(state, state->scale);
     layout.cols = fb_cols(state, state->scale);
 
-    fb_draw_tabs(state, snapshot, &layout);
+    fb_draw_nav_bar(state, &layout, fb_tab_chips(), MESH_UI_SCREEN_COUNT,
+                    (size_t)snapshot->nav.screen);
 
-    const int margin = fb_margin(state);
-    const int footer_height = 2 * fb_line_adv(state, layout.small) + margin;
-    layout.footer_y = (int)state->var.yres - footer_height;
+    layout.footer_y = (int)state->var.yres - fb_action_bar_height(state, &layout);
     const int body_height = layout.footer_y - layout.body_y - fb_gutter(state);
     layout.rows = body_height > 0 ? (uint32_t)(body_height / layout.line) : 0U;
 
@@ -1817,90 +1724,61 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
      * carried its own copy of that call - so anything drawn over the whole frame (the notice
      * below is the first) had to be added in five places or be missing from four screens.
      */
-    const char *hint = mesh_str(MESH_STR_HINT_DEFAULT);
     if (snapshot->nav.confirm_open) {
-        hint = mesh_str(MESH_STR_HINT_CONFIRM);
         fb_render_confirm(state, snapshot, &layout);
     } else if (snapshot->nav.picker_open) {
-        hint = mesh_str(MESH_STR_HINT_ENUM_PICKER);
         fb_render_picker(state, snapshot, &layout);
     } else if (snapshot->nav.keyboard_open) {
-        if (snapshot->nav.keyboard_passkey) {
-            hint = snapshot->nav.pairing_confirm ? mesh_str(MESH_STR_HINT_PAIRING_CONFIRM)
-                                                 : mesh_str(MESH_STR_HINT_PAIRING_ENTRY);
-        } else {
-            hint = snapshot->nav.keyboard_field != MESH_UI_FIELD_NONE
-                       ? mesh_str(MESH_STR_HINT_KEYBOARD_FIELD)
-                       : mesh_str(MESH_STR_HINT_KEYBOARD_MESSAGE);
-        }
         fb_render_keyboard(state, snapshot, &layout);
     } else if (snapshot->nav.compose_open) {
-        hint = mesh_str(MESH_STR_HINT_CANNED);
         fb_render_compose(state, snapshot, &layout);
     } else {
         switch (snapshot->nav.screen) {
         case MESH_UI_SCREEN_MESSAGES:
             if (!snapshot->nav.thread_open) {
-                hint = snapshot->nav.messages_delete_armed
-                           ? mesh_str(MESH_STR_HINT_CONVERSATION_DELETE)
-                           : mesh_str(MESH_STR_HINT_CONVERSATIONS);
                 fb_render_conversations(state, snapshot, &layout);
             } else {
-                hint = snapshot->nav.inbox ? mesh_str(MESH_STR_HINT_INBOX)
-                                           : mesh_str(MESH_STR_HINT_THREAD);
                 fb_render_thread(state, snapshot, &layout);
             }
             break;
         case MESH_UI_SCREEN_NODES:
-            hint = snapshot->nav.node_remove_armed  ? mesh_str(MESH_STR_HINT_NODE_REMOVE)
-                   : snapshot->nav.node_detail_open ? mesh_str(MESH_STR_HINT_NODE_DETAIL)
-                                                    : mesh_str(MESH_STR_HINT_NODES);
             fb_render_nodes(state, snapshot, &layout);
             break;
         case MESH_UI_SCREEN_DEVICES:
-            hint = snapshot->nav.devices_forget_armed ? mesh_str(MESH_STR_HINT_DEVICES_FORGET)
-                                                      : mesh_str(MESH_STR_HINT_DEVICES);
             fb_render_devices(state, snapshot, &layout);
             break;
         case MESH_UI_SCREEN_SETTINGS:
-            if (snapshot->nav.settings_section == MESH_UI_SETTINGS_NO_SECTION) {
-                hint = mesh_str(MESH_STR_HINT_SETTINGS_ROOT);
-            } else if (snapshot->nav.settings_discard_armed) {
-                hint = mesh_str(MESH_STR_HINT_SETTINGS_DISCARD);
-            } else if (snapshot->nav.settings_edit_count > 0U) {
-                hint = mesh_str(MESH_STR_HINT_SETTINGS_EDIT_SAVE);
-            } else if (snapshot->nav.settings_section == MESH_UI_SETTINGS_CHANNELS &&
-                       snapshot->nav.settings_channel == MESH_UI_SETTINGS_NO_CHANNEL) {
-                hint = mesh_str(MESH_STR_HINT_SETTINGS_CHANNELS);
-            } else if (snapshot->nav.settings_section == MESH_UI_SETTINGS_MODULES) {
-                /* A list, not a section: nothing on it is editable, so the edit keys would be
-                   advertising a press that does nothing. The same branch the channel list has. */
-                hint = mesh_str(MESH_STR_HINT_SETTINGS_MODULES);
-            } else if (snapshot->nav.settings_section == MESH_UI_SETTINGS_ABOUT) {
-                /* Nothing here is editable and nothing here comes from the radio, so neither the
-                   edit keys nor X mean anything. */
-                hint = mesh_str(MESH_STR_HINT_SETTINGS_ACTIONS);
-            } else {
-                hint = mesh_str(MESH_STR_HINT_SETTINGS_SECTION);
-            }
             fb_render_settings(state, snapshot, &layout);
             break;
         case MESH_UI_SCREEN_STATUS:
         default:
-            /* Status has no controls of its own, so the footer says the one thing the Brick's
-               chrome cannot: how to get out. It used to be a body row on this screen, which is the
-               only screen that ever put a hint in the body - the footer is where every other screen
-               says what the buttons do, and the body row it frees is one the cards spend. Only
-               while a radio is attached, though: the line under this one already ends in the quit
-               hint when there is none, and the same sentence twice reads as a rendering fault. */
-            hint = fb_connected_device(snapshot) != NULL ? mesh_ui_input_quit_hint()
-                                                         : mesh_str(MESH_STR_HINT_TABS_ONLY);
             fb_render_status(state, snapshot, &layout);
             break;
         }
     }
 
-    fb_draw_footer(state, snapshot, &layout, hint);
+    /*
+     * Which buttons mean something here is no longer decided in this function.
+     *
+     * It used to be a branch per screen alongside the one above - the same conditions written
+     * out twice, once to pick a renderer and once to pick a hint sentence, which is two places
+     * to remember when a screen grows a press. mesh_ui_actions_for() answers from the snapshot
+     * instead, walking the same chain of overlays, and it is a unit test's business rather than
+     * a screenshot's.
+     */
+    struct mesh_ui_action_bar actions;
+    mesh_ui_actions_for(snapshot, &actions);
+    struct mesh_ui_line summary;
+    enum mesh_ui_tone summary_tone = MESH_UI_TONE_DIM;
+    fb_link_summary(snapshot, &summary, &summary_tone);
+    const struct fb_action_bar bar = {
+        .items = actions.items,
+        .count = actions.count,
+        .status = mesh_ui_line_text(&summary),
+        .status_tone = summary_tone,
+    };
+    fb_draw_action_bar(state, &layout, &bar);
+
     /*
      * Last, because it is over the UI rather than in it: a notice that a screen could paint
      * over is a notice that is only visible on the screens that happen not to reach the bottom

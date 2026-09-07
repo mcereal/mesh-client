@@ -1,0 +1,22 @@
+# The action bar changing as the screen does: one press per screen, then an armed delete.
+scene demo
+scale 4
+delay 260
+
+hold 600
+tab nodes
+hold 600
+tab devices
+hold 600
+tab settings
+hold 600
+key a
+hold 800
+key b
+hold 500
+tab messages
+hold 600
+key x
+hold 1000
+key b
+hold 700

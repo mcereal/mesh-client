@@ -88,46 +88,94 @@ MESH_STR_ENTRY(TAB_DEVICES,               "Devices")
 MESH_STR_ENTRY(TAB_STATUS,                "Status")
 MESH_STR_ENTRY(TAB_SETTINGS,              "Settings")
 
-/* ---- footer hints ------------------------------------------------------------------------- */
+/* ---- the action bar ------------------------------------------------------------------------ */
 
 /*
- * The one line along the bottom saying what the buttons do here. A, B, X, Y, START, L1 and R1
- * are printed on the Brick's case and stay exactly as they are in every language; the verbs
- * after them are what a translator changes. Two spaces separate one button from the next.
+ * What the buttons do here, one verb per button.
  *
- * These are the tightest strings in the client - the footer is drawn at the chrome scale and
- * one line only, and a hint that overruns is clipped. Prefer dropping a hint to wrapping one.
+ * These used to be whole sentences - "A open node  X pin  Y write  L/R tabs" - because the
+ * footer drew one line of text. It draws an action bar now (fb_draw_action_bar), which is a
+ * keycap and a label per action, so a sentence has nothing for it to iterate: it would either
+ * draw the whole thing on every key or go looking for the button letters inside a translation,
+ * and reading a translation back is the one thing this layer exists to prevent.
+ *
+ * So an action is a *pair* - a button, and one of the ids below - and src/ui/actions.c is where
+ * a screen's set of them is decided. A, B, X, Y and START are printed on the Brick's case and
+ * are not text; only the verb after each is.
+ *
+ * Keep them to a word or two. The bar drops actions from the end when they do not fit, so a
+ * long verb does not wrap - it costs whichever action was written last its place on screen.
  */
-MESH_STR_ENTRY(HINT_DEFAULT,              "A select  B back  Left/Right tabs")
-MESH_STR_ENTRY(HINT_TABS_ONLY,            "L/R tabs")
-/* How to leave, shown beside the transport state while nothing is connected. MENU is the
-   Brick's own button; the second form is what MESHCLIENT_QUIT_KEYS leaves us able to say when
-   somebody has rebound quitting to a key whose name we do not know. */
+MESH_STR_ENTRY(ACTION_SELECT,             "select")
+MESH_STR_ENTRY(ACTION_BACK,               "back")
+MESH_STR_ENTRY(ACTION_OPEN,               "open")
+/* Move to the next tab along - what the shoulder buttons do on every screen. */
+MESH_STR_ENTRY(ACTION_TABS,               "tabs")
+MESH_STR_ENTRY(ACTION_QUIT,               "quit")
+/* Take the highlighted row as the answer, on a screen that exists to ask one. */
+MESH_STR_ENTRY(ACTION_CHOOSE,             "choose")
+MESH_STR_ENTRY(ACTION_CONFIRM,            "confirm")
+MESH_STR_ENTRY(ACTION_CANCEL,             "cancel")
+/* The d-pad, on the two screens where moving the cursor is the whole interaction. */
+MESH_STR_ENTRY(ACTION_MOVE,               "move")
+/* The shoulder buttons inside a long picker: ten rows at a time rather than one. */
+MESH_STR_ENTRY(ACTION_JUMP,               "jump 10")
+/* Put the highlighted character into the draft - what A does on the on-screen keyboard. */
+MESH_STR_ENTRY(ACTION_TYPE,               "type")
+MESH_STR_ENTRY(ACTION_PAIR,               "pair")
+MESH_STR_ENTRY(ACTION_DELETE,             "delete")
+/* The keyboard's own three: the case layer, a space, and "I have finished typing". */
+MESH_STR_ENTRY(ACTION_SHIFT,              "shift")
+MESH_STR_ENTRY(ACTION_SPACE,              "space")
+MESH_STR_ENTRY(ACTION_DONE,               "done")
+MESH_STR_ENTRY(ACTION_SEND,               "send")
+/* Answer with one of the canned messages, rather than opening the keyboard to write one. */
+MESH_STR_ENTRY(ACTION_REPLY,              "reply")
+/* Open the keyboard to compose a message to whoever the cursor is on. */
+MESH_STR_ENTRY(ACTION_WRITE,              "write")
+/* Start a conversation with somebody there is no thread for yet. */
+MESH_STR_ENTRY(ACTION_NEW,                "new")
+/* Keep this node at the top of the list. The star beside a pinned row is the same fact. */
+MESH_STR_ENTRY(ACTION_PIN,                "pin")
+MESH_STR_ENTRY(ACTION_CONNECT,            "connect")
+MESH_STR_ENTRY(ACTION_DISCONNECT,         "disconnect")
+/* Drop a radio from the list of ones we know how to reach. */
+MESH_STR_ENTRY(ACTION_FORGET,             "forget")
+/* Ask the radio for this section again, rather than showing what it last said. */
+MESH_STR_ENTRY(ACTION_REFRESH,            "refresh")
+/* Write the pending edits to the radio; throw them away. */
+MESH_STR_ENTRY(ACTION_SAVE,               "save")
+MESH_STR_ENTRY(ACTION_DISCARD,            "discard")
+/* Change the value on the highlighted row in place, with Left and Right. */
+MESH_STR_ENTRY(ACTION_EDIT,               "edit")
+/* Carry out the highlighted row, on the screen whose rows are verbs rather than settings. */
+MESH_STR_ENTRY(ACTION_RUN,                "run")
+/* Drop a node from the roster we keep after the radio has forgotten it. */
+MESH_STR_ENTRY(ACTION_REMOVE,             "remove")
+
+/*
+ * The second press, on the four actions that ask for one.
+ *
+ * A destructive action is armed by its first press and carried out by its second, and while it
+ * is armed the bar says so: the button that would go through with it stops offering "delete"
+ * and starts offering "confirm delete". The word is longer on purpose - an armed bar should not
+ * look like the resting one.
+ */
+MESH_STR_ENTRY(ACTION_CONFIRM_DELETE,     "confirm delete")
+MESH_STR_ENTRY(ACTION_CONFIRM_REMOVE,     "confirm remove")
+MESH_STR_ENTRY(ACTION_CONFIRM_FORGET,     "confirm forget")
+MESH_STR_ENTRY(ACTION_CONFIRM_DISCARD,    "confirm discard")
+
+/* ---- how to leave -------------------------------------------------------------------------- */
+
+/*
+ * Shown beside the transport state while nothing is connected, as a sentence rather than as an
+ * action, because that line is prose and not a bar. MENU is the Brick's own button; the second
+ * form is what MESHCLIENT_QUIT_KEYS leaves us able to say when somebody has rebound quitting to
+ * a key whose name we do not know.
+ */
 MESH_STR_ENTRY(HINT_QUIT_MENU,            "Press MENU to quit")
 MESH_STR_ENTRY(HINT_QUIT_KEY_CODE,        "Quit: key code %u")
-MESH_STR_ENTRY(HINT_CONFIRM,              "Up/Down choose  A confirm  B cancel")
-MESH_STR_ENTRY(HINT_ENUM_PICKER,          "A choose  B cancel  Up/Down move  L/R jump 10")
-MESH_STR_ENTRY(HINT_PAIRING_CONFIRM,      "START confirm  B cancel pairing")
-MESH_STR_ENTRY(HINT_PAIRING_ENTRY,        "A type digits  START pair  B cancel")
-MESH_STR_ENTRY(HINT_KEYBOARD_FIELD,       "A type  B delete  X shift  Y space  START done")
-MESH_STR_ENTRY(HINT_KEYBOARD_MESSAGE,     "A type  B delete  X shift  Y space  START send")
-MESH_STR_ENTRY(HINT_CANNED,               "A send / type  B back to the conversation")
-MESH_STR_ENTRY(HINT_CONVERSATION_DELETE,  "X again to delete this conversation  B cancel")
-MESH_STR_ENTRY(HINT_CONVERSATIONS,        "A open  X delete  Y new message  L/R tabs")
-MESH_STR_ENTRY(HINT_INBOX,                "A open conversation  B back  L/R tabs")
-MESH_STR_ENTRY(HINT_THREAD,               "A quick reply  Y write  B back  L/R tabs")
-MESH_STR_ENTRY(HINT_NODE_REMOVE,          "A again to remove this node  B cancel")
-MESH_STR_ENTRY(HINT_NODE_DETAIL,          "A select  B back  X pin  Y write  L/R tabs")
-MESH_STR_ENTRY(HINT_NODES,                "A open node  X pin  Y write  L/R tabs")
-MESH_STR_ENTRY(HINT_DEVICES_FORGET,       "Y again to forget this node  B cancel")
-MESH_STR_ENTRY(HINT_DEVICES,              "A connect  X disconnect  Y forget  L/R tabs")
-MESH_STR_ENTRY(HINT_SETTINGS_ROOT,        "A open  X refresh  L/R tabs")
-MESH_STR_ENTRY(HINT_SETTINGS_DISCARD,     "B again to discard  Y save")
-MESH_STR_ENTRY(HINT_SETTINGS_EDIT_SAVE,   "Left/Right/A edit  Y save  B discard  L1/R1 tabs")
-MESH_STR_ENTRY(HINT_SETTINGS_CHANNELS,    "A open channel  B back  X refresh  L1/R1 tabs")
-MESH_STR_ENTRY(HINT_SETTINGS_MODULES,     "A open module  B back  X refresh  L1/R1 tabs")
-MESH_STR_ENTRY(HINT_SETTINGS_ACTIONS,     "A run the highlighted row  B back  L1/R1 tabs")
-MESH_STR_ENTRY(HINT_SETTINGS_SECTION,     "Left/Right/A edit  B back  X refresh  L1/R1 tabs")
 
 /* ---- the header ---------------------------------------------------------------------------- */
 
