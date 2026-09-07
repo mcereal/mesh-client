@@ -54,6 +54,13 @@
     {                                                                                              \
         .margin = 16U, .scale = 4U, .chrome_scale_down = 1U, .bubble_width_pct = 75U,              \
         .field_label_cols = 20U, .narrow_cols = 40U, .card_pad = 2U, .meter_thickness = 1U,        \
+        .motion_ms =                                                                               \
+            {                                                                                      \
+                [MESH_UI_MOTION_SHORT] = 140U,                                                     \
+                [MESH_UI_MOTION_MEDIUM] = 220U,                                                    \
+                [MESH_UI_MOTION_LONG] = 320U,                                                      \
+                [MESH_UI_MOTION_LOOP] = 1400U,                                                     \
+            },                                                                                     \
         .shape = {                                                                                 \
             [MESH_UI_SHAPE_NONE] = 0U,                                                             \
             [MESH_UI_SHAPE_SM] = 2U,                                                               \
@@ -676,6 +683,14 @@ int mesh_ui_theme_clamp_scale(const struct mesh_ui_theme *theme, int scale) {
 
 int mesh_ui_theme_scale(const struct mesh_ui_theme *theme) {
     return mesh_ui_theme_clamp_scale(theme, 0);
+}
+
+uint32_t mesh_ui_theme_motion(const struct mesh_ui_theme *theme, enum mesh_ui_motion motion) {
+    theme = theme_or_default(theme);
+    if ((int)motion < 0 || (int)motion >= (int)MESH_UI_MOTION_COUNT) {
+        return 0U;
+    }
+    return (uint32_t)theme->metrics.motion_ms[motion];
 }
 
 int mesh_ui_theme_radius(const struct mesh_ui_theme *theme, enum mesh_ui_shape shape, int scale) {

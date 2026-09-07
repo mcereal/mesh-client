@@ -337,6 +337,51 @@ MESH_TEST_CASE(ui_theme_states_its_geometry, unit) {
  * the last one has to come back to the first - a user who has stepped somewhere unreadable
  * gets home the same way they left.
  */
+MESH_TEST_CASE(ui_theme_states_its_motion, unit) {
+    for (size_t i = 0; i < mesh_ui_theme_count(); ++i) {
+        const struct mesh_ui_theme *theme = mesh_ui_theme_at(i);
+
+        uint32_t previous = 0U;
+        for (int motion = MESH_UI_MOTION_SHORT; motion <= MESH_UI_MOTION_LONG; ++motion) {
+            const uint32_t ms = mesh_ui_theme_motion(theme, (enum mesh_ui_motion)motion);
+            /* A duration of zero is "already there", which is a theme with no motion at all
+               rather than a theme with a broken token. Nothing here is allowed to be that by
+               accident, so the three transition tokens are held to a range a human can see and
+               will not wait for. */
+            MESH_TEST_FAIL_IF(ms < 60U, "a theme's transition is too short to be seen");
+            MESH_TEST_FAIL_IF(ms > 600U, "a theme's transition is long enough to wait for");
+            /*
+             * The three have to be a scale, for the reason the shape steps do: a widget naming
+             * MESH_UI_MOTION_SHORT and getting something slower than MESH_UI_MOTION_LONG is a
+             * vocabulary that lies, and the asymmetry the snackbar depends on - out shorter
+             * than in - is exactly this ordering.
+             */
+            MESH_TEST_FAIL_IF(motion > MESH_UI_MOTION_SHORT && ms <= previous,
+                              "a theme's motion scale does not get longer as it goes up");
+            previous = ms;
+        }
+
+        /* The loop is not a transition and is not on that scale: it is one pass of something
+           with no end, and it has to be long enough to read as travel rather than as flicker. */
+        const uint32_t loop = mesh_ui_theme_motion(theme, MESH_UI_MOTION_LOOP);
+        MESH_TEST_FAIL_IF(loop <= previous, "a theme's loop is shorter than a transition");
+        MESH_TEST_FAIL_IF(loop < 600U, "a theme's indeterminate loop reads as flicker");
+    }
+
+    /* Out of range answers 0 rather than reading past the table - the same contract the shape
+       accessor has, and what keeps a token added to the enum but not to a theme from being a
+       buffer overrun instead of a still control. */
+    const struct mesh_ui_theme *theme = mesh_ui_theme_default();
+    MESH_TEST_FAIL_IF(mesh_ui_theme_motion(theme, (enum mesh_ui_motion) - 1) != 0U,
+                      "a negative motion token read something");
+    MESH_TEST_FAIL_IF(mesh_ui_theme_motion(theme, MESH_UI_MOTION_COUNT) != 0U,
+                      "a motion token past the end read something");
+    /* NULL is the default theme, as it is everywhere else in this header. */
+    MESH_TEST_FAIL_IF(mesh_ui_theme_motion(NULL, MESH_UI_MOTION_SHORT) !=
+                          mesh_ui_theme_motion(theme, MESH_UI_MOTION_SHORT),
+                      "a NULL theme did not fall back to the default");
+}
+
 MESH_TEST_CASE(ui_theme_cycles_through_every_theme, unit) {
     const size_t count = mesh_ui_theme_count();
     const struct mesh_ui_theme *theme = mesh_ui_theme_default();

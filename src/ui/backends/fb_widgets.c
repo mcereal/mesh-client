@@ -223,6 +223,11 @@ struct fb_list fb_list_begin_visible(const struct fb_layout *layout, uint32_t co
     list.y = layout->body_y;
     list.line = layout->line;
     list.cols = layout->cols;
+    /* The window the rail measures, which is the body rather than the rows that happened to be
+       filled: a list of three items in a body of fifteen has no rail at all, and a list of
+       forty-two wants one the height of what a full window would have been. */
+    list.track_y = layout->body_y;
+    list.track_h = (int)layout->rows * layout->line;
     return list;
 }
 
@@ -236,12 +241,66 @@ struct fb_list fb_list_begin_rows(const struct fb_layout *layout, uint32_t count
     return fb_list_begin_visible(layout, count, cursor, rows > 0U ? rows : 1U);
 }
 
+/*
+ * The scroll rail. Drawn once per list, by the first row that draws - see fb_widgets.h.
+ *
+ * It sits in the half-margin outside the row fill, so it costs no row a single cell: rows clip
+ * their text at `xres - margin` and the cursor fill stops at `xres - margin / 2`, which leaves
+ * this gutter free. Its width comes from the glyph scale like every other control here, so it
+ * stays in proportion when a theme asks for bigger text.
+ */
+static void fb_list_rail(const struct mesh_ui_backend_fb_state *state, struct fb_list *list) {
+    if (list == NULL || list->rail_drawn) {
+        return;
+    }
+    list->rail_drawn = true;
+    if (list->track_h <= 0) {
+        return;
+    }
+
+    const int margin = fb_margin(state);
+    /*
+     * Sized from the gutter it lives in rather than from the glyph scale, unlike every other
+     * control here. The gutter is half a margin wide and does not grow when a theme asks for
+     * bigger text, so a rail measured in glyph steps ran out of clearance and ended up flush
+     * against the panel edge at the larger scales. A quarter-margin leaves the same gap either
+     * side at every scale, which is what makes it read as inset rather than as a screen edge.
+     */
+    int width = margin / 4;
+    if (width < 2) {
+        width = 2;
+    }
+
+    /* The proportion is mesh_ui_list_scroll()'s - no pixels in it, and unit tested there. A
+       length of 0 is a list that fits, which draws nothing at all rather than a full track. */
+    const struct mesh_ui_scroll scroll =
+        mesh_ui_list_scroll(&list->model, list->track_h, 4 * width);
+    if (scroll.length <= 0) {
+        return;
+    }
+
+    /* Centred in the gutter between the row fill's right edge and the panel edge. */
+    const int x = (int)state->var.xres - margin / 4 - width / 2;
+    const int radius = fb_radius(state, MESH_UI_SHAPE_FULL);
+
+    /* The track is the role that already means one - the same groove a meter's fill sits in -
+       and the thumb is quiet ink, named as a tone the way an icon in a row slot is. That pairing
+       is contract-checked: MESH_UI_TONE_DIM owes the ground 3:1 on every theme, so the thumb is
+       findable on all four, which a second neutral role chosen by eye against the track was
+       not. */
+    fb_fill_round_rect(state, x, list->track_y, width, list->track_h, radius,
+                       fb_color(state, MESH_UI_COLOR_METER_TRACK));
+    fb_fill_round_rect(state, x, list->track_y + scroll.offset, width, scroll.length, radius,
+                       fb_tone_color(state, MESH_UI_TONE_DIM));
+}
+
 bool fb_list_next(struct fb_list *list, uint32_t *index) {
     return mesh_ui_list_next(&list->model, index);
 }
 
 void fb_list_row(const struct mesh_ui_backend_fb_state *state, struct fb_list *list, uint32_t index,
                  const char *text, enum mesh_ui_tone tone) {
+    fb_list_rail(state, list);
     fb_draw_row(state, list->y, text, fb_tone_color(state, tone),
                 mesh_ui_list_is_cursor(&list->model, index));
     list->y += list->line;
@@ -548,6 +607,7 @@ static void fb_item_headline(struct mesh_ui_line *line, const struct fb_list_ite
 
 void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, uint32_t index,
                   const struct fb_list_item *item) {
+    fb_list_rail(state, list);
     const int scale = state->scale;
     const bool selected = mesh_ui_list_is_cursor(&list->model, index);
     const struct fb_item_geom g = fb_item_measure(state, list, item);
@@ -666,6 +726,7 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
  */
 void fb_draw_conversation(struct mesh_ui_backend_fb_state *state, struct fb_list *list,
                           uint32_t index, const struct fb_conversation *conversation) {
+    fb_list_rail(state, list);
     struct mesh_ui_line preview;
     mesh_ui_line_reset(&preview);
     if (conversation->armed) {
@@ -1396,12 +1457,13 @@ bool fb_draw_card(struct mesh_ui_backend_fb_state *state, const struct fb_layout
 /*
  * How long it takes to arrive, and how long to leave.
  *
- * Not the same number, and the asymmetry is the point: arriving is the part that has to be
+ * Not the same token, and the asymmetry is the point: arriving is the part that has to be
  * seen, leaving is the part that has to be out of the way. It is the shape of every platform's
- * transient-notice motion, and roughly Material's own 150/75 stretched for a panel this size.
+ * transient-notice motion. The theme says how long each is (enum mesh_ui_motion); what belongs
+ * here is only which of the two kinds of movement this is.
  */
-#define FB_SNACKBAR_IN_MS 220U
-#define FB_SNACKBAR_OUT_MS 150U
+#define FB_SNACKBAR_IN_MOTION MESH_UI_MOTION_MEDIUM
+#define FB_SNACKBAR_OUT_MOTION MESH_UI_MOTION_SHORT
 
 /* Material allows one line or two, and two is where a notice stops being one on a 3.2" panel.
    Anything longer is clipped rather than allowed to grow into the body. */
@@ -1439,7 +1501,8 @@ void fb_draw_snackbar(struct mesh_ui_backend_fb_state *state, const struct fb_la
 
     const int32_t position = mesh_ui_anim_track(
         &state->anim, FB_ANIM_ID_SNACKBAR, state->now_ms, showing ? MESH_UI_ANIM_ONE : 0,
-        showing ? FB_SNACKBAR_IN_MS : FB_SNACKBAR_OUT_MS, MESH_UI_EASE_OUT);
+        fb_motion(state, showing ? FB_SNACKBAR_IN_MOTION : FB_SNACKBAR_OUT_MOTION),
+        MESH_UI_EASE_OUT);
     if (!showing && position == 0) {
         /* All the way out. The store forgot the words several frames ago; now so does this,
            and the next notice starts from an empty slot rather than from this one's. */
@@ -1531,12 +1594,12 @@ void fb_title_count(char *out, size_t out_len, const char *name, uint32_t count,
 /*
  * How long a knob takes to cross, and on what curve.
  *
- * 140 ms is the range a control that answers a button press wants to be in: long enough that
- * the eye follows the knob across rather than seeing it teleport, short enough that nobody
- * waits for it. Ease-out because the press has already happened - the movement is the screen
- * catching up, so it should leave briskly and settle, not wind up first.
+ * The short token: what a control answering a button press wants - long enough that the eye
+ * follows the knob across rather than seeing it teleport, short enough that nobody waits for
+ * it. Ease-out because the press has already happened; the movement is the screen catching up,
+ * so it should leave briskly and settle rather than wind up first.
  */
-#define FB_SWITCH_MS 140U
+#define FB_SWITCH_MOTION MESH_UI_MOTION_SHORT
 
 /* Shorter than the line advance, which carries the gap between rows: a control as tall as the
    advance touches the row above it. */
@@ -1575,7 +1638,7 @@ void fb_draw_switch(struct mesh_ui_backend_fb_state *state, const struct fb_swit
      */
     const int32_t position =
         mesh_ui_anim_track(&state->anim, sw->id, state->now_ms, sw->on ? MESH_UI_ANIM_ONE : 0,
-                           FB_SWITCH_MS, MESH_UI_EASE_OUT);
+                           fb_motion(state, FB_SWITCH_MOTION), MESH_UI_EASE_OUT);
 
     const int radius = sw->rect.h / 2;
 
@@ -1646,11 +1709,11 @@ void fb_draw_switch(struct mesh_ui_backend_fb_state *state, const struct fb_swit
  * bar spends its time moving between two readings instead of sitting still and then jumping,
  * and what the eye gets is the rate rather than the samples.
  */
-#define FB_METER_MS 320U
+#define FB_METER_MOTION MESH_UI_MOTION_LONG
 
 /* One pass of an indeterminate pill. Slow enough to read as travel rather than as flicker, fast
    enough that a screen with one on it does not feel stalled. */
-#define FB_METER_LOOP_MS 1400U
+#define FB_METER_LOOP_MOTION MESH_UI_MOTION_LOOP
 
 /* How much of the track the pill covers. A third is the proportion Material's indeterminate bar
    settles at, and it is about the shortest that still reads as a bar rather than as a dot. */
@@ -1735,10 +1798,10 @@ void fb_draw_meter(struct mesh_ui_backend_fb_state *state, const struct fb_meter
            off the track entirely, which is what keeps a loop that never ends from visibly
            restarting. Shifting the eased value instead would put a jump in the middle of the
            travel. */
-        const int32_t phase =
-            (mesh_ui_anim_loop(&state->anim, meter->id, state->now_ms, FB_METER_LOOP_MS) +
-             FB_METER_PILL_PHASE) %
-            MESH_UI_ANIM_ONE;
+        const int32_t phase = (mesh_ui_anim_loop(&state->anim, meter->id, state->now_ms,
+                                                 fb_motion(state, FB_METER_LOOP_MOTION)) +
+                               FB_METER_PILL_PHASE) %
+                              MESH_UI_ANIM_ONE;
         const int32_t t = mesh_ui_ease(MESH_UI_EASE_IN_OUT, phase);
         const int travel = r.w + pill;
         int x = r.x - pill + (int)(((int64_t)travel * t) / MESH_UI_ANIM_ONE);
@@ -1759,15 +1822,16 @@ void fb_draw_meter(struct mesh_ui_backend_fb_state *state, const struct fb_meter
         return;
     }
 
-    /* Where the fill has got to, which is not where the reading is: see FB_METER_MS. */
+    /* Where the fill has got to, which is not where the reading is: see FB_METER_MOTION. */
     int32_t value = meter->value;
     if (value < 0) {
         value = 0;
     } else if (value > MESH_UI_ANIM_ONE) {
         value = MESH_UI_ANIM_ONE;
     }
-    const int32_t position = mesh_ui_anim_track(&state->anim, meter->id, state->now_ms, value,
-                                                FB_METER_MS, MESH_UI_EASE_OUT);
+    const int32_t position =
+        mesh_ui_anim_track(&state->anim, meter->id, state->now_ms, value,
+                           fb_motion(state, FB_METER_MOTION), MESH_UI_EASE_OUT);
 
     int fill = (int)(((int64_t)r.w * position) / MESH_UI_ANIM_ONE);
     if (fill <= 0) {
