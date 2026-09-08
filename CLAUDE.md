@@ -26,6 +26,7 @@ make debug                                # Debug build only
 make format                               # clang-format all tracked .c/.h
 make proto                                # regenerate nanopb sources
 make release && make package              # release binary + dist/MeshClient.pak.zip
+make fuzz                                 # libFuzzer over the two decoders that read the air
 make ui-capture ARGS="<scene> -o x.gif"   # render a UI scene to a GIF, no device needed
 make screenshots                          # re-render the four listing stills in .github/resources
 ```

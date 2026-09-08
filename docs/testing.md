@@ -57,6 +57,7 @@ Three jobs on every pull request ([`.github/workflows/ci.yml`](../.github/workfl
 | `Build and test` | `make test` on ubuntu-24.04 under gcc *and* clang, then `make release && make package` |
 | `Cross build (tg5040, static aarch64)` | that the pak builds for the device. The same `docker/setup-cross.sh` toolchain `make docker-pak` uses, through `scripts/cross-build.sh`, with the binary asserted to be aarch64 and statically linked before it is packaged. The zip and the bare binary are uploaded, so a pull request can be sideloaded onto a Brick without building it |
 | `Sanitizers (ASan + UBSan)` | the same suite under both sanitizers, built with clang. `-fno-sanitize-recover=undefined` is on, so a UBSan diagnostic fails the run rather than printing into a log that passes |
+| `Fuzz (libFuzzer, seeded regression)` | the two decoders that read bytes off the air, over their seed corpus plus a fixed number of mutations from a fixed seed. Deterministic on purpose - see below |
 
 The cross job is the one that was missing longest. The device build lived only in
 `semantic-release.yml`, which fires on a push to `main` - so a musl/aarch64 break was green in
@@ -82,6 +83,49 @@ in CI or in the dev container, and `mesh_ui_capture_*` (`src/ui/backends/fb_capt
 only way the fb backend's output is exercised anywhere but on a Brick. Those cases check the
 contract the encoders rely on — geometry, pixel order, that two screens do not render
 identically — rather than pinning pixels, which would fail on every legitimate UI change.
+
+## Fuzzing
+
+Two harnesses in `devtools/fuzz/`, over the two places bytes we did not write enter the client:
+
+| Target | Entry point | What it is looking at |
+|---|---|---|
+| `stream_framing` | `mesh_stream_parser_push()` | the serial link's parser, where the radio interleaves its own text log with framed protobufs on one port, so resyncing past junk is most of the job |
+| `session` | `mesh_session_handle_from_radio()` | one FromRadio, however it travelled. nanopb guards its own bounds; what is worth fuzzing is what the session does with the fields afterwards |
+
+```bash
+make fuzz                       # the deterministic pass CI runs: seeds, then 20k fixed-seed runs
+make fuzz ARGS="--time 600"     # an actual hunt, ten minutes per target
+make docker-fuzz                # the same on macOS
+./build/fuzz/debug/devtools/meshclient_fuzz_session build/fuzz/findings/crash-<hash>
+```
+
+**Memory safety is not the only oracle, and for the session it is not even the main one.** The
+counted arrays a decoded packet lands in — the 256-node roster, the 8-slot channel table, the
+message ring, a traceroute's hops — live *inside* `struct mesh_session`, which is precisely the
+case a sanitizer cannot see: a write one slot past `nodes[255]` lands on the next field of a
+struct the allocator handed out whole, so nothing faults and nothing is poisoned. The harness
+therefore checks those counts by hand after every input. The framing harness checks two exact
+identities instead: every byte pushed is accounted for once (delivered, in a frame header,
+dropped, or still buffered), and every byte handed to the text callback is a byte counted as
+dropped. A parser can be perfectly memory-safe and still lose a message.
+
+**The seed corpus is generated, not committed.** `meshclient_fuzz_seeds` writes one real message
+per FromRadio variant the client acts on, encoded with the same nanopb encoders the client
+decodes with, plus framing seeds built from those — a whole frame, the same frame arriving a
+byte at a time, a log line then a frame, a false start inside a log line, a header whose payload
+never arrives. Generating them means a protobuf regeneration that changes a field number changes
+the seeds with it; a corpus of blobs in git would quietly stop decoding and quietly stop seeding
+anything. It also means findings are the only binary artifacts, and those are reproducers.
+
+**CI runs the deterministic half only.** Every seed once, then a fixed number of mutations from
+a fixed seed: red there is a bug in the diff rather than a fuzzer that happened to get lucky on
+somebody's pull request, which is the failure mode that teaches a team to ignore a job. The
+open-ended hunt is `--time`, run by hand when the parser or the decode paths change.
+
+The harnesses need clang (libFuzzer is a clang runtime) and Ubuntu's `libclang-rt-18-dev`, which
+the `clang` package does not pull in. `scripts/fuzz.sh` builds with ASan and UBSan alongside,
+because a fuzzer without a sanitizer only reports the crashes bad enough to fault on their own.
 
 ## Adding a test
 

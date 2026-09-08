@@ -171,3 +171,43 @@ jobs:
           ASAN_OPTIONS: detect_leaks=1:detect_stack_use_after_return=1:strict_string_checks=1
           UBSAN_OPTIONS: print_stacktrace=1
         run: make test CMAKE_ARGS="-- -DMESHCLIENT_ENABLE_ASAN=ON -DMESHCLIENT_ENABLE_UBSAN=ON"
+
+  # The two doors bytes we did not write come in through: the serial frame parser and the
+  # session's FromRadio decode. This is the deterministic half of fuzzing - every seed once,
+  # then a fixed number of mutations from a fixed seed - so a red here is a bug in the diff
+  # rather than a fuzzer that got lucky on somebody's pull request. The hunt is `make fuzz
+  # ARGS="--time 600"`, run by hand when those paths change.
+  fuzz:
+    name: Fuzz (libFuzzer, seeded regression)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          # libclang-rt-18-dev carries libFuzzer and the sanitizer runtimes; Ubuntu's clang
+          # package does not pull it in, and the link fails looking for libclang_rt.fuzzer.
+          sudo apt-get install -y build-essential clang llvm libclang-rt-18-dev cmake ninja-build pkg-config libdbus-1-dev protobuf-compiler python3 python3-pip
+
+      - name: Install Python packages for nanopb generator
+        run: |
+          python3 -m pip install --user --upgrade pip setuptools wheel
+          python3 -m pip install --user protobuf grpcio-tools
+
+      - name: Run the harnesses over their seed corpus
+        env:
+          CC: clang
+        run: ./scripts/fuzz.sh
+
+      # The crashing input is the reproducer, so keep it when there is one.
+      - name: Upload findings
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-findings
+          path: build/fuzz/findings
+          if-no-files-found: ignore
