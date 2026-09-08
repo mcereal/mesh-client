@@ -446,6 +446,20 @@ struct mesh_ui_settings_item {
  * the ones past MESH_UI_CANNED_SLOTS, which it copies across untouched so a radio with more
  * messages than this screen has rows does not lose them to a save.
  */
+/*
+ * A character this TEXT field's value may not contain, or 0 when anything goes.
+ *
+ * Only the canned slots reserve one, and the reason is the shape of the wire rather than
+ * anything about the words: the radio's list is a single '|'-separated string, so a slot
+ * holding a '|' is read back as two messages, shifts every slot after it, and pushes the
+ * entries this screen never showed off the end. The keyboard's symbols layer has a '|' on it,
+ * so this is reachable by typing rather than only in theory.
+ *
+ * Filtered as the edit is committed rather than rejected at the save, so the row shows exactly
+ * what the radio will be sent - the same bargain the length cap already makes.
+ */
+char mesh_ui_settings_field_reserved_char(enum mesh_ui_setting_field field);
+
 uint32_t mesh_ui_settings_canned_count(const char *list);
 void mesh_ui_settings_canned_entry(const char *list, uint32_t index, char *out, size_t out_len);
 

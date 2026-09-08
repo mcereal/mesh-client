@@ -1251,6 +1251,20 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
  * because the count is what the "also on radio" row reports and what decides how far the write
  * builder walks.
  */
+char mesh_ui_settings_field_reserved_char(enum mesh_ui_setting_field field) {
+    switch (field) {
+    case MESH_UI_FIELD_CANNED_0:
+    case MESH_UI_FIELD_CANNED_1:
+    case MESH_UI_FIELD_CANNED_2:
+    case MESH_UI_FIELD_CANNED_3:
+    case MESH_UI_FIELD_CANNED_4:
+    case MESH_UI_FIELD_CANNED_5:
+        return '|';
+    default:
+        return '\0';
+    }
+}
+
 uint32_t mesh_ui_settings_canned_count(const char *list) {
     if (list == NULL || list[0] == '\0') {
         return 0U;

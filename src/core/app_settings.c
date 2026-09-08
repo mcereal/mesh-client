@@ -647,12 +647,17 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
  * A radio holding more entries than the section has rows keeps them: the walk runs to whichever
  * is longer, and an entry past the last slot is copied across as it arrived. Empty slots are
  * skipped rather than written as empty entries, the same gap-closing a cleared admin key gets,
- * so emptying the third of six does not leave a blank quick reply behind it. And the join stops
- * at the wire's cap rather than overrunning it - which is what the slot count and the per-slot
- * cap are chosen together to prevent, but a radio whose own entries are longer than ours can
- * still reach it.
+ * so emptying the third of six does not leave a blank quick reply behind it.
+ *
+ * And it can fail. The slot count and the per-slot cap are chosen together so the six rows
+ * always fit the wire's 200 bytes, but a radio holding *more* than six can have a tail long
+ * enough that lengthening a visible message pushes it over - and a join that stopped at the cap
+ * would send a list with that tail missing, which the radio would take as a deletion. So the
+ * overflow is reported and the save refused: false here is -E2BIG at the caller and a toast,
+ * not a shorter list. Refusing is the whole point - the alternative is a save that silently
+ * deletes messages this screen never showed.
  */
-static void mesh_app_build_canned_list(const char *held, const struct mesh_ui_action *action,
+static bool mesh_app_build_canned_list(const char *held, const struct mesh_ui_action *action,
                                        char *out, size_t out_len) {
     out[0] = '\0';
     size_t used = 0U;
@@ -682,7 +687,7 @@ static void mesh_app_build_canned_list(const char *held, const struct mesh_ui_ac
         const size_t sep = (used > 0U) ? 1U : 0U;
         const size_t len = strlen(text);
         if (used + sep + len >= out_len) {
-            break;
+            return false;
         }
         if (sep != 0U) {
             out[used++] = '|';
@@ -691,6 +696,7 @@ static void mesh_app_build_canned_list(const char *held, const struct mesh_ui_ac
         used += len;
         out[used] = '\0';
     }
+    return true;
 }
 
 /* Builds the set_* for a section from what the radio last reported plus the edits. The
@@ -856,8 +862,12 @@ int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
                 return -ENOENT;
             }
             out->kind = MESH_ADMIN_SET_CANNED_MESSAGES;
-            mesh_app_build_canned_list(radio->canned_messages, action, out->payload.text,
-                                       sizeof out->payload.text);
+            if (!mesh_app_build_canned_list(radio->canned_messages, action, out->payload.text,
+                                            sizeof out->payload.text)) {
+                /* The edits plus the entries the screen could not show do not fit the wire.
+                   Refused rather than truncated: a shorter list is a deletion. */
+                return -E2BIG;
+            }
             /* Assembled whole above rather than field by field below, so there is nothing for
                the edit loop to apply. */
             return 0;
@@ -1042,6 +1052,8 @@ void mesh_app_save_settings(struct mesh_app *app, const struct mesh_ui_action *a
         mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_SECTION_READ_ONLY, section_name);
     } else if (result == -EINVAL) {
         snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_INVALID_VALUE));
+    } else if (result == -E2BIG) {
+        snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_TOO_LONG_KEPT));
     } else {
         mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_SAVE_FAILED_KEPT, result);
         mesh_log_warn("ui", "Saving %s failed: %d", section_name, result);

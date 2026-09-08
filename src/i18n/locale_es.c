@@ -973,6 +973,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_TOAST_SECTION_NOT_LOADED] = "%s aún sin cargar; X para recargar",
     [MESH_STR_TOAST_SECTION_READ_ONLY] = "%s es de solo lectura por ahora",
     [MESH_STR_TOAST_INVALID_VALUE] = "Valor no válido (PIN: 6 dígitos; clave: hex)",
+    [MESH_STR_TOAST_TOO_LONG_KEPT] = "No cabe en la lista de la radio; cambios conservados",
     [MESH_STR_TOAST_SAVE_FAILED_KEPT] = "Falló el guardado (%d); cambios conservados",
     [MESH_STR_TOAST_SAVE_SESSION_EXPIRED] = "%s rechazado: sesión caducada, intenta de nuevo",
     [MESH_STR_TOAST_SAVE_BAD_VALUE] = "%s rechazado por la radio (valor incorrecto)",

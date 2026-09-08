@@ -198,6 +198,19 @@ bool mesh_ui_nav_settings_commit_text(struct mesh_ui_nav *nav, const struct mesh
         }
         text[cap] = '\0';
     }
+    /* A field whose value lives inside a larger string cannot carry that string's separator;
+       drop it rather than sending something the read-back would split in two. Done before the
+       edit is stored, so the row and the wire agree. */
+    const char reserved = mesh_ui_settings_field_reserved_char(field);
+    if (reserved != '\0') {
+        size_t kept = 0U;
+        for (size_t i = 0; text[i] != '\0'; ++i) {
+            if (text[i] != reserved) {
+                text[kept++] = text[i];
+            }
+        }
+        text[kept] = '\0';
+    }
     if (mesh_ui_settings_field_kind(field) == MESH_UI_SETTING_KEY) {
         uint8_t parsed[MESH_UI_PSK_MAX];
         size_t parsed_len = 0U;

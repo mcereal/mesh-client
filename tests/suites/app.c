@@ -1997,6 +1997,30 @@ MESH_TEST_CASE(app_extra_section_writes, unit) {
                               0,
                       "a canned save should compact the gaps and keep what it could not show");
 
+    /*
+     * The overflow the slot count cannot prevent. Six rows of 32 always fit the wire's 200,
+     * but a radio holding more than six can have a tail long enough that lengthening a visible
+     * message pushes it over - and a join that stopped at the cap would send the list without
+     * that tail, which the radio reads as a deletion. So the save is refused instead.
+     */
+    snprintf(radio.canned_messages, sizeof radio.canned_messages, "a|b|c|d|e|f|%s",
+             "0123456789012345678901234567890123456789012345678901234567890123456789"
+             "0123456789012345678901234567890123456789012345678901234567890123456789"
+             "0123456789012345678901");
+    action.edit_count = 1U;
+    memset(action.edits, 0, sizeof action.edits);
+    action.edits[0].field = MESH_UI_FIELD_CANNED_0;
+    /* 31 characters: the per-slot cap, which is the longest a row can legitimately become. */
+    snprintf(action.edits[0].text, sizeof action.edits[0].text, "%s",
+             "a much longer first message xyz");
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != -E2BIG,
+                      "a canned save that would drop the hidden tail must be refused");
+    /* The same radio without the lengthening edit still fits, so the refusal is about the
+       edit rather than about the radio being unwritable. */
+    action.edit_count = 0U;
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0,
+                      "the list the radio already holds must still be writable");
+
     mesh_radio_settings_reset(&radio);
     action.section = MESH_UI_SETTINGS_RADIO_UI;
     MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != -ENOENT,
