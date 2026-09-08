@@ -28,6 +28,8 @@ const char *mesh_ui_screen_name(enum mesh_ui_screen screen) {
         return mesh_str(MESH_STR_TAB_MESSAGES);
     case MESH_UI_SCREEN_NODES:
         return mesh_str(MESH_STR_TAB_NODES);
+    case MESH_UI_SCREEN_WAYPOINTS:
+        return mesh_str(MESH_STR_TAB_WAYPOINTS);
     case MESH_UI_SCREEN_DEVICES:
         return mesh_str(MESH_STR_TAB_DEVICES);
     case MESH_UI_SCREEN_STATUS:
@@ -272,6 +274,8 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
         return mesh_ui_node_detail_count(node, mesh_ui_nav_node_is_self(store, node),
                                          &store->traceroute, &store->handshake);
     }
+    case MESH_UI_SCREEN_WAYPOINTS:
+        return mesh_ui_nav_waypoint_row_count(nav, store);
     case MESH_UI_SCREEN_DEVICES:
         return (uint32_t)store->device_count;
     case MESH_UI_SCREEN_SETTINGS:
@@ -312,6 +316,9 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
         mesh_ui_nav_close_node_detail(nav);
         moved = true;
     }
+    /* And the same for a place that has left the list, which is what a withdrawal from the
+       mesh looks like from here. */
+    moved = mesh_ui_nav_waypoint_clamp(nav, store) || moved;
 
     for (int screen = 0; screen < MESH_UI_SCREEN_COUNT; ++screen) {
         const uint32_t rows = mesh_ui_nav_row_count(nav, store, (enum mesh_ui_screen)screen);
@@ -585,6 +592,13 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             }
             return false; /* the row redraws when the app flips the flag */
         }
+        if (items[cursor].action == MESH_UI_NODE_ACTION_WAYPOINT) {
+            /* Straight into naming it. The coordinate is not carried - the keyboard remembers
+               whose fix to use and the app reads it from the roster when the name is done, so
+               a node that moves while the user is typing is saved where it ends up. */
+            mesh_ui_nav_open_waypoint_keyboard(nav, node->node_id);
+            return true;
+        }
         if (items[cursor].action == MESH_UI_NODE_ACTION_REMOVE) {
             if (!nav->node_remove_armed) {
                 nav->node_remove_armed = true; /* the row now says "A again to remove" */
@@ -600,6 +614,8 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
         }
         return false;
     }
+    case MESH_UI_SCREEN_WAYPOINTS:
+        return mesh_ui_nav_waypoint_confirm(nav, store, cursor, action);
     case MESH_UI_SCREEN_DEVICES: {
         if (cursor >= rows) {
             return false;
@@ -777,6 +793,14 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         nav->node_remove_armed = false;
         changed = true;
     }
+    /* The same again for the open place's delete row: only A on that row may re-arm it, and
+       moving off it stands it down, so the arming cannot outlive the row it was made on. */
+    if (nav->waypoint_delete_armed &&
+        (key != MESH_UI_KEY_A || nav->screen != MESH_UI_SCREEN_WAYPOINTS ||
+         !nav->waypoint_detail_open)) {
+        nav->waypoint_delete_armed = false;
+        changed = true;
+    }
     /* And the conversation list's delete, which only a second X on the list may carry out. A
        cursor move standing it down is the point: the row the question was asked about is the
        only row the answer may apply to. */
@@ -826,6 +850,9 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         }
         if (nav->screen == MESH_UI_SCREEN_NODES) {
             return mesh_ui_nav_close_node_detail(nav) || changed;
+        }
+        if (nav->screen == MESH_UI_SCREEN_WAYPOINTS) {
+            return mesh_ui_nav_close_waypoint(nav) || changed;
         }
         return changed;
     case MESH_UI_KEY_X:

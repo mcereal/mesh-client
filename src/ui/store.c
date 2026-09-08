@@ -398,6 +398,33 @@ void mesh_ui_store_set_messages(struct mesh_ui_store *store,
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_MESSAGES);
 }
 
+void mesh_ui_store_set_waypoints(struct mesh_ui_store *store,
+                                 const struct mesh_ui_waypoint_list *waypoints) {
+    if (store == NULL) {
+        return;
+    }
+
+    struct mesh_ui_waypoint_list next;
+    memset(&next, 0, sizeof(next));
+    if (waypoints != NULL) {
+        next = *waypoints;
+        if (next.count > MESH_UI_MAX_WAYPOINTS) {
+            next.count = MESH_UI_MAX_WAYPOINTS;
+        }
+        /* Zero the unused tail so the memcmp below compares like with like. */
+        for (uint32_t i = next.count; i < MESH_UI_MAX_WAYPOINTS; ++i) {
+            memset(&next.entries[i], 0, sizeof(next.entries[i]));
+        }
+    }
+
+    if (memcmp(&store->waypoints, &next, sizeof(next)) == 0) {
+        return;
+    }
+
+    store->waypoints = next;
+    mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_WAYPOINTS);
+}
+
 static bool mesh_ui_message_list_contains(const struct mesh_ui_message_list *list,
                                           uint32_t packet_id) {
     /* Packet id 0 means "no id" in the Meshtastic protocol, so it never identifies anything. */
@@ -666,6 +693,7 @@ bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_s
     }
 
     snapshot->messages = store->messages;
+    snapshot->waypoints = store->waypoints;
     snapshot->read_state = store->read_state;
     snapshot->settings = store->settings;
     snapshot->traceroute = store->traceroute;

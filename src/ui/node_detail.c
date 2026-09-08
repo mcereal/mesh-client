@@ -840,6 +840,17 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
             mesh_str(remove_armed ? MESH_STR_NODE_ACT_REMOVE_ARMED : MESH_STR_COMMON_PRESS_A),
             MESH_UI_NODE_ACTION_REMOVE);
     }
+    /*
+     * Outside the block above, because this is the one action our own node has a use for too:
+     * a Brick has no GPS, so "where my radio says it is" and "where that node says it is" are
+     * the same kind of answer and the only two a waypoint can be made from. The row appears
+     * only when there is a fix to make one at - offering it against no coordinates would be
+     * offering a place that is nowhere.
+     */
+    if (node->position.valid) {
+        rows_action(&rows, MESH_STR_NODE_ACT_WAYPOINT, mesh_str(MESH_STR_COMMON_PRESS_A),
+                    MESH_UI_NODE_ACTION_WAYPOINT);
+    }
     node_rows_identity(&rows, node);
     node_rows_signal(&rows, node, is_self, now);
     node_rows_power(&rows, node, now);

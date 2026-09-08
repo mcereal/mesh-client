@@ -17,6 +17,22 @@ decoding, styling, label placement and font concerns; defer that work until a co
 justifies it. Routing, address search, terrain, track history and waypoint sharing are separate
 features, not prerequisites for viewing nodes on a map.
 
+## Waypoints landed first, and without a map
+
+Waypoints were listed under "optional extensions" below, on the assumption that a place is
+something you look at on a map. They shipped ahead of the map because that assumption is wrong
+on this hardware: a handheld with a d-pad and no touchscreen can answer *how far away is it and
+which way* without drawing anything, and that answer is most of what a shared place is for.
+
+What it took from this document was the geography, and only the part a range needs:
+`mesh_geo_vector_between()` alongside the bounds test, both in `src/geo/`, with no projection
+and no tiles. The map inherits them rather than writing a second copy - which is the whole
+argument for the module boundary proposed below, now with a caller to check it against.
+
+What the map still adds is the picture: markers, panning, and seeing where two places are in
+relation to *each other* rather than each one's relation to you. The Waypoints tab's list is the
+thing that makes those worth having, because it is where the places come from.
+
 ## What is already present
 
 | Existing component | Reuse and limitation |
@@ -116,8 +132,9 @@ Names below are proposals, not APIs that already exist.
 
 | Module | Owns | Reused by |
 | --- | --- | --- |
-| `include/mesh/geo/`, `src/geo/` | Coordinate validation, conversion, distance/bearing, Web Mercator projection and inverse | Node details, maps, future waypoints |
-| — *exists:* [`include/mesh/geo/coords.h`](../include/mesh/geo/coords.h) | The bounds test alone, asked by every ingress. Deliberately not more: conversion, distance and projection are written when a map needs them, not speculatively | Session ingestion, the cache loader, fixed position |
+| `include/mesh/geo/`, `src/geo/` | Coordinate validation, conversion, distance/bearing, Web Mercator projection and inverse | Node details, maps, waypoints |
+| — *exists:* [`include/mesh/geo/coords.h`](../include/mesh/geo/coords.h) | The bounds test alone, asked by every ingress | Session ingestion, the cache loader, fixed position |
+| — *exists:* [`include/mesh/geo/vector.h`](../include/mesh/geo/vector.h) | Distance and initial bearing between two points, and the eight-point compass. Written because the Waypoints tab needed a range, not speculatively - projection still waits for a map. The one `<math.h>` in the tree | The Waypoints list and one place's detail |
 | `include/mesh/map/viewport.h`, `src/map/viewport.c` | Center/zoom, world-to-screen transforms, pan, bounds fitting, visible tile keys | Full map, future location preview |
 | `include/mesh/map/source.h`, `src/map/source_*.c` | Map metadata and tile-byte lookup behind a small source interface | Offline packs; optional HTTP source later |
 | `src/map/tile_cache.c` | Byte-budgeted decoded tile cache, request deduplication and eviction | Any map viewport |
@@ -196,7 +213,7 @@ Meshtastic radio transport. Disconnection must leave cached maps and markers usa
 4. **Offline release.** Pack validation/import instructions, loading/missing/corrupt tile states,
    bounded cache, stale/approximate markers, label prioritization, scale and attribution.
    Include cache/source changes in repaint invalidation and deterministic capture tests.
-5. **Optional extensions.** Online sources, saved areas, waypoints, trails and neighbor edges
+5. **Optional extensions.** Online sources, saved areas, trails and neighbor edges
    can follow independently. Neighbor links express reported connectivity, not radio range;
    neither traceroutes nor neighbor reports provide route navigation.
 

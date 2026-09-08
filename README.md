@@ -11,6 +11,7 @@ Small C core, pluggable transports, available in the
 <p align="center">
   <img src=".github/resources/screenshots/messages.png" width="180" alt="A channel thread, with sent and received messages">
   <img src=".github/resources/screenshots/nodes.png" width="180" alt="The node roster, with age and signal per node">
+  <img src=".github/resources/screenshots/waypoints.png" width="180" alt="The waypoint list, with the distance and bearing to each shared place">
   <img src=".github/resources/screenshots/status.png" width="180" alt="The Status tab: link, mesh and radio cards">
   <img src=".github/resources/screenshots/settings.png" width="180" alt="The LoRa settings section">
 </p>

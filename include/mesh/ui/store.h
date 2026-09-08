@@ -19,6 +19,19 @@ extern "C" {
 /* Newest messages carried to the backends. Matches the transport ring so a per-conversation
    view has the same history the radio gave us; the Brick shows a screenful at a time. */
 #define MESH_UI_MAX_MESSAGES 64U
+/*
+ * The waypoint book's own capacity and upstream's two string limits, restated on this side of
+ * the seam - as MESH_UI_MESSAGE_TEXT_MAX already restates the message payload's.
+ *
+ * The store is nanopb-free by construction, and mesh/core/waypoint.h is not: it takes a
+ * meshtastic_MeshPacket. Including it here to reach three numbers would drag the generated
+ * protobuf headers into every backend and every test that draws a screen. The numbers are
+ * pinned against the core's in the waypoints suite, which is the check that keeps two
+ * declarations of one limit honest.
+ */
+#define MESH_UI_MAX_WAYPOINTS 32U
+#define MESH_UI_WAYPOINT_NAME_MAX 31U
+#define MESH_UI_WAYPOINT_DESCRIPTION_MAX 101U
 #define MESH_UI_MAX_CHANNELS 8U
 #define MESH_UI_CHANNEL_NAME_MAX 12U
 #define MESH_UI_MESSAGE_TEXT_MAX 234U
@@ -32,6 +45,7 @@ enum mesh_ui_update_flag {
     MESH_UI_UPDATE_NAV = 1U << 4,
     MESH_UI_UPDATE_SETTINGS = 1U << 5,
     MESH_UI_UPDATE_TRACEROUTE = 1U << 6,
+    MESH_UI_UPDATE_WAYPOINTS = 1U << 7,
 };
 typedef uint32_t mesh_ui_update_flags;
 
@@ -816,6 +830,46 @@ struct mesh_ui_message {
     bool is_reaction;
 };
 
+/*
+ * One shared place, resolved for display: `from_name` is the sender's short name when we know
+ * it, so a backend never joins against the node list, exactly as a message's peer_name is.
+ *
+ * A copy of struct mesh_waypoint rather than the thing itself, because the store is nanopb-free
+ * by construction and this side of the seam is what backends and the cache read. The fields the
+ * core does not carry are the two derived ones below.
+ */
+struct mesh_ui_waypoint {
+    uint32_t id;
+    int32_t latitude_i;
+    int32_t longitude_i;
+    bool has_coords;
+    uint32_t expire;
+    uint32_t locked_to;
+    uint32_t icon;
+    uint32_t from;
+    uint32_t heard;
+    uint8_t channel;
+    bool ours;
+    /*
+     * Whether this client may change it - `locked_to` is 0, or it is us.
+     *
+     * Derived at publish rather than at the press, because the answer needs our own node number
+     * and the nav has no business knowing one. It decides whether deleting broadcasts a
+     * withdrawal to the mesh or merely drops our copy, and the detail says which it would do
+     * before the press rather than after it.
+     */
+    bool editable;
+    char name[MESH_UI_WAYPOINT_NAME_MAX];
+    char description[MESH_UI_WAYPOINT_DESCRIPTION_MAX];
+    char from_name[16];
+};
+
+struct mesh_ui_waypoint_list {
+    struct mesh_ui_waypoint entries[MESH_UI_MAX_WAYPOINTS];
+    uint32_t count;
+    uint32_t dropped; /* places the book evicted to make room for newer ones */
+};
+
 struct mesh_ui_message_list {
     struct mesh_ui_message entries[MESH_UI_MAX_MESSAGES];
     uint32_t count;
@@ -852,6 +906,8 @@ struct mesh_ui_snapshot {
     struct mesh_ui_handshake_state handshake;
     bool handshake_valid;
     struct mesh_ui_message_list messages;
+    /* The places the mesh has shared. Not persisted: see mesh_ui_store_set_waypoints(). */
+    struct mesh_ui_waypoint_list waypoints;
     /* Which conversations have been read, so the list can badge the ones that have not. */
     struct mesh_ui_read_state read_state;
     /* Transport state ("waiting-for-bluez", "scanning", "running", ...). Rendered by the
@@ -880,6 +936,7 @@ struct mesh_ui_store {
     struct mesh_ui_handshake_state handshake;
     bool handshake_valid;
     struct mesh_ui_message_list messages;
+    struct mesh_ui_waypoint_list waypoints;
     struct mesh_ui_read_state read_state;
     char transport_status[MESH_UI_TRANSPORT_STATUS_MAX];
     struct mesh_ui_nav nav;
@@ -911,6 +968,18 @@ void mesh_ui_store_set_handshake(struct mesh_ui_store *store,
 void mesh_ui_store_set_transport_status(struct mesh_ui_store *store, const char *status);
 void mesh_ui_store_set_messages(struct mesh_ui_store *store,
                                 const struct mesh_ui_message_list *messages);
+/*
+ * Replaces the shared-places view; quiet when nothing changed.
+ *
+ * Deliberately not persisted with the roster, and the reason is the one the history file
+ * already gives for trends: the roster is what we *know*, and it is worth keeping because a
+ * node the radio evicted is gone for good otherwise. A waypoint is not like that - it lives on
+ * the mesh, every client that hears it holds one, and the sharer can withdraw it. A cache would
+ * put back places the mesh had already agreed were gone, since a withdrawal that arrived while
+ * this client was off is a packet nobody replays.
+ */
+void mesh_ui_store_set_waypoints(struct mesh_ui_store *store,
+                                 const struct mesh_ui_waypoint_list *waypoints);
 /* Replaces the radio settings view; quiet when nothing changed. */
 void mesh_ui_store_set_settings(struct mesh_ui_store *store,
                                 const struct mesh_ui_settings *settings);

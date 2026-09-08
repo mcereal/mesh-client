@@ -54,6 +54,26 @@ void mesh_ui_nav_picker_open(struct mesh_ui_nav *nav, const struct mesh_ui_store
 bool mesh_ui_nav_picker_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                             enum mesh_ui_key key);
 
+/* ---- nav_waypoints.c --------------------------------------------------------------------- */
+
+/* Opens the place with this id over the list, parking the list's cursor. */
+void mesh_ui_nav_open_waypoint(struct mesh_ui_nav *nav, uint32_t id);
+/* B out of an open place. False when the list is already showing. */
+bool mesh_ui_nav_close_waypoint(struct mesh_ui_nav *nav);
+/* Raises the keyboard to name a new place at `source_node`'s fix - 0 for our own radio. */
+void mesh_ui_nav_open_waypoint_keyboard(struct mesh_ui_nav *nav, uint32_t source_node);
+/* Send on that keyboard: emits the share. False when the draft is empty, which leaves the
+   keyboard up rather than broadcasting a place with no name. */
+bool mesh_ui_nav_commit_waypoint(struct mesh_ui_nav *nav, struct mesh_ui_action *action);
+/* Rows on whichever of the tab's two levels is showing. */
+uint32_t mesh_ui_nav_waypoint_row_count(const struct mesh_ui_nav *nav,
+                                        const struct mesh_ui_store *store);
+/* A on either level: opens a place, starts a new one, or runs an action row. */
+bool mesh_ui_nav_waypoint_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                  uint32_t cursor, struct mesh_ui_action *action);
+/* Closes a detail whose place has gone, and clamps the parked list position. */
+bool mesh_ui_nav_waypoint_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *store);
+
 /* ---- nav_keyboard.c ---------------------------------------------------------------------- */
 
 /* Tears the keyboard down and parks the cursor, restoring whatever it was opened over. */

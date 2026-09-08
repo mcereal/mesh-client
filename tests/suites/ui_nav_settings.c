@@ -28,10 +28,7 @@ MESH_TEST_CASE(ui_nav_settings, unit) {
     mesh_ui_store_set_settings(&store, &settings);
 
     struct mesh_ui_action action;
-    /* Messages → Nodes → Devices → Status → Settings. */
-    for (int i = 0; i < 4; ++i) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
-    }
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
     if (store.nav.screen != MESH_UI_SCREEN_SETTINGS ||
         store.nav.settings_section != MESH_UI_SETTINGS_NO_SECTION ||
         mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) !=
@@ -120,9 +117,7 @@ MESH_TEST_CASE(ui_nav_modules, unit) {
     mesh_ui_store_set_settings(&store, &settings);
 
     struct mesh_ui_action action;
-    for (int i = 0; i < 4; ++i) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
-    }
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
     if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_MODULES) ||
         mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) !=
             mesh_ui_settings_module_count()) {
@@ -225,9 +220,7 @@ MESH_TEST_CASE(ui_nav_settings_edit, unit) {
     snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "half typed");
 
     struct mesh_ui_action action;
-    for (int i = 0; i < 4; ++i) { /* right to the Settings tab */
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
-    }
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
     if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_DISPLAY)) {
         failure = "Display should open";
         goto cleanup;
@@ -416,9 +409,7 @@ MESH_TEST_CASE(ui_nav_channel_edit, unit) {
 
     struct mesh_ui_action action;
     struct mesh_ui_settings_item item;
-    for (int i = 0; i < 4; ++i) { /* right to the Settings tab */
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
-    }
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
     mesh_test_settings_open(&store, MESH_UI_SETTINGS_CHANNELS);
     if (store.nav.settings_section != MESH_UI_SETTINGS_CHANNELS ||
         mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 3U ||
@@ -628,9 +619,7 @@ MESH_TEST_CASE(ui_nav_radio_actions, unit) {
     }
 
     struct mesh_ui_action action;
-    for (int i = 0; i < 4; ++i) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
-    }
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
     mesh_test_settings_open(&store, MESH_UI_SETTINGS_ACTIONS);
     if (store.nav.settings_section != MESH_UI_SETTINGS_ACTIONS ||
         mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 15U) {
@@ -824,9 +813,7 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
     mesh_ui_store_set_handshake(&store, &handshake);
 
     struct mesh_ui_action action;
-    for (int i = 0; i < 4; ++i) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
-    }
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
     if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_ACTIONS)) {
         failure = "Radio actions did not open";
         goto cleanup;
@@ -990,9 +977,7 @@ MESH_TEST_CASE(ui_nav_fixed_position, unit) {
     }
 
     struct mesh_ui_action action;
-    for (int i = 0; i < 4; ++i) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
-    }
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
     mesh_test_settings_open(&store, MESH_UI_SETTINGS_POSITION);
     if (store.nav.settings_section != MESH_UI_SETTINGS_POSITION) {
         failure = "the Position section should open";
@@ -1104,9 +1089,7 @@ MESH_TEST_CASE(ui_nav_canned_separator, unit) {
     mesh_ui_store_set_settings(&store, &settings);
 
     struct mesh_ui_action action;
-    for (int i = 0; i < 4; ++i) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
-    }
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
     if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_CANNED)) {
         failure = "the canned section should open from the Modules list";
         goto cleanup;

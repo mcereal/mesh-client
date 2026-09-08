@@ -3,11 +3,11 @@
 /*
  * The on-screen keyboard and the draft it edits.
  *
- * One grid of characters driven by the d-pad, in three layers. It is opened for two unrelated
- * jobs - typing a message and typing a settings field - plus the BlueZ passkey prompt, which
- * can arrive on top of either; mesh_ui_nav_keyboard_close() is where "give the user back what
- * they were doing" lives, and is the reason that function is longer than it looks like it
- * should be.
+ * One grid of characters driven by the d-pad, in three layers. It is opened for three unrelated
+ * jobs - typing a message, typing a settings field and naming a new waypoint - plus the BlueZ
+ * passkey prompt, which can arrive on top of any of them; mesh_ui_nav_keyboard_close() is where
+ * "give the user back what they were doing" lives, and is the reason that function is longer
+ * than it looks like it should be.
  */
 
 #include "nav_internal.h"
@@ -49,9 +49,12 @@ const char *mesh_ui_kb_action_label(const struct mesh_ui_nav *nav, enum mesh_ui_
     case MESH_UI_KB_ACTION_DELETE:
         return mesh_str(MESH_STR_KEY_DELETE);
     case MESH_UI_KB_ACTION_SEND:
-        return mesh_str((nav != NULL && nav->keyboard_field != MESH_UI_FIELD_NONE)
-                            ? MESH_STR_KEY_DONE
-                            : MESH_STR_KEY_SEND);
+        /* "Send" only when something goes to a person. A settings field is finished, and so is
+           a waypoint's name - the place is shared by the app afterwards, not by this key. */
+        return mesh_str(
+            (nav != NULL && (nav->keyboard_field != MESH_UI_FIELD_NONE || nav->keyboard_waypoint))
+                ? MESH_STR_KEY_DONE
+                : MESH_STR_KEY_SEND);
     case MESH_UI_KB_ACTION_CANCEL:
         return mesh_str(MESH_STR_KEY_CANCEL);
     default:
@@ -72,6 +75,11 @@ static size_t mesh_ui_nav_draft_cap(const struct mesh_ui_nav *nav) {
         const uint32_t cap =
             mesh_ui_settings_text_max((enum mesh_ui_setting_field)nav->keyboard_field);
         return cap < MESH_UI_DRAFT_MAX - 1U ? cap : MESH_UI_DRAFT_MAX - 1U;
+    }
+    if (nav->keyboard_waypoint) {
+        /* Upstream's own limit on Waypoint.name. A thirty-first character would be one the
+           radio's own encoder drops, so it is refused where it is typed instead. */
+        return MESH_UI_WAYPOINT_NAME_MAX - 1U;
     }
     return MESH_UI_DRAFT_MAX - 1U;
 }
@@ -122,8 +130,17 @@ void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
             nav->keyboard_displaced = false;
             nav->keyboard_field_displaced = MESH_UI_FIELD_NONE;
             nav->keyboard_open = true;
-            nav->screen = (nav->keyboard_field != MESH_UI_FIELD_NONE) ? MESH_UI_SCREEN_SETTINGS
-                                                                      : MESH_UI_SCREEN_MESSAGES;
+            /* Whichever of the three jobs it was doing. `keyboard_waypoint` survives the prompt
+               untouched - the passkey branch above never sets it - so it is still true for a
+               keyboard that was naming a place, and sending it back to the Messages tab would
+               drop the user somewhere they were not. */
+            if (nav->keyboard_field != MESH_UI_FIELD_NONE) {
+                nav->screen = MESH_UI_SCREEN_SETTINGS;
+            } else if (nav->keyboard_waypoint) {
+                nav->screen = MESH_UI_SCREEN_WAYPOINTS;
+            } else {
+                nav->screen = MESH_UI_SCREEN_MESSAGES;
+            }
         }
         return;
     }
@@ -132,6 +149,17 @@ void mesh_ui_nav_keyboard_close(struct mesh_ui_nav *nav) {
         snprintf(nav->draft, sizeof nav->draft, "%s", nav->draft_saved);
         nav->draft_saved[0] = '\0';
         nav->screen = MESH_UI_SCREEN_SETTINGS;
+        return;
+    }
+    if (nav->keyboard_waypoint) {
+        nav->keyboard_waypoint = false;
+        nav->waypoint_source_node = 0U;
+        snprintf(nav->draft, sizeof nav->draft, "%s", nav->draft_saved);
+        nav->draft_saved[0] = '\0';
+        /* Back to the list the place was going to appear on, whichever screen raised the
+           keyboard - the node detail's "Save this place" row opens it from the Nodes tab, and
+           landing back there would leave the user looking for what they just made. */
+        nav->screen = MESH_UI_SCREEN_WAYPOINTS;
     }
 }
 
@@ -192,6 +220,7 @@ bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_stor
                               enum mesh_ui_key key, struct mesh_ui_action *action) {
     const bool for_passkey = nav->keyboard_passkey;
     const bool for_setting = (!for_passkey && nav->keyboard_field != MESH_UI_FIELD_NONE);
+    const bool for_waypoint = (!for_passkey && !for_setting && nav->keyboard_waypoint);
     switch (key) {
     case MESH_UI_KEY_UP:
     case MESH_UI_KEY_DOWN: {
@@ -250,8 +279,11 @@ bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_stor
             if (for_passkey) {
                 return mesh_ui_nav_submit_passkey(nav, action);
             }
-            return for_setting ? mesh_ui_nav_settings_commit_text(nav, store)
-                               : mesh_ui_nav_send_draft(nav, action);
+            if (for_setting) {
+                return mesh_ui_nav_settings_commit_text(nav, store);
+            }
+            return for_waypoint ? mesh_ui_nav_commit_waypoint(nav, action)
+                                : mesh_ui_nav_send_draft(nav, action);
         case MESH_UI_KB_ACTION_CANCEL:
             if (for_passkey) {
                 return mesh_ui_nav_cancel_passkey(nav, action);
@@ -287,8 +319,11 @@ bool mesh_ui_nav_keyboard_key(struct mesh_ui_nav *nav, const struct mesh_ui_stor
         if (for_passkey) {
             return mesh_ui_nav_submit_passkey(nav, action);
         }
-        return for_setting ? mesh_ui_nav_settings_commit_text(nav, store)
-                           : mesh_ui_nav_send_draft(nav, action);
+        if (for_setting) {
+            return mesh_ui_nav_settings_commit_text(nav, store);
+        }
+        return for_waypoint ? mesh_ui_nav_commit_waypoint(nav, action)
+                            : mesh_ui_nav_send_draft(nav, action);
     case MESH_UI_KEY_SELECT:
     case MESH_UI_KEY_NONE:
     default:

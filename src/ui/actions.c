@@ -112,6 +112,38 @@ static void actions_nodes(const struct mesh_ui_nav *nav, struct mesh_ui_action_b
     bar_add_tabs(bar);
 }
 
+/*
+ * The Waypoints tab.
+ *
+ * Two levels, the Nodes tab's shape - except that the list's A does two different things and
+ * the bar says so: on a place it opens, and on the last row it starts a new one. Naming the
+ * verb the row under the cursor offers is the Status screen's rule, and it is here for the same
+ * reason: a bar that said "open" over the row that makes a place would be describing a press
+ * that does something else.
+ */
+static void actions_waypoints(const struct mesh_ui_nav *nav,
+                              const struct mesh_ui_snapshot *snapshot,
+                              struct mesh_ui_action_bar *bar) {
+    if (nav->waypoint_detail_open) {
+        if (nav->waypoint_delete_armed) {
+            bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_CONFIRM_DELETE);
+            bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_CANCEL);
+            return;
+        }
+        bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_SELECT);
+        bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+        bar_add_tabs(bar);
+        return;
+    }
+    const uint32_t places = snapshot->waypoints.count > MESH_UI_MAX_WAYPOINTS
+                                ? MESH_UI_MAX_WAYPOINTS
+                                : snapshot->waypoints.count;
+    bar_add(bar, MESH_UI_BUTTON_A,
+            nav->cursor[MESH_UI_SCREEN_WAYPOINTS] >= places ? MESH_STR_ACTION_NEW
+                                                            : MESH_STR_ACTION_OPEN);
+    bar_add_tabs(bar);
+}
+
 static void actions_devices(const struct mesh_ui_nav *nav, struct mesh_ui_action_bar *bar) {
     if (nav->devices_forget_armed) {
         bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_CONFIRM_FORGET);
@@ -277,6 +309,9 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct mesh_ui
         break;
     case MESH_UI_SCREEN_NODES:
         actions_nodes(nav, out);
+        break;
+    case MESH_UI_SCREEN_WAYPOINTS:
+        actions_waypoints(nav, snapshot, out);
         break;
     case MESH_UI_SCREEN_DEVICES:
         actions_devices(nav, out);

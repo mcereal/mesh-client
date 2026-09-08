@@ -1299,7 +1299,10 @@ MESH_TEST_CASE(app_theme_switcher, unit) {
     }
 
     /* Settings > About, then down to the theme row, exactly as thumbs would. */
-    for (int i = 0; i < 4; ++i) {
+    /* Right to the Settings tab, whatever is between it and Messages. */
+    for (unsigned guard = 0; guard <= (unsigned)MESH_UI_SCREEN_COUNT &&
+                             app.ui_store.nav.screen != MESH_UI_SCREEN_SETTINGS;
+         ++guard) {
         mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_RIGHT);
     }
     mesh_ui_controller_handle_key(&app.ui_controller, MESH_UI_KEY_A);

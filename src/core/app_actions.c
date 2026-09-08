@@ -11,6 +11,7 @@
 #include "app_internal.h"
 
 #include "mesh/core/version.h"
+#include "mesh/geo/coords.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/serial.h"
@@ -441,6 +442,109 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
             mesh_log_warn("ui", "Traceroute to 0x%08x failed: %d", action->dest, result);
         }
         mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
+    case MESH_UI_ACTION_SHARE_WAYPOINT: {
+        /*
+         * Two jobs behind one action, told apart by `number`: 0 is a new place at a node's fix,
+         * anything else re-broadcasts a place we already hold.
+         *
+         * The coordinate is read here rather than carried through the nav on purpose. The
+         * session roster is the authority - it holds 256 nodes where the published one holds
+         * 128, and it is current rather than a snapshot from whenever the key was pressed - so
+         * a node that moved while its name was being typed is saved where it actually is.
+         */
+        const struct mesh_handshake_status *status = mesh_session_handshake(&app->session);
+        struct mesh_waypoint waypoint;
+        memset(&waypoint, 0, sizeof waypoint);
+
+        uint8_t channel = 0U;
+        if (action->number != 0U) {
+            const struct mesh_waypoint *existing =
+                mesh_waypoint_book_get(mesh_session_waypoints(&app->session), action->number);
+            if (existing == NULL) {
+                snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_WAYPOINT_GONE));
+                mesh_ui_store_set_toast(&app->ui_store, now, toast);
+                return;
+            }
+            waypoint = *existing;
+            channel = existing->channel;
+        } else {
+            if (action->text[0] == '\0') {
+                snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_WAYPOINT_NAME_NEEDED));
+                mesh_ui_store_set_toast(&app->ui_store, now, toast);
+                return;
+            }
+            /* `dest` of 0 means our own radio, which is the "New waypoint here" row; anything
+               else is the node a "Save this place" row was pressed on. */
+            const uint32_t source = action->dest != 0U
+                                        ? action->dest
+                                        : (status->has_my_info ? status->my_info.my_node_num : 0U);
+            const struct mesh_node_summary *node = NULL;
+            for (size_t i = 0; i < status->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+                if (source != 0U && status->nodes[i].node_id == source) {
+                    node = &status->nodes[i];
+                    break;
+                }
+            }
+            if (node == NULL || !node->position.valid ||
+                !mesh_geo_coords_valid(node->position.latitude_i, node->position.longitude_i)) {
+                snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_WAYPOINT_NO_FIX));
+                mesh_ui_store_set_toast(&app->ui_store, now, toast);
+                return;
+            }
+            waypoint.has_coords = true;
+            waypoint.latitude_i = node->position.latitude_i;
+            waypoint.longitude_i = node->position.longitude_i;
+            mesh_str_copy(waypoint.name, sizeof waypoint.name, action->text);
+            /*
+             * Locked to us: we made it, and nobody else on the mesh has a reason to move it.
+             * Left open, any client could edit or withdraw it - which upstream allows and which
+             * is the wrong default for a place somebody deliberately marked.
+             */
+            waypoint.locked_to = status->has_my_info ? status->my_info.my_node_num : 0U;
+            channel = mesh_app_primary_channel(status);
+        }
+
+        uint32_t id = 0U;
+        const int result = mesh_session_send_waypoint(&app->session, &waypoint, channel, &id);
+        if (result == 0) {
+            mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_WAYPOINT_SHARED, waypoint.name);
+            mesh_log_info("ui", "Shared waypoint %u on channel %u", id, (unsigned)channel);
+        } else if (result == -ENOTCONN) {
+            /* The session kept the place regardless - see mesh_session_send_waypoint(). What
+               did not happen is the mesh hearing about it, and that is what the toast says. */
+            mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_WAYPOINT_SAVED, waypoint.name);
+        } else {
+            mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_WAYPOINT_FAILED, result);
+            mesh_log_warn("ui", "Sharing a waypoint failed: %d", result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        mesh_app_publish_ui_state(app);
+        return;
+    }
+    case MESH_UI_ACTION_FORGET_WAYPOINT: {
+        const struct mesh_waypoint *existing =
+            mesh_waypoint_book_get(mesh_session_waypoints(&app->session), action->number);
+        char name[MESH_WAYPOINT_NAME_MAX + 1U];
+        mesh_str_copy(name, sizeof name,
+                      (existing != NULL && existing->name[0] != '\0')
+                          ? existing->name
+                          : mesh_str(MESH_STR_WAYPOINTS_UNNAMED));
+
+        bool shared = false;
+        const int result = mesh_session_forget_waypoint(&app->session, action->number, &shared);
+        if (result == -ENOENT) {
+            snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_WAYPOINT_GONE));
+        } else if (shared) {
+            mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_WAYPOINT_DELETED, name);
+        } else {
+            /* The place is gone from here either way; the toast says whether the mesh heard
+               about it, because a locked place and a dead link both end up here. */
+            mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_WAYPOINT_FORGOT, name);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        mesh_app_publish_ui_state(app);
         return;
     }
     case MESH_UI_ACTION_DISCONNECT: {

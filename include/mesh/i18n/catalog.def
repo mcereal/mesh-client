@@ -84,6 +84,7 @@ MESH_STR_ENTRY(DATE_WEEKDAY_DAY_MONTH,    "%s %d %s")
 
 MESH_STR_ENTRY(TAB_MESSAGES,              "Messages")
 MESH_STR_ENTRY(TAB_NODES,                 "Nodes")
+MESH_STR_ENTRY(TAB_WAYPOINTS,             "Waypoints")
 MESH_STR_ENTRY(TAB_DEVICES,               "Devices")
 MESH_STR_ENTRY(TAB_STATUS,                "Status")
 MESH_STR_ENTRY(TAB_SETTINGS,              "Settings")
@@ -137,6 +138,9 @@ MESH_STR_ENTRY(ACTION_WRITE,              "write")
 MESH_STR_ENTRY(ACTION_NEW,                "new")
 /* Keep this node at the top of the list. The star beside a pinned row is the same fact. */
 MESH_STR_ENTRY(ACTION_PIN,                "pin")
+/* Broadcast a place to the channel again - the Waypoints tab's verb, and not the same word as
+   "send": a waypoint already exists and goes out unchanged, where a message is written once. */
+MESH_STR_ENTRY(ACTION_SHARE,              "share")
 MESH_STR_ENTRY(ACTION_CONNECT,            "connect")
 MESH_STR_ENTRY(ACTION_DISCONNECT,         "disconnect")
 /* Drop a radio from the list of ones we know how to reach. */
@@ -233,6 +237,87 @@ MESH_STR_ENTRY(BUBBLE_SENSOR,             "  sensor")
 MESH_STR_ENTRY(DELIVERY_SENDING,          "sending")
 MESH_STR_ENTRY(DELIVERY_DELIVERED,        "delivered")
 MESH_STR_ENTRY(DELIVERY_FAILED,           "failed")
+
+/* ---- the Waypoints tab -----------------------------------------------------------------------
+ *
+ * A waypoint is a named place somebody broadcast to a channel. This tab lists them with how far
+ * away and which way they lie from our own radio's fix, which is what a handheld can say about
+ * a point when it has no map to draw it on.
+ */
+
+MESH_STR_ENTRY(WAYPOINTS_EMPTY,           "No places have been shared yet.")
+MESH_STR_ENTRY(WAYPOINTS_EMPTY_DISCONNECTED, "Connect to a node to see shared places.")
+MESH_STR_ENTRY(WAYPOINTS_GONE,            "That place is no longer in the list.")
+/* The last row of the list: share our own radio's position as a new place. */
+MESH_STR_ENTRY(WAYPOINTS_NEW,             "New waypoint here")
+/* ...and what that row says instead of a coordinate when our radio has no position to offer.
+   The row stays and says why: one that disappeared would leave nothing to explain itself. */
+MESH_STR_ENTRY(WAYPOINTS_NEW_NEEDS_FIX,   "no position yet")
+MESH_STR_ENTRY(WAYPOINTS_TITLE_COUNT,     "Waypoints (%u)")
+/* A waypoint whose sender left the name empty, which the wire allows. */
+MESH_STR_ENTRY(WAYPOINTS_UNNAMED,         "Unnamed place")
+/* The list row's second line: who shared it, and how long ago we heard it. */
+MESH_STR_ENTRY(WAYPOINTS_ROW_SHARED,      "%s, %s")
+/* How a waypoint of our own names its sharer, wherever a node name would go. */
+MESH_STR_ENTRY(WAYPOINTS_BY_YOU,          "you")
+
+MESH_STR_ENTRY(WAYPOINT_HEAD_PLACE,       "Place")
+MESH_STR_ENTRY(WAYPOINT_HEAD_NOTE,        "Note")
+MESH_STR_ENTRY(WAYPOINT_HEAD_SHARED,      "Shared")
+MESH_STR_ENTRY(WAYPOINT_HEAD_ACTIONS,     "Actions")
+
+/* How far away it is and which way, from our own fix. */
+MESH_STR_ENTRY(WAYPOINT_RANGE,            "Range")
+/* The two reasons there is no range to give. They are different facts: one is about this
+   waypoint, the other about our own radio, and a row that said "unknown" for both would hide
+   which of the two the user can do something about. */
+MESH_STR_ENTRY(WAYPOINT_RANGE_NO_FIX,     "no fix of our own")
+MESH_STR_ENTRY(WAYPOINT_RANGE_NO_COORDS,  "no coordinates")
+/* A distance and a compass point, in that order. */
+MESH_STR_ENTRY(WAYPOINT_VAL_RANGE,        "%s %s")
+MESH_STR_ENTRY(WAYPOINT_LATITUDE,         "Latitude")
+MESH_STR_ENTRY(WAYPOINT_LONGITUDE,        "Longitude")
+MESH_STR_ENTRY(WAYPOINT_SHARED_BY,        "Shared by")
+MESH_STR_ENTRY(WAYPOINT_CHANNEL,          "Channel")
+MESH_STR_ENTRY(WAYPOINT_HEARD,            "Heard")
+MESH_STR_ENTRY(WAYPOINT_EXPIRES,          "Expires")
+/* The default every app sends: a place that stands until somebody withdraws it. */
+MESH_STR_ENTRY(WAYPOINT_EXPIRES_NEVER,    "never")
+/* How long a place with an expiry has left. A clock we do not have leaves the row unsaid
+   rather than counting down from a date we cannot read. */
+MESH_STR_ENTRY(WAYPOINT_EXPIRES_IN,       "in %s")
+/* Whether anybody on the mesh may change it, or only the one node it names. */
+MESH_STR_ENTRY(WAYPOINT_LOCKED_TO,        "Locked to")
+MESH_STR_ENTRY(WAYPOINT_LOCKED_OPEN,      "anyone")
+
+MESH_STR_ENTRY(WAYPOINT_ACT_SHARE,        "Share it again")
+/* Two deletes, because they are two different acts. The first withdraws the place from the
+   whole mesh; the second only stops this client showing it, because the waypoint is locked to
+   somebody else and withdrawing it is not ours to do. */
+MESH_STR_ENTRY(WAYPOINT_ACT_DELETE,       "Delete from the mesh")
+MESH_STR_ENTRY(WAYPOINT_ACT_FORGET,       "Forget it here")
+MESH_STR_ENTRY(WAYPOINT_ACT_DELETE_ARMED, "A again to delete")
+
+/* The compass, at eight points. Short because they share a row with a name, a distance and an
+   age - and translated, because the letters are the initials of words: north is N in English
+   and Spanish, west is W and O. */
+MESH_STR_ENTRY(COMPASS_N,                 "N")
+MESH_STR_ENTRY(COMPASS_NE,                "NE")
+MESH_STR_ENTRY(COMPASS_E,                 "E")
+MESH_STR_ENTRY(COMPASS_SE,                "SE")
+MESH_STR_ENTRY(COMPASS_S,                 "S")
+MESH_STR_ENTRY(COMPASS_SW,                "SW")
+MESH_STR_ENTRY(COMPASS_W,                 "W")
+MESH_STR_ENTRY(COMPASS_NW,                "NW")
+
+/* Distances, in whichever units the radio's display is set to. Under a kilometre or a mile the
+   figure is whole - a metre of precision on a mesh position is already more than the sender
+   knows - and above it there is one decimal, because 1 km and 2 km with nothing between them
+   is a scale nobody can walk by. */
+MESH_STR_ENTRY(VALUE_DISTANCE_M,          "%u m")
+MESH_STR_ENTRY(VALUE_DISTANCE_KM,         "%.1f km")
+MESH_STR_ENTRY(VALUE_DISTANCE_FT,         "%u ft")
+MESH_STR_ENTRY(VALUE_DISTANCE_MI,         "%.1f mi")
 
 /* ---- the Nodes tab -------------------------------------------------------------------------- */
 
@@ -521,6 +606,9 @@ MESH_STR_ENTRY(NODE_ACT_MUTE,             "Mute this node")
 MESH_STR_ENTRY(NODE_ACT_IGNORE,           "Ignore this node")
 MESH_STR_ENTRY(NODE_ACT_REMOVE,           "Remove from radio")
 MESH_STR_ENTRY(NODE_ACT_REMOVE_ARMED,     "A again to remove")
+/* Share where this node says it is as a waypoint. Offered only when it has a fix - a place
+   with no coordinates is not one. */
+MESH_STR_ENTRY(NODE_ACT_WAYPOINT,         "Save this place")
 
 /* Value formats. */
 MESH_STR_ENTRY(NODE_VAL_USER_ID_HEX,      "!%08x")
@@ -1297,6 +1385,17 @@ MESH_STR_ENTRY(TOAST_NOTHING_CACHED,      "Nothing cached to forget")
 MESH_STR_ENTRY(TOAST_ALL_ON_RADIO,        "Every cached node is on the radio")
 MESH_STR_ENTRY(TOAST_FORGET_FAILED,       "Forget failed (%d)")
 /* Pinning a node to the top of the list. */
+/* Waypoints. "Shared" and "Deleted" say the mesh was told; "Saved" and "Forgot" say only this
+   client was, which is what happens with no link up or on somebody else's locked place. */
+MESH_STR_ENTRY(TOAST_WAYPOINT_SHARED,     "Shared %.30s")
+MESH_STR_ENTRY(TOAST_WAYPOINT_SAVED,      "Saved %.30s here only")
+MESH_STR_ENTRY(TOAST_WAYPOINT_DELETED,    "Deleted %.30s from the mesh")
+MESH_STR_ENTRY(TOAST_WAYPOINT_FORGOT,     "Forgot %.30s here only")
+MESH_STR_ENTRY(TOAST_WAYPOINT_NO_FIX,     "No position to put a waypoint at")
+MESH_STR_ENTRY(TOAST_WAYPOINT_NAME_NEEDED, "Give the place a name first")
+MESH_STR_ENTRY(TOAST_WAYPOINT_GONE,       "That place is no longer in the list")
+MESH_STR_ENTRY(TOAST_WAYPOINT_FAILED,     "Waypoint failed (%d)")
+
 MESH_STR_ENTRY(TOAST_PINNED,              "Pinned %.20s")
 MESH_STR_ENTRY(TOAST_UNPINNED,            "Unpinned %.20s")
 MESH_STR_ENTRY(TOAST_ALREADY_PINNED,      "%.20s is already pinned")

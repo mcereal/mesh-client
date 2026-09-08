@@ -38,6 +38,30 @@ uint64_t mesh_time_monotonic_ms(void);
 uint32_t mesh_time_wall_s(void);
 
 /*
+ * Where a clock stops being plausible.
+ *
+ * September 2020, and any figure below it is a machine that has not been told what time it is
+ * rather than a machine in 1970. The Brick has no RTC battery: with no network it boots into the
+ * epoch, so `time(NULL)` there is a small positive number that every arithmetic test on a
+ * timestamp reads as a real date forty-odd years in the past.
+ */
+#define MESH_TIME_CLOCK_MIN_EPOCH 1600000000U
+
+/*
+ * The wall clock when it is credibly one, and 0 when it is not.
+ *
+ * mesh_time_wall_s() answers whatever the machine says, which is what a "3m ago" wants: an age
+ * computed from a nonsense clock comes out negative or enormous, and every caller that draws one
+ * already refuses to draw those. A *deadline* is the other case - "does this expire before now"
+ * and "how long has it got" both read as confident answers whichever way the arithmetic lands,
+ * so those ask this instead and get told the question cannot be answered.
+ *
+ * The same floor the session applies to a radio's own timestamps, in one place rather than in
+ * each caller's copy of the constant.
+ */
+uint32_t mesh_time_wall_credible_s(void);
+
+/*
  * Freeze mesh_time_wall_s() at `epoch`, or pass 0 to follow the real clock again. Devtools and
  * tests only - the client never calls it.
  */

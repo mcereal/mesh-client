@@ -1,0 +1,22 @@
+# The Waypoints shot: the places the mesh has shared, and how far away each one is.
+#
+# The right-hand column is the whole reason this tab exists before a map does. A waypoint is a
+# name and a point, and what a handheld can say about a point without drawing one is how far
+# away it is and which way it lies - so the list answers that, from our own radio's fix, and is
+# ordered by it. Three places at three scales, so the shot shows metres and kilometres and more
+# than one compass point rather than one range repeated.
+#
+# The places are put at nodes already in the demo roster, so the ranges are measured between two
+# real fixes rather than between two numbers typed to agree.
+#
+# `clock` is what makes this file a screenshot rather than a picture of when it was taken: the
+# ages below come from it, so re-rendering next month produces the same bytes and `git status`
+# stays quiet unless the UI actually moved.
+scene demo
+scale 4
+clock 2026-01-12 19:12
+config
+waypoint FXTR Trailhead | park on the verge, the gate is unlocked
+waypoint ALFA Ridge repeater
+waypoint CHRL Water cache
+tab waypoints

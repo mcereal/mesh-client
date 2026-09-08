@@ -3,6 +3,7 @@
 /* The settings model itself: rows, edits, key text, coordinates, About. */
 
 #include "framework/mesh_test.h"
+#include "support/ui_fixture.h"
 
 #include "mesh/core/radio_settings.h"
 /* For enum mesh_traceroute_state, which the UI's traceroute carries as a byte. */
@@ -844,9 +845,7 @@ MESH_TEST_CASE(ui_settings_about, unit) {
     }
 
     struct mesh_ui_action action;
-    for (int i = 0; i < 4; ++i) {
-        mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
-    }
+    (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
     /* About is the first row, so the cursor is already on it. */
     if (store.nav.screen != MESH_UI_SCREEN_SETTINGS ||
         store.nav.cursor[MESH_UI_SCREEN_SETTINGS] != MESH_UI_SETTINGS_ABOUT) {

@@ -37,6 +37,9 @@ enum mesh_ui_key {
 enum mesh_ui_screen {
     MESH_UI_SCREEN_MESSAGES = 0,
     MESH_UI_SCREEN_NODES,
+    /* The places, next to the nodes: a waypoint is a point on the mesh that does not move, and
+       it belongs beside the list of points that do rather than buried inside one of them. */
+    MESH_UI_SCREEN_WAYPOINTS,
     MESH_UI_SCREEN_DEVICES,
     MESH_UI_SCREEN_STATUS,
     MESH_UI_SCREEN_SETTINGS,
@@ -184,6 +187,23 @@ struct mesh_ui_nav {
        Devices tab is: it is the one node row that takes its own row away, so a press that
        lands on it by accident should cost nothing. Any other press stands it down. */
     bool node_remove_armed;
+    /*
+     * Waypoints tab: a place's detail is open (cursor[WAYPOINTS] indexes its rows) rather than
+     * the list, whose position is parked in waypoint_list_cursor meanwhile. The same two-level
+     * shape as Nodes, Messages and Settings.
+     *
+     * The open place is named by id rather than by row for the reason the node detail is: the
+     * list is ordered by distance from our own fix, so a fix arriving re-ranks it under the
+     * cursor. mesh_ui_nav_clamp() closes the detail when the place leaves the list, which is
+     * what a withdrawal from the mesh looks like from here.
+     */
+    bool waypoint_detail_open;
+    uint32_t waypoint_detail_id;
+    uint32_t waypoint_list_cursor;
+    /* The detail's delete row is armed by one press and acts on the second, the same way the
+       node detail's remove row is: it takes the place off the mesh for everybody, and a press
+       that lands on it by accident should cost nothing. */
+    bool waypoint_delete_armed;
     /* Settings tab: the open section (enum mesh_ui_settings_section) or NO_SECTION for the
        section list. cursor[SETTINGS] indexes whichever list is showing; the section list's
        position is parked here while a section is open. */
@@ -213,6 +233,19 @@ struct mesh_ui_nav {
     struct mesh_ui_setting_edit settings_edits[MESH_UI_SETTINGS_EDITS_MAX];
     uint8_t settings_edit_count;
     bool settings_discard_armed;
+    /*
+     * When the keyboard names a new waypoint rather than editing a setting or writing a
+     * message. A flag of its own rather than a fourth value of `keyboard_field`, which is an
+     * enum mesh_ui_setting_field and has no member that means "not a setting at all" other
+     * than NONE - the value a message keyboard already carries.
+     *
+     * `waypoint_source_node` is whose fix the new place takes: 0 is our own radio, anything
+     * else is the node a "Save this place" row was pressed on. The coordinate itself is
+     * deliberately not held here - the nav has no business carrying one, and the app resolves
+     * it from the session roster, which is more current and twice the size of the published one.
+     */
+    bool keyboard_waypoint;
+    uint32_t waypoint_source_node;
     /* When the keyboard edits a setting rather than the Compose draft: the field it is for
        (NONE for Compose) and the Compose draft parked while it is open. */
     uint8_t keyboard_field;
@@ -285,6 +318,20 @@ enum mesh_ui_action_type {
        radio is ever connected, so the row the cursor happens to be on does not decide it. */
     MESH_UI_ACTION_DISCONNECT,
     MESH_UI_ACTION_FORGET, /* identifier = BLE address to unpair */
+    /*
+     * Broadcasts a place to the mesh. `text` is its name, `dest` is the node whose fix it takes
+     * (0 means our own radio) and `number` is the id of an existing waypoint being re-shared,
+     * or 0 for a new one.
+     *
+     * The coordinate is not here on purpose: the app resolves it from the session roster at the
+     * moment it acts, so the place is where the node is *now* rather than where a published
+     * snapshot said it was when the key was pressed.
+     */
+    MESH_UI_ACTION_SHARE_WAYPOINT,
+    /* Withdraws one: `number` is the waypoint id. Whether that reaches the mesh or only this
+       client is the session's decision, because it turns on `locked_to` and on our own node
+       number - neither of which the nav holds. */
+    MESH_UI_ACTION_FORGET_WAYPOINT,
     /* Answers the BlueZ pairing agent: `text` holds the digits typed into the prompt. */
     MESH_UI_ACTION_SUBMIT_PASSKEY,
     MESH_UI_ACTION_CANCEL_PAIRING,

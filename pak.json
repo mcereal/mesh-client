@@ -15,6 +15,7 @@
   },
   "screenshots": [
     ".github/resources/screenshots/nodes.png",
+    ".github/resources/screenshots/waypoints.png",
     ".github/resources/screenshots/messages.png",
     ".github/resources/screenshots/status.png",
     ".github/resources/screenshots/settings.png"

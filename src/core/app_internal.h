@@ -63,6 +63,16 @@ void mesh_app_format_peer_name(const struct mesh_handshake_status *status, uint3
    once at startup, after the store has been loaded and before the first connect. */
 void mesh_app_seed_nodes_from_cache(struct mesh_app *app);
 
+/*
+ * The channel slot a broadcast originated by this client goes out on.
+ *
+ * The slot whose role is PRIMARY, and 0 when the radio has not told us its table yet. It is a
+ * lookup rather than a constant because MeshPacket.channel is an *index* into that table and
+ * nothing in the protocol pins the primary to slot 0 - it is only where every radio happens to
+ * put it. A waypoint sent to the wrong index is one nobody on the mesh can decrypt.
+ */
+uint8_t mesh_app_primary_channel(const struct mesh_handshake_status *status);
+
 /* Starts watching a sent packet so its delivery result can be announced once. */
 void mesh_app_watch_sent(struct mesh_app *app, uint32_t packet_id, const char *peer);
 

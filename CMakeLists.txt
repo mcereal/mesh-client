@@ -56,6 +56,7 @@ add_library(meshclient_core
     src/core/config.c
     src/core/event_loop.c
     src/core/message.c
+    src/core/waypoint.c
     src/core/radio_settings.c
     src/core/session.c
     src/core/signals.c
@@ -68,6 +69,7 @@ add_library(meshclient_core
     src/transport/serial/serial_usb.c
     src/proto/stream_framing.c
     src/geo/coords.c
+    src/geo/vector.c
     src/i18n/strings.c
     src/i18n/locale_es.c
     src/utils/env.c
@@ -88,12 +90,14 @@ add_library(meshclient_core
     src/ui/nav_conversations.c
     src/ui/nav_keyboard.c
     src/ui/nav_settings.c
+    src/ui/nav_waypoints.c
     src/ui/settings.c
     src/ui/settings_codec.c
     src/ui/settings_rows.c
     src/ui/route.c
     src/ui/status.c
     src/ui/node_detail.c
+    src/ui/waypoints.c
     src/ui/backends/stub.c
     src/ui/backends/cli.c
     src/ui/backends/fb.c
@@ -186,9 +190,21 @@ if(DBUS_FOUND)
 endif()
 
 
+# libm, for the one file that needs it: src/geo/vector.c, which turns two coordinates into a
+# distance and a bearing. Nothing else in the client includes <math.h> - the UI is fixed-point
+# throughout - and docs/maps-roadmap.md anticipated this link when it proposed the geo module.
+#
+# The bare name rather than find_library(m), and that is the whole of the reason it is written
+# this way: a bare name reaches the linker as `-lm` and is resolved by the compiler driver
+# against its own sysroot, while find_library() searches the *host* and hands back an absolute
+# path. scripts/cross-build.sh sets CMAKE_SYSTEM_NAME and the compiler but no
+# CMAKE_FIND_ROOT_PATH, so on the x86_64 runner that path is /usr/lib/x86_64-linux-gnu/libm.so -
+# an x86 library passed to an aarch64 static link, which fails at the one step nothing else in
+# this build would have caught.
 target_link_libraries(meshclient_core
     PUBLIC
         Threads::Threads
+        m
 )
 
 add_executable(meshclient src/main.c)

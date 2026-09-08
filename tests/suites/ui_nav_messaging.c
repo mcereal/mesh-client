@@ -273,10 +273,20 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* Nodes */
 
+    /* Waypoints sits between Nodes and Devices, and its list is never empty - the row that
+       makes a place is always there, so Right lands on a screen with something under the
+       cursor even on a mesh that has shared nothing. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    if (store.nav.screen != MESH_UI_SCREEN_WAYPOINTS ||
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_WAYPOINTS) != 1U) {
+        failure = "RIGHT from Nodes should reach Waypoints, which always offers its new row";
+        goto cleanup;
+    }
+
     /* Devices tab: A connects to an unconnected device and does nothing on the connected one. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
     if (store.nav.screen != MESH_UI_SCREEN_DEVICES) {
-        failure = "RIGHT from Nodes should reach Devices";
+        failure = "RIGHT from Waypoints should reach Devices";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);

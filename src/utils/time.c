@@ -30,4 +30,9 @@ uint32_t mesh_time_wall_s(void) {
     return (uint32_t)now;
 }
 
+uint32_t mesh_time_wall_credible_s(void) {
+    const uint32_t now = mesh_time_wall_s();
+    return now > MESH_TIME_CLOCK_MIN_EPOCH ? now : 0U;
+}
+
 void mesh_time_wall_set_fixed(uint32_t epoch) { g_wall_fixed = epoch; }

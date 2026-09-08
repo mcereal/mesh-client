@@ -1,0 +1,32 @@
+# The Waypoints tab: the places the mesh has shared, and one of them opened.
+#
+# The column on the right is what this scene exists for. A waypoint carries a point and nothing
+# else useful about where it is, so the list answers the only two questions a handheld with no
+# map can: how far away it is, and which way it lies from our own radio's fix. Both come out of
+# src/geo/vector.c, and the list is ordered by the first of them - nearest first, because that
+# is the order the tab is for.
+#
+# The places are put at nodes that are already in the demo roster, so the ranges below are
+# measured between two real fixes rather than between two numbers typed to agree.
+
+scene demo
+waypoint ALFA Ridge repeater | up the fire road, gate code is on the tag
+waypoint FXTR Trailhead
+waypoint CHRL Water cache
+
+tab waypoints
+hold 1200
+
+# Open the nearest one: the range and the coordinates, the note the sharer left, who shared it
+# and on what channel, then the two things that can be done with it.
+key a
+hold 1600
+
+# The delete row asks before it acts, because withdrawing a place takes it off the mesh for
+# everybody rather than only off this Brick.
+key down 12
+hold 600
+key a
+hold 1400
+key b
+hold 800

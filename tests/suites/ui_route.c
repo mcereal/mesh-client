@@ -190,7 +190,7 @@ MESH_TEST_CASE(ui_route_the_tab_strip_decides, unit) {
     /* One tab rightwards and one level shallower at the same time. The strip is what the eye
        is following, so the strip is what the body has to agree with. */
     if (press(&store, MESH_UI_KEY_R1) != MESH_UI_TRANSITION_FORWARD ||
-        store.nav.screen != MESH_UI_SCREEN_DEVICES || route_now(&store).depth != 0U) {
+        store.nav.screen != MESH_UI_SCREEN_WAYPOINTS || route_now(&store).depth != 0U) {
         failure = "Right off a nested screen should still move rightwards";
         goto cleanup;
     }

@@ -28,7 +28,7 @@ make proto                                # regenerate nanopb sources
 make release && make package              # release binary + dist/MeshClient.pak.zip
 make fuzz                                 # libFuzzer over the two decoders that read the air
 make ui-capture ARGS="<scene> -o x.gif"   # render a UI scene to a GIF, no device needed
-make screenshots                          # re-render the four listing stills in .github/resources
+make screenshots                          # re-render the five listing stills in .github/resources
 ```
 
 **A UI change is shown, not described.** `make ui-capture` drives the HUD through a scripted
@@ -46,8 +46,8 @@ make docker-screenshots                   # ditto for the listing stills
 printf 'scene demo\ntab nodes\nkey down 2\nkey a\n' | ./scripts/ui-capture.sh -o node.gif
 ```
 
-The README's and `pak.json`'s four stills are scenes too, one per shot in
-`devtools/ui_capture/scenes/shots/`, and `make screenshots` re-renders all four - so a UI change
+The README's and `pak.json`'s five stills are scenes too, one per shot in
+`devtools/ui_capture/scenes/shots/`, and `make screenshots` re-renders all five - so a UI change
 refreshes the listing pictures with a command rather than with a Brick on the desk.
 
 `make docker-*` wraps `scripts/docker.sh`, which builds the image from `docker/Dockerfile` on
@@ -141,12 +141,14 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | Session | `src/core/session.c` | handshake, node roster, channels, message log, packet ids |
 | Admin protocol | `src/core/radio_settings.c` | `AdminMessage` get/set queue, passkeys, radio actions, NodeDB verbs, the module table, and the four verbs that are not a section (connection status, device UI, canned messages, ringtone) |
 | Messaging | `src/core/message.c` | text packets, message ring, ack correlation |
+| Waypoints | `src/core/waypoint.c` | the mesh's shared places: a table keyed by waypoint id, WAYPOINT_APP encode/ingest, and the expiry-in-the-past convention every client deletes with |
 | App glue | `src/core/app*.c` | `app` lifecycle/link, `_actions` UI actions, `_publish` to store, `_settings` writes |
 | Self-update | `src/core/updater.c`, `version.c` | forks curl, SemVer, digest-verified install |
 | UI | `src/ui/` | store/controller + `nav*.c` + `settings*.c` + `layout.c` + `history.c` + `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
 | UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window (counted in **steps**, so one row may be taller than its neighbours); cards (filled/elevated/outlined, with verbs on the heading line), buttons, chips, badges, list items (leading/marker/supporting/trailing slots, an optional full-width bar on a second step), section subheaders, switches, selection controls (checkbox/radio), segmented buttons (which fall back to the chosen word when the row is too narrow), meters (with domains and drawn threshold bands), sliders (a settings number on the scale of the values it could have had, with a value the scale cannot place drawn as a track with no handle), signal staircases, sparklines (a reading over time, on the bar's own domain, from a sample ring the client keeps), bubbles (whose trailing run is four typed slots the component measures, never a string a screen assembled), the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar |
 | Button hints | `src/ui/actions.c`, `include/mesh/ui/actions.h` | what the buttons do here, as (button, verb) pairs the action bar iterates |
 | Status verbs | `src/ui/status.c`, `include/mesh/ui/status.h` | which Status card carries which verb — read by `nav.c`, `actions.c` and the renderer alike |
+| Waypoints UI | `src/ui/waypoints.c`, `src/ui/nav_waypoints.c` | the list's order (nearest first, from our own fix), a place's detail rows, and the distance/compass formatting the same two screens read |
 | Delivery marks | `src/ui/delivery.c`, `include/mesh/ui/delivery.h` | which mark an outbound message's ack state gets — the clock, the double tick or the alert circle a bubble's corner draws, and the word a backend with no sprites says for the same state |
 | Client-level chrome | `src/ui/chrome.c`, `include/mesh/ui/chrome.h` | what the frame says about the *client* rather than about a screen: whether anything is in flight (the progress bar) and which persistent banner it carries |
 | Animation | `src/ui/anim.c`, `src/ui/controller.c` | fixed-point easing + a table keyed per control; the repaint timerfd that feeds it |
@@ -157,7 +159,7 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | Text | `src/utils/text.c`, `src/ui/{font5x7,emoji}.c` | UTF-8 sanitising, cell-based measurement |
 | Strings | `src/i18n/strings.c`, `include/mesh/i18n/catalog.def` | the string catalog and the locale registry |
 | Dev tools | `devtools/`, `scripts/{ui-capture.sh,frames.py}` | off-screen UI capture; PNG/GIF encoding, stdlib only |
-| Geography | `src/geo/` | `mesh_geo_coords_valid()` — the bounds test every coordinate ingress asks, so the air, the cache and the keyboard cannot disagree about where Earth ends. The first piece of the module [`docs/maps-roadmap.md`](docs/maps-roadmap.md) proposes; it holds nothing but that until a map needs projection |
+| Geography | `src/geo/` | `mesh_geo_coords_valid()` — the bounds test every coordinate ingress asks, so the air, the cache and the keyboard cannot disagree about where Earth ends — and `mesh_geo_vector_between()`, the haversine distance and initial bearing the Waypoints tab reads a range from. Two of the pieces the module [`docs/maps-roadmap.md`](docs/maps-roadmap.md) proposes; projection waits until a map needs one. **The only `<math.h>` in the tree**, and the reason libm is linked |
 | Shared utils | `src/utils/` | `text` (UTF-8 + `mesh_str_copy`), `time` (`mesh_time_monotonic_ms`), `env` (`mesh_env_bool`/`_int`), `log`, `sha256`, `array` |
 
 `include/mesh/` mirrors `src/` one-for-one — `core/`, `transport/`, `ui/`, `proto/`, `geo/`, `utils/` —
@@ -388,6 +390,52 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   drawn, and a verb on an undrawn card leaves the action bar naming a press whose button is not
   on the frame. That is why the Radio card says "no report yet" rather than disappearing when
   the radio has told us nothing about itself.
+- **Deleting a waypoint is broadcasting it again with an expiry in the past.** There is no
+  "unshare" packet: every Meshtastic client withdraws a place by re-sending the `Waypoint` with
+  `expire` already gone, and the receiver drops it. So `mesh_session_forget_waypoint()` sending
+  what looks like another copy of the thing it is deleting is the protocol, not a bug - and it
+  only sends one when `locked_to` says this client may, because asking the whole mesh to forget
+  somebody else's place is not ours to do. The local entry goes either way.
+- **A waypoint's expiry is only honoured once we know what time it is, and a tombstone always
+  is.** The Brick has no RTC battery, so with no network it boots into the epoch and
+  `time(NULL)` is a small positive number - which means "has this expired?" is usually
+  unanswerable, and answering it from that clock would report every deadline as decades away.
+  But "was this expiry a moment in 1970?" needs no clock at all, and that is exactly what a
+  withdrawal is. Hence the two halves of `mesh_waypoint_state()`, and hence
+  **`mesh_time_wall_credible_s()`**: `mesh_time_wall_s()` answers whatever the machine says,
+  which is what an *age* wants because every caller that draws one already refuses a negative or
+  enormous one, and a *deadline* has no such safety. Expiry is read against the credible clock
+  in all three places that read it - ingest (a place that arrived expired is dropped),
+  `mesh_session_tick()` (nothing re-announces an expiry, so the clock is the only thing that can
+  retire one) and the detail's countdown.
+- **The waypoint book is a table keyed by id, not a ring.** Upstream *edits* a waypoint by
+  re-broadcasting it with the same id, so the second copy lands on the first. The message log
+  next door does the opposite on purpose - two packets are two things that happened - and a
+  waypoint arriving twice is one place that moved.
+- **A place this client made is kept even when the send fails, and `-ENOTCONN` still stores
+  it.** Naming a place is not a message that failed to go out: it is something the user made, it
+  is theirs with or without a radio, and the next share re-broadcasts the same id. That is why
+  `mesh_session_send_waypoint()` does not check the link before storing.
+- **A radio swap takes the waypoints with the roster, and a reconnect does not.** This is the
+  roster's rule rather than the message log's, and the channel index is why: a message's channel
+  is a label on something that already happened, while a waypoint's is an index into the channel
+  table the swap has just discarded - so a place carried across would have "Share it again"
+  broadcast on whatever slot that number names on the *new* radio.
+- **Waypoints are deliberately not persisted with the roster.** The roster is what we *know* and
+  is worth keeping because a node the radio evicted is gone for good; a waypoint lives on the
+  mesh and its sharer can withdraw it. A cache would put back places the mesh had already agreed
+  were gone, because the withdrawal that arrived while the client was off is a packet nobody
+  replays.
+- **The Waypoints list is never empty, and the row that makes a place is the last one.** Every
+  other tab can fall through to a picture when it has nothing; this one always has something to
+  do, and a screen that replaced that row with an empty state would take it away. The row says
+  why it cannot be pressed - "no position yet" - rather than disappearing, which is the ordinary
+  case on a Brick, whose radio often has no fix.
+- **`MESH_WAYPOINT_NAME_MAX` is declared twice and that is the seam working.** `store.h` is
+  nanopb-free by construction and `mesh/core/waypoint.h` takes a `meshtastic_MeshPacket`;
+  including one from the other to reach three numbers would drag the generated protobuf headers
+  into every backend and every test that draws a screen. `MESH_UI_MESSAGE_TEXT_MAX` already does
+  the same, and `waypoint_limits_agree_across_the_seam` is what holds the two honest.
 - **A fix carries two clocks and the row says which one it is answering with.** `Position` has
   `timestamp` (when the GPS solved) and `time` (the sender's own clock, which upstream leaves
   off the mesh to save space, so it is usually 0); neither is when the packet reached us, which

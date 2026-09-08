@@ -1490,10 +1490,7 @@ MESH_TEST_CASE(ui_capture_segmented_marks_the_chosen_value, unit) {
                 settings.pairing_mode = pass == 0U ? 0U : 2U;
                 mesh_ui_store_set_settings(&store, &settings);
 
-                struct mesh_ui_action action;
-                for (int i = 0; i < 4; ++i) {
-                    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
-                }
+                (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
                 if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_BLUETOOTH)) {
                     failure = "could not open Settings > Bluetooth";
                 } else {
@@ -1572,10 +1569,7 @@ MESH_TEST_CASE(ui_capture_segmented_refuses_an_unknown_value, unit) {
             settings.pairing_mode = pass == 0U ? 0U : 9U;
             mesh_ui_store_set_settings(&store, &settings);
 
-            struct mesh_ui_action action;
-            for (int i = 0; i < 4; ++i) {
-                mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
-            }
+            (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
             if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_BLUETOOTH)) {
                 failure = "could not open Settings > Bluetooth";
             } else {
@@ -2179,10 +2173,7 @@ MESH_TEST_CASE(ui_capture_slider_places_the_value, unit) {
                 settings.screen_on_secs = pass == 0U ? 15U : 3600U;
                 mesh_ui_store_set_settings(&store, &settings);
 
-                struct mesh_ui_action action;
-                for (int i = 0; i < 4; ++i) {
-                    mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
-                }
+                (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
                 if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_DISPLAY)) {
                     failure = "could not open Settings > Display";
                 } else {
@@ -2264,10 +2255,7 @@ MESH_TEST_CASE(ui_capture_slider_refuses_a_word, unit) {
             settings.screen_on_secs = pass == 0U ? 0U : 15U;
             mesh_ui_store_set_settings(&store, &settings);
 
-            struct mesh_ui_action action;
-            for (int i = 0; i < 4; ++i) {
-                mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
-            }
+            (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
             if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_DISPLAY)) {
                 failure = "could not open Settings > Display";
             } else {
@@ -2389,10 +2377,7 @@ MESH_TEST_CASE(ui_capture_slider_stops_survive_the_fill, unit) {
         settings.screen_on_secs = 3600U; /* the top of this field's scale */
         mesh_ui_store_set_settings(&store, &settings);
 
-        struct mesh_ui_action action;
-        for (int i = 0; i < 4; ++i) {
-            mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
-        }
+        (void)mesh_test_open_tab(&store, MESH_UI_SCREEN_SETTINGS);
         uint32_t width = 0U;
         uint32_t height = 0U;
         size_t stride = 0U;

@@ -104,11 +104,24 @@ struct mesh_app_publish_cache {
     bool link_up;
     struct mesh_handshake_status handshake;
     struct mesh_message_log messages;
+    struct mesh_waypoint_book waypoints;
     struct mesh_ui_message_list restored_messages;
     struct mesh_ui_preferences preferences;
     struct mesh_radio_settings settings;
     struct mesh_ui_settings flat_settings;
 };
+
+uint8_t mesh_app_primary_channel(const struct mesh_handshake_status *status) {
+    if (status == NULL) {
+        return 0U;
+    }
+    for (size_t i = 0; i < status->channel_count && i < MESH_SESSION_MAX_CHANNELS; ++i) {
+        if (status->channels[i].role == meshtastic_Channel_Role_PRIMARY) {
+            return status->channels[i].index;
+        }
+    }
+    return 0U;
+}
 
 /* Resolves a node number to something a human can read, preferring the short name the NodeDB
    gave us and falling back to the Meshtastic-style "!hex" id. */
@@ -461,6 +474,56 @@ unsigned mesh_app_node_rank(const struct mesh_node_summary *node, uint32_t my_no
 
 /* Copies the newest MESH_UI_MAX_MESSAGES entries out of the transport ring into the store,
    merged with whatever history was restored from the cache at startup. */
+/*
+ * Copies the session's waypoint book into the store, resolving each sharer's name and whether
+ * this client may withdraw the place.
+ *
+ * Both derived fields need our own node number, which is why they are settled here rather than
+ * in a screen: `editable` decides whether the delete row offers to withdraw a place from the
+ * mesh or only to stop showing it, and a screen that worked that out itself would be a second
+ * opinion about it beside mesh_session_forget_waypoint()'s.
+ */
+static void mesh_app_publish_waypoints(struct mesh_app *app,
+                                       const struct mesh_handshake_status *status) {
+    const struct mesh_waypoint_book *book = mesh_session_waypoints(&app->session);
+    if (book == NULL) {
+        return;
+    }
+    const uint32_t me = status->has_my_info ? status->my_info.my_node_num : 0U;
+
+    struct mesh_ui_waypoint_list list;
+    memset(&list, 0, sizeof list);
+    list.dropped = book->dropped;
+    for (size_t i = 0; i < book->count && list.count < MESH_UI_MAX_WAYPOINTS; ++i) {
+        const struct mesh_waypoint *source = mesh_waypoint_book_at(book, i);
+        if (source == NULL) {
+            continue;
+        }
+        struct mesh_ui_waypoint *target = &list.entries[list.count];
+        target->id = source->id;
+        target->latitude_i = source->latitude_i;
+        target->longitude_i = source->longitude_i;
+        target->has_coords = source->has_coords;
+        target->expire = source->expire;
+        target->locked_to = source->locked_to;
+        target->icon = source->icon;
+        target->from = source->from;
+        target->heard = source->heard;
+        target->channel = source->channel;
+        target->ours = source->ours || (me != 0U && source->from == me);
+        target->editable = (source->locked_to == 0U) || (me != 0U && source->locked_to == me);
+        mesh_str_copy(target->name, sizeof target->name, source->name);
+        mesh_str_copy(target->description, sizeof target->description, source->description);
+        if (source->from != 0U) {
+            mesh_app_format_peer_name(status, source->from, target->from_name,
+                                      sizeof target->from_name);
+        }
+        list.count++;
+    }
+
+    mesh_ui_store_set_waypoints(&app->ui_store, &list);
+}
+
 static void mesh_app_publish_messages(struct mesh_app *app,
                                       const struct mesh_handshake_status *status) {
     const struct mesh_message_log *log = mesh_session_messages(&app->session);
@@ -1364,6 +1427,10 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         cache->roster_owner != mesh_session_roster_owner(&app->session) ||
         cache->link_up != mesh_session_attached(&app->session) ||
         memcmp(&cache->preferences, &app->ui_preferences, sizeof app->ui_preferences) != 0;
+    const struct mesh_waypoint_book *source_waypoints = mesh_session_waypoints(&app->session);
+    const bool waypoints_changed =
+        cache == NULL || !cache->valid ||
+        memcmp(&cache->waypoints, source_waypoints, sizeof *source_waypoints) != 0;
     const bool message_view_changed = handshake_changed || messages_changed ||
                                       cache->locale != mesh_i18n_locale() ||
                                       memcmp(&cache->restored_messages, &app->ui_messages_cached,
@@ -1534,6 +1601,12 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     if (message_view_changed) {
         mesh_app_publish_messages(app, status);
     }
+    /* The names on a waypoint row come out of the roster, so a NodeInfo arriving changes what
+       this publishes even when the book itself has not moved - which is why the handshake is
+       part of the test and not just the book. */
+    if (waypoints_changed || handshake_changed) {
+        mesh_app_publish_waypoints(app, status);
+    }
 
     const struct mesh_radio_settings *radio_settings = mesh_session_settings(&app->session);
     struct mesh_ui_settings ui_settings;
@@ -1586,6 +1659,9 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         }
         if (messages_changed) {
             cache->messages = *source_messages;
+        }
+        if (waypoints_changed) {
+            cache->waypoints = *source_waypoints;
         }
         if (message_view_changed) {
             cache->restored_messages = app->ui_messages_cached;
