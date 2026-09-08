@@ -23,14 +23,19 @@
 /* Standard evdev codes. The Brick's gamepad device ("TRIMUI Player1") reports the face and
    system buttons through the usual BTN_ space and the d-pad as ABS_HAT0X/Y, so these work
    without a device-specific keymap. SELECT and START are not quit keys: they sit next to the
-   d-pad and are too easy to hit while navigating. */
+   d-pad and are too easy to hit while navigating.
+
+   KEY_POWER (116) is not one either, and that is a correction rather than an omission. It was
+   here as a host-keyboard convenience, but the Brick's PMIC really does emit it - on its own
+   device, axp2202-pek - so a tap of the power button, which on this hardware is the gesture
+   for putting the console to sleep, tore the client down instead of suspending it. Sleep is
+   the launcher's business and nothing we should answer at all. */
 #define MESH_UI_INPUT_MAX_QUIT_KEYS 16U
 
 static const uint16_t k_default_quit_keys[] = {
-    KEY_ESC,   /* 1   - USB keyboard, and what most emulators map "back" to */
-    KEY_POWER, /* 116 */
-    KEY_MENU,  /* 139 - the Brick's MENU button, the NextUI convention for leaving a pak */
-    BTN_MODE,  /* 316 - the same MENU button as the gamepad device reports it */
+    KEY_ESC,  /* 1   - USB keyboard, and what most emulators map "back" to */
+    KEY_MENU, /* 139 - the Brick's MENU button, the NextUI convention for leaving a pak */
+    BTN_MODE, /* 316 - the same MENU button as the gamepad device reports it */
 };
 
 /* Parsed once from MESHCLIENT_QUIT_KEYS so the mapping can be corrected on-device without a

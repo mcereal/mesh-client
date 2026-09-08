@@ -139,6 +139,12 @@ MESH_TEST_CASE(ui_input_quit_keys, unit) {
     /* BTN_START stays free for the menu work still to come. */
     MESH_TEST_FAIL_IF(mesh_ui_input_is_quit_key(BTN_START), "BTN_START should not quit by default");
 
+    /* Regression: KEY_POWER used to quit. The Brick's PMIC emits it on a tap of the power
+       button, which is this hardware's sleep gesture, so the client died instead of the
+       console suspending. Measured on-device with `make deploy-input-map`. */
+    MESH_TEST_FAIL_IF(mesh_ui_input_is_quit_key(KEY_POWER),
+                      "KEY_POWER should not quit: it is the Brick's sleep gesture");
+
     MESH_TEST_FAIL_IF(mesh_ui_input_quit_hint() == NULL || mesh_ui_input_quit_hint()[0] == '\0',
                       "quit hint should not be empty");
 

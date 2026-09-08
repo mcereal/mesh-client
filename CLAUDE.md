@@ -261,7 +261,17 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   write/read. Framing is a serial-only concern, and it is `src/proto/stream_framing.c`.
 - **The Brick's face buttons do not report by position.** A is `BTN_EAST` (305), B is `BTN_SOUTH`
   (304), the button printed **Y (left) is `BTN_NORTH` (307)**, so X (top) is `BTN_WEST` (308).
-  Pinned in `input_brick_face_buttons`.
+  Pinned in `input_brick_face_buttons`. The pad impersonates an Xbox 360 controller, and the rest
+  of the case follows from that: **L2/R2 are the analog triggers `ABS_Z`/`ABS_RZ`**, not buttons
+  (there is no `BTN_TL2`/`BTN_TR2` in the bitmap at all), and **F1/F2 are the stick clicks**
+  `BTN_THUMBL`/`BTN_THUMBR` - a 360 pad has two sticks and the Brick has none, so those were the
+  free codes. The pad also *declares* a `KEY_F1`, a `KEY_F2` and two volume keys it never sends,
+  which is why the map is measured with `make deploy-input-map` rather than read off the
+  capability bitmaps. The whole table is in [`docs/device.md`](docs/device.md#the-buttons-and-what-they-report).
+- **The power button is deliberately not a quit key.** It was one until the Brick was measured:
+  the PMIC (`axp2202-pek`, its own input device) really does emit `KEY_POWER`, so a tap of the
+  button - this hardware's sleep gesture - tore the client down instead of suspending it. Sleep
+  is the launcher's business. `MESHCLIENT_QUIT_KEYS` still overrides the set.
 - **The node roster deliberately outlives the connection.** `mesh_session_reset_handshake` keeps
   `handshake.nodes` and clears everything else; it is not a missed `memset`. The radio's NodeDB
   holds 80 entries and evicts, so mirroring it loses nodes for good. The roster is dropped only
