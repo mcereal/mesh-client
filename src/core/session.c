@@ -38,24 +38,32 @@ static uint32_t mesh_session_wall_clock(void) {
 }
 
 /*
- * Everything the connection that just ended told us about itself. The node roster is the one
- * thing kept: it belongs to the client, not to the radio. The radio's NodeDB holds 80 entries
- * on this hardware and evicts as soon as it fills, so wiping our copy on every reconnect threw
- * away nodes that by then existed nowhere else - you would walk home from a mesh and find the
- * list back to whatever the radio still happened to remember.
+ * Everything the connection that just ended told us about *itself* - what was in flight, what
+ * this link's admin session held, what the radio said about its own uptime. What the radio told
+ * us about what it *is* survives; mesh_session_forget_radio() below is what drops that.
+ *
+ * The split is the roster's rule, extended. The roster was already kept across a reconnect
+ * because it belongs to the client rather than to the radio, and because the radio's NodeDB
+ * holds 80 entries and evicts. But the config, the channel table and MyNodeInfo were wiped on
+ * every drop and re-fetched from nothing - and on a 135-node radio the replay that refills them
+ * runs about seventeen seconds, of which the first four are the part the client actually needs
+ * to work. A link that keeps dying at ten seconds therefore never converged: each attempt threw
+ * away the four seconds the last one had earned, blanked the channel list on the way past, and
+ * started again. Keeping them means the first attempt that gets four seconds in leaves the
+ * client usable, and every attempt after that adds roster rather than starting over.
+ *
+ * What this costs is one reconnect's worth of staleness if the radio's config changed while we
+ * were away. The two ways it can change are both handled: a reboot forgets the radio outright
+ * (the sync after one is precisely the sync that must not trust what came before), and a swap to
+ * another radio forgets it too. Short of those, the next sync's fragments overwrite each section
+ * as they land, seconds in.
  */
-static void mesh_session_reset_handshake(struct mesh_session *session) {
+static void mesh_session_reset_link_state(struct mesh_session *session) {
     struct mesh_handshake_status *handshake = &session->handshake;
     handshake->request_in_flight = false;
     handshake->request_id = 0U;
     handshake->config_complete = false;
     handshake->config_complete_id = 0U;
-    handshake->has_my_info = false;
-    memset(&handshake->my_info, 0, sizeof handshake->my_info);
-    handshake->has_config = false;
-    memset(&handshake->config, 0, sizeof handshake->config);
-    handshake->channel_count = 0U;
-    memset(handshake->channels, 0, sizeof handshake->channels);
 
     memset(&session->stats, 0, sizeof session->stats);
     memset(&session->traceroute, 0, sizeof session->traceroute);
@@ -66,8 +74,21 @@ static void mesh_session_reset_handshake(struct mesh_session *session) {
     memset(&session->queue, 0, sizeof session->queue);
     session->reboot_notices = 0U;
     session->node_cache_warned = false;
-    mesh_radio_settings_reset(&session->settings);
+    mesh_radio_settings_reset_session(&session->settings);
     session->admin_probe_queued = false;
+}
+
+/* Everything the radio told us about what it is. Dropped only when what it is may have changed
+   underneath us: a reboot, or a move to a different radio. */
+static void mesh_session_forget_radio(struct mesh_session *session) {
+    struct mesh_handshake_status *handshake = &session->handshake;
+    handshake->has_my_info = false;
+    memset(&handshake->my_info, 0, sizeof handshake->my_info);
+    handshake->has_config = false;
+    memset(&handshake->config, 0, sizeof handshake->config);
+    handshake->channel_count = 0U;
+    memset(handshake->channels, 0, sizeof handshake->channels);
+    mesh_radio_settings_reset(&session->settings);
 }
 
 /* Drops the roster outright. Only for a radio swap: another radio is another NodeDB, and its
@@ -93,7 +114,9 @@ void mesh_session_init(struct mesh_session *session) {
         session->next_config_request_id = 1U;
     }
     session->next_packet_id = 0U; /* seeded lazily on the first send */
-    mesh_session_reset_handshake(session);
+    /* A fresh session knows no radio, so this is the one place that clears both halves. */
+    mesh_session_reset_link_state(session);
+    mesh_session_forget_radio(session);
 }
 
 void mesh_session_attach(struct mesh_session *session, mesh_session_send_fn send, void *ctx) {
@@ -110,7 +133,8 @@ void mesh_session_detach(struct mesh_session *session) {
     }
     session->send = NULL;
     session->send_ctx = NULL;
-    mesh_session_reset_handshake(session);
+    /* The link ended; the radio on the other side of it did not change. */
+    mesh_session_reset_link_state(session);
 }
 
 bool mesh_session_attached(const struct mesh_session *session) {
@@ -152,7 +176,10 @@ int mesh_session_begin_handshake(struct mesh_session *session) {
         }
     }
 
-    mesh_session_reset_handshake(session);
+    /* Only the link's half. The replay this is about to ask for overwrites each section as it
+       lands, so blanking them first bought nothing and cost the client every screen it could
+       have drawn during the seventeen seconds the replay takes. */
+    mesh_session_reset_link_state(session);
     /* A fresh epoch, so nodes the coming replay does not mention can be told apart from the
        ones it does. Zero means "no sync has ever carried this node", so it is never an epoch. */
     if (++session->sync_epoch == 0U) {
@@ -293,7 +320,6 @@ void mesh_session_set_roster_owner(struct mesh_session *session, uint32_t node_n
         session->roster_node = node_num;
     }
 }
-
 /* Whether a name is one the node chose or the one we derived from its number. Used to read an
    older cache, written before the roster carried the answer: the names are all it has. A node
    whose real short name happens to be its factory default reads as derived, which costs one
@@ -1062,6 +1088,10 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
             mesh_log_info("session", "Radio changed (0x%08x -> 0x%08x); dropping the roster",
                           session->roster_node, message.my_info.my_node_num);
             mesh_session_clear_nodes(session);
+            /* And everything else the old radio told us about itself. A reconnect keeps the
+               config because it is the same radio; this is the case where it is not, and the
+               channel table and LoRa settings we are holding are another radio's. */
+            mesh_session_forget_radio(session);
         }
         session->roster_node = message.my_info.my_node_num;
         handshake->has_my_info = true;
@@ -1160,6 +1190,10 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
          */
         if (message.rebooted) {
             mesh_log_info("session", "Radio reports it rebooted; re-running the config sync");
+            /* A drop keeps the config because nothing changed; a reboot is the case where it
+               may have. A settings write is followed by exactly this, so holding the old value
+               here would show the user the number they just replaced. */
+            mesh_session_forget_radio(session);
             (void)mesh_session_begin_handshake(session);
             session->reboot_notices++;
         }

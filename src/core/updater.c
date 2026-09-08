@@ -106,6 +106,14 @@ bool mesh_updater_can_install(const struct mesh_updater *updater) {
     return updater != NULL && (updater->allow_dev || mesh_version_is_release());
 }
 
+bool mesh_updater_holds_the_radio(const struct mesh_updater *updater) {
+    /* VERIFYING is local hashing and wants no antenna of its own, but it sits between the
+       download and the install with a relaunch on the far side; bringing a link up for the
+       second or two it lasts would only spend the sync it could not finish. */
+    return updater != NULL &&
+           (updater->state == MESH_UPDATE_DOWNLOADING || updater->state == MESH_UPDATE_VERIFYING);
+}
+
 /* Drops the release the last check found. Anything that could make it stale - a new check, a
    channel change - goes through here so an install can never be handed an asset from a
    question we are no longer asking. */

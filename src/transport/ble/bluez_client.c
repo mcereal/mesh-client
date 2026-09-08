@@ -186,10 +186,24 @@ static int mesh_bluez_request_poll(struct mesh_bluez_pending *request) {
     return result;
 }
 
+static int mesh_bluez_error_to_errno(const char *name, const char *message);
+
 static int mesh_bluez_read_reply(DBusMessage *reply, uint8_t *out, size_t capacity,
                                  size_t *out_len) {
     if (dbus_message_get_type(reply) != DBUS_MESSAGE_TYPE_METHOD_RETURN) {
-        return -EIO;
+        /* A FromRadio read is the first thing to fail when a link is dying, so this branch is
+           the whole account of most disconnects - and it used to answer -EIO without ever
+           looking at what BlueZ said. EIO is what mesh_bluez_error_to_errno() returns when it
+           recognises *nothing*, which meant "the link timed out", "the node dropped its bond"
+           and "bluetoothd is wedged" all reached the log as the same "read failed (-5)". Say
+           what BlueZ said and map it, exactly as Pair and Connect already do. */
+        const char *error_name = dbus_message_get_error_name(reply);
+        char *text = NULL;
+        dbus_message_get_args(reply, NULL, DBUS_TYPE_STRING, &text, DBUS_TYPE_INVALID);
+        mesh_log_warn("bluez", "FromRadio read failed: %s%s%s",
+                      error_name != NULL ? error_name : "?", text != NULL ? ": " : "",
+                      text != NULL ? text : "");
+        return mesh_bluez_error_to_errno(error_name, text);
     }
     DBusMessageIter iter;
     if (!dbus_message_iter_init(reply, &iter) ||
@@ -2646,6 +2660,9 @@ int mesh_bluez_client_list_meshtastic(struct mesh_bluez_client *client,
     }
 
     if (g_mock_state.enabled) {
+        if (g_mock_state.config.list_calls != NULL) {
+            ++*g_mock_state.config.list_calls;
+        }
         mesh_bluez_apply_mock_devices(devices, capacity, count);
         return g_mock_state.config.list_result;
     }

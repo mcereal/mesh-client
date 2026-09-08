@@ -72,6 +72,7 @@ stop it.
 | `MESHCLIENT_DISABLE_BLE`, `MESHCLIENT_DISABLE_SERIAL` | turn a transport off |
 | `MESHCLIENT_PREFERRED_BLE_DEVICE`, `MESHCLIENT_PREFERRED_SERIAL_DEVICE` | preferred node / port |
 | `MESHCLIENT_AUTOCONNECT` | `0` stops the foreground loop connecting on its own |
+| `MESHCLIENT_SCAN_RESUME_GRACE_MS` | how long a teardown keeps the BLE scan down, 0–60000; default 3000. It exists so the scan is not started for the one second between a drop and the auto-connect that follows it, only to be stopped again microseconds before `Connect`. `0` restores the old always-scan-when-idle behaviour |
 | `MESHCLIENT_UI_BACKEND` | `fb\|cli\|stub`; `fb` unless there is no `/dev/fb0` |
 | `MESHCLIENT_FB_SCALE` | framebuffer font multiplier, 2–6; default is whatever the theme asks for (4) |
 | `MESHCLIENT_THEME` | `dark\|light\|contrast\|colorblind`. Outranks the theme picked in Settings → About, which then shows as a fact rather than a switch; unset, the saved choice applies, and an unknown name warns and falls back rather than leaving a handheld with no UI |

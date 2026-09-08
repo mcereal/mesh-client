@@ -860,3 +860,42 @@ MESH_TEST_CASE(version_build_stamp, unit) {
     record_success(test_name);
 #endif
 }
+
+/*
+ * One antenna: the Brick's Wi-Fi and Bluetooth are one Xradio part, and a Meshtastic node ends
+ * the link after a second of silence. An install pressed over a live link was measured
+ * producing the first FromRadio failure 36 ms later, so the download and the radio take turns.
+ *
+ * What is pinned here is that the answer is *derived* from the updater's own state. A flag would
+ * work until a download failed holding it, and a radio that will not reconnect after a failed
+ * update is a worse bug than the one this fixes.
+ */
+MESH_TEST_CASE(updater_download_holds_the_radio, unit) {
+    struct mesh_updater updater;
+    memset(&updater, 0, sizeof updater);
+
+    MESH_TEST_FAIL_IF(mesh_updater_holds_the_radio(NULL), "no updater cannot hold anything");
+
+    const enum mesh_update_state releases[] = {
+        MESH_UPDATE_IDLE,      MESH_UPDATE_CHECKING, MESH_UPDATE_UP_TO_DATE,
+        MESH_UPDATE_AVAILABLE, MESH_UPDATE_READY,    MESH_UPDATE_FAILED,
+    };
+    for (size_t i = 0; i < sizeof releases / sizeof releases[0]; ++i) {
+        updater.state = releases[i];
+        MESH_TEST_FAIL_IF(mesh_updater_holds_the_radio(&updater),
+                          mesh_update_state_name(releases[i]));
+    }
+
+    /* Fetching the asset, and hashing it - which wants no antenna itself, but sits between the
+       download and a relaunch, so a link brought up for it could only lose the sync it began. */
+    updater.state = MESH_UPDATE_DOWNLOADING;
+    MESH_TEST_FAIL_IF(!mesh_updater_holds_the_radio(&updater), "a download must hold the radio");
+    updater.state = MESH_UPDATE_VERIFYING;
+    MESH_TEST_FAIL_IF(!mesh_updater_holds_the_radio(&updater), "verifying must hold the radio");
+
+    /* The release is the failure, not a separate thing anyone has to remember to do. */
+    updater.state = MESH_UPDATE_FAILED;
+    MESH_TEST_FAIL_IF(mesh_updater_holds_the_radio(&updater),
+                      "a failed download must not strand the radio");
+    record_success(test_name);
+}

@@ -19,6 +19,31 @@ void mesh_radio_settings_reset(struct mesh_radio_settings *settings) {
     memset(settings, 0, sizeof *settings);
 }
 
+void mesh_radio_settings_reset_session(struct mesh_radio_settings *settings) {
+    if (settings == NULL) {
+        return;
+    }
+    settings->has_session_passkey = false;
+    memset(settings->session_passkey, 0, sizeof settings->session_passkey);
+    settings->session_passkey_len = 0U;
+    settings->admin_replies = 0U;
+
+    memset(settings->queue, 0, sizeof settings->queue);
+    settings->queue_head = 0U;
+    settings->queue_len = 0U;
+    settings->pending_request_id = 0U;
+    settings->pending_sent_at_ms = 0U;
+    settings->pending_is_write = false;
+    settings->timeouts = 0U;
+
+    /* Counted so the app can announce each outcome once, which makes them facts about the link
+       that reported them rather than about the radio. */
+    settings->writes_sent = 0U;
+    settings->writes_acked = 0U;
+    settings->writes_failed = 0U;
+    settings->last_write_error = 0;
+}
+
 bool mesh_radio_settings_loaded(const struct mesh_radio_settings *settings) {
     if (settings == NULL) {
         return false;

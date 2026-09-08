@@ -237,6 +237,12 @@ void mesh_app_autoconnect(struct mesh_app *app) {
         app->config.run_mode != MESH_APP_RUN_FOREGROUND) {
         return;
     }
+    /* Derived rather than held: a download that fails lifts this by failing. Pairing it with a
+       flag would leave a radio unreachable after a failed install until something remembered to
+       clear it. */
+    if (mesh_updater_holds_the_radio(&app->updater)) {
+        return;
+    }
 
     struct mesh_transport *ble = mesh_ble_transport();
     const bool link_up = (mesh_app_connected_identifier() != NULL);
@@ -645,6 +651,14 @@ int mesh_app_run(struct mesh_app *app) {
             /* The updater's child is watched by the event loop; this only enforces its
                timeout and reaps a child whose exit the loop did not see. */
             mesh_updater_tick(&app->updater, mesh_time_monotonic_ms());
+            /* One antenna: a download and a link cannot both have it, and the link is the one
+               that loses - a Meshtastic node ends the connection after a second of silence,
+               while curl only takes longer. Derived here rather than done at the install press
+               so every route into a download releases it, and paired with the auto-connect
+               guard above so nothing brings it back mid-download. */
+            if (mesh_updater_holds_the_radio(&app->updater)) {
+                mesh_app_release_other_link(NULL);
+            }
             /* Before auto-connect, not after: a retry starts the link over and clears the
                reason the last attempt failed. */
             (void)mesh_app_report_link_errors(app);
