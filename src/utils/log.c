@@ -47,9 +47,16 @@ static void format_timestamp(char *buffer, size_t buffer_len) {
     }
 
     const long millis = ts.tv_nsec / 1000000L;
-    snprintf(buffer, buffer_len, "%04d-%02d-%02dT%02d:%02d:%02d.%03ldZ", tm_result.tm_year + 1900,
-             tm_result.tm_mon + 1, tm_result.tm_mday, tm_result.tm_hour, tm_result.tm_min,
-             tm_result.tm_sec, millis);
+    const int written = snprintf(buffer, buffer_len, "%04d-%02d-%02dT%02d:%02d:%02d.%03ldZ",
+                                 tm_result.tm_year + 1900, tm_result.tm_mon + 1, tm_result.tm_mday,
+                                 tm_result.tm_hour, tm_result.tm_min, tm_result.tm_sec, millis);
+    /* The same answer as the two failures above, and for the same reason: a timestamp cut off
+       mid-field still reads as a time. A struct tm that gmtime_r filled in cannot overflow the
+       32 bytes every caller passes - but neither the compiler nor this function knows that the
+       buffer is that big or that the fields are in range. */
+    if (written < 0 || (size_t)written >= buffer_len) {
+        snprintf(buffer, buffer_len, "0000-00-00T00:00:00.000Z");
+    }
 }
 
 void mesh_log_message_v(enum mesh_log_level level, const char *component, const char *fmt,

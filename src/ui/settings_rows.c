@@ -289,7 +289,7 @@ static void item_action_named(struct item_list *list, const char *label, const c
                               enum mesh_ui_settings_action action) {
     struct mesh_ui_settings_item *item = item_add_named(list, label, MESH_UI_SETTING_ACTION);
     if (item != NULL) {
-        snprintf(item->value, sizeof item->value, "%s", value);
+        mesh_str_copy(item->value, sizeof item->value, value);
         item->number = (uint32_t)action;
     }
 }
