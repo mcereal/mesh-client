@@ -395,10 +395,11 @@ MESH_TEST_CASE(ui_store_position_cache_boundary, unit) {
     /* Without this the loader zeroes the whole roster, so the fixture has to look like a
        cache a real run left behind rather than like three position lines on their own. */
     fprintf(file, "handshake_valid=1\n");
-    fprintf(file, "handshake_nodes=3\n");
+    fprintf(file, "handshake_nodes=4\n");
     fprintf(file, "node[0]=4242,1749000000,0,6.250000,0,0\n");
     fprintf(file, "node[1]=4243,1749000000,0,6.250000,0,0\n");
     fprintf(file, "node[2]=4244,1749000000,0,6.250000,0,0\n");
+    fprintf(file, "node[3]=4245,1749000000,0,6.250000,0,0\n");
     /* Seven fields: what every build before `received` wrote. It must still load. */
     fprintf(file, "node_pos[0]=447654321,-680012345,1,312,1749000000,9,13\n");
     /* Eight: what this build writes. */
@@ -406,6 +407,14 @@ MESH_TEST_CASE(ui_store_position_cache_boundary, unit) {
     /* A latitude of 150 degrees. However it got here - a bad writer, a corrupted card, a
        hand edit - the node comes back with no fix rather than with a point off the Earth. */
     fprintf(file, "node_pos[2]=1500000000,-680000000,0,0,0,0,0,1750000000\n");
+    /*
+     * The one that gets past a narrow scan. 2^32 does not fit an `int`, `%d` on it is
+     * undefined, and glibc hands back 0 - so read narrowly this line arrives at the range
+     * check looking exactly like a legitimate fix at Null Island and is stored as one. The
+     * conversion has to be checked before the coordinate is, which is why the loader reads
+     * wide and bounds the value before narrowing it.
+     */
+    fprintf(file, "node_pos[3]=4294967296,-680000000,0,0,0,0,0,1750000000\n");
     fclose(file);
 
     struct mesh_ui_store store;
@@ -449,6 +458,20 @@ MESH_TEST_CASE(ui_store_position_cache_boundary, unit) {
     if (store.handshake.nodes[2].position.valid) {
         mesh_ui_store_shutdown(&store);
         record_failure(test_name, "an out-of-range cached position must be dropped");
+        return;
+    }
+
+    const struct mesh_ui_node_position *overflowed = &store.handshake.nodes[3].position;
+    if (overflowed->valid) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "a coordinate that does not fit its type must be dropped");
+        return;
+    }
+    /* Named explicitly, because the failure this guards against is not "it was kept" but
+       "it was kept as 0, 0" - a plausible-looking fix nobody would look at twice. */
+    if (overflowed->latitude_i == 0 && overflowed->longitude_i == 0 && overflowed->valid) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "an overflowing coordinate must not become a fix at 0, 0");
         return;
     }
 

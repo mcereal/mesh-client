@@ -60,7 +60,9 @@ struct mesh_ui_device {
    Latitude and longitude stay in Meshtastic's fixed-point 1e-7 degrees. */
 /* Mirrors struct mesh_node_position; see session.h for why the two clocks are both kept.
    `time` is the node's account of when the fix was taken and is often 0; `received` is ours
-   and is what the detail falls back to, labelled as the different question it answers. */
+   and is what the detail falls back to, labelled as the different question it answers. Either
+   may be 0 - a fix replayed out of the radio's NodeDB has no arrival we witnessed - and a row
+   with neither says it does not know rather than picking one. */
 struct mesh_ui_node_position {
     bool valid;
     int32_t latitude_i;

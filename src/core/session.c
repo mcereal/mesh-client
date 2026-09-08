@@ -617,9 +617,12 @@ static void mesh_session_store_node_summary(struct mesh_session *session,
         mesh_session_apply_user(summary, &info->user);
     }
     if (info->has_position) {
-        /* A cached NodeInfo carries no arrival of its own, so the node's last_heard is the
-           closest thing to when its fix reached the radio that handed it to us. */
-        mesh_session_apply_position(summary, &info->position, info->last_heard);
+        /* No arrival time, and deliberately not `last_heard`. This is the radio replaying its
+           NodeDB at us: the fix inside may be days old, while last_heard is the node's most
+           recent packet of *any* kind, so borrowing it would date a stale fix by unrelated
+           chatter - the exact conflation `received` exists to end. We did not watch this one
+           arrive, so we say we do not know when it did. */
+        mesh_session_apply_position(summary, &info->position, 0U);
     }
     if (info->has_device_metrics) {
         mesh_session_apply_device_metrics(summary, &info->device_metrics, info->last_heard);

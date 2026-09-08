@@ -355,6 +355,46 @@ MESH_TEST_CASE(session_position_clocks_and_range, unit) {
     MESH_TEST_FAIL_IF(stranger == NULL, "the node should still be in the roster");
     MESH_TEST_FAIL_IF(stranger->position.valid, "an out-of-range first fix must not be kept");
 
+    /*
+     * A NodeInfo replayed out of the radio's NodeDB, carrying a fix the node never dated.
+     *
+     * The tempting stamp here is the node's own last_heard, and it is wrong for the same
+     * reason the whole `received` field exists: last_heard is the node's most recent packet of
+     * any kind, so a node whose coordinates are days old but which sent telemetry a minute ago
+     * would report a one-minute-old fix. We did not watch this fix arrive and we say so.
+     */
+    meshtastic_FromRadio replay = meshtastic_FromRadio_init_default;
+    replay.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+    replay.node_info.num = 0x4004U;
+    replay.node_info.last_heard = 1750000560U; /* chatty a minute ago */
+    replay.node_info.has_position = true;
+    replay.node_info.position.has_latitude_i = true;
+    replay.node_info.position.latitude_i = 447654321;
+    replay.node_info.position.has_longitude_i = true;
+    replay.node_info.position.longitude_i = -680012345;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &replay),
+                      "encode replayed node_info failed");
+    const struct mesh_node_summary *replayed = mesh_test_session_find_node(&session, 0x4004U);
+    MESH_TEST_FAIL_IF(replayed == NULL || !replayed->position.valid,
+                      "a replayed fix should still be kept");
+    MESH_TEST_FAIL_IF(replayed->position.received == replay.node_info.last_heard,
+                      "a replayed fix must not be dated by unrelated node activity");
+    MESH_TEST_FAIL_IF(replayed->position.received != 0U || replayed->position.time != 0U,
+                      "a replayed fix nobody dated has no clock at all");
+    /* The node is still as recently heard as it says; only the *fix* is undated. */
+    MESH_TEST_FAIL_IF(replayed->last_heard != 1750000560U,
+                      "the node's own last_heard should be untouched");
+
+    /* A replayed NodeInfo whose fix the node *did* date keeps that date, because the node
+       answering the question is the one case where an answer exists. */
+    replay.node_info.num = 0x4005U;
+    replay.node_info.position.timestamp = 1749500000U;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &replay),
+                      "encode dated replayed node_info failed");
+    const struct mesh_node_summary *dated = mesh_test_session_find_node(&session, 0x4005U);
+    MESH_TEST_FAIL_IF(dated == NULL || dated->position.time != 1749500000U,
+                      "a replayed fix the node dated should keep that date");
+
     /* Null Island is a real point, and a client that quietly dropped it would be guessing at
        the sender's firmware rather than range-checking. */
     meshtastic_Position origin = meshtastic_Position_init_default;

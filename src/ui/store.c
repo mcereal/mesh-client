@@ -1177,8 +1177,16 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
             }
         } else if (strncmp(key, "node_pos[", 9) == 0) {
             unsigned int index = 0U;
-            int latitude = 0;
-            int longitude = 0;
+            /*
+             * The coordinates are read wide, and that is not a style choice. `%d` on text that
+             * overflows an `int` is undefined, and glibc's answer for "4294967296" is 0 - so
+             * scanned narrowly, an absurd coordinate would arrive at the range check already
+             * wearing a valid one's clothes and be stored as a fix in the Gulf of Guinea. The
+             * conversion has to be provably lossless before the point is asked whether it is a
+             * place, which is two questions and therefore two guards.
+             */
+            long long latitude = 0;
+            long long longitude = 0;
             unsigned int has_altitude = 0U;
             int altitude = 0;
             unsigned int stamp = 0U;
@@ -1188,8 +1196,10 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
             /* Seven fields or eight: a cache written before `received` existed still loads,
                and its fixes simply have no arrival time to fall back on. */
             if (sscanf(key, "node_pos[%u]", &index) == 1 && index < MESH_UI_MAX_HANDSHAKE_NODES &&
-                sscanf(value, "%d,%d,%u,%d,%u,%u,%u,%u", &latitude, &longitude, &has_altitude,
+                sscanf(value, "%lld,%lld,%u,%d,%u,%u,%u,%u", &latitude, &longitude, &has_altitude,
                        &altitude, &stamp, &sats, &precision, &received) >= 7 &&
+                latitude >= INT32_MIN && latitude <= INT32_MAX && longitude >= INT32_MIN &&
+                longitude <= INT32_MAX &&
                 /* The cache is a text file on a card the user can edit, so it is an ingress
                    like the air is, and it is held to the same test. A line naming an
                    impossible point leaves the node with no fix rather than an absurd one. */
