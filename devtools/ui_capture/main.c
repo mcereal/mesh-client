@@ -37,6 +37,9 @@
  *                          film it sliding back out again
  *   message in|out NAME TEXT   append a message to the log, as if the radio had just said so
  *   react NAME EMOJI       react to the newest message, as another node would
+ *   ack sending|delivered|failed [ERROR]   what the mesh said about the newest message we
+ *                          sent - the mark in the bubble's corner. ERROR is a Routing_Error
+ *                          number and only means anything after `failed`
  *   alert NAME TEXT        a critical alert (ALERT_APP) on the channel
  *   detection NAME TEXT    a detection sensor announcing itself (DETECTION_SENSOR_APP)
  *   status TEXT            set the transport status line
@@ -727,6 +730,37 @@ static void uicap_append_message(struct uicap *cap, bool outbound, enum mesh_mes
 }
 
 /*
+ * What became of the newest message we sent.
+ *
+ * Its own verb because a Routing reply is the one thing about a message that arrives *after*
+ * it, and nothing this harness can press produces one: `message out` leaves a bubble pending,
+ * which is one of the three marks the transcript can draw and the only one a scene could reach.
+ * Without this the tick and the alert circle - and the failure reason under the bubble that is
+ * the whole reason a reason is not a corner mark - are unfilmable, which is another way of
+ * saying unreviewable.
+ */
+static void uicap_mark_ack(struct uicap *cap, enum mesh_message_ack ack, uint8_t error) {
+    struct mesh_ui_message_list messages = cap->store.messages;
+    uint32_t at = messages.count;
+    while (at > 0U) {
+        --at;
+        if (messages.entries[at].direction == (uint8_t)MESH_MESSAGE_OUTBOUND) {
+            break;
+        }
+        if (at == 0U) {
+            die("ack: the scene has sent nothing to answer");
+        }
+    }
+    if (messages.count == 0U) {
+        die("ack: the scene has sent nothing to answer");
+    }
+    messages.entries[at].ack = (uint8_t)ack;
+    messages.entries[at].ack_error = error;
+    mesh_ui_store_set_messages(&cap->store, &messages);
+    uicap_emit(cap);
+}
+
+/*
  * A reaction to the newest message in the log, which is what a person reacting to what was
  * just said produces. It is appended like any other message and flagged; the transcript
  * filters it out of the bubbles and draws it on the one it names.
@@ -991,6 +1025,31 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
      * read-modify-write of the settings view, because the store replaces it wholesale and the
      * demo scene has already put a radio behind it.
      */
+    if (strcmp(command, "ack") == 0) {
+        char *state = uicap_word(&rest);
+        char *reason = uicap_word(&rest);
+        if (state == NULL) {
+            fprintf(stderr, "uicap: line %u: 'ack' needs sending|delivered|failed\n", line_number);
+            exit(1);
+        }
+        enum mesh_message_ack ack = MESH_MESSAGE_ACK_PENDING;
+        if (strcmp(state, "delivered") == 0) {
+            ack = MESH_MESSAGE_ACK_DELIVERED;
+        } else if (strcmp(state, "failed") == 0) {
+            ack = MESH_MESSAGE_ACK_FAILED;
+        } else if (strcmp(state, "sending") != 0) {
+            fprintf(stderr, "uicap: line %u: 'ack' state is sending, delivered or failed\n",
+                    line_number);
+            exit(1);
+        }
+        /* The Routing_Error number rather than a word: the reasons are upstream's enum, and a
+           scene naming one by number is naming exactly what the radio would have sent. */
+        const uint8_t error = reason != NULL ? (uint8_t)strtoul(reason, NULL, 10) : 0U;
+        uicap_start(cap);
+        uicap_mark_ack(cap, ack, error);
+        return;
+    }
+
     if (strcmp(command, "react") == 0) {
         char *name = uicap_word(&rest);
         if (name == NULL) {

@@ -1,0 +1,36 @@
+# What became of a message we sent: the three marks a bubble's corner can carry.
+#
+# One outbound message per state, in the order they happen - sent and waiting, acknowledged,
+# refused - so the clock, the double tick and the alert circle are on one frame and can be told
+# apart at a glance rather than described. The last one carries a reason, which is the other
+# half of the change: a reason is a sentence, so it goes under the message as a supporting line
+# instead of into the corner where it used to push the whole run outside the bubble.
+#
+# `ack` is its own verb because a Routing reply is the one thing about a message that arrives
+# after it, and no press this harness can make produces one - `message out` leaves a bubble
+# pending, which is one of the three and the only one a scene could otherwise reach.
+scene demo
+scale 4
+clock 2026-01-12 19:12
+config
+
+message out ALFA Heading for the saddle now
+ack sending
+hold 600
+
+message out ALFA Should be there before dark
+ack delivered
+hold 600
+
+# Routing_Error 35 is PKI_UNKNOWN_PUBKEY: the longest reason the catalog carries, and the one
+# that used to be wider than the bubble it was drawn in.
+message out ALFA Bring the spare antenna
+ack failed 35
+hold 900
+
+# The cursor over each of them: a selected bubble is a different fill with an accent bar laid
+# outside it, and the marks have to stay legible against both.
+key a
+hold 400
+key up 2
+hold 700

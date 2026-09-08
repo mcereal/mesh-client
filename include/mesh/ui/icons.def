@@ -137,3 +137,24 @@ MESH_ICON_ENTRY(PINNED,      "star")
    readable by its recipient and by nobody else on the mesh. Distinct from SECURITY's shield: one
    is a section of settings, the other is a fact about one message. */
 MESH_ICON_ENTRY(ENCRYPTED,   "lock")
+
+/* ---- what became of a message we sent --------------------------------------------------------
+ *
+ * The three marks a bubble's trailing run can end in, and the reason "ok", ".." and "!!" are
+ * gone from the string catalog: each was two cells of punctuation standing for a state, which
+ * is the marker-gutter mistake one level in - unreadable until learnt, and a translator's
+ * problem the moment it is a word. A tick, a clock and an alert circle are read without being
+ * learnt, which is why every messenger draws exactly these three.
+ *
+ * The double tick rather than a single one: this client only ever knows two things about an
+ * outbound message - that it went out, and that the mesh acknowledged it - and the ack is what
+ * DELIVERED means. A single tick would be a third state nothing on the wire reports. */
+
+/* Sent with want_ack and nothing has answered yet. */
+MESH_ICON_ENTRY(SENDING,     "schedule")
+/* The mesh acknowledged it. */
+MESH_ICON_ENTRY(DELIVERED,   "done_all")
+/* A Routing reply carrying an error: it did not get there, and the bubble says why. Its own id
+   rather than WARNING's triangle - that one asks a question a dialog is about to act on, this
+   one reports a fact about a message that has already happened. */
+MESH_ICON_ENTRY(UNDELIVERED, "error")

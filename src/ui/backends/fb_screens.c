@@ -17,6 +17,7 @@
 #include "mesh/core/message.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/chrome.h"
+#include "mesh/ui/delivery.h"
 #include "mesh/ui/emoji.h"
 #include "mesh/ui/input.h"
 #include "mesh/ui/layout.h"
@@ -224,12 +225,19 @@ static void fb_render_conversations(struct mesh_ui_backend_fb_state *state,
  * mesh_ui_transcript_window() says which of them are on screen.
  */
 
-/* A message as the screen describes it, with the strings the bubble points at. */
+/* A message as the screen describes it, with the strings the bubble points at.
+ *
+ * One buffer per slot rather than one buffer per line: the bubble's trailing run is four typed
+ * parts it measures itself (struct fb_bubble_meta), and the screen's job is to fill the slots
+ * rather than to assemble a line out of them. Concatenating them here is what used to let a
+ * failure reason push the run past the bubble's own width. */
 struct fb_thread_row {
     struct fb_bubble bubble;
     char separator[24];
     char name[48];
-    char meta[64];
+    char clock[8];
+    char reactions[40];
+    char note[64];
 };
 
 /* Both first-visible and ordinary variants are derived from exact message inputs. Cursor
@@ -413,7 +421,9 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot, const u
     row->bubble.failed = outbound && message->ack == MESH_MESSAGE_ACK_FAILED;
     row->bubble.separator = row->separator;
     row->bubble.name = row->name;
-    row->bubble.meta = row->meta;
+    row->bubble.note = row->note;
+    row->bubble.meta.reactions = row->reactions;
+    row->bubble.meta.clock = row->clock;
 
     /* A separator opens the transcript and marks every day boundary and every long silence, so
        "when was this" is answered by the shape of the screen rather than by reading timestamps. */
@@ -478,56 +488,52 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot, const u
         mesh_str_copy(row->name, sizeof row->name, mesh_ui_line_text(&line));
     }
 
-    /* The clock, and for ours what became of it. A failure says why: "!!" alone leaves the user
-       with no idea whether to move, retry or fix a key, and those are different problems. */
-    struct mesh_ui_line meta;
-    mesh_ui_line_reset(&meta);
-    char clock[8];
-    fb_format_clock(message->rx_time, clock, sizeof clock);
-    if (clock[0] != '\0') {
-        mesh_ui_line_printf(&meta, "%s", clock);
-    }
-    if (outbound && message->ack != MESH_MESSAGE_ACK_NONE) {
-        const char *space = mesh_ui_line_width(&meta) > 0U ? " " : "";
-        if (message->ack == MESH_MESSAGE_ACK_FAILED) {
-            /* Routing_Error NONE reads as "delivered", which on a failed message is a straight
-               contradiction. It should not reach us - a failure carries a reason - but a bubble
-               is the wrong place to find out that it did. */
-            mesh_ui_line_printf(&meta, "%s%s %s", space, mesh_str(MESH_STR_BUBBLE_FAILED_MARK),
-                                message->ack_error != 0U
-                                    ? mesh_message_ack_error_to_string(message->ack_error)
-                                    : mesh_str(MESH_STR_BUBBLE_STATE_FAILED));
-        } else {
-            mesh_ui_line_printf(&meta, "%s%s", space,
-                                mesh_str(message->ack == MESH_MESSAGE_ACK_DELIVERED
-                                             ? MESH_STR_BUBBLE_DELIVERED
-                                             : MESH_STR_BUBBLE_PENDING));
-        }
-    }
+    /*
+     * The trailing run: when it arrived, whether it went out encrypted, and for ours what
+     * became of it. Four slots the bubble measures for itself rather than a line assembled
+     * here - see struct fb_bubble_meta for why that distinction is the whole of it.
+     */
+    fb_format_clock(message->rx_time, row->clock, sizeof row->clock);
+
     /*
      * A padlock on a message the radio decrypted with our key pair rather than with a channel
      * PSK. It only means anything on a direct message, and it is worth saying there: on a
      * channel still using the default key every node on the mesh holds that key, so a DM that
      * did *not* go out PKI-encrypted was readable by all of them, and nothing else on the
      * screen distinguishes the two.
-     *
-     * The bubble's own slot rather than a character in the meta run: the run is a clock, what
-     * became of the message and the reactions on it, assembled in that order, and this is a
-     * fact about the message rather than any of the three.
      */
     if (message->pki_encrypted && !message->broadcast) {
-        row->bubble.meta_icon = MESH_UI_ICON_ENCRYPTED;
+        row->bubble.meta.lock = MESH_UI_ICON_ENCRYPTED;
     }
 
-    /* Reactions ride on the meta line rather than taking a row: they are an annotation on this
+    /* What became of one of ours, as src/ui/delivery.c answers - the mark for the corner, and
+       the word for the line below when there is nothing better to put there. Which one a state
+       gets is a decision the transcript reads rather than makes. */
+    const struct mesh_ui_delivery delivery = mesh_ui_delivery_of(message->ack);
+    if (outbound) {
+        row->bubble.meta.state = delivery.icon;
+    }
+
+    /*
+     * And why, when it failed. A reason is a sentence, so it goes under the message as a
+     * supporting line rather than into the corner beside the clock: "!!" alone left the user
+     * with no idea whether to move, retry or fix a key, and those are different problems, but a
+     * corner mark is not where a sentence can live.
+     *
+     * Routing_Error NONE reads as "delivered", which on a failed message is a straight
+     * contradiction. It should not reach us - a failure carries a reason - but a bubble is the
+     * wrong place to find out that it did, so the generic word stands in for it.
+     */
+    if (row->bubble.failed) {
+        mesh_str_copy(row->note, sizeof row->note,
+                      message->ack_error != 0U
+                          ? mesh_message_ack_error_to_string(message->ack_error)
+                          : mesh_str(delivery.word));
+    }
+
+    /* Reactions ride the trailing run rather than taking a row: they are an annotation on this
        bubble, and a row of their own is the bubble they were filtered out of being. */
-    char reactions[40];
-    fb_thread_reactions(snapshot, message->packet_id, reactions, sizeof reactions);
-    if (reactions[0] != '\0') {
-        mesh_ui_line_printf(&meta, "%s%s", mesh_ui_line_width(&meta) > 0U ? " " : "", reactions);
-    }
-
-    mesh_str_copy(row->meta, sizeof row->meta, mesh_ui_line_text(&meta));
+    fb_thread_reactions(snapshot, message->packet_id, row->reactions, sizeof row->reactions);
 }
 
 /* A bubble's height, clamped into the byte the transcript window measures in. */
@@ -600,7 +606,9 @@ static void fb_thread_row_get(const struct mesh_ui_snapshot *snapshot, const uin
     row->bubble.text = snapshot->messages.entries[indices[position]].text;
     row->bubble.separator = row->separator;
     row->bubble.name = row->name;
-    row->bubble.meta = row->meta;
+    row->bubble.note = row->note;
+    row->bubble.meta.reactions = row->reactions;
+    row->bubble.meta.clock = row->clock;
 }
 
 static void fb_render_thread(struct mesh_ui_backend_fb_state *state,
