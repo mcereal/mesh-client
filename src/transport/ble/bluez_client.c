@@ -1395,6 +1395,24 @@ int mesh_bluez_client_find_adapter(struct mesh_bluez_client *client, char *path,
 #endif
 }
 
+/* Adapter1 under the mock. Shared by both arms of the D-Bus #ifdef so a build without libdbus
+   counts the same calls a build with it does. */
+static int mock_adapter_method(const char *method) {
+    if (strcmp(method, "StartDiscovery") == 0) {
+        if (g_mock_state.config.start_discovery_calls != NULL) {
+            ++*g_mock_state.config.start_discovery_calls;
+        }
+        return g_mock_state.config.start_discovery_result;
+    }
+    if (strcmp(method, "StopDiscovery") == 0) {
+        if (g_mock_state.config.stop_discovery_calls != NULL) {
+            ++*g_mock_state.config.stop_discovery_calls;
+        }
+        return g_mock_state.config.stop_discovery_result;
+    }
+    return 0;
+}
+
 static int call_adapter_method(struct mesh_bluez_client *client, const char *adapter_path,
                                const char *method) {
 #ifdef MESH_HAVE_DBUS
@@ -1403,13 +1421,7 @@ static int call_adapter_method(struct mesh_bluez_client *client, const char *ada
     }
 
     if (g_mock_state.enabled) {
-        if (strcmp(method, "StartDiscovery") == 0) {
-            return g_mock_state.config.start_discovery_result;
-        }
-        if (strcmp(method, "StopDiscovery") == 0) {
-            return g_mock_state.config.stop_discovery_result;
-        }
-        return 0;
+        return mock_adapter_method(method);
     }
 
     if (!client->connected || client->connection == NULL) {
@@ -1444,13 +1456,7 @@ static int call_adapter_method(struct mesh_bluez_client *client, const char *ada
         return -EINVAL;
     }
     if (g_mock_state.enabled) {
-        if (strcmp(method, "StartDiscovery") == 0) {
-            return g_mock_state.config.start_discovery_result;
-        }
-        if (strcmp(method, "StopDiscovery") == 0) {
-            return g_mock_state.config.stop_discovery_result;
-        }
-        return 0;
+        return mock_adapter_method(method);
     }
     (void)client;
     (void)adapter_path;

@@ -216,6 +216,7 @@ static int mesh_ble_do_connect(struct mesh_ble_transport_state *state, const cha
                                bool allow_pair);
 static void mesh_ble_bring_up(struct mesh_transport *transport);
 static void mesh_ble_demote(struct mesh_ble_transport_state *state);
+static void mesh_ble_sync_discovery(struct mesh_ble_transport_state *state);
 
 static void mesh_ble_requests_ready(void *userdata) {
     struct mesh_ble_transport_state *state = userdata;
@@ -270,6 +271,9 @@ static void mesh_ble_tick(struct mesh_transport *transport) {
             state->next_link_poll_ms = now + MESH_BLE_LINK_POLL_MS;
             (void)mesh_ble_transport_check_link(transport);
         }
+        /* After the link work, so a link that just came up or just went away is reflected in the
+           scan on the same turn rather than a second later. */
+        mesh_ble_sync_discovery(state);
         if (state->link_state == MESH_BLE_LINK_CONNECTED) {
             mesh_session_tick(state->session, now);
         }
@@ -439,6 +443,52 @@ static void mesh_ble_enter_wait(struct mesh_ble_transport_state *state,
     }
     snprintf(state->waiting_reason, sizeof state->waiting_reason, "%s", reason);
     mesh_log_warn("ble", "%s", reason);
+}
+
+/* Scanning is a function of the link, not something a call site switches on and off.
+ *
+ * A Meshtastic node negotiates a **1000 ms supervision timeout** at a 30 ms connection interval
+ * (both read off an HCI trace of this radio), so a little over a second of missed connection
+ * events ends the link - and the Brick has one antenna, on an XRadio combo part it also shares
+ * with Wi-Fi. BlueZ's discovery is an *active* LE scan, 11.25 ms of listening and SCAN_REQs of
+ * our own out of every 22.5 ms, and bluetoothd restarts it every ten seconds for as long as any
+ * client wants it - which, before this, was for the whole life of the app. Held across a link
+ * that is second after second of solid ATT traffic, it eventually takes the radio away for
+ * longer than the second the node allows, and the link drops mid-roster. A four-node radio syncs
+ * in about four seconds and usually gets away with it; a 135-node radio needs a minute and never
+ * did, which is why this looked like a bug in one particular node.
+ *
+ * So: scan only while there is no link to protect. Deriving it from link_state rather than
+ * pairing a stop with every connect is the point - there are several ways into CONNECTING and
+ * PAIRING between here, auto-connect and the Devices tab, and the one that forgot to stop the
+ * scan would fail only on a radio with a big NodeDB. tick() calls this every turn, and
+ * do_connect() and begin_pair() call it the moment they commit, so the radio is ours before the
+ * request goes out rather than up to a turn later.
+ *
+ * The cost is that RSSI stops updating while connected, and that BlueZ eventually forgets a
+ * device that was only ever seen by scanning. Neither reaches a bonded node - which is the only
+ * kind connect() will take - and GetManagedObjects still lists everything BlueZ holds. */
+static void mesh_ble_sync_discovery(struct mesh_ble_transport_state *state) {
+    if (state == NULL || state->state != MESH_BLE_STATE_READY || state->adapter_path[0] == '\0') {
+        return;
+    }
+    const bool wanted = state->link_state == MESH_BLE_LINK_DISCONNECTED;
+    if (wanted == state->discovery_active) {
+        return;
+    }
+    const int result = wanted
+                           ? mesh_bluez_client_start_discovery(&state->bluez, state->adapter_path)
+                           : mesh_bluez_client_stop_discovery(&state->bluez, state->adapter_path);
+    if (result < 0) {
+        /* Not fatal either way: scanning that would not stop costs throughput, and scanning that
+           would not start leaves the device list as stale as it already was. Both are retried on
+           the next tick. */
+        mesh_log_debug("ble", "%s failed on %s: %s", wanted ? "StartDiscovery" : "StopDiscovery",
+                       state->adapter_path, strerror(-result));
+        return;
+    }
+    state->discovery_active = wanted;
+    mesh_log_debug("ble", wanted ? "Scanning resumed" : "Scanning held while the link is up");
 }
 
 /* Everything between "BlueZ is on the bus" and "scanning": adapter, pairing agent, discovery,
@@ -1085,6 +1135,9 @@ static int mesh_ble_do_connect(struct mesh_ble_transport_state *state, const cha
     }
 
     state->link_state = MESH_BLE_LINK_CONNECTING;
+    /* Before Connect rather than on the next tick: the connection request needs the radio too,
+       and leaving the scan up across it is the one window the derivation would otherwise miss. */
+    mesh_ble_sync_discovery(state);
     int result = mesh_bluez_client_connect_begin(&state->bluez, device_path);
     if (result < 0) {
         state->link_state = MESH_BLE_LINK_DISCONNECTED;
@@ -1328,14 +1381,18 @@ static int mesh_ble_begin_pair(struct mesh_ble_transport_state *state, const cha
         state->pair_needs_pin_address[0] = '\0';
     }
 
+    /* PAIRING first, exactly as do_connect() commits to CONNECTING first: a bond needs the radio
+       as much as a link does, and sync_discovery() reads link_state rather than being told. */
+    state->link_state = MESH_BLE_LINK_PAIRING;
+    mesh_ble_sync_discovery(state);
     int result = mesh_bluez_client_pair_begin(&state->bluez, device_path);
     if (result < 0) {
+        state->link_state = MESH_BLE_LINK_DISCONNECTED;
         mesh_ble_set_error(state, MESH_STR_LINK_PAIRING_START_FAILED, mesh_ble_short_label(address),
                            result);
         return result;
     }
 
-    state->link_state = MESH_BLE_LINK_PAIRING;
     state->pair_then_connect = then_connect;
     state->pair_attended = attended;
     state->pair_refused_pin = false;
@@ -1620,7 +1677,13 @@ int mesh_ble_transport_check_link(struct mesh_transport *transport) {
     int result =
         mesh_bluez_client_device_connected(&state->bluez, state->connected_device_path, &connected);
     if (result < 0) {
-        mesh_log_debug("ble", "Could not read Device1.Connected: %d", result);
+        /* -EAGAIN is the request saying "asked, not answered yet", which is what every poll
+           before the reply lands returns; the answer arrives at a later poll. Logging it as a
+           failure put a line in the log every two seconds for the whole life of a link and
+           buried the reads that actually did fail. */
+        if (result != -EAGAIN) {
+            mesh_log_debug("ble", "Could not read Device1.Connected: %d", result);
+        }
         return result;
     }
     if (connected) {
