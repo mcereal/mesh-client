@@ -506,10 +506,12 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot, const u
         row->bubble.meta.lock = MESH_UI_ICON_ENCRYPTED;
     }
 
-    /* What became of one of ours, as the mark src/ui/delivery.c answers with - never as a word
-       here. Which mark a state gets is a decision the transcript reads rather than makes. */
+    /* What became of one of ours, as src/ui/delivery.c answers - the mark for the corner, and
+       the word for the line below when there is nothing better to put there. Which one a state
+       gets is a decision the transcript reads rather than makes. */
+    const struct mesh_ui_delivery delivery = mesh_ui_delivery_of(message->ack);
     if (outbound) {
-        row->bubble.meta.state = mesh_ui_delivery_of(message->ack).icon;
+        row->bubble.meta.state = delivery.icon;
     }
 
     /*
@@ -526,7 +528,7 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot, const u
         mesh_str_copy(row->note, sizeof row->note,
                       message->ack_error != 0U
                           ? mesh_message_ack_error_to_string(message->ack_error)
-                          : mesh_str(MESH_STR_DELIVERY_FAILED));
+                          : mesh_str(delivery.word));
     }
 
     /* Reactions ride the trailing run rather than taking a row: they are an annotation on this

@@ -28,9 +28,20 @@ struct mesh_ui_delivery {
     /* MESH_UI_ICON_NONE when the state is not worth a mark: an inbound message, or one of ours
        sent without want_ack, where there is nothing to be waiting for. */
     enum mesh_ui_icon icon;
-    /* The same thing in words. Not drawn beside the icon - the whole point of the icon is that
-       it costs one cell where a word costs nine - but it is what a text backend prints and what
-       a test asserts against, and it is why the states stay named in the string catalog. */
+    /*
+     * The same state in words, from the catalog.
+     *
+     * Not drawn beside the icon - the whole point of the mark is that it costs one cell where a
+     * word costs nine. It is what the transcript falls back to when a failed message arrives
+     * carrying no reason, and it is how a test names a state's identity without asserting on a
+     * sprite.
+     *
+     * Deliberately *not* what the `cli` backend prints. That one and `stub` are the headless
+     * developer surfaces, and they stay untranslated off mesh_message_ack_to_string() - which
+     * is the split docs/i18n.md draws, and which two of main.c's four call sites make load
+     * bearing: they are JSON fields, where a value that changed with the handheld's locale
+     * would be a bug rather than a translation.
+     */
     enum mesh_str_id word;
 };
 
