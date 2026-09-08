@@ -1,3 +1,10 @@
+## [2.34.2](https://github.com/mcereal/mesh-client/compare/v2.34.1...v2.34.2) (2026-09-08)
+
+### Bug Fixes
+
+* **device:** stop input-map leaking readers, and hold a held button together ([ccf80c5](https://github.com/mcereal/mesh-client/commit/ccf80c5986d6e68e1e888ba8102b9fdb7463b6f6)), closes [#109](https://github.com/mcereal/mesh-client/issues/109)
+* **input:** stop the power button quitting the client ([142cd6e](https://github.com/mcereal/mesh-client/commit/142cd6e0d054e25db37734bcda798afe83ff49d9))
+
 ## [2.34.1](https://github.com/mcereal/mesh-client/compare/v2.34.0...v2.34.1) (2026-09-08)
 
 ### Bug Fixes
