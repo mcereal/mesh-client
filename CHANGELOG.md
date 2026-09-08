@@ -1,3 +1,13 @@
+## [2.38.0](https://github.com/mcereal/mesh-client/compare/v2.37.0...v2.38.0) (2026-09-08)
+
+### Features
+
+* **waypoints:** list, share and withdraw the mesh's shared places ([fe72cb6](https://github.com/mcereal/mesh-client/commit/fe72cb6fdf50e37cd424454bfa493cbffc1d1a4a))
+
+### Bug Fixes
+
+* **waypoints:** honour a dated expiry, and let the places follow the radio ([06bdc3c](https://github.com/mcereal/mesh-client/commit/06bdc3c1689e1d0e94d82905273499b201836e3c))
+
 ## [2.37.0](https://github.com/mcereal/mesh-client/compare/v2.36.0...v2.37.0) (2026-09-08)
 
 ### Features
