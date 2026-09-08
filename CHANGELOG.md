@@ -1,3 +1,14 @@
+## [2.36.0](https://github.com/mcereal/mesh-client/compare/v2.35.0...v2.36.0) (2026-09-08)
+
+### Features
+
+* **status:** count the roster a running sync has delivered ([5f73ac1](https://github.com/mcereal/mesh-client/commit/5f73ac1dc83ff6bc9420d71ac6121fb91cbb9f6c))
+
+### Bug Fixes
+
+* **ble:** stop the client losing a sync it had already earned ([d361bb2](https://github.com/mcereal/mesh-client/commit/d361bb275f9fc2b33b7089a2990938279f2103a1))
+* **settings:** gate the radio actions on the link, not on knowing the radio ([7ea06fd](https://github.com/mcereal/mesh-client/commit/7ea06fdb38114b72052fb387c84b9e3c163db541))
+
 ## [2.35.0](https://github.com/mcereal/mesh-client/compare/v2.34.3...v2.35.0) (2026-09-08)
 
 ### Features
