@@ -96,8 +96,15 @@ struct mesh_queue_status {
 
 /*
  * A node's last known fix. Meshtastic carries latitude and longitude as fixed-point 1e-7
- * degrees, so they are kept in that form and only divided out for display; `time` is the
- * radio's timestamp for the fix, which is not the same thing as when we heard from the node.
+ * degrees, so they are kept in that form and only divided out for display.
+ *
+ * Three clocks, and they answer different questions. `Position.timestamp` is when the GPS
+ * solved; `Position.time` is the sender's own clock, which upstream says is "usually not sent
+ * over the mesh (to save space)" and is therefore 0 on most packets that reach us. Both are
+ * the *node's* account of itself and either may be missing. `received` is ours - when the fix
+ * reached this client - and it is the only one always available, which is why it is kept
+ * rather than derived from `last_heard`: last_heard advances on any packet at all, so a node
+ * that has not moved in a day but chatted a minute ago would report a one-minute-old fix.
  */
 struct mesh_node_position {
     bool valid;
@@ -105,7 +112,10 @@ struct mesh_node_position {
     int32_t longitude_i;
     bool has_altitude;
     int32_t altitude; /* metres above sea level */
-    uint32_t time;    /* epoch of the fix, 0 when the node did not say */
+    /* When the node says the fix was taken: its `timestamp` (the GPS solution) in preference
+       to its `time` (its own clock), 0 when it said neither. */
+    uint32_t time;
+    uint32_t received; /* our clock when this fix arrived, 0 only before one has */
     uint8_t sats_in_view;
     uint8_t precision_bits; /* how much the sender rounded the position off */
 };

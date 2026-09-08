@@ -1726,6 +1726,72 @@ cleanup:
     record_success(test_name);
 }
 
+/*
+ * What the client knows against what it is showing.
+ *
+ * The session roster holds 256 nodes and the UI publishes its best 128, so on a busy mesh half
+ * of what we know silently is not on the list. `nodes_known` is the number that makes the gap
+ * sayable; without it the Nodes tab could only compare itself against the *radio's* database,
+ * which is a different set and, after a NodeDB reset, the smaller one.
+ */
+MESH_TEST_CASE(app_publish_reports_known_against_shown, unit) {
+    struct mesh_app *app = calloc(1U, sizeof *app);
+    MESH_TEST_FAIL_IF(app == NULL, "app allocation failed");
+    mesh_session_init(&app->session);
+    if (mesh_ui_store_init(&app->ui_store) != 0) {
+        free(app);
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    struct mesh_bluez_mock_config mock = {0};
+    mesh_bluez_client_mock_enable(&mock);
+    const char *failure = NULL;
+
+    struct mesh_handshake_status *handshake = &app->session.handshake;
+    handshake->has_my_info = true;
+    handshake->my_info.my_node_num = 1U;
+    handshake->config_complete = true;
+
+    /* A roster comfortably past what the UI can carry, and all of it ours: the radio's own
+       count is left at 0 so the only number that can explain the gap is the roster's. */
+    const uint32_t known = 200U;
+    handshake->node_count = known;
+    for (uint32_t i = 0; i < known; ++i) {
+        handshake->nodes[i].node_id = i + 1U;
+        handshake->nodes[i].last_heard = 1750000000U - i;
+        handshake->nodes[i].in_nodedb = true;
+    }
+    mesh_app_publish_ui_state(app);
+
+    if (app->ui_store.handshake.node_count != MESH_UI_MAX_HANDSHAKE_NODES) {
+        failure = "the publish should fill the UI's roster budget";
+        goto cleanup;
+    }
+    if (app->ui_store.handshake.nodes_known != known) {
+        failure = "the roster's own total should be published beside what was shown";
+        goto cleanup;
+    }
+
+    /* A roster that fits needs no gap, and must not invent one: the two numbers agree, which
+       is what keeps the title from reading "12 of 12". */
+    handshake->node_count = 12U;
+    mesh_app_publish_ui_state(app);
+    if (app->ui_store.handshake.node_count != 12U || app->ui_store.handshake.nodes_known != 12U) {
+        failure = "a roster inside the budget should report one number, not two";
+    }
+
+cleanup:
+    free(app->publish_cache);
+    mesh_ui_store_shutdown(&app->ui_store);
+    free(app);
+    mesh_bluez_client_mock_disable();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(app_init_from_dirty_storage, unit) {
     char temp_dir[] = "/tmp/mesh_app_dirty_initXXXXXX";
     MESH_TEST_FAIL_IF(mkdtemp(temp_dir) == NULL, "temporary directory creation failed");

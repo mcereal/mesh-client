@@ -405,13 +405,36 @@ static void node_rows_position(struct node_rows *rows, const struct mesh_ui_node
         rows_info(rows, MESH_STR_NODE_SATELLITES, MESH_STR_NODE_VAL_NUMBER,
                   (unsigned)position->sats_in_view);
     }
+    /* A bit count is not a fact about the world. The sender rounded its coordinates off by
+       this many bits, and the phone apps' distance for each step is the honest way to say how
+       much - so the row reads "~360 m" and the five decimals above it are read as the rounded
+       number they are. 0 here means the node never set the field, not "off": an unrounded fix
+       and one whose precision we were not told apart are the same to us, and neither claims a
+       footprint it cannot support. */
     if (position->precision_bits > 0U) {
-        rows_info(rows, MESH_STR_NODE_PRECISION, MESH_STR_NODE_VAL_BITS,
-                  (unsigned)position->precision_bits);
+        char precision[24];
+        mesh_ui_settings_format_precision((uint32_t)position->precision_bits, precision,
+                                          sizeof precision);
+        rows_text(rows, MESH_STR_NODE_PRECISION, precision);
     }
+
+    /*
+     * Whose clock this is, said out loud. The node's own dating of the fix comes first
+     * because it is the answer to the question the row asks; when the node dated nothing -
+     * which is most packets, since upstream leaves `time` off the mesh to save space - the
+     * row switches to when the fix reached us and changes its label to match. Falling back
+     * silently would put our arrival time under a heading that reads as the node's, and
+     * last_heard is not offered here at all: it advances on any packet, so a chatty node that
+     * has not moved in a day would report a one-minute-old fix.
+     */
     char age[24];
-    format_age(position->time, now, age, sizeof age);
-    rows_text(rows, MESH_STR_NODE_FIX, age);
+    if (position->time != 0U) {
+        format_age(position->time, now, age, sizeof age);
+        rows_text(rows, MESH_STR_NODE_FIX, age);
+    } else {
+        format_age(position->received, now, age, sizeof age);
+        rows_text(rows, MESH_STR_NODE_FIX_RECEIVED, age);
+    }
 }
 
 static void node_rows_environment(struct node_rows *rows, const struct mesh_ui_node_summary *node,

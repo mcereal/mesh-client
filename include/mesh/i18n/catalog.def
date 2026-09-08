@@ -452,6 +452,9 @@ MESH_STR_ENTRY(NODE_ALTITUDE,             "Altitude")
 MESH_STR_ENTRY(NODE_SATELLITES,           "Satellites")
 MESH_STR_ENTRY(NODE_PRECISION,            "Precision")
 MESH_STR_ENTRY(NODE_FIX,                  "Fix")
+/* The same row when the node dated nothing: what we can honestly say is when the fix
+   reached us, which is a different question and gets a different word. */
+MESH_STR_ENTRY(NODE_FIX_RECEIVED,         "Fix heard")
 MESH_STR_ENTRY(NODE_TEMPERATURE,          "Temperature")
 MESH_STR_ENTRY(NODE_HUMIDITY,             "Humidity")
 MESH_STR_ENTRY(NODE_PRESSURE,             "Pressure")
@@ -526,7 +529,6 @@ MESH_STR_ENTRY(NODE_VAL_MILLIAMPS_FINE,   "%.1f mA")
 MESH_STR_ENTRY(NODE_VAL_VOLTS_MILLIAMPS,  "%.2f V, %.0f mA")
 MESH_STR_ENTRY(NODE_VAL_DEGREES,          "%.5f")
 MESH_STR_ENTRY(NODE_VAL_METRES,           "%d m")
-MESH_STR_ENTRY(NODE_VAL_BITS,             "%u bits")
 /* Celsius first because the radio reports Celsius; the Fahrenheit conversion follows it. */
 MESH_STR_ENTRY(NODE_VAL_TEMPERATURE,      "%.1f C (%.1f F)")
 MESH_STR_ENTRY(NODE_VAL_PRESSURE,         "%.1f hPa")

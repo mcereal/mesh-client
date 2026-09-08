@@ -154,6 +154,7 @@ static void mesh_app_copy_node_detail(const struct mesh_node_summary *src,
     dst->position.has_altitude = src->position.has_altitude;
     dst->position.altitude = src->position.altitude;
     dst->position.time = src->position.time;
+    dst->position.received = src->position.received;
     dst->position.sats_in_view = src->position.sats_in_view;
     dst->position.precision_bits = src->position.precision_bits;
 
@@ -287,6 +288,7 @@ static void mesh_app_restore_node(const struct mesh_ui_node_summary *src,
     dst->position.has_altitude = src->position.has_altitude;
     dst->position.altitude = src->position.altitude;
     dst->position.time = src->position.time;
+    dst->position.received = src->position.received;
     dst->position.sats_in_view = src->position.sats_in_view;
     dst->position.precision_bits = src->position.precision_bits;
 
@@ -1416,6 +1418,8 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             mesh_app_copy_node_detail(src, dst);
         }
         ui_handshake.node_count = (uint32_t)copy_count;
+        /* `total`, not copy_count: what the roster knows, against what survived the ranking. */
+        ui_handshake.nodes_known = (uint32_t)total;
 
         size_t channel_count = status->channel_count;
         if (channel_count > MESH_UI_MAX_CHANNELS) {

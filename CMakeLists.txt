@@ -50,6 +50,7 @@ add_library(meshclient_core
     src/transport/serial/serial_transport.c
     src/transport/serial/serial_usb.c
     src/proto/stream_framing.c
+    src/geo/coords.c
     src/i18n/strings.c
     src/i18n/locale_es.c
     src/utils/env.c

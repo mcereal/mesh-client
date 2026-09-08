@@ -12,6 +12,7 @@
 
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -102,6 +103,98 @@ MESH_TEST_CASE(ui_nav_node_favorite, unit) {
 }
 
 /* X and Y on the Devices tab: drop the link, and forget a bond on the second press. */
+/*
+ * The open node detail follows the node, not the row.
+ *
+ * Publication re-ranks the roster on every snapshot - a node that speaks jumps up the list,
+ * and one that goes quiet slides down - so a detail that remembered "row 2" would be showing
+ * a different radio a second later, with the cursor and the title still agreeing with each
+ * other and both wrong. `node_detail_node` is an id and the detail is resolved through it on
+ * every frame, which is also what lets the screen close itself when the node is gone.
+ *
+ * Pinned here because nothing else tested it and the map work ahead is where it would first
+ * be quietly broken: a map selection is another index into another ordering of the same
+ * roster.
+ */
+MESH_TEST_CASE(ui_nav_node_detail_follows_the_node, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 0x1000U;
+    handshake.node_count = 3U;
+    handshake.nodes[0].node_id = 0x1000U;
+    snprintf(handshake.nodes[0].short_name, sizeof handshake.nodes[0].short_name, "ME");
+    handshake.nodes[1].node_id = 0x3000U;
+    snprintf(handshake.nodes[1].short_name, sizeof handshake.nodes[1].short_name, "BRVO");
+    handshake.nodes[2].node_id = 0x5000U;
+    snprintf(handshake.nodes[2].short_name, sizeof handshake.nodes[2].short_name, "CHRL");
+    mesh_ui_store_set_handshake(&store, &handshake);
+    mesh_ui_store_consume_updates(&store, NULL);
+
+    struct mesh_ui_action action;
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.node_detail_open || store.nav.node_detail_node != 0x3000U) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "A on the second row should open that node");
+        return;
+    }
+
+    /* The publish re-ranks: BRVO and CHRL swap places. The row under the cursor is now a
+       different node, and the detail must not be. */
+    handshake.nodes[1].node_id = 0x5000U;
+    snprintf(handshake.nodes[1].short_name, sizeof handshake.nodes[1].short_name, "CHRL");
+    handshake.nodes[2].node_id = 0x3000U;
+    snprintf(handshake.nodes[2].short_name, sizeof handshake.nodes[2].short_name, "BRVO");
+    mesh_ui_store_set_handshake(&store, &handshake);
+    mesh_ui_store_consume_updates(&store, NULL);
+
+    if (!store.nav.node_detail_open || store.nav.node_detail_node != 0x3000U) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "a re-ranked roster must not change which node is open");
+        return;
+    }
+    const struct mesh_ui_node_summary *open =
+        mesh_ui_node_detail_find(&store.handshake, store.nav.node_detail_node);
+    if (open == NULL || strcmp(open->short_name, "BRVO") != 0) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "the detail resolved to the wrong node after a re-rank");
+        return;
+    }
+
+    /* And a node that leaves the roster entirely - evicted, forgotten, or dropped with the
+       radio it came from - closes the screen rather than leaving it resolving to nothing. */
+    handshake.node_count = 2U;
+    handshake.nodes[1].node_id = 0x5000U;
+    snprintf(handshake.nodes[1].short_name, sizeof handshake.nodes[1].short_name, "CHRL");
+    memset(&handshake.nodes[2], 0, sizeof handshake.nodes[2]);
+    mesh_ui_store_set_handshake(&store, &handshake);
+    /* Through a real snapshot, because that is where the nav is clamped: the screen closes as
+       the frame is built, without waiting for a press that would otherwise land on the detail
+       of a node that is no longer there. */
+    struct mesh_ui_snapshot *snapshot = calloc(1U, sizeof *snapshot);
+    if (snapshot == NULL) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "snapshot allocation failed");
+        return;
+    }
+    mesh_ui_store_consume_updates(&store, snapshot);
+    const bool still_open = store.nav.node_detail_open || snapshot->nav.node_detail_open;
+    free(snapshot);
+    if (still_open) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "a detail whose node is gone should close");
+        return;
+    }
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_nav_devices_disconnect_forget, unit) {
     struct mesh_ui_store store;
     if (mesh_ui_store_init(&store) != 0) {

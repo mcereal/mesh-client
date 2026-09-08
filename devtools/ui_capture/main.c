@@ -297,6 +297,37 @@ static void uicap_scene_demo(struct uicap *cap) {
     foxtrot->health.spo2 = 98U;
 
     /*
+     * Fixes on two of them, because the position section has two shapes and the difference
+     * between them is the whole point of the rows.
+     *
+     * Foxtrot is a handheld with a live GPS: it dates its own fix, rounds nothing off, and the
+     * section reads "Fix" against the node's clock. Alfa is a repeater whose owner set a
+     * channel precision, and - like most nodes on a real mesh - leaves `time` off the air to
+     * save space, so its section reads "Fix heard" against ours and says how far its
+     * coordinates were rounded. A demo where both looked the same would show the layout and
+     * hide the distinction.
+     */
+    struct mesh_ui_node_summary *foxtrot_fix = &handshake.nodes[6]; /* Foxtrot Mobile */
+    foxtrot_fix->position.valid = true;
+    foxtrot_fix->position.latitude_i = 476182000;
+    foxtrot_fix->position.longitude_i = -1223301000;
+    foxtrot_fix->position.has_altitude = true;
+    foxtrot_fix->position.altitude = 84;
+    foxtrot_fix->position.sats_in_view = 9U;
+    foxtrot_fix->position.time = now - 240U;
+    foxtrot_fix->position.received = now - 235U;
+
+    struct mesh_ui_node_summary *alfa_fix = &handshake.nodes[1]; /* Alfa Ridge */
+    alfa_fix->position.valid = true;
+    alfa_fix->position.latitude_i = 476205000;
+    alfa_fix->position.longitude_i = -1223429000;
+    alfa_fix->position.has_altitude = true;
+    alfa_fix->position.altitude = 412;
+    alfa_fix->position.precision_bits = 16U; /* the sender rounded to about 360 m */
+    alfa_fix->position.time = 0U;            /* left off the air, as upstream expects */
+    alfa_fix->position.received = now - 1800U;
+
+    /*
      * And our own node, which is the one the Status tab's Radio card reads.
      *
      * Every row on that card comes from the radio we are attached to rather than from the mesh,

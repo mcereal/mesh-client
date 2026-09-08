@@ -1,0 +1,27 @@
+# The node detail's position section, in both the shapes it comes in.
+#
+# The two rows this scene exists for are the ones a fix can overstate. A precision is what the
+# sender rounded its coordinates to, and reading it as "16 bits" told a user nothing they could
+# act on; a fix age is the node's clock when the node dated it and ours when it did not, and
+# saying "Fix" over our own arrival time claimed the node's account of itself.
+#
+# Foxtrot Mobile is a handheld with a live GPS: it dates its own fix and rounds nothing off.
+# Alfa Ridge is a repeater with a channel precision set, and - like most nodes on a real mesh -
+# leaves the timestamp off the air, so its section answers with our clock and says so.
+
+scene demo
+tab nodes
+
+# Foxtrot Mobile: satellites, and a fix the node dated itself.
+key down 6
+key a
+key down 34
+hold 1500
+key b
+
+# Alfa Ridge: a rounded position, aged by when we heard it.
+key up 5
+key a
+key down 34
+hold 1500
+key b

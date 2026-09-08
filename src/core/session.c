@@ -2,6 +2,7 @@
 
 #include "mesh/core/session.h"
 
+#include "mesh/geo/coords.h"
 #include "mesh/utils/log.h"
 #include "mesh/utils/text.h"
 #include "mesh/utils/time.h"
@@ -375,10 +376,19 @@ static void mesh_session_apply_user(struct mesh_node_summary *summary,
 }
 
 static void mesh_session_apply_position(struct mesh_node_summary *summary,
-                                        const meshtastic_Position *position) {
+                                        const meshtastic_Position *position, uint32_t heard) {
     /* A Position with neither coordinate is a time-only or precision-only broadcast; keeping
        the last real fix beats replacing it with 0,0 in the Gulf of Guinea. */
     if (!position->has_latitude_i || !position->has_longitude_i) {
+        return;
+    }
+    /* The wire type is four times wider than the range a coordinate can occupy, and nothing
+       upstream promises the sender checked. An impossible pair is dropped rather than stored:
+       the node keeps the last fix we believed, which is the same answer as for a packet that
+       carried no coordinates at all. */
+    if (!mesh_geo_coords_valid(position->latitude_i, position->longitude_i)) {
+        mesh_log_debug("session", "Node 0x%08x sent an out-of-range fix (%d, %d); keeping the last",
+                       summary->node_id, (int)position->latitude_i, (int)position->longitude_i);
         return;
     }
     summary->position.valid = true;
@@ -386,7 +396,12 @@ static void mesh_session_apply_position(struct mesh_node_summary *summary,
     summary->position.longitude_i = position->longitude_i;
     summary->position.has_altitude = position->has_altitude;
     summary->position.altitude = position->altitude;
-    summary->position.time = position->time;
+    /* `timestamp` is when the GPS solved; `time` is the sender's own clock, which upstream
+       says is usually left off the mesh to save space. Preferring the first means the row
+       answers "when was this fix taken" whenever either field can, and neither is confused
+       with when we heard about it. */
+    summary->position.time = position->timestamp != 0U ? position->timestamp : position->time;
+    summary->position.received = heard;
     summary->position.sats_in_view =
         (uint8_t)(position->sats_in_view > 255U ? 255U : position->sats_in_view);
     summary->position.precision_bits =
@@ -602,7 +617,9 @@ static void mesh_session_store_node_summary(struct mesh_session *session,
         mesh_session_apply_user(summary, &info->user);
     }
     if (info->has_position) {
-        mesh_session_apply_position(summary, &info->position);
+        /* A cached NodeInfo carries no arrival of its own, so the node's last_heard is the
+           closest thing to when its fix reached the radio that handed it to us. */
+        mesh_session_apply_position(summary, &info->position, info->last_heard);
     }
     if (info->has_device_metrics) {
         mesh_session_apply_device_metrics(summary, &info->device_metrics, info->last_heard);
@@ -750,7 +767,7 @@ static void mesh_session_apply_packet_details(struct mesh_session *session,
         if (summary == NULL) {
             return;
         }
-        mesh_session_apply_position(summary, &position);
+        mesh_session_apply_position(summary, &position, heard);
         break;
     }
     case meshtastic_PortNum_NEIGHBORINFO_APP: {
@@ -1667,10 +1684,6 @@ uint32_t mesh_session_forgettable_nodes(const struct mesh_session *session, bool
     return forgettable;
 }
 
-/* Meshtastic's fixed-point 1e-7 degrees: 90 and 180 degrees as the wire carries them. */
-#define MESH_SESSION_LATITUDE_MAX 900000000
-#define MESH_SESSION_LONGITUDE_MAX 1800000000
-
 static int mesh_session_queue_fixed_position(struct mesh_session *session,
                                              const struct mesh_admin_request *write) {
     if (session->send == NULL || !session->handshake.has_my_info) {
@@ -1684,8 +1697,9 @@ int mesh_session_set_fixed_position(struct mesh_session *session, int32_t latitu
     if (session == NULL) {
         return -EINVAL;
     }
-    if (latitude_i > MESH_SESSION_LATITUDE_MAX || latitude_i < -MESH_SESSION_LATITUDE_MAX ||
-        longitude_i > MESH_SESSION_LONGITUDE_MAX || longitude_i < -MESH_SESSION_LONGITUDE_MAX) {
+    /* The same test the mesh's own fixes are held to - a coordinate typed on the keyboard and
+       one decoded off the air are the same question, and two answers to it is how they drift. */
+    if (!mesh_geo_coords_valid(latitude_i, longitude_i)) {
         return -EINVAL;
     }
     struct mesh_admin_request write;
