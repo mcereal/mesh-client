@@ -1,3 +1,13 @@
+## [2.37.0](https://github.com/mcereal/mesh-client/compare/v2.36.0...v2.37.0) (2026-09-08)
+
+### Features
+
+* **ui:** mark a message's delivery state instead of spelling it ([154f023](https://github.com/mcereal/mesh-client/commit/154f0238dc760e1418ee43c0bb53930887a89a98))
+
+### Documentation
+
+* **ui:** say what a delivery mark's word is actually for ([ebebe47](https://github.com/mcereal/mesh-client/commit/ebebe4735ea608564178c770f380ecb794bf40fd))
+
 ## [2.36.0](https://github.com/mcereal/mesh-client/compare/v2.35.0...v2.36.0) (2026-09-08)
 
 ### Features
