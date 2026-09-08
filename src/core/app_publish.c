@@ -99,6 +99,9 @@ struct mesh_app_publish_cache {
     bool valid;
     const struct mesh_i18n_locale *locale;
     uint32_t roster_owner;
+    /* Not part of `handshake`: the session's send path is not a field of the handshake status,
+       so a drop that changed nothing else in that struct would not republish without this. */
+    bool link_up;
     struct mesh_handshake_status handshake;
     struct mesh_message_log messages;
     struct mesh_ui_message_list restored_messages;
@@ -1359,6 +1362,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     const bool roster_changed =
         handshake_changed || messages_changed ||
         cache->roster_owner != mesh_session_roster_owner(&app->session) ||
+        cache->link_up != mesh_session_attached(&app->session) ||
         memcmp(&cache->preferences, &app->ui_preferences, sizeof app->ui_preferences) != 0;
     const bool message_view_changed = handshake_changed || messages_changed ||
                                       cache->locale != mesh_i18n_locale() ||
@@ -1379,6 +1383,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         ui_handshake.has_my_info = status->has_my_info;
         ui_handshake.has_config = status->has_config;
         ui_handshake.sync_nodes = (uint32_t)mesh_session_synced_nodes(&app->session);
+        ui_handshake.link_up = mesh_session_attached(&app->session);
         /* The roster outlives the connection, so a node list on screen is not proof of a live
            sync: what makes it live is something from this connection having arrived. */
         ui_handshake.roster_owner = mesh_session_roster_owner(&app->session);
@@ -1587,6 +1592,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         }
         cache->preferences = app->ui_preferences;
         cache->roster_owner = mesh_session_roster_owner(&app->session);
+        cache->link_up = mesh_session_attached(&app->session);
         cache->locale = mesh_i18n_locale();
         cache->valid = true;
     }

@@ -729,6 +729,20 @@ struct mesh_ui_handshake_state {
     struct mesh_ui_my_info my_info;
     bool has_config;
     /*
+     * Whether the session has a send path right now - not whether we know anything about the
+     * radio. The two used to be the same question, because has_my_info was cleared on every
+     * drop, and `connected` in the Settings > Actions rows was spelled has_my_info for that
+     * reason. Once what the radio *is* began surviving a reconnect, that spelling would have
+     * left reboot, shutdown, NodeDB reset, backup/restore and factory reset pressable over a
+     * dead link, failing with -ENOTCONN after the confirm dialog. It was already wrong before
+     * that: the handshake is persisted, so a cold start with a restored roster had has_my_info
+     * true with nothing connected.
+     *
+     * This is mesh_session_attached() - exactly the condition an AdminMessage can go out under,
+     * and exactly the one that returns -ENOTCONN when it cannot.
+     */
+    bool link_up;
+    /*
      * How many nodes the replay now running has delivered, against my_info.nodedb_entries. The
      * Status screen said "in progress" and nothing else for as long as a sync took, which on a
      * 135-node radio is seventeen seconds and on a flapping link was forever; this is what lets
