@@ -320,6 +320,21 @@ void mesh_session_set_roster_owner(struct mesh_session *session, uint32_t node_n
         session->roster_node = node_num;
     }
 }
+
+size_t mesh_session_synced_nodes(const struct mesh_session *session) {
+    if (session == NULL || session->sync_epoch == 0U) {
+        return 0U;
+    }
+    const struct mesh_handshake_status *handshake = &session->handshake;
+    size_t carried = 0U;
+    for (size_t i = 0; i < handshake->node_count && i < MESH_SESSION_MAX_NODES; ++i) {
+        if (handshake->nodes[i].sync_epoch == session->sync_epoch) {
+            ++carried;
+        }
+    }
+    return carried;
+}
+
 /* Whether a name is one the node chose or the one we derived from its number. Used to read an
    older cache, written before the roster carried the answer: the names are all it has. A node
    whose real short name happens to be its factory default reads as derived, which costs one

@@ -728,6 +728,13 @@ struct mesh_ui_handshake_state {
     bool has_my_info;
     struct mesh_ui_my_info my_info;
     bool has_config;
+    /*
+     * How many nodes the replay now running has delivered, against my_info.nodedb_entries. The
+     * Status screen said "in progress" and nothing else for as long as a sync took, which on a
+     * 135-node radio is seventeen seconds and on a flapping link was forever; this is what lets
+     * the row show that the seventeen seconds are going somewhere.
+     */
+    uint32_t sync_nodes;
     /* How many of the roster's nodes are published below - at most MESH_UI_MAX_HANDSHAKE_NODES. */
     uint32_t node_count;
     /*

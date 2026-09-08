@@ -1378,6 +1378,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         ui_handshake.config_complete_id = status->config_complete_id;
         ui_handshake.has_my_info = status->has_my_info;
         ui_handshake.has_config = status->has_config;
+        ui_handshake.sync_nodes = (uint32_t)mesh_session_synced_nodes(&app->session);
         /* The roster outlives the connection, so a node list on screen is not proof of a live
            sync: what makes it live is something from this connection having arrived. */
         ui_handshake.roster_owner = mesh_session_roster_owner(&app->session);

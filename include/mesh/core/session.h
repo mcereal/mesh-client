@@ -492,6 +492,14 @@ bool mesh_session_attached(const struct mesh_session *session);
    Returns 0, -ENOTCONN without a link, or the send error. */
 int mesh_session_begin_handshake(struct mesh_session *session);
 
+/*
+ * How many nodes the replay now running has delivered, counted by the sync epoch each NodeInfo
+ * is stamped with. Against my_info.nodedb_count this is the only honest progress figure the
+ * client has: the roster's own size is not one, because the roster outlives the radio's NodeDB
+ * and so starts a sync already larger than the number about to arrive.
+ */
+size_t mesh_session_synced_nodes(const struct mesh_session *session);
+
 /* The radio the roster describes, 0 before any radio has claimed it. Persisted with the roster
    and handed back through mesh_session_set_roster_owner() at startup: without it a restart
    forgets whose nodes these are, and the next radio - a different one, on a different mesh -

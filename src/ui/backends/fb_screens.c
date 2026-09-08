@@ -1527,12 +1527,23 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
                                        : mesh_str(MESH_STR_STATUS_NOT_CONNECTED));
     if (snapshot->handshake_valid) {
         const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
-        fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_SYNC,
-                    MESH_STR_STATUS_SYNC_VALUE,
-                    mesh_str(hs->config_complete     ? MESH_STR_STATUS_SYNC_COMPLETE
-                             : hs->request_in_flight ? MESH_STR_STATUS_SYNC_IN_PROGRESS
-                                                     : MESH_STR_STATUS_SYNC_IDLE),
-                    hs->cached ? mesh_str(MESH_STR_STATUS_SYNC_CACHED) : "");
+        /* A running sync says how far along it is rather than only that it is running: the
+           replay is most of the wait, and on a link that keeps dropping mid-roster the count is
+           the difference between "this is working" and "this has stalled again". It needs the
+           radio's own total to count against, so a sync that has not reached MyNodeInfo yet
+           still says just "in progress". */
+        if (hs->request_in_flight && !hs->config_complete && hs->has_my_info &&
+            hs->my_info.nodedb_entries > 0U) {
+            fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_SYNC,
+                        MESH_STR_STATUS_SYNC_PROGRESS, hs->sync_nodes, hs->my_info.nodedb_entries);
+        } else {
+            fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_SYNC,
+                        MESH_STR_STATUS_SYNC_VALUE,
+                        mesh_str(hs->config_complete     ? MESH_STR_STATUS_SYNC_COMPLETE
+                                 : hs->request_in_flight ? MESH_STR_STATUS_SYNC_IN_PROGRESS
+                                                         : MESH_STR_STATUS_SYNC_IDLE),
+                        hs->cached ? mesh_str(MESH_STR_STATUS_SYNC_CACHED) : "");
+        }
         if (hs->has_my_info) {
             fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_MY_NODE,
                         MESH_STR_STATUS_MY_NODE, hs->my_short_name, hs->my_info.node_num);

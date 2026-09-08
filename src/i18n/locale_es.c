@@ -173,6 +173,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_STATUS_NOT_CONNECTED] = "sin conexión",
     [MESH_STR_STATUS_SYNC_COMPLETE] = "completa",
     [MESH_STR_STATUS_SYNC_IN_PROGRESS] = "en curso",
+    [MESH_STR_STATUS_SYNC_PROGRESS] = "%u de %u nodos",
     [MESH_STR_STATUS_SYNC_IDLE] = "en espera",
     [MESH_STR_STATUS_SYNC_CACHED] = " (guardado)",
     [MESH_STR_STATUS_SYNC_VALUE] = "%s%s",
