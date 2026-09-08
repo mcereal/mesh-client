@@ -482,7 +482,10 @@ Things that look like bugs, are not, and have each cost a debugging round alread
 - **The Brick's face buttons do not report by position.** A is `BTN_EAST` (305), B is `BTN_SOUTH`
   (304), the button printed **Y (on the left) is `BTN_NORTH` (307)**, so X on the top is
   `BTN_WEST` (308). All four verified from the device log; `input_brick_face_buttons` pins them.
-  Do not "fix" any of it back.
+  Do not "fix" any of it back. The pad impersonates an Xbox 360 controller, so **L2/R2 arrive as
+  the analog triggers `ABS_Z`/`ABS_RZ`** rather than as buttons, and **F1/F2 as the stick clicks**
+  `BTN_THUMBL`/`BTN_THUMBR`. `make deploy-input-map` re-measures the lot; the table is in
+  [`device.md`](device.md#the-buttons-and-what-they-report).
 - **A radio reboot after a settings write is expected**, not a dropped link to chase.
 - **Text is measured in cells, not bytes.** A `strlen` in fb layout code is a bug; so is `%-Ns`.
   See [`ui.md`](ui.md).

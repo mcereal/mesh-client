@@ -22,6 +22,9 @@
 #                      Args: -o FILE, -d SECS (delay before recording), -n COUNT (frames),
 #                      -P PAGE, -s N (downscale, default 2), -r MS (playback delay per frame),
 #                      -i SECS (pause between frames on the device).
+#   input-map [-- args] Record every /dev/input/event* while you press buttons, then print what
+#                      each one reports. Args: -t SECS (record for a fixed time instead of
+#                      waiting for Enter), -k (keep the raw capture directory).
 #   shell              Interactive shell on the device
 #   setup-key          Install ~/.ssh/id_*.pub into the device's authorized_keys (asks password once)
 #
@@ -405,6 +408,85 @@ cmd_clip() {
         --downscale "${downscale}" --delay "${rate}" --out "${out}" "${raw}"
 }
 
+# Which button is which, measured rather than assumed.
+#
+# Two halves, because a press can only answer one of them: the capability bitmaps say what a
+# device *can* emit - an absent code and an unpressed button look identical in a capture - and
+# the capture says which physical button emits what. The Brick needs both, because its pad
+# declares a KEY_F1/KEY_F2 and a pair of volume keys that it never actually sends.
+#
+# Nothing is grabbed (no EVIOCGRAB anywhere), so whatever is on screen keeps its input and the
+# recording is invisible to it. `cat` rather than a formatter on the device: busybox hexdump
+# block-buffers into a pipe, so a live read would arrive thousands of events late.
+cmd_input_map() {
+    # The prompt tells the user how long to pause and the decoder splits on it; one constant so
+    # the two cannot drift.
+    local INPUT_MAP_GAP=0.45
+    local seconds="" keep=0
+    local args=(${PASSTHRU[@]+"${PASSTHRU[@]}"})
+    local i=0
+    while [[ ${i} -lt ${#args[@]} ]]; do
+        case "${args[${i}]}" in
+            -t|--time) seconds="${args[$((i + 1))]:-}"; i=$((i + 2)) ;;
+            -k|--keep) keep=1; i=$((i + 1)) ;;
+            *) die "input-map: unknown argument: ${args[${i}]} (-t SECS, -k)" ;;
+        esac
+    done
+
+    command -v python3 >/dev/null 2>&1 || die "input-map needs python3 on the host to decode"
+
+    local remote_dir="/tmp/meshclient-inputmap"
+    local start_script="pkill -f 'cat /dev/input/event' 2>/dev/null;"
+    start_script+=" rm -rf ${remote_dir}; mkdir -p ${remote_dir};"
+    start_script+=" for d in /dev/input/event*; do"
+    start_script+=" (cat \"\$d\" > ${remote_dir}/\"\$(basename \"\$d\")\".bin 2>/dev/null &); done;"
+    start_script+=" sleep 1; ls ${remote_dir} | tr '\\n' ' '"
+
+    if [[ ${DRY_RUN} -eq 1 ]]; then
+        ssh_cmd "${start_script}"
+        ssh_cmd "pkill -f 'cat /dev/input/event'; tar cf - -C ${remote_dir} ."
+        return 0
+    fi
+
+    echo "Recording: $(ssh_cmd "${start_script}")"
+    echo
+    echo "Press the buttons you want to identify, ONE AT A TIME, about a second apart."
+    echo "The pause is what separates them: a gap of ${INPUT_MAP_GAP}s ends a press."
+    if [[ -n "${seconds}" ]]; then
+        echo "Recording for ${seconds}s."
+        sleep "${seconds}"
+    else
+        echo
+        read -r -p "Press Enter here when you are done. " _
+    fi
+
+    local capture
+    capture="$(mktemp -d)"
+    ssh_cmd "pkill -f 'cat /dev/input/event' 2>/dev/null; sleep 1; tar cf - -C ${remote_dir} ." |
+        tar xf - -C "${capture}"
+    ssh_cmd "rm -rf ${remote_dir}" || true
+
+    echo
+    echo "== what each device can emit =="
+    ssh_cmd "cat /proc/bus/input/devices" | python3 "${REPO_ROOT}/scripts/input-map.py" caps
+
+    echo
+    echo "== what you pressed =="
+    # An empty capture is a real answer ("you pressed nothing this device can see"), so the
+    # decoder's non-zero status is passed on - but the temporary directory is cleaned up first,
+    # which set -e would otherwise skip straight past.
+    local status=0
+    python3 "${REPO_ROOT}/scripts/input-map.py" presses "${capture}" --gap "${INPUT_MAP_GAP}" ||
+        status=$?
+
+    if [[ ${keep} -eq 1 ]]; then
+        echo "raw capture kept in ${capture}"
+    else
+        rm -rf "${capture}"
+    fi
+    return ${status}
+}
+
 cmd_shell() {
     ssh_tty
 }
@@ -433,6 +515,7 @@ case "${COMMAND}" in
     check) cmd_check ;;
     shot) cmd_shot ;;
     clip) cmd_clip ;;
+    input-map) cmd_input_map ;;
     shell) cmd_shell ;;
     setup-key) cmd_setup_key ;;
     *) die "unknown command: ${COMMAND} (see --help)" ;;

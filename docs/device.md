@@ -202,6 +202,74 @@ Two things to know when a shot looks wrong:
   page per block precisely so that cannot happen: it stops at the first short read, and one short
   frame desynchronises every frame after it.
 
+## The buttons, and what they report
+
+Measured on-device, not assumed. `make deploy-input-map` records every `/dev/input/event*` while
+you press buttons, then prints both halves of the answer:
+
+```bash
+make deploy-input-map                 # press buttons, Enter when done
+make deploy-input-map ARGS="-t 20"    # record for 20s instead of waiting for Enter
+make deploy-input-map ARGS="-k"       # keep the raw capture directory
+```
+
+Both halves are needed because neither alone is the map. The capability bitmaps say what a device
+*can* emit, which a capture cannot: an absent code and an unpressed button look identical on the
+wire. And a capture says which physical button emits what, which the bitmaps cannot: the Brick's
+pad **declares a `KEY_F1`, a `KEY_F2` and a pair of volume keys that it never sends**, so a
+mapping read off the bitmap would be wrong in the other direction. Press the buttons one at a
+time, about a second apart - the pause is what separates them, and a gap of 0.45 s ends a press.
+
+Nothing is grabbed (there is no `EVIOCGRAB` anywhere in the client), so recording is invisible to
+whatever is on the screen, and MeshClient and the launcher both keep working while it runs.
+
+### `/dev/input/event3` - "TRIMUI Player1"
+
+The pad impersonates an Xbox 360 controller (USB 045e:028e), which is why **nothing here reports
+by position**: what is printed A on the case arrives as `BTN_EAST`.
+
+| Printed on the case | evdev | Code | Logical key |
+|---|---|---|---|
+| D-pad up / down | `ABS_HAT0Y` -1 / +1 | 17 | `UP` / `DOWN` |
+| D-pad left / right | `ABS_HAT0X` -1 / +1 | 16 | `LEFT` / `RIGHT` |
+| **A** (right) | `BTN_EAST` | 305 | `A` |
+| **B** (bottom) | `BTN_SOUTH` | 304 | `B` |
+| **X** (top) | `BTN_WEST` | 308 | `X` |
+| **Y** (left) | `BTN_NORTH` | 307 | `Y` |
+| **L1** | `BTN_TL` | 310 | `L1` |
+| **R1** | `BTN_TR` | 311 | `R1` |
+| **L2** | `ABS_Z` 255 / 0 | 2 | *unmapped* |
+| **R2** | `ABS_RZ` 255 / 0 | 5 | *unmapped* |
+| **MENU** | `BTN_MODE` | 316 | quits |
+| **SELECT** | `BTN_SELECT` | 314 | `SELECT`, which no screen acts on |
+| **START** | `BTN_START` | 315 | `START` |
+| **F1** | `BTN_THUMBL` | 317 | *unmapped* |
+| **F2** | `BTN_THUMBR` | 318 | *unmapped* |
+| volume switch | `SW_TABLET_MODE` | `EV_SW` 1 | *unread; the client handles no `EV_SW`* |
+
+**L2 and R2 are triggers, not buttons.** There is no `BTN_TL2`/`BTN_TR2` in the pad's key bitmap
+at all: the shoulders arrive as the 360 pad's analog triggers, and they are digital in practice -
+255 on the press, 0 on the release, with no intermediate value across a two-second hold.
+`mesh_ui_input_map_hat()` answers only for `ABS_HAT0X/Y`, so reading them is a matter of widening
+that function rather than of adding a key code.
+
+**F1 and F2 are the stick clicks.** A 360 pad has two analog sticks and the Brick has none, so
+`BTN_THUMBL`/`BTN_THUMBR` were the free codes and TrimUI spent them on the two middle buttons.
+
+### The other three devices
+
+| Device | Node | Emits |
+|---|---|---|
+| `sunxi-keyboard` | `event0` | declares `KEY_VOLUMEUP`/`KEY_VOLUMEDOWN`, emits nothing - there are no volume buttons on this case |
+| `axp2202-pek` | `event1` | `KEY_POWER` (116) on a tap of the power button |
+| `audiocodec sunxi Audio Jack` | `event2` | `SW_HEADPHONE_INSERT`, `SW_MICROPHONE_INSERT` |
+
+**The power button is deliberately not a quit key.** It was one, as a host-keyboard convenience,
+until this measurement showed the PMIC really does emit `KEY_POWER` on the Brick - so a tap of the
+button, which on this hardware is the gesture for putting the console to sleep, tore the client
+down instead of suspending it. Sleep is the launcher's business. `MESHCLIENT_QUIT_KEYS` still
+overrides the whole set if you want it back.
+
 ## What `make deploy-check` tells you
 
 It runs a busybox-only script on the device and prints one line per fact. The ones that matter
