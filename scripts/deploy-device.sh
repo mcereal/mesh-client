@@ -408,6 +408,25 @@ cmd_clip() {
         --downscale "${downscale}" --delay "${rate}" --out "${out}" "${raw}"
 }
 
+# Set by cmd_input_map once the device is holding readers for us, and read by the trap below.
+INPUT_MAP_RECORDING=0
+INPUT_MAP_DIR=""
+INPUT_MAP_STOP=""
+
+# Ctrl-C between starting the readers and collecting from them. Without this the device keeps
+# four `cat` processes writing into /tmp, and an ordinary cancellation leaks them until the next
+# run or a reboot.
+input_map_abort() {
+    trap - INT TERM
+    if [[ ${INPUT_MAP_RECORDING} -eq 1 ]]; then
+        echo
+        echo "Interrupted; stopping the readers on the device."
+        ssh_cmd "${INPUT_MAP_STOP}; rm -rf ${INPUT_MAP_DIR}" >/dev/null 2>&1 || true
+        INPUT_MAP_RECORDING=0
+    fi
+    exit 130
+}
+
 # Which button is which, measured rather than assumed.
 #
 # Two halves, because a press can only answer one of them: the capability bitmaps say what a
@@ -435,20 +454,40 @@ cmd_input_map() {
 
     command -v python3 >/dev/null 2>&1 || die "input-map needs python3 on the host to decode"
 
-    local remote_dir="/tmp/meshclient-inputmap"
-    local start_script="pkill -f 'cat /dev/input/event' 2>/dev/null;"
-    start_script+=" rm -rf ${remote_dir}; mkdir -p ${remote_dir};"
+    INPUT_MAP_DIR="/tmp/meshclient-inputmap"
+    local pid_file="${INPUT_MAP_DIR}/readers.pid"
+
+    # Readers are stopped by pid, never by pattern.
+    #
+    # This was `pkill -f 'cat /dev/input/event'`, and it silently did nothing: the device has no
+    # pkill, and the error went to /dev/null with everything else. The symptom was a reader count
+    # that climbed 5, 9, 13 across runs - four leaked `cat`s per invocation, each holding an fd to
+    # a file the next run had already unlinked. A pattern is the wrong tool here even where pkill
+    # exists, because ssh hands the whole script to `sh -c`, so the remote shell's own command
+    # line contains the pattern and `-f` matches the shell that is running the kill.
+    local start_script="[ -f ${pid_file} ] && kill \$(cat ${pid_file}) 2>/dev/null;"
+    start_script+=" rm -rf ${INPUT_MAP_DIR}; mkdir -p ${INPUT_MAP_DIR};"
     start_script+=" for d in /dev/input/event*; do"
-    start_script+=" (cat \"\$d\" > ${remote_dir}/\"\$(basename \"\$d\")\".bin 2>/dev/null &); done;"
-    start_script+=" sleep 1; ls ${remote_dir} | tr '\\n' ' '"
+    # The subshell is what detaches the reader, so it outlives this ssh session; $! inside it is
+    # the cat's own pid, which is the whole point of writing it from in there.
+    start_script+=" (cat \"\$d\" > ${INPUT_MAP_DIR}/\"\$(basename \"\$d\")\".bin 2>/dev/null &"
+    start_script+=" echo \$! >> ${pid_file}); done;"
+    start_script+=" sleep 1; ls ${INPUT_MAP_DIR} | grep '\\.bin$' | tr '\\n' ' '"
+
+    INPUT_MAP_STOP="kill \$(cat ${pid_file} 2>/dev/null) 2>/dev/null; sleep 1"
 
     if [[ ${DRY_RUN} -eq 1 ]]; then
         ssh_cmd "${start_script}"
-        ssh_cmd "pkill -f 'cat /dev/input/event'; tar cf - -C ${remote_dir} ."
+        ssh_cmd "${INPUT_MAP_STOP}; tar cf - -C ${INPUT_MAP_DIR} ."
         return 0
     fi
 
     echo "Recording: $(ssh_cmd "${start_script}")"
+    # From here the device is holding four processes of ours, and every way out has to end them:
+    # a Ctrl-C at the prompt below, or during the timed sleep, otherwise leaves them writing to
+    # /tmp on the device until the next run or a reboot.
+    INPUT_MAP_RECORDING=1
+    trap input_map_abort INT TERM
     echo
     echo "Press the buttons you want to identify, ONE AT A TIME, about a second apart."
     echo "The pause is what separates them: a gap of ${INPUT_MAP_GAP}s ends a press."
@@ -462,9 +501,10 @@ cmd_input_map() {
 
     local capture
     capture="$(mktemp -d)"
-    ssh_cmd "pkill -f 'cat /dev/input/event' 2>/dev/null; sleep 1; tar cf - -C ${remote_dir} ." |
-        tar xf - -C "${capture}"
-    ssh_cmd "rm -rf ${remote_dir}" || true
+    ssh_cmd "${INPUT_MAP_STOP}; tar cf - -C ${INPUT_MAP_DIR} ." | tar xf - -C "${capture}"
+    INPUT_MAP_RECORDING=0
+    trap - INT TERM
+    ssh_cmd "rm -rf ${INPUT_MAP_DIR}" || true
 
     echo
     echo "== what each device can emit =="

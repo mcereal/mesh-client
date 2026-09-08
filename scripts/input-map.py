@@ -166,13 +166,27 @@ def cmd_presses(directory, gap):
         print(f"no events in {directory}", file=sys.stderr)
         return 1
 
-    groups, current, previous = [], [], None
+    # A gap ends a press only when nothing is still down. evdev is silent for the whole of a
+    # hold - one event on the way down, one on the way up - so splitting on quiet alone tears a
+    # two-second trigger hold into a [255] and a [0] two seconds apart, which is exactly the
+    # measurement this was written to take.
+    #
+    # A switch is the exception and has to be, because it reports a state rather than a press:
+    # SW_TABLET_MODE goes to 1 and stays there, so counting it as held would swallow every
+    # press after it into one group.
+    groups, current, previous, held = [], [], None, set()
     for event in events:
-        if previous is not None and event[0] - previous > gap:
+        timestamp, device, etype, code, value = event
+        if previous is not None and timestamp - previous > gap and not held:
             groups.append(current)
             current = []
         current.append(event)
-        previous = event[0]
+        previous = timestamp
+        if etype != 5:  # EV_SW
+            if value == 0:
+                held.discard((device, etype, code))
+            else:
+                held.add((device, etype, code))
     groups.append(current)
 
     print(f"{len(events)} events in {len(groups)} presses\n")
@@ -186,8 +200,8 @@ def cmd_presses(directory, gap):
                 values[key] = []
                 order.append(key)
             values[key].append(value)
-        held = group[-1][0] - group[0][0]
-        print(f"press {number:2d}  ({held:.2f}s)")
+        duration = group[-1][0] - group[0][0]
+        print(f"press {number:2d}  ({duration:.2f}s)")
         for device, etype, code in order:
             print(
                 f"          {device}  {code_name(etype, code):<22} "
