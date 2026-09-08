@@ -1292,6 +1292,45 @@ void fb_draw_conversation(struct mesh_ui_backend_fb_state *state, struct fb_list
                           uint32_t index, const struct fb_conversation *conversation);
 
 /*
+ * A bubble's trailing run: the small marks and figures that ride the end of its last line.
+ *
+ * A run rather than a string, and this is the fix for the one class of bug the transcript kept
+ * producing. The clock, the delivery state, the padlock and the reactions were concatenated
+ * into one `meta` string by the screen and measured by the bubble; a failure reason ("no public
+ * key for that node") or a fourth reaction pushed that string past the bubble's own width, the
+ * measure clamped the *bubble* to its maximum and the draw right-aligned the *string* inside
+ * it, and the difference between the two came out of the left edge - text painted outside the
+ * bubble it belonged to, and on an inbound one, off the panel.
+ *
+ * Typed parts cannot do that. The run knows its own cells, the bubble is sized around it, and
+ * the parts that do not fit are dropped from the front - a reaction chip is worth losing, the
+ * mark that says the message failed is not. It is the same correction fb_list_item's slots
+ * made: a component measures what it is given, so it must be given the pieces rather than a
+ * sentence somebody else assembled.
+ *
+ * Drawn left to right in the order below, which is the order every messenger puts them in and
+ * the order they are worth losing in - annotations first, then the facts, with what became of
+ * the message hard against the corner.
+ */
+struct fb_bubble_meta {
+    const char *reactions; /* the reaction chip run: "\U0001F44D3 \U0001F602"; "" for none */
+    /*
+     * The padlock on a direct message the radio decrypted with our key pair rather than with a
+     * channel PSK.
+     *
+     * A part rather than a character in a text run because it is a *fact about the message*
+     * rather than a word about it, and because a glyph the string catalog carried would be a
+     * mark a translator could delete. MESH_UI_ICON_NONE for a message that is not one.
+     */
+    enum mesh_ui_icon lock;
+    const char *clock; /* when it arrived, "14:05"; "" when the radio has no clock set */
+    /* What became of one of ours: the clock, the double tick or the alert circle that
+       src/ui/delivery.c answers with. MESH_UI_ICON_NONE on anything inbound, and on a broadcast
+       that went out without want_ack - there is nothing to be waiting for. */
+    enum mesh_ui_icon state;
+};
+
+/*
  * A chat bubble: the component the thread screen is made of.
  *
  * A bubble sizes itself to its own text - never to the panel - and sits against the edge its
@@ -1299,26 +1338,26 @@ void fb_draw_conversation(struct mesh_ui_backend_fb_state *state, struct fb_list
  * reading a single word of it. Everything optional is omitted rather than blanked, so a run of
  * messages from one sender stacks with the name said once.
  *
- * The measure and the draw share one wrap walk (struct mesh_ui_wrap), so the rows a bubble
- * reserves and the rows it paints cannot disagree - which they must not, because the transcript
- * places the next bubble from the count this one reported.
+ * The measure and the draw share one wrap walk (struct mesh_ui_wrap) and one pass over the
+ * trailing run, so the rows a bubble reserves and the rows it paints cannot disagree - which
+ * they must not, because the transcript places the next bubble from the count this one
+ * reported.
  */
 struct fb_bubble {
     const char *separator; /* dim centred label above the bubble ("Today", "14:05"); "" for none */
     const char *name;      /* sender line inside the bubble; "" when it repeats the one above */
     const char *text;      /* the message */
-    const char *meta;      /* clock and delivery state, tucked onto the last line when it fits */
     /*
-     * One icon at the head of the meta run: the padlock on a direct message the radio decrypted
-     * with our key pair rather than with a channel PSK.
+     * Why a failed message failed, as a wrapped supporting line under the text.
      *
-     * A slot rather than a character in `meta` because the meta line is assembled from three
-     * different things - a clock, what became of the message, the reactions on it - and a mark
-     * that is a *fact about the message* is none of the three. It is also the one mark on a
-     * bubble that no word on screen repeats, which is why it is worth a slot of its own rather
-     * than another clause in the delivery state.
+     * Its own line rather than another clause in the trailing run, which is where it used to
+     * be. A reason is a sentence - "no public key for that node" is twenty-seven cells against
+     * a bubble that holds thirty-nine at the device scale and twenty-five at the largest - so a
+     * run carrying one could never be a corner mark, and it was what pushed the run past the
+     * bubble in the first place. A failure is worth the row; nothing else here is.
      */
-    enum mesh_ui_icon meta_icon;
+    const char *note;
+    struct fb_bubble_meta meta;
     bool outbound; /* ours: drawn against the right edge */
     bool selected; /* the cursor is on it */
     bool failed;   /* the radio said it did not get there */

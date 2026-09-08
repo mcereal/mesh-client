@@ -652,6 +652,8 @@ answer that vanished was the safe one. Stacked, the acting answer goes on top an
 one stays nearest the thumb. `ui_capture_dialog_actions_stay_inside_the_panel` renders every
 confirmable action at the largest scale and fails if anything lands outside the panel.
 
+#### `struct fb_bubble` — the transcript's one component
+
 `struct fb_bubble` is the other component that earns its keep, and it is the one place the
 thread's geometry lives. A bubble sizes itself to its own text (never past three quarters of the
 body), sits against the edge its direction names, and reports its height with
@@ -661,14 +663,57 @@ paint over the message below it, and the transcript places the next bubble from 
 one reported. A second way of measuring the same text — a `strlen`, a second wrapper — is how
 that happens.
 
-The bubble's **`meta_icon`** leads its meta run: the padlock on a direct message the radio
-decrypted with our key pair rather than with a channel PSK. A slot rather than a character
-because the run is three things assembled in order — a clock, what became of the message, the
-reactions on it — and a fact *about* the message is none of the three. It is also the one mark
-on a bubble that no word on screen repeats: on a channel still using the default key every node
-on the mesh holds that key, so a DM that did not go out PKI-encrypted was readable by all of
-them and nothing else distinguishes the two. The measure and the draw both ask
-`fb_bubble_meta_cells()`, for the reason above.
+The bubble's **trailing run** (`struct fb_bubble_meta`) is four *typed slots* rather than one
+string, and that distinction is the whole of it. The reactions, the padlock, the clock and the
+delivery mark used to be concatenated by the screen and handed over as `meta`; the bubble
+measured that string, clamped its own box to three quarters of the body when the string was
+wider than that, and then right-aligned the string inside the box it had clamped. The
+difference came out of the left edge — a whole line painted on bare background, outside the
+bubble it belonged to. It took a failure reason ("no public key for that node" is 27 cells
+against a bubble that holds 25 at the largest scale) or a fourth reaction chip to reach, which
+is why it survived so long.
+
+Typed parts cannot do that. `fb_bubble_run()` assembles them, measures them once for the
+measure *and* the draw, and drops them off the **front** until they fit the same budget the box
+gets — so what is lost first is a reaction chip and what survives longest is the mark saying the
+message failed. The bubble is then widened around what is left, which makes "the run cannot
+reach past the left padding" an arithmetic fact rather than a thing to be careful about.
+`ui_capture_bubble_contains_its_own_ink` finds the bubble by its own fill at every scale, in
+every theme, in all four delivery states and both cursor positions, and fails on any drawn pixel
+outside it.
+
+The slots, in the order they are drawn:
+
+| Slot | What it says |
+|---|---|
+| `reactions` | the chip run, counted rather than repeated (`\U0001F44D3 \U0001F602`) |
+| `lock` | this direct message was decrypted with our key pair rather than with a channel PSK. The one mark on a bubble that no word on screen repeats: on a channel still using the default key every node on the mesh holds that key, so a DM that did *not* go out PKI-encrypted was readable by all of them and nothing else distinguishes the two |
+| `clock` | when it arrived; empty when the radio has no clock set |
+| `state` | what became of one of ours — the mark `src/ui/delivery.c` answers with |
+
+**Delivery is a mark, not a word.** `"ok"`, `".."` and `"!!"` are gone from the string catalog:
+each was two cells of punctuation standing for a state, which is the marker-gutter mistake one
+level in — unreadable until learnt, and a translator's problem the moment it is a word. A clock
+(`schedule`), a double tick (`done_all`) and an alert circle (`error`) are read without being
+learnt, which is why every messenger draws exactly these three. Which state gets which is
+[`src/ui/delivery.c`](../src/ui/delivery.c), never a renderer — the same rule the Status cards'
+verbs and the chrome's banners follow, and it is what lets a backend with no sprites say the
+word (`MESH_STR_DELIVERY_*`) for the same state the transcript draws a picture of.
+
+The mark takes the run's own quiet ink rather than a tone of its own, on purpose. A failed
+message is already drawn in the error family — its bubble *is* the error container — so a red
+tick would be the fill said twice; and "gone out" against "acknowledged" is a difference of one
+tick, which is the difference everybody already reads. It also keeps the mark inside a pairing
+[the theme is already validated on](#themes) instead of asking every palette for another one.
+
+**A failure reason is not a corner mark.** It goes under the message, as `note` — a wrapped
+supporting line inside the bubble, which the trailing run then tucks onto the end of. A reason
+is a sentence, so a run carrying one could never be a corner mark, and it was what pushed the
+run past the bubble in the first place. A failure is worth the row; nothing else on a bubble is.
+
+`make ui-capture ARGS="devtools/ui_capture/scenes/delivery.scene -o delivery.gif"` puts all
+three states on one frame, with the cursor moving over them — a selected bubble is a different
+fill with an accent bar laid outside it, and the marks have to stay legible against both.
 
 Screens name a **tone** (`MESH_UI_TONE_WARNING`, `MESH_UI_TONE_ERROR`, …) rather than a colour;
 components that fill something take a **family** (`MESH_UI_FAMILY_ERROR`) and ask the theme for
@@ -2005,6 +2050,7 @@ device would see it, and no scene script has to know an animation exists.
 clock, so a `hold` past four seconds followed by a `frame` films it sliding back out |
 | `message in\|out NAME TEXT` | append a message, as if the radio had just said so |
 | `react NAME EMOJI` | react to the newest message, as another node would. The transcript draws it on that message rather than as a bubble of its own |
+| `ack sending\|delivered\|failed [ERROR]` | what the mesh said about the newest message we sent — the mark in the bubble's corner, and the reason under it once it failed. `ERROR` is a `Routing_Error` number, named by number because that is what the radio would have sent. Its own verb because a Routing reply is the one thing about a message that arrives *after* it, and no press this harness can make produces one: `message out` leaves a bubble pending, which is one of the three marks and the only one a scene could otherwise reach |
 | `alert NAME TEXT` | a critical alert (`ALERT_APP`) on the channel |
 | `detection NAME TEXT` | a detection sensor announcing itself (`DETECTION_SENSOR_APP`) |
 | `status TEXT` | set the transport status line |

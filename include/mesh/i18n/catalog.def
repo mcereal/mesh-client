@@ -223,12 +223,16 @@ MESH_STR_ENTRY(BUBBLE_CHANNEL,            "  #%u")
 MESH_STR_ENTRY(BUBBLE_DIRECT,             "  dm")
 MESH_STR_ENTRY(BUBBLE_ALERT,              "  \U0001F6A8 alert")
 MESH_STR_ENTRY(BUBBLE_SENSOR,             "  sensor")
-/* Delivery, in the bubble's corner. DELIVERED and PENDING are two cells wide by design. */
-MESH_STR_ENTRY(BUBBLE_DELIVERED,          "ok")
-MESH_STR_ENTRY(BUBBLE_PENDING,            "..")
-MESH_STR_ENTRY(BUBBLE_FAILED_MARK,        "!!")
-MESH_STR_ENTRY(BUBBLE_STATE_DELIVERED,    "delivered")
-MESH_STR_ENTRY(BUBBLE_STATE_FAILED,       "failed")
+/* What became of a message we sent, in words.
+ *
+ * The bubble draws a mark rather than any of these - a clock, a double tick, an alert circle,
+ * from src/ui/delivery.c - because "ok", ".." and "!!" were two cells of punctuation standing
+ * for a state, unreadable until learnt and a translator's problem the moment they were words.
+ * The words stay because the mark has to be nameable: a text backend has no sprites, and a test
+ * that asserted on a sprite would be asserting on a picture. */
+MESH_STR_ENTRY(DELIVERY_SENDING,          "sending")
+MESH_STR_ENTRY(DELIVERY_DELIVERED,        "delivered")
+MESH_STR_ENTRY(DELIVERY_FAILED,           "failed")
 
 /* ---- the Nodes tab -------------------------------------------------------------------------- */
 

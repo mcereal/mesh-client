@@ -1747,6 +1747,166 @@ MESH_TEST_CASE(fb_glyph_cache_matches_uncached_colors_and_scales, unit) {
     record_success(test_name);
 }
 
+/*
+ * A bubble draws inside itself, whatever it is asked to carry.
+ *
+ * This is the failure the trailing run was made typed for. The clock, the delivery state, the
+ * padlock and the reaction chips used to be concatenated into one string by the screen and
+ * right-aligned inside the bubble by the renderer; when that string came out wider than the
+ * bubble could ever be - a failure reason is a sentence, and "no public key for that node" is
+ * twenty-seven cells against a bubble that holds twenty-five at the largest scale - the measure
+ * clamped the *box* to its maximum and the draw placed the *string* by its own width, and the
+ * difference came out of the left edge. A whole line of a message painted on bare background,
+ * outside the bubble it belonged to.
+ *
+ * So the assertion is containment rather than a layout: find the bubble by its own fill, and
+ * require every drawn pixel on the rows it covers to be between that fill's edges. It is
+ * checked at every scale and in every theme, because the width at which the run stops fitting
+ * is a function of both, and it was invisible on the one panel this ships on until it was not.
+ */
+MESH_TEST_CASE(ui_capture_bubble_contains_its_own_ink, unit) {
+    struct mesh_ui_snapshot *snapshot = calloc(1U, sizeof *snapshot);
+    const char *failure = NULL;
+    if (snapshot == NULL) {
+        record_failure(test_name, "snapshot allocation failed");
+        return;
+    }
+
+    /* One conversation with one message in it, so the only bubble on screen is the one being
+       measured and its separator is the only other thing drawn. */
+    snapshot->nav.screen = MESH_UI_SCREEN_MESSAGES;
+    snapshot->nav.thread_open = true;
+    snapshot->nav.target_node = 0x8F21B005U;
+    struct mesh_ui_message *message = &snapshot->messages.entries[0];
+    message->packet_id = 1U;
+    message->peer = snapshot->nav.target_node;
+    message->rx_time = 1788000000U;
+    message->direction = MESH_MESSAGE_OUTBOUND;
+    message->pki_encrypted = true;
+    snprintf(message->peer_name, sizeof message->peer_name, "BRVO");
+    snprintf(message->text, sizeof message->text, "Meet at the creek");
+
+    /* Four reactions on it as well, which is the other half of what made the run long: the
+       chip run and the reason were both in the same string. */
+    for (uint32_t i = 0; i < 4U; ++i) {
+        struct mesh_ui_message *reaction = &snapshot->messages.entries[1U + i];
+        reaction->packet_id = 2U + i;
+        reaction->peer = snapshot->nav.target_node;
+        reaction->rx_time = message->rx_time;
+        reaction->is_reaction = true;
+        reaction->reply_id = message->packet_id;
+        snprintf(reaction->text, sizeof reaction->text, "%s",
+                 (const char *[]){"\U0001F44D", "\U0001F602", "\U0001F389", "❤"}[i]);
+    }
+    snapshot->messages.count = 5U;
+
+    /* Every delivery state, and under the cursor as well as at rest - the selected fill is a
+       different colour and the accent bar is laid outside it. */
+    static const uint8_t acks[] = {MESH_MESSAGE_ACK_NONE, MESH_MESSAGE_ACK_PENDING,
+                                   MESH_MESSAGE_ACK_DELIVERED, MESH_MESSAGE_ACK_FAILED};
+    /* The longest reason the catalog carries, which is what a bubble has least room for. */
+    static const uint8_t kPkiUnknownPubkey = 35U;
+
+    struct mesh_ui_capture *capture = NULL;
+    for (size_t t = 0; t < mesh_ui_theme_count() && failure == NULL; ++t) {
+        const struct mesh_ui_theme *theme = mesh_ui_theme_at(t);
+        for (int scale = MESH_UI_SCALE_MIN; scale <= MESH_UI_SCALE_MAX && failure == NULL;
+             ++scale) {
+            for (size_t a = 0; a < sizeof acks / sizeof acks[0] && failure == NULL; ++a) {
+                /* Cursor 0 is on the only bubble there is; anything past it is the same
+                   transcript at rest. Both, because the cursor changes the fill and lays an
+                   accent bar outside it. */
+                for (uint32_t cursor = 0U; cursor < 2U && failure == NULL; ++cursor) {
+                    const bool selected = (cursor == 0U);
+                    message->ack = acks[a];
+                    message->ack_error =
+                        acks[a] == MESH_MESSAGE_ACK_FAILED ? kPkiUnknownPubkey : 0U;
+                    snapshot->nav.cursor[MESH_UI_SCREEN_MESSAGES] = cursor;
+
+                    if (mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH,
+                                             MESH_UI_CAPTURE_HEIGHT, scale) != 0) {
+                        failure = "capture open failed";
+                        break;
+                    }
+                    mesh_ui_capture_set_theme(capture, theme);
+                    mesh_ui_capture_set_scale(capture, scale);
+                    uint32_t width = 0U, height = 0U;
+                    size_t stride = 0U;
+                    const uint8_t *pixels =
+                        mesh_ui_capture_pixels(capture, &width, &height, &stride);
+                    mesh_ui_capture_render(capture, snapshot);
+
+                    /* The bubble's own fill, asked of the theme the same way the renderer asks:
+                       ours in the secondary container, or the error container once it failed,
+                       with the cursor's state layer over whichever it is. */
+                    const struct mesh_ui_paint paint = mesh_ui_theme_paint(
+                        theme,
+                        acks[a] == MESH_MESSAGE_ACK_FAILED ? MESH_UI_FAMILY_ERROR
+                                                           : MESH_UI_FAMILY_SECONDARY,
+                        MESH_UI_SLOT_CONTAINER,
+                        selected ? MESH_UI_STATE_SELECTED : MESH_UI_STATE_REST);
+                    const uint32_t fill = rgb_key(paint.fill);
+                    const uint32_t bg = rgb_key(mesh_ui_theme_color(theme, MESH_UI_COLOR_BG));
+
+                    size_t escaped = 0U;
+                    uint32_t rows = 0U;
+                    for (uint32_t y = 0; y < height; ++y) {
+                        const uint8_t *row = pixels + (size_t)y * stride;
+                        uint32_t left = width, right = 0U;
+                        for (uint32_t x = 0; x < width; ++x) {
+                            if (pixel_key(row + (size_t)x * 4U) != fill) {
+                                continue;
+                            }
+                            if (x < left) {
+                                left = x;
+                            }
+                            right = x;
+                        }
+                        /* A row the bubble does not cover, or covers only in a corner's
+                           stepping - neither says anything about containment. */
+                        if (left >= right || right - left < (uint32_t)(4 * scale)) {
+                            continue;
+                        }
+                        rows += 1U;
+                        /* The cursor's accent is laid under the fill and shows on the outer
+                           edge only, by exactly one scale - so that much either side is the
+                           bubble too, not something that escaped it. */
+                        const uint32_t bar = selected ? (uint32_t)scale : 0U;
+                        left = left > bar ? left - bar : 0U;
+                        right += bar;
+                        for (uint32_t x = 0; x < width; ++x) {
+                            if (x >= left && x <= right) {
+                                continue;
+                            }
+                            if (pixel_key(row + (size_t)x * 4U) != bg) {
+                                ++escaped;
+                            }
+                        }
+                    }
+                    mesh_ui_capture_close(capture);
+                    capture = NULL;
+
+                    if (rows == 0U) {
+                        failure = "the transcript drew no bubble to measure";
+                    } else if (escaped > 0U) {
+                        failure = "a bubble drew part of itself outside its own fill";
+                    }
+                }
+            }
+        }
+    }
+
+    if (capture != NULL) {
+        mesh_ui_capture_close(capture);
+    }
+    free(snapshot);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
 MESH_TEST_CASE(fb_transcript_cache_matches_reference_after_mutations, unit) {
     struct mesh_ui_capture *cached = NULL, *reference = NULL;
     struct mesh_ui_snapshot *snapshot = calloc(1U, sizeof *snapshot);

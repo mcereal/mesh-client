@@ -77,6 +77,7 @@ add_library(meshclient_core
     src/utils/time.c
     src/ui/actions.c
     src/ui/chrome.c
+    src/ui/delivery.c
     src/ui/anim.c
     src/ui/store.c
     src/ui/history.c

@@ -144,9 +144,10 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | App glue | `src/core/app*.c` | `app` lifecycle/link, `_actions` UI actions, `_publish` to store, `_settings` writes |
 | Self-update | `src/core/updater.c`, `version.c` | forks curl, SemVer, digest-verified install |
 | UI | `src/ui/` | store/controller + `nav*.c` + `settings*.c` + `layout.c` + `history.c` + `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
-| UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window (counted in **steps**, so one row may be taller than its neighbours); cards (filled/elevated/outlined, with verbs on the heading line), buttons, chips, badges, list items (leading/marker/supporting/trailing slots, an optional full-width bar on a second step), section subheaders, switches, selection controls (checkbox/radio), segmented buttons (which fall back to the chosen word when the row is too narrow), meters (with domains and drawn threshold bands), sliders (a settings number on the scale of the values it could have had, with a value the scale cannot place drawn as a track with no handle), signal staircases, sparklines (a reading over time, on the bar's own domain, from a sample ring the client keeps), bubbles, the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar |
+| UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window (counted in **steps**, so one row may be taller than its neighbours); cards (filled/elevated/outlined, with verbs on the heading line), buttons, chips, badges, list items (leading/marker/supporting/trailing slots, an optional full-width bar on a second step), section subheaders, switches, selection controls (checkbox/radio), segmented buttons (which fall back to the chosen word when the row is too narrow), meters (with domains and drawn threshold bands), sliders (a settings number on the scale of the values it could have had, with a value the scale cannot place drawn as a track with no handle), signal staircases, sparklines (a reading over time, on the bar's own domain, from a sample ring the client keeps), bubbles (whose trailing run is four typed slots the component measures, never a string a screen assembled), the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar |
 | Button hints | `src/ui/actions.c`, `include/mesh/ui/actions.h` | what the buttons do here, as (button, verb) pairs the action bar iterates |
 | Status verbs | `src/ui/status.c`, `include/mesh/ui/status.h` | which Status card carries which verb — read by `nav.c`, `actions.c` and the renderer alike |
+| Delivery marks | `src/ui/delivery.c`, `include/mesh/ui/delivery.h` | which mark an outbound message's ack state gets — the clock, the double tick or the alert circle a bubble's corner draws, and the word a backend with no sprites says for the same state |
 | Client-level chrome | `src/ui/chrome.c`, `include/mesh/ui/chrome.h` | what the frame says about the *client* rather than about a screen: whether anything is in flight (the progress bar) and which persistent banner it carries |
 | Animation | `src/ui/anim.c`, `src/ui/controller.c` | fixed-point easing + a table keyed per control; the repaint timerfd that feeds it |
 | Screen transitions | `src/ui/route.c`, `include/mesh/ui/route.h` | where the nav *is*, as a comparable place - so which way a move went is derived rather than recorded. The backend slides the body from it (`fb_transition_offset`, `fb_shift_begin`) |
@@ -194,6 +195,16 @@ is already naming the tab, so a trail never repeats it - and the **back arrow is
 declared**: `mesh_ui_action_bar_goes_back()` reads the same table the action bar draws from, so
 the arrow at the top and the `B` keycap at the bottom cannot disagree. See
 [`docs/ui.md`](docs/ui.md#fb_draw_app_bar--the-top-app-bar).
+
+**No delivery state is spelled out in a renderer either, and none of them is a word.** `"ok"`,
+`".."` and `"!!"` are gone from the string catalog: each was two cells of punctuation standing
+for a state, which is the marker-gutter mistake one level in. A bubble's corner draws a clock, a
+double tick or an alert circle, and which state gets which is [`src/ui/delivery.c`](src/ui/delivery.c)
+rather than a switch in the transcript - the same rule `status.c` and `chrome.c` follow. The
+words stay in the catalog because the mark has to be nameable: a text backend has no sprites.
+And a *reason* is not a mark - it is a sentence, so it goes under the message as a wrapped
+supporting line inside the bubble, which is also what stopped it from pushing the corner run
+past the bubble's own width. See [`docs/ui.md`](docs/ui.md#struct-fb_bubble--the-transcripts-one-component).
 
 **No row marker is spelled out in a renderer either.** A row that opens something, one with an
 unsaved edit, a channel, a node the radio has forgotten: each names an *icon*
@@ -294,6 +305,16 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   it deliberately drops the kernel's own `value == 2` for a direction: a direction repeats
   because of our timer or not at all.
 - **fb layout is measured in cells, not bytes.** A `strlen` or `%-Ns` there is a bug.
+- **A bubble's trailing run is typed slots, not a string, and it is dropped rather than
+  truncated.** The reactions, the padlock, the clock and the delivery mark were once
+  concatenated by the screen; the bubble measured that string, clamped its *box* to three
+  quarters of the body, and right-aligned the *string* inside the box it had clamped - so a
+  failure reason or a fourth reaction chip came out of the left edge, painting a line of the
+  message on bare background outside its own bubble. `fb_bubble_run()` now measures the parts
+  once for the measure and the draw and drops them off the *front* until they fit, so a reaction
+  chip is what is lost and the mark saying the message failed is what survives. Concatenating
+  them back into one string reintroduces the bug, and `ui_capture_bubble_contains_its_own_ink`
+  is what catches it.
 - **The framebuffer needs all three steps** — draw page 0, `FBIOPAN_DISPLAY`, mirror into page 1
   — or the screen is black.
 - **Only the release build is a release.** Do not stamp a local build to test the updater; lift

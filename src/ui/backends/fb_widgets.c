@@ -1656,6 +1656,21 @@ void fb_draw_conversation(struct mesh_ui_backend_fb_state *state, struct fb_list
 
 /* ---- chat bubbles ------------------------------------------------------------------------- */
 
+/* An icon stands in one cell, like a glyph, and one cell of air separates two parts of the
+   trailing run. Both are counted by the measure and spent by the draw. */
+#define FB_BUBBLE_ICON_CELLS 1U
+#define FB_BUBBLE_META_GAP 1U
+
+/* Reactions, padlock, clock, delivery mark: the run is never longer than its four slots. */
+#define FB_BUBBLE_META_PARTS 4U
+
+/* One drawable part of a trailing run: a text or an icon, never both. */
+struct fb_bubble_part {
+    const char *text; /* NULL when this part is an icon */
+    enum mesh_ui_icon icon;
+    size_t cells;
+};
+
 /*
  * What a bubble works out to at this width, computed once and handed to both the measure and
  * the draw. Everything is in cells except `rows`, which is body rows.
@@ -1663,7 +1678,12 @@ void fb_draw_conversation(struct mesh_ui_backend_fb_state *state, struct fb_list
 struct fb_bubble_metrics {
     size_t cols;        /* inner content width */
     uint32_t lines;     /* wrapped text lines */
-    bool meta_own_line; /* the clock did not fit on the last one */
+    uint32_t notes;     /* wrapped lines of the failure reason under it */
+    size_t last;        /* the width of the last line drawn, which the run tucks onto */
+    bool meta_own_line; /* the run did not fit on the last one */
+    struct fb_bubble_part parts[FB_BUBBLE_META_PARTS];
+    size_t part_count;
+    size_t meta_cols; /* what the parts and their gaps come to; 0 when there is no run */
     uint32_t rows;
 };
 
@@ -1708,13 +1728,20 @@ static struct mesh_ui_paint fb_bubble_paint(const struct mesh_ui_backend_fb_stat
 }
 
 /*
- * The colour for a bubble's quieter lines - the sender on one of ours, the clock on any of them.
+ * The colour for a bubble's quieter lines - the sender on one of ours, the clock and the marks
+ * beside it on any of them.
  *
  * Dim while the bubble sits at rest, and the bubble's own ink once the cursor is on it or the
  * fill has gone red. The selected fills are a step towards their ink by design, and dim over
  * one of those is the pairing a theme has least room for: on the dark palette it measured
  * 1.9:1, well under the 3:1 a secondary line is held to, and the bubble's own ink is a pair the
  * theme is validated on by construction.
+ *
+ * The delivery mark takes this ink too rather than a tone of its own. A failed message is
+ * already drawn in the error family, so a red tick would be the fill said twice; and "gone out"
+ * against "acknowledged" is a difference of one tick, which is the difference every messenger
+ * has taught everybody to read. It also keeps the mark inside a pairing the theme is already
+ * validated on, instead of asking every palette for a sixth one.
  */
 static struct mesh_ui_rgb fb_bubble_quiet(const struct mesh_ui_backend_fb_state *state,
                                           const struct fb_bubble *bubble,
@@ -1725,20 +1752,83 @@ static struct mesh_ui_rgb fb_bubble_quiet(const struct mesh_ui_backend_fb_state 
     return fb_tone_color(state, MESH_UI_TONE_DIM);
 }
 
-/* What the meta line's mark costs: the icon's own cell, and the gap between it and the words. */
-#define FB_BUBBLE_META_ICON_CELLS 2U
+static void fb_bubble_part_text(struct fb_bubble_part *parts, size_t *count, const char *text) {
+    if (!fb_bubble_has(text) || *count >= FB_BUBBLE_META_PARTS) {
+        return;
+    }
+    parts[*count].text = text;
+    parts[*count].icon = MESH_UI_ICON_NONE;
+    parts[*count].cells = mesh_ui_text_cells(text);
+    *count += 1U;
+}
+
+static void fb_bubble_part_icon(struct fb_bubble_part *parts, size_t *count,
+                                enum mesh_ui_icon icon) {
+    if (!mesh_ui_icon_is_valid(icon) || *count >= FB_BUBBLE_META_PARTS) {
+        return;
+    }
+    parts[*count].text = NULL;
+    parts[*count].icon = icon;
+    parts[*count].cells = FB_BUBBLE_ICON_CELLS;
+    *count += 1U;
+}
+
+/* The run's width: every part, plus a cell of air between each neighbouring pair. */
+static size_t fb_bubble_run_cells(const struct fb_bubble_part *parts, size_t count) {
+    if (count == 0U) {
+        return 0U;
+    }
+    size_t cells = (count - 1U) * FB_BUBBLE_META_GAP;
+    for (size_t i = 0; i < count; ++i) {
+        cells += parts[i].cells;
+    }
+    return cells;
+}
 
 /*
- * The meta run's width in cells - the mark, then the clock and whatever followed it.
+ * Assemble the trailing run and cut it down to what the bubble can hold.
  *
- * One function because the measure and the draw both need it, and a bubble that measured its
- * meta line one way and painted it another is how a transcript comes to overlap itself. Zero
- * when there is neither a mark nor any words, which is the test for "there is no meta line".
+ * One function because the measure and the draw both need it, and a run assembled one way and
+ * painted another is how a transcript comes to overlap itself - or, as it did while the run was
+ * a string the screen concatenated, to paint outside the bubble entirely.
+ *
+ * Parts go in the order they are drawn and come off the *front*, so what is lost first is the
+ * reaction chip and what survives longest is the mark saying the message failed. Dropping
+ * rather than truncating, because half a clock is not a shorter clock. It bottoms out at
+ * nothing, which is the honest answer for a bubble too narrow to say anything in the corner.
  */
-static size_t fb_bubble_meta_cells(const struct fb_bubble *bubble) {
-    const size_t words = fb_bubble_has(bubble->meta) ? mesh_ui_text_cells(bubble->meta) : 0U;
-    const size_t mark = mesh_ui_icon_is_valid(bubble->meta_icon) ? FB_BUBBLE_META_ICON_CELLS : 0U;
-    return words + mark;
+static size_t fb_bubble_run(const struct fb_bubble_meta *meta, size_t budget,
+                            struct fb_bubble_part *parts, size_t *count) {
+    *count = 0U;
+    fb_bubble_part_text(parts, count, meta->reactions);
+    fb_bubble_part_icon(parts, count, meta->lock);
+    fb_bubble_part_text(parts, count, meta->clock);
+    fb_bubble_part_icon(parts, count, meta->state);
+
+    size_t cells = fb_bubble_run_cells(parts, *count);
+    while (*count > 0U && cells > budget) {
+        for (size_t i = 1U; i < *count; ++i) {
+            parts[i - 1U] = parts[i];
+        }
+        *count -= 1U;
+        cells = fb_bubble_run_cells(parts, *count);
+    }
+    return cells;
+}
+
+/* The widest and the last of the lines `text` wraps to at `max`, and how many there are. */
+static uint32_t fb_bubble_wrap(const char *text, size_t max, size_t *widest, size_t *last) {
+    uint32_t lines = 0U;
+    struct mesh_ui_wrap wrap;
+    mesh_ui_wrap_begin(&wrap, text, max);
+    while (mesh_ui_wrap_next(&wrap)) {
+        *last = mesh_ui_text_cells(wrap.line);
+        if (*last > *widest) {
+            *widest = *last;
+        }
+        lines += 1U;
+    }
+    return lines;
 }
 
 static struct fb_bubble_metrics fb_bubble_measure(const struct mesh_ui_backend_fb_state *state,
@@ -1748,22 +1838,17 @@ static struct fb_bubble_metrics fb_bubble_measure(const struct mesh_ui_backend_f
     struct fb_bubble_metrics metrics;
     memset(&metrics, 0, sizeof metrics);
 
-    /* One wrap walk, and the draw makes the same one. Anything that measured the text a second
-       way - a strlen, a second wrapper - is how a bubble comes to paint over the one below it. */
+    /* One wrap walk per block, and the draw makes the same ones. Anything that measured the
+       text a second way - a strlen, a second wrapper - is how a bubble comes to paint over the
+       one below it. */
     size_t widest = 0U;
-    size_t last = 0U;
-    struct mesh_ui_wrap wrap;
-    mesh_ui_wrap_begin(&wrap, bubble->text, max);
-    while (mesh_ui_wrap_next(&wrap)) {
-        last = mesh_ui_text_cells(wrap.line);
-        if (last > widest) {
-            widest = last;
-        }
-        metrics.lines += 1U;
-    }
+    metrics.lines = fb_bubble_wrap(bubble->text, max, &widest, &metrics.last);
     if (metrics.lines == 0U) {
         metrics.lines = 1U; /* an empty message is still a bubble, just an empty one */
     }
+    /* The reason a failed message failed, under it - so the run tucks onto *its* last line,
+       which is the last line the bubble draws. */
+    metrics.notes = fb_bubble_wrap(bubble->note, max, &widest, &metrics.last);
 
     metrics.cols = widest;
     if (fb_bubble_has(bubble->name)) {
@@ -1773,19 +1858,25 @@ static struct fb_bubble_metrics fb_bubble_measure(const struct mesh_ui_backend_f
         }
     }
 
-    /* The clock rides the last line when there is room for it there, which is what keeps a
-       three-word message three words tall instead of doubling it. */
-    if (fb_bubble_meta_cells(bubble) > 0U) {
-        const size_t meta_cols = fb_bubble_meta_cells(bubble);
-        if (last + 1U + meta_cols <= max) {
-            const size_t tucked = last + 1U + meta_cols;
+    /*
+     * The run rides the last line when there is room for it there, which is what keeps a
+     * three-word message three words tall instead of doubling it.
+     *
+     * `max` is the budget either way, so the run can never be wider than the bubble - and
+     * because the bubble is then widened to hold it, the draw's right-aligned run cannot reach
+     * past the left padding. That is the invariant the whole component turns on.
+     */
+    metrics.meta_cols = fb_bubble_run(&bubble->meta, max, metrics.parts, &metrics.part_count);
+    if (metrics.meta_cols > 0U) {
+        const size_t tucked = metrics.last + FB_BUBBLE_META_GAP + metrics.meta_cols;
+        if (tucked <= max) {
             if (tucked > metrics.cols) {
                 metrics.cols = tucked;
             }
         } else {
             metrics.meta_own_line = true;
-            if (meta_cols > metrics.cols) {
-                metrics.cols = meta_cols;
+            if (metrics.meta_cols > metrics.cols) {
+                metrics.cols = metrics.meta_cols;
             }
         }
     }
@@ -1797,7 +1888,7 @@ static struct fb_bubble_metrics fb_bubble_measure(const struct mesh_ui_backend_f
         metrics.cols = 1U;
     }
 
-    metrics.rows = metrics.lines + (fb_bubble_has(bubble->name) ? 1U : 0U) +
+    metrics.rows = metrics.lines + metrics.notes + (fb_bubble_has(bubble->name) ? 1U : 0U) +
                    (metrics.meta_own_line ? 1U : 0U) + (fb_bubble_has(bubble->separator) ? 1U : 0U);
     return metrics;
 }
@@ -1828,11 +1919,26 @@ void fb_draw_separator(const struct mesh_ui_backend_fb_state *state, int y, cons
                  fb_color(state, MESH_UI_COLOR_BG));
 }
 
+/* Paints one block of wrapped text from `y` down, and reports where the next row starts. The
+   walk the measure made, so the rows painted are the rows reserved. */
+static int fb_bubble_draw_wrapped(const struct mesh_ui_backend_fb_state *state, int x, int y,
+                                  const char *text, size_t max, int line_h, struct mesh_ui_rgb ink,
+                                  struct mesh_ui_rgb fill) {
+    struct mesh_ui_wrap wrap;
+    mesh_ui_wrap_begin(&wrap, text, max);
+    while (mesh_ui_wrap_next(&wrap)) {
+        fb_draw_text(state, x, y, wrap.line, state->scale, ink, fill);
+        y += line_h;
+    }
+    return y;
+}
+
 void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
                     int y, const struct fb_bubble *bubble) {
     const struct fb_bubble_metrics metrics = fb_bubble_measure(state, layout, bubble);
     const int adv = fb_char_adv(state, state->scale);
     const int scale = state->scale;
+    const size_t max = fb_bubble_max_cols(state, layout);
 
     if (fb_bubble_has(bubble->separator)) {
         fb_draw_separator(state, y, bubble->separator);
@@ -1874,6 +1980,7 @@ void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct f
 
     const int text_x = box_x + pad;
     const struct mesh_ui_rgb body = paint.ink;
+    const struct mesh_ui_rgb quiet = fb_bubble_quiet(state, bubble, paint);
 
     if (fb_bubble_has(bubble->name)) {
         struct mesh_ui_line line;
@@ -1885,7 +1992,7 @@ void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct f
            the one bubble whose heading is the point rather than the label on the point. A
            bubble that failed takes its own ink for all three, because the fill has already said
            the only thing a hue on top of it could add. */
-        struct mesh_ui_rgb name_color = fb_bubble_quiet(state, bubble, paint);
+        struct mesh_ui_rgb name_color = quiet;
         if (!bubble->failed) {
             if (bubble->alert) {
                 name_color = fb_tone_color(state, MESH_UI_TONE_ERROR);
@@ -1897,48 +2004,41 @@ void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct f
         y += layout->line;
     }
 
-    /* The same walk the measure made, so the rows painted are the rows reserved. */
-    struct mesh_ui_wrap wrap;
-    mesh_ui_wrap_begin(&wrap, bubble->text, fb_bubble_max_cols(state, layout));
     int last_y = y;
-    size_t last_cols = 0U;
-    uint32_t drawn = 0U;
-    while (mesh_ui_wrap_next(&wrap)) {
-        fb_draw_text(state, text_x, y, wrap.line, scale, body, fill);
-        last_y = y;
-        last_cols = mesh_ui_text_cells(wrap.line);
-        y += layout->line;
-        drawn += 1U;
-    }
-    if (drawn == 0U) {
+    y = fb_bubble_draw_wrapped(state, text_x, y, bubble->text, max, layout->line, body, fill);
+    if (y == last_y) {
         y += layout->line; /* the measure reserves a row for an empty message; spend it */
     }
+    /* The reason under it, in the same ink: the bubble is already the error container, so a
+       second red here would be the fill saying the same thing twice. */
+    if (metrics.notes > 0U) {
+        y = fb_bubble_draw_wrapped(state, text_x, y, bubble->note, max, layout->line, body, fill);
+    }
+    last_y = y - layout->line;
 
-    const size_t meta_cells = fb_bubble_meta_cells(bubble);
-    if (meta_cells == 0U) {
+    if (metrics.part_count == 0U) {
         return;
     }
-    const int meta_w = (int)meta_cells * adv;
-    const struct mesh_ui_rgb meta_color = fb_bubble_quiet(state, bubble, paint);
-    int meta_x = box_x + box_w - pad - meta_w;
-    int meta_y = y;
+    /* Right-aligned against the padding, which the measure widened the bubble to leave room
+       for - so this can never reach back past `text_x`. */
+    int meta_x = box_x + box_w - pad - (int)metrics.meta_cols * adv;
+    int meta_y = metrics.meta_own_line ? y : last_y;
     if (!metrics.meta_own_line) {
         /* Tucked against the right edge of the line it shares, which is where every messenger
            puts it - and which is why the measure widened the bubble to make room. */
-        const int floor_x = text_x + (int)last_cols * adv;
+        const int floor_x = text_x + (int)(metrics.last + FB_BUBBLE_META_GAP) * adv;
         if (meta_x < floor_x) {
             meta_x = floor_x;
         }
-        meta_y = last_y;
     }
-    /* The mark leads the run, so the words after it stay where a bubble without one puts them
-       and the padlock is the first thing on a line the eye is already skimming. */
-    if (mesh_ui_icon_is_valid(bubble->meta_icon)) {
-        fb_draw_icon(state, meta_x, meta_y, bubble->meta_icon, scale, meta_color, fill);
-        meta_x += (int)FB_BUBBLE_META_ICON_CELLS * adv;
-    }
-    if (fb_bubble_has(bubble->meta)) {
-        fb_draw_text(state, meta_x, meta_y, bubble->meta, scale, meta_color, fill);
+    for (size_t i = 0; i < metrics.part_count; ++i) {
+        const struct fb_bubble_part *part = &metrics.parts[i];
+        if (part->text != NULL) {
+            fb_draw_text(state, meta_x, meta_y, part->text, scale, quiet, fill);
+        } else {
+            fb_draw_icon(state, meta_x, meta_y, part->icon, scale, quiet, fill);
+        }
+        meta_x += (int)(part->cells + FB_BUBBLE_META_GAP) * adv;
     }
 }
 
