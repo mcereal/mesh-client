@@ -79,6 +79,22 @@ static bool settings_step_to(struct mesh_ui_store *store, uint32_t row) {
     return true;
 }
 
+bool mesh_test_open_tab(struct mesh_ui_store *store, enum mesh_ui_screen screen) {
+    if (store == NULL) {
+        return false;
+    }
+    struct mesh_ui_action action;
+    /* One press per tab is the most it can take on a ring of them, and the guard is what turns
+       "an overlay swallowed the key" into a false rather than a hang. */
+    for (unsigned guard = 0; guard <= (unsigned)MESH_UI_SCREEN_COUNT; ++guard) {
+        if (store->nav.screen == screen) {
+            return true;
+        }
+        mesh_ui_store_handle_key(store, MESH_UI_KEY_RIGHT, &action);
+    }
+    return store->nav.screen == screen;
+}
+
 bool mesh_test_settings_open(struct mesh_ui_store *store, enum mesh_ui_settings_section section) {
     if (store->nav.screen != MESH_UI_SCREEN_SETTINGS ||
         store->nav.settings_section != MESH_UI_SETTINGS_NO_SECTION) {

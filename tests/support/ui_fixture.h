@@ -11,6 +11,18 @@
 void mesh_test_nav_populate(struct mesh_ui_store *store);
 
 /*
+ * Walks the tab strip to `screen` with the shoulder presses a device would make.
+ *
+ * A test must not press Right a fixed number of times to reach a tab. Fourteen of them did, and
+ * every one of those counts became wrong the day a sixth tab was added between Nodes and
+ * Devices - failing with a message about Settings rather than about the tab strip. This walks
+ * until it arrives, so the count lives in one place and a test says which tab it wants.
+ *
+ * Returns false when the tab could not be reached, which means an overlay is holding the keys.
+ */
+bool mesh_test_open_tab(struct mesh_ui_store *store, enum mesh_ui_screen screen);
+
+/*
  * Walks the Settings tab to `section` and opens it, from wherever the cursor is.
  *
  * A test must not press Down a fixed number of times to reach a section: the row order is
