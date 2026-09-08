@@ -1,3 +1,9 @@
+## [2.34.1](https://github.com/mcereal/mesh-client/compare/v2.34.0...v2.34.1) (2026-09-08)
+
+### Bug Fixes
+
+* **ble:** stop scanning while a link is up or being made ([48ec65a](https://github.com/mcereal/mesh-client/commit/48ec65acc6a1ccbf2b9110fa74fb49b17289ffa8))
+
 ## [2.34.0](https://github.com/mcereal/mesh-client/compare/v2.33.1...v2.34.0) (2026-09-08)
 
 ### Features
