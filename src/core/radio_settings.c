@@ -1,6 +1,7 @@
 #include "mesh/core/radio_settings.h"
 
 #include "mesh/utils/log.h"
+#include "mesh/utils/text.h"
 #include "meshtastic/portnums.pb.h"
 
 #include <pb_decode.h>
@@ -29,7 +30,8 @@ bool mesh_radio_settings_loaded(const struct mesh_radio_settings *settings) {
     if (settings->has_device || settings->has_position || settings->has_power ||
         settings->has_network || settings->has_display || settings->has_lora ||
         settings->has_bluetooth || settings->has_security || settings->has_owner ||
-        settings->has_metadata) {
+        settings->has_metadata || settings->has_ui_config || settings->has_connection_status ||
+        settings->has_canned_messages || settings->has_ringtone) {
         return true;
     }
     for (size_t i = 0; i < mesh_radio_module_count(); ++i) {
@@ -231,6 +233,20 @@ void mesh_radio_settings_apply_channel(struct mesh_radio_settings *settings,
     settings->channels[channel->index] = *channel;
 }
 
+/*
+ * The radio's own screen configuration. Arrives twice over: unasked as FromRadio.deviceuiConfig
+ * while the handshake streams, and again as get_ui_config_response on a refresh. Kept whole -
+ * see the note on `ui_config` in the header for why a partial copy would lose a calibration.
+ */
+void mesh_radio_settings_apply_ui_config(struct mesh_radio_settings *settings,
+                                         const meshtastic_DeviceUIConfig *config) {
+    if (settings == NULL || config == NULL) {
+        return;
+    }
+    settings->has_ui_config = true;
+    settings->ui_config = *config;
+}
+
 /* ---- admin replies ------------------------------------------------------------------------ */
 
 bool mesh_admin_request_is_write(enum mesh_admin_request_kind kind) {
@@ -240,13 +256,19 @@ bool mesh_admin_request_is_write(enum mesh_admin_request_kind kind) {
        radio actually kept. */
     return kind == MESH_ADMIN_SET_OWNER || kind == MESH_ADMIN_SET_CONFIG ||
            kind == MESH_ADMIN_SET_MODULE_CONFIG || kind == MESH_ADMIN_SET_CHANNEL ||
-           kind == MESH_ADMIN_SET_FIXED_POSITION || kind == MESH_ADMIN_REMOVE_FIXED_POSITION;
+           kind == MESH_ADMIN_SET_FIXED_POSITION || kind == MESH_ADMIN_REMOVE_FIXED_POSITION ||
+           kind == MESH_ADMIN_SET_UI_CONFIG || kind == MESH_ADMIN_SET_CANNED_MESSAGES;
 }
 
 bool mesh_admin_request_is_action(enum mesh_admin_request_kind kind) {
+    /* The backup trio is here rather than among the writes for the reason the resets are:
+       nothing is read back, and what they move is the radio's whole stored configuration
+       rather than a section this client has rows for. A restore does change what the radio
+       holds, so the caller follows it with a refresh - that is a read, not a read-back. */
     return kind == MESH_ADMIN_REBOOT || kind == MESH_ADMIN_SHUTDOWN ||
            kind == MESH_ADMIN_RESET_NODEDB || kind == MESH_ADMIN_FACTORY_RESET_CONFIG ||
-           kind == MESH_ADMIN_FACTORY_RESET_DEVICE;
+           kind == MESH_ADMIN_FACTORY_RESET_DEVICE || kind == MESH_ADMIN_BACKUP_PREFERENCES ||
+           kind == MESH_ADMIN_RESTORE_PREFERENCES || kind == MESH_ADMIN_REMOVE_BACKUP_PREFERENCES;
 }
 
 static void mesh_radio_settings_record_write_result(struct mesh_radio_settings *settings,
@@ -359,6 +381,26 @@ int mesh_radio_settings_ingest(struct mesh_radio_settings *settings,
     case meshtastic_AdminMessage_get_channel_response_tag:
         mesh_radio_settings_apply_channel(settings, &admin.get_channel_response);
         what = "channel";
+        break;
+    case meshtastic_AdminMessage_get_device_connection_status_response_tag:
+        settings->has_connection_status = true;
+        settings->connection_status = admin.get_device_connection_status_response;
+        what = "connection status";
+        break;
+    case meshtastic_AdminMessage_get_ui_config_response_tag:
+        mesh_radio_settings_apply_ui_config(settings, &admin.get_ui_config_response);
+        what = "ui config";
+        break;
+    case meshtastic_AdminMessage_get_canned_message_module_messages_response_tag:
+        settings->has_canned_messages = true;
+        mesh_str_copy(settings->canned_messages, sizeof settings->canned_messages,
+                      admin.get_canned_message_module_messages_response);
+        what = "canned messages";
+        break;
+    case meshtastic_AdminMessage_get_ringtone_response_tag:
+        settings->has_ringtone = true;
+        mesh_str_copy(settings->ringtone, sizeof settings->ringtone, admin.get_ringtone_response);
+        what = "ringtone";
         break;
     default:
         break;
@@ -529,6 +571,46 @@ int mesh_radio_settings_encode_request(const struct mesh_radio_settings *setting
         admin.which_payload_variant = meshtastic_AdminMessage_toggle_muted_node_tag;
         admin.toggle_muted_node = request->type;
         break;
+    case MESH_ADMIN_GET_CONNECTION_STATUS:
+        admin.which_payload_variant =
+            meshtastic_AdminMessage_get_device_connection_status_request_tag;
+        admin.get_device_connection_status_request = true;
+        break;
+    case MESH_ADMIN_GET_UI_CONFIG:
+        admin.which_payload_variant = meshtastic_AdminMessage_get_ui_config_request_tag;
+        admin.get_ui_config_request = true;
+        break;
+    case MESH_ADMIN_SET_UI_CONFIG:
+        admin.which_payload_variant = meshtastic_AdminMessage_store_ui_config_tag;
+        admin.store_ui_config = request->payload.ui_config;
+        break;
+    case MESH_ADMIN_GET_CANNED_MESSAGES:
+        admin.which_payload_variant =
+            meshtastic_AdminMessage_get_canned_message_module_messages_request_tag;
+        admin.get_canned_message_module_messages_request = true;
+        break;
+    case MESH_ADMIN_SET_CANNED_MESSAGES:
+        admin.which_payload_variant =
+            meshtastic_AdminMessage_set_canned_message_module_messages_tag;
+        mesh_str_copy(admin.set_canned_message_module_messages,
+                      sizeof admin.set_canned_message_module_messages, request->payload.text);
+        break;
+    case MESH_ADMIN_GET_RINGTONE:
+        admin.which_payload_variant = meshtastic_AdminMessage_get_ringtone_request_tag;
+        admin.get_ringtone_request = true;
+        break;
+    case MESH_ADMIN_BACKUP_PREFERENCES:
+        admin.which_payload_variant = meshtastic_AdminMessage_backup_preferences_tag;
+        admin.backup_preferences = (meshtastic_AdminMessage_BackupLocation)request->type;
+        break;
+    case MESH_ADMIN_RESTORE_PREFERENCES:
+        admin.which_payload_variant = meshtastic_AdminMessage_restore_preferences_tag;
+        admin.restore_preferences = (meshtastic_AdminMessage_BackupLocation)request->type;
+        break;
+    case MESH_ADMIN_REMOVE_BACKUP_PREFERENCES:
+        admin.which_payload_variant = meshtastic_AdminMessage_remove_backup_preferences_tag;
+        admin.remove_backup_preferences = (meshtastic_AdminMessage_BackupLocation)request->type;
+        break;
     default:
         return -EINVAL;
     }
@@ -625,6 +707,12 @@ int mesh_radio_settings_queue_write(struct mesh_radio_settings *settings,
             return -EINVAL;
         }
         readback = MESH_ADMIN_GET_CHANNEL;
+        break;
+    case MESH_ADMIN_SET_UI_CONFIG:
+        readback = MESH_ADMIN_GET_UI_CONFIG;
+        break;
+    case MESH_ADMIN_SET_CANNED_MESSAGES:
+        readback = MESH_ADMIN_GET_CANNED_MESSAGES;
         break;
     case MESH_ADMIN_SET_FIXED_POSITION:
     case MESH_ADMIN_REMOVE_FIXED_POSITION:
@@ -810,6 +898,13 @@ size_t mesh_radio_settings_queue_all(struct mesh_radio_settings *settings) {
         added += mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_MODULE_CONFIG,
                                              mesh_radio_module_at(i)->admin_type);
     }
+    /* The four that are neither a Config nor a ModuleConfig. A radio too old to know a verb
+       answers nothing at all rather than erroring, and the queue's own timeout moves past it -
+       which is why they can be asked for unconditionally. */
+    added += mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_CONNECTION_STATUS, 0U);
+    added += mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_UI_CONFIG, 0U);
+    added += mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_CANNED_MESSAGES, 0U);
+    added += mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_RINGTONE, 0U);
     for (uint32_t slot = 0; slot < MESH_RADIO_SETTINGS_MAX_CHANNELS; ++slot) {
         added += mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_CHANNEL, slot);
     }
@@ -1020,6 +1115,35 @@ const char *mesh_radio_modem_preset_name(uint32_t preset) {
     default:
         return "?";
     }
+}
+
+/*
+ * meshtastic_Language, for the row that shows what language the radio's own screen is in.
+ *
+ * Here rather than in the UI for the reason the hardware names and the modem presets are: it
+ * is a fixed vocabulary belonging to the radio's firmware, and somebody matching the Brick's
+ * row against the phone app needs the same word on both screens.
+ *
+ * The values are the one enum in this client that is not 0..n-1 - they run 0..19 and then jump
+ * to 30 and 31 - which is why the two at the end are named by hand and why nothing offers this
+ * as a row that steps.
+ */
+const char *mesh_radio_language_name(uint32_t language) {
+    static const char *const k_names[] = {
+        "English",   "French",    "German",    "Italian",   "Portuguese", "Spanish", "Swedish",
+        "Finnish",   "Polish",    "Turkish",   "Serbian",   "Russian",    "Dutch",   "Greek",
+        "Norwegian", "Slovenian", "Ukrainian", "Bulgarian", "Czech",      "Danish",
+    };
+    if (language < sizeof k_names / sizeof k_names[0]) {
+        return k_names[language];
+    }
+    if (language == 30U) {
+        return "Chinese (simplified)";
+    }
+    if (language == 31U) {
+        return "Chinese (traditional)";
+    }
+    return "?";
 }
 
 /* The enum has ~150 boards; these are the ones likely to be paired with a Brick. Anything

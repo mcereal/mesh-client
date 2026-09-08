@@ -1513,3 +1513,44 @@ MESH_TEST_CASE(session_neighbor_info, unit) {
 
     record_success(test_name);
 }
+
+/*
+ * DeviceUIConfig arrives twice over: unasked, as a FromRadio fragment while the handshake
+ * streams, and again as get_ui_config_response on a refresh.
+ *
+ * The fragment is the path that matters on a radio whose firmware predates the admin verb -
+ * it streams the config and answers nothing when asked for it - so the Radio UI section would
+ * be empty on exactly the radios that have the setting. It was also dropped outright before
+ * this: FromRadio.deviceuiConfig fell off the end of the switch with every other variant this
+ * client has no rows for.
+ */
+MESH_TEST_CASE(session_device_ui_fragment, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+
+    meshtastic_FromRadio from_radio = meshtastic_FromRadio_init_default;
+    from_radio.which_payload_variant = meshtastic_FromRadio_deviceuiConfig_tag;
+    from_radio.deviceuiConfig.screen_brightness = 172U;
+    from_radio.deviceuiConfig.theme = meshtastic_Theme_RED;
+    from_radio.deviceuiConfig.calibration_data.size = 2U;
+    from_radio.deviceuiConfig.calibration_data.bytes[0] = 0x7FU;
+
+    uint8_t buffer[256];
+    pb_ostream_t stream = pb_ostream_from_buffer(buffer, sizeof buffer);
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_FromRadio_fields, &from_radio),
+                      "encode deviceuiConfig failed");
+    mesh_session_handle_from_radio(&session, buffer, stream.bytes_written);
+
+    MESH_TEST_FAIL_IF(!session.settings.has_ui_config ||
+                          session.settings.ui_config.screen_brightness != 172U ||
+                          session.settings.ui_config.theme != meshtastic_Theme_RED,
+                      "the streamed UI config should reach the settings");
+    /* Kept whole, calibration included: the write path sends this record back, and a copy that
+       dropped the blob would erase a touchscreen's calibration on the next save. */
+    MESH_TEST_FAIL_IF(session.settings.ui_config.calibration_data.size != 2U ||
+                          session.settings.ui_config.calibration_data.bytes[0] != 0x7FU,
+                      "the fragment should be kept whole");
+    MESH_TEST_FAIL_IF(!mesh_radio_settings_loaded(&session.settings),
+                      "holding only the UI config is still holding something");
+    record_success(test_name);
+}

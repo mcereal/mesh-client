@@ -427,6 +427,43 @@ struct mesh_ui_queue_status {
     uint8_t maxlen;
 };
 
+/*
+ * What the radio's own network interfaces are doing (AdminMessage.get_device_connection_status).
+ *
+ * Flat rather than four nested records because that is how it is read: a screen asks "is the
+ * WiFi up and what is it on", not "give me the WiFi object". Each `has_*` is the radio having
+ * reported that interface at all, which is a different fact from it being connected - a board
+ * with no WiFi reports no WiFi, and a board whose WiFi is off reports it disconnected.
+ */
+struct mesh_ui_connection_status {
+    bool valid; /* the radio answered the request at all */
+    bool has_wifi;
+    bool wifi_connected;
+    char wifi_ssid[33];
+    int32_t wifi_rssi; /* dBm */
+    uint32_t wifi_ip;  /* as the wire carries it: a fixed32 in network byte order */
+    bool wifi_mqtt;
+    bool wifi_syslog;
+    bool has_ethernet;
+    bool ethernet_connected;
+    uint32_t ethernet_ip;
+    bool ethernet_mqtt;
+    bool ethernet_syslog;
+    bool has_bluetooth;
+    bool bluetooth_connected;
+    uint32_t bluetooth_pin;
+    int32_t bluetooth_rssi;
+    bool has_serial;
+    bool serial_connected;
+    uint32_t serial_baud;
+};
+
+/* The wire caps for the two strings the radio keeps outside any Config section
+   (meshtastic/admin.options). Literals because this header is the nanopb-free side of the
+   fence; a test pins them against the protobuf so a bump upstream cannot pass unnoticed. */
+#define MESH_UI_CANNED_MESSAGES_MAX 201U
+#define MESH_UI_RINGTONE_MAX 231U
+
 struct mesh_ui_settings {
     /* The client's own facts. Always populated, radio or no radio - the About section is the
        one part of this tab that does not need a connection. */
@@ -638,6 +675,34 @@ struct mesh_ui_settings {
 
     bool has_channels; /* any slot present */
     struct mesh_ui_channel_detail channels[MESH_UI_MAX_CHANNELS];
+
+    /* The radio's own screen (DeviceUIConfig), which is a different thing from Display: that
+       is the OLED's geometry and units, this is the graphical UI's own preferences. The two
+       locks are shown and not offered - a client that can lock a radio's screen and settings
+       has no verb to unlock them again, and the PIN behind them is not on the wire. */
+    bool has_ui_config;
+    uint8_t ui_theme;     /* meshtastic_Theme: 0 dark, 1 light, 2 red */
+    uint32_t ui_language; /* meshtastic_Language; 0..19 then 30, 31 - see the read-only row */
+    uint8_t ui_brightness;
+    uint32_t ui_screen_timeout; /* seconds */
+    bool ui_alert_enabled;
+    bool ui_banner_enabled;
+    uint8_t ui_ring_tone_id;
+    uint8_t ui_compass_mode;
+    uint8_t ui_gps_format;
+    bool ui_clockface_analog;
+    bool ui_screen_lock;
+    bool ui_settings_lock;
+
+    /* The radio's quick-reply list as the wire carries it: one string, entries separated by
+       '|'. Split for display by the Canned messages section, rejoined on save. */
+    bool has_canned_messages;
+    char canned_messages[MESH_UI_CANNED_MESSAGES_MAX];
+    /* The RTTTL the buzzer plays. Read-only: see the row for why. */
+    bool has_ringtone;
+    char ringtone[MESH_UI_RINGTONE_MAX];
+
+    struct mesh_ui_connection_status connection;
 
     bool has_metadata;
     char firmware_version[18];

@@ -1940,3 +1940,171 @@ MESH_TEST_CASE(ui_settings_number_scales_are_well_formed, unit) {
     }
     record_success(test_name);
 }
+
+/*
+ * The radio's own screen, and its canned message list.
+ *
+ * Two sections that arrive together and are otherwise unalike: one is a plain run of fields
+ * over a config the radio streams, the other is six rows over a single '|'-separated string.
+ * What they share is the pair of rules this test is really about - that a row shown and not
+ * offered stays shown (the two locks and the language), and that a screen with fewer rows than
+ * the radio has entries does not lose the rest.
+ */
+MESH_TEST_CASE(ui_settings_radio_ui_and_canned, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_ui_config = true;
+    settings.ui_theme = 1U; /* LIGHT */
+    settings.ui_brightness = 128U;
+    settings.ui_screen_timeout = 0U;
+    settings.ui_compass_mode = 2U;
+    settings.ui_gps_format = 3U;
+    settings.ui_clockface_analog = true;
+    settings.ui_language = 30U; /* the value past the gap in meshtastic_Language */
+    settings.ui_settings_lock = true;
+
+    struct mesh_ui_settings_item item;
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO_UI,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 0U, &item) ||
+                          item.field != MESH_UI_FIELD_UI_THEME || strcmp(item.value, "Light") != 0,
+                      "the theme row should name the radio's theme");
+    /* 0 is "never sleep", which is not a duration: it stands outside the track as a word. */
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO_UI,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 2U, &item) ||
+                          item.field != MESH_UI_FIELD_UI_SCREEN_TIMEOUT ||
+                          strcmp(item.value, "never") != 0,
+                      "a screen timeout of 0 should read as never");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO_UI,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 3U, &item) ||
+                          item.field != MESH_UI_FIELD_UI_CLOCKFACE ||
+                          strcmp(item.value, "Analog") != 0,
+                      "the clock face should be named rather than switched on and off");
+    /* Every enum offered here has to be contiguous from 0, which is what the nav's stepping
+       needs; Language is the one that is not, and is why it is an INFO row below. */
+    MESH_TEST_FAIL_IF(
+        mesh_ui_settings_enum_count(MESH_UI_FIELD_UI_THEME) != 3U ||
+            mesh_ui_settings_enum_count(MESH_UI_FIELD_UI_COMPASS_MODE) != 3U ||
+            mesh_ui_settings_enum_count(MESH_UI_FIELD_UI_GPS_FORMAT) != 7U ||
+            strcmp(mesh_ui_settings_enum_name(MESH_UI_FIELD_UI_GPS_FORMAT, 3U), "MGRS") != 0,
+        "the Radio UI enum tables are wrong");
+
+    /* The three rows under the last heading: shown, never offered. The language row in
+       particular has to name the value past the gap rather than falling off its table. */
+    uint32_t rows = mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_RADIO_UI,
+                                                MESH_UI_SETTINGS_NO_CHANNEL);
+    MESH_TEST_FAIL_IF(rows != 13U, "Radio UI should draw nine fields under three read-only rows");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO_UI,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 10U, &item) ||
+                          item.field != MESH_UI_FIELD_NONE ||
+                          strcmp(item.value, "Chinese (simplified)") != 0,
+                      "the language row should name a value past the enum's gap");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO_UI,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 12U, &item) ||
+                          item.field != MESH_UI_FIELD_NONE || item.number != 1U,
+                      "the settings lock should be shown and not offered");
+
+    /* The list splitter. An empty list is no entries, and a trailing separator does not
+       invent a last one - both are what the write builder's walk length depends on. */
+    MESH_TEST_FAIL_IF(mesh_ui_settings_canned_count("") != 0U ||
+                          mesh_ui_settings_canned_count("solo") != 1U ||
+                          mesh_ui_settings_canned_count("a|b|c") != 3U ||
+                          mesh_ui_settings_canned_count("a|b|") != 2U,
+                      "the canned list splitter miscounts");
+    char entry[MESH_UI_CANNED_SLOT_MAX];
+    mesh_ui_settings_canned_entry("On my way|Roger|Standing by", 2U, entry, sizeof entry);
+    MESH_TEST_FAIL_IF(strcmp(entry, "Standing by") != 0, "the last entry should not keep a tail");
+    mesh_ui_settings_canned_entry("On my way|Roger", 5U, entry, sizeof entry);
+    MESH_TEST_FAIL_IF(entry[0] != '\0', "an entry past the end should be empty");
+
+    settings.has_canned_messages = true;
+    snprintf(settings.canned_messages, sizeof settings.canned_messages, "%s",
+             "one|two|three|four|five|six|seven|eight");
+    rows = mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_CANNED,
+                                       MESH_UI_SETTINGS_NO_CHANNEL);
+    MESH_TEST_FAIL_IF(rows != MESH_UI_CANNED_SLOTS + 1U,
+                      "a radio with more messages than slots should say so on a row of its own");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CANNED,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, MESH_UI_CANNED_SLOTS,
+                                             &item) ||
+                          strcmp(item.value, "2 more, kept") != 0,
+                      "the row should count what the slots cannot show");
+    /* Six entries and no more: every slot is a row and nothing says anything is missing. */
+    snprintf(settings.canned_messages, sizeof settings.canned_messages, "%s", "one|two");
+    MESH_TEST_FAIL_IF(mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_CANNED,
+                                                  MESH_UI_SETTINGS_NO_CHANNEL) !=
+                          MESH_UI_CANNED_SLOTS,
+                      "empty slots are rows too, and there is nothing to warn about");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_CANNED,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, 4U, &item) ||
+                          item.field != MESH_UI_FIELD_CANNED_4 || item.text[0] != '\0',
+                      "an unused slot should be an empty text row rather than absent");
+
+    /* The two caps are chosen together: six slots of 32 plus five separators has to fit the
+       wire's 200, or a save would drop the last message with nothing saying so. */
+    MESH_TEST_FAIL_IF(MESH_UI_CANNED_SLOTS * MESH_UI_CANNED_SLOT_MAX + (MESH_UI_CANNED_SLOTS - 1U) >
+                          MESH_UI_CANNED_MESSAGES_MAX,
+                      "the canned slots must fit the wire's own cap");
+    record_success(test_name);
+}
+
+/*
+ * What the radio's own interfaces are doing, on About radio.
+ *
+ * Only the interfaces the radio reported are drawn - four headings of "not present" would be a
+ * screen describing hardware that does not exist - and the rows are readings rather than
+ * settings, which is the rule that keeps them on an About section at all. The row budget is
+ * checked here because this is the one section whose length is decided by the radio: a board
+ * reporting all four is the longest it can be, and a section that overran the cap would lose
+ * its last rows silently.
+ */
+MESH_TEST_CASE(ui_settings_connection_status, unit) {
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_metadata = true;
+
+    const uint32_t bare = mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_RADIO,
+                                                      MESH_UI_SETTINGS_NO_CHANNEL);
+    /* A radio that has not answered the request adds nothing at all. */
+    settings.connection.valid = true;
+    MESH_TEST_FAIL_IF(mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_RADIO,
+                                                  MESH_UI_SETTINGS_NO_CHANNEL) != bare,
+                      "an answer naming no interfaces should add no rows");
+
+    settings.connection.has_wifi = true;
+    settings.connection.wifi_connected = true;
+    settings.connection.wifi_rssi = -57;
+    /* 192.168.1.40 as the wire carries it: a fixed32 in network byte order. */
+    settings.connection.wifi_ip = 0x2801A8C0U;
+    snprintf(settings.connection.wifi_ssid, sizeof settings.connection.wifi_ssid, "%s", "shed");
+
+    struct mesh_ui_settings_item item;
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, bare, &item) ||
+                          item.kind != MESH_UI_SETTING_HEADING,
+                      "the interfaces should start under a heading");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, bare + 2U, &item) ||
+                          strcmp(item.value, "shed") != 0,
+                      "the WiFi row should name the network");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, bare + 3U, &item) ||
+                          strcmp(item.value, "192.168.1.40") != 0,
+                      "the address should read the same on either endianness");
+    MESH_TEST_FAIL_IF(!mesh_ui_settings_item(&settings, NULL, NULL, 0U, MESH_UI_SETTINGS_RADIO,
+                                             MESH_UI_SETTINGS_NO_CHANNEL, bare + 4U, &item) ||
+                          strcmp(item.value, "-57 dBm") != 0 || item.field != MESH_UI_FIELD_NONE,
+                      "the signal should be a reading, not a setting");
+
+    /* The longest this section can be: every interface reported at once. */
+    settings.connection.has_ethernet = true;
+    settings.connection.has_bluetooth = true;
+    settings.connection.bluetooth_pin = 123456U;
+    settings.connection.has_serial = true;
+    MESH_TEST_FAIL_IF(mesh_ui_settings_item_count(&settings, NULL, MESH_UI_SETTINGS_RADIO,
+                                                  MESH_UI_SETTINGS_NO_CHANNEL) >
+                          MESH_UI_SETTINGS_ITEMS_MAX,
+                      "a radio reporting every interface must still fit the item list");
+    record_success(test_name);
+}

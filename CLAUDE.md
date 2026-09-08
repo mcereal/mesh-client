@@ -139,7 +139,7 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | Event loop | `src/core/event_loop.c` | epoll, 32 fd sources, **no threads** |
 | Transports | `src/transport/` | registry + BLE (BlueZ/D-Bus) + serial (USB) |
 | Session | `src/core/session.c` | handshake, node roster, channels, message log, packet ids |
-| Admin protocol | `src/core/radio_settings.c` | `AdminMessage` get/set queue, passkeys, radio actions, NodeDB verbs, the module table |
+| Admin protocol | `src/core/radio_settings.c` | `AdminMessage` get/set queue, passkeys, radio actions, NodeDB verbs, the module table, and the four verbs that are not a section (connection status, device UI, canned messages, ringtone) |
 | Messaging | `src/core/message.c` | text packets, message ring, ack correlation |
 | App glue | `src/core/app*.c` | `app` lifecycle/link, `_actions` UI actions, `_publish` to store, `_settings` writes |
 | Self-update | `src/core/updater.c`, `version.c` | forks curl, SemVer, digest-verified install |
@@ -344,6 +344,25 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   before the fill they are gaps the fill closes, and a full track shows none of them.
   Which lists are a scale at all is stated per field (`SCALE_PRESETS` / `NAMED_PRESETS`) and is
   not derivable: `{0, 1, ... 7}` is a hop limit under one field and a GPIO pin under the next.
+- **Three settings rows are shown and cannot be pressed, and that is the point.** The radio's
+  screen and settings locks (`store_ui_config` can turn them on and no verb turns them off, and
+  the PIN behind them is not on the wire), the **ringtone** (RTTTL is 231 bytes against a
+  `MESH_UI_SETTING_TEXT_MAX` of 80, and a d-pad keyboard is not a way to enter one), and the
+  radio's **language** - which is the only enum in the client whose wire values are not
+  `0..n-1`: they run 0..19 and then jump to 30 and 31, while every enum row steps by
+  `(value + 1) % count`, is named by value, and is drawn by a segmented button that names by
+  *index*. Offering it is an index/value split across three files, not a row. All three follow
+  the rule the MQTT proxy row set: a setting that cannot be pressed is still the answer to why
+  the radio is behaving as it is.
+- **`DeviceUIConfig` is kept whole and written back whole.** It carries a touchscreen
+  `calibration_data` blob and a map home point the client has no rows for, so a
+  `store_ui_config` built from the rows alone would erase a screen's calibration - invisibly,
+  until somebody touched their radio.
+- **The canned message slots are six of 32 characters because the wire is one 200-byte
+  string.** The count and the length are one decision, not two: six plus five separators is
+  197 and seven would not fit. Empty slots are listed (the Channels rule), and a radio holding
+  more than six keeps them - the save copies the tail across and closes the gaps an emptied
+  slot leaves, the way a cleared admin key is compacted.
 - **A card that can end up with no rows must not be given a verb.** A card with no rows is not
   drawn, and a verb on an undrawn card leaves the action bar naming a press whose button is not
   on the frame. That is why the Radio card says "no report yet" rather than disappearing when

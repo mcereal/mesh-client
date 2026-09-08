@@ -633,8 +633,8 @@ MESH_TEST_CASE(ui_nav_radio_actions, unit) {
     }
     mesh_test_settings_open(&store, MESH_UI_SETTINGS_ACTIONS);
     if (store.nav.settings_section != MESH_UI_SETTINGS_ACTIONS ||
-        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 11U) {
-        failure = "the Radio actions section should open with seven rows under four headings";
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 15U) {
+        failure = "the Radio actions section should open with ten rows under five headings";
         goto cleanup;
     }
 
@@ -1072,4 +1072,71 @@ cleanup:
         return;
     }
     record_success(test_name);
+}
+
+/*
+ * A canned slot cannot carry the character that separates the slots.
+ *
+ * The radio's list is one '|'-separated string, so a slot holding a '|' comes back as two
+ * messages, shifts every slot after it, and pushes the entries this screen never showed off
+ * the end of the wire's 200 bytes. The keyboard's symbols layer has a '|' on it - row 3,
+ * column 6 - so this is reachable by typing rather than only in theory.
+ *
+ * Filtered as the edit is committed rather than refused at the save, so the row shows exactly
+ * what the radio will be sent.
+ */
+MESH_TEST_CASE(ui_nav_canned_separator, unit) {
+    const char *failure = NULL;
+
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_canned_messages = true;
+    snprintf(settings.canned_messages, sizeof settings.canned_messages, "%s", "one|two");
+    mesh_ui_store_set_settings(&store, &settings);
+
+    struct mesh_ui_action action;
+    for (int i = 0; i < 4; ++i) {
+        mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    }
+    if (!mesh_test_settings_open(&store, MESH_UI_SETTINGS_CANNED)) {
+        failure = "the canned section should open from the Modules list";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.keyboard_open || store.nav.keyboard_field != MESH_UI_FIELD_CANNED_0 ||
+        strcmp(store.nav.draft, "one") != 0) {
+        failure = "A on a slot should open the keyboard preloaded with it";
+        goto cleanup;
+    }
+    /* Typed rather than assembled a keypress at a time: what matters is what the commit does
+       with a separator in the draft, not how it got there. */
+    snprintf(store.nav.draft, sizeof store.nav.draft, "%s", "meet|later");
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    if (store.nav.keyboard_open || store.nav.settings_edit_count != 1U ||
+        store.nav.settings_edits[0].field != MESH_UI_FIELD_CANNED_0 ||
+        strcmp(store.nav.settings_edits[0].text, "meetlater") != 0) {
+        failure = "the separator should be dropped as the edit is committed";
+        goto cleanup;
+    }
+    /* Only the canned slots reserve one: an ordinary text field takes whatever is typed. */
+    if (mesh_ui_settings_field_reserved_char(MESH_UI_FIELD_CANNED_5) != '|' ||
+        mesh_ui_settings_field_reserved_char(MESH_UI_FIELD_MQTT_ROOT) != '\0') {
+        failure = "only the canned slots should reserve the separator";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
 }

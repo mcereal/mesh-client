@@ -83,6 +83,10 @@ const char *mesh_ui_settings_section_name(enum mesh_ui_settings_section section)
         return mesh_str(MESH_STR_SETTINGS_SECTION_EXT_NOTIFICATION);
     case MESH_UI_SETTINGS_TRAFFIC:
         return mesh_str(MESH_STR_SETTINGS_SECTION_TRAFFIC);
+    case MESH_UI_SETTINGS_RADIO_UI:
+        return mesh_str(MESH_STR_SETTINGS_SECTION_RADIO_UI);
+    case MESH_UI_SETTINGS_CANNED:
+        return mesh_str(MESH_STR_SETTINGS_SECTION_CANNED);
     default:
         return mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT);
     }
@@ -124,6 +128,11 @@ static const enum mesh_ui_icon k_section_icons[MESH_UI_SETTINGS_SECTION_COUNT] =
     [MESH_UI_SETTINGS_DETECTION] = MESH_UI_ICON_DETECTION,
     [MESH_UI_SETTINGS_EXT_NOTIFICATION] = MESH_UI_ICON_EXT_NOTIFY,
     [MESH_UI_SETTINGS_TRAFFIC] = MESH_UI_ICON_TRAFFIC,
+    /* Two more sections answering with an icon another part of the UI owns, for the reason the
+       three above do: Radio UI *is* the radio's screen, which is what DISPLAY says, and a
+       canned message is a quick reply, which is what REPLY says. */
+    [MESH_UI_SETTINGS_RADIO_UI] = MESH_UI_ICON_DISPLAY,
+    [MESH_UI_SETTINGS_CANNED] = MESH_UI_ICON_REPLY,
 };
 
 enum mesh_ui_icon mesh_ui_settings_section_icon(enum mesh_ui_settings_section section) {
@@ -143,20 +152,32 @@ bool mesh_ui_settings_section_icons_rows(enum mesh_ui_settings_section section) 
  * that is the point of Modules being one row rather than seventeen.
  */
 static const enum mesh_ui_settings_section k_root[] = {
-    MESH_UI_SETTINGS_ABOUT,    MESH_UI_SETTINGS_RADIO,    MESH_UI_SETTINGS_USER,
-    MESH_UI_SETTINGS_DEVICE,   MESH_UI_SETTINGS_DISPLAY,  MESH_UI_SETTINGS_POSITION,
-    MESH_UI_SETTINGS_POWER,    MESH_UI_SETTINGS_LORA,     MESH_UI_SETTINGS_BLUETOOTH,
-    MESH_UI_SETTINGS_CHANNELS, MESH_UI_SETTINGS_SECURITY, MESH_UI_SETTINGS_MODULES,
-    MESH_UI_SETTINGS_ACTIONS,
+    MESH_UI_SETTINGS_ABOUT,     MESH_UI_SETTINGS_RADIO,    MESH_UI_SETTINGS_USER,
+    MESH_UI_SETTINGS_DEVICE,    MESH_UI_SETTINGS_DISPLAY,  MESH_UI_SETTINGS_RADIO_UI,
+    MESH_UI_SETTINGS_POSITION,  MESH_UI_SETTINGS_POWER,    MESH_UI_SETTINGS_LORA,
+    MESH_UI_SETTINGS_BLUETOOTH, MESH_UI_SETTINGS_CHANNELS, MESH_UI_SETTINGS_SECURITY,
+    MESH_UI_SETTINGS_MODULES,   MESH_UI_SETTINGS_ACTIONS,
 };
 
 /* Every ModuleConfig variant this client keeps. Grows by one row per module as the phases
    land; the order is the protobuf's field order, which is as good as any and is stable. */
 static const enum mesh_ui_settings_section k_modules[] = {
-    MESH_UI_SETTINGS_MQTT,       MESH_UI_SETTINGS_STORE_FORWARD,    MESH_UI_SETTINGS_TELEMETRY,
-    MESH_UI_SETTINGS_RANGE_TEST, MESH_UI_SETTINGS_NEIGHBOR_INFO,    MESH_UI_SETTINGS_AMBIENT,
-    MESH_UI_SETTINGS_PAXCOUNTER, MESH_UI_SETTINGS_STATUS_MESSAGE,   MESH_UI_SETTINGS_TAK,
-    MESH_UI_SETTINGS_DETECTION,  MESH_UI_SETTINGS_EXT_NOTIFICATION, MESH_UI_SETTINGS_TRAFFIC,
+    MESH_UI_SETTINGS_MQTT,
+    MESH_UI_SETTINGS_STORE_FORWARD,
+    MESH_UI_SETTINGS_TELEMETRY,
+    MESH_UI_SETTINGS_RANGE_TEST,
+    MESH_UI_SETTINGS_NEIGHBOR_INFO,
+    MESH_UI_SETTINGS_AMBIENT,
+    MESH_UI_SETTINGS_PAXCOUNTER,
+    MESH_UI_SETTINGS_STATUS_MESSAGE,
+    MESH_UI_SETTINGS_TAK,
+    MESH_UI_SETTINGS_DETECTION,
+    MESH_UI_SETTINGS_EXT_NOTIFICATION,
+    MESH_UI_SETTINGS_TRAFFIC,
+    /* Last, and the one row here that is not a ModuleConfig: the canned message list is its
+       own pair of admin verbs. It is in this list because the question the list answers - what
+       is this radio running - is one it answers, and nowhere else would be shorter to find. */
+    MESH_UI_SETTINGS_CANNED,
 };
 
 uint32_t mesh_ui_settings_root_count(void) { return (uint32_t)MESH_ARRAY_LEN(k_root); }
@@ -245,6 +266,10 @@ bool mesh_ui_settings_section_loaded(const struct mesh_ui_settings *settings,
         return settings->has_external_notification;
     case MESH_UI_SETTINGS_TRAFFIC:
         return settings->has_traffic_management;
+    case MESH_UI_SETTINGS_RADIO_UI:
+        return settings->has_ui_config;
+    case MESH_UI_SETTINGS_CANNED:
+        return settings->has_canned_messages;
     default:
         return false;
     }
@@ -277,6 +302,45 @@ static const char *trigger_name(uint32_t trigger) {
     };
     return mesh_str(trigger < MESH_ARRAY_LEN(k_names) ? k_names[trigger]
                                                       : MESH_STR_COMMON_UNKNOWN_SHORT);
+}
+
+/* DeviceUIConfig's three editable enums, all contiguous from 0 - which is what the nav's
+   (value + 1) % count stepping needs, and why Language is not among them. */
+static const char *ui_theme_name(uint32_t theme) {
+    static const enum mesh_str_id k_names[] = {
+        MESH_STR_ENUM_UI_THEME_DARK,
+        MESH_STR_ENUM_UI_THEME_LIGHT,
+        MESH_STR_ENUM_UI_THEME_RED,
+    };
+    return mesh_str(theme < MESH_ARRAY_LEN(k_names) ? k_names[theme]
+                                                    : MESH_STR_COMMON_UNKNOWN_SHORT);
+}
+
+static const char *ui_compass_name(uint32_t mode) {
+    static const enum mesh_str_id k_names[] = {
+        MESH_STR_ENUM_UI_COMPASS_DYNAMIC,
+        MESH_STR_ENUM_UI_COMPASS_FIXED,
+        MESH_STR_ENUM_UI_COMPASS_FREEZE,
+    };
+    return mesh_str(mode < MESH_ARRAY_LEN(k_names) ? k_names[mode] : MESH_STR_COMMON_UNKNOWN_SHORT);
+}
+
+/* Named for what a reader would call the format rather than for the acronym, except where the
+   acronym is what it is called - MGRS and UTM are not expanded on a map either. */
+static const char *ui_gps_format_name(uint32_t format) {
+    static const enum mesh_str_id k_names[] = {
+        MESH_STR_ENUM_UI_GPS_DEC,  MESH_STR_ENUM_UI_GPS_DMS, MESH_STR_ENUM_UI_GPS_UTM,
+        MESH_STR_ENUM_UI_GPS_MGRS, MESH_STR_ENUM_UI_GPS_OLC, MESH_STR_ENUM_UI_GPS_OSGR,
+        MESH_STR_ENUM_UI_GPS_MLS,
+    };
+    return mesh_str(format < MESH_ARRAY_LEN(k_names) ? k_names[format]
+                                                     : MESH_STR_COMMON_UNKNOWN_SHORT);
+}
+
+/* `is_clockface_analog` is a bool on the wire and an enum here: a row reading "Clock face: on"
+   says nothing, and the two values have names. */
+static const char *ui_clockface_name(uint32_t analog) {
+    return mesh_str(analog != 0U ? MESH_STR_ENUM_UI_CLOCK_ANALOG : MESH_STR_ENUM_UI_CLOCK_DIGITAL);
 }
 
 /* meshtastic_Team and meshtastic_MemberRole, from atak.proto. Both are contiguous from 0, which
@@ -446,6 +510,22 @@ static const uint32_t k_tx_power_presets[] = {0U, 2U, 5U, 8U, 10U, 14U, 17U, 20U
 
 static const uint32_t k_precision_presets[] = {0U,  10U, 11U, 12U, 13U, 14U,
                                                15U, 16U, 17U, 18U, 19U, 32U};
+
+/*
+ * DeviceUIConfig's three number rows.
+ *
+ * Brightness is a level out of 255 and every stop is a real setting, so it is a plain scale
+ * with no zero to stand outside it - a screen at 0 is a screen turned down, not a screen with
+ * no brightness. The timeout's 0 is "never sleep", which is not a duration, so it stands
+ * outside the track the way every other zero-as-a-word does. The ring tone is an index into
+ * the firmware's own list of tunes: it names one rather than measuring anything, so it is a
+ * NAMED_PRESETS run of every value the field can hold rather than a curated few.
+ */
+static const uint32_t k_ui_brightness_presets[] = {16U,  32U,  64U,  96U, 128U,
+                                                   160U, 192U, 224U, 255U};
+static const uint32_t k_ui_timeout_presets[] = {0U,   15U,  30U,  60U,   120U,
+                                                300U, 600U, 900U, 1800U, 3600U};
+static const uint32_t k_ui_ringtone_presets[] = {0U, 1U, 2U, 3U, 4U, 5U, 6U, 7U};
 
 /* 0 means "firmware default" for these, and the presets are what the phone apps offer. */
 static const uint32_t k_screen_on_presets[] = {0U,   15U,  30U,  60U,   120U,
@@ -1113,7 +1193,119 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                                  MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_SECURITY,
                                                  3U, signature_policy_name, NO_PRESETS,
                                                  MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_UI_THEME] = {MESH_STR_SETTINGS_FIELD_UI_THEME, MESH_UI_SETTING_ENUM,
+                                MESH_UI_SETTINGS_RADIO_UI, 3U, ui_theme_name, NO_PRESETS,
+                                MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_UI_BRIGHTNESS] = {MESH_STR_SETTINGS_FIELD_UI_BRIGHTNESS, MESH_UI_SETTING_NUMBER,
+                                     MESH_UI_SETTINGS_RADIO_UI, 0U, NULL,
+                                     SCALE_PRESETS(k_ui_brightness_presets), MESH_STR_NONE,
+                                     format_plain, 0U},
+    [MESH_UI_FIELD_UI_SCREEN_TIMEOUT] = {MESH_STR_SETTINGS_FIELD_UI_SCREEN_TIMEOUT,
+                                         MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_RADIO_UI, 0U,
+                                         NULL, SCALE_PRESETS_AFTER_ZERO(k_ui_timeout_presets),
+                                         MESH_STR_ZERO_NEVER, NULL, 0U},
+    [MESH_UI_FIELD_UI_ALERT] = {MESH_STR_SETTINGS_FIELD_UI_ALERT, MESH_UI_SETTING_TOGGLE,
+                                MESH_UI_SETTINGS_RADIO_UI, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
+                                NULL, 0U},
+    [MESH_UI_FIELD_UI_BANNER] = {MESH_STR_SETTINGS_FIELD_UI_BANNER, MESH_UI_SETTING_TOGGLE,
+                                 MESH_UI_SETTINGS_RADIO_UI, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
+                                 NULL, 0U},
+    [MESH_UI_FIELD_UI_RING_TONE] = {MESH_STR_SETTINGS_FIELD_UI_RING_TONE, MESH_UI_SETTING_NUMBER,
+                                    MESH_UI_SETTINGS_RADIO_UI, 0U, NULL,
+                                    NAMED_PRESETS(k_ui_ringtone_presets), MESH_STR_NONE,
+                                    format_plain, 0U},
+    [MESH_UI_FIELD_UI_COMPASS_MODE] = {MESH_STR_SETTINGS_FIELD_UI_COMPASS_MODE,
+                                       MESH_UI_SETTING_ENUM, MESH_UI_SETTINGS_RADIO_UI, 3U,
+                                       ui_compass_name, NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_UI_GPS_FORMAT] = {MESH_STR_SETTINGS_FIELD_UI_GPS_FORMAT, MESH_UI_SETTING_ENUM,
+                                     MESH_UI_SETTINGS_RADIO_UI, 7U, ui_gps_format_name, NO_PRESETS,
+                                     MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_UI_CLOCKFACE] = {MESH_STR_SETTINGS_FIELD_UI_CLOCKFACE, MESH_UI_SETTING_ENUM,
+                                    MESH_UI_SETTINGS_RADIO_UI, 2U, ui_clockface_name, NO_PRESETS,
+                                    MESH_STR_NONE, NULL, 0U},
+    /* The per-slot cap, not the wire's 200: see MESH_UI_CANNED_SLOTS for why the two are
+       chosen together. The keyboard reads `limit` as the number of bytes it may commit. */
+    [MESH_UI_FIELD_CANNED_0] = {MESH_STR_SETTINGS_FIELD_CANNED_0, MESH_UI_SETTING_TEXT,
+                                MESH_UI_SETTINGS_CANNED, MESH_UI_CANNED_SLOT_MAX - 1U, NULL,
+                                NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_CANNED_1] = {MESH_STR_SETTINGS_FIELD_CANNED_1, MESH_UI_SETTING_TEXT,
+                                MESH_UI_SETTINGS_CANNED, MESH_UI_CANNED_SLOT_MAX - 1U, NULL,
+                                NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_CANNED_2] = {MESH_STR_SETTINGS_FIELD_CANNED_2, MESH_UI_SETTING_TEXT,
+                                MESH_UI_SETTINGS_CANNED, MESH_UI_CANNED_SLOT_MAX - 1U, NULL,
+                                NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_CANNED_3] = {MESH_STR_SETTINGS_FIELD_CANNED_3, MESH_UI_SETTING_TEXT,
+                                MESH_UI_SETTINGS_CANNED, MESH_UI_CANNED_SLOT_MAX - 1U, NULL,
+                                NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_CANNED_4] = {MESH_STR_SETTINGS_FIELD_CANNED_4, MESH_UI_SETTING_TEXT,
+                                MESH_UI_SETTINGS_CANNED, MESH_UI_CANNED_SLOT_MAX - 1U, NULL,
+                                NO_PRESETS, MESH_STR_NONE, NULL, 0U},
+    [MESH_UI_FIELD_CANNED_5] = {MESH_STR_SETTINGS_FIELD_CANNED_5, MESH_UI_SETTING_TEXT,
+                                MESH_UI_SETTINGS_CANNED, MESH_UI_CANNED_SLOT_MAX - 1U, NULL,
+                                NO_PRESETS, MESH_STR_NONE, NULL, 0U},
 };
+
+/*
+ * The canned list is one string with '|' between entries. An empty list is no entries rather
+ * than one empty one, and a trailing separator does not invent a last entry: both matter
+ * because the count is what the "also on radio" row reports and what decides how far the write
+ * builder walks.
+ */
+char mesh_ui_settings_field_reserved_char(enum mesh_ui_setting_field field) {
+    switch (field) {
+    case MESH_UI_FIELD_CANNED_0:
+    case MESH_UI_FIELD_CANNED_1:
+    case MESH_UI_FIELD_CANNED_2:
+    case MESH_UI_FIELD_CANNED_3:
+    case MESH_UI_FIELD_CANNED_4:
+    case MESH_UI_FIELD_CANNED_5:
+        return '|';
+    default:
+        return '\0';
+    }
+}
+
+uint32_t mesh_ui_settings_canned_count(const char *list) {
+    if (list == NULL || list[0] == '\0') {
+        return 0U;
+    }
+    uint32_t count = 1U;
+    for (const char *p = list; *p != '\0'; ++p) {
+        if (*p == '|') {
+            count++;
+        }
+    }
+    /* A list ending in '|' has no entry after it. */
+    if (list[strlen(list) - 1U] == '|') {
+        count--;
+    }
+    return count;
+}
+
+void mesh_ui_settings_canned_entry(const char *list, uint32_t index, char *out, size_t out_len) {
+    if (out == NULL || out_len == 0U) {
+        return;
+    }
+    out[0] = '\0';
+    if (list == NULL) {
+        return;
+    }
+    const char *start = list;
+    for (uint32_t i = 0; i < index; ++i) {
+        const char *sep = strchr(start, '|');
+        if (sep == NULL) {
+            return;
+        }
+        start = sep + 1;
+    }
+    const char *end = strchr(start, '|');
+    size_t len = (end != NULL) ? (size_t)(end - start) : strlen(start);
+    if (len >= out_len) {
+        len = out_len - 1U;
+    }
+    memcpy(out, start, len);
+    out[len] = '\0';
+}
 
 const struct field_spec *field_spec(enum mesh_ui_setting_field field) {
     if ((unsigned)field >= MESH_UI_FIELD_COUNT) {
@@ -1298,6 +1490,9 @@ bool mesh_ui_settings_action_needs_confirm(enum mesh_ui_settings_action action) 
            action == MESH_UI_SETTINGS_ACTION_RESET_NODEDB ||
            action == MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG ||
            action == MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE ||
+           action == MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG ||
+           action == MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG ||
+           action == MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP ||
            mesh_ui_settings_action_is_forget(action);
 }
 
@@ -1310,7 +1505,10 @@ bool mesh_ui_settings_action_is_radio(enum mesh_ui_settings_action action) {
            action == MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG ||
            action == MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE ||
            action == MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION ||
-           action == MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION;
+           action == MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION ||
+           action == MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG ||
+           action == MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG ||
+           action == MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP;
 }
 
 bool mesh_ui_settings_action_is_forget(enum mesh_ui_settings_action action) {
@@ -1346,6 +1544,15 @@ void mesh_ui_settings_confirm_title(enum mesh_ui_settings_section section, uint8
     case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE:
         snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_FACTORY_DEV));
         return;
+    case MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG:
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_BACKUP));
+        return;
+    case MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG:
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_RESTORE));
+        return;
+    case MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP:
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TITLE_RM_BACKUP));
+        return;
     default:
         break;
     }
@@ -1373,6 +1580,12 @@ const char *mesh_ui_settings_confirm_accept(enum mesh_ui_settings_action action)
         return mesh_str(MESH_STR_CONFIRM_ACCEPT_FACTORY_CFG);
     case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE:
         return mesh_str(MESH_STR_CONFIRM_ACCEPT_FACTORY_DEV);
+    case MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG:
+        return mesh_str(MESH_STR_CONFIRM_ACCEPT_BACKUP);
+    case MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG:
+        return mesh_str(MESH_STR_CONFIRM_ACCEPT_RESTORE);
+    case MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP:
+        return mesh_str(MESH_STR_CONFIRM_ACCEPT_RM_BACKUP);
     default:
         return mesh_str(MESH_STR_CONFIRM_ACCEPT_SAVE);
     }
@@ -1412,6 +1625,15 @@ void mesh_ui_settings_confirm_text(enum mesh_ui_settings_section section,
         return;
     case MESH_UI_SETTINGS_ACTION_FACTORY_RESET_DEVICE:
         snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_FACTORY_DEV));
+        return;
+    case MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG:
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_BACKUP));
+        return;
+    case MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG:
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_RESTORE));
+        return;
+    case MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP:
+        snprintf(out, out_len, "%s", mesh_str(MESH_STR_CONFIRM_TEXT_RM_BACKUP));
         return;
     default:
         break;

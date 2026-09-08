@@ -160,12 +160,32 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
             kind = MESH_ADMIN_FACTORY_RESET_DEVICE;
             asked = MESH_STR_TOAST_FACTORY_DEVICE;
             break;
+        /* The backup trio. Like the resets, nothing comes back to confirm any of them: the
+           firmware answers the request and then acts, so the toast says what was asked for.
+           A restore is the one that changes what the radio holds, and the settings it changes
+           are the ones this tab is showing - so it is followed by a refresh rather than left
+           to a screen that would keep drawing the values it had before. */
+        case MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG:
+            kind = MESH_ADMIN_BACKUP_PREFERENCES;
+            asked = MESH_STR_TOAST_BACKED_UP;
+            break;
+        case MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG:
+            kind = MESH_ADMIN_RESTORE_PREFERENCES;
+            asked = MESH_STR_TOAST_RESTORED;
+            break;
+        case MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP:
+            kind = MESH_ADMIN_REMOVE_BACKUP_PREFERENCES;
+            asked = MESH_STR_TOAST_BACKUP_REMOVED;
+            break;
         default:
             return; /* a row the nav should never have confirmed */
         }
         const int result = mesh_session_radio_action(&app->session, kind);
         if (result > 0) {
             snprintf(toast, sizeof toast, "%s", mesh_str(asked));
+            if (kind == MESH_ADMIN_RESTORE_PREFERENCES) {
+                (void)mesh_session_refresh_settings(&app->session);
+            }
         } else if (result == 0) {
             snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_ALREADY_REQUESTED));
         } else if (result == -ENOTCONN) {

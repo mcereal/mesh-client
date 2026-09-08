@@ -1,0 +1,21 @@
+# The radio's own screen, as a section of its own.
+#
+# Filmed rather than described because the point is the shape rather than any one row: nine
+# fields the Brick can change, then a heading, then three the radio decides and this client
+# only reports - the language, and the two locks it has no verb to undo. A screen that offered
+# all twelve would look exactly the same in a still.
+scene demo
+scale 4
+delay 180
+config
+
+tab settings
+hold 400
+key down 5
+hold 500
+key a
+hold 900
+key down 9
+hold 900
+key b
+hold 600

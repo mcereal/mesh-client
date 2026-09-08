@@ -1092,6 +1092,14 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
         mesh_log_debug("session", "Received module config fragment (variant %u)",
                        (unsigned)message.moduleConfig.which_payload_variant);
         break;
+    case meshtastic_FromRadio_deviceuiConfig_tag:
+        /* The radio's own screen settings, streamed with the rest of the handshake. Kept here
+           as well as through get_ui_config_response so the section is populated on a radio
+           whose firmware predates the admin verb but still streams the fragment. */
+        mesh_radio_settings_apply_ui_config(&session->settings, &message.deviceuiConfig);
+        mesh_log_debug("session", "Received device UI config (version %u)",
+                       (unsigned)message.deviceuiConfig.version);
+        break;
     case meshtastic_FromRadio_metadata_tag:
         mesh_radio_settings_apply_metadata(&session->settings, &message.metadata);
         mesh_log_info("session", "Device metadata: firmware %s, hw_model %u",
