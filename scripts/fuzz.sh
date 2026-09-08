@@ -17,10 +17,16 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-BUILD_ROOT="${BUILD_ROOT:-build/fuzz}"
-BUILD_DIR="${BUILD_ROOT}/debug"
-CORPUS_DIR="${BUILD_ROOT}/corpus"
-FINDINGS_DIR="${BUILD_ROOT}/findings"
+# A tree of its own *under* whatever root it was given, never the root itself. Inside the dev
+# container BUILD_ROOT is build/linux, which is docker-test's tree: a fuzz configure there would
+# leave the fuzzers, both sanitizers and BUILD_TESTING=OFF in a cache the next `make docker-test`
+# reuses - a test run with no tests in it, reported as a pass. The other order is no better: a
+# tree already configured with gcc cannot be moved to clang by setting CC, so the clang check
+# would fail on a cache rather than on anything the caller did.
+FUZZ_ROOT="${BUILD_ROOT:-build}/fuzz"
+BUILD_DIR="${FUZZ_ROOT}/debug"
+CORPUS_DIR="${FUZZ_ROOT}/corpus"
+FINDINGS_DIR="${FUZZ_ROOT}/findings"
 RUNS=20000
 MAX_TOTAL_TIME=0
 TARGETS=()

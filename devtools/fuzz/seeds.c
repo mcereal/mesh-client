@@ -14,6 +14,8 @@
  * Usage: meshclient_fuzz_seeds <directory>   (creates <directory>/{stream_framing,session}/)
  */
 
+#include "fuzz_state.h"
+
 #include "mesh/core/message.h"
 #include "mesh/core/session.h"
 #include "mesh/proto/stream_framing.h"
@@ -88,8 +90,8 @@ static void session_seed(const char *name, const meshtastic_FromRadio *from_radi
 }
 
 /* A MeshPacket carrying one app payload, which is how everything off the mesh arrives. */
-static void packet_seed(const char *name, meshtastic_PortNum portnum, const uint8_t *payload,
-                        size_t len) {
+static void packet_seed_reply(const char *name, meshtastic_PortNum portnum, const uint8_t *payload,
+                              size_t len, uint32_t request_id) {
     meshtastic_FromRadio from_radio = meshtastic_FromRadio_init_default;
     from_radio.which_payload_variant = meshtastic_FromRadio_packet_tag;
     from_radio.packet.from = 0x336699AAU;
@@ -102,6 +104,7 @@ static void packet_seed(const char *name, meshtastic_PortNum portnum, const uint
     from_radio.packet.hop_limit = 3U;
     from_radio.packet.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
     from_radio.packet.decoded.portnum = portnum;
+    from_radio.packet.decoded.request_id = request_id;
     if (len > sizeof from_radio.packet.decoded.payload.bytes) {
         fprintf(stderr, "seeds: %s payload does not fit a MeshPacket\n", name);
         exit(1);
@@ -109,6 +112,12 @@ static void packet_seed(const char *name, meshtastic_PortNum portnum, const uint
     memcpy(from_radio.packet.decoded.payload.bytes, payload, len);
     from_radio.packet.decoded.payload.size = (pb_size_t)len;
     session_seed(name, &from_radio);
+}
+
+/* Everything that is not an answer to something we sent. */
+static void packet_seed(const char *name, meshtastic_PortNum portnum, const uint8_t *payload,
+                        size_t len) {
+    packet_seed_reply(name, portnum, payload, len, 0U);
 }
 
 static size_t encode_sub(const pb_msgdesc_t *fields, const void *message, uint8_t *out,
@@ -195,14 +204,14 @@ static void write_session_seeds(void) {
     from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
     from_radio.which_payload_variant = meshtastic_FromRadio_clientNotification_tag;
     from_radio.clientNotification.level = meshtastic_LogRecord_Level_WARNING;
-    snprintf(from_radio.clientNotification.message,
-             sizeof from_radio.clientNotification.message,
+    snprintf(from_radio.clientNotification.message, sizeof from_radio.clientNotification.message,
              "Duty cycle limit reached; transmit deferred");
     session_seed("client_notification", &from_radio);
 
     from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
     from_radio.which_payload_variant = meshtastic_FromRadio_config_complete_id_tag;
-    from_radio.config_complete_id = 0x4E4F4E43U;
+    /* The id the harness has in flight; anything else takes the branch that only logs. */
+    from_radio.config_complete_id = MESH_FUZZ_CONFIG_REQUEST_ID;
     session_seed("config_complete", &from_radio);
 
     from_radio = (meshtastic_FromRadio)meshtastic_FromRadio_init_default;
@@ -224,9 +233,9 @@ static void write_session_seeds(void) {
     position.altitude = 121;
     position.precision_bits = 16U;
     position.timestamp = 1750000000U;
-    packet_seed("packet_position", meshtastic_PortNum_POSITION_APP, payload,
-                encode_sub(meshtastic_Position_fields, &position, payload, sizeof payload,
-                           "a Position"));
+    packet_seed(
+        "packet_position", meshtastic_PortNum_POSITION_APP, payload,
+        encode_sub(meshtastic_Position_fields, &position, payload, sizeof payload, "a Position"));
 
     meshtastic_Telemetry telemetry = meshtastic_Telemetry_init_default;
     telemetry.time = 1750000000U;
@@ -244,9 +253,9 @@ static void write_session_seeds(void) {
     meshtastic_Routing routing = meshtastic_Routing_init_default;
     routing.which_variant = meshtastic_Routing_error_reason_tag;
     routing.error_reason = meshtastic_Routing_Error_NONE;
-    packet_seed("packet_routing", meshtastic_PortNum_ROUTING_APP, payload,
-                encode_sub(meshtastic_Routing_fields, &routing, payload, sizeof payload,
-                           "a Routing"));
+    packet_seed(
+        "packet_routing", meshtastic_PortNum_ROUTING_APP, payload,
+        encode_sub(meshtastic_Routing_fields, &routing, payload, sizeof payload, "a Routing"));
 
     meshtastic_RouteDiscovery route = meshtastic_RouteDiscovery_init_default;
     route.route_count = 2U;
@@ -255,9 +264,12 @@ static void write_session_seeds(void) {
     route.snr_towards_count = 2U;
     route.snr_towards[0] = 24;
     route.snr_towards[1] = 12;
-    packet_seed("packet_traceroute", meshtastic_PortNum_TRACEROUTE_APP, payload,
-                encode_sub(meshtastic_RouteDiscovery_fields, &route, payload, sizeof payload,
-                           "a RouteDiscovery"));
+    /* A reply names the request it answers, and without that the session drops it before the
+       RouteDiscovery inside is ever decoded. */
+    packet_seed_reply("packet_traceroute", meshtastic_PortNum_TRACEROUTE_APP, payload,
+                      encode_sub(meshtastic_RouteDiscovery_fields, &route, payload, sizeof payload,
+                                 "a RouteDiscovery"),
+                      MESH_FUZZ_TRACEROUTE_REQUEST_ID);
 
     meshtastic_User user = meshtastic_User_init_default;
     snprintf(user.id, sizeof user.id, "!336699aa");
@@ -321,15 +333,15 @@ static void write_framing_seeds(void) {
 
     /* A start byte pair inside a log line, with a length that cannot be a frame: resync has to
        step past the start byte rather than trusting the length. */
-    const uint8_t false_start[] = {'l',  'o',  'g',  ' ',  MESH_STREAM_FRAME_START1,
-                                   MESH_STREAM_FRAME_START2, 0xFFU, 0xFFU, 'm',  'o',
-                                   'r',  'e',  '\n'};
+    const uint8_t false_start[] = {
+        'l', 'o', 'g', ' ', MESH_STREAM_FRAME_START1, MESH_STREAM_FRAME_START2, 0xFFU, 0xFFU, 'm',
+        'o', 'r', 'e', '\n'};
     framing_seed("false_start", 5U, false_start, sizeof false_start);
 
     /* A header promising more payload than ever arrives: the parser must hold it, not deliver
        it, and not wedge. */
-    const uint8_t truncated[] = {MESH_STREAM_FRAME_START1, MESH_STREAM_FRAME_START2, 0x01U, 0x00U,
-                                 0x08U, 0x01U};
+    const uint8_t truncated[] = {
+        MESH_STREAM_FRAME_START1, MESH_STREAM_FRAME_START2, 0x01U, 0x00U, 0x08U, 0x01U};
     framing_seed("truncated_frame", 3U, truncated, sizeof truncated);
 
     /* A zero-length payload, which is a legal frame that delivers nothing. */

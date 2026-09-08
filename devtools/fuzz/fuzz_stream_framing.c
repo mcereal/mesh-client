@@ -106,7 +106,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
                              (tally.frames * (size_t)MESH_STREAM_FRAME_HEADER_LEN) +
                              parser.dropped_bytes + parser.len;
     if (accounted != stream_len) {
-        fprintf(stderr, "pushed %zu, accounted %zu (payload %zu, frames %zu, dropped %zu, held %zu)\n",
+        fprintf(stderr,
+                "pushed %zu, accounted %zu (payload %zu, frames %zu, dropped %zu, held %zu)\n",
                 stream_len, accounted, tally.payload_bytes, tally.frames, parser.dropped_bytes,
                 parser.len);
         fuzz_broke("a byte was lost or counted twice");

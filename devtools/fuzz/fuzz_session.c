@@ -19,6 +19,8 @@
  * Build with scripts/fuzz.sh; see docs/testing.md.
  */
 
+#include "fuzz_state.h"
+
 #include "mesh/core/message.h"
 #include "mesh/core/session.h"
 #include "mesh/utils/log.h"
@@ -95,6 +97,18 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size);
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     mesh_session_init(&g_session);
     mesh_session_attach(&g_session, fuzz_send, NULL);
+
+    /* An attached session that has not asked the radio for anything answers half these packets
+       with an early return, and the two most interesting decoders are behind that: a
+       config_complete is only acted on while a want_config is in flight and echoes it, and a
+       TRACEROUTE_APP payload is only decoded while a trace is pending and echoes its request.
+       Both are states a real session spends most of a connection in, so the harness starts each
+       input in them - and the ids are pinned (fuzz_state.h) so the corpus can quote them. */
+    g_session.handshake.request_in_flight = true;
+    g_session.handshake.request_id = MESH_FUZZ_CONFIG_REQUEST_ID;
+    g_session.traceroute.state = (uint8_t)MESH_TRACEROUTE_PENDING;
+    g_session.traceroute.target = MESH_FUZZ_TRACEROUTE_TARGET;
+    g_session.traceroute.packet_id = MESH_FUZZ_TRACEROUTE_REQUEST_ID;
 
     /* Deliberately not capped at MESH_SESSION_MAX_PACKET. Both links bound what they hand over
        - the frame parser by its buffer, BLE by its read size - but the session takes a pointer
