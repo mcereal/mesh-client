@@ -259,6 +259,13 @@ Neither path carries the coordinate through the nav. `MESH_UI_ACTION_SHARE_WAYPO
 when it acts — which is both more current and twice the size of the published one, so a node
 that moves while its name is being typed is saved where it ends up.
 
+Places expire. Upstream's `expire` is a real date, so the client honours it wherever it can read
+one — a place that had already expired when it arrived is dropped rather than stored, and
+`mesh_session_tick()` retires one whose deadline passes under us, because nothing on the mesh
+re-announces an expiry. All three readings ask `mesh_time_wall_credible_s()` rather than
+`mesh_time_wall_s()`: a Brick with no network boots into 1970, and a deadline measured against
+that clock reads as tens of thousands of days rather than as the unanswerable question it is.
+
 A place's detail says what it is (range, coordinates), what its sharer said about it (the note,
 wrapped across the row's full width rather than squeezed into a value column), who shared it and
 on what channel, and offers two verbs: share it again, and delete. **The delete row says which

@@ -884,7 +884,10 @@ static void fb_render_waypoint_detail(struct mesh_ui_backend_fb_state *state,
     struct mesh_ui_waypoint_item items[MESH_UI_WAYPOINT_ITEMS_MAX];
     const uint32_t count = mesh_ui_waypoint_detail_build(
         waypoint, snapshot->handshake_valid ? &snapshot->handshake : NULL, &snapshot->settings,
-        mesh_time_wall_s(), nav->waypoint_delete_armed, items, MESH_UI_WAYPOINT_ITEMS_MAX);
+        /* The credible clock rather than the machine's: this screen's "Expires" row subtracts
+           from it, and a Brick that has not been told the date would otherwise report every
+           deadline as tens of thousands of days away rather than saying it cannot tell. */
+        mesh_time_wall_credible_s(), nav->waypoint_delete_armed, items, MESH_UI_WAYPOINT_ITEMS_MAX);
     if (count == 0U) {
         fb_draw_empty(state, layout, MESH_UI_ICON_POSITION, mesh_str(MESH_STR_WAYPOINTS_GONE));
         return;

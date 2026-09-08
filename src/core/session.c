@@ -30,12 +30,10 @@
  * earlier than the floor is treated as no clock at all, which every caller already renders as
  * "unknown" rather than as a date.
  */
-#define MESH_SESSION_CLOCK_MIN_EPOCH 1600000000
-
-static uint32_t mesh_session_wall_clock(void) {
-    const time_t now = time(NULL);
-    return now > MESH_SESSION_CLOCK_MIN_EPOCH ? (uint32_t)now : 0U;
-}
+/* The wall clock when it is credibly one; see mesh_time_wall_credible_s(). The floor used to
+   be spelled out here, and it is now shared with the two other places that need to know a
+   Brick's 1970 clock is not a date. */
+static uint32_t mesh_session_wall_clock(void) { return mesh_time_wall_credible_s(); }
 
 /*
  * Everything the connection that just ended told us about *itself* - what was in flight, what
@@ -1132,6 +1130,17 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
                config because it is the same radio; this is the case where it is not, and the
                channel table and LoRa settings we are holding are another radio's. */
             mesh_session_forget_radio(session);
+            /*
+             * The places go with the channel table, which is what makes them the roster's case
+             * rather than the message log's.
+             *
+             * A message survives a swap because its channel is only ever a label on something
+             * that already happened. A waypoint's is an *index into the table just discarded*,
+             * and "Share it again" broadcasts on it - so a place carried across would go out on
+             * whatever slot that number names on the new radio, which is a different channel or
+             * none. They are also another mesh's places, which is the roster's own argument.
+             */
+            mesh_waypoint_book_reset(&session->waypoints);
         }
         session->roster_node = message.my_info.my_node_num;
         handshake->has_my_info = true;
@@ -1292,6 +1301,17 @@ void mesh_session_tick(struct mesh_session *session, uint64_t now_ms) {
         trace->state = MESH_TRACEROUTE_TIMEOUT;
         mesh_log_info("session", "Traceroute to 0x%08x timed out", trace->target);
     }
+    /*
+     * And the places whose own deadline has passed, for the same reason: nothing on the mesh
+     * re-announces a waypoint's expiry, so the clock is the only thing that can retire one.
+     *
+     * Above the link guards, again deliberately. An expiry is a fact about the place rather than
+     * about the connection, and a list that went on offering "share it again" for somewhere that
+     * stopped being a place an hour ago would be wrong whether or not a radio is attached. The
+     * clock is the credible one, so a Brick that does not know the date simply retires nothing.
+     */
+    (void)mesh_waypoint_book_prune(&session->waypoints, mesh_time_wall_credible_s());
+
     if (session->send == NULL || !session->handshake.has_my_info) {
         return;
     }

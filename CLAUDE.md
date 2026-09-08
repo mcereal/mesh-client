@@ -397,11 +397,17 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   only sends one when `locked_to` says this client may, because asking the whole mesh to forget
   somebody else's place is not ours to do. The local entry goes either way.
 - **A waypoint's expiry is only honoured once we know what time it is, and a tombstone always
-  is.** The Brick has no wall clock, so "has this expired?" is usually unanswerable - and
-  answering it with a guess would drop places that are still there. But "was this expiry a
-  moment in 1970?" needs no clock at all, and that is exactly what a withdrawal is. Hence the
-  two halves of `mesh_waypoint_state()` and the `MESH_WAYPOINT_TOMBSTONE_BEFORE` floor between
-  them.
+  is.** The Brick has no RTC battery, so with no network it boots into the epoch and
+  `time(NULL)` is a small positive number - which means "has this expired?" is usually
+  unanswerable, and answering it from that clock would report every deadline as decades away.
+  But "was this expiry a moment in 1970?" needs no clock at all, and that is exactly what a
+  withdrawal is. Hence the two halves of `mesh_waypoint_state()`, and hence
+  **`mesh_time_wall_credible_s()`**: `mesh_time_wall_s()` answers whatever the machine says,
+  which is what an *age* wants because every caller that draws one already refuses a negative or
+  enormous one, and a *deadline* has no such safety. Expiry is read against the credible clock
+  in all three places that read it - ingest (a place that arrived expired is dropped),
+  `mesh_session_tick()` (nothing re-announces an expiry, so the clock is the only thing that can
+  retire one) and the detail's countdown.
 - **The waypoint book is a table keyed by id, not a ring.** Upstream *edits* a waypoint by
   re-broadcasting it with the same id, so the second copy lands on the first. The message log
   next door does the opposite on purpose - two packets are two things that happened - and a
@@ -410,6 +416,11 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   it.** Naming a place is not a message that failed to go out: it is something the user made, it
   is theirs with or without a radio, and the next share re-broadcasts the same id. That is why
   `mesh_session_send_waypoint()` does not check the link before storing.
+- **A radio swap takes the waypoints with the roster, and a reconnect does not.** This is the
+  roster's rule rather than the message log's, and the channel index is why: a message's channel
+  is a label on something that already happened, while a waypoint's is an index into the channel
+  table the swap has just discarded - so a place carried across would have "Share it again"
+  broadcast on whatever slot that number names on the *new* radio.
 - **Waypoints are deliberately not persisted with the roster.** The roster is what we *know* and
   is worth keeping because a node the radio evicted is gone for good; a waypoint lives on the
   mesh and its sharer can withdraw it. A cache would put back places the mesh had already agreed

@@ -58,8 +58,8 @@ void mesh_ui_format_distance(double metres, bool imperial, char *out, size_t out
    called is the reader's language. */
 static enum mesh_str_id waypoint_compass_str(enum mesh_geo_compass point) {
     static const enum mesh_str_id k_points[MESH_GEO_COMPASS_COUNT] = {
-        MESH_STR_COMPASS_N,  MESH_STR_COMPASS_NE, MESH_STR_COMPASS_E,  MESH_STR_COMPASS_SE,
-        MESH_STR_COMPASS_S,  MESH_STR_COMPASS_SW, MESH_STR_COMPASS_W,  MESH_STR_COMPASS_NW,
+        MESH_STR_COMPASS_N, MESH_STR_COMPASS_NE, MESH_STR_COMPASS_E, MESH_STR_COMPASS_SE,
+        MESH_STR_COMPASS_S, MESH_STR_COMPASS_SW, MESH_STR_COMPASS_W, MESH_STR_COMPASS_NW,
     };
     if ((unsigned)point >= (unsigned)MESH_GEO_COMPASS_COUNT) {
         return MESH_STR_COMPASS_N;
@@ -332,8 +332,7 @@ bool mesh_ui_waypoint_row(const struct mesh_ui_store *store, uint32_t index,
 
     int32_t self_lat = 0;
     int32_t self_lon = 0;
-    if (waypoint->has_coords &&
-        mesh_ui_waypoint_our_fix(handshake, &self_lat, &self_lon)) {
+    if (waypoint->has_coords && mesh_ui_waypoint_our_fix(handshake, &self_lat, &self_lon)) {
         (void)mesh_ui_waypoint_format_range(self_lat, self_lon, waypoint->latitude_i,
                                             waypoint->longitude_i, store->settings.units == 1U,
                                             out->range, sizeof out->range);
@@ -343,14 +342,16 @@ bool mesh_ui_waypoint_row(const struct mesh_ui_store *store, uint32_t index,
     waypoint_sharer_name(waypoint, handshake, sharer, sizeof sharer);
     char age[24];
     /* The wall clock, asked for here rather than passed in - the same call fb_render_node_detail
-       makes for the same reason, and the same one mesh_time_wall_set_fixed() pins in a test. On
-       a Brick it answers 0, and an age of "?" is what an unknown clock honestly yields. */
-    waypoint_format_age(waypoint->heard, mesh_time_wall_s(), age, sizeof age);
+       makes for the same reason, and the same one mesh_time_wall_set_fixed() pins in a test. The
+       credible one, because a Brick with no network boots into 1970 and every age measured
+       against that comes out as decades; 0 yields "?", which is the honest answer. */
+    waypoint_format_age(waypoint->heard, mesh_time_wall_credible_s(), age, sizeof age);
     mesh_str_format(out->shared, sizeof out->shared, MESH_STR_WAYPOINTS_ROW_SHARED, sharer, age);
     return true;
 }
 
-/* ---- one waypoint's detail -------------------------------------------------------------------- */
+/* ---- one waypoint's detail --------------------------------------------------------------------
+ */
 
 struct waypoint_rows {
     struct mesh_ui_waypoint_item *items;
@@ -410,8 +411,7 @@ static void rows_action(struct waypoint_rows *rows, enum mesh_str_id label, cons
     mesh_str_copy(item->value, sizeof item->value, value != NULL ? value : "");
 }
 
-static void waypoint_rows_place(struct waypoint_rows *rows,
-                                const struct mesh_ui_waypoint *waypoint,
+static void waypoint_rows_place(struct waypoint_rows *rows, const struct mesh_ui_waypoint *waypoint,
                                 const struct mesh_ui_handshake_state *handshake, bool imperial) {
     rows_heading(rows, MESH_STR_WAYPOINT_HEAD_PLACE);
 
@@ -451,8 +451,7 @@ static void waypoint_channel_name(const struct mesh_ui_handshake_state *handshak
                                   char *out, size_t out_len) {
     if (handshake != NULL) {
         for (uint32_t i = 0; i < handshake->channel_count && i < MESH_UI_MAX_CHANNELS; ++i) {
-            if (handshake->channels[i].index == channel &&
-                handshake->channels[i].name[0] != '\0') {
+            if (handshake->channels[i].index == channel && handshake->channels[i].name[0] != '\0') {
                 mesh_str_copy(out, out_len, handshake->channels[i].name);
                 return;
             }
@@ -513,8 +512,7 @@ uint32_t mesh_ui_waypoint_detail_build(const struct mesh_ui_waypoint *waypoint,
     }
     struct waypoint_rows rows = {.items = out, .count = 0U, .capacity = capacity};
 
-    waypoint_rows_place(&rows, waypoint, handshake,
-                        settings != NULL && settings->units == 1U);
+    waypoint_rows_place(&rows, waypoint, handshake, settings != NULL && settings->units == 1U);
 
     if (waypoint->description[0] != '\0') {
         rows_heading(&rows, MESH_STR_WAYPOINT_HEAD_NOTE);
@@ -534,11 +532,10 @@ uint32_t mesh_ui_waypoint_detail_build(const struct mesh_ui_waypoint *waypoint,
      * thing that is true: this client will stop showing it. Labelling both "Delete" would make
      * the honest case look like the destructive one.
      */
-    rows_action(&rows,
-                waypoint->editable ? MESH_STR_WAYPOINT_ACT_DELETE : MESH_STR_WAYPOINT_ACT_FORGET,
-                mesh_str(delete_armed ? MESH_STR_WAYPOINT_ACT_DELETE_ARMED
-                                      : MESH_STR_COMMON_PRESS_A),
-                MESH_UI_WAYPOINT_ACTION_DELETE);
+    rows_action(
+        &rows, waypoint->editable ? MESH_STR_WAYPOINT_ACT_DELETE : MESH_STR_WAYPOINT_ACT_FORGET,
+        mesh_str(delete_armed ? MESH_STR_WAYPOINT_ACT_DELETE_ARMED : MESH_STR_COMMON_PRESS_A),
+        MESH_UI_WAYPOINT_ACTION_DELETE);
 
     return rows.count < capacity ? rows.count : capacity;
 }

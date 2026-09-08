@@ -1,5 +1,7 @@
 #pragma once
 
+#include "mesh/utils/time.h"
+
 #include "meshtastic/mesh.pb.h"
 
 #include <stdbool.h>
@@ -58,7 +60,7 @@ extern "C" {
  * clock at all, and that is the case a delete is. So a tombstone is honoured always, and a real
  * expiry only once we know what time it is.
  */
-#define MESH_WAYPOINT_TOMBSTONE_BEFORE 1600000000U
+#define MESH_WAYPOINT_TOMBSTONE_BEFORE MESH_TIME_CLOCK_MIN_EPOCH
 
 /* One shared place, in the client's own terms rather than nanopb's. */
 struct mesh_waypoint {
@@ -71,11 +73,11 @@ struct mesh_waypoint {
     uint32_t locked_to;
     /* The designator the sender picked, as a Unicode code point. 0 when they picked none. */
     uint32_t icon;
-    uint32_t from;    /* the node that shared it, 0 when the packet did not say */
-    uint32_t heard;   /* our clock when this copy arrived; 0 when we could not tell */
-    uint8_t channel;  /* the channel it was shared on, and the one an edit goes back out on */
-    bool ours;        /* this client sent it, so the list can say which places are yours */
-    bool has_coords;  /* both coordinates were present and inside mesh_geo_coords_valid() */
+    uint32_t from;   /* the node that shared it, 0 when the packet did not say */
+    uint32_t heard;  /* our clock when this copy arrived; 0 when we could not tell */
+    uint8_t channel; /* the channel it was shared on, and the one an edit goes back out on */
+    bool ours;       /* this client sent it, so the list can say which places are yours */
+    bool has_coords; /* both coordinates were present and inside mesh_geo_coords_valid() */
     char name[MESH_WAYPOINT_NAME_MAX + 1U];
     char description[MESH_WAYPOINT_DESCRIPTION_MAX + 1U];
 };
@@ -137,11 +139,25 @@ struct mesh_waypoint *mesh_waypoint_book_store(struct mesh_waypoint_book *book,
 bool mesh_waypoint_book_forget(struct mesh_waypoint_book *book, uint32_t id);
 
 /*
+ * Drops every entry whose own expiry has passed. Returns how many went.
+ *
+ * `now` is a *credible* wall clock or 0 - mesh_time_wall_credible_s()'s answer, not
+ * mesh_time_wall_s()'s. With 0 this removes nothing, which is the honest reading: a place with
+ * a date on it outlives a client that cannot read dates, and the mesh's own copy is the
+ * authority. A tombstone needs no clock and is handled at ingest, where it arrives.
+ */
+uint32_t mesh_waypoint_book_prune(struct mesh_waypoint_book *book, uint32_t now);
+
+/*
  * Folds one inbound WAYPOINT_APP packet into the book.
  *
  * `heard` is our clock when it arrived (0 when unknown) and `my_node_num` is what marks a
  * waypoint as ours - the radio echoes our own sends back to us, so the entry we already hold
  * for one is refreshed rather than duplicated, exactly as a text message is.
+ *
+ * `heard` is also what the expiry is read against, so a place that had already expired when it
+ * reached us is dropped rather than stored - and, when it is one we were holding, taken away.
+ * With no clock to read it against it is stored, which is the same answer prune gives.
  *
  * Returns 1 when the book changed, 0 when the packet was understood and added nothing (a
  * withdrawal of something we never had), and a negative errno on bad input. Never fails on

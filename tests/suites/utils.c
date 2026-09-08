@@ -159,3 +159,34 @@ MESH_TEST_CASE(time_wall_clock_pins_and_releases, unit) {
     MESH_TEST_FAIL_IF(live < 1700000000U, "clearing the pin did not restore the real clock");
     record_success(test_name);
 }
+
+/*
+ * The difference between "what the machine says" and "a date I can do arithmetic with".
+ *
+ * The Brick has no RTC battery, so with no network it boots into the epoch and time(NULL) is a
+ * small positive number. An *age* measured against that comes out negative or enormous and every
+ * caller that draws one already refuses to; a *deadline* does not have that safety - "does this
+ * expire before now" and "how long has it got" both read as confident answers whichever way the
+ * arithmetic lands, which is how a waypoint's expiry came to report tens of thousands of days.
+ */
+MESH_TEST_CASE(time_wall_clock_credibility, unit) {
+    /* 1970, which is where a machine that has not been told the date starts. */
+    mesh_time_wall_set_fixed(42U);
+    const uint32_t machine = mesh_time_wall_s();
+    const uint32_t credible = mesh_time_wall_credible_s();
+    mesh_time_wall_set_fixed(0U);
+    MESH_TEST_FAIL_IF(machine != 42U, "the machine's clock is whatever it says");
+    MESH_TEST_FAIL_IF(credible != 0U, "1970 is not a date to measure a deadline against");
+
+    /* One second under the floor is still not a clock, and the floor itself is not either. */
+    mesh_time_wall_set_fixed(MESH_TIME_CLOCK_MIN_EPOCH);
+    const uint32_t at_floor = mesh_time_wall_credible_s();
+    mesh_time_wall_set_fixed(MESH_TIME_CLOCK_MIN_EPOCH + 1U);
+    const uint32_t over_floor = mesh_time_wall_credible_s();
+    mesh_time_wall_set_fixed(0U);
+    MESH_TEST_FAIL_IF(at_floor != 0U, "the floor itself is not a credible clock");
+    MESH_TEST_FAIL_IF(over_floor != MESH_TIME_CLOCK_MIN_EPOCH + 1U,
+                      "a second past the floor is a clock, and is passed through unchanged");
+
+    record_success(test_name);
+}

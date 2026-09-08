@@ -109,16 +109,23 @@ MESH_TEST_CASE(geo_compass_points, unit) {
         double bearing;
         enum mesh_geo_compass point;
     } cases[] = {
-        {0.0, MESH_GEO_COMPASS_N},     {22.4, MESH_GEO_COMPASS_N},
-        {22.6, MESH_GEO_COMPASS_NE},   {45.0, MESH_GEO_COMPASS_NE},
-        {90.0, MESH_GEO_COMPASS_E},    {135.0, MESH_GEO_COMPASS_SE},
-        {180.0, MESH_GEO_COMPASS_S},   {225.0, MESH_GEO_COMPASS_SW},
-        {270.0, MESH_GEO_COMPASS_W},   {315.0, MESH_GEO_COMPASS_NW},
+        {0.0, MESH_GEO_COMPASS_N},
+        {22.4, MESH_GEO_COMPASS_N},
+        {22.6, MESH_GEO_COMPASS_NE},
+        {45.0, MESH_GEO_COMPASS_NE},
+        {90.0, MESH_GEO_COMPASS_E},
+        {135.0, MESH_GEO_COMPASS_SE},
+        {180.0, MESH_GEO_COMPASS_S},
+        {225.0, MESH_GEO_COMPASS_SW},
+        {270.0, MESH_GEO_COMPASS_W},
+        {315.0, MESH_GEO_COMPASS_NW},
         /* Either side of north, which is the wrap the offset exists for. */
-        {337.4, MESH_GEO_COMPASS_NW},  {337.6, MESH_GEO_COMPASS_N},
+        {337.4, MESH_GEO_COMPASS_NW},
+        {337.6, MESH_GEO_COMPASS_N},
         {359.9, MESH_GEO_COMPASS_N},
         /* Out of range both ways rather than indexing off the end of the table. */
-        {360.0, MESH_GEO_COMPASS_N},   {-90.0, MESH_GEO_COMPASS_W},
+        {360.0, MESH_GEO_COMPASS_N},
+        {-90.0, MESH_GEO_COMPASS_W},
         {720.0 + 90.0, MESH_GEO_COMPASS_E},
     };
     for (size_t i = 0; i < sizeof cases / sizeof cases[0]; ++i) {
@@ -128,7 +135,8 @@ MESH_TEST_CASE(geo_compass_points, unit) {
     record_success(test_name);
 }
 
-/* ---- the book ---------------------------------------------------------------------------------- */
+/* ---- the book ----------------------------------------------------------------------------------
+ */
 
 /* Builds a WAYPOINT_APP MeshPacket the way a radio would hand one over. */
 static bool wp_packet(meshtastic_MeshPacket *packet, uint32_t from, uint32_t id, const char *name,
@@ -259,6 +267,103 @@ MESH_TEST_CASE(waypoint_expiry_and_withdrawal, unit) {
 }
 
 /*
+ * A dated expiry is honoured once there is a clock to read it against, and only then.
+ *
+ * Two halves, and the second is the one that is easy to get wrong: a place that had already
+ * expired when it reached us is dropped rather than stored, and a place whose deadline passes
+ * while we hold it is retired by the tick - because nothing on the mesh re-announces an expiry,
+ * so the clock is the only thing that can. With no credible clock both do nothing, which is the
+ * honest reading rather than a guess: the Brick has no RTC battery.
+ */
+MESH_TEST_CASE(waypoint_dated_expiry_is_honoured, unit) {
+    struct mesh_waypoint_book book;
+    mesh_waypoint_book_reset(&book);
+
+    /* Already expired when it arrives, against the clock it arrived with. */
+    meshtastic_MeshPacket packet;
+    MESH_TEST_FAIL_IF(
+        !wp_packet(&packet, 0x1111U, 21U, "Gone", WP_HOME_LAT, WP_HOME_LON, WP_NOW - 60U),
+        "could not encode an expired waypoint");
+    MESH_TEST_FAIL_IF(mesh_waypoint_ingest(&book, &packet, 0U, WP_NOW) != 0,
+                      "a place that arrived expired adds nothing");
+    MESH_TEST_FAIL_IF(book.count != 0U, "a place that arrived expired should not be stored");
+
+    /* The same packet with no clock to read it against is stored: a client that cannot read
+       dates has no business deciding one has passed. */
+    MESH_TEST_FAIL_IF(mesh_waypoint_ingest(&book, &packet, 0U, 0U) != 1,
+                      "with no clock the place is stored");
+    MESH_TEST_FAIL_IF(book.count != 1U, "with no clock the place is stored");
+
+    /* An expiry we are holding and that has since passed is retired by the prune - and the
+       prune with no clock retires nothing, which is the same answer. */
+    MESH_TEST_FAIL_IF(mesh_waypoint_book_prune(&book, 0U) != 0U,
+                      "with no clock the prune retires nothing");
+    MESH_TEST_FAIL_IF(book.count != 1U, "with no clock nothing goes");
+    MESH_TEST_FAIL_IF(mesh_waypoint_book_prune(&book, WP_NOW) != 1U,
+                      "a deadline that has passed retires the place");
+    MESH_TEST_FAIL_IF(book.count != 0U, "an expired place should be gone");
+
+    /* A future deadline and a place that never expires both survive a prune. */
+    MESH_TEST_FAIL_IF(
+        !wp_packet(&packet, 0x1111U, 22U, "Later", WP_HOME_LAT, WP_HOME_LON, WP_NOW + 3600U),
+        "could not encode a future expiry");
+    MESH_TEST_FAIL_IF(mesh_waypoint_ingest(&book, &packet, 0U, WP_NOW) != 1, "should have stored");
+    MESH_TEST_FAIL_IF(!wp_packet(&packet, 0x1111U, 23U, "Forever", WP_HOME_LAT, WP_HOME_LON, 0U),
+                      "could not encode an endless place");
+    MESH_TEST_FAIL_IF(mesh_waypoint_ingest(&book, &packet, 0U, WP_NOW) != 1, "should have stored");
+    MESH_TEST_FAIL_IF(mesh_waypoint_book_prune(&book, WP_NOW) != 0U,
+                      "a deadline that has not passed keeps its place");
+    MESH_TEST_FAIL_IF(book.count != 2U, "both should have survived");
+    /* And the first of them goes once its hour is up, while the endless one stays. */
+    MESH_TEST_FAIL_IF(mesh_waypoint_book_prune(&book, WP_NOW + 7200U) != 1U,
+                      "the hour should have retired exactly one place");
+    MESH_TEST_FAIL_IF(mesh_waypoint_book_get(&book, 23U) == NULL,
+                      "a place with no expiry outlives every clock");
+
+    record_success(test_name);
+}
+
+/*
+ * A radio swap takes the places with the roster, and a reconnect does not.
+ *
+ * This is the roster's rule rather than the message log's, and the channel is why: a message's
+ * channel is a label on something that already happened, while a waypoint's is an index into
+ * the table the swap has just discarded - so "share it again" on a carried-over place would
+ * broadcast on whatever slot that number names on the new radio.
+ */
+MESH_TEST_CASE(waypoint_book_follows_the_radio, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+
+    meshtastic_FromRadio my_info = meshtastic_FromRadio_init_default;
+    my_info.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    my_info.my_info.my_node_num = 0xAAAA0001U;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &my_info),
+                      "the first radio should introduce itself");
+
+    meshtastic_MeshPacket packet;
+    MESH_TEST_FAIL_IF(!wp_packet(&packet, 0x1111U, 41U, "Theirs", WP_HOME_LAT, WP_HOME_LON, 0U),
+                      "could not encode a waypoint");
+    MESH_TEST_FAIL_IF(mesh_waypoint_ingest(&session.waypoints, &packet, 0U, WP_NOW) != 1,
+                      "the place should have been stored");
+
+    /* The same radio again is a reconnect: the places stay, exactly as the roster does. */
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &my_info),
+                      "the same radio should introduce itself again");
+    MESH_TEST_FAIL_IF(mesh_waypoint_book_get(&session.waypoints, 41U) == NULL,
+                      "a reconnect to the same radio keeps the places");
+
+    /* A different radio is a different mesh and a different channel table. */
+    my_info.my_info.my_node_num = 0xBBBB0002U;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &my_info),
+                      "the second radio should introduce itself");
+    MESH_TEST_FAIL_IF(session.waypoints.count != 0U,
+                      "a radio swap should take the places with the roster");
+
+    record_success(test_name);
+}
+
+/*
  * A coordinate off the air is range-checked like every other, and a place without one still
  * lists: the name somebody shared is real even when the point is not.
  */
@@ -323,7 +428,8 @@ MESH_TEST_CASE(waypoint_book_keeps_our_own_places, unit) {
     record_success(test_name);
 }
 
-/* ---- the wire ---------------------------------------------------------------------------------- */
+/* ---- the wire ----------------------------------------------------------------------------------
+ */
 
 /*
  * A waypoint goes out as a broadcast on WAYPOINT_APP, and comes back decodable as the same
@@ -474,7 +580,8 @@ MESH_TEST_CASE(waypoint_limits_agree_across_the_seam, unit) {
     record_success(test_name);
 }
 
-/* ---- the screens ------------------------------------------------------------------------------- */
+/* ---- the screens -------------------------------------------------------------------------------
+ */
 
 /* A store holding our own radio at Greenwich and a place to the east of it. */
 static void wp_store_populate(struct mesh_ui_store *store) {

@@ -132,6 +132,25 @@ struct mesh_waypoint *mesh_waypoint_book_store(struct mesh_waypoint_book *book,
     return slot;
 }
 
+uint32_t mesh_waypoint_book_prune(struct mesh_waypoint_book *book, uint32_t now) {
+    if (book == NULL || now == 0U) {
+        return 0U;
+    }
+    uint32_t removed = 0U;
+    /* Backwards, so forgetting an entry cannot shuffle one we have not looked at yet past the
+       cursor - mesh_waypoint_book_forget() closes the gap by moving the tail down. */
+    for (size_t i = book->count; i > 0U; --i) {
+        const struct mesh_waypoint *entry = &book->entries[i - 1U];
+        if (mesh_waypoint_state(entry, now) == MESH_WAYPOINT_LIVE) {
+            continue;
+        }
+        mesh_log_info("waypoint", "Waypoint %u \"%s\" has expired", entry->id, entry->name);
+        (void)mesh_waypoint_book_forget(book, entry->id);
+        removed++;
+    }
+    return removed;
+}
+
 int mesh_waypoint_ingest(struct mesh_waypoint_book *book, const meshtastic_MeshPacket *packet,
                          uint32_t my_node_num, uint32_t heard) {
     if (book == NULL || packet == NULL) {
@@ -181,12 +200,20 @@ int mesh_waypoint_ingest(struct mesh_waypoint_book *book, const meshtastic_MeshP
     mesh_text_sanitise_str(decoded.name, waypoint.name, sizeof waypoint.name);
     mesh_text_sanitise_str(decoded.description, waypoint.description, sizeof waypoint.description);
 
-    if (mesh_waypoint_state(&waypoint, 0U) == MESH_WAYPOINT_DELETED) {
-        /* A withdrawal. Honoured whoever sent it: the alternative is a client that keeps
-           showing a place its own mesh has agreed is gone. */
+    /*
+     * Two ways a place can arrive already gone, and `heard` is what tells them apart.
+     *
+     * A tombstone is recognised with no clock at all and is always a withdrawal. A dated expiry
+     * needs one, and `heard` is the best we have: the radio's own `rx_time`, or ours, and 0 when
+     * neither is credible - in which case this reads LIVE and the place is stored, because a
+     * client that cannot read dates has no business deciding one has passed.
+     */
+    const enum mesh_waypoint_state state = mesh_waypoint_state(&waypoint, heard);
+    if (state != MESH_WAYPOINT_LIVE) {
         const bool had = mesh_waypoint_book_forget(book, waypoint.id);
-        mesh_log_info("waypoint", "Waypoint %u withdrawn by 0x%08x%s", waypoint.id, packet->from,
-                      had ? "" : " (not one we held)");
+        mesh_log_info("waypoint", "Waypoint %u %s%s", waypoint.id,
+                      state == MESH_WAYPOINT_DELETED ? "withdrawn" : "arrived expired",
+                      had ? "; dropped the copy we held" : "");
         return had ? 1 : 0;
     }
 
