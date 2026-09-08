@@ -182,6 +182,9 @@ struct mesh_bluez_mock_config {
     const struct mesh_bluez_device_info *devices;
     size_t device_count;
     int list_result;
+    /* Counts GetManagedObjects enumerations. On device that call blocks the event loop, so what
+       a test needs to pin is how often it is made, not what it answers. */
+    unsigned *list_calls;
     uint8_t *write_capture_buffer;
     size_t write_capture_capacity;
     size_t *write_capture_length;

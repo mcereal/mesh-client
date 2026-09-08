@@ -225,6 +225,19 @@ bool mesh_updater_set_allow_dev(struct mesh_updater *updater, bool allow);
 bool mesh_updater_can_install(const struct mesh_updater *updater);
 
 /*
+ * True while an install is fetching or hashing the asset - the window in which the radio link
+ * must stay down.
+ *
+ * The Brick's Wi-Fi and its Bluetooth are one Xradio part behind one antenna, and a Meshtastic
+ * node negotiates a 1000 ms supervision timeout, so a couple of megabytes of curl is enough to
+ * take the radio away for longer than the link survives. This was measured: an install pressed
+ * over a live link produced the first FromRadio failure 36 ms later and then four minutes of
+ * reconnects. Auto-connect reads this rather than being told to stop, so a download that fails
+ * releases the hold by failing rather than by remembering to.
+ */
+bool mesh_updater_holds_the_radio(const struct mesh_updater *updater);
+
+/*
  * Parses a GitHub "releases/latest" response for the tag and the asset named `asset_name`.
  * Split out from the fetch so it can be tested against captured JSON, and written to be
  * indifferent to key order and to unknown keys.

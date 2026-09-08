@@ -468,10 +468,12 @@ MESH_TEST_CASE(ble_transport_connect_mock, unit) {
         return;
     }
 
-    /* The connection's own state goes; the node roster does not, because the radio's NodeDB is
-       small enough to have evicted half of it by the next connect. */
+    /* The connection's own state goes. What describes the radio does not: the roster, because
+       the radio's NodeDB is small enough to have evicted half of it by the next connect, and
+       now MyNodeInfo and the config with it, because re-fetching those from nothing on every
+       drop is what kept a flapping link from ever finishing a sync. */
     handshake = mesh_ble_transport_handshake_status(ble);
-    if (handshake.request_in_flight || handshake.node_count == 0U || handshake.has_my_info ||
+    if (handshake.request_in_flight || handshake.node_count == 0U || !handshake.has_my_info ||
         handshake.config_complete) {
         ble->ops->stop(ble);
         mesh_event_loop_shutdown(&loop);
@@ -1153,9 +1155,14 @@ cleanup:
    longer than that and the link drops mid-roster. So the scan is derived from the link state
    rather than paired with a connect: down for the whole of CONNECTING and CONNECTED, back up the
    moment there is no link to protect. */
+/* The shipped hold is three seconds, which is a sleep this suite should not be paying. The knob
+   exists so a bench can shorten it; the contract under test is the hold, not its length. */
+#define SCAN_GRACE_MS 60U
+
 MESH_TEST_CASE(ble_transport_scan_yields_to_the_link, unit) {
     const char *failure = NULL;
 
+    setenv("MESHCLIENT_SCAN_RESUME_GRACE_MS", "60", 1);
     struct mesh_transport *ble = mesh_ble_transport();
     struct mesh_bluez_device_info mock_devices[] = {
         {.address = "AA:BB:CC:DD:EE:0A", .name = "NodeTen", .rssi = -50, .paired = true},
@@ -1213,7 +1220,9 @@ MESH_TEST_CASE(ble_transport_scan_yields_to_the_link, unit) {
         goto cleanup;
     }
 
-    /* The link drops. The scan is what finds the node again, so it has to come back. */
+    /* The link drops. The scan is what finds the node again, so it has to come back - but not
+       into the auto-connect retry that follows a drop within the second, which is what starting
+       it here and stopping it there made it do. */
     if (mesh_ble_transport_check_link(ble) != 1) {
         failure = "first probe should find the link up";
         goto cleanup;
@@ -1223,13 +1232,98 @@ MESH_TEST_CASE(ble_transport_scan_yields_to_the_link, unit) {
         goto cleanup;
     }
     ble->ops->tick(ble);
+    ble->ops->tick(ble);
+    if (starts != 1U || stops != 1U) {
+        failure = "a teardown must hold the scan down for the reconnect that follows it";
+        goto cleanup;
+    }
+
+    /* Past the hold, nothing came back for it, so the scan is the only thing that finds the
+       node again. */
+    test_sleep_ms(SCAN_GRACE_MS * 2U);
+    ble->ops->tick(ble);
     if (starts != 2U || stops != 1U) {
-        failure = "scanning should resume once the link is gone";
+        failure = "scanning should resume once the hold has expired";
         goto cleanup;
     }
     ble->ops->tick(ble);
     if (starts != 2U) {
         failure = "a scan already running must not be started again every turn";
+        goto cleanup;
+    }
+
+cleanup:
+    ble->ops->stop(ble);
+    mesh_event_loop_shutdown(&loop);
+    mesh_bluez_client_mock_disable();
+    unsetenv("MESHCLIENT_SCAN_RESUME_GRACE_MS");
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+/* Enumeration is a blocking GetManagedObjects, and tick() used to make one every second whether
+   or not there was a link - so a roster sync spent a blocking second per second in the loop that
+   was supposed to be reading it. With the scan held from the connect onward the answer cannot
+   change anyway, so the only correct number of calls while linked is none.
+   Driven through tick() here; the 5 s refresh timer is the other periodic caller and shares the
+   one guard in mesh_ble_refresh_devices_periodic(), which is why the guard is there rather than
+   at each call site - fixing only this path left that one still enumerating mid-sync. */
+MESH_TEST_CASE(ble_transport_enumeration_yields_to_the_link, unit) {
+    const char *failure = NULL;
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:0A", .name = "NodeTen", .rssi = -50, .paired = true},
+    };
+    unsigned list_calls = 0U;
+    struct mesh_bluez_mock_config mock_config = {
+        .adapter_path = "/org/bluez/hci0",
+        .devices = mock_devices,
+        .device_count = 1U,
+        .list_calls = &list_calls,
+    };
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    struct mesh_app_config config = mesh_app_config_default();
+    struct mesh_event_loop loop;
+    mesh_event_loop_init(&loop);
+    if (ble->ops->start(ble, &config, &loop) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+
+    /* Disconnected: the device list is the only way to find a node, so it is refreshed. */
+    ble->ops->tick(ble);
+    if (list_calls == 0U) {
+        failure = "a disconnected transport must still enumerate";
+        goto cleanup;
+    }
+
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+        failure = "connect should be accepted";
+        goto cleanup;
+    }
+    const unsigned linked_from = list_calls;
+    for (unsigned i = 0; i < 8U; ++i) {
+        ble->ops->tick(ble);
+    }
+    if (mesh_ble_transport_connected_address(ble) == NULL) {
+        failure = "expected a connected link";
+        goto cleanup;
+    }
+    if (list_calls != linked_from) {
+        failure = "a link must not be interrupted to enumerate what cannot have changed";
+        goto cleanup;
+    }
+
+    /* And what the last scan found is kept rather than cleared, so the Devices tab still lists
+       it while the link is up. */
+    size_t held = 0U;
+    if (mesh_ble_transport_devices(ble, &held) == NULL || held != 1U) {
+        failure = "the known device list must survive the link";
         goto cleanup;
     }
 

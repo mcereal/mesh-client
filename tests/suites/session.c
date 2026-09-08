@@ -984,9 +984,17 @@ MESH_TEST_CASE(session_forget_nodes, unit) {
     MESH_TEST_FAIL_IF(mesh_session_forget_nodes(NULL, false) != -EINVAL, "NULL session");
 
     /* With no link at all - which is when a roster is most likely to be tidied - our own node
-       is remembered through the roster's owner rather than my_info, which the drop cleared. */
+       has to stay protected. A drop no longer clears my_info: it describes the radio, not the
+       link, and re-fetching it from nothing on every reconnect is what stopped a flapping link
+       from ever converging. */
     mesh_session_detach(&session);
-    MESH_TEST_FAIL_IF(session.handshake.has_my_info, "detach kept my_info");
+    MESH_TEST_FAIL_IF(!session.handshake.has_my_info,
+                      "a drop should keep what the radio said about itself");
+
+    /* The other way in is a session that never learned it - a roster restored from disk before
+       any link came up - where our own node is known through the roster's owner flag alone. */
+    session.handshake.has_my_info = false;
+    memset(&session.handshake.my_info, 0, sizeof session.handshake.my_info);
     struct mesh_node_summary stranger;
     memset(&stranger, 0, sizeof stranger);
     stranger.node_id = 0x5555U;
@@ -1552,5 +1560,107 @@ MESH_TEST_CASE(session_device_ui_fragment, unit) {
                       "the fragment should be kept whole");
     MESH_TEST_FAIL_IF(!mesh_radio_settings_loaded(&session.settings),
                       "holding only the UI config is still holding something");
+    record_success(test_name);
+}
+
+/*
+ * The convergence rule: a drop keeps what the radio told us it is, a reboot and a swap do not.
+ *
+ * A 135-node replay runs about seventeen seconds and the first four carry everything the client
+ * needs to work. Wiping that on every drop meant a link dying at ten seconds re-earned the same
+ * four seconds forever and never got further, blanking the channel list on each pass. The two
+ * cases where the held copy could actually be wrong are the two that still clear it.
+ */
+MESH_TEST_CASE(session_keeps_the_radio_across_a_drop, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+
+    meshtastic_FromRadio my_info = meshtastic_FromRadio_init_default;
+    my_info.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    my_info.my_info.my_node_num = 0x7001U;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &my_info),
+                      "encode my_info failed");
+
+    meshtastic_FromRadio lora = meshtastic_FromRadio_init_default;
+    lora.which_payload_variant = meshtastic_FromRadio_config_tag;
+    lora.config.which_payload_variant = meshtastic_Config_lora_tag;
+    lora.config.payload_variant.lora.hop_limit = 5U;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &lora), "encode config failed");
+
+    meshtastic_FromRadio channel = meshtastic_FromRadio_init_default;
+    channel.which_payload_variant = meshtastic_FromRadio_channel_tag;
+    channel.channel.index = 0;
+    channel.channel.role = meshtastic_Channel_Role_PRIMARY;
+    channel.channel.has_settings = true;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &channel),
+                      "encode channel failed");
+
+    MESH_TEST_FAIL_IF(!session.handshake.has_config || session.handshake.channel_count == 0U ||
+                          !session.settings.has_lora,
+                      "the sync should have left a config, a channel and a LoRa section");
+
+    /* A drop. The radio is still the radio. */
+    mesh_session_detach(&session);
+    MESH_TEST_FAIL_IF(!session.handshake.has_my_info || !session.handshake.has_config ||
+                          session.handshake.channel_count == 0U || !session.settings.has_lora ||
+                          session.settings.lora.hop_limit != 5U,
+                      "a drop must keep what describes the radio");
+    /* But never the admin session: a passkey is issued per link and is worthless after one. */
+    MESH_TEST_FAIL_IF(session.settings.has_session_passkey || session.handshake.config_complete ||
+                          session.handshake.request_in_flight,
+                      "a drop must still clear what describes the link");
+
+    /* Asking for a fresh sync does not blank it either - the replay overwrites as it lands. */
+    struct mesh_test_trace_capture capture;
+    memset(&capture, 0, sizeof capture);
+    mesh_session_attach(&session, mesh_test_trace_capture_fn, &capture);
+    MESH_TEST_FAIL_IF(mesh_session_begin_handshake(&session) < 0, "begin_handshake failed");
+    MESH_TEST_FAIL_IF(!session.handshake.has_config || session.handshake.channel_count == 0U,
+                      "a resync must not blank the screens it is about to refill");
+
+    /* A reboot may have changed it - a settings write is followed by exactly one - so it goes. */
+    meshtastic_FromRadio rebooted = meshtastic_FromRadio_init_default;
+    rebooted.which_payload_variant = meshtastic_FromRadio_rebooted_tag;
+    rebooted.rebooted = true;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &rebooted),
+                      "encode rebooted failed");
+    MESH_TEST_FAIL_IF(session.handshake.has_my_info || session.handshake.has_config ||
+                          session.handshake.channel_count != 0U || session.settings.has_lora,
+                      "a reboot must forget what the process that died told us");
+
+    record_success(test_name);
+}
+
+/* The other radio's channel table is not this one's, so a swap clears it with the roster. */
+MESH_TEST_CASE(session_forgets_the_radio_on_a_swap, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+
+    meshtastic_FromRadio my_info = meshtastic_FromRadio_init_default;
+    my_info.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    my_info.my_info.my_node_num = 0x7001U;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &my_info),
+                      "encode my_info failed");
+
+    meshtastic_FromRadio lora = meshtastic_FromRadio_init_default;
+    lora.which_payload_variant = meshtastic_FromRadio_config_tag;
+    lora.config.which_payload_variant = meshtastic_Config_lora_tag;
+    lora.config.payload_variant.lora.hop_limit = 5U;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &lora), "encode config failed");
+    MESH_TEST_FAIL_IF(!session.settings.has_lora, "the LoRa section should have been kept");
+
+    /* A different radio answers the next sync. */
+    mesh_session_detach(&session);
+    meshtastic_FromRadio other = meshtastic_FromRadio_init_default;
+    other.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    other.my_info.my_node_num = 0x7002U;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &other),
+                      "encode my_info failed");
+
+    MESH_TEST_FAIL_IF(session.settings.has_lora,
+                      "another radio's LoRa settings must not be shown as this one's");
+    MESH_TEST_FAIL_IF(session.handshake.node_count != 0U, "the roster should have gone with it");
+    MESH_TEST_FAIL_IF(session.handshake.my_info.my_node_num != 0x7002U,
+                      "the new radio's own MyNodeInfo should have survived the forget");
     record_success(test_name);
 }

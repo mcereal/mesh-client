@@ -358,6 +358,10 @@ MESH_STR_ENTRY(STATUS_NOT_CONNECTED,      "not connected")
    rather than from the radio just now. */
 MESH_STR_ENTRY(STATUS_SYNC_COMPLETE,      "complete")
 MESH_STR_ENTRY(STATUS_SYNC_IN_PROGRESS,   "in progress")
+/* A 135-node replay runs about seventeen seconds; "in progress" alone could not tell a sync
+   that was working from one that had stalled. %u of %u is nodes delivered of nodes the radio
+   says it holds. */
+MESH_STR_ENTRY(STATUS_SYNC_PROGRESS,      "%u of %u nodes")
 MESH_STR_ENTRY(STATUS_SYNC_IDLE,          "idle")
 MESH_STR_ENTRY(STATUS_SYNC_CACHED,        " (cached)")
 /* The Sync row: how far the sync got, then the cached note when there is one. */

@@ -26,6 +26,7 @@
  *                          show the same screen in every theme
  *   tab NAME               walk Left/Right to messages|nodes|devices|status|settings
  *   config                 a radio that has answered the config handshake
+ *   syncing                a config replay still running, partway through the roster
  *   stats                  the radio's own LocalStats report - packet counters, online nodes and
  *                          the airtime pair, which the Status tab's Mesh card reads
  *   key NAME [COUNT]       up down left right a b x y l1 r1 start select
@@ -1434,6 +1435,24 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
      * No heap figure: that is an ESP32's number, and this radio is the Linux host whose own
      * telemetry group already reports the memory it actually has.
      */
+    /*
+     * A replay still running. The Status sync row counts nodes delivered against the number the
+     * radio says it holds, because on a 135-node radio the replay is seventeen seconds and a row
+     * that only said "in progress" could not tell a sync that was working from one that had
+     * stalled - which, on a link dropping mid-roster, is the question being asked.
+     */
+    if (strcmp(command, "syncing") == 0) {
+        uicap_start(cap);
+        struct mesh_ui_handshake_state handshake = cap->store.handshake;
+        handshake.config_complete = false;
+        handshake.request_in_flight = true;
+        handshake.sync_nodes = 37U;
+        handshake.my_info.nodedb_entries = 135U;
+        mesh_ui_store_set_handshake(&cap->store, &handshake);
+        uicap_emit(cap);
+        return;
+    }
+
     if (strcmp(command, "stats") == 0) {
         uicap_start(cap);
         struct mesh_ui_settings settings = cap->store.settings;

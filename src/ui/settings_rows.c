@@ -1204,11 +1204,16 @@ static void build_traffic(const struct mesh_ui_settings *s, struct item_list *li
  */
 static void build_actions(const struct mesh_ui_settings *s,
                           const struct mesh_ui_handshake_state *handshake, struct item_list *list) {
-    /* An AdminMessage cannot be addressed without our own node number, so with no link every
-       row here but the two forget rows is unpressable. They say so rather than disappearing:
-       a section whose length changes when the radio drops moves the cursor out from under the
-       user, and "not connected" is the answer they were about to press A to find out. */
-    const bool connected = handshake != NULL && handshake->has_my_info;
+    /* With no link every row here but the two forget rows is unpressable. They say so rather
+       than disappearing: a section whose length changes when the radio drops moves the cursor
+       out from under the user, and "not connected" is the answer they were about to press A to
+       find out.
+       This asks whether the session can *send*, not whether we know our own node number. The
+       two were the same question only while a drop cleared has_my_info; spelled that way now,
+       every row here would stay pressable over a dead link and fail with -ENOTCONN after the
+       confirm dialog - and would already have done so on a cold start with a restored roster,
+       because the handshake is persisted. */
+    const bool connected = handshake != NULL && handshake->link_up;
 
     item_heading(list, MESH_STR_HEAD_POWER);
     item_radio_action(list, MESH_STR_ACTION_REBOOT, MESH_UI_SETTINGS_ACTION_REBOOT, connected);

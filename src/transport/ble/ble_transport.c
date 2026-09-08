@@ -9,6 +9,7 @@
 
 #include "mesh/transport/ble_bluez.h"
 #include "mesh/utils/array.h"
+#include "mesh/utils/env.h"
 #include "mesh/utils/time.h"
 
 #include <errno.h>
@@ -49,6 +50,10 @@
 /* How often the BlueZ bring-up is retried while the transport is not ready, and how often a
    ready transport re-checks that bluetoothd is still on the bus. */
 #define MESH_BLE_BLUEZ_POLL_MS 2000U
+/* How long a teardown keeps the scan down for. Long enough to cover the auto-connect retry that
+   follows almost every drop (MESH_APP_AUTOCONNECT_RETRY_MS, plus the turn it is noticed on), and
+   short enough that a link nobody is coming back to still lists devices promptly. */
+#define MESH_BLE_SCAN_RESUME_GRACE_MS 3000U
 
 enum mesh_ble_state {
     MESH_BLE_STATE_DISABLED = 0,
@@ -109,8 +114,10 @@ struct mesh_ble_transport_state {
        connects to it from the Devices tab. */
     char pair_needs_pin_address[32];
     uint64_t pair_started_ms;
-    uint64_t next_link_poll_ms;  /* earliest next Device1.Connected check while CONNECTED */
-    uint64_t next_bluez_poll_ms; /* earliest next bring-up retry, or bluetoothd health check */
+    uint64_t next_link_poll_ms;    /* earliest next Device1.Connected check while CONNECTED */
+    uint64_t next_bluez_poll_ms;   /* earliest next bring-up retry, or bluetoothd health check */
+    uint64_t scan_resume_at_ms;    /* earliest a teardown lets the scan back on (sync_discovery) */
+    uint64_t scan_resume_grace_ms; /* how long that hold lasts; 0 disables it */
     /* Why the transport is parked, so a retry every couple of seconds logs a change of reason
        rather than the same line forever. */
     char waiting_reason[256];
@@ -196,6 +203,7 @@ static const char *mesh_ble_state_to_string(enum mesh_ble_state state) {
 }
 
 static size_t mesh_ble_refresh_devices_internal(struct mesh_transport *transport);
+static void mesh_ble_refresh_devices_periodic(struct mesh_transport *transport);
 static size_t mesh_ble_reload_devices(struct mesh_ble_transport_state *state);
 static void mesh_ble_clear_write_queue(struct mesh_ble_transport_state *state);
 static int mesh_ble_queue_packet(struct mesh_ble_transport_state *state, const uint8_t *packet,
@@ -284,7 +292,7 @@ static void mesh_ble_tick(struct mesh_transport *transport) {
     }
 
     if (state == NULL || now - state->last_refresh_ms >= MESH_BLE_TICK_REFRESH_MIN_MS) {
-        mesh_ble_refresh_devices_internal(transport);
+        mesh_ble_refresh_devices_periodic(transport);
         if (state != NULL) {
             state->last_refresh_ms = now;
         }
@@ -380,7 +388,7 @@ static int mesh_ble_refresh_timer_callback(int fd, uint32_t events, void *userda
     if (read_result < 0 && errno != EAGAIN) {
         mesh_log_warn("ble", "refresh timer read failed: %s", strerror(errno));
     }
-    mesh_ble_refresh_devices_internal(transport);
+    mesh_ble_refresh_devices_periodic(transport);
     return 0;
 }
 
@@ -467,12 +475,22 @@ static void mesh_ble_enter_wait(struct mesh_ble_transport_state *state,
  *
  * The cost is that RSSI stops updating while connected, and that BlueZ eventually forgets a
  * device that was only ever seen by scanning. Neither reaches a bonded node - which is the only
- * kind connect() will take - and GetManagedObjects still lists everything BlueZ holds. */
+ * kind connect() will take - and GetManagedObjects still lists everything BlueZ holds.
+ *
+ * "No link to protect" also has to mean "and none about to be made". A drop is followed about a
+ * second later by the auto-connect retry, and keying only on link_state spent that second
+ * starting a scan for the connect to tear straight back down - measured on the Brick as four
+ * LE Set Scan Enable transitions inside 110 ms, immediately before LE Create Connection. An
+ * active scan is 100% duty cycle radio time and SCAN_REQs of our own, which is the last thing
+ * the one antenna should be doing while a link is being established over it. So a teardown also
+ * arms scan_resume_at_ms, and the scan simply never starts on the usual reconnect. A link nobody
+ * comes back to is past the grace by its next turn and scans as before. */
 static void mesh_ble_sync_discovery(struct mesh_ble_transport_state *state) {
     if (state == NULL || state->state != MESH_BLE_STATE_READY || state->adapter_path[0] == '\0') {
         return;
     }
-    const bool wanted = state->link_state == MESH_BLE_LINK_DISCONNECTED;
+    const bool wanted = state->link_state == MESH_BLE_LINK_DISCONNECTED &&
+                        mesh_time_monotonic_ms() >= state->scan_resume_at_ms;
     if (wanted == state->discovery_active) {
         return;
     }
@@ -624,6 +642,12 @@ static int mesh_ble_start(struct mesh_transport *transport, const struct mesh_ap
     state->drain_wake_fd = -1;
     state->last_refresh_ms = 0U;
     state->next_bluez_poll_ms = 0U;
+    state->scan_resume_at_ms = 0U;
+    /* Read once rather than per turn. It is a knob because the right value follows the
+       auto-connect retry, which is the app's to choose, and because a bench needs to be able to
+       turn the hold off outright. */
+    state->scan_resume_grace_ms = (uint64_t)mesh_env_int(
+        "MESHCLIENT_SCAN_RESUME_GRACE_MS", 0, 60000, (long)MESH_BLE_SCAN_RESUME_GRACE_MS);
     state->waiting_reason[0] = '\0';
     state->drain_retry_at_ms = 0U;
     state->drain_failures = 0U;
@@ -893,6 +917,37 @@ static size_t mesh_ble_refresh_devices_internal(struct mesh_transport *transport
     return mesh_ble_reload_devices((struct mesh_ble_transport_state *)transport->state);
 }
 
+/*
+ * The enumeration the tick and the 5 s timer make on their own - as opposed to the one a caller
+ * explicitly asks for through mesh_ble_transport_refresh_devices().
+ *
+ * It is a *blocking* GetManagedObjects: a walk of everything BlueZ holds, answered on the bus
+ * while this loop waits, and bluetoothd on this device has been measured taking over a second
+ * to answer a far smaller call (see MESH_BLUEZ_PROPERTY_TIMEOUT_MS). That is worth paying only
+ * while the answer can change, and it cannot once there is a link to protect: sync_discovery()
+ * has the scan held from the connect onward, so no device can appear and every RSSI is frozen
+ * at the 0 a stopped scan leaves behind. Asking anyway spent a blocking second, every second,
+ * in the one loop that was meanwhile reading a 135-node roster off the radio a packet at a time.
+ *
+ * The guard lives here rather than at the two call sites because it belongs to the enumeration:
+ * a third periodic caller would otherwise have to remember it, which is the mistake the first
+ * pass at this made by fixing only the tick and leaving the timer running.
+ *
+ * What the last scan found is kept rather than cleared, so the Devices tab still lists it.
+ */
+static void mesh_ble_refresh_devices_periodic(struct mesh_transport *transport) {
+    if (transport == NULL) {
+        return;
+    }
+    const struct mesh_ble_transport_state *state =
+        (const struct mesh_ble_transport_state *)transport->state;
+    if (state != NULL && (state->link_state == MESH_BLE_LINK_CONNECTED ||
+                          state->link_state == MESH_BLE_LINK_CONNECTING)) {
+        return;
+    }
+    (void)mesh_ble_refresh_devices_internal(transport);
+}
+
 /* Drops everything still queued. Messages among them never reached the radio, so their
    delivery state becomes FAILED rather than staying PENDING forever. */
 static void mesh_ble_clear_write_queue(struct mesh_ble_transport_state *state) {
@@ -996,15 +1051,15 @@ static void mesh_ble_drain_from_radio(struct mesh_ble_transport_state *state) {
         if (result < 0) {
             state->drain_failures += 1U;
             if (state->drain_failures >= MESH_BLE_DRAIN_MAX_FAILURES) {
-                mesh_log_error("ble", "FromRadio read failed %u times in a row (%d); dropping link",
-                               state->drain_failures, result);
+                mesh_log_error("ble", "FromRadio read failed %u times in a row (%s); dropping link",
+                               state->drain_failures, strerror(-result));
                 mesh_ble_reset_link(state, "FromRadio unreadable");
                 return;
             }
             /* The FromNum notification already told us a packet is waiting; do not lose it. */
             uint64_t delay = (uint64_t)MESH_BLE_DRAIN_RETRY_BASE_MS << (state->drain_failures - 1U);
-            mesh_log_warn("ble", "FromRadio read failed (%d); retrying in %" PRIu64 " ms", result,
-                          delay);
+            mesh_log_warn("ble", "FromRadio read failed (%s); retrying in %" PRIu64 " ms",
+                          strerror(-result), delay);
             mesh_ble_schedule_drain(state, delay);
             return;
         }
@@ -1336,6 +1391,9 @@ static void mesh_ble_reset_link(struct mesh_ble_transport_state *state, const ch
     state->link_state = MESH_BLE_LINK_DISCONNECTED;
     state->connect_pending = false;
     state->next_link_poll_ms = 0U;
+    /* Every way a link ends comes through here, which is why the scan hold is armed here rather
+       than at the several call sites that would each have to remember to. */
+    state->scan_resume_at_ms = mesh_time_monotonic_ms() + state->scan_resume_grace_ms;
     state->notifications_enabled = false;
     state->drain_pending = false;
     state->drain_retry_at_ms = 0U;
@@ -1721,6 +1779,7 @@ int mesh_ble_transport_disconnect(struct mesh_transport *transport) {
         /* The ACL is up at the controller even though GATT setup never finished, so this has
            to go through the same teardown rather than just forgetting the attempt. */
         mesh_ble_reset_link(state, "requested");
+        state->scan_resume_at_ms = 0U;
         return 0;
     }
 
@@ -1731,6 +1790,9 @@ int mesh_ble_transport_disconnect(struct mesh_transport *transport) {
     state->connected_device_path[0] =
         '\0'; /* already disconnected; reset_link must not repeat it */
     mesh_ble_reset_link(state, "requested");
+    /* The hold exists to keep the scan out of an imminent reconnect's way, and nothing is coming
+       back after a disconnect the user asked for - they are on their way to the device list. */
+    state->scan_resume_at_ms = 0U;
     return 0;
 }
 

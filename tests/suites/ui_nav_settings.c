@@ -884,8 +884,10 @@ MESH_TEST_CASE(ui_nav_forget_nodes, unit) {
     }
 
     /* With the link gone the roster is still ours to drop, so the rows stay pressable while
-       the five that need an AdminMessage say why they cannot be. */
-    handshake.has_my_info = false;
+       the five that need an AdminMessage say why they cannot be.
+       The link is what goes, not our knowledge of the radio: has_my_info now survives a drop,
+       so clearing that here would be describing a state the client is never in. */
+    handshake.link_up = false;
     mesh_ui_store_set_handshake(&store, &handshake);
     if (!mesh_ui_settings_item(&store.settings, &store.handshake, NULL, 0U,
                                MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL, 1U, &item) ||
@@ -1129,6 +1131,121 @@ MESH_TEST_CASE(ui_nav_canned_separator, unit) {
     if (mesh_ui_settings_field_reserved_char(MESH_UI_FIELD_CANNED_5) != '|' ||
         mesh_ui_settings_field_reserved_char(MESH_UI_FIELD_MQTT_ROOT) != '\0') {
         failure = "only the canned slots should reserve the separator";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+/*
+ * Settings > Actions is gated on the session having a send path, not on knowing our own node
+ * number.
+ *
+ * Those were the same question only while a drop cleared has_my_info. They stopped being the
+ * same when what the radio *is* began surviving a reconnect, and the rows here are the ones
+ * that matter: reboot, shutdown, NodeDB reset, backup/restore and the two factory resets all
+ * send an AdminMessage, so offering them over a dead link means a confirm dialog followed by
+ * -ENOTCONN. The section still opens - the two forget rows are local and always work - and the
+ * rest render as "not connected" rather than disappearing, because a section whose length
+ * changes when the radio drops moves the cursor out from under the user.
+ *
+ * The persisted handshake is why this was worth a test of its own: has_my_info is written to
+ * disk and restored, so a cold start with a cached roster and nothing connected reached this
+ * code with has_my_info already true.
+ */
+MESH_TEST_CASE(ui_settings_actions_need_a_live_link, unit) {
+    const char *failure = NULL;
+
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    mesh_test_nav_populate(&store);
+    struct mesh_ui_settings settings;
+    memset(&settings, 0, sizeof settings);
+    settings.loaded = true;
+    settings.has_metadata = true;
+    settings.can_shutdown = true;
+    mesh_ui_store_set_settings(&store, &settings);
+
+    /* A radio we know everything about, whose link has gone: exactly what a reconnect leaves
+       behind now, and what a restored roster looks like before the first connect. */
+    struct mesh_ui_handshake_state dropped = store.handshake;
+    dropped.link_up = false;
+    /* Something for the local rows to actually offer, so "the forget rows stay pressable" is a
+       claim about the gate rather than about an empty roster. */
+    dropped.nodes_forgettable_off_radio = 1U;
+    dropped.nodes_forgettable_all = 2U;
+    if (!dropped.has_my_info || dropped.node_count == 0U) {
+        failure = "the fixture should still know the radio after the link goes";
+        goto cleanup;
+    }
+
+    /* The section still opens, because the forget rows send nothing. */
+    if (!mesh_ui_settings_section_loaded(&store.settings, &dropped, MESH_UI_SETTINGS_ACTIONS)) {
+        failure = "a cached roster should still open Radio actions";
+        goto cleanup;
+    }
+
+    /* Every AdminMessage row reads "not connected" and cannot be pressed. */
+    const uint32_t count = mesh_ui_settings_item_count(
+        &store.settings, &dropped, MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL);
+    unsigned pressable = 0U;
+    unsigned not_connected = 0U;
+    for (uint32_t row = 0; row < count; ++row) {
+        struct mesh_ui_settings_item item;
+        if (!mesh_ui_settings_item(&store.settings, &dropped, NULL, 0U, MESH_UI_SETTINGS_ACTIONS,
+                                   MESH_UI_SETTINGS_NO_CHANNEL, row, &item)) {
+            failure = "row should exist";
+            goto cleanup;
+        }
+        if (item.kind == MESH_UI_SETTING_ACTION) {
+            ++pressable;
+        }
+        if (item.kind == MESH_UI_SETTING_INFO &&
+            strcmp(item.value, mesh_str(MESH_STR_SETTINGS_NOT_CONNECTED)) == 0) {
+            ++not_connected;
+        }
+    }
+    /* The two forget rows are local - they drop our own cache and send nothing - so they stay
+       pressable with no radio in sight. Nothing else here may be. */
+    if (pressable != 2U) {
+        failure = "only the two local forget rows may be pressable with no link";
+        goto cleanup;
+    }
+    if (not_connected == 0U) {
+        failure = "the AdminMessage rows should say why they cannot be pressed";
+        goto cleanup;
+    }
+
+    /* And with the link back, the same rows are pressable again - the gate is the link, not
+       something that latched. */
+    struct mesh_ui_handshake_state live = dropped;
+    live.link_up = true;
+    unsigned live_pressable = 0U;
+    const uint32_t live_count = mesh_ui_settings_item_count(
+        &store.settings, &live, MESH_UI_SETTINGS_ACTIONS, MESH_UI_SETTINGS_NO_CHANNEL);
+    if (live_count != count) {
+        failure = "the section must not change length when the radio drops";
+        goto cleanup;
+    }
+    for (uint32_t row = 0; row < live_count; ++row) {
+        struct mesh_ui_settings_item item;
+        if (mesh_ui_settings_item(&store.settings, &live, NULL, 0U, MESH_UI_SETTINGS_ACTIONS,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, row, &item) &&
+            item.kind == MESH_UI_SETTING_ACTION) {
+            ++live_pressable;
+        }
+    }
+    if (live_pressable <= pressable) {
+        failure = "a live link should make the AdminMessage rows pressable again";
         goto cleanup;
     }
 

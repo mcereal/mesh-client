@@ -22,6 +22,9 @@ void mesh_test_nav_populate(struct mesh_ui_store *store) {
     struct mesh_ui_handshake_state handshake;
     memset(&handshake, 0, sizeof handshake);
     handshake.config_complete = true;
+    /* The fixture's first device is `.connected = true`, so the session it stands for has a send
+       path; the rows that gate on one (Settings > Actions) are meant to be pressable here. */
+    handshake.link_up = true;
     handshake.has_my_info = true;
     handshake.my_info.node_num = 0x1000U;
     handshake.node_count = 3U;

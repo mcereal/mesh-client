@@ -1,0 +1,17 @@
+# The Status sync row while a config replay is still running.
+#
+# The row used to say "in progress" and nothing else for as long as a sync took, which on a
+# 135-node radio is about seventeen seconds - and on a link that kept dropping mid-roster it said
+# it forever, because each reconnect started the replay again from nothing. That is the state
+# this scene is a picture of: the count is what tells a sync that is working from one that has
+# stalled, and it is the reason the roster is now kept across a drop rather than re-fetched.
+#
+# `config` first so the card has a radio to describe, then `syncing` puts the replay back in
+# flight partway through - the two are ordered, not interchangeable.
+scene demo
+scale 4
+clock 2026-01-12 19:12
+config
+stats
+syncing
+tab status
