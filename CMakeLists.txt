@@ -26,6 +26,20 @@ if(MESHCLIENT_ENABLE_ASAN)
     list(APPEND MESHCLIENT_LINK_OPTIONS -fsanitize=address)
 endif()
 
+# The harnesses in devtools/fuzz/ need two halves of libFuzzer, and this is the half that goes
+# on the code under test: `fuzzer-no-link` instruments it for coverage without giving it a
+# main(). The harness targets add plain `-fsanitize=fuzzer` at their own link step, which is
+# what supplies one. Without the instrumentation here the fuzzer would be feeling its way
+# through the parser with no coverage feedback at all - a random byte generator with extra steps.
+option(MESHCLIENT_ENABLE_FUZZERS "Build the libFuzzer harnesses in devtools/fuzz (clang only)" OFF)
+if(MESHCLIENT_ENABLE_FUZZERS)
+    if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR
+                "MESHCLIENT_ENABLE_FUZZERS needs clang for libFuzzer; configure with CC=clang.")
+    endif()
+    list(APPEND MESHCLIENT_COMPILE_OPTIONS -fsanitize=fuzzer-no-link)
+endif()
+
 # -fno-sanitize-recover because UBSan otherwise prints a diagnostic and carries on, so the
 # test that found the undefined behaviour still passes and CI still goes green. A check nobody
 # fails is a check nobody reads.

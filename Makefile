@@ -9,10 +9,10 @@ export BUILD_ROOT
 
 DOCKER := ./scripts/docker.sh
 
-.PHONY: help setup debug release relwithdebinfo build test package proto clean distclean run format \
+.PHONY: help setup debug release relwithdebinfo build test package proto clean distclean run format fuzz \
         ui-capture screenshots \
         docker-image docker-cross-image docker-shell docker-debug docker-test docker-run docker-pak \
-        docker-clean docker-ui-capture docker-screenshots \
+        docker-clean docker-ui-capture docker-screenshots docker-fuzz \
         deploy deploy-run deploy-logs deploy-check deploy-shot deploy-clip deploy-input-map \
         deploy-shell deploy-key brick
 
@@ -28,6 +28,7 @@ help:
 	@echo "  make format         - clang-format all tracked .c/.h files"
 	@echo "  make ui-capture     - Render a UI scene to a GIF without a device (ARGS=\"scene -o out.gif\")"
 	@echo "  make screenshots    - Re-render the listing stills in .github/resources/screenshots"
+	@echo "  make fuzz           - Build and run the libFuzzer harnesses (ARGS=\"--time 600\" to hunt)"
 	@echo "  make clean          - Remove build artifacts"
 	@echo "  make distclean      - Remove build and dist outputs"
 	@echo ""
@@ -41,6 +42,7 @@ help:
 	@echo "  make docker-clean   - Remove build/linux"
 	@echo "  make docker-ui-capture - make ui-capture inside the dev container (use this on macOS)"
 	@echo "  make docker-screenshots - make screenshots inside the dev container (use this on macOS)"
+	@echo "  make docker-fuzz    - make fuzz inside the dev container (use this on macOS)"
 	@echo ""
 	@echo "Device targets (TrimUI Brick over SSH; configure .brick.env, see docs/device.md):"
 	@echo "  make deploy         - Push dist/MeshClient.pak to the Brick's Tools/tg5040/"
@@ -84,6 +86,12 @@ run: debug
 # The companion to deploy-shot for a change that is about a transition; see docs/ui.md.
 ui-capture:
 	./scripts/ui-capture.sh $(ARGS)
+
+# The libFuzzer harnesses over the two places bytes we did not write enter the client: the
+# serial frame parser and the session's FromRadio decode. No arguments is the deterministic
+# regression pass CI runs; ARGS="--time 600" is an actual hunt. See docs/testing.md.
+fuzz:
+	./scripts/fuzz.sh $(ARGS)
 
 # The four stills the README and the Pak Store listing carry, from the scenes in
 # devtools/ui_capture/scenes/shots/. Run it after a UI change rather than editing the pictures.
@@ -145,6 +153,9 @@ docker-ui-capture:
 
 docker-screenshots:
 	$(DOCKER) make screenshots ARGS="$(ARGS)"
+
+docker-fuzz:
+	$(DOCKER) make fuzz ARGS="$(ARGS)"
 
 docker-clean:
 	rm -rf build/linux
