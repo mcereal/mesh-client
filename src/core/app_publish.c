@@ -1209,8 +1209,12 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     const char *pending_address = mesh_ble_transport_pending_address(ble);
     for (size_t i = 0; i < ble_count && device_count < MESH_UI_MAX_DEVICES; ++i) {
         struct mesh_ui_device *slot = &ui_devices[device_count];
-        snprintf(slot->identifier, sizeof slot->identifier, "%s", ble_devices[i].address);
-        snprintf(slot->name, sizeof slot->name, "%s", ble_devices[i].name);
+        /* Both sources are fixed-size arrays BlueZ filled in, not strings we can prove are
+           terminated - a full 64-byte name with no NUL would send `%s` reading on into the next
+           device in the array. mesh_str_copy stops at the destination's size either way, which
+           is what it was written for. */
+        mesh_str_copy(slot->identifier, sizeof slot->identifier, ble_devices[i].address);
+        mesh_str_copy(slot->name, sizeof slot->name, ble_devices[i].name);
         slot->kind = (uint8_t)MESH_UI_DEVICE_BLE;
         int16_t rssi = ble_devices[i].rssi;
         if (rssi < INT8_MIN) {

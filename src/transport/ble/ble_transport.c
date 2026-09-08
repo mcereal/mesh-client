@@ -811,7 +811,15 @@ static bool mesh_ble_format_device_path(const struct mesh_ble_transport_state *s
             *c = '_';
         }
     }
-    snprintf(out_path, out_len, "%s/dev_%s", state->adapter_path, address_copy);
+    const int written = snprintf(out_path, out_len, "%s/dev_%s", state->adapter_path, address_copy);
+    /* A cut-off object path is not a shorter way of naming this device - it names nothing, and
+       BlueZ answers UnknownObject for it. Every adapter path we have seen is "/org/bluez/hciN",
+       so this cannot fire today; the caller already has a false to handle, and handing one back
+       costs less than handing back a path to somewhere else. */
+    if (written < 0 || (size_t)written >= out_len) {
+        out_path[0] = '\0';
+        return false;
+    }
     return true;
 }
 

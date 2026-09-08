@@ -69,6 +69,14 @@ branch of that script, which builds against the system musl instead.
 Nothing gates on formatting, deliberately: the tree is normalised with clang-format 18 and host
 versions vary.
 
+**The cross job compiles the same code with a different compiler**, and that turns out to be a
+second thing it checks. The device build is GCC 14.3 (musl) at `-Os`, where inlining gives the
+optimiser bounds the host build never derives, so it reports `-Wformat-truncation` on calls the
+host toolchain passes without comment. "Zero compiler warnings" therefore means *both* builds,
+and the four sites the job found the day it landed are recorded in the commit that fixed them:
+three `snprintf` calls whose destination the compiler could not prove was large enough, and one
+whose *source* it could not prove was NUL-terminated.
+
 The framebuffer renderer is covered too, in `tests/suites/ui_capture.c`. There is no `/dev/fb0`
 in CI or in the dev container, and `mesh_ui_capture_*` (`src/ui/backends/fb_capture.c`) is the
 only way the fb backend's output is exercised anywhere but on a Brick. Those cases check the
