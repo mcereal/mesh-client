@@ -4,6 +4,12 @@ set -euo pipefail
 BUILD_TYPE=${1:-debug}
 shift || true
 
+# `make debug CMAKE_ARGS="-- -DMESHCLIENT_ENABLE_ASAN=ON"` is the documented form, and the
+# separator is for the reader rather than for cmake, which rejects a bare `--` outright.
+if [[ "${1:-}" == "--" ]]; then
+    shift
+fi
+
 case "${BUILD_TYPE}" in
   debug|Debug)
     CMAKE_BUILD_TYPE=Debug

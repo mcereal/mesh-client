@@ -28,7 +28,8 @@ under `docs/`. Tests are split across `tests/suites/<area>.c` over a small frame
   (`make docker-ui-capture` on macOS). See [`docs/ui.md`](docs/ui.md#looking-at-a-ui-change).
 - `make screenshots` — re-render the four listing stills in `.github/resources/screenshots` from
   `devtools/ui_capture/scenes/shots/`. Run it when a UI change dates them.
-- Sanitizers: `make debug CMAKE_ARGS="-- -DMESHCLIENT_ENABLE_ASAN=ON"` (or `UBSAN`).
+- Sanitizers: `make debug CMAKE_ARGS="-- -DMESHCLIENT_ENABLE_ASAN=ON"` (or `UBSAN`, or both).
+  CI runs the suite under both on every pull request, so this is for reproducing what it found.
 
 Always sync submodules (`git submodule update --init --recursive`) after pulling; CMake
 FATAL_ERRORs without them.
