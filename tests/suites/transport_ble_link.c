@@ -1146,3 +1146,100 @@ cleanup:
         record_success(test_name);
     }
 }
+
+/* Scanning and a link may not share the radio. A node allows a 1000 ms supervision timeout, and
+   BlueZ's discovery is an active LE scan at a 50% duty cycle that bluetoothd restarts every ten
+   seconds; held across a link long enough to matter, it takes the Brick's one antenna away for
+   longer than that and the link drops mid-roster. So the scan is derived from the link state
+   rather than paired with a connect: down for the whole of CONNECTING and CONNECTED, back up the
+   moment there is no link to protect. */
+MESH_TEST_CASE(ble_transport_scan_yields_to_the_link, unit) {
+    const char *failure = NULL;
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:0A", .name = "NodeTen", .rssi = -50, .paired = true},
+    };
+    unsigned starts = 0U;
+    unsigned stops = 0U;
+    uint8_t write_capture[64];
+    size_t write_len = 0U;
+    struct mesh_bluez_mock_config mock_config = {
+        .adapter_path = "/org/bluez/hci0",
+        .start_discovery_calls = &starts,
+        .stop_discovery_calls = &stops,
+        .connected_drops_after_polls = 2U, /* tick() already probes once on connect */
+        .devices = mock_devices,
+        .device_count = 1U,
+        .write_capture_buffer = write_capture,
+        .write_capture_capacity = sizeof(write_capture),
+        .write_capture_length = &write_len,
+    };
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    struct mesh_app_config config = mesh_app_config_default();
+    struct mesh_event_loop loop;
+    mesh_event_loop_init(&loop);
+    if (ble->ops->start(ble, &config, &loop) != 0) {
+        failure = "ble start failed";
+        goto cleanup;
+    }
+    if (starts != 1U || stops != 0U) {
+        failure = "bring-up should start scanning exactly once";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+
+    /* Down before Device1.Connect goes out, not a tick later: establishing the link needs the
+       radio as much as holding it does. */
+    if (mesh_ble_transport_connect(ble, mock_devices[0].address) != 0) {
+        failure = "connect should be accepted";
+        goto cleanup;
+    }
+    if (stops != 1U) {
+        failure = "connect must stop the scan before it sends Connect";
+        goto cleanup;
+    }
+
+    /* And it stays down: every turn re-derives it, so none of them may put it back. */
+    ble->ops->tick(ble);
+    ble->ops->tick(ble);
+    if (mesh_ble_transport_connected_address(ble) == NULL) {
+        failure = "expected a connected link";
+        goto cleanup;
+    }
+    if (starts != 1U || stops != 1U) {
+        failure = "a held scan must not be restarted while the link is up";
+        goto cleanup;
+    }
+
+    /* The link drops. The scan is what finds the node again, so it has to come back. */
+    if (mesh_ble_transport_check_link(ble) != 1) {
+        failure = "first probe should find the link up";
+        goto cleanup;
+    }
+    if (mesh_ble_transport_check_link(ble) != 0) {
+        failure = "second probe should find the link down and reset it";
+        goto cleanup;
+    }
+    ble->ops->tick(ble);
+    if (starts != 2U || stops != 1U) {
+        failure = "scanning should resume once the link is gone";
+        goto cleanup;
+    }
+    ble->ops->tick(ble);
+    if (starts != 2U) {
+        failure = "a scan already running must not be started again every turn";
+        goto cleanup;
+    }
+
+cleanup:
+    ble->ops->stop(ble);
+    mesh_event_loop_shutdown(&loop);
+    mesh_bluez_client_mock_disable();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}

@@ -133,6 +133,10 @@ struct mesh_bluez_mock_config {
     const char *adapter_path;
     int start_discovery_result;
     int stop_discovery_result;
+    /* Bumped every time StartDiscovery/StopDiscovery reaches the client, so a test can assert
+       that the scan is down for the whole of a link rather than only that it was stopped once. */
+    unsigned *start_discovery_calls;
+    unsigned *stop_discovery_calls;
     int connect_result;
     int disconnect_result;
     int pair_result;
