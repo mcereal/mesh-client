@@ -26,8 +26,11 @@ if(MESHCLIENT_ENABLE_ASAN)
     list(APPEND MESHCLIENT_LINK_OPTIONS -fsanitize=address)
 endif()
 
+# -fno-sanitize-recover because UBSan otherwise prints a diagnostic and carries on, so the
+# test that found the undefined behaviour still passes and CI still goes green. A check nobody
+# fails is a check nobody reads.
 if(MESHCLIENT_ENABLE_UBSAN)
-    list(APPEND MESHCLIENT_COMPILE_OPTIONS -fsanitize=undefined)
+    list(APPEND MESHCLIENT_COMPILE_OPTIONS -fsanitize=undefined -fno-sanitize-recover=undefined)
     list(APPEND MESHCLIENT_LINK_OPTIONS -fsanitize=undefined)
 endif()
 

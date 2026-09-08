@@ -78,7 +78,9 @@ make deploy-clip ARGS="-d 10 -n 30"       # film /dev/fb0 to a GIF (a few fps; n
 make deploy-run ARGS="--list-devices"     # run launch.sh on device headless, streaming output
 ```
 
-Sanitizers: `make debug CMAKE_ARGS="-- -DMESHCLIENT_ENABLE_ASAN=ON"` (or `UBSAN`).
+Sanitizers: `make debug CMAKE_ARGS="-- -DMESHCLIENT_ENABLE_ASAN=ON"` (or `UBSAN`, or both).
+CI runs the suite under both, and cross-builds the pak, on every pull request - see
+[`docs/testing.md`](docs/testing.md#what-ci-runs).
 
 ### Tests
 

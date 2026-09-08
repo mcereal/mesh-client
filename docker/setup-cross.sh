@@ -40,8 +40,17 @@ case "$ARCH" in
         wget -q "https://toolchains.bootlin.com/downloads/releases/toolchains/aarch64/tarballs/${BOOTLIN_TARBALL}.tar.xz"
         tar -xf "${BOOTLIN_TARBALL}.tar.xz" -C "$PREFIX"
         rm -f "${BOOTLIN_TARBALL}.tar.xz"
+        # Wrappers rather than symlinks. Bootlin's tools are argv[0]-sensitive: each one execs
+        # "<the name it was invoked by>.br_real", so a symlink under another name sends it
+        # looking for a binary that does not exist, and the error names a path nothing created.
+        # A script keeps argv[0] the toolchain's own name while this directory still exposes
+        # only these four tools - the toolchain's bin/ holds a hundred more, and $PREFIX/bin
+        # goes in front of everything.
         for tool in gcc ar ranlib strip; do
-            ln -sf "$PREFIX/$BOOTLIN_TARBALL/bin/aarch64-buildroot-linux-musl-$tool" "$PREFIX/bin/aarch64-linux-musl-$tool"
+            printf '#!/bin/sh\nexec "%s" "$@"\n' \
+                "$PREFIX/$BOOTLIN_TARBALL/bin/aarch64-buildroot-linux-musl-$tool" \
+                > "$PREFIX/bin/aarch64-linux-musl-$tool"
+            chmod +x "$PREFIX/bin/aarch64-linux-musl-$tool"
         done
         CROSS_COMPILE=aarch64-linux-musl-
         CROSS_HOST=aarch64-buildroot-linux-musl
@@ -77,21 +86,33 @@ cpu = 'aarch64'
 endian = 'little'
 INI
 
+# meson reports a configure failure on stdout, so a bare >/dev/null on these three steps
+# turns a `set -e` abort into a silent one that says nothing about what went wrong. Keep the
+# output and print it only when the step fails.
+run_quiet() {
+    if ! "$@" >"$PREFIX/setup.log" 2>&1; then
+        echo "failed: $*" >&2
+        cat "$PREFIX/setup.log" >&2
+        exit 1
+    fi
+}
+
 cd "$PREFIX/src"
 wget -q "https://dbus.freedesktop.org/releases/dbus/dbus-${DBUS_VERSION}.tar.xz"
 tar -xf "dbus-${DBUS_VERSION}.tar.xz"
 cd "dbus-${DBUS_VERSION}"
-meson setup build --cross-file "$PREFIX/meson-cross.ini" \
+run_quiet meson setup build --cross-file "$PREFIX/meson-cross.ini" \
     --prefix="$PREFIX/dbus" --libdir=lib --buildtype=release \
     -Ddefault_library=static -Dmessage_bus=false -Dtools=false \
     -Dmodular_tests=disabled -Dintrusive_tests=false -Dinstalled_tests=false \
     -Dxml_docs=disabled -Ddoxygen_docs=disabled -Dducktype_docs=disabled -Dqt_help=disabled \
     -Dselinux=disabled -Dapparmor=disabled -Dsystemd=disabled -Dlibaudit=disabled \
-    -Dx11_autolaunch=disabled >/dev/null
-ninja -C build >/dev/null
-ninja -C build install >/dev/null
+    -Dx11_autolaunch=disabled
+run_quiet ninja -C build
+run_quiet ninja -C build install
 
-rm -rf "$PREFIX/src"/dbus-*
+cd "$PREFIX"   # the shell is inside the tree about to be removed, and sh says so loudly
+rm -rf "$PREFIX/src"/dbus-* "$PREFIX/setup.log"
 
 cat > "$PREFIX/env.sh" <<ENV
 # Sourced by scripts/cross-build.sh inside the cross container.

@@ -48,6 +48,27 @@ the code width grows — produces a file that still opens and shows garbage, so
 `meshclient_frames_codec` round-trips the compressor through an independently written decoder
 (`scripts/frames.py selftest`).
 
+## What CI runs
+
+Three jobs on every pull request ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)):
+
+| Job | What it proves |
+|---|---|
+| `Build and test` | `make test` on ubuntu-24.04 under gcc *and* clang, then `make release && make package` |
+| `Cross build (tg5040, static aarch64)` | that the pak builds for the device. The same `docker/setup-cross.sh` toolchain `make docker-pak` uses, through `scripts/cross-build.sh`, with the binary asserted to be aarch64 and statically linked before it is packaged. The zip and the bare binary are uploaded, so a pull request can be sideloaded onto a Brick without building it |
+| `Sanitizers (ASan + UBSan)` | the same suite under both sanitizers, built with clang. `-fno-sanitize-recover=undefined` is on, so a UBSan diagnostic fails the run rather than printing into a log that passes |
+
+The cross job is the one that was missing longest. The device build lived only in
+`semantic-release.yml`, which fires on a push to `main` - so a musl/aarch64 break was green in
+review and red at release time, on a protected branch. Adding it found such a break immediately:
+`docker/setup-cross.sh` exposed the Bootlin tools as symlinks under a shorter name, and those
+tools exec `<the name they were invoked by>.br_real`, so on an x86-64 host the toolchain had
+never worked at all. It goes unnoticed on an Apple Silicon Mac because Docker runs the arm64
+branch of that script, which builds against the system musl instead.
+
+Nothing gates on formatting, deliberately: the tree is normalised with clang-format 18 and host
+versions vary.
+
 The framebuffer renderer is covered too, in `tests/suites/ui_capture.c`. There is no `/dev/fb0`
 in CI or in the dev container, and `mesh_ui_capture_*` (`src/ui/backends/fb_capture.c`) is the
 only way the fb backend's output is exercised anywhere but on a Brick. Those cases check the

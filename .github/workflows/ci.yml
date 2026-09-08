@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [ main ]
 
+# Every job here reads the repository and nothing else: the artifact uploads go through the
+# Actions runtime token rather than GITHUB_TOKEN. Stated at the top so a job added later
+# inherits the narrow default instead of the broad one.
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     name: Build and test (${{ matrix.os }}, ${{ matrix.compiler }})
@@ -73,3 +79,95 @@ jobs:
             dist/MeshClient.pak.zip
             dist/MeshClient.pak/**
           if-no-files-found: ignore
+
+  # The device build, on every pull request. It used to run only in semantic-release.yml, which
+  # fires on a push to main - so a change that compiles on glibc/x86-64 and not on musl/aarch64
+  # was green in review, red at release time, and red on a protected branch. This job is the
+  # same toolchain the pak is built with (docker/setup-cross.sh, what `make docker-pak` uses),
+  # and it packages as well as compiles, because the pak is the thing that ships.
+  cross-build:
+    name: Cross build (tg5040, static aarch64)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config protobuf-compiler python3 python3-pip file zip
+
+      - name: Install Python packages for nanopb generator
+        run: |
+          python3 -m pip install --user --upgrade pip setuptools wheel
+          python3 -m pip install --user protobuf grpcio-tools
+
+      # actions/cache restores as the runner user, and /opt is root's.
+      - name: Prepare the toolchain directory
+        run: sudo mkdir -p /opt/cross && sudo chown "$(id -u):$(id -g)" /opt/cross
+
+      # Keyed on the setup script because it names the toolchain tarball and the dbus version:
+      # bump either and the key changes. Without this every push re-downloads ~200 MB from
+      # toolchains.bootlin.com and rebuilds libdbus, which also makes an unrelated PR's CI
+      # depend on that host being up.
+      - name: Cache the aarch64 toolchain and static libdbus
+        id: cross-toolchain
+        uses: actions/cache@v6
+        with:
+          path: /opt/cross
+          key: cross-ubuntu-24.04-${{ hashFiles('docker/setup-cross.sh') }}
+
+      - name: Build the toolchain
+        if: steps.cross-toolchain.outputs.cache-hit != 'true'
+        run: sudo bash docker/setup-cross.sh
+
+      # Asserts the binary is aarch64 and static before packaging it; see scripts/cross-build.sh.
+      - name: Build the pak
+        run: ./scripts/cross-build.sh
+
+      - name: Upload pak artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: MeshClient.pak-tg5040-aarch64
+          path: |
+            dist/MeshClient.pak.zip
+            dist/meshclient-tg5040-aarch64
+          if-no-files-found: error
+
+  # The suite again, under AddressSanitizer and UndefinedBehaviorSanitizer. Both options have
+  # existed in CMakeLists.txt all along and nothing but a person remembering to type them ever
+  # turned them on - on a C17 client whose inputs arrive off the air from radios we do not
+  # control, that is the check worth automating first.
+  sanitizers:
+    name: Sanitizers (ASan + UBSan)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          # libclang-rt-18-dev is the one that is easy to miss: Ubuntu's clang package does not
+          # pull the sanitizer runtimes in, and without them the link fails looking for
+          # libclang_rt.asan-x86_64.a rather than at anything to do with this code.
+          sudo apt-get install -y build-essential clang llvm libclang-rt-18-dev cmake ninja-build pkg-config libdbus-1-dev dbus-daemon protobuf-compiler python3 python3-pip
+
+      - name: Install Python packages for nanopb generator
+        run: |
+          python3 -m pip install --user --upgrade pip setuptools wheel
+          python3 -m pip install --user protobuf grpcio-tools
+
+      # clang for the sanitizer runtimes, and a build root of its own so the sanitized tree
+      # never shares a CMake cache with an ordinary Debug configure.
+      - name: Build and test
+        env:
+          CC: clang
+          BUILD_ROOT: build/san
+          ASAN_OPTIONS: detect_leaks=1:detect_stack_use_after_return=1:strict_string_checks=1
+          UBSAN_OPTIONS: print_stacktrace=1
+        run: make test CMAKE_ARGS="-- -DMESHCLIENT_ENABLE_ASAN=ON -DMESHCLIENT_ENABLE_UBSAN=ON"

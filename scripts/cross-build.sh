@@ -26,7 +26,19 @@ cmake -S . -B "$BUILD_DIR" \
     "$@"
 cmake --build "$BUILD_DIR"
 
-file "$BUILD_DIR/meshclient"
+# The Brick runs one shape of binary: aarch64, and static, because the device has no libdbus
+# and no glibc to find one with. `file` was printing that and nothing was reading it, so a
+# host-toolchain configure would have produced an x86 binary and packaged it without complaint.
+DESCRIPTION="$(file -b "$BUILD_DIR/meshclient")"
+echo "$DESCRIPTION"
+case "$DESCRIPTION" in
+    *"ARM aarch64"*) ;;
+    *) echo "not an aarch64 binary: $DESCRIPTION" >&2; exit 1 ;;
+esac
+case "$DESCRIPTION" in
+    *"statically linked"*) ;;
+    *) echo "not statically linked: $DESCRIPTION" >&2; exit 1 ;;
+esac
 
 export PLATFORM
 BUILD_ROOT="$BUILD_ROOT" ./scripts/package.sh release
