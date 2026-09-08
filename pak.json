@@ -1,17 +1,17 @@
 {
   "name": "MeshClient",
-  "version": "v2.34.3",
+  "version": "v2.35.0",
   "type": "TOOL",
   "description": "A Meshtastic client for your handheld: read and send messages, browse the mesh, and edit your radio's settings over Bluetooth LE or USB.",
   "author": "mcereal",
   "repo_url": "https://github.com/mcereal/mesh-client",
   "release_filename": "MeshClient.pak.zip",
   "changelog": {
+    "v2.35.0": "The four radio verbs that are not a section; Never let a canned save delete a message it could not show.",
     "v2.34.3": "Close the four truncation sites the device build reports.",
     "v2.34.2": "Stop input-map leaking readers, and hold a held button together; Stop the power button quitting the client.",
     "v2.34.1": "Stop scanning while a link is up or being made.",
-    "v2.34.0": "Say what a fix is, how precise, and whose clock dated it; Check the conversion before the coordinate, and don't date a replayed fix by unrelated chatter.",
-    "v2.33.1": "Retry a timed-out ServicesResolved poll instead of ending the link; Return from the event loop within its own timeout."
+    "v2.34.0": "Say what a fix is, how precise, and whose clock dated it; Check the conversion before the coordinate, and don't date a replayed fix by unrelated chatter."
   },
   "screenshots": [
     ".github/resources/screenshots/nodes.png",

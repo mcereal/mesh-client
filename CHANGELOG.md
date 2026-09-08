@@ -1,3 +1,13 @@
+## [2.35.0](https://github.com/mcereal/mesh-client/compare/v2.34.3...v2.35.0) (2026-09-08)
+
+### Features
+
+* **settings:** the four radio verbs that are not a section ([9603e90](https://github.com/mcereal/mesh-client/commit/9603e90f782dad53491c98689c7777bd6f3a9898))
+
+### Bug Fixes
+
+* **settings:** never let a canned save delete a message it could not show ([13561fc](https://github.com/mcereal/mesh-client/commit/13561fc7efddb5414838ff1f39a7018daebcdbbe)), closes [#113](https://github.com/mcereal/mesh-client/issues/113)
+
 ## [2.34.3](https://github.com/mcereal/mesh-client/compare/v2.34.2...v2.34.3) (2026-09-08)
 
 ### Bug Fixes
