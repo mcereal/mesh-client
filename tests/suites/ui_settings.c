@@ -716,6 +716,101 @@ MESH_TEST_CASE(ui_node_detail_items, unit) {
 }
 
 /*
+ * The two things the position section must not overstate: how precisely it knows where a node
+ * is, and how recently. Both used to be said in a way that read as more than we had - a bit
+ * count that means nothing to a reader, and a "Fix" heading over a timestamp that was often
+ * simply absent.
+ */
+MESH_TEST_CASE(ui_node_detail_position_honesty, unit) {
+    struct mesh_ui_node_summary node;
+    memset(&node, 0, sizeof node);
+    node.node_id = 0x4001U;
+    snprintf(node.long_name, sizeof node.long_name, "%s", "Ridge");
+    snprintf(node.short_name, sizeof node.short_name, "%s", "RDG");
+    node.has_user = true;
+    node.position.valid = true;
+    node.position.latitude_i = 447654321;
+    node.position.longitude_i = -680012345;
+
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    const uint32_t now = 1750000600U;
+
+    /* A node that dated its own fix: the row asks the node's question and gets the node's
+       answer, ten minutes before `now`. */
+    node.position.time = 1750000000U;
+    node.position.received = 1750000500U;
+    node.position.precision_bits = 16U;
+    uint32_t count = mesh_ui_node_detail_build(&node, false, now, NULL, false, NULL, NULL, items,
+                                               MESH_UI_NODE_ITEMS_MAX);
+    bool fix_ok = false;
+    bool precision_ok = false;
+    bool heard_row_present = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, "Fix") == 0 && strcmp(items[i].value, "10m ago") == 0) {
+            fix_ok = true;
+        }
+        if (strcmp(items[i].label, "Fix heard") == 0) {
+            heard_row_present = true;
+        }
+        /* Not "16 bits": the distance the sender rounded to, which is the same word the
+           channel's own position_precision row uses for the same number. */
+        if (strcmp(items[i].label, "Precision") == 0 && strcmp(items[i].value, "~360 m") == 0) {
+            precision_ok = true;
+        }
+    }
+    MESH_TEST_FAIL_IF(!fix_ok, "a dated fix should be aged by the node's own clock");
+    MESH_TEST_FAIL_IF(heard_row_present, "a dated fix should not also claim an arrival row");
+    MESH_TEST_FAIL_IF(!precision_ok, "precision should read as a distance, not a bit count");
+
+    /*
+     * The common case: the node dated nothing, because upstream leaves `time` off the mesh to
+     * save space. The row switches to our clock and says so - the old behaviour put "unknown"
+     * here, throwing away the one honest answer we had.
+     */
+    node.position.time = 0U;
+    node.position.received = 1750000300U;
+    count = mesh_ui_node_detail_build(&node, false, now, NULL, false, NULL, NULL, items,
+                                      MESH_UI_NODE_ITEMS_MAX);
+    bool heard_ok = false;
+    bool fix_row_present = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, "Fix heard") == 0 && strcmp(items[i].value, "5m ago") == 0) {
+            heard_ok = true;
+        }
+        if (strcmp(items[i].label, "Fix") == 0) {
+            fix_row_present = true;
+        }
+    }
+    MESH_TEST_FAIL_IF(!heard_ok, "an undated fix should be aged by our own arrival clock");
+    MESH_TEST_FAIL_IF(fix_row_present,
+                      "an undated fix must not be labelled as though the node dated it");
+
+    /* A fix restored from a cache written before arrival times existed knows neither, and
+       says so rather than picking one. */
+    node.position.received = 0U;
+    count = mesh_ui_node_detail_build(&node, false, now, NULL, false, NULL, NULL, items,
+                                      MESH_UI_NODE_ITEMS_MAX);
+    bool unknown_ok = false;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (strcmp(items[i].label, "Fix heard") == 0 && strcmp(items[i].value, "?") == 0) {
+            unknown_ok = true;
+        }
+    }
+    MESH_TEST_FAIL_IF(!unknown_ok, "a fix with no clock at all should say it does not know");
+
+    /* precision_bits 0 is "the node never said", not "off": no row rather than a claim. */
+    node.position.precision_bits = 0U;
+    count = mesh_ui_node_detail_build(&node, false, now, NULL, false, NULL, NULL, items,
+                                      MESH_UI_NODE_ITEMS_MAX);
+    for (uint32_t i = 0; i < count; ++i) {
+        MESH_TEST_FAIL_IF(strcmp(items[i].label, "Precision") == 0,
+                          "an unstated precision must not draw a row");
+    }
+
+    record_success(test_name);
+}
+
+/*
  * The About section is the one part of the Settings tab that works with no radio: it opens on
  * a store that has never seen a handshake, and its rows come from the client info the app
  * publishes rather than from the air.

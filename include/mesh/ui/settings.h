@@ -391,6 +391,16 @@ enum mesh_ui_icon mesh_ui_settings_section_icon(enum mesh_ui_settings_section se
    sections. What lets a renderer declare the slot once for the list instead of testing a row. */
 bool mesh_ui_settings_section_icons_rows(enum mesh_ui_settings_section section);
 
+/*
+ * Position precision as a distance rather than a bit count: 0 is off, 32 or more is precise,
+ * and 10..19 are the ten steps the phone apps label ("~23 km" down to "~45 m"). Public
+ * because the node detail asks the same question of a *received* fix that the channel's
+ * position_precision row asks of an outgoing one - and a rounded location described two
+ * different ways on two screens is how a client comes to disagree with itself about how much
+ * it knows. Writes at most `out_len` bytes including the NUL.
+ */
+void mesh_ui_settings_format_precision(uint32_t bits, char *out, size_t out_len);
+
 /* Field descriptions for the nav and the keyboard title. */
 const char *mesh_ui_settings_field_label(enum mesh_ui_setting_field field);
 enum mesh_ui_setting_kind mesh_ui_settings_field_kind(enum mesh_ui_setting_field field);

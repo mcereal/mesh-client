@@ -103,7 +103,7 @@ suite needs it.
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Verified 2026-09-07: 275 unit tests, all passing, zero compiler warnings.
+Verified 2026-09-08: 283 unit tests, all passing, zero compiler warnings.
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
 vector — not against our own encoder — so a protobuf regeneration that changes field numbers or
 wire types fails loudly.
@@ -151,9 +151,10 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | Text | `src/utils/text.c`, `src/ui/{font5x7,emoji}.c` | UTF-8 sanitising, cell-based measurement |
 | Strings | `src/i18n/strings.c`, `include/mesh/i18n/catalog.def` | the string catalog and the locale registry |
 | Dev tools | `devtools/`, `scripts/{ui-capture.sh,frames.py}` | off-screen UI capture; PNG/GIF encoding, stdlib only |
+| Geography | `src/geo/` | `mesh_geo_coords_valid()` — the bounds test every coordinate ingress asks, so the air, the cache and the keyboard cannot disagree about where Earth ends. The first piece of the module [`docs/maps-roadmap.md`](docs/maps-roadmap.md) proposes; it holds nothing but that until a map needs projection |
 | Shared utils | `src/utils/` | `text` (UTF-8 + `mesh_str_copy`), `time` (`mesh_time_monotonic_ms`), `env` (`mesh_env_bool`/`_int`), `log`, `sha256`, `array` |
 
-`include/mesh/` mirrors `src/` one-for-one — `core/`, `transport/`, `ui/`, `proto/`, `utils/` —
+`include/mesh/` mirrors `src/` one-for-one — `core/`, `transport/`, `ui/`, `proto/`, `geo/`, `utils/` —
 so a header always sits in the directory named after the source file that defines it.
 
 Four subsystems are split across several files sharing one `*_internal.h` next to them
@@ -332,6 +333,26 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   drawn, and a verb on an undrawn card leaves the action bar naming a press whose button is not
   on the frame. That is why the Radio card says "no report yet" rather than disappearing when
   the radio has told us nothing about itself.
+- **A fix carries two clocks and the row says which one it is answering with.** `Position` has
+  `timestamp` (when the GPS solved) and `time` (the sender's own clock, which upstream leaves
+  off the mesh to save space, so it is usually 0); neither is when the packet reached us, which
+  is why `mesh_node_position` also keeps `received`. The node detail draws **Fix** against the
+  node's own dating and **Fix heard** against ours, and the label change is the point - falling
+  back silently would put our arrival time under a heading that reads as the node's. `last_heard`
+  is not a candidate for either: it advances on any packet, so a chatty node that has not moved
+  in a day would report a one-minute-old fix.
+- **A `precision_bits` of 0 on a received fix means "the node did not say", not "off".** The
+  same `mesh_ui_settings_format_precision()` renders 0 as *off* for the channel's own
+  `position_precision`, where it is a setting with an off state; on a fix off the air it is an
+  absent field, so the node detail guards on `> 0` and draws no row rather than asking. And the
+  row reads a distance rather than a bit count because a bit count is not a fact a reader can
+  act on - the one table answers for both screens so a rounded location cannot be described two
+  ways.
+- **`(0, 0)` is a valid coordinate.** It is where a node with a half-initialised GPS most often
+  claims to be, and it is also a real point in the Gulf of Guinea. `mesh_geo_coords_valid()` is
+  a *range* check and nothing more; rejecting Null Island there would be a guess about the
+  sender's firmware in a range check's clothes. A packet with no coordinates at all is the
+  separate question, and its answer is to keep the last fix rather than to erase it.
 - **A font's cell height is not its cap height.** Anything sized to stand beside the text - an
   icon in a row slot - uses `mesh_ui_font_cap()`. They are equal for `5x7`, whose capitals fill
   its cell, and they are not for a face with real ascenders and descenders; using the cell there

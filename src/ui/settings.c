@@ -350,7 +350,7 @@ static const char *pairing_enum_name(uint32_t mode) {
 }
 
 /* Position precision is a bit count; the phone apps label the useful ones by distance. */
-static void format_precision(uint32_t bits, char *out, size_t out_len) {
+void mesh_ui_settings_format_precision(uint32_t bits, char *out, size_t out_len) {
     static const enum mesh_str_id k_distance[] = {
         MESH_STR_VALUE_PRECISION_23KM,  MESH_STR_VALUE_PRECISION_12KM,
         MESH_STR_VALUE_PRECISION_6KM,   MESH_STR_VALUE_PRECISION_3KM,
@@ -765,7 +765,7 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
     [MESH_UI_FIELD_MQTT_MAP_PRECISION] = {MESH_STR_SETTINGS_FIELD_MQTT_MAP_PRECISION,
                                           MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_MQTT, 0U, NULL,
                                           NAMED_PRESETS(k_precision_presets), MESH_STR_ZERO_OFF,
-                                          format_precision, 0U},
+                                          mesh_ui_settings_format_precision, 0U},
     [MESH_UI_FIELD_MQTT_MAP_LOCATION] = {MESH_STR_SETTINGS_FIELD_MQTT_MAP_LOCATION,
                                          MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_MQTT, 0U, NULL,
                                          NO_PRESETS, MESH_STR_NONE, NULL, 0U},
@@ -866,7 +866,7 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
     [MESH_UI_FIELD_CHANNEL_POSITION] = {MESH_STR_SETTINGS_FIELD_CHANNEL_POSITION,
                                         MESH_UI_SETTING_NUMBER, MESH_UI_SETTINGS_CHANNELS, 0U, NULL,
                                         NAMED_PRESETS(k_precision_presets), MESH_STR_ZERO_OFF,
-                                        format_precision, 0U},
+                                        mesh_ui_settings_format_precision, 0U},
     [MESH_UI_FIELD_BT_ENABLED] = {MESH_STR_SETTINGS_FIELD_BT_ENABLED, MESH_UI_SETTING_TOGGLE,
                                   MESH_UI_SETTINGS_BLUETOOTH, 0U, NULL, NO_PRESETS, MESH_STR_NONE,
                                   NULL, 0U},

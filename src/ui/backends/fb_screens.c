@@ -858,9 +858,18 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
        same scope: the session roster holds twice what the UI carries, and a title reading
        "128 nodes, 200 off radio" would be arithmetic no screen should show. */
     const uint32_t off_radio = mesh_ui_handshake_off_radio(hs);
-    if (hs->has_my_info && hs->my_info.nodedb_entries > count) {
-        mesh_str_format(title, sizeof title, MESH_STR_NODES_TITLE_OF, count,
-                        hs->my_info.nodedb_entries);
+    /*
+     * Two things can be bigger than this list, and the honest "of" is whichever is bigger.
+     * The radio's database is one; the roster is the other, and it is the one that used to go
+     * unsaid - it holds 256 and the UI publishes its best 128, so a busy mesh quietly dropped
+     * half of what the client knew with the title still reading "128 nodes". After a NodeDB
+     * reset the radio's number is the smaller of the two, which is exactly when taking the max
+     * matters rather than preferring either.
+     */
+    const uint32_t known_by_radio = hs->has_my_info ? hs->my_info.nodedb_entries : 0U;
+    const uint32_t known = hs->nodes_known > known_by_radio ? hs->nodes_known : known_by_radio;
+    if (known > count) {
+        mesh_str_format(title, sizeof title, MESH_STR_NODES_TITLE_OF, count, known);
     } else if (off_radio > 0U) {
         /* The count the Status screen shows is the radio's; this one is ours, and after a
            NodeDB reset the two are nothing alike. Saying how much of the gap is nodes only we

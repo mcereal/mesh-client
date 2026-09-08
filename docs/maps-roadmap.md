@@ -1,7 +1,9 @@
 # Map support assessment
 
-Status: proposed, based on the repository inspected on 2026-09-07. No runtime changes or
-device benchmarks accompany this assessment.
+Status: the map itself is proposed, based on the repository inspected on 2026-09-07; no
+runtime changes or device benchmarks accompany that part of the assessment. The **pre-work in
+§"Pre-work that matters" has since shipped**, on its own and ahead of any map - see the note
+there for what each item became.
 
 ## Recommended first release
 
@@ -33,24 +35,80 @@ decisions, not dependencies already paid for by the application.
 
 ## Pre-work that matters
 
+> **Landed, ahead of any map.** All five are below as they were written; what each one turned
+> into is recorded under it. They shipped on their own because none of them is really about
+> maps: each was the client already answering a question about a location less honestly than
+> it could, and the node detail is where that showed. The map layer inherits the answers
+> rather than having to invent them.
+
 1. **Define location semantics.** Inbound application currently checks that both coordinates
    are present but does not range-check them. Share range validation across ingestion, cache
    restoration and user-entered coordinates. Preserve explicit `(0, 0)` as valid. A packet
    with missing coordinates must not erase a previous fix.
+
+   > **Done.** `mesh_geo_coords_valid()` in [`src/geo/coords.c`](../src/geo/coords.c) - the
+   > first piece of the `geo` module proposed below, deliberately holding nothing but the
+   > bounds test until the map needs projection. Three ingresses ask it: `POSITION_APP` and
+   > `NodeInfo` decoding in `mesh_session_apply_position()`, the cache loader in
+   > `src/ui/store.c`, and `mesh_session_set_fixed_position()`, which had grown its own copy
+   > of the constants. An out-of-range fix leaves the previous one standing, which is the same
+   > answer already given to a packet carrying no coordinates. `(0, 0)` is valid: rejecting
+   > Null Island would be a guess about the sender's firmware wearing a range check's clothes.
+
 2. **Separate fix age from node activity.** The current record copies `Position.time`; the
    upstream message also has a GPS-solution `timestamp`. Decide and test their precedence,
    retain a position-received timestamp where needed, and label unknown ages honestly.
    `last_heard` can advance on unrelated packets and cannot establish location freshness.
+
+   > **Done.** The precedence is `timestamp` (the GPS solution) over `time` (the sender's own
+   > clock), and `struct mesh_node_position` gained `received` - ours, from the packet's
+   > `rx_time` - because upstream says `time` is "usually not sent over the mesh (to save
+   > space)", so on a real mesh the node's own dating is usually absent. The detail row is
+   > *relabelled* rather than silently falling back: **Fix** against the node's clock, **Fix
+   > heard** against ours, and the old behaviour - "Fix: unknown" - threw away the one honest
+   > answer available. `last_heard` is not offered here at all, for the reason given above.
+   > `received` is persisted as an eighth field on the cache's `node_pos` line, and the loader
+   > takes seven or eight so a roster written by an older build still loads.
+
 3. **Preserve precision honestly.** Carry `precision_bits` through the map model. A rounded
    location is approximate, not an exact pin. Derive a quantization footprint only after
    verifying encoding semantics; it is not a GPS accuracy estimate.
+
+   > **Done, and the footprint was already verified.** `precision_bits` was reaching the
+   > screen, but as `"16 bits"` - carried, and unreadable. The bits-to-distance table the
+   > channel's own `position_precision` row uses had already been derived and shipped, so the
+   > honest fix was to make the node detail ask the same function rather than to derive a
+   > second answer: `mesh_ui_settings_format_precision()` is now public and the row reads
+   > `~360 m`. A rounded location described two ways on two screens is how a client comes to
+   > disagree with itself about how much it knows. `precision_bits` of 0 means the node never
+   > set the field, not "off", so the row is absent rather than claiming a footprint.
+
 4. **Choose roster coverage explicitly.** Prefer a compact map projection of all session nodes
    rather than doubling every large UI detail record. Publish it from the same authoritative
    roster and conversion helpers. Decide whether complete restart persistence is in scope:
    the existing UI cache only preserves its 128-node subset. Report displayed/known counts.
+
+   > **Partly done - the reporting half.** The projection is map work and waits for a map.
+   > What could not wait is that the truncation was *silent*: the session holds 256 and the UI
+   > publishes its best 128, and the Nodes tab could only compare itself against the radio's
+   > `nodedb_entries`, which is a different set and, after a NodeDB reset, the smaller one.
+   > `handshake.nodes_known` now carries the roster's own total and the title takes whichever
+   > of the two is larger, so "128 of 200" is sayable. The persistence question is still open
+   > and still deliberately so: the cache holds the published 128, and widening it is a
+   > decision for whoever needs all 256 back after a restart.
+
 5. **Keep selection stable.** Store selected node ID, not a roster index, since publication
    reorders nodes. A map-only node may be outside the detail roster: resolve its detail by ID
    through the app/store seam before opening it. Handle eviction, forgetting and radio swaps.
+
+   > **Already true, now pinned.** `nav->node_detail_node` was an id from the start, resolved
+   > through `mesh_ui_node_detail_find()` on every frame, and `mesh_ui_nav_clamp()` closes the
+   > detail when the node leaves the roster. Nothing tested it, which is the state a map
+   > selection would have quietly broken - a marker under a cursor is another index into
+   > another ordering of the same roster. `ui_nav_node_detail_follows_the_node` now holds it:
+   > re-rank the roster under an open detail and it still shows the node it was opened on;
+   > drop that node and the screen closes as the frame is built. The map-only case remains
+   > open by construction - there are no map-only nodes until there is a map.
 
 ## Proposed module boundaries
 
@@ -59,6 +117,7 @@ Names below are proposals, not APIs that already exist.
 | Module | Owns | Reused by |
 | --- | --- | --- |
 | `include/mesh/geo/`, `src/geo/` | Coordinate validation, conversion, distance/bearing, Web Mercator projection and inverse | Node details, maps, future waypoints |
+| — *exists:* [`include/mesh/geo/coords.h`](../include/mesh/geo/coords.h) | The bounds test alone, asked by every ingress. Deliberately not more: conversion, distance and projection are written when a map needs them, not speculatively | Session ingestion, the cache loader, fixed position |
 | `include/mesh/map/viewport.h`, `src/map/viewport.c` | Center/zoom, world-to-screen transforms, pan, bounds fitting, visible tile keys | Full map, future location preview |
 | `include/mesh/map/source.h`, `src/map/source_*.c` | Map metadata and tile-byte lookup behind a small source interface | Offline packs; optional HTTP source later |
 | `src/map/tile_cache.c` | Byte-budgeted decoded tile cache, request deduplication and eviction | Any map viewport |

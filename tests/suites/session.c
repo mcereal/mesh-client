@@ -255,6 +255,167 @@ MESH_TEST_CASE(session_node_detail_ingest, unit) {
 }
 
 /*
+ * What a fix is dated by, and what a fix has to be before it is kept at all.
+ *
+ * Three separate things used to be one: the node's clock, our clock, and "is this a point on
+ * Earth". A Position carries `time` (the sender's own clock, which upstream leaves off the
+ * mesh to save space and which is therefore usually 0) and `timestamp` (when the GPS actually
+ * solved). Neither is when we heard it, and last_heard cannot stand in for either.
+ */
+MESH_TEST_CASE(session_position_clocks_and_range, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+
+    uint8_t payload[256];
+    pb_ostream_t stream;
+
+    /* A first fix, dated only by the sender's own clock. */
+    meshtastic_Position position = meshtastic_Position_init_default;
+    position.has_latitude_i = true;
+    position.latitude_i = 447654321;
+    position.has_longitude_i = true;
+    position.longitude_i = -680012345;
+    position.time = 1749000000U;
+    stream = pb_ostream_from_buffer(payload, sizeof payload);
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_Position_fields, &position) ||
+                          !mesh_test_session_feed_app_packet(&session, 0x4001U,
+                                                             meshtastic_PortNum_POSITION_APP,
+                                                             payload, stream.bytes_written),
+                      "encode POSITION_APP failed");
+    const struct mesh_node_summary *node = mesh_test_session_find_node(&session, 0x4001U);
+    MESH_TEST_FAIL_IF(node == NULL || !node->position.valid, "the fix was not kept");
+    MESH_TEST_FAIL_IF(node->position.time != 1749000000U,
+                      "a fix dated only by `time` should use it");
+    /* Ours, from the packet's rx_time, and not the same number. */
+    MESH_TEST_FAIL_IF(node->position.received != 1750000000U,
+                      "the fix did not record when it reached us");
+
+    /* `timestamp` is when the GPS solved, so it wins over the sender's clock. */
+    position.timestamp = 1749500000U;
+    stream = pb_ostream_from_buffer(payload, sizeof payload);
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_Position_fields, &position) ||
+                          !mesh_test_session_feed_app_packet(&session, 0x4001U,
+                                                             meshtastic_PortNum_POSITION_APP,
+                                                             payload, stream.bytes_written),
+                      "encode dated POSITION_APP failed");
+    node = mesh_test_session_find_node(&session, 0x4001U);
+    MESH_TEST_FAIL_IF(node->position.time != 1749500000U,
+                      "`timestamp` should outrank the sender's own clock");
+
+    /* The common case on a real mesh: neither clock set. The fix is still kept, and it is
+       still stamped with our arrival - which is the whole reason `received` exists. */
+    meshtastic_Position undated = meshtastic_Position_init_default;
+    undated.has_latitude_i = true;
+    undated.latitude_i = 447000000;
+    undated.has_longitude_i = true;
+    undated.longitude_i = -680000000;
+    stream = pb_ostream_from_buffer(payload, sizeof payload);
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_Position_fields, &undated) ||
+                          !mesh_test_session_feed_app_packet(&session, 0x4001U,
+                                                             meshtastic_PortNum_POSITION_APP,
+                                                             payload, stream.bytes_written),
+                      "encode undated POSITION_APP failed");
+    node = mesh_test_session_find_node(&session, 0x4001U);
+    MESH_TEST_FAIL_IF(node->position.latitude_i != 447000000, "the undated fix did not land");
+    MESH_TEST_FAIL_IF(node->position.time != 0U,
+                      "a node that dated nothing must not be given a date");
+    MESH_TEST_FAIL_IF(node->position.received != 1750000000U,
+                      "an undated fix still has an arrival time");
+
+    /*
+     * An impossible pair. The wire carries sfixed32, which holds four times the range a
+     * coordinate can occupy, so this is what a buggy or hostile sender looks like - and the
+     * node keeps the fix we already believed rather than being moved 150 degrees north.
+     */
+    meshtastic_Position absurd = meshtastic_Position_init_default;
+    absurd.has_latitude_i = true;
+    absurd.latitude_i = 1500000000;
+    absurd.has_longitude_i = true;
+    absurd.longitude_i = -680000000;
+    stream = pb_ostream_from_buffer(payload, sizeof payload);
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_Position_fields, &absurd) ||
+                          !mesh_test_session_feed_app_packet(&session, 0x4001U,
+                                                             meshtastic_PortNum_POSITION_APP,
+                                                             payload, stream.bytes_written),
+                      "encode out-of-range POSITION_APP failed");
+    node = mesh_test_session_find_node(&session, 0x4001U);
+    MESH_TEST_FAIL_IF(node->position.latitude_i != 447000000,
+                      "an out-of-range fix must not replace a good one");
+    MESH_TEST_FAIL_IF(!node->position.valid, "an out-of-range fix must not invalidate the last");
+
+    /* And a node whose *first* fix is out of range simply has none, rather than one in a
+       place that does not exist. */
+    stream = pb_ostream_from_buffer(payload, sizeof payload);
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_Position_fields, &absurd) ||
+                          !mesh_test_session_feed_app_packet(&session, 0x4002U,
+                                                             meshtastic_PortNum_POSITION_APP,
+                                                             payload, stream.bytes_written),
+                      "encode first out-of-range POSITION_APP failed");
+    const struct mesh_node_summary *stranger = mesh_test_session_find_node(&session, 0x4002U);
+    MESH_TEST_FAIL_IF(stranger == NULL, "the node should still be in the roster");
+    MESH_TEST_FAIL_IF(stranger->position.valid, "an out-of-range first fix must not be kept");
+
+    /*
+     * A NodeInfo replayed out of the radio's NodeDB, carrying a fix the node never dated.
+     *
+     * The tempting stamp here is the node's own last_heard, and it is wrong for the same
+     * reason the whole `received` field exists: last_heard is the node's most recent packet of
+     * any kind, so a node whose coordinates are days old but which sent telemetry a minute ago
+     * would report a one-minute-old fix. We did not watch this fix arrive and we say so.
+     */
+    meshtastic_FromRadio replay = meshtastic_FromRadio_init_default;
+    replay.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+    replay.node_info.num = 0x4004U;
+    replay.node_info.last_heard = 1750000560U; /* chatty a minute ago */
+    replay.node_info.has_position = true;
+    replay.node_info.position.has_latitude_i = true;
+    replay.node_info.position.latitude_i = 447654321;
+    replay.node_info.position.has_longitude_i = true;
+    replay.node_info.position.longitude_i = -680012345;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &replay),
+                      "encode replayed node_info failed");
+    const struct mesh_node_summary *replayed = mesh_test_session_find_node(&session, 0x4004U);
+    MESH_TEST_FAIL_IF(replayed == NULL || !replayed->position.valid,
+                      "a replayed fix should still be kept");
+    MESH_TEST_FAIL_IF(replayed->position.received == replay.node_info.last_heard,
+                      "a replayed fix must not be dated by unrelated node activity");
+    MESH_TEST_FAIL_IF(replayed->position.received != 0U || replayed->position.time != 0U,
+                      "a replayed fix nobody dated has no clock at all");
+    /* The node is still as recently heard as it says; only the *fix* is undated. */
+    MESH_TEST_FAIL_IF(replayed->last_heard != 1750000560U,
+                      "the node's own last_heard should be untouched");
+
+    /* A replayed NodeInfo whose fix the node *did* date keeps that date, because the node
+       answering the question is the one case where an answer exists. */
+    replay.node_info.num = 0x4005U;
+    replay.node_info.position.timestamp = 1749500000U;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &replay),
+                      "encode dated replayed node_info failed");
+    const struct mesh_node_summary *dated = mesh_test_session_find_node(&session, 0x4005U);
+    MESH_TEST_FAIL_IF(dated == NULL || dated->position.time != 1749500000U,
+                      "a replayed fix the node dated should keep that date");
+
+    /* Null Island is a real point, and a client that quietly dropped it would be guessing at
+       the sender's firmware rather than range-checking. */
+    meshtastic_Position origin = meshtastic_Position_init_default;
+    origin.has_latitude_i = true;
+    origin.latitude_i = 0;
+    origin.has_longitude_i = true;
+    origin.longitude_i = 0;
+    stream = pb_ostream_from_buffer(payload, sizeof payload);
+    MESH_TEST_FAIL_IF(!pb_encode(&stream, meshtastic_Position_fields, &origin) ||
+                          !mesh_test_session_feed_app_packet(&session, 0x4003U,
+                                                             meshtastic_PortNum_POSITION_APP,
+                                                             payload, stream.bytes_written),
+                      "encode 0,0 POSITION_APP failed");
+    const struct mesh_node_summary *at_origin = mesh_test_session_find_node(&session, 0x4003U);
+    MESH_TEST_FAIL_IF(at_origin == NULL || !at_origin->position.valid,
+                      "0,0 is a real place and must be kept");
+
+    record_success(test_name);
+}
+
+/*
  * LocalStats: the radio's own report about the mesh. It is the one telemetry that belongs to
  * the session rather than to a node, and it only counts when it comes from our own node - the
  * firmware sends it to the attached client alone, so anything else wearing that variant is a

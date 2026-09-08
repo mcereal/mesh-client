@@ -58,6 +58,11 @@ struct mesh_ui_device {
 
 /* The node detail the Nodes tab drills into, mirroring the session's structs without nanopb.
    Latitude and longitude stay in Meshtastic's fixed-point 1e-7 degrees. */
+/* Mirrors struct mesh_node_position; see session.h for why the two clocks are both kept.
+   `time` is the node's account of when the fix was taken and is often 0; `received` is ours
+   and is what the detail falls back to, labelled as the different question it answers. Either
+   may be 0 - a fix replayed out of the radio's NodeDB has no arrival we witnessed - and a row
+   with neither says it does not know rather than picking one. */
 struct mesh_ui_node_position {
     bool valid;
     int32_t latitude_i;
@@ -65,6 +70,7 @@ struct mesh_ui_node_position {
     bool has_altitude;
     int32_t altitude;
     uint32_t time;
+    uint32_t received;
     uint8_t sats_in_view;
     uint8_t precision_bits;
 };
@@ -657,7 +663,17 @@ struct mesh_ui_handshake_state {
     bool has_my_info;
     struct mesh_ui_my_info my_info;
     bool has_config;
+    /* How many of the roster's nodes are published below - at most MESH_UI_MAX_HANDSHAKE_NODES. */
     uint32_t node_count;
+    /*
+     * How many the session roster actually holds, which is up to MESH_SESSION_MAX_NODES and so
+     * up to twice `node_count`. The two differ silently otherwise: ranking decides which 128
+     * survive the cut and the rest simply are not there, with no row saying so. The radio's own
+     * `my_info.nodedb_entries` cannot stand in for this - it is the radio's count, and the
+     * roster deliberately outlives the radio's database, so after a NodeDB reset it is the
+     * smaller of the two.
+     */
+    uint32_t nodes_known;
     /*
      * What each of the two Settings forget rows would actually drop, counted over the *whole*
      * session roster rather than the 128 published below - the roster holds twice that, and a
