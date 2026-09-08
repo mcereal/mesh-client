@@ -17,6 +17,8 @@
 #include "meshtastic/admin.pb.h"
 #include "meshtastic/channel.pb.h"
 #include "meshtastic/config.pb.h"
+#include "meshtastic/connection_status.pb.h"
+#include "meshtastic/device_ui.pb.h"
 #include "meshtastic/mesh.pb.h"
 #include "meshtastic/module_config.pb.h"
 
@@ -64,6 +66,25 @@ enum mesh_admin_request_kind {
        pair above. */
     MESH_ADMIN_REMOVE_NODE,  /* drop this node from the radio's NodeDB */
     MESH_ADMIN_TOGGLE_MUTED, /* flip this node's muted flag; the verb is a toggle, not a set */
+    /*
+     * Four things the radio keeps that are not a Config, a ModuleConfig or a Channel, and so
+     * have a verb each rather than a section type. They arrive and leave the same way
+     * everything else does - a get answered by a response, a set acked by a Routing packet -
+     * which is the whole reason they cost a row here and nothing else.
+     */
+    MESH_ADMIN_GET_CONNECTION_STATUS, /* how the radio's own WiFi/Ethernet/BT/serial are doing */
+    MESH_ADMIN_GET_UI_CONFIG,         /* the radio's own screen: theme, brightness, alerts */
+    MESH_ADMIN_SET_UI_CONFIG,         /* payload.ui_config, the whole DeviceUIConfig */
+    MESH_ADMIN_GET_CANNED_MESSAGES,   /* the radio's quick-reply list, '|'-separated */
+    MESH_ADMIN_SET_CANNED_MESSAGES,   /* payload.text, the whole list */
+    MESH_ADMIN_GET_RINGTONE,          /* the RTTTL the buzzer plays; read-only here, see below */
+    /* The radio's configuration copied to its own flash or SD card, and brought back. Actions
+       rather than writes for the reason the resets are: nothing is read back, and what they
+       change is not a section this client shows. `type` is a
+       meshtastic_AdminMessage_BackupLocation. */
+    MESH_ADMIN_BACKUP_PREFERENCES,
+    MESH_ADMIN_RESTORE_PREFERENCES,
+    MESH_ADMIN_REMOVE_BACKUP_PREFERENCES,
 };
 
 /* How long the radio is told to wait before a reboot or a shutdown. Not zero: the firmware
@@ -84,6 +105,10 @@ struct mesh_admin_request {
         meshtastic_ModuleConfig module_config;
         meshtastic_Channel channel;
         meshtastic_Position position;
+        meshtastic_DeviceUIConfig ui_config;
+        /* The canned message list as one string, exactly as the wire carries it. Sized from
+           the admin field rather than from a number here, so a protobuf bump moves both. */
+        char text[sizeof(((meshtastic_AdminMessage *)0)->set_canned_message_module_messages)];
     } payload;
 };
 
@@ -109,6 +134,11 @@ bool mesh_admin_request_is_action(enum mesh_admin_request_kind kind);
    full queue drops silently, so this is sized well clear of the phases still to come rather
    than to what fits today. */
 #define MESH_RADIO_SETTINGS_FETCH_MAX 48U
+/* The requests a full refresh makes that are neither a Config section, a ModuleConfig section
+   nor a channel slot: the connection status, the radio's UI config, the canned message list
+   and the ringtone. Named so the queue and the test that holds it to the cap count the same
+   things, the way the module table already makes them count modules the same way. */
+#define MESH_RADIO_SETTINGS_EXTRA_FETCHES 4U
 #define MESH_RADIO_SETTINGS_MAX_CHANNELS 8U
 /* A reply that has not arrived after this long is given up on and the queue moves on. */
 #define MESH_RADIO_SETTINGS_REPLY_TIMEOUT_MS 5000U
@@ -162,6 +192,23 @@ struct mesh_radio_settings {
     meshtastic_User owner;
     bool has_metadata;
     meshtastic_DeviceMetadata metadata;
+    /*
+     * The four the radio keeps outside Config/ModuleConfig/Channel.
+     *
+     * `ui_config` is kept whole and written back whole, which is not tidiness: DeviceUIConfig
+     * carries a touchscreen `calibration_data` blob and a map home point that this client has
+     * no rows for and no way to reconstruct, so a write assembled from the rows alone would
+     * quietly erase a screen's calibration.
+     */
+    bool has_connection_status;
+    meshtastic_DeviceConnectionStatus connection_status;
+    bool has_ui_config;
+    meshtastic_DeviceUIConfig ui_config;
+    bool has_canned_messages;
+    char
+        canned_messages[sizeof(((meshtastic_AdminMessage *)0)->set_canned_message_module_messages)];
+    bool has_ringtone;
+    char ringtone[sizeof(((meshtastic_AdminMessage *)0)->set_ringtone_message)];
     /* The channel table as the radio sent it, by slot, keys included: set_channel must carry
        the whole Channel back. Never persisted. */
     bool has_channel[MESH_RADIO_SETTINGS_MAX_CHANNELS];
@@ -243,6 +290,10 @@ void mesh_radio_settings_apply_owner(struct mesh_radio_settings *settings,
                                      const meshtastic_User *owner);
 void mesh_radio_settings_apply_channel(struct mesh_radio_settings *settings,
                                        const meshtastic_Channel *channel);
+/* DeviceUIConfig also arrives unasked, as FromRadio.deviceuiConfig during the handshake, which
+   is why it has an apply of its own rather than only an admin reply arm. */
+void mesh_radio_settings_apply_ui_config(struct mesh_radio_settings *settings,
+                                         const meshtastic_DeviceUIConfig *config);
 
 /* Folds an ADMIN_APP packet in: captures the session passkey, stores whatever get_*_response
    it carries, and releases the fetch queue when it answers the pending request. A ROUTING_APP
@@ -327,6 +378,9 @@ const char *mesh_radio_role_name(uint32_t role);
 const char *mesh_radio_region_name(uint32_t region);
 const char *mesh_radio_modem_preset_name(uint32_t preset);
 const char *mesh_radio_hw_model_name(uint32_t model, char *fallback, size_t fallback_len);
+/* meshtastic_Language as a word, for the read-only row on the radio's UI section. Untranslated
+   for the reason the two above are; see the definition. */
+const char *mesh_radio_language_name(uint32_t language);
 
 #ifdef __cplusplus
 }

@@ -1932,3 +1932,77 @@ cleanup:
     else
         record_success(test_name);
 }
+
+/*
+ * The two sections whose write is not a Config, a ModuleConfig or a Channel.
+ *
+ * Both are here for the same reason, which is the one thing a save must never do: lose
+ * something the screen could not show. The UI config carries a touchscreen calibration and a
+ * map home point that this client has no rows for, so the write has to be the radio's own
+ * record with the edits laid over it rather than a fresh one built from the rows. The canned
+ * list is the same problem in a different shape - a radio holding more messages than the
+ * section has slots keeps them, and an emptied slot closes up rather than leaving a blank
+ * quick reply behind it, the way a cleared admin key does.
+ */
+MESH_TEST_CASE(app_extra_section_writes, unit) {
+    struct mesh_radio_settings radio;
+    mesh_radio_settings_reset(&radio);
+
+    radio.has_ui_config = true;
+    radio.ui_config.screen_brightness = 40U;
+    radio.ui_config.theme = meshtastic_Theme_DARK;
+    radio.ui_config.screen_lock = true;
+    radio.ui_config.calibration_data.size = 4U;
+    radio.ui_config.calibration_data.bytes[0] = 0xAB;
+    radio.ui_config.has_map_data = true;
+    radio.ui_config.map_data.follow_gps = true;
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    action.type = MESH_UI_ACTION_SAVE_SETTINGS;
+    action.section = MESH_UI_SETTINGS_RADIO_UI;
+    action.edit_count = 2U;
+    action.edits[0].field = MESH_UI_FIELD_UI_BRIGHTNESS;
+    action.edits[0].number = 200U;
+    action.edits[1].field = MESH_UI_FIELD_UI_THEME;
+    action.edits[1].number = 2U; /* RED */
+
+    struct mesh_admin_request write;
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+                          write.kind != MESH_ADMIN_SET_UI_CONFIG ||
+                          write.payload.ui_config.screen_brightness != 200U ||
+                          write.payload.ui_config.theme != meshtastic_Theme_RED,
+                      "a Radio UI save should carry the edits");
+    MESH_TEST_FAIL_IF(write.payload.ui_config.calibration_data.size != 4U ||
+                          write.payload.ui_config.calibration_data.bytes[0] != 0xAB ||
+                          !write.payload.ui_config.has_map_data ||
+                          !write.payload.ui_config.map_data.follow_gps ||
+                          !write.payload.ui_config.screen_lock,
+                      "a Radio UI save must not erase what the section has no rows for");
+
+    /* Eight messages on the radio, six slots on the screen: edit the first, empty the third,
+       and the two past the last slot have to come back untouched. */
+    radio.has_canned_messages = true;
+    snprintf(radio.canned_messages, sizeof radio.canned_messages, "%s",
+             "one|two|three|four|five|six|seven|eight");
+    action.section = MESH_UI_SETTINGS_CANNED;
+    action.edit_count = 2U;
+    memset(action.edits, 0, sizeof action.edits);
+    action.edits[0].field = MESH_UI_FIELD_CANNED_0;
+    snprintf(action.edits[0].text, sizeof action.edits[0].text, "%s", "On my way");
+    action.edits[1].field = MESH_UI_FIELD_CANNED_2; /* cleared */
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != 0 ||
+                          write.kind != MESH_ADMIN_SET_CANNED_MESSAGES ||
+                          strcmp(write.payload.text, "On my way|two|four|five|six|seven|eight") !=
+                              0,
+                      "a canned save should compact the gaps and keep what it could not show");
+
+    mesh_radio_settings_reset(&radio);
+    action.section = MESH_UI_SETTINGS_RADIO_UI;
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != -ENOENT,
+                      "a UI config the radio has not sent cannot be written");
+    action.section = MESH_UI_SETTINGS_CANNED;
+    MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != -ENOENT,
+                      "a canned list the radio has not sent cannot be written");
+    record_success(test_name);
+}

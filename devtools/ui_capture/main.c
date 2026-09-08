@@ -1359,6 +1359,38 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
 
         settings.has_traffic_management = true;
 
+        /* The four the radio keeps outside Config and ModuleConfig. The demo radio is a
+           WiFi-capable board on a bench, which is the case that makes About radio's interface
+           rows worth filming at all - a Brick's usual radio reports Bluetooth and nothing
+           else, and a scene of one heading says less about the layout than three do. */
+        settings.has_ui_config = true;
+        settings.ui_theme = 0U; /* DARK */
+        settings.ui_brightness = 153U;
+        settings.ui_screen_timeout = 60U;
+        settings.ui_alert_enabled = true;
+        settings.ui_ring_tone_id = 1U;
+        settings.ui_compass_mode = 0U;
+        settings.ui_gps_format = 0U;
+        settings.ui_language = 0U;
+
+        settings.has_canned_messages = true;
+        snprintf(settings.canned_messages, sizeof settings.canned_messages, "%s",
+                 "On my way|Roger|Standing by|Need a hand?");
+
+        settings.has_ringtone = true;
+        snprintf(settings.ringtone, sizeof settings.ringtone, "%s",
+                 "24:d=32,o=5,b=565:f6,p,f6,4p,p,f6,p,f6");
+
+        settings.connection.valid = true;
+        settings.connection.has_wifi = true;
+        settings.connection.wifi_connected = true;
+        snprintf(settings.connection.wifi_ssid, sizeof settings.connection.wifi_ssid, "%s", "shed");
+        settings.connection.wifi_rssi = -57;
+        settings.connection.wifi_ip = 0x2801A8C0U; /* 192.168.1.40, network byte order */
+        settings.connection.has_bluetooth = true;
+        settings.connection.bluetooth_connected = true;
+        settings.connection.bluetooth_rssi = -44;
+
         mesh_ui_store_set_settings(&cap->store, &settings);
         uicap_emit(cap);
         return;

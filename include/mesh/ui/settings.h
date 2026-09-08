@@ -63,8 +63,36 @@ enum mesh_ui_settings_section {
     MESH_UI_SETTINGS_DETECTION,
     MESH_UI_SETTINGS_EXT_NOTIFICATION,
     MESH_UI_SETTINGS_TRAFFIC,
+    /*
+     * The radio's own screen (DeviceUIConfig), which is not DisplayConfig and not this client's
+     * theme: Display is the panel - how long it stays lit, which way up, metric or imperial -
+     * and this is the graphical UI drawn on it. Sits beside Display in the root list so the
+     * pair reads together; declared here, last, for the reason every section since phase 9 has
+     * been - the enum's order is what the persisted cursor and the tests are written against,
+     * and the list's order is mesh_ui_settings_root_at()'s business.
+     */
+    MESH_UI_SETTINGS_RADIO_UI,
+    /*
+     * The radio's canned message list. Under Modules, because that is the question it answers -
+     * what is this radio running - even though it is the one entry there that is not a
+     * ModuleConfig at all: the list is its own pair of admin verbs, and CannedMessageConfig
+     * (which this client does not ship) is the module's *wiring*, not its words.
+     */
+    MESH_UI_SETTINGS_CANNED,
     MESH_UI_SETTINGS_SECTION_COUNT,
 };
+
+/*
+ * How many canned messages the section offers, and how long each may be.
+ *
+ * The two are chosen together and cannot be chosen apart: the wire carries the whole list as
+ * one 200-byte string, so six slots of 32 characters plus the five '|' separators is 197 and
+ * seven of them would not fit. A radio already holding more than six keeps them - the extras
+ * are carried across the save untouched rather than being dropped by a screen that could not
+ * show them.
+ */
+#define MESH_UI_CANNED_SLOTS 6U
+#define MESH_UI_CANNED_SLOT_MAX 32U
 
 /*
  * The two lists the Settings tab draws, as tables rather than as enum ranges.
@@ -274,6 +302,33 @@ enum mesh_ui_setting_field {
     MESH_UI_FIELD_TRAFFIC_RATE_WINDOW,
     MESH_UI_FIELD_TRAFFIC_RATE_PACKETS,
     MESH_UI_FIELD_TRAFFIC_UNKNOWN_THRESHOLD,
+    /*
+     * DeviceUIConfig. `screen_lock`, `settings_lock` and `pin_code` are deliberately absent:
+     * a client that can lock a radio's screen has no verb to unlock it again and the PIN is
+     * not on the wire, so the two locks are shown read-only and the PIN not at all. So is
+     * `language` - it is the one enum in this client whose wire values are not 0..n-1 (they
+     * run 0..19 and then jump to 30), and every enum row here steps by modulo over the count
+     * and names by value, so offering it would mean an index/value split across the nav, the
+     * row builder and the segmented button rather than a row.
+     */
+    MESH_UI_FIELD_UI_THEME,
+    MESH_UI_FIELD_UI_BRIGHTNESS,
+    MESH_UI_FIELD_UI_SCREEN_TIMEOUT,
+    MESH_UI_FIELD_UI_ALERT,
+    MESH_UI_FIELD_UI_BANNER,
+    MESH_UI_FIELD_UI_RING_TONE,
+    MESH_UI_FIELD_UI_COMPASS_MODE,
+    MESH_UI_FIELD_UI_GPS_FORMAT,
+    MESH_UI_FIELD_UI_CLOCKFACE,
+    /* One per canned-message slot. Separate fields rather than one indexed field because the
+       edit record names a field and nothing else - the same reason the three admin keys are
+       three fields. */
+    MESH_UI_FIELD_CANNED_0,
+    MESH_UI_FIELD_CANNED_1,
+    MESH_UI_FIELD_CANNED_2,
+    MESH_UI_FIELD_CANNED_3,
+    MESH_UI_FIELD_CANNED_4,
+    MESH_UI_FIELD_CANNED_5,
     MESH_UI_FIELD_COUNT,
 };
 
@@ -314,6 +369,18 @@ enum mesh_ui_settings_action {
        which is why a radio action carries the section's pending edits. */
     MESH_UI_SETTINGS_ACTION_SET_FIXED_POSITION,
     MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION,
+    /*
+     * The radio's whole configuration, copied to its own flash and brought back. Radio actions
+     * like the resets above - nothing is read back, and what they move is not a section this
+     * tab has rows for - and behind the confirm overlay for the same reason: a restore
+     * overwrites every setting on the radio with whatever the backup held, and a backup
+     * overwrites the previous one. Flash rather than SD because nothing on the wire says
+     * whether a board has a card, and a press that silently does nothing is worse than a
+     * press that is not offered.
+     */
+    MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG,
+    MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG,
+    MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP,
 };
 
 /* Which press writes this field (mesh/ui/nav.h). */
@@ -370,6 +437,17 @@ struct mesh_ui_settings_item {
      */
     enum mesh_ui_icon icon;
 };
+
+/*
+ * The radio's canned message list, which the wire carries as one '|'-separated string.
+ *
+ * Two accessors rather than a parsed array because both readers want one entry at a time: the
+ * section draws slot n, and the write builder walks every entry the radio holds - including
+ * the ones past MESH_UI_CANNED_SLOTS, which it copies across untouched so a radio with more
+ * messages than this screen has rows does not lose them to a save.
+ */
+uint32_t mesh_ui_settings_canned_count(const char *list);
+void mesh_ui_settings_canned_entry(const char *list, uint32_t index, char *out, size_t out_len);
 
 const char *mesh_ui_settings_section_name(enum mesh_ui_settings_section section);
 

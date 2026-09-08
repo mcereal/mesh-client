@@ -78,6 +78,7 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
     meshtastic_ChannelSettings *channel = &write->payload.channel.settings;
     meshtastic_Config_LoRaConfig *lora = &write->payload.config.payload_variant.lora;
     meshtastic_Config_SecurityConfig *security = &write->payload.config.payload_variant.security;
+    meshtastic_DeviceUIConfig *ui = &write->payload.ui_config;
     const bool on = edit->number != 0U;
 
     switch ((enum mesh_ui_setting_field)edit->field) {
@@ -594,11 +595,102 @@ static int mesh_app_apply_setting_edit(struct mesh_admin_request *write,
         bluetooth->fixed_pin = pin;
         break;
     }
+    case MESH_UI_FIELD_UI_THEME:
+        ui->theme = (meshtastic_Theme)edit->number;
+        break;
+    case MESH_UI_FIELD_UI_BRIGHTNESS:
+        ui->screen_brightness = (uint8_t)edit->number;
+        break;
+    case MESH_UI_FIELD_UI_SCREEN_TIMEOUT:
+        ui->screen_timeout = (uint16_t)edit->number;
+        break;
+    case MESH_UI_FIELD_UI_ALERT:
+        ui->alert_enabled = on;
+        break;
+    case MESH_UI_FIELD_UI_BANNER:
+        ui->banner_enabled = on;
+        break;
+    case MESH_UI_FIELD_UI_RING_TONE:
+        ui->ring_tone_id = (uint8_t)edit->number;
+        break;
+    case MESH_UI_FIELD_UI_COMPASS_MODE:
+        ui->compass_mode = (meshtastic_CompassMode)edit->number;
+        break;
+    case MESH_UI_FIELD_UI_GPS_FORMAT:
+        ui->gps_format = (meshtastic_DeviceUIConfig_GpsCoordinateFormat)edit->number;
+        break;
+    case MESH_UI_FIELD_UI_CLOCKFACE:
+        ui->is_clockface_analog = on;
+        break;
+    /* The canned slots are not applied one at a time: the wire carries the whole list as one
+       string, so the six of them plus whatever the radio holds beyond them are assembled
+       together in mesh_app_build_settings_write. Named here so the default arm's warning
+       stays about fields nobody has wired up. */
+    case MESH_UI_FIELD_CANNED_0:
+    case MESH_UI_FIELD_CANNED_1:
+    case MESH_UI_FIELD_CANNED_2:
+    case MESH_UI_FIELD_CANNED_3:
+    case MESH_UI_FIELD_CANNED_4:
+    case MESH_UI_FIELD_CANNED_5:
+        break;
     default:
         mesh_log_warn("ui", "Ignoring edit to unknown settings field %u", (unsigned)edit->field);
         break;
     }
     return 0;
+}
+
+/*
+ * The canned message list, assembled from the radio's own copy and the section's edits.
+ *
+ * Three things this has to get right, and all three are about not losing somebody's messages.
+ * A radio holding more entries than the section has rows keeps them: the walk runs to whichever
+ * is longer, and an entry past the last slot is copied across as it arrived. Empty slots are
+ * skipped rather than written as empty entries, the same gap-closing a cleared admin key gets,
+ * so emptying the third of six does not leave a blank quick reply behind it. And the join stops
+ * at the wire's cap rather than overrunning it - which is what the slot count and the per-slot
+ * cap are chosen together to prevent, but a radio whose own entries are longer than ours can
+ * still reach it.
+ */
+static void mesh_app_build_canned_list(const char *held, const struct mesh_ui_action *action,
+                                       char *out, size_t out_len) {
+    out[0] = '\0';
+    size_t used = 0U;
+    uint32_t entries = mesh_ui_settings_canned_count(held);
+    if (entries < MESH_UI_CANNED_SLOTS) {
+        entries = MESH_UI_CANNED_SLOTS;
+    }
+    for (uint32_t i = 0; i < entries; ++i) {
+        /* Sized from the wire rather than from the edit buffer: an entry this screen cannot
+           show is still carried across, and a radio whose one message is longer than a slot
+           must not have it cut down by a save that was not about it. */
+        char text[MESH_UI_CANNED_MESSAGES_MAX];
+        mesh_ui_settings_canned_entry(held, i, text, sizeof text);
+        if (i < MESH_UI_CANNED_SLOTS) {
+            const enum mesh_ui_setting_field field =
+                (enum mesh_ui_setting_field)(MESH_UI_FIELD_CANNED_0 + i);
+            for (uint8_t e = 0; e < action->edit_count && e < MESH_UI_SETTINGS_EDITS_MAX; ++e) {
+                if ((enum mesh_ui_setting_field)action->edits[e].field == field) {
+                    mesh_str_copy(text, sizeof text, action->edits[e].text);
+                    break;
+                }
+            }
+        }
+        if (text[0] == '\0') {
+            continue;
+        }
+        const size_t sep = (used > 0U) ? 1U : 0U;
+        const size_t len = strlen(text);
+        if (used + sep + len >= out_len) {
+            break;
+        }
+        if (sep != 0U) {
+            out[used++] = '|';
+        }
+        memcpy(out + used, text, len);
+        used += len;
+        out[used] = '\0';
+    }
 }
 
 /* Builds the set_* for a section from what the radio last reported plus the edits. The
@@ -749,6 +841,26 @@ int mesh_app_build_settings_write(const struct mesh_radio_settings *radio,
             out->payload.config.which_payload_variant = meshtastic_Config_security_tag;
             out->payload.config.payload_variant.security = radio->security;
             break;
+        case MESH_UI_SETTINGS_RADIO_UI:
+            if (!radio->has_ui_config) {
+                return -ENOENT;
+            }
+            /* The radio's whole DeviceUIConfig, not a fresh one with our rows in it: it also
+               carries a touchscreen calibration and a map home point that this client has no
+               rows for and could not reconstruct. */
+            out->kind = MESH_ADMIN_SET_UI_CONFIG;
+            out->payload.ui_config = radio->ui_config;
+            break;
+        case MESH_UI_SETTINGS_CANNED:
+            if (!radio->has_canned_messages) {
+                return -ENOENT;
+            }
+            out->kind = MESH_ADMIN_SET_CANNED_MESSAGES;
+            mesh_app_build_canned_list(radio->canned_messages, action, out->payload.text,
+                                       sizeof out->payload.text);
+            /* Assembled whole above rather than field by field below, so there is nothing for
+               the edit loop to apply. */
+            return 0;
         case MESH_UI_SETTINGS_CHANNELS:
             if (action->channel >= MESH_RADIO_SETTINGS_MAX_CHANNELS ||
                 !radio->has_channel[action->channel]) {

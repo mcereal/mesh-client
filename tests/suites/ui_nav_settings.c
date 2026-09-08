@@ -633,8 +633,8 @@ MESH_TEST_CASE(ui_nav_radio_actions, unit) {
     }
     mesh_test_settings_open(&store, MESH_UI_SETTINGS_ACTIONS);
     if (store.nav.settings_section != MESH_UI_SETTINGS_ACTIONS ||
-        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 11U) {
-        failure = "the Radio actions section should open with seven rows under four headings";
+        mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) != 15U) {
+        failure = "the Radio actions section should open with ten rows under five headings";
         goto cleanup;
     }
 

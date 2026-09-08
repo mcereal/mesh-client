@@ -497,6 +497,69 @@ static void build_about(const struct mesh_ui_settings *s, struct item_list *list
  * look for. It is editable, so it belongs to LoRa, and a read-only copy here is a row that
  * answers "what region is this radio on" in the one place that cannot answer "change it".
  */
+/* "192.168.1.40". The wire carries the address as a fixed32 in network byte order, which is
+   what the firmware puts on it; the octets are read out of it rather than through htonl so the
+   row reads the same on either endianness. */
+static void format_ipv4(uint32_t address, char *out, size_t out_len) {
+    mesh_str_format(out, out_len, MESH_STR_VALUE_IPV4, (unsigned)(address & 0xFFU),
+                    (unsigned)((address >> 8) & 0xFFU), (unsigned)((address >> 16) & 0xFFU),
+                    (unsigned)((address >> 24) & 0xFFU));
+}
+
+/*
+ * What the radio's own interfaces are doing, under a heading each.
+ *
+ * Only the interfaces the radio reported are drawn: a board with no WiFi says nothing about
+ * WiFi, and four headings of "not present" is a screen telling you about hardware that does
+ * not exist. Nothing here is editable - it is a reading, not a setting, which is the rule the
+ * About sections follow - and the settings behind it live under Network and Bluetooth.
+ */
+static void build_connection(const struct mesh_ui_connection_status *conn, struct item_list *list) {
+    char buffer[48];
+    if (conn == NULL || !conn->valid) {
+        return;
+    }
+    if (conn->has_wifi) {
+        item_heading(list, MESH_STR_HEAD_CONN_WIFI);
+        item_toggle(list, MESH_STR_CONN_CONNECTED, conn->wifi_connected);
+        item_text(list, MESH_STR_CONN_NETWORK, MESH_UI_SETTING_INFO,
+                  conn->wifi_ssid[0] != '\0' ? conn->wifi_ssid : mesh_str(MESH_STR_COMMON_NONE));
+        format_ipv4(conn->wifi_ip, buffer, sizeof buffer);
+        item_text(list, MESH_STR_CONN_IP, MESH_UI_SETTING_INFO, buffer);
+        mesh_str_format(buffer, sizeof buffer, MESH_STR_VALUE_DBM, (int)conn->wifi_rssi);
+        item_text(list, MESH_STR_CONN_SIGNAL, MESH_UI_SETTING_INFO, buffer);
+        item_toggle(list, MESH_STR_CONN_MQTT, conn->wifi_mqtt);
+        item_toggle(list, MESH_STR_CONN_SYSLOG, conn->wifi_syslog);
+    }
+    if (conn->has_ethernet) {
+        item_heading(list, MESH_STR_HEAD_CONN_ETHERNET);
+        item_toggle(list, MESH_STR_CONN_CONNECTED, conn->ethernet_connected);
+        format_ipv4(conn->ethernet_ip, buffer, sizeof buffer);
+        item_text(list, MESH_STR_CONN_IP, MESH_UI_SETTING_INFO, buffer);
+        item_toggle(list, MESH_STR_CONN_MQTT, conn->ethernet_mqtt);
+        item_toggle(list, MESH_STR_CONN_SYSLOG, conn->ethernet_syslog);
+    }
+    if (conn->has_bluetooth) {
+        item_heading(list, MESH_STR_HEAD_CONN_BLUETOOTH);
+        item_toggle(list, MESH_STR_CONN_CONNECTED, conn->bluetooth_connected);
+        /* The PIN the radio is currently asking for, which is the answer when pairing has just
+           failed - and 0 when it is not asking for one at all. */
+        if (conn->bluetooth_pin != 0U) {
+            mesh_str_format(buffer, sizeof buffer, MESH_STR_VALUE_PLAIN,
+                            (unsigned)conn->bluetooth_pin);
+            item_text(list, MESH_STR_CONN_PAIRING_PIN, MESH_UI_SETTING_INFO, buffer);
+        }
+        mesh_str_format(buffer, sizeof buffer, MESH_STR_VALUE_DBM, (int)conn->bluetooth_rssi);
+        item_text(list, MESH_STR_CONN_SIGNAL, MESH_UI_SETTING_INFO, buffer);
+    }
+    if (conn->has_serial) {
+        item_heading(list, MESH_STR_HEAD_CONN_SERIAL);
+        item_toggle(list, MESH_STR_CONN_CONNECTED, conn->serial_connected);
+        mesh_str_format(buffer, sizeof buffer, MESH_STR_VALUE_PLAIN, (unsigned)conn->serial_baud);
+        item_text(list, MESH_STR_CONN_BAUD, MESH_UI_SETTING_INFO, buffer);
+    }
+}
+
 static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_handshake_state *hs,
                         struct item_list *list) {
     char buffer[48];
@@ -534,6 +597,7 @@ static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_h
             mesh_str(s->admin_busy ? MESH_STR_RADIO_ADMIN_WAITING : MESH_STR_RADIO_ADMIN_NO_REPLY));
     }
     item_text(list, MESH_STR_RADIO_ADMIN_SESSION, MESH_UI_SETTING_INFO, buffer);
+    build_connection(&s->connection, list);
 }
 
 static void build_user(const struct mesh_ui_settings *s, struct item_list *list) {
@@ -763,6 +827,58 @@ static void build_power(const struct mesh_ui_settings *s, struct item_list *list
  * either list needing a screen of its own. A module the radio has not sent says so instead of
  * being hidden: "which of these has not arrived" is most of what this screen is for.
  */
+/*
+ * The radio's own screen (DeviceUIConfig), which is not the Display section: that one is the
+ * panel - how long it stays lit, which way up, metric or imperial - and this is the graphical
+ * UI drawn on it.
+ *
+ * Three rows are shown and not offered, under a heading that says who does set them. The two
+ * locks are a door this client has no key to: `store_ui_config` can turn them on and there is
+ * no verb that turns them off, and the PIN behind them is not on the wire at all. Language is
+ * refused for a different reason - see MESH_UI_FIELD_UI_THEME's neighbours - and shown for the
+ * same one: it is the answer to "why is my radio in Swedish".
+ */
+static void build_radio_ui(const struct mesh_ui_settings *s, struct item_list *list) {
+    item_field(list, MESH_UI_FIELD_UI_THEME, s->ui_theme, NULL);
+    item_field(list, MESH_UI_FIELD_UI_BRIGHTNESS, s->ui_brightness, NULL);
+    item_field(list, MESH_UI_FIELD_UI_SCREEN_TIMEOUT, s->ui_screen_timeout, NULL);
+    item_field(list, MESH_UI_FIELD_UI_CLOCKFACE, s->ui_clockface_analog ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_UI_COMPASS_MODE, s->ui_compass_mode, NULL);
+    item_field(list, MESH_UI_FIELD_UI_GPS_FORMAT, s->ui_gps_format, NULL);
+    item_field(list, MESH_UI_FIELD_UI_ALERT, s->ui_alert_enabled ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_UI_BANNER, s->ui_banner_enabled ? 1U : 0U, NULL);
+    item_field(list, MESH_UI_FIELD_UI_RING_TONE, s->ui_ring_tone_id, NULL);
+    item_heading(list, MESH_STR_HEAD_LOCKS);
+    item_text(list, MESH_STR_SETTINGS_UI_LANGUAGE, MESH_UI_SETTING_INFO,
+              mesh_radio_language_name(s->ui_language));
+    item_toggle(list, MESH_STR_SETTINGS_UI_SCREEN_LOCK, s->ui_screen_lock);
+    item_toggle(list, MESH_STR_SETTINGS_UI_SETTINGS_LOCK, s->ui_settings_lock);
+}
+
+/*
+ * The radio's quick replies. Six slots, always all six, empty ones included - the Channels
+ * shape, and for the same reason: adding a message is filling an empty slot, and a row count
+ * that grew as they were filled would move under the cursor mid-edit.
+ *
+ * A radio holding more than six says so on a row of its own rather than pretending the rest
+ * are gone; the save carries them across untouched. That row appears and disappears with what
+ * the radio holds and never with an edit, which is the line the heading rule actually draws.
+ */
+static void build_canned(const struct mesh_ui_settings *s, struct item_list *list) {
+    char entry[MESH_UI_CANNED_SLOT_MAX];
+    for (uint32_t i = 0; i < MESH_UI_CANNED_SLOTS; ++i) {
+        mesh_ui_settings_canned_entry(s->canned_messages, i, entry, sizeof entry);
+        item_field(list, (enum mesh_ui_setting_field)(MESH_UI_FIELD_CANNED_0 + i), 0U, entry);
+    }
+    const uint32_t held = mesh_ui_settings_canned_count(s->canned_messages);
+    if (held > MESH_UI_CANNED_SLOTS) {
+        char value[MESH_UI_SETTINGS_VALUE_MAX];
+        mesh_str_format(value, sizeof value, MESH_STR_SETTINGS_CANNED_KEPT_N,
+                        (unsigned)(held - MESH_UI_CANNED_SLOTS));
+        item_text(list, MESH_STR_SETTINGS_CANNED_KEPT, MESH_UI_SETTING_INFO, value);
+    }
+}
+
 static void build_modules(const struct mesh_ui_settings *s,
                           const struct mesh_ui_handshake_state *hs, struct item_list *list) {
     const uint32_t count = mesh_ui_settings_module_count();
@@ -831,6 +947,12 @@ static void build_modules(const struct mesh_ui_settings *s,
                       s->traffic_rate_limit_window_secs != 0U ||
                       s->traffic_rate_limit_max_packets != 0U ||
                       s->traffic_unknown_packet_threshold != 0U;
+            break;
+        case MESH_UI_SETTINGS_CANNED:
+            /* The one row here with no config behind it at all: the module is doing something
+               exactly when the radio has messages to offer, the same test Status message
+               answers with. */
+            enabled = s->canned_messages[0] != '\0';
             break;
         default:
             break;
@@ -1019,6 +1141,21 @@ static void build_ext_notification(const struct mesh_ui_settings *s, struct item
                s->extnotif_alert_message_buzzer ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_EXTNOTIF_ALERT_BELL_BUZZER,
                s->extnotif_alert_bell_buzzer ? 1U : 0U, NULL);
+
+    /*
+     * The tune the buzzer plays, shown and not offered. RTTTL is a 230-byte string of note
+     * lengths and octaves, and a keyboard on a d-pad is not a way to enter one; a preset list
+     * would be this client inventing music the firmware does not have. So the row answers "why
+     * is it playing that" - which is what it is opened for - and the phone apps stay where a
+     * ringtone is changed. `MESH_UI_SETTING_TEXT_MAX` is 80 and this is 231, which is the other
+     * half of the same answer. A long tune is cut at the value column, deliberately: the row
+     * is here to identify what is playing, not to be the score.
+     */
+    if (s->has_ringtone) {
+        item_heading(list, MESH_STR_HEAD_RINGTONE);
+        item_text(list, MESH_STR_SETTINGS_RINGTONE_ROW, MESH_UI_SETTING_INFO,
+                  s->ringtone[0] != '\0' ? s->ringtone : mesh_str(MESH_STR_COMMON_NONE));
+    }
 }
 
 /*
@@ -1100,6 +1237,16 @@ static void build_actions(const struct mesh_ui_settings *s,
                handshake != NULL ? handshake->nodes_forgettable_all : 0U,
                MESH_UI_SETTINGS_ACTION_FORGET_ALL_NODES);
 
+    /* Before the factory resets, which is the order the whole section runs in: least to most
+       destructive, and a backup is the thing you want to have pressed before the row below. */
+    item_heading(list, MESH_STR_HEAD_BACKUP);
+    item_radio_action(list, MESH_STR_ACTION_BACKUP_CONFIG, MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG,
+                      connected);
+    item_radio_action(list, MESH_STR_ACTION_RESTORE_CONFIG, MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG,
+                      connected);
+    item_radio_action(list, MESH_STR_ACTION_REMOVE_BACKUP, MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP,
+                      connected);
+
     item_heading(list, MESH_STR_HEAD_FACTORY_RESET);
     item_radio_action(list, MESH_STR_ACTION_FACTORY_CONFIG,
                       MESH_UI_SETTINGS_ACTION_FACTORY_RESET_CONFIG, connected);
@@ -1124,6 +1271,12 @@ static void build_section(const struct mesh_ui_settings *settings,
         break;
     case MESH_UI_SETTINGS_RADIO:
         build_radio(settings, handshake, list);
+        break;
+    case MESH_UI_SETTINGS_RADIO_UI:
+        build_radio_ui(settings, list);
+        break;
+    case MESH_UI_SETTINGS_CANNED:
+        build_canned(settings, list);
         break;
     case MESH_UI_SETTINGS_USER:
         build_user(settings, list);

@@ -334,9 +334,10 @@ MESH_TEST_CASE(radio_settings_fetch_queue, unit) {
     /* Everything, and each thing once: the probe pair, then one per Config section, one per
        ModuleConfig section this client keeps, and one per channel slot. Spelled out as the sum
        rather than as a bare number, because the module count is what every phase moves. */
-    const size_t expected = 2U                          /* metadata + owner */
-                            + 8U                        /* Config sections */
-                            + mesh_radio_module_count() /* one per module, from the table */
+    const size_t expected = 2U                                  /* metadata + owner */
+                            + 8U                                /* Config sections */
+                            + mesh_radio_module_count()         /* one per module, from the table */
+                            + MESH_RADIO_SETTINGS_EXTRA_FETCHES /* the four with a verb each */
                             + MESH_RADIO_SETTINGS_MAX_CHANNELS;
     MESH_TEST_FAIL_IF(mesh_radio_settings_queue_all(&settings) != expected ||
                           settings.queue_len != expected,
@@ -1035,5 +1036,132 @@ MESH_TEST_CASE(radio_settings_fixed_position, unit) {
                                                          &written) != -EINVAL,
                       "a fix with no coordinates should be refused");
 
+    record_success(test_name);
+}
+
+/*
+ * The four things the radio keeps outside Config, ModuleConfig and Channel: its connection
+ * status, its own UI config, its canned message list and its ringtone.
+ *
+ * They earn a test of their own because they are the first fragments with a verb each rather
+ * than a section type, so nothing about them is covered by the config round trip: the request
+ * has to name the right AdminMessage field, the reply has to be recognised by its own response
+ * tag, and - the part that would fail silently - `mesh_radio_settings_loaded()` has to count
+ * them, or a radio whose only fragment was one of these would read as no radio at all. That is
+ * exactly the failure the module table was built to stop happening again.
+ */
+MESH_TEST_CASE(radio_settings_extra_verbs, unit) {
+    struct mesh_radio_settings settings;
+    mesh_radio_settings_reset(&settings);
+
+    meshtastic_AdminMessage admin;
+    MESH_TEST_FAIL_IF(
+        !test_admin_encodes(&settings, MESH_ADMIN_GET_CONNECTION_STATUS, 0U, &admin) ||
+            admin.which_payload_variant !=
+                meshtastic_AdminMessage_get_device_connection_status_request_tag,
+        "the connection status request should ask for the connection status");
+    MESH_TEST_FAIL_IF(!test_admin_encodes(&settings, MESH_ADMIN_GET_UI_CONFIG, 0U, &admin) ||
+                          admin.which_payload_variant !=
+                              meshtastic_AdminMessage_get_ui_config_request_tag,
+                      "the UI config request should ask for the UI config");
+    MESH_TEST_FAIL_IF(
+        !test_admin_encodes(&settings, MESH_ADMIN_GET_CANNED_MESSAGES, 0U, &admin) ||
+            admin.which_payload_variant !=
+                meshtastic_AdminMessage_get_canned_message_module_messages_request_tag,
+        "the canned message request should ask for the canned messages");
+    MESH_TEST_FAIL_IF(!test_admin_encodes(&settings, MESH_ADMIN_GET_RINGTONE, 0U, &admin) ||
+                          admin.which_payload_variant !=
+                              meshtastic_AdminMessage_get_ringtone_request_tag,
+                      "the ringtone request should ask for the ringtone");
+
+    /* Each reply lands in its own slot, and each on its own makes the radio "loaded". */
+    struct {
+        pb_size_t tag;
+        const char *what;
+    } const k_replies[] = {
+        {meshtastic_AdminMessage_get_device_connection_status_response_tag, "connection status"},
+        {meshtastic_AdminMessage_get_ui_config_response_tag, "ui config"},
+        {meshtastic_AdminMessage_get_canned_message_module_messages_response_tag, "canned list"},
+        {meshtastic_AdminMessage_get_ringtone_response_tag, "ringtone"},
+    };
+    for (size_t i = 0; i < sizeof k_replies / sizeof k_replies[0]; ++i) {
+        mesh_radio_settings_reset(&settings);
+        meshtastic_AdminMessage reply_admin = meshtastic_AdminMessage_init_default;
+        reply_admin.which_payload_variant = k_replies[i].tag;
+        if (k_replies[i].tag == meshtastic_AdminMessage_get_ui_config_response_tag) {
+            reply_admin.get_ui_config_response.screen_brightness = 200U;
+            reply_admin.get_ui_config_response.theme = meshtastic_Theme_LIGHT;
+        } else if (k_replies[i].tag ==
+                   meshtastic_AdminMessage_get_canned_message_module_messages_response_tag) {
+            snprintf(reply_admin.get_canned_message_module_messages_response,
+                     sizeof reply_admin.get_canned_message_module_messages_response, "%s",
+                     "On my way|Roger");
+        } else if (k_replies[i].tag == meshtastic_AdminMessage_get_ringtone_response_tag) {
+            snprintf(reply_admin.get_ringtone_response, sizeof reply_admin.get_ringtone_response,
+                     "%s", "24:d=32,o=5,b=565:f6,p,f6");
+        } else {
+            reply_admin.get_device_connection_status_response.has_wifi = true;
+            reply_admin.get_device_connection_status_response.wifi.rssi = -57;
+        }
+        meshtastic_MeshPacket reply;
+        MESH_TEST_FAIL_IF(!mesh_test_make_admin_reply(0x1234U, 0U, &reply_admin, &reply) ||
+                              mesh_radio_settings_ingest(&settings, &reply) != 1 ||
+                              !mesh_radio_settings_loaded(&settings),
+                          "a reply carrying only this fragment should read as a loaded radio");
+    }
+    MESH_TEST_FAIL_IF(!settings.has_ringtone ||
+                          strcmp(settings.ringtone, "24:d=32,o=5,b=565:f6,p,f6") != 0,
+                      "the ringtone should be kept as the radio sent it");
+
+    /* A UI config write is a write: passkey refresh, the set, and the get that reads it back. */
+    mesh_radio_settings_reset(&settings);
+    struct mesh_admin_request write;
+    memset(&write, 0, sizeof write);
+    write.kind = MESH_ADMIN_SET_UI_CONFIG;
+    write.payload.ui_config.screen_brightness = 128U;
+    MESH_TEST_FAIL_IF(
+        !mesh_admin_request_is_write(MESH_ADMIN_SET_UI_CONFIG) ||
+            mesh_radio_settings_queue_write(&settings, &write) != 3 ||
+            settings.queue[(settings.queue_head + 2U) % MESH_RADIO_SETTINGS_FETCH_MAX].kind !=
+                MESH_ADMIN_GET_UI_CONFIG,
+        "a UI config save should read itself back");
+    MESH_TEST_FAIL_IF(!test_admin_encodes(&settings, MESH_ADMIN_SET_UI_CONFIG, 0U, &admin) ||
+                          admin.which_payload_variant !=
+                              meshtastic_AdminMessage_store_ui_config_tag,
+                      "the UI config save should go out as store_ui_config");
+
+    /*
+     * The backup trio are actions, not writes, for the reason the resets are: nothing is read
+     * back and there is no section to re-read. Counting one as a write would make the Settings
+     * tab announce a save that never happened.
+     */
+    mesh_radio_settings_reset(&settings);
+    const enum mesh_admin_request_kind k_backup[] = {
+        MESH_ADMIN_BACKUP_PREFERENCES,
+        MESH_ADMIN_RESTORE_PREFERENCES,
+        MESH_ADMIN_REMOVE_BACKUP_PREFERENCES,
+    };
+    const pb_size_t k_backup_tags[] = {
+        meshtastic_AdminMessage_backup_preferences_tag,
+        meshtastic_AdminMessage_restore_preferences_tag,
+        meshtastic_AdminMessage_remove_backup_preferences_tag,
+    };
+    for (size_t i = 0; i < sizeof k_backup / sizeof k_backup[0]; ++i) {
+        mesh_radio_settings_reset(&settings);
+        MESH_TEST_FAIL_IF(!mesh_admin_request_is_action(k_backup[i]) ||
+                              mesh_admin_request_is_write(k_backup[i]),
+                          "a backup verb is an action, never a write");
+        /* Two requests: the passkey refresh the firmware insists on, then the verb. */
+        MESH_TEST_FAIL_IF(mesh_radio_settings_queue_action(&settings, k_backup[i], 0U) != 2,
+                          "a backup verb should queue a passkey refresh and itself");
+        MESH_TEST_FAIL_IF(!test_admin_encodes(&settings, k_backup[i], 0U, &admin) ||
+                              admin.which_payload_variant != k_backup_tags[i],
+                          "a backup verb should encode as its own AdminMessage field");
+    }
+    /* FLASH is 0, which is what `type` carries: the SD location is not offered because nothing
+       on the wire says whether the board has a card. */
+    MESH_TEST_FAIL_IF(!test_admin_encodes(&settings, MESH_ADMIN_BACKUP_PREFERENCES, 0U, &admin) ||
+                          admin.backup_preferences != meshtastic_AdminMessage_BackupLocation_FLASH,
+                      "a backup should go to the radio's flash");
     record_success(test_name);
 }

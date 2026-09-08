@@ -502,6 +502,71 @@ for the switch.
   from the Brick read back after the reboot; a traffic limit set to 0 reads back as off rather
   than as unset.
 
+### Interlude - the four verbs that are not a section
+
+Not a phase either, and not a module: the four things the radio keeps that are neither a
+`Config` section, a `ModuleConfig` section nor a `Channel`, and so have an admin verb each
+rather than a section type. Done between phases 11 and 12 because none of them needs the row
+models phase 12 is waiting on, and because two of them are the answer to a question the tab
+could not answer at all.
+
+| What | Verbs | Where it lands |
+|---|---|---|
+| The radio's network interfaces | `get_device_connection_status` | **About radio**, read-only, one heading per interface |
+| The radio's own screen | `get_ui_config` / `store_ui_config`, and `FromRadio.deviceuiConfig` | **Radio UI**, a new root section beside Display |
+| The radio's quick replies | `get`/`set_canned_message_module_messages` | **Modules > Canned messages**, six slots |
+| The tune the buzzer plays | `get_ringtone` | **External notify**, read-only |
+| The whole configuration, copied | `backup_preferences` / `restore_preferences` / `remove_backup_preferences` | **Radio actions**, three rows behind the confirm sheet |
+
+`connection_status.proto` and `device_ui.proto` were already being compiled - `admin.proto`
+imports both - so all of this was one `#include` away and none of it was reachable.
+
+Five things fell out of doing it, and they are the whole of what is worth remembering:
+
+- **The refresh queue's length stopped being derivable from the tables.** It was the probe
+  pair, one per Config section, one per module and one per channel slot; these four are none of
+  those. `MESH_RADIO_SETTINGS_EXTRA_FETCHES` names them so `queue_all()` and the test that
+  holds a full refresh inside `MESH_RADIO_SETTINGS_FETCH_MAX` count the same things - the same
+  reason the module table exists, one level up.
+- **`DeviceUIConfig` is kept whole and written back whole.** It carries a touchscreen
+  `calibration_data` blob and a map home point that this client has no rows for and could not
+  reconstruct, so a `store_ui_config` assembled from the rows alone would quietly erase a
+  screen's calibration. The section is the second write in the client (after `set_owner`) whose
+  base has to be the radio's own record rather than a fresh struct, and the first where losing
+  the difference would be invisible until somebody touched their radio's screen.
+- **Three rows are shown and not offered, each for its own reason.** `screen_lock` and
+  `settings_lock` because `store_ui_config` can turn them on and no verb turns them off, and
+  the PIN behind them is not on the wire. The **ringtone** because RTTTL is 231 bytes of note
+  lengths and octaves against a `MESH_UI_SETTING_TEXT_MAX` of 80, and a keyboard on a d-pad is
+  not a way to enter one - a preset list would be this client inventing music the firmware does
+  not have. And **language**, which is the interesting one: `meshtastic_Language` is the only
+  enum in the client whose values are not `0..n-1` (they run 0..19 and then jump to 30 and 31),
+  and every enum row here steps by `(value + 1) % count` and is named by value, while the
+  segmented button names by *index*. Offering it means splitting index from value across the
+  nav, the row builder and the renderer - which is a change to a shared mechanism, not a row,
+  and belongs with whatever else needs it. All three follow the rule the MQTT proxy row set: a
+  setting that cannot be pressed is still worth a row, because it is the answer to why the
+  radio is behaving as it is.
+- **The canned list is one string, so the slot count and the slot length are one decision.**
+  The wire carries 200 bytes with `|` between entries; six slots of 32 plus five separators is
+  197 and seven would not fit. Empty slots are listed - the Channels shape, and for the
+  Channels reason - and a radio holding *more* than six keeps them: the write walks to whichever
+  of "what the radio holds" and "what the screen shows" is longer, copies the tail across
+  untouched, and closes the gaps an emptied slot leaves, which is the same compaction a cleared
+  admin key gets.
+- **The backup trio are actions, not writes.** Nothing is read back and what they move is the
+  radio's whole stored configuration rather than a section this tab has rows for, which is
+  phase 7's test exactly. A restore is followed by a refresh rather than a read-back, because
+  what it changed is every section at once. Flash rather than SD: nothing on the wire says
+  whether a board has a card, and a press that silently does nothing is worse than a press that
+  is not offered.
+
+- Exit criteria: on the Brick, a radio on WiFi shows its SSID, address and signal on About
+  radio; a theme or brightness set from the Brick shows on the radio's own screen after the
+  save and its touchscreen still responds where it is touched; a canned message typed on the
+  Brick appears in the phone app's quick replies with the app's other messages intact; and a
+  backup taken before a factory reset brings the configuration back.
+
 ### Phase 12 - Mesh beacon
 
 The module phase 11 handed back, and the only one of the seventeen that needs new UI rather than
@@ -561,8 +626,18 @@ upstream that an older radio will not report them - the Modules list shows a mod
 never sent as `not loaded`, the same way the section list already does, rather than hiding it.
 
 The admin verbs still left out: `enter_dfu_mode_request` and `ota_request` (firmware install,
-above), `exit_simulator`, and `reboot_ota_seconds` (deprecated upstream in favour of
-`reboot_ota_mode`).
+above), `exit_simulator`, `reboot_ota_seconds` (deprecated upstream in favour of
+`reboot_ota_mode`), `set_ringtone_message` (the get is shipped; see the interlude for why the
+set is not), `delete_file_request`, `set_scale`, `get_node_remote_hardware_pins_request`,
+`sensor_config` and `lockdown_auth`.
+
+Four that are features rather than leftovers, and are worth their own work when their turn
+comes: `set_ham_mode` (a call sign, a frequency and a transmit power for a licensed operator,
+which also turns encryption off and so wants the confirm sheet), `add_contact` (a
+`SharedContact` - adding a node *with its public key* rather than waiting to hear from it),
+`key_verification` (proving out of band that the key we hold for a node is theirs), and
+`begin_edit_settings` / `commit_edit_settings` (which only matter once something offers to save
+more than one section at a time).
 
 ### Done outside the phases
 

@@ -935,6 +935,61 @@ static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
                                              : 0U;
         }
     }
+    if (src->has_ui_config) {
+        dst->has_ui_config = true;
+        dst->ui_theme = (uint8_t)src->ui_config.theme;
+        dst->ui_language = (uint32_t)src->ui_config.language;
+        dst->ui_brightness = src->ui_config.screen_brightness;
+        dst->ui_screen_timeout = src->ui_config.screen_timeout;
+        dst->ui_alert_enabled = src->ui_config.alert_enabled;
+        dst->ui_banner_enabled = src->ui_config.banner_enabled;
+        dst->ui_ring_tone_id = src->ui_config.ring_tone_id;
+        dst->ui_compass_mode = (uint8_t)src->ui_config.compass_mode;
+        dst->ui_gps_format = (uint8_t)src->ui_config.gps_format;
+        dst->ui_clockface_analog = src->ui_config.is_clockface_analog;
+        dst->ui_screen_lock = src->ui_config.screen_lock;
+        dst->ui_settings_lock = src->ui_config.settings_lock;
+    }
+    if (src->has_canned_messages) {
+        dst->has_canned_messages = true;
+        mesh_str_copy(dst->canned_messages, sizeof dst->canned_messages, src->canned_messages);
+    }
+    if (src->has_ringtone) {
+        dst->has_ringtone = true;
+        mesh_str_copy(dst->ringtone, sizeof dst->ringtone, src->ringtone);
+    }
+    if (src->has_connection_status) {
+        const meshtastic_DeviceConnectionStatus *conn = &src->connection_status;
+        struct mesh_ui_connection_status *out = &dst->connection;
+        out->valid = true;
+        if (conn->has_wifi) {
+            out->has_wifi = true;
+            out->wifi_connected = conn->wifi.status.is_connected;
+            snprintf(out->wifi_ssid, sizeof out->wifi_ssid, "%s", conn->wifi.ssid);
+            out->wifi_rssi = conn->wifi.rssi;
+            out->wifi_ip = conn->wifi.status.ip_address;
+            out->wifi_mqtt = conn->wifi.status.is_mqtt_connected;
+            out->wifi_syslog = conn->wifi.status.is_syslog_connected;
+        }
+        if (conn->has_ethernet) {
+            out->has_ethernet = true;
+            out->ethernet_connected = conn->ethernet.status.is_connected;
+            out->ethernet_ip = conn->ethernet.status.ip_address;
+            out->ethernet_mqtt = conn->ethernet.status.is_mqtt_connected;
+            out->ethernet_syslog = conn->ethernet.status.is_syslog_connected;
+        }
+        if (conn->has_bluetooth) {
+            out->has_bluetooth = true;
+            out->bluetooth_connected = conn->bluetooth.is_connected;
+            out->bluetooth_pin = conn->bluetooth.pin;
+            out->bluetooth_rssi = conn->bluetooth.rssi;
+        }
+        if (conn->has_serial) {
+            out->has_serial = true;
+            out->serial_connected = conn->serial.is_connected;
+            out->serial_baud = conn->serial.baud;
+        }
+    }
     if (src->has_metadata) {
         dst->has_metadata = true;
         snprintf(dst->firmware_version, sizeof dst->firmware_version, "%s",
