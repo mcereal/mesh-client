@@ -1,3 +1,9 @@
+## [2.34.3](https://github.com/mcereal/mesh-client/compare/v2.34.2...v2.34.3) (2026-09-08)
+
+### Bug Fixes
+
+* close the four truncation sites the device build reports ([8e84129](https://github.com/mcereal/mesh-client/commit/8e84129068b42c26f40dfe9f62556d98feaeaefc)), closes [#110](https://github.com/mcereal/mesh-client/issues/110)
+
 ## [2.34.2](https://github.com/mcereal/mesh-client/compare/v2.34.1...v2.34.2) (2026-09-08)
 
 ### Bug Fixes
