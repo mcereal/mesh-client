@@ -50,6 +50,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/ui_theme.c
     suites/updater.c
     suites/utils.c
+    suites/waypoints.c
 )
 
 add_executable(meshclient_core_tests

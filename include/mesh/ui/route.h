@@ -51,6 +51,7 @@ enum mesh_ui_route_level {
     MESH_UI_ROUTE_LIST = 0, /* the tab's own list: conversations, nodes, devices, sections */
     MESH_UI_ROUTE_THREAD,   /* one conversation, or the all-traffic transcript */
     MESH_UI_ROUTE_NODE,     /* one node's detail */
+    MESH_UI_ROUTE_WAYPOINT, /* one shared place's detail */
     MESH_UI_ROUTE_SECTION,  /* one settings section, including the Modules and Channels lists */
     MESH_UI_ROUTE_CHANNEL,  /* one channel slot inside the Channels section */
     MESH_UI_ROUTE_COMPOSE,  /* the compose sheet over a thread */

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Regenerate the listing screenshots in .github/resources/screenshots.
 #
-# These are the four stills the README and the Pak Store listing carry, and they go stale the
+# These are the five stills the README and the Pak Store listing carry, and they go stale the
 # way a screenshot always does - the UI moved on and nothing failed. This renders them from
 # scene scripts instead, off-screen and with no device: `devtools/ui_capture/scenes/shots/`
 # holds one scene per shot, each named for the file it writes, so refreshing the set after a UI
@@ -13,7 +13,8 @@
 #
 # Usage: scripts/screenshots.sh [options] [NAME ...]
 #
-#   NAME                  which shots to render (messages, nodes, status, settings).
+#   NAME                  which shots to render (messages, nodes, waypoints, status,
+#                         settings).
 #                         Default: all of them.
 #
 # Options:

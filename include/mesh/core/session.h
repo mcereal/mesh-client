@@ -2,6 +2,7 @@
 
 #include "mesh/core/message.h"
 #include "mesh/core/radio_settings.h"
+#include "mesh/core/waypoint.h"
 #include "meshtastic/mesh.pb.h"
 
 #include <stdbool.h>
@@ -451,6 +452,11 @@ struct mesh_session {
     struct mesh_radio_stats stats;
     /* Survives reconnects: a NodeDB resync must not wipe the conversation. */
     struct mesh_message_log messages;
+    /* The mesh's shared places, on the same terms as the messages above and for the same
+       reason: a waypoint is something that was broadcast to us, not something the radio holds
+       on our behalf, so a link that drops has not unshared it. The radio replays its NodeDB on
+       reconnect and never replays a waypoint - dropping ours would lose them for good. */
+    struct mesh_waypoint_book waypoints;
     /* The radio's configuration and the admin session; reset with the handshake. */
     struct mesh_radio_settings settings;
     /* The last traceroute, running or finished; reset with the handshake. */
@@ -678,6 +684,7 @@ uint32_t mesh_session_forget_conversation(struct mesh_session *session, uint32_t
 /* Borrowed views; valid until the next call into the session. */
 const struct mesh_handshake_status *mesh_session_handshake(const struct mesh_session *session);
 const struct mesh_message_log *mesh_session_messages(const struct mesh_session *session);
+const struct mesh_waypoint_book *mesh_session_waypoints(const struct mesh_session *session);
 const struct mesh_radio_settings *mesh_session_settings(const struct mesh_session *session);
 /* The connected radio's own LocalStats, or a record with `valid` false before one arrives. */
 const struct mesh_radio_stats *mesh_session_radio_stats(const struct mesh_session *session);
@@ -686,6 +693,38 @@ const struct mesh_client_notification *
 mesh_session_notification(const struct mesh_session *session);
 /* The radio's send queue, or a record with `valid` false before it reports one. */
 const struct mesh_queue_status *mesh_session_queue_status(const struct mesh_session *session);
+
+/*
+ * Shares one place with a channel.
+ *
+ * `waypoint` is copied; an `id` of 0 means "a new place" and one is drawn from the same
+ * generator packet ids come from, so an edit is the caller passing the id it already has. The
+ * copy is stored in our own book straight away rather than waiting for the radio to echo it -
+ * the echo is what marks it `ours`, and on a mesh with nothing to relay it is the only copy
+ * there will ever be.
+ *
+ * Returns 0 and sets *out_id (may be NULL) to the waypoint's id, -ENOTCONN without a link,
+ * -EINVAL for a waypoint with no coordinates, or the encode/send error. The place is in the
+ * book in every case but -EINVAL, -ENOTCONN included: naming a place is not a message that
+ * failed to send, and a client with no radio can still be somewhere worth marking.
+ */
+int mesh_session_send_waypoint(struct mesh_session *session, const struct mesh_waypoint *waypoint,
+                               uint8_t channel, uint32_t *out_id);
+
+/*
+ * Withdraws a place, and says whether the mesh was told.
+ *
+ * Deleting is not a verb on the wire, so this broadcasts the waypoint back with an expiry in
+ * the past (MESH_WAYPOINT_EXPIRE_DELETED) - but only when this client may edit it, which is
+ * what `locked_to` says. Somebody else's locked waypoint is dropped from our own book and
+ * nothing goes out: broadcasting a withdrawal we are not entitled to make would ask every other
+ * client on the mesh to forget a place its owner still holds.
+ *
+ * *out_shared (may be NULL) is true when the mesh was told. Returns 0, -ENOENT when we do not
+ * hold that waypoint, or the send error - and the local entry is dropped either way, because
+ * the user asked for it and a failed broadcast does not make the place come back.
+ */
+int mesh_session_forget_waypoint(struct mesh_session *session, uint32_t id, bool *out_shared);
 
 /*
  * Asks the mesh which way it reaches `dest`, replacing whatever the last trace found. Sends an

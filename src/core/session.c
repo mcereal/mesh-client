@@ -104,6 +104,7 @@ void mesh_session_init(struct mesh_session *session) {
     }
     memset(session, 0, sizeof *session);
     mesh_message_log_reset(&session->messages);
+    mesh_waypoint_book_reset(&session->waypoints);
     /*
      * want_config_id is a nonce: the node echoes it back in config_complete_id. A per-process seed
      * keeps a stale completion left in the node's FIFO by a previous session from ending ours
@@ -886,6 +887,30 @@ static void mesh_session_apply_packet_details(struct mesh_session *session,
 }
 
 /*
+ * A WAYPOINT_APP packet: a place somebody shared with the channel.
+ *
+ * Its own step rather than a case inside mesh_session_apply_packet_details(), which is about
+ * the *node* a packet came from - a waypoint says nothing about its sender beyond that they
+ * were there to send it, and the roster is not where a place belongs. It is also not a message:
+ * mesh_message_ingest() would have to grow a second payload shape to hold one, and the log it
+ * appends to is a ring of things that happened rather than a table of things that are.
+ */
+static void mesh_session_handle_waypoint(struct mesh_session *session,
+                                         const meshtastic_MeshPacket *packet) {
+    if (packet->which_payload_variant != meshtastic_MeshPacket_decoded_tag ||
+        packet->decoded.portnum != meshtastic_PortNum_WAYPOINT_APP) {
+        return;
+    }
+    uint32_t heard = packet->has_rx_time ? packet->rx_time : 0U;
+    if (heard == 0U) {
+        heard = mesh_session_wall_clock();
+    }
+    mesh_waypoint_ingest(
+        &session->waypoints, packet,
+        session->handshake.has_my_info ? session->handshake.my_info.my_node_num : 0U, heard);
+}
+
+/*
  * A TRACEROUTE_APP packet answering the request we sent. The firmware replies from the target
  * with `Data.request_id` set to our packet id, which is what tells our trace from somebody
  * else's crossing the same radio - a node relaying a trace between two other nodes sees the
@@ -1179,6 +1204,7 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
         }
         mesh_session_touch_node_from_packet(session, &message.packet);
         mesh_session_apply_packet_details(session, &message.packet);
+        mesh_session_handle_waypoint(session, &message.packet);
         mesh_message_ingest(&session->messages, &message.packet,
                             handshake->has_my_info ? handshake->my_info.my_node_num : 0U);
         break;
@@ -1841,6 +1867,137 @@ const struct mesh_handshake_status *mesh_session_handshake(const struct mesh_ses
 
 const struct mesh_message_log *mesh_session_messages(const struct mesh_session *session) {
     return session != NULL ? &session->messages : NULL;
+}
+
+const struct mesh_waypoint_book *mesh_session_waypoints(const struct mesh_session *session) {
+    return session != NULL ? &session->waypoints : NULL;
+}
+
+int mesh_session_send_waypoint(struct mesh_session *session, const struct mesh_waypoint *waypoint,
+                               uint8_t channel, uint32_t *out_id) {
+    if (session == NULL || waypoint == NULL) {
+        return -EINVAL;
+    }
+    /* A place with no place is not one. Everything else about a waypoint is optional on the
+       wire; this is the field the whole message exists to carry. */
+    if (!waypoint->has_coords ||
+        !mesh_geo_coords_valid(waypoint->latitude_i, waypoint->longitude_i)) {
+        return -EINVAL;
+    }
+
+    struct mesh_waypoint outgoing = *waypoint;
+    if (outgoing.id == 0U) {
+        /* The same generator packet ids come from. Upstream ids are arbitrary uint32s chosen by
+           whoever made the waypoint, and two clients picking the same one would be two places
+           overwriting each other - which is the same collision a packet id already has to avoid,
+           so it is the same seed rather than a second one. */
+        outgoing.id = mesh_session_next_packet_id(session);
+    }
+    outgoing.channel = channel;
+    /*
+     * Whose place it is, and only for a place that does not have an owner yet.
+     *
+     * Re-sharing is a broadcast of somebody else's waypoint, unchanged: the packet goes out from
+     * this radio, but the place is still theirs, and stamping it as ours here would have the
+     * list say "you" under a name somebody else chose. A new place has `from` of 0, which is
+     * what tells the two apart.
+     */
+    if (outgoing.from == 0U) {
+        outgoing.from =
+            session->handshake.has_my_info ? session->handshake.my_info.my_node_num : 0U;
+        outgoing.ours = true;
+    }
+    if (outgoing.heard == 0U) {
+        outgoing.heard = mesh_session_wall_clock();
+    }
+
+    struct mesh_waypoint_request request = {
+        .waypoint = &outgoing,
+        .packet_id = mesh_session_next_packet_id(session),
+        .channel = channel,
+    };
+
+    uint8_t payload[MESH_SESSION_MAX_PACKET];
+    size_t written = 0U;
+    const int encoded = mesh_waypoint_encode(&request, payload, sizeof payload, &written);
+    if (encoded < 0) {
+        return encoded;
+    }
+
+    /*
+     * Stored before the send, and kept even if the send fails.
+     *
+     * A waypoint is not a message: there is no bubble to mark FAILED and nothing comes back to
+     * mark it with - a broadcast is never acked. What the user did was name a place, and the
+     * place is theirs whether or not this radio got the packet out; the next share re-broadcasts
+     * the same id.
+     */
+    if (mesh_waypoint_book_store(&session->waypoints, &outgoing) == NULL) {
+        return -ENOMEM;
+    }
+    if (out_id != NULL) {
+        *out_id = outgoing.id;
+    }
+
+    /* -ENOTCONN *after* the place is in the book, which is the whole reason the link is not
+       checked at the top of this function. Naming a place is not a message that failed to go
+       out: it is a thing the user made, it is theirs with or without a radio, and the next
+       share re-broadcasts the same id. The caller reports which of the two happened. */
+    const int result = mesh_session_send_raw(session, payload, written, 0U);
+    if (result < 0) {
+        return result;
+    }
+    mesh_log_info("session", "Shared waypoint %u \"%s\" on channel %u", outgoing.id, outgoing.name,
+                  (unsigned)channel);
+    return 0;
+}
+
+int mesh_session_forget_waypoint(struct mesh_session *session, uint32_t id, bool *out_shared) {
+    if (out_shared != NULL) {
+        *out_shared = false;
+    }
+    if (session == NULL) {
+        return -EINVAL;
+    }
+    struct mesh_waypoint *entry = mesh_waypoint_book_find(&session->waypoints, id);
+    if (entry == NULL) {
+        return -ENOENT;
+    }
+
+    /* `locked_to` of 0 means the mesh left it open to anyone; anything else names the one node
+       entitled to change it. Withdrawing somebody else's locked place is not ours to do. */
+    const uint32_t me =
+        session->handshake.has_my_info ? session->handshake.my_info.my_node_num : 0U;
+    const bool may_edit = (entry->locked_to == 0U) || (me != 0U && entry->locked_to == me);
+
+    int result = 0;
+    if (may_edit && session->send != NULL) {
+        struct mesh_waypoint tombstone = *entry;
+        tombstone.expire = MESH_WAYPOINT_EXPIRE_DELETED;
+        struct mesh_waypoint_request request = {
+            .waypoint = &tombstone,
+            .packet_id = mesh_session_next_packet_id(session),
+            .channel = entry->channel,
+        };
+        uint8_t payload[MESH_SESSION_MAX_PACKET];
+        size_t written = 0U;
+        result = mesh_waypoint_encode(&request, payload, sizeof payload, &written);
+        if (result == 0) {
+            result = mesh_session_send_raw(session, payload, written, 0U);
+        }
+        if (result == 0) {
+            if (out_shared != NULL) {
+                *out_shared = true;
+            }
+            mesh_log_info("session", "Withdrew waypoint %u from channel %u", id,
+                          (unsigned)tombstone.channel);
+        }
+    }
+
+    /* Dropped whatever the broadcast did: the user asked for this place to go, and a radio that
+       could not carry the news does not put it back. */
+    mesh_waypoint_book_forget(&session->waypoints, id);
+    return result;
 }
 
 uint32_t mesh_session_forget_conversation(struct mesh_session *session, uint32_t peer,

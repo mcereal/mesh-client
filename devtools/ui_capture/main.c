@@ -36,6 +36,7 @@
  *                          scene's own clock, so a `hold` past four seconds and a `frame`
  *                          film it sliding back out again
  *   message in|out NAME TEXT   append a message to the log, as if the radio had just said so
+ *   waypoint NAME LABEL [| NOTE]  a place shared by that node, at the fix that node reports
  *   react NAME EMOJI       react to the newest message, as another node would
  *   ack sending|delivered|failed [ERROR]   what the mesh said about the newest message we
  *                          sent - the mark in the bubble's corner. ERROR is a Routing_Error
@@ -320,6 +321,35 @@ static void uicap_scene_demo(struct uicap *cap) {
     foxtrot_fix->position.sats_in_view = 9U;
     foxtrot_fix->position.time = now - 240U;
     foxtrot_fix->position.received = now - 235U;
+
+    /*
+     * Our own radio, and one more node further out.
+     *
+     * The Waypoints tab measures every place from our own fix, so a demo whose own node had
+     * none could only show the column empty - which is a real state, and not the one a reviewer
+     * needs to look at. A radio reporting where it is is the ordinary case: it is either a
+     * radio with a GPS or one with a fixed position set in Settings.
+     */
+    struct mesh_ui_node_summary *home_fix = &handshake.nodes[0]; /* Home Base, ourselves */
+    home_fix->position.valid = true;
+    home_fix->position.latitude_i = 476180000;
+    home_fix->position.longitude_i = -1223320000;
+    home_fix->position.has_altitude = true;
+    home_fix->position.altitude = 61;
+    home_fix->position.sats_in_view = 11U;
+    home_fix->position.time = now - 90U;
+    home_fix->position.received = now - 90U;
+
+    /* Charlie Lookout, a few kilometres out, so the ranges on the Waypoints tab span both the
+       metres and the kilometres the distance formatter has words for. */
+    struct mesh_ui_node_summary *charlie_fix = &handshake.nodes[3];
+    charlie_fix->position.valid = true;
+    charlie_fix->position.latitude_i = 476580000;
+    charlie_fix->position.longitude_i = -1222800000;
+    charlie_fix->position.has_altitude = true;
+    charlie_fix->position.altitude = 730;
+    charlie_fix->position.time = 0U;
+    charlie_fix->position.received = now - 3600U;
 
     struct mesh_ui_node_summary *alfa_fix = &handshake.nodes[1]; /* Alfa Ridge */
     alfa_fix->position.valid = true;
@@ -658,8 +688,8 @@ static enum mesh_ui_key uicap_key_from_name(const char *name) {
 }
 
 static int uicap_screen_from_name(const char *name) {
-    static const char *const names[MESH_UI_SCREEN_COUNT] = {"messages", "nodes", "devices",
-                                                            "status", "settings"};
+    static const char *const names[MESH_UI_SCREEN_COUNT] = {"messages", "nodes",  "waypoints",
+                                                            "devices",  "status", "settings"};
     for (int i = 0; i < (int)MESH_UI_SCREEN_COUNT; ++i) {
         if (strcmp(names[i], name) == 0) {
             return i;
@@ -726,6 +756,60 @@ static void uicap_append_message(struct uicap *cap, bool outbound, enum mesh_mes
        and what puts them in a conversation rather than in a private exchange. */
     entry->broadcast = (kind != MESH_MESSAGE_KIND_TEXT);
     mesh_ui_store_set_messages(&cap->store, &messages);
+    uicap_emit(cap);
+}
+
+/*
+ * A place somebody shared, put where a node in the scene already is.
+ *
+ * Taking the coordinate from a node rather than from the scene line is what keeps the ranges on
+ * the Waypoints tab honest: they are measured from our own radio's fix against a real one out
+ * of the same roster, so what the capture shows is the arithmetic the device would do rather
+ * than two numbers that were typed to agree.
+ */
+static void uicap_append_waypoint(struct uicap *cap, const char *node_name, const char *label,
+                                  const char *description) {
+    struct mesh_ui_waypoint_list list = cap->store.waypoints;
+    if (list.count >= MESH_UI_MAX_WAYPOINTS) {
+        die("waypoint: the book is full");
+    }
+
+    const struct mesh_ui_node_summary *node = NULL;
+    for (uint32_t i = 0U; i < cap->store.handshake.node_count; ++i) {
+        if (strcmp(cap->store.handshake.nodes[i].short_name, node_name) == 0) {
+            node = &cap->store.handshake.nodes[i];
+            break;
+        }
+    }
+    if (node == NULL) {
+        die("waypoint: no node in the scene has that short name");
+    }
+    if (!node->position.valid) {
+        die("waypoint: that node has no fix to put a place at");
+    }
+
+    const uint32_t me =
+        cap->store.handshake.has_my_info ? cap->store.handshake.my_info.node_num : 0U;
+    struct mesh_ui_waypoint *entry = &list.entries[list.count++];
+    memset(entry, 0, sizeof *entry);
+    entry->id = cap->next_packet_id++;
+    entry->from = node->node_id;
+    entry->has_coords = true;
+    entry->latitude_i = node->position.latitude_i;
+    entry->longitude_i = node->position.longitude_i;
+    /* Stamped when we last heard from the node that shared it, which is both plausible - a
+       waypoint arrives in a packet like anything else - and what stops three places added by
+       one scene all reading "0s ago". */
+    entry->heard = node->last_heard;
+    entry->ours = (me != 0U && node->node_id == me);
+    entry->editable = entry->ours;
+    snprintf(entry->name, sizeof entry->name, "%s", label);
+    if (description != NULL) {
+        snprintf(entry->description, sizeof entry->description, "%s", description);
+    }
+    snprintf(entry->from_name, sizeof entry->from_name, "%s", node->short_name);
+
+    mesh_ui_store_set_waypoints(&cap->store, &list);
     uicap_emit(cap);
 }
 
@@ -1670,6 +1754,33 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         uicap_start(cap);
         uicap_append_message(cap, strcmp(direction, "out") == 0, MESH_MESSAGE_KIND_TEXT, name,
                              uicap_tail(rest));
+        return;
+    }
+
+    if (strcmp(command, "waypoint") == 0) {
+        char *node_name = uicap_word(&rest);
+        char *label = (node_name != NULL) ? uicap_tail(rest) : NULL;
+        if (node_name == NULL || label == NULL || label[0] == '\0') {
+            fprintf(stderr, "uicap: line %u: 'waypoint' needs a short name and a label\n",
+                    line_number);
+            exit(1);
+        }
+        /* The rest of the line is the label, and a '|' splits the sharer's note off the end of
+           it - because both are prose with spaces in, and a word count cannot tell them apart. */
+        char *description = strchr(label, '|');
+        if (description != NULL) {
+            char *end = description;
+            *description++ = '\0';
+            while (end > label && (end[-1] == ' ' || end[-1] == '\t')) {
+                *--end = '\0';
+            }
+            while (*description == ' ' || *description == '\t') {
+                description++;
+            }
+        }
+        uicap_start(cap);
+        uicap_append_waypoint(cap, node_name, label,
+                              (description != NULL && description[0] != '\0') ? description : NULL);
         return;
     }
 

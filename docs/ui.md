@@ -77,7 +77,7 @@ coalesces its repaints, so the framebuffer draws once per row at most.
 
 ## Tabs
 
-Five tabs: Messages, Nodes, Devices, Status, Settings.
+Six tabs: Messages, Nodes, Waypoints, Devices, Status, Settings.
 
 The strip is drawn on a bar of its own — `SURFACE_LOW`, the theme's recessed tier — with the
 current tab as a tonal pill. Both halves of that are saying "this is chrome, not the first row
@@ -224,6 +224,48 @@ one half needs handling:
   in `ui_prefs` (`known_radios=`), and `mesh_ui_preferences_knows_radio` lifts those above
   message peers. Client-side on purpose — no admin write, and nothing that could disagree with
   what "favorite" means on the radio.
+
+### Waypoints — `src/ui/waypoints.c`, `src/ui/nav_waypoints.c`
+
+A waypoint is a named place somebody broadcast to a channel: an id, a coordinate, a name, a
+description and an expiry, on `WAYPOINT_APP`. Every phone app can make one and share one, and
+this client used to discard them.
+
+Two levels, the Nodes tab's shape. What is different is the trailing column, and it is the whole
+reason the tab is worth having before a map exists: **how far away a place is and which way it
+lies**, from our own radio's fix. `mesh_geo_vector_between()` answers both — haversine on the
+IUGG mean radius, plus the great circle's initial bearing — and `mesh_ui_waypoint_format_range()`
+turns that into `1.2 km NE` in whichever units the radio's own display is set to, so the client
+and the radio never disagree about a distance.
+
+**The list is ordered nearest first**, which is the order the tab exists to give. Two groups: the
+places we can measure, by distance; then everything we cannot — a place with no coordinates, or
+every place when our own radio has no fix — by how recently we heard it, which is the only other
+thing telling one unplaceable name from another. The sort is stable, so two places at the same
+distance do not swap under the cursor between frames, and the open detail is remembered **by
+waypoint id** rather than by row for the same reason the node detail is: a fix arriving re-ranks
+the list under whoever is reading it.
+
+**The last row makes a place**, and the list is therefore never empty. It takes our own radio's
+fix and asks for a name on the keyboard; with no fix of our own it stays on screen and says *no
+position yet* in the column a range would be in, rather than disappearing — a row that vanishes
+explains nothing, and a Brick has no GPS, so this is the ordinary state rather than the odd one.
+The other way in is the node detail's **Save this place**, which takes *that* node's reported
+fix: on a handheld with no GPS of its own, a node that has just broadcast a position is the
+other place a real coordinate can come from.
+
+Neither path carries the coordinate through the nav. `MESH_UI_ACTION_SHARE_WAYPOINT` names the
+*node* whose fix to use (0 for our own), and `app_actions.c` reads it out of the session roster
+when it acts — which is both more current and twice the size of the published one, so a node
+that moves while its name is being typed is saved where it ends up.
+
+A place's detail says what it is (range, coordinates), what its sharer said about it (the note,
+wrapped across the row's full width rather than squeezed into a value column), who shared it and
+on what channel, and offers two verbs: share it again, and delete. **The delete row says which
+of the two deletes it is before it is pressed** — `Delete from the mesh` when `locked_to` lets
+this client withdraw it, `Forget it here` when it does not, because broadcasting a withdrawal we
+are not entitled to make would ask every other client to forget a place its owner still holds.
+It arms on the first press and acts on the second, the node detail's rule.
 
 ### Node detail — `src/ui/node_detail.c`
 
