@@ -1,3 +1,13 @@
+## [2.34.0](https://github.com/mcereal/mesh-client/compare/v2.33.1...v2.34.0) (2026-09-08)
+
+### Features
+
+* **geo:** say what a fix is, how precise, and whose clock dated it ([0219095](https://github.com/mcereal/mesh-client/commit/02190953a21a5f8a8f95e42f5cbdc3b3ad9b497e))
+
+### Bug Fixes
+
+* **geo:** check the conversion before the coordinate, and don't date a ([2c9f741](https://github.com/mcereal/mesh-client/commit/2c9f741c8bd23a8baee9b47ac7b2b1de08170d3b)), closes [#107](https://github.com/mcereal/mesh-client/issues/107)
+
 ## [2.33.1](https://github.com/mcereal/mesh-client/compare/v2.33.0...v2.33.1) (2026-09-07)
 
 ### Bug Fixes
