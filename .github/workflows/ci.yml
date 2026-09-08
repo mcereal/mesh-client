@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [ main ]
 
+# Every job here reads the repository and nothing else: the artifact uploads go through the
+# Actions runtime token rather than GITHUB_TOKEN. Stated at the top so a job added later
+# inherits the narrow default instead of the broad one.
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     name: Build and test (${{ matrix.os }}, ${{ matrix.compiler }})
