@@ -193,15 +193,19 @@ endif()
 # libm, for the one file that needs it: src/geo/vector.c, which turns two coordinates into a
 # distance and a bearing. Nothing else in the client includes <math.h> - the UI is fixed-point
 # throughout - and docs/maps-roadmap.md anticipated this link when it proposed the geo module.
-find_library(MESHCLIENT_LIBM m)
-
+#
+# The bare name rather than find_library(m), and that is the whole of the reason it is written
+# this way: a bare name reaches the linker as `-lm` and is resolved by the compiler driver
+# against its own sysroot, while find_library() searches the *host* and hands back an absolute
+# path. scripts/cross-build.sh sets CMAKE_SYSTEM_NAME and the compiler but no
+# CMAKE_FIND_ROOT_PATH, so on the x86_64 runner that path is /usr/lib/x86_64-linux-gnu/libm.so -
+# an x86 library passed to an aarch64 static link, which fails at the one step nothing else in
+# this build would have caught.
 target_link_libraries(meshclient_core
     PUBLIC
         Threads::Threads
+        m
 )
-if(MESHCLIENT_LIBM)
-    target_link_libraries(meshclient_core PUBLIC ${MESHCLIENT_LIBM})
-endif()
 
 add_executable(meshclient src/main.c)
 
