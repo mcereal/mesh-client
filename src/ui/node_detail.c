@@ -848,6 +848,11 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
      * offering a place that is nowhere.
      */
     if (node->position.valid) {
+        /* Looking at it, and keeping it: the two things a fix is good for, and both gated on
+           there being one. A "show on map" row over a node with no position would open a map
+           aimed at nowhere. */
+        rows_action(&rows, MESH_STR_NODE_ACT_SHOW_ON_MAP, mesh_str(MESH_STR_COMMON_PRESS_A),
+                    MESH_UI_NODE_ACTION_SHOW_ON_MAP);
         rows_action(&rows, MESH_STR_NODE_ACT_WAYPOINT, mesh_str(MESH_STR_COMMON_PRESS_A),
                     MESH_UI_NODE_ACTION_WAYPOINT);
     }

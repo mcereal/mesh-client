@@ -22,6 +22,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/core_basics.c
     suites/geo.c
     suites/i18n.c
+    suites/map.c
     suites/message.c
     suites/radio_settings.c
     suites/session.c

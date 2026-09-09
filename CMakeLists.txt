@@ -70,7 +70,9 @@ add_library(meshclient_core
     src/transport/serial/serial_usb.c
     src/proto/stream_framing.c
     src/geo/coords.c
+    src/geo/mercator.c
     src/geo/vector.c
+    src/map/viewport.c
     src/i18n/strings.c
     src/i18n/locale_es.c
     src/utils/env.c
@@ -87,10 +89,12 @@ add_library(meshclient_core
     src/ui/history.c
     src/ui/controller.c
     src/ui/input.c
+    src/ui/map.c
     src/ui/nav.c
     src/ui/nav_canned.c
     src/ui/nav_conversations.c
     src/ui/nav_keyboard.c
+    src/ui/nav_map.c
     src/ui/nav_settings.c
     src/ui/nav_waypoints.c
     src/ui/reactions.c
@@ -106,6 +110,7 @@ add_library(meshclient_core
     src/ui/backends/fb.c
     src/ui/backends/fb_capture.c
     src/ui/backends/fb_draw.c
+    src/ui/backends/fb_map.c
     src/ui/backends/fb_widgets.c
     src/ui/backends/fb_screens.c
     src/ui/font.c
@@ -193,9 +198,10 @@ if(DBUS_FOUND)
 endif()
 
 
-# libm, for the one file that needs it: src/geo/vector.c, which turns two coordinates into a
-# distance and a bearing. Nothing else in the client includes <math.h> - the UI is fixed-point
-# throughout - and docs/maps-roadmap.md anticipated this link when it proposed the geo module.
+# libm, for the two files that need it, both in src/geo: vector.c turns two coordinates into a
+# distance and a bearing, and mercator.c turns one into a position on a flat picture of the
+# world. Nothing outside that directory includes <math.h> - the UI is fixed-point throughout -
+# and docs/maps-roadmap.md anticipated this link when it proposed the geo module.
 #
 # The bare name rather than find_library(m), and that is the whole of the reason it is written
 # this way: a bare name reaches the linker as `-lm` and is resolved by the compiler driver

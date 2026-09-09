@@ -552,6 +552,28 @@ static void fb_draw_app_bar_trail(const struct mesh_ui_backend_fb_state *state,
     }
 }
 
+int fb_app_bar_height(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                      size_t trail_count) {
+    /*
+     * The same three terms fb_draw_app_bar() advances `body_y` by, in the same order.
+     *
+     * Written out rather than shared with the drawing path because sharing it would mean the
+     * draw calling this and then re-deriving `y` from it, which is the arithmetic in a different
+     * arrangement rather than in one place. Two expressions for one height is a real risk and
+     * the test below the fold is what holds them together: fb_map's body is measured from this
+     * and drawn under a bar laid out by that, so any disagreement puts the map's ground a few
+     * pixels off its own heading, where it is visible in a capture.
+     */
+    int height = 0;
+    if (trail_count > 0U) {
+        height += (int)fb_font(state)->height * layout->small +
+                  fb_space_at(state, MESH_UI_SPACE_XS, layout->small);
+    }
+    height += fb_line_adv(state, fb_type_scale(state, MESH_UI_TYPE_TITLE));
+    height += fb_space(state, MESH_UI_SPACE_SM);
+    return height;
+}
+
 void fb_draw_app_bar(const struct mesh_ui_backend_fb_state *state, struct fb_layout *layout,
                      const struct fb_app_bar *bar) {
     /*

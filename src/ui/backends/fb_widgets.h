@@ -855,6 +855,21 @@ void fb_draw_app_bar(const struct mesh_ui_backend_fb_state *state, struct fb_lay
                      const struct fb_app_bar *bar);
 
 /*
+ * How far down the body the bar pushes it, without drawing anything.
+ *
+ * Beside fb_action_bar_height() and for the same reason: a screen that has to know how big its
+ * content area will be *before* it has something to put in the bar cannot get there by drawing
+ * the bar first. The map is the one such screen - its badge counts the markers on the panel,
+ * which is not answerable until the panel has been measured - and the alternative is drawing the
+ * bar twice, once with a wrong number and once over the top of it.
+ *
+ * A trail is one extra line, which is the only thing about a bar that changes its height. What
+ * the title says, and whether there is a badge, do not.
+ */
+int fb_app_bar_height(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                      size_t trail_count);
+
+/*
  * What a screen says instead of a list when it has nothing to show, under the icon of whatever
  * the list would have held.
  *

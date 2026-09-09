@@ -1,0 +1,52 @@
+# The map: the nodes and the shared places, drawn where they are rather than listed.
+#
+# What this scene is for is the d-pad. It is the only screen in the client where the four
+# directions move the picture instead of a cursor, and that is not a thing a still can show - so
+# the sequence below aims the crosshair by panning, which is what "aiming is panning" looks like
+# from the outside.
+#
+# The places are put at nodes that are already in the demo roster, so every distance on the panel
+# is measured between two real fixes rather than between two numbers typed to agree - the same
+# reason the Waypoints scene puts them there.
+
+scene demo
+waypoint ALFA Ridge repeater | up the fire road, gate code is on the tag
+waypoint CHRL Water cache
+
+# The first row of the Nodes list is the way in, and it says how many of the roster has a
+# position at all - which on a real mesh is a small fraction of it.
+tab nodes
+hold 1000
+key a
+hold 1600
+
+# The map opens framed on everything it can place, with the crosshair wherever that leaves it -
+# which here is open grid between the cluster and the far node, so the line under the map says
+# there is nothing under it and the crosshair is drawn dim.
+#
+# Closer, then west and south onto the cluster. The line under the map fills in as the crosshair
+# arrives: the node's name, how far it is from our own radio and which way, and how much of its
+# position to believe.
+key x
+hold 900
+key left
+hold 700
+key down 2
+hold 1800
+
+# One level closer again, on something. The grid's spacing steps down the 1-2-5 ladder with the
+# zoom and the scale bar follows it, so the picture stays readable as a measurement.
+key x
+hold 1600
+
+# And opening what the crosshair is on: the node's own detail, over the map rather than instead
+# of it - so B lands back on the view that was panned to rather than on the list.
+key a
+hold 1600
+key b
+hold 1200
+
+# Back to everything, which is the view the map opened on. That is what makes the first pan
+# something a reader can undo.
+key start
+hold 1400

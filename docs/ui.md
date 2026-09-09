@@ -308,6 +308,56 @@ this client withdraw it, `Forget it here` when it does not, because broadcasting
 are not entitled to make would ask every other client to forget a place its owner still holds.
 It arms on the first press and acts on the second, the node detail's rule.
 
+### The map — `src/map/viewport.c`, `src/ui/map.c`, `src/ui/nav_map.c`, `src/ui/backends/fb_map.c`
+
+A picture of the nodes and the shared places, opened from the first row of the Nodes list or
+from a node detail's **Show on map**. There is no basemap under it — see
+[`docs/maps-roadmap.md`](maps-roadmap.md) — so what it draws is a graticule, the markers, a
+crosshair and a scale bar to read the distances against.
+
+It is the one screen in this client that is not a list, and three things follow from that.
+
+**The d-pad moves the world, not a cursor.** `mesh_ui_nav_map_key()` takes the four directions
+*ahead* of the routing in `nav.c` that turns Left and Right into a change of tab, because Left on
+a map means "look west". It deliberately does not take the shoulders, and that is what pays for
+it: L1/R1 and Left/Right are the same press on every other screen, and splitting them here is
+what lets the map have the d-pad without the tab strip above the body going dead. X and Y are the
+zoom in whole levels, START frames everything again, B leaves, and SELECT is help — the roadmap
+suggested SELECT for recentring, before there was a help screen; a keycap that means one thing
+everywhere it means anything is worth more than that suggestion.
+
+**Panning is aiming, so there is no selection to store.** The crosshair is the middle of the
+panel and the selected marker is whatever is nearest it, derived on every frame by
+`mesh_ui_map_selected()`. A field on the nav is the thing this deliberately is not — the app
+bar's back arrow and `mesh_ui_route_of()` make the same argument at length, and here a second
+opinion would let the ring a renderer draws and the node a press opens name two different nodes.
+
+What makes one answer possible is that the distance is measured **in metres**, against a radius
+converted through `mesh_map_viewport_metres_per_pixel()` — which is a function of the zoom and
+the latitude and *not* of the panel. That matters because the store owns the nav and a backend is
+handed a `const` snapshot: the two genuinely cannot ask each other how wide the body is, so
+anything box-dependent there would be two answers by construction. The same constraint is why a
+*fit* is computed against a declared box (`MESH_UI_MAP_FIT_WIDTH`) rather than a measured one,
+and why that box is deliberately smaller than any real body — too small leaves extra air around
+the outermost marker, where too large would clip one off the edge.
+
+**A marker says how much of itself to believe.** `precision_bits` is the sender's own statement
+that it rounded its position, and a hard dot drawn over a fix rounded to 360 metres would be the
+client claiming a precision nobody sent — so the footprint is drawn as a filled disc under the
+marker, sized from `mesh_ui_settings_precision_metres()`, the same table the node detail and the
+channel's own `position_precision` row read. A filled disc rather than a ring because there is no
+alpha on this panel: a ring would have to be a fill and a second fill in the ground colour, and
+the second would erase the grid inside it, which is the thing the distance is judged against.
+
+`fb_map.c` is its own file rather than a renderer in `fb_screens.c`, and that is not a size
+decision. Everything in `fb_screens.c` describes rows and hands them to a component; this places
+things at coordinates. Keeping it apart is what stops "a screen renderer never computes a pixel"
+from becoming a rule with an exception buried inside it.
+
+```
+make ui-capture ARGS="devtools/ui_capture/scenes/map.scene -o map.gif"
+```
+
 ### Node detail — `src/ui/node_detail.c`
 
 The Nodes tab's second level, the same list-of-rows shape Settings uses.

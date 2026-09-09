@@ -448,20 +448,48 @@ static const char *pairing_enum_name(uint32_t mode) {
 }
 
 /* Position precision is a bit count; the phone apps label the useful ones by distance. */
+/*
+ * What `precision_bits` means on the ground, said twice - as the words a row reads and as the
+ * number a map draws a ring from.
+ *
+ * One table with two columns rather than two tables, because they are one fact. The words are
+ * catalog ids and cannot be derived from the metres (a locale writes "~23 km" its own way), and
+ * the metres cannot be parsed back out of the words without a screen doing arithmetic on a
+ * translation - so the only way for the two to stay in step is for them to be written on the
+ * same line. Ten rows, covering the bit counts the firmware's own channel setting offers; the
+ * `bits` outside that range are answered by the branches below rather than by a row here.
+ */
+static const struct {
+    enum mesh_str_id label;
+    uint32_t metres;
+} k_precision[] = {
+    {MESH_STR_VALUE_PRECISION_23KM, 23000U}, {MESH_STR_VALUE_PRECISION_12KM, 12000U},
+    {MESH_STR_VALUE_PRECISION_6KM, 5800U},   {MESH_STR_VALUE_PRECISION_3KM, 2900U},
+    {MESH_STR_VALUE_PRECISION_1_5KM, 1500U}, {MESH_STR_VALUE_PRECISION_730M, 730U},
+    {MESH_STR_VALUE_PRECISION_360M, 360U},   {MESH_STR_VALUE_PRECISION_180M, 180U},
+    {MESH_STR_VALUE_PRECISION_90M, 90U},     {MESH_STR_VALUE_PRECISION_45M, 45U},
+};
+
+uint32_t mesh_ui_settings_precision_metres(uint32_t bits) {
+    /*
+     * 0 for anything this cannot answer with a distance, which is three different states and
+     * all of them mean "do not draw a circle": the sender never set the field, the sender said
+     * the fix is exact, or the count is outside the range upstream's own setting offers. A ring
+     * of zero radius is the honest picture of all three.
+     */
+    if (bits < 10U || bits > 19U) {
+        return 0U;
+    }
+    return k_precision[bits - 10U].metres;
+}
+
 void mesh_ui_settings_format_precision(uint32_t bits, char *out, size_t out_len) {
-    static const enum mesh_str_id k_distance[] = {
-        MESH_STR_VALUE_PRECISION_23KM,  MESH_STR_VALUE_PRECISION_12KM,
-        MESH_STR_VALUE_PRECISION_6KM,   MESH_STR_VALUE_PRECISION_3KM,
-        MESH_STR_VALUE_PRECISION_1_5KM, MESH_STR_VALUE_PRECISION_730M,
-        MESH_STR_VALUE_PRECISION_360M,  MESH_STR_VALUE_PRECISION_180M,
-        MESH_STR_VALUE_PRECISION_90M,   MESH_STR_VALUE_PRECISION_45M,
-    };
     if (bits == 0U) {
         snprintf(out, out_len, "%s", mesh_str(MESH_STR_VALUE_PRECISION_OFF));
     } else if (bits >= 32U) {
         snprintf(out, out_len, "%s", mesh_str(MESH_STR_VALUE_PRECISION_EXACT));
     } else if (bits >= 10U && bits <= 19U) {
-        snprintf(out, out_len, "%s", mesh_str(k_distance[bits - 10U]));
+        snprintf(out, out_len, "%s", mesh_str(k_precision[bits - 10U].label));
     } else {
         mesh_str_format(out, out_len, MESH_STR_VALUE_PRECISION_BITS, (unsigned)bits);
     }

@@ -67,6 +67,13 @@ static const struct mesh_ui_help_entry k_help_nodes[] = {
     {MESH_STR_HELP_LABEL_NODES_CACHED, MESH_STR_HELP_NOTE_NODES_CACHED},
 };
 
+static const struct mesh_ui_help_entry k_help_map[] = {
+    {MESH_STR_NONE, MESH_STR_HELP_NOTE_MAP},
+    {MESH_STR_HELP_LABEL_MAP_MOVE, MESH_STR_HELP_NOTE_MAP_MOVE},
+    {MESH_STR_HELP_LABEL_MAP_PICK, MESH_STR_HELP_NOTE_MAP_PICK},
+    {MESH_STR_HELP_LABEL_MAP_TRUST, MESH_STR_HELP_NOTE_MAP_TRUST},
+};
+
 static const struct mesh_ui_help_entry k_help_node[] = {
     {MESH_STR_NONE, MESH_STR_HELP_NOTE_NODE},
     {MESH_STR_HELP_LABEL_NODE_FIX, MESH_STR_HELP_NOTE_NODE_FIX},
@@ -113,6 +120,10 @@ static const struct help_feature k_help_features[] = {
     HELP_FEATURE(MESH_UI_SCREEN_MESSAGES, MESH_UI_ROUTE_REACTION, MESH_STR_HELP_SUBJECT_REACTION,
                  k_help_reaction),
     HELP_FEATURE(MESH_UI_SCREEN_NODES, MESH_UI_ROUTE_LIST, MESH_STR_TAB_NODES, k_help_nodes),
+    /* The map is its own feature rather than the Nodes tab's help one level in, because it is
+       not the same screen with more of it: the d-pad does something else here, and that is the
+       first thing its help has to say. */
+    HELP_FEATURE(MESH_UI_SCREEN_NODES, MESH_UI_ROUTE_MAP, MESH_STR_HELP_SUBJECT_MAP, k_help_map),
     HELP_FEATURE(MESH_UI_SCREEN_NODES, MESH_UI_ROUTE_NODE, MESH_STR_HELP_SUBJECT_NODE, k_help_node),
     HELP_FEATURE(MESH_UI_SCREEN_WAYPOINTS, MESH_UI_ROUTE_LIST, MESH_STR_TAB_WAYPOINTS,
                  k_help_waypoints),

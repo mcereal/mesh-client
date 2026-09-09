@@ -215,6 +215,8 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
         failure = "RIGHT should reach Nodes";
         goto cleanup;
     }
+    /* The list's first row opens the map, not a node - so a step down to reach one. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
     /* Our own node has a detail too - it is the one battery the user can do something about -
        but no "Message this node" row, so A inside it does nothing. */
     if (!mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action) || !store.nav.node_detail_open) {
@@ -226,20 +228,21 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
-    if (store.nav.node_detail_open || store.nav.cursor[MESH_UI_SCREEN_NODES] != 0U) {
+    if (store.nav.node_detail_open || store.nav.cursor[MESH_UI_SCREEN_NODES] != 1U) {
         failure = "B should back out of the detail onto the node it came from";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* clamps at the last row */
-    if (store.nav.cursor[MESH_UI_SCREEN_NODES] != 2U) {
+    /* Three nodes and the map row above them, so the last row is 3. */
+    if (store.nav.cursor[MESH_UI_SCREEN_NODES] != 3U) {
         failure = "DOWN must clamp at the last node";
         goto cleanup;
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     if (!store.nav.node_detail_open || store.nav.node_detail_node != 0x3000U ||
-        store.nav.node_list_cursor != 2U || store.nav.cursor[MESH_UI_SCREEN_NODES] != 0U) {
+        store.nav.node_list_cursor != 3U || store.nav.cursor[MESH_UI_SCREEN_NODES] != 0U) {
         failure = "A on a node should open that node's detail";
         goto cleanup;
     }
@@ -449,7 +452,8 @@ MESH_TEST_CASE(ui_nav_conversation_isolation, unit) {
     /* Walking to Nodes and back changes nothing about what Messages shows. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* BRVO */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* past the map row, to BRVO */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
     if (store.nav.thread_open || store.nav.cursor[MESH_UI_SCREEN_MESSAGES] != 1U) {
         failure = "visiting Nodes must not change what Messages shows";

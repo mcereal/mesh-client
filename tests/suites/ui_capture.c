@@ -18,6 +18,7 @@
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/backends/fb_capture.h"
 #include "mesh/ui/font.h"
+#include "mesh/ui/map.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
@@ -2408,4 +2409,170 @@ MESH_TEST_CASE(ui_capture_slider_stops_survive_the_fill, unit) {
 
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
+}
+
+/*
+ * The map never puts ink on the chrome around it.
+ *
+ * The map is the one screen whose content is placed at coordinates rather than laid out in rows,
+ * so the containment a list gets for free has to be arranged here: the nav's viewport and this
+ * backend's body box are the same box, resized on every frame, and `visible` is what gates the
+ * draw. If those drift apart a marker lands on the tab strip or through the keycaps, which reads
+ * as a rendering fault rather than as a bug with a cause - and it is invisible in a screenshot
+ * of any view that happens not to have a marker near an edge.
+ *
+ * So the marker under test is swept north and south, from the middle of the body to well past
+ * both of its edges, and the top and bottom bands of the panel - which are chrome at this glyph
+ * scale, and nothing else - are compared against the same frame drawn with the marker having no
+ * position at all. A waypoint counts towards the app bar's "of" whether or not it has
+ * coordinates, so those bands are identical by construction and any difference in them is ink
+ * that escaped the map.
+ *
+ * Vertically rather than horizontally, because that is where the room is: the body is inset from
+ * the panel by a margin at the sides and by the whole of two bars top and bottom, so a marker a
+ * little past the left edge is clipped by the framebuffer itself while one a little past the top
+ * lands squarely on the tab strip.
+ *
+ * One glyph scale, and it is the device's own. The bands below have to be chrome and not body,
+ * which is a fact about how tall the bars are drawn - so the test states the scale it is true at
+ * rather than sweeping scales and quietly widening the bands until it passes at all of them.
+ */
+MESH_TEST_CASE(ui_capture_map_keeps_its_ink_off_the_chrome, unit) {
+    struct mesh_ui_snapshot *snapshot = calloc(1U, sizeof *snapshot);
+    const char *failure = NULL;
+    if (snapshot == NULL) {
+        record_failure(test_name, "snapshot allocation failed");
+        return;
+    }
+
+    /* One node at the centre, so the frame is a map with something on it, and one place whose
+       position is what the sweep moves. */
+    snapshot->nav.screen = MESH_UI_SCREEN_NODES;
+    snapshot->nav.map_open = true;
+    snapshot->handshake_valid = true;
+    snapshot->handshake.has_my_info = true;
+    snapshot->handshake.my_info.node_num = 0x1000U;
+    snapshot->handshake.node_count = 1U;
+    snapshot->handshake.nodes[0].node_id = 0x1000U;
+    snapshot->handshake.nodes[0].in_nodedb = true;
+    snprintf(snapshot->handshake.nodes[0].short_name,
+             sizeof snapshot->handshake.nodes[0].short_name, "ME");
+    snapshot->handshake.nodes[0].position.valid = true;
+    snapshot->handshake.nodes[0].position.latitude_i = 476180000;
+    snapshot->handshake.nodes[0].position.longitude_i = -1223320000;
+
+    /*
+     * A second node is the marker under test, and it carries a rounded position on purpose.
+     *
+     * A node rather than a waypoint because a waypoint has no `precision_bits` - a place is a
+     * point somebody chose, not one a receiver solved - and the footprint that rounding draws is
+     * the biggest thing the map places: a bare marker is a disc a few pixels across, so the band
+     * of positions where it straddles an edge is a handful of rows and a sweep can stride over
+     * it. 19 bits is about 45 metres, which at this zoom is a disc wide enough that any step of
+     * the sweep landing near an edge spills visibly over it.
+     */
+    snapshot->handshake.node_count = 2U;
+    snapshot->handshake.nodes[1].node_id = 0x2000U;
+    snapshot->handshake.nodes[1].in_nodedb = true;
+    snprintf(snapshot->handshake.nodes[1].short_name,
+             sizeof snapshot->handshake.nodes[1].short_name, "ALFA");
+    snapshot->handshake.nodes[1].position.longitude_i = -1223320000;
+    snapshot->handshake.nodes[1].position.precision_bits = 19U;
+
+    const int scale = 4; /* what the Brick draws at, and what the bands below are true for */
+    const uint8_t zoom = 16U;
+    mesh_map_viewport_init(&snapshot->nav.map_viewport, 476180000, -1223320000, zoom);
+
+    /*
+     * The chrome above and below the map: the tab strip and the app bar at the top, the keycaps
+     * and the status line at the bottom. Both bands stop short of where the body actually starts
+     * at this scale, so a legitimately drawn marker never reaches them.
+     *
+     * The top band is the one that matters. An early version of this test used a band of a couple
+     * of dozen pixels at the very edge of the panel, which is chrome at any scale and therefore
+     * safe - and useless: the spill this is about is a marker whose *centre* is inside the body
+     * near the top edge and whose footprint or label reaches back over the app bar, which is
+     * nowhere near the panel's edge. A band that does not include the app bar cannot see it.
+     */
+    const uint32_t top_band = 96U;
+    const uint32_t bottom_band = 56U;
+
+    /*
+     * And only the middle of each band, because two things in the chrome legitimately change
+     * between the two passes: the app bar's badge counts the markers on the panel, and it sits
+     * against the right edge, while the title sits against the left. The marker is swept down the
+     * centre line, so anything that escapes the map lands between them - which is exactly the
+     * column range compared here.
+     */
+    const uint32_t column_from = MESH_UI_CAPTURE_WIDTH / 3U;
+    const uint32_t column_to = (MESH_UI_CAPTURE_WIDTH * 2U) / 3U;
+
+    struct mesh_ui_capture *capture = NULL;
+    uint8_t *reference = NULL;
+    /*
+     * About a dozen pixels a step at this zoom and this latitude - a degree of latitude is 111 km
+     * and a pixel is a metre and a half - so fifty steps either way walks the marker from the
+     * middle of the body out past the top and the bottom of the panel.
+     *
+     * The step size is the part that has to be right, and two earlier versions of this test got
+     * it wrong while passing against deliberately broken code. A marker only straddles an edge
+     * over a narrow band of positions, so a step larger than the drawn shape jumps straight over
+     * the case the test exists for. Smaller than the footprint above, therefore, and not
+     * "somewhere around the right order of magnitude".
+     */
+    for (int step = -50; step <= 50 && failure == NULL; ++step) {
+        snapshot->handshake.nodes[1].position.latitude_i = 476180000 + step * 1700;
+
+        for (int pass = 0; pass < 2 && failure == NULL; ++pass) {
+            /* With a position and then without one. A node counts towards the app bar's "of"
+               either way, so the chrome does not move for that reason. */
+            snapshot->handshake.nodes[1].position.valid = (pass == 1);
+
+            if (mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT,
+                                     scale) != 0) {
+                failure = "capture open failed";
+                break;
+            }
+            mesh_ui_capture_set_theme(capture, mesh_ui_theme_at(0));
+            mesh_ui_capture_set_scale(capture, scale);
+            uint32_t width = 0U, height = 0U;
+            size_t stride = 0U;
+            const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+            mesh_ui_capture_render(capture, snapshot);
+
+            if (pass == 0) {
+                free(reference);
+                reference = malloc((size_t)height * stride);
+                if (reference == NULL) {
+                    failure = "frame allocation failed";
+                } else {
+                    memcpy(reference, pixels, (size_t)height * stride);
+                }
+            } else if (height > bottom_band) {
+                for (uint32_t y = 0; y < height && failure == NULL; ++y) {
+                    if (y >= top_band && y < height - bottom_band) {
+                        continue; /* the body, where a marker is entitled to be */
+                    }
+                    const size_t offset = (size_t)y * stride + (size_t)column_from * 4U;
+                    const size_t span = (size_t)(column_to - column_from) * 4U;
+                    if (memcmp(reference + offset, pixels + offset, span) != 0) {
+                        failure = "a marker put ink on the chrome around the map";
+                    }
+                }
+            }
+            mesh_ui_capture_close(capture);
+            capture = NULL;
+        }
+    }
+
+    if (capture != NULL) {
+        mesh_ui_capture_close(capture);
+    }
+    free(reference);
+    free(snapshot);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
 }

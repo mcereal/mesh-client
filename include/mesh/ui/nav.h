@@ -1,5 +1,7 @@
 #pragma once
 
+#include "mesh/map/viewport.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -45,6 +47,18 @@ enum mesh_ui_screen {
     MESH_UI_SCREEN_SETTINGS,
     MESH_UI_SCREEN_COUNT,
 };
+
+/*
+ * The Nodes list's first row, which is not a node.
+ *
+ * It opens the map. A row rather than a keycap because the Nodes tab has already spent A, X and
+ * Y on things a node row does, and because a way into a screen that only a button nobody
+ * mentions can reach is a screen nobody finds - the argument the conversation list's "New
+ * message" row and the Waypoints tab's "New waypoint here" row both make. It is the *first* row
+ * rather than the last for the one reason those two are last: this list can be a hundred and
+ * twenty-eight rows long, and a button at the bottom of that is a button that is not there.
+ */
+#define MESH_UI_NODES_MAP_ROW 0U
 
 #define MESH_UI_NAV_TARGET_NAME_MAX 40U
 /* nav.settings_section when the Settings tab shows the section list rather than a section. */
@@ -204,6 +218,31 @@ struct mesh_ui_nav {
        Devices tab is: it is the one node row that takes its own row away, so a press that
        lands on it by accident should cost nothing. Any other press stands it down. */
     bool node_remove_armed;
+    /*
+     * Nodes tab: the map, opened over the node list.
+     *
+     * A level of the Nodes tab rather than a tab of its own, which is what docs/maps-roadmap.md
+     * asked for and what the shape of the thing wants: a map is a second way of reading the
+     * roster, not a seventh place to be. A node's detail can be opened *over* it - the map is
+     * then one level deeper than the list and the detail is one deeper again - so backing out of
+     * a node opened from the map lands on the map rather than on the list it was never on.
+     *
+     * The viewport is the whole of the map's state and it is here rather than in a backend for
+     * the reason every other cursor is: a press moves it, and presses arrive at the nav. Its
+     * pixel box is the *declared* one (MESH_UI_MAP_FIT_WIDTH), not any panel's - a backend
+     * resizes its own copy to the body it actually has. The two never need to agree, because
+     * the only thing the nav's box decides is which zoom a fit picks, and a box smaller than
+     * every real body can only ever leave extra air around the edge.
+     *
+     * There is deliberately no selection field. What A opens is the marker nearest the middle of
+     * the view, derived on every frame by mesh_ui_map_selected() from the viewport alone - so the
+     * ring a backend draws and the node a press opens are one decision made twice rather than
+     * two that agree until they do not. It is the top app bar's back arrow again, and the
+     * transition route again: a second opinion about the nav is a second opinion that can be
+     * wrong.
+     */
+    bool map_open;
+    struct mesh_map_viewport map_viewport;
     /*
      * Waypoints tab: a place's detail is open (cursor[WAYPOINTS] indexes its rows) rather than
      * the list, whose position is parked in waypoint_list_cursor meanwhile. The same two-level

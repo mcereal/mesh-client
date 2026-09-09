@@ -74,6 +74,27 @@ bool mesh_ui_nav_waypoint_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_
 /* Closes a detail whose place has gone, and clamps the parked list position. */
 bool mesh_ui_nav_waypoint_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *store);
 
+/* ---- nav_map.c --------------------------------------------------------------------------- */
+
+/* Opens the map over the node list. `focus_node` aims it at one node - 0 frames everything,
+   which is also what START goes back to. */
+void mesh_ui_nav_open_map(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                          uint32_t focus_node);
+/* B out of the map. False when it was not open. */
+bool mesh_ui_nav_close_map(struct mesh_ui_nav *nav);
+/* Closes a map with nothing left to draw on it. */
+bool mesh_ui_nav_map_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *store);
+/*
+ * One key while the map is up, taken *before* the routing that turns Left and Right into tabs -
+ * the map is the one screen where the d-pad moves the world rather than a cursor.
+ *
+ * `handled` says whether the press was the map's, which is the pattern the settings section
+ * handler uses: the return value is whether the frame changed, and a press that moved nothing
+ * still has to stop here rather than falling through and switching tabs.
+ */
+bool mesh_ui_nav_map_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                         enum mesh_ui_key key, bool *handled);
+
 /* ---- nav_keyboard.c ---------------------------------------------------------------------- */
 
 /* Tears the keyboard down and parks the cursor, restoring whatever it was opened over. */

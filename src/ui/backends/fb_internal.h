@@ -384,6 +384,26 @@ void fb_format_age(uint32_t last_heard, char *out, size_t out_len);
 void fb_format_clock(uint32_t rx_time, char *out, size_t out_len);
 size_t fb_width(const char *line);
 
+/* ---- fb_screens.c, shared with fb_map.c --------------------------------------------------- */
+
+/*
+ * A `struct mesh_ui_store` view over a snapshot, for the calls in src/ui that take a store.
+ *
+ * Declared here rather than left static because two screen renderers now need one, and the
+ * alternative is a second copy of a function whose whole job is deciding which fields of a
+ * snapshot a store view carries. `nav` stays zeroed on purpose: nothing that takes a store reads
+ * it, and a view that carried it would be a second copy of the cursor.
+ */
+void fb_store_view(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_store *view);
+
+/* ---- fb_map.c ----------------------------------------------------------------------------- */
+
+/* The map over the node list: the graticule, the markers and what the crosshair is on. Its own
+   file because it is the one screen that places things at coordinates rather than describing
+   rows - see the paragraph at the top of it. */
+void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_snapshot *snapshot,
+                   struct fb_layout *layout);
+
 /* ---- fb_screens.c ------------------------------------------------------------------------ */
 
 /* Draws one whole frame: chrome, then whichever screen the snapshot says is up. */
