@@ -217,8 +217,7 @@ static int firmware_start_index(struct mesh_firmware *firmware) {
         firmware_set(firmware, MESH_FIRMWARE_FAILED, mesh_str(MESH_STR_UPDATE_START_FAILED));
         return result;
     }
-    firmware_set(firmware, MESH_FIRMWARE_CHECKING,
-                 mesh_str(MESH_STR_FW_STATE_CHECKING));
+    firmware_set(firmware, MESH_FIRMWARE_CHECKING, mesh_str(MESH_STR_FW_STATE_CHECKING));
     return 0;
 }
 
@@ -384,8 +383,7 @@ int mesh_firmware_check(struct mesh_firmware *firmware, uint32_t hw_model, const
         firmware_set(firmware, MESH_FIRMWARE_FAILED, mesh_str(MESH_STR_UPDATE_START_FAILED));
         return result;
     }
-    firmware_set(firmware, MESH_FIRMWARE_IDENTIFYING,
-                 mesh_str(MESH_STR_FW_STATE_IDENTIFYING));
+    firmware_set(firmware, MESH_FIRMWARE_IDENTIFYING, mesh_str(MESH_STR_FW_STATE_IDENTIFYING));
     return 0;
 }
 
