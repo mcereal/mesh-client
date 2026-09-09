@@ -127,6 +127,14 @@ void mesh_ui_route_of(const struct mesh_ui_nav *nav, struct mesh_ui_route *out) 
         out->slot = 0U;
         out->subject = 0U;
     }
+    if (nav->reaction_open) {
+        out->depth++;
+        out->level = MESH_UI_ROUTE_REACTION;
+        /* Which message it is about: a second X on a different bubble is a move sideways to
+           another place, not a repaint of this one. */
+        out->slot = 0U;
+        out->subject = nav->reply_to;
+    }
     if (nav->keyboard_open) {
         out->depth++;
         out->level = MESH_UI_ROUTE_KEYBOARD;

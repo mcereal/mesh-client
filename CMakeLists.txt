@@ -91,6 +91,7 @@ add_library(meshclient_core
     src/ui/nav_keyboard.c
     src/ui/nav_settings.c
     src/ui/nav_waypoints.c
+    src/ui/reactions.c
     src/ui/settings.c
     src/ui/settings_codec.c
     src/ui/settings_rows.c

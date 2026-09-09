@@ -172,9 +172,13 @@ static bool mesh_ui_nav_send_draft(struct mesh_ui_nav *nav, struct mesh_ui_actio
         action->type = MESH_UI_ACTION_SEND_TEXT;
         action->dest = nav->target_node;
         action->channel = nav->target_channel;
+        /* Set when the keyboard was raised from the compose sheet A opened on a bubble; 0 when
+           Y raised it, which is the difference between "reply" and "write". */
+        action->reply_id = nav->reply_to;
         snprintf(action->text, sizeof action->text, "%s", nav->draft);
     }
     nav->draft[0] = '\0';
+    nav->reply_to = 0U;
     mesh_ui_nav_keyboard_close(nav);
     /* Land back in the thread it went to, with the compose overlay out of the way. */
     nav->compose_open = false;

@@ -1683,9 +1683,14 @@ struct fb_bubble_metrics {
     bool meta_own_line; /* the run did not fit on the last one */
     struct fb_bubble_part parts[FB_BUBBLE_META_PARTS];
     size_t part_count;
-    size_t meta_cols; /* what the parts and their gaps come to; 0 when there is no run */
+    size_t meta_cols;  /* what the parts and their gaps come to; 0 when there is no run */
+    size_t quote_cols; /* the quote line's text, elided to fit; 0 when there is no quote */
     uint32_t rows;
 };
+
+/* The bar down a quote's left edge and the gap after it, in cells. Both live here so the
+   measure's width and the draw's text origin cannot disagree about the indent. */
+#define FB_BUBBLE_QUOTE_INDENT 2U
 
 /* A bubble never spans the whole panel: the gutter down the other side is what says which end
    of the conversation it came from, so three quarters is a look rather than a limit. */
@@ -1857,6 +1862,18 @@ static struct fb_bubble_metrics fb_bubble_measure(const struct mesh_ui_backend_f
             metrics.cols = name_cols;
         }
     }
+    /* The quote is one line whatever it says, so it is elided here rather than wrapped - and
+       the width it asks for is what is left of it, never what it started as. */
+    if (fb_bubble_has(bubble->quote) && max > FB_BUBBLE_QUOTE_INDENT) {
+        const size_t room = max - FB_BUBBLE_QUOTE_INDENT;
+        metrics.quote_cols = mesh_ui_text_cells(bubble->quote);
+        if (metrics.quote_cols > room) {
+            metrics.quote_cols = room;
+        }
+        if (metrics.quote_cols + FB_BUBBLE_QUOTE_INDENT > metrics.cols) {
+            metrics.cols = metrics.quote_cols + FB_BUBBLE_QUOTE_INDENT;
+        }
+    }
 
     /*
      * The run rides the last line when there is room for it there, which is what keeps a
@@ -1889,7 +1906,8 @@ static struct fb_bubble_metrics fb_bubble_measure(const struct mesh_ui_backend_f
     }
 
     metrics.rows = metrics.lines + metrics.notes + (fb_bubble_has(bubble->name) ? 1U : 0U) +
-                   (metrics.meta_own_line ? 1U : 0U) + (fb_bubble_has(bubble->separator) ? 1U : 0U);
+                   (metrics.quote_cols > 0U ? 1U : 0U) + (metrics.meta_own_line ? 1U : 0U) +
+                   (fb_bubble_has(bubble->separator) ? 1U : 0U);
     return metrics;
 }
 
@@ -2001,6 +2019,25 @@ void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct f
             }
         }
         fb_draw_text(state, text_x, y, mesh_ui_line_text(&line), scale, name_color, fill);
+        y += layout->line;
+    }
+
+    /*
+     * The quote, marked the way every messenger marks one: a bar down its left edge and the
+     * words beside it in the quiet ink. The bar rather than a glyph because there is no arrow
+     * in either face here worth the cell, and because a rule is what the eye already reads as
+     * "this is being cited" - the same job the accent edge does on a list row.
+     */
+    if (metrics.quote_cols > 0U) {
+        const int bar_w = scale;
+        fb_fill_rect(state, text_x, y, bar_w, layout->line - scale,
+                     fb_tone_color(state, MESH_UI_TONE_DIM));
+        struct mesh_ui_line quote;
+        mesh_ui_line_reset(&quote);
+        mesh_ui_line_printf(&quote, "%s", bubble->quote);
+        mesh_ui_line_fit(&quote, metrics.quote_cols);
+        fb_draw_text(state, text_x + (int)FB_BUBBLE_QUOTE_INDENT * adv, y,
+                     mesh_ui_line_text(&quote), scale, quiet, fill);
         y += layout->line;
     }
 

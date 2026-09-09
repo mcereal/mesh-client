@@ -184,6 +184,26 @@ opens the thread and then the keyboard the same way; A on the "New message" row 
 still lands on the quick replies, and `picker_follow` is how the picker remembers which was
 asked for.
 
+**And the difference between them is on the wire.** A is *reply* on the action bar and now means
+it: it records the packet id of the bubble under the cursor in `nav.reply_to`, whatever is
+written or picked over it carries that id, and `mesh_session_send_reply()` puts it in
+`Data.reply_id` - the field `mesh_message_ingest()` has always read on the way in. Y clears it,
+because the bar calls Y *write* and a new message to a conversation is not an answer to the last
+thing said in it. The target is taken by **the press that opened the overlay**, not read off the
+cursor when the send happens: the transcript keeps moving under an open sheet, and a message
+arriving while the user picks a canned line would otherwise re-aim the reply at whatever the
+cursor had slid onto.
+
+**X in a thread is the tapback.** It opens the reaction picker (`reaction_open`) over the same
+bubble - the fixed emoji set in `src/ui/reactions.c`, one per row with the glyph in the leading
+slot and what it means beside it, because eight faces in a column at this glyph scale are not
+eight distinguishable things. A sends one as a reaction (`Data.emoji` set, the emoji as the
+payload) and B is the way out, which is the compose sheet's two presses exactly. A reaction asks
+for no ack: it has no bubble of its own - the transcript filters it out and draws it as a chip on
+the message it names - so a delivery mark it earned would be one nothing on the frame could draw.
+Not offered in all-traffic, for the reason A is not: a reaction goes out on the conversation its
+target belongs to, and that view is several of them at once.
+
 The on-screen keyboard is `keyboard_open` plus `kb_row/kb_col/kb_layer` and `draft`, all in the
 nav; while it is open every key goes to the keyboard handler and tabs do not switch. The
 `picker_open` overlay ("New message") works the same way; its rows come from
@@ -730,6 +750,17 @@ reach past the left padding" an arithmetic fact rather than a thing to be carefu
 `ui_capture_bubble_contains_its_own_ink` finds the bubble by its own fill at every scale, in
 every theme, in all four delivery states and both cursor positions, and fails on any drawn pixel
 outside it.
+
+A **quote** (`quote`) is the one other optional block, and it is the visible half of a threaded
+reply: one dim line above the text with a bar down its left edge, which is the quote block every
+messenger draws. One line and *elided* rather than wrapped - it is a reminder of something
+already further up the transcript, not a second message, and a quote that could grow would let
+one bubble be mostly somebody else's words. The bar rather than a glyph because there is no
+corner arrow in either face here (`U+2190`..`U+2193` is the whole of what the fonts carry), and
+because a rule is already what the eye reads as "this is being cited" - the same job a list
+row's accent edge does. The screen resolves it in `fb_thread_quote()` against the **whole**
+message list rather than the filtered transcript, and a target the ring has since evicted simply
+leaves the bubble without one.
 
 The slots, in the order they are drawn:
 
@@ -2098,6 +2129,7 @@ device would see it, and no scene script has to know an animation exists.
 | `toast TEXT` | raise the transient notice — the snackbar. It times out on the scene's own
 clock, so a `hold` past four seconds followed by a `frame` films it sliding back out |
 | `message in\|out NAME TEXT` | append a message, as if the radio had just said so |
+| `reply in\|out NAME TEXT` | the same, threaded onto the newest bubble — what A on a message sends. Its own verb rather than a flag on `message` because the quote line inside the bubble is the thing being filmed |
 | `react NAME EMOJI` | react to the newest message, as another node would. The transcript draws it on that message rather than as a bubble of its own |
 | `ack sending\|delivered\|failed [ERROR]` | what the mesh said about the newest message we sent — the mark in the bubble's corner, and the reason under it once it failed. `ERROR` is a `Routing_Error` number, named by number because that is what the radio would have sent. Its own verb because a Routing reply is the one thing about a message that arrives *after* it, and no press this harness can make produces one: `message out` leaves a bubble pending, which is one of the three marks and the only one a scene could otherwise reach |
 | `alert NAME TEXT` | a critical alert (`ALERT_APP`) on the channel |

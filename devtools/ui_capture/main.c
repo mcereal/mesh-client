@@ -36,6 +36,8 @@
  *                          scene's own clock, so a `hold` past four seconds and a `frame`
  *                          film it sliding back out again
  *   message in|out NAME TEXT   append a message to the log, as if the radio had just said so
+ *   reply in|out NAME TEXT     the same, threaded onto the newest bubble - what A on a message
+ *                          sends, and what draws the quote line inside the bubble
  *   waypoint NAME LABEL [| NOTE]  a place shared by that node, at the fix that node reports
  *   react NAME EMOJI       react to the newest message, as another node would
  *   ack sending|delivered|failed [ERROR]   what the mesh said about the newest message we
@@ -720,7 +722,7 @@ static void uicap_tab(struct uicap *cap, int screen) {
 }
 
 static void uicap_append_message(struct uicap *cap, bool outbound, enum mesh_message_kind kind,
-                                 const char *name, const char *text) {
+                                 const char *name, const char *text, bool threaded) {
     struct mesh_ui_message_list messages = cap->store.messages;
     if (messages.count >= MESH_UI_MAX_MESSAGES) {
         memmove(&messages.entries[0], &messages.entries[1],
@@ -755,6 +757,21 @@ static void uicap_append_message(struct uicap *cap, bool outbound, enum mesh_mes
     /* An alert and a detection are broadcasts on a channel, which is what the firmware sends
        and what puts them in a conversation rather than in a private exchange. */
     entry->broadcast = (kind != MESH_MESSAGE_KIND_TEXT);
+    /* A threaded reply answers whatever was last actually said - which is what a person
+       pressing A on the bubble under the cursor produces, since the transcript keeps that
+       cursor on the newest line. A reaction is skipped for the reason `react` skips one: it
+       has no bubble to be answered from. */
+    if (threaded) {
+        for (uint32_t i = messages.count - 1U; i > 0U; --i) {
+            if (!messages.entries[i - 1U].is_reaction) {
+                entry->reply_id = messages.entries[i - 1U].packet_id;
+                break;
+            }
+        }
+        if (entry->reply_id == 0U) {
+            die("reply: nothing in the log to answer");
+        }
+    }
     mesh_ui_store_set_messages(&cap->store, &messages);
     uicap_emit(cap);
 }
@@ -1753,7 +1770,25 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         }
         uicap_start(cap);
         uicap_append_message(cap, strcmp(direction, "out") == 0, MESH_MESSAGE_KIND_TEXT, name,
-                             uicap_tail(rest));
+                             uicap_tail(rest), false);
+        return;
+    }
+
+    /* The same, threaded onto the newest bubble - what A on a message produces. Its own verb
+       rather than a flag on `message` because the quote line it draws is the thing being
+       filmed, and a scene should say so. */
+    if (strcmp(command, "reply") == 0) {
+        char *direction = uicap_word(&rest);
+        char *name = uicap_word(&rest);
+        if (direction == NULL || name == NULL ||
+            (strcmp(direction, "in") != 0 && strcmp(direction, "out") != 0)) {
+            fprintf(stderr, "uicap: line %u: 'reply' needs in|out, a short name and text\n",
+                    line_number);
+            exit(1);
+        }
+        uicap_start(cap);
+        uicap_append_message(cap, strcmp(direction, "out") == 0, MESH_MESSAGE_KIND_TEXT, name,
+                             uicap_tail(rest), true);
         return;
     }
 
@@ -1796,7 +1831,7 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         uicap_append_message(cap, false,
                              strcmp(command, "alert") == 0 ? MESH_MESSAGE_KIND_ALERT
                                                            : MESH_MESSAGE_KIND_DETECTION,
-                             name, uicap_tail(rest));
+                             name, uicap_tail(rest), false);
         return;
     }
 

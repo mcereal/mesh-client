@@ -1,0 +1,43 @@
+# Replying and reacting, from this end.
+#
+# Both were decode-only. The transcript could draw a tapback that this client had no way to
+# send, and the action bar had said "A reply" since the thread screen was written while the
+# press it named built a message that answered nothing.
+#
+# A aims at the bubble under the cursor and the compose sheet says so with a badge; X puts an
+# emoji on the same bubble; Y is still "write", and still answers nothing. The reply that lands
+# carries a quote line - a bar and one elided line of what it is answering - inside its bubble.
+
+scene demo
+tab messages
+
+# Into the direct conversation with Bravo Creek.
+key down 4
+key a
+hold 600
+
+message in BRVO Found the crossing, about 200m upstream
+hold 900
+
+# A: the canned list, aimed at that message. The badge in the app bar is what says so.
+key a
+hold 1400
+key b
+hold 500
+
+# X: the tapback picker, on the same bubble.
+key x
+hold 1200
+key down 2
+hold 1100
+key b
+hold 600
+
+# The reply as it lands. There is no app behind the harness, so the send is stood in for.
+reply out BRVO On my way
+hold 1600
+
+# And a tapback from the other end, drawn as a chip on the bubble it names rather than as a
+# bubble holding one glyph.
+react BRVO 👍
+hold 1800

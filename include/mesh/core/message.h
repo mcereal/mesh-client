@@ -95,6 +95,21 @@ struct mesh_message_text_request {
     uint8_t channel;
     uint8_t hop_limit; /* 0 leaves the firmware default in place */
     bool want_ack;
+    /*
+     * The message this one answers, 0 for none. A threaded reply and a reaction both name
+     * their target here, exactly as the ingest side reads it: the two are told apart by
+     * `is_reaction` rather than by a second field.
+     */
+    uint32_t reply_id;
+    /*
+     * The payload is an emoji *about* `reply_id` rather than a line to read on its own. Sets
+     * Data.emoji, which upstream treats as a flag and not as a codepoint - the emoji itself is
+     * the payload - so any non-zero value means the same thing.
+     *
+     * A reaction with no `reply_id` is refused: a tapback with nothing to tap back on would
+     * reach every other client as a bubble holding one character.
+     */
+    bool is_reaction;
 };
 
 void mesh_message_log_reset(struct mesh_message_log *log);
