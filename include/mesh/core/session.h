@@ -2,6 +2,7 @@
 
 #include "mesh/core/message.h"
 #include "mesh/core/radio_settings.h"
+#include "mesh/core/store_forward.h"
 #include "mesh/core/waypoint.h"
 #include "meshtastic/mesh.pb.h"
 
@@ -461,6 +462,10 @@ struct mesh_session {
     struct mesh_radio_settings settings;
     /* The last traceroute, running or finished; reset with the handshake. */
     struct mesh_traceroute traceroute;
+    /* What we know about Store & Forward on this mesh, and what the last history request did.
+       Reset with the handshake: the router is a node number and a channel index, and a channel
+       index only means anything against the table the radio we are attached to holds. */
+    struct mesh_store_forward store_forward;
     /* The newest thing the radio said about itself, and the state of its send queue. Both
        describe the radio that is connected right now, so both are cleared with the handshake
        for the same reason `stats` is. */
@@ -757,6 +762,32 @@ int mesh_session_send_traceroute(struct mesh_session *session, uint32_t dest);
 
 /* The last traceroute, running or finished. Never NULL for a live session. */
 const struct mesh_traceroute *mesh_session_traceroute(const struct mesh_session *session);
+
+/*
+ * Asks a Store & Forward router for the traffic this client missed.
+ *
+ * The whole point of the module from a handheld's side: a Brick spends most of its life
+ * switched off, and a router on the mesh has been keeping the last few hours of text for it.
+ * Everything that comes back is folded into the message log, in the conversations it was
+ * originally said in - but undated: `rx_time` never crosses the radio link, so a replayed
+ * message carries no timestamp rather than the moment it was fetched.
+ *
+ * When a router is already known - from a heartbeat it broadcast, or from a previous exchange -
+ * this sends CLIENT_HISTORY straight to it. When none is, it broadcasts a CLIENT_PING instead
+ * and sends the history request to whichever router answers: on a mesh whose router heartbeats
+ * every fifteen minutes, a client that had to wait for one would be useless in exactly the
+ * minutes after a boot, which is when this is asked for.
+ *
+ * The state machine underneath is mesh_session_store_forward()'s, and this is not a blocking
+ * call: what came back is read from there, or simply found in the transcript.
+ *
+ * Returns 0, -ENOTCONN without a link, -EBUSY while a request is already running, or the
+ * encode/send error.
+ */
+int mesh_session_request_history(struct mesh_session *session);
+
+/* What we know about Store & Forward on this mesh. Never NULL for a live session. */
+const struct mesh_store_forward *mesh_session_store_forward(const struct mesh_session *session);
 
 #ifdef __cplusplus
 }

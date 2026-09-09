@@ -158,6 +158,42 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
             mesh_app_save_fixed_position(app, action, now);
             return;
         }
+        /*
+         * Asking a Store & Forward router for what we missed. Not an AdminMessage at all - it
+         * is a packet to another node on the mesh - so it leaves before the admin queue below,
+         * the way the fixed-position pair does.
+         *
+         * The toast says which of the two things the press did, because they take different
+         * amounts of time: with a router already known it is one packet and an answer, and with
+         * none it is a broadcast ping first and up to half a minute of waiting. Nothing here
+         * announces the messages themselves; they arrive in the transcript, and the section's
+         * own row counts them.
+         */
+        if ((enum mesh_ui_settings_action)action->number ==
+            MESH_UI_SETTINGS_ACTION_REQUEST_HISTORY) {
+            const struct mesh_store_forward *before = mesh_session_store_forward(&app->session);
+            const bool knew_router = before != NULL && before->router != 0U;
+            char name[MESH_UI_STORE_FORWARD_NAME_MAX];
+            mesh_str_copy(name, sizeof name, app->ui_store.settings.store_forward.router_name);
+
+            const int result = mesh_session_request_history(&app->session);
+            char asked_toast[MESH_UI_NAV_TOAST_MAX];
+            if (result == -EBUSY) {
+                mesh_str_copy(asked_toast, sizeof asked_toast,
+                              mesh_str(MESH_STR_TOAST_HISTORY_RUNNING));
+            } else if (result < 0) {
+                mesh_str_format(asked_toast, sizeof asked_toast, MESH_STR_TOAST_HISTORY_FAILED,
+                                result);
+            } else if (knew_router) {
+                mesh_str_format(asked_toast, sizeof asked_toast, MESH_STR_TOAST_HISTORY_ASKED,
+                                name);
+            } else {
+                mesh_str_copy(asked_toast, sizeof asked_toast,
+                              mesh_str(MESH_STR_TOAST_HISTORY_LOOKING));
+            }
+            mesh_ui_store_set_toast(&app->ui_store, now, asked_toast);
+            return;
+        }
         enum mesh_admin_request_kind kind = MESH_ADMIN_REBOOT;
         enum mesh_str_id asked = MESH_STR_TOAST_REBOOTING;
         switch ((enum mesh_ui_settings_action)action->number) {

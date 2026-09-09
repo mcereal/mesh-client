@@ -59,6 +59,7 @@
  */
 
 #include "mesh/core/message.h"
+#include "mesh/core/store_forward.h"
 #include "mesh/core/updater.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/backends/fb_capture.h"
@@ -1347,6 +1348,15 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
      */
     if (strcmp(command, "config") == 0) {
         uicap_start(cap);
+        /*
+         * The link, first: a radio that has answered the config handshake is a radio this
+         * client is attached to, and every row that asks the radio to *do* something reads the
+         * link rather than the config. Without this the sections drawn by this command showed
+         * their controls and then said "not connected" on every press.
+         */
+        struct mesh_ui_handshake_state handshake = cap->store.handshake;
+        handshake.link_up = true;
+        mesh_ui_store_set_handshake(&cap->store, &handshake);
         struct mesh_ui_settings settings = cap->store.settings;
         settings.loaded = true;
         settings.admin_ok = true;
@@ -1478,6 +1488,20 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         settings.store_forward_records = 0U;
         settings.store_forward_history_return_max = 25U;
         settings.store_forward_history_return_window = 7200U;
+        /*
+         * And a router that has already answered once, because the interesting half of this
+         * section is the half that is not configuration - and a request that has never been
+         * made draws two rows saying nothing. The counts are the pair that matters: the router
+         * replayed its whole window and three of those messages were new to this client.
+         */
+        settings.store_forward.state = (uint8_t)MESH_STORE_FORWARD_DONE;
+        settings.store_forward.router = 0x8F21B008U;
+        snprintf(settings.store_forward.router_name, sizeof settings.store_forward.router_name,
+                 "%s", "ECHO");
+        settings.store_forward.expected = 18U;
+        settings.store_forward.received = 18U;
+        settings.store_forward.stored = 3U;
+        settings.store_forward.seq = 1U;
 
         settings.has_telemetry = true;
         settings.device_telemetry_enabled = true;

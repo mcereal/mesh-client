@@ -126,6 +126,24 @@ const struct mesh_message *mesh_message_log_at(const struct mesh_message_log *lo
 struct mesh_message *mesh_message_log_find(struct mesh_message_log *log, uint32_t packet_id);
 
 /*
+ * Whether the log already holds `replayed` - a message a Store & Forward router has handed back
+ * that we may well have heard live the first time.
+ *
+ * Not a packet-id lookup, and it cannot be one: the router replays a message inside a packet of
+ * its own, so the id on the copy is the delivery's rather than the message's, and the original
+ * we are holding has a different one. What is the same is what was said: the sender, the
+ * channel, the text, and - when both copies carry one - the moment the radio stamped it.
+ *
+ * The rx_time comparison is skipped when either side reads 0 rather than treated as a mismatch.
+ * A Brick's radio very often has no clock, so both copies of everything it heard are stamped 0,
+ * and requiring the stamps to agree would be requiring them to be absent together - while
+ * treating an absent stamp as a difference would put a second copy of every message on the
+ * screen, which is the failure this exists to prevent.
+ */
+bool mesh_message_log_holds_replay(const struct mesh_message_log *log,
+                                   const struct mesh_message *replayed);
+
+/*
  * Whether `message` belongs to one conversation, named the way the UI names a destination:
  * `peer` of MESH_MESSAGE_BROADCAST_ADDR means the channel conversation on `channel`, and
  * anything else means the direct exchange with that node, in either direction.

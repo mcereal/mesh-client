@@ -381,6 +381,15 @@ enum mesh_ui_settings_action {
     MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG,
     MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG,
     MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP,
+    /*
+     * Store & Forward: ask a router for the traffic that arrived while this client was off.
+     *
+     * A radio action in the sense that matters - it puts a packet on the air and the answer
+     * comes back over minutes - but not one of the destructive ones, so no confirm overlay: it
+     * asks for messages, and the worst a mistaken press costs is one small packet. It carries
+     * no edits either; the row reads nothing above it.
+     */
+    MESH_UI_SETTINGS_ACTION_REQUEST_HISTORY,
 };
 
 /* Which press writes this field (mesh/ui/nav.h). */

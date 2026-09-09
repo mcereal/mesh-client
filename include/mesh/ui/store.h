@@ -386,6 +386,39 @@ struct mesh_ui_traceroute {
     struct mesh_ui_traceroute_hop back[MESH_UI_TRACEROUTE_MAX_HOPS];
 };
 
+/* A router's name is drawn in a settings row's value column, which is short. */
+#define MESH_UI_STORE_FORWARD_NAME_MAX 24U
+
+/*
+ * Store & Forward as the Settings section reads it: who the router is and what the last request
+ * for the missed traffic did.
+ *
+ * `received` and `stored` are both here and they are not the same number. A router replays its
+ * whole window, most of which a client that was only briefly off already heard live - so a row
+ * saying "30 messages" about a replay that added none of them would be describing the router's
+ * work rather than the user's inbox. `expected` is what the router said was coming, which is a
+ * third number again while the replay is still arriving.
+ *
+ * Not persisted, for the traceroute's reason: it describes one exchange with one router over
+ * one connection, and the messages it fetched are in the transcript, which is.
+ */
+struct mesh_ui_store_forward {
+    uint8_t state; /* enum mesh_store_forward_state, carried as a byte */
+    uint32_t router;
+    char router_name[MESH_UI_STORE_FORWARD_NAME_MAX];
+    bool router_secondary; /* the router said it is not this mesh's primary one */
+    uint32_t expected;
+    uint32_t received;
+    uint32_t stored;
+    /* Counts requests rather than events, so a backend can tell a new one from the same one
+       further along. */
+    uint32_t seq;
+    /* The router's own storage, when it has volunteered it (ROUTER_STATS). */
+    bool has_stats;
+    uint32_t messages_saved;
+    uint32_t messages_max;
+};
+
 /*
  * What the connected radio reports about itself and the air around it (LocalStats telemetry).
  * Lives beside the radio's configuration because it has the same lifetime - it describes the
@@ -592,6 +625,11 @@ struct mesh_ui_settings {
     uint32_t mqtt_map_publish_interval_secs;
     uint32_t mqtt_map_position_precision;
     bool mqtt_map_should_report_location;
+
+    /* Talking to a router, as opposed to the rows below that configure the module. Lives here
+       because the section's rows are built from this struct, the way `connection` and the
+       radio's own position do - both of which are likewise live state rather than config. */
+    struct mesh_ui_store_forward store_forward;
 
     bool has_store_forward;
     bool store_forward_enabled;

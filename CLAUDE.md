@@ -140,6 +140,7 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | Transports | `src/transport/` | registry + BLE (BlueZ/D-Bus) + serial (USB) |
 | Session | `src/core/session.c` | handshake, node roster, channels, message log, packet ids |
 | Admin protocol | `src/core/radio_settings.c` | `AdminMessage` get/set queue, passkeys, radio actions, NodeDB verbs, the module table, and the four verbs that are not a section (connection status, device UI, canned messages, ringtone) |
+| Store & Forward | `src/core/store_forward.c` | the client half of `STORE_FORWARD_APP`: finding a router, asking it for the traffic that arrived while the Brick was off, and folding the replay back into the message log |
 | Messaging | `src/core/message.c` | text packets, message ring, ack correlation, and the two fields that make one a threaded reply or a tapback (`reply_id`, `emoji`) |
 | Waypoints | `src/core/waypoint.c` | the mesh's shared places: a table keyed by waypoint id, WAYPOINT_APP encode/ingest, and the expiry-in-the-past convention every client deletes with |
 | App glue | `src/core/app*.c` | `app` lifecycle/link, `_actions` UI actions, `_publish` to store, `_settings` writes |
@@ -402,6 +403,42 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   drawn, and a verb on an undrawn card leaves the action bar naming a press whose button is not
   on the frame. That is why the Radio card says "no report yet" rather than disappearing when
   the radio has told us nothing about itself.
+- **A replayed message has no date, and that is what makes the de-duplication work.**
+  `mesh.proto` says of `rx_time` that the field "is _never_ sent on the radio link itself (to
+  save space)", so the stamp on a Store & Forward replay is *our own* radio marking when the
+  replay landed, not when the message was said - and the `StoreAndForward` `text` variant
+  carries no timestamp to use instead. Copying it would date the whole window at the minute it
+  was fetched, and would defeat `mesh_message_log_holds_replay()`, whose stamp comparison only
+  falls through to the text when one side is 0. The SNR, the hop count and the padlock are left
+  off for the same reason the roster is not touched: they measure the router's link, not the
+  sender's.
+- **A replayed message has a packet id, and it is not its own.** A Store & Forward router wraps
+  the message in a packet of its own, so the id on the copy identifies the *delivery*; the
+  original we may already be holding has a different one. That is why
+  `mesh_message_log_holds_replay()` matches on what was said - sender, channel, text, and the
+  stamp when both copies carry one - rather than on the id, and why the replayed entry's own
+  `packet_id` is left at 0 rather than filled with a number that would look like a correlation
+  handle. Without it, one press puts a second copy of the last four hours under the first.
+- **A replay counts twice, and the two numbers are different facts.** A router hands back its
+  whole configured window, which for a client that was off for ten minutes is mostly traffic it
+  heard live - so `received` is the router's work and `stored` is the user's gain, and a row
+  saying "30 messages" about a replay that added none of them would be describing the wrong one.
+- **The history request looks for a router before it asks one, and never broadcasts itself.** A
+  router announces itself every fifteen minutes by default, so a client that could only ask one
+  it had already heard from would be useless in the minutes after a boot: with none known the
+  press broadcasts a `CLIENT_PING` and the real request follows the pong. A broadcast
+  `CLIENT_HISTORY` would have every router on the mesh replay its window at once, and
+  `mesh_store_forward_encode()` refuses one.
+- **The history cursor belongs to one router, and hearing another drops it.** The `.proto`
+  calls it an index into *the server's* packet history, so sending router A's `last_request` to
+  router B asks B to skip to a position in a table it does not have - B would silently return
+  fewer messages, which is this feature failing in the one direction no screen could show. The
+  rank and the statistics go with it. While a request is running, an announcement or a refusal
+  from any other node is ignored; a replayed *message* cannot be checked that way, because its
+  envelope names the sender rather than the router that relayed it.
+- **The follow-up request goes out from the tick, not from the ingest that armed it.** The pong
+  arrives on the link's read path, and writing back down the link on the same turn is what the
+  admin queue's queue-here-drain-there split exists to avoid.
 - **Deleting a waypoint is broadcasting it again with an expiry in the past.** There is no
   "unshare" packet: every Meshtastic client withdraws a place by re-sending the `Waypoint` with
   `expire` already gone, and the receiver drops it. So `mesh_session_forget_waypoint()` sending

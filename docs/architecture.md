@@ -355,6 +355,68 @@ Transport-agnostic messaging: builds `TEXT_MESSAGE_APP` packets into a `ToRadio`
 the outbound message they ack. Message text is untrusted radio input, so `mesh_message_ingest`
 sanitises control bytes and backends can draw it directly.
 
+### `src/core/store_forward.c` — the messages that arrived while the client was off
+
+A Store & Forward router on the mesh keeps the last few hours of text traffic and hands it back
+on request. The client has had rows for the module's *configuration* since phase 8 - whether
+this radio is a server, how many records it keeps - and never spoke to one, which on a handheld
+is the half that matters: a Brick spends most of its life switched off, and everything said
+while it was off is gone unless something asks.
+
+The exchange is one portnum, `STORE_FORWARD_APP`, carrying a `StoreAndForward` whose `rr` says
+which half of the conversation it is. What this client sends is a `CLIENT_HISTORY` addressed to
+one router; what comes back is a `ROUTER_HISTORY` saying how many messages are coming and then
+one `ROUTER_TEXT_DIRECT` or `ROUTER_TEXT_BROADCAST` per message.
+
+Four decisions are worth reading before changing any of it:
+
+- **The client finds a router before it asks one.** A router announces itself with
+  `ROUTER_HEARTBEAT` on its own timer, which defaults to fifteen minutes - so a client that
+  could only ask a router it had already heard from would be useless in exactly the minutes
+  after a boot. With none known, `mesh_session_request_history()` broadcasts a `CLIENT_PING`
+  instead and sends the real request to whichever router answers. That is the only thing this
+  client ever broadcasts on the port: a broadcast `CLIENT_HISTORY` would have every router on
+  the mesh replay its whole window at once, and `mesh_store_forward_encode()` refuses one.
+- **A replayed message is the sender's, not the router's - but it has no date.** The router puts
+  the original `from` and `channel` on the envelope and the text inside the `StoreAndForward`,
+  so a replay lands in the conversation it was said in. What it does *not* carry is when: `rx_time`
+  is documented in `mesh.proto` as a field that "is _never_ sent on the radio link itself (to save
+  space)", so the stamp on a replay packet is *our own* radio marking the moment the replay
+  landed, and the `text` variant has no timestamp of its own. Copying it would date the whole
+  window at the minute it was fetched - and would break the de-duplication below, because a live
+  copy and its replay then carry two different non-zero stamps. The packet id goes the same way
+  (it identifies the router's delivery, not the message), as do the SNR, the hop count and the
+  padlock: all three measure how *this* packet reached us, and this packet came one hop from a
+  node that is not the sender. For the same reason the roster is not touched by a replay -
+  otherwise fetching history would report every sender in the window as freshly reachable over a
+  link that was never measured to them.
+- **A replay is mostly things we already have.** The router replays its whole configured window,
+  which for a client that was off for ten minutes is four hours of traffic it heard live. The
+  copies carry different packet ids, so `mesh_message_log_holds_replay()` matches on what was
+  said - sender, channel, text, and the stamp when both copies have one, which for a replay is
+  never - and the session counts `received` and `stored` separately, because "30 messages" about
+  a replay that added none of them would be describing the router's work rather than the user's
+  inbox. The cost of matching without a stamp is that a sender who said the same short thing
+  twice on one channel gets one bubble back instead of two; that is the trade the no-clock case
+  already makes, and it is the right way round.
+- **What we know is only ever true of one router.** The history cursor is an index into *that
+  router's* packet history, so hearing a different router drops it along with that router's rank
+  and statistics - handing A's index to B would ask B to skip to a position in a table it does
+  not have, and B would silently miss messages. While a request is running, an announcement, a
+  count or a refusal from any other node is ignored outright. A replayed *message* is the one
+  thing that cannot be checked that way, because its envelope names the sender rather than the
+  router.
+- **The follow-up request is sent from the tick, not from the ingest.** The pong arrives on the
+  link's read path; writing back down the link on the same turn is the thing the admin queue's
+  queue-here-drain-there split exists to avoid, so the ingest sets a flag and
+  `mesh_session_tick()` sends.
+
+The state machine is ten values rather than a bool because each is a different thing to tell the
+user: "no router answered" and "the router never replied" are the same silence from two
+different places, and only one of them is worth pressing again. Nothing about it is persisted -
+it describes one exchange with one router over one connection, and the messages it fetched are
+in the transcript, which is.
+
 ### `src/core/app*.c`
 
 Four files around one `struct mesh_app`, with `src/core/app_internal.h` as the seam between
@@ -487,6 +549,9 @@ Things that look like bugs, are not, and have each cost a debugging round alread
   `BTN_THUMBL`/`BTN_THUMBR`. `make deploy-input-map` re-measures the lot; the table is in
   [`device.md`](device.md#the-buttons-and-what-they-report).
 - **A radio reboot after a settings write is expected**, not a dropped link to chase.
+- **A replayed message has a packet id that is not its own.** The router wraps it in a packet of
+  its own, so the id belongs to the delivery; `mesh_message_log_holds_replay()` matching on the
+  content rather than on the id is the point, not an oversight.
 - **Text is measured in cells, not bytes.** A `strlen` in fb layout code is a bug; so is `%-Ns`.
   See [`ui.md`](ui.md).
 - **Only the release build is a release.** Do not stamp a local build to test the updater; lift

@@ -1115,6 +1115,12 @@ MESH_STR_ENTRY(CHANNELS_KEY_ODD,          "odd key")
 /* Section headings inside a module's own screen. */
 MESH_STR_ENTRY(HEAD_MAP_REPORT,           "Map report")
 MESH_STR_ENTRY(HEAD_SERVER,               "Server")
+/* Store & Forward, the half of the module that is about *this* client rather than about
+   running one: a router on the mesh has been keeping the traffic that arrived while this
+   handheld was switched off, and these rows are how it is asked for. */
+MESH_STR_ENTRY(HEAD_MISSED,               "Missed messages")
+/* And the other half of the same section: the rows that configure the module itself. */
+MESH_STR_ENTRY(HEAD_MODULE,               "Module")
 MESH_STR_ENTRY(HEAD_DEVICE,               "Device")
 MESH_STR_ENTRY(HEAD_ENVIRONMENT,          "Environment")
 MESH_STR_ENTRY(HEAD_AIR_QUALITY,          "Air quality")
@@ -1187,6 +1193,42 @@ MESH_STR_ENTRY(ACTION_FACTORY_DEVICE,     "Everything")
 /* The value column of a forget row is the count the press would drop, so a row with nothing
    to drop is a fact rather than a press that does nothing. */
 MESH_STR_ENTRY(ACTION_NOTHING_TO_DROP,    "nothing to drop")
+
+/* ---- Store & Forward ------------------------------------------------------------------ */
+
+/* The row that asks a router for the traffic missed while this client was off, and the
+   row above it naming the router that would answer. */
+MESH_STR_ENTRY(SF_ROUTER,                 "Router")
+MESH_STR_ENTRY(SF_ROUTER_NONE,            "none heard yet")
+/* A router that says it is not this mesh's primary one. It is still a router, and on a mesh
+   whose primary is off it is the only one - so the row names it and adds the caveat. */
+MESH_STR_ENTRY(SF_ROUTER_SECONDARY,       "%s (secondary)")
+MESH_STR_ENTRY(SF_REQUEST,                "Get missed messages")
+MESH_STR_ENTRY(SF_LAST_REQUEST,           "Last request")
+/* What the router says it is holding, when it has volunteered its own statistics. */
+MESH_STR_ENTRY(SF_ROUTER_HOLDS,           "Router holds")
+MESH_STR_ENTRY(SF_HOLDS_COUNT,            "%u of %u")
+
+/* Where a request has got to, as the value column of the two rows above. */
+MESH_STR_ENTRY(SF_SEEKING,                "looking for a router")
+MESH_STR_ENTRY(SF_WAITING,                "waiting for the router")
+/* A replay in progress: how many of the messages the router announced have landed. */
+MESH_STR_ENTRY(SF_REPLAYING,              "%u of %u")
+/* The same while the router has not said how many are coming. */
+MESH_STR_ENTRY(SF_REPLAYING_UNKNOWN,      "%u so far")
+/*
+   A finished replay, counted twice on purpose. A router replays its whole window, most of
+   which a client that was only briefly off already heard live - so the first number is what
+   was added to the conversations and the second is what the router sent. No noun, so no
+   plural in English; a language that needs one has both counts to agree with. */
+MESH_STR_ENTRY(SF_ADDED,                  "%u new of %u")
+MESH_STR_ENTRY(SF_NOTHING_NEW,            "%u replayed, none new")
+/* The router answered and its window held nothing for us. Not a failure. */
+MESH_STR_ENTRY(SF_NOTHING_MISSED,         "nothing missed")
+MESH_STR_ENTRY(SF_BUSY,                   "router busy, try again")
+MESH_STR_ENTRY(SF_NO_ROUTER,              "no router answered")
+MESH_STR_ENTRY(SF_NO_REPLY,               "the router did not reply")
+MESH_STR_ENTRY(SF_FAILED,                 "the request failed")
 MESH_STR_PLURAL_ENTRY(ACTION_FORGET_COUNT, "%u node", "%u nodes")
 
 /* ---- settings: the confirmation sheet ------------------------------------------------------------ */
@@ -1406,6 +1448,13 @@ MESH_STR_ENTRY(TOAST_RESTORED,            "Restore sent; re-reading the settings
 MESH_STR_ENTRY(TOAST_BACKUP_REMOVED,      "Backup deleted from the radio's flash")
 MESH_STR_ENTRY(TOAST_ALREADY_REQUESTED,   "Already requested")
 MESH_STR_ENTRY(TOAST_REQUEST_FAILED,      "Request failed (%d)")
+/* Asking a Store & Forward router for the traffic missed while this client was off. Two
+   toasts because the press does two different things: with a router already known it asks
+   it, and with none it has to find one first, which takes a moment longer. */
+MESH_STR_ENTRY(TOAST_HISTORY_ASKED,       "Asked %.16s for the missed messages")
+MESH_STR_ENTRY(TOAST_HISTORY_LOOKING,     "Looking for a Store & Forward router")
+MESH_STR_ENTRY(TOAST_HISTORY_RUNNING,     "Already asking; the messages arrive as they come")
+MESH_STR_ENTRY(TOAST_HISTORY_FAILED,      "Could not ask for the missed messages (%d)")
 /* Dropping cached nodes. */
 MESH_STR_PLURAL_ENTRY(TOAST_FORGOT_NODES, "Forgot %d node; pins kept", "Forgot %d nodes; pins kept")
 MESH_STR_ENTRY(TOAST_NOTHING_CACHED,      "Nothing cached to forget")

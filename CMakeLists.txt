@@ -60,6 +60,7 @@ add_library(meshclient_core
     src/core/radio_settings.c
     src/core/session.c
     src/core/signals.c
+    src/core/store_forward.c
     src/core/updater.c
     src/core/version.c
     src/transport/transport_registry.c
@@ -241,6 +242,7 @@ set(MESH_PROTO_NAMES
     atak
     admin
     connection_status
+    storeforward
 )
 
 set(MESH_PROTO_FILES)

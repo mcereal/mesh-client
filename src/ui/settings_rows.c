@@ -12,6 +12,10 @@
 #include "settings_internal.h"
 
 #include "mesh/core/radio_settings.h"
+/* store_forward.h for the request-state enum, on node_detail.c's terms: the UI struct carries
+   it as a byte so store.h stays nanopb-free, and this file already pulls nanopb in through
+   radio_settings.h - so naming the real enum here beats keeping a second copy of it in step. */
+#include "mesh/core/store_forward.h"
 #include "mesh/core/updater.h"
 #include "mesh/core/version.h"
 #include "mesh/i18n/strings.h"
@@ -991,7 +995,142 @@ static void build_mqtt(const struct mesh_ui_settings *s, struct item_list *list)
     item_toggle(list, MESH_STR_SETTINGS_PROXY_VIA_CLIENT, s->mqtt_proxy_to_client_enabled);
 }
 
-static void build_store_forward(const struct mesh_ui_settings *s, struct item_list *list) {
+/*
+ * Where a history request has got to, as the value column of a row.
+ *
+ * One place rather than two because the running states are drawn on the action row - which
+ * cannot be pressed while one is running - and the finished ones on the row under it, and a
+ * screen that answered the same question twice would be the marker-gutter mistake again.
+ */
+static void store_forward_progress(const struct mesh_ui_store_forward *sf, char *out,
+                                   size_t out_len) {
+    switch ((enum mesh_store_forward_state)sf->state) {
+    case MESH_STORE_FORWARD_SEEKING:
+        mesh_str_copy(out, out_len, mesh_str(MESH_STR_SF_SEEKING));
+        return;
+    case MESH_STORE_FORWARD_REQUESTED:
+        mesh_str_copy(out, out_len, mesh_str(MESH_STR_SF_WAITING));
+        return;
+    case MESH_STORE_FORWARD_REPLAYING:
+        /* The router announces a count and then trickles the messages out, so this is a
+           progress reading - and it says "so far" instead when the announcement was the packet
+           that went missing, because "4 of 0" is not a reading. */
+        if (sf->expected > 0U) {
+            mesh_str_format(out, out_len, MESH_STR_SF_REPLAYING, sf->received, sf->expected);
+        } else {
+            mesh_str_format(out, out_len, MESH_STR_SF_REPLAYING_UNKNOWN, sf->received);
+        }
+        return;
+    case MESH_STORE_FORWARD_DONE:
+        /* Two numbers, because they are two facts: what the router sent, and what of it was
+           new. A client that was off for ten minutes gets a window of four hours back. */
+        if (sf->stored > 0U) {
+            mesh_str_format(out, out_len, MESH_STR_SF_ADDED, sf->stored, sf->received);
+        } else {
+            mesh_str_format(out, out_len, MESH_STR_SF_NOTHING_NEW, sf->received);
+        }
+        return;
+    case MESH_STORE_FORWARD_EMPTY:
+        mesh_str_copy(out, out_len, mesh_str(MESH_STR_SF_NOTHING_MISSED));
+        return;
+    case MESH_STORE_FORWARD_BUSY:
+        mesh_str_copy(out, out_len, mesh_str(MESH_STR_SF_BUSY));
+        return;
+    case MESH_STORE_FORWARD_NO_ROUTER:
+        mesh_str_copy(out, out_len, mesh_str(MESH_STR_SF_NO_ROUTER));
+        return;
+    case MESH_STORE_FORWARD_TIMEOUT:
+        mesh_str_copy(out, out_len, mesh_str(MESH_STR_SF_NO_REPLY));
+        return;
+    case MESH_STORE_FORWARD_FAILED:
+        mesh_str_copy(out, out_len, mesh_str(MESH_STR_SF_FAILED));
+        return;
+    case MESH_STORE_FORWARD_IDLE:
+    default:
+        out[0] = '\0';
+        return;
+    }
+}
+
+/*
+ * Store & Forward, in two halves under three headings.
+ *
+ * The first group is the half of the module that is about *this* client: a router somewhere on
+ * the mesh has been keeping the traffic that arrived while the Brick was off, and one press
+ * asks for it. Everything below it configures the module, and the Server rows under that
+ * configure running one - which a handheld with no mains power will never be.
+ *
+ * That is why the request group is first, and why the rows that were already here gained a
+ * heading of their own: on this device the press is what somebody opens the section to do, and
+ * the toggles are what they read afterwards to find out why it did not work.
+ */
+static void build_store_forward(const struct mesh_ui_settings *s,
+                                const struct mesh_ui_handshake_state *handshake,
+                                struct item_list *list) {
+    const struct mesh_ui_store_forward *sf = &s->store_forward;
+    const bool connected = handshake != NULL && handshake->link_up;
+    const bool running = sf->state == (uint8_t)MESH_STORE_FORWARD_SEEKING ||
+                         sf->state == (uint8_t)MESH_STORE_FORWARD_REQUESTED ||
+                         sf->state == (uint8_t)MESH_STORE_FORWARD_REPLAYING;
+
+    item_heading(list, MESH_STR_HEAD_MISSED);
+    /* Who would answer. Listed before the press rather than only after one, because "none
+       heard yet" is the answer to why the press is about to take half a minute - the client
+       goes looking with a broadcast ping when it knows no router. */
+    if (sf->router == 0U) {
+        item_str(list, MESH_STR_SF_ROUTER, MESH_UI_SETTING_INFO, MESH_STR_SF_ROUTER_NONE);
+    } else {
+        struct mesh_ui_settings_item *item =
+            item_add(list, MESH_STR_SF_ROUTER, MESH_UI_SETTING_INFO);
+        if (item != NULL) {
+            if (sf->router_secondary) {
+                mesh_str_format(item->value, sizeof item->value, MESH_STR_SF_ROUTER_SECONDARY,
+                                sf->router_name);
+            } else {
+                mesh_str_copy(item->value, sizeof item->value, sf->router_name);
+            }
+        }
+    }
+
+    /*
+     * The press, and what it is doing while it is doing it. A running request becomes an INFO
+     * row carrying the progress rather than disappearing: the session refuses a second one with
+     * -EBUSY anyway, and a row that vanished mid-replay would move every row under it while the
+     * user was reading them.
+     */
+    if (running) {
+        struct mesh_ui_settings_item *item =
+            item_add(list, MESH_STR_SF_REQUEST, MESH_UI_SETTING_INFO);
+        if (item != NULL) {
+            store_forward_progress(sf, item->value, sizeof item->value);
+        }
+    } else {
+        item_radio_action(list, MESH_STR_SF_REQUEST, MESH_UI_SETTINGS_ACTION_REQUEST_HISTORY,
+                          connected);
+    }
+
+    /* What the last one did, once there has been one. The only row here that is not listed
+       unconditionally - before the first press it would be a heading over a blank value. */
+    if (!running && sf->state != (uint8_t)MESH_STORE_FORWARD_IDLE) {
+        struct mesh_ui_settings_item *item =
+            item_add(list, MESH_STR_SF_LAST_REQUEST, MESH_UI_SETTING_INFO);
+        if (item != NULL) {
+            store_forward_progress(sf, item->value, sizeof item->value);
+        }
+    }
+
+    /* The router's own storage, when it has volunteered it. Never asked for: this client has no
+       row that would act on the difference, and a request costs the mesh a round trip. */
+    if (sf->has_stats) {
+        struct mesh_ui_settings_item *item =
+            item_add(list, MESH_STR_SF_ROUTER_HOLDS, MESH_UI_SETTING_INFO);
+        if (item != NULL) {
+            mesh_str_format(item->value, sizeof item->value, MESH_STR_SF_HOLDS_COUNT,
+                            sf->messages_saved, sf->messages_max);
+        }
+    }
+
+    item_heading(list, MESH_STR_HEAD_MODULE);
     item_field(list, MESH_UI_FIELD_SF_ENABLED, s->store_forward_enabled ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_SF_HEARTBEAT, s->store_forward_heartbeat ? 1U : 0U, NULL);
     item_field(list, MESH_UI_FIELD_SF_SERVER, s->store_forward_is_server ? 1U : 0U, NULL);
@@ -1318,7 +1457,7 @@ static void build_section(const struct mesh_ui_settings *settings,
         build_mqtt(settings, list);
         break;
     case MESH_UI_SETTINGS_STORE_FORWARD:
-        build_store_forward(settings, list);
+        build_store_forward(settings, handshake, list);
         break;
     case MESH_UI_SETTINGS_TELEMETRY:
         build_telemetry(settings, list);
