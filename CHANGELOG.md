@@ -1,3 +1,13 @@
+## [2.42.0](https://github.com/mcereal/mesh-client/compare/v2.41.0...v2.42.0) (2026-09-09)
+
+### Features
+
+* **ui:** explain the features as well as the settings ([e7b10b2](https://github.com/mcereal/mesh-client/commit/e7b10b26ffce400dfc55f2e3c38d7819361d64b4))
+
+### Bug Fixes
+
+* **ui:** ask the route whether a settings section is what is on the panel ([eb94f4d](https://github.com/mcereal/mesh-client/commit/eb94f4d2b80fd16c2c2f4ab30d1b332f49b18402))
+
 ## [2.41.0](https://github.com/mcereal/mesh-client/compare/v2.40.0...v2.41.0) (2026-09-09)
 
 ### Features
