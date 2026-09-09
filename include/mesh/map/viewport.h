@@ -121,6 +121,26 @@ bool mesh_map_viewport_center_on(struct mesh_map_viewport *viewport, int32_t lat
 bool mesh_map_viewport_place(const struct mesh_map_viewport *viewport, int32_t latitude_i,
                              int32_t longitude_i, struct mesh_map_placement *out);
 
+/*
+ * How far a coordinate is from the middle of the view, in pixels, without reference to the box.
+ *
+ * The half of a placement that does not need a panel: mesh_map_viewport_place() is exactly this
+ * plus the centre of the box, and it is written that way so the two cannot drift.
+ *
+ * It exists because the *selection* has to be measured where a marker is drawn rather than
+ * across the ground, and has to be answerable by a caller with no box - see mesh_ui_map_selected()
+ * for why the nav and a backend can never agree on one. Measuring it in the projection is also
+ * the only thing that gets the poles right: a fix beyond the display limit is drawn at the limit,
+ * so a marker at 88 degrees north and a view centred on it are the same point on the picture and
+ * three degrees apart on the ground. A distance across the ground would refuse a marker sitting
+ * under the crosshair.
+ *
+ * False - and the offsets zeroed - when the coordinate is not a point on Earth. The horizontal
+ * offset takes the short way round, the same fold a placement takes.
+ */
+bool mesh_map_viewport_offset(const struct mesh_map_viewport *viewport, int32_t latitude_i,
+                              int32_t longitude_i, double *out_dx, double *out_dy);
+
 /* What a pixel in the box is pointing at. The inverse of the above, and the reason a press at
    the middle of the panel can name a place. */
 void mesh_map_viewport_at(const struct mesh_map_viewport *viewport, int32_t x, int32_t y,

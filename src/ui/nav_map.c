@@ -172,9 +172,24 @@ bool mesh_ui_nav_map_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *st
     if (handled != NULL) {
         *handled = false;
     }
-    if (nav == NULL || store == NULL || !nav->map_open || nav->node_detail_open) {
-        /* A node's detail is open over the map and owns its own presses; the map is underneath
-           and is not being looked at. */
+    if (nav == NULL || store == NULL || !nav->map_open) {
+        return false;
+    }
+    /*
+     * The map has to be the thing on the panel, not merely a thing that is open.
+     *
+     * `map_open` deliberately outlives a change of tab - every tab in this client keeps its own
+     * place, and coming back to Nodes should show the view that was left - so it says where the
+     * Nodes tab is standing and *not* what the reader is looking at. Two presses make the
+     * difference visible: a shoulder walks off this tab with the map still open behind it, and A
+     * on a waypoint marker jumps to the Waypoints tab outright. Without the screen test below,
+     * the arrows would pan a map nobody can see and the first B on that place would close it
+     * instead of the place.
+     *
+     * A node's detail is the same question one level in: it is drawn over the map and owns its
+     * own presses, and the map underneath is not being looked at either.
+     */
+    if (nav->screen != MESH_UI_SCREEN_NODES || nav->node_detail_open) {
         return false;
     }
 

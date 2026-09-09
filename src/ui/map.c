@@ -13,7 +13,6 @@
 #include "mesh/ui/map.h"
 
 #include "mesh/geo/coords.h"
-#include "mesh/geo/vector.h"
 #include "mesh/i18n/strings.h"
 #include "mesh/utils/text.h"
 
@@ -148,29 +147,26 @@ bool mesh_ui_map_selected(const struct mesh_ui_map_view *view,
         return false;
     }
 
-    /*
-     * The radius, converted from pixels to metres through the one measurement of a map that
-     * does not depend on how big the panel is. See the header: this is what lets the press and
-     * the ring be one decision made twice rather than two decisions that agree most of the time.
-     */
-    const double metres_per_pixel = mesh_map_viewport_metres_per_pixel(viewport);
-    if (metres_per_pixel <= 0.0) {
-        return false;
-    }
-    const double limit = metres_per_pixel * (double)MESH_UI_MAP_SELECT_RADIUS_PX;
-
+    const double limit =
+        (double)MESH_UI_MAP_SELECT_RADIUS_PX * (double)MESH_UI_MAP_SELECT_RADIUS_PX;
     bool found = false;
     uint32_t best_index = 0U;
     double best_distance = 0.0;
 
     for (uint32_t i = 0; i < view->count; ++i) {
-        struct mesh_geo_vector vector;
-        if (!mesh_geo_vector_between(viewport->center_latitude_i, viewport->center_longitude_i,
-                                     view->markers[i].latitude_i, view->markers[i].longitude_i,
-                                     &vector)) {
+        /*
+         * Measured where the marker is *drawn* - in pixels from the middle of the view - rather
+         * than across the ground between two coordinates. See the header: it is what makes the
+         * ring and the press one decision, and it is the only reading that gets the poles right.
+         */
+        double dx = 0.0;
+        double dy = 0.0;
+        if (!mesh_map_viewport_offset(viewport, view->markers[i].latitude_i,
+                                      view->markers[i].longitude_i, &dx, &dy)) {
             continue;
         }
-        if (vector.distance_m > limit) {
+        const double distance = dx * dx + dy * dy;
+        if (distance > limit) {
             continue;
         }
         /*
@@ -180,9 +176,9 @@ bool mesh_ui_map_selected(const struct mesh_ui_map_view *view,
          * is the order a reader means: the thing that moves is more interesting than the pin
          * somebody left on it.
          */
-        if (!found || vector.distance_m < best_distance) {
+        if (!found || distance < best_distance) {
             found = true;
-            best_distance = vector.distance_m;
+            best_distance = distance;
             best_index = i;
         }
     }

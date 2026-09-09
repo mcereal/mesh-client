@@ -80,13 +80,15 @@ bool mesh_map_viewport_center_on(struct mesh_map_viewport *viewport, int32_t lat
     return true;
 }
 
-bool mesh_map_viewport_place(const struct mesh_map_viewport *viewport, int32_t latitude_i,
-                             int32_t longitude_i, struct mesh_map_placement *out) {
-    if (out == NULL) {
-        return false;
+bool mesh_map_viewport_offset(const struct mesh_map_viewport *viewport, int32_t latitude_i,
+                              int32_t longitude_i, double *out_dx, double *out_dy) {
+    if (out_dx != NULL) {
+        *out_dx = 0.0;
     }
-    memset(out, 0, sizeof *out);
-    if (!viewport_has_area(viewport)) {
+    if (out_dy != NULL) {
+        *out_dy = 0.0;
+    }
+    if (viewport == NULL) {
         return false;
     }
     struct mesh_geo_point point;
@@ -114,8 +116,34 @@ bool mesh_map_viewport_place(const struct mesh_map_viewport *viewport, int32_t l
         dx += 1.0;
     }
 
-    const double x = (double)viewport->width / 2.0 + dx * world;
-    const double y = (double)viewport->height / 2.0 + (point.y - center.y) * world;
+    if (out_dx != NULL) {
+        *out_dx = dx * world;
+    }
+    if (out_dy != NULL) {
+        *out_dy = (point.y - center.y) * world;
+    }
+    return true;
+}
+
+bool mesh_map_viewport_place(const struct mesh_map_viewport *viewport, int32_t latitude_i,
+                             int32_t longitude_i, struct mesh_map_placement *out) {
+    if (out == NULL) {
+        return false;
+    }
+    memset(out, 0, sizeof *out);
+    if (!viewport_has_area(viewport)) {
+        return false;
+    }
+    /* The offset, and then the box - so a placement and a selection are one derivation with the
+       panel added at the end of one of them, rather than two that agree until they do not. */
+    double dx = 0.0;
+    double dy = 0.0;
+    if (!mesh_map_viewport_offset(viewport, latitude_i, longitude_i, &dx, &dy)) {
+        return false;
+    }
+
+    const double x = (double)viewport->width / 2.0 + dx;
+    const double y = (double)viewport->height / 2.0 + dy;
 
     /*
      * Clamped before the cast rather than after it. A marker half a world away at zoom 18 is

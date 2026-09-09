@@ -37,8 +37,8 @@
  * about a hundred metres and finer than any fix on a mesh is reported to.
  */
 static const int32_t k_graticule_steps[] = {
-    1000,     2000,     5000,     10000,     20000,     50000,     100000,    200000,
-    500000,   1000000,  2000000,  5000000,   10000000,  20000000,  50000000,  100000000,
+    1000,   2000,    5000,    10000,   20000,    50000,    100000,   200000,
+    500000, 1000000, 2000000, 5000000, 10000000, 20000000, 50000000, 100000000,
 };
 
 /* The narrowest a graticule cell may be drawn. Below this the grid stops being a scale and
@@ -67,6 +67,65 @@ struct fb_map_box {
 
 static bool fb_map_boxes_overlap(const struct fb_map_box *a, const struct fb_map_box *b) {
     return a->x < b->x + b->w && b->x < a->x + a->w && a->y < b->y + b->h && b->y < a->y + a->h;
+}
+
+/*
+ * The map's artwork is clipped to the map's own body, and this is what does it.
+ *
+ * `visible` is a statement about a marker's *centre*, which is all a placement can honestly say -
+ * but a marker is not a point when it is drawn. A rounded-position footprint can be a hundred
+ * pixels across and a label is a run of text, so a marker whose centre is a pixel inside the top
+ * edge paints most of itself over the app bar. Testing the centre and drawing a shape is the
+ * whole of that bug, and no amount of care at the call sites fixes it: the shapes have different
+ * extents and two of them are drawn by components that do not take a bounding box.
+ *
+ * So the clip goes on the state, where fb_fill_packed() already honours one - every fill, glyph
+ * and icon span in this backend goes through that one function, so a rectangle set here covers
+ * the discs, the pins and the names alike.
+ *
+ * It *intersects* rather than replaces, and that is not defensive: fb_render_snapshot() sets a
+ * clip of its own for the partial-redraw path, and a map that overwrote it would repaint rows
+ * outside the damage the frame had promised to touch.
+ */
+struct fb_map_clip {
+    bool active;
+    struct fb_damage_rect rect;
+};
+
+static void fb_map_clip_push(struct mesh_ui_backend_fb_state *state, const struct fb_map_box *body,
+                             struct fb_map_clip *saved) {
+    saved->active = state->clip_active;
+    saved->rect = state->clip;
+
+    struct fb_damage_rect wanted = {
+        .x = body->x,
+        .y = body->y,
+        .right = body->x + body->w,
+        .bottom = body->y + body->h,
+        .valid = true,
+    };
+    if (state->clip_active) {
+        if (state->clip.x > wanted.x) {
+            wanted.x = state->clip.x;
+        }
+        if (state->clip.y > wanted.y) {
+            wanted.y = state->clip.y;
+        }
+        if (state->clip.right < wanted.right) {
+            wanted.right = state->clip.right;
+        }
+        if (state->clip.bottom < wanted.bottom) {
+            wanted.bottom = state->clip.bottom;
+        }
+    }
+    state->clip = wanted;
+    state->clip_active = true;
+}
+
+static void fb_map_clip_pop(struct mesh_ui_backend_fb_state *state,
+                            const struct fb_map_clip *saved) {
+    state->clip_active = saved->active;
+    state->clip = saved->rect;
 }
 
 /*
@@ -131,8 +190,8 @@ static int32_t fb_map_grid_floor(int32_t value, int32_t step) {
  * thing a client with no tiles is entitled to draw.
  */
 static void fb_map_draw_grid(const struct mesh_ui_backend_fb_state *state,
-                             const struct mesh_map_viewport *viewport, const struct fb_map_box *body,
-                             struct mesh_ui_rgb ink) {
+                             const struct mesh_map_viewport *viewport,
+                             const struct fb_map_box *body, struct mesh_ui_rgb ink) {
     const int32_t step = fb_map_grid_step(viewport);
     const int thickness = fb_rule_height(state, state->scale);
 
@@ -263,9 +322,9 @@ static void fb_map_draw_crosshair(const struct mesh_ui_backend_fb_state *state,
      * ring, the line under the body and the press from ever being three answers.
      */
     const struct mesh_ui_rgb ink =
-        on_something ? fb_paint(state, MESH_UI_FAMILY_PRIMARY, MESH_UI_SLOT_BASE, MESH_UI_STATE_REST)
-                           .fill
-                     : fb_color(state, MESH_UI_COLOR_TEXT_DIM);
+        on_something
+            ? fb_paint(state, MESH_UI_FAMILY_PRIMARY, MESH_UI_SLOT_BASE, MESH_UI_STATE_REST).fill
+            : fb_color(state, MESH_UI_COLOR_TEXT_DIM);
 
     fb_fill_rect(state, cx - thickness / 2, cy - gap - arm, thickness, arm, ink);
     fb_fill_rect(state, cx - thickness / 2, cy + gap, thickness, arm, ink);
@@ -438,6 +497,14 @@ void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_
         return;
     }
 
+    /*
+     * Everything from here to the pop is inside the map's own box. The app bar above is already
+     * drawn and the line below it is drawn after, both deliberately outside - they are chrome
+     * about the map rather than part of the picture.
+     */
+    struct fb_map_clip clip;
+    fb_map_clip_push(state, &body, &clip);
+
     /* The ground the map is drawn on: the recessed surface, so the body reads as a panel the
        markers sit in rather than as the screen's own background with dots on it. */
     fb_fill_rect(state, body.x, body.y, body.w, body.h, fb_color(state, MESH_UI_COLOR_SURFACE_LOW));
@@ -540,10 +607,8 @@ void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_
         }
 
         if (taken_count < FB_MAP_BOXES_MAX) {
-            taken[taken_count++] = (struct fb_map_box){.x = cx - radius,
-                                                       .y = cy - radius,
-                                                       .w = radius * 2,
-                                                       .h = radius * 2};
+            taken[taken_count++] = (struct fb_map_box){
+                .x = cx - radius, .y = cy - radius, .w = radius * 2, .h = radius * 2};
         }
     }
 
@@ -602,5 +667,8 @@ void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_
     const bool on_something = mesh_ui_map_selected(&view, &viewport, &selected);
     fb_map_draw_crosshair(state, &body, on_something);
     fb_map_draw_scale(state, &viewport, &body, snapshot->settings.units == 1U, scale);
+    fb_map_clip_pop(state, &clip);
+
+    /* Outside the box, because it is what the map has to say rather than part of what it draws. */
     fb_map_draw_selection(state, snapshot, &view, &viewport, selection_y, scale);
 }

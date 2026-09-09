@@ -180,12 +180,17 @@ void mesh_ui_map_build(const struct mesh_ui_store *store, struct mesh_ui_map_vie
  * stepped between markers instead would be a map that cannot be panned, and panning is most of
  * what a map without a basemap is for.
  *
- * Measured from the view's centre *coordinate*, in metres, against a radius converted through
- * mesh_map_viewport_metres_per_pixel() - and never in panel pixels. That is the whole reason
- * this can be asked by the nav and by a backend and give one answer: the nav decides what A
- * opens and the backend draws the ring, the two cannot ask each other how wide the body is, and
- * a selection that depended on the body's width would let the ring and the press disagree about
- * which node the reader is looking at.
+ * Measured in pixels from the middle of the view through mesh_map_viewport_offset(), which is
+ * the same arithmetic a placement does with the panel left off the end - so the marker under the
+ * crosshair is by construction the marker a renderer drew there. It needs no box, which is what
+ * lets the nav and a backend give one answer: the nav decides what A opens and the backend draws
+ * the ring, the two cannot ask each other how wide the body is, and a selection that depended on
+ * the body's width would let them disagree about which node the reader is looking at.
+ *
+ * In the projection rather than across the ground, and that is not a shortcut. A fix beyond the
+ * display limit is *drawn* at the limit, so a marker at 88 degrees north and a view framed on it
+ * are the same point on the picture and three degrees apart on Earth - and a geodesic distance
+ * would refuse a marker sitting dead centre under the crosshair.
  *
  * False when nothing is near enough, which is a real and common state - a reader panning between
  * two clusters is looking at empty grid, and a selection that stuck to the last marker would

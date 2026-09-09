@@ -778,3 +778,143 @@ MESH_TEST_CASE(map_closes_when_there_is_nothing_left_to_draw, unit) {
     mesh_ui_store_shutdown(&store);
     record_success(test_name);
 }
+
+/*
+ * The map's presses belong to the map's own screen, and to nothing else.
+ *
+ * `map_open` deliberately survives a change of tab - every tab in this client keeps its own
+ * place, and coming back to Nodes should show the view that was left. What must not survive is
+ * the *key handling*: nav_map.c takes the d-pad ahead of the routing that turns Left and Right
+ * into tabs, so a guard that asked only whether a map was open somewhere would have the arrows,
+ * A, B, X, Y and START acting on a screen the reader cannot see.
+ *
+ * Two ways in, and the second is the worse one. A shoulder press walks off the Nodes tab with
+ * the map still open underneath it; and A on a waypoint marker jumps to the Waypoints tab, where
+ * the first B would close the hidden map rather than the place that is actually on the panel.
+ */
+MESH_TEST_CASE(map_keys_belong_to_the_screen_the_map_is_on, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    map_test_populate(&store);
+
+    struct mesh_ui_action action;
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
+
+    /* Off to the next tab, with the map still open behind us - which is the point. */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
+    MESH_TEST_FAIL_IF(store.nav.screen == MESH_UI_SCREEN_NODES, "R1 left the Nodes tab");
+    MESH_TEST_FAIL_IF(!store.nav.map_open, "and the map is still open behind it");
+
+    const enum mesh_ui_screen elsewhere = store.nav.screen;
+    const int32_t longitude = store.nav.map_viewport.center_longitude_i;
+    const uint8_t zoom = store.nav.map_viewport.zoom;
+
+    /* Now every press the map claims has to belong to the tab in front of the reader. */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    MESH_TEST_FAIL_IF(store.nav.map_viewport.center_longitude_i != longitude,
+                      "Right on another tab must not pan the hidden map");
+    MESH_TEST_FAIL_IF(store.nav.screen == elsewhere, "it moves along the tabs, as it always does");
+
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    MESH_TEST_FAIL_IF(store.nav.map_viewport.zoom != zoom,
+                      "X on another tab must not zoom the hidden map");
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    MESH_TEST_FAIL_IF(!store.nav.map_open, "B on another tab must not close the hidden map");
+
+    /* And back onto Nodes, where the map is what is on the panel and the presses are its own. */
+    while (store.nav.screen != MESH_UI_SCREEN_NODES) {
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_L1, &action);
+    }
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    MESH_TEST_FAIL_IF(store.nav.map_viewport.zoom != zoom + 1U, "X on the map zooms it again");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/* The same guard, reached the other way: a place opened from the map lands on the Waypoints tab,
+   and the first B there has to close the place rather than the map left behind on Nodes. */
+MESH_TEST_CASE(map_hands_the_keys_over_when_a_place_opens, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    map_test_populate(&store);
+
+    struct mesh_ui_action action;
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
+
+    (void)mesh_map_viewport_center_on(&store.nav.map_viewport, MAP_TEST_LATITUDE - 20000,
+                                      MAP_TEST_LONGITUDE + 10000);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF(store.nav.screen != MESH_UI_SCREEN_WAYPOINTS, "the place opened on its tab");
+    MESH_TEST_FAIL_IF(!store.nav.waypoint_detail_open, "showing that place");
+
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    MESH_TEST_FAIL_IF(store.nav.waypoint_detail_open,
+                      "B closes the place that is on the panel, not the map behind it");
+    MESH_TEST_FAIL_IF(!store.nav.map_open, "and the map is still where it was left");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * A marker under the crosshair is selectable, including the ones the projection had to clamp.
+ *
+ * A fix at 88 degrees north is real - mesh_geo_coords_valid() accepts it, because Svalbard is a
+ * place - and the projection draws it at the top edge of the picture rather than refusing it.
+ * That clamp is what makes this case: the marker is *drawn* at the display limit, so a view
+ * framed on it puts it exactly under the crosshair, while the coordinate it carries is still
+ * three degrees further north. A selection measured between the two coordinates therefore reads
+ * hundreds of kilometres and refuses a marker the reader can see dead centre.
+ *
+ * The fix is that the selection is measured where the marker is *drawn* - in the projection,
+ * the same arithmetic the renderer does - rather than across the ground. That keeps the ring and
+ * the press one decision in the one case where the ground and the picture disagree.
+ */
+MESH_TEST_CASE(map_selects_a_marker_the_projection_had_to_clamp, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_handshake_state handshake = store.handshake;
+    handshake.nodes[1].position.valid = true;
+    handshake.nodes[1].position.latitude_i = 880000000; /* well past the display limit */
+    handshake.nodes[1].position.longitude_i = 150000000;
+    mesh_ui_store_set_handshake(&store, &handshake);
+    mesh_ui_store_consume_updates(&store, NULL);
+
+    struct mesh_ui_map_view view;
+    mesh_ui_map_build(&store, &view);
+    MESH_TEST_FAIL_IF(view.count != 1U, "the far northern node is a marker");
+
+    struct mesh_map_viewport viewport;
+    mesh_map_viewport_init(&viewport, 0, 0, MESH_MAP_ZOOM_DEFAULT);
+    mesh_map_viewport_resize(&viewport, MESH_UI_MAP_FIT_WIDTH, MESH_UI_MAP_FIT_HEIGHT);
+    struct mesh_geo_point points[MESH_UI_MAP_MARKERS_MAX];
+    const uint32_t count = mesh_ui_map_points(&view, points, MESH_UI_MAP_MARKERS_MAX);
+    MESH_TEST_FAIL_IF(!mesh_map_viewport_fit(&viewport, points, (size_t)count, 0), "it frames");
+
+    /* Drawn dead centre, because both the marker and the view's own centre clamp to the same
+       parallel - which is exactly why the two coordinates no longer match. */
+    struct mesh_map_placement placement;
+    MESH_TEST_FAIL_IF(!mesh_map_viewport_place(&viewport, view.markers[0].latitude_i,
+                                               view.markers[0].longitude_i, &placement),
+                      "the marker places");
+    MESH_TEST_FAIL_IF(!map_near(placement.x, MESH_UI_MAP_FIT_WIDTH / 2, 2) ||
+                          !map_near(placement.y, MESH_UI_MAP_FIT_HEIGHT / 2, 2),
+                      "and lands under the crosshair");
+    MESH_TEST_FAIL_IF(viewport.center_latitude_i == view.markers[0].latitude_i,
+                      "while the two coordinates genuinely differ");
+
+    uint32_t index = 0U;
+    MESH_TEST_FAIL_IF(!mesh_ui_map_selected(&view, &viewport, &index),
+                      "so a marker on the crosshair is what A opens");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
