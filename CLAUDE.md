@@ -332,15 +332,34 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   pairs are the same press on every other screen, and splitting them here is what lets the map
   have the d-pad without the tab strip above the body going dead. The action bar still says
   "L/R tabs" here and still means it.
+- **`map_open` outliving a change of tab is deliberate, and the key handler must still check
+  `nav->screen`.** Every tab keeps its own place, so coming back to Nodes shows the view that was
+  left — which means the flag says *where the Nodes tab is standing*, not *what the reader is
+  looking at*. Two presses make the difference: a shoulder walks off the tab with the map still
+  open behind it, and A on a waypoint marker jumps to the Waypoints tab outright. Read as "a map
+  is open somewhere", the arrows pan a map nobody can see and the first B on that place closes it
+  instead of the place. `mesh_ui_nav_map_key()` gates on the screen for that reason.
+- **The map clips its artwork to its own body, and `visible` is not enough on its own.** A
+  placement can only honestly speak for a marker's *centre*, but a marker is not a point once it
+  is drawn: a rounded-position footprint is the widest thing the map places, so a marker centred
+  a pixel inside the top edge paints most of itself over the app bar. The clip goes on the fb
+  state, where `fb_fill_packed()` already honours one — every fill, glyph and icon span goes
+  through that one function — and it *intersects* the partial-redraw path's clip rather than
+  replacing it.
 - **The map has no selection field on the nav, and must not grow one.** What A opens is the
   marker nearest the middle of the view, derived every frame by `mesh_ui_map_selected()`. That is
   the app bar's back arrow and the transition route again: a second opinion about the nav is a
   second opinion that can be wrong, and here it would let the ring a backend draws and the node a
-  press opens name two different nodes. It works because the distance is measured *in metres*
-  against a radius converted through `mesh_map_viewport_metres_per_pixel()`, which depends on
-  zoom and latitude and not on the panel — the store owns the nav and a backend is handed a
-  `const` snapshot, so the two genuinely cannot ask each other how wide the body is. Anything
-  box-dependent there is the bug.
+  press opens name two different nodes. It works because the distance is measured **in pixels
+  from the middle of the view**, through `mesh_map_viewport_offset()` — which is the same
+  arithmetic a placement does with the panel left off the end, so `mesh_map_viewport_place()` is
+  written in terms of it. Two properties come out of that and both are load-bearing. It needs no
+  box: the store owns the nav and a backend is handed a `const` snapshot, so the two genuinely
+  cannot ask each other how wide the body is, and anything box-dependent there is the bug. And it
+  is measured *in the projection* rather than across the ground, which is the only reading that
+  gets the poles right — a fix beyond the display limit is drawn at the limit, so a marker at 88
+  degrees north and a view framed on it are the same point on the picture and three degrees apart
+  on Earth. A geodesic distance there refuses a marker sitting under the crosshair.
 - **The map's fit is computed against a declared box, not a measured one.** For the same reason:
   the nav cannot learn a backend's body size. `MESH_UI_MAP_FIT_WIDTH` is deliberately *smaller*
   than any body this client draws into, because a fit computed for a small box and drawn into a
