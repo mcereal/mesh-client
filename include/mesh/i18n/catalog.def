@@ -786,7 +786,7 @@ MESH_STR_ENTRY(HELP_OVERVIEW,             "About this screen")
  * one class of string in this catalog with that dispensation - see docs/i18n.md.
  */
 MESH_STR_ENTRY(SETTINGS_NOTE_ABOUT,                       "MeshClient itself: which version is running, where it keeps its data, and the self-update rows. Nothing on this screen reaches the radio.")
-MESH_STR_ENTRY(SETTINGS_NOTE_RADIO,                       "What the attached radio says about itself - its firmware, its hardware and its node number. Read-only: a setting you can change lives in the section that owns it.")
+MESH_STR_ENTRY(SETTINGS_NOTE_RADIO,                       "What the attached radio says about itself, and what firmware upstream publishes for its board. Read-only: a setting you can change lives in the section that owns it, and installing is not built yet.")
 MESH_STR_ENTRY(SETTINGS_NOTE_USER,                        "Your identity on the mesh. The long name is what node lists show; the short name is the few characters other radios draw on their own screens.")
 MESH_STR_ENTRY(SETTINGS_NOTE_DEVICE,                      "How this radio behaves on the mesh: the role it plays, how often it announces itself, and what it repeats for other nodes. Role has the widest effect of anything here.")
 MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY,                     "The radio's own screen: how long it stays lit, which way up it draws, and whether it reads in metric or imperial. None of it changes what the Brick shows.")
@@ -2004,6 +2004,66 @@ MESH_STR_ENTRY(UPDATE_TLS_UNVERIFIED,     "Could not verify GitHub's certificate
 MESH_STR_ENTRY(UPDATE_NO_CA_BUNDLE,       "No CA certificates; reinstall the pak")
 MESH_STR_ENTRY(UPDATE_CHECK_EXIT,         "Check failed (%s exit %d)")
 MESH_STR_ENTRY(UPDATE_DOWNLOAD_EXIT,      "Download failed (%s exit %d)")
+
+/* ---- the radio's firmware ------------------------------------------------------------------ */
+
+/*
+ * The other binary in the room: the Meshtastic firmware on the node, not this client.
+ * docs/radio-firmware-roadmap.md is the plan; today the client only reports.
+ *
+ * **Everything from here to the labels is a value-column value, so every one of them is short.**
+ * That is a hard constraint rather than a preference: a settings row has no supporting line to
+ * wrap a sentence onto, and the column is about two dozen cells at the device scale - so a
+ * reason spelled as prose comes out as "connect it by USB to updat", which reads as a bug. The
+ * long form of any of these belongs in a toast or the log, where a sentence has room.
+ *
+ * "Meshtastic" is a name and stays as it is. So do version strings, build targets and "curl",
+ * which are identifiers rather than words.
+ */
+MESH_STR_ENTRY(FW_STATE_IDLE,             "not checked")
+MESH_STR_ENTRY(FW_STATE_IDENTIFYING,      "identifying")
+MESH_STR_ENTRY(FW_STATE_CHECKING,         "checking")
+MESH_STR_ENTRY(FW_STATE_UP_TO_DATE,       "up to date")
+MESH_STR_ENTRY(FW_STATE_AVAILABLE,        "update available")
+MESH_STR_ENTRY(FW_STATE_FAILED,           "failed")
+/* Why a check did not produce an answer. The two lists are worth telling apart: a hardware
+   list that would not read leaves the version question answerable, and a firmware list that
+   would not read leaves the board question answered. */
+MESH_STR_ENTRY(FW_NO_RADIO,               "no radio")
+MESH_STR_ENTRY(FW_HARDWARE_UNREADABLE,    "hardware list failed")
+MESH_STR_ENTRY(FW_INDEX_UNREADABLE,       "firmware list failed")
+MESH_STR_ENTRY(FW_TIMED_OUT,              "timed out")
+/* The fetcher's own name and the code it stopped with. Both identifiers. */
+MESH_STR_ENTRY(FW_CHECK_EXIT,             "%s exit %d")
+MESH_STR_ENTRY(FW_TLS_UNVERIFIED,         "server not verified")
+MESH_STR_ENTRY(FW_NO_CA_BUNDLE,           "no CA certificates")
+/*
+ * Why the client cannot install what it just found. Each is a row rather than a silence: a
+ * radio behaving oddly is often a radio on old firmware, and the answer to "why can I not fix
+ * that from here" is worth a line even when it is disappointing.
+ */
+MESH_STR_ENTRY(FW_BLOCK_UNKNOWN_BOARD,    "board not listed")
+MESH_STR_ENTRY(FW_BLOCK_AMBIGUOUS,        "several boards match")
+MESH_STR_ENTRY(FW_BLOCK_UNSUPPORTED,      "no longer built")
+MESH_STR_ENTRY(FW_BLOCK_NO_PATH,          "not from this client")
+/* The two halves of the same refusal: the board can be updated, over the other bus. */
+MESH_STR_ENTRY(FW_BLOCK_CONNECT_USB,      "connect it by USB")
+MESH_STR_ENTRY(FW_BLOCK_CONNECT_BLE,      "connect by Bluetooth")
+/* Phase 1 reports and installs nothing, and a row that stopped short of saying so would read
+   as a button somebody forgot to wire up. */
+MESH_STR_ENTRY(FW_NOT_YET_IMPLEMENTED,    "not built yet")
+/*
+ * The labels, under Settings > About radio. Two of them name the same row: the question is
+ * "what firmware is out there", and once the answer is a version worth having, the row is named
+ * after the answer instead - which is what lets the value column carry the version rather than
+ * a sentence about it. The same trick About plays with "Install %s".
+ */
+MESH_STR_ENTRY(FW_LATEST,                 "Radio firmware")
+MESH_STR_ENTRY(FW_NEWER,                  "Newer firmware")
+MESH_STR_ENTRY(FW_CHECK,                  "Check for firmware")
+MESH_STR_ENTRY(FW_INSTALLING,             "Installing")
+/* The toast the check press raises, where a sentence has room. */
+MESH_STR_ENTRY(TOAST_CHECKING_FIRMWARE,   "Checking for radio firmware...")
 
 /* ---- language ------------------------------------------------------------------------------------ */
 

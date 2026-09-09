@@ -391,6 +391,15 @@ enum mesh_ui_settings_action {
      * no edits either; the row reads nothing above it.
      */
     MESH_UI_SETTINGS_ACTION_REQUEST_HISTORY,
+    /*
+     * About radio: ask what firmware exists for this board.
+     *
+     * A client action rather than a radio one - it reads two documents over HTTPS and touches
+     * the radio not at all - and no confirm overlay, because nothing it does can be regretted.
+     * The press that *installs* firmware is a different row that does not exist yet
+     * (docs/radio-firmware-roadmap.md), and it will need the sheet this one does not.
+     */
+    MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE,
 };
 
 /* Which press writes this field (mesh/ui/nav.h). */

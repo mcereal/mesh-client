@@ -1,0 +1,35 @@
+# Settings > About radio, once the client has asked what firmware exists for the board.
+#
+# Three of the four answers, because the fourth - "checking" - is the one that costs a frame
+# and says nothing: it is the indeterminate meter, and gauges.scene already films one of those.
+# What is worth looking at here is the pair of rows: what the check found, and why it cannot be
+# acted on. They are different answers and they sit next to each other, so a picture is the
+# only way to see whether that reads as one thought or as two.
+scene demo
+clock 2026-09-09 14:20
+delay 1800
+config
+
+tab settings
+key down 1
+key a
+
+# Behind, on the bus that would carry it: nothing refuses this except the phase that installs
+# firmware not being written yet, which is what the last row has to say without reading as a
+# button somebody forgot to wire up.
+firmware behind
+hold 2400
+
+# The same board on the other bus. This is the refusal worth having - it names something the
+# user can go and do - and the row above it has not changed, which is the point of the two
+# being separate rows.
+firmware behind usb
+hold 2400
+
+# A model four boards share. Upstream's own flasher picks the first; this one says so and stops.
+firmware behind ambiguous
+hold 2400
+
+# And the settled case, where the only row left is the version.
+firmware current
+hold 2400

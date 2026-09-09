@@ -793,6 +793,29 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
         mesh_ui_store_set_toast(&app->ui_store, now, toast);
         return;
     }
+    case MESH_UI_ACTION_CHECK_RADIO_FIRMWARE: {
+        /* What the radio said about itself is the whole input: the model number decides which
+           board this is and the version decides whether the newest release is news. Both may
+           be absent, and a check on either still reports what upstream has published - see
+           mesh_firmware_check(). */
+        const struct mesh_radio_settings *const settings = mesh_session_settings(&app->session);
+        const bool known = settings != NULL && settings->has_metadata;
+        const int result =
+            mesh_firmware_check(&app->firmware, known ? (uint32_t)settings->metadata.hw_model : 0U,
+                                known ? settings->metadata.firmware_version : "", now);
+        if (result == 0) {
+            mesh_str_copy(toast, sizeof toast, mesh_str(MESH_STR_TOAST_CHECKING_FIRMWARE));
+        } else if (result == -ENOTSUP) {
+            mesh_str_copy(toast, sizeof toast, mesh_str(MESH_STR_TOAST_UPDATES_UNAVAILABLE));
+        } else if (result == -EBUSY) {
+            mesh_str_copy(toast, sizeof toast, mesh_str(MESH_STR_TOAST_ALREADY_CHECKING));
+        } else {
+            mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_UPDATE_CHECK_FAILED, result);
+            mesh_log_warn("ui", "Firmware check could not start: %d", result);
+        }
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
     case MESH_UI_ACTION_INSTALL_UPDATE: {
         const int result = mesh_updater_install(&app->updater, now);
         if (result == 0) {

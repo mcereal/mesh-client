@@ -379,6 +379,11 @@ enum mesh_ui_action_type {
        through the client info in the next snapshot. */
     MESH_UI_ACTION_CYCLE_THEME,
     MESH_UI_ACTION_CYCLE_LANGUAGE,
+    /* About radio: ask what firmware exists for the *radio*, which is a different binary on a
+       different computer and a different pair of documents. Its own action rather than a flag
+       on CHECK_UPDATE because the two can be in flight at once and fail separately, and
+       because only one of them ever installs anything. */
+    MESH_UI_ACTION_CHECK_RADIO_FIRMWARE,
     /* Radio actions section: `number` is the enum mesh_ui_settings_action the user confirmed.
        One action type rather than five because the nav has nothing to say about any of them
        beyond which row it was - the app owns what each one means. */

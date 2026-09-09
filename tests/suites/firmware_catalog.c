@@ -97,13 +97,19 @@ MESH_TEST_CASE(firmware_catalog_paths_per_architecture, unit) {
         const char *architecture;
         enum mesh_firmware_path path;
     } k_expected[] = {
-        {"nrf52840", MESH_FIRMWARE_PATH_USB},  {"rp2040", MESH_FIRMWARE_PATH_USB},
-        {"rp2350", MESH_FIRMWARE_PATH_USB},    {"esp32", MESH_FIRMWARE_PATH_BLE},
-        {"esp32-s3", MESH_FIRMWARE_PATH_BLE},  {"esp32-c3", MESH_FIRMWARE_PATH_NONE},
-        {"esp32-c6", MESH_FIRMWARE_PATH_NONE}, {"portduino", MESH_FIRMWARE_PATH_NONE},
+        {"nrf52840", MESH_FIRMWARE_PATH_USB},
+        {"rp2040", MESH_FIRMWARE_PATH_USB},
+        {"rp2350", MESH_FIRMWARE_PATH_USB},
+        {"esp32", MESH_FIRMWARE_PATH_BLE},
+        {"esp32-s3", MESH_FIRMWARE_PATH_BLE},
+        {"esp32-c3", MESH_FIRMWARE_PATH_NONE},
+        {"esp32-c6", MESH_FIRMWARE_PATH_NONE},
+        {"portduino", MESH_FIRMWARE_PATH_NONE},
         /* The prefix trap in both directions, and an architecture that does not exist yet. */
-        {"esp32-", MESH_FIRMWARE_PATH_NONE},   {"esp32s3", MESH_FIRMWARE_PATH_NONE},
-        {"nrf52", MESH_FIRMWARE_PATH_NONE},    {"stm32wl", MESH_FIRMWARE_PATH_NONE},
+        {"esp32-", MESH_FIRMWARE_PATH_NONE},
+        {"esp32s3", MESH_FIRMWARE_PATH_NONE},
+        {"nrf52", MESH_FIRMWARE_PATH_NONE},
+        {"stm32wl", MESH_FIRMWARE_PATH_NONE},
         {"", MESH_FIRMWARE_PATH_NONE},
     };
     for (size_t i = 0; i < sizeof k_expected / sizeof k_expected[0]; ++i) {

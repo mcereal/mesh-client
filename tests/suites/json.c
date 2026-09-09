@@ -74,15 +74,20 @@ MESH_TEST_CASE(json_unescapes_and_truncates_strings, unit) {
     MESH_TEST_FAIL_IF(!mesh_json_enter_array(&json), "the document is an array");
 
     char out[8];
-    MESH_TEST_FAIL_IF(!mesh_json_next_element(&json) || !mesh_json_read_string(&json, out, sizeof out),
+    MESH_TEST_FAIL_IF(!mesh_json_next_element(&json) ||
+                          !mesh_json_read_string(&json, out, sizeof out),
                       "the first string should read");
     MESH_TEST_FAIL_IF(strcmp(out, "a\"b\\c\n") != 0, "the simple escapes should be unescaped");
 
-    MESH_TEST_FAIL_IF(!mesh_json_next_element(&json) || !mesh_json_read_string(&json, out, sizeof out),
+    MESH_TEST_FAIL_IF(!mesh_json_next_element(&json) ||
+                          !mesh_json_read_string(&json, out, sizeof out),
                       "the second string should read");
-    MESH_TEST_FAIL_IF(strcmp(out, "\xc3\xa9" "A") != 0, "\\u should come out as UTF-8");
+    MESH_TEST_FAIL_IF(strcmp(out, "\xc3\xa9"
+                                  "A") != 0,
+                      "\\u should come out as UTF-8");
 
-    MESH_TEST_FAIL_IF(!mesh_json_next_element(&json) || !mesh_json_read_string(&json, out, sizeof out),
+    MESH_TEST_FAIL_IF(!mesh_json_next_element(&json) ||
+                          !mesh_json_read_string(&json, out, sizeof out),
                       "the third string should read");
     MESH_TEST_FAIL_IF(strcmp(out, "?lone") != 0, "half a surrogate pair is not a character");
 
@@ -91,7 +96,8 @@ MESH_TEST_CASE(json_unescapes_and_truncates_strings, unit) {
      * after the string, so the array closes where it should. A reader that stopped writing and
      * also stopped reading would leave the walk inside a string it never left.
      */
-    MESH_TEST_FAIL_IF(!mesh_json_next_element(&json) || !mesh_json_read_string(&json, out, sizeof out),
+    MESH_TEST_FAIL_IF(!mesh_json_next_element(&json) ||
+                          !mesh_json_read_string(&json, out, sizeof out),
                       "an oversized string should still be consumed");
     MESH_TEST_FAIL_IF(strlen(out) != sizeof out - 1U, "it should fill the buffer and terminate");
     MESH_TEST_FAIL_IF(mesh_json_next_element(&json), "the array should end after four elements");

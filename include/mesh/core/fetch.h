@@ -152,6 +152,14 @@ const char *mesh_fetch_tool(const struct mesh_fetch *fetch);
 void mesh_fetch_resolve_ca_bundle(struct mesh_fetch *fetch, const char *shipped);
 
 /*
+ * Uses a bundle somebody else already resolved. For a second fetcher in the same process: the
+ * answer is a fact about how this binary was installed, and two modules working it out
+ * separately is two answers that can disagree. An empty or NULL path leaves the fetcher on the
+ * tool's own defaults.
+ */
+void mesh_fetch_set_ca_bundle(struct mesh_fetch *fetch, const char *path);
+
+/*
  * Starts `request`. Returns 0, or -errno: -ENOTSUP with no fetcher, -EBUSY with a child
  * already running, -EINVAL for a request with no URL and no callback. On any error nothing was
  * spawned and `on_done` will not be called.

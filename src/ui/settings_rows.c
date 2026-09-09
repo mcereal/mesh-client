@@ -15,6 +15,7 @@
 /* store_forward.h for the request-state enum, on node_detail.c's terms: the UI struct carries
    it as a byte so store.h stays nanopb-free, and this file already pulls nanopb in through
    radio_settings.h - so naming the real enum here beats keeping a second copy of it in step. */
+#include "mesh/core/firmware.h"
 #include "mesh/core/store_forward.h"
 #include "mesh/core/updater.h"
 #include "mesh/core/version.h"
@@ -564,6 +565,67 @@ static void build_connection(const struct mesh_ui_connection_status *conn, struc
     }
 }
 
+/*
+ * What newer firmware exists for the radio, under the version row that prompted the question.
+ *
+ * Three rows at most, and every one of them is a fact rather than an offer: this client
+ * installs nothing yet (docs/radio-firmware-roadmap.md), so the rows say what is out there and
+ * why it cannot be had from here. That last part is the one worth keeping - a radio behaving
+ * oddly is often a radio on old firmware, and "connect it by USB" is a thing somebody can go
+ * and do, where a missing row is not.
+ *
+ * **Every value here is a value, never a sentence.** The column is about two dozen cells at the
+ * device scale and a settings row has no supporting line to wrap onto, so "%s available (radio
+ * has %s)" came out as "2.7.26.54e0d8d available (" - a row that reads as a bug. What carries
+ * the difference instead is the row's *name*: once the answer is a version worth having, the
+ * label says "Newer firmware" and the value is just the version. About's own "Install %s" row
+ * made the same move for the same reason.
+ *
+ * The status row is a meter while a check runs, for the reason About's own is: "checking"
+ * answers whether something is happening and not whether it is *still* happening, and these two
+ * documents are 200 KB over whatever wifi a handheld has. Neither has a fraction - the reply
+ * has no length until it arrives - so it is the indeterminate bar both times.
+ */
+static void build_radio_firmware(const struct mesh_ui_settings *s, struct item_list *list) {
+    if (!s->fw_supported) {
+        /* No curl and no wget. Said once rather than offering a press that cannot run. */
+        item_str(list, MESH_STR_FW_LATEST, MESH_UI_SETTING_INFO,
+                 MESH_STR_ABOUT_UPDATES_UNAVAILABLE);
+        return;
+    }
+    if (s->fw_busy) {
+        item_meter(list, MESH_STR_FW_LATEST,
+                   mesh_firmware_state_name((enum mesh_firmware_state)s->fw_state),
+                   MESH_UI_METER_UNKNOWN);
+        return;
+    }
+
+    const bool newer = s->fw_state == (uint8_t)MESH_FIRMWARE_AVAILABLE;
+    /*
+     * The one thing the check concluded. Before a check has run the module has no line and the
+     * state's own word stands in - which is also why the press below is offered whatever state
+     * this is in: a check is worth repeating, and a failed one is worth retrying.
+     */
+    item_text(list, newer ? MESH_STR_FW_NEWER : MESH_STR_FW_LATEST, MESH_UI_SETTING_INFO,
+              s->fw_message[0] != '\0'
+                  ? s->fw_message
+                  : mesh_firmware_state_name((enum mesh_firmware_state)s->fw_state));
+    item_action(list, MESH_STR_FW_CHECK, mesh_str(MESH_STR_COMMON_PRESS_A),
+                MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE);
+
+    /*
+     * Why it cannot be installed, once there is something to install. Not shown before a check
+     * or after a failed one: the reason would be about a board nothing has looked up yet, and a
+     * refusal is only useful next to the thing being refused.
+     */
+    if (!newer && s->fw_state != (uint8_t)MESH_FIRMWARE_UP_TO_DATE) {
+        return;
+    }
+    item_text(list, MESH_STR_FW_INSTALLING, MESH_UI_SETTING_INFO,
+              s->fw_blocker_reason[0] != '\0' ? s->fw_blocker_reason
+                                              : mesh_str(MESH_STR_FW_NOT_YET_IMPLEMENTED));
+}
+
 static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_handshake_state *hs,
                         struct item_list *list) {
     char buffer[48];
@@ -572,8 +634,15 @@ static void build_radio(const struct mesh_ui_settings *s, const struct mesh_ui_h
                   s->firmware_version[0] != '\0' ? s->firmware_version
                                                  : mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT));
         item_text(list, MESH_STR_RADIO_HARDWARE, MESH_UI_SETTING_INFO,
-                  mesh_radio_hw_model_name(s->hw_model, buffer, sizeof buffer));
+                  /* The board upstream's hardware list identified, when a check has run: it is
+                     the name that decides which image this radio takes, and "Heltec Mesh Node
+                     T114" says more than the HardwareModel enum's own spelling of it. Falls
+                     back to that spelling, which is what every radio has before a check. */
+                  s->fw_board[0] != '\0'
+                      ? s->fw_board
+                      : mesh_radio_hw_model_name(s->hw_model, buffer, sizeof buffer));
     }
+    build_radio_firmware(s, list);
     if (hs != NULL && hs->has_my_info) {
         mesh_str_format(buffer, sizeof buffer, MESH_STR_NODE_VAL_USER_ID_HEX, hs->my_info.node_num);
         item_text(list, MESH_STR_RADIO_NODE_NUMBER, MESH_UI_SETTING_INFO, buffer);

@@ -365,6 +365,13 @@ void mesh_fetch_resolve_ca_bundle(struct mesh_fetch *fetch, const char *shipped)
     }
 }
 
+void mesh_fetch_set_ca_bundle(struct mesh_fetch *fetch, const char *path) {
+    if (fetch == NULL) {
+        return;
+    }
+    snprintf(fetch->ca_bundle, sizeof fetch->ca_bundle, "%s", path != NULL ? path : "");
+}
+
 int mesh_fetch_start(struct mesh_fetch *fetch, const struct mesh_fetch_request *request,
                      uint64_t now_ms) {
     if (fetch == NULL || request == NULL || request->url == NULL || request->url[0] == '\0' ||

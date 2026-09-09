@@ -58,6 +58,7 @@
  * the script starts on is emitted before any of them.
  */
 
+#include "mesh/core/firmware.h"
 #include "mesh/core/message.h"
 #include "mesh/core/store_forward.h"
 #include "mesh/core/updater.h"
@@ -66,6 +67,7 @@
 #include "mesh/ui/nav.h"
 #include "mesh/ui/store.h"
 #include "mesh/ui/theme.h"
+#include "mesh/utils/text.h"
 #include "mesh/utils/time.h"
 
 #include <errno.h>
@@ -1433,6 +1435,14 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         settings.has_ethernet = true;
         settings.has_pkc = true;
         settings.can_shutdown = false;
+        /*
+         * And the firmware rows under them, in the state a device with curl on it actually
+         * boots into: a fetcher exists and nobody has pressed anything yet. Left false, the
+         * default row would be "unavailable" and the press would not be drawn at all - which is
+         * the one state of this screen a Brick will almost never be in. The `firmware` verb
+         * moves it on from here.
+         */
+        settings.fw_supported = true;
 
         /* The two LoRa rows that read as unconfigured rather than as defaults: a region of
            "Unset" is a radio that will not transmit, and an empty timezone is the row's dash. */
@@ -1767,6 +1777,84 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
                                                              : 0U);
         snprintf(settings.client.update_latest, sizeof settings.client.update_latest, "%s",
                  "999.0.0");
+        mesh_ui_store_set_settings(&cap->store, &settings);
+        uicap_emit(cap);
+        uicap_settle(cap);
+        return;
+    }
+
+    /*
+     * The *radio's* firmware, which is the other update this client can talk about.
+     *
+     * Its own verb rather than a flag on `update` because the two are different binaries on
+     * different computers, and because this one has a second axis: what the check found and
+     * why it cannot be acted on are separate answers, so the scene names them separately.
+     * There is no firmware module behind the harness - it forks curl and reaches the network -
+     * so this sets what the app would have published.
+     *
+     *   firmware checking|behind|current|failed [usb|ble|ambiguous|nopath|unknown]
+     */
+    if (strcmp(command, "firmware") == 0) {
+        char *step = uicap_word(&rest);
+        if (step == NULL) {
+            fprintf(stderr,
+                    "uicap: line %u: 'firmware' needs checking, behind, current or failed\n",
+                    line_number);
+            exit(1);
+        }
+        const bool checking = strcmp(step, "checking") == 0;
+        const bool behind = strcmp(step, "behind") == 0;
+        const bool current = strcmp(step, "current") == 0;
+        const bool failed = strcmp(step, "failed") == 0;
+        if (!checking && !behind && !current && !failed) {
+            fprintf(stderr,
+                    "uicap: line %u: 'firmware' takes checking, behind, current or failed\n",
+                    line_number);
+            exit(1);
+        }
+        const char *why = uicap_word(&rest);
+        uicap_start(cap);
+        struct mesh_ui_settings settings = cap->store.settings;
+        settings.fw_supported = true;
+        settings.fw_busy = checking;
+        settings.fw_state = (uint8_t)(checking  ? MESH_FIRMWARE_CHECKING
+                                      : behind  ? MESH_FIRMWARE_AVAILABLE
+                                      : current ? MESH_FIRMWARE_UP_TO_DATE
+                                                : MESH_FIRMWARE_FAILED);
+        mesh_str_copy(settings.fw_latest, sizeof settings.fw_latest, "2.7.26.54e0d8d");
+        mesh_str_copy(settings.fw_board, sizeof settings.fw_board, "Heltec Mesh Node T114");
+        /* The value column's value, exactly as the module would have set it: the state's own
+           word, or - once there is a release worth having - the version on its own. */
+        if (behind) {
+            mesh_str_copy(settings.fw_message, sizeof settings.fw_message, settings.fw_latest);
+        } else if (failed) {
+            mesh_str_copy(settings.fw_message, sizeof settings.fw_message,
+                          mesh_str(MESH_STR_FW_INDEX_UNREADABLE));
+        } else {
+            mesh_str_copy(settings.fw_message, sizeof settings.fw_message,
+                          mesh_firmware_state_name((enum mesh_firmware_state)settings.fw_state));
+        }
+        /* The refusal, which is a different answer from the state above it and is the half a
+           picture of this screen is actually for. */
+        enum mesh_str_id reason = MESH_STR_NONE;
+        if (why != NULL) {
+            if (strcmp(why, "usb") == 0) {
+                reason = MESH_STR_FW_BLOCK_CONNECT_USB;
+            } else if (strcmp(why, "ble") == 0) {
+                reason = MESH_STR_FW_BLOCK_CONNECT_BLE;
+            } else if (strcmp(why, "ambiguous") == 0) {
+                reason = MESH_STR_FW_BLOCK_AMBIGUOUS;
+            } else if (strcmp(why, "nopath") == 0) {
+                reason = MESH_STR_FW_BLOCK_NO_PATH;
+            } else if (strcmp(why, "unknown") == 0) {
+                reason = MESH_STR_FW_BLOCK_UNKNOWN_BOARD;
+            } else {
+                fprintf(stderr, "uicap: line %u: unknown firmware reason '%s'\n", line_number, why);
+                exit(1);
+            }
+        }
+        mesh_str_copy(settings.fw_blocker_reason, sizeof settings.fw_blocker_reason,
+                      reason != MESH_STR_NONE ? mesh_str(reason) : "");
         mesh_ui_store_set_settings(&cap->store, &settings);
         uicap_emit(cap);
         uicap_settle(cap);

@@ -22,6 +22,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/app.c
     suites/core_basics.c
     suites/fetch.c
+    suites/firmware.c
     suites/firmware_catalog.c
     suites/geo.c
     suites/i18n.c
