@@ -89,8 +89,8 @@ static bool bar_offers_help(const struct mesh_ui_store *store) {
 }
 
 static bool topic_for(const struct mesh_ui_store *store, struct mesh_ui_help_topic *out) {
-    return mesh_ui_help_topic(&store->settings,
-                              store->handshake_valid ? &store->handshake : NULL, &store->nav, out);
+    return mesh_ui_help_topic(&store->settings, store->handshake_valid ? &store->handshake : NULL,
+                              &store->nav, out);
 }
 
 /* ---- the notes as content ------------------------------------------------------------------ */
@@ -160,8 +160,8 @@ MESH_TEST_CASE(help_field_notes_are_optional, unit) {
                       "a self-explanatory field acquired a note");
     MESH_TEST_FAIL_IF(mesh_ui_settings_field_note(MESH_UI_FIELD_NONE) != MESH_STR_NONE,
                       "the no-field row has a note");
-    MESH_TEST_FAIL_IF(mesh_ui_settings_field_note((enum mesh_ui_setting_field)MESH_UI_FIELD_COUNT) !=
-                          MESH_STR_NONE,
+    MESH_TEST_FAIL_IF(mesh_ui_settings_field_note(
+                          (enum mesh_ui_setting_field)MESH_UI_FIELD_COUNT) != MESH_STR_NONE,
                       "a field past the end has a note");
     record_success(test_name);
 }
@@ -208,9 +208,9 @@ MESH_TEST_CASE(help_opens_where_the_cursor_was, unit) {
     MESH_TEST_FAIL_IF(topic.count < 2U, "LoRa's topic has no field notes in it");
 
     struct mesh_ui_settings_item items[MESH_UI_SETTINGS_ITEMS_MAX];
-    const uint32_t rows = mesh_ui_settings_items(&store.settings, &store.handshake, NULL, 0U,
-                                                 MESH_UI_SETTINGS_LORA, MESH_UI_SETTINGS_NO_CHANNEL,
-                                                 items, MESH_UI_SETTINGS_ITEMS_MAX);
+    const uint32_t rows =
+        mesh_ui_settings_items(&store.settings, &store.handshake, NULL, 0U, MESH_UI_SETTINGS_LORA,
+                               MESH_UI_SETTINGS_NO_CHANNEL, items, MESH_UI_SETTINGS_ITEMS_MAX);
     MESH_TEST_FAIL_IF(rows == 0U, "LoRa has no rows");
 
     bool saw_a_field_note = false;
@@ -293,7 +293,8 @@ MESH_TEST_CASE(help_cursor_stops_at_both_ends, unit) {
     for (uint32_t i = 0; i < topic.count + 3U; ++i) {
         press(&store, MESH_UI_KEY_DOWN);
     }
-    MESH_TEST_FAIL_IF(store.nav.help_cursor != topic.count - 1U, "Down ran past the last paragraph");
+    MESH_TEST_FAIL_IF(store.nav.help_cursor != topic.count - 1U,
+                      "Down ran past the last paragraph");
     record_success(test_name);
 }
 
@@ -321,34 +322,102 @@ MESH_TEST_CASE(help_is_a_route_level, unit) {
 /* ---- the agreement ------------------------------------------------------------------------- */
 
 /*
- * The keycap and the press say the same thing, on every screen in the client.
+ * The keycap and the press say the same thing, in every state a section can be in.
  *
- * This is the case the whole design is arranged around. The bar draws SELECT when
- * mesh_ui_help_topic() answers and the key handler opens help when it answers, so the two agree
- * by construction - but "by construction" is a claim about code that somebody will edit, and the
- * failure it prevents (a keycap that does nothing, or a screen that opens with no keycap saying
- * it could) is invisible in a screenshot.
+ * This is the case the whole design is arranged around, and the first version of it checked only
+ * pristine sections - which is exactly the hole two real bugs went through. `actions_settings()`
+ * returns early for a section with pending edits and for one with the discard question armed,
+ * and neither early return named the help press; the handler, meanwhile, was unconditional. So
+ * SELECT opened help from the first keystroke of an edit with no keycap saying it could, and
+ * with the question armed it stood the question down *and* opened a screen off one press.
+ *
+ * Both failures are invisible in a screenshot and neither is a crash. What catches them is
+ * walking the states rather than the screens: a section is pristine, then edited, then armed,
+ * and the bar and the press are compared at each.
  */
 MESH_TEST_CASE(help_keycap_and_press_agree, unit) {
     static const enum mesh_ui_settings_section k_sections[] = {
         MESH_UI_SETTINGS_LORA,   MESH_UI_SETTINGS_ABOUT,  MESH_UI_SETTINGS_MODULES,
         MESH_UI_SETTINGS_DEVICE, MESH_UI_SETTINGS_CANNED, MESH_UI_SETTINGS_ACTIONS,
     };
-    for (size_t i = 0; i < sizeof k_sections / sizeof k_sections[0]; ++i) {
-        struct mesh_ui_store store;
-        MESH_TEST_FAIL_IF(!help_store_open(&store, k_sections[i]), "a section did not open");
+    /* Pristine, one edit in hand, and the discard question armed over that edit. */
+    static const char *const k_states[] = {"pristine", "edited", "discard armed"};
 
-        const bool offered = bar_offers_help(&store);
-        press(&store, MESH_UI_KEY_SELECT);
-        if (offered != store.nav.help_open) {
-            char reason[160];
-            snprintf(reason, sizeof reason, "%s: the bar says %s and the press says %s",
-                     mesh_ui_settings_section_name(k_sections[i]), offered ? "help" : "nothing",
-                     store.nav.help_open ? "help" : "nothing");
-            record_failure(test_name, reason);
-            return;
+    for (size_t i = 0; i < sizeof k_sections / sizeof k_sections[0]; ++i) {
+        for (int state = 0; state < 3; ++state) {
+            struct mesh_ui_store store;
+            MESH_TEST_FAIL_IF(!help_store_open(&store, k_sections[i]), "a section did not open");
+
+            if (state > 0) {
+                /* Step a value to make an edit. Not every section has an editable row - About
+                   and Radio actions have none - so a state that could not be reached is skipped
+                   rather than asserted into existence. */
+                for (uint32_t row = 0;
+                     row < mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_SETTINGS) &&
+                     store.nav.settings_edit_count == 0U;
+                     ++row) {
+                    press(&store, MESH_UI_KEY_RIGHT);
+                    if (store.nav.settings_edit_count == 0U) {
+                        press(&store, MESH_UI_KEY_DOWN);
+                    }
+                }
+                if (store.nav.settings_edit_count == 0U) {
+                    continue;
+                }
+            }
+            if (state == 2) {
+                press(&store, MESH_UI_KEY_B); /* arms the discard question */
+                if (!store.nav.settings_discard_armed) {
+                    continue;
+                }
+            }
+
+            const bool offered = bar_offers_help(&store);
+            press(&store, MESH_UI_KEY_SELECT);
+            if (offered != store.nav.help_open) {
+                char reason[192];
+                snprintf(reason, sizeof reason, "%s (%s): the bar says %s and the press says %s",
+                         mesh_ui_settings_section_name(k_sections[i]), k_states[state],
+                         offered ? "help" : "nothing", store.nav.help_open ? "help" : "nothing");
+                record_failure(test_name, reason);
+                return;
+            }
         }
     }
+    record_success(test_name);
+}
+
+/*
+ * A press that would answer a question the screen is holding open does not also open a screen.
+ *
+ * SELECT with the discard question armed stands the question down, exactly as any other press
+ * that is not B does, and stops there. It opened help as well before the two callers shared a
+ * predicate - one press doing two things, one of which the user could not see coming.
+ */
+MESH_TEST_CASE(help_stands_down_an_armed_question_without_opening, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(!help_store_open(&store, MESH_UI_SETTINGS_LORA), "LoRa did not open");
+
+    press(&store, MESH_UI_KEY_RIGHT); /* an edit on the first row */
+    MESH_TEST_FAIL_IF(store.nav.settings_edit_count == 0U, "the row did not take an edit");
+    /* With the edit in hand and nothing armed, help is offered and works. */
+    MESH_TEST_FAIL_IF(!bar_offers_help(&store), "an edited section stopped offering help");
+
+    press(&store, MESH_UI_KEY_B);
+    MESH_TEST_FAIL_IF(!store.nav.settings_discard_armed, "B did not arm the discard question");
+    MESH_TEST_FAIL_IF(bar_offers_help(&store), "an armed question still offered the help press");
+
+    press(&store, MESH_UI_KEY_SELECT);
+    MESH_TEST_FAIL_IF(store.nav.help_open, "SELECT opened help over an armed question");
+    MESH_TEST_FAIL_IF(store.nav.settings_discard_armed,
+                      "SELECT did not stand the question down the way any other press does");
+    MESH_TEST_FAIL_IF(store.nav.settings_edit_count == 0U,
+                      "standing the question down discarded the edit it was asking about");
+
+    /* And now that the question is gone, the same key opens help. */
+    MESH_TEST_FAIL_IF(!bar_offers_help(&store), "help was not offered once the question was down");
+    press(&store, MESH_UI_KEY_SELECT);
+    MESH_TEST_FAIL_IF(!store.nav.help_open, "SELECT did not open help after the question went");
     record_success(test_name);
 }
 

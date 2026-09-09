@@ -164,10 +164,11 @@ static void actions_devices(const struct mesh_ui_nav *nav, struct mesh_ui_action
 /*
  * The help press, offered only where there is something to explain.
  *
- * It asks mesh_ui_help_topic() - the same call the press itself makes - rather than testing the
- * nav for "a section is open", because the two answers have to be the same answer. A bar naming
- * SELECT over a screen whose topic came back empty is precisely the keycap-that-does-nothing
- * this file refuses everywhere else.
+ * It asks mesh_ui_help_offered() - the same call the press itself makes - rather than testing
+ * the nav here, because the two answers have to be the same answer. A bar naming SELECT over a
+ * screen that will not open one is the keycap-that-does-nothing this file refuses everywhere
+ * else, and the *reverse* is no better: a press that works with no keycap saying so is a feature
+ * nobody finds. Both were true of the two branches below before this was one call.
  *
  * Late in each bar it appears on: order is priority and the bar drops from the end, so on a
  * narrow panel the presses that edit and leave the screen survive and the one that explains it
@@ -175,10 +176,9 @@ static void actions_devices(const struct mesh_ui_nav *nav, struct mesh_ui_action
  * client and therefore the least worth the room.
  */
 static void bar_add_help(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_action_bar *bar) {
-    struct mesh_ui_help_topic topic;
-    if (mesh_ui_help_topic(&snapshot->settings,
-                           snapshot->handshake_valid ? &snapshot->handshake : NULL, &snapshot->nav,
-                           &topic)) {
+    if (mesh_ui_help_offered(&snapshot->settings,
+                             snapshot->handshake_valid ? &snapshot->handshake : NULL,
+                             &snapshot->nav)) {
         bar_add(bar, MESH_UI_BUTTON_SELECT, MESH_STR_ACTION_HELP);
     }
 }
@@ -200,6 +200,11 @@ static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui
         bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_SAVE);
         bar_add(bar, MESH_UI_BUTTON_LEFT_RIGHT, MESH_STR_ACTION_EDIT);
         bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_DISCARD);
+        /* An edit in hand does not make the setting need less explaining - if anything it is the
+           likelier moment to want it - so this branch offers the same press the pristine one
+           does. It was the branch that proved the bar and the handler had to share a predicate:
+           SELECT worked here from the first keystroke, with nothing on the bar saying so. */
+        bar_add_help(snapshot, bar);
         bar_add_tabs(bar);
         return;
     }

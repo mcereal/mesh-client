@@ -53,7 +53,7 @@ bool mesh_ui_chrome_busy(const struct mesh_ui_snapshot *snapshot) {
  */
 static bool mesh_ui_chrome_modal_open(const struct mesh_ui_nav *nav) {
     return nav->confirm_open || nav->picker_open || nav->keyboard_open || nav->compose_open ||
-           nav->reaction_open;
+           nav->reaction_open || nav->help_open;
 }
 
 /* Whether the screen up is the one that already reports the updater in full. A banner pointing

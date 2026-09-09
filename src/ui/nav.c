@@ -916,13 +916,18 @@ static bool mesh_ui_nav_help_key(struct mesh_ui_nav *nav, const struct mesh_ui_s
 /*
  * SELECT anywhere: open the explanation of this screen, when there is one.
  *
- * It asks mesh_ui_help_topic() rather than testing the nav, because src/ui/actions.c asks the
+ * It asks mesh_ui_help_offered() rather than testing the nav, because src/ui/actions.c asks the
  * same question to decide whether to draw the keycap - and a press that worked where the bar
  * said nothing, or did nothing where it said "help", is the two-opinions bug this client keeps
- * a single table to avoid.
+ * a single table to avoid. Both halves of that happened here: with a discard armed, SELECT stood
+ * the question down *and* opened help off one press, and with an edit pending it opened help
+ * with no keycap on the frame.
  */
 static bool mesh_ui_nav_open_help(struct mesh_ui_nav *nav, const struct mesh_ui_store *store) {
     const struct mesh_ui_handshake_state *handshake = mesh_ui_nav_handshake(store);
+    if (!mesh_ui_help_offered(&store->settings, handshake, nav)) {
+        return false;
+    }
     struct mesh_ui_help_topic topic;
     if (!mesh_ui_help_topic(&store->settings, handshake, nav, &topic)) {
         return false;
@@ -1014,6 +1019,23 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         if (key != MESH_UI_KEY_B) {
             nav->settings_discard_armed = false;
             changed = changed || was_armed;
+            /*
+             * And a press spent standing the question down is spent.
+             *
+             * SELECT is the only key where that needs saying. Every other press here either
+             * does nothing further or is itself the answer, but SELECT would go on to open the
+             * help screen off the same press - so the user would get their question dismissed
+             * and a screen they did not ask for, from one keystroke.
+             *
+             * mesh_ui_help_offered() already says help is not offered while the question is up,
+             * and this is what stops the nav contradicting it: the flag that predicate reads has
+             * been cleared two lines above, so by the time SELECT reaches it the state it is
+             * asking about is gone. The bar reads the nav before any of this runs, which is why
+             * the rule lives there and the ordering fix lives here.
+             */
+            if (was_armed && key == MESH_UI_KEY_SELECT) {
+                return true;
+            }
         }
         bool handled = false;
         const bool result = mesh_ui_nav_settings_section_key(nav, store, key, out_action, &handled);

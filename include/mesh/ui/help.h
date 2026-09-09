@@ -85,6 +85,28 @@ bool mesh_ui_help_topic(const struct mesh_ui_settings *settings,
                         const struct mesh_ui_nav *nav, struct mesh_ui_help_topic *out);
 
 /*
+ * Whether the help press is offered here at all - the one answer the action bar and the key
+ * handler both read.
+ *
+ * Not the same question as "is there a topic", and the difference is what this exists for. A
+ * topic is about the *screen*; whether the press is offered is also about what the screen is in
+ * the middle of. A section with a destructive question armed - B once on unsaved edits, waiting
+ * for the second press that discards them - has taken the two keycaps over for an answer, and a
+ * third press offered there would both stand the question down and open a screen, which is one
+ * press doing two things.
+ *
+ * Pending edits, by contrast, suppress nothing: what a setting means does not change because it
+ * has been changed, and half way through an edit is a likely moment to want the explanation.
+ *
+ * The bar asked mesh_ui_help_topic() directly once and the handler asked it too, which was one
+ * function read twice and still two opinions - the bar's early returns for those two states
+ * meant SELECT worked with no keycap saying so. Both now ask this.
+ */
+bool mesh_ui_help_offered(const struct mesh_ui_settings *settings,
+                          const struct mesh_ui_handshake_state *handshake,
+                          const struct mesh_ui_nav *nav);
+
+/*
  * Which entry explains row `row` of the section this nav has open.
  *
  * What makes the help screen open where the user was looking rather than at the top: a press on

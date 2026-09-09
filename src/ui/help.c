@@ -20,8 +20,7 @@
    two list-shaped sections (Modules, and Channels before a slot is picked) count: they have a
    note of their own, and their rows are sections rather than fields, so a topic there is the
    overview and nothing else. */
-static bool help_section_open(const struct mesh_ui_nav *nav,
-                              enum mesh_ui_settings_section *out) {
+static bool help_section_open(const struct mesh_ui_nav *nav, enum mesh_ui_settings_section *out) {
     if (nav == NULL || nav->screen != MESH_UI_SCREEN_SETTINGS) {
         return false;
     }
@@ -99,6 +98,16 @@ bool mesh_ui_help_topic(const struct mesh_ui_settings *settings,
         out->count++;
     }
     return true;
+}
+
+bool mesh_ui_help_offered(const struct mesh_ui_settings *settings,
+                          const struct mesh_ui_handshake_state *handshake,
+                          const struct mesh_ui_nav *nav) {
+    if (nav == NULL || nav->settings_discard_armed) {
+        return false;
+    }
+    struct mesh_ui_help_topic topic;
+    return mesh_ui_help_topic(settings, handshake, nav, &topic);
 }
 
 uint32_t mesh_ui_help_entry_for_row(const struct mesh_ui_settings *settings,
