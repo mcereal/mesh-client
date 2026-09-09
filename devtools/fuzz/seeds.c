@@ -27,6 +27,7 @@
 #include "meshtastic/config.pb.h"
 #include "meshtastic/mesh.pb.h"
 #include "meshtastic/portnums.pb.h"
+#include "meshtastic/storeforward.pb.h"
 #include "meshtastic/telemetry.pb.h"
 
 #include <errno.h>
@@ -270,6 +271,25 @@ static void write_session_seeds(void) {
                       encode_sub(meshtastic_RouteDiscovery_fields, &route, payload, sizeof payload,
                                  "a RouteDiscovery"),
                       MESH_FUZZ_TRACEROUTE_REQUEST_ID);
+
+    /*
+     * A Store & Forward router replaying one message. The seed carries the `text` variant
+     * rather than a heartbeat or a count because that is the branch with a write behind it:
+     * everything else sets a scalar, and this one sanitises radio bytes into a message and
+     * appends it to the log. A mutator with no seed on this port would have to invent both a
+     * portnum and a nested submessage to reach it at all.
+     */
+    meshtastic_StoreAndForward sf = meshtastic_StoreAndForward_init_default;
+    sf.rr = meshtastic_StoreAndForward_RequestResponse_ROUTER_TEXT_BROADCAST;
+    sf.which_variant = meshtastic_StoreAndForward_text_tag;
+    {
+        const char replayed[] = "said while the client was off";
+        sf.variant.text.size = (pb_size_t)strlen(replayed);
+        memcpy(sf.variant.text.bytes, replayed, sf.variant.text.size);
+    }
+    packet_seed("packet_store_forward", meshtastic_PortNum_STORE_FORWARD_APP, payload,
+                encode_sub(meshtastic_StoreAndForward_fields, &sf, payload, sizeof payload,
+                           "a StoreAndForward"));
 
     meshtastic_User user = meshtastic_User_init_default;
     snprintf(user.id, sizeof user.id, "!336699aa");

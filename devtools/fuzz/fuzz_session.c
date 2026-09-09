@@ -73,6 +73,17 @@ static void fuzz_check_bounds(const struct mesh_session *session) {
         session->traceroute.snr_back_count > MESH_TRACEROUTE_MAX_HOPS) {
         fuzz_broke("a traceroute longer than RouteDiscovery can carry");
     }
+    /*
+     * A Store & Forward replay cannot have stored more messages than arrived. The two counts
+     * are kept by different files - store_forward.c counts what the router sent, session.c
+     * counts what survived the de-duplication and went into the log - and a screen subtracts
+     * one from the other, so a frame that got them out of step would read as a replay that
+     * added messages nobody sent.
+     */
+    if (session->store_forward.stored > session->store_forward.received) {
+        fuzz_broke("more messages stored than the router replayed");
+    }
+
     /* The radio's own words, sanitised into a row's worth: the field is only ever read as a C
        string, so an unterminated one runs off the end of the struct. */
     if (memchr(session->notification.text, '\0', sizeof session->notification.text) == NULL) {
