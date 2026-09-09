@@ -25,6 +25,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/message.c
     suites/radio_settings.c
     suites/session.c
+    suites/store_forward.c
     suites/transport_ble_data.c
     suites/transport_ble_link.c
     suites/transport_ble_pairing.c

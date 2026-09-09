@@ -1,0 +1,30 @@
+# Store & Forward, and the half of it that is not configuration.
+#
+# Filmed rather than described because the shape is the argument: the section opens on what a
+# handheld actually wants from the module - who would answer, one press that asks for the
+# traffic that arrived while the Brick was off, and what the last press got - and only then on
+# the seven rows that configure a server this device will never be.
+#
+# The result row is the one to watch. "3 new of 18" is two facts, not one: the router replayed
+# its whole window and three of those messages were new here. A row saying "18 messages" would
+# be reporting the router's work rather than the user's inbox.
+scene demo
+scale 4
+delay 180
+config
+
+tab settings
+hold 400
+# Down to Modules, into it, and down to Store & Forward.
+key down 12
+hold 500
+key a
+hold 700
+key down 1
+hold 500
+key a
+hold 1400
+key down 3
+hold 900
+key b
+hold 500

@@ -695,6 +695,31 @@ static void mesh_app_flatten_queue_status(const struct mesh_queue_status *src,
     dst->maxlen = src->maxlen;
 }
 
+/* The router's name comes out of the roster, so this one takes the handshake as well - a
+   heartbeat is often the only packet a router sends, and the roster is what turns the node
+   number it arrived from into something a row can say. */
+static void mesh_app_flatten_store_forward(const struct mesh_handshake_status *status,
+                                           const struct mesh_store_forward *src,
+                                           struct mesh_ui_store_forward *dst) {
+    memset(dst, 0, sizeof *dst);
+    if (src == NULL) {
+        return;
+    }
+    dst->state = src->state;
+    dst->router = src->router;
+    if (src->router != 0U) {
+        mesh_app_format_peer_name(status, src->router, dst->router_name, sizeof dst->router_name);
+    }
+    dst->router_secondary = src->router_secondary;
+    dst->expected = src->expected;
+    dst->received = src->received;
+    dst->stored = src->stored;
+    dst->seq = src->seq;
+    dst->has_stats = src->has_stats;
+    dst->messages_saved = src->messages_saved;
+    dst->messages_max = src->messages_max;
+}
+
 /* Flattens the transport's protobuf-typed view into the UI's plain struct. */
 /* The About section's data: this client rather than the radio. The updater's state is copied
    across as a byte and a line of text so store.h stays free of the updater, the same way the
@@ -1643,6 +1668,8 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     mesh_app_flatten_radio_stats(mesh_session_radio_stats(&app->session), &ui_settings.stats);
     mesh_app_flatten_radio_notice(mesh_session_notification(&app->session), &ui_settings.notice);
     mesh_app_flatten_queue_status(mesh_session_queue_status(&app->session), &ui_settings.queue);
+    mesh_app_flatten_store_forward(status, mesh_session_store_forward(&app->session),
+                                   &ui_settings.store_forward);
     ui_settings.reboot_notices = app->session.reboot_notices;
     mesh_ui_store_set_settings(&app->ui_store, &ui_settings);
     mesh_app_track_settings_save(app, radio_settings, link_connected);

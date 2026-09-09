@@ -109,6 +109,33 @@ struct mesh_message *mesh_message_log_find(struct mesh_message_log *log, uint32_
     return NULL;
 }
 
+bool mesh_message_log_holds_replay(const struct mesh_message_log *log,
+                                   const struct mesh_message *replayed) {
+    if (log == NULL || replayed == NULL) {
+        return false;
+    }
+    for (size_t i = 0; i < log->count; ++i) {
+        const struct mesh_message *held =
+            &log->entries[(log->head + i) % MESH_MESSAGE_LOG_CAPACITY];
+        if (held->from != replayed->from || held->channel != replayed->channel ||
+            held->direction != replayed->direction || held->kind != replayed->kind) {
+            continue;
+        }
+        /* A tapback and the message it is about can carry the same text - one character of it -
+           and are not the same thing. The reply target has to agree for the same reason. */
+        if (held->is_reaction != replayed->is_reaction || held->reply_id != replayed->reply_id) {
+            continue;
+        }
+        if (held->rx_time != 0U && replayed->rx_time != 0U && held->rx_time != replayed->rx_time) {
+            continue;
+        }
+        if (strcmp(held->text, replayed->text) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool mesh_message_log_mark_ack(struct mesh_message_log *log, uint32_t packet_id,
                                enum mesh_message_ack ack, uint8_t error) {
     struct mesh_message *entry = mesh_message_log_find(log, packet_id);

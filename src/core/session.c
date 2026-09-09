@@ -65,6 +65,12 @@ static void mesh_session_reset_link_state(struct mesh_session *session) {
 
     memset(&session->stats, 0, sizeof session->stats);
     memset(&session->traceroute, 0, sizeof session->traceroute);
+    /* The Store & Forward router goes the same way, and for a sharper reason than the trace
+       does: it is remembered as a node number *and a channel index*, and a channel index only
+       names a channel against the table of the radio we are attached to. The history cursor
+       goes with it - it indexes a table inside the router, and we are no longer sure we are
+       about to talk to the same one. */
+    mesh_store_forward_reset(&session->store_forward);
     /* Both describe the radio that is connected right now, so they go the way `stats` does.
        The reboot counter goes with them: it counts restarts of *this* link, and a reader that
        saw it at 2 on the last radio must not read the next one's first reboot as a third. */
@@ -909,6 +915,42 @@ static void mesh_session_handle_waypoint(struct mesh_session *session,
 }
 
 /*
+ * A STORE_FORWARD_APP packet: a router talking to us about the history it keeps.
+ *
+ * Claimed outright, like the traceroute below it, because none of what arrives here is a
+ * message *as it stands*: an announcement, a count, a refusal, or a message wrapped inside a
+ * router's packet. The last of those becomes one, and this is where it stops being the router's
+ * packet and starts being what the sender said - which is why the fold happens here and not in
+ * mesh_message_ingest(), whose whole input is one MeshPacket carrying one payload.
+ *
+ * The de-duplication is the part that earns its keep. A replay hands back everything in the
+ * router's window, which on a client that was only briefly off is mostly traffic it heard live;
+ * without this, one press would put a second copy of the last four hours under the first.
+ */
+static void mesh_session_handle_store_forward(struct mesh_session *session,
+                                              const meshtastic_MeshPacket *packet) {
+    const uint32_t my_node =
+        session->handshake.has_my_info ? session->handshake.my_info.my_node_num : 0U;
+    struct mesh_message replayed;
+    const int event =
+        mesh_store_forward_ingest(&session->store_forward, packet, my_node,
+                                  mesh_session_wall_clock(), mesh_time_monotonic_ms(), &replayed);
+    if (event != MESH_STORE_FORWARD_EVENT_TEXT) {
+        return;
+    }
+    if (mesh_message_log_holds_replay(&session->messages, &replayed)) {
+        mesh_log_debug("session", "Store & Forward replayed a message we already had");
+        return;
+    }
+    if (mesh_message_log_append(&session->messages, &replayed) == NULL) {
+        return;
+    }
+    mesh_store_forward_stored(&session->store_forward);
+    mesh_log_info("session", "Store & Forward replayed a message from 0x%08x on channel %u",
+                  replayed.from, (unsigned)replayed.channel);
+}
+
+/*
  * A TRACEROUTE_APP packet answering the request we sent. The firmware replies from the target
  * with `Data.request_id` set to our packet id, which is what tells our trace from somebody
  * else's crossing the same radio - a node relaying a trace between two other nodes sees the
@@ -1211,6 +1253,17 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
             (void)mesh_session_handle_traceroute(session, &message.packet);
             break;
         }
+        /*
+         * And a Store & Forward frame, on the same terms: the router that sent it was there to
+         * send it, which is a fact about that node worth keeping, and what is inside is either
+         * about the module or a message already handled here. A router heartbeat is also the
+         * one packet some routers send at all, so the touch is what keeps them in the roster.
+         */
+        if (mesh_store_forward_is_frame(&message.packet)) {
+            mesh_session_touch_node_from_packet(session, &message.packet);
+            mesh_session_handle_store_forward(session, &message.packet);
+            break;
+        }
         mesh_session_touch_node_from_packet(session, &message.packet);
         mesh_session_apply_packet_details(session, &message.packet);
         mesh_session_handle_waypoint(session, &message.packet);
@@ -1282,6 +1335,11 @@ static void mesh_session_sync_clock(struct mesh_session *session) {
     }
 }
 
+/* Defined next to the traceroute's send, at the bottom; the tick is the only caller that is
+   not the request itself, and it needs it a few hundred lines earlier. */
+static int mesh_session_send_store_forward(struct mesh_session *session, bool ping,
+                                           uint64_t now_ms);
+
 /*
  * Once the handshake has completed, ask for the metadata and the owner (proof that the
  * AdminMessage round trip and its session passkey work on this radio), push our clock at the
@@ -1312,8 +1370,23 @@ void mesh_session_tick(struct mesh_session *session, uint64_t now_ms) {
      */
     (void)mesh_waypoint_book_prune(&session->waypoints, mesh_time_wall_credible_s());
 
+    /* And the Store & Forward waits, for the traceroute's reason exactly: a ping nobody
+       answered and a replay that stopped arriving are both silences, and a clock is the only
+       thing that can tell either of them from a reply still on its way. */
+    (void)mesh_store_forward_tick(&session->store_forward, now_ms);
+
     if (session->send == NULL || !session->handshake.has_my_info) {
         return;
+    }
+
+    /* The history request a pong earned. Sent from here rather than from the ingest that armed
+       it so the reply arriving on the link's read path does not write back down the link on the
+       same turn - the admin queue's split, for the same reason. */
+    if (session->store_forward.followup) {
+        session->store_forward.followup = false;
+        if (session->store_forward.router != 0U) {
+            (void)mesh_session_send_store_forward(session, false, now_ms);
+        }
     }
     if (session->handshake.config_complete && !session->admin_probe_queued) {
         session->admin_probe_queued = true;
@@ -2159,4 +2232,73 @@ int mesh_session_send_traceroute(struct mesh_session *session, uint32_t dest) {
 
 const struct mesh_traceroute *mesh_session_traceroute(const struct mesh_session *session) {
     return session != NULL ? &session->traceroute : NULL;
+}
+
+/*
+ * Puts one Store & Forward request on the air: the history request when we know a router, and
+ * the broadcast ping that looks for one when we do not.
+ *
+ * The ping is the only thing this client ever broadcasts on the port, and it is one empty
+ * packet. The history request that follows is always addressed - see
+ * mesh_store_forward_encode() for why a broadcast one would be an act of vandalism.
+ */
+static int mesh_session_send_store_forward(struct mesh_session *session, bool ping,
+                                           uint64_t now_ms) {
+    struct mesh_store_forward *sf = &session->store_forward;
+    struct mesh_store_forward_request request = {
+        .dest = ping ? MESH_MESSAGE_BROADCAST_ADDR : sf->router,
+        .packet_id = mesh_session_next_packet_id(session),
+        .channel = ping ? 0U : sf->router_channel,
+        /* 0: the router's own configured window. See the field's comment. */
+        .window_minutes = 0U,
+        .cursor = ping ? 0U : sf->cursor,
+        .ping = ping,
+    };
+
+    uint8_t payload[MESH_SESSION_MAX_PACKET];
+    size_t written = 0U;
+    int result = mesh_store_forward_encode(&request, payload, sizeof payload, &written);
+    if (result < 0) {
+        mesh_store_forward_send_failed(sf);
+        return result;
+    }
+    result = mesh_session_send_raw(session, payload, written, 0U);
+    if (result < 0) {
+        mesh_store_forward_send_failed(sf);
+        return result;
+    }
+    mesh_store_forward_sent(sf, request.packet_id, request.dest, request.channel, now_ms, ping);
+    if (ping) {
+        mesh_log_info("session", "Looking for a Store & Forward router");
+    } else {
+        mesh_log_info("session", "Asked router 0x%08x for the history from %u", request.dest,
+                      request.cursor);
+    }
+    return 0;
+}
+
+int mesh_session_request_history(struct mesh_session *session) {
+    if (session == NULL) {
+        return -EINVAL;
+    }
+    if (session->send == NULL) {
+        return -ENOTCONN;
+    }
+    struct mesh_store_forward *sf = &session->store_forward;
+    /*
+     * A second press while one is running would restart the count against a replay that is
+     * still arriving, and on a router that answers CLIENT_HISTORY by replaying its window it
+     * would ask for the same window twice. -EBUSY is the traceroute's rule for the same reason:
+     * the client's own half of a rate limit the firmware also has.
+     */
+    if (sf->state == (uint8_t)MESH_STORE_FORWARD_SEEKING ||
+        sf->state == (uint8_t)MESH_STORE_FORWARD_REQUESTED ||
+        sf->state == (uint8_t)MESH_STORE_FORWARD_REPLAYING) {
+        return -EBUSY;
+    }
+    return mesh_session_send_store_forward(session, sf->router == 0U, mesh_time_monotonic_ms());
+}
+
+const struct mesh_store_forward *mesh_session_store_forward(const struct mesh_session *session) {
+    return session != NULL ? &session->store_forward : NULL;
 }

@@ -1508,7 +1508,8 @@ bool mesh_ui_settings_action_is_radio(enum mesh_ui_settings_action action) {
            action == MESH_UI_SETTINGS_ACTION_CLEAR_FIXED_POSITION ||
            action == MESH_UI_SETTINGS_ACTION_BACKUP_CONFIG ||
            action == MESH_UI_SETTINGS_ACTION_RESTORE_CONFIG ||
-           action == MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP;
+           action == MESH_UI_SETTINGS_ACTION_REMOVE_BACKUP ||
+           action == MESH_UI_SETTINGS_ACTION_REQUEST_HISTORY;
 }
 
 bool mesh_ui_settings_action_is_forget(enum mesh_ui_settings_action action) {
