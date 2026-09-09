@@ -106,7 +106,7 @@ suite needs it.
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Verified 2026-09-08: 283 unit tests, all passing, zero compiler warnings - under the host
+Verified 2026-09-09: 391 unit tests, all passing, zero compiler warnings - under the host
 toolchain *and* the cross one, which are not the same check: see
 [`docs/testing.md`](docs/testing.md#what-ci-runs).
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
@@ -163,7 +163,7 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | Strings | `src/i18n/strings.c`, `include/mesh/i18n/catalog.def` | the string catalog and the locale registry |
 | Dev tools | `devtools/`, `scripts/{ui-capture.sh,frames.py}` | off-screen UI capture; PNG/GIF encoding, stdlib only |
 | Geography | `src/geo/` | `mesh_geo_coords_valid()` — the bounds test every coordinate ingress asks, so the air, the cache and the keyboard cannot disagree about where Earth ends — `mesh_geo_vector_between()`, the haversine distance and initial bearing the Waypoints tab reads a range from, and `mesh_geo_mercator_forward()`, the projection the map places a marker with. **The only directory in the tree that includes `<math.h>`**, and the reason libm is linked |
-| The map | `src/map/viewport.c`, `src/ui/map.c`, `src/ui/nav_map.c`, `src/ui/backends/fb_map.c` | Where the map is looking (centre, integer zoom, pan, fit, metres per pixel), the markers built from the roster and the waypoint book, the presses, and the drawing. No basemap yet — see [`docs/maps-roadmap.md`](docs/maps-roadmap.md). `viewport.c` deliberately has **no `<math.h>`**: everything transcendental about a map is a property of the projection, one directory down |
+| The map | `src/map/viewport.c`, `src/ui/map.c`, `src/ui/nav_map.c`, `src/ui/backends/fb_map.c` | Where the map is looking (centre, integer zoom, pan, fit, metres per pixel), the markers built from the map's own roster (`handshake.map_nodes` - **not** the node list's 128) and the waypoint book, the presses, and the drawing. No basemap yet — see [`docs/maps-roadmap.md`](docs/maps-roadmap.md). `viewport.c` deliberately has **no `<math.h>`**: everything transcendental about a map is a property of the projection, one directory down |
 | Shared utils | `src/utils/` | `text` (UTF-8 + `mesh_str_copy`), `time` (`mesh_time_monotonic_ms`), `env` (`mesh_env_bool`/`_int`), `log`, `sha256`, `array` |
 
 `include/mesh/` mirrors `src/` one-for-one — `core/`, `transport/`, `ui/`, `proto/`, `geo/`, `utils/` —
@@ -346,6 +346,20 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   state, where `fb_fill_packed()` already honours one — every fill, glyph and icon span goes
   through that one function — and it *intersects* the partial-redraw path's clip rather than
   replacing it.
+- **The map draws a different roster from the Nodes list, and it is not a subset.** The list
+  publishes the best 128 of the session's 256 (`handshake.nodes`), because a rank says how
+  likely you are to talk to a node; a marker is on the panel or it is not, so the map gets
+  `handshake.map_nodes` - every *positioned* node the session holds, as a 36-byte
+  `struct mesh_ui_map_node` rather than the 532-byte summary, which is why the snapshot grew by
+  9 KB instead of 68. Two consequences. A handshake nobody published (a cache load before the
+  first publish, a fixture, the capture harness) has `map_node_count == 0` and
+  `mesh_ui_map_build()` falls back to the rows - a default, not a second opinion, because
+  publish scans a superset of the rows it copies. And **map-only nodes now exist**: a node
+  ranked 200th has a marker and no row, so `mesh_ui_node_detail_find()` cannot answer for it and
+  A on that marker deliberately does nothing (`marker->openable`, from the published `has_row`),
+  exactly as A on empty grid does. Without that guard the detail opens, cannot be filled, and is
+  clamped shut on the next press. Resolving it properly is the app/store seam
+  [`docs/maps-roadmap.md`](docs/maps-roadmap.md#the-roster-decision-taken) describes.
 - **The map has no selection field on the nav, and must not grow one.** What A opens is the
   marker nearest the middle of the view, derived every frame by `mesh_ui_map_selected()`. That is
   the app bar's back arrow and the transition route again: a second opinion about the nav is a

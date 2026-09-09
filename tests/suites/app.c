@@ -21,7 +21,9 @@
 #include "mesh/transport/serial.h"
 #include "mesh/transport/serial_usb.h"
 #include "mesh/transport/transport.h"
+#include "mesh/ui/map.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/node_detail.h"
 #include "mesh/ui/preferences.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
@@ -2031,5 +2033,116 @@ MESH_TEST_CASE(app_extra_section_writes, unit) {
     action.section = MESH_UI_SETTINGS_CANNED;
     MESH_TEST_FAIL_IF(mesh_app_build_settings_write(&radio, &action, &write) != -ENOENT,
                       "a canned list the radio has not sent cannot be written");
+    record_success(test_name);
+}
+
+/*
+ * The map's roster is published from the whole session roster, not from the ranked rows.
+ *
+ * The unit tests next door hand mesh_ui_map_build() a roster built by hand; this is the other
+ * half - that the ranking cut actually produces one. It is the seam the change is about: the
+ * session holds MESH_SESSION_MAX_NODES, the rows carry MESH_UI_MAX_HANDSHAKE_NODES of them, and
+ * before this the map was drawing the rows. A node's rank says how likely you are to talk to
+ * it, which has nothing to do with whether its marker belongs on the panel.
+ *
+ * Seeded with more positioned nodes than there are rows, which is what makes the two counts
+ * differ - on a mesh where every node had a fix, the map's roster is exactly twice the list's.
+ */
+MESH_TEST_CASE(app_publishes_the_map_roster_past_the_ranking_cut, unit) {
+    struct mesh_app app;
+    bool app_ready = false;
+    const char *failure = NULL;
+
+    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
+    unsetenv("MESHCLIENT_AUTOCONNECT");
+
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_SINGLE_POLL;
+    config.enable_serial = false;
+    config.enable_ble = false;
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+
+    /* Every node positioned, and every one heard longer ago than the last - so the ranking's
+       order is the seeding order and "beyond the cut" means "seeded late". */
+    const uint32_t seeded = MESH_UI_MAX_HANDSHAKE_NODES + 40U;
+    for (uint32_t i = 0; i < seeded; ++i) {
+        struct mesh_node_summary node;
+        memset(&node, 0, sizeof node);
+        node.node_id = 0x50000000U + i;
+        node.in_nodedb = true;
+        node.last_heard = 1000000U - i;
+        snprintf(node.short_name, sizeof node.short_name, "N%03u", i % 1000U);
+        snprintf(node.long_name, sizeof node.long_name, "Node %u", i);
+        node.position.valid = true;
+        node.position.latitude_i = 476180000 + (int32_t)i * 3000;
+        node.position.longitude_i = -1223320000 + (int32_t)i * 3000;
+        node.position.precision_bits = 16U;
+        mesh_session_seed_node(&app.session, &node);
+    }
+
+    mesh_app_publish_ui_state(&app);
+    const struct mesh_ui_handshake_state *hs = &app.ui_store.handshake;
+
+    if (hs->node_count != MESH_UI_MAX_HANDSHAKE_NODES) {
+        failure = "the list should still publish exactly its own budget of rows";
+        goto cleanup;
+    }
+    if (hs->nodes_known != seeded) {
+        failure = "and should still report the roster's own total beside it";
+        goto cleanup;
+    }
+    if (hs->map_node_count != seeded) {
+        failure = "while the map's roster carries every positioned node the session holds";
+        goto cleanup;
+    }
+
+    /* The last one seeded: past the cut, so it has a marker and no row. */
+    const struct mesh_ui_map_node *last = &hs->map_nodes[seeded - 1U];
+    if (last->node_id != 0x50000000U + seeded - 1U) {
+        failure = "the map's roster should be in the same ranked order as the rows";
+        goto cleanup;
+    }
+    if (last->has_row) {
+        failure = "a node past the cut should say it has no row";
+        goto cleanup;
+    }
+    if (mesh_ui_node_detail_find(hs, last->node_id) != NULL) {
+        failure = "and should genuinely have none, or the flag is describing nothing";
+        goto cleanup;
+    }
+    if (strcmp(last->label, "N167") != 0) {
+        failure = "carrying the short name the map draws beside it";
+        goto cleanup;
+    }
+    if (last->precision_bits != 16U) {
+        failure = "and the rounding its sender declared";
+        goto cleanup;
+    }
+
+    /* And one inside the cut, to show has_row is the cut and not a constant. */
+    if (!hs->map_nodes[0].has_row ||
+        mesh_ui_node_detail_find(hs, hs->map_nodes[0].node_id) == NULL) {
+        failure = "a node the list published should say so, and be findable by id";
+        goto cleanup;
+    }
+
+    /* What the map makes of it: a marker each, and a badge counting the roster. */
+    struct mesh_ui_map_view view;
+    mesh_ui_map_build(&app.ui_store, &view);
+    if (view.count != seeded || view.known != seeded) {
+        failure = "every positioned node should reach the map as a marker";
+        goto cleanup;
+    }
+
+cleanup:
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }

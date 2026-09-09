@@ -34,14 +34,14 @@ extern "C" {
 /*
  * How many markers the map will carry.
  *
- * The published roster's 128 plus the waypoint book, which is what the client actually holds -
- * so this cannot truncate anything the rest of the UI can see. The session's own 256 is a
- * different number and deliberately out of reach here: widening the published roster is the
- * decision docs/maps-roadmap.md's fourth pre-work item left open, and a map is not the place to
- * settle it quietly. What the map does owe the reader is to say so, which is what
- * `mesh_ui_map_view.known` is for.
+ * The map's own roster plus the waypoint book, which is everything the client holds that has
+ * somewhere to be drawn - so this cannot truncate. It used to be the *published* roster's 128,
+ * because that was all a snapshot carried; docs/maps-roadmap.md's fourth pre-work item left
+ * open whether the map should see the session's whole roster, and struct mesh_ui_map_node is
+ * that decision taken. What the map still owes the reader is how many of what is known has no
+ * position at all, which is what `mesh_ui_map_view.known` is for.
  */
-#define MESH_UI_MAP_MARKERS_MAX (MESH_UI_MAX_HANDSHAKE_NODES + MESH_UI_MAX_WAYPOINTS)
+#define MESH_UI_MAP_MARKERS_MAX (MESH_UI_MAX_MAP_NODES + MESH_UI_MAX_WAYPOINTS)
 
 /*
  * The body a fit is computed against, in pixels.
@@ -76,9 +76,9 @@ extern "C" {
  */
 #define MESH_UI_MAP_ZOOM_FOCUS 15
 
-/* The longest thing drawn beside a marker: a node's short name is four characters and a
-   waypoint's name is its own, cut to something a label can carry without becoming the map. */
-#define MESH_UI_MAP_LABEL_MAX 16U
+/* MESH_UI_MAP_LABEL_MAX - the longest thing drawn beside a marker - was declared here and now
+   lives in mesh/ui/store.h, which this includes: it is the width of a published field, and a
+   limit a producer and a consumer both have to agree about belongs beside the record. */
 
 /*
  * What a marker is about.
@@ -125,6 +125,12 @@ struct mesh_ui_map_marker {
     /* A node the radio's NodeDB no longer carries: still ours to remember, and worth drawing
        differently from one it can still hear. Never true of a waypoint or of ourselves. */
     bool stale;
+    /*
+     * Whether A can open this marker: a node the ranked roster published a row for, or any
+     * waypoint - the waypoint book is not cut, so a place on the map is always a place in the
+     * list. See struct mesh_ui_map_node's `has_row` for how a node comes to have neither.
+     */
+    bool openable;
 };
 
 /*

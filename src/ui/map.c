@@ -22,7 +22,7 @@
    is filled here, which is what keeps "what goes on the map" one function rather than three. */
 static void map_add(struct mesh_ui_map_view *view, enum mesh_ui_map_marker_kind kind, uint32_t id,
                     int32_t latitude_i, int32_t longitude_i, const char *label,
-                    uint8_t precision_bits, uint32_t received, bool stale) {
+                    uint8_t precision_bits, uint32_t received, bool stale, bool openable) {
     if (view->count >= MESH_UI_MAP_MARKERS_MAX) {
         return;
     }
@@ -41,6 +41,7 @@ static void map_add(struct mesh_ui_map_view *view, enum mesh_ui_map_marker_kind 
     marker->precision_bits = precision_bits;
     marker->received = received;
     marker->stale = stale;
+    marker->openable = openable;
     if (label != NULL) {
         mesh_str_copy(marker->label, sizeof marker->label, label);
     }
@@ -52,19 +53,61 @@ static void map_add(struct mesh_ui_map_view *view, enum mesh_ui_map_marker_kind 
 }
 
 /*
- * What to write beside a node.
+ * The nodes the map draws, from whichever roster this handshake carries.
  *
- * The short name, because a map is mostly empty space with four characters in it and a long
- * name would be the label rather than the marker. It is the same abbreviation the node list
- * already shows in its disc, so a reader who learned a node by its initials on one screen
- * recognises it on the other. A node that has never introduced itself has neither, and falls
- * back to the long name the session derived from its number.
+ * `map_nodes` is the answer: every positioned node the *session* holds, which is up to twice
+ * what the ranking publishes as rows. A handshake nobody published has none - a roster loaded
+ * from the cache before the first publish, a hand-built fixture, a capture harness - and for
+ * those the published rows are the best there is, so they stand in.
+ *
+ * The fallback is provably dead after a real publish and is not a second opinion: publish scans
+ * every node the session holds, which is a superset of the rows it then copies, so a published
+ * row with a position always has a map entry beside it. It exists so that no producer of a
+ * handshake has to remember to fill a second array - the failure that would cause is a map that
+ * is silently empty, which no build and no screenshot would catch.
  */
-static const char *map_node_label(const struct mesh_ui_node_summary *node) {
-    if (node->short_name[0] != '\0') {
-        return node->short_name;
+static uint32_t map_roster_count(const struct mesh_ui_handshake_state *hs) {
+    if (hs->map_node_count > 0U) {
+        return hs->map_node_count > MESH_UI_MAX_MAP_NODES ? MESH_UI_MAX_MAP_NODES
+                                                          : hs->map_node_count;
     }
-    return node->long_name;
+    return hs->node_count > MESH_UI_MAX_HANDSHAKE_NODES ? MESH_UI_MAX_HANDSHAKE_NODES
+                                                        : hs->node_count;
+}
+
+/* One entry of the above, or false when that index is a node with nowhere to be drawn. Both
+   sources are range-checked here so neither caller has to: the map is the only screen where a
+   coordinate becomes a pixel, and a bad one is an off-panel marker rather than a wrong word. */
+static bool map_roster_at(const struct mesh_ui_handshake_state *hs, uint32_t index,
+                          struct mesh_ui_map_node *out) {
+    memset(out, 0, sizeof *out);
+    if (hs->map_node_count > 0U) {
+        const struct mesh_ui_map_node *node = &hs->map_nodes[index];
+        if (!mesh_geo_coords_valid(node->latitude_i, node->longitude_i)) {
+            return false;
+        }
+        *out = *node;
+        return true;
+    }
+
+    const struct mesh_ui_node_summary *node = &hs->nodes[index];
+    if (!node->position.valid ||
+        !mesh_geo_coords_valid(node->position.latitude_i, node->position.longitude_i)) {
+        return false;
+    }
+    out->node_id = node->node_id;
+    out->latitude_i = node->position.latitude_i;
+    out->longitude_i = node->position.longitude_i;
+    out->received = node->position.received;
+    out->precision_bits = node->position.precision_bits;
+    out->in_nodedb = node->in_nodedb;
+    /* The fallback source *is* the published rows, so every entry it yields has one. */
+    out->has_row = true;
+    /* The short name, falling back to the long one - the same rule publish applies, and it is
+       stated once on struct mesh_ui_map_node's `label`. */
+    mesh_str_copy(out->label, sizeof out->label,
+                  node->short_name[0] != '\0' ? node->short_name : node->long_name);
+    return true;
 }
 
 void mesh_ui_map_build(const struct mesh_ui_store *store, struct mesh_ui_map_view *out) {
@@ -80,10 +123,15 @@ void mesh_ui_map_build(const struct mesh_ui_store *store, struct mesh_ui_map_vie
     const uint32_t me = (hs != NULL && hs->has_my_info) ? hs->my_info.node_num : 0U;
 
     if (hs != NULL) {
-        const uint32_t nodes = hs->node_count > MESH_UI_MAX_HANDSHAKE_NODES
-                                   ? MESH_UI_MAX_HANDSHAKE_NODES
-                                   : hs->node_count;
-        out->known += nodes;
+        const uint32_t nodes = map_roster_count(hs);
+        /*
+         * What the client knows about nodes, which is the *session* roster's own total and not
+         * the rows it published - the map draws from the whole of it now, so counting the rows
+         * would report a smaller denominator than the map is actually working from. A handshake
+         * that never carried a total falls back to its row count, which is the same max the
+         * Nodes tab takes against the radio's own figure.
+         */
+        out->known += hs->nodes_known > nodes ? hs->nodes_known : nodes;
 
         /*
          * Our own radio first, so it is drawn under everything else.
@@ -93,28 +141,25 @@ void mesh_ui_map_build(const struct mesh_ui_store *store, struct mesh_ui_map_vie
          * ourselves. A sort would be a second ranking of a list something else has already
          * ranked, which is the thing the node detail's own rule warns about.
          */
-        for (uint32_t i = 0; i < nodes; ++i) {
-            const struct mesh_ui_node_summary *node = &hs->nodes[i];
-            if (node->node_id != me || me == 0U || !node->position.valid) {
+        struct mesh_ui_map_node node;
+        for (uint32_t i = 0; me != 0U && i < nodes; ++i) {
+            if (!map_roster_at(hs, i, &node) || node.node_id != me) {
                 continue;
             }
-            map_add(out, MESH_UI_MAP_MARKER_SELF, node->node_id, node->position.latitude_i,
-                    node->position.longitude_i, map_node_label(node), node->position.precision_bits,
-                    node->position.received, false);
+            map_add(out, MESH_UI_MAP_MARKER_SELF, node.node_id, node.latitude_i, node.longitude_i,
+                    node.label, node.precision_bits, node.received, false, node.has_row);
             break;
         }
 
         for (uint32_t i = 0; i < nodes; ++i) {
-            const struct mesh_ui_node_summary *node = &hs->nodes[i];
-            if (!node->position.valid || (me != 0U && node->node_id == me)) {
+            if (!map_roster_at(hs, i, &node) || (me != 0U && node.node_id == me)) {
                 continue;
             }
             /* A node the radio has forgotten is still ours to remember and still had a
                position when we heard it - the roster deliberately outlives the NodeDB. Drawn
                differently rather than dropped, which is what the Nodes tab already does. */
-            map_add(out, MESH_UI_MAP_MARKER_NODE, node->node_id, node->position.latitude_i,
-                    node->position.longitude_i, map_node_label(node), node->position.precision_bits,
-                    node->position.received, !node->in_nodedb);
+            map_add(out, MESH_UI_MAP_MARKER_NODE, node.node_id, node.latitude_i, node.longitude_i,
+                    node.label, node.precision_bits, node.received, !node.in_nodedb, node.has_row);
         }
     }
 
@@ -137,7 +182,7 @@ void mesh_ui_map_build(const struct mesh_ui_store *store, struct mesh_ui_map_vie
          * of marker rather than one with a flag.
          */
         map_add(out, MESH_UI_MAP_MARKER_WAYPOINT, waypoint->id, waypoint->latitude_i,
-                waypoint->longitude_i, name, 0U, waypoint->heard, false);
+                waypoint->longitude_i, name, 0U, waypoint->heard, false, true);
     }
 }
 
@@ -245,13 +290,13 @@ bool mesh_ui_map_has_markers(const struct mesh_ui_store *store) {
         return false;
     }
     if (store->handshake_valid) {
-        const uint32_t nodes = store->handshake.node_count > MESH_UI_MAX_HANDSHAKE_NODES
-                                   ? MESH_UI_MAX_HANDSHAKE_NODES
-                                   : store->handshake.node_count;
+        /* The same roster mesh_ui_map_build() walks, asked the same way - the row that offers
+           the map and the map itself disagreeing about whether there is anything on it is
+           exactly the bug two readings of one question produce. */
+        const uint32_t nodes = map_roster_count(&store->handshake);
+        struct mesh_ui_map_node node;
         for (uint32_t i = 0; i < nodes; ++i) {
-            const struct mesh_ui_node_position *position = &store->handshake.nodes[i].position;
-            if (position->valid &&
-                mesh_geo_coords_valid(position->latitude_i, position->longitude_i)) {
+            if (map_roster_at(&store->handshake, i, &node)) {
                 return true;
             }
         }
