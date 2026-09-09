@@ -57,12 +57,12 @@ MESH_TEST_CASE(map_viewport_places_its_own_centre, unit) {
        reader. A latitude a little larger is a smaller y. */
     struct mesh_map_placement north;
     struct mesh_map_placement east;
-    MESH_TEST_FAIL_IF(!mesh_map_viewport_place(&viewport, MAP_TEST_LATITUDE + 100000,
-                                               MAP_TEST_LONGITUDE, &north),
-                      "north places");
-    MESH_TEST_FAIL_IF(!mesh_map_viewport_place(&viewport, MAP_TEST_LATITUDE,
-                                               MAP_TEST_LONGITUDE + 100000, &east),
-                      "east places");
+    MESH_TEST_FAIL_IF(
+        !mesh_map_viewport_place(&viewport, MAP_TEST_LATITUDE + 100000, MAP_TEST_LONGITUDE, &north),
+        "north places");
+    MESH_TEST_FAIL_IF(
+        !mesh_map_viewport_place(&viewport, MAP_TEST_LATITUDE, MAP_TEST_LONGITUDE + 100000, &east),
+        "east places");
     MESH_TEST_FAIL_IF(north.y >= placement.y, "north is up");
     MESH_TEST_FAIL_IF(east.x <= placement.x, "east is right");
 
@@ -79,8 +79,10 @@ MESH_TEST_CASE(map_viewport_places_its_own_centre, unit) {
  */
 MESH_TEST_CASE(map_viewport_pixel_and_place_agree, unit) {
     const int32_t probes[][2] = {
-        {MAP_TEST_WIDTH / 2, MAP_TEST_HEIGHT / 2}, {0, 0},
-        {MAP_TEST_WIDTH - 1, MAP_TEST_HEIGHT - 1}, {17, MAP_TEST_HEIGHT - 40},
+        {MAP_TEST_WIDTH / 2, MAP_TEST_HEIGHT / 2},
+        {0, 0},
+        {MAP_TEST_WIDTH - 1, MAP_TEST_HEIGHT - 1},
+        {17, MAP_TEST_HEIGHT - 40},
         {MAP_TEST_WIDTH - 3, 9},
     };
 
@@ -135,8 +137,16 @@ MESH_TEST_CASE(map_viewport_reports_what_is_off_the_panel, unit) {
     MESH_TEST_FAIL_IF(
         mesh_map_viewport_place(&unmeasured, MAP_TEST_LATITUDE, MAP_TEST_LONGITUDE, &placement),
         "an unmeasured viewport places nothing");
-    MESH_TEST_FAIL_IF(mesh_map_viewport_metres_per_pixel(&unmeasured) != 0.0,
-                      "and has no scale to report");
+    /* Its scale, though, it does know: metres per pixel is a function of the zoom and the
+       latitude, not of the panel - which is what lets the nav and a backend agree about which
+       marker is selected without either of them knowing how wide the other's body is. */
+    MESH_TEST_FAIL_IF(mesh_map_viewport_metres_per_pixel(&unmeasured) <= 0.0,
+                      "but it still knows its own scale");
+    map_test_viewport(&viewport, 14);
+    mesh_map_viewport_init(&unmeasured, MAP_TEST_LATITUDE, MAP_TEST_LONGITUDE, 14);
+    MESH_TEST_FAIL_IF(mesh_map_viewport_metres_per_pixel(&unmeasured) !=
+                          mesh_map_viewport_metres_per_pixel(&viewport),
+                      "and it is the same scale a measured one reports");
 
     record_success(test_name);
 }
@@ -185,9 +195,9 @@ MESH_TEST_CASE(map_viewport_stops_at_the_top_of_the_world, unit) {
                       "north stops at the display limit");
     MESH_TEST_FAIL_IF(mesh_map_viewport_pan(&viewport, 0, -64),
                       "and says that nothing moved from there");
-    MESH_TEST_FAIL_IF(!mesh_geo_coords_valid(viewport.center_latitude_i,
-                                             viewport.center_longitude_i),
-                      "the centre is still a place");
+    MESH_TEST_FAIL_IF(
+        !mesh_geo_coords_valid(viewport.center_latitude_i, viewport.center_longitude_i),
+        "the centre is still a place");
     /* And it is a wall in one direction only. */
     MESH_TEST_FAIL_IF(!mesh_map_viewport_pan(&viewport, 0, 64), "southward is still open");
 
@@ -221,9 +231,9 @@ MESH_TEST_CASE(map_viewport_crosses_the_antimeridian, unit) {
     /* Panning across the seam keeps the centre a coordinate the rest of the client accepts. */
     for (int i = 0; i < 40; ++i) {
         (void)mesh_map_viewport_pan(&viewport, 64, 0);
-        MESH_TEST_FAIL_IF(!mesh_geo_coords_valid(viewport.center_latitude_i,
-                                                 viewport.center_longitude_i),
-                          "every step across the seam is a place");
+        MESH_TEST_FAIL_IF(
+            !mesh_geo_coords_valid(viewport.center_latitude_i, viewport.center_longitude_i),
+            "every step across the seam is a place");
     }
     MESH_TEST_FAIL_IF(viewport.center_longitude_i > 0, "and the view came out the western side");
 
@@ -309,9 +319,9 @@ MESH_TEST_CASE(map_viewport_fits_a_set_of_points, unit) {
 
     for (size_t i = 0; i < count; ++i) {
         struct mesh_map_placement placement;
-        MESH_TEST_FAIL_IF(!mesh_map_viewport_place(&viewport, coords[i][0], coords[i][1],
-                                                   &placement),
-                          "each point places");
+        MESH_TEST_FAIL_IF(
+            !mesh_map_viewport_place(&viewport, coords[i][0], coords[i][1], &placement),
+            "each point places");
         MESH_TEST_FAIL_IF(!placement.visible, "and every one of them is on the panel");
         MESH_TEST_FAIL_IF(placement.x < margin || placement.x >= MAP_TEST_WIDTH - margin,
                           "inside the margin horizontally");
@@ -399,11 +409,372 @@ MESH_TEST_CASE(map_viewport_fits_across_the_antimeridian, unit) {
 
     for (size_t i = 0; i < count; ++i) {
         struct mesh_map_placement placement;
-        MESH_TEST_FAIL_IF(!mesh_map_viewport_place(&viewport, coords[i][0], coords[i][1],
-                                                   &placement),
-                          "each point places");
+        MESH_TEST_FAIL_IF(
+            !mesh_map_viewport_place(&viewport, coords[i][0], coords[i][1], &placement),
+            "each point places");
         MESH_TEST_FAIL_IF(!placement.visible, "and all three are on the panel at once");
     }
 
+    record_success(test_name);
+}
+
+/* ---- the markers, and the nav that walks them ------------------------------------------------ */
+
+/*
+ * The rest of this file is the map as a *screen*: which of the things the client knows about go
+ * on it, what a press does, and where B lands. It shares a file with the viewport above because
+ * they are one feature, and the split between them is the one the module boundary already draws
+ * - everything above is arithmetic with no store in sight, everything below is a store and a nav.
+ */
+
+#include "support/ui_fixture.h"
+
+#include "mesh/ui/map.h"
+#include "mesh/ui/nav.h"
+
+#include <stdio.h>
+#include <string.h>
+
+/* The fixture's roster with fixes on two of its three nodes, and one shared place. Two rather
+   than three so that "a node with no position is known and not drawn" has a case. */
+static void map_test_populate(struct mesh_ui_store *store) {
+    mesh_test_nav_populate(store);
+
+    struct mesh_ui_handshake_state handshake = store->handshake;
+    handshake.nodes[0].position.valid = true; /* ourselves */
+    handshake.nodes[0].position.latitude_i = MAP_TEST_LATITUDE;
+    handshake.nodes[0].position.longitude_i = MAP_TEST_LONGITUDE;
+    handshake.nodes[1].position.valid = true; /* ALFA, a few hundred metres off */
+    handshake.nodes[1].position.latitude_i = MAP_TEST_LATITUDE + 30000;
+    handshake.nodes[1].position.longitude_i = MAP_TEST_LONGITUDE + 30000;
+    handshake.nodes[1].position.precision_bits = 16U;
+    /* BRVO deliberately has none: a node without a fix is a node the map counts and does not
+       draw, which is the ordinary state of most of a real roster. */
+    mesh_ui_store_set_handshake(store, &handshake);
+
+    struct mesh_ui_waypoint place;
+    memset(&place, 0, sizeof place);
+    place.id = 7U;
+    place.has_coords = true;
+    place.latitude_i = MAP_TEST_LATITUDE - 20000;
+    place.longitude_i = MAP_TEST_LONGITUDE + 10000;
+    snprintf(place.name, sizeof place.name, "%s", "Cache");
+    struct mesh_ui_waypoint_list places;
+    memset(&places, 0, sizeof places);
+    places.entries[0] = place;
+    places.count = 1U;
+    mesh_ui_store_set_waypoints(store, &places);
+    mesh_ui_store_consume_updates(store, NULL);
+}
+
+/* Which of the things the client knows about have somewhere to be drawn - and the two counts
+   that are not the same number. */
+MESH_TEST_CASE(map_markers_are_the_things_with_a_position, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    map_test_populate(&store);
+
+    struct mesh_ui_map_view view;
+    mesh_ui_map_build(&store, &view);
+
+    /* Two nodes with fixes and one place; four nodes-and-places known. */
+    MESH_TEST_FAIL_IF(view.count != 3U, "three things have a position");
+    MESH_TEST_FAIL_IF(view.known != 4U, "and four are known");
+    MESH_TEST_FAIL_IF(!view.has_self, "one of them is our own radio");
+    MESH_TEST_FAIL_IF(view.self_index != 0U, "drawn first, so everything else is over it");
+    MESH_TEST_FAIL_IF(view.markers[0].kind != MESH_UI_MAP_MARKER_SELF, "and typed as ourselves");
+    MESH_TEST_FAIL_IF(strcmp(view.markers[0].label, "ME") != 0, "labelled by its short name");
+
+    MESH_TEST_FAIL_IF(view.markers[1].kind != MESH_UI_MAP_MARKER_NODE, "then the other node");
+    MESH_TEST_FAIL_IF(view.markers[1].precision_bits != 16U,
+                      "carrying the rounding its sender declared");
+    MESH_TEST_FAIL_IF(view.markers[2].kind != MESH_UI_MAP_MARKER_WAYPOINT, "then the place");
+    MESH_TEST_FAIL_IF(strcmp(view.markers[2].label, "Cache") != 0, "labelled by its name");
+
+    /* A node the radio has forgotten is still drawn, and says so - the roster deliberately
+       outlives the NodeDB, and a marker dropped for that reason would lose a node we know. */
+    struct mesh_ui_handshake_state handshake = store.handshake;
+    handshake.nodes[1].in_nodedb = false;
+    mesh_ui_store_set_handshake(&store, &handshake);
+    mesh_ui_store_consume_updates(&store, NULL);
+    mesh_ui_map_build(&store, &view);
+    MESH_TEST_FAIL_IF(view.count != 3U, "a forgotten node keeps its marker");
+    MESH_TEST_FAIL_IF(!view.markers[1].stale, "and is marked as one the radio no longer carries");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * A selection is a kind and an id, and it survives the roster being re-ranked under it.
+ *
+ * docs/maps-roadmap.md's fifth pre-work item named this exact case: "a map-only node may be
+ * outside the detail roster" and "publication reorders nodes". A marker under a crosshair is
+ * another index into another ordering of the same list, and matching on the number alone is not
+ * enough either - a waypoint id is a small counter and a node number is arbitrary, so the two
+ * spaces collide by ordinary coincidence rather than by bad luck.
+ */
+MESH_TEST_CASE(map_selection_names_a_thing_not_a_row, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    map_test_populate(&store);
+
+    struct mesh_ui_map_view view;
+    mesh_ui_map_build(&store, &view);
+
+    uint32_t index = 0U;
+    MESH_TEST_FAIL_IF(!mesh_ui_map_find(&view, MESH_UI_MAP_MARKER_WAYPOINT, 7U, &index),
+                      "the place is findable");
+    const int32_t latitude = view.markers[index].latitude_i;
+
+    /* A node numbered the same as the waypoint's id must not answer for it. */
+    struct mesh_ui_handshake_state handshake = store.handshake;
+    handshake.nodes[1].node_id = 7U;
+    mesh_ui_store_set_handshake(&store, &handshake);
+    mesh_ui_store_consume_updates(&store, NULL);
+    mesh_ui_map_build(&store, &view);
+
+    MESH_TEST_FAIL_IF(!mesh_ui_map_find(&view, MESH_UI_MAP_MARKER_WAYPOINT, 7U, &index),
+                      "the place is still findable");
+    MESH_TEST_FAIL_IF(view.markers[index].kind != MESH_UI_MAP_MARKER_WAYPOINT,
+                      "and it is still the place");
+    MESH_TEST_FAIL_IF(view.markers[index].latitude_i != latitude, "in the same place");
+
+    uint32_t node_index = 0U;
+    MESH_TEST_FAIL_IF(!mesh_ui_map_find(&view, MESH_UI_MAP_MARKER_NODE, 7U, &node_index),
+                      "and the node numbered 7 is findable too");
+    MESH_TEST_FAIL_IF(node_index == index, "as a different marker");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * Panning is aiming: what A opens is whatever the middle of the view is nearest, and nothing
+ * when it is nearest nothing.
+ */
+MESH_TEST_CASE(map_the_crosshair_selects_by_panning, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    map_test_populate(&store);
+
+    struct mesh_ui_map_view view;
+    mesh_ui_map_build(&store, &view);
+
+    struct mesh_map_viewport viewport;
+    mesh_map_viewport_init(&viewport, MAP_TEST_LATITUDE, MAP_TEST_LONGITUDE, 16);
+
+    uint32_t index = 0U;
+    MESH_TEST_FAIL_IF(!mesh_ui_map_selected(&view, &viewport, &index),
+                      "centred on our own radio, it is what is selected");
+    MESH_TEST_FAIL_IF(view.markers[index].kind != MESH_UI_MAP_MARKER_SELF, "and it is ourselves");
+
+    /* Pan onto the other node and it takes the selection. */
+    (void)mesh_map_viewport_center_on(&viewport, store.handshake.nodes[1].position.latitude_i,
+                                      store.handshake.nodes[1].position.longitude_i);
+    MESH_TEST_FAIL_IF(!mesh_ui_map_selected(&view, &viewport, &index), "the other node selects");
+    MESH_TEST_FAIL_IF(view.markers[index].id != store.handshake.nodes[1].node_id,
+                      "and it is that node");
+
+    /* Pan into open country and nothing is selected - which is a state, not a failure. */
+    (void)mesh_map_viewport_center_on(&viewport, MAP_TEST_LATITUDE + 5000000,
+                                      MAP_TEST_LONGITUDE + 5000000);
+    MESH_TEST_FAIL_IF(mesh_ui_map_selected(&view, &viewport, &index), "empty grid selects nothing");
+
+    /*
+     * And the radius travels with the zoom, because it is a statement about aiming on a panel.
+     * The same view zoomed far enough out has every marker within a few pixels of the middle.
+     */
+    mesh_map_viewport_init(&viewport, MAP_TEST_LATITUDE, MAP_TEST_LONGITUDE, 2);
+    MESH_TEST_FAIL_IF(!mesh_ui_map_selected(&view, &viewport, &index),
+                      "zoomed out, the cluster is under the crosshair");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/* The Nodes list's first row opens the map, and refuses out loud when there is nothing to put
+   on one. */
+MESH_TEST_CASE(map_opens_from_the_node_list, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store); /* a roster with no fixes anywhere in it */
+
+    struct mesh_ui_action action;
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+    MESH_TEST_FAIL_IF(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_MAP_ROW,
+                      "the list opens on its map row");
+    MESH_TEST_FAIL_IF(mesh_ui_map_has_markers(&store), "and nothing has a position");
+
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF(store.nav.map_open, "so the press does not open a map");
+    MESH_TEST_FAIL_IF(store.nav.toast[0] == '\0', "and says why rather than doing nothing");
+
+    /* Give something a position and the same press opens. */
+    struct mesh_ui_handshake_state handshake = store.handshake;
+    handshake.nodes[1].position.valid = true;
+    handshake.nodes[1].position.latitude_i = MAP_TEST_LATITUDE;
+    handshake.nodes[1].position.longitude_i = MAP_TEST_LONGITUDE;
+    mesh_ui_store_set_handshake(&store, &handshake);
+    mesh_ui_store_consume_updates(&store, NULL);
+
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF(!store.nav.map_open, "now it opens");
+    MESH_TEST_FAIL_IF(!mesh_geo_coords_valid(store.nav.map_viewport.center_latitude_i,
+                                             store.nav.map_viewport.center_longitude_i),
+                      "looking at somewhere real");
+    MESH_TEST_FAIL_IF(!map_near(store.nav.map_viewport.center_latitude_i, MAP_TEST_LATITUDE, 200),
+                      "framed on the one thing it has");
+
+    /* B goes back to the list, on the row it was opened from. */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    MESH_TEST_FAIL_IF(store.nav.map_open, "B closes it");
+    MESH_TEST_FAIL_IF(store.nav.cursor[MESH_UI_SCREEN_NODES] != MESH_UI_NODES_MAP_ROW,
+                      "landing back on the row that opened it");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * The d-pad moves the world here, and the shoulders still move the tabs.
+ *
+ * Both halves matter. The first is the whole reason nav_map.c takes its presses ahead of the
+ * routing that turns Left and Right into tabs; the second is what stops that costing the reader
+ * the tab strip, and it is the reason the two pairs - which are the same press on every other
+ * screen in the client - are allowed to part company on this one.
+ */
+MESH_TEST_CASE(map_the_dpad_moves_the_world, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    map_test_populate(&store);
+
+    struct mesh_ui_action action;
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
+
+    const int32_t longitude = store.nav.map_viewport.center_longitude_i;
+    const int32_t latitude = store.nav.map_viewport.center_latitude_i;
+
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    MESH_TEST_FAIL_IF(store.nav.screen != MESH_UI_SCREEN_NODES,
+                      "Right pans rather than changing tab");
+    MESH_TEST_FAIL_IF(store.nav.map_viewport.center_longitude_i <= longitude, "and pans east");
+
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
+    MESH_TEST_FAIL_IF(store.nav.map_viewport.center_latitude_i <= latitude, "Up pans north");
+
+    /* The shoulders are untouched, so the strip above the body still works from here. */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_R1, &action);
+    MESH_TEST_FAIL_IF(store.nav.screen == MESH_UI_SCREEN_NODES, "R1 still changes tab");
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_L1, &action);
+    MESH_TEST_FAIL_IF(store.nav.screen != MESH_UI_SCREEN_NODES, "and L1 comes back");
+    MESH_TEST_FAIL_IF(!store.nav.map_open, "with the map still open");
+
+    /* X and Y are the zoom, in whole levels and clamped. */
+    const uint8_t zoom = store.nav.map_viewport.zoom;
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    MESH_TEST_FAIL_IF(store.nav.map_viewport.zoom != zoom + 1U, "X goes one level closer");
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    MESH_TEST_FAIL_IF(store.nav.map_viewport.zoom != zoom, "Y goes one level wider");
+
+    /* START frames everything again, however far the view has been walked. */
+    for (int i = 0; i < 30; ++i) {
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    }
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    struct mesh_ui_map_view view;
+    mesh_ui_map_build(&store, &view);
+    for (uint32_t i = 0; i < view.count; ++i) {
+        struct mesh_map_placement placement;
+        struct mesh_map_viewport drawn = store.nav.map_viewport;
+        mesh_map_viewport_resize(&drawn, MESH_UI_MAP_FIT_WIDTH, MESH_UI_MAP_FIT_HEIGHT);
+        MESH_TEST_FAIL_IF(!mesh_map_viewport_place(&drawn, view.markers[i].latitude_i,
+                                                   view.markers[i].longitude_i, &placement),
+                          "each marker places after a fit");
+        MESH_TEST_FAIL_IF(!placement.visible, "and every one of them is back on the panel");
+    }
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * A opens what is under the crosshair, and B comes back to the map rather than to the list.
+ *
+ * The second half is the one worth a test: a node opened from a map and closed onto the node
+ * list is a reader losing the view they had panned to, and the only thing that prevents it is
+ * the map staying open underneath the detail.
+ */
+MESH_TEST_CASE(map_opens_a_marker_and_comes_back_to_the_map, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    map_test_populate(&store);
+
+    struct mesh_ui_action action;
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* the map row */
+    MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
+
+    /* Onto ALFA, whose fix the fixture put a few hundred metres north-east. */
+    const uint32_t alfa = store.handshake.nodes[1].node_id;
+    (void)mesh_map_viewport_center_on(&store.nav.map_viewport,
+                                      store.handshake.nodes[1].position.latitude_i,
+                                      store.handshake.nodes[1].position.longitude_i);
+    store.nav.map_viewport.zoom = 16U;
+
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF(!store.nav.node_detail_open, "A opened the marker under the crosshair");
+    MESH_TEST_FAIL_IF(store.nav.node_detail_node != alfa, "and it is that node");
+    MESH_TEST_FAIL_IF(!store.nav.map_open, "with the map still underneath it");
+
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    MESH_TEST_FAIL_IF(store.nav.node_detail_open, "B closes the detail");
+    MESH_TEST_FAIL_IF(!store.nav.map_open, "back onto the map it was opened from");
+
+    /* A place goes to the tab that owns places, which is a change of tab and does not come
+       back - the node detail's "Message this node" makes the same move for the same reason. */
+    (void)mesh_map_viewport_center_on(&store.nav.map_viewport, MAP_TEST_LATITUDE - 20000,
+                                      MAP_TEST_LONGITUDE + 10000);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF(store.nav.screen != MESH_UI_SCREEN_WAYPOINTS, "a place opens on its own tab");
+    MESH_TEST_FAIL_IF(!store.nav.waypoint_detail_open || store.nav.waypoint_detail_id != 7U,
+                      "showing that place");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/* A map with nothing left to draw closes itself, the way a node detail whose node has gone
+   does - a screen of empty graticule reads as a map panned into the ocean, not as an empty one. */
+MESH_TEST_CASE(map_closes_when_there_is_nothing_left_to_draw, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    map_test_populate(&store);
+
+    struct mesh_ui_action action;
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 0x1000U;
+    mesh_ui_store_set_handshake(&store, &handshake);
+    struct mesh_ui_waypoint_list places;
+    memset(&places, 0, sizeof places);
+    mesh_ui_store_set_waypoints(&store, &places);
+
+    /* A real snapshot, because that is where the clamp runs: mesh_ui_store_consume_updates()
+       refuses a NULL one before it gets there, so a test that passed NULL would be asserting
+       that nothing happened rather than that the right thing did. */
+    static struct mesh_ui_snapshot snapshot;
+    MESH_TEST_FAIL_IF(!mesh_ui_store_consume_updates(&store, &snapshot), "a frame was published");
+
+    MESH_TEST_FAIL_IF(store.nav.map_open, "an emptied roster closes the map");
+    MESH_TEST_FAIL_IF(snapshot.nav.map_open, "and the frame drawn from it shows the list");
+    mesh_ui_store_shutdown(&store);
     record_success(test_name);
 }

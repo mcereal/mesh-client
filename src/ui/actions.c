@@ -105,6 +105,35 @@ static void actions_messages(const struct mesh_ui_nav *nav, const struct mesh_ui
     bar_add_tabs(bar);
 }
 
+/*
+ * The map.
+ *
+ * The one bar in this client that names the d-pad as something other than a cursor, and it says
+ * so first: "pan" is what the four directions do here, and a reader arriving from any other
+ * screen has every reason to expect them to move a selection. A is named unconditionally even
+ * though it does nothing when the crosshair is on empty grid - unlike the Status screen's verbs,
+ * which change with the cursor, this one is always the same verb about whatever is aimed at, and
+ * a keycap that appeared and vanished as the reader panned would be the bar flickering rather
+ * than informing.
+ *
+ * L/R still walks the tabs, which is the whole reason the d-pad could be spent: the shoulders
+ * and the directions are the same press on every other screen, and this is the one place they
+ * part company.
+ */
+static void actions_map(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_action_bar *bar) {
+    bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_OPEN);
+    bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+    bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_ZOOM_IN);
+    bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_ZOOM_OUT);
+    bar_add(bar, MESH_UI_BUTTON_START, MESH_STR_ACTION_FIT);
+    /* Late, so it is among the first to go on a narrow panel - the four presses above are the
+       ones that leave the screen or change what is on it, and this one names a gesture a reader
+       discovers by trying it. */
+    bar_add(bar, MESH_UI_BUTTON_UP_DOWN, MESH_STR_ACTION_PAN);
+    bar_add_help(snapshot, bar);
+    bar_add_tabs(bar);
+}
+
 static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_snapshot *snapshot,
                           struct mesh_ui_action_bar *bar) {
     if (nav->node_remove_armed) {
@@ -121,6 +150,21 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
         bar_add_tabs(bar);
         return;
     }
+    /* The map, under any detail opened from it and over the list it was opened from - the same
+       order fb_render_snapshot() draws them in, for the reason this file always follows it:
+       describing a screen the reader cannot see is describing presses that will not arrive. */
+    if (nav->map_open) {
+        actions_map(snapshot, bar);
+        return;
+    }
+    /*
+     * The list, whose first row is the map rather than a node - so X and Y are named for presses
+     * that do nothing there. They are named anyway, and deliberately: they are true of every
+     * other row on the screen, and a bar that shed two keycaps as the cursor passed over the top
+     * row would be describing the row rather than the list. The Status screen's rule is the
+     * opposite one because its cards offer genuinely different verbs; here there is one verb per
+     * key and one row that happens not to take them.
+     */
     bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_OPEN);
     bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_PIN);
     bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_WRITE);

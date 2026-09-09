@@ -726,6 +726,7 @@ MESH_TEST_CASE(help_follows_the_route_into_a_level, unit) {
     MESH_TEST_FAIL_IF(!help_store_tab(&nodes, MESH_UI_SCREEN_NODES), "Nodes did not open");
     struct mesh_ui_help_topic roster;
     MESH_TEST_FAIL_IF(!topic_for(&nodes, &roster), "the roster has no topic");
+    press(&nodes, MESH_UI_KEY_DOWN); /* off the list's map row, which is a level of its own */
     press(&nodes, MESH_UI_KEY_A);
     MESH_TEST_FAIL_IF(!nodes.nav.node_detail_open, "A did not open a node");
     struct mesh_ui_help_topic detail;

@@ -72,8 +72,7 @@ struct mesh_geo_point {
  * is the one place where the two limits above are both consulted in one call - the geographic
  * one decides whether there is an answer, and the display one decides where it goes.
  */
-bool mesh_geo_mercator_forward(int32_t latitude_i, int32_t longitude_i,
-                               struct mesh_geo_point *out);
+bool mesh_geo_mercator_forward(int32_t latitude_i, int32_t longitude_i, struct mesh_geo_point *out);
 
 /*
  * The inverse: a point on the unit square back to a coordinate.

@@ -319,9 +319,20 @@ bool mesh_map_viewport_fit(struct mesh_map_viewport *viewport, const struct mesh
 }
 
 double mesh_map_viewport_metres_per_pixel(const struct mesh_map_viewport *viewport) {
-    if (!viewport_has_area(viewport)) {
+    if (viewport == NULL) {
         return 0.0;
     }
+    /*
+     * No box needed, and that is load-bearing rather than incidental.
+     *
+     * How much ground a pixel covers is a function of the zoom and the latitude and nothing
+     * else - the panel's size does not change the scale, only how much of it fits. Which means
+     * this is the one measurement of the map that every caller agrees about whether or not it
+     * has been told how big the panel is, and it is therefore what the *selection* is measured
+     * in: the nav decides which marker a press opens and the backend decides which one draws a
+     * ring, they cannot ask each other how wide the body is, and a selection derived from
+     * anything box-dependent would be two answers to one question.
+     */
     return mesh_geo_mercator_metres_per_world(viewport->center_latitude_i) /
            viewport_world_pixels(viewport->zoom);
 }

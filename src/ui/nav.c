@@ -13,6 +13,7 @@
 
 #include "mesh/core/message.h"
 #include "mesh/ui/help.h"
+#include "mesh/ui/map.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/reactions.h"
 #include "mesh/ui/settings.h"
@@ -141,6 +142,22 @@ static bool mesh_ui_nav_close_node_detail(struct mesh_ui_nav *nav) {
     nav->node_remove_armed = false;
     nav->cursor[MESH_UI_SCREEN_NODES] = nav->node_list_cursor;
     return true;
+}
+
+/*
+ * The node a Nodes-list row is about, or NULL when the row is not about a node.
+ *
+ * One place that knows the list has a map row on the front of it, so the four presses the list
+ * offers - A, X, Y and the detail's own opening - cannot disagree about which node row 3 is.
+ * Every one of them went through mesh_ui_node_detail_at() with the raw cursor before the row
+ * existed, and every one of them would have been off by one after it.
+ */
+static const struct mesh_ui_node_summary *mesh_ui_nav_node_at_row(const struct mesh_ui_store *store,
+                                                                  uint32_t cursor) {
+    if (store == NULL || cursor == MESH_UI_NODES_MAP_ROW) {
+        return NULL;
+    }
+    return mesh_ui_node_detail_at(&store->handshake, cursor - 1U);
 }
 
 void mesh_ui_nav_conversation_name(const struct mesh_ui_nav *nav, char *out, size_t out_len) {
@@ -277,8 +294,16 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
         const uint32_t nodes = store->handshake.node_count > MESH_UI_MAX_HANDSHAKE_NODES
                                    ? MESH_UI_MAX_HANDSHAKE_NODES
                                    : store->handshake.node_count;
+        if (nav != NULL && nav->map_open && !nav->node_detail_open) {
+            /* The map has no rows. The d-pad moves the world here rather than a cursor, so
+               there is nothing for the cursor clamp to hold in range - see nav_map.c. */
+            return 0U;
+        }
         if (nav == NULL || !nav->node_detail_open) {
-            return nodes;
+            /* The map row, and then the nodes. A roster with nothing in it draws an empty
+               state instead of a list, so the row that opens a map of it is not offered
+               either: the screen it would open is the same nothing one level in. */
+            return nodes > 0U ? nodes + 1U : 0U;
         }
         const struct mesh_ui_node_summary *node =
             mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node);
@@ -347,6 +372,10 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
     /* And the same for a place that has left the list, which is what a withdrawal from the
        mesh looks like from here. */
     moved = mesh_ui_nav_waypoint_clamp(nav, store) || moved;
+    /* And for a map with nothing left to draw on it, which a forget or a radio swap can leave
+       behind. It runs after the node detail's close so a map closing under an open detail takes
+       the detail with it rather than stranding it one level up from nowhere. */
+    moved = mesh_ui_nav_map_clamp(nav, store) || moved;
 
     /*
      * Help, whose paragraph list can shrink under an open screen: a radio answering for a
@@ -648,11 +677,25 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             return false;
         }
         if (!nav->node_detail_open) {
+            if (cursor == MESH_UI_NODES_MAP_ROW) {
+                /*
+                 * The map, framed on everything the client can place. It cannot be pressed when
+                 * there is nothing to place, and it says so out loud rather than doing nothing:
+                 * a row that swallows a press is the client telling the reader their Brick is
+                 * broken. The Waypoints tab's "New waypoint here" row settled this rule.
+                 */
+                if (!mesh_ui_map_has_markers(store)) {
+                    mesh_ui_nav_raise_toast(nav, mesh_str(MESH_STR_TOAST_MAP_NO_FIXES));
+                    return true; /* the toast is nav state, so the frame has changed */
+                }
+                mesh_ui_nav_open_map(nav, store, 0U);
+                return true;
+            }
             /* A on a contact opens what we know about it, the way tapping one in the phone
                app does. Writing to it is the first row inside, and Y still goes straight
                there from the list. */
-            const struct mesh_ui_node_summary *node = &store->handshake.nodes[cursor];
-            if (node->node_id == 0U) {
+            const struct mesh_ui_node_summary *node = mesh_ui_nav_node_at_row(store, cursor);
+            if (node == NULL || node->node_id == 0U) {
                 return false;
             }
             nav->node_list_cursor = cursor;
@@ -719,6 +762,18 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
                 action->dest = node->node_id;
             }
             return false; /* the row redraws when the app flips the flag */
+        }
+        if (items[cursor].action == MESH_UI_NODE_ACTION_SHOW_ON_MAP) {
+            /*
+             * The map, aimed at this node, opened *under* the detail rather than over it: the
+             * detail closes and the map is what is left, so B from the map goes on to the node
+             * list. Leaving the detail open over its own map would make B land back on the row
+             * that had just been pressed, which is a loop rather than a way out.
+             */
+            const uint32_t focus = node->node_id;
+            mesh_ui_nav_close_node_detail(nav);
+            mesh_ui_nav_open_map(nav, store, focus);
+            return true;
         }
         if (items[cursor].action == MESH_UI_NODE_ACTION_WAYPOINT) {
             /* Straight into naming it. The coordinate is not carried - the keyboard remembers
@@ -1031,6 +1086,27 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         changed = true;
     }
 
+    /*
+     * The map, before the routing below turns Left and Right into a change of tab.
+     *
+     * It is the only screen that has to be taken here, and the reason is the one thing that
+     * makes it unlike every other screen in the client: its d-pad moves the world rather than a
+     * cursor. Left on a map is not "the tab to the left", and a press that fell through to the
+     * switch below would walk off the map every time the reader tried to look west.
+     *
+     * The shoulders are deliberately not taken. L1/R1 and Left/Right are the same press
+     * everywhere else, and splitting them is what lets the map have the d-pad without the tab
+     * strip above it going dead - so the action bar still says "L/R tabs" here, and still
+     * means it.
+     */
+    if (nav->map_open) {
+        bool handled = false;
+        const bool result = mesh_ui_nav_map_key(nav, store, key, &handled);
+        if (handled) {
+            return result || changed;
+        }
+    }
+
     if (nav->screen == MESH_UI_SCREEN_SETTINGS &&
         nav->settings_section != MESH_UI_SETTINGS_NO_SECTION) {
         /* A second press of anything but B stands the discard question down. */
@@ -1087,6 +1163,9 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             return mesh_ui_nav_settings_back(nav) || changed;
         }
         if (nav->screen == MESH_UI_SCREEN_NODES) {
+            /* The detail first, because it is the level on top - and when it was opened from
+               the map, closing it lands back on the map with the view where it was left rather
+               than on the list the reader was never on. The map's own B is taken above. */
             return mesh_ui_nav_close_node_detail(nav) || changed;
         }
         if (nav->screen == MESH_UI_SCREEN_WAYPOINTS) {
@@ -1138,7 +1217,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             const struct mesh_ui_node_summary *node =
                 nav->node_detail_open
                     ? mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node)
-                    : mesh_ui_node_detail_at(&store->handshake, nav->cursor[nav->screen]);
+                    : mesh_ui_nav_node_at_row(store, nav->cursor[nav->screen]);
             if (node != NULL && node->node_id != 0U && !mesh_ui_nav_node_is_self(store, node)) {
                 mesh_ui_nav_fill_favorite(out_action, node);
             }
@@ -1196,7 +1275,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             const struct mesh_ui_node_summary *node =
                 nav->node_detail_open
                     ? mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node)
-                    : mesh_ui_node_detail_at(&store->handshake, nav->cursor[nav->screen]);
+                    : mesh_ui_nav_node_at_row(store, nav->cursor[nav->screen]);
             if (node == NULL || node->node_id == 0U || mesh_ui_nav_node_is_self(store, node)) {
                 return changed;
             }

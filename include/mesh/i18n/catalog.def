@@ -126,6 +126,14 @@ MESH_STR_ENTRY(ACTION_HELP,               "help")
 MESH_STR_ENTRY(ACTION_SCROLL,             "scroll")
 /* The shoulder buttons inside a long picker: ten rows at a time rather than one. */
 MESH_STR_ENTRY(ACTION_JUMP,               "jump 10")
+/* The map's three presses, and the one screen in this client where the d-pad moves the picture
+   instead of a cursor. "pan" is that: sliding the view over the world. */
+MESH_STR_ENTRY(ACTION_PAN,                "pan")
+MESH_STR_ENTRY(ACTION_ZOOM_IN,            "closer")
+MESH_STR_ENTRY(ACTION_ZOOM_OUT,           "wider")
+/* START on the map: frame every marker again, which is the view the map opened on. A verb
+   rather than "reset" because nothing is being undone - the reader is asking to see all of it. */
+MESH_STR_ENTRY(ACTION_FIT,                "fit all")
 /* Put the highlighted character into the draft - what A does on the on-screen keyboard. */
 MESH_STR_ENTRY(ACTION_TYPE,               "type")
 MESH_STR_ENTRY(ACTION_PAIR,               "pair")
@@ -338,6 +346,43 @@ MESH_STR_ENTRY(NODES_DETAIL_EMPTY,        "Nothing reported for this node yet.")
 /* Titles: how many of the radio's NodeDB we hold, or how many we keep that it has evicted. */
 MESH_STR_ENTRY(NODES_TITLE_OF,            "Nodes (%u of %u)")
 MESH_STR_ENTRY(NODES_TITLE_OFF_RADIO,     "Nodes (%u, %u off radio)")
+
+/* ---- the map ----------------------------------------------------------------------------------
+ *
+ * A picture of where the nodes and the shared places are, opened from the first row of the Nodes
+ * list. There is no basemap under it yet - see docs/maps-roadmap.md - so what it draws is a
+ * graticule, the markers, and a scale bar to read the distances against.
+ */
+
+/* The Nodes list's first row, and what its supporting line says. The count is nodes and places
+   that have reported a position, which is usually far fewer than the roster holds. */
+MESH_STR_ENTRY(MAP_ROW,                   "Map")
+MESH_STR_PLURAL_ENTRY(MAP_ROW_MARKERS,    "%u position", "%u positions")
+/* ...and what that row says instead when nothing on the mesh has ever reported a position. The
+   row stays and says why, rather than disappearing: a row that vanishes explains nothing. */
+MESH_STR_ENTRY(MAP_ROW_EMPTY,             "Nothing has reported a position yet")
+/* Raised when the row is pressed anyway - the reader who most needs the reason is the one who
+   just pressed A without reading it. */
+MESH_STR_ENTRY(TOAST_MAP_NO_FIXES,        "Nothing on the mesh has a position yet")
+/* The map's own heading, and the badge beside it: how many markers are on the panel as it is
+   framed right now, out of every one the client could place. A reader who has panned away from
+   everything is told so rather than left wondering whether the map is broken. */
+MESH_STR_ENTRY(MAP_TITLE,                 "Map")
+MESH_STR_ENTRY(MAP_BADGE_IN_VIEW,         "%u of %u")
+/* Under the crosshair when it is on nothing. Its own line rather than an empty one, because the
+   space where a name would be is where a reader looks to find out what they have aimed at. */
+MESH_STR_ENTRY(MAP_NOTHING_SELECTED,      "nothing under the crosshair")
+/* A marker's own line: what it is, and how far away it is from the middle of the view. */
+MESH_STR_ENTRY(MAP_SELECTED_RANGE,        "%s  %s")
+/* What a node marker whose fix the sender rounded says, so a pin is never read as an exact
+   spot. The distance comes from the same table the node detail and the channel's own
+   position_precision row read. */
+MESH_STR_ENTRY(MAP_SELECTED_APPROX,       "within %s")
+/* A node the radio's NodeDB no longer carries. The roster deliberately outlives the radio's
+   database, so a marker can be one we remember and the radio does not. */
+MESH_STR_ENTRY(MAP_SELECTED_OFF_RADIO,    "off radio")
+/* Our own radio, which is the one marker that is never somewhere to go to. */
+MESH_STR_ENTRY(MAP_SELECTED_SELF,         "this radio")
 /* Who a broadcast went to, where a direct message would name one node. It is a peer name, so
    it lands wherever a name does - the bubble header reads "to all". */
 MESH_STR_ENTRY(PEER_EVERYONE,             "all")
@@ -640,6 +685,9 @@ MESH_STR_ENTRY(NODE_ACT_REMOVE_ARMED,     "A again to remove")
 /* Share where this node says it is as a waypoint. Offered only when it has a fix - a place
    with no coordinates is not one. */
 MESH_STR_ENTRY(NODE_ACT_WAYPOINT,         "Save this place")
+/* Open the map centred on this node. Beside "Save this place" because the two are the pair of
+   things a fix is good for: one keeps it and one looks at it. */
+MESH_STR_ENTRY(NODE_ACT_SHOW_ON_MAP,      "Show on map")
 
 /* Value formats. */
 MESH_STR_ENTRY(NODE_VAL_USER_ID_HEX,      "!%08x")
@@ -971,6 +1019,7 @@ MESH_STR_ENTRY(HELP_SUBJECT_THREAD,       "Conversation")
 MESH_STR_ENTRY(HELP_SUBJECT_REACTION,     "Tapbacks")
 MESH_STR_ENTRY(HELP_SUBJECT_NODE,         "Node")
 MESH_STR_ENTRY(HELP_SUBJECT_WAYPOINT,     "Place")
+MESH_STR_ENTRY(HELP_SUBJECT_MAP,          "Map")
 
 /* Messages: the conversation list. */
 MESH_STR_ENTRY(HELP_LABEL_MESSAGES_NEW,   "Starting a conversation")
@@ -1015,6 +1064,18 @@ MESH_STR_ENTRY(HELP_NOTE_WAYPOINTS,       "Places the mesh has agreed on, neares
 MESH_STR_ENTRY(HELP_NOTE_WAYPOINT_NEW,    "The last row of the list makes a place where you are standing. It needs a position from the radio, and says so rather than disappearing when there is none.")
 MESH_STR_ENTRY(HELP_NOTE_WAYPOINT_SHARE,  "Sharing broadcasts the place on a channel, so everyone holding that channel's key gets it. Sending it again with the same name replaces the copy they hold rather than adding a second.")
 MESH_STR_ENTRY(HELP_NOTE_WAYPOINT_DROP,   "Deleting a place you shared asks the whole mesh to forget it. A place somebody else shared is only dropped here, because withdrawing it is theirs to do and not ours.")
+
+/* The map. The first note is the one worth reading: this screen's d-pad is the only one in the
+   client that does not move a cursor, and a reader who does not know that will think it is
+   broken. The last is about honesty rather than about a control - a marker is where a node said
+   it was, which is not always where the node is. */
+MESH_STR_ENTRY(HELP_LABEL_MAP_MOVE,       "Moving around")
+MESH_STR_ENTRY(HELP_LABEL_MAP_PICK,       "Opening a marker")
+MESH_STR_ENTRY(HELP_LABEL_MAP_TRUST,      "How much to believe it")
+MESH_STR_ENTRY(HELP_NOTE_MAP,             "Every node and shared place that has reported a position, drawn north-up. There is no map underneath yet, so the grid and the scale bar are what distances are read against.")
+MESH_STR_ENTRY(HELP_NOTE_MAP_MOVE,        "The d-pad slides the view rather than moving a cursor, which is unlike every other screen here. The shoulder buttons still change tab, and START frames everything again.")
+MESH_STR_ENTRY(HELP_NOTE_MAP_PICK,        "Whatever is nearest the crosshair in the middle is what A opens, so aiming is panning. A node opens its details and a place opens on the Waypoints tab.")
+MESH_STR_ENTRY(HELP_NOTE_MAP_TRUST,       "A marker is where a node last said it was, not where it is now. Senders often round their position on purpose, and the ring around a marker is how far out it may be.")
 
 /* Devices. */
 MESH_STR_ENTRY(HELP_LABEL_DEVICES_PAIR,   "Pairing")

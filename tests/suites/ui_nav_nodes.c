@@ -37,6 +37,16 @@ MESH_TEST_CASE(ui_nav_node_favorite, unit) {
     struct mesh_ui_action action;
     store.nav.screen = MESH_UI_SCREEN_NODES;
 
+    /* The list opens on its map row, which is about no node at all - so X there asks for
+       nothing, and a step down is what reaches the first node. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    if (action.type != MESH_UI_ACTION_NONE) {
+        mesh_ui_store_shutdown(&store);
+        record_failure(test_name, "X on the map row should do nothing");
+        return;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+
     /* Our own node cannot be pinned: it already outranks everything. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
     if (action.type != MESH_UI_ACTION_NONE) {
@@ -136,6 +146,7 @@ MESH_TEST_CASE(ui_nav_node_detail_follows_the_node, unit) {
 
     struct mesh_ui_action action;
     store.nav.screen = MESH_UI_SCREEN_NODES;
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* past the map row */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     if (!store.nav.node_detail_open || store.nav.node_detail_node != 0x3000U) {
@@ -428,6 +439,7 @@ MESH_TEST_CASE(ui_nav_node_mute_remove, unit) {
 
     struct mesh_ui_action action;
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action); /* Nodes */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);  /* past the map row */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);  /* a node that is not us */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     if (!store.nav.node_detail_open) {

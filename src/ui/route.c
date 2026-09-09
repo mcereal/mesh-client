@@ -19,8 +19,23 @@ static uint8_t route_screen_depth(const struct mesh_ui_nav *nav) {
     switch (nav->screen) {
     case MESH_UI_SCREEN_MESSAGES:
         return nav->thread_open ? 1U : 0U;
-    case MESH_UI_SCREEN_NODES:
-        return nav->node_detail_open ? 1U : 0U;
+    case MESH_UI_SCREEN_NODES: {
+        /*
+         * Three levels, and the map is the middle one *when it is open*: the list, the map over
+         * it, and a node's detail over that. A detail opened from the list is one level in; the
+         * same detail opened from the map is two, and that is not bookkeeping - it is what makes
+         * B out of it slide the right way, because the place it lands on is the map rather than
+         * the list.
+         */
+        uint8_t depth = 0U;
+        if (nav->map_open) {
+            depth++;
+        }
+        if (nav->node_detail_open) {
+            depth++;
+        }
+        return depth;
+    }
     case MESH_UI_SCREEN_WAYPOINTS:
         return nav->waypoint_detail_open ? 1U : 0U;
     case MESH_UI_SCREEN_SETTINGS: {
@@ -66,9 +81,21 @@ static void route_screen_place(const struct mesh_ui_nav *nav, struct mesh_ui_rou
         }
         return;
     case MESH_UI_SCREEN_NODES:
+        /* The detail first: it is the topmost of the tab's three levels, and `level` says what
+           is being drawn rather than what is underneath it. */
         if (nav->node_detail_open) {
             out->level = MESH_UI_ROUTE_NODE;
             out->subject = nav->node_detail_node;
+            return;
+        }
+        if (nav->map_open) {
+            /*
+             * One place, however far it has been panned. The centre and the zoom are
+             * deliberately not part of it, for the reason a cursor is not: they move constantly
+             * and change nothing about which screen is on the panel, and a route that carried
+             * them would restart the slide under the reader's thumb on every press of Left.
+             */
+            out->level = MESH_UI_ROUTE_MAP;
         }
         return;
     case MESH_UI_SCREEN_WAYPOINTS:

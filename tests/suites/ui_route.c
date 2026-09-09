@@ -148,6 +148,7 @@ MESH_TEST_CASE(ui_route_in_and_out_are_opposite, unit) {
         goto cleanup;
     }
     (void)press(&store, MESH_UI_KEY_RIGHT);
+    (void)press(&store, MESH_UI_KEY_DOWN); /* off the map row, onto a node */
     if (press(&store, MESH_UI_KEY_A) != MESH_UI_TRANSITION_FORWARD || !store.nav.node_detail_open) {
         failure = "opening a node should move forward";
         goto cleanup;
@@ -182,6 +183,7 @@ MESH_TEST_CASE(ui_route_the_tab_strip_decides, unit) {
     struct mesh_ui_action action;
     memset(&action, 0, sizeof action);
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action); /* off the map row */
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     if (!store.nav.node_detail_open || store.nav.screen != MESH_UI_SCREEN_NODES) {
         failure = "could not open a node detail to leave from";
