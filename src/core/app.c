@@ -230,8 +230,11 @@ void mesh_app_note_connected_device(struct mesh_app *app, const char *identifier
                                 : sizeof app->config.preferred_ble_device;
     if (strcmp(slot, identifier) != 0) {
         snprintf(slot, slot_len, "%s", identifier);
-        /* A different node is a different wait: whatever the last one was doing to the grace
-           period does not apply to this one. */
+        /* A different node is a different wait. The grace period is how long *this* node gets
+           to show up, so a switch restarts it: without this, a radio chosen an hour into a
+           session would be handed a window that expired at launch, and the first drop after it
+           would go straight back to the node it replaced. */
+        app->autoconnect_started_ms = 0U;
         app->autoconnect_waiting_logged = false;
     }
 }
@@ -282,8 +285,13 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     const bool link_up = (mesh_app_connected_identifier() != NULL);
     if (link_up) {
         /* An established link is the only proof an attempt worked, so it is the only thing that
-           clears the backoff. */
+           clears the backoff. It also re-arms the grace period for whatever comes after this
+           link, rather than leaving it expired for the life of the process: a settings write
+           reboots the radio, and a preferred node that is a few seconds from advertising again
+           must not lose its slot to the second radio on the desk. */
         app->autoconnect_failures = 0U;
+        app->autoconnect_started_ms = 0U;
+        app->autoconnect_waiting_logged = false;
     }
     if (ble == NULL || link_up || mesh_app_link_connecting()) {
         return;

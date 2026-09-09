@@ -1,8 +1,11 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include "mesh/core/app.h"
 #include "mesh/core/config.h"
 #include "mesh/core/version.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/serial.h"
+#include "mesh/utils/array.h"
 #include "mesh/utils/log.h"
 #include "mesh/utils/text.h"
 
@@ -14,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <time.h>
 
 /*
  * The radio --status and --send-text are talking to, and the link they are talking over. Both
@@ -50,6 +54,7 @@ static int send_text_message(struct mesh_app *app, const struct mesh_cli_link *l
                              const char *text, uint32_t dest, uint8_t channel, bool want_ack);
 static int select_ble_link(struct mesh_app *app, struct mesh_bluez_device_info *scratch,
                            struct mesh_cli_link *link);
+static size_t await_ble_discovery(struct mesh_app *app);
 static int select_serial_link(struct mesh_app *app, const char *requested,
                               struct mesh_serial_device_info *scratch, size_t scratch_len,
                               struct mesh_cli_link *link);
@@ -60,13 +65,56 @@ static void print_cached_messages(FILE *out, const struct mesh_ui_message_list *
 static void print_cached_messages_json(FILE *out, const struct mesh_ui_message_list *messages);
 static const struct mesh_bluez_device_info *
 select_preferred_device(const struct mesh_transport *ble, const struct mesh_app_config *config,
-                        struct mesh_bluez_device_info *scratch, size_t *count);
+                        struct mesh_bluez_device_info *scratch, size_t *count, bool heard_any);
 static void json_print_string(FILE *out, const char *value);
 
+#define MESH_CLI_DISCOVERY_WAIT_MS 4000U
+#define MESH_CLI_DISCOVERY_POLL_MS 250U
+
+/*
+ * Waits for the BLE scan to actually hear something, up to MESH_CLI_DISCOVERY_WAIT_MS.
+ *
+ * A one-shot command starts the transports and asks its question in the same breath, and
+ * StartDiscovery only *starts* scanning - so the first GetManagedObjects lands before any
+ * advertisement has arrived, and every device in it is a bond with no RSSI. Reading that as
+ * "nothing is in range" would fail a --send-text that was about to work. This is also what
+ * brings BlueZ up when the transport was not READY yet: mesh_ble_bring_up() retries from
+ * tick(), so the loop is the same thing the foreground app does with its event loop.
+ *
+ * Returns how many nodes were heard, which is 0 when the wait ran out.
+ */
+static size_t await_ble_discovery(struct mesh_app *app) {
+    struct mesh_transport *ble = mesh_ble_transport();
+    if (ble == NULL) {
+        return 0U;
+    }
+
+    struct mesh_bluez_device_info devices[16];
+    for (unsigned waited = 0U;; waited += MESH_CLI_DISCOVERY_POLL_MS) {
+        const size_t count = mesh_ble_transport_get_devices(ble, devices, MESH_ARRAY_LEN(devices));
+        size_t heard = 0U;
+        for (size_t i = 0; i < count; ++i) {
+            if (devices[i].in_range) {
+                ++heard;
+            }
+        }
+        if (heard > 0U || waited >= MESH_CLI_DISCOVERY_WAIT_MS) {
+            return heard;
+        }
+
+        const struct timespec nap = {.tv_sec = 0,
+                                     .tv_nsec = (long)MESH_CLI_DISCOVERY_POLL_MS * 1000000L};
+        (void)nanosleep(&nap, NULL);
+        mesh_transport_registry_tick(&app->transport_registry);
+        (void)mesh_ble_transport_refresh_devices(ble);
+    }
+}
+
 /* --list-devices: both transports, so a USB node shows up next to the BLE advertisers. */
-static void list_all_devices(void) {
+static void list_all_devices(struct mesh_app *app) {
     struct mesh_transport *ble = mesh_ble_transport();
     mesh_ble_transport_refresh_devices(ble);
+    (void)await_ble_discovery(app);
     size_t count = 0U;
     const struct mesh_bluez_device_info *devices = mesh_ble_transport_devices(ble, &count);
     printf("Meshtastic BLE devices (%zu)\n", count);
@@ -290,7 +338,7 @@ int main(int argc, char **argv) {
         if (result < 0) {
             mesh_log_error("main", "Failed to start transports: %d", result);
         } else if (list_devices) {
-            list_all_devices();
+            list_all_devices(&app);
             mesh_transport_registry_stop_all(&app.transport_registry);
         } else {
             /* The scratch arrays back the peer strings in `link`, so they outlive its use. */
@@ -330,9 +378,17 @@ int main(int argc, char **argv) {
     return (result < 0) ? EXIT_FAILURE : EXIT_SUCCESS;
 }
 
+/*
+ * `heard_any` is what the discovery wait came back with. With something heard, only a node that
+ * answered is a candidate - the same rule auto-connect follows, and for the same reason. With
+ * nothing heard the filter is dropped rather than applied to an empty scan: a radio already
+ * connected to a phone stops advertising, and a bond is then the only handle there is. One
+ * command gets to try it and fail; what must not happen is a whole session spent on it, which
+ * is why the foreground path does not have this fallback.
+ */
 static const struct mesh_bluez_device_info *
 select_preferred_device(const struct mesh_transport *ble, const struct mesh_app_config *config,
-                        struct mesh_bluez_device_info *scratch, size_t *count) {
+                        struct mesh_bluez_device_info *scratch, size_t *count, bool heard_any) {
     if (ble == NULL || config == NULL || scratch == NULL || count == NULL) {
         return NULL;
     }
@@ -356,9 +412,13 @@ select_preferred_device(const struct mesh_transport *ble, const struct mesh_app_
 
     if (config->preferred_ble_device[0] != '\0') {
         for (size_t i = 0; i < device_count; ++i) {
-            if (scratch[i].in_range &&
+            if ((scratch[i].in_range || !heard_any) &&
                 (strcasecmp(scratch[i].address, config->preferred_ble_device) == 0 ||
                  strcasecmp(scratch[i].name, config->preferred_ble_device) == 0)) {
+                if (!scratch[i].in_range) {
+                    mesh_log_warn("main", "Nothing heard in this scan; trying bonded device '%s'",
+                                  config->preferred_ble_device);
+                }
                 return &scratch[i];
             }
         }
@@ -366,12 +426,12 @@ select_preferred_device(const struct mesh_transport *ble, const struct mesh_app_
                       config->preferred_ble_device);
     }
 
-    /* Only a node that answered this scan. The enumeration lists everything BlueZ holds, bonds
-       included, and a device it has not heard reports no RSSI at all - which as a raw 0 beats
-       every real reading, all of which are negative. See mesh_bluez_device_info.in_range. */
+    /* Otherwise the loudest node that answered - never a bond with no reading behind it, whose
+       absent RSSI reads as a raw 0 and so beats every real measurement, all of which are
+       negative. See mesh_bluez_device_info.in_range. */
     const struct mesh_bluez_device_info *best = NULL;
     for (size_t i = 0; i < device_count; ++i) {
-        if (scratch[i].in_range && (best == NULL || scratch[i].rssi > best->rssi)) {
+        if ((scratch[i].in_range || !heard_any) && (best == NULL || scratch[i].rssi > best->rssi)) {
             best = &scratch[i];
         }
     }
@@ -383,9 +443,12 @@ select_preferred_device(const struct mesh_transport *ble, const struct mesh_app_
 static int select_ble_link(struct mesh_app *app, struct mesh_bluez_device_info *scratch,
                            struct mesh_cli_link *link) {
     struct mesh_transport *ble = mesh_ble_transport();
+    /* Discovery has only just been started, so give it a moment to hear something before
+       asking which nodes are in range. */
+    const bool heard_any = await_ble_discovery(app) > 0U;
     size_t device_count = 0U;
     const struct mesh_bluez_device_info *target =
-        select_preferred_device(ble, &app->config, scratch, &device_count);
+        select_preferred_device(ble, &app->config, scratch, &device_count, heard_any);
     if (target == NULL) {
         return -ENODEV;
     }

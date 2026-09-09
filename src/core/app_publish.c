@@ -1377,8 +1377,11 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
                            strcmp(connected_address, ble_devices[i].address) == 0);
         /* A radio answering us is better evidence of range than any advertisement, and the
            scan is held down for the whole of a link - so the node we are on says so even
-           after BlueZ has dropped the RSSI it was last heard at. */
-        slot->in_range = ble_devices[i].in_range || slot->connected || slot->busy;
+           after BlueZ has dropped the RSSI it was last heard at. A connect that is merely in
+           flight is not evidence of anything: pressing A on a row for a radio that is at home
+           would otherwise turn it "in range" with a 0 dBm reading for the whole of the
+           connect timeout, and count it on the Status card while it did. */
+        slot->in_range = ble_devices[i].in_range || slot->connected;
         if (slot->connected) {
             connected_address_seen = true;
         }

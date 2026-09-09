@@ -406,6 +406,124 @@ cleanup:
     record_success(test_name);
 }
 
+/*
+ * The grace period belongs to a connection attempt, not to the process.
+ *
+ * A settings write reboots the radio, so the node we were on stops advertising for a few
+ * seconds and the drop is immediately followed by a retry. If the window that lets a preferred
+ * node show up were armed once at launch, it would be long expired by then - and the second
+ * radio on the desk, being in range and known, would take the slot the rebooting one was about
+ * to reclaim. Switching radios by hand has to restart it for the same reason.
+ */
+MESH_TEST_CASE(app_autoconnect_grace_survives_a_reconnect, unit) {
+    const char *failure = NULL;
+
+    struct mesh_bluez_device_info mock_devices[] = {
+        {.address = "AA:BB:CC:DD:EE:07", .name = "NodeSeven", .rssi = 0, .paired = true},
+        {.address = "AA:BB:CC:DD:EE:06", .name = "NodeSix", .rssi = -70, .paired = true},
+    };
+
+    struct mesh_bluez_mock_config mock_config = {
+        .adapter_path = "/org/bluez/hci0",
+        .devices = mock_devices,
+        .device_count = 2U,
+    };
+    mesh_bluez_client_mock_enable(&mock_config);
+
+    char home_dir[] = "/tmp/mesh_app_graceXXXXXX";
+    if (mkdtemp(home_dir) == NULL) {
+        mesh_bluez_client_mock_disable();
+        record_failure(test_name, "mkdtemp failed");
+        return;
+    }
+    setenv("HOME", home_dir, 1);
+    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
+    unsetenv("MESHCLIENT_AUTOCONNECT");
+
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    config.enable_serial = false;
+    snprintf(config.preferred_ble_device, sizeof config.preferred_ble_device, "%s", "NodeSeven");
+
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+    bool app_ready = false;
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+
+    struct mesh_transport *ble = mesh_ble_transport();
+    if (mesh_transport_registry_start_all(&app.transport_registry, &app.config, &app.loop) < 0) {
+        failure = "transport start failed";
+        goto cleanup;
+    }
+    mesh_ble_transport_refresh_devices(ble);
+    (void)mesh_ui_preferences_note_device(&app.ui_preferences, mock_devices[1].address,
+                                          (uint8_t)MESH_UI_DEVICE_BLE);
+
+    /* Past the grace, the radio of ours that is in earshot wins. */
+    app.autoconnect_started_ms = test_now_ms() - 60000U;
+    app.autoconnect_retry_at_ms = 0U;
+    mesh_app_autoconnect(&app);
+    if (mesh_ble_transport_connected_address(ble) == NULL) {
+        failure = "expected a link to the node that answered";
+        goto cleanup;
+    }
+
+    /* A turn with the link up re-arms the window for whatever comes after it. */
+    app.autoconnect_retry_at_ms = 0U;
+    mesh_app_autoconnect(&app);
+    if (app.autoconnect_started_ms != 0U) {
+        failure = "an established link should re-arm the grace period";
+        goto cleanup;
+    }
+
+    /* So the drop that follows a radio reboot waits for the preferred node again rather than
+       taking the other radio the moment it is heard. */
+    if (mesh_ble_transport_disconnect(ble) != 0) {
+        failure = "disconnect failed";
+        goto cleanup;
+    }
+    app.autoconnect_retry_at_ms = 0U;
+    mesh_app_autoconnect(&app);
+    if (mesh_ble_transport_connected_address(ble) != NULL) {
+        failure = "the grace period should hold the turn after a drop";
+        goto cleanup;
+    }
+
+    /* Choosing a radio by hand restarts it too: the window is this node's, not the last one's. */
+    app.autoconnect_started_ms = test_now_ms() - 60000U;
+    mesh_app_note_connected_device(&app, mock_devices[0].address, (uint8_t)MESH_UI_DEVICE_BLE);
+    if (app.autoconnect_started_ms != 0U) {
+        failure = "a switch to another radio should restart the grace period";
+        goto cleanup;
+    }
+
+cleanup:
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    mesh_bluez_client_mock_disable();
+    unsetenv("MESHCLIENT_UI_BACKEND");
+    {
+        char path[256];
+        snprintf(path, sizeof path, "%s/.meshclient/ui_prefs.handshake", home_dir);
+        unlink(path);
+        snprintf(path, sizeof path, "%s/.meshclient/ui_prefs", home_dir);
+        unlink(path);
+        snprintf(path, sizeof path, "%s/.meshclient", home_dir);
+        rmdir(path);
+        rmdir(home_dir);
+    }
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(app_settings_write_build, unit) {
     struct mesh_radio_settings radio;
     mesh_radio_settings_reset(&radio);
