@@ -96,7 +96,7 @@ static void route_screen_place(const struct mesh_ui_nav *nav, struct mesh_ui_rou
     }
 }
 
-void mesh_ui_route_of(const struct mesh_ui_nav *nav, struct mesh_ui_route *out) {
+void mesh_ui_route_under_help(const struct mesh_ui_nav *nav, struct mesh_ui_route *out) {
     if (out == NULL) {
         return;
     }
@@ -155,21 +155,33 @@ void mesh_ui_route_of(const struct mesh_ui_nav *nav, struct mesh_ui_route *out) 
         out->slot = nav->confirm_action;
         out->subject = 0U;
     }
-    /*
-     * Help, last, because it is drawn over everything and can be raised from anywhere the
-     * action bar offers it. Being a level at all is what buys it the slide, the back arrow and
-     * the B keycap without any of the three being told about it - the point route.h makes at
-     * length about not writing a "this move was a push" flag by hand.
-     *
-     * `slot` is the section it explains, so opening help on LoRa and opening it on Position are
-     * two places rather than one place repainted.
-     */
-    if (nav->help_open) {
-        out->depth++;
-        out->level = MESH_UI_ROUTE_HELP;
-        out->slot = nav->settings_section;
-        out->subject = 0U;
+}
+
+/*
+ * Help, over everything else, because it is drawn over everything and can be raised from
+ * anywhere the action bar offers it. Being a level at all is what buys it the slide, the back
+ * arrow and the B keycap without any of the three being told about it - the point route.h makes
+ * at length about not writing a "this move was a push" flag by hand.
+ *
+ * It is the one level that is a *layer* over the route rather than a place of its own, which is
+ * why it is the only one split out of the walk above: src/ui/help.c has to ask what is
+ * underneath it to know what to explain, and reconstructing that by clearing a flag on a copy of
+ * the nav would be a second derivation of the same answer. So the walk stops below help and this
+ * adds it, and the two callers each get the half they mean.
+ *
+ * `slot` and `subject` are left exactly as the place underneath filled them, which is what makes
+ * help on LoRa and help on Position two places rather than one repainted - and, once help
+ * answers for a screen that is not a settings section, help on one node and help on another two
+ * as well. Overwriting them with the settings section did the first and would have broken the
+ * second on the day a node detail acquired a topic.
+ */
+void mesh_ui_route_of(const struct mesh_ui_nav *nav, struct mesh_ui_route *out) {
+    mesh_ui_route_under_help(nav, out);
+    if (out == NULL || nav == NULL || !nav->help_open) {
+        return;
     }
+    out->depth++;
+    out->level = MESH_UI_ROUTE_HELP;
 }
 
 bool mesh_ui_route_same(const struct mesh_ui_route *a, const struct mesh_ui_route *b) {

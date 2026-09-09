@@ -53,6 +53,10 @@ static bool help_store_open(struct mesh_ui_store *store, enum mesh_ui_settings_s
     settings.loaded = true;
     settings.has_lora = true;
     settings.use_preset = true;
+    /* The owner fragment as well as the modem one, because a section is only built once the
+       radio has sent what it is made of - and User is the section with a TEXT row on it, which
+       is the only way to raise a keyboard over a section. */
+    settings.has_owner = true;
     mesh_ui_store_set_settings(store, &settings);
     return mesh_test_open_tab(store, MESH_UI_SCREEN_SETTINGS) &&
            mesh_test_settings_open(store, section);
@@ -136,7 +140,8 @@ MESH_TEST_CASE(help_notes_fit_the_panel, unit) {
     for (int i = 0; i < (int)MESH_STR_COUNT; ++i) {
         const enum mesh_str_id id = (enum mesh_str_id)i;
         const char *name = mesh_str_id_name(id);
-        if (name == NULL || strncmp(name, "SETTINGS_NOTE_", 14) != 0) {
+        if (name == NULL ||
+            (strncmp(name, "SETTINGS_NOTE_", 14) != 0 && strncmp(name, "HELP_NOTE_", 10) != 0)) {
             continue;
         }
         const size_t len = strlen(mesh_str_in(mesh_i18n_locale_english(), id));
@@ -151,11 +156,47 @@ MESH_TEST_CASE(help_notes_fit_the_panel, unit) {
     record_success(test_name);
 }
 
-/* A field's note is optional, and the ones that have one are reachable through the accessor
-   rather than only through the table. Phase 1 ships five, all on LoRa. */
+/*
+ * A field's note is optional, and the ones that have one are reachable through the accessor
+ * rather than only through the table.
+ *
+ * The listed fields are the rows docs/help.md names as worth explaining - the ones where the
+ * label does not tell you what goes wrong. They are checked by name rather than by counting
+ * how many rows have a note, because a count is a number that goes stale on the first row
+ * anybody adds and says nothing about *which* row went missing.
+ */
 MESH_TEST_CASE(help_field_notes_are_optional, unit) {
-    MESH_TEST_FAIL_IF(mesh_ui_settings_field_note(MESH_UI_FIELD_LORA_HOPS) == MESH_STR_NONE,
-                      "the hop limit has no note");
+    static const struct {
+        enum mesh_ui_setting_field field;
+        const char *name;
+    } k_explained[] = {
+        {MESH_UI_FIELD_LORA_REGION, "LoRa region"},
+        {MESH_UI_FIELD_LORA_SPREAD, "spread factor"},
+        {MESH_UI_FIELD_LORA_CODING, "coding rate"},
+        {MESH_UI_FIELD_LORA_HOPS, "hop limit"},
+        {MESH_UI_FIELD_LORA_TX_POWER, "transmit power"},
+        {MESH_UI_FIELD_LORA_BANDWIDTH, "bandwidth"},
+        {MESH_UI_FIELD_DEVICE_ROLE, "device role"},
+        {MESH_UI_FIELD_DEVICE_REBROADCAST, "rebroadcast mode"},
+        {MESH_UI_FIELD_POSITION_SMART, "smart broadcast"},
+        {MESH_UI_FIELD_POSITION_SMART_DISTANCE, "smart distance"},
+        {MESH_UI_FIELD_POSITION_SMART_INTERVAL, "smart interval"},
+        {MESH_UI_FIELD_CHANNEL_KEY, "the channel key"},
+        {MESH_UI_FIELD_CHANNEL_UPLINK, "MQTT uplink"},
+        {MESH_UI_FIELD_CHANNEL_DOWNLINK, "MQTT downlink"},
+        {MESH_UI_FIELD_CHANNEL_POSITION, "position precision"},
+        {MESH_UI_FIELD_SECURITY_ADMIN_KEY_0, "the admin keys"},
+        {MESH_UI_FIELD_SF_HISTORY_WINDOW, "the history window"},
+        {MESH_UI_FIELD_NEIGHBOR_INTERVAL, "the neighbor info interval"},
+    };
+    for (size_t i = 0; i < sizeof k_explained / sizeof k_explained[0]; ++i) {
+        if (mesh_ui_settings_field_note(k_explained[i].field) == MESH_STR_NONE) {
+            char reason[128];
+            snprintf(reason, sizeof reason, "%s has no note", k_explained[i].name);
+            record_failure(test_name, reason);
+            return;
+        }
+    }
     MESH_TEST_FAIL_IF(mesh_ui_settings_field_note(MESH_UI_FIELD_USER_LONG_NAME) != MESH_STR_NONE,
                       "a self-explanatory field acquired a note");
     MESH_TEST_FAIL_IF(mesh_ui_settings_field_note(MESH_UI_FIELD_NONE) != MESH_STR_NONE,
@@ -421,27 +462,244 @@ MESH_TEST_CASE(help_stands_down_an_armed_question_without_opening, unit) {
     record_success(test_name);
 }
 
+/* ---- the features -------------------------------------------------------------------------- */
+
+/*
+ * A store on `screen`, with the fixture's devices, nodes and messages behind it.
+ *
+ * The settings fixture above opens a section; this one stops at the tab, which is what a feature
+ * topic is keyed on.
+ */
+static bool help_store_tab(struct mesh_ui_store *store, enum mesh_ui_screen screen) {
+    if (mesh_ui_store_init(store) != 0) {
+        return false;
+    }
+    mesh_test_nav_populate(store);
+    return mesh_test_open_tab(store, screen);
+}
+
+/*
+ * Every tab explains itself, and says which tab it is explaining.
+ *
+ * The phase 1 client offered SELECT on a settings section and nowhere else, which made the one
+ * key on the case that is not printed with a verb mean something on one tab in six. The subject
+ * is checked with the topic because it is what the frame draws on the trail: a topic with
+ * paragraphs and no subject is a help screen headed "Help" over nothing, which looks like a
+ * missing string rather than like an answer.
+ */
+MESH_TEST_CASE(help_every_tab_explains_itself, unit) {
+    static const enum mesh_ui_screen k_screens[] = {
+        MESH_UI_SCREEN_MESSAGES, MESH_UI_SCREEN_NODES,  MESH_UI_SCREEN_WAYPOINTS,
+        MESH_UI_SCREEN_DEVICES,  MESH_UI_SCREEN_STATUS,
+    };
+    for (size_t i = 0; i < sizeof k_screens / sizeof k_screens[0]; ++i) {
+        struct mesh_ui_store store;
+        MESH_TEST_FAIL_IF(!help_store_tab(&store, k_screens[i]), "a tab did not open");
+        MESH_TEST_FAIL_IF(!bar_offers_help(&store), "a tab did not offer the help press");
+
+        struct mesh_ui_help_topic topic;
+        MESH_TEST_FAIL_IF(!topic_for(&store, &topic), "a tab has no topic");
+        MESH_TEST_FAIL_IF(topic.count < 2U, "a tab's topic is only an overview");
+        MESH_TEST_FAIL_IF(topic.subject == MESH_STR_NONE, "a topic does not name its screen");
+        MESH_TEST_FAIL_IF(topic.entries[0].label != MESH_STR_NONE,
+                          "the opening paragraph is attributed to a row");
+        for (uint32_t e = 1; e < topic.count; ++e) {
+            MESH_TEST_FAIL_IF(topic.entries[e].label == MESH_STR_NONE,
+                              "a paragraph has no heading");
+            MESH_TEST_FAIL_IF(topic.entries[e].body == MESH_STR_NONE, "a heading has no paragraph");
+        }
+
+        press(&store, MESH_UI_KEY_SELECT);
+        MESH_TEST_FAIL_IF(!store.nav.help_open, "SELECT did not open a tab's help");
+        /* A feature opens at the top: its paragraphs are about the screen, not about the row
+           the cursor happened to be on. */
+        MESH_TEST_FAIL_IF(store.nav.help_cursor != 0U, "a feature topic did not open at the top");
+        press(&store, MESH_UI_KEY_B);
+        MESH_TEST_FAIL_IF(store.nav.help_open, "B did not leave a tab's help");
+        MESH_TEST_FAIL_IF(store.nav.screen != k_screens[i], "leaving help left the tab as well");
+    }
+    record_success(test_name);
+}
+
+/*
+ * Opening a level changes the topic, without help being told that it has.
+ *
+ * This is the whole of what keying on the route buys, so it is checked rather than described: a
+ * conversation is not the conversation list and a node is not the roster, and neither of the two
+ * inner screens has a flag anywhere saying which paragraphs belong to it.
+ */
+MESH_TEST_CASE(help_follows_the_route_into_a_level, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(!help_store_tab(&store, MESH_UI_SCREEN_MESSAGES), "Messages did not open");
+
+    struct mesh_ui_help_topic list;
+    MESH_TEST_FAIL_IF(!topic_for(&store, &list), "the conversation list has no topic");
+
+    press(&store, MESH_UI_KEY_A); /* the all-traffic row, which is the first one */
+    MESH_TEST_FAIL_IF(!store.nav.thread_open, "A did not open a transcript");
+
+    struct mesh_ui_help_topic thread;
+    MESH_TEST_FAIL_IF(!topic_for(&store, &thread), "the transcript has no topic");
+    MESH_TEST_FAIL_IF(thread.subject == list.subject,
+                      "the transcript is explained as the list it was opened from");
+    MESH_TEST_FAIL_IF(!bar_offers_help(&store), "the transcript did not offer the help press");
+
+    /* And the same one level in on another tab, so this is the route rather than one screen. */
+    struct mesh_ui_store nodes;
+    MESH_TEST_FAIL_IF(!help_store_tab(&nodes, MESH_UI_SCREEN_NODES), "Nodes did not open");
+    struct mesh_ui_help_topic roster;
+    MESH_TEST_FAIL_IF(!topic_for(&nodes, &roster), "the roster has no topic");
+    press(&nodes, MESH_UI_KEY_A);
+    MESH_TEST_FAIL_IF(!nodes.nav.node_detail_open, "A did not open a node");
+    struct mesh_ui_help_topic detail;
+    MESH_TEST_FAIL_IF(!topic_for(&nodes, &detail), "a node detail has no topic");
+    MESH_TEST_FAIL_IF(detail.subject == roster.subject,
+                      "a node is explained as the roster it was opened from");
+    record_success(test_name);
+}
+
+/*
+ * The tapback picker is explained, which is the case the press had to move for.
+ *
+ * SELECT was handled after the overlay dispatch, so every overlay swallowed it and the one
+ * screen in the client made entirely of glyphs was the one screen that could not say what its
+ * glyphs did. The bar and the press are compared here as everywhere else - the picker acquired
+ * a keycap by acquiring a paragraph, and if it ever loses the paragraph it must lose the keycap.
+ */
+MESH_TEST_CASE(help_explains_the_tapback_picker, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(!help_store_tab(&store, MESH_UI_SCREEN_MESSAGES), "Messages did not open");
+    press(&store, MESH_UI_KEY_DOWN); /* off all-traffic, onto a conversation */
+    press(&store, MESH_UI_KEY_A);
+    MESH_TEST_FAIL_IF(!store.nav.thread_open || store.nav.inbox, "no conversation opened");
+    press(&store, MESH_UI_KEY_X);
+    MESH_TEST_FAIL_IF(!store.nav.reaction_open, "X did not raise the tapback picker");
+
+    MESH_TEST_FAIL_IF(!bar_offers_help(&store), "the tapback picker offered no help press");
+    struct mesh_ui_help_topic topic;
+    MESH_TEST_FAIL_IF(!topic_for(&store, &topic), "the tapback picker has no topic");
+    press(&store, MESH_UI_KEY_SELECT);
+    MESH_TEST_FAIL_IF(!store.nav.help_open, "SELECT did not explain the tapback picker");
+    /* And B goes back to the picker rather than out of it: help is a level over the overlay,
+       not a screen that replaced it. */
+    press(&store, MESH_UI_KEY_B);
+    MESH_TEST_FAIL_IF(store.nav.help_open, "B did not leave help");
+    MESH_TEST_FAIL_IF(!store.nav.reaction_open, "leaving help closed the picker underneath it");
+    record_success(test_name);
+}
+
+/*
+ * A screen holding a destructive question open does not offer help, on any tab.
+ *
+ * The settings section had this rule from the first version, for a reason that was never about
+ * settings: an armed question has spent both keycaps on a yes and a no, and a third press that
+ * opened a screen would stand the question down where the user could not see it happen. Moving
+ * SELECT ahead of the overlay dispatch made the other four arming flags reachable by the same
+ * press, so all of them are walked rather than the one that was found first.
+ */
+MESH_TEST_CASE(help_is_refused_while_a_question_is_armed, unit) {
+    /* The Devices tab's forget (Y), and the conversation list's delete (X). Both are one press
+       to arm and any other press to stand down. */
+    struct mesh_ui_store devices;
+    MESH_TEST_FAIL_IF(!help_store_tab(&devices, MESH_UI_SCREEN_DEVICES), "Devices did not open");
+    MESH_TEST_FAIL_IF(!bar_offers_help(&devices), "Devices did not offer help to begin with");
+    press(&devices, MESH_UI_KEY_Y);
+    MESH_TEST_FAIL_IF(!devices.nav.devices_forget_armed, "Y did not arm the forget question");
+    MESH_TEST_FAIL_IF(bar_offers_help(&devices), "an armed forget still offered the help press");
+    press(&devices, MESH_UI_KEY_SELECT);
+    MESH_TEST_FAIL_IF(devices.nav.help_open, "SELECT opened help over an armed forget");
+    MESH_TEST_FAIL_IF(devices.nav.devices_forget_armed,
+                      "SELECT did not stand the question down the way any other press does");
+    MESH_TEST_FAIL_IF(!bar_offers_help(&devices), "help stayed away once the question was gone");
+
+    struct mesh_ui_store messages;
+    MESH_TEST_FAIL_IF(!help_store_tab(&messages, MESH_UI_SCREEN_MESSAGES), "Messages did not open");
+    press(&messages, MESH_UI_KEY_DOWN);
+    press(&messages, MESH_UI_KEY_X);
+    MESH_TEST_FAIL_IF(!messages.nav.messages_delete_armed, "X did not arm the delete question");
+    MESH_TEST_FAIL_IF(bar_offers_help(&messages), "an armed delete still offered the help press");
+    press(&messages, MESH_UI_KEY_SELECT);
+    MESH_TEST_FAIL_IF(messages.nav.help_open, "SELECT opened help over an armed delete");
+    MESH_TEST_FAIL_IF(messages.nav.messages_delete_armed, "SELECT left the question armed");
+    record_success(test_name);
+}
+
+/*
+ * An overlay over a settings section is not the settings section.
+ *
+ * The regression the hoisted press made possible, and the one the feature table gets right for
+ * free by not listing those routes. help_section_open() used to ask only which section the nav
+ * had open, which stays true while a keyboard is up over one of its rows - so with SELECT moved
+ * ahead of the overlay dispatch, the press opened the section's help over a half-typed field
+ * while the keyboard's own bar, which names five keys and not that one, said nothing about it.
+ *
+ * Walked as states rather than asserted once, for help_keycap_and_press_agree's reason: the bar
+ * and the press have to agree in each of them, and it is the agreement rather than either
+ * answer that is the property worth checking.
+ */
+MESH_TEST_CASE(help_is_not_offered_over_an_overlay_on_a_section, unit) {
+    /* A text field's keyboard, over the User section. */
+    struct mesh_ui_store keyboard;
+    MESH_TEST_FAIL_IF(!help_store_open(&keyboard, MESH_UI_SETTINGS_USER), "User did not open");
+    MESH_TEST_FAIL_IF(!bar_offers_help(&keyboard), "the section did not offer help to begin with");
+    press(&keyboard, MESH_UI_KEY_A); /* the long name row opens the keyboard */
+    MESH_TEST_FAIL_IF(!keyboard.nav.keyboard_open, "A did not raise the keyboard");
+    MESH_TEST_FAIL_IF(bar_offers_help(&keyboard), "the keyboard offered the help press");
+    press(&keyboard, MESH_UI_KEY_SELECT);
+    MESH_TEST_FAIL_IF(keyboard.nav.help_open, "SELECT opened help over the keyboard");
+    MESH_TEST_FAIL_IF(!keyboard.nav.keyboard_open, "SELECT closed the keyboard instead");
+
+    /* And the confirm dialog, over Radio actions. Same shape, different overlay: the question is
+       waiting for A or B, and a third press that drew a screen over it would be answering
+       something nobody asked. */
+    struct mesh_ui_store confirm;
+    MESH_TEST_FAIL_IF(!help_store_open(&confirm, MESH_UI_SETTINGS_ACTIONS),
+                      "Radio actions did not open");
+    MESH_TEST_FAIL_IF(!bar_offers_help(&confirm), "the section did not offer help to begin with");
+    /* Walked rather than aimed at row 0: which rows are actions depends on what the radio has
+       told us, and a test that pressed a fixed row would be asserting the section's order. */
+    for (uint32_t row = 0;
+         row < mesh_ui_nav_row_count(&confirm.nav, &confirm, MESH_UI_SCREEN_SETTINGS) &&
+         !confirm.nav.confirm_open;
+         ++row) {
+        press(&confirm, MESH_UI_KEY_A);
+        if (!confirm.nav.confirm_open) {
+            press(&confirm, MESH_UI_KEY_DOWN);
+        }
+    }
+    MESH_TEST_FAIL_IF(!confirm.nav.confirm_open, "no row raised the confirm dialog");
+    MESH_TEST_FAIL_IF(bar_offers_help(&confirm), "the confirm dialog offered the help press");
+    press(&confirm, MESH_UI_KEY_SELECT);
+    MESH_TEST_FAIL_IF(confirm.nav.help_open, "SELECT opened help over the confirm dialog");
+    MESH_TEST_FAIL_IF(!confirm.nav.confirm_open, "SELECT answered the question instead");
+    record_success(test_name);
+}
+
 /*
  * And where there is nothing to explain, neither the bar nor the press invents anything.
  *
- * The settings root is the case that matters: its rows are the sections, each of which explains
- * itself once opened, so a help screen over the list would be either empty or a table of
- * contents nobody asked for.
+ * Two states rather than the six tabs this used to walk, because five of the six now have
+ * something to say. What is left is the pair the design refuses on purpose: the Settings tab's
+ * own list of sections, where each row explains itself once opened so a topic over the list
+ * would be a table of contents for a table of contents; and an overlay that is asking the user a
+ * question, where the way out is to answer it rather than to stack a second screen on it.
  */
 MESH_TEST_CASE(help_is_not_offered_where_there_is_nothing_to_say, unit) {
     struct mesh_ui_store store;
-    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
-    mesh_test_nav_populate(&store);
+    MESH_TEST_FAIL_IF(!help_store_tab(&store, MESH_UI_SCREEN_SETTINGS), "Settings did not open");
+    MESH_TEST_FAIL_IF(bar_offers_help(&store), "the list of sections offered help");
+    press(&store, MESH_UI_KEY_SELECT);
+    MESH_TEST_FAIL_IF(store.nav.help_open, "SELECT opened help on the list of sections");
 
-    static const enum mesh_ui_screen k_screens[] = {
-        MESH_UI_SCREEN_MESSAGES, MESH_UI_SCREEN_NODES,  MESH_UI_SCREEN_WAYPOINTS,
-        MESH_UI_SCREEN_DEVICES,  MESH_UI_SCREEN_STATUS, MESH_UI_SCREEN_SETTINGS,
-    };
-    for (size_t i = 0; i < sizeof k_screens / sizeof k_screens[0]; ++i) {
-        MESH_TEST_FAIL_IF(!mesh_test_open_tab(&store, k_screens[i]), "a tab did not open");
-        MESH_TEST_FAIL_IF(bar_offers_help(&store), "a tab's own list offered help");
-        press(&store, MESH_UI_KEY_SELECT);
-        MESH_TEST_FAIL_IF(store.nav.help_open, "SELECT opened help on a tab's own list");
-    }
+    /* The send-to picker, raised by Y on the conversation list: a question with a list of
+       answers, and the screen underneath it is the one with the explanation. */
+    struct mesh_ui_store picker;
+    MESH_TEST_FAIL_IF(!help_store_tab(&picker, MESH_UI_SCREEN_MESSAGES), "Messages did not open");
+    press(&picker, MESH_UI_KEY_Y);
+    MESH_TEST_FAIL_IF(!picker.nav.picker_open, "Y did not raise the picker");
+    MESH_TEST_FAIL_IF(bar_offers_help(&picker), "the picker offered help");
+    press(&picker, MESH_UI_KEY_SELECT);
+    MESH_TEST_FAIL_IF(picker.nav.help_open, "SELECT opened help over the picker");
+    MESH_TEST_FAIL_IF(!picker.nav.picker_open, "SELECT closed the picker instead");
     record_success(test_name);
 }

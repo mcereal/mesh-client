@@ -149,7 +149,7 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window (counted in **steps**, so one row may be taller than its neighbours); cards (filled/elevated/outlined, with verbs on the heading line), buttons, chips, badges, list items (leading/marker/supporting/trailing slots, an optional full-width bar on a second step), section subheaders, switches, selection controls (checkbox/radio), segmented buttons (which fall back to the chosen word when the row is too narrow), meters (with domains and drawn threshold bands), sliders (a settings number on the scale of the values it could have had, with a value the scale cannot place drawn as a track with no handle), signal staircases, sparklines (a reading over time, on the bar's own domain, from a sample ring the client keeps), bubbles (whose trailing run is four typed slots the component measures, never a string a screen assembled), the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar |
 | Button hints | `src/ui/actions.c`, `include/mesh/ui/actions.h` | what the buttons do here, as (button, verb) pairs the action bar iterates |
 | Status verbs | `src/ui/status.c`, `include/mesh/ui/status.h` | which Status card carries which verb — read by `nav.c`, `actions.c` and the renderer alike |
-| Help | `src/ui/help.c`, `include/mesh/ui/help.h` | what the client can explain about where the user is standing, as a title and a list of paragraphs — ids the whole way down. The notes live on the things they describe (a section's beside its icon in `settings.c`, a field's in its own `k_fields` row); this assembles |
+| Help | `src/ui/help.c`, `include/mesh/ui/help.h` | what the client can explain about where the user is standing, as a title, a subject and a list of paragraphs — ids the whole way down. A settings section's notes live on the things they describe (a section's beside its icon in `settings.c`, a field's in its own `k_fields` row) and this assembles them; a *feature's* are a table here, keyed on the route under the help screen |
 | Waypoints UI | `src/ui/waypoints.c`, `src/ui/nav_waypoints.c` | the list's order (nearest first, from our own fix), a place's detail rows, and the distance/compass formatting the same two screens read |
 | Tapbacks | `src/ui/reactions.c`, `include/mesh/ui/reactions.h` | the fixed emoji set X offers over a bubble: the glyph, which goes on the air unchanged, and the catalog id that names it |
 | Delivery marks | `src/ui/delivery.c`, `include/mesh/ui/delivery.h` | which mark an outbound message's ack state gets — the clock, the double tick or the alert circle a bubble's corner draws, and the word a backend with no sprites says for the same state |
@@ -244,13 +244,16 @@ said so - the same correction the app bar's back arrow made.
 **No setting explains itself in a renderer either, and most settings do not explain themselves
 at all.** What a setting *does* is a property of the setting, so it is `note` on its own
 `k_fields` row and a table beside `k_section_icons[]` — never a sentence on a screen. SELECT
-opens `src/ui/help.c`'s answer for wherever the nav is. Three things about it are rules rather
+opens `src/ui/help.c`'s answer for wherever the nav is. Four things about it are rules rather
 than observations: **help is per section, not per row**, because most fields need no note and a
 key that did nothing on two rows in three is the keycap `actions.c` refuses everywhere else;
 **every section has a note and a field's is optional**, which is what makes the press always
-worth offering; and **the bar and the press ask the same function**, so a keycap that does
-nothing is not expressible. A note is at most 200 characters and a locale may leave it
-untranslated — the one class of string that may. See [`docs/help.md`](docs/help.md).
+worth offering; **the bar and the press ask the same function**, so a keycap that does
+nothing is not expressible; and **a screen that is not a list of fields is keyed on the route**
+(`k_help_features[]`, read through `mesh_ui_route_under_help()`) rather than on the nav's flags,
+so a new way of reaching a screen arrives with the right help already attached. A note is at most
+200 characters and a locale may leave it untranslated — the one class of string that may. See
+[`docs/help.md`](docs/help.md).
 
 **No colour, margin, glyph size or corner radius is spelled out in a renderer.** A screen names
 a *tone* (`MESH_UI_TONE_WARNING`), a widget that fills something names a *family*

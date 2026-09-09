@@ -69,14 +69,21 @@ struct mesh_ui_help_entry {
 };
 
 struct mesh_ui_help_topic {
-    enum mesh_str_id title;
-    enum mesh_ui_icon icon;
+    enum mesh_str_id title;   /* "Help", on every one of them */
+    enum mesh_str_id subject; /* what is being explained, for the trail above the title */
     struct mesh_ui_help_entry entries[MESH_UI_HELP_ENTRIES_MAX];
     uint32_t count;
 };
 
-bool mesh_ui_help_topic(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_help_topic *out);
+bool mesh_ui_help_topic(const struct mesh_ui_settings *settings,
+                        const struct mesh_ui_handshake_state *handshake,
+                        const struct mesh_ui_nav *nav, struct mesh_ui_help_topic *out);
 ```
+
+It takes the configuration and the handshake rather than a whole snapshot because the two callers
+are the action bar, which builds one per frame, and the key handler, which has a store rather than
+a snapshot - a snapshot parameter would have made one of them copy tens of kilobytes onto a fixed
+stack per press.
 
 This is `status.c`'s shape and it is here for `status.c`'s reason: `nav.c` walks the same list the
 renderer draws and `actions.c` names the press that opens it, and three opinions about one list is
@@ -85,9 +92,67 @@ how a screen comes to disagree with itself.
 `mesh_ui_help_topic()` returning **false** is how the client says there is nothing to explain
 here - which is what decides whether the key is offered at all.
 
+### A feature's topic is a table, keyed on the route
+
+A settings section is a list of fields, so its topic is *built*: walk the rows, take the notes.
+Nothing about that list is written down in `help.c`, which is the point - a field acquires help by
+naming one id in the row somebody was already editing.
+
+A feature has no rows to read a note off. What the Waypoints tab is for is not a property of any
+one of the places on it, and the tapback picker is a row of glyphs with nothing behind them to
+carry a note at all. So those topics are a table in `help.c`: one array of paragraphs per feature,
+and one row per **route** pointing at the array that answers for it.
+
+```c
+static const struct help_feature k_help_features[] = {
+    HELP_FEATURE(MESH_UI_SCREEN_WAYPOINTS, MESH_UI_ROUTE_LIST, MESH_STR_TAB_WAYPOINTS,
+                 k_help_waypoints),
+    HELP_FEATURE(MESH_UI_SCREEN_WAYPOINTS, MESH_UI_ROUTE_WAYPOINT, MESH_STR_HELP_SUBJECT_WAYPOINT,
+                 k_help_waypoints),
+    ...
+};
+```
+
+Keyed on the route rather than on the nav's flags for the reason
+[`route.h`](../include/mesh/ui/route.h) gives at length: a new way of reaching a screen then
+arrives with the right help already attached, instead of with a condition somebody has to
+remember to add here. Two rows may name one array, which is how the Waypoints list and one open
+place share a topic - they are one feature seen at two depths.
+
+The route it reads is the one **underneath** the help screen. `mesh_ui_route_of()` puts
+`MESH_UI_ROUTE_HELP` on top of everything, so a help screen asking what is being *drawn* would
+answer about itself and empty on the first repaint. `route.c` therefore stops its walk below help
+and adds the level afterwards, and the two halves are two calls:
+
+```c
+void mesh_ui_route_of(const struct mesh_ui_nav *nav, struct mesh_ui_route *out);
+void mesh_ui_route_under_help(const struct mesh_ui_nav *nav, struct mesh_ui_route *out);
+```
+
+The alternative was for `help.c` to copy the nav, clear `help_open` and ask again - a second
+derivation of the same answer, which is what that header spends its opening paragraphs refusing.
+
+Help's `slot` and `subject` are now left exactly as the place underneath filled them, rather than
+overwritten with the settings section. That was right while help only explained sections and would
+have been wrong the day a node detail acquired a topic: help on one node and help on another have
+to be two places, or the slide plays when the cursor moves and not when the screen changes.
+
+### A topic names what it is explaining
+
+`struct mesh_ui_help_topic` carries a `subject`: the catalog id of the section's or the feature's
+name, drawn on the trail above the title. The screen's own title is "Help" everywhere, so without
+it the frame never says *what* it is helping with.
+
+It is on the topic rather than read out of the nav by the backend, which is what
+`fb_render_help()` used to do - `mesh_ui_settings_section_name(nav->settings_section)`, which is a
+renderer knowing that help is about settings. Over the Nodes tab it would have drawn whichever
+section the user last opened, confidently and wrongly. `mesh_ui_settings_section_label()` is the
+id half of the section name that this needed, and the twenty-seven-case switch it replaced is now
+a table beside the icons and the notes.
+
 ## The screen
 
-### It is per section, not per row
+### For settings, it is per section, not per row
 
 The obvious design is a supporting line under every settings row. It is wrong twice. It doubles
 the height of every section on a panel that already scrolls, and prose on a supporting line is the
@@ -104,6 +169,12 @@ whichever of its rows have one. Every section has a note, so the key always does
 the screen **opens scrolled to the row the cursor was on**, so pressing help on `Hop limit` lands
 on the hop-limit paragraph and scrolling up reaches the LoRa overview. One screen, always
 populated, and still a direct answer to the row in front of you.
+
+A feature's topic opens at the top instead, and that is the difference between the two kinds
+rather than the settings answer failing to apply. A section's rows and its paragraphs correspond
+one for one, so there is a row to open on; a feature's paragraphs are about the screen rather than
+about the rows of it, and its third paragraph has no more claim to a place in the list than its
+first.
 
 ### It is a list of wrapped paragraphs
 
@@ -135,6 +206,19 @@ what is printed on the plastic.
 The bar offers it only where `mesh_ui_help_topic()` answers, which is the same table the press
 reads, so the keycap and the press cannot disagree.
 
+It is handled **before the overlay dispatch** rather than after it. Every overlay handler consumes
+whatever key it is given, so a press reaching the bottom of `mesh_ui_nav_handle_key()` is a press
+on a tab's own screen - which is why the one screen in the client made entirely of glyphs was the
+one screen that could not say what its glyphs did. Hoisting it costs those handlers nothing:
+`mesh_ui_nav_open_help()` answers false wherever there is no topic, so an overlay acquires the
+press by acquiring a paragraph and not otherwise.
+
+That move is also what made `help_question_armed()` necessary. Five screens arm a destructive
+question - the settings discard, the Devices forget, the node remove, the waypoint delete, the
+conversation delete - and each of them spends both keycaps on a yes and a no. Only the settings
+one was reachable while SELECT was handled last; all five are now, and a press that opened help
+over one would stand the question down where the user could not see it happen.
+
 ### It is a level, so it animates for free
 
 `MESH_UI_ROUTE_HELP` in `enum mesh_ui_route_level`, set from `nav.help_open` in
@@ -154,9 +238,13 @@ Three things make that affordable, and they are policy rather than luck:
   locale that translates no notes at all renders English notes and correct Spanish everywhere
   else. **Note bodies are the one class of string a locale may omit.** That is not only written
   down: `i18n_spanish_catalog` holds every other id to full translation and skips these, keyed on
-  the id's own `SETTINGS_NOTE_` prefix so the exemption cannot quietly widen. The phase 1 notes
-  ship untranslated on purpose - a confidently wrong Spanish sentence about transmit power is
-  worse than a visibly English one.
+  the id's own `SETTINGS_NOTE_` or `HELP_NOTE_` prefix so the exemption cannot quietly widen. The
+  notes ship untranslated on purpose - a confidently wrong Spanish sentence about transmit power
+  is worse than a visibly English one.
+
+  The *headings* that go with a feature's notes are deliberately not exempt. `HELP_SUBJECT_*` and
+  `HELP_LABEL_*` are a few words each, drawn beside the rest of the screen's chrome, and a screen
+  half in Spanish is worse than a paragraph wholly in English.
 - **They ship in phases.** Sections first, because "what is Store & Forward even for" is the
   question people actually have, and 27 strings answer it. Fields follow, and only the ones that
   are genuinely opaque.
@@ -169,7 +257,7 @@ Three things make that affordable, and they are policy rather than luck:
   second half is the one worth the room: `Hop limit` is guessable, *"every extra hop costs the
   whole mesh airtime, so raise it only when a node you want is genuinely that far away"* is not.
 - **No more than 200 characters.** `help_notes_fit_the_panel` enforces it over every
-  `SETTINGS_NOTE_*` id. Longer than that and the reader is being handed a manual page on a 3.2"
+  `SETTINGS_NOTE_*` and `HELP_NOTE_*` id. Longer than that and the reader is being handed a manual page on a 3.2"
   panel; shorter is usually better.
 - **No cross-references to other rows by name.** A note that says "see Spread factor below" breaks
   when the section is reordered and is untranslatable into a language that orders them differently.
@@ -190,17 +278,33 @@ transmit power - which is not scope creep but the other half of the proof: witho
 row the field accessor, the entry ordering and "open where the cursor was" are all code no test
 can reach. The LoRa section is the worked example of what a finished section looks like.
 
-**Phase 2 - the rest of the fields worth explaining.** Notes on the other rows where the name is
-not the explanation. The list to work through, in the order the questions actually get asked:
-bandwidth, device role, rebroadcast mode, smart position and its two thresholds, position
-precision, the channel PSK choices, MQTT uplink and downlink, the admin key rows, Store &
-Forward's history window, and neighbour info's floor.
+**Phase 2 - the fields the questions get asked about. Done.** Notes on the rows where the label is
+not the explanation, which is the list this section used to hold as the work to do: bandwidth,
+device role, rebroadcast mode, smart position and its two thresholds, position precision, the
+channel key, MQTT uplink and downlink, the admin keys, Store & Forward's history window and
+neighbour info's floor. Eighteen explained rows in all, counting LoRa's five from phase 1.
 
-**Phase 3 - features, keyed on the route.** Waypoints, the tapback set, Store & Forward's replay,
-the all-traffic transcript, the Devices tab. `mesh_ui_help_topic()` already takes a snapshot and
-switches on the route, so this is entries in that switch rather than a new mechanism - and keying
-on the route means a new way of reaching a screen gets the right help without being told, for the
-reason `route.h` gives at length.
+`help_field_notes_are_optional` names them one by one rather than counting them, because a count is
+a number that goes stale on the first row anybody adds and says nothing about *which* row went
+missing.
+
+**Phase 3 - features, keyed on the route. Done.** `mesh_ui_help_topic()` now answers for the
+screens that are not lists of settings: each of the five tabs, one conversation, one node, one
+place, and the tapback picker. That is `k_help_features[]`, `mesh_ui_route_under_help()`, the
+topic's `subject`, SELECT moving ahead of the overlay dispatch, and `help_question_armed()`.
+
+SELECT consequently means the same thing on every tab, which it did not in phase 1: the one key on
+the case with no verb printed on it worked on one tab in six.
+
+**Store & Forward's replay**, which this section used to list here as a feature, deliberately is
+not one. Its press lives in a settings section, so the section's own note and the phase 2 notes on
+its history rows are where it is explained - and the destructive radio actions beside it need no
+note at all, for the reason below.
+
+**Phase 4 - the long tail.** The remaining settings rows that would genuinely be clearer with a
+sentence, of which there are something over a hundred. There is no mechanism left to build: it is
+one line in `k_fields` and one in the catalog per row, and a row with nothing worth saying keeps
+`MESH_STR_NONE` forever.
 
 ## Things that will look like bugs and are not
 
@@ -212,7 +316,33 @@ reason `route.h` gives at length.
   the section behind it is already saying that, and a second opinion about the radio's config is a
   second opinion that can be stale.
 - **SELECT is not offered on every screen**, and that is the `actions.c` rule rather than an
-  oversight: the bar names presses that do something here.
+  oversight: the bar names presses that do something here. It is offered on all five tabs and on
+  every level opened over one; it is not offered on the Settings tab's own list of sections, and
+  it is not offered by an overlay that is asking the user a question - the compose sheet, the
+  keyboard, the send-to picker, the confirm dialog. The way out of a question is to answer it,
+  and the screen underneath does have a topic.
+- **A radio action has no note, and that is the confirm sheet's doing.** Reboot, shutdown, the
+  NodeDB reset, both factory resets and the two forget rows each already put a dialog in front of
+  the user saying what is about to be lost - `mesh_ui_settings_confirm_text()`, four wrapped lines
+  of it, at the moment the press is made rather than on a screen they would have to think to open.
+  A note beside that would be the same warning written twice, in two files, drifting apart.
+  Store & Forward's history request is the one action with no confirm, because the worst a
+  mistaken press costs is one small packet.
+- **A feature's help opens at its first paragraph, not at the row the cursor was on.** A settings
+  section's rows and its paragraphs correspond one for one; a feature's paragraphs are about the
+  screen rather than about the rows of it, so there is no row to open on.
+- **An overlay over a settings section is not the settings section.** `help_section_open()` asks
+  the *route* whether a section is what is on the panel, not the nav whether one is open
+  somewhere below - `settings_section` stays set under every overlay a section can raise. Asking
+  the nav cost a bug: with SELECT ahead of the overlay dispatch, the press opened a section's
+  help over a half-typed field while the keyboard's own bar said nothing about it. The feature
+  half never had that failure, because a table keyed on the route cannot answer for a route
+  nobody put in it - which is the argument for keying on the route, made by the half that did
+  not.
+- **A screen holding a destructive question open offers no help.** All five arming flags, not
+  only the settings one - see `help_question_armed()`. An armed question has spent both keycaps on
+  a yes and a no, and a third press that opened a screen would stand the question down where the
+  user could not see it happen.
 - **The help screen is not editable and has no cursor on a value.** Its cursor scrolls, nothing
   more. B leaves. That is the whole interaction, and it is why help is a level rather than an
   overlay: nothing is stacked on top of the section, so nothing has to be restored when it closes.

@@ -320,10 +320,16 @@ MESH_TEST_CASE(i18n_spanish_catalog, unit) {
          *
          * Everything else on the screen still has to be translated, which is what this loop is
          * for. The exemption is keyed on the id's own name so it cannot quietly widen: a string
-         * gets out of the check by being called SETTINGS_NOTE_*, and nothing else is.
+         * gets out of the check by being called SETTINGS_NOTE_* or HELP_NOTE_*, and nothing
+         * else is. The second prefix arrived with the notes about features rather than about
+         * settings, which are the same kind of string in a different table - and the *headings*
+         * that go with them, HELP_SUBJECT_* and HELP_LABEL_*, are deliberately not exempt: a
+         * heading is a few words of chrome beside the rest of the screen's chrome, and a screen
+         * half in Spanish is worse than a paragraph wholly in English.
          */
         const char *name = mesh_str_id_name((enum mesh_str_id)id);
-        if (name != NULL && strncmp(name, "SETTINGS_NOTE_", 14) == 0) {
+        if (name != NULL &&
+            (strncmp(name, "SETTINGS_NOTE_", 14) == 0 || strncmp(name, "HELP_NOTE_", 10) == 0)) {
             continue;
         }
         if (spanish->table[id] == NULL || (id != MESH_STR_NONE && spanish->table[id][0] == '\0')) {

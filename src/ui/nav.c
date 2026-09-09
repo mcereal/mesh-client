@@ -965,6 +965,25 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
     if (nav->help_open) {
         return mesh_ui_nav_help_key(nav, store, key) || changed;
     }
+    /*
+     * And opening help, before the overlays rather than after them, because SELECT means the
+     * same thing everywhere it means anything at all.
+     *
+     * The overlay handlers below each consume every key they are given, so a press reaching the
+     * bottom of this function is a press on a tab's own screen - which is where SELECT used to
+     * be handled, and why the tapback picker could not be explained however much it needed
+     * explaining. Hoisting it costs those handlers nothing: mesh_ui_nav_open_help() answers
+     * false wherever there is no topic, so an overlay acquires the press by acquiring a
+     * paragraph and not otherwise, and the ones that are asking the user a question have
+     * neither.
+     *
+     * It is the same predicate the action bar reads, so the keycap and the press still cannot
+     * disagree - including about the settings discard question, which has no topic while it is
+     * armed and therefore falls through to the section handler that stands it down.
+     */
+    if (key == MESH_UI_KEY_SELECT && mesh_ui_nav_open_help(nav, store)) {
+        return true;
+    }
     if (nav->confirm_open) {
         return mesh_ui_nav_confirm_key(nav, key, out_action) || changed;
     }
@@ -1187,7 +1206,10 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         }
         return changed;
     case MESH_UI_KEY_SELECT:
-        return mesh_ui_nav_open_help(nav, store) || changed;
+        /* Already offered its chance above, before the overlays. Reaching here means there was
+           nothing to explain, so the press is spent - and standing a notice down is the one
+           thing it may still have done. */
+        return changed;
     case MESH_UI_KEY_NONE:
     default:
         return changed;

@@ -63,6 +63,17 @@ struct mesh_ui_help_entry {
 
 struct mesh_ui_help_topic {
     enum mesh_str_id title;
+    /*
+     * What is being explained: the settings section's name, or the feature's.
+     *
+     * The screen's own title is "Help" everywhere, so without this the frame never says *what*
+     * it is helping with. It is an id rather than the text because the backend draws it on the
+     * app bar's trail and the trail takes strings from the same place every other heading does -
+     * and because it used to be `mesh_ui_settings_section_name(nav->settings_section)`, read
+     * straight out of the nav by the renderer, which is a renderer knowing that help is about
+     * settings. It stopped being true the moment a tab acquired a topic.
+     */
+    enum mesh_str_id subject;
     struct mesh_ui_help_entry entries[MESH_UI_HELP_ENTRIES_MAX];
     uint32_t count;
 };
@@ -73,6 +84,13 @@ struct mesh_ui_help_topic {
  * False is the load-bearing answer: it is what stops the action bar naming a press that would
  * open an empty screen, and it is the same call the press itself makes, so the two cannot
  * disagree. `out` is zeroed either way.
+ *
+ * There are two kinds of topic and one call answers for both. A settings section's is *built*:
+ * the section's own note, then the notes of whichever of its rows have one, in the order the
+ * rows are drawn. A feature's is a *table* keyed on the route underneath the help screen -
+ * which tab, and which level of it - because a screen that is not a list of fields has no rows
+ * to read a note off, and because keying on the route means a new way of reaching a screen
+ * arrives with the right help already attached (see mesh/ui/route.h).
  *
  * It takes the radio's configuration and the handshake rather than a whole snapshot, which is
  * the argument list every other settings call already has - and the reason is not only

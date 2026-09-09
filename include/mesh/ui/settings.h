@@ -474,6 +474,10 @@ uint32_t mesh_ui_settings_canned_count(const char *list);
 void mesh_ui_settings_canned_entry(const char *list, uint32_t index, char *out, size_t out_len);
 
 const char *mesh_ui_settings_section_name(enum mesh_ui_settings_section section);
+/* The same name as a catalog id, for a caller that has to carry it rather than draw it - the
+   help topic's subject, which is ids the whole way down so that a test can read one with no
+   locale in force. MESH_STR_NONE for a section past the end. */
+enum mesh_str_id mesh_ui_settings_section_label(enum mesh_ui_settings_section section);
 
 /*
  * What a section is about, as an icon: the leading slot on a row that *opens* that section.

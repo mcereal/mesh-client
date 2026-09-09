@@ -767,14 +767,124 @@ MESH_STR_ENTRY(SETTINGS_NOTE_CANNED,                      "Short replies stored 
  * Field notes: the rows where knowing the name does not tell you what happens if you get it
  * wrong. Most settings have none, on purpose - see docs/help.md.
  *
- * These five are the LoRa rows the questions actually get asked about. Same rules as the
- * section notes above: under 200 characters, and a locale may leave them untranslated.
+ * Same rules as the section notes above: under 200 characters, one or two sentences, and a
+ * locale may leave them untranslated. Ordered by section, LoRa first because it is the section
+ * the questions actually get asked about.
  */
 MESH_STR_ENTRY(SETTINGS_NOTE_LORA_REGION,                 "Which band this radio transmits on, set by law where you are. A radio on the wrong region cannot talk to its neighbours and may not be legal to transmit at all.")
 MESH_STR_ENTRY(SETTINGS_NOTE_LORA_SPREAD,                 "How far each symbol is spread over the air. Higher reaches further and carries less: every step up roughly doubles the time a message takes to send.")
 MESH_STR_ENTRY(SETTINGS_NOTE_LORA_CODING,                 "How much error correction rides along with each message. Higher recovers more damaged packets and makes every packet longer.")
 MESH_STR_ENTRY(SETTINGS_NOTE_LORA_HOPS,                   "How many times a message may be relayed before the mesh drops it. Every extra hop costs the whole mesh airtime, so raise it only to reach a node that is genuinely that far.")
 MESH_STR_ENTRY(SETTINGS_NOTE_LORA_TX_POWER,               "How hard this radio transmits, in dBm. Your region caps this in law, and more power drains the battery faster without helping if the other end cannot answer.")
+MESH_STR_ENTRY(SETTINGS_NOTE_LORA_BANDWIDTH,              "How wide a slice of the band each transmission uses. Wider carries more per second and hears more noise with it; narrower reaches further and takes longer to send.")
+
+/*
+ * Phase 2: the rows outside LoRa where the label does not tell you what goes wrong.
+ *
+ * Grouped by the section they are read in rather than by subject, so that adding a note means
+ * finding the section it belongs to and writing one line under it.
+ */
+
+/* Device. */
+MESH_STR_ENTRY(SETTINGS_NOTE_DEVICE_ROLE,                 "What job this radio does for the mesh. Client suits almost everyone; the router roles repeat other people's traffic, which only helps from a spot with a view and costs airtime everywhere else.")
+MESH_STR_ENTRY(SETTINGS_NOTE_DEVICE_REBROADCAST,          "Which of the traffic it hears this radio repeats. All is the usual answer; the narrower settings keep other meshes at arm's length, and none makes this node a dead end for anyone behind it.")
+
+/* Position. */
+MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_SMART,              "Sends your position when the radio has actually moved instead of on a fixed timer. A node that stays put stops transmitting; one that is moving reports sooner than the interval would.")
+MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_SMART_DISTANCE,     "How far the radio must move before smart broadcasting sends a new position. Set it too small and a GPS drifting on a windowsill transmits all day without going anywhere.")
+MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_SMART_INTERVAL,     "The shortest gap smart broadcasting leaves between two positions, however far the radio has moved. It is the floor that stops somebody in a car flooding the channel.")
+
+/* Channels. */
+MESH_STR_ENTRY(SETTINGS_NOTE_CHANNEL_KEY,                 "The key that protects this channel: everyone who can read it holds the same one. The default key is published with the firmware, so a channel meant to be private needs a random key shared by hand.")
+MESH_STR_ENTRY(SETTINGS_NOTE_CHANNEL_UPLINK,             "Sends this channel's traffic on to the MQTT broker, when the radio has one. Everything said here then leaves the local mesh for the internet, so leave it off for a private channel.")
+MESH_STR_ENTRY(SETTINGS_NOTE_CHANNEL_DOWNLINK,           "Puts traffic from the MQTT broker onto this channel and out over the radio. A busy broker can fill the air with messages nobody nearby asked for, at everyone's expense.")
+MESH_STR_ENTRY(SETTINGS_NOTE_CHANNEL_POSITION,           "How precisely positions are shared here. Fewer bits round every location to a coarser square; off shares no coordinates at all, only that the node exists.")
+
+/* Security. */
+MESH_STR_ENTRY(SETTINGS_NOTE_SECURITY_ADMIN_KEYS,        "Public keys of the nodes allowed to configure this radio over the mesh. A key here is a key to the radio, so leave all three empty unless you are deliberately setting up remote administration.")
+
+/* Store & Forward. */
+MESH_STR_ENTRY(SETTINGS_NOTE_SF_HISTORY_WINDOW,          "How far back this radio goes when another node asks it for missed messages. It is this radio's setting as a router; what somebody else's router replays to you is theirs.")
+
+/* Neighbor info. */
+MESH_STR_ENTRY(SETTINGS_NOTE_NEIGHBOR_INTERVAL,          "How often this radio reports the nodes it hears directly. The firmware quietly raises anything under four hours, because every report is a broadcast the whole mesh carries.")
+
+/* ---- the features: what a screen is for ------------------------------------------------------- */
+
+/*
+ * The other half of the help screen: the tabs and the overlays, keyed on the route rather than
+ * on a settings section (docs/help.md, phase 3).
+ *
+ * Two kinds of id live here and they follow different rules. A HELP_NOTE_* is a paragraph and
+ * plays by the note rules above - under 200 characters, and a locale may leave it untranslated.
+ * A HELP_SUBJECT_* or HELP_LABEL_* is a *heading*: a few words naming the screen or the
+ * paragraph under it, drawn beside the rest of the chrome, so it is an ordinary string and every
+ * locale owes a translation for it.
+ *
+ * The subjects name what is being explained, on the trail above the title, and only exist where
+ * no other string in the catalog already says it. The five tabs use their own tab names.
+ */
+MESH_STR_ENTRY(HELP_SUBJECT_THREAD,       "Conversation")
+MESH_STR_ENTRY(HELP_SUBJECT_REACTION,     "Tapbacks")
+MESH_STR_ENTRY(HELP_SUBJECT_NODE,         "Node")
+MESH_STR_ENTRY(HELP_SUBJECT_WAYPOINT,     "Place")
+
+/* Messages: the conversation list. */
+MESH_STR_ENTRY(HELP_LABEL_MESSAGES_NEW,   "Starting a conversation")
+MESH_STR_ENTRY(HELP_LABEL_MESSAGES_DROP,  "Deleting one")
+MESH_STR_ENTRY(HELP_NOTE_MESSAGES,        "Every conversation this client has heard, newest first: one node you have exchanged messages with, or one channel. The top row carries all traffic at once.")
+MESH_STR_ENTRY(HELP_NOTE_MESSAGES_NEW,    "Y asks who to write to and opens the keyboard on the conversation you pick. A conversation appears here on its own as soon as anything arrives in it.")
+MESH_STR_ENTRY(HELP_NOTE_MESSAGES_DROP,   "X twice drops a conversation from this client. It removes nothing from the mesh and nothing from the radio, and anything new in it starts the conversation again.")
+
+/* Messages: one transcript. */
+MESH_STR_ENTRY(HELP_LABEL_THREAD_MARKS,   "The mark on a message")
+MESH_STR_ENTRY(HELP_LABEL_THREAD_REPLY,   "Replies and tapbacks")
+MESH_STR_ENTRY(HELP_LABEL_THREAD_ALL,     "The all-traffic view")
+MESH_STR_ENTRY(HELP_NOTE_THREAD,          "What was said here, oldest at the top. Your own messages sit on the right; a padlock means the channel was encrypted, and the hop count is how far the message travelled.")
+MESH_STR_ENTRY(HELP_NOTE_THREAD_MARKS,    "A clock means the radio is still waiting to hear that a message arrived, a double tick that a node confirmed it, an alert that it did not. A broadcast asks for no answer and carries no mark.")
+MESH_STR_ENTRY(HELP_NOTE_THREAD_REPLY,    "A answers the message under the cursor and X puts an emoji on it; Y writes to the conversation instead. A reply stays aimed at the message you pressed on, however far the transcript moves underneath.")
+MESH_STR_ENTRY(HELP_NOTE_THREAD_ALL,      "The top row of the list is every message the radio heard, whoever it was for. There is nobody to reply to in it, so it offers no reply and no tapback - open the conversation itself for those.")
+
+/* Messages: the tapback picker. */
+MESH_STR_ENTRY(HELP_LABEL_REACTION_SEND,  "What it costs")
+MESH_STR_ENTRY(HELP_NOTE_REACTION,        "A tapback is an emoji aimed at one message. It draws as a chip on the message it names rather than as a bubble of its own, so it answers without taking a line of the conversation.")
+MESH_STR_ENTRY(HELP_NOTE_REACTION_SEND,   "One small packet, sent without asking to be acknowledged - so it earns no delivery mark and costs the mesh no retry. The set is fixed so that every client can draw what you sent.")
+
+/* Nodes. */
+MESH_STR_ENTRY(HELP_LABEL_NODES_PIN,      "Pinned nodes")
+MESH_STR_ENTRY(HELP_LABEL_NODES_CACHED,   "Nodes the radio has forgotten")
+MESH_STR_ENTRY(HELP_NOTE_NODES,           "Everyone this client has heard of, the most recently heard first. A node that has never said what it is called is listed by its node number, exactly as the phone apps list it.")
+MESH_STR_ENTRY(HELP_NOTE_NODES_PIN,       "X pins a node to the top of the list and keeps it there. Pins are this client's own and are kept across a restart; they change nothing on the radio.")
+MESH_STR_ENTRY(HELP_NOTE_NODES_CACHED,    "The radio holds about eighty nodes and drops the oldest, so this list is deliberately longer than its NodeDB and marks what the radio no longer carries. Settings > Radio actions clears them.")
+
+/* One node's detail. */
+MESH_STR_ENTRY(HELP_LABEL_NODE_FIX,       "Fix and Fix heard")
+MESH_STR_ENTRY(HELP_LABEL_NODE_TREND,     "The small graphs")
+MESH_STR_ENTRY(HELP_NOTE_NODE,            "What this client knows about one node: who it says it is, where it said it was, and how well this radio hears it. All of it is what the node last told the mesh.")
+MESH_STR_ENTRY(HELP_NOTE_NODE_FIX,        "Fix is when the node's own GPS solved the position. Fix heard is when the packet reached us, and the row changes its name rather than quietly answering the first question with the second.")
+MESH_STR_ENTRY(HELP_NOTE_NODE_TREND,      "A reading over time, drawn against the same scale as the bar beside it. It is only what this client watched while running, so it starts empty after a restart and breaks where the node went quiet.")
+
+/* Waypoints. */
+MESH_STR_ENTRY(HELP_LABEL_WAYPOINT_NEW,   "Naming a place")
+MESH_STR_ENTRY(HELP_LABEL_WAYPOINT_SHARE, "Who else sees it")
+MESH_STR_ENTRY(HELP_LABEL_WAYPOINT_DROP,  "Deleting one")
+MESH_STR_ENTRY(HELP_NOTE_WAYPOINTS,       "Places the mesh has agreed on, nearest first from wherever this radio last had a fix. The distance and the bearing are measured from that fix, so they need one to mean anything.")
+MESH_STR_ENTRY(HELP_NOTE_WAYPOINT_NEW,    "The last row of the list makes a place where you are standing. It needs a position from the radio, and says so rather than disappearing when there is none.")
+MESH_STR_ENTRY(HELP_NOTE_WAYPOINT_SHARE,  "Sharing broadcasts the place on a channel, so everyone holding that channel's key gets it. Sending it again with the same name replaces the copy they hold rather than adding a second.")
+MESH_STR_ENTRY(HELP_NOTE_WAYPOINT_DROP,   "Deleting a place you shared asks the whole mesh to forget it. A place somebody else shared is only dropped here, because withdrawing it is theirs to do and not ours.")
+
+/* Devices. */
+MESH_STR_ENTRY(HELP_LABEL_DEVICES_PAIR,   "Pairing")
+MESH_STR_ENTRY(HELP_LABEL_DEVICES_FORGET, "Forgetting one")
+MESH_STR_ENTRY(HELP_NOTE_DEVICES,         "The radios this Brick can reach: Bluetooth nodes it can see, and anything plugged into the USB port. A opens a link to the one under the cursor and X closes it.")
+MESH_STR_ENTRY(HELP_NOTE_DEVICES_PAIR,    "A Bluetooth radio wants pairing the first time. The radio shows a six-digit code on its own screen and this client asks for it; the pairing is then kept until one side forgets it.")
+MESH_STR_ENTRY(HELP_NOTE_DEVICES_FORGET,  "Y twice drops a radio's pairing from this Brick. Connecting again needs the code again, which is what to do when a radio was re-flashed and no longer knows this client.")
+
+/* Status. */
+MESH_STR_ENTRY(HELP_LABEL_STATUS_COUNTS,  "Why two node counts differ")
+MESH_STR_ENTRY(HELP_NOTE_STATUS,          "How this client, its link and the radio are doing, one card each. A card the radio has told us nothing about says so rather than disappearing, so nothing moves under the cursor.")
+MESH_STR_ENTRY(HELP_NOTE_STATUS_COUNTS,   "NodeDB is what the radio still holds and Cached here is what this client remembers, which is deliberately more: a node the radio evicted is gone for good, so we keep it.")
+
 
 /* ---- settings: field labels ------------------------------------------------------------------- */
 
