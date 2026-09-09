@@ -1,0 +1,27 @@
+# The help screen: SELECT on a settings section, and what it says.
+#
+# Down to LoRa - the section phase 1 explains row by row as well as as a whole - then SELECT on
+# a row that has its own paragraph, so the screen opens on that paragraph rather than at the
+# top. Scrolling up from there reaches the section's own overview, which is the half of the
+# design a still picture cannot show.
+scene demo
+scale 4
+delay 180
+config
+
+tab settings
+hold 500
+key down 8
+hold 400
+key a
+hold 700
+key down 3
+hold 700
+key select
+hold 1000
+key up 2
+hold 900
+key down 4
+hold 900
+key b
+hold 700

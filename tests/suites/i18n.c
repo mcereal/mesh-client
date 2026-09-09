@@ -307,9 +307,34 @@ MESH_TEST_CASE(i18n_spanish_catalog, unit) {
     const struct mesh_i18n_locale *spanish = mesh_i18n_locale_by_id("es");
     MESH_TEST_FAIL_IF(spanish == NULL || spanish->table == NULL, "Spanish is not registered");
     for (int id = 0; id < (int)MESH_STR_COUNT; ++id) {
-        MESH_TEST_FAIL_IF(spanish->table[id] == NULL, "Spanish has an untranslated entry");
-        MESH_TEST_FAIL_IF(id != MESH_STR_NONE && spanish->table[id][0] == '\0',
-                          "Spanish has an empty translation");
+        /*
+         * Help notes are the one class of string a locale may leave out, and this is where that
+         * policy is enforced rather than merely written down (docs/help.md).
+         *
+         * They are paragraphs rather than labels: a couple of hundred of them are coming, they
+         * are technical prose about radio behaviour, and mesh_str_in() already falls back to
+         * English per id - so an untranslated note reads in English while every label around it
+         * stays Spanish. Holding them to this bar would mean either blocking a note nobody can
+         * translate yet, or filling the table with guesses, and a confidently wrong sentence
+         * about transmit power is worse than a visibly English one.
+         *
+         * Everything else on the screen still has to be translated, which is what this loop is
+         * for. The exemption is keyed on the id's own name so it cannot quietly widen: a string
+         * gets out of the check by being called SETTINGS_NOTE_*, and nothing else is.
+         */
+        const char *name = mesh_str_id_name((enum mesh_str_id)id);
+        if (name != NULL && strncmp(name, "SETTINGS_NOTE_", 14) == 0) {
+            continue;
+        }
+        if (spanish->table[id] == NULL || (id != MESH_STR_NONE && spanish->table[id][0] == '\0')) {
+            /* Named, because "Spanish has an untranslated entry" over eleven hundred ids is a
+               bisect rather than a failure message. */
+            char reason[160];
+            snprintf(reason, sizeof reason, "%s has no Spanish translation",
+                     name != NULL ? name : "an id");
+            record_failure(test_name, reason);
+            return;
+        }
     }
     const uint32_t letters[] = {0x00e1, 0x00e9, 0x00ed, 0x00f3, 0x00fa,
                                 0x00fc, 0x00f1, 0x00bf, 0x00a1};

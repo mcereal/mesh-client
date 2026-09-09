@@ -991,6 +991,33 @@ void fb_list_row_line(const struct mesh_ui_backend_fb_state *state, struct fb_li
 void fb_list_subheader(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
                        uint32_t index, const char *text);
 
+/*
+ * ---- the note row ----
+ *
+ * A paragraph as a list row: a heading line at the label scale and the sentences under it,
+ * wrapped across the list's whole width. What the help screen is made of, and the one row shape
+ * here whose height is not a property of the row's *kind* but of the words in it.
+ *
+ * It exists because the two shapes that already wrap were both the wrong one. fb_card_note()
+ * stops at FB_CARD_NOTE_LINES, which is right for a sentence the radio wrote into a card of
+ * other rows and wrong for the only content on a screen; and a list item's supporting line is
+ * one line, elided, which is the shape for a reminder rather than for an explanation.
+ *
+ * fb_list_note_steps() is the measure and fb_list_note() is the draw, and the screen must ask
+ * the first before it opens the list - a note whose height the model was not told about draws
+ * over the row beneath it. Two calls rather than one for the reason the settings slider has
+ * two: the model is the authority on every height, and it can only be if it is told before the
+ * first row is placed.
+ *
+ * `heading` may be NULL for a paragraph that names nothing, which is what the topic's own
+ * opening note is.
+ */
+uint32_t fb_list_note_steps(const struct mesh_ui_backend_fb_state *state, const char *heading,
+                            const char *body);
+
+void fb_list_note(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
+                  uint32_t index, const char *heading, const char *body);
+
 /* ---- the list item ------------------------------------------------------------------------
  *
  * One component for every row this UI draws that is more than a line of text.

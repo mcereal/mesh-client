@@ -139,6 +139,52 @@ enum mesh_ui_icon mesh_ui_settings_section_icon(enum mesh_ui_settings_section se
     return section < MESH_UI_SETTINGS_SECTION_COUNT ? k_section_icons[section] : MESH_UI_ICON_NONE;
 }
 
+/*
+ * What each section is *for*, in a sentence or two, in the enum's own order.
+ *
+ * A table beside the icons and for the same reason the comment above them gives: it is a lookup
+ * with no cases in it, and a section added without a note then reads as "no note" rather than
+ * failing to compile in a file that has nothing to do with help.
+ *
+ * Every section has one, and that is a rule rather than an observation - it is what makes the
+ * help key worth offering on every section screen. A field's note may be MESH_STR_NONE, because
+ * most settings explain themselves; a section's may not, because "what is this whole screen
+ * about" is the question somebody who opened it has by definition.
+ */
+static const enum mesh_str_id k_section_notes[MESH_UI_SETTINGS_SECTION_COUNT] = {
+    [MESH_UI_SETTINGS_ABOUT] = MESH_STR_SETTINGS_NOTE_ABOUT,
+    [MESH_UI_SETTINGS_RADIO] = MESH_STR_SETTINGS_NOTE_RADIO,
+    [MESH_UI_SETTINGS_USER] = MESH_STR_SETTINGS_NOTE_USER,
+    [MESH_UI_SETTINGS_DEVICE] = MESH_STR_SETTINGS_NOTE_DEVICE,
+    [MESH_UI_SETTINGS_DISPLAY] = MESH_STR_SETTINGS_NOTE_DISPLAY,
+    [MESH_UI_SETTINGS_LORA] = MESH_STR_SETTINGS_NOTE_LORA,
+    [MESH_UI_SETTINGS_BLUETOOTH] = MESH_STR_SETTINGS_NOTE_BLUETOOTH,
+    [MESH_UI_SETTINGS_CHANNELS] = MESH_STR_SETTINGS_NOTE_CHANNELS,
+    [MESH_UI_SETTINGS_SECURITY] = MESH_STR_SETTINGS_NOTE_SECURITY,
+    [MESH_UI_SETTINGS_POSITION] = MESH_STR_SETTINGS_NOTE_POSITION,
+    [MESH_UI_SETTINGS_POWER] = MESH_STR_SETTINGS_NOTE_POWER,
+    [MESH_UI_SETTINGS_MQTT] = MESH_STR_SETTINGS_NOTE_MQTT,
+    [MESH_UI_SETTINGS_STORE_FORWARD] = MESH_STR_SETTINGS_NOTE_STORE_FORWARD,
+    [MESH_UI_SETTINGS_TELEMETRY] = MESH_STR_SETTINGS_NOTE_TELEMETRY,
+    [MESH_UI_SETTINGS_ACTIONS] = MESH_STR_SETTINGS_NOTE_ACTIONS,
+    [MESH_UI_SETTINGS_MODULES] = MESH_STR_SETTINGS_NOTE_MODULES,
+    [MESH_UI_SETTINGS_NEIGHBOR_INFO] = MESH_STR_SETTINGS_NOTE_NEIGHBOR_INFO,
+    [MESH_UI_SETTINGS_RANGE_TEST] = MESH_STR_SETTINGS_NOTE_RANGE_TEST,
+    [MESH_UI_SETTINGS_PAXCOUNTER] = MESH_STR_SETTINGS_NOTE_PAXCOUNTER,
+    [MESH_UI_SETTINGS_TAK] = MESH_STR_SETTINGS_NOTE_TAK,
+    [MESH_UI_SETTINGS_AMBIENT] = MESH_STR_SETTINGS_NOTE_AMBIENT,
+    [MESH_UI_SETTINGS_STATUS_MESSAGE] = MESH_STR_SETTINGS_NOTE_STATUS_MESSAGE,
+    [MESH_UI_SETTINGS_DETECTION] = MESH_STR_SETTINGS_NOTE_DETECTION,
+    [MESH_UI_SETTINGS_EXT_NOTIFICATION] = MESH_STR_SETTINGS_NOTE_EXT_NOTIFICATION,
+    [MESH_UI_SETTINGS_TRAFFIC] = MESH_STR_SETTINGS_NOTE_TRAFFIC,
+    [MESH_UI_SETTINGS_RADIO_UI] = MESH_STR_SETTINGS_NOTE_RADIO_UI,
+    [MESH_UI_SETTINGS_CANNED] = MESH_STR_SETTINGS_NOTE_CANNED,
+};
+
+enum mesh_str_id mesh_ui_settings_section_note(enum mesh_ui_settings_section section) {
+    return section < MESH_UI_SETTINGS_SECTION_COUNT ? k_section_notes[section] : MESH_STR_NONE;
+}
+
 bool mesh_ui_settings_section_icons_rows(enum mesh_ui_settings_section section) {
     return section == MESH_UI_SETTINGS_MODULES;
 }
@@ -958,7 +1004,7 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                               0U},
     [MESH_UI_FIELD_LORA_REGION] = {MESH_STR_SETTINGS_FIELD_LORA_REGION, MESH_UI_SETTING_ENUM,
                                    MESH_UI_SETTINGS_LORA, 38U, region_enum_name, NO_PRESETS,
-                                   MESH_STR_NONE, NULL, 0U},
+                                   MESH_STR_NONE, NULL, 0U, MESH_STR_SETTINGS_NOTE_LORA_REGION},
     [MESH_UI_FIELD_LORA_USE_PRESET] = {MESH_STR_SETTINGS_FIELD_LORA_USE_PRESET,
                                        MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_LORA, 0U, NULL,
                                        NO_PRESETS, MESH_STR_NONE, NULL, 0U},
@@ -971,20 +1017,22 @@ static const struct field_spec k_fields[MESH_UI_FIELD_COUNT] = {
                                       format_bandwidth, 0U},
     [MESH_UI_FIELD_LORA_SPREAD] = {MESH_STR_SETTINGS_FIELD_LORA_SPREAD, MESH_UI_SETTING_NUMBER,
                                    MESH_UI_SETTINGS_LORA, 0U, NULL, NAMED_PRESETS(k_spread_presets),
-                                   MESH_STR_NONE, format_plain, 0U},
+                                   MESH_STR_NONE, format_plain, 0U,
+                                   MESH_STR_SETTINGS_NOTE_LORA_SPREAD},
     [MESH_UI_FIELD_LORA_CODING] = {MESH_STR_SETTINGS_FIELD_LORA_CODING, MESH_UI_SETTING_NUMBER,
                                    MESH_UI_SETTINGS_LORA, 0U, NULL, NAMED_PRESETS(k_coding_presets),
-                                   MESH_STR_NONE, format_coding_rate, 0U},
+                                   MESH_STR_NONE, format_coding_rate, 0U,
+                                   MESH_STR_SETTINGS_NOTE_LORA_CODING},
     [MESH_UI_FIELD_LORA_HOPS] = {MESH_STR_SETTINGS_FIELD_LORA_HOPS, MESH_UI_SETTING_NUMBER,
                                  MESH_UI_SETTINGS_LORA, 0U, NULL, SCALE_PRESETS(k_hop_presets),
-                                 MESH_STR_NONE, format_plain, 0U},
+                                 MESH_STR_NONE, format_plain, 0U, MESH_STR_SETTINGS_NOTE_LORA_HOPS},
     [MESH_UI_FIELD_LORA_TX_ENABLED] = {MESH_STR_SETTINGS_FIELD_LORA_TX_ENABLED,
                                        MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_LORA, 0U, NULL,
                                        NO_PRESETS, MESH_STR_NONE, NULL, 0U},
     [MESH_UI_FIELD_LORA_TX_POWER] = {MESH_STR_SETTINGS_FIELD_LORA_TX_POWER, MESH_UI_SETTING_NUMBER,
                                      MESH_UI_SETTINGS_LORA, 0U, NULL,
                                      SCALE_PRESETS_AFTER_ZERO(k_tx_power_presets), MESH_STR_NONE,
-                                     format_tx_power, 0U},
+                                     format_tx_power, 0U, MESH_STR_SETTINGS_NOTE_LORA_TX_POWER},
     [MESH_UI_FIELD_LORA_IGNORE_MQTT] = {MESH_STR_SETTINGS_FIELD_LORA_IGNORE_MQTT,
                                         MESH_UI_SETTING_TOGGLE, MESH_UI_SETTINGS_LORA, 0U, NULL,
                                         NO_PRESETS, MESH_STR_NONE, NULL, 0U},
@@ -1318,12 +1366,20 @@ const char *mesh_ui_settings_field_label(enum mesh_ui_setting_field field) {
     return mesh_str(field_spec(field)->label);
 }
 
+enum mesh_str_id mesh_ui_settings_field_label_id(enum mesh_ui_setting_field field) {
+    return field_spec(field)->label;
+}
+
 enum mesh_ui_setting_kind mesh_ui_settings_field_kind(enum mesh_ui_setting_field field) {
     return field_spec(field)->kind;
 }
 
 enum mesh_ui_settings_section mesh_ui_settings_field_section(enum mesh_ui_setting_field field) {
     return field_spec(field)->section;
+}
+
+enum mesh_str_id mesh_ui_settings_field_note(enum mesh_ui_setting_field field) {
+    return field_spec(field)->note;
 }
 
 uint32_t mesh_ui_settings_enum_count(enum mesh_ui_setting_field field) {

@@ -11,6 +11,7 @@
  * answered here so the nav never has to know what a field means.
  */
 
+#include "mesh/i18n/strings.h"
 #include "mesh/ui/icon.h"
 #include "mesh/ui/store.h"
 
@@ -488,6 +489,16 @@ const char *mesh_ui_settings_section_name(enum mesh_ui_settings_section section)
  */
 enum mesh_ui_icon mesh_ui_settings_section_icon(enum mesh_ui_settings_section section);
 
+/*
+ * What a section is *for*, as a catalog id: the paragraph the help screen opens with.
+ *
+ * An id rather than a `const char *` so a caller can ask whether there is anything to say
+ * without a strlen, and so the fb backend, the CLI and the tests cannot each invent their own
+ * idea of what an absent note looks like. Never MESH_STR_NONE for a real section - see the
+ * table in settings.c for why that is a rule rather than an observation.
+ */
+enum mesh_str_id mesh_ui_settings_section_note(enum mesh_ui_settings_section section);
+
 /* Whether this section's *items* carry a leading icon - true only of Modules, whose rows are
    sections. What lets a renderer declare the slot once for the list instead of testing a row. */
 bool mesh_ui_settings_section_icons_rows(enum mesh_ui_settings_section section);
@@ -504,8 +515,18 @@ void mesh_ui_settings_format_precision(uint32_t bits, char *out, size_t out_len)
 
 /* Field descriptions for the nav and the keyboard title. */
 const char *mesh_ui_settings_field_label(enum mesh_ui_setting_field field);
+/* The same label as a catalog id, for a caller assembling a structure of ids rather than a row
+   of text - the help topic is the one, and holding ids there is what lets a test read it with no
+   locale in force. */
+enum mesh_str_id mesh_ui_settings_field_label_id(enum mesh_ui_setting_field field);
 enum mesh_ui_setting_kind mesh_ui_settings_field_kind(enum mesh_ui_setting_field field);
 enum mesh_ui_settings_section mesh_ui_settings_field_section(enum mesh_ui_setting_field field);
+/*
+ * What one setting does, as a catalog id, or MESH_STR_NONE for a row whose label is already the
+ * whole explanation - which is most of them, on purpose. A note is for the row where knowing the
+ * name does not tell you what happens if you get it wrong. See docs/help.md.
+ */
+enum mesh_str_id mesh_ui_settings_field_note(enum mesh_ui_setting_field field);
 /* ENUM fields: how many values and their names. */
 uint32_t mesh_ui_settings_enum_count(enum mesh_ui_setting_field field);
 const char *mesh_ui_settings_enum_name(enum mesh_ui_setting_field field, uint32_t value);

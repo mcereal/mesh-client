@@ -60,6 +60,20 @@ struct field_spec {
     enum mesh_str_id zero_label; /* NUMBER: what 0 means (seconds formatting) */
     void (*format)(uint32_t value, char *out, size_t out_len); /* NUMBER: overrides seconds */
     uint32_t choices; /* KEY: MESH_UI_PSK_CHOICE_BIT mask Left/Right walk */
+    /*
+     * What this setting does, in a sentence or two, for the help screen - and MESH_STR_NONE
+     * for a row whose label is already the whole explanation.
+     *
+     * Last in the struct rather than beside `label`, where it belongs by meaning, because
+     * k_fields is initialised *positionally*: a member added in the middle would renumber
+     * every one of the hundred and fifty rows below it, silently and in a way the compiler
+     * would only catch where the types happened to disagree. At the end it is the trailing
+     * member a designated initialiser leaves zeroed, which is MESH_STR_NONE, which is "this
+     * row has no note" - so every existing row stays correct without being touched.
+     *
+     * See docs/help.md for what a note may say and how long it may be.
+     */
+    enum mesh_str_id note;
 };
 
 /* The spec for `field`, never NULL - an unknown field yields the MESH_UI_FIELD_NONE row. */

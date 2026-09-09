@@ -843,6 +843,89 @@ void fb_list_subheader(const struct mesh_ui_backend_fb_state *state, struct fb_l
     list->y += (int)rows * list->line;
 }
 
+/* ---- the note row -------------------------------------------------------------------------- */
+
+/* The width a note's body wraps to. The list's own columns: a paragraph indented past the rows
+   around it would be a second left margin on a panel that has room for one. */
+static size_t fb_note_cols(const struct mesh_ui_backend_fb_state *state) {
+    return fb_cols(state, state->scale);
+}
+
+uint32_t fb_list_note_steps(const struct mesh_ui_backend_fb_state *state, const char *heading,
+                            const char *body) {
+    if (state == NULL) {
+        return 1U;
+    }
+    /* The heading costs a step even though it is drawn small, because a step is a body row and
+       the list model counts in those. The air the smaller glyphs free goes above it, exactly as
+       it does on a subheader. */
+    uint32_t steps = (heading != NULL && heading[0] != '\0') ? 1U : 0U;
+    steps += mesh_ui_wrap_lines(body != NULL ? body : "", fb_note_cols(state));
+    /* A note with nothing in it is still a row: a zero-height row would put every row under it
+       at the wrong offset, which is the failure the whole heights mechanism exists to prevent. */
+    return steps > 0U ? steps : 1U;
+}
+
+void fb_list_note(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
+                  uint32_t index, const char *heading, const char *body) {
+    fb_list_rail(state, list);
+    const uint32_t rows = fb_list_row_height(list, index);
+    const bool selected = mesh_ui_list_is_cursor(&list->model, index);
+    /* One fill for the whole note, the height the *model* gave it - not the height its words
+       want. The two agree when the screen measured with fb_list_note_steps(), and when they do
+       not it is the model that is right, because it is what every row below was placed against. */
+    const struct mesh_ui_rgb ground = fb_draw_row_fill(state, list->y, rows, selected);
+
+    const int margin = fb_margin(state);
+    const int body_line = fb_line_adv(state, state->scale);
+    const bool titled = heading != NULL && heading[0] != '\0';
+    int y = list->y;
+
+    if (titled) {
+        const int scale = mesh_ui_theme_type_scale(state->theme, MESH_UI_TYPE_LABEL, state->scale);
+        /* Sat on the bottom of its step for the reason a subheader is: the gap the small glyphs
+           leave belongs above the heading, separating it from the paragraph that ended. */
+        struct mesh_ui_line line;
+        mesh_ui_line_reset(&line);
+        mesh_ui_line_printf(&line, "%s", heading);
+        mesh_ui_line_fit(&line, fb_cols(state, scale));
+        /*
+         * The ink is chosen with the fill rather than beside it. A heading painted in the
+         * primary whether or not the row was selected is a pair no theme was measured against -
+         * the accent over the selection fill is the one combination the contrast contract does
+         * not cover, because on a light palette they are two shades of the same hue.
+         */
+        fb_draw_text(state, margin, y + body_line - fb_line_adv(state, scale),
+                     mesh_ui_line_text(&line), scale,
+                     selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL)
+                              : fb_tone_color(state, MESH_UI_TONE_PRIMARY),
+                     ground);
+        y += body_line;
+    }
+
+    /*
+     * The paragraph, one wrapped line per step.
+     *
+     * Clipped to the row's own height rather than to the panel: a note the model was told is
+     * three steps tall draws three lines and stops, so a measure that disagreed with the words
+     * loses the tail of a sentence instead of painting it over the next note. Losing text is
+     * visible; overlapping it is not, which is the trade this file makes everywhere.
+     */
+    uint32_t drawn = titled ? 1U : 0U;
+    struct mesh_ui_wrap wrap;
+    mesh_ui_wrap_begin(&wrap, body != NULL ? body : "", fb_note_cols(state));
+    while (drawn < rows && mesh_ui_wrap_next(&wrap)) {
+        fb_draw_text(state, margin, y, wrap.line, state->scale,
+                     selected ? fb_color(state, MESH_UI_COLOR_TEXT_ON_SEL)
+                              : fb_tone_color(state, MESH_UI_TONE_NORMAL),
+                     ground);
+        y += body_line;
+        drawn++;
+    }
+
+    list->y += (int)rows * list->line;
+}
+
 void fb_list_row_line(const struct mesh_ui_backend_fb_state *state, struct fb_list *list,
                       uint32_t index, struct mesh_ui_line *line, enum mesh_ui_tone tone) {
     mesh_ui_line_fit(line, list->cols);
