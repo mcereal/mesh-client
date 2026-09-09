@@ -550,6 +550,13 @@ char mesh_ui_kb_char(enum mesh_ui_kb_layer layer, unsigned row, unsigned col);
 const char *mesh_ui_kb_action_label(const struct mesh_ui_nav *nav, enum mesh_ui_kb_action action);
 
 void mesh_ui_nav_set_toast(struct mesh_ui_nav *nav, uint64_t now_ms, const char *text);
+/* The same, raised from inside a key press, which has no clock of its own. It is dated by
+   mesh_ui_store_handle_key() from the clock the store was last ticked with - so the notice
+   stands for four seconds of whichever clock is driving the frames, and a capture is the same
+   on any host. Nothing else raises one: an undated notice never expires. */
+void mesh_ui_nav_raise_toast(struct mesh_ui_nav *nav, const char *text);
+/* Dates an undated notice. A no-op on one that is already dated, or on no notice at all. */
+void mesh_ui_nav_date_toast(struct mesh_ui_nav *nav, uint64_t now_ms);
 /* Clears an expired toast; returns true if it did. */
 bool mesh_ui_nav_tick(struct mesh_ui_nav *nav, uint64_t now_ms);
 

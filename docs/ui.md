@@ -1282,6 +1282,16 @@ Three things are worth knowing:
   the same — pressing send twice with no radio raises *Not connected* twice — and the second has
   to arrive rather than sit there looking like the first never left. The deadline moves every
   time one is raised, so it tells them apart when the words cannot.
+- **A press cannot date one.** `mesh_ui_store_set_toast()` takes the clock from its caller — the
+  app, which has `mesh_time_monotonic_ms()` — but a notice raised *inside* a key press
+  (`mesh_ui_nav_raise_toast()`, which is what a refused press uses) has no clock to hand, and
+  reading the real one there would be wrong in a capture: the harness ticks the store with a
+  synthetic clock that starts at 1000 and moves only when a scene says `hold`, so a real-clock
+  deadline is four seconds on the device and longer than any scene on a host that has been up an
+  hour. `mesh_ui_store_handle_key()` dates it instead, from the clock the store was last ticked
+  with, inside the same call — before anything is drawn, because a frame carrying an undated
+  notice would read as a *different* notice a frame later and restart the entrance below.
+
 - **Entering has to be forced.** The animation table adopts its target on first sight and treats
   re-aiming at the current target as a no-op, which is exactly what stops a switch sliding on
   the frame a screen opens. A snackbar wants the opposite, so on a new notice it is put back to

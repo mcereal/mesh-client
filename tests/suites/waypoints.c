@@ -1015,6 +1015,8 @@ MESH_TEST_CASE(waypoint_nav_refuses_a_new_place_with_no_fix, unit) {
         failure = "the Waypoints tab should be reachable";
         goto cleanup;
     }
+    /* One turn of the loop before the press, which is what puts a clock on the store. */
+    mesh_ui_store_tick(&store, 10000U);
     memset(&action, 0, sizeof action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
     if (store.nav.keyboard_open) {
@@ -1027,6 +1029,21 @@ MESH_TEST_CASE(waypoint_nav_refuses_a_new_place_with_no_fix, unit) {
     }
     if (store.nav.toast[0] == '\0') {
         failure = "the refused press should say why";
+        goto cleanup;
+    }
+    /*
+     * And the notice is dated by the clock driving the store, not by the host's uptime. The app
+     * drives it with CLOCK_MONOTONIC and the capture harness with a synthetic clock that starts
+     * at 1000, so a deadline read from the real clock inside the press would stand for four
+     * seconds on the device and for longer than any scene in a capture.
+     */
+    if (store.nav.toast_until_ms != 10000U + 4000U) {
+        failure = "the store should date the notice from the clock it was last ticked with";
+        goto cleanup;
+    }
+    mesh_ui_store_tick(&store, 14000U);
+    if (store.nav.toast[0] != '\0') {
+        failure = "and four seconds of that clock later it should go";
         goto cleanup;
     }
 
