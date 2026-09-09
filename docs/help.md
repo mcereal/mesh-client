@@ -331,6 +331,14 @@ one line in `k_fields` and one in the catalog per row, and a row with nothing wo
 - **A feature's help opens at its first paragraph, not at the row the cursor was on.** A settings
   section's rows and its paragraphs correspond one for one; a feature's paragraphs are about the
   screen rather than about the rows of it, so there is no row to open on.
+- **An overlay over a settings section is not the settings section.** `help_section_open()` asks
+  the *route* whether a section is what is on the panel, not the nav whether one is open
+  somewhere below - `settings_section` stays set under every overlay a section can raise. Asking
+  the nav cost a bug: with SELECT ahead of the overlay dispatch, the press opened a section's
+  help over a half-typed field while the keyboard's own bar said nothing about it. The feature
+  half never had that failure, because a table keyed on the route cannot answer for a route
+  nobody put in it - which is the argument for keying on the route, made by the half that did
+  not.
 - **A screen holding a destructive question open offers no help.** All five arming flags, not
   only the settings one - see `help_question_armed()`. An armed question has spent both keycaps on
   a yes and a no, and a third press that opened a screen would stand the question down where the

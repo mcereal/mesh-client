@@ -127,11 +127,26 @@ static const struct help_feature k_help_features[] = {
 #undef HELP_FEATURE
 
 /*
- * The feature this nav is standing on, or NULL.
+ * The place the help screen is being asked about.
  *
- * The route is read *under* the help screen, because when this is asked from an open help screen
- * the topmost level is help itself - and a help screen that asked what it was drawing rather
- * than what it was explaining would answer about itself and empty on the first repaint.
+ * Read *under* the help screen, because when this is asked from an open help screen the topmost
+ * level is help itself - and a help screen that asked what it was drawing rather than what it
+ * was explaining would answer about itself and empty on the first repaint.
+ *
+ * One derivation for both halves of this file, which is what stops the two disagreeing about
+ * which screen is in front of the user. It cost a bug to learn: the settings half asked the nav
+ * instead ("which section is open?"), and that stays true while a keyboard is up over one of
+ * that section's rows - so with SELECT moved ahead of the overlay dispatch, the press opened a
+ * section's help over a half-typed field while the keyboard's own bar said nothing about it. The
+ * feature half never had that failure, because a table keyed on the route cannot answer for a
+ * route nobody put in it.
+ */
+static void help_place(const struct mesh_ui_nav *nav, struct mesh_ui_route *out) {
+    mesh_ui_route_under_help(nav, out);
+}
+
+/*
+ * The feature at this place, or NULL.
  *
  * The compose sheet, the keyboard, the picker and the confirm dialog are absent from the table
  * on purpose rather than by omission. Each is a question being asked of the user, and the way
@@ -139,14 +154,10 @@ static const struct help_feature k_help_features[] = {
  * that is waiting, and the screen underneath - which does have a topic - is where the
  * explanation belongs.
  */
-static const struct help_feature *help_feature_for(const struct mesh_ui_nav *nav) {
-    if (nav == NULL) {
-        return NULL;
-    }
-    struct mesh_ui_route route;
-    mesh_ui_route_under_help(nav, &route);
+static const struct help_feature *help_feature_for(const struct mesh_ui_route *route) {
     for (size_t i = 0; i < sizeof k_help_features / sizeof k_help_features[0]; ++i) {
-        if (k_help_features[i].screen == route.screen && k_help_features[i].level == route.level) {
+        if (k_help_features[i].screen == route->screen &&
+            k_help_features[i].level == route->level) {
             return &k_help_features[i];
         }
     }
@@ -155,11 +166,23 @@ static const struct help_feature *help_feature_for(const struct mesh_ui_nav *nav
 
 /* ---- settings sections ----------------------------------------------------------------------- */
 
-/* Whether this nav has a settings section open. The two list-shaped sections (Modules, and
-   Channels before a slot is picked) count: they have a note of their own, and their rows are
-   sections rather than fields, so a topic there is the overview and nothing else. */
-static bool help_section_open(const struct mesh_ui_nav *nav, enum mesh_ui_settings_section *out) {
-    if (nav == NULL || nav->screen != MESH_UI_SCREEN_SETTINGS) {
+/*
+ * Whether a settings section is the screen in front of the user.
+ *
+ * The *route* decides that a section is showing and the nav says which one, and the split
+ * matters: `settings_section` stays set under every overlay a section can raise, so asking the
+ * nav alone answers "a section is open somewhere below" when the question is "a section is what
+ * you are looking at". The two levels that count are a section and one channel slot - the two
+ * places whose rows are settings. The two list-shaped sections (Modules, and Channels before a
+ * slot is picked) are MESH_UI_ROUTE_SECTION as well: they have a note of their own, and their
+ * rows are sections rather than fields, so a topic there is the overview and nothing else.
+ */
+static bool help_section_open(const struct mesh_ui_route *route, const struct mesh_ui_nav *nav,
+                              enum mesh_ui_settings_section *out) {
+    if (nav == NULL) {
+        return false;
+    }
+    if (route->level != MESH_UI_ROUTE_SECTION && route->level != MESH_UI_ROUTE_CHANNEL) {
         return false;
     }
     if (nav->settings_section == MESH_UI_SETTINGS_NO_SECTION) {
@@ -220,15 +243,21 @@ bool mesh_ui_help_topic(const struct mesh_ui_settings *settings,
     }
     memset(out, 0, sizeof *out);
 
+    if (nav == NULL) {
+        return false;
+    }
+    struct mesh_ui_route place;
+    help_place(nav, &place);
+
     enum mesh_ui_settings_section section;
-    if (settings == NULL || !help_section_open(nav, &section)) {
+    if (settings == NULL || !help_section_open(&place, nav, &section)) {
         /*
          * Not a settings section, so ask the feature table. This is also the answer for the
          * Settings tab's own list of sections, which deliberately has no entry in it: each
          * section explains itself once opened, so a topic over the list would be a table of
          * contents for a table of contents.
          */
-        const struct help_feature *feature = help_feature_for(nav);
+        const struct help_feature *feature = help_feature_for(&place);
         return feature != NULL && help_feature_topic(feature, out);
     }
     const enum mesh_str_id overview = mesh_ui_settings_section_note(section);
@@ -294,8 +323,14 @@ bool mesh_ui_help_offered(const struct mesh_ui_settings *settings,
 uint32_t mesh_ui_help_entry_for_row(const struct mesh_ui_settings *settings,
                                     const struct mesh_ui_handshake_state *handshake,
                                     const struct mesh_ui_nav *nav, uint32_t row) {
+    if (nav == NULL) {
+        return 0U;
+    }
+    struct mesh_ui_route place;
+    help_place(nav, &place);
+
     enum mesh_ui_settings_section section;
-    if (settings == NULL || !help_section_open(nav, &section)) {
+    if (settings == NULL || !help_section_open(&place, nav, &section)) {
         /*
          * A feature opens at its first paragraph, and that is not the settings answer failing
          * to apply - it is the difference between the two kinds of topic. A section's rows and

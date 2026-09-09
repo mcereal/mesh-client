@@ -53,6 +53,10 @@ static bool help_store_open(struct mesh_ui_store *store, enum mesh_ui_settings_s
     settings.loaded = true;
     settings.has_lora = true;
     settings.use_preset = true;
+    /* The owner fragment as well as the modem one, because a section is only built once the
+       radio has sent what it is made of - and User is the section with a TEXT row on it, which
+       is the only way to raise a keyboard over a section. */
+    settings.has_owner = true;
     mesh_ui_store_set_settings(store, &settings);
     return mesh_test_open_tab(store, MESH_UI_SCREEN_SETTINGS) &&
            mesh_test_settings_open(store, section);
@@ -617,6 +621,57 @@ MESH_TEST_CASE(help_is_refused_while_a_question_is_armed, unit) {
     press(&messages, MESH_UI_KEY_SELECT);
     MESH_TEST_FAIL_IF(messages.nav.help_open, "SELECT opened help over an armed delete");
     MESH_TEST_FAIL_IF(messages.nav.messages_delete_armed, "SELECT left the question armed");
+    record_success(test_name);
+}
+
+/*
+ * An overlay over a settings section is not the settings section.
+ *
+ * The regression the hoisted press made possible, and the one the feature table gets right for
+ * free by not listing those routes. help_section_open() used to ask only which section the nav
+ * had open, which stays true while a keyboard is up over one of its rows - so with SELECT moved
+ * ahead of the overlay dispatch, the press opened the section's help over a half-typed field
+ * while the keyboard's own bar, which names five keys and not that one, said nothing about it.
+ *
+ * Walked as states rather than asserted once, for help_keycap_and_press_agree's reason: the bar
+ * and the press have to agree in each of them, and it is the agreement rather than either
+ * answer that is the property worth checking.
+ */
+MESH_TEST_CASE(help_is_not_offered_over_an_overlay_on_a_section, unit) {
+    /* A text field's keyboard, over the User section. */
+    struct mesh_ui_store keyboard;
+    MESH_TEST_FAIL_IF(!help_store_open(&keyboard, MESH_UI_SETTINGS_USER), "User did not open");
+    MESH_TEST_FAIL_IF(!bar_offers_help(&keyboard), "the section did not offer help to begin with");
+    press(&keyboard, MESH_UI_KEY_A); /* the long name row opens the keyboard */
+    MESH_TEST_FAIL_IF(!keyboard.nav.keyboard_open, "A did not raise the keyboard");
+    MESH_TEST_FAIL_IF(bar_offers_help(&keyboard), "the keyboard offered the help press");
+    press(&keyboard, MESH_UI_KEY_SELECT);
+    MESH_TEST_FAIL_IF(keyboard.nav.help_open, "SELECT opened help over the keyboard");
+    MESH_TEST_FAIL_IF(!keyboard.nav.keyboard_open, "SELECT closed the keyboard instead");
+
+    /* And the confirm dialog, over Radio actions. Same shape, different overlay: the question is
+       waiting for A or B, and a third press that drew a screen over it would be answering
+       something nobody asked. */
+    struct mesh_ui_store confirm;
+    MESH_TEST_FAIL_IF(!help_store_open(&confirm, MESH_UI_SETTINGS_ACTIONS),
+                      "Radio actions did not open");
+    MESH_TEST_FAIL_IF(!bar_offers_help(&confirm), "the section did not offer help to begin with");
+    /* Walked rather than aimed at row 0: which rows are actions depends on what the radio has
+       told us, and a test that pressed a fixed row would be asserting the section's order. */
+    for (uint32_t row = 0;
+         row < mesh_ui_nav_row_count(&confirm.nav, &confirm, MESH_UI_SCREEN_SETTINGS) &&
+         !confirm.nav.confirm_open;
+         ++row) {
+        press(&confirm, MESH_UI_KEY_A);
+        if (!confirm.nav.confirm_open) {
+            press(&confirm, MESH_UI_KEY_DOWN);
+        }
+    }
+    MESH_TEST_FAIL_IF(!confirm.nav.confirm_open, "no row raised the confirm dialog");
+    MESH_TEST_FAIL_IF(bar_offers_help(&confirm), "the confirm dialog offered the help press");
+    press(&confirm, MESH_UI_KEY_SELECT);
+    MESH_TEST_FAIL_IF(confirm.nav.help_open, "SELECT opened help over the confirm dialog");
+    MESH_TEST_FAIL_IF(!confirm.nav.confirm_open, "SELECT answered the question instead");
     record_success(test_name);
 }
 
