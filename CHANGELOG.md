@@ -1,3 +1,15 @@
+## [2.44.0](https://github.com/mcereal/mesh-client/compare/v2.43.1...v2.44.0) (2026-09-09)
+
+### Features
+
+* **geo:** project a coordinate onto a flat picture of the world ([7bb0aae](https://github.com/mcereal/mesh-client/commit/7bb0aaec2c8bdcf2d1f90b2e78c3d33edf3672bb))
+* **ui:** draw the map, and record what steps 1 and 2 became ([4134af1](https://github.com/mcereal/mesh-client/commit/4134af1c65eeff00b14bb9fada2a7116556b4002))
+* **ui:** put the nodes and the places on a map ([d8358ea](https://github.com/mcereal/mesh-client/commit/d8358ea8a2eb6c8d30bf64e04e7fc64c86e37686))
+
+### Bug Fixes
+
+* **ui:** keep the map's presses and its ink inside the map ([0f32df2](https://github.com/mcereal/mesh-client/commit/0f32df2f6ecb26f571592c56c5c50fdcf1749bba)), closes [#123](https://github.com/mcereal/mesh-client/issues/123)
+
 ## [2.43.1](https://github.com/mcereal/mesh-client/compare/v2.43.0...v2.43.1) (2026-09-09)
 
 ### Bug Fixes
