@@ -165,6 +165,23 @@ struct mesh_ui_nav {
        set with this one clear. */
     bool compose_open;
     uint32_t compose_cursor;
+    /*
+     * The message whatever is being written answers, 0 for a new one - the packet id that ends
+     * up in Data.reply_id.
+     *
+     * It is set by the press that opened the overlay rather than read off the cursor when the
+     * send happens, and that is the whole point: A on a bubble is "reply to *this*", and the
+     * transcript underneath keeps moving - a message arriving while the user is picking a
+     * canned line would otherwise re-aim the reply at whatever the cursor had slid onto. Y is
+     * the other half of the same decision and clears it: the bar says "write", and a new
+     * message to the conversation is not an answer to the last thing said in it.
+     */
+    uint32_t reply_to;
+    /* The tapback picker over the open thread: one emoji per row, sent as a reaction about
+       `reply_to`. Its own overlay rather than a row in the compose sheet because it is not a
+       message - it never opens the keyboard and it never takes the draft. */
+    bool reaction_open;
+    uint32_t reaction_cursor;
     /* "Send to" picker: every enabled channel, then every node. Picking opens that
        conversation's thread, and `picker_follow` says what opens over it. */
     bool picker_open;
@@ -274,8 +291,11 @@ struct mesh_ui_nav {
 
 enum mesh_ui_action_type {
     MESH_UI_ACTION_NONE = 0,
-    MESH_UI_ACTION_CONNECT,           /* identifier = BLE address */
-    MESH_UI_ACTION_SEND_TEXT,         /* dest/channel/text */
+    MESH_UI_ACTION_CONNECT, /* identifier = BLE address */
+    /* dest/channel/text, plus reply_id/is_reaction: a new message, a threaded reply, or a
+       tapback. One type rather than three because the destination, the text and the failure
+       path are the same three things in all of them. */
+    MESH_UI_ACTION_SEND_TEXT,
     MESH_UI_ACTION_REFRESH_SETTINGS,  /* re-read the radio's configuration */
     MESH_UI_ACTION_SAVE_SETTINGS,     /* section + edits: write one section to the radio */
     MESH_UI_ACTION_TOGGLE_FAVORITE,   /* dest = node to pin/unpin; `number` is 1 to pin */
@@ -351,6 +371,11 @@ struct mesh_ui_action {
        RADIO_ACTION: the enum mesh_ui_settings_action that was confirmed. */
     uint32_t number;
     char text[MESH_UI_DRAFT_MAX];
+    /* SEND_TEXT: the message this one answers (0 for a new one), and whether `text` is an
+       emoji about it rather than a line of its own. A reaction always names a target; the app
+       refuses one that does not. */
+    uint32_t reply_id;
+    bool is_reaction;
     /* SAVE_SETTINGS: the section (enum mesh_ui_settings_section), the channel slot for the
        Channels section (in `channel`), and the pending edits. */
     uint8_t section;
@@ -500,6 +525,9 @@ void mesh_ui_nav_target_avatar(const struct mesh_ui_store *store, uint32_t node,
 #define MESH_UI_COMPOSE_ROW_DRAFT 0U
 #define MESH_UI_COMPOSE_FIRST_CANNED 1U
 uint32_t mesh_ui_nav_compose_row_count(void);
+
+/* Tapback picker rows: one per emoji in the fixed set (include/mesh/ui/reactions.h). */
+uint32_t mesh_ui_nav_reaction_row_count(void);
 
 /* Keyboard legend for the backends. Character rows return the glyph at that cell (a NUL for an
    unused cell); the action row is described by mesh_ui_kb_action_label(). */

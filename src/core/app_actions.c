@@ -73,13 +73,34 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
         }
         const bool broadcast = (action->dest == MESH_MESSAGE_BROADCAST_ADDR);
         uint32_t packet_id = 0U;
-        const int result = mesh_session_send_text(&app->session, action->dest, action->channel,
-                                                  action->text, !broadcast, &packet_id);
-        if (result == 0) {
+        /*
+         * Three sends behind one action: a reaction names its target and asks for nothing back,
+         * a reply names its target and is a message like any other, and everything else is a
+         * message with no target. The session tells them apart on the wire; the difference
+         * here is which of the three the nav filled in.
+         */
+        const int result =
+            action->is_reaction
+                ? mesh_session_send_reaction(&app->session, action->dest, action->channel,
+                                             action->text, action->reply_id, &packet_id)
+                : mesh_session_send_reply(&app->session, action->dest, action->channel,
+                                          action->text, !broadcast, action->reply_id, &packet_id);
+        if (result == 0 && action->is_reaction) {
+            /* A tapback has no bubble and nothing to wait for, so it is not watched: there is
+               no delivery mark for a report to land on. */
+            snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_REACTION_SENT));
+            mesh_log_info("ui", "Reacted \"%s\" to packet %u in %s", action->text, action->reply_id,
+                          app->ui_store.nav.target_name);
+        } else if (result == 0) {
             mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_SENT_TO,
                             app->ui_store.nav.target_name);
-            mesh_log_info("ui", "Sent \"%s\" to %s (packet %u)", action->text,
-                          app->ui_store.nav.target_name, packet_id);
+            if (action->reply_id != 0U) {
+                mesh_log_info("ui", "Sent \"%s\" to %s (packet %u, replying to %u)", action->text,
+                              app->ui_store.nav.target_name, packet_id, action->reply_id);
+            } else {
+                mesh_log_info("ui", "Sent \"%s\" to %s (packet %u)", action->text,
+                              app->ui_store.nav.target_name, packet_id);
+            }
             mesh_app_watch_sent(app, packet_id, app->ui_store.nav.target_name);
         } else if (result == -ENOTCONN) {
             snprintf(toast, sizeof toast, "%s", mesh_str(MESH_STR_TOAST_NOT_CONNECTED));

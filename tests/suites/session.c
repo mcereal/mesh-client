@@ -507,6 +507,68 @@ MESH_TEST_CASE(session_local_stats, unit) {
 }
 
 /*
+ * A reply and a tapback, from the press to the wire and back into the log.
+ *
+ * The log entry is the half worth pinning. The transcript draws a reply's quote and a
+ * reaction's chip from what the *log* holds, and the radio's echo of our own packet is minutes
+ * of airtime away on a quiet mesh - so a send that put the two fields on the wire and left them
+ * out of the record would draw the reply as a plain message and drop the tapback into the
+ * conversation as a bubble holding one glyph until the echo arrived to correct it.
+ */
+MESH_TEST_CASE(session_send_reply_and_reaction, unit) {
+    struct mesh_session session;
+    mesh_session_init(&session);
+    struct mesh_test_trace_capture capture;
+    memset(&capture, 0, sizeof capture);
+    mesh_session_attach(&session, mesh_test_trace_capture_fn, &capture);
+
+    meshtastic_FromRadio my_info = meshtastic_FromRadio_init_default;
+    my_info.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    my_info.my_info.my_node_num = 0x1111U;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &my_info),
+                      "encode my_info failed");
+
+    uint32_t reply_packet = 0U;
+    MESH_TEST_FAIL_IF(mesh_session_send_reply(&session, 0x3333U, 0U, "understood", true, 500U,
+                                              &reply_packet) != 0,
+                      "the reply was not sent");
+    meshtastic_ToRadio sent = meshtastic_ToRadio_init_default;
+    pb_istream_t in = pb_istream_from_buffer(capture.packet, capture.len);
+    MESH_TEST_FAIL_IF(!pb_decode(&in, meshtastic_ToRadio_fields, &sent) ||
+                          sent.packet.decoded.reply_id != 500U || sent.packet.decoded.emoji != 0U ||
+                          !sent.packet.want_ack,
+                      "a reply names its target, is not a reaction, and is acked like any message");
+    const struct mesh_message *stored = mesh_message_log_find(&session.messages, reply_packet);
+    MESH_TEST_FAIL_IF(stored == NULL || stored->reply_id != 500U || stored->is_reaction ||
+                          stored->ack != MESH_MESSAGE_ACK_PENDING,
+                      "the log entry should carry the target before the echo comes back");
+
+    uint32_t reaction_packet = 0U;
+    MESH_TEST_FAIL_IF(mesh_session_send_reaction(&session, 0x3333U, 0U, "\xF0\x9F\x91\x8D", 500U,
+                                                 &reaction_packet) != 0,
+                      "the reaction was not sent");
+    sent = (meshtastic_ToRadio)meshtastic_ToRadio_init_default;
+    in = pb_istream_from_buffer(capture.packet, capture.len);
+    MESH_TEST_FAIL_IF(!pb_decode(&in, meshtastic_ToRadio_fields, &sent) ||
+                          sent.packet.decoded.reply_id != 500U || sent.packet.decoded.emoji == 0U,
+                      "a reaction names its target and sets the emoji flag");
+    /* No ack even though this is a direct message: a tapback has no bubble, so the mark a
+       delivery report would set is one nothing on the frame could ever draw. */
+    MESH_TEST_FAIL_IF(sent.packet.want_ack, "a reaction should not ask for an ack");
+    stored = mesh_message_log_find(&session.messages, reaction_packet);
+    MESH_TEST_FAIL_IF(stored == NULL || !stored->is_reaction || stored->reply_id != 500U ||
+                          stored->ack != MESH_MESSAGE_ACK_NONE,
+                      "the log entry should be flagged as a reaction with nothing to wait for");
+
+    /* And a tapback with nothing to tap back on never reaches the encoder. */
+    MESH_TEST_FAIL_IF(
+        mesh_session_send_reaction(&session, 0x3333U, 0U, "\xF0\x9F\x91\x8D", 0U, NULL) != -EINVAL,
+        "a reaction with no target should be refused");
+
+    record_success(test_name);
+}
+
+/*
  * Traceroute end to end: the question we put on the air, the reply matched to it, and the
  * shape the UI is handed. The last part is the one worth pinning - RouteDiscovery carries the
  * intermediate nodes and a parallel array of link SNRs, and turning that into "each stop and

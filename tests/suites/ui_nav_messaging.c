@@ -7,6 +7,7 @@
 
 #include "mesh/core/message.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/reactions.h"
 #include "mesh/ui/store.h"
 
 #include <stdbool.h>
@@ -819,6 +820,104 @@ MESH_TEST_CASE(ui_nav_channels_and_keyboard, unit) {
     if (mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action) == false &&
         action.type != MESH_UI_ACTION_NONE) {
         failure = "unexpected action";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+/*
+ * The other end of the same two fields: sending them.
+ *
+ * Both halves were decode-only - the transcript could show a tapback nobody here could send,
+ * and the bar had said "A reply" since the thread screen was written while the press it named
+ * built a message that answered nothing. What is checked here is the *aim*: A answers the
+ * bubble under the cursor, X reacts to it, and Y - which the bar calls "write" - answers
+ * nothing at all, because a new message to a conversation is not a reply to the last thing
+ * said in it.
+ */
+MESH_TEST_CASE(ui_nav_reply_and_react_name_their_target, unit) {
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_ui_store store;
+    if (mesh_ui_store_init(&store) != 0) {
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+
+    /* Into BRVO's conversation, whose one message is packet 12. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.thread_open || store.nav.target_node != 0x3000U) {
+        failure = "the test needs BRVO's thread open";
+        goto cleanup;
+    }
+
+    /* A aims at the bubble under the cursor, and the canned row that follows carries it. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (!store.nav.compose_open || store.nav.reply_to != 12U) {
+        failure = "A should open the compose sheet aimed at the message under the cursor";
+        goto cleanup;
+    }
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_SEND_TEXT || action.reply_id != 12U || action.is_reaction) {
+        failure = "a canned reply should name the message it answers and not be a reaction";
+        goto cleanup;
+    }
+    if (store.nav.reply_to != 0U) {
+        failure = "the reply target should not outlive the send that used it";
+        goto cleanup;
+    }
+
+    /* Y writes to the conversation, which is a different thing and says so on the wire. */
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_Y, &action);
+    if (!store.nav.keyboard_open || store.nav.reply_to != 0U) {
+        failure = "Y should open the keyboard with nothing to answer";
+        goto cleanup;
+    }
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+
+    /* X is the tapback: the emoji list, aimed at the same bubble. */
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    if (!store.nav.reaction_open || store.nav.reply_to != 12U || store.nav.reaction_cursor != 0U) {
+        failure = "X should open the tapback picker on the message under the cursor";
+        goto cleanup;
+    }
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_SEND_TEXT || !action.is_reaction || action.reply_id != 12U ||
+        action.dest != 0x3000U || strcmp(action.text, mesh_ui_reaction_emoji(0)) != 0) {
+        failure = "A on a tapback row should send it as a reaction about that message";
+        goto cleanup;
+    }
+    if (store.nav.reaction_open || store.nav.reply_to != 0U) {
+        failure = "the picker should close on the press that sent";
+        goto cleanup;
+    }
+
+    /* And X on a bubble that never got an id has nothing to react to, so it does nothing
+       rather than sending a reaction that names packet 0. */
+    struct mesh_ui_message_list messages = store.messages;
+    messages.entries[1].packet_id = 0U;
+    mesh_ui_store_set_messages(&store, &messages);
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_X, &action);
+    if (store.nav.reaction_open || action.type != MESH_UI_ACTION_NONE) {
+        failure = "a message with no packet id should not open the tapback picker";
         goto cleanup;
     }
 

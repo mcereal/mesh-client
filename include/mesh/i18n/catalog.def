@@ -134,6 +134,9 @@ MESH_STR_ENTRY(ACTION_SEND,               "send")
 MESH_STR_ENTRY(ACTION_REPLY,              "reply")
 /* Open the keyboard to compose a message to whoever the cursor is on. */
 MESH_STR_ENTRY(ACTION_WRITE,              "write")
+/* Put an emoji on the message under the cursor - a tapback, not a message of its own. Every
+   messenger has a word for this one and it is rarely "react"; use the one yours uses. */
+MESH_STR_ENTRY(ACTION_REACT,              "react")
 /* Start a conversation with somebody there is no thread for yet. */
 MESH_STR_ENTRY(ACTION_NEW,                "new")
 /* Keep this node at the top of the list. The star beside a pinned row is the same fact. */
@@ -353,6 +356,11 @@ MESH_STR_ENTRY(COMPOSE_SUFFIX_CHANNEL,    "  (channel)")
 MESH_STR_ENTRY(COMPOSE_SUFFIX_DIRECT,     "  (direct)")
 MESH_STR_ENTRY(COMPOSE_DRAFT,             "Draft: %s")
 MESH_STR_ENTRY(COMPOSE_DRAFT_EMPTY,       "[ Type a message ]")
+/* The badge on the compose sheet and the keyboard when what is being written answers one
+   message rather than the conversation. One word - it is a capsule, not a sentence. */
+MESH_STR_ENTRY(COMPOSE_BADGE_REPLY,       "reply")
+/* The tapback picker's heading: %s is the message being reacted to, elided to fit. */
+MESH_STR_ENTRY(REACT_TO,                  "React to: %s")
 MESH_STR_ENTRY(PICKER_TITLE,              "Send to")
 MESH_STR_ENTRY(PICKER_EMPTY,              "No channels or nodes known yet.")
 
@@ -392,6 +400,22 @@ MESH_STR_ENTRY(CANNED_CALL_ME,            "Call me")
 MESH_STR_ENTRY(CANNED_NEED_HELP,          "Need help")
 MESH_STR_ENTRY(CANNED_HEADING_BACK,       "Heading back")
 MESH_STR_ENTRY(CANNED_PING,               "Ping")
+
+/* ---- tapbacks -------------------------------------------------------------------------------- */
+
+/*
+ * The emoji the React picker offers, named. The glyph is the payload and is not translated -
+ * it is what goes on the air - but the row beside it has to say what the glyph means, because
+ * a column of eight faces at the panel's glyph scale is not readable as eight distinct things.
+ */
+MESH_STR_ENTRY(REACTION_THUMBS_UP,        "Thumbs up")
+MESH_STR_ENTRY(REACTION_THUMBS_DOWN,      "Thumbs down")
+MESH_STR_ENTRY(REACTION_HEART,            "Love")
+MESH_STR_ENTRY(REACTION_LAUGH,            "Laugh")
+MESH_STR_ENTRY(REACTION_SURPRISE,         "Surprise")
+MESH_STR_ENTRY(REACTION_SAD,              "Sad")
+MESH_STR_ENTRY(REACTION_QUESTION,         "Question")
+MESH_STR_ENTRY(REACTION_IMPORTANT,        "Important")
 
 /* ---- the Devices tab ------------------------------------------------------------------------- */
 
@@ -1362,6 +1386,9 @@ MESH_STR_ENTRY(TOAST_BUSY_RETRY,          "Busy; try again in a moment")
 MESH_STR_ENTRY(TOAST_CONNECTING,          "Connecting to %.40s")
 MESH_STR_ENTRY(TOAST_CONNECT_FAILED,      "Connect failed (%d)")
 MESH_STR_ENTRY(TOAST_SENT_TO,             "Sent to %s")
+/* A tapback went out. It names no destination because it does not choose one - it goes where
+   the message it answers came from. */
+MESH_STR_ENTRY(TOAST_REACTION_SENT,       "Reaction sent")
 MESH_STR_ENTRY(TOAST_SEND_FAILED,         "Send failed (%d)")
 /* A settings refresh, with the count of pending edits it is keeping. */
 MESH_STR_PLURAL_ENTRY(TOAST_REFRESH_EDITS, "Refreshing %d sections; %u edit kept, Y saves", "Refreshing %d sections; %u edits kept, Y saves")

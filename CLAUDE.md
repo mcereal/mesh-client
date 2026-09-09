@@ -140,7 +140,7 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | Transports | `src/transport/` | registry + BLE (BlueZ/D-Bus) + serial (USB) |
 | Session | `src/core/session.c` | handshake, node roster, channels, message log, packet ids |
 | Admin protocol | `src/core/radio_settings.c` | `AdminMessage` get/set queue, passkeys, radio actions, NodeDB verbs, the module table, and the four verbs that are not a section (connection status, device UI, canned messages, ringtone) |
-| Messaging | `src/core/message.c` | text packets, message ring, ack correlation |
+| Messaging | `src/core/message.c` | text packets, message ring, ack correlation, and the two fields that make one a threaded reply or a tapback (`reply_id`, `emoji`) |
 | Waypoints | `src/core/waypoint.c` | the mesh's shared places: a table keyed by waypoint id, WAYPOINT_APP encode/ingest, and the expiry-in-the-past convention every client deletes with |
 | App glue | `src/core/app*.c` | `app` lifecycle/link, `_actions` UI actions, `_publish` to store, `_settings` writes |
 | Self-update | `src/core/updater.c`, `version.c` | forks curl, SemVer, digest-verified install |
@@ -149,6 +149,7 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | Button hints | `src/ui/actions.c`, `include/mesh/ui/actions.h` | what the buttons do here, as (button, verb) pairs the action bar iterates |
 | Status verbs | `src/ui/status.c`, `include/mesh/ui/status.h` | which Status card carries which verb — read by `nav.c`, `actions.c` and the renderer alike |
 | Waypoints UI | `src/ui/waypoints.c`, `src/ui/nav_waypoints.c` | the list's order (nearest first, from our own fix), a place's detail rows, and the distance/compass formatting the same two screens read |
+| Tapbacks | `src/ui/reactions.c`, `include/mesh/ui/reactions.h` | the fixed emoji set X offers over a bubble: the glyph, which goes on the air unchanged, and the catalog id that names it |
 | Delivery marks | `src/ui/delivery.c`, `include/mesh/ui/delivery.h` | which mark an outbound message's ack state gets — the clock, the double tick or the alert circle a bubble's corner draws, and the word a backend with no sprites says for the same state |
 | Client-level chrome | `src/ui/chrome.c`, `include/mesh/ui/chrome.h` | what the frame says about the *client* rather than about a screen: whether anything is in flight (the progress bar) and which persistent banner it carries |
 | Animation | `src/ui/anim.c`, `src/ui/controller.c` | fixed-point easing + a table keyed per control; the repaint timerfd that feeds it |
@@ -307,6 +308,17 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   it deliberately drops the kernel's own `value == 2` for a direction: a direction repeats
   because of our timer or not at all.
 - **fb layout is measured in cells, not bytes.** A `strlen` or `%-Ns` there is a bug.
+- **A reply is aimed by the press that opened the sheet, not by the cursor when it sends.** A on
+  a bubble records that packet id in `nav.reply_to`, and whatever is written or picked over the
+  thread carries it; the transcript keeps moving underneath, so reading the cursor at send time
+  would re-aim the reply at whatever a message arriving mid-compose had slid under it. Y clears
+  it on purpose - the action bar calls Y *write*, and a new message to a conversation is not an
+  answer to the last thing said in it.
+- **A reaction deliberately goes out without want_ack.** It has no bubble - the transcript
+  filters it out and draws it as a chip on the message it names - so a delivery mark it earned
+  would be one nothing on the frame could ever draw, bought with a retransmit round on a shared
+  band. And a reaction with no `reply_id` is `-EINVAL` rather than an ordinary message: the whole
+  of what a tapback is, is what it is about.
 - **A bubble's trailing run is typed slots, not a string, and it is dropped rather than
   truncated.** The reactions, the padlock, the clock and the delivery mark were once
   concatenated by the screen; the bubble measured that string, clamped its *box* to three

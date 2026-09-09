@@ -13,6 +13,7 @@
 
 #include "mesh/core/message.h"
 #include "mesh/ui/node_detail.h"
+#include "mesh/ui/reactions.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/status.h"
 #include "mesh/utils/array.h"
@@ -77,6 +78,9 @@ void mesh_ui_nav_open_thread(struct mesh_ui_nav *nav, const struct mesh_ui_store
     nav->thread_open = true;
     nav->screen = MESH_UI_SCREEN_MESSAGES;
     nav->cursor[MESH_UI_SCREEN_MESSAGES] = 0U;
+    /* A reply names a packet id, and a packet id from the conversation we just left is not a
+       message in this one. */
+    nav->reply_to = 0U;
 }
 
 void mesh_ui_nav_open_all_traffic(struct mesh_ui_nav *nav) {
@@ -88,6 +92,7 @@ void mesh_ui_nav_open_all_traffic(struct mesh_ui_nav *nav) {
     nav->messages_seen = 0U;
     nav->screen = MESH_UI_SCREEN_MESSAGES;
     nav->cursor[MESH_UI_SCREEN_MESSAGES] = 0U;
+    nav->reply_to = 0U;
 }
 
 /* The compose overlay always writes to the open thread, so it needs no target of its own. */
@@ -102,6 +107,9 @@ void mesh_ui_nav_open_compose(struct mesh_ui_nav *nav) {
    canned list the user never asked for. The draft survives, so Y resumes an unsent one. */
 void mesh_ui_nav_open_keyboard(struct mesh_ui_nav *nav) {
     nav->compose_open = false;
+    /* Y is "write", not "answer this": the bar says so, and the thread is scrolled to wherever
+       the user was reading rather than to whatever they mean to write about. */
+    nav->reply_to = 0U;
     nav->keyboard_open = true;
     nav->kb_row = 0U;
     nav->kb_col = 0U;
@@ -116,6 +124,8 @@ static bool mesh_ui_nav_close_thread(struct mesh_ui_nav *nav) {
     nav->thread_open = false;
     nav->inbox = false;
     nav->messages_seen = 0U;
+    nav->reply_to = 0U;
+    nav->reaction_open = false;
     nav->cursor[MESH_UI_SCREEN_MESSAGES] = nav->conversation_list_cursor;
     return true;
 }
@@ -432,11 +442,81 @@ static bool mesh_ui_nav_send_canned(struct mesh_ui_nav *nav, struct mesh_ui_acti
         action->type = MESH_UI_ACTION_SEND_TEXT;
         action->dest = nav->target_node;
         action->channel = nav->target_channel;
+        action->reply_id = nav->reply_to;
         snprintf(action->text, sizeof action->text, "%s", mesh_ui_canned_text(index));
     }
     /* Back to the thread it went to; the app's toast reports the outcome. */
     nav->compose_open = false;
+    nav->reply_to = 0U;
     return true;
+}
+
+/* ---- the tapback picker -------------------------------------------------------------------- */
+
+uint32_t mesh_ui_nav_reaction_row_count(void) { return (uint32_t)mesh_ui_reaction_count(); }
+
+/* X on a bubble: the emoji list, aimed at that message and at nothing else. */
+static bool mesh_ui_nav_open_reactions(struct mesh_ui_nav *nav, uint32_t packet_id) {
+    if (packet_id == 0U || mesh_ui_reaction_count() == 0U) {
+        return false; /* a message the radio never gave an id has nothing to react to */
+    }
+    nav->reply_to = packet_id;
+    nav->reaction_open = true;
+    nav->reaction_cursor = 0U;
+    return true;
+}
+
+/* Sends one tapback about `reply_to`. */
+static bool mesh_ui_nav_send_reaction(struct mesh_ui_nav *nav, struct mesh_ui_action *action,
+                                      size_t index) {
+    if (index >= mesh_ui_reaction_count() || nav->reply_to == 0U) {
+        return false;
+    }
+    if (action != NULL) {
+        action->type = MESH_UI_ACTION_SEND_TEXT;
+        action->dest = nav->target_node;
+        action->channel = nav->target_channel;
+        action->reply_id = nav->reply_to;
+        action->is_reaction = true;
+        snprintf(action->text, sizeof action->text, "%s", mesh_ui_reaction_emoji(index));
+    }
+    nav->reaction_open = false;
+    nav->reply_to = 0U;
+    return true;
+}
+
+static bool mesh_ui_nav_reaction_key(struct mesh_ui_nav *nav, enum mesh_ui_key key,
+                                     struct mesh_ui_action *action) {
+    const uint32_t rows = mesh_ui_nav_reaction_row_count();
+    if (nav->reaction_cursor >= rows && rows > 0U) {
+        nav->reaction_cursor = rows - 1U;
+    }
+    switch (key) {
+    case MESH_UI_KEY_UP:
+        if (nav->reaction_cursor == 0U) {
+            return false;
+        }
+        nav->reaction_cursor--;
+        return true;
+    case MESH_UI_KEY_DOWN:
+        if (nav->reaction_cursor + 1U >= rows) {
+            return false;
+        }
+        nav->reaction_cursor++;
+        return true;
+    case MESH_UI_KEY_A:
+    case MESH_UI_KEY_START:
+        return mesh_ui_nav_send_reaction(nav, action, nav->reaction_cursor);
+    case MESH_UI_KEY_B:
+        /* B, and only B - the compose sheet is opened by A and closed by B, and an overlay
+           that also answered the key that raised it would be the one place in this UI where
+           backing out is two different presses. */
+        nav->reaction_open = false;
+        nav->reply_to = 0U;
+        return true;
+    default:
+        return false;
+    }
 }
 
 static bool mesh_ui_nav_compose_key(struct mesh_ui_nav *nav, enum mesh_ui_key key,
@@ -473,6 +553,7 @@ static bool mesh_ui_nav_compose_key(struct mesh_ui_nav *nav, enum mesh_ui_key ke
         return true;
     case MESH_UI_KEY_B:
         nav->compose_open = false;
+        nav->reply_to = 0U;
         return true;
     default:
         return false;
@@ -510,8 +591,17 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             }
             return true;
         }
-        /* Inside a conversation A is the quick reply: the canned list, one press from sent.
-           Typing one out is Y's job. */
+        /*
+         * Inside a conversation A is the quick reply: the canned list, one press from sent.
+         * Typing one out is Y's job.
+         *
+         * It answers the bubble under the cursor rather than the conversation, which is what
+         * the bar has always said it does. A message whose id we never learned - one restored
+         * from the cache before ids were kept - still sends, as an ordinary message: refusing
+         * the press because the target has no id would make a reply a thing that sometimes
+         * does not happen.
+         */
+        nav->reply_to = message->packet_id;
         mesh_ui_nav_open_compose(nav);
         return true;
     }
@@ -778,6 +868,9 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
     if (nav->compose_open) {
         return mesh_ui_nav_compose_key(nav, key, out_action) || changed;
     }
+    if (nav->reaction_open) {
+        return mesh_ui_nav_reaction_key(nav, key, out_action) || changed;
+    }
 
     /* One press arms Y on the Devices tab; anything else stands it back down. */
     if (nav->devices_forget_armed &&
@@ -857,10 +950,25 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         return changed;
     case MESH_UI_KEY_X:
         if (nav->screen == MESH_UI_SCREEN_MESSAGES && !nav->thread_open) {
-            /* Nothing else on this screen has a use for X, and a conversation list without a
-               way to clear a thread out fills up with every node that ever said hello. */
+            /* A conversation list without a way to clear a thread out fills up with every node
+               that ever said hello. */
             return mesh_ui_nav_delete_conversation(nav, store, nav->cursor[nav->screen],
                                                    out_action) ||
+                   changed;
+        }
+        if (nav->screen == MESH_UI_SCREEN_MESSAGES && nav->thread_open && !nav->inbox) {
+            /* Inside a conversation X is the tapback, on the bubble under the cursor. Not in
+               all-traffic: a reaction goes out on the conversation the target belongs to, and
+               that view is several of them at once. */
+            uint32_t indices[MESH_UI_MAX_MESSAGES];
+            const uint32_t count =
+                mesh_ui_nav_filter_messages(nav, &store->messages, indices, MESH_UI_MAX_MESSAGES);
+            const uint32_t cursor = nav->cursor[nav->screen];
+            if (cursor >= count) {
+                return changed;
+            }
+            return mesh_ui_nav_open_reactions(nav,
+                                              store->messages.entries[indices[cursor]].packet_id) ||
                    changed;
         }
         if (nav->screen == MESH_UI_SCREEN_DEVICES) {

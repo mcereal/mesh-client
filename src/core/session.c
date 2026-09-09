@@ -1540,8 +1540,17 @@ uint32_t mesh_session_next_packet_id(struct mesh_session *session) {
     return session->next_packet_id;
 }
 
-int mesh_session_send_text(struct mesh_session *session, uint32_t dest, uint8_t channel,
-                           const char *text, bool want_ack, uint32_t *out_packet_id) {
+/*
+ * Every text packet this client originates: a plain message, a threaded reply, or a reaction.
+ *
+ * One function rather than three because the difference between them is two fields on the
+ * wire, and splitting it would give the packet id, the log entry and the failure path three
+ * copies each. The three public entry points below are the vocabulary; this is the mechanism.
+ */
+static int mesh_session_send_text_packet(struct mesh_session *session, uint32_t dest,
+                                         uint8_t channel, const char *text, bool want_ack,
+                                         uint32_t reply_id, bool is_reaction,
+                                         uint32_t *out_packet_id) {
     if (session == NULL || text == NULL) {
         return -EINVAL;
     }
@@ -1549,9 +1558,14 @@ int mesh_session_send_text(struct mesh_session *session, uint32_t dest, uint8_t 
         return -ENOTCONN;
     }
 
-    /* Broadcasts are never acked directly by the mesh; asking for one just wastes airtime. */
+    /*
+     * Broadcasts are never acked directly by the mesh; asking for one just wastes airtime. Nor
+     * is a reaction: it has no bubble of its own - the transcript draws it as a chip on the
+     * message it names - so a delivery mark it earned would be one nothing on the frame could
+     * ever show, bought with a retransmit round on a shared band.
+     */
     const bool broadcast = (dest == MESH_MESSAGE_BROADCAST_ADDR);
-    const bool request_ack = want_ack && !broadcast;
+    const bool request_ack = want_ack && !broadcast && !is_reaction;
 
     struct mesh_message_text_request request = {
         .dest = dest,
@@ -1560,6 +1574,8 @@ int mesh_session_send_text(struct mesh_session *session, uint32_t dest, uint8_t 
         .channel = channel,
         .hop_limit = 0U,
         .want_ack = request_ack,
+        .reply_id = reply_id,
+        .is_reaction = is_reaction,
     };
 
     uint8_t payload[MESH_SESSION_MAX_PACKET];
@@ -1578,6 +1594,11 @@ int mesh_session_send_text(struct mesh_session *session, uint32_t dest, uint8_t 
     record.channel = channel;
     record.direction = MESH_MESSAGE_OUTBOUND;
     record.ack = request_ack ? MESH_MESSAGE_ACK_PENDING : MESH_MESSAGE_ACK_NONE;
+    /* The same two fields the echo will bring back, so the transcript shows the reply threaded
+       and the reaction on its target from the moment the key was pressed rather than from
+       whenever the radio gets round to echoing it. */
+    record.reply_id = reply_id;
+    record.is_reaction = is_reaction;
     snprintf(record.text, sizeof record.text, "%s", text);
     mesh_message_log_append(&session->messages, &record);
 
@@ -1591,9 +1612,37 @@ int mesh_session_send_text(struct mesh_session *session, uint32_t dest, uint8_t 
     if (out_packet_id != NULL) {
         *out_packet_id = request.packet_id;
     }
-    mesh_log_info("session", "Queued text message id=%u to 0x%08x on channel %u", request.packet_id,
-                  dest, (unsigned)channel);
+    if (reply_id != 0U) {
+        mesh_log_info("session", "Queued %s id=%u about id=%u to 0x%08x on channel %u",
+                      is_reaction ? "reaction" : "reply", request.packet_id, reply_id, dest,
+                      (unsigned)channel);
+    } else {
+        mesh_log_info("session", "Queued text message id=%u to 0x%08x on channel %u",
+                      request.packet_id, dest, (unsigned)channel);
+    }
     return 0;
+}
+
+int mesh_session_send_text(struct mesh_session *session, uint32_t dest, uint8_t channel,
+                           const char *text, bool want_ack, uint32_t *out_packet_id) {
+    return mesh_session_send_text_packet(session, dest, channel, text, want_ack, 0U, false,
+                                         out_packet_id);
+}
+
+int mesh_session_send_reply(struct mesh_session *session, uint32_t dest, uint8_t channel,
+                            const char *text, bool want_ack, uint32_t reply_id,
+                            uint32_t *out_packet_id) {
+    return mesh_session_send_text_packet(session, dest, channel, text, want_ack, reply_id, false,
+                                         out_packet_id);
+}
+
+int mesh_session_send_reaction(struct mesh_session *session, uint32_t dest, uint8_t channel,
+                               const char *emoji, uint32_t reply_id, uint32_t *out_packet_id) {
+    if (reply_id == 0U) {
+        return -EINVAL;
+    }
+    return mesh_session_send_text_packet(session, dest, channel, emoji, false, reply_id, true,
+                                         out_packet_id);
 }
 
 void mesh_session_packet_failed(struct mesh_session *session, uint32_t packet_id) {

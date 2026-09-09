@@ -23,6 +23,7 @@
 #include "mesh/ui/layout.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
+#include "mesh/ui/reactions.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/status.h"
 #include "mesh/ui/waypoints.h"
@@ -249,6 +250,7 @@ struct fb_thread_row {
     char clock[8];
     char reactions[40];
     char note[64];
+    char quote[64]; /* the message this one replies to; the bubble elides it to one line */
 };
 
 /* Both first-visible and ordinary variants are derived from exact message inputs. Cursor
@@ -412,6 +414,36 @@ static void fb_thread_reactions(const struct mesh_ui_snapshot *snapshot, uint32_
 }
 
 /*
+ * What a threaded reply is answering, for the quote line inside its bubble.
+ *
+ * Looked up across the whole message list rather than the filtered transcript, because the two
+ * are not the same set: in a channel the target is in the transcript, and after a delete or a
+ * ring eviction it is in neither - which is why nothing is a normal answer here and the bubble
+ * simply loses its quote. A reaction is never quoted: it has no bubble to be answered from,
+ * and a reply *to* one is not a thing any client makes.
+ */
+static void fb_thread_quote(const struct mesh_ui_snapshot *snapshot, uint32_t reply_id, char *out,
+                            size_t out_len) {
+    out[0] = '\0';
+    if (reply_id == 0U) {
+        return;
+    }
+    const uint32_t total = snapshot->messages.count > MESH_UI_MAX_MESSAGES
+                               ? MESH_UI_MAX_MESSAGES
+                               : snapshot->messages.count;
+    for (uint32_t i = total; i > 0U; --i) {
+        const struct mesh_ui_message *target = &snapshot->messages.entries[i - 1U];
+        if (target->packet_id != reply_id || target->is_reaction) {
+            continue;
+        }
+        /* Sanitised rather than copied: this truncates, and mesh_str_copy truncates by bytes -
+           which on a message ending in an emoji would cut a character in half. */
+        mesh_text_sanitise_str(target->text, out, out_len);
+        return;
+    }
+}
+
+/*
  * Everything the screen decides about one message: what furniture it gets and what it says.
  *
  * `force_name` names the sender on a bubble that would otherwise inherit the name from the
@@ -433,8 +465,12 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot, const u
     row->bubble.separator = row->separator;
     row->bubble.name = row->name;
     row->bubble.note = row->note;
+    row->bubble.quote = row->quote;
     row->bubble.meta.reactions = row->reactions;
     row->bubble.meta.clock = row->clock;
+    /* A reaction never reaches a bubble - the transcript filters it out - so anything here
+       carrying a reply_id is a threaded reply, and the quote is what says so. */
+    fb_thread_quote(snapshot, message->reply_id, row->quote, sizeof row->quote);
 
     /* A separator opens the transcript and marks every day boundary and every long silence, so
        "when was this" is answered by the shape of the screen rather than by reading timestamps. */
@@ -618,6 +654,7 @@ static void fb_thread_row_get(const struct mesh_ui_snapshot *snapshot, const uin
     row->bubble.separator = row->separator;
     row->bubble.name = row->name;
     row->bubble.note = row->note;
+    row->bubble.quote = row->quote;
     row->bubble.meta.reactions = row->reactions;
     row->bubble.meta.clock = row->clock;
 }
@@ -1207,6 +1244,43 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
     }
 }
 
+/*
+ * The tapback picker: the fixed emoji set, one per row, aimed at the message X was pressed on.
+ *
+ * The message it is about is the heading rather than a row, for the reason the compose sheet's
+ * destination is: nothing on this screen chooses it, so a row that looked pressable would be
+ * offering a choice that is already made.
+ */
+static void fb_render_reactions(struct mesh_ui_backend_fb_state *state,
+                                const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    char target[96] = {0};
+    fb_thread_quote(snapshot, nav->reply_to, target, sizeof target);
+    char title[160];
+    mesh_str_format(title, sizeof title, MESH_STR_REACT_TO, target);
+    fb_draw_app_bar(state, layout, &(const struct fb_app_bar){.title = title});
+
+    const uint32_t count = mesh_ui_nav_reaction_row_count();
+    struct fb_list list = fb_list_begin(layout, count, nav->reaction_cursor);
+    uint32_t i;
+    while (fb_list_next(&list, &i)) {
+        /* The glyph in the leading slot and the word beside it: eight faces in a column at
+           this scale are not eight distinguishable things, and a text backend has no sprites
+           for any of them. */
+        const struct fb_list_item row = {
+            .leading = {.kind = FB_LEADING_AVATAR,
+                        .label = mesh_ui_reaction_emoji(i),
+                        /* A stated neutral fill rather than a tint: an avatar's colour is how
+                           the eye tells one node from another, and here the glyph inside it is
+                           already the whole of what the row is. */
+                        .role = MESH_UI_COLOR_SURFACE_SEL},
+            .text = mesh_str(mesh_ui_reaction_label(i)),
+            .divider = true,
+        };
+        fb_list_item(state, &list, i, &row);
+    }
+}
+
 /* Compose overlay: it writes to the open thread, so the destination is a heading rather than
    an editable row. */
 static void fb_render_compose(struct mesh_ui_backend_fb_state *state,
@@ -1217,7 +1291,15 @@ static void fb_render_compose(struct mesh_ui_backend_fb_state *state,
                     mesh_str(nav->target_node == MESH_MESSAGE_BROADCAST_ADDR
                                  ? MESH_STR_COMPOSE_SUFFIX_CHANNEL
                                  : MESH_STR_COMPOSE_SUFFIX_DIRECT));
-    fb_draw_app_bar(state, layout, &(const struct fb_app_bar){.title = title});
+    /* The badge is the one thing on the sheet that says this answers a message rather than the
+       conversation - which is the whole difference between the press that opened it and Y. */
+    fb_draw_app_bar(
+        state, layout,
+        &(const struct fb_app_bar){
+            .title = title,
+            .badge = nav->reply_to != 0U ? mesh_str(MESH_STR_COMPOSE_BADGE_REPLY) : NULL,
+            .badge_family = MESH_UI_FAMILY_TERTIARY,
+        });
 
     struct fb_list list =
         fb_list_begin(layout, mesh_ui_nav_compose_row_count(), nav->compose_cursor);
@@ -1354,7 +1436,16 @@ static void fb_render_keyboard(const struct mesh_ui_backend_fb_state *state,
     } else {
         mesh_str_format(title, sizeof title, MESH_STR_COMPOSE_TO, nav->target_name);
     }
-    fb_draw_app_bar(state, layout, &(const struct fb_app_bar){.title = title});
+    /* The same badge the compose sheet carries, for the same reason: this keyboard was raised
+       over a bubble, and the destination in the title is not what says so. A setting's keyboard
+       and the pairing prompt never carry one - `reply_to` belongs to the thread. */
+    const bool replying = (!for_passkey && !for_setting && nav->reply_to != 0U);
+    fb_draw_app_bar(state, layout,
+                    &(const struct fb_app_bar){
+                        .title = title,
+                        .badge = replying ? mesh_str(MESH_STR_COMPOSE_BADGE_REPLY) : NULL,
+                        .badge_family = MESH_UI_FAMILY_TERTIARY,
+                    });
 
     const int scale = state->scale;
     const int line = layout->line;
@@ -2620,6 +2711,8 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
         fb_render_keyboard(state, snapshot, &layout);
     } else if (snapshot->nav.compose_open) {
         fb_render_compose(state, snapshot, &layout);
+    } else if (snapshot->nav.reaction_open) {
+        fb_render_reactions(state, snapshot, &layout);
     } else {
         switch (snapshot->nav.screen) {
         case MESH_UI_SCREEN_MESSAGES:

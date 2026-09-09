@@ -407,6 +407,78 @@ MESH_TEST_CASE(message_routing_failure_reason, unit) {
 }
 
 /*
+ * The other half of the two fields above: writing them.
+ *
+ * Golden frames again rather than a round trip through our own decoder, and derived the same
+ * way - by hand from the field numbers - because the failure this guards against is the
+ * encoder and the ingest agreeing with each other and with nobody else on the mesh.
+ *
+ * ToRadio.packet             field 1, LEN      -> 0x0A
+ *   MeshPacket.to            field 2, FIXED32  -> 0x15, FF FF FF FF (broadcast)
+ *   MeshPacket.decoded       field 4, LEN      -> 0x22
+ *     Data.portnum           field 1, varint   -> 0x08, 0x01 (TEXT_MESSAGE_APP)
+ *     Data.payload           field 2, LEN      -> 0x12, len, bytes
+ *     Data.reply_id          field 7, FIXED32  -> 0x3D, F4 01 00 00 (500)
+ *     Data.emoji             field 8, FIXED32  -> 0x45, 01 00 00 00 (a reaction only)
+ *   MeshPacket.id            field 6, FIXED32  -> 0x35, 2A 00 00 00
+ */
+MESH_TEST_CASE(message_encode_reply_and_reaction, unit) {
+    /* A threaded reply: "hi", answering packet 500. */
+    static const uint8_t k_reply[] = {0x0A, 0x17, 0x15, 0xFF, 0xFF, 0xFF, 0xFF, 0x22, 0x0B,
+                                      0x08, 0x01, 0x12, 0x02, 0x68, 0x69, 0x3D, 0xF4, 0x01,
+                                      0x00, 0x00, 0x35, 0x2A, 0x00, 0x00, 0x00};
+    /* A tapback: one thumbs-up (F0 9F 91 8D) about the same packet, with the emoji flag set. */
+    static const uint8_t k_reaction[] = {0x0A, 0x1E, 0x15, 0xFF, 0xFF, 0xFF, 0xFF, 0x22,
+                                         0x12, 0x08, 0x01, 0x12, 0x04, 0xF0, 0x9F, 0x91,
+                                         0x8D, 0x3D, 0xF4, 0x01, 0x00, 0x00, 0x45, 0x01,
+                                         0x00, 0x00, 0x00, 0x35, 0x2A, 0x00, 0x00, 0x00};
+
+    struct mesh_message_text_request request = {
+        .dest = MESH_MESSAGE_BROADCAST_ADDR,
+        .packet_id = 42U,
+        .text = "hi",
+        .channel = 0U,
+        .hop_limit = 0U,
+        .want_ack = false,
+        .reply_id = 500U,
+        .is_reaction = false,
+    };
+
+    uint8_t buffer[64];
+    size_t written = 0U;
+    MESH_TEST_FAIL_IF(mesh_message_encode_text(&request, buffer, sizeof buffer, &written) != 0,
+                      "encoding a reply failed");
+    MESH_TEST_FAIL_IF(written != sizeof k_reply || memcmp(buffer, k_reply, sizeof k_reply) != 0,
+                      "a reply should carry reply_id and nothing else new");
+
+    request.text = "\xF0\x9F\x91\x8D";
+    request.is_reaction = true;
+    MESH_TEST_FAIL_IF(mesh_message_encode_text(&request, buffer, sizeof buffer, &written) != 0,
+                      "encoding a reaction failed");
+    MESH_TEST_FAIL_IF(written != sizeof k_reaction ||
+                          memcmp(buffer, k_reaction, sizeof k_reaction) != 0,
+                      "a reaction should carry reply_id and the emoji flag");
+
+    /* A tapback with nothing to tap back on would reach every other client as a bubble holding
+       one character, so it is refused here rather than sent. */
+    request.reply_id = 0U;
+    MESH_TEST_FAIL_IF(mesh_message_encode_text(&request, buffer, sizeof buffer, &written) !=
+                          -EINVAL,
+                      "a reaction with no target should be refused");
+
+    /* And the field is genuinely absent from an ordinary message - a proto3 singular zero is
+       not on the wire, so message_encode_text_golden's frame is still the whole of one. */
+    request.is_reaction = false;
+    MESH_TEST_FAIL_IF(mesh_message_encode_text(&request, buffer, sizeof buffer, &written) != 0,
+                      "encoding a plain message failed");
+    MESH_TEST_FAIL_IF(memchr(buffer, 0x3D, written) != NULL ||
+                          memchr(buffer, 0x45, written) != NULL,
+                      "a message that answers nothing should carry neither field");
+
+    record_success(test_name);
+}
+
+/*
  * The three Data/MeshPacket fields a text packet carries that used to be dropped: whether the
  * radio decrypted it with our key pair, what it is a reply to, and whether it is a reaction
  * rather than something to read.

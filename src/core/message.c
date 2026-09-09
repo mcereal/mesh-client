@@ -148,6 +148,11 @@ int mesh_message_encode_text(const struct mesh_message_text_request *request, ui
     if (text_len > MESH_MESSAGE_TEXT_MAX) {
         return -EMSGSIZE;
     }
+    /* A tapback with nothing to tap back on is not a message with a missing field: every other
+       client would draw the emoji as a bubble of its own. */
+    if (request->is_reaction && request->reply_id == 0U) {
+        return -EINVAL;
+    }
 
     meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_default;
     to_radio.which_payload_variant = meshtastic_ToRadio_packet_tag;
@@ -162,6 +167,12 @@ int mesh_message_encode_text(const struct mesh_message_text_request *request, ui
     }
     packet->which_payload_variant = meshtastic_MeshPacket_decoded_tag;
     packet->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
+    /* The two fields mesh_message_ingest() reads off the air, written the same way round: the
+       target in reply_id, and emoji as the flag that says the payload annotates it rather than
+       continuing the conversation. Both are proto3 singular scalars, so a 0 is not on the wire
+       at all - an ordinary message costs nothing for carrying the fields. */
+    packet->decoded.reply_id = request->reply_id;
+    packet->decoded.emoji = request->is_reaction ? 1U : 0U;
     memcpy(packet->decoded.payload.bytes, request->text, text_len);
     packet->decoded.payload.size = (pb_size_t)text_len;
 

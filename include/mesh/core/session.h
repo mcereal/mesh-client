@@ -537,6 +537,24 @@ int mesh_session_send_packet(struct mesh_session *session, const uint8_t *packet
 int mesh_session_send_text(struct mesh_session *session, uint32_t dest, uint8_t channel,
                            const char *text, bool want_ack, uint32_t *out_packet_id);
 
+/* The same, threaded onto the message `reply_id` names - the field mesh_message_ingest() has
+   always read on the way in. A reply_id of 0 is an ordinary message, so this is a superset of
+   the call above rather than a different kind of send. */
+int mesh_session_send_reply(struct mesh_session *session, uint32_t dest, uint8_t channel,
+                            const char *text, bool want_ack, uint32_t reply_id,
+                            uint32_t *out_packet_id);
+
+/*
+ * A tapback: `emoji` annotates the message `reply_id` names instead of being a line of its own.
+ *
+ * No want_ack, and reply_id of 0 is -EINVAL rather than an ordinary message - the whole of what
+ * a reaction is, is what it is about. Recorded in the log like anything else that went out, and
+ * filtered out of the transcript by the same rule an inbound reaction is (mesh_ui_nav_filter_
+ * messages), so it shows up as a chip on its target rather than as a bubble holding one glyph.
+ */
+int mesh_session_send_reaction(struct mesh_session *session, uint32_t dest, uint8_t channel,
+                               const char *emoji, uint32_t reply_id, uint32_t *out_packet_id);
+
 /* The link dropped a queued packet before it reached the radio: the message, if any, is
    marked FAILED rather than staying PENDING forever. */
 void mesh_session_packet_failed(struct mesh_session *session, uint32_t packet_id);

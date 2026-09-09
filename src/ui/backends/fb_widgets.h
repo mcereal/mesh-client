@@ -1346,7 +1346,17 @@ struct fb_bubble_meta {
 struct fb_bubble {
     const char *separator; /* dim centred label above the bubble ("Today", "14:05"); "" for none */
     const char *name;      /* sender line inside the bubble; "" when it repeats the one above */
-    const char *text;      /* the message */
+    /*
+     * The message this one answers, as one dim line above the text with a bar down its left
+     * edge - the quote block every messenger draws for a threaded reply. "" for none, which is
+     * every message that is not one and every reply whose target the ring has since evicted.
+     *
+     * One line, and elided rather than wrapped: it is a reminder of something that is already
+     * further up the transcript, not a second message. A quote that could grow would let one
+     * bubble be mostly somebody else's words.
+     */
+    const char *quote;
+    const char *text; /* the message */
     /*
      * Why a failed message failed, as a wrapped supporting line under the text.
      *

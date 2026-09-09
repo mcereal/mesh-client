@@ -86,7 +86,10 @@ static void actions_messages(const struct mesh_ui_nav *nav, struct mesh_ui_actio
         bar_add_tabs(bar);
         return;
     }
+    /* Three verbs about three different things, which is why they are three keys: A answers
+       the bubble under the cursor, X puts an emoji on it, and Y writes to the conversation. */
     bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_REPLY);
+    bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_REACT);
     bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_WRITE);
     bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
     bar_add_tabs(bar);
@@ -299,6 +302,12 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct mesh_ui
         bar_add(out, MESH_UI_BUTTON_A,
                 nav->compose_cursor == MESH_UI_COMPOSE_ROW_DRAFT ? MESH_STR_ACTION_TYPE
                                                                  : MESH_STR_ACTION_SEND);
+        bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+        return;
+    }
+    if (nav->reaction_open) {
+        /* The compose sheet's two presses exactly: every row here sends, and B is the way out. */
+        bar_add(out, MESH_UI_BUTTON_A, MESH_STR_ACTION_SEND);
         bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
         return;
     }
