@@ -594,7 +594,7 @@ generated during the release; hand edits to either are overwritten.
 | [`docs/cli.md`](docs/cli.md) | flags, environment variables, on-device controls |
 | [`docs/device.md`](docs/device.md) | Brick setup, deploy loop, screenshots, troubleshooting |
 | [`docs/settings-roadmap.md`](docs/settings-roadmap.md) | radio settings phases and admin verbs |
-| [`docs/radio-firmware-roadmap.md`](docs/radio-firmware-roadmap.md) | updating the *radio's* firmware over BLE: what is reachable and in what order |
+| [`docs/radio-firmware-roadmap.md`](docs/radio-firmware-roadmap.md) | updating the *radio's* firmware - UF2 over USB, OTA over BLE - what is reachable and in what order |
 | [`docs/components-roadmap.md`](docs/components-roadmap.md) | UI component set audit and the order to close its gaps |
 | [`docs/semantic-release.md`](docs/semantic-release.md) | versioning, packaging, release assets |
 | [`docs/testing.md`](docs/testing.md) | test categories and how to run them |

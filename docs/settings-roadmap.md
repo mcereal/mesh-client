@@ -56,7 +56,7 @@ fragment, and uses the admin path for refreshes and as proof that writes will wo
 | Security | `SecurityConfig.public_key`, `private_key`, `admin_key[3]`, `is_managed`, `admin_channel_enabled`, `packet_signature_policy` | Regenerating the private key breaks every peer's key for you. Backup = show/export the key; do it before regenerate is offered. |
 | Firmware, show | `DeviceMetadata.firmware_version`, `hw_model`, plus `LoRaConfig.region` | Arrives in the handshake; `get_device_metadata_request` refreshes it. |
 | Fixed position | `set_fixed_position` (a `Position`), `remove_fixed_position` | Not `set_config`: the firmware sets `PositionConfig.fixed_position` itself, so writing only the flag turns it on with nothing behind it. Read back with `get_config` POSITION. |
-| Firmware, install | ESP32: `ota_request` (`OTAMode`, plus a SHA-256 of the image) then a separate BLE OTA protocol against a loader in the radio's `app1` partition. nRF52: `enter_dfu_mode_request` is UF2 over USB, not BLE; over-the-air means Nordic DFU. | Hardware-specific and can take the radio off the mesh until it finishes. Assessed on its own in [`radio-firmware-roadmap.md`](radio-firmware-roadmap.md): the ESP32/S3 half is a text protocol over two GATT characteristics and is proposed there in phases; nRF52 stays out. |
+| Firmware, install | ESP32/S3 over BLE: `ota_request` (`OTAMode`, plus a SHA-256 of the image) then a separate protocol against the loader in the radio's `app1` partition. nRF52840, RP2040/RP2350 over USB: `enter_dfu_mode_request`, then the release's `.uf2` written to the bootloader's mass-storage endpoint. | Assessed on its own in [`radio-firmware-roadmap.md`](radio-firmware-roadmap.md), which proposes both in phases and puts the USB one first: its bootloader is permanent, so an interrupted write is retried rather than recovered from. Nordic DFU *over BLE* is what stays out. |
 
 ## UI model
 
@@ -616,9 +616,10 @@ here is that they are last, and that shipping nothing is an acceptable outcome f
 
 ### Later, maybe never
 
-Firmware install for anything that is not an ESP32 or an ESP32-S3 - see
-[`radio-firmware-roadmap.md`](radio-firmware-roadmap.md), which took the ESP32 half out of this
-list and left the rest here with its reasons. Also `tzdef` presets beyond typing the POSIX
+Firmware install for an ESP32-C3/C6 or an STM32WL, and nRF52 firmware install *without a
+cable* (Nordic DFU over BLE) - see [`radio-firmware-roadmap.md`](radio-firmware-roadmap.md),
+which took the ESP32-over-BLE and nRF52-over-USB halves out of this list and left the rest here
+with its reasons. Also `tzdef` presets beyond typing the POSIX
 string by hand, `Network` (WiFi credentials on a device with no WiFi of its own is a poor fit),
 MQTT client proxying, and closing channel gaps the way the phone apps do when a middle slot is
 removed.
@@ -630,8 +631,9 @@ never sent as `not loaded`, the same way the section list already does, rather t
 
 The admin verbs still left out: `enter_dfu_mode_request` and `ota_request` (firmware install -
 `ota_request` is proposed in [`radio-firmware-roadmap.md`](radio-firmware-roadmap.md),
-`enter_dfu_mode_request` is not, because on nRF52 and RP2040 it reboots into a USB mass-storage
-bootloader that this hardware cannot mount), `exit_simulator`, `reboot_ota_seconds` (deprecated
+`enter_dfu_mode_request` alongside it, as the USB path's way in - on nRF52 and RP2040 it reboots
+into a UF2 bootloader, whose mass-storage endpoint takes the image a block at a time and needs no
+filesystem), `exit_simulator`, `reboot_ota_seconds` (deprecated
 upstream in favour of `reboot_ota_mode`), `set_ringtone_message` (the get is shipped; see the
 interlude for why the set is not), `delete_file_request`, `set_scale`,
 `get_node_remote_hardware_pins_request`, `sensor_config` and `lockdown_auth`.
