@@ -331,6 +331,15 @@ What is still deliberately silent after phase 4:
   "no description available" row. A section lists the rows that have something to say; the rest are
   not mentioned. A placeholder would be a row of chrome saying nothing, on the screen whose entire
   job is to say something.
+- **A row with no paragraph of its own opens on the nearest one above it - but never across a
+  subheading.** The fallback is what stops the screen opening at the overview for two rows out of
+  three, and the reset is what stops it being wrong: Telemetry is five groups of near-identical
+  rows and only Environment's Fahrenheit carries a note, so without it every row of Air quality,
+  Power and Health opened on a paragraph about reading a thermometer in Fahrenheit - the wrong
+  reading, confidently, on the screen the user opened to ask what the reading was. A subheading is
+  where "the paragraphs above this row" stops, because it is where "the setting it sits with"
+  stops. `help_opens_on_the_overview_across_a_subheading` checks it from both sides, so this stays
+  a reset at the group boundary rather than the fallback being switched off.
 - **Two explained rows in one section may not share a heading, and one that would keeps
   `MESH_STR_NONE`.** A topic is a flat list: an entry carries the row's own label, and there are no
   subheadings in it - the notes are a property of the *fields* and the subheadings are a property

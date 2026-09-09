@@ -347,25 +347,36 @@ uint32_t mesh_ui_help_entry_for_row(const struct mesh_ui_settings *settings,
         return 0U;
     }
 
-    /* How many paragraphs stand above this row, plus the one the section opens with. */
-    uint32_t entry = 1U;
-    for (uint32_t i = 0U; i < row; ++i) {
-        if (help_item_note(&items[i]) != MESH_STR_NONE) {
-            entry++;
-        }
-    }
     /*
-     * A row with no paragraph of its own lands on the nearest one above it instead of at the
-     * top. That is the useful answer rather than merely the safe one: the paragraphs above a
-     * row in a section are the ones about the setting it sits with, and falling back to the
-     * overview every time would make the screen open at the top for two rows out of three.
+     * Walk down to the row, counting the paragraphs that stand above it.
+     *
+     * `entry` is the index the next explained row would take, the section's own overview being
+     * entry 0. `landing` is where this row opens: its own paragraph when it has one, and
+     * otherwise the nearest one above it. The fallback is the useful answer rather than merely
+     * the safe one - the paragraphs above a row are the ones about the setting it sits with,
+     * and opening at the top every time would put the screen at the overview for two rows out
+     * of three.
+     *
+     * A subheading is where "sits with" ends, so it resets the landing to the overview. That is
+     * the correction Telemetry asked for: its rows are five groups and only one of them has an
+     * explained row, so without the reset every row of Air quality, Power and Health opened on
+     * a paragraph about Fahrenheit - the nearest note above, and about a different reading than
+     * the row the question was asked from. The overview is the honest answer there, and it is
+     * the paragraph that names all five readings.
      *
      * No clamp on the way out, and that is MESH_UI_HELP_ENTRIES_MAX's doing rather than an
      * omission: the entry count runs to one per row plus the overview, which is exactly what a
      * topic holds, so this cannot name an entry the topic does not have.
      */
-    if (help_item_note(&items[row]) == MESH_STR_NONE) {
-        entry--;
+    uint32_t entry = 1U;
+    uint32_t landing = 0U;
+    for (uint32_t i = 0U; i <= row; ++i) {
+        if (items[i].kind == MESH_UI_SETTING_HEADING) {
+            landing = 0U;
+        } else if (help_item_note(&items[i]) != MESH_STR_NONE) {
+            landing = entry;
+            entry++;
+        }
     }
-    return entry;
+    return landing;
 }

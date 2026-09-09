@@ -57,6 +57,9 @@ static bool help_store_open(struct mesh_ui_store *store, enum mesh_ui_settings_s
        radio has sent what it is made of - and User is the section with a TEXT row on it, which
        is the only way to raise a keyboard over a section. */
     settings.has_owner = true;
+    /* And the telemetry fragment, for the case about a section built out of subheaded groups -
+       Telemetry is the only one of those with a row the phases explain. */
+    settings.has_telemetry = true;
     mesh_ui_store_set_settings(store, &settings);
     return mesh_test_open_tab(store, MESH_UI_SCREEN_SETTINGS) &&
            mesh_test_settings_open(store, section);
@@ -402,6 +405,68 @@ MESH_TEST_CASE(help_opens_where_the_cursor_was, unit) {
         press(&store, MESH_UI_KEY_B);
     }
     MESH_TEST_FAIL_IF(!saw_a_field_note, "LoRa had no explained row, so nothing was proved");
+    record_success(test_name);
+}
+
+/*
+ * A subheading is where "the paragraphs above this row" stops.
+ *
+ * Telemetry is five groups of near-identical rows and only one of them - Environment's
+ * Fahrenheit - carries a note, because the rest are called "Enabled" and "Interval" five times
+ * over and a flat topic cannot tell five paragraphs of that apart. Without the reset, every row
+ * of Air quality, Power and Health resolved to the nearest note above, which is a paragraph
+ * about reading a thermometer in Fahrenheit: the wrong reading, confidently, on the screen the
+ * user opened to ask what the reading was.
+ *
+ * The overview is the honest answer for those rows, and it is also the paragraph that names all
+ * five readings. Checked from both sides - a row in the group that has a note still opens on it,
+ * so this is a reset at the group boundary rather than the fallback being switched off.
+ */
+MESH_TEST_CASE(help_opens_on_the_overview_across_a_subheading, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(!help_store_open(&store, MESH_UI_SETTINGS_TELEMETRY),
+                      "Telemetry did not open");
+
+    struct mesh_ui_settings_item items[MESH_UI_SETTINGS_ITEMS_MAX];
+    const uint32_t rows = mesh_ui_settings_items(
+        &store.settings, &store.handshake, NULL, 0U, MESH_UI_SETTINGS_TELEMETRY,
+        MESH_UI_SETTINGS_NO_CHANNEL, items, MESH_UI_SETTINGS_ITEMS_MAX);
+    MESH_TEST_FAIL_IF(rows == 0U, "Telemetry has no rows");
+
+    bool seen_note = false;
+    bool note_in_an_earlier_group = false;
+    bool checked_after_the_group = false;
+    for (uint32_t row = 0; row < rows; ++row) {
+        if (items[row].kind == MESH_UI_SETTING_HEADING) {
+            note_in_an_earlier_group = note_in_an_earlier_group || seen_note;
+            seen_note = false;
+            continue;
+        }
+        const bool noted = items[row].field != MESH_UI_FIELD_NONE &&
+                           mesh_ui_settings_field_note(items[row].field) != MESH_STR_NONE;
+        seen_note = seen_note || noted;
+
+        const uint32_t entry =
+            mesh_ui_help_entry_for_row(&store.settings, &store.handshake, &store.nav, row);
+        if (!seen_note && entry != 0U) {
+            char reason[160];
+            snprintf(reason, sizeof reason,
+                     "row %u opened paragraph %u, expected the overview across the subheading",
+                     (unsigned)row, (unsigned)entry);
+            record_failure(test_name, reason);
+            return;
+        }
+        if (seen_note && entry == 0U) {
+            record_failure(test_name, "an explained group still opened at the overview");
+            return;
+        }
+        /* The row that proves the reset: silent, and under a subheading that a group carrying
+           a paragraph stands above. Before the reset it resolved to that paragraph. */
+        checked_after_the_group =
+            checked_after_the_group || (!seen_note && note_in_an_earlier_group);
+    }
+    MESH_TEST_FAIL_IF(!checked_after_the_group,
+                      "Telemetry had no silent row under a subheading, so nothing was proved");
     record_success(test_name);
 }
 
