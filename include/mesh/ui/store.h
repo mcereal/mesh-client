@@ -59,7 +59,12 @@ enum mesh_ui_device_kind {
 struct mesh_ui_device {
     char identifier[64];
     char name[64];
-    int8_t rssi; /* BLE only; 0 for a USB port */
+    int8_t rssi; /* BLE only; 0 for a USB port, and meaningless unless in_range */
+    /* Whether the radio answered the last scan. BlueZ lists every node it holds a bond for,
+       so a row can name a radio sitting at home all day; it has no RSSI to show and saying
+       "0dBm" about it reads as the strongest signal on the screen. Always true for a USB
+       port, which is present or is not a row. */
+    bool in_range;
     bool connected;
     /* BLE only: BlueZ holds a bond for this node. A node in PIN mode that is not paired
        connects and then fails, so the row says so before the user presses A. Always true for

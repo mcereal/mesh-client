@@ -121,6 +121,21 @@ struct mesh_bluez_device_info {
     /* Device1.Paired. A node in PIN mode answers StartNotify with "Not paired" until it is
        bonded, so the UI has to be able to say so before the user presses connect. */
     bool paired;
+    /*
+     * Whether BlueZ reported an RSSI for this device, which is the only evidence in a
+     * GetManagedObjects walk that the node is actually within earshot.
+     *
+     * The enumeration lists every device object bluetoothd *holds*, and a bond outlives the
+     * radio being in the room - so the node sitting on a desk at home is in that list all day,
+     * indistinguishable by address, name or Paired from the one in your pocket. bluetoothd
+     * drops the RSSI property from a device it has not heard in the current discovery session,
+     * so its presence is the range test and its absence is a bond with nothing behind it.
+     *
+     * It is a separate field rather than `rssi != 0` because 0 is a legal reading and, worse,
+     * a *high* one: every real measurement is negative, so an absent RSSI left in an int16
+     * outranks every node that answered.
+     */
+    bool in_range;
 };
 
 struct mesh_bluez_mock_config {

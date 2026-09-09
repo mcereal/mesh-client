@@ -319,6 +319,17 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   (`mesh_session_default_identity`). An empty `User` in a NodeInfo must not blank a name we have.
 - **A radio reboot after a settings write is expected.** The link drops and auto-connect
   reconnects.
+- **The BLE device list is not a list of nodes in range, and `rssi` is not a range test.** The
+  enumeration behind it is `GetManagedObjects`, a walk of every device object BlueZ *holds* -
+  and a bond outlives the radio being in the room, so a node switched off in another building
+  sits in that list all day with its address, its name and `Paired` intact. What it does not
+  have is an `RSSI` property: bluetoothd drops that from a device it has not heard in the
+  current discovery session. Hence `mesh_bluez_device_info.in_range`, and hence the filter every
+  selection path applies before it looks at anything else. Reading the absence as a number is
+  worse than useless: 0 is a *high* RSSI, so an out-of-range bond beat every node that actually
+  answered - which is what sent the client after the radio left at home while the one in the
+  user's pocket advertised into an empty list. A row in the Devices tab says "not in range"
+  for the same reason rather than "0dBm".
 - **Key repeat is generated in `input.c`, not by the kernel.** Autorepeat is an EV_KEY/EV_REP
   feature and the d-pad is an absolute axis (`ABS_HAT0X/Y`), which never repeats however long it
   is held. The timerfd in `mesh_ui_input` is what makes holding down scroll a long node list, and

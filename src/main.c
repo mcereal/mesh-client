@@ -71,8 +71,15 @@ static void list_all_devices(void) {
     const struct mesh_bluez_device_info *devices = mesh_ble_transport_devices(ble, &count);
     printf("Meshtastic BLE devices (%zu)\n", count);
     for (size_t i = 0; i < count; ++i) {
-        printf("- %s (%s) RSSI=%d%s\n", devices[i].name, devices[i].address, (int)devices[i].rssi,
-               devices[i].paired ? "" : " [needs pairing]");
+        /* A bonded node BlueZ has not heard in this scan has no RSSI to report, and printing
+           the 0 that leaves behind reads as a signal so strong it is off the scale. */
+        if (devices[i].in_range) {
+            printf("- %s (%s) RSSI=%d%s\n", devices[i].name, devices[i].address,
+                   (int)devices[i].rssi, devices[i].paired ? "" : " [needs pairing]");
+        } else {
+            printf("- %s (%s) [not in range]%s\n", devices[i].name, devices[i].address,
+                   devices[i].paired ? "" : " [needs pairing]");
+        }
     }
 
     struct mesh_transport *serial = mesh_serial_transport();
@@ -349,22 +356,26 @@ select_preferred_device(const struct mesh_transport *ble, const struct mesh_app_
 
     if (config->preferred_ble_device[0] != '\0') {
         for (size_t i = 0; i < device_count; ++i) {
-            if (strcasecmp(scratch[i].address, config->preferred_ble_device) == 0 ||
-                strcasecmp(scratch[i].name, config->preferred_ble_device) == 0) {
+            if (scratch[i].in_range &&
+                (strcasecmp(scratch[i].address, config->preferred_ble_device) == 0 ||
+                 strcasecmp(scratch[i].name, config->preferred_ble_device) == 0)) {
                 return &scratch[i];
             }
         }
-        mesh_log_warn("main", "Preferred device '%s' not found; falling back to strongest RSSI",
+        mesh_log_warn("main", "Preferred device '%s' not in range; falling back to strongest RSSI",
                       config->preferred_ble_device);
     }
 
-    size_t best = 0U;
-    for (size_t i = 1; i < device_count; ++i) {
-        if (scratch[i].rssi > scratch[best].rssi) {
-            best = i;
+    /* Only a node that answered this scan. The enumeration lists everything BlueZ holds, bonds
+       included, and a device it has not heard reports no RSSI at all - which as a raw 0 beats
+       every real reading, all of which are negative. See mesh_bluez_device_info.in_range. */
+    const struct mesh_bluez_device_info *best = NULL;
+    for (size_t i = 0; i < device_count; ++i) {
+        if (scratch[i].in_range && (best == NULL || scratch[i].rssi > best->rssi)) {
+            best = &scratch[i];
         }
     }
-    return &scratch[best];
+    return best;
 }
 
 /* Builds the BLE half of a CLI link. `scratch` must outlive the link: the peer names point

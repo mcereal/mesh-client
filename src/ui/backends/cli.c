@@ -53,6 +53,11 @@ static void mesh_ui_backend_cli_print_devices(struct mesh_ui_backend_cli_context
                 context, "  - %s (%s) USB%s\n",
                 device->name[0] != '\0' ? device->name : "<unknown>",
                 device->identifier[0] != '\0' ? device->identifier : "<unknown>", badge);
+        } else if (!device->in_range) {
+            mesh_ui_backend_cli_write(
+                context, "  - %s (%s) not in range%s\n",
+                device->name[0] != '\0' ? device->name : "<unknown>",
+                device->identifier[0] != '\0' ? device->identifier : "<unknown>", badge);
         } else {
             mesh_ui_backend_cli_write(context, "  - %s (%s) RSSI=%d%s\n",
                                       device->name[0] != '\0' ? device->name : "<unknown>",

@@ -429,9 +429,20 @@ them: `app.c` owns the loop, the two links and the process lifecycle; `app_actio
 iteration and persists the handshake cache and preferences under `$HOME`
 (`~/.meshclient/ui_prefs`, `ui_prefs.handshake`).
 
-`mesh_app_autoconnect()` runs every foreground turn: preferred node if in range, else the
-strongest advertiser after 30 s, exponential backoff (2 s to 60 s) on failure.
-`MESHCLIENT_AUTOCONNECT=0` turns it off.
+`mesh_app_autoconnect()` runs every foreground turn, over the nodes that answered the last scan
+and only those: the preferred node if it is in range, else the radio of the user's own that is
+in range and was used most recently (a grace of 5 s), else the strongest advertiser (a grace of
+30 s), with exponential backoff (2 s to 60 s) on failure. `MESHCLIENT_AUTOCONNECT=0` turns it
+off.
+
+The range test is `mesh_bluez_device_info.in_range`, not the RSSI: BlueZ's enumeration lists
+every device it holds a bond for, and one it has not heard has no RSSI property at all - so the
+0 that leaves behind used to outrank every node that answered, and a radio left at home used to
+win the selection outright. The list of the user's own radios is
+`mesh_ui_preferences.known_devices`, an MRU of the last eight the client has connected to over
+either link, whose head *is* `preferred_device`; `mesh_app_note_connected_device()` is the only
+writer of either, so the config and the preferences cannot come to disagree about which radio
+the user was last on.
 
 A BLE connect returns 0 several seconds before it is a connection, so neither the backoff nor the
 UI can key off that return value. `mesh_app_report_link_errors()` therefore runs between `tick()`
