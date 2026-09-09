@@ -1,3 +1,13 @@
+## [2.41.0](https://github.com/mcereal/mesh-client/compare/v2.40.0...v2.41.0) (2026-09-09)
+
+### Features
+
+* **ui:** explain settings in the client, on a help screen SELECT opens ([a819c85](https://github.com/mcereal/mesh-client/commit/a819c8592fa69098ccef7eebf036fc7b96d30883))
+
+### Bug Fixes
+
+* **ui:** make the help press and its keycap agree in every section state ([5b36300](https://github.com/mcereal/mesh-client/commit/5b36300fbfe351135be89556e9d42f96817b0fa7))
+
 ## [2.40.0](https://github.com/mcereal/mesh-client/compare/v2.39.0...v2.40.0) (2026-09-09)
 
 ### Features
