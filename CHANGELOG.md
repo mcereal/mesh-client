@@ -1,3 +1,13 @@
+## [2.39.0](https://github.com/mcereal/mesh-client/compare/v2.38.0...v2.39.0) (2026-09-09)
+
+### Features
+
+* **messaging:** send reactions and threaded replies, not just read them ([10d1eab](https://github.com/mcereal/mesh-client/commit/10d1eabb2b6c5122d0e55efa6ad825de8374bc8c))
+
+### Bug Fixes
+
+* **ui:** the tapback picker owns the body, so no banner may shorten it ([b7d97f6](https://github.com/mcereal/mesh-client/commit/b7d97f61c8a30102b3b9571286e78d6c6ce90b44))
+
 ## [2.38.0](https://github.com/mcereal/mesh-client/compare/v2.37.0...v2.38.0) (2026-09-08)
 
 ### Features
