@@ -301,10 +301,29 @@ not one. Its press lives in a settings section, so the section's own note and th
 its history rows are where it is explained - and the destructive radio actions beside it need no
 note at all, for the reason below.
 
-**Phase 4 - the long tail.** The remaining settings rows that would genuinely be clearer with a
-sentence, of which there are something over a hundred. There is no mechanism left to build: it is
-one line in `k_fields` and one in the catalog per row, and a row with nothing worth saying keeps
-`MESH_STR_NONE` forever.
+**Phase 4 - the long tail. Done.** Eighty-four more rows, which with the eighteen above makes a
+hundred and two explained rows out of the field table's hundred and fifty-two. Every section that has
+editable rows now explains at least one of them, and `help_field_notes_reach_every_explained_section`
+is what keeps that true - named by *section* rather than by row, because a hundred field names in
+a test would be the field table written out a second time, and a whole section losing its notes is
+the failure worth catching rather than one row of it.
+
+There was no mechanism to build, as this section used to say: it was one line in `k_fields` and one
+in the catalog per row. Phase 4 did find one thing the earlier phases could not, and it is a rule
+rather than a row - see *two explained rows in one section may not share a heading* below.
+
+What is still deliberately silent after phase 4:
+
+- **The rows whose label repeats inside their own section.** Telemetry's five Enabled / Interval /
+  Show on screen trios and External notification's three Pin / On message / On bell trios. Their
+  sections say it once in the overview instead - Telemetry's names the five readings, so the
+  paragraph that five rows called "Enabled" would have carried is written once.
+- **The sections that are one idea each.** Status message and Canned messages have an overview and
+  nothing to add to it; About, Radio and Modules have no editable rows at all; Radio actions puts a
+  confirm sheet in front of every press, for the reason below.
+- **The rows whose label is the whole of it.** Long name, Short name, a channel's Username and
+  Password, the six canned slots, the three ambient colours. `MESH_STR_NONE` is the right answer
+  forever, and a placeholder in their place would be a row of chrome saying nothing.
 
 ## Things that will look like bugs and are not
 
@@ -312,6 +331,27 @@ one line in `k_fields` and one in the catalog per row, and a row with nothing wo
   "no description available" row. A section lists the rows that have something to say; the rest are
   not mentioned. A placeholder would be a row of chrome saying nothing, on the screen whose entire
   job is to say something.
+- **A row with no paragraph of its own opens on the nearest one above it - but never across a
+  subheading.** The fallback is what stops the screen opening at the overview for two rows out of
+  three, and the reset is what stops it being wrong: Telemetry is five groups of near-identical
+  rows and only Environment's Fahrenheit carries a note, so without it every row of Air quality,
+  Power and Health opened on a paragraph about reading a thermometer in Fahrenheit - the wrong
+  reading, confidently, on the screen the user opened to ask what the reading was. A subheading is
+  where "the paragraphs above this row" stops, because it is where "the setting it sits with"
+  stops. `help_opens_on_the_overview_across_a_subheading` checks it from both sides, so this stays
+  a reset at the group boundary rather than the fallback being switched off.
+- **Two explained rows in one section may not share a heading, and one that would keeps
+  `MESH_STR_NONE`.** A topic is a flat list: an entry carries the row's own label, and there are no
+  subheadings in it - the notes are a property of the *fields* and the subheadings are a property
+  of the section's *layout*, which is exactly the split that keeps `settings.c` from having to
+  describe a screen. So Telemetry, whose rows are five groups of Enabled / Interval / Show on
+  screen, would draw five paragraphs headed "Enabled" on the one screen whose whole job is to be
+  read, and the reader would have to guess which reading each was about. Those rows carry no note
+  and the section's overview names the five readings instead. `help_note_labels_are_unique_in_a_section`
+  holds both halves of it - the headings, and the paragraphs, since one note is written about one
+  row and two rows naming one id is a copy-paste rather than a choice. It compares the *rendered*
+  label rather than the id, because "Interval" and "Interval" are two catalog entries holding one
+  word and a reader sees the word.
 - **The help screen does not show values.** It says what a setting *is*, never what it is set to -
   the section behind it is already saying that, and a second opinion about the radio's config is a
   second opinion that can be stale.
