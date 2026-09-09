@@ -16,8 +16,8 @@ proposal and is marked as such; the measurements it needs are in
 It supersedes the one-line answer in
 [`settings-roadmap.md`](settings-roadmap.md) — "large, hardware-specific, can brick the radio,
 deferred indefinitely". That answer was right about the risk and wrong about the size: for
-*one* family of radios the whole thing is a text protocol over one GATT characteristic, and
-the client already owns every piece except the streaming.
+*one* family of radios the whole thing is a text protocol over a pair of GATT characteristics —
+one written, one notified — and the client already owns every piece except the streaming.
 
 ## The short version
 
@@ -185,7 +185,10 @@ The loader is a different BLE peripheral than the radio was a moment ago:
 
 ### The protocol
 
-Text commands terminated with `\n`, then a raw binary stream, then a text answer. In full:
+Text commands terminated with `\n`, then a raw binary stream, then a text answer. It takes
+**both** characteristics: everything the client says goes to `...0005`, and every `ERASING`,
+`ACK`, `OK` and `ERR` comes back as a notification on `...0003`. A client that subscribes to the
+one it writes to waits for an acknowledgement that was never going to arrive there. In full:
 
 | Client writes | Loader notifies |
 |---|---|
@@ -241,7 +244,7 @@ More than half of this, which is the argument for doing it now rather than in th
 | Piece | Where | What it gives us |
 |---|---|---|
 | Fork-a-fetcher, read it through the loop | `src/core/updater.c` | curl/wget probing, the pak's CA bundle (the Brick has no system CA store), per-step timeouts, one child at a time, no threads |
-| Download progress with an opaque fetcher | `updater.c` (`downloaded`) | `stat()` on the staged file over the expected size. Same trick works here, and the size comes from the `.mt.json` |
+| Download progress with an opaque fetcher | `updater.c` (`downloaded`) | `stat()` on the staged file over the expected size. Same trick works here, against the **compressed** size from the central directory — what is landing is the zip member, and dividing by the `.mt.json`'s uncompressed size would stop the bar at 63% and call it done |
 | SHA-256 | `src/utils/sha256.c` | the 32 bytes `ota_request` wants, and the hex the `OTA` command wants |
 | Admin queue with passkeys and read-back | `src/core/radio_settings.c` | `ota_request` is one more `enum mesh_admin_request_kind` and one more encode arm |
 | `ClientNotification` | `src/core/session.c` | the preflight answer, already parsed and already published to the UI |
@@ -362,9 +365,12 @@ runs, what the newest stable is, whether this board can be updated from here at 
 downloads, no writes. This is most of the value for a user who owns a computer, and it is the
 row that makes the rest legible.
 
-**Phase 2 — get the image.** Resolve, range-download, inflate, verify, keep. Still nothing sent
-to the radio. Ends with "1.4 MB fetched and it matches the digest", which is a real thing to
-have proven.
+**Phase 2 — get the image.** Resolve, range-download, inflate, verify, keep. Two sizes travel
+together from here on and they are not interchangeable: the compressed member size, which the
+download is measured against, and the uncompressed image size, which is what `OTA <size>` later
+tells the loader to expect. Still nothing sent to the radio. Ends with "1.4 MB fetched, it
+matches the digest, and it inflates to the image the manifest describes", which is a real thing
+to have proven.
 
 **Phase 3 — the handover.** `ota_request`, the loader conversation, the banner, recovery. The
 phase that can break somebody's radio, arriving after everything it depends on is already known
