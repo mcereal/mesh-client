@@ -155,6 +155,21 @@ void mesh_ui_route_of(const struct mesh_ui_nav *nav, struct mesh_ui_route *out) 
         out->slot = nav->confirm_action;
         out->subject = 0U;
     }
+    /*
+     * Help, last, because it is drawn over everything and can be raised from anywhere the
+     * action bar offers it. Being a level at all is what buys it the slide, the back arrow and
+     * the B keycap without any of the three being told about it - the point route.h makes at
+     * length about not writing a "this move was a push" flag by hand.
+     *
+     * `slot` is the section it explains, so opening help on LoRa and opening it on Position are
+     * two places rather than one place repainted.
+     */
+    if (nav->help_open) {
+        out->depth++;
+        out->level = MESH_UI_ROUTE_HELP;
+        out->slot = nav->settings_section;
+        out->subject = 0U;
+    }
 }
 
 bool mesh_ui_route_same(const struct mesh_ui_route *a, const struct mesh_ui_route *b) {

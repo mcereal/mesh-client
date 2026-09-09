@@ -283,6 +283,21 @@ struct mesh_ui_nav {
        front of the user is the one worth keeping.) */
     bool keyboard_displaced;
     uint8_t keyboard_field_displaced;
+    /*
+     * The help screen over whatever is under it: what this screen is for, and what its rows
+     * mean (src/ui/help.c, docs/help.md).
+     *
+     * A level rather than an overlay, and that is the whole of its interaction model: nothing
+     * is stacked on top of the screen it explains, so nothing has to be restored when it
+     * closes. `help_cursor` scrolls it and does nothing else - there is no row here to press,
+     * because a paragraph is not a control.
+     *
+     * It has a cursor of its own instead of borrowing cursor[screen], so the section
+     * underneath keeps its place: B out of help lands back on the row the question was asked
+     * about, which is the only landing that makes the press worth making twice.
+     */
+    bool help_open;
+    uint32_t help_cursor;
     /* Devices tab: Y is armed by one press and forgets the node on the second, because a
        bond dropped by accident costs the user a re-pair with the PIN. */
     bool devices_forget_armed;

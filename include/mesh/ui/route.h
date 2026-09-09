@@ -59,6 +59,7 @@ enum mesh_ui_route_level {
     MESH_UI_ROUTE_KEYBOARD, /* free text: a message, a setting, a pairing PIN */
     MESH_UI_ROUTE_CONFIRM,  /* the confirmation dialog */
     MESH_UI_ROUTE_REACTION, /* the tapback picker over one message */
+    MESH_UI_ROUTE_HELP,     /* what this screen is for, over the screen it explains */
     MESH_UI_ROUTE_COUNT
 };
 

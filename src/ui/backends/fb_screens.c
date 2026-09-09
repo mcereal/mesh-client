@@ -19,6 +19,7 @@
 #include "mesh/ui/chrome.h"
 #include "mesh/ui/delivery.h"
 #include "mesh/ui/emoji.h"
+#include "mesh/ui/help.h"
 #include "mesh/ui/input.h"
 #include "mesh/ui/layout.h"
 #include "mesh/ui/nav.h"
@@ -2156,6 +2157,62 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
 /* "Save <section>?" for the sections whose write can cut this client off, and "Reboot the
    radio?" and its siblings for the Radio actions section. Which of the two it is standing in
    front of is nav->confirm_action; all three strings come from settings.c. */
+/*
+ * Help: what the screen underneath is for, and what its rows mean.
+ *
+ * A list of paragraphs rather than a dialog, because there is nothing here to answer - and a
+ * list rather than a card for the same reason: a card note stops at three lines, and these are
+ * the only content on the frame. Which paragraphs there are is src/ui/help.c's answer, read
+ * here and by the action bar and the key handler alike.
+ *
+ * The heights are measured before the list opens, which on this screen is not a formality: a
+ * note's height is a property of its *words* rather than of its kind, so this is the one list in
+ * the client where the screen genuinely cannot guess and the model genuinely has to be told.
+ */
+static void fb_render_help(struct mesh_ui_backend_fb_state *state,
+                           const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    struct mesh_ui_help_topic topic;
+    if (!mesh_ui_help_topic(&snapshot->settings,
+                            snapshot->handshake_valid ? &snapshot->handshake : NULL, nav, &topic)) {
+        /* Reachable only if the section emptied under an open help screen - a disconnect
+           between the press and this frame. Saying so beats drawing an empty list. */
+        fb_draw_empty(state, layout, MESH_UI_ICON_ABOUT, mesh_str(MESH_STR_HELP_TITLE));
+        return;
+    }
+
+    /*
+     * The screen it explains, on the trail above the title.
+     *
+     * This is the one place a trail earns a level the navigation bar is not already carrying:
+     * the strip says "Settings" and this screen's own title says "Help", so without the section
+     * name between them the frame never says *what* is being explained.
+     */
+    struct fb_app_bar bar = {.title = mesh_str(MESH_STR_HELP_TITLE)};
+    bar.trail[bar.trail_count++] =
+        mesh_ui_settings_section_name((enum mesh_ui_settings_section)nav->settings_section);
+    fb_draw_app_bar(state, layout, &bar);
+
+    const char *headings[MESH_UI_HELP_ENTRIES_MAX];
+    const char *bodies[MESH_UI_HELP_ENTRIES_MAX];
+    uint8_t heights[MESH_UI_HELP_ENTRIES_MAX];
+    for (uint32_t i = 0; i < topic.count; ++i) {
+        /* The opening paragraph is about the whole screen and names no row, so it gets the one
+           heading this screen writes rather than a field's label. */
+        headings[i] = topic.entries[i].label != MESH_STR_NONE ? mesh_str(topic.entries[i].label)
+                                                              : mesh_str(MESH_STR_HELP_OVERVIEW);
+        bodies[i] = mesh_str(topic.entries[i].body);
+        const uint32_t steps = fb_list_note_steps(state, headings[i], bodies[i]);
+        heights[i] = steps > UINT8_MAX ? UINT8_MAX : (uint8_t)steps;
+    }
+
+    struct fb_list list = fb_list_begin_heights(layout, topic.count, nav->help_cursor, heights);
+    uint32_t i;
+    while (fb_list_next(&list, &i)) {
+        fb_list_note(state, &list, i, headings[i], bodies[i]);
+    }
+}
+
 static void fb_render_confirm(struct mesh_ui_backend_fb_state *state,
                               const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
@@ -2703,7 +2760,9 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
      * carried its own copy of that call - so anything drawn over the whole frame (the notice
      * below is the first) had to be added in five places or be missing from four screens.
      */
-    if (snapshot->nav.confirm_open) {
+    if (snapshot->nav.help_open) {
+        fb_render_help(state, snapshot, &layout);
+    } else if (snapshot->nav.confirm_open) {
         fb_render_confirm(state, snapshot, &layout);
     } else if (snapshot->nav.picker_open) {
         fb_render_picker(state, snapshot, &layout);

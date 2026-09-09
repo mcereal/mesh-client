@@ -47,6 +47,16 @@ enum mesh_ui_button {
     MESH_UI_BUTTON_X,
     MESH_UI_BUTTON_Y,
     MESH_UI_BUTTON_START,
+    /*
+     * Help: what this screen is for. The one press in the client that means the same thing
+     * wherever it is offered, which is why it gets a cap of its own rather than sharing A with
+     * whatever the screen underneath does.
+     *
+     * It is offered only where there is something to explain - mesh_ui_help_topic() decides,
+     * and the press reads the same answer - because a keycap that sometimes does nothing is
+     * the thing this bar exists to avoid.
+     */
+    MESH_UI_BUTTON_SELECT,
     /* L1 and R1 together: "the shoulders", which only ever move between things. */
     MESH_UI_BUTTON_SHOULDERS,
     MESH_UI_BUTTON_UP_DOWN,

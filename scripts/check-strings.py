@@ -30,6 +30,7 @@ ROOT = Path(__file__).resolve().parent.parent
 CHECKED = [
     "src/ui/actions.c",
     "src/ui/chrome.c",
+    "src/ui/help.c",
     "src/ui/layout.c",
     "src/ui/nav.c",
     "src/ui/nav_canned.c",
@@ -82,6 +83,7 @@ ALLOWED = {
     # same in every language for the same reason a region code does; the verb beside each is
     # the translated half. See include/mesh/ui/actions.h.
     '"START"': "a keycap: what is printed on the button",
+    '"SELECT"': "a keycap: what is printed on the button",
     '"MENU"': "a keycap: what is printed on the button",
     '"K%u"': "a keycap for a quit key MESHCLIENT_QUIT_KEYS rebound, which has no printed name",
     # A glyph, drawn rather than read: the star beside a pinned node.

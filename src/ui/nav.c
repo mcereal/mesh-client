@@ -12,6 +12,7 @@
 #include "nav_internal.h"
 
 #include "mesh/core/message.h"
+#include "mesh/ui/help.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/reactions.h"
 #include "mesh/ui/settings.h"
@@ -311,6 +312,23 @@ uint32_t mesh_ui_nav_compose_row_count(void) {
     return MESH_UI_COMPOSE_FIRST_CANNED + (uint32_t)mesh_ui_canned_count();
 }
 
+/*
+ * How many rows the help screen has: one per paragraph.
+ *
+ * A "row" here is an entry rather than a line. The backend measures each paragraph into however
+ * many lines it wraps to and scrolls in those, exactly as the transcript does - but what the
+ * cursor walks is the entries, because landing between two halves of a sentence is not a place
+ * anybody meant to be.
+ */
+static uint32_t mesh_ui_nav_help_row_count(const struct mesh_ui_nav *nav,
+                                           const struct mesh_ui_store *store) {
+    struct mesh_ui_help_topic topic;
+    if (!mesh_ui_help_topic(&store->settings, mesh_ui_nav_handshake(store), nav, &topic)) {
+        return 0U;
+    }
+    return topic.count;
+}
+
 bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *store) {
     if (nav == NULL || store == NULL) {
         return false;
@@ -329,6 +347,26 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
     /* And the same for a place that has left the list, which is what a withdrawal from the
        mesh looks like from here. */
     moved = mesh_ui_nav_waypoint_clamp(nav, store) || moved;
+
+    /*
+     * Help, whose paragraph list can shrink under an open screen: a radio answering for a
+     * section it had not sent yet adds rows, and a link dropping takes them away again, so the
+     * count this cursor was placed against is not the count the next frame draws.
+     *
+     * It closes rather than clamps when the topic goes entirely, because a help screen with
+     * nothing to explain is not a screen - and the section under it is still there to land on.
+     */
+    if (nav->help_open) {
+        const uint32_t entries = mesh_ui_nav_help_row_count(nav, store);
+        if (entries == 0U) {
+            nav->help_open = false;
+            nav->help_cursor = 0U;
+            moved = true;
+        } else if (nav->help_cursor >= entries) {
+            nav->help_cursor = entries - 1U;
+            moved = true;
+        }
+    }
 
     for (int screen = 0; screen < MESH_UI_SCREEN_COUNT; ++screen) {
         const uint32_t rows = mesh_ui_nav_row_count(nav, store, (enum mesh_ui_screen)screen);
@@ -839,6 +877,72 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
     }
 }
 
+/*
+ * One key while help is up.
+ *
+ * Up and Down scroll, B leaves, and SELECT closes it the same way it opened it - a toggle,
+ * because a key that only opens a screen leaves the user hunting for the way out of the one
+ * screen in the client that exists to stop them hunting. Everything else is swallowed rather
+ * than passed through: the section underneath is still holding pending edits, and a Left that
+ * reached it would step a value the user cannot see.
+ */
+static bool mesh_ui_nav_help_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                 enum mesh_ui_key key) {
+    switch (key) {
+    case MESH_UI_KEY_B:
+    case MESH_UI_KEY_SELECT:
+        nav->help_open = false;
+        nav->help_cursor = 0U;
+        return true;
+    case MESH_UI_KEY_UP:
+        if (nav->help_cursor == 0U) {
+            return false;
+        }
+        nav->help_cursor--;
+        return true;
+    case MESH_UI_KEY_DOWN: {
+        const uint32_t rows = mesh_ui_nav_help_row_count(nav, store);
+        if (rows == 0U || nav->help_cursor + 1U >= rows) {
+            return false;
+        }
+        nav->help_cursor++;
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
+/*
+ * SELECT anywhere: open the explanation of this screen, when there is one.
+ *
+ * It asks mesh_ui_help_offered() rather than testing the nav, because src/ui/actions.c asks the
+ * same question to decide whether to draw the keycap - and a press that worked where the bar
+ * said nothing, or did nothing where it said "help", is the two-opinions bug this client keeps
+ * a single table to avoid. Both halves of that happened here: with a discard armed, SELECT stood
+ * the question down *and* opened help off one press, and with an edit pending it opened help
+ * with no keycap on the frame.
+ */
+static bool mesh_ui_nav_open_help(struct mesh_ui_nav *nav, const struct mesh_ui_store *store) {
+    const struct mesh_ui_handshake_state *handshake = mesh_ui_nav_handshake(store);
+    if (!mesh_ui_help_offered(&store->settings, handshake, nav)) {
+        return false;
+    }
+    struct mesh_ui_help_topic topic;
+    if (!mesh_ui_help_topic(&store->settings, handshake, nav, &topic)) {
+        return false;
+    }
+    nav->help_open = true;
+    /* Open where the reader was looking rather than at the top: the paragraph about the row the
+       question was asked about, or the nearest one above it. */
+    nav->help_cursor =
+        mesh_ui_help_entry_for_row(&store->settings, handshake, nav, nav->cursor[nav->screen]);
+    if (nav->help_cursor >= topic.count) {
+        nav->help_cursor = topic.count > 0U ? topic.count - 1U : 0U;
+    }
+    return true;
+}
+
 bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                             enum mesh_ui_key key, struct mesh_ui_action *out_action) {
     if (out_action != NULL) {
@@ -856,6 +960,11 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         changed = true;
     }
 
+    /* Help first, because it is drawn over everything else: a key reaching the screen under an
+       overlay the user is looking at is a key doing something they cannot see. */
+    if (nav->help_open) {
+        return mesh_ui_nav_help_key(nav, store, key) || changed;
+    }
     if (nav->confirm_open) {
         return mesh_ui_nav_confirm_key(nav, key, out_action) || changed;
     }
@@ -910,6 +1019,23 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         if (key != MESH_UI_KEY_B) {
             nav->settings_discard_armed = false;
             changed = changed || was_armed;
+            /*
+             * And a press spent standing the question down is spent.
+             *
+             * SELECT is the only key where that needs saying. Every other press here either
+             * does nothing further or is itself the answer, but SELECT would go on to open the
+             * help screen off the same press - so the user would get their question dismissed
+             * and a screen they did not ask for, from one keystroke.
+             *
+             * mesh_ui_help_offered() already says help is not offered while the question is up,
+             * and this is what stops the nav contradicting it: the flag that predicate reads has
+             * been cleared two lines above, so by the time SELECT reaches it the state it is
+             * asking about is gone. The bar reads the nav before any of this runs, which is why
+             * the rule lives there and the ordering fix lives here.
+             */
+            if (was_armed && key == MESH_UI_KEY_SELECT) {
+                return true;
+            }
         }
         bool handled = false;
         const bool result = mesh_ui_nav_settings_section_key(nav, store, key, out_action, &handled);
@@ -1061,6 +1187,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         }
         return changed;
     case MESH_UI_KEY_SELECT:
+        return mesh_ui_nav_open_help(nav, store) || changed;
     case MESH_UI_KEY_NONE:
     default:
         return changed;

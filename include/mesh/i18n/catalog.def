@@ -119,6 +119,11 @@ MESH_STR_ENTRY(ACTION_CONFIRM,            "confirm")
 MESH_STR_ENTRY(ACTION_CANCEL,             "cancel")
 /* The d-pad, on the two screens where moving the cursor is the whole interaction. */
 MESH_STR_ENTRY(ACTION_MOVE,               "move")
+/* What SELECT does: open the explanation of the screen the user is on (docs/help.md). */
+MESH_STR_ENTRY(ACTION_HELP,               "help")
+/* The d-pad on the help screen, where there is nothing to choose - the rows are paragraphs, so
+   the cursor moves the text rather than a selection. A different verb from "move" on purpose. */
+MESH_STR_ENTRY(ACTION_SCROLL,             "scroll")
 /* The shoulder buttons inside a long picker: ten rows at a time rather than one. */
 MESH_STR_ENTRY(ACTION_JUMP,               "jump 10")
 /* Put the highlighted character into the draft - what A does on the on-screen keyboard. */
@@ -703,6 +708,73 @@ MESH_STR_ENTRY(SETTINGS_SECTION_EXT_NOTIFICATION,         "External notify")
 MESH_STR_ENTRY(SETTINGS_SECTION_TRAFFIC,                  "Traffic management")
 MESH_STR_ENTRY(SETTINGS_SECTION_RADIO_UI,                 "Radio UI")
 MESH_STR_ENTRY(SETTINGS_SECTION_CANNED,                   "Canned messages")
+
+/* ---- the help screen -------------------------------------------------------------------------- */
+
+/* The help screen's own heading. The section it explains is named on the trail beside it, so
+   this stays the same word on every one of them. */
+MESH_STR_ENTRY(HELP_TITLE,                "Help")
+/* The heading over the paragraph that describes the whole screen, before the ones about
+   individual rows. */
+MESH_STR_ENTRY(HELP_OVERVIEW,             "About this screen")
+
+/* ---- settings: what a section is for ----------------------------------------------------------- */
+
+/*
+ * The paragraph the help screen opens with, one per section (docs/help.md).
+ *
+ * These are addressed to somebody who has just opened the screen and does not already know what
+ * it is for, which is a different reader from the one the labels above are written for. Two
+ * things each should carry: what the section does, and what goes wrong if it is set badly - the
+ * second half being the one worth the room, since a label already gives the first.
+ *
+ * Keep them under 200 characters. The help screen wraps them across a 3.2" panel, and a note
+ * that runs past a screenful stops being read; settings_note_fits_the_panel holds the line.
+ *
+ * A locale may leave any of these untranslated: mesh_str_in() falls back to English per id, so
+ * an omitted note reads in English while the rest of that language stays correct. They are the
+ * one class of string in this catalog with that dispensation - see docs/i18n.md.
+ */
+MESH_STR_ENTRY(SETTINGS_NOTE_ABOUT,                       "MeshClient itself: which version is running, where it keeps its data, and the self-update rows. Nothing on this screen reaches the radio.")
+MESH_STR_ENTRY(SETTINGS_NOTE_RADIO,                       "What the attached radio says about itself - its firmware, its hardware and its node number. Read-only: a setting you can change lives in the section that owns it.")
+MESH_STR_ENTRY(SETTINGS_NOTE_USER,                        "Your identity on the mesh. The long name is what node lists show; the short name is the few characters other radios draw on their own screens.")
+MESH_STR_ENTRY(SETTINGS_NOTE_DEVICE,                      "How this radio behaves on the mesh: the role it plays, how often it announces itself, and what it repeats for other nodes. Role has the widest effect of anything here.")
+MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY,                     "The radio's own screen: how long it stays lit, which way up it draws, and whether it reads in metric or imperial. None of it changes what the Brick shows.")
+MESH_STR_ENTRY(SETTINGS_NOTE_LORA,                        "The radio link itself - region, modem settings, and how far a message may travel. Two radios must agree on region and preset or they cannot hear each other at all.")
+MESH_STR_ENTRY(SETTINGS_NOTE_BLUETOOTH,                   "How the radio accepts a connection from a phone or from this client. Changing the mode or the PIN drops the current link and needs a fresh pairing.")
+MESH_STR_ENTRY(SETTINGS_NOTE_CHANNELS,                    "The channels this radio listens on. A channel is a name plus a key: anyone holding the same pair can read its traffic, and anyone without it cannot.")
+MESH_STR_ENTRY(SETTINGS_NOTE_SECURITY,                    "The radio's identity key, who may administer it remotely, and which debug surfaces are left open. A new private key makes this a different node to everyone else.")
+MESH_STR_ENTRY(SETTINGS_NOTE_POSITION,                    "Whether the radio shares where it is, how often, and how precisely. Every broadcast costs airtime on a band everyone shares, so the intervals matter.")
+MESH_STR_ENTRY(SETTINGS_NOTE_POWER,                       "How the radio sleeps. Longer sleep buys battery life and costs responsiveness: a sleeping node hears nothing and answers nothing until it wakes.")
+MESH_STR_ENTRY(SETTINGS_NOTE_MQTT,                        "Bridges this radio's traffic to an internet MQTT broker, joining a local mesh to a wider one. Uplink sends your traffic out; downlink brings other traffic in.")
+MESH_STR_ENTRY(SETTINGS_NOTE_STORE_FORWARD,               "Asks a router on the mesh for messages that arrived while this client was off. Only a node configured as a Store & Forward router has anything to replay.")
+MESH_STR_ENTRY(SETTINGS_NOTE_TELEMETRY,                   "What the radio measures about itself and its surroundings, and how often it tells the mesh. Each reading you enable is another broadcast on a shared band.")
+MESH_STR_ENTRY(SETTINGS_NOTE_ACTIONS,                     "Things the radio does rather than settings it keeps: reboot, shutdown and the resets. The two forget rows are different - they clear this client's own node list.")
+MESH_STR_ENTRY(SETTINGS_NOTE_MODULES,                     "The optional features this radio's firmware can run. Each row opens that module's own settings, and its value says whether the module is currently enabled.")
+MESH_STR_ENTRY(SETTINGS_NOTE_NEIGHBOR_INFO,               "Reports which nodes this radio hears directly, so the mesh can map its own shape. The firmware floors the interval at four hours because it is a lot of traffic.")
+MESH_STR_ENTRY(SETTINGS_NOTE_RANGE_TEST,                  "Sends numbered packets on a timer so you can walk away and find where reception stops. It transmits to everyone on the channel, so turn it off when you are done.")
+MESH_STR_ENTRY(SETTINGS_NOTE_PAXCOUNTER,                  "Counts nearby WiFi and Bluetooth devices as a rough headcount, identifying none of them. It needs a board whose hardware can scan both bands.")
+MESH_STR_ENTRY(SETTINGS_NOTE_TAK,                         "Bridges this radio to ATAK and WinTAK team awareness software. The team and role here are what other TAK clients draw for this node.")
+MESH_STR_ENTRY(SETTINGS_NOTE_AMBIENT,                     "Drives an RGB LED on radios wired for one. The colour rows and the current limit do nothing at all on a board without the hardware.")
+MESH_STR_ENTRY(SETTINGS_NOTE_STATUS_MESSAGE,              "A short line this radio publishes about itself, the way a status message works anywhere else.")
+MESH_STR_ENTRY(SETTINGS_NOTE_DETECTION,                   "Watches a GPIO pin and tells the mesh when it changes - a door, a switch, a sensor. Pin numbers are the radio board's own, so check its wiring before setting one.")
+MESH_STR_ENTRY(SETTINGS_NOTE_EXT_NOTIFICATION,            "Drives a buzzer, a vibration motor or an LED when a message or an alert arrives. Each output names the pin it is on and which of the two alerts triggers it.")
+MESH_STR_ENTRY(SETTINGS_NOTE_TRAFFIC,                     "Limits how much other nodes may push through this one. There is no enabled switch: every row here is off at 0, and any other value turns that limit on.")
+MESH_STR_ENTRY(SETTINGS_NOTE_RADIO_UI,                    "The graphical interface drawn on the radio's own screen. Not the same as Display: that section is the panel itself, this is what gets drawn on it.")
+MESH_STR_ENTRY(SETTINGS_NOTE_CANNED,                      "Short replies stored on the radio for its own buttons. Six slots of 32 characters, because the wire carries the whole list as a single 200-byte string.")
+
+/*
+ * Field notes: the rows where knowing the name does not tell you what happens if you get it
+ * wrong. Most settings have none, on purpose - see docs/help.md.
+ *
+ * These five are the LoRa rows the questions actually get asked about. Same rules as the
+ * section notes above: under 200 characters, and a locale may leave them untranslated.
+ */
+MESH_STR_ENTRY(SETTINGS_NOTE_LORA_REGION,                 "Which band this radio transmits on, set by law where you are. A radio on the wrong region cannot talk to its neighbours and may not be legal to transmit at all.")
+MESH_STR_ENTRY(SETTINGS_NOTE_LORA_SPREAD,                 "How far each symbol is spread over the air. Higher reaches further and carries less: every step up roughly doubles the time a message takes to send.")
+MESH_STR_ENTRY(SETTINGS_NOTE_LORA_CODING,                 "How much error correction rides along with each message. Higher recovers more damaged packets and makes every packet longer.")
+MESH_STR_ENTRY(SETTINGS_NOTE_LORA_HOPS,                   "How many times a message may be relayed before the mesh drops it. Every extra hop costs the whole mesh airtime, so raise it only to reach a node that is genuinely that far.")
+MESH_STR_ENTRY(SETTINGS_NOTE_LORA_TX_POWER,               "How hard this radio transmits, in dBm. Your region caps this in law, and more power drains the battery faster without helping if the other end cannot answer.")
 
 /* ---- settings: field labels ------------------------------------------------------------------- */
 

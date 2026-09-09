@@ -1,5 +1,6 @@
 #include "mesh/ui/actions.h"
 
+#include "mesh/ui/help.h"
 #include "mesh/ui/input.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/settings.h"
@@ -25,6 +26,7 @@ static const char *const k_caps[MESH_UI_BUTTON_COUNT] = {
     [MESH_UI_BUTTON_X] = "X",
     [MESH_UI_BUTTON_Y] = "Y",
     [MESH_UI_BUTTON_START] = "START",
+    [MESH_UI_BUTTON_SELECT] = "SELECT",
     [MESH_UI_BUTTON_SHOULDERS] = "L/R",
     [MESH_UI_BUTTON_UP_DOWN] = "\xE2\x86\x91\xE2\x86\x93",    /* up arrow, down arrow */
     [MESH_UI_BUTTON_LEFT_RIGHT] = "\xE2\x86\x90\xE2\x86\x92", /* left arrow, right arrow */
@@ -159,7 +161,30 @@ static void actions_devices(const struct mesh_ui_nav *nav, struct mesh_ui_action
     bar_add_tabs(bar);
 }
 
-static void actions_settings(const struct mesh_ui_nav *nav, struct mesh_ui_action_bar *bar) {
+/*
+ * The help press, offered only where there is something to explain.
+ *
+ * It asks mesh_ui_help_offered() - the same call the press itself makes - rather than testing
+ * the nav here, because the two answers have to be the same answer. A bar naming SELECT over a
+ * screen that will not open one is the keycap-that-does-nothing this file refuses everywhere
+ * else, and the *reverse* is no better: a press that works with no keycap saying so is a feature
+ * nobody finds. Both were true of the two branches below before this was one call.
+ *
+ * Late in each bar it appears on: order is priority and the bar drops from the end, so on a
+ * narrow panel the presses that edit and leave the screen survive and the one that explains it
+ * is the first to go. It still sits ahead of "L/R tabs", which is true on every screen in the
+ * client and therefore the least worth the room.
+ */
+static void bar_add_help(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_action_bar *bar) {
+    if (mesh_ui_help_offered(&snapshot->settings,
+                             snapshot->handshake_valid ? &snapshot->handshake : NULL,
+                             &snapshot->nav)) {
+        bar_add(bar, MESH_UI_BUTTON_SELECT, MESH_STR_ACTION_HELP);
+    }
+}
+
+static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui_snapshot *snapshot,
+                             struct mesh_ui_action_bar *bar) {
     if (nav->settings_section == MESH_UI_SETTINGS_NO_SECTION) {
         bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_OPEN);
         bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_REFRESH);
@@ -175,6 +200,11 @@ static void actions_settings(const struct mesh_ui_nav *nav, struct mesh_ui_actio
         bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_SAVE);
         bar_add(bar, MESH_UI_BUTTON_LEFT_RIGHT, MESH_STR_ACTION_EDIT);
         bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_DISCARD);
+        /* An edit in hand does not make the setting need less explaining - if anything it is the
+           likelier moment to want it - so this branch offers the same press the pristine one
+           does. It was the branch that proved the bar and the handler had to share a predicate:
+           SELECT worked here from the first keystroke, with nothing on the bar saying so. */
+        bar_add_help(snapshot, bar);
         bar_add_tabs(bar);
         return;
     }
@@ -186,6 +216,7 @@ static void actions_settings(const struct mesh_ui_nav *nav, struct mesh_ui_actio
         bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_OPEN);
         bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
         bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_REFRESH);
+        bar_add_help(snapshot, bar);
         bar_add_tabs(bar);
         return;
     }
@@ -194,6 +225,7 @@ static void actions_settings(const struct mesh_ui_nav *nav, struct mesh_ui_actio
     if (nav->settings_section == MESH_UI_SETTINGS_ABOUT) {
         bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_RUN);
         bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+        bar_add_help(snapshot, bar);
         bar_add_tabs(bar);
         return;
     }
@@ -206,6 +238,7 @@ static void actions_settings(const struct mesh_ui_nav *nav, struct mesh_ui_actio
     bar_add(bar, MESH_UI_BUTTON_LEFT_RIGHT, MESH_STR_ACTION_EDIT);
     bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
     bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_REFRESH);
+    bar_add_help(snapshot, bar);
     bar_add_tabs(bar);
 }
 
@@ -256,6 +289,17 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct mesh_ui
 
     /* The overlays, in the order fb_render_snapshot() stacks them. A bar describing the screen
        underneath one is a bar for presses that will not arrive. */
+    if (nav->help_open) {
+        /*
+         * Two presses and no third. There is nothing on this screen to choose: every row is a
+         * paragraph, so the cursor scrolls and B leaves, and the tab keys are left off because
+         * walking sideways out of an explanation of the screen behind it is not a move anyone
+         * means to make.
+         */
+        bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+        bar_add(out, MESH_UI_BUTTON_UP_DOWN, MESH_STR_ACTION_SCROLL);
+        return;
+    }
     if (nav->confirm_open) {
         bar_add(out, MESH_UI_BUTTON_A, MESH_STR_ACTION_CONFIRM);
         bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_CANCEL);
@@ -326,7 +370,7 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct mesh_ui
         actions_devices(nav, out);
         break;
     case MESH_UI_SCREEN_SETTINGS:
-        actions_settings(nav, out);
+        actions_settings(nav, snapshot, out);
         break;
     case MESH_UI_SCREEN_STATUS:
     default:
