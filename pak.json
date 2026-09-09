@@ -1,17 +1,17 @@
 {
   "name": "MeshClient",
-  "version": "v2.39.0",
+  "version": "v2.40.0",
   "type": "TOOL",
   "description": "A Meshtastic client for your handheld: read and send messages, browse the mesh, and edit your radio's settings over Bluetooth LE or USB.",
   "author": "mcereal",
   "repo_url": "https://github.com/mcereal/mesh-client",
   "release_filename": "MeshClient.pak.zip",
   "changelog": {
+    "v2.40.0": "Ask a router for the messages the Brick missed; Stop dating a replay by when it was fetched.",
     "v2.39.0": "Send reactions and threaded replies, not just read them; The tapback picker owns the body, so no banner may shorten it.",
     "v2.38.0": "List, share and withdraw the mesh's shared places; Honour a dated expiry, and let the places follow the radio.",
     "v2.37.0": "Mark a message's delivery state instead of spelling it.",
-    "v2.36.0": "Count the roster a running sync has delivered; Gate the radio actions on the link, not on knowing the radio; Stop the client losing a sync it had already earned.",
-    "v2.35.0": "The four radio verbs that are not a section; Never let a canned save delete a message it could not show."
+    "v2.36.0": "Count the roster a running sync has delivered; Gate the radio actions on the link, not on knowing the radio; Stop the client losing a sync it had already earned."
   },
   "screenshots": [
     ".github/resources/screenshots/nodes.png",

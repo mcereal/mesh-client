@@ -1,3 +1,13 @@
+## [2.40.0](https://github.com/mcereal/mesh-client/compare/v2.39.0...v2.40.0) (2026-09-09)
+
+### Features
+
+* **store-forward:** ask a router for the messages the Brick missed ([e42c972](https://github.com/mcereal/mesh-client/commit/e42c97268fdbc6f2f88ee82e5a6023b9aa8dbaac))
+
+### Bug Fixes
+
+* **store-forward:** stop dating a replay by when it was fetched ([34b523c](https://github.com/mcereal/mesh-client/commit/34b523c97451424dab939750c19cb5ffe7b92136))
+
 ## [2.39.0](https://github.com/mcereal/mesh-client/compare/v2.38.0...v2.39.0) (2026-09-09)
 
 ### Features
