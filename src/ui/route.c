@@ -121,12 +121,6 @@ void mesh_ui_route_of(const struct mesh_ui_nav *nav, struct mesh_ui_route *out) 
      * of the tests below is fb_render_snapshot()'s order for the same reason mesh_ui_actions_
      * for() uses it: describing a screen the user cannot reach is worse than describing none.
      */
-    if (nav->compose_open) {
-        out->depth++;
-        out->level = MESH_UI_ROUTE_COMPOSE;
-        out->slot = 0U;
-        out->subject = 0U;
-    }
     if (nav->reaction_open) {
         out->depth++;
         out->level = MESH_UI_ROUTE_REACTION;
@@ -134,6 +128,12 @@ void mesh_ui_route_of(const struct mesh_ui_nav *nav, struct mesh_ui_route *out) 
            another place, not a repaint of this one. */
         out->slot = 0U;
         out->subject = nav->reply_to;
+    }
+    if (nav->compose_open) {
+        out->depth++;
+        out->level = MESH_UI_ROUTE_COMPOSE;
+        out->slot = 0U;
+        out->subject = 0U;
     }
     if (nav->keyboard_open) {
         out->depth++;

@@ -203,16 +203,20 @@ MESH_TEST_CASE(ui_chrome_banner_stands_down_where_the_screen_already_says_it, un
 /*
  * A modal owns the body.
  *
- * Each of the four takes the body for a question, and the banner shortens the body - so one
+ * Each of the five takes the body for a question, and the banner shortens the body - so one
  * raised over a dialog would move the question while it was being answered. Walked one at a
  * time rather than in the combination the nav happens to produce, because the rule is about the
- * component and a fifth overlay has to be checked against it.
+ * component and a sixth overlay has to be checked against it.
+ *
+ * The tapback picker is the fifth, and it is why the walk is written this way: it was added as
+ * a body-owning overlay without being added to mesh_ui_chrome_modal_open(), so with an update
+ * ready it drew under a banner that every one of its siblings suppresses.
  */
 MESH_TEST_CASE(ui_chrome_banner_yields_to_a_modal, unit) {
     struct mesh_ui_snapshot snapshot;
     struct mesh_ui_banner banner;
 
-    for (int overlay = 0; overlay < 4; ++overlay) {
+    for (int overlay = 0; overlay < 5; ++overlay) {
         chrome_fixture(&snapshot);
         snapshot.settings.client.update_state = (uint8_t)MESH_UPDATE_READY;
         switch (overlay) {
@@ -225,8 +229,11 @@ MESH_TEST_CASE(ui_chrome_banner_yields_to_a_modal, unit) {
         case 2:
             snapshot.nav.keyboard_open = true;
             break;
-        default:
+        case 3:
             snapshot.nav.compose_open = true;
+            break;
+        default:
+            snapshot.nav.reaction_open = true;
             break;
         }
         MESH_TEST_FAIL_IF(mesh_ui_chrome_banner(&snapshot, &banner),

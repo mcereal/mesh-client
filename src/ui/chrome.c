@@ -43,14 +43,17 @@ bool mesh_ui_chrome_busy(const struct mesh_ui_snapshot *snapshot) {
 }
 
 /*
- * The four overlays, in the order fb_render_snapshot() stacks them.
+ * The overlays that take the body, in the order fb_render_snapshot() stacks them.
  *
  * Written out here rather than behind a predicate in nav.h because this is the only place that
- * wants the question in this shape - mesh_ui_actions_for() walks the same four but needs to
- * know *which* one, so it cannot share an answer that is only a boolean.
+ * wants the question in this shape - mesh_ui_actions_for() walks the same list but needs to
+ * know *which* one, so it cannot share an answer that is only a boolean. The cost of that is
+ * that a new overlay has to be added here too, which is what
+ * ui_chrome_banner_yields_to_a_modal walks one at a time to catch.
  */
 static bool mesh_ui_chrome_modal_open(const struct mesh_ui_nav *nav) {
-    return nav->confirm_open || nav->picker_open || nav->keyboard_open || nav->compose_open;
+    return nav->confirm_open || nav->picker_open || nav->keyboard_open || nav->compose_open ||
+           nav->reaction_open;
 }
 
 /* Whether the screen up is the one that already reports the updater in full. A banner pointing
