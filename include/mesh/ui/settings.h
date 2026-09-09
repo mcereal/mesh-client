@@ -516,6 +516,15 @@ bool mesh_ui_settings_section_icons_rows(enum mesh_ui_settings_section section);
  * it knows. Writes at most `out_len` bytes including the NUL.
  */
 void mesh_ui_settings_format_precision(uint32_t bits, char *out, size_t out_len);
+/*
+ * The same answer as a number of metres, for a caller that has to draw the footprint rather than
+ * name it - the map's ring around an approximate marker.
+ *
+ * 0 whenever there is no distance to give: `bits` of 0 is "the sender did not say" rather than
+ * "exact", and anything outside the range the channel's own setting offers is a count this
+ * client has no table for. All three mean the same thing to a caller: draw nothing.
+ */
+uint32_t mesh_ui_settings_precision_metres(uint32_t bits);
 
 /* Field descriptions for the nav and the keyboard title. */
 const char *mesh_ui_settings_field_label(enum mesh_ui_setting_field field);

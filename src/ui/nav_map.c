@@ -56,8 +56,7 @@ static bool mesh_ui_nav_map_fit(struct mesh_ui_nav *nav, const struct mesh_ui_st
     }
     struct mesh_geo_point points[MESH_UI_MAP_MARKERS_MAX];
     const uint32_t count = mesh_ui_map_points(&view, points, MESH_UI_MAP_MARKERS_MAX);
-    return mesh_map_viewport_fit(&nav->map_viewport, points, (size_t)count,
-                                 MESH_UI_MAP_FIT_MARGIN);
+    return mesh_map_viewport_fit(&nav->map_viewport, points, (size_t)count, MESH_UI_MAP_FIT_MARGIN);
 }
 
 void mesh_ui_nav_open_map(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,

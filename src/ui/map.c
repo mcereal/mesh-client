@@ -100,8 +100,8 @@ void mesh_ui_map_build(const struct mesh_ui_store *store, struct mesh_ui_map_vie
                 continue;
             }
             map_add(out, MESH_UI_MAP_MARKER_SELF, node->node_id, node->position.latitude_i,
-                    node->position.longitude_i, map_node_label(node),
-                    node->position.precision_bits, node->position.received, false);
+                    node->position.longitude_i, map_node_label(node), node->position.precision_bits,
+                    node->position.received, false);
             break;
         }
 
@@ -114,14 +114,13 @@ void mesh_ui_map_build(const struct mesh_ui_store *store, struct mesh_ui_map_vie
                position when we heard it - the roster deliberately outlives the NodeDB. Drawn
                differently rather than dropped, which is what the Nodes tab already does. */
             map_add(out, MESH_UI_MAP_MARKER_NODE, node->node_id, node->position.latitude_i,
-                    node->position.longitude_i, map_node_label(node),
-                    node->position.precision_bits, node->position.received, !node->in_nodedb);
+                    node->position.longitude_i, map_node_label(node), node->position.precision_bits,
+                    node->position.received, !node->in_nodedb);
         }
     }
 
-    const uint32_t places = store->waypoints.count > MESH_UI_MAX_WAYPOINTS
-                                ? MESH_UI_MAX_WAYPOINTS
-                                : store->waypoints.count;
+    const uint32_t places = store->waypoints.count > MESH_UI_MAX_WAYPOINTS ? MESH_UI_MAX_WAYPOINTS
+                                                                           : store->waypoints.count;
     out->known += places;
     for (uint32_t i = 0; i < places; ++i) {
         const struct mesh_ui_waypoint *waypoint = &store->waypoints.entries[i];
@@ -261,9 +260,8 @@ bool mesh_ui_map_has_markers(const struct mesh_ui_store *store) {
             }
         }
     }
-    const uint32_t places = store->waypoints.count > MESH_UI_MAX_WAYPOINTS
-                                ? MESH_UI_MAX_WAYPOINTS
-                                : store->waypoints.count;
+    const uint32_t places = store->waypoints.count > MESH_UI_MAX_WAYPOINTS ? MESH_UI_MAX_WAYPOINTS
+                                                                           : store->waypoints.count;
     for (uint32_t i = 0; i < places; ++i) {
         const struct mesh_ui_waypoint *waypoint = &store->waypoints.entries[i];
         if (waypoint->has_coords &&

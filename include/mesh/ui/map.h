@@ -59,8 +59,8 @@ extern "C" {
  * number derived from that panel is a fact about the hardware rather than a guess about a
  * renderer, and the capture harness draws at the same geometry.
  */
-#define MESH_UI_MAP_FIT_WIDTH 640
-#define MESH_UI_MAP_FIT_HEIGHT 360
+#define MESH_UI_MAP_FIT_WIDTH 880
+#define MESH_UI_MAP_FIT_HEIGHT 420
 
 /* How much air a fit leaves around the outermost marker, so one at the edge of the set is not
    drawn half off the panel - and so its label has somewhere to go. */

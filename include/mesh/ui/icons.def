@@ -37,6 +37,11 @@ MESH_ICON_ENTRY(NODES,     "hub")
 MESH_ICON_ENTRY(DEVICES,   "settings_input_antenna")
 MESH_ICON_ENTRY(STATUS,    "speed")
 MESH_ICON_ENTRY(SETTINGS,  "settings")
+/* The map over the node list, on the row that opens it. Its own id rather than POSITION, which
+   is a *point* - a pin says "somewhere on Earth" and this says "a picture of where things are",
+   and the two are drawn side by side on the map itself: the pin marks a waypoint and this marks
+   the way in. Two jobs, two ids, which is the rule at the top of this file. */
+MESH_ICON_ENTRY(MAP,       "map")
 
 /* ---- what a row offers --------------------------------------------------------------------- */
 

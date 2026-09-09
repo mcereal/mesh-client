@@ -22,6 +22,7 @@
 #include "mesh/ui/help.h"
 #include "mesh/ui/input.h"
 #include "mesh/ui/layout.h"
+#include "mesh/ui/map.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/reactions.h"
@@ -36,7 +37,7 @@
 #include <string.h>
 #include <time.h>
 
-static void fb_store_view(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_store *view) {
+void fb_store_view(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_store *view) {
     memset(view, 0, sizeof *view);
     memcpy(view->devices, snapshot->devices, sizeof view->devices);
     view->device_count = snapshot->device_count;
@@ -1126,14 +1127,48 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
        the same view the conversation list and the picker build, so all three ask one function. */
     struct mesh_ui_store view;
     fb_store_view(snapshot, &view);
-    struct fb_list list = fb_list_begin(layout, count, nav->cursor[MESH_UI_SCREEN_NODES]);
+    /* One row for the map on the front of the list. The count is the same arithmetic
+       mesh_ui_nav_row_count() does, and it is written out here rather than shared because the
+       nav's answer already carries the empty-roster case this branch cannot reach. */
+    struct fb_list list =
+        fb_list_begin_rows(layout, count + 1U, nav->cursor[MESH_UI_SCREEN_NODES], 2U);
     struct mesh_ui_line line;
     char right[32];
     char age[8];
     char initials[MESH_UI_CONVERSATION_INITIALS_MAX];
+    /* How many of what the client knows has somewhere to be drawn, which is what the map row's
+       supporting line says. Counted once, outside the loop: it walks the whole roster and the
+       waypoint book, and the row it is for is drawn at most once. */
+    struct mesh_ui_map_view markers;
+    mesh_ui_map_build(&view, &markers);
+    char map_line[48];
+    if (markers.count > 0U) {
+        mesh_str_format_plural(map_line, sizeof map_line, MESH_STR_MAP_ROW_MARKERS_ONE,
+                               markers.count, markers.count);
+    } else {
+        /* The row stays and says why it cannot be pressed, rather than disappearing - the
+           Waypoints tab's "New waypoint here" rule, and for its reason: a row that vanishes
+           explains nothing to the reader wondering where the map went. */
+        mesh_str_copy(map_line, sizeof map_line, mesh_str(MESH_STR_MAP_ROW_EMPTY));
+    }
+
     uint32_t i;
     while (fb_list_next(&list, &i)) {
-        const struct mesh_ui_node_summary *node = &hs->nodes[i];
+        if (i == MESH_UI_NODES_MAP_ROW) {
+            const struct fb_list_item map_row = {
+                .leading = {.kind = FB_LEADING_ICON, .icon = MESH_UI_ICON_MAP},
+                .text = mesh_str(MESH_STR_MAP_ROW),
+                /* Dim when there is nothing to put on it, for the reason the "New message" row
+                   is dim: it is a button among things, and one that cannot be pressed. */
+                .tone = markers.count > 0U ? MESH_UI_TONE_NORMAL : MESH_UI_TONE_DIM,
+                .trailing = {.kind = FB_TRAILING_ICON, .icon = MESH_UI_ICON_CHEVRON},
+                .supporting = map_line,
+                .supporting_quiet = true,
+            };
+            fb_list_item(state, &list, i, &map_row);
+            continue;
+        }
+        const struct mesh_ui_node_summary *node = &hs->nodes[i - 1U];
         const char *short_name =
             node->short_name[0] != '\0' ? node->short_name : mesh_str(MESH_STR_NODES_NO_SHORT_NAME);
         const char *long_name = node->long_name[0] != '\0' ? node->long_name : "";
@@ -2798,7 +2833,13 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
             }
             break;
         case MESH_UI_SCREEN_NODES:
-            fb_render_nodes(state, snapshot, &layout);
+            /* The map, under any node detail opened from it and over the list it was opened
+               from - the same order src/ui/actions.c names the presses in. */
+            if (snapshot->nav.map_open && !snapshot->nav.node_detail_open) {
+                fb_render_map(state, snapshot, &layout);
+            } else {
+                fb_render_nodes(state, snapshot, &layout);
+            }
             break;
         case MESH_UI_SCREEN_WAYPOINTS:
             fb_render_waypoints(state, snapshot, &layout);

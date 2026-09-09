@@ -18,6 +18,7 @@
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/backends/fb_capture.h"
 #include "mesh/ui/font.h"
+#include "mesh/ui/map.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/store.h"
@@ -2408,4 +2409,136 @@ MESH_TEST_CASE(ui_capture_slider_stops_survive_the_fill, unit) {
 
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
+}
+
+/*
+ * The map never puts ink on the chrome around it.
+ *
+ * The map is the one screen whose content is placed at coordinates rather than laid out in rows,
+ * so the containment a list gets for free has to be arranged here: the nav's viewport and this
+ * backend's body box are the same box, resized on every frame, and `visible` is what gates the
+ * draw. If those drift apart a marker lands on the tab strip or through the keycaps, which reads
+ * as a rendering fault rather than as a bug with a cause - and it is invisible in a screenshot
+ * of any view that happens not to have a marker near an edge.
+ *
+ * So the marker under test is swept north and south, from the middle of the body to well past
+ * both of its edges, and the top and bottom bands of the panel - which are chrome at this glyph
+ * scale, and nothing else - are compared against the same frame drawn with the marker having no
+ * position at all. A waypoint counts towards the app bar's "of" whether or not it has
+ * coordinates, so those bands are identical by construction and any difference in them is ink
+ * that escaped the map.
+ *
+ * Vertically rather than horizontally, because that is where the room is: the body is inset from
+ * the panel by a margin at the sides and by the whole of two bars top and bottom, so a marker a
+ * little past the left edge is clipped by the framebuffer itself while one a little past the top
+ * lands squarely on the tab strip.
+ *
+ * One glyph scale, and it is the device's own. The bands below have to be chrome and not body,
+ * which is a fact about how tall the bars are drawn - so the test states the scale it is true at
+ * rather than sweeping scales and quietly widening the bands until it passes at all of them.
+ */
+MESH_TEST_CASE(ui_capture_map_keeps_its_ink_off_the_chrome, unit) {
+    struct mesh_ui_snapshot *snapshot = calloc(1U, sizeof *snapshot);
+    const char *failure = NULL;
+    if (snapshot == NULL) {
+        record_failure(test_name, "snapshot allocation failed");
+        return;
+    }
+
+    /* One node at the centre, so the frame is a map with something on it, and one place whose
+       position is what the sweep moves. */
+    snapshot->nav.screen = MESH_UI_SCREEN_NODES;
+    snapshot->nav.map_open = true;
+    snapshot->handshake_valid = true;
+    snapshot->handshake.has_my_info = true;
+    snapshot->handshake.my_info.node_num = 0x1000U;
+    snapshot->handshake.node_count = 1U;
+    snapshot->handshake.nodes[0].node_id = 0x1000U;
+    snapshot->handshake.nodes[0].in_nodedb = true;
+    snprintf(snapshot->handshake.nodes[0].short_name,
+             sizeof snapshot->handshake.nodes[0].short_name, "ME");
+    snapshot->handshake.nodes[0].position.valid = true;
+    snapshot->handshake.nodes[0].position.latitude_i = 476180000;
+    snapshot->handshake.nodes[0].position.longitude_i = -1223320000;
+
+    snapshot->waypoints.count = 1U;
+    snapshot->waypoints.entries[0].id = 1U;
+    snprintf(snapshot->waypoints.entries[0].name, sizeof snapshot->waypoints.entries[0].name,
+             "Cache");
+
+    const int scale = 4; /* what the Brick draws at, and what the bands below are true for */
+    const uint8_t zoom = 16U;
+    mesh_map_viewport_init(&snapshot->nav.map_viewport, 476180000, -1223320000, zoom);
+
+    /*
+     * Comfortably inside the two bars at this scale, so the bands are chrome whatever the map
+     * does. The navigation bar is a label-scale line on its own surface and the action bar is a
+     * row of keycaps over a status line; neither is anywhere near this thin.
+     */
+    const uint32_t top_band = 24U;
+    const uint32_t bottom_band = 24U;
+
+    struct mesh_ui_capture *capture = NULL;
+    uint8_t *reference = NULL;
+    /*
+     * About fifty pixels a step at this zoom and this latitude - a degree of latitude is 111 km
+     * and a pixel is a metre and a half - so thirty steps either way walks the marker from the
+     * middle of the body out past the top and the bottom of the panel, landing on the chrome on
+     * the way if it is going to. A step has to be smaller than the bands below or the sweep can
+     * stride straight over the very rows this is about, which is exactly what a coarser first
+     * version of this test did while passing.
+     */
+    for (int step = -30; step <= 30 && failure == NULL; ++step) {
+        snapshot->waypoints.entries[0].latitude_i = 476180000 + step * 4500;
+        snapshot->waypoints.entries[0].longitude_i = -1223320000;
+
+        for (int pass = 0; pass < 2 && failure == NULL; ++pass) {
+            snapshot->waypoints.entries[0].has_coords = (pass == 1);
+
+            if (mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT,
+                                     scale) != 0) {
+                failure = "capture open failed";
+                break;
+            }
+            mesh_ui_capture_set_theme(capture, mesh_ui_theme_at(0));
+            mesh_ui_capture_set_scale(capture, scale);
+            uint32_t width = 0U, height = 0U;
+            size_t stride = 0U;
+            const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+            mesh_ui_capture_render(capture, snapshot);
+
+            if (pass == 0) {
+                free(reference);
+                reference = malloc((size_t)height * stride);
+                if (reference == NULL) {
+                    failure = "frame allocation failed";
+                } else {
+                    memcpy(reference, pixels, (size_t)height * stride);
+                }
+            } else if (height > bottom_band) {
+                for (uint32_t y = 0; y < height && failure == NULL; ++y) {
+                    if (y >= top_band && y < height - bottom_band) {
+                        continue; /* the body, where a marker is entitled to be */
+                    }
+                    if (memcmp(reference + (size_t)y * stride, pixels + (size_t)y * stride,
+                               stride) != 0) {
+                        failure = "a marker put ink on the chrome around the map";
+                    }
+                }
+            }
+            mesh_ui_capture_close(capture);
+            capture = NULL;
+        }
+    }
+
+    if (capture != NULL) {
+        mesh_ui_capture_close(capture);
+    }
+    free(reference);
+    free(snapshot);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
 }

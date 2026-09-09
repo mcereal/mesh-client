@@ -110,6 +110,7 @@ add_library(meshclient_core
     src/ui/backends/fb.c
     src/ui/backends/fb_capture.c
     src/ui/backends/fb_draw.c
+    src/ui/backends/fb_map.c
     src/ui/backends/fb_widgets.c
     src/ui/backends/fb_screens.c
     src/ui/font.c

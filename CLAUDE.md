@@ -145,7 +145,7 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | Waypoints | `src/core/waypoint.c` | the mesh's shared places: a table keyed by waypoint id, WAYPOINT_APP encode/ingest, and the expiry-in-the-past convention every client deletes with |
 | App glue | `src/core/app*.c` | `app` lifecycle/link, `_actions` UI actions, `_publish` to store, `_settings` writes |
 | Self-update | `src/core/updater.c`, `version.c` | forks curl, SemVer, digest-verified install |
-| UI | `src/ui/` | store/controller + `nav*.c` + `settings*.c` + `layout.c` + `history.c` + `backends/{fb*,cli,stub}.c`; **`fb` is the device UI** |
+| UI | `src/ui/` | store/controller + `nav*.c` + `settings*.c` + `layout.c` + `history.c` + `backends/{fb*,cli,stub}.c`; **`fb` is the device UI**. `backends/fb_map.c` is the one screen renderer that places things at coordinates rather than describing rows, which is why it is its own file |
 | UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window (counted in **steps**, so one row may be taller than its neighbours); cards (filled/elevated/outlined, with verbs on the heading line), buttons, chips, badges, list items (leading/marker/supporting/trailing slots, an optional full-width bar on a second step), section subheaders, switches, selection controls (checkbox/radio), segmented buttons (which fall back to the chosen word when the row is too narrow), meters (with domains and drawn threshold bands), sliders (a settings number on the scale of the values it could have had, with a value the scale cannot place drawn as a track with no handle), signal staircases, sparklines (a reading over time, on the bar's own domain, from a sample ring the client keeps), bubbles (whose trailing run is four typed slots the component measures, never a string a screen assembled), the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar |
 | Button hints | `src/ui/actions.c`, `include/mesh/ui/actions.h` | what the buttons do here, as (button, verb) pairs the action bar iterates |
 | Status verbs | `src/ui/status.c`, `include/mesh/ui/status.h` | which Status card carries which verb — read by `nav.c`, `actions.c` and the renderer alike |
@@ -162,7 +162,8 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | Text | `src/utils/text.c`, `src/ui/{font5x7,emoji}.c` | UTF-8 sanitising, cell-based measurement |
 | Strings | `src/i18n/strings.c`, `include/mesh/i18n/catalog.def` | the string catalog and the locale registry |
 | Dev tools | `devtools/`, `scripts/{ui-capture.sh,frames.py}` | off-screen UI capture; PNG/GIF encoding, stdlib only |
-| Geography | `src/geo/` | `mesh_geo_coords_valid()` — the bounds test every coordinate ingress asks, so the air, the cache and the keyboard cannot disagree about where Earth ends — and `mesh_geo_vector_between()`, the haversine distance and initial bearing the Waypoints tab reads a range from. Two of the pieces the module [`docs/maps-roadmap.md`](docs/maps-roadmap.md) proposes; projection waits until a map needs one. **The only `<math.h>` in the tree**, and the reason libm is linked |
+| Geography | `src/geo/` | `mesh_geo_coords_valid()` — the bounds test every coordinate ingress asks, so the air, the cache and the keyboard cannot disagree about where Earth ends — `mesh_geo_vector_between()`, the haversine distance and initial bearing the Waypoints tab reads a range from, and `mesh_geo_mercator_forward()`, the projection the map places a marker with. **The only directory in the tree that includes `<math.h>`**, and the reason libm is linked |
+| The map | `src/map/viewport.c`, `src/ui/map.c`, `src/ui/nav_map.c`, `src/ui/backends/fb_map.c` | Where the map is looking (centre, integer zoom, pan, fit, metres per pixel), the markers built from the roster and the waypoint book, the presses, and the drawing. No basemap yet — see [`docs/maps-roadmap.md`](docs/maps-roadmap.md). `viewport.c` deliberately has **no `<math.h>`**: everything transcendental about a map is a property of the projection, one directory down |
 | Shared utils | `src/utils/` | `text` (UTF-8 + `mesh_str_copy`), `time` (`mesh_time_monotonic_ms`), `env` (`mesh_env_bool`/`_int`), `log`, `sha256`, `array` |
 
 `include/mesh/` mirrors `src/` one-for-one — `core/`, `transport/`, `ui/`, `proto/`, `geo/`, `utils/` —
@@ -324,6 +325,26 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   it deliberately drops the kernel's own `value == 2` for a direction: a direction repeats
   because of our timer or not at all.
 - **fb layout is measured in cells, not bytes.** A `strlen` or `%-Ns` there is a bug.
+- **The map's d-pad does not move a cursor, and its shoulders do move tabs.** It is the one
+  screen where Left and Right are not the tab keys: `nav_map.c` takes the four directions ahead
+  of the routing in `nav.c` that turns them into a change of tab, because Left on a map means
+  "look west". The shoulders are deliberately *not* taken, which is what pays for it - the two
+  pairs are the same press on every other screen, and splitting them here is what lets the map
+  have the d-pad without the tab strip above the body going dead. The action bar still says
+  "L/R tabs" here and still means it.
+- **The map has no selection field on the nav, and must not grow one.** What A opens is the
+  marker nearest the middle of the view, derived every frame by `mesh_ui_map_selected()`. That is
+  the app bar's back arrow and the transition route again: a second opinion about the nav is a
+  second opinion that can be wrong, and here it would let the ring a backend draws and the node a
+  press opens name two different nodes. It works because the distance is measured *in metres*
+  against a radius converted through `mesh_map_viewport_metres_per_pixel()`, which depends on
+  zoom and latitude and not on the panel — the store owns the nav and a backend is handed a
+  `const` snapshot, so the two genuinely cannot ask each other how wide the body is. Anything
+  box-dependent there is the bug.
+- **The map's fit is computed against a declared box, not a measured one.** For the same reason:
+  the nav cannot learn a backend's body size. `MESH_UI_MAP_FIT_WIDTH` is deliberately *smaller*
+  than any body this client draws into, because a fit computed for a small box and drawn into a
+  larger one leaves extra air, where the opposite clips a marker off the edge.
 - **A reply is aimed by the press that opened the sheet, not by the cursor when it sends.** A on
   a bubble records that packet id in `nav.reply_to`, and whatever is written or picked over the
   thread carries it; the transcript keeps moving underneath, so reading the cursor at send time

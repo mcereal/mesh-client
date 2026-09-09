@@ -1,9 +1,11 @@
 # Map support assessment
 
-Status: the map itself is proposed, based on the repository inspected on 2026-09-07; no
-runtime changes or device benchmarks accompany that part of the assessment. The **pre-work in
-§"Pre-work that matters" has since shipped**, on its own and ahead of any map - see the note
-there for what each item became.
+Status: **steps 1 and 2 of the delivery sequence have shipped** - the geography contract is
+complete and there is a marker map on the device, with no basemap under it. See
+§"What steps 1 and 2 became" for what landed and what it deliberately did not. Steps 3 to 5 -
+the offline raster spike, the offline release and the optional extensions - are still proposed,
+based on the repository inspected on 2026-09-07, and no device benchmarks accompany them. The
+**pre-work in §"Pre-work that matters" shipped first**, on its own and ahead of any map.
 
 ## Recommended first release
 
@@ -126,6 +128,56 @@ decisions, not dependencies already paid for by the application.
    > drop that node and the screen closes as the frame is built. The map-only case remains
    > open by construction - there are no map-only nodes until there is a map.
 
+## What steps 1 and 2 became
+
+> **Landed.** The delivery sequence below is as it was written; this records what the first two
+> steps turned into, and the three places where doing them changed the answer.
+
+**Step 1, the geography contract, is closed.** `mesh_geo_mercator_forward()` and its inverse are
+in [`src/geo/mercator.c`](../src/geo/mercator.c), answering in the unit square so that nothing
+in `geo` knows what a zoom is. The two limits this document asked to be kept apart are two
+constants and always will be: `MESH_GEO_LATITUDE_I_MAX` is a fact about Earth and
+`MESH_GEO_MERCATOR_LATITUDE_I_MAX` is a fact about a picture, and a fix beyond the display limit
+is *clamped rather than refused* - 88 degrees north is somewhere, and the top edge is the honest
+place to draw it. Longitude wrap is `mesh_geo_longitude_wrap_i()`, asked by everything that
+crosses the seam. `geo` is still the only directory in the tree that includes `<math.h>`.
+
+**Step 2, the map without a basemap, is on the device.** [`src/map/viewport.c`](../src/map/viewport.c)
+owns the centre, the integer zoom, the pan and the bounds fit; [`src/ui/map.c`](../src/ui/map.c)
+builds the markers; [`src/ui/nav_map.c`](../src/ui/nav_map.c) handles the presses;
+[`src/ui/backends/fb_map.c`](../src/ui/backends/fb_map.c) draws. It is reached from a row at the
+top of the Nodes list and from a node detail's "Show on map", and
+`devtools/ui_capture/scenes/map.scene` renders the whole of it without a device.
+
+Three things came out differently from what is written below, and each is worth stating because
+the reasoning generalises to the steps that are still open:
+
+- **The controls are not the ones suggested.** SELECT was proposed for recentring; it is help,
+  on every screen in this client that has anything to explain, and one screen where a keycap
+  meant something else would be the exception nobody could know about. The d-pad pans - which
+  makes the map the only screen here where it is not a cursor - the shoulders keep the tabs, X
+  and Y are the zoom, and START frames everything again. Marker cycling was dropped entirely:
+  the crosshair is the middle of the panel and the selection is whatever is nearest it, so
+  panning *is* aiming and no key has to be spent choosing between markers.
+- **The selection is measured in metres, not pixels.** The store owns the nav and a backend is
+  handed a `const` snapshot, so the nav genuinely cannot learn how wide a backend's body is.
+  Anything box-dependent would therefore be two answers - the ring a renderer draws and the node
+  a press opens. `mesh_map_viewport_metres_per_pixel()` depends only on zoom and latitude, and
+  that is what makes one answer possible. The same constraint is why the *fit* is computed
+  against a declared box (`MESH_UI_MAP_FIT_WIDTH`) that is deliberately smaller than any real
+  body: too small only ever leaves extra air, where too large would clip a marker off the edge.
+- **The roster's published 128 is what goes on the map, not the session's 256.** Step 2 asks for
+  "all live session markers with explicit restart coverage". Widening the published roster is
+  the decision the fourth pre-work item left open on purpose, and a map is not the place to
+  settle it quietly - so the app bar says how many of what is known has a position instead
+  ("4 of 24"), which is the reporting half that item did land. **That decision is still open**,
+  and it is now the largest single thing between this map and the one this document describes.
+
+What step 2 asked for and did not get, beyond the above: tile addressing on the viewport, which
+waits for a tile to fetch, exactly as `geo` held nothing but a bounds test until a range needed a
+vector. There is nothing to attribute yet either, so there is no attribution in the layout; that
+arrives with the first basemap and not before.
+
 ## Proposed module boundaries
 
 Names below are proposals, not APIs that already exist.
@@ -135,12 +187,14 @@ Names below are proposals, not APIs that already exist.
 | `include/mesh/geo/`, `src/geo/` | Coordinate validation, conversion, distance/bearing, Web Mercator projection and inverse | Node details, maps, waypoints |
 | — *exists:* [`include/mesh/geo/coords.h`](../include/mesh/geo/coords.h) | The bounds test alone, asked by every ingress | Session ingestion, the cache loader, fixed position |
 | — *exists:* [`include/mesh/geo/vector.h`](../include/mesh/geo/vector.h) | Distance and initial bearing between two points, and the eight-point compass. Written because the Waypoints tab needed a range, not speculatively - projection still waits for a map. The one `<math.h>` in the tree | The Waypoints list and one place's detail |
-| `include/mesh/map/viewport.h`, `src/map/viewport.c` | Center/zoom, world-to-screen transforms, pan, bounds fitting, visible tile keys | Full map, future location preview |
+| — *exists:* [`include/mesh/geo/mercator.h`](../include/mesh/geo/mercator.h) | Web Mercator and its inverse, the display limit, the longitude wrap, and the projection’s own scale factor. The second `<math.h>` in the tree | The viewport, and anything that needs a coordinate turned into a position |
+| — *exists:* [`include/mesh/map/viewport.h`](../include/mesh/map/viewport.h) | Centre/zoom, world-to-screen and back, pan, bounds fitting, metres per pixel. **No tile keys**: those arrive with a tile to fetch | The map screen, and a future location preview |
+| `include/mesh/map/viewport.h`, `src/map/viewport.c` | Visible tile keys, once there are tiles | Full map, future location preview |
 | `include/mesh/map/source.h`, `src/map/source_*.c` | Map metadata and tile-byte lookup behind a small source interface | Offline packs; optional HTTP source later |
 | `src/map/tile_cache.c` | Byte-budgeted decoded tile cache, request deduplication and eviction | Any map viewport |
-| `src/ui/map.c` | Build marker/label geometry from published records; selection and collision policy | Framebuffer and test consumers |
-| `src/ui/nav_map.c` | Button handling and map navigation state | Existing store/controller path |
-| `src/ui/backends/fb_map.c` | Compose tiles, markers, scale and attribution using shared drawing primitives | Device and off-screen capture |
+| — *exists:* [`src/ui/map.c`](../src/ui/map.c) | Markers from the published roster and the waypoint book; the selection, measured from the view’s centre in metres | Framebuffer and test consumers |
+| — *exists:* [`src/ui/nav_map.c`](../src/ui/nav_map.c) | Button handling and map navigation state. Takes the d-pad *ahead* of the tab routing, and deliberately leaves the shoulders to it | Existing store/controller path |
+| — *exists:* [`src/ui/backends/fb_map.c`](../src/ui/backends/fb_map.c) | Graticule, markers, labels, crosshair and scale bar. Tiles and attribution when there are any | Device and off-screen capture |
 | `devtools/map_pack/` | Validate/prepare regional packs, show coverage and size | Host workflow and fixtures |
 
 Geography and viewport code should not include protobuf, UI store, framebuffer or filesystem
@@ -240,6 +294,13 @@ pack workflow and device hardening: roughly 3–5 working weeks for a usable off
 These are estimates, not measured commitments; storage/decode latency and source preparation
 are the largest unknowns. A marker-only milestone can land substantially earlier.
 
-Recommended next implementation is steps 1 and 2, with a small offline raster spike soon after.
-No provider account or regional pack is required to begin those steps. Before step 3, choose a
-first region, useful zoom range and a tile source with suitable offline rights.
+Steps 1 and 2 have shipped; see §"What steps 1 and 2 became". **Recommended next implementation
+is the offline raster spike (step 3)**, and the two decisions it is blocked on are unchanged:
+choose a first region and useful zoom range, and choose a tile source with suitable offline
+rights. Neither needs a provider account to begin measuring - a self-rendered pack of a few
+square kilometres is enough to answer the question step 3 actually asks, which is what a cold
+read plus decode costs on the Brick’s storage while BLE is being serviced.
+
+The other open decision is the one carried over from the fourth pre-work item: whether the
+published roster widens past 128 so the map can show everything the session holds. It is
+independent of tiles and can be taken at any time.
