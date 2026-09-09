@@ -1039,6 +1039,17 @@ static void fb_render_waypoints(struct mesh_ui_backend_fb_state *state,
             break;
         }
         const bool is_new = (waypoint.type == MESH_UI_WAYPOINT_ROW_NEW);
+        /*
+         * A place's supporting line is who shared it; the new row's is why it cannot be
+         * pressed, and only when there is nothing left to say does it fall back to the empty
+         * list's sentence. That order is the point: "no places have been shared yet" and "this
+         * radio has no position yet" are both true on a fresh Brick, and the second is the one
+         * that answers the press.
+         */
+        const char *supporting = waypoint.shared[0] != '\0' ? waypoint.shared : NULL;
+        if (is_new && supporting == NULL && places == 0U) {
+            supporting = mesh_str(MESH_STR_WAYPOINTS_EMPTY);
+        }
         const struct fb_list_item row = {
             .leading = {.kind = FB_LEADING_ICON,
                         .icon = is_new ? MESH_UI_ICON_COMPOSE : MESH_UI_ICON_POSITION},
@@ -1057,8 +1068,7 @@ static void fb_render_waypoints(struct mesh_ui_backend_fb_state *state,
                screen would otherwise have had to say in a picture: that nothing is here yet.
                Once something is, it stops saying it - a list with places in it is not empty,
                and the row is then only a button. */
-            .supporting = is_new ? (places == 0U ? mesh_str(MESH_STR_WAYPOINTS_EMPTY) : NULL)
-                                 : waypoint.shared,
+            .supporting = supporting,
             .supporting_quiet = true,
         };
         fb_list_item(state, &list, i, &row);

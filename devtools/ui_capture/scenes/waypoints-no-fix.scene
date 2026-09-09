@@ -1,0 +1,25 @@
+# The Waypoints tab on a radio that does not know where it is.
+#
+# A Brick has no GPS of its own, so this is the ordinary state of the tab until the radio it is
+# attached to has a fix or a fixed position: the list still has its last row, because there is
+# always something to do here, and that row has to explain itself twice - once on its supporting
+# line for the reader, and once out loud for whoever pressed A before reading it.
+
+scene demo
+nofix
+
+tab waypoints
+hold 1400
+
+# A on the row that makes a place. Refused - there is nowhere to put it - and said so, rather
+# than the press doing nothing at all, which is what a client looking broken looks like.
+key a
+hold 2200
+
+# A place somebody else shared, to show what the reason does not displace: the sharer's line
+# still belongs to the place, and the range column stays empty because a range needs two points
+# and we have one.
+waypoint ALFA Ridge repeater | up the fire road, gate code is on the tag
+hold 1600
+key a
+hold 2000

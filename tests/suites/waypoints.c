@@ -708,8 +708,12 @@ MESH_TEST_CASE(waypoint_list_without_a_fix_of_our_own, unit) {
         failure = "the new row should still be there";
         goto cleanup;
     }
-    if (row.range[0] == '\0') {
+    if (row.shared[0] == '\0') {
         failure = "the new row should say why it cannot be pressed";
+        goto cleanup;
+    }
+    if (row.range[0] != '\0') {
+        failure = "a reason is not a range, and the range column is where a range goes";
         goto cleanup;
     }
 
@@ -974,6 +978,55 @@ MESH_TEST_CASE(waypoint_nav_names_a_new_place, unit) {
     }
     if (store.nav.screen != MESH_UI_SCREEN_WAYPOINTS) {
         failure = "naming a place should land back on the list it will appear in";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * The same press with nowhere to put the place.
+ *
+ * A refusal the user cannot see is the client looking broken: the row says why on its
+ * supporting line, and the press says it again, because whoever pressed A did not read the row.
+ * The keyboard staying shut is the other half - naming a place that has no coordinates behind
+ * it would throw the typing away at the end.
+ */
+MESH_TEST_CASE(waypoint_nav_refuses_a_new_place_with_no_fix, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "the store should start");
+    const char *failure = NULL;
+
+    /* Our own radio, known and named, with no fix - a Brick's ordinary state. */
+    struct mesh_ui_handshake_state hs;
+    memset(&hs, 0, sizeof hs);
+    hs.has_my_info = true;
+    hs.my_info.node_num = 0x1000U;
+    hs.node_count = 1U;
+    hs.nodes[0].node_id = 0x1000U;
+    snprintf(hs.nodes[0].short_name, sizeof hs.nodes[0].short_name, "%s", "HOME");
+    mesh_ui_store_set_handshake(&store, &hs);
+
+    struct mesh_ui_action action;
+    if (!mesh_test_open_tab(&store, MESH_UI_SCREEN_WAYPOINTS)) {
+        failure = "the Waypoints tab should be reachable";
+        goto cleanup;
+    }
+    memset(&action, 0, sizeof action);
+    mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.keyboard_open) {
+        failure = "a place with no coordinates should not open the keyboard";
+        goto cleanup;
+    }
+    if (action.type != MESH_UI_ACTION_NONE) {
+        failure = "nothing should go to the app";
+        goto cleanup;
+    }
+    if (store.nav.toast[0] == '\0') {
+        failure = "the refused press should say why";
         goto cleanup;
     }
 

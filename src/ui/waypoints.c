@@ -302,13 +302,20 @@ bool mesh_ui_waypoint_row(const struct mesh_ui_store *store, uint32_t index,
     if (index == places) {
         out->type = MESH_UI_WAYPOINT_ROW_NEW;
         mesh_str_copy(out->name, sizeof out->name, mesh_str(MESH_STR_WAYPOINTS_NEW));
-        /* The row says whether it can be pressed, in the column a place's range would be in -
-           so "no position yet" lands where the reader is already looking for a coordinate. */
+        /*
+         * The row says why it cannot be pressed, on the supporting line rather than in the
+         * range column. A range is a measurement between two points and the trailing column is
+         * where the reader looks for one; a reason is a sentence, and putting it there was the
+         * delivery-mark mistake one screen over - fifteen right-aligned characters standing in
+         * for an explanation, on a row whose supporting line was meanwhile talking about
+         * something else. The press says the same thing out loud, because the row saying it is
+         * no use to somebody who has already pressed.
+         */
         int32_t lat = 0;
         int32_t lon = 0;
         if (!mesh_ui_waypoint_our_fix(store->handshake_valid ? &store->handshake : NULL, &lat,
                                       &lon)) {
-            mesh_str_copy(out->range, sizeof out->range,
+            mesh_str_copy(out->shared, sizeof out->shared,
                           mesh_str(MESH_STR_WAYPOINTS_NEW_NEEDS_FIX));
         }
         return true;

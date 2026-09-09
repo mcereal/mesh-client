@@ -1258,6 +1258,38 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         return;
     }
 
+    /*
+     * Take our own radio's fix away.
+     *
+     * `scene demo` gives it one because every range on the Waypoints tab is measured from it,
+     * but a Brick's radio usually has no GPS and no fixed position set - and that state is the
+     * whole of what the "New waypoint here" row's supporting line and its refused press are
+     * about. Its own verb because nothing a scene can press removes a fix: a position arrives
+     * off the air, and there is no air behind the harness.
+     */
+    if (strcmp(command, "nofix") == 0) {
+        uicap_start(cap);
+        struct mesh_ui_handshake_state handshake = cap->store.handshake;
+        bool cleared = false;
+        for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+            struct mesh_ui_node_summary *node = &handshake.nodes[i];
+            if (node->node_id != handshake.my_info.node_num) {
+                continue;
+            }
+            memset(&node->position, 0, sizeof node->position);
+            cleared = true;
+            break;
+        }
+        if (!cleared) {
+            fprintf(stderr, "uicap: line %u: 'nofix' needs a scene with our own radio in it\n",
+                    line_number);
+            exit(1);
+        }
+        mesh_ui_store_set_handshake(&cap->store, &handshake);
+        uicap_emit(cap);
+        return;
+    }
+
     /* The state a NodeDB reset leaves the roster in: the nodes are still ours, and the radio
        has stopped carrying them. Its own verb because no key press can reach it - the reset
        goes out over the air and the answer comes back on the next sync, neither of which
