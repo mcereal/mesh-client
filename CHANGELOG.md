@@ -1,3 +1,13 @@
+## [2.43.0](https://github.com/mcereal/mesh-client/compare/v2.42.0...v2.43.0) (2026-09-09)
+
+### Features
+
+* **ui:** explain the long tail of settings rows ([9062190](https://github.com/mcereal/mesh-client/commit/90621901533805348b2e09f3837713210aa37d12))
+
+### Bug Fixes
+
+* **ui:** stop a help topic falling back across a subheading ([563149e](https://github.com/mcereal/mesh-client/commit/563149ed7fd94e0792df2ad7257a842caffc5447))
+
 ## [2.42.0](https://github.com/mcereal/mesh-client/compare/v2.41.0...v2.42.0) (2026-09-09)
 
 ### Features
