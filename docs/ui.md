@@ -332,14 +332,30 @@ panel and the selected marker is whatever is nearest it, derived on every frame 
 bar's back arrow and `mesh_ui_route_of()` make the same argument at length, and here a second
 opinion would let the ring a renderer draws and the node a press opens name two different nodes.
 
-What makes one answer possible is that the distance is measured **in metres**, against a radius
-converted through `mesh_map_viewport_metres_per_pixel()` — which is a function of the zoom and
-the latitude and *not* of the panel. That matters because the store owns the nav and a backend is
-handed a `const` snapshot: the two genuinely cannot ask each other how wide the body is, so
-anything box-dependent there would be two answers by construction. The same constraint is why a
+What makes one answer possible is that the distance is measured **in pixels from the middle of
+the view**, through `mesh_map_viewport_offset()` — the same arithmetic a placement does with the
+panel left off the end, which is why `mesh_map_viewport_place()` is itself written in terms of
+it. It needs no box, and that matters because the store owns the nav and a backend is handed a
+`const` snapshot: the two genuinely cannot ask each other how wide the body is, so anything
+box-dependent there would be two answers by construction.
+
+Measuring it in the projection rather than across the ground is the second half, and it is the
+only reading that gets the poles right. A fix beyond the display limit is *drawn* at the limit,
+so a marker at 88 degrees north and a view framed on it are the same point on the picture and
+three degrees apart on Earth — a geodesic distance refuses a marker sitting dead centre under the
+crosshair. The same constraint is why a
 *fit* is computed against a declared box (`MESH_UI_MAP_FIT_WIDTH`) rather than a measured one,
 and why that box is deliberately smaller than any real body — too small leaves extra air around
 the outermost marker, where too large would clip one off the edge.
+
+**The map clips its artwork to its own body.** `visible` can only speak for a marker's *centre*,
+and a marker is not a point once it is drawn — a rounded-position footprint is the widest thing
+the map places, so a marker centred a pixel inside the top edge would paint most of itself over
+the app bar. The clip goes on the fb state rather than on each call site, because
+`fb_fill_packed()` is the one function every fill, glyph and icon span in this backend goes
+through: one rectangle covers the discs, the pins and the names alike, which per-call-site
+bounding would not, since two of those are drawn by components that take no box. It intersects
+the partial-redraw path's own clip rather than replacing it.
 
 **A marker says how much of itself to believe.** `precision_bits` is the sender's own statement
 that it rounded its position, and a hard dot drawn over a fix rounded to 360 metres would be the
