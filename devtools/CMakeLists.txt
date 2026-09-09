@@ -31,7 +31,7 @@ if(MESHCLIENT_ENABLE_FUZZERS)
         target_link_options(meshclient_fuzz_seeds PRIVATE ${MESHCLIENT_LINK_OPTIONS})
     endif()
 
-    foreach(fuzz_target IN ITEMS stream_framing session)
+    foreach(fuzz_target IN ITEMS stream_framing session firmware_catalog)
         add_executable(meshclient_fuzz_${fuzz_target} fuzz/fuzz_${fuzz_target}.c)
         target_link_libraries(meshclient_fuzz_${fuzz_target} PRIVATE meshclient_core)
         target_compile_options(meshclient_fuzz_${fuzz_target} PRIVATE ${MESHCLIENT_COMPILE_OPTIONS})

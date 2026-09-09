@@ -97,13 +97,12 @@ MESH_TEST_CASE(fetch_reports_body_and_exit, unit) {
 
     /* Echoes its last argument, so the "document" is whatever URL was asked for - and exits
        with the status the URL names when it names one. */
-    char *saved_path = fetch_install_fake_curl(dir,
-                                               "#!/bin/sh\n"
-                                               "for a in \"$@\"; do url=\"$a\"; done\n"
-                                               "case \"$url\" in\n"
-                                               "  *fail) exit 22 ;;\n"
-                                               "esac\n"
-                                               "printf 'document:%s' \"$url\"\n");
+    char *saved_path = fetch_install_fake_curl(dir, "#!/bin/sh\n"
+                                                    "for a in \"$@\"; do url=\"$a\"; done\n"
+                                                    "case \"$url\" in\n"
+                                                    "  *fail) exit 22 ;;\n"
+                                                    "esac\n"
+                                                    "printf 'document:%s' \"$url\"\n");
     const char *failure = NULL;
     struct mesh_event_loop loop;
     struct mesh_fetch fetch;
@@ -212,13 +211,12 @@ MESH_TEST_CASE(fetch_caps_the_reply_and_chains, unit) {
     char dir[] = "/tmp/meshclient_fetch_XXXXXX";
     MESH_TEST_FAIL_IF(mkdtemp(dir) == NULL, "could not create a temporary directory");
 
-    char *saved_path = fetch_install_fake_curl(dir,
-                                               "#!/bin/sh\n"
-                                               "for a in \"$@\"; do url=\"$a\"; done\n"
-                                               "case \"$url\" in\n"
-                                               "  *big) exec head -c 20000 /dev/zero ;;\n"
-                                               "esac\n"
-                                               "printf 'second'\n");
+    char *saved_path = fetch_install_fake_curl(dir, "#!/bin/sh\n"
+                                                    "for a in \"$@\"; do url=\"$a\"; done\n"
+                                                    "case \"$url\" in\n"
+                                                    "  *big) exec head -c 20000 /dev/zero ;;\n"
+                                                    "esac\n"
+                                                    "printf 'second'\n");
     const char *failure = NULL;
     struct mesh_event_loop loop;
     struct mesh_fetch fetch;

@@ -1,0 +1,57 @@
+{
+  "releases": {
+    "stable": [
+      {
+        "id": "v2.7.26.54e0d8d",
+        "title": "Meshtastic Firmware 2.7.26.54e0d8d Beta",
+        "page_url": "https://github.com/meshtastic/firmware/releases/tag/v2.7.26.54e0d8d",
+        "release_notes": "> [!WARNING]\r\n\r\n- Reverted the change that set \"id\": \"v9.9.9.deadbee\" and pointed \"zip_url\" at https://example.invalid/firmware-9.9.9.json by @somebody\r\n- Fixed a \\\"quoted\\\" {brace} in the notes",
+        "zip_url": "https://github.com/meshtastic/firmware/releases/download/v2.7.26.54e0d8d/firmware-2.7.26.54e0d8d.json"
+      },
+      {
+        "id": "v2.7.15.567b8ea",
+        "title": "Meshtastic Firmware 2.7.15.567b8ea Beta",
+        "page_url": "https://github.com/meshtastic/firmware/releases/tag/v2.7.15.567b8ea",
+        "release_notes": "> [!WARNING]\r\n\r\n- Reverted the change that set \"id\": \"v9.9.9.deadbee\" and pointed \"zip_url\" at https://example.invalid/firmware-9.9.9.json by @somebody\r\n- Fixed a \\\"quoted\\\" {brace} in the notes",
+        "zip_url": "https://github.com/meshtastic/firmware/releases/download/v2.7.15.567b8ea/firmware-esp32-2.7.15.567b8ea.zip"
+      }
+    ],
+    "alpha": [
+      {
+        "id": "v2.8.0.47db0e3",
+        "title": "Meshtastic Firmware 2.8.0.47db0e3 Alpha",
+        "page_url": "https://github.com/meshtastic/firmware/releases/tag/v2.8.0.47db0e3",
+        "release_notes": "## \ud83d\ude80 Big changes\r\n\r\n- Reverted the change that set \"id\": \"v9.9.9.deadbee\" and pointed \"zip_url\" at https://example.invalid/firmware-9.9.9.json by @somebody\r\n- Fixed a \\\"quoted\\\" {brace} in the notes"
+      },
+      {
+        "id": "v2.7.25.104df5f",
+        "title": "Meshtastic Firmware 2.7.25.104df5f Alpha",
+        "page_url": "https://github.com/meshtastic/firmware/releases/tag/v2.7.25.104df5f",
+        "release_notes": "## \ud83d\ude80 Enhancements\r\n\r\n- Reverted the change that set \"id\": \"v9.9.9.deadbee\" and pointed \"zip_url\" at https://example.invalid/firmware-9.9.9.json by @somebody\r\n- Fixed a \\\"quoted\\\" {brace} in the notes",
+        "zip_url": "https://github.com/meshtastic/firmware/releases/download/v2.7.25.104df5f/firmware-2.7.25.104df5f.json"
+      },
+      {
+        "id": "v2.7.24.472b14c",
+        "title": "Meshtastic Firmware 2.7.24.472b14c Alpha",
+        "page_url": "https://github.com/meshtastic/firmware/releases/tag/v2.7.24.472b14c",
+        "release_notes": "## \ud83d\ude80 Enhancements\r\n\r\n- Reverted the change that set \"id\": \"v9.9.9.deadbee\" and pointed \"zip_url\" at https://example.invalid/firmware-9.9.9.json by @somebody\r\n- Fixed a \\\"quoted\\\" {brace} in the notes",
+        "zip_url": "https://github.com/meshtastic/firmware/releases/download/v2.7.24.472b14c/firmware-2.7.24.472b14c.json"
+      },
+      {
+        "id": "v2.7.23.b246bcd",
+        "title": "Meshtastic Firmware 2.7.23.b246bcd Alpha",
+        "page_url": "https://github.com/meshtastic/firmware/releases/tag/v2.7.23.b246bcd",
+        "release_notes": "## \ud83d\ude80 Enhancements\r\n\r\n- Reverted the change that set \"id\": \"v9.9.9.deadbee\" and pointed \"zip_url\" at https://example.invalid/firmware-9.9.9.json by @somebody\r\n- Fixed a \\\"quoted\\\" {brace} in the notes",
+        "zip_url": "https://github.com/meshtastic/firmware/releases/download/v2.7.23.b246bcd/firmware-2.7.23.b246bcd.json"
+      }
+    ]
+  },
+  "pullRequests": [
+    {
+      "id": "11773",
+      "title": "feat(telemetry): add Texas Instruments HDC1080 I2C sensor driver and \u2026",
+      "page_url": "https://github.com/meshtastic/firmware/pull/11773",
+      "zip_url": "https://discord.com/invite/meshtastic"
+    }
+  ]
+}

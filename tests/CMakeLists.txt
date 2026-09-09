@@ -11,6 +11,7 @@ set(MESHCLIENT_TEST_FRAMEWORK
 )
 
 set(MESHCLIENT_TEST_SUPPORT
+    support/data_fixture.c
     support/proto_fixture.c
     support/serial_fixture.c
     support/session_fixture.c
@@ -21,8 +22,10 @@ set(MESHCLIENT_TEST_SUITES
     suites/app.c
     suites/core_basics.c
     suites/fetch.c
+    suites/firmware_catalog.c
     suites/geo.c
     suites/i18n.c
+    suites/json.c
     suites/map.c
     suites/message.c
     suites/radio_settings.c
@@ -65,6 +68,12 @@ add_executable(meshclient_core_tests
 
 # Lets a suite say #include "framework/mesh_test.h" and #include "support/proto_fixture.h".
 target_include_directories(meshclient_core_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+# The captured documents in data/ are read from the *source* tree, not copied into the build
+# one: a fixture refreshed on disk is the one the next run reads, and some of them (a zip's
+# central directory, once phase 2 arrives) are not text and could never have been literals.
+target_compile_definitions(meshclient_core_tests
+    PRIVATE MESH_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
 
 target_link_libraries(meshclient_core_tests PRIVATE meshclient_core)
 

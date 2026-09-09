@@ -322,9 +322,7 @@ bool mesh_fetch_available(const struct mesh_fetch *fetch) {
     return fetch != NULL && fetch->tool != NULL && fetch->loop != NULL;
 }
 
-bool mesh_fetch_busy(const struct mesh_fetch *fetch) {
-    return fetch != NULL && fetch->child > 0;
-}
+bool mesh_fetch_busy(const struct mesh_fetch *fetch) { return fetch != NULL && fetch->child > 0; }
 
 const char *mesh_fetch_tool(const struct mesh_fetch *fetch) {
     if (fetch == NULL || fetch->tool == NULL) {
@@ -431,8 +429,7 @@ int mesh_fetch_start(struct mesh_fetch *fetch, const struct mesh_fetch_request *
         }
         argv[argc++] = (char *)"-O";
         /* wget has no "write to stdout" default: capturing means asking for `-` by name. */
-        argv[argc++] =
-            request->output_path != NULL ? (char *)request->output_path : (char *)"-";
+        argv[argc++] = request->output_path != NULL ? (char *)request->output_path : (char *)"-";
     }
     argv[argc++] = (char *)request->url;
     argv[argc] = NULL;
