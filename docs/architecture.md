@@ -377,18 +377,35 @@ Four decisions are worth reading before changing any of it:
   instead and sends the real request to whichever router answers. That is the only thing this
   client ever broadcasts on the port: a broadcast `CLIENT_HISTORY` would have every router on
   the mesh replay its whole window at once, and `mesh_store_forward_encode()` refuses one.
-- **A replayed message is the sender's, not the router's.** The router preserves `from`,
-  `channel` and `rx_time` in the envelope and puts the text inside the `StoreAndForward`, so a
-  replay lands in the conversation it was said in with the date it was said at. What it does
-  *not* carry across is the packet id (that identifies the router's delivery, not the message),
-  the hop count or the padlock - both of those measure how *this* packet reached us, and this
-  packet came one hop from a node that is not the sender.
+- **A replayed message is the sender's, not the router's - but it has no date.** The router puts
+  the original `from` and `channel` on the envelope and the text inside the `StoreAndForward`,
+  so a replay lands in the conversation it was said in. What it does *not* carry is when: `rx_time`
+  is documented in `mesh.proto` as a field that "is _never_ sent on the radio link itself (to save
+  space)", so the stamp on a replay packet is *our own* radio marking the moment the replay
+  landed, and the `text` variant has no timestamp of its own. Copying it would date the whole
+  window at the minute it was fetched - and would break the de-duplication below, because a live
+  copy and its replay then carry two different non-zero stamps. The packet id goes the same way
+  (it identifies the router's delivery, not the message), as do the SNR, the hop count and the
+  padlock: all three measure how *this* packet reached us, and this packet came one hop from a
+  node that is not the sender. For the same reason the roster is not touched by a replay -
+  otherwise fetching history would report every sender in the window as freshly reachable over a
+  link that was never measured to them.
 - **A replay is mostly things we already have.** The router replays its whole configured window,
   which for a client that was off for ten minutes is four hours of traffic it heard live. The
   copies carry different packet ids, so `mesh_message_log_holds_replay()` matches on what was
-  said - sender, channel, text, and the stamp when both copies have one - and the session counts
-  `received` and `stored` separately, because "30 messages" about a replay that added none of
-  them would be describing the router's work rather than the user's inbox.
+  said - sender, channel, text, and the stamp when both copies have one, which for a replay is
+  never - and the session counts `received` and `stored` separately, because "30 messages" about
+  a replay that added none of them would be describing the router's work rather than the user's
+  inbox. The cost of matching without a stamp is that a sender who said the same short thing
+  twice on one channel gets one bubble back instead of two; that is the trade the no-clock case
+  already makes, and it is the right way round.
+- **What we know is only ever true of one router.** The history cursor is an index into *that
+  router's* packet history, so hearing a different router drops it along with that router's rank
+  and statistics - handing A's index to B would ask B to skip to a position in a table it does
+  not have, and B would silently miss messages. While a request is running, an announcement, a
+  count or a refusal from any other node is ignored outright. A replayed *message* is the one
+  thing that cannot be checked that way, because its envelope names the sender rather than the
+  router.
 - **The follow-up request is sent from the tick, not from the ingest.** The pong arrives on the
   link's read path; writing back down the link on the same turn is the thing the admin queue's
   queue-here-drain-there split exists to avoid, so the ingest sets a flag and

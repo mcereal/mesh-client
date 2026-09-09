@@ -403,6 +403,15 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   drawn, and a verb on an undrawn card leaves the action bar naming a press whose button is not
   on the frame. That is why the Radio card says "no report yet" rather than disappearing when
   the radio has told us nothing about itself.
+- **A replayed message has no date, and that is what makes the de-duplication work.**
+  `mesh.proto` says of `rx_time` that the field "is _never_ sent on the radio link itself (to
+  save space)", so the stamp on a Store & Forward replay is *our own* radio marking when the
+  replay landed, not when the message was said - and the `StoreAndForward` `text` variant
+  carries no timestamp to use instead. Copying it would date the whole window at the minute it
+  was fetched, and would defeat `mesh_message_log_holds_replay()`, whose stamp comparison only
+  falls through to the text when one side is 0. The SNR, the hop count and the padlock are left
+  off for the same reason the roster is not touched: they measure the router's link, not the
+  sender's.
 - **A replayed message has a packet id, and it is not its own.** A Store & Forward router wraps
   the message in a packet of its own, so the id on the copy identifies the *delivery*; the
   original we may already be holding has a different one. That is why
@@ -420,6 +429,13 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   press broadcasts a `CLIENT_PING` and the real request follows the pong. A broadcast
   `CLIENT_HISTORY` would have every router on the mesh replay its window at once, and
   `mesh_store_forward_encode()` refuses one.
+- **The history cursor belongs to one router, and hearing another drops it.** The `.proto`
+  calls it an index into *the server's* packet history, so sending router A's `last_request` to
+  router B asks B to skip to a position in a table it does not have - B would silently return
+  fewer messages, which is this feature failing in the one direction no screen could show. The
+  rank and the statistics go with it. While a request is running, an announcement or a refusal
+  from any other node is ignored; a replayed *message* cannot be checked that way, because its
+  envelope names the sender rather than the router that relayed it.
 - **The follow-up request goes out from the tick, not from the ingest that armed it.** The pong
   arrives on the link's read path, and writing back down the link on the same turn is what the
   admin queue's queue-here-drain-there split exists to avoid.

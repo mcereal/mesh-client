@@ -936,8 +936,24 @@ static void mesh_session_handle_store_forward(struct mesh_session *session,
         mesh_store_forward_ingest(&session->store_forward, packet, my_node,
                                   mesh_session_wall_clock(), mesh_time_monotonic_ms(), &replayed);
     if (event != MESH_STORE_FORWARD_EVENT_TEXT) {
+        /*
+         * Everything that is not a replayed message was written by the node that sent it - a
+         * router announcing itself, a count, a refusal, or somebody else's request crossing our
+         * radio - so the packet's SNR, hop count and arrival really do measure the link to that
+         * node, and the roster is told. For a router this is the whole of what keeps it in the
+         * roster at all: a heartbeat is often the only packet one ever sends.
+         */
+        mesh_session_touch_node_from_packet(session, packet);
         return;
     }
+    /*
+     * A replayed message is the exception, and deliberately not touched. `from` is the original
+     * sender, but the packet carrying it came one hop from the router - so touching would file
+     * the router's SNR, its hop count and this moment's arrival under a node that may not have
+     * been heard from in days. Asking for history would quietly make every sender in the window
+     * look freshly reachable over a link that was never measured to them, which is the same
+     * mistake the message itself refuses when it declines to carry those fields.
+     */
     if (mesh_message_log_holds_replay(&session->messages, &replayed)) {
         mesh_log_debug("session", "Store & Forward replayed a message we already had");
         return;
@@ -1254,13 +1270,12 @@ void mesh_session_handle_from_radio(struct mesh_session *session, const uint8_t 
             break;
         }
         /*
-         * And a Store & Forward frame, on the same terms: the router that sent it was there to
-         * send it, which is a fact about that node worth keeping, and what is inside is either
-         * about the module or a message already handled here. A router heartbeat is also the
-         * one packet some routers send at all, so the touch is what keeps them in the roster.
+         * And a Store & Forward frame, which is claimed for the same reason and touches the
+         * roster on its own terms rather than here: whether the node named on the envelope is
+         * the node the packet's measurements belong to depends on what is inside it, and only
+         * the decode knows. See mesh_session_handle_store_forward().
          */
         if (mesh_store_forward_is_frame(&message.packet)) {
-            mesh_session_touch_node_from_packet(session, &message.packet);
             mesh_session_handle_store_forward(session, &message.packet);
             break;
         }
@@ -2267,7 +2282,7 @@ static int mesh_session_send_store_forward(struct mesh_session *session, bool pi
         mesh_store_forward_send_failed(sf);
         return result;
     }
-    mesh_store_forward_sent(sf, request.packet_id, request.dest, request.channel, now_ms, ping);
+    mesh_store_forward_sent(sf, request.dest, request.channel, now_ms, ping);
     if (ping) {
         mesh_log_info("session", "Looking for a Store & Forward router");
     } else {

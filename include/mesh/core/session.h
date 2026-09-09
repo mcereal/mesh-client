@@ -769,7 +769,8 @@ const struct mesh_traceroute *mesh_session_traceroute(const struct mesh_session 
  * The whole point of the module from a handheld's side: a Brick spends most of its life
  * switched off, and a router on the mesh has been keeping the last few hours of text for it.
  * Everything that comes back is folded into the message log, in the conversations it was
- * originally said in, with the dates it was originally said at.
+ * originally said in - but undated: `rx_time` never crosses the radio link, so a replayed
+ * message carries no timestamp rather than the moment it was fetched.
  *
  * When a router is already known - from a heartbeat it broadcast, or from a previous exchange -
  * this sends CLIENT_HISTORY straight to it. When none is, it broadcasts a CLIENT_PING instead

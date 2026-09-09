@@ -25,8 +25,7 @@ void mesh_store_forward_reset(struct mesh_store_forward *sf) {
 }
 
 bool mesh_store_forward_is_frame(const meshtastic_MeshPacket *packet) {
-    return packet != NULL &&
-           packet->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
+    return packet != NULL && packet->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
            packet->decoded.portnum == meshtastic_PortNum_STORE_FORWARD_APP;
 }
 
@@ -58,8 +57,7 @@ int mesh_store_forward_encode(const struct mesh_store_forward_request *request, 
     uint8_t body[STORE_FORWARD_BODY_MAX];
     pb_ostream_t body_stream = pb_ostream_from_buffer(body, sizeof body);
     if (!pb_encode(&body_stream, meshtastic_StoreAndForward_fields, &sf)) {
-        mesh_log_error("store-forward", "Failed to encode request: %s",
-                       PB_GET_ERROR(&body_stream));
+        mesh_log_error("store-forward", "Failed to encode request: %s", PB_GET_ERROR(&body_stream));
         return -EIO;
     }
 
@@ -86,12 +84,11 @@ int mesh_store_forward_encode(const struct mesh_store_forward_request *request, 
     return 0;
 }
 
-void mesh_store_forward_sent(struct mesh_store_forward *sf, uint32_t packet_id, uint32_t dest,
-                             uint8_t channel, uint64_t now_ms, bool ping) {
+void mesh_store_forward_sent(struct mesh_store_forward *sf, uint32_t dest, uint8_t channel,
+                             uint64_t now_ms, bool ping) {
     if (sf == NULL) {
         return;
     }
-    sf->packet_id = packet_id;
     sf->sent_ms = now_ms;
     sf->last_ms = now_ms;
     sf->expected = 0U;
@@ -126,20 +123,35 @@ void mesh_store_forward_stored(struct mesh_store_forward *sf) {
 }
 
 /*
- * A router owned up. Which one we remember is first-heard-wins while a request is running and
- * newest otherwise: switching routers mid-replay would leave the count we are filling belonging
- * to somebody else's answer, and outside a request the freshest announcement is the best guess
- * at who is still there.
+ * A router owned up.
+ *
+ * Reached only for a frame the ingest has already decided may speak for the current state, so
+ * the newest announcement always wins here: mid-request, everything from a node that is not the
+ * one we asked was dropped before this.
  *
  * A router that says it is `secondary` is remembered anyway. It is a router, and on a mesh whose
  * primary is off it is the only one - the flag is worth showing, not worth refusing over.
  */
 static void store_forward_note_router(struct mesh_store_forward *sf,
                                       const meshtastic_MeshPacket *packet, uint32_t now) {
-    const bool running = sf->state == (uint8_t)MESH_STORE_FORWARD_REQUESTED ||
-                         sf->state == (uint8_t)MESH_STORE_FORWARD_REPLAYING;
-    if (running && sf->router != 0U && sf->router != packet->from) {
-        return;
+    /*
+     * A different node is a different router, and almost everything we hold about one is only
+     * true of that one. The cursor is the sharp case: the .proto calls it an index into *the
+     * server's* packet history, so handing router A's to router B asks B to skip to a position
+     * in a table it does not have - it would silently miss messages, which is this feature
+     * failing in the one direction nothing on the screen could show. The rank and the statistics
+     * are milder and wrong the same way: they would be drawn under the new router's name.
+     */
+    if (sf->router != packet->from) {
+        sf->cursor = 0U;
+        sf->router_secondary = false;
+        sf->heartbeat_period = 0U;
+        sf->has_stats = false;
+        sf->messages_total = 0U;
+        sf->messages_saved = 0U;
+        sf->messages_max = 0U;
+        sf->return_max = 0U;
+        sf->return_window = 0U;
     }
     sf->router = packet->from;
     sf->router_channel = packet->channel;
@@ -153,8 +165,7 @@ static bool store_forward_build_message(const meshtastic_MeshPacket *packet,
                                         const meshtastic_StoreAndForward *sf, bool broadcast,
                                         uint32_t my_node_num, struct mesh_message *out) {
     memset(out, 0, sizeof(*out));
-    mesh_text_sanitise(sf->variant.text.bytes, sf->variant.text.size, out->text,
-                       sizeof(out->text));
+    mesh_text_sanitise(sf->variant.text.bytes, sf->variant.text.size, out->text, sizeof(out->text));
     if (out->text[0] == '\0') {
         return false;
     }
@@ -175,23 +186,43 @@ static bool store_forward_build_message(const meshtastic_MeshPacket *packet,
      */
     out->to = broadcast ? MESH_MESSAGE_BROADCAST_ADDR : my_node_num;
     out->channel = packet->channel;
-    out->rx_time = packet->has_rx_time ? packet->rx_time : 0U;
-    out->rx_snr = packet->rx_snr;
-    out->direction = (uint8_t)((my_node_num != 0U && packet->from == my_node_num)
-                                   ? MESH_MESSAGE_OUTBOUND
-                                   : MESH_MESSAGE_INBOUND);
     /*
-     * No hop count and no padlock. Both describe how *this* packet reached us, and this packet
-     * came one hop from a router that is not the sender - drawing the router's hop count under
-     * the sender's name would be a measurement of the wrong link. The delivery state is left at
-     * NONE for the same reason a broadcast's is: there is nothing left to wait for.
+     * No date, and it is not an oversight: there is no date to be had.
+     *
+     * `rx_time` is "the time this message was received", and mesh.proto says of it that the
+     * field "is _never_ sent on the radio link itself (to save space)" - so the router's copy of
+     * when the message was originally heard does not travel, and what arrives here is *our own*
+     * radio stamping the moment the replay landed. Copying that would date everything the router
+     * hands back to the minute it was fetched, and the StoreAndForward `text` variant carries no
+     * timestamp of its own to use instead.
+     *
+     * It also has to be 0 for the de-duplication to work at all. Two stamps that are both
+     * non-zero and never equal - the live copy's real arrival and the replay's - is precisely
+     * the case mesh_message_log_holds_replay() reads as two different messages, so a window
+     * dated this way would be appended under the copies it duplicates. Left unknown, the same
+     * comparison falls through to what was said, which is the only thing both copies share.
+     *
+     * The cost is that a sender who said the same short thing twice on one channel gets one
+     * bubble back instead of two. That is the trade the no-clock case already makes, and it is
+     * the right way round: losing a second "ok" beats replaying four hours on top of itself.
+     */
+    out->rx_time = 0U;
+    out->direction =
+        (uint8_t)((my_node_num != 0U && packet->from == my_node_num) ? MESH_MESSAGE_OUTBOUND
+                                                                     : MESH_MESSAGE_INBOUND);
+    /*
+     * No SNR, no hop count and no padlock either, for one reason: all four describe how *this*
+     * packet reached us, and this packet came one hop from a router that is not the sender.
+     * Drawing the router's link under the sender's name would be a measurement of the wrong
+     * link. The delivery state is left at NONE for the same reason a broadcast's is: there is
+     * nothing left to wait for.
      */
     return true;
 }
 
-int mesh_store_forward_ingest(struct mesh_store_forward *state,
-                              const meshtastic_MeshPacket *packet, uint32_t my_node_num,
-                              uint32_t now, uint64_t now_ms, struct mesh_message *message) {
+int mesh_store_forward_ingest(struct mesh_store_forward *state, const meshtastic_MeshPacket *packet,
+                              uint32_t my_node_num, uint32_t now, uint64_t now_ms,
+                              struct mesh_message *message) {
     if (state == NULL || packet == NULL) {
         return -EINVAL;
     }
@@ -207,6 +238,36 @@ int mesh_store_forward_ingest(struct mesh_store_forward *state,
            handle. The packet is still claimed - it was a Store & Forward frame. */
         mesh_log_debug("store-forward", "Bad frame from 0x%08x: %s", packet->from,
                        PB_GET_ERROR(&stream));
+        return MESH_STORE_FORWARD_EVENT_NONE;
+    }
+
+    /*
+     * While a request is running, only the router we asked may say anything *about* it.
+     *
+     * Without this, a second router's heartbeat - or a ROUTER_HISTORY from an exchange we had
+     * given up on - resets the count we are part way through, the cursor and the state, because
+     * every arm below writes them. On a mesh with one router it never happens, which is exactly
+     * why it would have been found late.
+     *
+     * The test is deliberately not applied to a replayed message, and cannot be: a ROUTER_TEXT_*
+     * frame carries the *original sender* on the envelope - that is the whole point of it - so
+     * `from` says nothing about which router relayed it, and gating on it would reject every
+     * message the feature exists to collect. Two routers replaying at once therefore merge into
+     * one count, which is honest (the messages did arrive, and the log de-duplicates them) and
+     * is the milder of the two failures by a wide margin.
+     */
+    const bool router_authored =
+        sf.rr == meshtastic_StoreAndForward_RequestResponse_ROUTER_HEARTBEAT ||
+        sf.rr == meshtastic_StoreAndForward_RequestResponse_ROUTER_PONG ||
+        sf.rr == meshtastic_StoreAndForward_RequestResponse_ROUTER_HISTORY ||
+        sf.rr == meshtastic_StoreAndForward_RequestResponse_ROUTER_BUSY ||
+        sf.rr == meshtastic_StoreAndForward_RequestResponse_ROUTER_ERROR ||
+        sf.rr == meshtastic_StoreAndForward_RequestResponse_ROUTER_STATS;
+    const bool running = state->state == (uint8_t)MESH_STORE_FORWARD_REQUESTED ||
+                         state->state == (uint8_t)MESH_STORE_FORWARD_REPLAYING;
+    if (router_authored && running && state->router != 0U && packet->from != state->router) {
+        mesh_log_debug("store-forward", "Ignoring a frame from 0x%08x; 0x%08x is answering",
+                       packet->from, state->router);
         return MESH_STORE_FORWARD_EVENT_NONE;
     }
 
@@ -352,8 +413,8 @@ bool mesh_store_forward_tick(struct mesh_store_forward *sf, uint64_t now_ms) {
     case MESH_STORE_FORWARD_REPLAYING:
         if (since >= MESH_STORE_FORWARD_REPLAY_GAP_MS) {
             sf->state = (uint8_t)MESH_STORE_FORWARD_DONE;
-            mesh_log_info("store-forward", "Replay stopped after %u of %u message(s)",
-                          sf->received, sf->expected);
+            mesh_log_info("store-forward", "Replay stopped after %u of %u message(s)", sf->received,
+                          sf->expected);
             return true;
         }
         return false;

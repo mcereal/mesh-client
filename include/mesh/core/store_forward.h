@@ -117,9 +117,16 @@ struct mesh_store_forward {
      */
     bool followup;
 
-    uint32_t packet_id; /* the request we sent, so a stale reply can be told from ours */
-    uint64_t sent_ms;   /* monotonic; when the request or the ping went out */
-    uint64_t last_ms;   /* monotonic; when the router last said anything about this request */
+    /*
+     * Monotonic. `sent_ms` is when the request or the ping went out, `last_ms` when the router
+     * last said anything about it - which is what the waits below are measured from, because a
+     * replay the router is still trickling out has not gone quiet.
+     *
+     * There is no request id here: the router's replies do not echo one, so what tells its
+     * answer from another router's is which node it came from, and that is `router`.
+     */
+    uint64_t sent_ms;
+    uint64_t last_ms;
 
     uint32_t expected; /* ROUTER_HISTORY's `history_messages`: how many are coming */
     uint32_t received; /* how many ROUTER_TEXT_* packets have arrived since */
@@ -129,8 +136,11 @@ struct mesh_store_forward {
      * ROUTER_HISTORY's `last_request`, which the .proto describes as "index in the packet
      * history of the last message sent in a previous request ... can be set in a subsequent
      * request to avoid getting packets the server already sent to the client". Kept so a second
-     * press does not replay the first press's messages, and reset with the connection because
-     * it indexes a table inside a router we may not be talking to next time.
+     * press does not replay the first press's messages.
+     *
+     * It indexes a table inside one particular router, so it is dropped whenever that router
+     * changes - on a reconnect with the rest of this struct, and on hearing a different router,
+     * because handing A's index to B asks B to skip to a position in a history it does not have.
      */
     uint32_t cursor;
 
@@ -205,8 +215,8 @@ int mesh_store_forward_encode(const struct mesh_store_forward_request *request, 
  * Separate from the encode because the send can fail between them, and a state machine that
  * had already moved on would sit waiting for a reply to a packet that never left.
  */
-void mesh_store_forward_sent(struct mesh_store_forward *sf, uint32_t packet_id, uint32_t dest,
-                             uint8_t channel, uint64_t now_ms, bool ping);
+void mesh_store_forward_sent(struct mesh_store_forward *sf, uint32_t dest, uint8_t channel,
+                             uint64_t now_ms, bool ping);
 
 /* Records that a request could not be sent at all. */
 void mesh_store_forward_send_failed(struct mesh_store_forward *sf);
@@ -216,9 +226,15 @@ void mesh_store_forward_send_failed(struct mesh_store_forward *sf);
  *
  * `message` is filled in and MESH_STORE_FORWARD_EVENT_TEXT returned when the packet was a
  * replayed message; it is left alone otherwise. The message is built from the envelope the
- * router preserved - `from`, `channel` and `rx_time` are the original sender's, not the
- * router's, which is what makes a replay land in the right conversation with the right date -
- * and the text is sanitised on the way through, because it came off the air.
+ * router preserved - `from` and `channel` are the original sender's, not the router's, which is
+ * what makes a replay land in the conversation it was said in - and the text is sanitised on
+ * the way through, because it came off the air. What the envelope does *not* preserve is when
+ * it was said: `rx_time` never crosses the radio link, so the replayed message carries none.
+ *
+ * While a request is running, a frame that speaks *about* the request - an announcement, a
+ * count, a refusal - is claimed and ignored unless it came from the router we asked, because
+ * every arm here writes the state that request is filling. A replayed message is exempt and has
+ * to be: its envelope names the original sender rather than the router that relayed it.
  *
  * `now` is our wall clock in seconds (0 when we have none) and `now_ms` the monotonic clock the
  * timeouts are measured on. Returns an enum mesh_store_forward_event, or a negative errno on

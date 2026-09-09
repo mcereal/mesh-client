@@ -31,6 +31,7 @@
 #define SF_US 0x1111U
 #define SF_ROUTER 0x2222U
 #define SF_TALKER 0x3333U
+#define SF_ROUTER_B 0x4444U
 #define SF_WHEN 1750000000U
 
 /* One StoreAndForward wrapped in the MeshPacket a router would have sent it in: the envelope
@@ -78,8 +79,7 @@ static meshtastic_StoreAndForward sf_history(uint32_t count, uint32_t last_reque
     return sf;
 }
 
-static void sf_open_session(struct mesh_session *session,
-                            struct mesh_test_trace_capture *capture) {
+static void sf_open_session(struct mesh_session *session, struct mesh_test_trace_capture *capture) {
     mesh_session_init(session);
     memset(capture, 0, sizeof *capture);
     mesh_session_attach(session, mesh_test_trace_capture_fn, capture);
@@ -103,7 +103,7 @@ static bool sf_last_sent(const struct mesh_test_trace_capture *capture,
     }
     *sf = (meshtastic_StoreAndForward)meshtastic_StoreAndForward_init_default;
     pb_istream_t body = pb_istream_from_buffer(to_radio->packet.decoded.payload.bytes,
-                                              to_radio->packet.decoded.payload.size);
+                                               to_radio->packet.decoded.payload.size);
     return pb_decode(&body, meshtastic_StoreAndForward_fields, sf);
 }
 
@@ -137,8 +137,8 @@ MESH_TEST_CASE(store_forward_encodes_a_history_request, unit) {
                       "a request should want a response and not an ack");
 
     meshtastic_StoreAndForward sf = meshtastic_StoreAndForward_init_default;
-    pb_istream_t body = pb_istream_from_buffer(sent.packet.decoded.payload.bytes,
-                                              sent.packet.decoded.payload.size);
+    pb_istream_t body =
+        pb_istream_from_buffer(sent.packet.decoded.payload.bytes, sent.packet.decoded.payload.size);
     MESH_TEST_FAIL_IF(!pb_decode(&body, meshtastic_StoreAndForward_fields, &sf),
                       "the payload should decode as a StoreAndForward");
     MESH_TEST_FAIL_IF(sf.rr != meshtastic_StoreAndForward_RequestResponse_CLIENT_HISTORY ||
@@ -174,8 +174,8 @@ MESH_TEST_CASE(store_forward_refuses_to_broadcast_a_history_request, unit) {
     pb_istream_t in = pb_istream_from_buffer(buffer, written);
     meshtastic_StoreAndForward sf = meshtastic_StoreAndForward_init_default;
     MESH_TEST_FAIL_IF(!pb_decode(&in, meshtastic_ToRadio_fields, &sent), "the ping should decode");
-    pb_istream_t body = pb_istream_from_buffer(sent.packet.decoded.payload.bytes,
-                                              sent.packet.decoded.payload.size);
+    pb_istream_t body =
+        pb_istream_from_buffer(sent.packet.decoded.payload.bytes, sent.packet.decoded.payload.size);
     MESH_TEST_FAIL_IF(!pb_decode(&body, meshtastic_StoreAndForward_fields, &sf) ||
                           sf.rr != meshtastic_StoreAndForward_RequestResponse_CLIENT_PING ||
                           sf.which_variant != 0U,
@@ -308,18 +308,25 @@ MESH_TEST_CASE(store_forward_replay_lands_in_the_transcript, unit) {
     MESH_TEST_FAIL_IF(log->count != 2U, "both replayed messages should be in the log");
 
     const struct mesh_message *broadcast = mesh_message_log_at(log, 0U);
-    MESH_TEST_FAIL_IF(strcmp(broadcast->text, "morning all") != 0 ||
-                          broadcast->from != SF_TALKER || broadcast->channel != 4U ||
-                          broadcast->rx_time != SF_WHEN - 3600U ||
-                          broadcast->to != MESH_MESSAGE_BROADCAST_ADDR,
-                      "a replayed broadcast should keep its sender, channel and date");
+    MESH_TEST_FAIL_IF(strcmp(broadcast->text, "morning all") != 0 || broadcast->from != SF_TALKER ||
+                          broadcast->channel != 4U || broadcast->to != MESH_MESSAGE_BROADCAST_ADDR,
+                      "a replayed broadcast should keep its sender and channel");
+    /*
+     * And carry no date. mesh.proto says of rx_time that the field "is _never_ sent on the radio
+     * link itself", so the stamp on a replay packet is our own radio marking when the *replay*
+     * landed - copying it would date the whole window at the minute it was fetched, and the
+     * StoreAndForward `text` variant carries no timestamp to use instead.
+     */
+    MESH_TEST_FAIL_IF(broadcast->rx_time != 0U,
+                      "a replayed message must not be dated by the replay's arrival");
     const struct mesh_message *direct = mesh_message_log_at(log, 1U);
     /* ROUTER_TEXT_DIRECT is how the router says it was addressed to us; `to` on the replay
        packet is us either way, so it cannot be read from there. */
     MESH_TEST_FAIL_IF(direct->to != SF_US, "a replayed direct message should be addressed to us");
     /* Nothing is waiting on an ack for something that happened hours ago. */
-    MESH_TEST_FAIL_IF(direct->ack != MESH_MESSAGE_ACK_NONE || direct->has_hops_away,
-                      "a replayed message should carry no delivery state and no hop count");
+    MESH_TEST_FAIL_IF(direct->ack != MESH_MESSAGE_ACK_NONE || direct->has_hops_away ||
+                          direct->rx_snr != 0.0F,
+                      "a replayed message should carry no delivery state, hop count or SNR");
 
     MESH_TEST_FAIL_IF(state->received != 2U || state->stored != 2U ||
                           state->state != MESH_STORE_FORWARD_DONE,
@@ -358,8 +365,15 @@ MESH_TEST_CASE(store_forward_replay_skips_what_we_already_had, unit) {
        the router's own packet - so nothing but the content can tell it is the same message. */
     meshtastic_StoreAndForward again = sf_text(said, true);
     meshtastic_StoreAndForward fresh = sf_text("missed this one", true);
-    MESH_TEST_FAIL_IF(!sf_feed(&session, &again, SF_TALKER, 1U, SF_WHEN - 600U) ||
-                          !sf_feed(&session, &fresh, SF_TALKER, 1U, SF_WHEN - 300U),
+    /*
+     * The replay packets are stamped *now*: our own radio marks when they landed, hours after
+     * the messages inside them were said. That is the real shape of the thing, and it is why
+     * matching on the stamp cannot work - the live copy above reads SF_WHEN - 600 and its own
+     * replay reads SF_WHEN, so a de-duplication that compared them would call one message two
+     * and append the router's whole window on top of the copies it duplicates.
+     */
+    MESH_TEST_FAIL_IF(!sf_feed(&session, &again, SF_TALKER, 1U, SF_WHEN) ||
+                          !sf_feed(&session, &fresh, SF_TALKER, 1U, SF_WHEN),
                       "encode replayed texts failed");
 
     MESH_TEST_FAIL_IF(mesh_session_messages(&session)->count != 2U,
@@ -457,6 +471,150 @@ MESH_TEST_CASE(store_forward_frames_are_never_messages, unit) {
     record_success(test_name);
 }
 
+MESH_TEST_CASE(store_forward_a_second_router_is_a_clean_slate, unit) {
+    struct mesh_session session;
+    struct mesh_test_trace_capture capture;
+    sf_open_session(&session, &capture);
+
+    /* Router A answers a request and leaves a cursor and its own statistics behind. */
+    meshtastic_StoreAndForward beat = meshtastic_StoreAndForward_init_default;
+    beat.rr = meshtastic_StoreAndForward_RequestResponse_ROUTER_HEARTBEAT;
+    beat.which_variant = meshtastic_StoreAndForward_heartbeat_tag;
+    beat.variant.heartbeat.secondary = 1U;
+    meshtastic_StoreAndForward history = sf_history(0U, 77U);
+    meshtastic_StoreAndForward stats = meshtastic_StoreAndForward_init_default;
+    stats.rr = meshtastic_StoreAndForward_RequestResponse_ROUTER_STATS;
+    stats.which_variant = meshtastic_StoreAndForward_stats_tag;
+    stats.variant.stats.messages_saved = 120U;
+    MESH_TEST_FAIL_IF(!sf_feed(&session, &beat, SF_ROUTER, 0U, SF_WHEN) ||
+                          !sf_feed(&session, &history, SF_ROUTER, 0U, SF_WHEN) ||
+                          !sf_feed(&session, &stats, SF_ROUTER, 0U, SF_WHEN),
+                      "encode router A frames failed");
+    const struct mesh_store_forward *state = mesh_session_store_forward(&session);
+    MESH_TEST_FAIL_IF(state->cursor != 77U || !state->router_secondary || !state->has_stats,
+                      "router A's cursor, rank and statistics should have been kept");
+
+    /* Then router B announces itself. Nothing of A's is true of B. */
+    meshtastic_StoreAndForward other = meshtastic_StoreAndForward_init_default;
+    other.rr = meshtastic_StoreAndForward_RequestResponse_ROUTER_HEARTBEAT;
+    MESH_TEST_FAIL_IF(!sf_feed(&session, &other, SF_ROUTER_B, 5U, SF_WHEN),
+                      "encode router B heartbeat failed");
+
+    MESH_TEST_FAIL_IF(state->router != SF_ROUTER_B || state->router_channel != 5U,
+                      "the newest announcement should win while nothing is running");
+    /*
+     * The cursor is the sharp one. The .proto calls it an index into *the server's* packet
+     * history, so sending A's to B asks B to skip to a position in a table it does not have -
+     * it would silently miss messages, which is this feature failing in the one direction
+     * nothing on the screen could show.
+     */
+    MESH_TEST_FAIL_IF(state->cursor != 0U, "one router's cursor must not be sent to another");
+    MESH_TEST_FAIL_IF(state->router_secondary || state->has_stats,
+                      "one router's rank and statistics must not be shown under another's name");
+
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(store_forward_only_the_router_we_asked_may_answer, unit) {
+    struct mesh_session session;
+    struct mesh_test_trace_capture capture;
+    sf_open_session(&session, &capture);
+
+    meshtastic_StoreAndForward beat = meshtastic_StoreAndForward_init_default;
+    beat.rr = meshtastic_StoreAndForward_RequestResponse_ROUTER_HEARTBEAT;
+    MESH_TEST_FAIL_IF(!sf_feed(&session, &beat, SF_ROUTER, 0U, SF_WHEN), "encode heartbeat failed");
+    MESH_TEST_FAIL_IF(mesh_session_request_history(&session) != 0, "the request should have gone");
+
+    meshtastic_StoreAndForward history = sf_history(3U, 5U);
+    MESH_TEST_FAIL_IF(!sf_feed(&session, &history, SF_ROUTER, 0U, SF_WHEN), "encode history");
+    const struct mesh_store_forward *state = mesh_session_store_forward(&session);
+    MESH_TEST_FAIL_IF(state->expected != 3U || state->state != MESH_STORE_FORWARD_REPLAYING,
+                      "the router we asked should have started the replay");
+
+    /*
+     * Now a second router talks over it with its own count and its own heartbeat. Every arm of
+     * the ingest writes the state the running request is filling, so without a guard this resets
+     * the count we are part way through and swaps the router mid-replay. On a mesh with one
+     * router it never happens, which is exactly why it would have been found late.
+     */
+    meshtastic_StoreAndForward theirs = sf_history(99U, 1234U);
+    meshtastic_StoreAndForward their_beat = meshtastic_StoreAndForward_init_default;
+    their_beat.rr = meshtastic_StoreAndForward_RequestResponse_ROUTER_HEARTBEAT;
+    MESH_TEST_FAIL_IF(!sf_feed(&session, &theirs, SF_ROUTER_B, 0U, SF_WHEN) ||
+                          !sf_feed(&session, &their_beat, SF_ROUTER_B, 0U, SF_WHEN),
+                      "encode router B frames failed");
+
+    MESH_TEST_FAIL_IF(state->router != SF_ROUTER, "the router we asked should still be answering");
+    MESH_TEST_FAIL_IF(state->expected != 3U || state->cursor != 5U,
+                      "another router's answer must not overwrite the running one");
+    MESH_TEST_FAIL_IF(state->received != 0U,
+                      "another router's announcement must not be counted as our replay");
+
+    /*
+     * A replayed *message* is the deliberate exception, and the guard cannot cover it: the
+     * envelope of a ROUTER_TEXT_* frame names the original sender rather than the router that
+     * relayed it, so there is nothing on it to compare. Gating messages the same way would
+     * reject every one the feature exists to collect; two routers replaying at once merging
+     * into one count is the far milder failure, and the log de-duplicates what overlaps.
+     */
+    meshtastic_StoreAndForward ours = sf_text("one of ours", true);
+    MESH_TEST_FAIL_IF(!sf_feed(&session, &ours, SF_TALKER, 0U, SF_WHEN), "encode text failed");
+    MESH_TEST_FAIL_IF(state->received != 1U || mesh_session_messages(&session)->count != 1U,
+                      "the active router's replay should still land");
+
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(store_forward_replay_does_not_touch_the_sender, unit) {
+    struct mesh_session session;
+    struct mesh_test_trace_capture capture;
+    sf_open_session(&session, &capture);
+
+    /* A node heard long ago, over a link that was measured then. */
+    meshtastic_FromRadio node = meshtastic_FromRadio_init_default;
+    node.which_payload_variant = meshtastic_FromRadio_packet_tag;
+    node.packet.from = SF_TALKER;
+    node.packet.to = MESH_MESSAGE_BROADCAST_ADDR;
+    node.packet.id = 0x7001U;
+    node.packet.has_rx_time = true;
+    node.packet.rx_time = SF_WHEN - 86400U;
+    node.packet.rx_snr = -9.0F;
+    node.packet.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    node.packet.decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
+    memcpy(node.packet.decoded.payload.bytes, "old", 3);
+    node.packet.decoded.payload.size = 3U;
+    MESH_TEST_FAIL_IF(!mesh_test_session_feed_from_radio(&session, &node), "encode node failed");
+
+    const struct mesh_node_summary *before = mesh_test_session_find_node(&session, SF_TALKER);
+    MESH_TEST_FAIL_IF(before == NULL, "the node should be in the roster");
+    const uint32_t heard_before = before->last_heard;
+    const float snr_before = before->snr;
+
+    /*
+     * Now the router replays something that node said. The envelope names the sender, but the
+     * packet came one hop from the *router* - so its SNR and its arrival measure a link to the
+     * router, not to the sender. Filing them under the sender would make asking for history
+     * quietly report every node in the window as freshly reachable.
+     */
+    meshtastic_StoreAndForward text = sf_text("said a day ago", true);
+    MESH_TEST_FAIL_IF(!sf_feed(&session, &text, SF_TALKER, 0U, SF_WHEN), "encode replay failed");
+    MESH_TEST_FAIL_IF(mesh_session_messages(&session)->count != 2U, "the replay should be kept");
+
+    const struct mesh_node_summary *after = mesh_test_session_find_node(&session, SF_TALKER);
+    MESH_TEST_FAIL_IF(after == NULL || after->last_heard != heard_before ||
+                          after->snr != snr_before,
+                      "a replay must not refresh the sender's link measurements");
+
+    /* A router's own frame is the opposite case: that node really did just send us a packet. */
+    meshtastic_StoreAndForward beat = meshtastic_StoreAndForward_init_default;
+    beat.rr = meshtastic_StoreAndForward_RequestResponse_ROUTER_HEARTBEAT;
+    MESH_TEST_FAIL_IF(!sf_feed(&session, &beat, SF_ROUTER, 0U, SF_WHEN), "encode heartbeat failed");
+    MESH_TEST_FAIL_IF(mesh_test_session_find_node(&session, SF_ROUTER) == NULL,
+                      "a heartbeat should still put its router in the roster");
+
+    record_success(test_name);
+}
+
 /* ---- the silences -------------------------------------------------------------------------- */
 
 MESH_TEST_CASE(store_forward_timeouts_tell_the_two_silences_apart, unit) {
@@ -464,7 +622,7 @@ MESH_TEST_CASE(store_forward_timeouts_tell_the_two_silences_apart, unit) {
        different places, and only one of them is worth pressing again. */
     struct mesh_store_forward sf;
     mesh_store_forward_reset(&sf);
-    mesh_store_forward_sent(&sf, 1U, MESH_MESSAGE_BROADCAST_ADDR, 0U, 0U, true);
+    mesh_store_forward_sent(&sf, MESH_MESSAGE_BROADCAST_ADDR, 0U, 0U, true);
     MESH_TEST_FAIL_IF(mesh_store_forward_tick(&sf, MESH_STORE_FORWARD_SEEK_TIMEOUT_MS - 1U),
                       "the ping should still be waiting");
     MESH_TEST_FAIL_IF(!mesh_store_forward_tick(&sf, MESH_STORE_FORWARD_SEEK_TIMEOUT_MS) ||
@@ -472,7 +630,7 @@ MESH_TEST_CASE(store_forward_timeouts_tell_the_two_silences_apart, unit) {
                       "a ping nobody answered should report that there is no router");
 
     mesh_store_forward_reset(&sf);
-    mesh_store_forward_sent(&sf, 2U, SF_ROUTER, 0U, 0U, false);
+    mesh_store_forward_sent(&sf, SF_ROUTER, 0U, 0U, false);
     sf.cursor = 9U;
     MESH_TEST_FAIL_IF(!mesh_store_forward_tick(&sf, MESH_STORE_FORWARD_REQUEST_TIMEOUT_MS) ||
                           sf.state != MESH_STORE_FORWARD_TIMEOUT,
@@ -554,9 +712,8 @@ static uint32_t sf_rows(const struct mesh_ui_store_forward *sf, bool link_up,
     struct mesh_ui_handshake_state handshake;
     memset(&handshake, 0, sizeof handshake);
     handshake.link_up = link_up;
-    return mesh_ui_settings_items(&settings, &handshake, NULL, 0U,
-                                  MESH_UI_SETTINGS_STORE_FORWARD, MESH_UI_SETTINGS_NO_CHANNEL,
-                                  out, max);
+    return mesh_ui_settings_items(&settings, &handshake, NULL, 0U, MESH_UI_SETTINGS_STORE_FORWARD,
+                                  MESH_UI_SETTINGS_NO_CHANNEL, out, max);
 }
 
 /* Finds the row with this label, or NULL. */
