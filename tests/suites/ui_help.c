@@ -160,10 +160,15 @@ MESH_TEST_CASE(help_notes_fit_the_panel, unit) {
  * A field's note is optional, and the ones that have one are reachable through the accessor
  * rather than only through the table.
  *
- * The listed fields are the rows docs/help.md names as worth explaining - the ones where the
- * label does not tell you what goes wrong. They are checked by name rather than by counting
- * how many rows have a note, because a count is a number that goes stale on the first row
- * anybody adds and says nothing about *which* row went missing.
+ * The listed fields are the rows docs/help.md names one by one - phase 1's LoRa worked example
+ * and phase 2's rows where the label does not tell you what goes wrong. They are checked by
+ * name rather than by counting how many rows have a note, because a count is a number that goes
+ * stale on the first row anybody adds and says nothing about *which* row went missing.
+ *
+ * Phase 4's long tail is not listed here and deliberately so: a hundred names in this table
+ * would be the field table written out a second time, which is the duplication the note column
+ * exists to avoid. What holds the tail is the section-by-section case below - a whole section
+ * losing its notes is the failure worth catching, and one row of it is not.
  */
 MESH_TEST_CASE(help_field_notes_are_optional, unit) {
     static const struct {
@@ -204,6 +209,113 @@ MESH_TEST_CASE(help_field_notes_are_optional, unit) {
     MESH_TEST_FAIL_IF(mesh_ui_settings_field_note(
                           (enum mesh_ui_setting_field)MESH_UI_FIELD_COUNT) != MESH_STR_NONE,
                       "a field past the end has a note");
+    record_success(test_name);
+}
+
+/*
+ * Every section the phases claim to explain has at least one explained row.
+ *
+ * Named by section rather than by row, which is the level the tail is worth checking at: one
+ * row of a hundred losing its note is a paragraph nobody wrote, and docs/help.md says that is
+ * allowed forever. A whole section with nothing under its overview is the other thing - a
+ * screen that answers "what is this section for" and then refuses every question about the rows
+ * on it, which is what phase 4 was for.
+ *
+ * The sections absent from this list are absent on purpose. About, Radio and Modules have no
+ * editable fields to hang a note on; Radio actions puts a confirm sheet in front of every press
+ * instead; Status message and Canned messages are one idea each, and their overview is already
+ * the whole of it.
+ */
+MESH_TEST_CASE(help_field_notes_reach_every_explained_section, unit) {
+    static const enum mesh_ui_settings_section k_explained[] = {
+        MESH_UI_SETTINGS_USER,
+        MESH_UI_SETTINGS_DEVICE,
+        MESH_UI_SETTINGS_POSITION,
+        MESH_UI_SETTINGS_POWER,
+        MESH_UI_SETTINGS_DISPLAY,
+        MESH_UI_SETTINGS_MQTT,
+        MESH_UI_SETTINGS_STORE_FORWARD,
+        MESH_UI_SETTINGS_TELEMETRY,
+        MESH_UI_SETTINGS_CHANNELS,
+        MESH_UI_SETTINGS_BLUETOOTH,
+        MESH_UI_SETTINGS_LORA,
+        MESH_UI_SETTINGS_SECURITY,
+        MESH_UI_SETTINGS_NEIGHBOR_INFO,
+        MESH_UI_SETTINGS_RANGE_TEST,
+        MESH_UI_SETTINGS_PAXCOUNTER,
+        MESH_UI_SETTINGS_TAK,
+        MESH_UI_SETTINGS_AMBIENT,
+        MESH_UI_SETTINGS_DETECTION,
+        MESH_UI_SETTINGS_EXT_NOTIFICATION,
+        MESH_UI_SETTINGS_TRAFFIC,
+        MESH_UI_SETTINGS_RADIO_UI,
+    };
+    for (size_t i = 0; i < sizeof k_explained / sizeof k_explained[0]; ++i) {
+        bool found = false;
+        for (int f = 0; f < (int)MESH_UI_FIELD_COUNT && !found; ++f) {
+            const enum mesh_ui_setting_field field = (enum mesh_ui_setting_field)f;
+            found = mesh_ui_settings_field_section(field) == k_explained[i] &&
+                    mesh_ui_settings_field_note(field) != MESH_STR_NONE;
+        }
+        if (!found) {
+            char reason[128];
+            snprintf(reason, sizeof reason, "%s explains none of its rows",
+                     mesh_str_id_name(mesh_ui_settings_section_label(k_explained[i])));
+            record_failure(test_name, reason);
+            return;
+        }
+    }
+    record_success(test_name);
+}
+
+/*
+ * Two explained rows in one section share neither a heading nor a paragraph.
+ *
+ * A topic is a flat list: the entries carry the rows' own labels and there are no subheadings
+ * in it, because the notes are a property of the fields and the subheadings are a property of
+ * the section's layout. So two noted rows with the same label - Telemetry has five rows called
+ * "Enabled" and five called "Interval", External notification three called "Pin" - would draw
+ * as paragraphs a reader cannot tell apart, on the one screen whose whole job is to be read.
+ *
+ * That is why those rows keep MESH_STR_NONE and their sections say it once in the overview
+ * instead, and this is the check that keeps the decision from being quietly undone by somebody
+ * filling in the obvious gap. The paragraph half is the same rule from the other side: one note
+ * is written about one row, so two rows naming one id is a copy-paste rather than a choice.
+ */
+MESH_TEST_CASE(help_note_labels_are_unique_in_a_section, unit) {
+    for (int a = 0; a < (int)MESH_UI_FIELD_COUNT; ++a) {
+        const enum mesh_ui_setting_field first = (enum mesh_ui_setting_field)a;
+        if (mesh_ui_settings_field_note(first) == MESH_STR_NONE) {
+            continue;
+        }
+        for (int b = a + 1; b < (int)MESH_UI_FIELD_COUNT; ++b) {
+            const enum mesh_ui_setting_field second = (enum mesh_ui_setting_field)b;
+            if (mesh_ui_settings_field_note(second) == MESH_STR_NONE ||
+                mesh_ui_settings_field_section(first) != mesh_ui_settings_field_section(second)) {
+                continue;
+            }
+            /* The rendered label rather than its id: Telemetry's two Interval rows are two
+               catalog entries holding one word, which is exactly the collision this is about -
+               a reader sees the word and not the id behind it. Read out of the English table so
+               the answer does not move with whichever locale is in force. */
+            const bool same_label =
+                strcmp(
+                    mesh_str_in(mesh_i18n_locale_english(), mesh_ui_settings_field_label_id(first)),
+                    mesh_str_in(mesh_i18n_locale_english(),
+                                mesh_ui_settings_field_label_id(second))) == 0;
+            const bool same_note =
+                mesh_ui_settings_field_note(first) == mesh_ui_settings_field_note(second);
+            if (same_label || same_note) {
+                char reason[160];
+                snprintf(reason, sizeof reason, "%s and %s share a %s in one section",
+                         mesh_str_id_name(mesh_ui_settings_field_label_id(first)),
+                         mesh_str_id_name(mesh_ui_settings_field_label_id(second)),
+                         same_label ? "heading" : "paragraph");
+                record_failure(test_name, reason);
+                return;
+            }
+        }
+    }
     record_success(test_name);
 }
 

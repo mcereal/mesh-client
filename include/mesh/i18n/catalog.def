@@ -748,7 +748,7 @@ MESH_STR_ENTRY(SETTINGS_NOTE_POSITION,                    "Whether the radio sha
 MESH_STR_ENTRY(SETTINGS_NOTE_POWER,                       "How the radio sleeps. Longer sleep buys battery life and costs responsiveness: a sleeping node hears nothing and answers nothing until it wakes.")
 MESH_STR_ENTRY(SETTINGS_NOTE_MQTT,                        "Bridges this radio's traffic to an internet MQTT broker, joining a local mesh to a wider one. Uplink sends your traffic out; downlink brings other traffic in.")
 MESH_STR_ENTRY(SETTINGS_NOTE_STORE_FORWARD,               "Asks a router on the mesh for messages that arrived while this client was off. Only a node configured as a Store & Forward router has anything to replay.")
-MESH_STR_ENTRY(SETTINGS_NOTE_TELEMETRY,                   "What the radio measures about itself and its surroundings, and how often it tells the mesh. Each reading you enable is another broadcast on a shared band.")
+MESH_STR_ENTRY(SETTINGS_NOTE_TELEMETRY,                   "What the radio measures - its own battery and channel use, a weather sensor, air quality, power rails, health - and how often it tells the mesh. Each one is another broadcast.")
 MESH_STR_ENTRY(SETTINGS_NOTE_ACTIONS,                     "Things the radio does rather than settings it keeps: reboot, shutdown and the resets. The two forget rows are different - they clear this client's own node list.")
 MESH_STR_ENTRY(SETTINGS_NOTE_MODULES,                     "The optional features this radio's firmware can run. Each row opens that module's own settings, and its value says whether the module is currently enabled.")
 MESH_STR_ENTRY(SETTINGS_NOTE_NEIGHBOR_INFO,               "Reports which nodes this radio hears directly, so the mesh can map its own shape. The firmware floors the interval at four hours because it is a lot of traffic.")
@@ -796,18 +796,159 @@ MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_SMART_INTERVAL,     "The shortest gap smar
 
 /* Channels. */
 MESH_STR_ENTRY(SETTINGS_NOTE_CHANNEL_KEY,                 "The key that protects this channel: everyone who can read it holds the same one. The default key is published with the firmware, so a channel meant to be private needs a random key shared by hand.")
-MESH_STR_ENTRY(SETTINGS_NOTE_CHANNEL_UPLINK,             "Sends this channel's traffic on to the MQTT broker, when the radio has one. Everything said here then leaves the local mesh for the internet, so leave it off for a private channel.")
-MESH_STR_ENTRY(SETTINGS_NOTE_CHANNEL_DOWNLINK,           "Puts traffic from the MQTT broker onto this channel and out over the radio. A busy broker can fill the air with messages nobody nearby asked for, at everyone's expense.")
-MESH_STR_ENTRY(SETTINGS_NOTE_CHANNEL_POSITION,           "How precisely positions are shared here. Fewer bits round every location to a coarser square; off shares no coordinates at all, only that the node exists.")
+MESH_STR_ENTRY(SETTINGS_NOTE_CHANNEL_UPLINK,              "Sends this channel's traffic on to the MQTT broker, when the radio has one. Everything said here then leaves the local mesh for the internet, so leave it off for a private channel.")
+MESH_STR_ENTRY(SETTINGS_NOTE_CHANNEL_DOWNLINK,            "Puts traffic from the MQTT broker onto this channel and out over the radio. A busy broker can fill the air with messages nobody nearby asked for, at everyone's expense.")
+MESH_STR_ENTRY(SETTINGS_NOTE_CHANNEL_POSITION,            "How precisely positions are shared here. Fewer bits round every location to a coarser square; off shares no coordinates at all, only that the node exists.")
 
 /* Security. */
-MESH_STR_ENTRY(SETTINGS_NOTE_SECURITY_ADMIN_KEYS,        "Public keys of the nodes allowed to configure this radio over the mesh. A key here is a key to the radio, so leave all three empty unless you are deliberately setting up remote administration.")
+MESH_STR_ENTRY(SETTINGS_NOTE_SECURITY_ADMIN_KEYS,         "Public keys of the nodes allowed to configure this radio over the mesh. A key here is a key to the radio, so leave all three empty unless you are deliberately setting up remote administration.")
 
 /* Store & Forward. */
-MESH_STR_ENTRY(SETTINGS_NOTE_SF_HISTORY_WINDOW,          "How far back this radio goes when another node asks it for missed messages. It is this radio's setting as a router; what somebody else's router replays to you is theirs.")
+MESH_STR_ENTRY(SETTINGS_NOTE_SF_HISTORY_WINDOW,           "How far back this radio goes when another node asks it for missed messages. It is this radio's setting as a router; what somebody else's router replays to you is theirs.")
 
 /* Neighbor info. */
-MESH_STR_ENTRY(SETTINGS_NOTE_NEIGHBOR_INTERVAL,          "How often this radio reports the nodes it hears directly. The firmware quietly raises anything under four hours, because every report is a broadcast the whole mesh carries.")
+MESH_STR_ENTRY(SETTINGS_NOTE_NEIGHBOR_INTERVAL,           "How often this radio reports the nodes it hears directly. The firmware quietly raises anything under four hours, because every report is a broadcast the whole mesh carries.")
+
+/*
+ * Phase 4: the long tail - the remaining rows where knowing the label does not tell you what
+ * happens if you get it wrong. Same rules again: under 200 characters, one or two sentences, no
+ * reference to another row by name, and a locale may leave any of them untranslated.
+ *
+ * Ordered by section, in the order the field table declares them, so that adding a note is
+ * finding the section it belongs to and writing one line under it.
+ *
+ * A row is still allowed to have nothing to say. What was deliberately left without a note is
+ * the row whose label repeats inside its own section - Telemetry's five Enabled/Interval trios
+ * and the three output trios under External notification - because a help topic is a flat list
+ * with no subheadings to tell five paragraphs headed "Enabled" apart. Those sections say it
+ * once, in the overview, and help_note_labels_are_unique_in_a_section holds the line.
+ */
+
+/* User. */
+MESH_STR_ENTRY(SETTINGS_NOTE_USER_LICENSED,               "Says this radio is operated under an amateur radio licence. Those bands forbid encryption, so the firmware transmits in the clear - set it only if you hold a licence.")
+MESH_STR_ENTRY(SETTINGS_NOTE_USER_UNMESSAGEABLE,          "Tells other clients not to offer a direct message to this node, which is the answer for a sensor or a repeater nobody should write to. It hides the offer, not the delivery.")
+
+/* Device. */
+MESH_STR_ENTRY(SETTINGS_NOTE_DEVICE_TZDEF,                "A POSIX time zone string the radio applies to its own clock and its own screen. It has no bearing on what this client shows, which follows the Brick's clock.")
+MESH_STR_ENTRY(SETTINGS_NOTE_DEVICE_NODEINFO,             "How often this radio announces who it is, so that a node meeting it for the first time learns its name. It is a broadcast the whole mesh carries, so it is measured in minutes.")
+MESH_STR_ENTRY(SETTINGS_NOTE_DEVICE_LED,                  "Blinks the board's own LED to show the firmware is alive. Turning it off saves a little power and stops the light being a nuisance in the dark.")
+MESH_STR_ENTRY(SETTINGS_NOTE_DEVICE_DOUBLE_TAP,           "Lets a double tap on the board count as a press of its user button, on hardware with an accelerometer for it. It does nothing on a board without the sensor.")
+
+/* Position. */
+MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_GPS_MODE,           "Whether the radio's own GPS is powered, switched off, or absent from the board. With it off the radio knows only the fixed position typed in by hand.")
+MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_BROADCAST,          "How often the radio sends its position on a plain timer. Every send is airtime on a band everyone shares, so a node that stays in one place rarely needs a short one.")
+MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_GPS_INTERVAL,       "How often the GPS is woken to take a fix. Waking it more often keeps the position fresh and is one of the largest drains on the battery a radio has.")
+MESH_STR_ENTRY(SETTINGS_NOTE_POSITION_FIXED,              "A position typed in by hand, for a radio with no GPS or one that never sees the sky. The radio reports it as its own, so a stale one puts this node where it is not.")
+
+/* Power. */
+MESH_STR_ENTRY(SETTINGS_NOTE_POWER_SAVING,                "Sleeps as much of the radio as it can between transmissions. It buys battery life and costs messages: a sleeping node does not hear what was said while it was down.")
+MESH_STR_ENTRY(SETTINGS_NOTE_POWER_LS_SECS,               "How long the radio stays in light sleep at a stretch. The LoRa radio stays on through it, so what is saved is the processor rather than everything on the board.")
+MESH_STR_ENTRY(SETTINGS_NOTE_POWER_MIN_WAKE,              "How long the radio stays awake once something has woken it, so that it has time to finish handling what arrived before dropping back to sleep.")
+MESH_STR_ENTRY(SETTINGS_NOTE_POWER_WAIT_BT,               "How long the radio leaves Bluetooth up waiting for a client to connect before it sleeps. Set it too short and connecting means catching the radio while it is awake.")
+MESH_STR_ENTRY(SETTINGS_NOTE_POWER_SHUTDOWN,              "Powers the radio off this long after its charger is removed. Off leaves it running until the battery is flat, which is what you want unless it lives in a drawer.")
+
+/* Display - the radio's own panel. */
+MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY_SCREEN_ON,           "How long the radio's screen stays lit after a press. The screen is a large part of what a screened board draws, so a short timeout is most of what power saving buys.")
+MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY_CAROUSEL,            "How often the radio's screen moves itself on to the next page. Off leaves it on whichever page it was left showing.")
+MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY_COMPASS,             "Which way round the compass is drawn on the radio's screen, for a board mounted at an angle. It turns the drawing and not the heading behind it.")
+MESH_STR_ENTRY(SETTINGS_NOTE_DISPLAY_FLIP,                "Draws the radio's screen upside down, for a board mounted the other way up. The buttons do not move with it, so they end up on the wrong side.")
+
+/* MQTT. */
+MESH_STR_ENTRY(SETTINGS_NOTE_MQTT_ENABLED,                "Connects the radio to a broker. Nothing crosses until a channel is set to uplink or downlink, so this alone changes what the radio talks to and not what it shares.")
+MESH_STR_ENTRY(SETTINGS_NOTE_MQTT_ADDRESS,                "The broker to connect to, with a port after a colon if it is not the usual one. Left empty, the radio uses the public Meshtastic broker.")
+MESH_STR_ENTRY(SETTINGS_NOTE_MQTT_ROOT,                   "The topic everything is published under. Two meshes sharing one broker need different roots, or each will hear the other's traffic as though it were its own.")
+MESH_STR_ENTRY(SETTINGS_NOTE_MQTT_ENCRYPTION,             "Publishes each packet still encrypted with its channel key, so the broker carries traffic it cannot read. Off hands the plain text to whoever runs the broker.")
+MESH_STR_ENTRY(SETTINGS_NOTE_MQTT_TLS,                    "Encrypts the connection to the broker itself. That protects the link and not the messages: what the broker does with your traffic once it arrives is a separate question.")
+MESH_STR_ENTRY(SETTINGS_NOTE_MQTT_MAP_REPORTING,          "Publishes this node's name and position to the public Meshtastic map. It is a deliberate publication to anyone at all, separate from what your channels carry.")
+MESH_STR_ENTRY(SETTINGS_NOTE_MQTT_MAP_INTERVAL,           "How often the map report goes out. The map ignores anything more frequent than hourly, so the shortest choice here is already as often as it is worth sending.")
+MESH_STR_ENTRY(SETTINGS_NOTE_MQTT_MAP_PRECISION,          "How precisely the map report gives this node's position. Fewer bits round it to a coarser square, which is the row to reach for before turning the report off.")
+MESH_STR_ENTRY(SETTINGS_NOTE_MQTT_MAP_LOCATION,           "Whether the map report carries a position at all. Off still publishes that this node exists and what it is called, which is the middle ground between listed and hidden.")
+
+/* Store & Forward. The history window is phase 2's, above. */
+MESH_STR_ENTRY(SETTINGS_NOTE_SF_ENABLED,                  "Turns the module on in this radio's firmware. It is what lets this radio keep messages for other people; asking somebody else's router for what you missed does not need it.")
+MESH_STR_ENTRY(SETTINGS_NOTE_SF_HEARTBEAT,                "Announces this radio as a Store & Forward router every so often, so that clients find it without asking. It means nothing on a radio that is not acting as a server.")
+MESH_STR_ENTRY(SETTINGS_NOTE_SF_SERVER,                   "Makes this radio hold other people's messages and replay them on request. It wants spare memory and mains power, so it is a setting for a fixed node and not a handheld.")
+MESH_STR_ENTRY(SETTINGS_NOTE_SF_RECORDS,                  "How many messages this radio keeps as a router. Default lets the firmware size its own store, which on a board with spare memory is larger than a hand-picked number.")
+MESH_STR_ENTRY(SETTINGS_NOTE_SF_HISTORY_MAX,              "The most messages this radio sends in one reply to a client catching up. It caps the burst, so one client's replay cannot take the channel for itself.")
+
+/* Telemetry. Only the row whose label is its own subject - see docs/help.md. */
+MESH_STR_ENTRY(SETTINGS_NOTE_TELEMETRY_FAHRENHEIT,        "Draws temperature in Fahrenheit on the radio's own screen. The sensor is read in Celsius and Celsius is what goes on the air, so it changes nothing for anyone else.")
+
+/* Channels. The key, the two MQTT rows and the precision are phase 2's, above. */
+MESH_STR_ENTRY(SETTINGS_NOTE_CHANNEL_NAME,                "Part of what identifies the channel: two radios have to match on the name as well as on the key. An empty name on the primary channel means the preset's default one.")
+MESH_STR_ENTRY(SETTINGS_NOTE_CHANNEL_ROLE,                "Primary is the channel this radio's own traffic goes out on and there is one of it; a secondary channel is listened to as well. Disabled leaves the slot empty.")
+
+/* Bluetooth. */
+MESH_STR_ENTRY(SETTINGS_NOTE_BT_MODE,                     "How the radio proves it is the one you meant: a code on its own screen, a fixed PIN, or no check at all. A radio with no screen cannot show a random code.")
+MESH_STR_ENTRY(SETTINGS_NOTE_BT_PIN,                      "The six digits to use when pairing is set to a fixed PIN. It never changes and the radio keeps it as it is, so it is convenience rather than security.")
+
+/* LoRa. The six modem rows are phase 1's, above. */
+MESH_STR_ENTRY(SETTINGS_NOTE_LORA_USE_PRESET,             "Takes the modem settings from a named preset instead of the three rows that set them by hand. Both ends of a link have to end up with the same settings either way.")
+MESH_STR_ENTRY(SETTINGS_NOTE_LORA_PRESET,                 "A named trade of range against speed, from long and slow to short and fast. Every radio you want to talk to has to be on the same one.")
+MESH_STR_ENTRY(SETTINGS_NOTE_LORA_TX_ENABLED,             "Whether this radio may transmit at all. Off leaves it listening: it hears the mesh and repeats nothing, which is the setting for a band you are not licensed on.")
+MESH_STR_ENTRY(SETTINGS_NOTE_LORA_IGNORE_MQTT,            "Drops packets that reached this radio from an internet gateway rather than over the air. It is how a local mesh keeps a busy broker off its own band.")
+MESH_STR_ENTRY(SETTINGS_NOTE_LORA_OK_TO_MQTT,             "Lets gateways forward this radio's traffic to the internet. It is a request rather than a guarantee - it asks other people's gateways to respect it, and they may not.")
+
+/* Security. The admin keys are phase 2's, above. */
+MESH_STR_ENTRY(SETTINGS_NOTE_SECURITY_PRIVATE_KEY,        "This radio's identity: what direct messages to it are encrypted against. Replacing it makes this a different node to everyone who has met it, and each has to learn it again.")
+MESH_STR_ENTRY(SETTINGS_NOTE_SECURITY_MANAGED,            "Refuses configuration from the radio's own screen and from a connected client, leaving only remote administration by an admin key. With no working key set, that locks you out.")
+MESH_STR_ENTRY(SETTINGS_NOTE_SECURITY_ADMIN_CHANNEL,      "Accepts configuration sent over the legacy admin channel rather than by key. Anyone holding that channel can then reconfigure this radio, which is why keys replaced it.")
+MESH_STR_ENTRY(SETTINGS_NOTE_SECURITY_SERIAL,             "Leaves the debug console on the radio's USB port enabled. Useful while setting a board up, and one more way in on a radio somebody else can pick up.")
+MESH_STR_ENTRY(SETTINGS_NOTE_SECURITY_DEBUG_LOG,          "Streams the radio's debug log over the USB or Bluetooth link. It is noisy, and it says more about what the radio is doing than a stranger should be handed.")
+MESH_STR_ENTRY(SETTINGS_NOTE_SECURITY_SIGNATURE,          "How fussy this radio is about signatures on the packets it receives. Strict ignores anything it cannot verify, which is the safest and cuts off nodes too old to sign.")
+
+/* Neighbor info. The interval is phase 2's, above. */
+MESH_STR_ENTRY(SETTINGS_NOTE_NEIGHBOR_ENABLED,            "Reports which nodes this radio hears directly, which is what a map of the mesh's own shape is built from. Each report is large, which is why it starts off.")
+MESH_STR_ENTRY(SETTINGS_NOTE_NEIGHBOR_OVER_LORA,          "Puts the neighbour report on the radio band as well as on MQTT. It is the expensive half, and the firmware refuses it on a channel still using the default name and key.")
+
+/* Range test. */
+MESH_STR_ENTRY(SETTINGS_NOTE_RANGE_TEST_SENDER,           "How often a numbered test packet goes out. Off makes this radio the other end of the test: it logs what it hears and transmits nothing itself.")
+MESH_STR_ENTRY(SETTINGS_NOTE_RANGE_TEST_SAVE,             "Writes every test packet this radio hears to a CSV file on its own storage, to be read back over USB afterwards. It needs a board with a filesystem.")
+MESH_STR_ENTRY(SETTINGS_NOTE_RANGE_TEST_CLEAR,            "Empties the test log every time the radio starts, so each walk is a file of its own rather than appended to the end of the last one.")
+
+/* Paxcounter. */
+MESH_STR_ENTRY(SETTINGS_NOTE_PAX_INTERVAL,                "How often the count goes out. Each report is a broadcast on the mesh, and a headcount that changes slowly does not need a short interval.")
+MESH_STR_ENTRY(SETTINGS_NOTE_PAX_WIFI,                    "How strong a WiFi signal has to be, in dBm, before its device is counted. Raise the floor to count what is in the room and ignore the street outside.")
+MESH_STR_ENTRY(SETTINGS_NOTE_PAX_BLE,                     "How strong a Bluetooth signal has to be, in dBm, before its device is counted. Bluetooth carries less far than WiFi, so the two floors are not the same number.")
+
+/* TAK. */
+MESH_STR_ENTRY(SETTINGS_NOTE_TAK_TEAM,                    "The colour other TAK clients draw this node in. It carries no permissions and changes nothing on the mesh - it is how a group tells itself apart on a map.")
+MESH_STR_ENTRY(SETTINGS_NOTE_TAK_ROLE,                    "The role symbol TAK clients draw for this node: a label on somebody else's map, and nothing the radio itself acts on.")
+
+/* Ambient lighting. */
+MESH_STR_ENTRY(SETTINGS_NOTE_AMBIENT_CURRENT,             "How much current the LED may draw, in milliamps. Ask for more than the board can supply and it browns out rather than shining any brighter.")
+
+/* Detection sensor. */
+MESH_STR_ENTRY(SETTINGS_NOTE_DETECT_NAME,                 "What the mesh is told the sensor is called, since the message is otherwise a state change from a node. It is sent with every report, so keep it short.")
+MESH_STR_ENTRY(SETTINGS_NOTE_DETECT_MIN_BROADCAST,        "The shortest gap between two reports, however often the pin actually changes. It is what stops a chattering switch transmitting all day.")
+MESH_STR_ENTRY(SETTINGS_NOTE_DETECT_STATE_BROADCAST,      "Sends the current state on a timer even when nothing has changed, so a listener can tell a quiet sensor from a dead one. Off reports only the changes.")
+MESH_STR_ENTRY(SETTINGS_NOTE_DETECT_SEND_BELL,            "Marks the report as an alert rather than an ordinary message, so that clients able to ring or buzz do. Use it for something worth interrupting somebody for.")
+MESH_STR_ENTRY(SETTINGS_NOTE_DETECT_PIN,                  "The GPIO pin to watch, numbered as the radio's own board numbers it. The wrong number watches something else on the board, so check the wiring first.")
+MESH_STR_ENTRY(SETTINGS_NOTE_DETECT_TRIGGER,              "Which change on the pin counts as the event: an edge in one direction, or the level the pin settles at. It has to match the wiring to be right about which state is which.")
+MESH_STR_ENTRY(SETTINGS_NOTE_DETECT_PULLUP,               "Holds the pin high through the board's own resistor, so a switch that only ever pulls it to ground reads cleanly. Without it a floating pin reports noise.")
+
+/* External notification. The three output trios are the section note's - see docs/help.md. */
+MESH_STR_ENTRY(SETTINGS_NOTE_EXTNOTIF_ACTIVE,             "Whether an output is driven high or low when it fires. Backwards, it leaves the buzzer or the light on except when there is something to say.")
+MESH_STR_ENTRY(SETTINGS_NOTE_EXTNOTIF_OUTPUT_MS,          "How long an output stays on for one alert. It is measured in milliseconds, so it is the length of a beep rather than of a ring.")
+MESH_STR_ENTRY(SETTINGS_NOTE_EXTNOTIF_NAG,                "How long the alert keeps repeating until somebody acknowledges it on the radio itself. Once fires a single time and stops.")
+MESH_STR_ENTRY(SETTINGS_NOTE_EXTNOTIF_PWM,                "Drives a tone rather than a plain on and off, which is what a passive buzzer needs to make a sound. It uses the board's own buzzer pin and ignores the plain output rows.")
+MESH_STR_ENTRY(SETTINGS_NOTE_EXTNOTIF_I2S,                "Plays the alert through an I2S speaker, on the boards wired for one, instead of buzzing a pin.")
+
+/* Traffic limits. */
+MESH_STR_ENTRY(SETTINGS_NOTE_TRAFFIC_POSITION,            "Drops positions from the same node that arrive closer together than this. It limits what this radio accepts and passes on, not what it sends.")
+MESH_STR_ENTRY(SETTINGS_NOTE_TRAFFIC_NODEINFO_HOPS,       "How far away a node may be and still have its question about who we are answered from this radio's cache. Off leaves every request to the node it is really about.")
+MESH_STR_ENTRY(SETTINGS_NOTE_TRAFFIC_RATE_WINDOW,         "The stretch of time the packet count is measured over. Together the two rate rows are a ceiling on how much any one node may push through this radio.")
+MESH_STR_ENTRY(SETTINGS_NOTE_TRAFFIC_RATE_PACKETS,        "How many packets one node may send through this radio inside the rate window before the rest are dropped. Off lets a single node use as much of the air as it likes.")
+MESH_STR_ENTRY(SETTINGS_NOTE_TRAFFIC_UNKNOWN,             "How many packets this radio takes from a node it can neither decrypt nor identify before it stops listening to it. It is the cheap defence against a flood of noise.")
+
+/* The radio's graphical interface. */
+MESH_STR_ENTRY(SETTINGS_NOTE_UI_SCREEN_TIMEOUT,           "The interface's own idle timeout, which is not the panel's. Both have to be long enough for the screen to still be showing something by the time you look at it.")
+MESH_STR_ENTRY(SETTINGS_NOTE_UI_ALERT,                    "Whether the radio interrupts whatever its screen is showing when a message arrives. Off still receives everything; it just does not take the screen to say so.")
+MESH_STR_ENTRY(SETTINGS_NOTE_UI_BANNER,                   "Whether the interface throws a banner over the page for an event. Off leaves the screen on whatever page it was left on.")
+MESH_STR_ENTRY(SETTINGS_NOTE_UI_RING_TONE,                "Which of the tunes stored on the radio it plays for an alert. The tune itself is a text string this client cannot edit, so the choice here is the whole of it.")
+MESH_STR_ENTRY(SETTINGS_NOTE_UI_COMPASS_MODE,             "How the compass behaves on the radio's screen: a ring that turns with you, one that keeps north at the top, or a heading held where it was.")
+MESH_STR_ENTRY(SETTINGS_NOTE_UI_GPS_FORMAT,               "Which notation positions are written in on the radio's screen. It changes how a coordinate is printed and nothing about what the radio knows.")
+MESH_STR_ENTRY(SETTINGS_NOTE_UI_CLOCKFACE,                "Whether the radio draws its clock with hands or as digits.")
 
 /* ---- the features: what a screen is for ------------------------------------------------------- */
 
