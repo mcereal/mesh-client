@@ -66,7 +66,12 @@ static void bar_add_tabs(struct mesh_ui_action_bar *bar) {
     bar_add(bar, MESH_UI_BUTTON_SHOULDERS, MESH_STR_ACTION_TABS);
 }
 
-static void actions_messages(const struct mesh_ui_nav *nav, struct mesh_ui_action_bar *bar) {
+/* Declared ahead of the per-screen builders and defined below them, beside the paragraph that
+   explains what it refuses to do. Every builder here ends up calling it. */
+static void bar_add_help(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_action_bar *bar);
+
+static void actions_messages(const struct mesh_ui_nav *nav, const struct mesh_ui_snapshot *snapshot,
+                             struct mesh_ui_action_bar *bar) {
     if (!nav->thread_open) {
         if (nav->messages_delete_armed) {
             bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_CONFIRM_DELETE);
@@ -76,6 +81,7 @@ static void actions_messages(const struct mesh_ui_nav *nav, struct mesh_ui_actio
         bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_OPEN);
         bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_NEW);
         bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_DELETE);
+        bar_add_help(snapshot, bar);
         bar_add_tabs(bar);
         return;
     }
@@ -85,6 +91,7 @@ static void actions_messages(const struct mesh_ui_nav *nav, struct mesh_ui_actio
     if (nav->inbox) {
         bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_OPEN);
         bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+        bar_add_help(snapshot, bar);
         bar_add_tabs(bar);
         return;
     }
@@ -94,10 +101,12 @@ static void actions_messages(const struct mesh_ui_nav *nav, struct mesh_ui_actio
     bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_REACT);
     bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_WRITE);
     bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+    bar_add_help(snapshot, bar);
     bar_add_tabs(bar);
 }
 
-static void actions_nodes(const struct mesh_ui_nav *nav, struct mesh_ui_action_bar *bar) {
+static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_snapshot *snapshot,
+                          struct mesh_ui_action_bar *bar) {
     if (nav->node_remove_armed) {
         bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_CONFIRM_REMOVE);
         bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_CANCEL);
@@ -108,12 +117,14 @@ static void actions_nodes(const struct mesh_ui_nav *nav, struct mesh_ui_action_b
         bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
         bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_PIN);
         bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_WRITE);
+        bar_add_help(snapshot, bar);
         bar_add_tabs(bar);
         return;
     }
     bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_OPEN);
     bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_PIN);
     bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_WRITE);
+    bar_add_help(snapshot, bar);
     bar_add_tabs(bar);
 }
 
@@ -137,6 +148,7 @@ static void actions_waypoints(const struct mesh_ui_nav *nav,
         }
         bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_SELECT);
         bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+        bar_add_help(snapshot, bar);
         bar_add_tabs(bar);
         return;
     }
@@ -146,10 +158,12 @@ static void actions_waypoints(const struct mesh_ui_nav *nav,
     bar_add(bar, MESH_UI_BUTTON_A,
             nav->cursor[MESH_UI_SCREEN_WAYPOINTS] >= places ? MESH_STR_ACTION_NEW
                                                             : MESH_STR_ACTION_OPEN);
+    bar_add_help(snapshot, bar);
     bar_add_tabs(bar);
 }
 
-static void actions_devices(const struct mesh_ui_nav *nav, struct mesh_ui_action_bar *bar) {
+static void actions_devices(const struct mesh_ui_nav *nav, const struct mesh_ui_snapshot *snapshot,
+                            struct mesh_ui_action_bar *bar) {
     if (nav->devices_forget_armed) {
         bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_CONFIRM_FORGET);
         bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_CANCEL);
@@ -158,6 +172,7 @@ static void actions_devices(const struct mesh_ui_nav *nav, struct mesh_ui_action
     bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_CONNECT);
     bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_DISCONNECT);
     bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_FORGET);
+    bar_add_help(snapshot, bar);
     bar_add_tabs(bar);
 }
 
@@ -273,6 +288,7 @@ static void actions_status(const struct mesh_ui_snapshot *snapshot,
     if (connected) {
         bar_add(bar, MESH_UI_BUTTON_QUIT, MESH_STR_ACTION_QUIT);
     }
+    bar_add_help(snapshot, bar);
     bar_add_tabs(bar);
 }
 
@@ -350,24 +366,27 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct mesh_ui
         return;
     }
     if (nav->reaction_open) {
-        /* The compose sheet's two presses exactly: every row here sends, and B is the way out. */
+        /* The compose sheet's two presses exactly: every row here sends, and B is the way out -
+           plus the one that says what an emoji on somebody's message actually does, which is the
+           question this overlay raises and cannot answer with a row of glyphs. */
         bar_add(out, MESH_UI_BUTTON_A, MESH_STR_ACTION_SEND);
         bar_add(out, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+        bar_add_help(snapshot, out);
         return;
     }
 
     switch (nav->screen) {
     case MESH_UI_SCREEN_MESSAGES:
-        actions_messages(nav, out);
+        actions_messages(nav, snapshot, out);
         break;
     case MESH_UI_SCREEN_NODES:
-        actions_nodes(nav, out);
+        actions_nodes(nav, snapshot, out);
         break;
     case MESH_UI_SCREEN_WAYPOINTS:
         actions_waypoints(nav, snapshot, out);
         break;
     case MESH_UI_SCREEN_DEVICES:
-        actions_devices(nav, out);
+        actions_devices(nav, snapshot, out);
         break;
     case MESH_UI_SCREEN_SETTINGS:
         actions_settings(nav, snapshot, out);

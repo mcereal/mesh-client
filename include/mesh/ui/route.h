@@ -93,6 +93,20 @@ enum mesh_ui_transition {
    is where mesh_ui_nav_init() leaves one. */
 void mesh_ui_route_of(const struct mesh_ui_nav *nav, struct mesh_ui_route *out);
 
+/*
+ * The same, with the help screen taken off the top: where the user was standing when they asked.
+ *
+ * Help is the one level that is a layer rather than a place. Every other one answers "what is
+ * being drawn"; this one answers "what is being explained", and src/ui/help.c needs the second
+ * to decide what to say. Identical to mesh_ui_route_of() whenever help is not open.
+ *
+ * It exists so that there is one derivation rather than two. The alternative was for help.c to
+ * copy the nav, clear help_open and ask again - which is a second opinion about the route, of
+ * exactly the kind this header spends its opening paragraphs refusing, and one that would go
+ * quietly wrong the day a new overlay learned to raise help over itself.
+ */
+void mesh_ui_route_under_help(const struct mesh_ui_nav *nav, struct mesh_ui_route *out);
+
 /* Whether two routes are the same place. Exact, field by field - see enum
    mesh_ui_route_level for why there is no hash here. */
 bool mesh_ui_route_same(const struct mesh_ui_route *a, const struct mesh_ui_route *b);

@@ -1,0 +1,48 @@
+# Help on a feature: the same press, on screens that are not a list of settings.
+#
+# Phase 1 answered SELECT on a settings section and nowhere else, which made the one key on the
+# case that carries no printed verb mean something on one tab in six. A topic is now keyed on
+# the route, so a tab and each level opened over it explain themselves - and the paragraphs are
+# a table rather than a condition anybody has to remember to add.
+#
+# Three screens, deliberately of three kinds: a tab's own list, a level opened over one, and an
+# overlay. The trail above each "Help" is what says which of them is being explained; it comes
+# off the topic now rather than out of the nav's settings section, which is the change that
+# stopped the renderer knowing help was about settings.
+
+scene demo
+scale 4
+delay 180
+config
+
+waypoint ALFA Ridge repeater | up the fire road, gate code is on the tag
+waypoint FXTR Trailhead
+
+# A tab's own list. Nearest first from our own fix, and the last row makes a place - both of
+# which are on the paragraphs rather than on the screen.
+tab waypoints
+hold 900
+key select
+hold 1600
+key down 2
+hold 1200
+key b
+hold 700
+
+# An overlay, which is the screen the press had to move ahead of the overlay dispatch to reach:
+# a row of glyphs that could not say what sending one does.
+tab messages
+hold 500
+key down 4
+key a
+hold 800
+key x
+hold 900
+key select
+hold 1600
+key down 1
+hold 1200
+key b
+hold 600
+key b
+hold 700

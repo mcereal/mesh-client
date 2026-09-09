@@ -2187,10 +2187,16 @@ static void fb_render_help(struct mesh_ui_backend_fb_state *state,
      * This is the one place a trail earns a level the navigation bar is not already carrying:
      * the strip says "Settings" and this screen's own title says "Help", so without the section
      * name between them the frame never says *what* is being explained.
+     *
+     * It comes off the topic rather than out of the nav. Reading nav->settings_section here was
+     * this renderer knowing that help is about settings, which stopped being true the moment a
+     * tab acquired a topic - and on a help screen over the Nodes tab it would have drawn
+     * whichever section the user had last opened, confidently and wrongly.
      */
     struct fb_app_bar bar = {.title = mesh_str(MESH_STR_HELP_TITLE)};
-    bar.trail[bar.trail_count++] =
-        mesh_ui_settings_section_name((enum mesh_ui_settings_section)nav->settings_section);
+    if (topic.subject != MESH_STR_NONE) {
+        bar.trail[bar.trail_count++] = mesh_str(topic.subject);
+    }
     fb_draw_app_bar(state, layout, &bar);
 
     const char *headings[MESH_UI_HELP_ENTRIES_MAX];
