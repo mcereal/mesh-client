@@ -1,3 +1,10 @@
+## [2.43.1](https://github.com/mcereal/mesh-client/compare/v2.43.0...v2.43.1) (2026-09-09)
+
+### Bug Fixes
+
+* **ui:** date a press's toast by the clock driving the frames ([7c8828d](https://github.com/mcereal/mesh-client/commit/7c8828de4f30c04cf8771801eaf70e5aa3435e2b))
+* **ui:** say why a new waypoint cannot be made ([bc1463a](https://github.com/mcereal/mesh-client/commit/bc1463a54caf3723891553a4b8d52d092f293a4b))
+
 ## [2.43.0](https://github.com/mcereal/mesh-client/compare/v2.42.0...v2.43.0) (2026-09-09)
 
 ### Features

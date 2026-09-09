@@ -1,17 +1,17 @@
 {
   "name": "MeshClient",
-  "version": "v2.43.0",
+  "version": "v2.43.1",
   "type": "TOOL",
   "description": "A Meshtastic client for your handheld: read and send messages, browse the mesh, and edit your radio's settings over Bluetooth LE or USB.",
   "author": "mcereal",
   "repo_url": "https://github.com/mcereal/mesh-client",
   "release_filename": "MeshClient.pak.zip",
   "changelog": {
+    "v2.43.1": "Date a press's toast by the clock driving the frames; Say why a new waypoint cannot be made.",
     "v2.43.0": "Explain the long tail of settings rows; Stop a help topic falling back across a subheading.",
     "v2.42.0": "Explain the features as well as the settings; Ask the route whether a settings section is what is on the panel.",
     "v2.41.0": "Explain settings in the client, on a help screen SELECT opens; Make the help press and its keycap agree in every section state.",
-    "v2.40.0": "Ask a router for the messages the Brick missed; Stop dating a replay by when it was fetched.",
-    "v2.39.0": "Send reactions and threaded replies, not just read them; The tapback picker owns the body, so no banner may shorten it."
+    "v2.40.0": "Ask a router for the messages the Brick missed; Stop dating a replay by when it was fetched."
   },
   "screenshots": [
     ".github/resources/screenshots/nodes.png",
