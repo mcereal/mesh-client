@@ -395,232 +395,6 @@ bool mesh_updater_parse_release(const char *json, const char *repo, const char *
     return false;
 }
 
-/* ---- child processes -------------------------------------------------------------------- */
-
-static bool have_executable(const char *name) {
-    const char *path = getenv("PATH");
-    if (path == NULL || path[0] == '\0') {
-        path = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
-    }
-    while (*path != '\0') {
-        const char *colon = strchr(path, ':');
-        const size_t len = colon != NULL ? (size_t)(colon - path) : strlen(path);
-        if (len > 0U && len < 200U) {
-            char candidate[256];
-            snprintf(candidate, sizeof candidate, "%.*s/%s", (int)len, path, name);
-            if (access(candidate, X_OK) == 0) {
-                return true;
-            }
-        }
-        if (colon == NULL) {
-            break;
-        }
-        path = colon + 1;
-    }
-    return false;
-}
-
-/*
- * Drops the pipe but keeps the pid. Once the child has closed stdout there is nothing more to
- * read, and leaving the fd registered would be actively harmful: epoll reports EOF/HUP on
- * every wait, so mesh_event_loop_run() would never see a zero-event timeout, never return, and
- * never let mesh_updater_tick() enforce the deadline - a child that closed stdout without
- * exiting would spin the loop and freeze the UI. The response buffer is left alone; the step
- * that started the child still has to parse it.
- */
-static void updater_release_fd(struct mesh_updater *updater) {
-    if (updater->child_fd < 0) {
-        return;
-    }
-    if (updater->loop != NULL) {
-        (void)mesh_event_loop_remove_fd(updater->loop, updater->child_fd);
-    }
-    close(updater->child_fd);
-    updater->child_fd = -1;
-}
-
-static void updater_close_child(struct mesh_updater *updater) {
-    updater_release_fd(updater);
-    if (updater->child > 0) {
-        int status = 0;
-        /* The caller has already decided the outcome; make sure the child is gone either way. */
-        if (waitpid(updater->child, &status, WNOHANG) == 0) {
-            kill(updater->child, SIGKILL);
-            (void)waitpid(updater->child, &status, 0);
-        }
-        updater->child = -1;
-    }
-    free(updater->response);
-    updater->response = NULL;
-    updater->response_len = 0U;
-}
-
-static int updater_on_child_output(int fd, uint32_t events, void *userdata);
-
-/*
- * Forks `argv` with its stdout on a pipe registered with the event loop. `capture` says
- * whether the output is wanted (the check) or only the exit status (the download).
- */
-static int updater_spawn(struct mesh_updater *updater, char *const argv[], uint64_t now_ms,
-                         uint32_t timeout_ms) {
-    int fds[2];
-    if (pipe(fds) < 0) {
-        return -errno;
-    }
-
-    const pid_t pid = fork();
-    if (pid < 0) {
-        const int err = -errno;
-        close(fds[0]);
-        close(fds[1]);
-        return err;
-    }
-    if (pid == 0) {
-        /* Child: stdout to the pipe, stderr to the log's fate (inherited), stdin closed. */
-        close(fds[0]);
-        if (dup2(fds[1], STDOUT_FILENO) < 0) {
-            _exit(127);
-        }
-        close(fds[1]);
-        const int devnull = open("/dev/null", O_RDONLY | O_CLOEXEC);
-        if (devnull >= 0) {
-            (void)dup2(devnull, STDIN_FILENO);
-            close(devnull);
-        }
-        execvp(argv[0], argv);
-        _exit(127);
-    }
-
-    close(fds[1]);
-    if (fcntl(fds[0], F_SETFL, O_NONBLOCK) < 0) {
-        const int err = -errno;
-        close(fds[0]);
-        kill(pid, SIGKILL);
-        (void)waitpid(pid, NULL, 0);
-        return err;
-    }
-
-    updater->child = pid;
-    updater->child_fd = fds[0];
-    updater->child_deadline_ms = now_ms + timeout_ms;
-    if (updater->loop != NULL) {
-        const int added = mesh_event_loop_add_fd(updater->loop, fds[0], EPOLLIN,
-                                                 updater_on_child_output, updater);
-        if (added != 0) {
-            updater_close_child(updater);
-            return added;
-        }
-    }
-    return 0;
-}
-
-/* Appends whatever the child has written, capped so a runaway response cannot grow without
-   bound. Returns false when the cap is hit. */
-static bool updater_absorb(struct mesh_updater *updater, const char *bytes, size_t len) {
-    if (updater->response_len + len + 1U > MESH_UPDATE_RESPONSE_MAX) {
-        return false;
-    }
-    char *grown = realloc(updater->response, updater->response_len + len + 1U);
-    if (grown == NULL) {
-        return false;
-    }
-    memcpy(grown + updater->response_len, bytes, len);
-    updater->response_len += len;
-    grown[updater->response_len] = '\0';
-    updater->response = grown;
-    return true;
-}
-
-static void updater_finish_check(struct mesh_updater *updater, int exit_status);
-static void updater_finish_download(struct mesh_updater *updater, int exit_status);
-
-/* Reads whatever is buffered without blocking. Returns false when the pipe hit EOF, i.e. the
-   child has closed its stdout and there will never be more. */
-static bool updater_drain(struct mesh_updater *updater) {
-    if (updater->child_fd < 0) {
-        return false;
-    }
-    for (;;) {
-        char buffer[4096];
-        const ssize_t got = read(updater->child_fd, buffer, sizeof buffer);
-        if (got > 0) {
-            if (!updater_absorb(updater, buffer, (size_t)got)) {
-                updater_set(updater, MESH_UPDATE_FAILED,
-                            mesh_str(MESH_STR_UPDATE_RESPONSE_TOO_LARGE));
-                updater_close_child(updater);
-                return false;
-            }
-            continue;
-        }
-        if (got == 0) {
-            return false;
-        }
-        if (errno == EINTR) {
-            continue;
-        }
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            return true;
-        }
-        updater_set(updater, MESH_UPDATE_FAILED, mesh_str(MESH_STR_UPDATE_READ_FAILED));
-        updater_close_child(updater);
-        return false;
-    }
-}
-
-/*
- * Finishes the step if the child has actually exited. Deliberately never blocks in waitpid:
- * this runs from the event loop, which is the same thread the UI draws on, and a child that
- * closed stdout without exiting would otherwise stall the whole client past the point where
- * the timeout in tick() could rescue it. If the child is not reaped yet, tick() picks it up on
- * a later turn or kills it at the deadline.
- *
- * Everything buffered is drained before dispatching, because the exit and the EOF are separate
- * events and either can be seen first: reaping a check without draining would parse a truncated
- * response as a broken release.
- */
-static void updater_try_finish(struct mesh_updater *updater) {
-    if (updater->child <= 0) {
-        return;
-    }
-    if (!updater_drain(updater)) {
-        /* EOF, or the drain tore the child down. Either way the pipe is finished with. */
-        updater_release_fd(updater);
-    }
-    if (updater->child <= 0) {
-        return; /* drain failed and tore the child down */
-    }
-
-    int status = 0;
-    if (waitpid(updater->child, &status, WNOHANG) != updater->child) {
-        return;
-    }
-    const int exit_status = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
-    updater->child = -1;
-
-    const enum mesh_update_state state = updater->state;
-    if (state == MESH_UPDATE_CHECKING) {
-        updater_finish_check(updater, exit_status);
-    } else if (state == MESH_UPDATE_DOWNLOADING) {
-        updater_finish_download(updater, exit_status);
-    }
-    updater_close_child(updater);
-}
-
-static int updater_on_child_output(int fd, uint32_t events, void *userdata) {
-    (void)fd;
-    struct mesh_updater *updater = (struct mesh_updater *)userdata;
-    if (updater == NULL) {
-        return 0;
-    }
-    /* EOF or a hangup means the child has closed stdout; either way, drain and see whether it
-       has exited. try_finish() is a no-op until it has, so nothing here can block. */
-    if (updater_drain(updater) && (events & (EPOLLHUP | EPOLLERR)) == 0U) {
-        return 0;
-    }
-    updater_try_finish(updater);
-    return 0;
-}
-
 /* ---- the pak around us ------------------------------------------------------------------ */
 
 /*
@@ -659,72 +433,61 @@ static bool updater_pak_file(const char *install_path, const char *relative, cha
 }
 
 /*
- * Pick the CA bundle the fetcher will verify github.com against.
+ * Point the fetcher at the CA bundle this pak ships.
  *
- * The Brick has no system CA store - no /etc/ssl at all - so curl rejects every HTTPS request
- * with exit 60 and the updater could never do anything on the one device it ships for.
- * `--insecure` is not the way out: the release metadata is what carries the digest the download
- * is checked against, so trusting it over an unauthenticated channel would defeat the
- * verification rather than work around a missing file. The pak therefore ships its own bundle
- * in certs/, and this finds it.
- *
- * Order: an explicit environment override first (curl honours SSL_CERT_FILE and CURL_CA_BUNDLE
- * itself, so this only records what is already in effect), then our own bundle, then the usual
- * system locations so a desktop build keeps using the distribution's certificates. Finding
- * nothing is not fatal - curl may have a built-in default - but it lets updater_fetch_failed()
- * say something more useful than "exit 60" when it turns out there was none.
+ * The Brick has no system CA store - no /etc/ssl at all - so without one every HTTPS request
+ * fails; mesh_fetch_resolve_ca_bundle() explains why `--insecure` is not the way out and what
+ * it falls back to. Only the pak half is ours: where the bundle sits is a fact about how this
+ * binary was installed, and the fetcher has no business knowing it.
  */
 static void updater_resolve_ca_bundle(struct mesh_updater *updater) {
-    updater->ca_bundle[0] = '\0';
-
-    static const char *const k_env[] = {"SSL_CERT_FILE", "CURL_CA_BUNDLE"};
-    for (size_t i = 0; i < sizeof k_env / sizeof k_env[0]; ++i) {
-        const char *const value = getenv(k_env[i]);
-        if (value != NULL && value[0] != '\0' && access(value, R_OK) == 0) {
-            snprintf(updater->ca_bundle, sizeof updater->ca_bundle, "%s", value);
-            return;
-        }
+    char shipped[MESH_UPDATE_PATH_MAX];
+    if (!updater_pak_file(updater->install_path, "certs/certificates.crt", shipped,
+                          sizeof shipped)) {
+        shipped[0] = '\0';
     }
-
-    if (updater_pak_file(updater->install_path, "certs/certificates.crt", updater->ca_bundle,
-                         sizeof updater->ca_bundle)) {
-        return;
-    }
-
-    static const char *const k_system[] = {
-        "/etc/ssl/certs/ca-certificates.crt", /* Debian, Ubuntu, Alpine, Arch */
-        "/etc/pki/tls/certs/ca-bundle.crt",   /* Fedora, RHEL */
-        "/etc/ssl/cert.pem",                  /* BSD, and Alpine's compatibility link */
-        "/etc/ssl/certs/ca-bundle.crt",
-    };
-    for (size_t i = 0; i < sizeof k_system / sizeof k_system[0]; ++i) {
-        if (access(k_system[i], R_OK) == 0) {
-            snprintf(updater->ca_bundle, sizeof updater->ca_bundle, "%s", k_system[i]);
-            return;
-        }
-    }
+    mesh_fetch_resolve_ca_bundle(&updater->fetch, shipped);
 }
 
 /*
- * The one line the About screen shows when a fetcher exits non-zero.
+ * The one line the About screen shows when a fetch did not come back with a document.
  *
  * curl's 60 is specifically "peer certificate cannot be authenticated", which on a device with
  * no CA store is the only thing that will ever happen and which "exit 60" tells nobody how to
  * fix. The bundle ships in the pak and not through self-update, so the answer really is to
  * reinstall the pak.
+ *
+ * `what` names the catalog entry for the phase that failed - a check or a download - so the
+ * sentence is one string rather than a verb glued onto a template.
  */
-/* `what` names the catalog entry for the phase that failed - a check or a download - so the
-   sentence is one string rather than a verb glued onto a template. */
-static void updater_fetch_failed(struct mesh_updater *updater, int exit_status,
-                                 enum mesh_str_id what) {
+static void updater_fetch_failed(struct mesh_updater *updater,
+                                 const struct mesh_fetch_result *result, enum mesh_str_id what) {
     char message[MESH_UPDATE_MESSAGE_MAX];
-    if (updater->fetcher != NULL && strcmp(updater->fetcher, "curl") == 0 && exit_status == 60) {
-        snprintf(message, sizeof message, "%s",
-                 mesh_str(updater->ca_bundle[0] != '\0' ? MESH_STR_UPDATE_TLS_UNVERIFIED
-                                                        : MESH_STR_UPDATE_NO_CA_BUNDLE));
-    } else {
-        mesh_str_format(message, sizeof message, what,
-                        updater->fetcher != NULL ? updater->fetcher : "fetcher", exit_status);
+    switch (result->outcome) {
+    case MESH_FETCH_TOO_LARGE:
+        snprintf(message, sizeof message, "%s", mesh_str(MESH_STR_UPDATE_RESPONSE_TOO_LARGE));
+        break;
+    case MESH_FETCH_READ_FAILED:
+        snprintf(message, sizeof message, "%s", mesh_str(MESH_STR_UPDATE_READ_FAILED));
+        break;
+    case MESH_FETCH_TIMED_OUT:
+        mesh_log_warn("update", "%s timed out in state %s", mesh_fetch_tool(&updater->fetch),
+                      mesh_update_state_name(updater->state));
+        snprintf(message, sizeof message, "%s", mesh_str(MESH_STR_UPDATE_TIMED_OUT));
+        break;
+    case MESH_FETCH_EXITED:
+    case MESH_FETCH_OK:
+    case MESH_FETCH_OUTCOME_COUNT:
+    default:
+        if (strcmp(mesh_fetch_tool(&updater->fetch), "curl") == 0 && result->status == 60) {
+            snprintf(message, sizeof message, "%s",
+                     mesh_str(updater->fetch.ca_bundle[0] != '\0' ? MESH_STR_UPDATE_TLS_UNVERIFIED
+                                                                  : MESH_STR_UPDATE_NO_CA_BUNDLE));
+        } else {
+            mesh_str_format(message, sizeof message, what, mesh_fetch_tool(&updater->fetch),
+                            result->status);
+        }
+        break;
     }
     updater_set(updater, MESH_UPDATE_FAILED, message);
 }
@@ -736,17 +499,10 @@ int mesh_updater_init(struct mesh_updater *updater, struct mesh_event_loop *loop
         return -EINVAL;
     }
     memset(updater, 0, sizeof *updater);
-    updater->child = -1;
-    updater->child_fd = -1;
-    updater->loop = loop;
     updater->state = MESH_UPDATE_IDLE;
-
-    if (have_executable("curl")) {
-        updater->fetcher = "curl";
-    } else if (have_executable("wget")) {
-        updater->fetcher = "wget";
-    } else {
-        updater->fetcher = NULL;
+    const int ready = mesh_fetch_init(&updater->fetch, loop);
+    if (ready != 0) {
+        return ready;
     }
 
     /* The binary to replace. Without this there is nothing to install over, so the About
@@ -768,7 +524,7 @@ int mesh_updater_init(struct mesh_updater *updater, struct mesh_event_loop *loop
         mesh_env_bool("MESHCLIENT_UPDATE_ALLOW_DEV", "dev updates", false);
     updater->allow_dev = updater->allow_dev_from_env;
 
-    if (updater->fetcher == NULL) {
+    if (updater->fetch.tool == NULL) {
         snprintf(updater->message, sizeof updater->message, "%s",
                  mesh_str(MESH_STR_UPDATE_NO_FETCHER));
     } else if (!mesh_version_is_release() && !updater->allow_dev) {
@@ -781,15 +537,15 @@ int mesh_updater_init(struct mesh_updater *updater, struct mesh_event_loop *loop
         snprintf(updater->message, sizeof updater->message, "%s",
                  mesh_str(MESH_STR_UPDATE_DEV_ENABLED));
     }
-    mesh_log_info("update",
-                  "Updater ready: fetcher=%s binary=%s version=%s channel=%s allow_dev=%s "
-                  "cacert=%s",
-                  updater->fetcher != NULL ? updater->fetcher : "none",
-                  updater->install_path[0] != '\0' ? updater->install_path : "unknown",
-                  mesh_version_string(),
-                  mesh_update_channel_name(mesh_updater_effective_channel(updater)),
-                  updater->allow_dev ? "yes" : "no",
-                  updater->ca_bundle[0] != '\0' ? updater->ca_bundle : "(fetcher default)");
+    mesh_log_info(
+        "update",
+        "Updater ready: fetcher=%s binary=%s version=%s channel=%s allow_dev=%s "
+        "cacert=%s",
+        mesh_fetch_tool(&updater->fetch),
+        updater->install_path[0] != '\0' ? updater->install_path : "unknown", mesh_version_string(),
+        mesh_update_channel_name(mesh_updater_effective_channel(updater)),
+        updater->allow_dev ? "yes" : "no",
+        updater->fetch.ca_bundle[0] != '\0' ? updater->fetch.ca_bundle : "(fetcher default)");
     return 0;
 }
 
@@ -797,7 +553,7 @@ void mesh_updater_shutdown(struct mesh_updater *updater) {
     if (updater == NULL) {
         return;
     }
-    updater_close_child(updater);
+    mesh_fetch_shutdown(&updater->fetch);
     /* Half a download left behind would otherwise sit next to the binary until the next run. */
     if (updater->state == MESH_UPDATE_DOWNLOADING && updater->staged_path[0] != '\0') {
         (void)unlink(updater->staged_path);
@@ -805,15 +561,15 @@ void mesh_updater_shutdown(struct mesh_updater *updater) {
 }
 
 bool mesh_updater_available(const struct mesh_updater *updater) {
-    return updater != NULL && updater->fetcher != NULL && updater->install_path[0] != '\0' &&
-           updater->loop != NULL;
+    return updater != NULL && mesh_fetch_available(&updater->fetch) &&
+           updater->install_path[0] != '\0';
 }
 
 bool mesh_updater_set_channel(struct mesh_updater *updater, enum mesh_update_channel channel) {
     if (updater == NULL || channel >= MESH_UPDATE_CHANNEL_COUNT || updater->channel == channel) {
         return false;
     }
-    if (updater->child > 0) {
+    if (mesh_fetch_busy(&updater->fetch)) {
         return false; /* mid-check or mid-download: the asset in flight belongs to the old one */
     }
     updater->channel = channel;
@@ -827,7 +583,7 @@ bool mesh_updater_set_allow_dev(struct mesh_updater *updater, bool allow) {
     if (updater == NULL || updater->allow_dev == allow) {
         return false;
     }
-    if (updater->child > 0) {
+    if (mesh_fetch_busy(&updater->fetch)) {
         return false; /* mid-check or mid-download; let it finish rather than move the goalposts */
     }
     updater->allow_dev = allow;
@@ -842,6 +598,10 @@ bool mesh_updater_set_allow_dev(struct mesh_updater *updater, bool allow) {
     return true;
 }
 
+/* The fetcher calls these once each, from the loop, when its child is gone. */
+static void updater_on_check_done(void *userdata, const struct mesh_fetch_result *result);
+static void updater_on_download_done(void *userdata, const struct mesh_fetch_result *result);
+
 int mesh_updater_check(struct mesh_updater *updater, uint64_t now_ms) {
     if (updater == NULL) {
         return -EINVAL;
@@ -849,10 +609,9 @@ int mesh_updater_check(struct mesh_updater *updater, uint64_t now_ms) {
     if (!mesh_updater_available(updater)) {
         return -ENOTSUP;
     }
-    if (updater->child > 0) {
+    if (mesh_fetch_busy(&updater->fetch)) {
         return -EBUSY;
     }
-    updater_close_child(updater);
     updater_forget_release(updater);
 
     /*
@@ -870,51 +629,18 @@ int mesh_updater_check(struct mesh_updater *updater, uint64_t now_ms) {
         snprintf(url, sizeof url, "https://api.github.com/repos/%s/releases/latest",
                  mesh_updater_repo());
     }
-    char agent[64];
-    snprintf(agent, sizeof agent, "meshclient/%s", mesh_version_string());
+    char agent_header[80];
+    snprintf(agent_header, sizeof agent_header, "User-Agent: meshclient/%s", mesh_version_string());
 
-    int result;
-    if (strcmp(updater->fetcher, "curl") == 0) {
-        char agent_header[80];
-        snprintf(agent_header, sizeof agent_header, "User-Agent: %s", agent);
-        char *argv[16];
-        size_t argc = 0U;
-        argv[argc++] = (char *)"curl";
-        argv[argc++] = (char *)"-fsSL";
-        argv[argc++] = (char *)"--max-time";
-        argv[argc++] = (char *)"25";
-        if (updater->ca_bundle[0] != '\0') {
-            argv[argc++] = (char *)"--cacert";
-            argv[argc++] = updater->ca_bundle;
-        }
-        argv[argc++] = (char *)"-H";
-        argv[argc++] = (char *)"Accept: application/vnd.github+json";
-        argv[argc++] = (char *)"-H";
-        argv[argc++] = agent_header;
-        argv[argc++] = url;
-        argv[argc] = NULL;
-        result = updater_spawn(updater, argv, now_ms, MESH_UPDATE_CHECK_TIMEOUT_MS);
-    } else {
-        char agent_option[80];
-        snprintf(agent_option, sizeof agent_option, "--user-agent=%s", agent);
-        char ca_option[MESH_UPDATE_PATH_MAX + 24U];
-        snprintf(ca_option, sizeof ca_option, "--ca-certificate=%s", updater->ca_bundle);
-        char *argv[12];
-        size_t argc = 0U;
-        argv[argc++] = (char *)"wget";
-        argv[argc++] = (char *)"-q";
-        argv[argc++] = (char *)"-T";
-        argv[argc++] = (char *)"25";
-        if (updater->ca_bundle[0] != '\0') {
-            argv[argc++] = ca_option;
-        }
-        argv[argc++] = agent_option;
-        argv[argc++] = (char *)"-O";
-        argv[argc++] = (char *)"-";
-        argv[argc++] = url;
-        argv[argc] = NULL;
-        result = updater_spawn(updater, argv, now_ms, MESH_UPDATE_CHECK_TIMEOUT_MS);
-    }
+    const struct mesh_fetch_request request = {
+        .url = url,
+        .headers = {"Accept: application/vnd.github+json", agent_header},
+        .timeout_ms = MESH_UPDATE_CHECK_TIMEOUT_MS,
+        .response_max = MESH_UPDATE_RESPONSE_MAX,
+        .on_done = updater_on_check_done,
+        .userdata = updater,
+    };
+    const int result = mesh_fetch_start(&updater->fetch, &request, now_ms);
     if (result != 0) {
         updater_set(updater, MESH_UPDATE_FAILED, mesh_str(MESH_STR_UPDATE_START_FAILED));
         return result;
@@ -923,12 +649,16 @@ int mesh_updater_check(struct mesh_updater *updater, uint64_t now_ms) {
     return 0;
 }
 
-static void updater_finish_check(struct mesh_updater *updater, int exit_status) {
-    if (exit_status != 0) {
-        updater_fetch_failed(updater, exit_status, MESH_STR_UPDATE_CHECK_EXIT);
+static void updater_on_check_done(void *userdata, const struct mesh_fetch_result *result) {
+    struct mesh_updater *updater = (struct mesh_updater *)userdata;
+    if (updater == NULL || updater->state != MESH_UPDATE_CHECKING) {
         return;
     }
-    if (updater->response == NULL) {
+    if (result->outcome != MESH_FETCH_OK) {
+        updater_fetch_failed(updater, result, MESH_STR_UPDATE_CHECK_EXIT);
+        return;
+    }
+    if (result->body == NULL) {
         updater_set(updater, MESH_UPDATE_FAILED, mesh_str(MESH_STR_UPDATE_EMPTY_REPLY));
         return;
     }
@@ -937,9 +667,9 @@ static void updater_finish_check(struct mesh_updater *updater, int exit_status) 
     char url[MESH_UPDATE_URL_MAX];
     char sha256[65];
     uint64_t size = 0U;
-    if (!mesh_updater_parse_release(updater->response, mesh_updater_repo(),
-                                    mesh_updater_asset_name(), tag, sizeof tag, url, sizeof url,
-                                    sha256, sizeof sha256, &size)) {
+    if (!mesh_updater_parse_release(result->body, mesh_updater_repo(), mesh_updater_asset_name(),
+                                    tag, sizeof tag, url, sizeof url, sha256, sizeof sha256,
+                                    &size)) {
         updater_set(updater, MESH_UPDATE_FAILED, mesh_str(MESH_STR_UPDATE_NO_ASSET));
         return;
     }
@@ -996,55 +726,27 @@ int mesh_updater_install(struct mesh_updater *updater, uint64_t now_ms) {
     if (!mesh_updater_available(updater)) {
         return -ENOTSUP;
     }
-    if (updater->child > 0) {
+    if (mesh_fetch_busy(&updater->fetch)) {
         return -EBUSY;
     }
     if (updater->state != MESH_UPDATE_AVAILABLE || updater->asset_url[0] == '\0' ||
         updater->asset_sha256[0] == '\0') {
         return -EINVAL;
     }
-    updater_close_child(updater);
     (void)unlink(updater->staged_path);
     /* The staged file is the byte counter, so the unlink above is also the reset - but say it
        here too, because a failed attempt whose file could not be removed would otherwise start
        the next one at 100%. */
     updater->downloaded = 0U;
 
-    int result;
-    if (strcmp(updater->fetcher, "curl") == 0) {
-        char *argv[12];
-        size_t argc = 0U;
-        argv[argc++] = (char *)"curl";
-        argv[argc++] = (char *)"-fsSL";
-        argv[argc++] = (char *)"--max-time";
-        argv[argc++] = (char *)"280";
-        if (updater->ca_bundle[0] != '\0') {
-            argv[argc++] = (char *)"--cacert";
-            argv[argc++] = updater->ca_bundle;
-        }
-        argv[argc++] = (char *)"-o";
-        argv[argc++] = updater->staged_path;
-        argv[argc++] = updater->asset_url;
-        argv[argc] = NULL;
-        result = updater_spawn(updater, argv, now_ms, MESH_UPDATE_DOWNLOAD_TIMEOUT_MS);
-    } else {
-        char ca_option[MESH_UPDATE_PATH_MAX + 24U];
-        snprintf(ca_option, sizeof ca_option, "--ca-certificate=%s", updater->ca_bundle);
-        char *argv[12];
-        size_t argc = 0U;
-        argv[argc++] = (char *)"wget";
-        argv[argc++] = (char *)"-q";
-        argv[argc++] = (char *)"-T";
-        argv[argc++] = (char *)"280";
-        if (updater->ca_bundle[0] != '\0') {
-            argv[argc++] = ca_option;
-        }
-        argv[argc++] = (char *)"-O";
-        argv[argc++] = updater->staged_path;
-        argv[argc++] = updater->asset_url;
-        argv[argc] = NULL;
-        result = updater_spawn(updater, argv, now_ms, MESH_UPDATE_DOWNLOAD_TIMEOUT_MS);
-    }
+    const struct mesh_fetch_request request = {
+        .url = updater->asset_url,
+        .output_path = updater->staged_path,
+        .timeout_ms = MESH_UPDATE_DOWNLOAD_TIMEOUT_MS,
+        .on_done = updater_on_download_done,
+        .userdata = updater,
+    };
+    const int result = mesh_fetch_start(&updater->fetch, &request, now_ms);
     if (result != 0) {
         updater_set(updater, MESH_UPDATE_FAILED, mesh_str(MESH_STR_UPDATE_DOWNLOAD_START_FAIL));
         return result;
@@ -1138,9 +840,13 @@ static void updater_stamp_pak_json(const struct mesh_updater *updater) {
     mesh_log_info("update", "Stamped %s with v%s", json_path, updater->latest);
 }
 
-static void updater_finish_download(struct mesh_updater *updater, int exit_status) {
-    if (exit_status != 0) {
-        updater_fetch_failed(updater, exit_status, MESH_STR_UPDATE_DOWNLOAD_EXIT);
+static void updater_on_download_done(void *userdata, const struct mesh_fetch_result *result) {
+    struct mesh_updater *updater = (struct mesh_updater *)userdata;
+    if (updater == NULL || updater->state != MESH_UPDATE_DOWNLOADING) {
+        return;
+    }
+    if (result->outcome != MESH_FETCH_OK) {
+        updater_fetch_failed(updater, result, MESH_STR_UPDATE_DOWNLOAD_EXIT);
         (void)unlink(updater->staged_path);
         return;
     }
@@ -1242,7 +948,7 @@ bool mesh_updater_progress(const struct mesh_updater *updater, uint32_t *permill
 }
 
 void mesh_updater_tick(struct mesh_updater *updater, uint64_t now_ms) {
-    if (updater == NULL || updater->child <= 0) {
+    if (updater == NULL || !mesh_fetch_busy(&updater->fetch)) {
         return;
     }
     /* Before the child is reaped below, not after: the last sample of a download that has just
@@ -1251,21 +957,7 @@ void mesh_updater_tick(struct mesh_updater *updater, uint64_t now_ms) {
     if (updater->state == MESH_UPDATE_DOWNLOADING) {
         updater_sample_download(updater);
     }
-    /* A child that exited without closing stdout, or whose EOF the loop did not deliver, is
-       finished here. Drains first, exactly as the fd callback does. */
-    updater_try_finish(updater);
-    if (updater->child <= 0) {
-        return;
-    }
-
-    if (now_ms >= updater->child_deadline_ms) {
-        mesh_log_warn("update", "%s timed out in state %s", updater->fetcher,
-                      mesh_update_state_name(updater->state));
-        const bool downloading = updater->state == MESH_UPDATE_DOWNLOADING;
-        updater_close_child(updater);
-        if (downloading) {
-            (void)unlink(updater->staged_path);
-        }
-        updater_set(updater, MESH_UPDATE_FAILED, mesh_str(MESH_STR_UPDATE_TIMED_OUT));
-    }
+    /* Reaps a finished child and enforces the deadline; either can land in one of the two
+       completions above, which is where a timed-out download unlinks its staging file. */
+    mesh_fetch_tick(&updater->fetch, now_ms);
 }

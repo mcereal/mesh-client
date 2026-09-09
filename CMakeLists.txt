@@ -55,6 +55,7 @@ add_library(meshclient_core
     src/core/app_settings.c
     src/core/config.c
     src/core/event_loop.c
+    src/core/fetch.c
     src/core/message.c
     src/core/waypoint.c
     src/core/radio_settings.c

@@ -374,7 +374,7 @@ MESH_TEST_CASE(updater_ca_bundle, unit) {
     setenv("SSL_CERT_FILE", bundle_path, 1);
     struct mesh_updater updater;
     mesh_updater_init(&updater, &loop);
-    const bool honoured = strcmp(updater.ca_bundle, bundle_path) == 0;
+    const bool honoured = strcmp(updater.fetch.ca_bundle, bundle_path) == 0;
     mesh_updater_shutdown(&updater);
     unsetenv("SSL_CERT_FILE");
     if (!honoured) {
@@ -388,7 +388,7 @@ MESH_TEST_CASE(updater_ca_bundle, unit) {
        stale environment variable into a failed update with a confusing message. */
     setenv("CURL_CA_BUNDLE", "/nonexistent/meshclient/ca.crt", 1);
     mesh_updater_init(&updater, &loop);
-    const bool ignored = strcmp(updater.ca_bundle, "/nonexistent/meshclient/ca.crt") != 0;
+    const bool ignored = strcmp(updater.fetch.ca_bundle, "/nonexistent/meshclient/ca.crt") != 0;
     mesh_updater_shutdown(&updater);
     unsetenv("CURL_CA_BUNDLE");
     mesh_event_loop_shutdown(&loop);
@@ -525,7 +525,7 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
         goto cleanup;
     }
     updater_up = true;
-    if (updater.fetcher == NULL || strcmp(updater.fetcher, "curl") != 0) {
+    if (updater.fetch.tool == NULL || strcmp(updater.fetch.tool, "curl") != 0) {
         failure = "the fake curl should have been picked up from PATH";
         goto cleanup;
     }
@@ -808,7 +808,7 @@ MESH_TEST_CASE(updater_child_outlives_stdout, unit) {
         goto cleanup;
     }
     /* And the child is gone rather than left behind holding the staging file. */
-    if (updater.child > 0 || updater.child_fd >= 0) {
+    if (updater.fetch.child > 0 || updater.fetch.child_fd >= 0) {
         failure = "the timed-out child should have been reaped and its pipe closed";
         goto cleanup;
     }

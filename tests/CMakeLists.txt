@@ -20,6 +20,7 @@ set(MESHCLIENT_TEST_SUPPORT
 set(MESHCLIENT_TEST_SUITES
     suites/app.c
     suites/core_basics.c
+    suites/fetch.c
     suites/geo.c
     suites/i18n.c
     suites/map.c
