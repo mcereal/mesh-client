@@ -258,9 +258,11 @@ MESH_STR_ENTRY(WAYPOINTS_EMPTY_DISCONNECTED, "Connect to a node to see shared pl
 MESH_STR_ENTRY(WAYPOINTS_GONE,            "That place is no longer in the list.")
 /* The last row of the list: share our own radio's position as a new place. */
 MESH_STR_ENTRY(WAYPOINTS_NEW,             "New waypoint here")
-/* ...and what that row says instead of a coordinate when our radio has no position to offer.
-   The row stays and says why: one that disappeared would leave nothing to explain itself. */
-MESH_STR_ENTRY(WAYPOINTS_NEW_NEEDS_FIX,   "no position yet")
+/* ...and what that row's supporting line says when our radio has no position to offer. The row
+   stays and says why: one that disappeared would leave nothing to explain itself. A sentence
+   rather than a fragment because it is read as one - it sits under the row's own name, where a
+   place would say who shared it, not in the column that measures a range. */
+MESH_STR_ENTRY(WAYPOINTS_NEW_NEEDS_FIX,   "This radio has no position yet")
 MESH_STR_ENTRY(WAYPOINTS_TITLE_COUNT,     "Waypoints (%u)")
 /* A waypoint whose sender left the name empty, which the wire allows. */
 MESH_STR_ENTRY(WAYPOINTS_UNNAMED,         "Unnamed place")

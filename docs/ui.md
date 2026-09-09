@@ -267,9 +267,23 @@ waypoint id** rather than by row for the same reason the node detail is: a fix a
 the list under whoever is reading it.
 
 **The last row makes a place**, and the list is therefore never empty. It takes our own radio's
-fix and asks for a name on the keyboard; with no fix of our own it stays on screen and says *no
-position yet* in the column a range would be in, rather than disappearing — a row that vanishes
-explains nothing, and a Brick has no GPS, so this is the ordinary state rather than the odd one.
+fix and asks for a name on the keyboard; with no fix of our own it stays on screen and says why
+on its supporting line — *this radio has no position yet* — rather than disappearing, because a
+row that vanishes explains nothing, and a Brick has no GPS, so this is the ordinary state rather
+than the odd one. **The reason goes on the supporting line and not into the range column**: a
+range is a measurement between two points and the trailing column is where a reader looks for
+one, so a sentence sitting there is the marker-gutter mistake again, and it left the row's own
+supporting line talking about the empty list instead. It outranks that sentence too — "no places
+have been shared yet" and "this radio has no position yet" are both true on a fresh Brick, and
+only the second answers the press.
+
+**And the refused press says the same thing out loud.** A on that row raises
+`MESH_STR_TOAST_WAYPOINT_NO_FIX` and opens nothing: the keyboard staying shut is deliberate —
+naming a place with nowhere to put it throws the typing away at the end — but a press that did
+*nothing at all* is the client looking broken, and the one reader guaranteed not to have read the
+row is whoever has just pressed A. It is the same refusal `app_actions.c` raises when a name
+arrives with no fix behind it, one step earlier, where the nav can see it coming.
+
 The other way in is the node detail's **Save this place**, which takes *that* node's reported
 fix: on a handheld with no GPS of its own, a node that has just broadcast a position is the
 other place a real coordinate can come from.
@@ -1268,6 +1282,16 @@ Three things are worth knowing:
   the same — pressing send twice with no radio raises *Not connected* twice — and the second has
   to arrive rather than sit there looking like the first never left. The deadline moves every
   time one is raised, so it tells them apart when the words cannot.
+- **A press cannot date one.** `mesh_ui_store_set_toast()` takes the clock from its caller — the
+  app, which has `mesh_time_monotonic_ms()` — but a notice raised *inside* a key press
+  (`mesh_ui_nav_raise_toast()`, which is what a refused press uses) has no clock to hand, and
+  reading the real one there would be wrong in a capture: the harness ticks the store with a
+  synthetic clock that starts at 1000 and moves only when a scene says `hold`, so a real-clock
+  deadline is four seconds on the device and longer than any scene on a host that has been up an
+  hour. `mesh_ui_store_handle_key()` dates it instead, from the clock the store was last ticked
+  with, inside the same call — before anything is drawn, because a frame carrying an undated
+  notice would read as a *different* notice a frame later and restart the entrance below.
+
 - **Entering has to be forced.** The animation table adopts its target on first sight and treats
   re-aiming at the current target as a no-op, which is exactly what stops a switch sliding on
   the frame a screen opens. A snackbar wants the opposite, so on a new notice it is put back to
@@ -2143,6 +2167,7 @@ clock, so a `hold` past four seconds followed by a `frame` films it sliding back
 | `syncing on\|off` | put the config handshake back in flight, or finish it. What the screen progress bar reports, and unreachable any other way in a scene: `scene demo` starts with the handshake already complete because every screen in it needs a roster |
 | `offradio NAME\|all` | mark that node (or every node but ours) as one the radio's NodeDB no longer carries - what a NodeDB reset leaves behind. Its own verb because no press can reach it: the reset goes out over the air and the answer arrives on the next sync, and the harness has neither |
 | `battery NAME PERCENT` | one telemetry report from that node: a battery level, and the uptime that moves with it. Several of these lines are what makes a trend, and the command takes one reading at a time on purpose - a verb that took a whole series would let a scene declare a shape the client could not have been told |
+| `nofix` | take our own radio's fix away. `scene demo` gives it one because every range on the Waypoints tab is measured from it, and this is the other state: a Brick has no GPS, so a radio with no fix and no fixed position set is the ordinary case, and it is what the "New waypoint here" row's supporting line and its refused press are about. Its own verb because no press removes a fix - a position arrives off the air, and there is no air here |
 | `pin NAME` | pin that node — the star in a row's marker gutter. Its own verb for the same reason: X on the Nodes tab raises a `mesh_ui_action` and the store stops there, so the press the harness can make never reaches the flag |
 
 `tab` walks the tabs with the buttons rather than assigning `nav.screen`, so a scene can only

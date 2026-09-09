@@ -80,6 +80,10 @@ bool mesh_ui_store_handle_key(struct mesh_ui_store *store, enum mesh_ui_key key,
     /* Lists may have changed since the last frame; a stale cursor would act on the wrong row. */
     mesh_ui_nav_clamp(&store->nav, store);
     const bool changed = mesh_ui_nav_handle_key(&store->nav, store, key, out_action);
+    /* A press that raised a notice could not date it - see mesh_ui_nav_raise_toast(). The clock
+       the last tick carried is the one the frames are driven by, which on the device is
+       CLOCK_MONOTONIC and in a capture is the scene's own, and it is right here. */
+    mesh_ui_nav_date_toast(&store->nav, store->now_ms);
     if (changed) {
         mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
     }

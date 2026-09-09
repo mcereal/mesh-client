@@ -1259,6 +1259,9 @@ bool mesh_ui_nav_close_passkey(struct mesh_ui_nav *nav) {
     return true;
 }
 
+/* How long a transient notice stands. One number, read by the setter and by the stamp below. */
+#define MESH_UI_NAV_TOAST_MS 4000U
+
 void mesh_ui_nav_set_toast(struct mesh_ui_nav *nav, uint64_t now_ms, const char *text) {
     if (nav == NULL) {
         return;
@@ -1269,7 +1272,38 @@ void mesh_ui_nav_set_toast(struct mesh_ui_nav *nav, uint64_t now_ms, const char 
         return;
     }
     snprintf(nav->toast, sizeof nav->toast, "%s", text);
-    nav->toast_until_ms = now_ms + 4000U;
+    nav->toast_until_ms = now_ms + MESH_UI_NAV_TOAST_MS;
+}
+
+/*
+ * The same notice, raised from inside the nav, where there is no clock to raise it against.
+ *
+ * A key press is handled wherever the nav is driven from, and the drivers do not share a clock:
+ * the app ticks the store with CLOCK_MONOTONIC, and the capture harness ticks it with a
+ * synthetic one that starts at 1000 and moves only when a scene says `hold`. A deadline read
+ * from the real clock inside a press would therefore mean "four seconds" on the device and
+ * "longer than any scene" in a capture - the notice would sit on every frame after the press,
+ * or, on a host that had just booted, expire somewhere unpredictable in the middle of one.
+ *
+ * So a press raises the notice undated and mesh_ui_store_handle_key() dates it from the clock
+ * the store was last ticked with, which is by construction the clock driving the frames. The
+ * gap is closed inside that one call, before anything is drawn: a frame carrying an undated
+ * notice would read to the backend as a *different* notice a frame later - `until_ms` is what
+ * tells two of them apart - and restart the entrance it was in the middle of.
+ */
+void mesh_ui_nav_raise_toast(struct mesh_ui_nav *nav, const char *text) {
+    if (nav == NULL || text == NULL || text[0] == '\0') {
+        return;
+    }
+    snprintf(nav->toast, sizeof nav->toast, "%s", text);
+    nav->toast_until_ms = 0U;
+}
+
+void mesh_ui_nav_date_toast(struct mesh_ui_nav *nav, uint64_t now_ms) {
+    if (nav == NULL || nav->toast[0] == '\0' || nav->toast_until_ms != 0U) {
+        return;
+    }
+    nav->toast_until_ms = now_ms + MESH_UI_NAV_TOAST_MS;
 }
 
 bool mesh_ui_nav_tick(struct mesh_ui_nav *nav, uint64_t now_ms) {

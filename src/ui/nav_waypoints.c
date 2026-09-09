@@ -106,9 +106,18 @@ static bool mesh_ui_nav_waypoint_list_confirm(struct mesh_ui_nav *nav,
         int32_t longitude_i = 0;
         if (!mesh_ui_waypoint_our_fix(store->handshake_valid ? &store->handshake : NULL,
                                       &latitude_i, &longitude_i)) {
-            /* The row already says why; a press that opened a keyboard for a place with
-               nowhere to put it would waste the typing. */
-            return false;
+            /*
+             * Refused, and said out loud. Opening a keyboard for a place with nowhere to put
+             * it would waste the typing, but a press that does nothing at all is the client
+             * telling the user their Brick is broken: the row's own line says why, and the one
+             * reader guaranteed not to have read it is the one who just pressed A.
+             *
+             * The app raises this same string when a name arrives with no fix behind it
+             * (mesh_app_on_ui_action), which is the path a node's "New waypoint here" takes;
+             * this is the same refusal one step earlier, where the nav can see it coming.
+             */
+            mesh_ui_nav_raise_toast(nav, mesh_str(MESH_STR_TOAST_WAYPOINT_NO_FIX));
+            return true; /* the toast is nav state, so the frame has changed */
         }
         mesh_ui_nav_open_waypoint_keyboard(nav, 0U);
         return true;

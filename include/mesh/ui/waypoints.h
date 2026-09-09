@@ -65,7 +65,9 @@ struct mesh_ui_waypoint_row {
     /* "1.2 km NE", or empty when there is no answer: no fix of our own, or no coordinates on
        the waypoint. A row with nothing here draws no range rather than drawing a zero. */
     char range[MESH_UI_WAYPOINT_RANGE_MAX];
-    /* Who shared it and when, as one line. */
+    /* PLACE: who shared it and when, as one line. NEW: why the row cannot be pressed, when it
+       cannot - a reason is a sentence, so it goes on the supporting line rather than into the
+       range column, which is where a measurement lives. */
     char shared[48];
     /* Whether this client may withdraw it from the mesh rather than only from itself. */
     bool editable;
