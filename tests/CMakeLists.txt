@@ -24,6 +24,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/fetch.c
     suites/firmware.c
     suites/firmware_catalog.c
+    suites/firmware_download.c
     suites/geo.c
     suites/i18n.c
     suites/json.c
@@ -56,9 +57,11 @@ set(MESHCLIENT_TEST_SUITES
     suites/ui_store.c
     suites/ui_text.c
     suites/ui_theme.c
+    suites/uf2.c
     suites/updater.c
     suites/utils.c
     suites/waypoints.c
+    suites/zip.c
 )
 
 add_executable(meshclient_core_tests

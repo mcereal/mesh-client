@@ -152,13 +152,23 @@ and a zip is designed to be read from the back, so:
    on both.
 3. Range-read that member's local header — for its `nlen` and `elen`, which differ from the
    central directory's and are what place the data — then its compressed bytes (~0.5 MB for the
-   T114's `.uf2`).
+   T114's `.uf2`). **Two fields and no more.** This document used to say the local header's CRC
+   was the field to avoid at 2.8.0; measured, **all three** of its CRC, compressed size and
+   uncompressed size are 0 there, deferred to a data descriptor written after the payload. A
+   reader trusting them asks the CDN for a zero-length range and then checks what comes back
+   against a CRC of zero, which passes.
 
 Total transfer: **0.6 MB instead of 58** for the T114's 1.4 MB `.uf2`, and **1.4 MB instead of
 170** for the V3's 2.1 MB `.bin` — the ratio gets better as the zips grow, which is the argument
 holding up over time rather than eroding. **Measured on the Brick**: the tail window and the
 local header are a round trip each, the T114's member lands in 1.8–3.0 s over Wi-Fi, and the
 whole thing inflates in 0.03 s.
+
+One correction to that arithmetic, from building it. Steps 0–3 run **twice**, because the
+`.mt.json` is itself a member of the zip: once to fetch it and once to fetch the image it names.
+That is a second HEAD and a second 64 KB tail window — about 65 KB on top of the 0.6 MB, against
+the 46 MB not being downloaded — and it buys never having invented a file name from a pattern.
+Whole run on the device, end to end including both API documents: **8.1 seconds**.
 
 **What the `.mt.json` actually holds, and why the two paths read it differently.** Both were
 pulled at `2.7.26.54e0d8d` on 2026-09-10 — the T114's and the Heltec V3's — and they are not the
@@ -591,11 +601,11 @@ More than half of this, which is the argument for doing it now rather than in th
 
 | New | Roughly | Notes |
 |---|---|---|
-| `src/core/firmware_catalog.c` | 400 lines | **shipped in phase 1** for the two API documents; still to add are the zip central directory and the `.mt.json`. Parsers are the fiddly part; they are also pure functions over captured bytes, so they are the easiest thing here to test |
-| `src/core/firmware_update.c` | 500 lines | the state machine: resolve → download → inflate → verify → *hand over* → confirm. One state per thing the screen can name, exactly as `enum mesh_update_state` does. The handover is the only part that differs per bus |
-| Bootloader recognition in `serial_usb.c` | small | a role on `struct mesh_serial_device_info`, read off the sibling interfaces the sysfs walk already visits. Fixes a live bug and is phase 3's "has it come back yet" — see [§Knowing a bootloader when we see one](#knowing-a-bootloader-when-we-see-one) |
+| `src/core/firmware_catalog.c` | 400 lines | **shipped.** Phase 1 for the two API documents; phase 2 added the board's `.mt.json` and the release's own manifest. The zip central directory went to `src/utils/zip.c` instead — it is a container reader with no firmware in it, it is reusable (the Nordic DFU package is a zip too), and it wanted a fuzz target of its own |
+| `src/core/firmware_download.c`, `_fetch.c` | 500 lines | **shipped in phase 2**, as two: the four range reads and the gzip envelope in one, and "which zip, which member" in the other. What is still to come is the *handover* half — one state per thing the screen can name, exactly as `enum mesh_update_state` does, and the only part that differs per bus |
+| Bootloader recognition in `serial_usb.c` | small | **shipped in phase 2.5.** A role on `struct mesh_serial_device_info`, read off the sibling interfaces the sysfs walk already visits. Fixed a live bug and is phase 3's "has it come back yet" — see [§Knowing a bootloader when we see one](#knowing-a-bootloader-when-we-see-one) |
 | `src/transport/serial/usb_msc.c` | 20 lines, then 350 | the block-device write is twenty lines and is what this hardware does; the usbfs Bulk-Only Transport behind it — CBW, SCSI `WRITE(10)`, CSW — is a **fallback for a kernel without `usb-storage`**, and phase 0 says this kernel is not one. Unmounting the drive before writing belongs here |
-| `src/core/uf2.c` | 150 lines | reading a `.uf2`: magic, `blockNo`/`numBlocks`, family id, `payloadSize`, and the check that the file we are about to write is for the board we are about to write it to |
+| `src/core/uf2.c` | 150 lines | **shipped in phase 2.** Reading a `.uf2`: magic, `blockNo`/`numBlocks`, family id, `payloadSize`, and the check that the file we are about to write is for the board we are about to write it to |
 | `src/transport/ble/ble_ota.c` | 300 lines | the loader conversation. Chunk, write, await `ACK`, count. Sits on the bluez client, not on `mesh_session` |
 | `mesh_bluez_client_find_characteristics()` | small | generalise `find_meshtastic_characteristics` to any service/characteristic pair. It is already generic underneath |
 | Write-without-response | small | one `{"type": "command"}` entry in the options dict that is currently always empty |
@@ -709,7 +719,14 @@ worth doing in this order.
 
 - **Catalog parsing**, against captured bytes committed as fixtures: the two API documents, a
   central directory, a `.mt.json`. Including the ambiguous-`hw_model` case, an unknown model, and
-  a release that does not carry our platform.
+  a release that does not carry our platform. **Done in phase 2**, and the fixtures went further
+  than this asked: `tests/data/` now also holds a real member — the T114's `.mt.json`, its local
+  header and all 486 of its deflated bytes, as the CDN serves them — so
+  `tests/suites/firmware_download.c` runs the *whole* chain rather than the parsers. A fake CDN
+  on PATH serves the tail window and that member at the offsets the 46 MB zip really keeps them
+  at, answering a HEAD with both redirect hops' headers; what comes out the far end is handed to
+  the manifest reader. One byte of the payload flipped produces exactly the `gzip: crc error`
+  the Brick was measured producing.
 
   **Commit two central directories, not one**, and make them `v2.7.26.54e0d8d` and
   `v2.8.0.47db0e3`. Those two releases differ in both of the ways a zip can quietly break this
@@ -748,6 +765,15 @@ worth doing in this order.
   they are exactly the kind of length-prefix arithmetic `make fuzz` exists for.
 - **Fuzz** the UF2 reader too — it is fixed-size records with a self-declared payload length,
   which is the shape that goes wrong.
+
+  Both are in, as `devtools/fuzz/fuzz_zip.c` and `fuzz_uf2.c`, and both check contracts on top
+  of memory safety because either can be memory-safe and still wrong in a way that matters: a
+  slice that came back has to lie inside the window it was cut from, a member's data cannot be
+  placed before the header that placed it, and a file accepted for one family must never be
+  accepted for another. 85 million cases, no findings. The one arithmetic that had to be fixed
+  to make the last contract hold is a block whose `targetAddr + payloadSize` overflows 32 bits:
+  left in, the span a caller computes comes back enormous, which is a progress bar that never
+  moves and a size check that passes.
 - **On hardware**, and not skippable: a T114 or another nRF52840 over USB, including one write
   interrupted halfway and then repeated; then a real ESP32 and a real S3, one interrupted stream
   resumed, one wrong-hash refusal, and one radio whose `app1` holds the old loader.
@@ -760,6 +786,40 @@ worth doing in this order.
   that, too, and it is worth knowing: **a block with no UF2 magic is discarded by the
   bootloader and reported as written**, so the transport can be exercised at full size, at full
   speed, against a real board, without touching its flash at all.
+
+## What phase 2 measured
+
+Four things, on 2026-09-10, while building the parsers against the served bytes rather than
+against this document. None of them changes the plan; three change a number somebody would
+otherwise have designed against, and one is a bug this feature introduced and then found.
+
+- **At 2.8.0 the local header's sizes are 0 as well as its CRC.** This document said the CRC;
+  measured, the compressed size and uncompressed size are zero too, because the general purpose
+  flag is `0x0008` and all three are deferred to a data descriptor after the payload. Reading
+  the CRC from the central directory and the sizes from the local header — which is the obvious
+  half-fix — asks the CDN for `bytes=<start>-<start-1>` and then verifies whatever comes back
+  against a CRC that also came from the wrong place.
+
+- **The UF2 family ids, off real images rather than off a table.** `nrf52840` is `0xADA52840`,
+  `rp2040` is `0xE48BFF56`, and `rp2350` is **`0xE48BFF59`** — the ARM secure family. The RP2350
+  publishes several (ARM secure, ARM non-secure, RISC-V) and upstream builds that one, which is
+  not a thing to guess when the failure is a board holding an image its bootloader will not
+  start. Confirmed by walking every block of `firmware-rp2040-lora-…uf2` (3,851 blocks) and
+  `firmware-pico2w-…uf2` (5,577), both of which also carry `payloadSize` 256 and flags
+  `0x2000` throughout, exactly as the T114's does.
+
+- **The 2.8.0 zip opens with a directory marker**, `nrf52840/` — stored, zero length, no flags —
+  and it is the first entry a basename walk reaches. Its basename is empty, so a matcher that
+  did not refuse an empty basename would hand the download a member whose bytes are a directory.
+  It is also the only stored entry in any release zip measured; every real member is deflated.
+
+- **`kill(0, …)` is the process group.** `struct mesh_firmware_download` is zeroed and then
+  started, which is the ordinary way to use it — and a zeroed struct holds `0` where a child pid
+  goes. An app that ticks all its modules ticks this one before anything has been started, and
+  the deadline check then fired on a pid of 0, sending SIGKILL to the client and everything it
+  had spawned. What it looked like was the test runner being killed with no output. The guard is
+  `<= 0` rather than `< 0`, and it is worth stating here because phase 3 adds a second child
+  (the write) with exactly the same shape.
 
 ## What phase 1 measured
 
@@ -1003,15 +1063,34 @@ documents (pure, and tested against captured bytes in `tests/data/`),
 under Settings → About radio, and `make ui-capture ARGS="devtools/ui_capture/scenes/radio-firmware.scene -o fw.gif"`
 draws them without a radio.
 
-**Phase 2 — get the image.** Resolve, range-download, inflate, verify, keep. Two sizes travel
-together from here on and they are not interchangeable: the compressed member size, which the
-download is measured against, and the uncompressed image size, which is what `OTA <size>` later
-tells the loader to expect. Still nothing written anywhere. Ends with "0.5 MB fetched, it
-matches the CRC, and it inflates to the image the manifest describes", which is a real thing
-to have proven. Serves both paths — a `.uf2` and an app image are two members of the same zip.
-Phase 0 has now run the whole of it by hand on the device, so what this phase owes is the C, the
-fixtures and the four ways it can go wrong — the refused suffix range, the moving member path,
-the empty local header and a central directory that does not fit the window.
+**Phase 2 — get the image. Shipped, and confirmed on hardware** on 2026-09-10. Resolve,
+range-download, inflate, verify, keep. Two sizes travel together from here on and they are not
+interchangeable: the compressed member size, which the download is measured against, and the
+uncompressed image size, which is what `OTA <size>` later tells the loader to expect. Still
+nothing written anywhere. It ends with "0.5 MB fetched, it matches the CRC, and it inflates to
+the image the manifest describes", and on a Brick that took **8.1 seconds** — 0.6 MB moved
+instead of 46.3, the CRC checked by the device's own busybox `gzip`, and 2,866 UF2 blocks read
+and found to be for an nRF52840. Serves both paths: a `.uf2` and an app image are two members of
+the same zip.
+
+What it turned into: [`src/utils/zip.c`](../src/utils/zip.c) for the container — three passes
+over three windows, one range request each, because that is the shape the download is — the
+`.mt.json` and the release manifest in
+[`firmware_catalog.c`](../src/core/firmware_catalog.c), [`src/core/uf2.c`](../src/core/uf2.c)
+for the file a bootloader will be handed,
+[`firmware_download.c`](../src/core/firmware_download.c) for the four steps and the gzip
+envelope, and [`firmware_fetch.c`](../src/core/firmware_fetch.c) for the piece between
+"there is newer firmware" and "here are the bytes". `--fetch-firmware <target>` runs the whole
+of it from the device and writes nothing to a radio, because the parts of this that can only be
+wrong on a Brick — the refused suffix range, the pak's CA bundle, busybox's `gzip` — are not
+parts a suite can reach.
+
+The four ways it can go wrong all have a case: the refused suffix range (hence the HEAD), the
+moving member path (hence matching on the basename, and two committed release tails rather than
+one), the empty local header (hence every size and the CRC coming from the central directory)
+and a central directory that does not fit the window (hence
+`mesh_zip_central_slice()` answering NULL rather than a pointer, and a fifth range read behind
+it that no zip measured needs yet).
 
 **Phase 2.5 — stop calling a bootloader a radio. Shipped.** Small enough that it is barely a
 phase, and it was listed as one because it was a **bug** rather than groundwork: double-tap any nRF52

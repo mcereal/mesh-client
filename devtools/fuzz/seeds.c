@@ -11,7 +11,8 @@
  * a field number changes the seeds with it. A seed that no longer decodes is a corpus that has
  * quietly stopped seeding anything.
  *
- * Usage: meshclient_fuzz_seeds <directory>   (creates <directory>/{stream_framing,session}/)
+ * Usage: meshclient_fuzz_seeds <directory>
+ *        (creates <directory>/{session,stream_framing,firmware_catalog,zip,uf2}/)
  */
 
 #include "fuzz_state.h"
@@ -417,6 +418,92 @@ static void write_catalog_seeds(void) {
     }
 }
 
+/*
+ * The zip and UF2 seeds are binary and are built here rather than copied out of tests/data/,
+ * for the reason the catalog's are: a fuzzer wants the *shape* to start from, and the smallest
+ * thing carrying every field is a better starting point than a 64 KB window. The real windows
+ * are what the suites in tests/ assert against; these are what the mutator pulls apart.
+ */
+static void put_u16(uint8_t *at, uint16_t value) {
+    at[0] = (uint8_t)(value & 0xFFU);
+    at[1] = (uint8_t)((value >> 8) & 0xFFU);
+}
+
+static void put_u32(uint8_t *at, uint32_t value) {
+    at[0] = (uint8_t)(value & 0xFFU);
+    at[1] = (uint8_t)((value >> 8) & 0xFFU);
+    at[2] = (uint8_t)((value >> 16) & 0xFFU);
+    at[3] = (uint8_t)((value >> 24) & 0xFFU);
+}
+
+static void write_zip_seeds(void) {
+    static const char k_name[] = "firmware.uf2";
+    const uint16_t name_len = (uint16_t)(sizeof k_name - 1U);
+
+    /*
+     * A window holding one central header and the record that points at it, with the two bytes
+     * of window offset the harness reads off the front. The offsets are real relative to that
+     * offset, so the seed is a zip this reader accepts rather than a shape it rejects
+     * immediately - a corpus of refusals explores nothing.
+     */
+    uint8_t seed[2U + 46U + 32U + 22U];
+    memset(seed, 0, sizeof seed);
+    put_u16(seed, 0U); /* the window starts at the beginning of the file */
+    uint8_t *const central = seed + 2U;
+    put_u32(central, 0x02014B50U);
+    put_u16(central + 8U, 0x0002U); /* general purpose flags, as 2.7.26 sets them */
+    put_u16(central + 10U, 8U);     /* deflate */
+    put_u32(central + 16U, 0x12345678U);
+    put_u32(central + 20U, 512U);  /* compressed */
+    put_u32(central + 24U, 1024U); /* uncompressed */
+    put_u16(central + 28U, name_len);
+    put_u32(central + 42U, 30U); /* the local header, in front of the directory */
+    memcpy(central + 46U, k_name, name_len);
+
+    uint8_t *const eocd = central + 46U + name_len;
+    put_u32(eocd, 0x06054B50U);
+    put_u16(eocd + 8U, 1U);  /* entries on this disk */
+    put_u16(eocd + 10U, 1U); /* entries in total */
+    put_u32(eocd + 12U, 46U + name_len);
+    put_u32(eocd + 16U, 0U); /* the directory starts where the window does */
+    write_seed("zip", "one_member", seed, (size_t)(eocd + 22U - seed));
+
+    /* And a bare local file header, which the harness also reaches on its own. */
+    uint8_t local[2U + 30U];
+    memset(local, 0, sizeof local);
+    put_u32(local + 2U, 0x04034B50U);
+    put_u16(local + 2U + 26U, name_len);
+    put_u16(local + 2U + 28U, 28U); /* an extra field, which the directory's does not match */
+    write_seed("zip", "local_header", local, sizeof local);
+}
+
+static void write_uf2_seeds(void) {
+    /* One complete block, with every field the reader looks at: the two front magics and the
+       one at the back, the family flag, a 256-byte payload and a count of one. */
+    uint8_t block[512];
+    memset(block, 0, sizeof block);
+    put_u32(block, 0x0A324655U);
+    put_u32(block + 4U, 0x9E5D5157U);
+    put_u32(block + 8U, 0x00002000U); /* family id present */
+    put_u32(block + 12U, 0x00026000U);
+    put_u32(block + 16U, 256U);
+    put_u32(block + 20U, 0U);
+    put_u32(block + 24U, 1U);
+    put_u32(block + 28U, 0xADA52840U);
+    put_u32(block + 508U, 0x0AB16F30U);
+    write_seed("uf2", "one_block", block, sizeof block);
+
+    /* Two of them, so the mutator has a sequence to break rather than only a record. */
+    uint8_t pair[1024];
+    memcpy(pair, block, sizeof block);
+    memcpy(pair + 512U, block, sizeof block);
+    put_u32(pair + 24U, 2U);
+    put_u32(pair + 512U + 20U, 1U);
+    put_u32(pair + 512U + 24U, 2U);
+    put_u32(pair + 512U + 12U, 0x00026100U);
+    write_seed("uf2", "two_blocks", pair, sizeof pair);
+}
+
 int main(int argc, char **argv) {
     if (argc != 2) {
         fprintf(stderr, "usage: %s <directory>\n", argv[0]);
@@ -440,10 +527,20 @@ int main(int argc, char **argv) {
     if (mkdir(path, 0755) != 0 && errno != EEXIST) {
         die(path);
     }
+    snprintf(path, sizeof path, "%s/zip", g_dir);
+    if (mkdir(path, 0755) != 0 && errno != EEXIST) {
+        die(path);
+    }
+    snprintf(path, sizeof path, "%s/uf2", g_dir);
+    if (mkdir(path, 0755) != 0 && errno != EEXIST) {
+        die(path);
+    }
 
     write_session_seeds();
     write_framing_seeds();
     write_catalog_seeds();
+    write_zip_seeds();
+    write_uf2_seeds();
     printf("wrote %u seeds under %s\n", g_written, g_dir);
     return 0;
 }

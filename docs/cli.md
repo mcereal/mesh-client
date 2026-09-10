@@ -43,6 +43,32 @@ first port found is used.
 
 `--disable-ble` / `--disable-serial` turn a transport off entirely.
 
+## Fetching radio firmware
+
+```sh
+meshclient --fetch-firmware heltec-mesh-node-t114 --staging /mnt/UDISK
+```
+
+Downloads the newest **stable** firmware image for a build target, verifies it, and leaves it
+staged. **No radio is touched** — no transport is even started — because the download and the
+install are separate phases and this is the one without a radio in it. See
+[`docs/radio-firmware-roadmap.md`](radio-firmware-roadmap.md).
+
+The board is named by its build target rather than resolved from a connected radio, which is
+what makes it runnable with nothing plugged in. Four documents get read: the release index for
+the newest version, that release's own manifest for the platform whose zip holds the target,
+the board's `.mt.json` from inside that zip for the name of the image, and then the image. Only
+the last is large, and none of them is the 46 MB zip — the whole run moves about 0.6 MB and
+takes some eight seconds on a Brick over Wi-Fi.
+
+What it prints is the point: the image's name and length, where it was staged, and — on the USB
+path, where the image is a UF2 — its block count, family id and address range, read out of the
+file rather than assumed.
+
+`--staging DIR` is where it lands, `/tmp` by default. On a Brick use `/mnt/UDISK` and **not**
+`/mnt/SDCARD`: the nRF52 bootloader's mass-storage drive gets mounted over that card the moment
+a radio reboots into DFU, and a file staged there disappears from its own path.
+
 ## Auto-connect
 
 In foreground mode the app connects by itself, and **a plugged-in node wins over anything on the

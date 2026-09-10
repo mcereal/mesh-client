@@ -47,6 +47,18 @@ extern "C" {
  * held more, so the number growing upstream is visible rather than silent.
  */
 #define MESH_FIRMWARE_BOARDS_MAX 4U
+/* "firmware-heltec-mesh-node-t114-2.7.26.54e0d8d-ota.zip" is 53; the longest a release zip
+   carries is 72 with its directory prefix, and a manifest lists the basename only. */
+#define MESH_FIRMWARE_FILE_NAME_MAX 80U
+/* An md5 as the manifest spells it: 32 lowercase hex digits. */
+#define MESH_FIRMWARE_MD5_HEX 32U
+/* "spiffs", "coredump". */
+#define MESH_FIRMWARE_PART_MAX 12U
+/*
+ * How many files one board's manifest may list. The widest measured is the Heltec V3's five;
+ * nRF52 boards publish four. `found` says whether the document held more.
+ */
+#define MESH_FIRMWARE_FILES_MAX 8U
 
 /*
  * Which bus, if any, this client could put firmware onto a board over.
@@ -108,6 +120,99 @@ struct mesh_firmware_release {
 };
 
 /*
+ * A file the release publishes for one board, as its `.mt.json` lists it.
+ *
+ * The hash is an **md5** and this client has sha256 and no md5, so it is carried rather than
+ * checked - see docs/radio-firmware-roadmap.md's "What each hash actually proves". What the
+ * download is actually verified against is the zip member's CRC32, which the central directory
+ * carries and which the inflate checks on the way past.
+ */
+struct mesh_firmware_image {
+    char name[MESH_FIRMWARE_FILE_NAME_MAX];
+    char md5[MESH_FIRMWARE_MD5_HEX + 1U];
+    /*
+     * Which flash partition this file belongs in, on a board that has partitions. **Absent on
+     * every file an nRF52 board publishes**, because an nRF52 has no partition table to name -
+     * so this is the ESP32 selector and only the ESP32 selector, and a parser that picked the
+     * image by `part_name == "app0"` would find nothing for every board the USB path serves.
+     */
+    char part[MESH_FIRMWARE_PART_MAX];
+    uint64_t bytes;
+};
+
+/*
+ * `firmware-<target>-<version>.mt.json`, the per-board manifest inside the release zip.
+ *
+ * It is the third document, and unlike the other two it lives inside the thing it describes -
+ * so reading it means having already range-read the zip's central directory. What it is for is
+ * the last question the other two cannot answer: *which file in here is the image*. Everything
+ * else on it is a cross-check, and is treated as one - `architecture` here and `architecture`
+ * in `deviceHardware` are two copies of one fact, and a mismatch means the target resolved to
+ * a board whose manifest disagrees, which is the moment to stop rather than to pick a side.
+ */
+struct mesh_firmware_manifest {
+    char version[MESH_FIRMWARE_VERSION_MAX];
+    char target[MESH_FIRMWARE_TARGET_MAX];
+    /*
+     * The third spelling of the architecture, and the one that is not a source.
+     *
+     * `deviceHardware.architecture` says `esp32-s3`, the release manifest's `platform` says
+     * `esp32s3`, and this - the board's own `mcu` - says `esp32s3` too. They agree for every
+     * nRF52 and RP2040 board and disagree for exactly the ESP32-S3 family, which is the worst
+     * possible distribution: code written against an nRF52 board is correct and breaks the
+     * first time somebody points it at an S3.
+     */
+    char mcu[MESH_FIRMWARE_ARCH_MAX];
+    char architecture[MESH_FIRMWARE_ARCH_MAX];
+    uint32_t hw_model;
+    bool requires_dfu;
+    struct mesh_firmware_image files[MESH_FIRMWARE_FILES_MAX];
+    uint8_t count;
+    /* How many the document listed, which may be more than we kept. */
+    uint8_t found;
+};
+
+/*
+ * Reads a board's `.mt.json`. True when the document parsed, whatever it held.
+ *
+ * `len` may be 0 for a NUL-terminated string. A manifest with no files parses and reports
+ * none, which is a different answer from a document that did not parse and is a different row.
+ */
+bool mesh_firmware_manifest_parse(const char *json, size_t len, struct mesh_firmware_manifest *out);
+
+/*
+ * True when `manifest` is about that board and that release.
+ *
+ * The question a caller has to ask before it believes a manifest it pulled out of an archive.
+ * A member is found by the basename `firmware-<target>-<version>.mt.json`, so this is asking
+ * whether the file agrees with its own name - and a mispackaged archive where it does not is
+ * the one way an image for the *wrong* board passes everything downstream: two nRF52840
+ * targets share an architecture, share a UF2 family, and would carry a size and a CRC that
+ * match perfectly, because that other image really is intact.
+ *
+ * Both halves are required. A NULL or empty argument is not a wildcard - it is a caller that
+ * does not know what it asked for, which cannot be satisfied and answers false.
+ */
+bool mesh_firmware_manifest_describes(const struct mesh_firmware_manifest *manifest,
+                                      const char *target, const char *version);
+
+/*
+ * The one file in `manifest` that is the image for `path`, or NULL.
+ *
+ * **One question per path, rather than one predicate that tries to be both.** The USB path
+ * wants the `.uf2`, which is the whole of what a UF2 bootloader accepts and is the only file an
+ * nRF52 manifest publishes that is one. The BLE path wants the file declared `part_name`
+ * `app0`, which is the running-firmware partition - deliberately not `app1`, which holds the
+ * OTA loader itself and is shipped in the same zip as `mt-esp32s3-ota.bin`, and deliberately
+ * not the `.factory.bin`, which is the whole flash including a fresh filesystem.
+ *
+ * MESH_FIRMWARE_PATH_NONE has no image by definition and returns NULL.
+ */
+const struct mesh_firmware_image *
+mesh_firmware_manifest_image(const struct mesh_firmware_manifest *manifest,
+                             enum mesh_firmware_path path);
+
+/*
  * Collects every board in `deviceHardware` claiming `hw_model`.
  *
  * True when the document parsed, whatever it held - `out->found == 0` is "this radio's model
@@ -127,6 +232,24 @@ bool mesh_firmware_boards_parse(const char *json, size_t len, uint32_t hw_model,
  */
 bool mesh_firmware_release_parse(const char *json, size_t len, enum mesh_firmware_channel channel,
                                  struct mesh_firmware_release *out);
+
+/*
+ * The platform a release built `target` for, out of that release's own manifest
+ * (`firmware-<version>.json`, the `.json` the index calls `zip_url`).
+ *
+ * **This is what names the zip**, and it is the one string that cannot come from anywhere
+ * else. `deviceHardware.architecture` says `esp32-s3` where this says `esp32s3`, and
+ * `firmware-esp32-s3-2.7.26.54e0d8d.zip` is a 404 while `firmware-esp32s3-…zip` is 170 MB of
+ * zip - so the difference is a hard failure rather than a tidiness point. They agree for every
+ * nRF52 and RP2040 board and disagree for exactly the ESP32-S3 family, which is the worst
+ * possible distribution: code written and tested against an nRF52 board is correct.
+ *
+ * False when the document did not parse or built nothing for that target - which is a real
+ * answer rather than an error. A release that dropped a board is how a board stops being
+ * supported, and the row that says so is not the row that says the document was unreadable.
+ */
+bool mesh_firmware_platform_parse(const char *json, size_t len, const char *target, char *out,
+                                  size_t out_len);
 
 /* The verdict for an `architecture` string as the hardware document spells it. Unknown
    architectures - including ones upstream adds after this ships - are NONE, which is the answer

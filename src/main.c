@@ -2,12 +2,14 @@
 
 #include "mesh/core/app.h"
 #include "mesh/core/config.h"
+#include "mesh/core/firmware_fetch.h"
 #include "mesh/core/version.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/serial.h"
 #include "mesh/utils/array.h"
 #include "mesh/utils/log.h"
 #include "mesh/utils/text.h"
+#include "mesh/utils/time.h"
 
 #include <errno.h>
 #include <getopt.h>
@@ -145,6 +147,134 @@ static void list_all_devices(struct mesh_app *app) {
     }
 }
 
+/*
+ * --fetch-firmware: the whole of phase 2, run against the real service, with no radio involved.
+ *
+ * It exists because phase 2's promise - "0.5 MB fetched, it matches the CRC, and it inflates to
+ * the image the manifest describes" - is not a thing a unit test can prove. The suite runs the
+ * same chain against committed bytes through a fake CDN; this runs it against GitHub, from the
+ * device, over the antenna the client will really use, which is where the range refusals, the
+ * CA bundle and the busybox gzip actually live. It writes nothing to a radio and never will:
+ * that is phase 3, and it starts from the file this leaves behind.
+ *
+ * The board is named by its build target rather than resolved from a connected radio, because
+ * the two questions are separate and this is the one without a radio in it.
+ */
+struct cli_firmware_fetch {
+    struct mesh_fetch *fetcher;
+    struct mesh_firmware_fetch fetch;
+    struct mesh_firmware_release release;
+    const char *target;
+    const char *staging;
+    bool resolved;
+    bool finished;
+    bool ok;
+};
+
+static void cli_firmware_done(void *userdata, const struct mesh_firmware_fetch *fetch) {
+    struct cli_firmware_fetch *const run = (struct cli_firmware_fetch *)userdata;
+    run->finished = true;
+    run->ok = fetch->state == MESH_FIRMWARE_FETCH_READY;
+}
+
+static void cli_firmware_index(void *userdata, const struct mesh_fetch_result *result) {
+    struct cli_firmware_fetch *const run = (struct cli_firmware_fetch *)userdata;
+    if (result->outcome != MESH_FETCH_OK || result->body == NULL ||
+        !mesh_firmware_release_parse(result->body, result->len, MESH_FIRMWARE_CHANNEL_STABLE,
+                                     &run->release)) {
+        fprintf(stderr, "Could not read the release index.\n");
+        run->finished = true;
+        return;
+    }
+    if (run->release.manifest_url[0] == '\0') {
+        /* A release can appear in the index before its assets do, and one whose newest asset is
+           still a per-platform zip has no manifest at all. */
+        fprintf(stderr, "Release %s has published no manifest yet.\n", run->release.version);
+        run->finished = true;
+        return;
+    }
+    printf("Newest stable: %s\n", run->release.version);
+    run->resolved = true;
+    if (mesh_firmware_fetch_start(&run->fetch, run->fetcher, run->target, run->release.version,
+                                  run->release.manifest_url, "", run->staging, cli_firmware_done,
+                                  run) != 0) {
+        fprintf(stderr, "Could not start the fetch.\n");
+        run->finished = true;
+    }
+}
+
+static int fetch_radio_firmware(struct mesh_app *app, const char *target, const char *staging) {
+    struct cli_firmware_fetch run;
+    memset(&run, 0, sizeof run);
+    /* The updater's fetcher, because it is the one that already found the pak's CA bundle -
+       the Brick has no system store, so without it every HTTPS request exits 60. */
+    run.fetcher = &app->updater.fetch;
+    run.target = target;
+    run.staging = staging;
+
+    if (!mesh_fetch_available(run.fetcher)) {
+        fprintf(stderr, "No curl or wget on this device; nothing can be fetched.\n");
+        return -ENOTSUP;
+    }
+    printf("Fetching firmware for %s into %s\n", target, staging);
+
+    struct mesh_fetch_request request;
+    memset(&request, 0, sizeof request);
+    request.url = "https://api.meshtastic.org/github/firmware/list";
+    request.timeout_ms = 30000U;
+    /* The served index is 155 KB, almost all of it release notes, and there is no way to ask
+       for less. */
+    request.response_max = 512U * 1024U;
+    request.on_done = cli_firmware_index;
+    request.userdata = &run;
+    if (mesh_fetch_start(run.fetcher, &request, mesh_time_monotonic_ms()) != 0) {
+        fprintf(stderr, "Could not start the release index fetch.\n");
+        return -EIO;
+    }
+
+    unsigned last = 101U;
+    enum mesh_firmware_fetch_state last_state = MESH_FIRMWARE_FETCH_STATE_COUNT;
+    for (int turn = 0; turn < 60000 && !run.finished; ++turn) {
+        (void)mesh_event_loop_run(&app->loop, 10);
+        const uint64_t now = mesh_time_monotonic_ms();
+        mesh_fetch_tick(run.fetcher, now);
+        if (run.resolved) {
+            mesh_firmware_fetch_tick(&run.fetch, now);
+            const unsigned progress = mesh_firmware_fetch_progress(&run.fetch);
+            /* On a change of step as well as of percentage: this makes two round trips through
+               the same zip, and a bar alone cannot say which one is moving. */
+            if ((run.fetch.state != last_state || progress != last) && progress % 10U == 0U) {
+                printf("  %s %u%%\n", mesh_firmware_fetch_state_name(run.fetch.state), progress);
+                last = progress;
+                last_state = run.fetch.state;
+            }
+        }
+    }
+
+    if (!run.finished) {
+        fprintf(stderr, "Timed out.\n");
+        mesh_firmware_fetch_cancel(&run.fetch);
+        return -ETIMEDOUT;
+    }
+    if (!run.ok) {
+        fprintf(stderr, "Failed: %s\n",
+                run.fetch.message[0] != '\0' ? run.fetch.message : "no release resolved");
+        return -EIO;
+    }
+
+    char path[MESH_FETCH_PATH_MAX];
+    printf("Image:    %s\n", run.fetch.image.name);
+    printf("Size:     %llu bytes\n", (unsigned long long)run.fetch.image.bytes);
+    printf("Staged:   %s\n",
+           mesh_firmware_fetch_image_path(&run.fetch, path, sizeof path) != NULL ? path : "?");
+    if (run.fetch.path == MESH_FIRMWARE_PATH_USB) {
+        printf("UF2:      %u blocks, family %08x, %#x-%#x\n", (unsigned)run.fetch.uf2.blocks,
+               (unsigned)run.fetch.uf2.family_id, (unsigned)run.fetch.uf2.first_address,
+               (unsigned)run.fetch.uf2.last_address);
+    }
+    return 0;
+}
+
 static void print_usage(const char *program) {
     fprintf(stderr,
             "Usage: %s [options]\n"
@@ -170,6 +300,10 @@ static void print_usage(const char *program) {
             "      --channel N           Channel index for --send-text (default: 0)\n"
             "      --ack                 Request delivery confirmation and wait for it\n"
             "                            (direct messages only; the mesh never acks broadcasts)\n"
+            "      --fetch-firmware TARGET  Download the newest stable firmware image for a\n"
+            "                            build target (heltec-mesh-node-t114), verify it and\n"
+            "                            leave it staged. No radio is touched\n"
+            "      --staging DIR         Where --fetch-firmware stages (default: /tmp)\n"
             "  -V, --version              Print the client version and exit\n"
             "  -h, --help                 Show this help message\n",
             program);
@@ -214,6 +348,11 @@ int main(int argc, char **argv) {
     bool send_want_ack = false;
     bool use_serial = false;
     const char *serial_identifier = NULL;
+    const char *fetch_firmware_target = NULL;
+    /* /mnt/UDISK on a Brick, deliberately not the SD card: on the USB path the
+       bootloader's ghost drive is mounted over /mnt/SDCARD the moment the radio
+       reboots, so an image staged there vanishes from its own path. */
+    const char *fetch_firmware_staging = "/tmp";
 
     static const struct option long_options[] = {
         {"foreground", no_argument, NULL, 'f'},
@@ -231,6 +370,8 @@ int main(int argc, char **argv) {
         {"ack", no_argument, NULL, 6},
         {"serial", optional_argument, NULL, 7},
         {"disable-serial", no_argument, NULL, 8},
+        {"fetch-firmware", required_argument, NULL, 9},
+        {"staging", required_argument, NULL, 10},
         {"version", no_argument, NULL, 'V'},
         {"help", no_argument, NULL, 'h'},
         {0, 0, 0, 0},
@@ -262,6 +403,14 @@ int main(int argc, char **argv) {
             break;
         case 1:
             list_devices = true;
+            break;
+        case 9:
+            fetch_firmware_target = optarg;
+            break;
+        case 10:
+            if (optarg != NULL) {
+                fetch_firmware_staging = optarg;
+            }
             break;
         case 's':
             show_status = true;
@@ -334,6 +483,15 @@ int main(int argc, char **argv) {
         fprintf(stderr, "--send-text requires a non-empty message\n");
         mesh_app_shutdown(&app);
         return EXIT_FAILURE;
+    }
+
+    if (fetch_firmware_target != NULL) {
+        /* No transports started: this reaches the network and nothing else, which is also the
+           shape phase 3 will want - the radio link goes *down* for a download, because the
+           Brick's Wi-Fi and its Bluetooth are one part behind one antenna. */
+        result = fetch_radio_firmware(&app, fetch_firmware_target, fetch_firmware_staging);
+        mesh_app_shutdown(&app);
+        return result < 0 ? EXIT_FAILURE : EXIT_SUCCESS;
     }
 
     if (list_devices || show_status || send_text != NULL) {

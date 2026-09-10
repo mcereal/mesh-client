@@ -1,7 +1,7 @@
 #pragma once
 
 /*
- * One HTTPS GET, done by forking the device's own curl (or wget) and reading its stdout
+ * One HTTPS request, done by forking the device's own curl (or wget) and reading its stdout
  * through the event loop.
  *
  * There is no TLS in this process - the release build is a static musl binary whose only
@@ -66,11 +66,27 @@ struct mesh_fetch_result {
     size_t len;
 };
 
+/*
+ * What a request asks for. GET is the body; HEAD is the headers and nothing else.
+ *
+ * HEAD exists for one reason and it is not tidiness: a zip is read from the back, the CDN in
+ * front of these files answers `501 Unsupported client range` to a suffix range, and so the
+ * only way to ask for the last 64 KB of a file is to know how long it is first. What comes
+ * back on a HEAD is captured as the body - so `mesh_fetch_content_length()` reads it - and the
+ * child's stderr is captured with it, because the two tools disagree about which stream
+ * headers go to.
+ */
+enum mesh_fetch_method {
+    MESH_FETCH_GET = 0,
+    MESH_FETCH_HEAD,
+};
+
 /* Called once per started request, from the event loop, when the child is gone. */
 typedef void (*mesh_fetch_done_fn)(void *userdata, const struct mesh_fetch_result *result);
 
 struct mesh_fetch_request {
     const char *url;
+    enum mesh_fetch_method method;
     /*
      * Whole header lines - "Accept: application/vnd.github+json" - passed to curl with -H and
      * to wget with --header=. Entries are read until the first NULL, so a request that sets
@@ -177,6 +193,16 @@ int mesh_fetch_start(struct mesh_fetch *fetch, const struct mesh_fetch_request *
  * finished here.
  */
 void mesh_fetch_tick(struct mesh_fetch *fetch, uint64_t now_ms);
+
+/*
+ * Reads the `Content-Length` out of a captured HEAD reply. False when there is none.
+ *
+ * The **last** one, deliberately. Both tools follow redirects, and both print the headers of
+ * every hop - a GitHub release URL is a 302 to the CDN, and the 302 carries a
+ * `content-length: 0`. Taking the first would report every release zip as empty, and the
+ * arithmetic that follows would ask for a 64 KB window ending before the start of the file.
+ */
+bool mesh_fetch_content_length(const char *headers, size_t len, uint64_t *out);
 
 /*
  * Abandons anything in flight: the child is killed, the buffer dropped and the callback is

@@ -199,6 +199,57 @@ bool mesh_firmware_release_parse(const char *json_text, size_t len,
     return true;
 }
 
+/* ---- the release's own manifest ----------------------------------------------------------- */
+
+bool mesh_firmware_platform_parse(const char *json_text, size_t len, const char *target, char *out,
+                                  size_t out_len) {
+    if (json_text == NULL || target == NULL || out == NULL || out_len == 0U || target[0] == '\0') {
+        return false;
+    }
+    out[0] = '\0';
+
+    struct mesh_json json;
+    mesh_json_init(&json, json_text, len);
+    if (!mesh_json_object_find(&json, "targets")) {
+        return false;
+    }
+    if (!mesh_json_enter_array(&json)) {
+        return false;
+    }
+    while (mesh_json_next_element(&json)) {
+        if (!mesh_json_enter_object(&json)) {
+            return false;
+        }
+        char key[32];
+        char board[MESH_FIRMWARE_TARGET_MAX];
+        char platform[MESH_FIRMWARE_ARCH_MAX];
+        board[0] = '\0';
+        platform[0] = '\0';
+        while (mesh_json_next_key(&json, key, sizeof key)) {
+            bool read = false;
+            if (strcmp(key, "board") == 0) {
+                read = mesh_json_read_string(&json, board, sizeof board);
+            } else if (strcmp(key, "platform") == 0) {
+                read = mesh_json_read_string(&json, platform, sizeof platform);
+            }
+            if (!read && !mesh_json_skip_value(&json)) {
+                return false;
+            }
+        }
+        if (strcmp(board, target) == 0 && platform[0] != '\0') {
+            /*
+             * The walk stops here rather than running to the end of the array. That is not an
+             * optimisation: this document lists a board once, and a reader that kept going
+             * would let a later duplicate - the shape a bad merge produces - overwrite the
+             * answer with whichever copy was last.
+             */
+            mesh_str_copy(out, out_len, platform);
+            return true;
+        }
+    }
+    return false;
+}
+
 /* ---- versions ---------------------------------------------------------------------------- */
 
 /* Reads the leading run of digits and steps `cursor` past it and any single separator after.
@@ -240,4 +291,146 @@ int mesh_firmware_version_compare(const char *left, const char *right) {
     /* Whatever is left is the build hash, and a hash has no order. Equal numbers are one
        release as far as this client is concerned. */
     return 0;
+}
+
+/* ---- the board's own manifest ------------------------------------------------------------ */
+
+/* Reads one entry of the manifest's `files` array. Same rule as a board: every key is
+   optional, an unknown one is skipped, and a wanted key whose value is the wrong type still
+   has to be stepped over or the walk desynchronises. */
+static bool catalog_read_image(struct mesh_json *json, struct mesh_firmware_image *image) {
+    memset(image, 0, sizeof *image);
+    if (!mesh_json_enter_object(json)) {
+        return false;
+    }
+    char key[32];
+    while (mesh_json_next_key(json, key, sizeof key)) {
+        bool read = false;
+        if (strcmp(key, "name") == 0) {
+            read = mesh_json_read_string(json, image->name, sizeof image->name);
+        } else if (strcmp(key, "md5") == 0) {
+            read = mesh_json_read_string(json, image->md5, sizeof image->md5);
+        } else if (strcmp(key, "part_name") == 0) {
+            read = mesh_json_read_string(json, image->part, sizeof image->part);
+        } else if (strcmp(key, "bytes") == 0) {
+            read = mesh_json_read_u64(json, &image->bytes);
+        }
+        if (!read && !mesh_json_skip_value(json)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool catalog_read_files(struct mesh_json *json, struct mesh_firmware_manifest *out) {
+    if (!mesh_json_enter_array(json)) {
+        return false;
+    }
+    while (mesh_json_next_element(json)) {
+        struct mesh_firmware_image image;
+        if (!catalog_read_image(json, &image)) {
+            return false;
+        }
+        /* A file with no name is not a file we could ask the zip for. */
+        if (image.name[0] == '\0') {
+            continue;
+        }
+        if (out->found < UINT8_MAX) {
+            out->found++;
+        }
+        if (out->count < MESH_FIRMWARE_FILES_MAX) {
+            out->files[out->count++] = image;
+        }
+    }
+    return true;
+}
+
+bool mesh_firmware_manifest_parse(const char *json_text, size_t len,
+                                  struct mesh_firmware_manifest *out) {
+    if (json_text == NULL || out == NULL) {
+        return false;
+    }
+    memset(out, 0, sizeof *out);
+
+    struct mesh_json json;
+    mesh_json_init(&json, json_text, len);
+    if (!mesh_json_enter_object(&json)) {
+        return false;
+    }
+    char key[32];
+    while (mesh_json_next_key(&json, key, sizeof key)) {
+        bool read = false;
+        if (strcmp(key, "version") == 0) {
+            read = mesh_json_read_string(&json, out->version, sizeof out->version);
+        } else if (strcmp(key, "platformioTarget") == 0) {
+            read = mesh_json_read_string(&json, out->target, sizeof out->target);
+        } else if (strcmp(key, "mcu") == 0) {
+            read = mesh_json_read_string(&json, out->mcu, sizeof out->mcu);
+        } else if (strcmp(key, "architecture") == 0) {
+            read = mesh_json_read_string(&json, out->architecture, sizeof out->architecture);
+        } else if (strcmp(key, "hwModel") == 0) {
+            uint64_t model = 0U;
+            read = mesh_json_read_u64(&json, &model);
+            out->hw_model = (uint32_t)model;
+        } else if (strcmp(key, "requiresDfu") == 0) {
+            read = mesh_json_read_bool(&json, &out->requires_dfu);
+        } else if (strcmp(key, "files") == 0) {
+            /*
+             * Fatal rather than skipped, unlike every other key here. A failed scalar read
+             * leaves the cursor on the value it refused, so skipping it puts the walk back in
+             * step; a failed *array* read has already consumed part of the array, and there is
+             * nothing to skip that would land anywhere meaningful. Reading on from there would
+             * report a manifest assembled out of the wreckage.
+             */
+            if (!catalog_read_files(&json, out)) {
+                return false;
+            }
+            read = true;
+        }
+        if (!read && !mesh_json_skip_value(&json)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool mesh_firmware_manifest_describes(const struct mesh_firmware_manifest *manifest,
+                                      const char *target, const char *version) {
+    if (manifest == NULL || target == NULL || version == NULL || target[0] == '\0' ||
+        version[0] == '\0') {
+        return false;
+    }
+    return strcmp(manifest->target, target) == 0 && strcmp(manifest->version, version) == 0;
+}
+
+/* True when `name` ends in `suffix`. The UF2 selector, and the reason it is a suffix test
+   rather than a `part_name` one is that an nRF52 manifest carries no `part_name` at all. */
+static bool catalog_name_ends_with(const char *name, const char *suffix) {
+    const size_t name_len = strlen(name);
+    const size_t suffix_len = strlen(suffix);
+    return name_len >= suffix_len && strcmp(name + name_len - suffix_len, suffix) == 0;
+}
+
+const struct mesh_firmware_image *
+mesh_firmware_manifest_image(const struct mesh_firmware_manifest *manifest,
+                             enum mesh_firmware_path path) {
+    if (manifest == NULL) {
+        return NULL;
+    }
+    for (uint8_t i = 0; i < manifest->count; ++i) {
+        const struct mesh_firmware_image *const file = &manifest->files[i];
+        if (path == MESH_FIRMWARE_PATH_USB) {
+            /* The bootloader takes a UF2 and nothing else, and an nRF52 manifest publishes
+               exactly one. The `-ota.zip` beside it is the Nordic DFU package, which is a
+               different protocol over a different bus and is not this path's file. */
+            if (catalog_name_ends_with(file->name, ".uf2")) {
+                return file;
+            }
+        } else if (path == MESH_FIRMWARE_PATH_BLE) {
+            if (strcmp(file->part, "app0") == 0) {
+                return file;
+            }
+        }
+    }
+    return NULL;
 }

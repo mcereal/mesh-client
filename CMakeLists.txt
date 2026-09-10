@@ -58,12 +58,15 @@ add_library(meshclient_core
     src/core/fetch.c
     src/core/firmware.c
     src/core/firmware_catalog.c
+    src/core/firmware_download.c
+    src/core/firmware_fetch.c
     src/core/message.c
     src/core/waypoint.c
     src/core/radio_settings.c
     src/core/session.c
     src/core/signals.c
     src/core/store_forward.c
+    src/core/uf2.c
     src/core/updater.c
     src/core/version.c
     src/transport/transport_registry.c
@@ -84,6 +87,7 @@ add_library(meshclient_core
     src/utils/sha256.c
     src/utils/text.c
     src/utils/time.c
+    src/utils/zip.c
     src/ui/actions.c
     src/ui/chrome.c
     src/ui/help.c

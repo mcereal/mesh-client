@@ -240,7 +240,7 @@ static int fetch_on_child_output(int fd, uint32_t events, void *userdata) {
 
 /* Forks `argv` with its stdout on a pipe registered with the event loop. */
 static int fetch_spawn(struct mesh_fetch *fetch, char *const argv[], uint64_t now_ms,
-                       uint32_t timeout_ms) {
+                       uint32_t timeout_ms, bool capture_stderr) {
     int fds[2];
     if (pipe(fds) < 0) {
         return -errno;
@@ -257,6 +257,14 @@ static int fetch_spawn(struct mesh_fetch *fetch, char *const argv[], uint64_t no
         /* Child: stdout to the pipe, stderr to the log's fate (inherited), stdin closed. */
         close(fds[0]);
         if (dup2(fds[1], STDOUT_FILENO) < 0) {
+            _exit(127);
+        }
+        /*
+         * A HEAD takes stderr too, because the two tools disagree about where headers go:
+         * curl -I writes them to stdout and wget -S writes them to stderr. Only for a HEAD -
+         * on a GET this would fold curl's progress and diagnostics into the document.
+         */
+        if (capture_stderr && dup2(fds[1], STDERR_FILENO) < 0) {
             _exit(127);
         }
         close(fds[1]);
@@ -404,9 +412,10 @@ int mesh_fetch_start(struct mesh_fetch *fetch, const struct mesh_fetch_request *
     char *argv[MESH_FETCH_ARGV_MAX];
     size_t argc = 0U;
     const bool curl = strcmp(fetch->tool, "curl") == 0;
+    const bool head = request->method == MESH_FETCH_HEAD;
     if (curl) {
         argv[argc++] = (char *)"curl";
-        argv[argc++] = (char *)"-fsSL";
+        argv[argc++] = head ? (char *)"-fsSLI" : (char *)"-fsSL";
         argv[argc++] = (char *)"--max-time";
         argv[argc++] = seconds;
         if (fetch->ca_bundle[0] != '\0') {
@@ -417,7 +426,9 @@ int mesh_fetch_start(struct mesh_fetch *fetch, const struct mesh_fetch_request *
             argv[argc++] = (char *)"-H";
             argv[argc++] = (char *)request->headers[i];
         }
-        if (request->output_path != NULL) {
+        /* A HEAD's whole reply is its headers, so it is always captured rather than written
+           to whatever file the caller had in mind for a body. */
+        if (request->output_path != NULL && !head) {
             argv[argc++] = (char *)"-o";
             argv[argc++] = (char *)request->output_path;
         }
@@ -434,9 +445,14 @@ int mesh_fetch_start(struct mesh_fetch *fetch, const struct mesh_fetch_request *
                      request->headers[i]);
             argv[argc++] = header_options[i];
         }
+        if (head) {
+            argv[argc++] = (char *)"--spider";
+            argv[argc++] = (char *)"-S";
+        }
         argv[argc++] = (char *)"-O";
         /* wget has no "write to stdout" default: capturing means asking for `-` by name. */
-        argv[argc++] = request->output_path != NULL ? (char *)request->output_path : (char *)"-";
+        argv[argc++] =
+            request->output_path != NULL && !head ? (char *)request->output_path : (char *)"-";
     }
     argv[argc++] = (char *)request->url;
     argv[argc] = NULL;
@@ -447,7 +463,7 @@ int mesh_fetch_start(struct mesh_fetch *fetch, const struct mesh_fetch_request *
     fetch->userdata = request->userdata;
     fetch->failure = MESH_FETCH_OK;
 
-    const int result = fetch_spawn(fetch, argv, now_ms, timeout_ms);
+    const int result = fetch_spawn(fetch, argv, now_ms, timeout_ms, head);
     if (result != 0) {
         /* Nothing was spawned, so nothing may be reported: leave the fetcher idle and let the
            caller turn the errno into whatever its own screen says. */
@@ -476,6 +492,70 @@ void mesh_fetch_tick(struct mesh_fetch *fetch, uint64_t now_ms) {
         fetch->child = -1;
         fetch_complete(fetch, MESH_FETCH_TIMED_OUT, -1);
     }
+}
+
+bool mesh_fetch_content_length(const char *headers, size_t len, uint64_t *out) {
+    if (headers == NULL || out == NULL) {
+        return false;
+    }
+    const size_t length = len > 0U ? len : strlen(headers);
+    static const char k_key[] = "content-length:";
+    const size_t key_len = sizeof k_key - 1U;
+
+    bool found = false;
+    uint64_t value = 0U;
+    /*
+     * Every line of every hop, taking the last match rather than the first. Both tools follow
+     * redirects and print the headers of each; a GitHub release URL is a 302 to the CDN and
+     * the 302 says `content-length: 0`, so first-match reports every release zip as empty.
+     */
+    for (size_t at = 0U; at + key_len <= length; ++at) {
+        if (at != 0U && headers[at - 1U] != '\n') {
+            continue;
+        }
+        /* Case-insensitive: curl prints HTTP/2 headers lowercase and wget prints what the
+           server sent, which for HTTP/1.1 is `Content-Length`. */
+        size_t i = 0U;
+        while (i < key_len) {
+            char c = headers[at + i];
+            if (c >= 'A' && c <= 'Z') {
+                c = (char)(c - 'A' + 'a');
+            }
+            if (c != k_key[i]) {
+                break;
+            }
+            i++;
+        }
+        if (i != key_len) {
+            continue;
+        }
+        size_t digit = at + key_len;
+        while (digit < length && (headers[digit] == ' ' || headers[digit] == '\t')) {
+            digit++;
+        }
+        if (digit >= length || headers[digit] < '0' || headers[digit] > '9') {
+            continue;
+        }
+        uint64_t parsed = 0U;
+        bool overflow = false;
+        while (digit < length && headers[digit] >= '0' && headers[digit] <= '9') {
+            if (parsed > (UINT64_MAX - 9U) / 10U) {
+                overflow = true;
+                break;
+            }
+            parsed = parsed * 10U + (uint64_t)(headers[digit] - '0');
+            digit++;
+        }
+        if (overflow) {
+            continue;
+        }
+        value = parsed;
+        found = true;
+    }
+    if (found) {
+        *out = value;
+    }
+    return found;
 }
 
 void mesh_fetch_cancel(struct mesh_fetch *fetch) {
