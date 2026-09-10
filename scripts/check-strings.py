@@ -6,9 +6,10 @@ only true for as long as nobody adds a `"Not connected"` back into a renderer, a
 has no opinion about it - a string literal is a string literal. This is the check that does.
 
 It reads the files that draw or announce something, and reports any string literal that looks
-like prose: three or more letters in a row, outside a comment, outside a log call. Everything a
-renderer legitimately spells out - a printf glue string, a path, an environment variable, a
-protocol token - is either not prose or is listed in ALLOWED below, with the reason.
+like prose: three or more letters in a row, outside a comment, outside a log call, outside a
+static assertion. Everything a renderer legitimately spells out - a printf glue string, a path,
+an environment variable, a protocol token - is either not prose or is listed in ALLOWED below,
+with the reason.
 
 Run it directly, or through `ctest` / `make test`, which is where it will catch somebody.
 """
@@ -111,6 +112,12 @@ PROSE = re.compile(r"[A-Za-z]{3,}")
 ENV_NAME = re.compile(r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$")
 PATH_NAME = re.compile(r"^/[A-Za-z0-9_./%*+-]*$")
 
+# Calls whose string arguments are never read off a panel, skipped whole - to the closing paren
+# rather than to the end of the line, because the argument carrying the words is often not on
+# the first one. A log is read by a developer; an assertion's message is read by a compiler, in
+# a build that by definition did not produce a binary.
+SKIPPED_CALLS = ("mesh_log", "MESH_UI_STATIC_ASSERT", "_Static_assert", "static_assert")
+
 
 def strip_comments(text):
     """Blank out comments, keeping line numbers so a report can point at the right line."""
@@ -143,10 +150,16 @@ def strip_comments(text):
 
 
 def findings(path):
-    """Every prose literal in `path`, skipping includes and whole mesh_log() calls.
+    """Every prose literal in `path`, skipping includes, mesh_log() calls and static assertions.
 
     A log call is skipped to its closing paren rather than to the end of its first line: the
     arguments that pick a word - `favorite ? "Pinned" : "Unpinned"` - are usually on the second.
+
+    A static assertion's message is skipped the same way and for a stronger reason than a log's:
+    a log line is read by somebody eventually, where an assertion's message is a *compiler*
+    diagnostic that exists only in a build that fails. It never reaches a panel, so it is not
+    text this rule is about - and it is skipped by its form, like the paths and the environment
+    variables, so the next one does not have to be added to ALLOWED by hand.
     """
     source = strip_comments((ROOT / path).read_text())
     depth = 0
@@ -157,8 +170,10 @@ def findings(path):
         stripped = line.strip()
         if stripped.startswith("#include"):
             continue
-        if "mesh_log" in line:
-            depth = line[line.index("mesh_log"):].count("(") - line[line.index("mesh_log"):].count(")")
+        skipped = next((call for call in SKIPPED_CALLS if call in line), None)
+        if skipped is not None:
+            tail = line[line.index(skipped):]
+            depth = tail.count("(") - tail.count(")")
             continue
         for match in LITERAL.finditer(line):
             literal = match.group(0)

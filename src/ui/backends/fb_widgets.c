@@ -2543,6 +2543,33 @@ void fb_card_spark(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_i
     row->spark = points;
 }
 
+void fb_card_proportion(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_id label,
+                        const uint32_t *values, uint32_t count) {
+    if (values == NULL || count < 2U || count > MESH_UI_PROPORTION_PARTS) {
+        return;
+    }
+    /* The whole, tested here rather than in the drawing, so that a card asking for a composition
+       and a card asking for a trend answer an absent reading the same way: with no row. */
+    uint64_t total = 0U;
+    for (uint32_t i = 0; i < count; ++i) {
+        total += values[i];
+    }
+    if (total == 0U) {
+        return;
+    }
+    struct fb_card_row *row = fb_card_next_row(card, FB_CARD_ROW_PROPORTION, tone);
+    if (row == NULL) {
+        return;
+    }
+    if (label != MESH_STR_NONE) {
+        mesh_text_sanitise_str(mesh_str(label), row->label, sizeof row->label);
+    }
+    for (uint32_t i = 0; i < count; ++i) {
+        row->parts[i] = values[i];
+    }
+    row->part_count = count;
+}
+
 void fb_card_note(struct fb_card *card, enum mesh_ui_tone tone, const char *text) {
     if (text == NULL || text[0] == '\0') {
         return;
@@ -2641,6 +2668,41 @@ static uint32_t fb_draw_card_row(struct mesh_ui_backend_fb_state *state,
         return 1U;
     }
 
+    if (row->kind == FB_CARD_ROW_PROPORTION) {
+        /* The meter row's own layout, because a composition is a bar and a card that placed its
+           two kinds of bar differently would be reporting a difference that is not there. */
+        const int adv = fb_char_adv(state, state->scale);
+        int bar_x = m->content_x;
+        if (row->label[0] != '\0') {
+            struct mesh_ui_line line;
+            mesh_ui_line_reset(&line);
+            mesh_ui_line_column(&line, row->label, m->label_cols);
+            mesh_ui_line_fit(&line, m->cols);
+            fb_draw_text(state, m->content_x, y, mesh_ui_line_text(&line), state->scale, color,
+                         ground);
+            bar_x = m->content_x + (int)(m->label_cols + 1U) * adv;
+        }
+        const int bar_right = m->content_x + (int)m->cols * adv;
+        const int height = fb_proportion_thickness(state, state->scale);
+        if (bar_right - bar_x > 0) {
+            struct fb_proportion bar = {
+                .rect = {.x = bar_x,
+                         .y = y + (layout->line - state->scale - height) / 2,
+                         .w = bar_right - bar_x,
+                         .h = height},
+                .count = row->part_count,
+                /* The card's own fill, which depends on its variant - the same colour every
+                   other row on it draws its text over. */
+                .ground = ground,
+            };
+            for (uint32_t i = 0; i < row->part_count && i < MESH_UI_PROPORTION_PARTS; ++i) {
+                bar.values[i] = row->parts[i];
+            }
+            fb_draw_proportion(state, &bar);
+        }
+        return 1U;
+    }
+
     if (row->kind == FB_CARD_ROW_SPARK) {
         /* The same shape and the same arithmetic as the bar above, so a card carrying both puts
            them in one column and on one rhythm - which is the whole reason the trend is a row
@@ -2681,8 +2743,27 @@ static uint32_t fb_draw_card_row(struct mesh_ui_backend_fb_state *state,
     return 1U;
 }
 
-bool fb_draw_card(struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout, int *y,
-                  const struct fb_card *card) {
+int fb_card_min_height(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                       const struct fb_card *card) {
+    if (fb_card_is_empty(card)) {
+        return 0;
+    }
+    const struct fb_card_metrics m = fb_card_measure(state, layout, card);
+    /* One row, which is the same point fb_draw_card() refuses a card at: a heading with nothing
+       under it is not a card. What the row costs is the row's own - a note that wraps to three
+       lines is three - because the minimum has to be a card that can actually be drawn. */
+    const struct fb_card_fit least = {.rows = 1U, .tail_lines = 0U};
+    /* The box and no gap, which is where this differs from fb_card_height(). That one answers
+       "how much of the column does this card consume", so it carries the gap to whatever comes
+       under it; this one answers "how much room does this card need to exist at all". The gap
+       *between* the two cards is real and still has to be paid for - it is just not this card's
+       to state, because it belongs to whichever card is reserving the room and is added by
+       fb_draw_card_reserving(). Counting it here as well would spend a row of content on air. */
+    return fb_card_box_height(&m, layout, card, least);
+}
+
+bool fb_draw_card_reserving(struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                            int *y, const struct fb_card *card, int reserve) {
     if (y == NULL || fb_card_is_empty(card)) {
         return false;
     }
@@ -2701,7 +2782,42 @@ bool fb_draw_card(struct mesh_ui_backend_fb_state *state, const struct fb_layout
      * to reach it.
      */
     const int bottom = layout->footer_y - fb_margin(state) / 2;
-    const struct fb_card_fit fit = fb_card_clip(&m, layout, card, *y, bottom);
+    /*
+     * And `reserve` off that, which is this card being told to leave room for what comes after
+     * it.
+     *
+     * A column of cards is drawn in order and each one takes what it wants, so the last card is
+     * the one that pays for everything above it - and paying, here, means not being drawn at
+     * all. That is worse than losing a row: a card carries *verbs*, and which verbs a screen
+     * offers is a table (src/ui/status.c) that knows nothing about how tall anything came out.
+     * So the cursor keeps walking onto a button that is not on the frame, which is the failure
+     * "a card that can end up with no rows must not be given a verb" already names, arrived at
+     * from the layout side instead of the row-count side.
+     *
+     * A reservation turns that around: the card that can afford to lose a row loses one, and the
+     * card that would otherwise vanish survives. Which is also the right order editorially - the
+     * rows that go are the last ones a screen declared, and a screen declares its least
+     * important rows last.
+     */
+    /*
+     * Plus this card's own gap, because that is what separates the two: `*y` advances past the
+     * box *and* the gap, so the card being reserved for starts a gap lower than this one ends.
+     * Reserving the bare content height leaves it exactly one gap short, which on this panel is
+     * the difference between the card being drawn and not.
+     */
+    int limit = reserve > 0 ? bottom - reserve - m.gap : bottom;
+    struct fb_card_fit fit = fb_card_clip(&m, layout, card, *y, limit);
+    if (fit.rows == 0U && fit.tail_lines == 0U) {
+        /*
+         * The reservation yields rather than erasing this card.
+         *
+         * It is a promise about the card *below*, and a promise that cannot be kept without
+         * deleting the card above it is not worth keeping - two cards missing is not an
+         * improvement on one. So a reservation that cannot be afforded is dropped, and the
+         * column degrades to what it did before: whoever is drawn first gets the room.
+         */
+        fit = fb_card_clip(&m, layout, card, *y, bottom);
+    }
     if (fit.rows == 0U && fit.tail_lines == 0U) {
         return false;
     }
@@ -2825,6 +2941,11 @@ bool fb_draw_card(struct mesh_ui_backend_fb_state *state, const struct fb_layout
 
     *y = top + height + m.gap;
     return true;
+}
+
+bool fb_draw_card(struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout, int *y,
+                  const struct fb_card *card) {
+    return fb_draw_card_reserving(state, layout, y, card, 0);
 }
 
 /* ---- the snackbar ------------------------------------------------------------------------ */
@@ -3902,6 +4023,112 @@ void fb_draw_sparkline(const struct mesh_ui_backend_fb_state *state,
         mark_y = r.y;
     }
     fb_fill_rect(state, mark_x, mark_y, mark, mark, ink);
+}
+
+/* ---- the proportion bar --------------------------------------------------------------------- */
+
+/*
+ * The two halves of the seam layout.h keeps with theme.h, held equal where they finally meet.
+ *
+ * A part is layout's idea and the colour it takes is the theme's, so neither header includes the
+ * other and each states its own count - the same split MESH_WAYPOINT_NAME_MAX makes across the
+ * store's seam. This is the one translation unit that sees both, so this is where the two are
+ * proved to agree, at compile time rather than by a test that has to be remembered.
+ */
+MESH_UI_STATIC_ASSERT((int)MESH_UI_PROPORTION_PARTS == (int)MESH_UI_SERIES_COLORS,
+                      "a composition may have exactly as many parts as there are series colours");
+
+int fb_proportion_thickness(const struct mesh_ui_backend_fb_state *state, int scale) {
+    return fb_meter_thickness(state, scale);
+}
+
+void fb_draw_proportion(const struct mesh_ui_backend_fb_state *state,
+                        const struct fb_proportion *bar) {
+    if (bar == NULL || bar->count < 2U || bar->rect.w <= 0 || bar->rect.h <= 0) {
+        return;
+    }
+    const struct fb_rect r = bar->rect;
+
+    int32_t widths[MESH_UI_PROPORTION_PARTS];
+    const uint32_t parts = mesh_ui_proportion_split(bar->values, bar->count, r.w, widths);
+    if (parts == 0U) {
+        /* Nothing was heard at all, so there is no whole to divide. An empty bar here would say
+           the parts were all zero, which is a reading; this is the absence of one. */
+        return;
+    }
+
+    const int radius = fb_radius(state, MESH_UI_SHAPE_FULL);
+    /* The meter's ground under a cursor fill, for the meter's reason - see `selected`. */
+    if (bar->selected) {
+        const int pad = fb_space(state, MESH_UI_SPACE_XS);
+        fb_fill_round_rect(state, r.x - pad, r.y - pad, r.w + 2 * pad, r.h + 2 * pad, radius + pad,
+                           fb_color(state, MESH_UI_COLOR_BG));
+    }
+
+    /*
+     * Widest first, each part a pill from the bar's left edge to where that part ends.
+     *
+     * Not one rectangle per part, which is the obvious way and loses both caps: a plain rect over
+     * the last part squares off the round end the bar shares with every other bar on the card,
+     * and the first part's round end has nothing to sit in. Drawn this way the outermost fill
+     * lays the right-hand cap, each narrower one lands on top with its own left-hand cap in the
+     * same place, and the part drawn last owns the left end - so the two ends of the bar are the
+     * meter's ends and the boundaries between parts are the only new edges on it.
+     *
+     * At this radius - a pill on a bar a few pixels tall clamps to a pixel or two - a boundary
+     * comes out as a softened vertical edge rather than as a visible bulge.
+     */
+    int end = r.w;
+    for (uint32_t i = parts; i-- > 0U;) {
+        if (widths[i] > 0 && end > 0) {
+            fb_fill_round_rect(state, r.x, r.y, end, r.h, radius,
+                               mesh_ui_theme_series(state->theme, i));
+        }
+        end -= widths[i];
+    }
+
+    /*
+     * And a gap cut at each boundary, in the ground the bar is drawn on.
+     *
+     * The meter's band notches, doing the same job one level along: two parts of a composition
+     * are two fills meeting with nothing between them, and the palette only promises they are
+     * 1.4:1 apart - which is a difference the eye finds reliably when there is an edge to find it
+     * at, and less reliably across a seam it has to decide is there. A gap is that edge, and it
+     * is drawn in the absence of ink for the reason the notches are: an ink of its own would be
+     * one more pair every theme had to be validated for, to say what a hole already says.
+     *
+     * In the caller's ground rather than in MESH_UI_COLOR_BG, which is where this differs from
+     * the band notch it is otherwise copying. A notch divides a bar the eye has already found;
+     * these gaps have to be *invisible*, and a bar on a card whose gaps are the body's colour has
+     * stripes in it rather than divisions. Under a cursor fill it is the pad above that is
+     * behind the bar, so that is what the gaps take there.
+     *
+     * It costs each part half a pixel of length at one end. That is the same price the band marks
+     * pay and it is the right way round: the boundary is what the picture is *for*.
+     */
+    const int gap = fb_space(state, MESH_UI_SPACE_XS) > 0 ? fb_space(state, MESH_UI_SPACE_XS) : 1;
+    const struct mesh_ui_rgb ground =
+        bar->selected ? fb_color(state, MESH_UI_COLOR_BG) : bar->ground;
+    int boundary = 0;
+    for (uint32_t i = 0; i + 1U < parts; ++i) {
+        boundary += widths[i];
+        if (widths[i] == 0) {
+            continue; /* a part that is not there has no edge of its own */
+        }
+        int x = r.x + boundary - gap / 2;
+        int w = gap;
+        /* Held inside the bar, so the gap at the last boundary cannot eat the round end. */
+        if (x < r.x) {
+            w -= r.x - x;
+            x = r.x;
+        }
+        if (x + w > r.x + r.w) {
+            w = r.x + r.w - x;
+        }
+        if (w > 0) {
+            fb_fill_rect(state, x, r.y, w, r.h, ground);
+        }
+    }
 }
 
 /* ---- the text field ------------------------------------------------------------------------ */

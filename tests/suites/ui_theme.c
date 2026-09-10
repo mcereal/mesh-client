@@ -281,6 +281,77 @@ MESH_TEST_CASE(ui_theme_validate_holds_the_meter_pairs, unit) {
     record_success(test_name);
 }
 
+/*
+ * The series palette.
+ *
+ * Two things no other palette in this file has to promise, and both are what makes a *sequence*
+ * different from a *set*. Every theme states all four, because a chart cannot draw fewer parts
+ * than it has and there is no `series_count` to fall short in; and the four are told apart from
+ * each other rather than only from the ground they sit on, because two slices of a bar are
+ * never seen against a ground - they are seen against each other.
+ *
+ * The contrast arithmetic itself is mesh_ui_theme_validate()'s, and ui_theme_tables_are_readable
+ * already runs it over the whole registry. What is here is that the lookup answers, and that
+ * every theme spends its four on four different colours.
+ */
+MESH_TEST_CASE(ui_theme_series_palette, unit) {
+    for (size_t i = 0; i < mesh_ui_theme_count(); ++i) {
+        const struct mesh_ui_theme *theme = mesh_ui_theme_at(i);
+        for (uint32_t slot = 0; slot < MESH_UI_SERIES_COLORS; ++slot) {
+            const struct mesh_ui_rgb color = mesh_ui_theme_series(theme, slot);
+            MESH_TEST_FAIL_IF(color.r == theme->colors[MESH_UI_COLOR_BG].r &&
+                                  color.g == theme->colors[MESH_UI_COLOR_BG].g &&
+                                  color.b == theme->colors[MESH_UI_COLOR_BG].b,
+                              "a theme left a series colour the same as its ground");
+            /* Distinct as *values*, which is a weaker claim than validate()'s 1.4:1 and is here
+               to catch the copy-paste rather than the contrast: a theme that stated one colour
+               four times would otherwise read as a palette right up until the validator ran. */
+            for (uint32_t other = 0; other < slot; ++other) {
+                const struct mesh_ui_rgb earlier = mesh_ui_theme_series(theme, other);
+                MESH_TEST_FAIL_IF(color.r == earlier.r && color.g == earlier.g &&
+                                      color.b == earlier.b,
+                                  "a theme states one colour in two series slots");
+            }
+        }
+
+        /* An index past the end wraps rather than reading off the table. A chart wider than the
+           palette is a bug upstream and drawing it is how that bug is visible; reading whatever
+           follows the array is how it is not. */
+        const struct mesh_ui_rgb wrapped = mesh_ui_theme_series(theme, MESH_UI_SERIES_COLORS + 1U);
+        const struct mesh_ui_rgb first = mesh_ui_theme_series(theme, 1U);
+        MESH_TEST_FAIL_IF(wrapped.r != first.r || wrapped.g != first.g || wrapped.b != first.b,
+                          "a series index past the end did not wrap");
+    }
+    record_success(test_name);
+}
+
+/*
+ * And the contract itself, in both directions.
+ *
+ * The inward half is the one that is new here. Every other check in the validator asks whether
+ * a colour can be seen against a ground; a pair of slices passes all of those and can still be
+ * one undivided block, which on the high-contrast theme is exactly what the three non-status
+ * families would have been.
+ */
+MESH_TEST_CASE(ui_theme_validate_holds_the_series_palette, unit) {
+    char reason[128];
+
+    struct mesh_ui_theme collapsed = *mesh_ui_theme_default();
+    collapsed.series[2] = collapsed.series[1];
+    reason[0] = '\0';
+    MESH_TEST_FAIL_IF(mesh_ui_theme_validate(&collapsed, reason, sizeof reason),
+                      "two series colours the eye cannot separate passed validation");
+    MESH_TEST_FAIL_IF(reason[0] == '\0', "validation failed without saying why");
+
+    /* The outward half, on a card rather than on the body - the ground a composition is actually
+       drawn on, and the one a palette checked only against the body would disappear on. */
+    struct mesh_ui_theme invisible = *mesh_ui_theme_default();
+    invisible.series[0] = invisible.colors[MESH_UI_COLOR_SURFACE];
+    MESH_TEST_FAIL_IF(mesh_ui_theme_validate(&invisible, reason, sizeof reason),
+                      "a series colour the colour of a card passed validation");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_theme_validate_rejects_an_unreadable_palette, unit) {
     struct mesh_ui_theme broken = *mesh_ui_theme_default();
     broken.colors[MESH_UI_COLOR_TEXT] = broken.colors[MESH_UI_COLOR_BG];

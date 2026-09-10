@@ -576,6 +576,89 @@ uint8_t mesh_ui_signal_level(float snr) {
     return 0U;
 }
 
+/* ---- a composition -------------------------------------------------------------------------- */
+
+uint32_t mesh_ui_proportion_split(const uint32_t *values, uint32_t count, int32_t extent,
+                                  int32_t *out) {
+    if (values == NULL || out == NULL || count == 0U || count > MESH_UI_PROPORTION_PARTS ||
+        extent <= 0) {
+        return 0U;
+    }
+
+    uint64_t total = 0U;
+    uint32_t present = 0U; /* parts that are actually there, and so owe a unit each */
+    for (uint32_t i = 0; i < count; ++i) {
+        total += (uint64_t)values[i];
+        if (values[i] > 0U) {
+            present++;
+        }
+    }
+    if (total == 0U) {
+        return 0U;
+    }
+
+    /*
+     * The floor of each part's share, and what it lost to that floor.
+     *
+     * In 64 bits because the numerator is a packet counter times a pixel width, and a radio
+     * that has been up for a month reports counters in the millions - the multiply is where a
+     * 32-bit version would wrap, silently, into a bar drawn from a negative share.
+     */
+    uint64_t remainder[MESH_UI_PROPORTION_PARTS];
+    int64_t used = 0;
+    for (uint32_t i = 0; i < count; ++i) {
+        const uint64_t numerator = (uint64_t)values[i] * (uint64_t)extent;
+        out[i] = (int32_t)(numerator / total);
+        remainder[i] = numerator % total;
+        used += out[i];
+    }
+
+    /* Largest remainder. The shortfall is strictly less than `count`, so no part is ever handed
+       a second unit and one pass over the list per unit is the whole of it. */
+    for (int64_t left = (int64_t)extent - used; left > 0; --left) {
+        uint32_t best = count;
+        for (uint32_t i = 0; i < count; ++i) {
+            if (remainder[i] > 0U && (best == count || remainder[i] > remainder[best])) {
+                best = i;
+            }
+        }
+        if (best == count) {
+            break; /* nothing lost anything: the split was exact and `left` is already 0 */
+        }
+        out[best]++;
+        remainder[best] = 0U;
+    }
+
+    /*
+     * And the part that is there but too small to see.
+     *
+     * Only when the bar is long enough to give every part a unit - below that there is no
+     * honest picture to draw and the proportions are left alone. Above it there is always a
+     * donor: if one part came out at nothing, the rest are sharing at least as many units as
+     * there are of them, so one of them has two.
+     */
+    if ((uint64_t)extent >= (uint64_t)present) {
+        for (uint32_t i = 0; i < count; ++i) {
+            if (values[i] == 0U || out[i] > 0) {
+                continue;
+            }
+            uint32_t donor = count;
+            for (uint32_t j = 0; j < count; ++j) {
+                if (out[j] > 1 && (donor == count || out[j] > out[donor])) {
+                    donor = j;
+                }
+            }
+            if (donor == count) {
+                break;
+            }
+            out[donor]--;
+            out[i]++;
+        }
+    }
+
+    return count;
+}
+
 /* ---- a series ------------------------------------------------------------------------------ */
 
 void mesh_ui_series_reset(struct mesh_ui_series *series, uint32_t gap_ms) {

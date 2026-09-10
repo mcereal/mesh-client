@@ -515,6 +515,7 @@ MESH_STR_ENTRY(STATUS_LABEL_AIRTIME,      "Airtime")
 MESH_STR_ENTRY(STATUS_LABEL_BATTERY,      "Battery")
 MESH_STR_ENTRY(STATUS_LABEL_PACKETS,      "Packets")
 MESH_STR_ENTRY(STATUS_LABEL_DROPPED,      "Dropped")
+MESH_STR_ENTRY(STATUS_LABEL_HEARD,        "Heard")
 MESH_STR_ENTRY(STATUS_LABEL_HEAP,         "Heap")
 MESH_STR_ENTRY(STATUS_LABEL_TX_QUEUE,     "TX queue")
 MESH_STR_ENTRY(STATUS_LABEL_RADIO_SAID,   "Radio said")
@@ -555,6 +556,10 @@ MESH_STR_ENTRY(STATUS_BATTERY_UNKNOWN,    "unknown")
 MESH_STR_ENTRY(STATUS_UPTIME_SUFFIX,      "%sup %s")
 MESH_STR_ENTRY(STATUS_PACKETS,            "%u tx, %u rx, %u relayed")
 MESH_STR_ENTRY(STATUS_DROPPED,            "%u bad rx, %u dupe, %u tx")
+/* The three parts of what the radio heard, in the order the bar under this row draws
+   them - a composition has no legend, so the words are it. Keep them in step: the
+   first number and the first slice are the same fact said twice. */
+MESH_STR_ENTRY(STATUS_HEARD,              "%u new, %u dupe, %u bad")
 MESH_STR_ENTRY(STATUS_HEAP,               "%u KB free of %u KB")
 MESH_STR_ENTRY(STATUS_MESH_NO_REPORT,     "no report yet")
 /* The same, on the Radio card: every row there appears only when the radio has said

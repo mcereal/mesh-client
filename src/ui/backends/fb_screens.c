@@ -1828,6 +1828,12 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
                              const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     int y = layout->body_y;
     struct fb_card card;
+    /*
+     * The Radio card gets a local of its own because it is built before the card above it is
+     * *drawn*, which is the whole of how it stops being squeezed off the screen - see the
+     * reservation below. Everything else on this screen is still declared and drawn in one go.
+     */
+    struct fb_card radio;
     char buffer[64];
     char second[64];
 
@@ -2047,6 +2053,43 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
         fb_card_row(&card, losing ? MESH_UI_TONE_WARNING : MESH_UI_TONE_DIM,
                     MESH_STR_STATUS_LABEL_DROPPED, MESH_STR_STATUS_DROPPED,
                     stats->num_packets_rx_bad, stats->num_rx_dupe, stats->num_tx_dropped);
+        /*
+         * And what those received packets were made of.
+         *
+         * The two rows above are totals, and a total answers "how much traffic" - which is not
+         * the question either of the numbers on them is interesting for. Upstream's own comment
+         * on the duplicate counter is "if this number is high, there are nodes in the mesh
+         * relaying packets when it's unnecessary", and high is a property of a *share*: 4,812
+         * duplicates is a busy mesh or a broken one depending entirely on what the other number
+         * is. Three lengths beside each other answer that without arithmetic, which is the
+         * airtime bar's argument on a whole with more than one part in it.
+         *
+         * This is a partition and the transmit counters are not, which is why there is a bar
+         * here and none under Packets: `num_packets_rx` is documented as everything received,
+         * good and bad, with the duplicates among it - where `num_tx_relay` is a *subset* of
+         * `num_packets_tx` rather than a sibling, so "tx, rx, relayed" adds up to a whole that
+         * does not exist. A composition drawn from overlapping parts is the way this component
+         * is wrong quietly.
+         *
+         * And the partition is checked rather than assumed. Two counters off the air have no
+         * promise of agreeing with a third: a firmware that counted duplicates outside its
+         * received total, or a report that arrived across a counter reset, would leave the
+         * remainder negative - and clamped to zero it would draw a bar claiming every packet the
+         * radio heard was bad. The row and its bar are skipped instead, which leaves the totals
+         * above saying what they always said.
+         */
+        const uint32_t heard = stats->num_packets_rx;
+        const uint32_t not_new = stats->num_packets_rx_bad + stats->num_rx_dupe;
+        if (heard > 0U && not_new <= heard) {
+            const uint32_t parts[] = {heard - not_new, stats->num_rx_dupe,
+                                      stats->num_packets_rx_bad};
+            fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_HEARD,
+                        MESH_STR_STATUS_HEARD, parts[0], parts[1], parts[2]);
+            /* No label: the row it sits under names all three parts, in this order, and that
+               correspondence is the only legend a bar in a row's height has room for. */
+            fb_card_proportion(&card, MESH_UI_TONE_NORMAL, MESH_STR_NONE, parts,
+                               (uint32_t)(sizeof parts / sizeof parts[0]));
+        }
     } else if (snapshot->handshake_valid) {
         /* Standing in for the two rows above, so it carries their label rather than one naming
            the card it is already inside - "Mesh: no report yet" on a card headed Mesh says the
@@ -2063,8 +2106,6 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
     fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_MESSAGES,
                 MESH_STR_STATUS_MESSAGES_KEPT, (unsigned)snapshot->messages.count,
                 (unsigned)snapshot->messages.dropped);
-    (void)fb_draw_card(state, layout, &y, &card);
-
     /* ---- the radio itself: its battery, its queue, and what it last said about itself ---- */
 
     /* Uptime is in both sources, like the airtime pair above, so LocalStats wins it for the same
@@ -2132,7 +2173,7 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
      * and lifts to the raised tier the moment the tone above says it has something to report,
      * which is the fact the heading colour was already carrying alone.
      */
-    fb_card_begin(&card, radio_tone == MESH_UI_TONE_PRIMARY ? FB_CARD_OUTLINED : FB_CARD_ELEVATED,
+    fb_card_begin(&radio, radio_tone == MESH_UI_TONE_PRIMARY ? FB_CARD_OUTLINED : FB_CARD_ELEVATED,
                   MESH_UI_ICON_RADIO, MESH_STR_STATUS_CARD_RADIO, radio_tone);
     if (have_battery || have_uptime) {
         buffer[0] = '\0';
@@ -2152,7 +2193,7 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
             mesh_str_format(second, sizeof second, MESH_STR_STATUS_UPTIME_SUFFIX,
                             buffer[0] != '\0' ? ", " : "", uptime);
         }
-        fb_card_row(&card, low_battery ? MESH_UI_TONE_ERROR : MESH_UI_TONE_NORMAL,
+        fb_card_row(&radio, low_battery ? MESH_UI_TONE_ERROR : MESH_UI_TONE_NORMAL,
                     MESH_STR_STATUS_LABEL_BATTERY, MESH_STR_STATUS_SYNC_VALUE,
                     buffer[0] != '\0' ? buffer : mesh_str(MESH_STR_STATUS_BATTERY_UNKNOWN), second);
     }
@@ -2166,17 +2207,17 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
         char age[24];
         fb_format_age(notice->received, age, sizeof age);
         if (notice->seq > 1U) {
-            fb_card_row(&card, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_RADIO_SAID,
+            fb_card_row(&radio, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_RADIO_SAID,
                         MESH_STR_STATUS_RADIO_SAID_COUNT, age, notice->seq);
         } else {
-            fb_card_row_text(&card, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_RADIO_SAID, age);
+            fb_card_row_text(&radio, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_RADIO_SAID, age);
         }
-        fb_card_note(&card, notice_tone, notice->text);
+        fb_card_note(&radio, notice_tone, notice->text);
     }
     if (have_queue) {
         /* A queue under pressure is work in flight, not a fault - the tertiary. A refusal is
            a fault, and takes the error family. */
-        fb_card_row(&card, queue->res != 0 ? MESH_UI_TONE_ERROR : MESH_UI_TONE_TERTIARY,
+        fb_card_row(&radio, queue->res != 0 ? MESH_UI_TONE_ERROR : MESH_UI_TONE_TERTIARY,
                     MESH_STR_STATUS_LABEL_TX_QUEUE, MESH_STR_STATUS_TX_QUEUE, (unsigned)queue->free,
                     (unsigned)queue->maxlen,
                     queue->res != 0 ? mesh_str(MESH_STR_STATUS_TX_QUEUE_REFUSED) : "");
@@ -2184,11 +2225,11 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
     if (rebooted) {
         /* A radio that has restarted since we attached is not broken, but it is the first thing
            to know when something else looks wrong. */
-        fb_card_row(&card, MESH_UI_TONE_WARNING, MESH_STR_STATUS_LABEL_REBOOTS,
+        fb_card_row(&radio, MESH_UI_TONE_WARNING, MESH_STR_STATUS_LABEL_REBOOTS,
                     MESH_STR_STATUS_REBOOTS_SINCE, snapshot->settings.reboot_notices);
     }
     if (stats->valid && stats->has_heap) {
-        fb_card_row(&card, low_heap ? MESH_UI_TONE_WARNING : MESH_UI_TONE_DIM,
+        fb_card_row(&radio, low_heap ? MESH_UI_TONE_WARNING : MESH_UI_TONE_DIM,
                     MESH_STR_STATUS_LABEL_HEAP, MESH_STR_STATUS_HEAP,
                     stats->heap_free_bytes / 1024U, stats->heap_total_bytes / 1024U);
     }
@@ -2203,12 +2244,36 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
      * for the same reason its counters can be missing; this is the same sentence for the same
      * situation, with its own id because it is read somewhere else.
      */
-    if (fb_card_is_empty(&card) && snapshot->handshake_valid) {
-        fb_card_row_text(&card, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_RADIO_SELF,
+    if (fb_card_is_empty(&radio) && snapshot->handshake_valid) {
+        fb_card_row_text(&radio, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_RADIO_SELF,
                          mesh_str(MESH_STR_STATUS_RADIO_NO_REPORT));
     }
-    fb_status_card_actions(&card, &actions, MESH_UI_STATUS_CARD_RADIO, focus);
-    (void)fb_draw_card(state, layout, &y, &card);
+    fb_status_card_actions(&radio, &actions, MESH_UI_STATUS_CARD_RADIO, focus);
+    /*
+     * And now both, in the order they are read - the Mesh card first, told to leave room for
+     * this one.
+     *
+     * This is the only place on the screen where the order things are *declared* and the order
+     * they are *drawn* come apart, and it is what fixes a card disappearing. A column of cards
+     * is drawn top down and each takes what it wants, so the last one pays for everything above
+     * it by not being drawn at all - and this is the card carrying `refresh`, which
+     * mesh_ui_status_actions() offers from the link state alone. The cursor therefore walked
+     * onto a button that was not on the frame, which is "a card that can end up with no rows
+     * must not be given a verb" reached from the layout side.
+     *
+     * The Mesh card is the one that grows: its airtime block is three rows when the radio has
+     * reported twice, where the Link card above is a fixed six and is never the card that
+     * squeezes this one out. So the reservation goes there, and the rows it costs are the rows
+     * a screen declared last - which on that card is the message ring, the row a reader would
+     * have skipped anyway.
+     *
+     * The *minimum* rather than this card's full height: what is worth promising is that the
+     * card exists and its verb is reachable, and a card handed more room than its minimum will
+     * spend it.
+     */
+    (void)fb_draw_card_reserving(state, layout, &y, &card,
+                                 fb_card_min_height(state, layout, &radio));
+    (void)fb_draw_card(state, layout, &y, &radio);
 }
 
 /* "Save <section>?" for the sections whose write can cut this client off, and "Reboot the

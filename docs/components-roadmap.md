@@ -462,6 +462,46 @@ holds the present, so this wants a small sample ring — a fixed number of readi
 written where the telemetry lands — before there is anything to draw. Worth doing, worth doing
 last, and worth being honest that it is a data change wearing a component's clothes.
 
+> **Landed.** `MESH_UI_SERIES_COLORS` and `mesh_ui_theme_series()` in
+> [`theme.h`](../include/mesh/ui/theme.h), `mesh_ui_proportion_split()` in
+> [`layout.h`](../include/mesh/ui/layout.h), `fb_draw_proportion()` with `FB_CARD_ROW_PROPORTION`,
+> and the Status card's Heard row. See §15.
+
+**2.17 There is no way to say what a reading is *made of*.** The fourth quantitative question,
+and the first one the set could not answer at all. A meter says how much, a staircase says how
+well, a sparkline says which way — all three are one number. A composition is several numbers
+that are parts of one, and every screen holding some has been printing them as a list.
+
+The Status card is where it shows. The radio reports what it heard as three counters, and the
+row says `12 bad rx, 431 dupe, 3 tx`. Upstream's own comment on the duplicate counter is *"if
+this number is high, there are nodes in the mesh relaying packets when it's unnecessary"* — and
+**high is not a property of 431.** It is a property of 431 against 5,871, which is the airtime
+bar's argument arriving on a whole with more than one part in it: a percentage has to be read
+and then held against something, a length is compared against the lengths beside it.
+
+Three things make it more than "the meter, several times", and the first is not a component
+problem at all:
+
+- **There is no colour to draw it in.** The families are six, three of them mean a status
+  outright, and the three that do not are not reliably distinct — on the high-contrast theme the
+  primary, the secondary and the tertiary are all one yellow. A three-part bar drawn from them
+  there is an undivided yellow block reporting that the mesh is made of one thing, which is as
+  quietly wrong as a picture gets. This wants a *categorical* token: colours whose only meaning
+  is which one they are. The avatar palette is the near relative and is not it — a tint is
+  picked by a hash, so what it owes is variety, where a slice is picked by position and owes the
+  same answer on every frame and every theme.
+- **The contrast contract has to point inwards as well as outwards.** Every check in
+  `mesh_ui_theme_validate()` asks whether a colour can be found *against a ground*. Two slices of
+  a bar are never against a ground; they are against each other, and a pair that passes every
+  outward check can still be one block. It has to be every pair rather than the neighbouring
+  ones, too, because a part measuring zero is not drawn — which parts end up adjacent is a
+  property of the data.
+- **The parts have to be disjoint, and nothing can check that from inside the component.** This
+  is the way a composition is wrong quietly, and it is not hypothetical: `num_tx_relay` is a
+  *subset* of `num_packets_tx` rather than a sibling of it, so the Packets row's three numbers
+  add up to a confident picture of a whole that does not exist. §2.12's first rule, on a
+  component that has more ways to break it.
+
 ### Tier 3 — worth knowing, not worth doing yet
 
 - **Surface tiers stop at three plus two states.** M3 has five container levels. Only worth a
@@ -476,6 +516,23 @@ last, and worth being honest that it is a data change wearing a component's clot
   screen where a list row is one line tall, so a screen of readings would become a screen of one
   reading. The banded meter says the same sentence in a row's height. "Gauge" here means a
   meter with marks on it, not a dial.
+- **No pie chart, and there should not be one.** The radial gauge's entry above, on a
+  composition instead of a level, and it fails on the same two counts plus one of its own. An
+  arc needs anti-aliasing this panel deliberately does not have and trigonometry that lives only
+  in `src/geo/`, where it is there because a projection needs it; a disc wants a square of screen
+  where a card row is a line tall; and a reader compares angles worse than they compare lengths,
+  which is the one thing a composition is asked to do. `fb_draw_proportion()` says the same
+  sentence in a bar's height.
+- **No axis frame, and not yet.** A sparkline draws a shape with no numbers on it, and the
+  obvious next thing is a full-body chart with the domain's ends labelled and its time span
+  named — A on the airtime row opening its own trend. It is the first thing on this list whose
+  cost is a *route* rather than a component: a screen, a nav level, a help entry and a place in
+  the transition table. Worth doing once two people have wanted to know more than the row could
+  say; not worth inventing the screen in order to justify the component.
+- **No multi-series line.** `channel_utilization` and `air_util_tx` are already in the history
+  ring on one domain, and the interesting reading is ours as a share of the total. Small, now
+  that a categorical palette exists — and deliberately behind the axis frame, because two lines
+  in a row's height with no labels is a picture that needs a legend the row has no space for.
 - **No FAB.** Also arguably correct. The "start a new thread" row is a list row with a plus in
   its avatar slot, which is the right answer on a device with no touch — a floating button that
   cannot be pointed at is a button that has to be reached by scrolling past everything else.
@@ -1306,3 +1363,83 @@ quietly, and those are the step.
   either: the history keeps twelve slots and evicts the least recently heard from, because a
   general store of everything the mesh ever said is a database, and the screens that would
   justify one do not exist.
+
+## 15. What doing 2.17 changed
+
+The entry was right that the colour was the hard part and wrong about which half of it. It said
+the families could not carry a composition because three of them mean a status; that is true and
+it is the smaller reason. The larger one is that a categorical palette owes a contract no palette
+in `theme.c` had ever owed, and writing the contract was most of the work.
+
+- **The contract is luminance, and that decides the palettes rather than describing them.** Hue
+  would let far more colours through, and it is the wrong cue to spend here twice over: it is
+  what goes first in sunlight, and the colour-blind theme exists because some readers do not have
+  it. So two slices must differ in *lightness* by the meter's own 1.4:1. The Okabe-Ito set is
+  where that bites hardest and is the best evidence for it: it is built to stay separable by hue
+  under dichromacy, and its sky blue and its orange — the two colours that theme leans on most —
+  are within **1.02:1** of each other in lightness. As adjacent slices of a bar they are one
+  slice, for a dichromat and for everybody else alike. Four of the eight ladder; the rest do not.
+- **Four, and the number is the panel's rather than a preference.** Every entry has to clear both
+  grounds a chart is drawn on and every other entry, which is a ladder with a fixed range to
+  climb. Three-part composition is what the screens need and a fourth rung is the headroom that
+  fits; a fifth would have to be squeezed between two rungs that are already only just apart.
+- **A series colour is only ever a fill, never an ink.** That is what keeps the contract at the
+  meter's 1.4:1 instead of text's 4.5:1, and it is why a legend — if one is ever built — names
+  its part in the row's own ink beside a swatch. The staircase's third rule, one component along.
+- **The legend is the row above, and that is a real constraint rather than a saving.** A bar in a
+  row's height has no room for a word per part, so what names the slices is the order the row
+  above names its numbers in. It costs nothing and it is load-bearing: `catalog.def` and
+  `locale_es.c` both carry a comment saying the order is not the translator's to change, which is
+  a thing the i18n layer cannot check.
+- **The rounding is the component, and the small part is the reason.** Splitting a bar looks like
+  three multiplies. It is two rules, and both are `a picture cannot be wrong quietly`: the parts
+  fill the track *exactly*, because a gap at the end of a bar claiming to be everything is a part
+  nobody named; and a part that is there is never rounded away, because three bad packets in
+  fifty thousand is a quarter of a pixel and an honest quarter-pixel is a bar reporting that
+  nothing is wrong. The pixel is taken off the longest part, which is the one that can afford it.
+- **Two parts is a meter, so the component starts at three.** A whole split in two is a fraction,
+  a fraction is what a meter draws, and a meter can carry a domain and a band that this cannot.
+  Heap free against heap total stayed a meter for that reason.
+- **The disjointness is the caller's promise and it caught something immediately.** `num_tx_relay`
+  is documented as a subset of `num_packets_tx`, so the Packets row is three numbers and not three
+  parts — the bar that looked like the obvious first caller would have been the component's first
+  lie. What is a partition is the *received* side: `num_packets_rx` is everything heard, with the
+  bad and the duplicates among it. And even there it is checked rather than assumed, because two
+  counters off the air have no promise of agreeing with a third: a remainder that comes out
+  negative skips the row instead of clamping to zero, which would draw a bar claiming every packet
+  the radio heard was malformed.
+- **Nothing animates, and that is a difference from the meter rather than an omission.** A meter
+  eases because each reading replaces the last; these are counters that only climb, so between two
+  frames a boundary moves by a fraction of a pixel. The easing would be invisible and the
+  animation slots are keyed per control.
+- **A gap at each boundary, in the ground, not an ink.** The meter's band notches doing the same
+  job one level along: 1.4:1 is a difference the eye finds reliably when there is an edge to find
+  it at. An ink of its own would be another pair every theme had to be validated for, to say what
+  a hole already says.
+- **It found a card falling off the screen, and the card was already falling.** Review pointed
+  out that the two new rows pushed the Radio card past the bottom of the Status screen, where
+  `fb_draw_card()` refuses it outright. Measuring it turned up two things the report did not
+  have. The Mesh card is at capacity, so *any* addition costs the Radio card — a probe with the
+  text row cut and only the bar kept still loses it — which means "consolidate these rows" only
+  works at net zero. And rendering `trend.scene` against the tree *without* this change shows the
+  Radio card already gone: `fb_card_spark()` costs two body rows and the airtime trend arrives on
+  the radio's second LocalStats report, which is a few minutes after connecting. The composition
+  made an existing bug arrive sooner rather than causing one.
+
+  What made it worth fixing properly rather than trimming a row is what the missing card takes
+  with it. `mesh_ui_status_actions()` offers `refresh` from the link state alone and knows
+  nothing about what was drawn, so the cursor kept walking onto a button that was not on the
+  frame — which is *a card that can end up with no rows must not be given a verb* arriving from
+  the layout side. The answer is `fb_draw_card_reserving()`: a card can be told to leave room for
+  what comes after it, so the card that can afford a row loses one and the card that would have
+  vanished survives. Rows are clipped from the end and a screen declares its least important rows
+  last, so the order that falls out is already the right one.
+
+- **One thing it still leaves behind.** The Status card names the bad and duplicate counts twice
+  — on the Dropped row, where they are amber because something is going wrong, and on the Heard
+  row, where they are parts of a whole. Both answers are wanted, but the Mesh card is now
+  demonstrably over budget: with the reservation in place it sheds its last two rows in the
+  ordinary reported state, and one of them is the composition's own bar. Which rows that card
+  should give up is a decision about that screen rather than about this component, and it is a
+  visible one now rather than a hypothetical — the clipping is graceful instead of catastrophic,
+  so it can be argued about with a picture.

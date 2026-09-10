@@ -612,7 +612,7 @@ shoulder, revealed in the one place you went to change it.
 | File | Layer | What belongs there |
 |---|---|---|
 | `fb_draw.c` | ink | pixels, glyphs, the theme lookups, cell metrics (`fb_internal.h`) |
-| `fb_widgets.c` | components | cards (three variants, with verbs), buttons, chips, badges, list items, switches, meters, sliders, sparklines, signal staircases, rules, bubbles, the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar (`fb_widgets.h`) |
+| `fb_widgets.c` | components | cards (three variants, with verbs), buttons, chips, badges, list items, switches, meters, sliders, sparklines, proportion bars, signal staircases, rules, bubbles, the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar (`fb_widgets.h`) |
 | `fb_screens.c` | screens | one renderer per screen, and nothing else |
 | `fb.c` | device | `/dev/fb0`, the page flip, the backend vtable |
 
@@ -1331,6 +1331,94 @@ under the cursor, exactly as an unlit rung does and for the same reason.
 
 Rendered by `make ui-capture ARGS="devtools/ui_capture/scenes/trend.scene"`.
 
+#### A column of cards, and the one at the bottom
+
+Cards are drawn top down and each takes the room it wants, so the **last** card pays for
+everything above it — and `fb_draw_card()` pays by refusing a card it cannot fit rather than by
+clipping it. Losing a card is worse than losing rows, and not only because it is more content: a
+card carries **verbs**, and which verbs a screen offers is a table
+([`src/ui/status.c`](../src/ui/status.c)) with no idea how tall anything came out. So the cursor
+keeps walking onto a button that is not on the frame — which is exactly the failure *a card that
+can end up with no rows must not be given a verb* names, reached from the layout side instead.
+
+It was not hypothetical. The Status screen's Radio card carries `refresh`, and the airtime trend
+above it costs two body rows and appears on the radio's *second* LocalStats report — a few
+minutes after connecting. The card was already gone in ordinary use.
+
+`fb_draw_card_reserving()` turns it around: the card that can afford to drop a row drops one, and
+the card that would have vanished survives. Three things about it are decisions:
+
+- **Reserve the next card's `fb_card_min_height()`, not its full height.** What is worth
+  promising is that the card *exists* and its verb is reachable; a card handed more room than its
+  minimum will spend it.
+- **The gap belongs to the reserver.** `*y` advances past a card's box *and* its gap, so the card
+  being reserved for starts a gap lower than this one ends — `fb_draw_card_reserving()` adds its
+  own `gap` to the reservation, and `fb_card_min_height()` deliberately leaves it out. That is
+  the difference from `fb_card_height()`, which answers "how much of the column does this
+  consume" and so carries it. Counted once it is right; counted twice it costs a row of content,
+  and left out entirely the card still does not fit.
+- **A reservation that cannot be afforded is dropped.** It is a promise about the card below, and
+  a promise that can only be kept by deleting the card above is not worth keeping.
+
+It is also why `fb_render_status()` is the one screen where declaration order and drawing order
+come apart: the Radio card is built into a local of its own so the Mesh card can be drawn knowing
+what it has to leave behind. The rows the Mesh card gives up are the ones declared last, which is
+the right order — a screen declares its least important rows last.
+
+Pinned by `ui_capture_status_keeps_the_last_card_when_the_one_above_overflows`, which counts card
+*edges* rather than rows: three cards is six bands, and a card refused for want of room is four.
+
+#### `fb_draw_proportion()` — a whole and its parts
+
+The fourth quantitative component, and the first that is not one number. A meter says how much, a
+staircase says how well, a sparkline says which way; all three read a single figure. A
+composition reads several that are parts of one, and until this existed a screen holding some
+printed them as a list — `12 bad rx, 431 dupe, 3 tx`, three numbers with no sense of proportion
+between them.
+
+Which is the whole point of them. Upstream's own comment on the duplicate counter is *"if this
+number is high, there are nodes in the mesh relaying packets when it's unnecessary"*, and high is
+not a property of 431 — it is a property of 431 against 5,871. That is the meter's argument
+(*"is 31% a lot?"*) on a whole with more than one part in it: a length is compared against the
+lengths beside it, which are right there.
+
+Four things about it are decisions rather than details:
+
+- **It starts at three parts, because two parts is a meter.** A whole split in two is a fraction,
+  a fraction is what `fb_draw_meter()` draws, and a meter can carry a domain and a band that this
+  cannot. Heap free against heap total is a meter for that reason.
+- **The parts must be disjoint, and that is the caller's promise.** Nothing here can check it:
+  three counters that overlap still add up to something, and the bar drawn from them is a
+  confident picture of a whole that does not exist. The radio's transmit counters are exactly
+  that trap — `num_tx_relay` is a *subset* of `num_packets_tx` — which is why there is a bar
+  under the Status card's Heard row and none under its Packets row.
+- **The colours are the theme's series palette, not tones.** See [Themes](#themes): a part means
+  nothing except which part it is, where a tone means good, bad or caution.
+- **Nothing animates.** These are counters that only climb, so between two frames a boundary
+  moves by a fraction of a pixel — the sparkline's reasoning arriving from the other direction.
+
+The slices are laid out by `mesh_ui_proportion_split()` ([`layout.c`](../src/ui/layout.c)), which
+is where the two rules that keep the picture honest live, and both are *a picture cannot be wrong
+quietly*. They sum to the bar **exactly**, because a gap at the end of a bar that claims to be
+everything is a part nobody named. And a part that is there is **never rounded away to
+nothing**: three bad packets in fifty thousand is a quarter of a pixel, and drawn honestly that
+bar reports a mesh with nothing wrong with it — so the part takes a unit off the longest one
+instead. A part that really is zero still draws nothing, which is the same lie the other way
+round.
+
+It is drawn as nested pills, widest first, so the two ends of the bar are the meter's ends and
+the only new edges on it are the boundaries between parts — and each boundary is a gap cut in
+the ground, which is the band notch doing the same job one level along. The palette promises two
+slices are 1.4:1 apart, and that is a difference the eye finds reliably when there is an edge to
+find it at.
+
+The bar carries no words: what names the slices is the order the row above names its numbers in.
+That correspondence is the only legend a bar in a row's height has room for, and it is why
+`catalog.def` and `locale_es.c` both carry a note saying the order is not a translator's to
+change.
+
+Rendered by `make ui-capture ARGS="devtools/ui_capture/scenes/shots/status.scene"`.
+
 #### `struct fb_snackbar` — the transient notice
 
 `mesh_ui_store_set_toast()` raises a one-line notice: *Sent to BRVO*, *Not connected*,
@@ -1981,6 +2069,41 @@ Adding a family means every theme answers for all four of its slots and
 it to, because the validator loops over `MESH_UI_FAMILY_COUNT` rather than over hand-written
 rows. That is the difference from the palette this replaced, where a missing row was a pair
 nothing checked.
+
+#### The series palette — colour that means nothing
+
+Two palettes in `theme.c` are not roles, and they are not the same kind of thing as each other.
+
+The **avatar tints** (`theme->avatars`, `mesh_ui_theme_avatar()`) are picked by a *hash* of a
+conversation's identity, so what they owe is variety: two threads landing on one colour costs the
+eye a moment. A theme may state fewer than the maximum — the high-contrast one offers two,
+because a palette of six hues is what that theme exists to do without.
+
+The **series colours** (`theme->series`, `mesh_ui_theme_series()`) are picked by *position*, and
+that changes every term of the contract. Slice 0 is the same colour on every frame, on every
+theme; a theme cannot state fewer, because a chart cannot draw fewer parts than it has; and there
+is no `series_count` to match `avatar_count`. They exist because a chart's parts need colours
+whose only meaning is **which part** — the families all mean something, three of them mean a
+status outright, and the three that do not are not reliably distinct: on the high-contrast theme
+the primary, the secondary and the tertiary are one yellow, so a three-part bar drawn from them
+there is an undivided block claiming the mesh is made of one thing.
+
+`mesh_ui_theme_validate()` holds them to the meter's 1.4:1 in **both directions**, and the
+inward half is the one no palette here had needed before. Every other check asks whether a colour
+can be found against a *ground*; two slices of a bar are never against a ground, they are against
+each other. It is every pair rather than the neighbouring ones, because a part measuring zero is
+not drawn — which two end up sharing an edge is a property of the data.
+
+The measure is **luminance**, not hue, and that is what picks the palettes rather than describing
+them. Hue would let far more through and is the wrong cue twice over: it is what goes first in
+sunlight, and the colour-blind theme is here because some readers do not have it. That theme is
+the best evidence — Okabe-Ito is built to stay separable by hue under dichromacy, and its sky blue
+and its orange are within **1.02:1** in lightness, so as adjacent slices they are one slice for
+everybody. Four of the eight ladder; the palette is those four. A theme may still separate two
+slices by hue — it just has to move them in lightness as well, so the difference survives both.
+
+A series colour is only ever a **fill**, never an ink, which is what keeps the contract at 1.4:1
+instead of text's 4.5:1.
 
 #### State is a layer, not a second colour
 

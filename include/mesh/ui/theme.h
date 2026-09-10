@@ -333,6 +333,45 @@ MESH_UI_STATIC_ASSERT((int)MESH_UI_TONE_COUNT - (int)MESH_UI_TONE_PRIMARY ==
 #define MESH_UI_AVATAR_TINTS 6U
 
 /*
+ * The series palette: fills whose whole meaning is that they are not each other.
+ *
+ * Every other colour in this file answers "what kind of thing is this" - a warning, a heading,
+ * the edge of a container. A chart with three parts in it needs the opposite: colours that
+ * carry no meaning at all beyond *which part*, so that the parts can be told apart without any
+ * of them being read as good news or bad. The families cannot do that job. Three of them mean
+ * a status outright, and the three that do not are not reliably distinct: on the high-contrast
+ * theme the primary, the secondary and the tertiary are all the same yellow, so a bar drawn in
+ * the three of them there is one undivided yellow block claiming the mesh is made of one thing.
+ * A picture cannot be wrong quietly, and that is the quietest a picture gets.
+ *
+ * The avatar palette next door is the near relative and is still not this. A tint is picked by
+ * a *hash*, so what it owes is variety and nothing else - two conversations landing on one
+ * colour costs the eye a moment. A series colour is picked by *position*, so the sequence is
+ * the contract: slice 0 is the same colour on every frame, on every theme and in the legend,
+ * and a theme that offered fewer of them would leave a chart with a part it could not draw.
+ * Which is why every theme states all four and there is no `series_count` to match
+ * `avatar_count`.
+ *
+ * Ordered by prominence, not by hue or by lightness: the first is the one to reach for when
+ * only one is needed and the one the largest part of a whole should take. Which end of the
+ * lightness range that is, is the theme's business - the darkest ink on paper and the palest
+ * tint on a dark ground are the same decision read twice.
+ *
+ * Four. It is what three-part composition leaves room to grow into once, and it is as far as
+ * the contract below can be carried on this panel: the entries must be separable from each
+ * other *and* from the two grounds a chart is drawn on, and separability here is measured in
+ * luminance rather than in hue, because hue is the cue that goes first in sunlight and the one
+ * the colour-blind theme exists because some readers do not have. A fifth would have to be
+ * squeezed between two rungs of a ladder that is already as long as the panel's range allows.
+ *
+ * A series colour is only ever a *fill* - never an ink, never a text colour. A legend names its
+ * part in the row's own words beside a swatch, so nothing is ever written in one of these and
+ * none of them owes anybody the 4.5:1 that text does. mesh_ui_theme_validate() holds them to
+ * the meter's 1.4:1 instead, in both directions: against the grounds, and against each other.
+ */
+#define MESH_UI_SERIES_COLORS 4U
+
+/*
  * The shape scale: how round a container's corners are, by what kind of container it is.
  *
  * A renderer no more names a radius than it names a colour. It names a shape - "this is a
@@ -506,6 +545,10 @@ struct mesh_ui_theme {
        used, so a theme states its palette and leaves the rest zeroed. */
     struct mesh_ui_rgb avatars[MESH_UI_AVATAR_TINTS];
     uint8_t avatar_count;
+    /* The categorical fills a chart divides a whole with, read through mesh_ui_theme_series().
+       All of them, in prominence order - unlike the avatars above, a theme does not get to
+       state fewer, because a chart cannot draw fewer parts than it has. */
+    struct mesh_ui_rgb series[MESH_UI_SERIES_COLORS];
     struct mesh_ui_metrics metrics;
 };
 
@@ -647,6 +690,17 @@ const struct mesh_ui_font *mesh_ui_theme_font(const struct mesh_ui_theme *theme)
  * has to know how many tints a theme offers.
  */
 struct mesh_ui_rgb mesh_ui_theme_avatar(const struct mesh_ui_theme *theme, uint32_t seed);
+
+/*
+ * The `index`th categorical fill, wrapping - so a chart with more parts than the palette has
+ * draws every one of them rather than leaving the overflow unpainted.
+ *
+ * Wrapping is the same refusal to fail that an unknown MESHCLIENT_THEME and an out-of-range
+ * family make, and it is not a licence: two parts sharing a colour is a chart that cannot be
+ * read, so what wraps here is a bug upstream in whoever built a chart wider than
+ * MESH_UI_SERIES_COLORS. Drawing it is how that bug is visible rather than invisible.
+ */
+struct mesh_ui_rgb mesh_ui_theme_series(const struct mesh_ui_theme *theme, uint32_t index);
 const struct mesh_ui_metrics *mesh_ui_theme_metrics(const struct mesh_ui_theme *theme);
 
 /* The theme's glyph multiplier, clamped into [MESH_UI_SCALE_MIN, MESH_UI_SCALE_MAX]. */

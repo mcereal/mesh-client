@@ -514,6 +514,107 @@ MESH_TEST_CASE(ui_layout_percent_permille, unit) {
  * fair number of rungs and not one fewer - and so is what a reading nobody can use does, which
  * is fall to the bottom rather than land in the middle.
  */
+/*
+ * A whole, split into the parts it is made of.
+ *
+ * The two rules the split exists for are both about the ways a bar lies rather than about the
+ * arithmetic being close enough: it has to fill its track exactly, because a gap at the end of
+ * a bar that claims to be everything is a part nobody named; and a part that is there has to be
+ * drawn, because three bad packets in fifty thousand rounded honestly is a picture saying
+ * nothing is wrong.
+ */
+MESH_TEST_CASE(ui_layout_proportion_split_fills_the_extent, unit) {
+    int32_t out[MESH_UI_PROPORTION_PARTS];
+
+    /* An even split with a remainder that cannot be shared evenly: 100 among three is 33 each
+       and one unit over, and the unit has to land somewhere rather than be dropped. */
+    const uint32_t thirds[] = {1U, 1U, 1U};
+    MESH_TEST_FAIL_IF(mesh_ui_proportion_split(thirds, 3U, 100, out) != 3U,
+                      "a three-part whole did not report three parts");
+    MESH_TEST_FAIL_IF(out[0] + out[1] + out[2] != 100, "the parts did not fill the bar");
+
+    /* The awkward widths, exhaustively: every extent a bar on this panel can have, against a
+       whole whose parts share no factor with it. A single lost or invented unit anywhere is a
+       bar drawn a pixel short of the track it is measured against. */
+    const uint32_t awkward[] = {7U, 11U, 13U, 17U};
+    for (int32_t extent = 1; extent <= 512; ++extent) {
+        const uint32_t parts = mesh_ui_proportion_split(awkward, 4U, extent, out);
+        MESH_TEST_FAIL_IF(parts != 4U, "a four-part whole did not report four parts");
+        int32_t total = 0;
+        for (uint32_t i = 0; i < parts; ++i) {
+            MESH_TEST_FAIL_IF(out[i] < 0, "a part came out negative");
+            total += out[i];
+        }
+        MESH_TEST_FAIL_IF(total != extent, "the parts did not add up to the bar");
+    }
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(ui_layout_proportion_split_keeps_the_small_part, unit) {
+    int32_t out[MESH_UI_PROPORTION_PARTS];
+
+    /*
+     * The reading this component exists to get right. A radio that has heard fifty thousand
+     * packets and three bad ones is a quarter of a pixel of bad on a 300px bar; drawn as the
+     * arithmetic says, the bar reports a mesh with nothing wrong with it.
+     */
+    const uint32_t lopsided[] = {49000U, 997U, 3U};
+    MESH_TEST_FAIL_IF(mesh_ui_proportion_split(lopsided, 3U, 300, out) != 3U,
+                      "a lopsided whole did not report its parts");
+    MESH_TEST_FAIL_IF(out[2] <= 0, "a part that is there was rounded away to nothing");
+    MESH_TEST_FAIL_IF(out[0] + out[1] + out[2] != 300,
+                      "rescuing a small part cost the bar its total");
+    /* And it is taken off the longest part, not off the neighbour: the part that can afford a
+       pixel is the one that has the most of them. */
+    MESH_TEST_FAIL_IF(out[0] < out[1], "the donated pixel came from the wrong part");
+
+    /* A part that is genuinely zero still draws nothing. Inventing a sliver for it would be the
+       same lie as rounding a real one away, the other way round. */
+    const uint32_t absent[] = {10U, 0U, 5U};
+    MESH_TEST_FAIL_IF(mesh_ui_proportion_split(absent, 3U, 90, out) != 3U,
+                      "a whole with an empty part did not report its parts");
+    MESH_TEST_FAIL_IF(out[1] != 0, "a part that is not there was drawn anyway");
+    MESH_TEST_FAIL_IF(out[0] + out[2] != 90, "an empty part cost the bar its total");
+
+    /* Counters off a radio that has been up for a month. The multiply before the divide is
+       where a 32-bit version wraps, and a wrapped share is a negative length. */
+    const uint32_t huge[] = {3000000000U, 1000000000U, 200000000U};
+    MESH_TEST_FAIL_IF(mesh_ui_proportion_split(huge, 3U, 256, out) != 3U,
+                      "a whole in the billions did not report its parts");
+    MESH_TEST_FAIL_IF(out[0] <= 0 || out[1] <= 0 || out[2] <= 0,
+                      "a counter in the billions overflowed into an empty part");
+    MESH_TEST_FAIL_IF(out[0] + out[1] + out[2] != 256, "a whole in the billions lost the bar");
+    MESH_TEST_FAIL_IF(out[0] <= out[1], "the largest part did not come out largest");
+    record_success(test_name);
+}
+
+MESH_TEST_CASE(ui_layout_proportion_split_refuses_what_it_cannot_draw, unit) {
+    int32_t out[MESH_UI_PROPORTION_PARTS];
+    const uint32_t parts[] = {1U, 2U, 3U};
+
+    MESH_TEST_FAIL_IF(mesh_ui_proportion_split(NULL, 3U, 100, out) != 0U,
+                      "a split with no values answered");
+    MESH_TEST_FAIL_IF(mesh_ui_proportion_split(parts, 3U, 100, NULL) != 0U,
+                      "a split with nowhere to write answered");
+    MESH_TEST_FAIL_IF(mesh_ui_proportion_split(parts, 0U, 100, out) != 0U,
+                      "a whole of no parts answered");
+    MESH_TEST_FAIL_IF(mesh_ui_proportion_split(parts, MESH_UI_PROPORTION_PARTS + 1U, 100, out) !=
+                          0U,
+                      "a whole of more parts than the palette can colour answered");
+    MESH_TEST_FAIL_IF(mesh_ui_proportion_split(parts, 3U, 0, out) != 0U,
+                      "a bar with no width answered");
+
+    /*
+     * And the reading that is an absence rather than a zero. A radio that has reported nothing
+     * has every counter at zero, and a bar drawn from that would be a track saying the mesh is
+     * silent - which is a claim, where "no bar" is the honest absence of one.
+     */
+    const uint32_t nothing[] = {0U, 0U, 0U};
+    MESH_TEST_FAIL_IF(mesh_ui_proportion_split(nothing, 3U, 100, out) != 0U,
+                      "a whole that sums to nothing was drawn as a bar");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_layout_signal_level_rungs, unit) {
     MESH_TEST_FAIL_IF(mesh_ui_signal_level(20.0f) != MESH_UI_SIGNAL_STEPS,
                       "a strong link did not light every rung");
