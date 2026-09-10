@@ -295,6 +295,10 @@ int mesh_ui_preferences_load(struct mesh_ui_preferences *prefs, const char *path
             } else {
                 prefs->update_channel = 0U;
             }
+        } else if (strncmp(line, "firmware_channel", key_len) == 0) {
+            /* By name, for the reason update_channel is. Anything unrecognised is stable,
+               which is the channel that cannot surprise anybody. */
+            prefs->firmware_channel = (uint8_t)(strcmp(value, "alpha") == 0 ? 1 : 0);
         } else if (key_len == 8U && strncmp(line, "language", key_len) == 0) {
             snprintf(prefs->language, sizeof prefs->language, "%s", value);
         } else if (strncmp(line, "theme", key_len) == 0) {
@@ -435,6 +439,7 @@ int mesh_ui_preferences_save(const struct mesh_ui_preferences *prefs, const char
             : prefs->update_channel == 2U ? "prerelease"
                                           : "default");
     fprintf(file, "update_allow_dev=%s\n", prefs->update_allow_dev ? "1" : "0");
+    fprintf(file, "firmware_channel=%s\n", prefs->firmware_channel == 1U ? "alpha" : "stable");
     fprintf(file, "theme=%s\n", prefs->theme);
     fprintf(file, "language=%s\n", prefs->language);
     fprintf(file, "known_devices=");

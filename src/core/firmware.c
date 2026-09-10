@@ -326,6 +326,28 @@ void mesh_firmware_set_bus(struct mesh_firmware *firmware, enum mesh_firmware_pa
     firmware_recompute_blocker(firmware);
 }
 
+const char *mesh_firmware_channel_name(enum mesh_firmware_channel channel) {
+    /* Upstream's own words for its own lists, so they stay as they are - the rule region codes
+       and modem preset names already follow. */
+    return channel == MESH_FIRMWARE_CHANNEL_ALPHA ? "alpha" : "stable";
+}
+
+bool mesh_firmware_set_channel(struct mesh_firmware *firmware, enum mesh_firmware_channel channel) {
+    if (firmware == NULL || channel >= MESH_FIRMWARE_CHANNEL_COUNT ||
+        firmware->channel == channel) {
+        return false;
+    }
+    if (mesh_firmware_busy(firmware)) {
+        /* Mid-check: the document being read was asked for under the old channel, and letting
+           the answer land against the new one would report an alpha as the newest stable. */
+        return false;
+    }
+    firmware->channel = channel;
+    mesh_firmware_forget(firmware);
+    mesh_log_info("firmware", "Firmware channel set to %s", mesh_firmware_channel_name(channel));
+    return true;
+}
+
 bool mesh_firmware_answers_for(const struct mesh_firmware *firmware, uint32_t hw_model,
                                const char *running) {
     if (firmware == NULL || firmware->state == MESH_FIRMWARE_IDLE) {

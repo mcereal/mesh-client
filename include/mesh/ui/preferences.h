@@ -63,6 +63,16 @@ struct mesh_ui_preferences {
     char theme[16];
     /* Locale id, e.g. "es". Empty follows the system language. */
     char language[16];
+    /*
+     * Which of upstream's two firmware release lists the About radio rows read (enum
+     * mesh_firmware_channel, mesh/core/firmware.h), carried as a byte so this header does not
+     * pull that module in. 0 is stable, which is what a prefs file written before the setting
+     * existed reads as - and what somebody who never touches the row keeps.
+     *
+     * Separate from update_channel above because they are two projects: a stable client and
+     * alpha firmware on a spare node is a reasonable pair, and so is the reverse.
+     */
+    uint8_t firmware_channel;
     /* Whether a build that is not an official release may install what the updater finds.
        Remembered so the choice survives a relaunch: the alternative was an environment
        variable, which on a handheld means having a computer and an ssh session to hand. */

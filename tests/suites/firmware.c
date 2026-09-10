@@ -241,6 +241,89 @@ cleanup:
 }
 
 /*
+ * The channel, which decides which of upstream's two release lists a check reads.
+ *
+ * Its own setting rather than a follower of the client's update channel: two projects, and a
+ * stable client with alpha firmware on a spare node is a reasonable pair. Switching forgets
+ * the last check, because the channel is what decided which question it asked.
+ */
+MESH_TEST_CASE(firmware_channel_picks_the_list_and_forgets, unit) {
+    struct firmware_harness harness;
+    const char *failure = NULL;
+    if (!firmware_harness_up(&harness)) {
+        failure = "the harness should come up with a fetcher";
+        goto cleanup;
+    }
+    mesh_firmware_set_bus(&harness.firmware, MESH_FIRMWARE_PATH_USB);
+
+    if (harness.firmware.channel != MESH_FIRMWARE_CHANNEL_STABLE) {
+        failure = "an untouched client follows stable";
+        goto cleanup;
+    }
+    if (mesh_firmware_set_channel(&harness.firmware, MESH_FIRMWARE_CHANNEL_STABLE)) {
+        failure = "setting the channel it is already on is not a change";
+        goto cleanup;
+    }
+
+    if (mesh_firmware_check(&harness.firmware, 69U, "2.7.20.6658ec2", 0U) != 0 ||
+        !firmware_settle(&harness)) {
+        failure = "the stable check should run";
+        goto cleanup;
+    }
+    if (strcmp(harness.firmware.release.version, "2.7.26.54e0d8d") != 0) {
+        failure = "and should find the newest stable";
+        goto cleanup;
+    }
+
+    /* Switching drops the answer: it belonged to the other question. */
+    if (!mesh_firmware_set_channel(&harness.firmware, MESH_FIRMWARE_CHANNEL_ALPHA)) {
+        failure = "switching to alpha is a change";
+        goto cleanup;
+    }
+    if (harness.firmware.state != MESH_FIRMWARE_IDLE ||
+        harness.firmware.release.version[0] != '\0') {
+        failure = "the stable answer should not survive the switch to alpha";
+        goto cleanup;
+    }
+
+    if (mesh_firmware_check(&harness.firmware, 69U, "2.7.20.6658ec2", 0U) != 0 ||
+        !firmware_settle(&harness)) {
+        failure = "the alpha check should run";
+        goto cleanup;
+    }
+    /* The fixture's newest alpha is ahead of its newest stable, and is the entry that
+       published no assets - which the version row does not care about. */
+    if (strcmp(harness.firmware.release.version, "2.8.0.47db0e3") != 0) {
+        failure = "the alpha channel should read the alpha list";
+        goto cleanup;
+    }
+    if (strcmp(mesh_firmware_channel_name(harness.firmware.channel), "alpha") != 0) {
+        failure = "the row should be able to name the channel it is on";
+        goto cleanup;
+    }
+
+    /* And a switch is refused while a document is in flight, so an answer asked for under one
+       channel can never land against the other. */
+    if (mesh_firmware_check(&harness.firmware, 69U, "2.7.20.6658ec2", 0U) != 0) {
+        failure = "a third check should start";
+        goto cleanup;
+    }
+    if (mesh_firmware_set_channel(&harness.firmware, MESH_FIRMWARE_CHANNEL_STABLE)) {
+        failure = "a switch mid-check should be refused";
+        goto cleanup;
+    }
+    if (!firmware_settle(&harness)) {
+        failure = "the check in flight should still finish";
+        goto cleanup;
+    }
+
+cleanup:
+    firmware_harness_down(&harness);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
  * The three refusals a real board can hit, each on a model the served hardware document
  * actually carries: 48 is four boards, 53 is an ESP32-C3 whose loader partition current
  * firmware will not boot into, and 2 is a LILYGO T-LoRa V1 upstream has stopped building.

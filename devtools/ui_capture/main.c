@@ -1457,6 +1457,8 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
          * moves it on from here.
          */
         settings.fw_supported = true;
+        mesh_str_copy(settings.fw_channel, sizeof settings.fw_channel,
+                      mesh_firmware_channel_name(MESH_FIRMWARE_CHANNEL_STABLE));
 
         /* The two LoRa rows that read as unconfigured rather than as defaults: a region of
            "Unset" is a radio that will not transmit, and an empty timezone is the row's dash. */
@@ -1798,6 +1800,30 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
     }
 
     /*
+     * Which of upstream's two release lists the firmware rows say they are reading. Its own
+     * verb rather than an argument to `firmware`, because the channel is a setting that
+     * outlives any one check - the same split the screen itself draws.
+     *
+     *   firmware-channel stable|alpha
+     */
+    if (strcmp(command, "firmware-channel") == 0) {
+        char *which = uicap_word(&rest);
+        if (which == NULL || (strcmp(which, "stable") != 0 && strcmp(which, "alpha") != 0)) {
+            fprintf(stderr, "uicap: line %u: 'firmware-channel' takes stable or alpha\n",
+                    line_number);
+            exit(1);
+        }
+        uicap_start(cap);
+        struct mesh_ui_settings settings = cap->store.settings;
+        settings.fw_supported = true;
+        mesh_str_copy(settings.fw_channel, sizeof settings.fw_channel, which);
+        mesh_ui_store_set_settings(&cap->store, &settings);
+        uicap_emit(cap);
+        uicap_settle(cap);
+        return;
+    }
+
+    /*
      * The *radio's* firmware, which is the other update this client can talk about.
      *
      * Its own verb rather than a flag on `update` because the two are different binaries on
@@ -1831,6 +1857,12 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         struct mesh_ui_settings settings = cap->store.settings;
         settings.fw_supported = true;
         settings.fw_busy = checking;
+        /* The channel the rows read. Left at the harness's default unless a scene says
+           otherwise - see the `firmware-channel` verb. */
+        if (settings.fw_channel[0] == '\0') {
+            mesh_str_copy(settings.fw_channel, sizeof settings.fw_channel,
+                          mesh_firmware_channel_name(MESH_FIRMWARE_CHANNEL_STABLE));
+        }
         settings.fw_state = (uint8_t)(checking  ? MESH_FIRMWARE_CHECKING
                                       : behind  ? MESH_FIRMWARE_AVAILABLE
                                       : current ? MESH_FIRMWARE_UP_TO_DATE

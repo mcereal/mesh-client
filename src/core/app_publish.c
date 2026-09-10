@@ -826,6 +826,8 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
 
     dst->fw_supported = mesh_firmware_available(firmware);
     dst->fw_busy = mesh_firmware_busy(firmware);
+    mesh_str_copy(dst->fw_channel, sizeof dst->fw_channel,
+                  mesh_firmware_channel_name(firmware->channel));
     dst->fw_state = (uint8_t)firmware->state;
     mesh_str_copy(dst->fw_message, sizeof dst->fw_message, firmware->message);
     mesh_str_copy(dst->fw_latest, sizeof dst->fw_latest, firmware->release.version);

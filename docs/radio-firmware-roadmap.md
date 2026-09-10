@@ -557,6 +557,13 @@ the radio runs, what the newest stable is, whether this board can be updated fro
 No downloads, no writes. This is most of the value for a user who owns a computer, and it is the
 row that makes the rest legible.
 
+It also carries a **channel**, stable or alpha, which the index has two lists for. Its own
+setting rather than a follower of the client's own update channel: they are two projects, and a
+stable client with alpha firmware on a spare node is a reasonable pair. The names are upstream's
+own and stay untranslated, and there is no "automatic" third option - that one exists next door
+to follow the running *build*, and this client's build says nothing about what a radio should
+run.
+
 What it turned into: [`src/core/firmware_catalog.c`](../src/core/firmware_catalog.c) for the two
 documents (pure, and tested against captured bytes in `tests/data/`),
 [`src/core/firmware.c`](../src/core/firmware.c) for the check, and

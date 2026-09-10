@@ -593,12 +593,23 @@ static void build_radio_firmware(const struct mesh_ui_settings *s, struct item_l
                  MESH_STR_ABOUT_UPDATES_UNAVAILABLE);
         return;
     }
+    /*
+     * Which of upstream's two lists a check will read. Above the status row for the reason
+     * About's own channel row sits above its status: it decides which question the press below
+     * will ask, so it reads first.
+     *
+     * While a check runs it drops to a plain fact - the module refuses a switch with a document
+     * in flight, and a row that refuses is worse than one that never invited the press.
+     */
     if (s->fw_busy) {
+        item_text(list, MESH_STR_FW_CHANNEL, MESH_UI_SETTING_INFO, s->fw_channel);
         item_meter(list, MESH_STR_FW_LATEST,
                    mesh_firmware_state_name((enum mesh_firmware_state)s->fw_state),
                    MESH_UI_METER_UNKNOWN);
         return;
     }
+    item_action(list, MESH_STR_FW_CHANNEL, s->fw_channel,
+                MESH_UI_SETTINGS_ACTION_CYCLE_FIRMWARE_CHANNEL);
 
     const bool newer = s->fw_state == (uint8_t)MESH_FIRMWARE_AVAILABLE;
     /*

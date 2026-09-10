@@ -400,6 +400,14 @@ enum mesh_ui_settings_action {
      * (docs/radio-firmware-roadmap.md), and it will need the sheet this one does not.
      */
     MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE,
+    /*
+     * Steps which of upstream's two release lists the firmware rows read.
+     *
+     * An ACTION rather than an editable ENUM for the reason About's own update channel is one:
+     * the value is this client's, not the radio's, so there is nothing for Y to write and a
+     * pending edit waiting on a save would never be applied.
+     */
+    MESH_UI_SETTINGS_ACTION_CYCLE_FIRMWARE_CHANNEL,
 };
 
 /* Which press writes this field (mesh/ui/nav.h). */

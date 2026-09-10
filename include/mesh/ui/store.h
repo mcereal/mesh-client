@@ -826,7 +826,10 @@ struct mesh_ui_settings {
      */
     bool fw_supported; /* a fetcher exists, so the check can do anything at all */
     bool fw_busy;      /* a document is in flight */
-    uint8_t fw_state;  /* enum mesh_firmware_state (mesh/core/firmware.h) */
+    /* Which of upstream's two release lists is being read - its own word for it, so it is not
+       a string id: "stable" and "alpha" are names, like a region code. */
+    char fw_channel[12];
+    uint8_t fw_state; /* enum mesh_firmware_state (mesh/core/firmware.h) */
     char fw_message[96];
     /* The newest release on the followed channel, and the board this radio was identified as.
        Either may be empty: a check that has not run, or a board nothing claimed. */

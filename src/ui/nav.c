@@ -883,6 +883,9 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
                     } else if (item.number ==
                                (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE) {
                         action->type = MESH_UI_ACTION_CHECK_RADIO_FIRMWARE;
+                    } else if (item.number ==
+                               (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_FIRMWARE_CHANNEL) {
+                        action->type = MESH_UI_ACTION_CYCLE_FIRMWARE_CHANNEL;
                     }
                 }
                 /* The row itself does not change; the app's reply comes back as new state. */

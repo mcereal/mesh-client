@@ -2062,12 +2062,17 @@ MESH_STR_ENTRY(FW_NOT_YET_IMPLEMENTED,    "not built yet")
  * after the answer instead - which is what lets the value column carry the version rather than
  * a sentence about it. The same trick About plays with "Install %s".
  */
+/* Which of upstream's two release lists the rows read. The channel's own name - "stable" or
+   "alpha" - is upstream's word for its own list and arrives untranslated, like a region code. */
+MESH_STR_ENTRY(FW_CHANNEL,                "Firmware channel")
 MESH_STR_ENTRY(FW_LATEST,                 "Radio firmware")
 MESH_STR_ENTRY(FW_NEWER,                  "Newer firmware")
 MESH_STR_ENTRY(FW_CHECK,                  "Check for firmware")
 MESH_STR_ENTRY(FW_INSTALLING,             "Installing")
 /* The toast the check press raises, where a sentence has room. */
 MESH_STR_ENTRY(TOAST_CHECKING_FIRMWARE,   "Checking for radio firmware...")
+/* The %s is upstream's own name for the list and is not translated. */
+MESH_STR_ENTRY(TOAST_FIRMWARE_CHANNEL,    "Firmware channel: %s")
 
 /* ---- language ------------------------------------------------------------------------------------ */
 

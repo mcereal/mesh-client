@@ -180,6 +180,28 @@ bool mesh_firmware_answers_for(const struct mesh_firmware *firmware, uint32_t hw
                                const char *running);
 
 /*
+ * Which of upstream's two release lists to read.
+ *
+ * Its own setting rather than a follower of the client's own update channel, because they are
+ * two projects: somebody running a stable client may well want to try alpha firmware on a
+ * spare node, and the reverse is just as reasonable. The names are upstream's own - `stable`
+ * and `alpha`, the two arrays in its index - rather than the stable/prerelease pair the
+ * updater uses, and there is no "automatic" third option here: that one exists next door to
+ * follow the running *build*, and this client's build says nothing about what a radio should
+ * run.
+ *
+ * Forgets whatever the last check concluded, because the channel decides which question was
+ * asked and the old answer is the other one's. Refuses while a check is in flight, for the
+ * reason the updater's own channel switch does: the document being read belongs to the
+ * question that started it. Returns true when the channel actually moved.
+ */
+bool mesh_firmware_set_channel(struct mesh_firmware *firmware, enum mesh_firmware_channel channel);
+
+/* The channel as a settings row names it. Untranslated: these are upstream's own words for
+   its two release lists, the way a region code or a modem preset is. */
+const char *mesh_firmware_channel_name(enum mesh_firmware_channel channel);
+
+/*
  * Drops whatever the last check concluded, back to idle.
  *
  * For a radio swap: the board, the version and the blocker were all answers about a node that
