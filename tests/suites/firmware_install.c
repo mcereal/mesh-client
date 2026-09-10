@@ -51,6 +51,15 @@ static bool fixture_put(const char *path, const char *contents) {
     return fclose(file) == 0 && ok;
 }
 
+static bool fixture_append(const char *path, const char *contents) {
+    FILE *const file = fopen(path, "a");
+    if (file == NULL) {
+        return false;
+    }
+    const bool ok = fputs(contents, file) >= 0;
+    return fclose(file) == 0 && ok;
+}
+
 static void fixture_remove(const char *root) {
     char command[PATH_MAX + 16];
     if (snprintf(command, sizeof command, "rm -rf '%s'", root) < (int)sizeof command) {
@@ -58,8 +67,8 @@ static void fixture_remove(const char *root) {
     }
 }
 
-static bool usb_interface(const char *root, const char *name, const char *cls,
-                          const char *subclass, const char *protocol) {
+static bool usb_interface(const char *root, const char *name, const char *cls, const char *subclass,
+                          const char *protocol) {
     char dir[PATH_MAX];
     char file[PATH_MAX];
     if (snprintf(dir, sizeof dir, "%s/%s", root, name) >= (int)sizeof dir) {
@@ -248,9 +257,8 @@ MESH_TEST_CASE(usb_msc_finds_the_drive_the_bootloader_published, unit) {
     struct mesh_usb_msc_target other;
     char expected_other[128];
     snprintf(expected_other, sizeof expected_other, "%s/sdb", fixture.dev);
-    const bool sibling_right =
-        has_sibling && mesh_usb_msc_find(&sibling, &other) == 0 &&
-        strcmp(other.device, expected_other) == 0;
+    const bool sibling_right = has_sibling && mesh_usb_msc_find(&sibling, &other) == 0 &&
+                               strcmp(other.device, expected_other) == 0;
     fixture_close(&fixture);
 
     MESH_TEST_FAIL_IF(!right, "the drive on 2-1 should be found and named");
@@ -329,13 +337,16 @@ MESH_TEST_CASE(usb_msc_refuses_a_drive_it_could_only_half_unmount, unit) {
 
     bool built = usb_bootloader(fixture.usb, "2-1");
     built = built && block_device(fixture.block, "sda", "2-1", "65801");
-    char mounts[1024];
-    int at = 0;
-    for (unsigned i = 0; i < MESH_USB_MSC_MOUNTS_MAX + 1U; ++i) {
-        at += snprintf(mounts + at, sizeof mounts - (size_t)at, "%s/sda /mnt/m%u vfat rw 0 0\n",
-                       fixture.dev, i);
+    /* One line per mountpoint, appended rather than accumulated: snprintf returns what it
+       *would* have written, so adding its result to an offset walks past the buffer the moment
+       anything truncates - and then the next call gets an out-of-range pointer and a length
+       that underflowed. Writing each line separately has no offset to get wrong. */
+    char line[256];
+    for (unsigned i = 0; built && i < MESH_USB_MSC_MOUNTS_MAX + 1U; ++i) {
+        built = snprintf(line, sizeof line, "%s/sda /mnt/m%u vfat rw 0 0\n", fixture.dev, i) <
+                (int)sizeof line;
+        built = built && fixture_append(fixture.mounts, line);
     }
-    built = built && fixture_put(fixture.mounts, mounts);
     MESH_TEST_FAIL_IF_CLEANUP(!built, fixture_close(&fixture), "could not build the trees");
 
     struct mesh_serial_device_info device;
@@ -430,16 +441,17 @@ MESH_TEST_CASE(usb_msc_write_reports_a_drive_it_cannot_open, unit) {
     const uint8_t image[64] = {0};
     struct mesh_usb_msc_write write;
     memset(&write, 0, sizeof write);
-    const int started = mesh_usb_msc_write_start(&write, NULL, image, sizeof image,
-                                                 "/proc/meshclient/definitely-not-here",
-                                                 mesh_time_monotonic_ms());
+    const int started =
+        mesh_usb_msc_write_start(&write, NULL, image, sizeof image,
+                                 "/proc/meshclient/definitely-not-here", mesh_time_monotonic_ms());
     MESH_TEST_FAIL_IF(started != 0, "the fork itself should succeed");
     (void)write_settle(&write);
     const enum mesh_usb_msc_write_state state = write.state;
     const int error = write.error;
     mesh_usb_msc_write_cancel(&write);
 
-    MESH_TEST_FAIL_IF(state != MESH_USB_MSC_WRITE_FAILED, "a drive that will not open is a failure");
+    MESH_TEST_FAIL_IF(state != MESH_USB_MSC_WRITE_FAILED,
+                      "a drive that will not open is a failure");
     MESH_TEST_FAIL_IF(error != -EACCES, "and it says so as the open refusing rather than as EIO");
     record_success(test_name);
 }
@@ -459,7 +471,8 @@ MESH_TEST_CASE(usb_msc_write_survives_a_cancel_it_never_started, unit) {
     mesh_usb_msc_write_cancel(&write);
 
     /* If stdin had been closed, this would fail. */
-    MESH_TEST_FAIL_IF(fcntl(STDIN_FILENO, F_GETFD) < 0, "a cancel must not close the client's stdin");
+    MESH_TEST_FAIL_IF(fcntl(STDIN_FILENO, F_GETFD) < 0,
+                      "a cancel must not close the client's stdin");
     MESH_TEST_FAIL_IF(mesh_usb_msc_write_progress(&write) != 0U, "and nothing was written");
     record_success(test_name);
 }
@@ -532,8 +545,8 @@ MESH_TEST_CASE(install_writes_the_image_and_waits_for_the_board_to_restart, unit
     memset(&install, 0, sizeof install);
 
     const int started =
-        mesh_firmware_install_start(&install, NULL, image_path, "2-1:1.1",
-                                    MESH_UF2_FAMILY_NRF52840, install_arm, &run, install_done, &run);
+        mesh_firmware_install_start(&install, NULL, image_path, "2-1:1.1", MESH_UF2_FAMILY_NRF52840,
+                                    install_arm, &run, install_done, &run);
     MESH_TEST_FAIL_IF_CLEANUP(started != 0, fixture_close(&fixture), "the install should start");
     MESH_TEST_FAIL_IF_CLEANUP(install.state != MESH_FIRMWARE_INSTALL_ARMING,
                               (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
@@ -655,19 +668,24 @@ MESH_TEST_CASE(install_refuses_an_image_that_is_not_for_this_board, unit) {
 
     struct mesh_firmware_install install;
     memset(&install, 0, sizeof install);
-    const int wrong_family =
-        mesh_firmware_install_start(&install, NULL, image_path, "2-1:1.1",
-                                    MESH_UF2_FAMILY_RP2040, NULL, NULL, NULL, NULL);
+    const int wrong_family = mesh_firmware_install_start(
+        &install, NULL, image_path, "2-1:1.1", MESH_UF2_FAMILY_RP2040, NULL, NULL, NULL, NULL);
     const enum mesh_firmware_install_error wrong_error = install.error;
 
     memset(&install, 0, sizeof install);
     const int no_family = mesh_firmware_install_start(&install, NULL, image_path, "2-1:1.1", 0U,
                                                       NULL, NULL, NULL, NULL);
 
+    const enum mesh_firmware_install_error no_family_error = install.error;
+
+    /* A struct that was zeroed and never started, so anything left at 0 reads as "none" - which
+       is exactly how a refusal comes to print as "could not start the install: none". */
     memset(&install, 0, sizeof install);
-    const int missing = mesh_firmware_install_start(&install, NULL, "/nowhere/at/all.uf2",
-                                                    "2-1:1.1", MESH_UF2_FAMILY_NRF52840, NULL,
-                                                    NULL, NULL, NULL);
+    const int missing =
+        mesh_firmware_install_start(&install, NULL, "/nowhere/at/all.uf2", "2-1:1.1",
+                                    MESH_UF2_FAMILY_NRF52840, NULL, NULL, NULL, NULL);
+    const enum mesh_firmware_install_error missing_error = install.error;
+    const enum mesh_firmware_install_state missing_state = install.state;
     fixture_close(&fixture);
 
     MESH_TEST_FAIL_IF(wrong_family == 0, "a T114 image offered as an RP2040 one is refused");
@@ -675,7 +693,19 @@ MESH_TEST_CASE(install_refuses_an_image_that_is_not_for_this_board, unit) {
                       "and the refusal says which board rather than which file");
     MESH_TEST_FAIL_IF(no_family != -EINVAL,
                       "an architecture with no UF2 path is refused rather than accepting anything");
+    MESH_TEST_FAIL_IF(no_family_error != MESH_FIRMWARE_INSTALL_ERROR_UNAVAILABLE,
+                      "and says so rather than leaving the error at none");
     MESH_TEST_FAIL_IF(missing != -EIO, "and an image that is not there is refused before anything");
+    /*
+     * The contract in the header: a negative start still fills in `state` and `error`. It is the
+     * whole difference between a row that says "the image is not there" and one that says
+     * nothing at all, and the failure mode is silent - a zeroed struct reads as NONE, which is
+     * a legible-looking answer that happens to be a lie.
+     */
+    MESH_TEST_FAIL_IF(missing_error != MESH_FIRMWARE_INSTALL_ERROR_UNAVAILABLE,
+                      "an unreadable image is UNAVAILABLE, not none");
+    MESH_TEST_FAIL_IF(missing_state != MESH_FIRMWARE_INSTALL_FAILED,
+                      "and the state says failed rather than idle");
     record_success(test_name);
 }
 
@@ -698,11 +728,10 @@ MESH_TEST_CASE(install_tells_a_radio_that_stayed_from_a_bootloader_that_never_ca
     memset(&run, 0, sizeof run);
     struct mesh_firmware_install install;
     memset(&install, 0, sizeof install);
-    MESH_TEST_FAIL_IF_CLEANUP(
-        mesh_firmware_install_start(&install, NULL, image_path, "2-1:1.1",
-                                    MESH_UF2_FAMILY_NRF52840, install_arm, &run, install_done,
-                                    &run) != 0,
-        fixture_close(&fixture), "the install should start");
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_firmware_install_start(&install, NULL, image_path, "2-1:1.1",
+                                                          MESH_UF2_FAMILY_NRF52840, install_arm,
+                                                          &run, install_done, &run) != 0,
+                              fixture_close(&fixture), "the install should start");
     for (uint64_t now = 1000U; now <= 61000U && !run.finished; now += 1000U) {
         mesh_firmware_install_tick(&install, now);
     }
@@ -714,8 +743,8 @@ MESH_TEST_CASE(install_tells_a_radio_that_stayed_from_a_bootloader_that_never_ca
     run.arm_result = -ENOTCONN;
     memset(&install, 0, sizeof install);
     const int refused =
-        mesh_firmware_install_start(&install, NULL, image_path, "2-1:1.1",
-                                    MESH_UF2_FAMILY_NRF52840, install_arm, &run, install_done, &run);
+        mesh_firmware_install_start(&install, NULL, image_path, "2-1:1.1", MESH_UF2_FAMILY_NRF52840,
+                                    install_arm, &run, install_done, &run);
     const enum mesh_firmware_install_error refused_error = install.error;
     mesh_firmware_install_cancel(&install);
 
@@ -725,7 +754,7 @@ MESH_TEST_CASE(install_tells_a_radio_that_stayed_from_a_bootloader_that_never_ca
     (void)system(command);
     memset(&run, 0, sizeof run);
     memset(&install, 0, sizeof install);
-    MESH_TEST_FAIL_IF_CLEANUP(mesh_firmware_install_start(&install, NULL, image_path, "", 
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_firmware_install_start(&install, NULL, image_path, "",
                                                           MESH_UF2_FAMILY_NRF52840, NULL, NULL,
                                                           install_done, &run) != 0,
                               fixture_close(&fixture), "an unarmed install should start too");
