@@ -172,10 +172,20 @@ bool mesh_firmware_release_parse(const char *json_text, size_t len,
             return false;
         }
     }
-    if (tag[0] == '\0') {
+    /*
+     * The leading 'v' comes off, and what is left has to be something.
+     *
+     * Tested *after* the strip rather than before it, which is not a nicety: a JSON string may
+     * carry an embedded NUL - `\u0000`, or a raw byte - and one right after the 'v' leaves a tag
+     * that is non-empty as far as the document is concerned and empty as far as C is. `make
+     * fuzz` found exactly that, and what it produced was a release the client would have
+     * offered as an update to a version with no name.
+     */
+    const char *const version = tag[0] == 'v' ? tag + 1 : tag;
+    if (version[0] == '\0') {
         return false;
     }
-    mesh_str_copy(out->version, sizeof out->version, tag[0] == 'v' ? tag + 1 : tag);
+    mesh_str_copy(out->version, sizeof out->version, version);
     /*
      * The index calls it `zip_url` and for a current release it is a `.json` - the per-release
      * manifest. Older entries really do point at a per-platform zip, and one of those is not

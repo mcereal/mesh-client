@@ -167,6 +167,15 @@ MESH_TEST_CASE(firmware_catalog_refuses_a_broken_index, unit) {
         "{\"releases\": {\"stable\": [{}]}}",
         "{\"releases\": {\"stable\": [{\"title\": \"no id here\"}]}}",
         "{\"releases\": {\"stable\": [{\"id\": \"v1.2.3",
+        /*
+         * A tag that is a 'v' and then nothing, twice over: written out, and written as the
+         * escape for a NUL - which is a character the document may carry and C cannot, so the
+         * string is non-empty in the reply and empty in the buffer. `make fuzz` found the
+         * second one, and what it produced was a release the client would have offered as an
+         * update to a version with no name.
+         */
+        "{\"releases\": {\"stable\": [{\"id\": \"v\"}]}}",
+        "{\"releases\": {\"stable\": [{\"id\": \"v\\u0000-2.7.26\"}]}}",
     };
     for (size_t i = 0; i < sizeof k_broken / sizeof k_broken[0]; ++i) {
         struct mesh_firmware_release release;
