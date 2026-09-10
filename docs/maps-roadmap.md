@@ -380,10 +380,21 @@ other:
    the trip, you fetch the pack for where you are going. This is the common case, because a
    reader generally knows where they will be, and it is the one that can fetch a *large* area
    while there is bandwidth and time to spare.
-2. **Download what is on screen.** The map already pans and zooms, so the viewport already
-   knows a bounding box and a zoom - `mesh_map_viewport_fit()` run backwards - and "get me
-   this" needs no region list, no place-name search and no keyboard. It is the answer when the
-   plan changed and there is still a network.
+2. **Download what is on screen.** The map already pans and zooms, so the viewport can be asked
+   to *describe* what it is showing: `mesh_map_viewport_at()` is the pixel-to-coordinate
+   inverse, and run on the box's corners it gives a bounding box, which with the zoom is a
+   request. "Get me this" then needs no region list, no place-name search and no keyboard. It is
+   the answer when the plan changed and there is still a network.
+
+   Two things to get right, neither of which is free. `mesh_map_viewport_fit()` is **not** the
+   operation and cannot be run backwards - it takes points and moves the centre and zoom, and
+   hands back no bounds. And the corners have to come from the box **actually drawn into**: the
+   nav's own viewport carries the declared `MESH_UI_MAP_FIT_WIDTH`, deliberately smaller than
+   any real body, which is the safe direction for a fit (too small only leaves air) and the
+   wrong one for a download (it would fetch less than the reader can see). Only the backend
+   knows the real body - `fb_render_map()` resizes a copy of the nav's viewport to it on every
+   frame - so this press needs the measured box to reach it, which is the same seam the fit
+   declined to open.
 
 The first needs a way to *name* a region without a map of the world to point at, which is a real
 UI problem on a d-pad - a list of pre-cut packs is the cheap answer and a coarse world map you
