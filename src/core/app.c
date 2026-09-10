@@ -647,6 +647,10 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
        is two answers that can disagree. Never fatal, for the same reason as above. */
     (void)mesh_firmware_init(&app->firmware, &app->loop);
     mesh_firmware_use_ca_bundle(&app->firmware, app->updater.fetch.ca_bundle);
+    /* After init, which zeroes the struct. A prefs file written before the setting existed
+       reads as stable, so this is a no-op for anyone who has never picked. */
+    (void)mesh_firmware_set_channel(
+        &app->firmware, (enum mesh_firmware_channel)app->ui_preferences.firmware_channel);
 
     /* Optional canned.txt next to the preferences file replaces the built-in quick replies. */
     if (app->ui_preferences_path[0] != '\0') {

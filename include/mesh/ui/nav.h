@@ -384,6 +384,9 @@ enum mesh_ui_action_type {
        on CHECK_UPDATE because the two can be in flight at once and fail separately, and
        because only one of them ever installs anything. */
     MESH_UI_ACTION_CHECK_RADIO_FIRMWARE,
+    /* Steps the firmware channel and remembers it, as CYCLE_UPDATE_CHANNEL does for the
+       client's own. Its own action for the same reason the check is: two projects. */
+    MESH_UI_ACTION_CYCLE_FIRMWARE_CHANNEL,
     /* Radio actions section: `number` is the enum mesh_ui_settings_action the user confirmed.
        One action type rather than five because the nav has nothing to say about any of them
        beyond which row it was - the app owns what each one means. */

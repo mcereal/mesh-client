@@ -33,3 +33,9 @@ hold 2400
 # And the settled case, where the only row left is the version.
 firmware current
 hold 2400
+
+# The channel above them, which decides which of upstream's two release lists the press below
+# it reads. Switching drops the answer - it belonged to the other question - so the row under
+# it goes back to "not checked" until a check runs again.
+firmware-channel alpha
+hold 2400

@@ -806,6 +806,21 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
         mesh_ui_store_set_toast(&app->ui_store, now, toast);
         return;
     }
+    case MESH_UI_ACTION_CYCLE_FIRMWARE_CHANNEL: {
+        const enum mesh_firmware_channel next = (enum mesh_firmware_channel)(
+            ((unsigned)app->firmware.channel + 1U) % (unsigned)MESH_FIRMWARE_CHANNEL_COUNT);
+        if (!mesh_firmware_set_channel(&app->firmware, next)) {
+            /* Refused, which here only ever means a check is in flight. */
+            mesh_ui_store_set_toast(&app->ui_store, now, mesh_str(MESH_STR_TOAST_ALREADY_CHECKING));
+            return;
+        }
+        app->ui_preferences.firmware_channel = (uint8_t)app->firmware.channel;
+        app->ui_preferences_dirty = true;
+        mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_FIRMWARE_CHANNEL,
+                        mesh_firmware_channel_name(app->firmware.channel));
+        mesh_ui_store_set_toast(&app->ui_store, now, toast);
+        return;
+    }
     case MESH_UI_ACTION_CHECK_RADIO_FIRMWARE: {
         /* What the radio said about itself is the whole input: the model number decides which
            board this is and the version decides whether the newest release is news. Both may
