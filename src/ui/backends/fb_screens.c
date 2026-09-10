@@ -18,8 +18,10 @@
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/chrome.h"
 #include "mesh/ui/delivery.h"
+#include "mesh/ui/duration.h"
 #include "mesh/ui/emoji.h"
 #include "mesh/ui/help.h"
+#include "mesh/ui/history.h"
 #include "mesh/ui/input.h"
 #include "mesh/ui/layout.h"
 #include "mesh/ui/map.h"
@@ -1847,7 +1849,8 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
      * will run - see include/mesh/ui/status.h.
      */
     struct mesh_ui_status_actions actions;
-    mesh_ui_status_actions(&actions, connected != NULL, snapshot->handshake_valid);
+    mesh_ui_status_actions(&actions, connected != NULL, snapshot->handshake_valid,
+                           mesh_ui_history_has_airtime(&snapshot->history));
     const uint32_t focus = snapshot->nav.cursor[MESH_UI_SCREEN_STATUS];
 
     /*
@@ -2106,6 +2109,16 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
     fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_MESSAGES,
                 MESH_STR_STATUS_MESSAGES_KEPT, (unsigned)snapshot->messages.count,
                 (unsigned)snapshot->messages.dropped);
+    /*
+     * And the verb that opens the airtime readings as a chart, on the heading line above all of
+     * them.
+     *
+     * The card this belongs to is the one that can lose rows to the reservation below, which is
+     * exactly why it is safe: the rows a clipped card sheds are the ones declared last, and the
+     * heading - with the verbs on it - is not a row at all. A card that could end up with *no*
+     * rows may not carry a verb, and this one always has the message counts above.
+     */
+    fb_status_card_actions(&card, &actions, MESH_UI_STATUS_CARD_MESH, focus);
     /* ---- the radio itself: its battery, its queue, and what it last said about itself ---- */
 
     /* Uptime is in both sources, like the airtime pair above, so LocalStats wins it for the same
@@ -2792,6 +2805,81 @@ static void fb_render_begin(struct mesh_ui_backend_fb_state *state,
     state->animation_damage.valid = false;
 }
 
+/*
+ * The airtime trend, over the Status cards that offered it.
+ *
+ * The one screen in this client whose whole content is a picture, and the smallest renderer here
+ * because of it: no list, no cursor, no rows to measure. What it does is name the two ends of the
+ * domain, hand the history to fb_draw_chart() and get out of the way.
+ *
+ * The two series arrive in one LocalStats report and are drawn on one window - see
+ * mesh_ui_series_window(). Projecting each on its own span is the way this screen would be wrong
+ * quietly: our own transmit share is inside the channel's total, so two lines stretched to
+ * different widths would show ours crossing above it.
+ */
+static void fb_render_trend(struct mesh_ui_backend_fb_state *state,
+                            const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
+    /* No trail. The navigation bar above is already saying Status, and an overline says only
+       what nothing else on the frame says. */
+    fb_draw_app_bar(state, layout,
+                    &(const struct fb_app_bar){.title = mesh_str(MESH_STR_TREND_TITLE)});
+
+    const struct mesh_ui_series *const series[] = {
+        &snapshot->history.channel_utilization,
+        &snapshot->history.air_util_tx,
+    };
+    const uint32_t count = (uint32_t)(sizeof series / sizeof series[0]);
+
+    uint32_t from = 0U;
+    uint32_t to = 0U;
+    const bool windowed = mesh_ui_series_window(series, count, &from, &to);
+
+    /*
+     * A zeroed scale: both readings are already permille, which is what the Status card's own
+     * meter fills against. The same domain for both lines and for the band, which is the whole
+     * reason our share can be read against the total by looking at them.
+     */
+    const struct mesh_ui_scale domain = {0, 0};
+    struct mesh_ui_polyline points[2];
+    for (uint32_t i = 0U; i < count; ++i) {
+        mesh_ui_series_project_over(series[i], domain, from, to, &points[i]);
+    }
+
+    char top[16];
+    char bottom[16];
+    mesh_str_format(top, sizeof top, MESH_STR_TREND_AXIS_PERCENT, 100U);
+    mesh_str_format(bottom, sizeof bottom, MESH_STR_TREND_AXIS_PERCENT, 0U);
+
+    /* How far back the picture goes, or nothing at all when every reading landed inside one tick
+       of the client's clock and there is no span to name. */
+    char span[48];
+    span[0] = '\0';
+    if (windowed) {
+        char words[24];
+        mesh_ui_format_duration((to - from) / 1000U, words, sizeof words);
+        mesh_str_format(span, sizeof span, MESH_STR_TREND_SPAN, words);
+    }
+
+    const int margin = fb_margin(state);
+    const struct fb_chart chart = {
+        .rect = {.x = margin,
+                 .y = layout->body_y,
+                 .w = (int)state->var.xres - margin * 2,
+                 .h = layout->footer_y - fb_gutter(state) - layout->body_y},
+        .lines = {{.points = &points[0], .label = MESH_STR_TREND_SERIES_CHANNEL},
+                  {.points = &points[1], .label = MESH_STR_TREND_SERIES_TX}},
+        .count = count,
+        .top = top,
+        .bottom = bottom,
+        .span = span[0] != '\0' ? span : NULL,
+        /* The same thresholds the card's bar cuts notches at, so the amber the reader saw there
+           is a line here they can watch the trend cross. */
+        .band = &fb_air_band,
+        .scale = domain,
+    };
+    fb_draw_chart(state, layout, &chart);
+}
+
 void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
                         const struct mesh_ui_snapshot *snapshot) {
     /* Before anything is measured: a theme carries the glyph scale and the margin the whole
@@ -2929,7 +3017,14 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
             break;
         case MESH_UI_SCREEN_STATUS:
         default:
-            fb_render_status(state, snapshot, &layout);
+            /* The chart over the cards, the way the map is drawn over the node list - and the
+               screen is tested as well as the flag for the same reason: `trend_open` says where
+               the Status tab is standing, not what is on the panel. */
+            if (snapshot->nav.trend_open) {
+                fb_render_trend(state, snapshot, &layout);
+            } else {
+                fb_render_status(state, snapshot, &layout);
+            }
             break;
         }
     }

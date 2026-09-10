@@ -502,6 +502,55 @@ problem at all:
   add up to a confident picture of a whole that does not exist. §2.12's first rule, on a
   component that has more ways to break it.
 
+> **Landed.** `struct fb_chart` and `fb_draw_chart()` in
+> [`fb_widgets.h`](../src/ui/backends/fb_widgets.h), `mesh_ui_series_window()` and
+> `mesh_ui_series_project_over()` in [`layout.h`](../include/mesh/ui/layout.h),
+> `MESH_UI_STATUS_VERB_TREND`, `nav->trend_open`, `MESH_UI_ROUTE_TREND` and `fb_render_trend()`.
+> See §16.
+
+**2.18 There is no way to say what a reading *was*, with numbers on it.** The fifth quantitative
+question, and the first whose answer is a screen. The four components above all fit in a row, and
+each pays for that the same way: it has no numbers on it. A sparkline is a shape, and a reader who
+does not already know what it is a shape of learns nothing from it - which is the right trade in a
+list, where the row above names the reading and the bar beside it says how far along.
+
+It stops being the right trade the moment somebody stops to look, and there was nowhere to stop
+and look. "Is the mesh getting busier" is answered by the line on the Status card; "how much
+busier, since when, and has it crossed the threshold that matters" is not answerable from a shape
+six cells wide - and those are the questions a reader who has noticed the line actually has.
+
+Three things this needs that a row-height component does not, and the first is why the entry sat
+in Tier 3:
+
+- **Its cost is a route rather than a component.** A screen, a level on the nav, a place in the
+  transition table, an entry in the help table, and a verb to open it with. The drawing is the
+  small half - the sparkline's shape of problem again, where the sample ring was the larger half -
+  and it is why this was worth waiting for a reason rather than inventing one.
+- **The vertical has to be labelled, which makes the domain rule stricter rather than looser.**
+  The sparkline already refuses to rescale itself to its data. Here that refusal is load-bearing
+  in a new way: an axis with numbers on it gets *believed*, so an axis that rescaled would be a
+  labelled lie rather than a misleading shape.
+- **A second line becomes drawable, and that is what the room buys.** 2.19 below was a separate
+  entry until this one landed, and it turned out not to be one: two lines with no words is a
+  picture that needs a legend, a legend needs a line of its own, and having a line of its own is
+  what a chart *is*. The two entries are one step.
+
+**2.19 There is no multi-series line.** `channel_utilization` and `air_util_tx` are already in the
+history ring on one domain, and the interesting reading is ours as a share of the total - a share
+that is invisible while the two are drawn as separate figures on separate rows. Behind the axis
+frame, and not merely by sequencing: it needs a legend, and a legend needs the room.
+
+Two things it found that the composition's entry did not, and both are about what a *fill* is:
+
+- **A series colour is validated as a bar, and a line is not a bar.** The palette promises 1.4:1
+  and that number was measured on the width of `fb_draw_proportion()`'s slices; a stroke half the
+  glyph scale wide at the same contrast is a line the reader has to hunt for, on precisely the
+  themes that exist so nobody has to. So a chart's pen is at least twice a sparkline's, and that
+  is what the room is spent on.
+- **Two lines share one window, or the picture lies.** `mesh_ui_series_project()` stretches a
+  series across its own span - correct for a line drawn alone, and wrong the moment there is a
+  second one beside it.
+
 ### Tier 3 — worth knowing, not worth doing yet
 
 - **Surface tiers stop at three plus two states.** M3 has five container levels. Only worth a
@@ -523,16 +572,6 @@ problem at all:
   where a card row is a line tall; and a reader compares angles worse than they compare lengths,
   which is the one thing a composition is asked to do. `fb_draw_proportion()` says the same
   sentence in a bar's height.
-- **No axis frame, and not yet.** A sparkline draws a shape with no numbers on it, and the
-  obvious next thing is a full-body chart with the domain's ends labelled and its time span
-  named — A on the airtime row opening its own trend. It is the first thing on this list whose
-  cost is a *route* rather than a component: a screen, a nav level, a help entry and a place in
-  the transition table. Worth doing once two people have wanted to know more than the row could
-  say; not worth inventing the screen in order to justify the component.
-- **No multi-series line.** `channel_utilization` and `air_util_tx` are already in the history
-  ring on one domain, and the interesting reading is ours as a share of the total. Small, now
-  that a categorical palette exists — and deliberately behind the axis frame, because two lines
-  in a row's height with no labels is a picture that needs a legend the row has no space for.
 - **No FAB.** Also arguably correct. The "start a new thread" row is a list row with a plus in
   its avatar slot, which is the right answer on a device with no touch — a floating button that
   cannot be pointed at is a button that has to be reached by scrolling past everything else.
@@ -1443,3 +1482,97 @@ in `theme.c` had ever owed, and writing the contract was most of the work.
   should give up is a decision about that screen rather than about this component, and it is a
   visible one now rather than a hypothetical — the clipping is graceful instead of catastrophic,
   so it can be argued about with a picture.
+
+## 16. What doing 2.18 and 2.19 changed
+
+The entry was right that the cost would be a route and wrong about which part of the route was
+the work. It expected a screen, a nav level, a help entry and a place in the transition table -
+and each of those really was a line or two, because every one of them is derived from something
+that already existed. What it did not see is that a screen with **no cursor** is a different kind
+of thing from every other level in this client, and that most of the care went there.
+
+- **A level with nothing to choose still has to swallow the presses.** Every other level in the
+  client answers Up and Down with a cursor; a chart has no rows, so the obvious implementation is
+  to handle B and let the rest fall through. That is wrong in the one way that matters: what the
+  presses fall through *to* is the Status cards, whose cursor is an index into their verbs - so
+  Down would move a cursor nobody can see and A would run whichever verb it had moved onto.
+  Disconnect is one of them. The chart takes the d-pad and A and gives back only the shoulders
+  and SELECT, which is the map's split arriving from the other side: the map takes the d-pad
+  because Left means *look west*, and this takes it because Left means nothing at all.
+
+- **The verb went to the end of the list, and the condition on it is not the honest one.**
+  `mesh_ui_status_actions()` gates the trend on the link and the handshake as well as on there
+  being readings, and the first two are redundant as facts - the history cannot fill without
+  them. They are there because the *list* has an invariant: the Status cursor is an index, so a
+  verb may only ever appear at the end, and a verb whose condition does not imply the conditions
+  of the verbs before it can slide in ahead of them. Written the honest way - "offer it whenever
+  there is a trend" - a client with a chart and no radio would offer `[trend]` at index 0, and a
+  radio arriving would push disconnect underneath a cursor sitting there. Restating the
+  redundant conditions is a line of code that makes the invariant checkable by *reading the
+  function* rather than by reasoning about which report arrives first.
+
+- **The Mesh card had no verb, and the reason it now has one is that it acquired a picture.**
+  §15 recorded that the Mesh card is over budget and that which rows it should give up is a
+  decision about that screen. This did not settle that, but it changed its terms: the small line
+  on the card is now an *entrance* rather than the whole of what the client can say about a
+  trend, so the argument for keeping it is stronger and the argument for the two text rows around
+  it is weaker.
+
+- **Two lines on one picture needed an arithmetic change, not a drawing change.** This is the
+  entry's own claim about the sparkline - that the ring was the larger half - arriving again one
+  component along. `mesh_ui_series_project()` places a series across *its own* span, which is
+  exactly right for a line drawn alone and quietly wrong the moment a second line is beside it: a
+  series that stopped reporting half an hour ago is stretched to the same width as one still
+  arriving, so on this screen our transmit share would be drawn climbing to meet the channel's
+  total. `mesh_ui_series_window()` takes the union of the clocks and
+  `mesh_ui_series_project_over()` places every line on it. The old function is now written in
+  terms of the new one, which is what stops the two being two answers to where a reading goes.
+
+- **The palette's contract is a fill's, and a line is thinner than a bar.** The series colours
+  promise 1.4:1 against the grounds and against each other, and §15 recorded that this is what
+  keeps the contract at the meter's number instead of text's 4.5:1 - a series colour is only ever
+  a fill. A stroke is a fill of a very thin rectangle, and at 1.4:1 a hairline in those colours is
+  a line the reader has to hunt for on precisely the themes that exist so nobody has to. The fix
+  is not a new colour, which would be a new contract for every theme: it is to spend the room a
+  chart has on making the mark wide enough to be the fill the palette was validated for.
+  `fb_chart_stroke()` is at least twice `fb_spark_stroke()` for that reason and no other.
+
+- **The threshold rules are broken rather than solid, and that is the notch's argument.** A meter
+  cuts a gap in its own track, which works because the track is a thing the eye has already
+  found. A chart has no track for a threshold to be cut into, so the mark has to be visibly a
+  mark: three solid horizontals on a plot are three things that look like readings. It is also
+  drawn *behind* the lines, because a mark the data can be seen crossing has to be under the
+  data.
+
+- **The newest reading is not marked, and dropping the mark was a decision rather than an
+  omission.** A sparkline marks its last point because a stroke does not say which end is now,
+  and a trend read backwards is the opposite trend. A chart has the answer written under it: the
+  horizontal is labelled with the span it covers, so the right-hand edge is the present by
+  construction. Two ends marked on two lines would be four squares saying what one caption says.
+
+- **The empty state was written and then deleted.** The first version of the screen had a
+  "nothing to draw yet" state and two strings for it. It cannot happen: the verb needs two
+  readings to appear, and `mesh_ui_nav_clamp()` closes the screen when the history empties -
+  which is the map's clamp one screen along, and for the map's reason. A picture with its axes
+  labelled and nothing on them reads as a mesh that went perfectly quiet, not as a screen that
+  has lost its subject. What is left is the one case a clamp cannot rule out, and it is not an
+  empty state: when every reading landed inside one tick of the client's clock there is no span
+  to name, so the label under the axis is *absent* rather than reading "0m". An axis whose span
+  is unknown says nothing about it; "0m" is a claim.
+
+- **It found a duplicated formatter, which is the kind of thing a fifth caller finds.** The chart
+  needs to say how long its horizontal covers, and the ladder of unit thresholds that turns
+  seconds into "45m" or "3h 20m" existed twice already - byte-identical in `node_detail.c` and
+  `waypoints.c`, each with a comment saying it had to agree with the other. A comment is not a
+  mechanism. `mesh_ui_format_age()` and `mesh_ui_format_duration()`
+  ([`duration.h`](../include/mesh/ui/duration.h)) are the two of them, once; the file is in the
+  UI layer rather than in `utils/` because what they answer with is a *string id*, and the
+  thresholds are the arithmetic while "%um ago" is the i18n layer's to answer for.
+
+- **One thing it leaves behind, and it is the entry above's.** A node's battery is the obvious
+  second caller: the node detail already draws it as a trailing sparkline, the history already
+  keeps one per node, and `fb_draw_chart()` takes a series and a scale without caring what they
+  are about. What it would need is the route learning a *subject* - `MESH_UI_ROUTE_TREND` names
+  none today, because there is one trend and it is the radio we are attached to - and a press to
+  open it with, which on a screen whose rows are a list is a genuine question rather than a
+  spare button. Worth doing when somebody wants it; the component is not what is missing.

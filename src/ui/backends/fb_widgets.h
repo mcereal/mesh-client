@@ -863,6 +863,118 @@ int fb_proportion_thickness(const struct mesh_ui_backend_fb_state *state, int sc
 void fb_draw_proportion(const struct mesh_ui_backend_fb_state *state,
                         const struct fb_proportion *bar);
 
+/* ---- the chart ------------------------------------------------------------------------------
+ *
+ * The same readings the sparkline draws in a row, in a whole body: what a trend *was*, with its
+ * axes named and more than one line on it.
+ *
+ * The fifth quantitative component and the first that is a screen rather than a slot. Everything
+ * before it fits in a row and pays for that by having no numbers on it - a sparkline is a shape,
+ * and the reader has to already know what it is a shape of. That is the right trade in a list,
+ * where the row above says which reading it is and the bar beside it says how far along. It
+ * stops being the right trade the moment somebody stops to look, which is the press this exists
+ * for, and it was the thing docs/components-roadmap.md said an axis frame would cost: not a
+ * component, a *route*.
+ *
+ * What the room buys, in the order it matters:
+ *
+ *   - **The vertical says what it is measuring.** Its two ends are labelled, in the reading's own
+ *     units, so "high" is a number rather than a feeling. The domain is still the reading's own
+ *     `struct mesh_ui_scale` and never the range these samples happened to span - the sparkline's
+ *     first rule, and it is *more* load-bearing here, not less: an axis with numbers on it is
+ *     believed, so an axis that rescaled itself would be a labelled lie rather than a misleading
+ *     shape.
+ *   - **The horizontal says how long.** A shape with no time under it cannot distinguish a
+ *     battery that fell ten percent in an hour from one that fell ten percent in a week.
+ *   - **The thresholds are drawn.** The band the meter cuts notches into becomes a rule across
+ *     the plot, so where a reading stops being comfortable is a line the trend can be seen
+ *     crossing rather than a colour that changed at a moment nobody can locate. This is the one
+ *     thing a chart says that no row-height component can.
+ *   - **More than one line fits.** Which is what the legend is for, and why two lines could not
+ *     be drawn in a row: the words naming them have to be somewhere, and a row has no somewhere.
+ *
+ * Three things it deliberately does not do:
+ *
+ *   - **No end mark.** A sparkline marks its newest reading because a stroke does not say which
+ *     end is now, and a line falling left to right and one rising are the same picture read
+ *     backwards. A chart has the answer written under it: the axis is labelled with the span it
+ *     covers, so "now" is the right-hand edge by construction.
+ *   - **No grid.** Two threshold rules and an axis are the marks that mean something; a lattice
+ *     of evenly spaced lines is furniture that makes a picture look measured without measuring
+ *     anything, and on a panel with no anti-aliasing it competes with the data for pixels.
+ *   - **Nothing animates.** The sparkline's reason, unchanged: a trend keeps its readings rather
+ *     than replacing them, so there is nothing to move between.
+ */
+
+/* Lines one chart may carry - the palette's count, because a line takes a series colour and two
+   lines sharing one is a chart that cannot be read. The compile-time assertion beside
+   fb_draw_proportion() holds the two halves of that seam equal. */
+#define FB_CHART_LINES MESH_UI_SERIES_COLORS
+
+struct fb_chart_line {
+    /*
+     * The samples, already normalised, exactly as the sparkline takes them - but projected by
+     * mesh_ui_series_project_over() rather than by mesh_ui_series_project(), and that difference
+     * is the whole of what makes two lines comparable. A series projected on its own span fills
+     * whatever box it is given, so a series that stopped reporting half an hour ago would be
+     * drawn as though it were still arriving. See mesh_ui_series_window().
+     *
+     * Borrowed for the call. Nothing here keeps it.
+     */
+    const struct mesh_ui_polyline *points;
+    /* What the legend calls it. MESH_STR_NONE draws the line and names it nowhere, which is
+       honest only when there is exactly one line - with two it is the picture asking the reader
+       to guess. */
+    enum mesh_str_id label;
+};
+
+struct fb_chart {
+    /* Everything: the plot, the words down its side and the two lines of chrome under it. The
+       caller hands over a body and this divides it, which is the one place in this component set
+       where that is the right way round - a chart is the whole screen, so there is nothing else
+       laying claim to the room. */
+    struct fb_rect rect;
+    struct fb_chart_line lines[FB_CHART_LINES];
+    uint32_t count;
+    /*
+     * The two ends of the vertical, already formatted in the reading's own units - a percentage,
+     * a temperature, a count. Formatted by the caller because the units are the caller's: this
+     * knows where the top of the domain is and has no idea what it is the top *of*.
+     */
+    const char *top;
+    const char *bottom;
+    /* What the horizontal covers, as words ("45m", "3h 20m"), or NULL when the readings share
+       one clock tick and there is no span to name. NULL draws no label rather than a zero: an
+       axis whose span is unknown says nothing about it, and "0m" is a claim. */
+    const char *span;
+    /*
+     * Where the reading stops being comfortable, drawn as rules across the plot, and the domain
+     * they are stated in. Optional: a NULL band draws no rules.
+     *
+     * The scale is the same one the lines were projected against, and the component cannot check
+     * that - a band placed on one domain over lines placed on another is this component's way of
+     * being wrong quietly, and it is the caller's promise in the way disjointness is
+     * fb_draw_proportion()'s.
+     */
+    const struct mesh_ui_band *band;
+    struct mesh_ui_scale scale;
+};
+
+/*
+ * The least room a chart is worth drawing in, in pixels of height.
+ *
+ * Below it the plot is shorter than the two lines of chrome under it, which is a caption with a
+ * smear above it rather than a picture. A caller with less room draws something else; there is
+ * no clipped chart, for the reason there is no clipped card.
+ */
+int fb_chart_min_height(const struct mesh_ui_backend_fb_state *state,
+                        const struct fb_layout *layout);
+
+/* Draws the frame, the threshold rules, the lines and the legend. Const state, like the
+   sparkline and the composition: there is nothing here to animate. */
+void fb_draw_chart(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                   const struct fb_chart *chart);
+
 /* ---- the badge ------------------------------------------------------------------------------
  *
  * A capsule of text, filled from a family. Two callers: a list row's trailing slot

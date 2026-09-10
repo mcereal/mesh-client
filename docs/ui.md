@@ -1419,6 +1419,62 @@ change.
 
 Rendered by `make ui-capture ARGS="devtools/ui_capture/scenes/shots/status.scene"`.
 
+#### `fb_draw_chart()` — the axis frame
+
+The fifth quantitative component and the first that is a **screen** rather than a slot. The four
+before it fit in a row and pay for that by having no numbers on them: a sparkline is a shape, and
+the reader has to already know what it is a shape of. That is the right trade in a list, where
+the row above names the reading and the bar beside it says how far along. It stops being the
+right trade the moment somebody stops to look — which is the press this exists for, and which is
+why the roadmap's entry for it said its cost would be a *route* rather than a component.
+
+The Status screen's Mesh card carries the verb (`MESH_UI_STATUS_VERB_TREND`), `nav->trend_open`
+is the level, `MESH_UI_ROUTE_TREND` is the place, and
+[`fb_render_trend()`](../src/ui/backends/fb_screens.c) is a dozen lines because a chart has no
+rows to measure and no cursor to place.
+
+What the room buys, in the order it matters:
+
+- **The vertical says what it is measuring.** Its two ends are labelled, in the reading's own
+  units, so *high* is a number rather than a feeling. The domain is still the reading's own
+  `struct mesh_ui_scale` and never the range these samples happened to span — the sparkline's
+  first rule, and it is *more* load-bearing here: an axis with numbers on it gets believed, so an
+  axis that rescaled itself would be a labelled lie rather than a misleading shape.
+- **The horizontal says how long.** A shape with no time under it cannot distinguish a battery
+  that fell ten percent in an hour from one that fell ten percent in a week.
+- **The thresholds are drawn.** The band `fb_draw_meter()` cuts notches into becomes a broken
+  rule across the plot, so where a reading stops being comfortable is a line the trend can be
+  *seen* crossing rather than a colour that changed at a moment nobody can locate. This is the
+  one thing a chart says that no row-height component can.
+- **More than one line fits**, which is what the legend is for — and why two lines could not be
+  drawn in a row: the words naming them have to be somewhere.
+
+Three things it deliberately does not do. **No end mark**: a sparkline marks its newest reading
+because a stroke does not say which end is now, and a chart has the answer written under it.
+**No grid**: two threshold rules and two axes are the marks that mean something, and a lattice of
+evenly spaced lines makes a picture look measured without measuring anything. **Nothing
+animates**, for the sparkline's reason.
+
+Two rules came out of building it, and both are about what a *fill* is:
+
+- **Two lines on one picture share one window.** `mesh_ui_series_project()` stretches a series
+  across its own span, which is right for a line drawn alone and wrong the moment there is a
+  second one — a series that stopped reporting half an hour ago would be drawn as though it were
+  still arriving, and on this screen that is our transmit share climbing to meet the channel's
+  total. `mesh_ui_series_window()` takes the union of the series' clocks and
+  `mesh_ui_series_project_over()` places every line on it; the first is now written in terms of
+  the second.
+- **A chart's pen is thicker than a sparkline's, and that is the palette's contract rather than
+  a preference.** A series colour promises 1.4:1 against the grounds and against its neighbours,
+  and that was measured on a *bar* — it is why the palette may never be an ink. A hairline in one
+  of those colours is a line the reader has to hunt for, so `fb_chart_stroke()` is at least twice
+  `fb_spark_stroke()`: the room a chart has is spent making the mark wide enough to be the fill
+  the palette was validated for.
+
+The legend is a swatch and a word per line, the swatch in the series colour and the word in the
+row's own ink — the same rule, from the other side. Rendered by
+`make ui-capture ARGS="devtools/ui_capture/scenes/chart.scene"`.
+
 #### `struct fb_snackbar` — the transient notice
 
 `mesh_ui_store_set_toast()` raises a one-line notice: *Sent to BRVO*, *Not connected*,

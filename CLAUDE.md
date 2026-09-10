@@ -151,10 +151,15 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window (counted in **steps**, so one row may be taller than its neighbours); cards (filled/elevated/outlined, with verbs on the heading line), buttons, chips, badges, list items (leading/marker/supporting/trailing slots, an optional full-width bar on a second step), section subheaders, switches, selection controls (checkbox/radio), segmented buttons (which fall back to the chosen word when the row is too narrow), meters (with domains and drawn threshold bands), sliders (a settings number on the scale of the values it could have had, with a value the scale cannot place drawn as a track with no handle), signal staircases, sparklines (a reading over time, on the bar's own domain, from a sample ring the client keeps),
 proportion bars (a whole and the disjoint parts it is made of, in the theme's categorical
 series palette rather than in tones, with the parts filling the track exactly and a part that
-is there never rounded away to nothing), bubbles (whose trailing run is four typed slots the component measures, never a string a screen assembled), the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar |
+is there never rounded away to nothing), the chart (`fb_draw_chart()`: the same readings a
+sparkline draws in a row, in a whole body, with its domain's ends labelled, its time span named,
+its thresholds ruled across the plot and more than one line on it - the one component here that
+is a screen rather than a slot), bubbles (whose trailing run is four typed slots the component measures, never a string a screen assembled), the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar |
 | Button hints | `src/ui/actions.c`, `include/mesh/ui/actions.h` | what the buttons do here, as (button, verb) pairs the action bar iterates |
 | Status verbs | `src/ui/status.c`, `include/mesh/ui/status.h` | which Status card carries which verb — read by `nav.c`, `actions.c` and the renderer alike |
 | Help | `src/ui/help.c`, `include/mesh/ui/help.h` | what the client can explain about where the user is standing, as a title, a subject and a list of paragraphs — ids the whole way down. A settings section's notes live on the things they describe (a section's beside its icon in `settings.c`, a field's in its own `k_fields` row) and this assembles them; a *feature's* are a table here, keyed on the route under the help screen |
+| The trend screen | `src/ui/backends/fb_screens.c` (`fb_render_trend`), `src/ui/status.c`, `src/ui/route.c` | The airtime chart the Status screen's Mesh card opens: a level of the Status tab (`nav->trend_open`, `MESH_UI_ROUTE_TREND`) with no cursor on it, drawn by the one component that fills a body |
+| Durations | `src/ui/duration.c`, `include/mesh/ui/duration.h` | "4m ago" and "3h 20m", once. A UI file with no pixels in it, because what a ladder of unit thresholds answers with is a *string id* |
 | Waypoints UI | `src/ui/waypoints.c`, `src/ui/nav_waypoints.c` | the list's order (nearest first, from our own fix), a place's detail rows, and the distance/compass formatting the same two screens read |
 | Tapbacks | `src/ui/reactions.c`, `include/mesh/ui/reactions.h` | the fixed emoji set X offers over a bubble: the glyph, which goes on the air unchanged, and the catalog id that names it |
 | Delivery marks | `src/ui/delivery.c`, `include/mesh/ui/delivery.h` | which mark an outbound message's ack state gets — the clock, the double tick or the alert circle a bubble's corner draws, and the word a backend with no sprites says for the same state |
@@ -427,6 +432,29 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   chip is what is lost and the mark saying the message failed is what survives. Concatenating
   them back into one string reintroduces the bug, and `ui_capture_bubble_contains_its_own_ink`
   is what catches it.
+- **The trend verb is gated on the link, and what it opens is not.** Every other verb on the
+  Status screen is a request over the air; this one opens a chart of readings this client already
+  holds, which outlive the radio going away. Offering it with the link down would still be wrong,
+  because the Status cursor is an *index* into the verb list: with no link the list would be
+  `[trend]` alone, and a radio arriving would slide disconnect in underneath a cursor sitting on
+  index 0. The condition on a verb has to imply the conditions on the verbs before it, which is
+  why `mesh_ui_status_actions()` restates `connected` and `synced` for a fact that cannot be true
+  without them.
+- **The chart swallows the d-pad and A, and does not take the shoulders.** It is the map's split
+  in reverse. The map takes the four directions because Left there means "look west"; the chart
+  takes them because there is nothing on it to move - and what a press would otherwise fall
+  through to is the Status cards, where Down moves a cursor nobody can see and A runs whichever
+  verb it lands on. The shoulders stay the tab switch they are everywhere, and `trend_open`
+  outliving a change of tab is why the key handler checks `nav->screen` as well.
+- **Two lines on one chart are projected over a window neither of them owns.**
+  `mesh_ui_series_project()` stretches a series across its own span, which is right for a line
+  drawn alone and wrong beside a second one: a series that stopped reporting is drawn as though
+  it were still arriving. `mesh_ui_series_window()` is the union of the clocks and
+  `mesh_ui_series_project_over()` places every line on it.
+- **A chart's line is drawn thicker than a sparkline's on purpose.** A series colour promises
+  1.4:1 and that was measured on the width of a bar - the palette is a fill's contract, never an
+  ink's - so a hairline in one of those colours is a line the reader has to hunt for. The room a
+  chart has is spent making the mark wide enough to be the fill the palette was validated for.
 - **The framebuffer needs all three steps** — draw page 0, `FBIOPAN_DISPLAY`, mirror into page 1
   — or the screen is black.
 - **Only the release build is a release.** Do not stamp a local build to test the updater; lift

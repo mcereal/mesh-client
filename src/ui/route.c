@@ -8,12 +8,14 @@
 /*
  * How deep the tab's own screen is, before any overlay is stacked on it.
  *
- * Two of the six tabs are one level and say so by having nothing to open; the three that are
- * a hierarchy each answer for their own shape, which is the same shape three times - a list,
- * and one of its rows opened over it. Settings is the only one that goes three deep, and it
- * does it two ways: a module section reached through the Modules list, and a channel reached
- * through the Channels section. Neither can be true at once, so the additions do not need to be
- * exclusive to be correct - but they are written as two separate questions because they are two.
+ * One of the six tabs is a single level and says so by having nothing to open; the rest each
+ * answer for their own shape, which is mostly the same shape - a list, and one of its rows
+ * opened over it. Status is the exception to that and not to the depth: what its level holds is
+ * a chart rather than a row's detail, which changes what is drawn and nothing about how far in
+ * it is. Settings is the only one that goes three deep, and it does it two ways: a module
+ * section reached through the Modules list, and a channel reached through the Channels section.
+ * Neither can be true at once, so the additions do not need to be exclusive to be correct - but
+ * they are written as two separate questions because they are two.
  */
 static uint8_t route_screen_depth(const struct mesh_ui_nav *nav) {
     switch (nav->screen) {
@@ -51,8 +53,12 @@ static uint8_t route_screen_depth(const struct mesh_ui_nav *nav) {
         }
         return depth;
     }
-    case MESH_UI_SCREEN_DEVICES:
     case MESH_UI_SCREEN_STATUS:
+        /* One level, and the only tab whose second level is a picture rather than a list of
+           something. It still counts, because what a depth buys is the slide, the back arrow and
+           the B keycap - none of which care what is being drawn at the bottom of it. */
+        return nav->trend_open ? 1U : 0U;
+    case MESH_UI_SCREEN_DEVICES:
     default:
         return 0U;
     }
@@ -116,8 +122,15 @@ static void route_screen_place(const struct mesh_ui_nav *nav, struct mesh_ui_rou
         out->level = MESH_UI_ROUTE_SECTION;
         out->slot = nav->settings_section;
         return;
-    case MESH_UI_SCREEN_DEVICES:
     case MESH_UI_SCREEN_STATUS:
+        if (nav->trend_open) {
+            out->level = MESH_UI_ROUTE_TREND;
+        }
+        /* No subject and no slot: there is one trend, and it is the radio we are attached to.
+           A second chart - a node's battery, which is the obvious next caller - would name its
+           node here, and would then be two places rather than one repainted. */
+        return;
+    case MESH_UI_SCREEN_DEVICES:
     default:
         return;
     }

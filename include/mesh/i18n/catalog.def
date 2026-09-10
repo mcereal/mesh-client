@@ -163,6 +163,10 @@ MESH_STR_ENTRY(ACTION_DISCONNECT,         "disconnect")
 MESH_STR_ENTRY(ACTION_FORGET,             "forget")
 /* Ask the radio for this section again, rather than showing what it last said. */
 MESH_STR_ENTRY(ACTION_REFRESH,            "refresh")
+/* Open the airtime readings as a chart with its axes named - the Status screen's Mesh card
+   offers it once there is more than one reading to draw. A noun rather than "graph": what is
+   being opened is the trend, and the chart is only how it is shown. */
+MESH_STR_ENTRY(ACTION_TREND,              "trend")
 /* Write the pending edits to the radio; throw them away. */
 MESH_STR_ENTRY(ACTION_SAVE,               "save")
 MESH_STR_ENTRY(ACTION_DISCARD,            "discard")
@@ -575,6 +579,30 @@ MESH_STR_ENTRY(STATUS_RADIO_SAID_COUNT,   "%s, %u this connection")
 MESH_STR_ENTRY(STATUS_REBOOTS_SINCE,      "%u since connecting")
 MESH_STR_ENTRY(STATUS_MESSAGES_KEPT,      "%u kept, %u dropped")
 MESH_STR_ENTRY(STATUS_DEVICES_IN_RANGE,   "%zu in range")
+
+/* ---- the trend screen ------------------------------------------------------------------------ */
+
+/*
+ * The chart the Status screen's trend verb opens: the same airtime readings the card draws in a
+ * row, with the room to say what their axes are.
+ *
+ * Nothing here is a sentence about the picture. What the two lines are is the legend, what the
+ * vertical means is its two ends, and what the horizontal means is the span under it - three
+ * labels of a few cells each, which is all a chart on a panel this size can carry and all it
+ * needs.
+ */
+MESH_STR_ENTRY(TREND_TITLE,               "Airtime")
+/* The two lines, in the order the legend draws them - the order is the palette's, so a
+   translation swapping them would name the wrong colour. All traffic the radio heard, and the
+   part of it we sent: the second is inside the first, which is why the words say so. */
+MESH_STR_ENTRY(TREND_SERIES_CHANNEL,      "All traffic")
+MESH_STR_ENTRY(TREND_SERIES_TX,           "Ours")
+/* How far back the picture goes, under the horizontal axis. The duration is already formatted
+   ("45m", "3h 20m"), so what this adds is the word saying it is time. */
+MESH_STR_ENTRY(TREND_SPAN,                "last %s")
+/* The two ends of the vertical axis: the airtime domain is a percentage of the air, whole
+   numbers because an axis end is read rather than measured. */
+MESH_STR_ENTRY(TREND_AXIS_PERCENT,        "%u%%")
 
 /* ---- a node's detail screen ------------------------------------------------------------------ */
 
@@ -1097,6 +1125,15 @@ MESH_STR_ENTRY(HELP_NOTE_DEVICES_FORGET,  "Y twice drops a radio's pairing from 
 MESH_STR_ENTRY(HELP_LABEL_STATUS_COUNTS,  "Why two node counts differ")
 MESH_STR_ENTRY(HELP_NOTE_STATUS,          "How this client, its link and the radio are doing, one card each. A card the radio has told us nothing about says so rather than disappearing, so nothing moves under the cursor.")
 MESH_STR_ENTRY(HELP_NOTE_STATUS_COUNTS,   "NodeDB is what the radio still holds and Cached here is what this client remembers, which is deliberately more: a node the radio evicted is gone for good, so we keep it.")
+
+/* The trend chart, which is a screen of its own rather than a row on the Status list - so it is
+   keyed on its route rather than read off a settings row. */
+MESH_STR_ENTRY(HELP_SUBJECT_TREND,        "Airtime trend")
+MESH_STR_ENTRY(HELP_LABEL_TREND_AXES,     "What the axes say")
+MESH_STR_ENTRY(HELP_LABEL_TREND_MARKS,    "The lines across it")
+MESH_STR_ENTRY(HELP_NOTE_TREND,           "How busy the air has been, over the reports this client has watched. The card's small line says which way; this says how far and since when.")
+MESH_STR_ENTRY(HELP_NOTE_TREND_AXES,      "Up is the share of the air in use, from nothing to all of it - never the range these readings span, so two visits can be compared. Across is time, and the span under it says how long.")
+MESH_STR_ENTRY(HELP_NOTE_TREND_MARKS,     "The faint rules are where airtime stops being comfortable - the thresholds that turn the card's bar amber. A break in a line is a period the radio reported nothing, not a reading of zero.")
 
 
 /* ---- settings: field labels ------------------------------------------------------------------- */

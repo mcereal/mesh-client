@@ -66,6 +66,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_ACTION_DISCONNECT] = "desconectar",
     [MESH_STR_ACTION_FORGET] = "olvidar",
     [MESH_STR_ACTION_REFRESH] = "recargar",
+    [MESH_STR_ACTION_TREND] = "tendencia",
     [MESH_STR_ACTION_SAVE] = "guardar",
     [MESH_STR_ACTION_DISCARD] = "descartar",
     [MESH_STR_ACTION_EDIT] = "editar",
@@ -274,6 +275,18 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_STATUS_REBOOTS_SINCE] = "%u desde la conexión",
     [MESH_STR_STATUS_MESSAGES_KEPT] = "%u guardados, %u descartados",
     [MESH_STR_STATUS_DEVICES_IN_RANGE] = "%zu al alcance",
+
+    /* The trend chart. The two series names are in the order the legend draws them, which is the
+       order of the palette rather than of the sentence: swapping them here names the wrong
+       colour, exactly as swapping the parts of STATUS_HEARD does. */
+    [MESH_STR_TREND_TITLE] = "Uso del aire",
+    [MESH_STR_TREND_SERIES_CHANNEL] = "Todo el tráfico",
+    [MESH_STR_TREND_SERIES_TX] = "Lo nuestro",
+    [MESH_STR_TREND_SPAN] = "últimos %s",
+    [MESH_STR_TREND_AXIS_PERCENT] = "%u%%",
+    [MESH_STR_HELP_SUBJECT_TREND] = "Tendencia del aire",
+    [MESH_STR_HELP_LABEL_TREND_AXES] = "Qué dicen los ejes",
+    [MESH_STR_HELP_LABEL_TREND_MARKS] = "Las líneas que lo cruzan",
     [MESH_STR_NODE_HEAD_IDENTITY] = "Identidad",
     [MESH_STR_NODE_HEAD_SIGNAL] = "Señal",
     [MESH_STR_NODE_HEAD_METRICS] = "Métricas del equipo",

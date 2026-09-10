@@ -664,6 +664,16 @@ static bool help_store_tab(struct mesh_ui_store *store, enum mesh_ui_screen scre
  * paragraphs and no subject is a help screen headed "Help" over nothing, which looks like a
  * missing string rather than like an answer.
  */
+/*
+ * Every tab explains itself, and says which tab it is explaining.
+ *
+ * The phase 1 client offered SELECT on a settings section and nowhere else, which made the one
+ * key on the case that is not printed with a verb mean something on one tab in six. The subject
+ * is checked with the topic because it is what the frame draws on the trail: a topic with
+ * paragraphs and no subject is a help screen headed "Help" over nothing, which looks like a
+ * missing string rather than like an answer.
+ */
+
 MESH_TEST_CASE(help_every_tab_explains_itself, unit) {
     static const enum mesh_ui_screen k_screens[] = {
         MESH_UI_SCREEN_MESSAGES, MESH_UI_SCREEN_NODES,  MESH_UI_SCREEN_WAYPOINTS,
@@ -695,6 +705,54 @@ MESH_TEST_CASE(help_every_tab_explains_itself, unit) {
         MESH_TEST_FAIL_IF(store.nav.help_open, "B did not leave a tab's help");
         MESH_TEST_FAIL_IF(store.nav.screen != k_screens[i], "leaving help left the tab as well");
     }
+    record_success(test_name);
+}
+
+/*
+ * And the level inside a tab that is a picture rather than a list.
+ *
+ * The chart is the first screen whose help cannot be assembled from rows - there are no rows -
+ * so it is a feature keyed on the route, and what a reader arrives here wanting is what the axes
+ * mean. It is also the case that proves the keying is on the route rather than on the tab: the
+ * Status cards underneath have their own topic, and the two must not answer for each other.
+ */
+MESH_TEST_CASE(help_the_chart_explains_its_axes, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(!help_store_tab(&store, MESH_UI_SCREEN_STATUS),
+                      "the Status tab did not open");
+
+    struct mesh_ui_help_topic cards;
+    MESH_TEST_FAIL_IF(!topic_for(&store, &cards), "the cards have no topic");
+
+    /* Two airtime reports, because a chart with nothing to draw closes itself on the next
+       clamp - which is what mesh_ui_store_handle_key() runs before every press. */
+    struct mesh_ui_settings settings = store.settings;
+    settings.stats.valid = true;
+    settings.stats.channel_utilization = 11.0f;
+    mesh_ui_store_tick(&store, 1000U);
+    mesh_ui_store_set_settings(&store, &settings);
+    settings.stats.channel_utilization = 24.0f;
+    mesh_ui_store_tick(&store, 2000U);
+    mesh_ui_store_set_settings(&store, &settings);
+
+    store.nav.trend_open = true;
+    struct mesh_ui_help_topic chart;
+    MESH_TEST_FAIL_IF(!topic_for(&store, &chart), "the chart has no topic");
+    MESH_TEST_FAIL_IF(chart.subject != MESH_STR_HELP_SUBJECT_TREND,
+                      "the chart's topic should name the chart");
+    MESH_TEST_FAIL_IF(chart.subject == cards.subject,
+                      "a level inside a tab should not inherit the tab's topic");
+    MESH_TEST_FAIL_IF(chart.count < 2U, "the chart's topic is only an overview");
+
+    /* And SELECT still opens it, which is the press the bar is naming: a screen the action bar
+       offers help on and the help table cannot answer for is a keycap that does nothing. */
+    MESH_TEST_FAIL_IF(!bar_offers_help(&store), "the chart did not offer the help press");
+    press(&store, MESH_UI_KEY_SELECT);
+    MESH_TEST_FAIL_IF(!store.nav.help_open, "SELECT did not open the chart's help");
+    press(&store, MESH_UI_KEY_B);
+    MESH_TEST_FAIL_IF(store.nav.help_open, "B did not leave the chart's help");
+    MESH_TEST_FAIL_IF(!store.nav.trend_open, "leaving help left the chart as well");
+    mesh_ui_store_shutdown(&store);
     record_success(test_name);
 }
 
