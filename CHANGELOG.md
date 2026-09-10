@@ -1,3 +1,19 @@
+## [2.52.0](https://github.com/mcereal/mesh-client/compare/v2.51.1...v2.52.0) (2026-09-10)
+
+### Features
+
+* **firmware:** fetch one board's image out of a release zip ([0b9eea4](https://github.com/mcereal/mesh-client/commit/0b9eea481f5ea85fe85a8f212c898a65940d5858))
+* **firmware:** read a release zip from its back end ([f39c149](https://github.com/mcereal/mesh-client/commit/f39c14988f7e1fd4769aaf11816e4bdadabe49dd))
+* **firmware:** resolve a board to its image and fetch it ([877d390](https://github.com/mcereal/mesh-client/commit/877d39055ae6b25d5bc65a680564fd97038eee18))
+
+### Bug Fixes
+
+* **firmware:** check the manifest is for the board we asked for ([cd2913a](https://github.com/mcereal/mesh-client/commit/cd2913a225cd4e21d1fcb40f066593c6f99b8d8d)), closes [#137](https://github.com/mcereal/mesh-client/issues/137)
+
+### Documentation
+
+* **firmware:** mark phase 2 shipped and correct four numbers ([8674f7c](https://github.com/mcereal/mesh-client/commit/8674f7cda195522b3d205a97de98ccd986f066d1))
+
 ## [2.51.1](https://github.com/mcereal/mesh-client/compare/v2.51.0...v2.51.1) (2026-09-10)
 
 ### Bug Fixes
