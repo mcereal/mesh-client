@@ -1,3 +1,9 @@
+## [2.54.0](https://github.com/mcereal/mesh-client/compare/v2.53.0...v2.54.0) (2026-09-10)
+
+### Features
+
+* **deploy:** add USB (adb) transport to the device deploy loop ([317b996](https://github.com/mcereal/mesh-client/commit/317b996a59e6a1afd0ba8afac4624720b48708b5))
+
 ## [2.53.0](https://github.com/mcereal/mesh-client/compare/v2.52.0...v2.53.0) (2026-09-10)
 
 ### Features
