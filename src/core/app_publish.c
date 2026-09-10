@@ -14,6 +14,7 @@
 #include "mesh/i18n/strings.h"
 
 #include "mesh/core/version.h"
+#include "mesh/geo/coords.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/serial.h"
 #include "mesh/ui/node_detail.h"
@@ -1577,6 +1578,46 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         ui_handshake.node_count = (uint32_t)copy_count;
         /* `total`, not copy_count: what the roster knows, against what survived the ranking. */
         ui_handshake.nodes_known = (uint32_t)total;
+
+        /*
+         * The map's roster, from the whole of `total` rather than from the 128 above.
+         *
+         * The ranking cut is a decision about a *list*: which nodes are worth a row on a screen
+         * a reader scrolls. A map has no rows, and a node's rank has nothing to do with whether
+         * its marker is on the panel - so a mesh whose 200th-ranked node is the one parked at
+         * the far end of the valley was drawing everything except the marker that answered the
+         * question. Same order, because the order is the drawing order and ties are settled by
+         * it; no cut, because struct mesh_ui_map_node is small enough not to need one.
+         *
+         * Positioned nodes only, and the bounds test rather than `valid` alone: the session
+         * already refuses an out-of-range fix, and asking again here costs nothing and keeps a
+         * hand-built roster from putting a marker off the edge of Earth.
+         */
+        size_t map_count = 0U;
+        for (size_t i = 0; i < total && map_count < MESH_UI_MAX_MAP_NODES; ++i) {
+            const struct mesh_node_summary *src = &status->nodes[order[i]];
+            if (!src->position.valid ||
+                !mesh_geo_coords_valid(src->position.latitude_i, src->position.longitude_i)) {
+                continue;
+            }
+            struct mesh_ui_map_node *dst = &ui_handshake.map_nodes[map_count++];
+            dst->node_id = src->node_id;
+            dst->latitude_i = src->position.latitude_i;
+            dst->longitude_i = src->position.longitude_i;
+            dst->received = src->position.received;
+            dst->precision_bits = src->position.precision_bits;
+            dst->in_nodedb = src->in_nodedb;
+            /* Both arrays are cut from `order`, so a row exists exactly when this node's place
+               in the ranking is inside the cut - no search, and no second answer to disagree
+               with the one mesh_ui_node_detail_find() gives. */
+            dst->has_row = (i < copy_count);
+            /* The short name, falling back to the long one - the rule is stated on the field.
+               mesh_str_copy rather than snprintf because the long name is longer than a label
+               and cutting it is the expected case, not an overflow to be warned about. */
+            mesh_str_copy(dst->label, sizeof(dst->label),
+                          src->short_name[0] != '\0' ? src->short_name : src->long_name);
+        }
+        ui_handshake.map_node_count = (uint32_t)map_count;
 
         size_t channel_count = status->channel_count;
         if (channel_count > MESH_UI_MAX_CHANNELS) {

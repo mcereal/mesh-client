@@ -1,8 +1,10 @@
 # Map support assessment
 
 Status: **steps 1 and 2 of the delivery sequence have shipped** - the geography contract is
-complete and there is a marker map on the device, with no basemap under it. See
-§"What steps 1 and 2 became" for what landed and what it deliberately did not. Steps 3 to 5 -
+complete and there is a marker map on the device, with no basemap under it, and it now draws
+every positioned node the session holds rather than the 128 the node list publishes. See
+§"What steps 1 and 2 became" for what landed and what it deliberately did not, and
+§"The roster decision, taken" for the one open decision that has since been closed. Steps 3 to 5 -
 the offline raster spike, the offline release and the optional extensions - are still proposed,
 based on the repository inspected on 2026-09-07, and no device benchmarks accompany them. The
 **pre-work in §"Pre-work that matters" shipped first**, on its own and ahead of any map.
@@ -106,14 +108,17 @@ decisions, not dependencies already paid for by the application.
    roster and conversion helpers. Decide whether complete restart persistence is in scope:
    the existing UI cache only preserves its 128-node subset. Report displayed/known counts.
 
-   > **Partly done - the reporting half.** The projection is map work and waits for a map.
-   > What could not wait is that the truncation was *silent*: the session holds 256 and the UI
-   > publishes its best 128, and the Nodes tab could only compare itself against the radio's
-   > `nodedb_entries`, which is a different set and, after a NodeDB reset, the smaller one.
-   > `handshake.nodes_known` now carries the roster's own total and the title takes whichever
-   > of the two is larger, so "128 of 200" is sayable. The persistence question is still open
-   > and still deliberately so: the cache holds the published 128, and widening it is a
-   > decision for whoever needs all 256 back after a restart.
+   > **Done.** The reporting half landed first: the truncation was *silent*, because the
+   > session holds 256 and the UI publishes its best 128, and the Nodes tab could only compare
+   > itself against the radio's `nodedb_entries`, which is a different set and, after a NodeDB
+   > reset, the smaller one. `handshake.nodes_known` carries the roster's own total and the
+   > title takes whichever of the two is larger, so "128 of 200" is sayable.
+   >
+   > The coverage half is now taken too, and it is the compact projection this item asked for
+   > rather than the doubling it warned against - see §"The roster decision, taken". The
+   > persistence question is still open and still deliberately so: the cache holds the
+   > published 128, and widening it is a decision for whoever needs all 256 back after a
+   > restart.
 
 5. **Keep selection stable.** Store selected node ID, not a roster index, since publication
    reorders nodes. A map-only node may be outside the detail roster: resolve its detail by ID
@@ -166,17 +171,82 @@ the reasoning generalises to the steps that are still open:
   that is what makes one answer possible. The same constraint is why the *fit* is computed
   against a declared box (`MESH_UI_MAP_FIT_WIDTH`) that is deliberately smaller than any real
   body: too small only ever leaves extra air, where too large would clip a marker off the edge.
-- **The roster's published 128 is what goes on the map, not the session's 256.** Step 2 asks for
-  "all live session markers with explicit restart coverage". Widening the published roster is
-  the decision the fourth pre-work item left open on purpose, and a map is not the place to
-  settle it quietly - so the app bar says how many of what is known has a position instead
-  ("4 of 24"), which is the reporting half that item did land. **That decision is still open**,
-  and it is now the largest single thing between this map and the one this document describes.
+- **The roster's published 128 was what went on the map, not the session's 256.** Step 2 asks
+  for "all live session markers with explicit restart coverage". Widening the published roster
+  was the decision the fourth pre-work item left open on purpose, and a map was not the place to
+  settle it quietly - so the app bar said how many of what is known has a position instead
+  ("4 of 24"), which is the reporting half that item did land. That decision **has since been
+  taken**; see §"The roster decision, taken" below for the shape it took and the one thing it
+  left behind.
 
 What step 2 asked for and did not get, beyond the above: tile addressing on the viewport, which
 waits for a tile to fetch, exactly as `geo` held nothing but a bounds test until a range needed a
 vector. There is nothing to attribute yet either, so there is no attribution in the layout; that
 arrives with the first basemap and not before.
+
+## The roster decision, taken
+
+> **Landed.** The fourth pre-work item asked for a "compact map projection of all session
+> nodes" and warned against "doubling every large UI detail record" to get one. Step 2 shipped
+> without it and named it the largest single thing still between this map and the one described
+> here. This is what it became.
+
+**The map now draws every positioned node the session holds.** `struct mesh_ui_map_node` is the
+compact projection: a node number, two coordinates, when the fix was heard, the rounding its
+sender declared, whether the radio still carries it, and the label to write beside it. Nothing
+else. `mesh_app_publish_ui_state()` fills one per positioned node over the *whole* ranked roster
+rather than over the 128 rows it then copies, and `mesh_ui_map_build()` reads it.
+
+The measurement is why it is a second array rather than a wider first one. A
+`struct mesh_ui_node_summary` is **532 bytes** - seven telemetry tables, two names, a public key
+- so widening `nodes[128]` to the session's 256 would have added **68 KB** to a snapshot that
+was 105 KB and is copied whole every frame, to reach two coordinates. The compact record is
+**36 bytes**; 256 of them cost **9 KB**, and the snapshot went to 114 KB. That is the difference
+between a 65 percent snapshot and a 9 percent one for the same markers.
+
+Three things came out of doing it:
+
+- **Only positioned nodes are carried, so the cap can never truncate.** An unpositioned node
+  contributes nothing a marker needs, and how many the client knows is a different question that
+  `nodes_known` already answers - which is the reporting half the same pre-work item landed
+  first. A roster in which all 256 nodes have a fix still fits, so there is no second cut to
+  explain and no second "N of M" to get wrong. `MESH_UI_MAX_MAP_NODES` is pinned against
+  `MESH_SESSION_MAX_NODES` in the map suite, the way the waypoint limits are pinned against the
+  book's, and for the same reason: `store.h` is nanopb-free by construction.
+- **A handshake nobody published falls back to its rows.** A roster loaded from the cache before
+  the first publish, a hand-built fixture, the capture harness: none of them fills a second
+  array, and a producer that forgot to would leave a map that is silently empty - which no build
+  and no screenshot catches. The fallback is provably dead after a real publish (publish scans a
+  superset of the rows it copies, so a published row with a position always has a map entry
+  beside it), so it is a default rather than a second opinion.
+- **Map-only nodes now exist, and the fifth pre-work item's open case is open for real.** That
+  item said "a map-only node may be outside the detail roster: resolve its detail by ID through
+  the app/store seam before opening it", and closed as "open by construction - there are no
+  map-only nodes until there is a map". There are now: a node ranked 200th has a marker and no
+  row, and a node detail resolves by id against the rows. Left alone, A on such a marker opens a
+  detail that cannot be filled; `mesh_ui_nav_clamp()` runs on every snapshot and closes it
+  before the next frame is drawn, so nothing is *seen* - but the press has already reset the
+  node list's cursor on its way past and left `nav.node_detail_node` naming a node nothing is
+  showing.
+
+  What ships is the guard, not the seam: `struct mesh_ui_map_node` carries `has_row` - free,
+  because both arrays are cut from the same ranking - and A on a marker without one does
+  nothing, exactly as A on empty grid already does. The action bar still names A unconditionally
+  here, deliberately: a keycap that appeared and vanished as the reader panned would be the bar
+  flickering rather than informing. The line under the map still names the node and its range,
+  which is most of what a detail would have said about a node that far away.
+
+  **The seam itself is the next piece of this**, and it is small: publish would have to promise
+  that the node `nav.node_detail_node` names survives the ranking cut, and the clamp would have
+  to stop closing a detail for a node the map can select. The ordering is what makes it more
+  than a one-liner - a key press and the repaint it triggers happen inside one
+  `mesh_event_loop_run()`, with no publish between them - so it is a change to the loop's
+  contract rather than to the ranking, and it is not a tile problem.
+
+What this decision does **not** settle is persistence, which the same pre-work item also left
+open and which is still open: the cache holds the published 128, so a restart brings back 128
+nodes and the map's roster is rebuilt from those. Widening the cache is a decision for whoever
+needs all 256 back after a restart, and it is independent of everything above.
 
 ## Proposed module boundaries
 
@@ -192,7 +262,8 @@ Names below are proposals, not APIs that already exist.
 | `include/mesh/map/viewport.h`, `src/map/viewport.c` | Visible tile keys, once there are tiles | Full map, future location preview |
 | `include/mesh/map/source.h`, `src/map/source_*.c` | Map metadata and tile-byte lookup behind a small source interface | Offline packs; optional HTTP source later |
 | `src/map/tile_cache.c` | Byte-budgeted decoded tile cache, request deduplication and eviction | Any map viewport |
-| — *exists:* [`src/ui/map.c`](../src/ui/map.c) | Markers from the published roster and the waypoint book; the selection, measured from the view’s centre in metres | Framebuffer and test consumers |
+| — *exists:* `struct mesh_ui_map_node` in [`include/mesh/ui/store.h`](../include/mesh/ui/store.h) | The compact projection: every positioned node the *session* holds, not the ranked 128 the list publishes. Filled by `src/core/app_publish.c` | The markers, and anything else that wants a position without a summary |
+| — *exists:* [`src/ui/map.c`](../src/ui/map.c) | Markers from the map's roster and the waypoint book; the selection, measured from the view’s centre in metres | Framebuffer and test consumers |
 | — *exists:* [`src/ui/nav_map.c`](../src/ui/nav_map.c) | Button handling and map navigation state. Takes the d-pad *ahead* of the tab routing, and deliberately leaves the shoulders to it | Existing store/controller path |
 | — *exists:* [`src/ui/backends/fb_map.c`](../src/ui/backends/fb_map.c) | Graticule, markers, labels, crosshair and scale bar. Tiles and attribution when there are any | Device and off-screen capture |
 | `devtools/map_pack/` | Validate/prepare regional packs, show coverage and size | Host workflow and fixtures |
@@ -301,6 +372,8 @@ rights. Neither needs a provider account to begin measuring - a self-rendered pa
 square kilometres is enough to answer the question step 3 actually asks, which is what a cold
 read plus decode costs on the Brick’s storage while BLE is being serviced.
 
-The other open decision is the one carried over from the fourth pre-work item: whether the
-published roster widens past 128 so the map can show everything the session holds. It is
-independent of tiles and can be taken at any time.
+The decision carried over from the fourth pre-work item - whether the map sees everything the
+session holds - **has been taken**; see §"The roster decision, taken". Two smaller things came
+out of it and both are independent of tiles: resolving a **map-only node's detail** through the
+app/store seam, which the fifth pre-work item described and which is now a real case rather than
+a hypothetical one, and **cache coverage**, which is still deliberately open.

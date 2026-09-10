@@ -10,8 +10,10 @@
 
 #include "framework/mesh_test.h"
 
+#include "mesh/core/session.h"
 #include "mesh/geo/coords.h"
 #include "mesh/map/viewport.h"
+#include "mesh/ui/node_detail.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -24,6 +26,9 @@
    is when a scene and a test disagree about a frame. */
 #define MAP_TEST_LATITUDE 476180000
 #define MAP_TEST_LONGITUDE (-1223320000)
+
+/* The first node number of the wide roster below. Ours, so the self marker is exercised too. */
+#define MAP_WIDE_SELF 0x40000000U
 
 static void map_test_viewport(struct mesh_map_viewport *viewport, uint8_t zoom) {
     mesh_map_viewport_init(viewport, MAP_TEST_LATITUDE, MAP_TEST_LONGITUDE, zoom);
@@ -914,6 +919,192 @@ MESH_TEST_CASE(map_selects_a_marker_the_projection_had_to_clamp, unit) {
     uint32_t index = 0U;
     MESH_TEST_FAIL_IF(!mesh_ui_map_selected(&view, &viewport, &index),
                       "so a marker on the crosshair is what A opens");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/* ---- the map's own roster ----------------------------------------------------------------------
+ */
+
+/*
+ * The two rosters are two sizes, and the map's is the session's.
+ *
+ * store.h is nanopb-free by construction and mesh/core/session.h is not, so the map's cap is a
+ * second declaration of the session's - the waypoint limits' arrangement, and it needs the
+ * waypoint limits' check. The inequality below is the one that matters: if the map's roster
+ * ever narrowed to the list's, every marker this file is about would quietly disappear again
+ * and nothing else would fail.
+ */
+MESH_TEST_CASE(map_roster_agrees_across_the_seam, unit) {
+    MESH_TEST_FAIL_IF(MESH_UI_MAX_MAP_NODES != MESH_SESSION_MAX_NODES,
+                      "the map should hold every node the session can");
+    MESH_TEST_FAIL_IF(MESH_UI_MAX_MAP_NODES <= MESH_UI_MAX_HANDSHAKE_NODES,
+                      "and more of them than the ranked rows carry, or this bought nothing");
+    MESH_TEST_FAIL_IF(MESH_UI_MAP_MARKERS_MAX != MESH_UI_MAX_MAP_NODES + MESH_UI_MAX_WAYPOINTS,
+                      "so the marker set holds that roster and the whole waypoint book");
+    record_success(test_name);
+}
+
+/* A roster of `count` positioned nodes a few hundred metres apart, ourselves first, of which
+   the first `rows` are the ones the ranking published. */
+static void map_test_wide_roster(struct mesh_ui_handshake_state *hs, uint32_t count,
+                                 uint32_t rows) {
+    memset(hs, 0, sizeof *hs);
+    hs->config_complete = true;
+    hs->has_my_info = true;
+    hs->my_info.node_num = MAP_WIDE_SELF;
+    hs->nodes_known = count;
+
+    hs->node_count = rows > MESH_UI_MAX_HANDSHAKE_NODES ? MESH_UI_MAX_HANDSHAKE_NODES : rows;
+    for (uint32_t i = 0; i < hs->node_count; ++i) {
+        hs->nodes[i].node_id = MAP_WIDE_SELF + i;
+        hs->nodes[i].in_nodedb = true;
+        snprintf(hs->nodes[i].short_name, sizeof hs->nodes[i].short_name, "N%03u", i % 1000U);
+    }
+
+    hs->map_node_count = count;
+    for (uint32_t i = 0; i < count; ++i) {
+        struct mesh_ui_map_node *node = &hs->map_nodes[i];
+        node->node_id = MAP_WIDE_SELF + i;
+        node->latitude_i = MAP_TEST_LATITUDE + (int32_t)i * 3000;
+        node->longitude_i = MAP_TEST_LONGITUDE + (int32_t)i * 3000;
+        node->in_nodedb = true;
+        node->has_row = (i < hs->node_count);
+        snprintf(node->label, sizeof node->label, "N%03u", i % 1000U);
+    }
+}
+
+/*
+ * The map draws nodes the list never published, which is the whole of the change.
+ *
+ * docs/maps-roadmap.md's fourth pre-work item left this open and its own §"What steps 1 and 2
+ * became" called it "the largest single thing between this map and the one this document
+ * describes": the session holds MESH_SESSION_MAX_NODES and the ranking publishes 128 rows, and
+ * the map was drawing the rows. A node's rank says how likely you are to talk to it, which has
+ * nothing to do with whether its marker belongs on the panel.
+ */
+MESH_TEST_CASE(map_draws_nodes_the_list_never_published, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    struct mesh_ui_handshake_state hs;
+    map_test_wide_roster(&hs, 200U, MESH_UI_MAX_HANDSHAKE_NODES);
+    mesh_ui_store_set_handshake(&store, &hs);
+    mesh_ui_store_consume_updates(&store, NULL);
+
+    struct mesh_ui_map_view view;
+    mesh_ui_map_build(&store, &view);
+
+    MESH_TEST_FAIL_IF(view.count != 200U, "every positioned node the session holds is a marker");
+    MESH_TEST_FAIL_IF(view.known != 200U, "and the badge counts the roster, not the rows");
+    MESH_TEST_FAIL_IF(!view.has_self || view.self_index != 0U,
+                      "our own radio is still drawn first, under everything else");
+
+    /* The 199th, which no row carries: the marker the old map was missing. */
+    uint32_t index = 0U;
+    MESH_TEST_FAIL_IF(
+        !mesh_ui_map_find(&view, MESH_UI_MAP_MARKER_NODE, MAP_WIDE_SELF + 199U, &index),
+        "including one ranked far below the list's cut");
+    MESH_TEST_FAIL_IF(strcmp(view.markers[index].label, "N199") != 0,
+                      "labelled from the map's own roster rather than from a row it has none of");
+    MESH_TEST_FAIL_IF(mesh_ui_node_detail_find(&store.handshake, MAP_WIDE_SELF + 199U) != NULL,
+                      "and it genuinely has no row - otherwise this test proves nothing");
+    MESH_TEST_FAIL_IF(view.markers[index].openable, "so the map says it cannot be opened");
+
+    /* One inside the cut, to show the flag is a fact about the node and not about the map. */
+    MESH_TEST_FAIL_IF(!mesh_ui_map_find(&view, MESH_UI_MAP_MARKER_NODE, MAP_WIDE_SELF + 5U, &index),
+                      "a node the list did publish is also a marker");
+    MESH_TEST_FAIL_IF(!view.markers[index].openable, "and that one opens");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * A handshake nobody published still draws its rows.
+ *
+ * A roster loaded from the cache before the first publish, a hand-built fixture, the capture
+ * harness: none of them fills the map's roster, and the rows are the best any of them has. The
+ * fallback is what stops a second array being something a producer has to remember - the
+ * failure that would cause is a map that is silently empty, which no build and no screenshot
+ * would catch.
+ */
+MESH_TEST_CASE(map_falls_back_to_the_published_rows, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    map_test_populate(&store);
+
+    struct mesh_ui_handshake_state hs = store.handshake;
+    MESH_TEST_FAIL_IF(hs.map_node_count != 0U, "the fixture publishes no map roster");
+    mesh_ui_store_set_handshake(&store, &hs);
+    mesh_ui_store_consume_updates(&store, NULL);
+
+    struct mesh_ui_map_view view;
+    mesh_ui_map_build(&store, &view);
+    MESH_TEST_FAIL_IF(view.count != 3U, "the rows' own positions are still drawn");
+    MESH_TEST_FAIL_IF(!mesh_ui_map_has_markers(&store),
+                      "and the row that offers the map agrees there is something on it");
+    MESH_TEST_FAIL_IF(!view.markers[0].openable || !view.markers[1].openable,
+                      "every one of them opens: the fallback source is the rows themselves");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * A on a node the client cannot open does nothing, and does it cleanly.
+ *
+ * The alternative is what happens without the guard: the detail opens, mesh_ui_nav_clamp()
+ * cannot resolve the id against the rows and closes it on the same frame, and the list cursor
+ * the press reset on its way past stays reset. A dead press that also moves something is worse
+ * than a dead press, and this screen already has a deliberate one - A on empty grid - so the
+ * silence is the established answer rather than a new one.
+ */
+MESH_TEST_CASE(map_press_refuses_a_node_it_cannot_open, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    struct mesh_ui_handshake_state hs;
+    map_test_wide_roster(&hs, 200U, MESH_UI_MAX_HANDSHAKE_NODES);
+    mesh_ui_store_set_handshake(&store, &hs);
+    mesh_ui_store_consume_updates(&store, NULL);
+
+    struct mesh_ui_action action;
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action); /* the map row */
+    MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
+
+    /* Aimed at the last node, which is far enough down the ranking to have no row. */
+    (void)mesh_map_viewport_center_on(&store.nav.map_viewport, hs.map_nodes[199].latitude_i,
+                                      hs.map_nodes[199].longitude_i);
+    store.nav.map_viewport.zoom = 16U;
+
+    struct mesh_ui_map_view view;
+    mesh_ui_map_build(&store, &view);
+    uint32_t index = 0U;
+    MESH_TEST_FAIL_IF(!mesh_ui_map_selected(&view, &store.nav.map_viewport, &index),
+                      "the crosshair is on a marker");
+    MESH_TEST_FAIL_IF(view.markers[index].id != MAP_WIDE_SELF + 199U, "and on the right one");
+
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF(store.nav.node_detail_open, "A opens no detail it cannot fill");
+    MESH_TEST_FAIL_IF(!store.nav.map_open, "and leaves the reader on the map");
+    /*
+     * And records nothing on the way past. Without the guard the press writes the id, the
+     * detail opens, and mesh_ui_nav_clamp() closes it again on the same frame - which looks
+     * identical on the two flags above and leaves the nav naming a node it is not showing.
+     */
+    MESH_TEST_FAIL_IF(store.nav.node_detail_node == MAP_WIDE_SELF + 199U,
+                      "and aims the detail at nothing");
+
+    /* The same press on a node the list did publish still opens its detail, so the guard is
+       about the node and not about the map. */
+    (void)mesh_map_viewport_center_on(&store.nav.map_viewport, hs.map_nodes[5].latitude_i,
+                                      hs.map_nodes[5].longitude_i);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF(!store.nav.node_detail_open, "a node with a row still opens");
+    MESH_TEST_FAIL_IF(store.nav.node_detail_node != MAP_WIDE_SELF + 5U, "and it is that node");
 
     mesh_ui_store_shutdown(&store);
     record_success(test_name);
