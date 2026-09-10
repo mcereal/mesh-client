@@ -880,6 +880,9 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
                         action->type = MESH_UI_ACTION_CYCLE_LANGUAGE;
                     } else if (item.number == (uint32_t)MESH_UI_SETTINGS_ACTION_CYCLE_THEME) {
                         action->type = MESH_UI_ACTION_CYCLE_THEME;
+                    } else if (item.number ==
+                               (uint32_t)MESH_UI_SETTINGS_ACTION_CHECK_RADIO_FIRMWARE) {
+                        action->type = MESH_UI_ACTION_CHECK_RADIO_FIRMWARE;
                     }
                 }
                 /* The row itself does not change; the app's reply comes back as new state. */

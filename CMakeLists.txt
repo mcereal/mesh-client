@@ -55,6 +55,9 @@ add_library(meshclient_core
     src/core/app_settings.c
     src/core/config.c
     src/core/event_loop.c
+    src/core/fetch.c
+    src/core/firmware.c
+    src/core/firmware_catalog.c
     src/core/message.c
     src/core/waypoint.c
     src/core/radio_settings.c
@@ -76,6 +79,7 @@ add_library(meshclient_core
     src/i18n/strings.c
     src/i18n/locale_es.c
     src/utils/env.c
+    src/utils/json.c
     src/utils/log.c
     src/utils/sha256.c
     src/utils/text.c

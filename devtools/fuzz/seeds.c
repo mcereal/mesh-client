@@ -378,6 +378,45 @@ static void write_framing_seeds(void) {
     framing_seed("max_frame", 100U, stream, written);
 }
 
+/*
+ * The firmware catalog's seeds are text rather than protobuf, and they are written here rather
+ * than copied from tests/data/ on purpose: a fuzzer wants the *shape* to start from, not the
+ * 39 KB document. Each of these is one structure the parsers have to walk - a board list, a
+ * release index, and the two things about the real index that are not obvious (a release with
+ * no assets published, and a note carrying text that looks like a key).
+ */
+static void write_catalog_seeds(void) {
+    static const struct {
+        const char *name;
+        const char *json;
+    } k_seeds[] = {
+        {"boards", "[{\"hwModel\":69,\"hwModelSlug\":\"HELTEC_MESH_NODE_T114\","
+                   "\"platformioTarget\":\"heltec-mesh-node-t114\",\"architecture\":\"nrf52840\","
+                   "\"activelySupported\":true,\"supportLevel\":1,"
+                   "\"displayName\":\"Heltec Mesh Node T114\",\"tags\":[\"Heltec\"],"
+                   "\"requiresDfu\":true}]"},
+        {"boards_ambiguous", "[{\"hwModel\":48,\"platformioTarget\":\"heltec-wireless-tracker\","
+                             "\"architecture\":\"esp32-s3\",\"activelySupported\":true,"
+                             "\"displayName\":\"Heltec Wireless Tracker V1.1\"},"
+                             "{\"hwModel\":48,\"platformioTarget\":\"tracksenger\","
+                             "\"architecture\":\"esp32-s3\",\"activelySupported\":true,"
+                             "\"displayName\":\"TrackSenger (small TFT)\"}]"},
+        {"releases",
+         "{\"releases\":{\"stable\":[{\"id\":\"v2.7.26.54e0d8d\","
+         "\"title\":\"Meshtastic Firmware 2.7.26.54e0d8d Beta\","
+         "\"page_url\":\"https://github.com/meshtastic/firmware/releases/tag/v2.7.26.54e0d8d\","
+         "\"release_notes\":\"reverted the change that set \\\"id\\\": \\\"v9.9.9\\\"\","
+         "\"zip_url\":\"https://github.com/meshtastic/firmware/releases/download/"
+         "v2.7.26.54e0d8d/firmware-2.7.26.54e0d8d.json\"}],"
+         "\"alpha\":[{\"id\":\"v2.8.0.47db0e3\",\"title\":\"no assets yet\"}]},"
+         "\"pullRequests\":[]}"},
+    };
+    for (size_t i = 0; i < sizeof k_seeds / sizeof k_seeds[0]; ++i) {
+        write_seed("firmware_catalog", k_seeds[i].name, (const uint8_t *)k_seeds[i].json,
+                   strlen(k_seeds[i].json));
+    }
+}
+
 int main(int argc, char **argv) {
     if (argc != 2) {
         fprintf(stderr, "usage: %s <directory>\n", argv[0]);
@@ -397,9 +436,14 @@ int main(int argc, char **argv) {
     if (mkdir(path, 0755) != 0 && errno != EEXIST) {
         die(path);
     }
+    snprintf(path, sizeof path, "%s/firmware_catalog", g_dir);
+    if (mkdir(path, 0755) != 0 && errno != EEXIST) {
+        die(path);
+    }
 
     write_session_seeds();
     write_framing_seeds();
+    write_catalog_seeds();
     printf("wrote %u seeds under %s\n", g_written, g_dir);
     return 0;
 }

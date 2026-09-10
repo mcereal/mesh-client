@@ -53,7 +53,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ ${#TARGETS[@]} -eq 0 ]]; then
-    TARGETS=(stream_framing session)
+    TARGETS=(stream_framing session firmware_catalog)
 fi
 
 # clang only: libFuzzer is a clang runtime, and CMake says so too if this is missed.

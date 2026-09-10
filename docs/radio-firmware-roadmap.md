@@ -5,7 +5,11 @@ that is [`src/core/updater.c`](../src/core/updater.c), and everything below borr
 This document is about the other binary in the room: the Meshtastic firmware running on the
 node the Brick is talking to, which today can only be changed with a computer and a cable.
 
-Status: **proposed**, 2026-09-09. Nothing here has shipped. The upstream facts were read out
+Status: **phase 1 has shipped**, 2026-09-09; everything from phase 2 on is still proposed. The
+client now identifies the board, reports the newest release and says which bus - if any - could
+carry an install; it writes nothing anywhere. See
+[§Phases](#phases) for what that covers and [§What phase 1 measured](#what-phase-1-measured) for
+the three upstream facts it corrected on the way. The rest of the upstream facts were read out
 of `meshtastic/firmware` at `81b3ce8`, `meshtastic/esp32-unified-ota` at its head,
 `meshtastic/firmware-ota` (the old loader), `adafruit/Adafruit_nRF52_Bootloader` (the UF2 side)
 and `meshtastic/Meshtastic-Android`'s `feature/firmware` module, and the release layout was
@@ -83,7 +87,9 @@ names the file. Resolving one to the other takes two documents, both published, 
    `requiresDfu`. This is the same list the web flasher uses.
 2. `https://api.meshtastic.org/github/firmware/list` — the release index, `stable` and `alpha`,
    newest first, each with a tag and a link to that release's manifest
-   (`firmware-<version>.json`, 10 KB, 129 targets, each with its `platform`).
+   (`firmware-<version>.json`, 10 KB, 129 targets, each with its `platform`). **The index itself
+   is 155 KB**, not small: almost all of it is release notes, and there is no way to ask for
+   less. See [§What phase 1 measured](#what-phase-1-measured).
 
 **`hw_model` is not unique, and this is the one place we should be better than the phone app.**
 Nine models map to more than one build target: `TLORA_T3_S3` is both `tlora-t3s3-v1` and
@@ -509,6 +515,34 @@ worth doing in this order.
   interrupted halfway and then repeated; then a real ESP32 and a real S3, one interrupted stream
   resumed, one wrong-hash refusal, and one radio whose `app1` holds the old loader.
 
+## What phase 1 measured
+
+Three things this document said turned out to be wrong or incomplete once the documents were
+actually fetched and parsed, on 2026-09-09. None of them changes the plan; all three change a
+number somebody would otherwise have designed against.
+
+- **The release index is 155 KB, not 10.** Almost all of it is release notes, written by whoever
+  merged the pull request, and there is no way to ask for less: no per-board endpoint, no way to
+  opt out of the notes. Phase 1 reads it whole under a cap, which is a few seconds and half a
+  megabyte held transiently. It also means the parser cannot be a scanner - see below.
+
+- **The index's `zip_url` is usually a `.json`.** For a current release it is that release's own
+  manifest (`firmware-<version>.json`); older entries really do point at a per-platform zip, and
+  the newest `alpha` entry at the time of writing carries **no `zip_url` at all** - a release can
+  appear in the index before its assets do. Phase 2 gets the manifest URL from here, so it has to
+  survive all three shapes rather than assume the first.
+
+- **The notes will eventually contain the keys the parser is looking for.** A `"zip_url":` or an
+  `"id":` quoted inside a release note is exactly the kind of thing a maintainer writes when
+  reverting a change, and a scanner that hunts for `"key":` at any depth - which is what
+  `updater.c` does to GitHub's much smaller release JSON - would find it. Hence
+  [`src/utils/json.c`](../src/utils/json.c), which walks structure instead; the fixture in
+  `tests/data/firmware_list.json` carries the trap on purpose.
+
+And one thing it got right that was worth confirming: **nine `hwModel` values in the served
+document map to more than one board**, and the widest (48, `HELTEC_WIRELESS_TRACKER`) is four.
+The lookup returns all of them and a count.
+
 ## Phases
 
 Each phase is worth shipping alone, which is the test of whether the order is right.
@@ -518,10 +552,18 @@ Two of them can move a whole phase: whether the kernel gives us a block device f
 in mass-storage mode (question 1), and what BLE write throughput through D-Bus actually costs
 (question 4). Both are cheaper to know now than to design around later.
 
-**Phase 1 — tell the truth.** Settings → About radio learns the release index: what the radio
-runs, what the newest stable is, whether this board can be updated from here at all. No
-downloads, no writes. This is most of the value for a user who owns a computer, and it is the
+**Phase 1 — tell the truth. Shipped.** Settings → About radio learns the release index: what
+the radio runs, what the newest stable is, whether this board can be updated from here at all.
+No downloads, no writes. This is most of the value for a user who owns a computer, and it is the
 row that makes the rest legible.
+
+What it turned into: [`src/core/firmware_catalog.c`](../src/core/firmware_catalog.c) for the two
+documents (pure, and tested against captured bytes in `tests/data/`),
+[`src/core/firmware.c`](../src/core/firmware.c) for the check, and
+[`src/core/fetch.c`](../src/core/fetch.c) - the forked-fetcher machinery lifted out of
+`updater.c`, which is the piece phases 2 and 3 will fetch through. The rows are the last three
+under Settings → About radio, and `make ui-capture ARGS="devtools/ui_capture/scenes/radio-firmware.scene -o fw.gif"`
+draws them without a radio.
 
 **Phase 2 — get the image.** Resolve, range-download, inflate, verify, keep. Two sizes travel
 together from here on and they are not interchangeable: the compressed member size, which the

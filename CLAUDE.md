@@ -145,6 +145,8 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | Waypoints | `src/core/waypoint.c` | the mesh's shared places: a table keyed by waypoint id, WAYPOINT_APP encode/ingest, and the expiry-in-the-past convention every client deletes with |
 | App glue | `src/core/app*.c` | `app` lifecycle/link, `_actions` UI actions, `_publish` to store, `_settings` writes |
 | Self-update | `src/core/updater.c`, `version.c` | forks curl, SemVer, digest-verified install |
+| Fetching | `src/core/fetch.c` | one HTTPS GET as a forked curl/wget read through the loop: fetcher probing, the CA bundle the Brick has no system store for, a deadline, a cap and a reap that never blocks. Shared by the two things that reach the network |
+| Radio firmware | `src/core/firmware.c`, `firmware_catalog.c` | the *other* binary: which board this is (upstream's `deviceHardware`), what the newest release is (its firmware index), and which bus - if any - could carry an install. Reports; installs nothing. See [`docs/radio-firmware-roadmap.md`](docs/radio-firmware-roadmap.md) |
 | UI | `src/ui/` | store/controller + `nav*.c` + `settings*.c` + `layout.c` + `history.c` + `backends/{fb*,cli,stub}.c`; **`fb` is the device UI**. `backends/fb_map.c` is the one screen renderer that places things at coordinates rather than describing rows, which is why it is its own file |
 | UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window (counted in **steps**, so one row may be taller than its neighbours); cards (filled/elevated/outlined, with verbs on the heading line), buttons, chips, badges, list items (leading/marker/supporting/trailing slots, an optional full-width bar on a second step), section subheaders, switches, selection controls (checkbox/radio), segmented buttons (which fall back to the chosen word when the row is too narrow), meters (with domains and drawn threshold bands), sliders (a settings number on the scale of the values it could have had, with a value the scale cannot place drawn as a track with no handle), signal staircases, sparklines (a reading over time, on the bar's own domain, from a sample ring the client keeps), bubbles (whose trailing run is four typed slots the component measures, never a string a screen assembled), the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar |
 | Button hints | `src/ui/actions.c`, `include/mesh/ui/actions.h` | what the buttons do here, as (button, verb) pairs the action bar iterates |
@@ -164,7 +166,7 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | Dev tools | `devtools/`, `scripts/{ui-capture.sh,frames.py}` | off-screen UI capture; PNG/GIF encoding, stdlib only |
 | Geography | `src/geo/` | `mesh_geo_coords_valid()` — the bounds test every coordinate ingress asks, so the air, the cache and the keyboard cannot disagree about where Earth ends — `mesh_geo_vector_between()`, the haversine distance and initial bearing the Waypoints tab reads a range from, and `mesh_geo_mercator_forward()`, the projection the map places a marker with. **The only directory in the tree that includes `<math.h>`**, and the reason libm is linked |
 | The map | `src/map/viewport.c`, `src/ui/map.c`, `src/ui/nav_map.c`, `src/ui/backends/fb_map.c` | Where the map is looking (centre, integer zoom, pan, fit, metres per pixel), the markers built from the map's own roster (`handshake.map_nodes` - **not** the node list's 128) and the waypoint book, the presses, and the drawing. No basemap yet — see [`docs/maps-roadmap.md`](docs/maps-roadmap.md). `viewport.c` deliberately has **no `<math.h>`**: everything transcendental about a map is a property of the projection, one directory down |
-| Shared utils | `src/utils/` | `text` (UTF-8 + `mesh_str_copy`), `time` (`mesh_time_monotonic_ms`), `env` (`mesh_env_bool`/`_int`), `log`, `sha256`, `array` |
+| Shared utils | `src/utils/` | `text` (UTF-8 + `mesh_str_copy`), `time` (`mesh_time_monotonic_ms`), `env` (`mesh_env_bool`/`_int`), `json` (a cursor that walks structure, because a release note eventually contains the keys a scanner would look for), `log`, `sha256`, `array` |
 
 `include/mesh/` mirrors `src/` one-for-one — `core/`, `transport/`, `ui/`, `proto/`, `geo/`, `utils/` —
 so a header always sits in the directory named after the source file that defines it.
@@ -609,6 +611,13 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   report having changed.** The radio's own `time` fields are our clock when the packet landed,
   and a Brick has no wall clock - so on the device they are 0 on every report, and a series keyed
   on either question would hold exactly one sample forever.
+- **The radio's firmware rows say short values, never sentences.** A settings row has no
+  supporting line to wrap onto and the value column is about two dozen cells, so
+  `"%s available (radio has %s)"` came out as `2.7.26.54e0d8d available (` - a row that reads as
+  a bug. What carries the difference is the row's *name*: once the answer is a version worth
+  having the label reads "Newer firmware" and the value is the bare version, which is the move
+  About's own `Install %s` row made first. The long form of a failure goes to the log, where a
+  sentence has room.
 - **`devtools/` is not `Tools/`.** `Tools/` holds the device-facing pak assets, and macOS
   filesystems are case-insensitive by default, so a `tools/` directory would collide with it.
 - **A screen transition is derived from the nav, not declared by it.** Nothing records that a
@@ -659,7 +668,7 @@ generated during the release; hand edits to either are overwritten.
 | [`docs/cli.md`](docs/cli.md) | flags, environment variables, on-device controls |
 | [`docs/device.md`](docs/device.md) | Brick setup, deploy loop, screenshots, troubleshooting |
 | [`docs/settings-roadmap.md`](docs/settings-roadmap.md) | radio settings phases and admin verbs |
-| [`docs/radio-firmware-roadmap.md`](docs/radio-firmware-roadmap.md) | updating the *radio's* firmware - UF2 over USB, OTA over BLE - what is reachable and in what order |
+| [`docs/radio-firmware-roadmap.md`](docs/radio-firmware-roadmap.md) | updating the *radio's* firmware - UF2 over USB, OTA over BLE - what is reachable and in what order. Phase 1 (report only) has shipped |
 | [`docs/components-roadmap.md`](docs/components-roadmap.md) | UI component set audit and the order to close its gaps |
 | [`docs/semantic-release.md`](docs/semantic-release.md) | versioning, packaging, release assets |
 | [`docs/testing.md`](docs/testing.md) | test categories and how to run them |

@@ -2,6 +2,7 @@
 
 #include "mesh/core/config.h"
 #include "mesh/core/event_loop.h"
+#include "mesh/core/firmware.h"
 #include "mesh/core/session.h"
 #include "mesh/core/signals.h"
 #include "mesh/core/updater.h"
@@ -47,6 +48,13 @@ struct mesh_app {
        flattened into the UI's client info on every publish, so the About section renders it
        without the UI ever seeing a child process. */
     struct mesh_updater updater;
+    /*
+     * The *radio's* firmware, which is a different binary on a different computer: what board
+     * this is, what it is running, and what upstream has published since. Reads two documents
+     * through its own fetcher and installs nothing - see docs/radio-firmware-roadmap.md, whose
+     * later phases are what turn that into a press.
+     */
+    struct mesh_firmware firmware;
     /*
      * The look the UI is drawn with. Resolved once at start-up from MESHCLIENT_THEME, then the
      * saved preference, then the default, and published in the client info on every frame -

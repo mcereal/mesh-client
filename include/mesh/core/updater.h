@@ -24,6 +24,8 @@
  * itself.
  */
 
+#include "mesh/core/fetch.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -145,21 +147,13 @@ struct mesh_updater {
     char install_path[MESH_UPDATE_PATH_MAX];
     /* Room for install_path plus the ".update" suffix, so staging can never truncate. */
     char staged_path[MESH_UPDATE_PATH_MAX + 16U];
-    /* "curl" or "wget"; empty when the device has neither and updates are unavailable. */
-    const char *fetcher;
-    /* CA bundle handed to the fetcher, or empty to leave it on its own defaults. The Brick has
-       no system CA store at all, so without one every HTTPS fetch fails; the pak ships a bundle
-       in certs/ and this is wherever it was found. See updater_resolve_ca_bundle(). */
-    char ca_bundle[MESH_UPDATE_PATH_MAX];
-
-    struct mesh_event_loop *loop;
-    /* The running child, or -1. Only ever one: the states are strictly sequential. */
-    pid_t child;
-    int child_fd;
-    uint64_t child_deadline_ms;
-    /* Captured child stdout, for the check. The download writes straight to a file. */
-    char *response;
-    size_t response_len;
+    /*
+     * The one child this module ever runs, and everything about talking to it: which fetcher
+     * the device has, the CA bundle it is pointed at, the pipe, the deadline and the reply.
+     * Shared with the radio-firmware side (src/core/fetch.h), which needs the same shape for
+     * the same reason - there is no TLS in this process.
+     */
+    struct mesh_fetch fetch;
     /* Bumped whenever anything above changes, so app.c can publish without diffing. */
     uint32_t revision;
 };

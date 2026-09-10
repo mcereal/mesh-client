@@ -778,6 +778,77 @@ static void mesh_app_flatten_client_info(const struct mesh_app *app,
              mesh_update_channel_name(updater->channel));
 }
 
+/*
+ * Which bus the radio is on, as the firmware module's own idea of a path.
+ *
+ * Derived here rather than recorded when a link comes up: a serial link is over the same USB
+ * port a UF2 write would use and a BLE link is where an OTA would happen, so "could this be
+ * done from where we are standing" is one comparison - and a flag set at connect time is a
+ * second opinion about a fact the transport registry already holds.
+ */
+static enum mesh_firmware_path mesh_app_firmware_bus(void) {
+    if (mesh_app_connected_identifier() == NULL) {
+        return MESH_FIRMWARE_PATH_NONE;
+    }
+    return mesh_app_active_transport() == mesh_serial_transport() ? MESH_FIRMWARE_PATH_USB
+                                                                  : MESH_FIRMWARE_PATH_BLE;
+}
+
+/*
+ * The radio's firmware situation, flattened onto the settings snapshot - the same trick
+ * flatten_client_info() plays for the client's own updater, and for the same reason: store.h
+ * has no business seeing a module that forks child processes.
+ *
+ * Not part of the cached half above, because none of it comes out of mesh_radio_settings: a
+ * check finishing changes these rows while the radio's own configuration has not moved.
+ */
+static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_settings *dst) {
+    struct mesh_firmware *const firmware = &app->firmware;
+    mesh_firmware_set_bus(firmware, mesh_app_firmware_bus());
+
+    /*
+     * A check whose answer is about a radio that is no longer the one on the other end.
+     *
+     * What makes an answer still this radio's is mesh_firmware_answers_for(), which owns the
+     * test because it owns the answer. Asked here rather than hooked onto the swap in
+     * session.c, so every route to another radio is covered by the one call.
+     *
+     * Gated on knowing a model, because a link that has merely *dropped* clears the metadata
+     * and the answer is still worth reading with the radio back in a pocket.
+     */
+    const struct mesh_radio_settings *const radio = mesh_session_settings(&app->session);
+    const bool known = radio != NULL && radio->has_metadata;
+    const uint32_t model = known ? (uint32_t)radio->metadata.hw_model : 0U;
+    if (model != 0U &&
+        !mesh_firmware_answers_for(firmware, model, radio->metadata.firmware_version)) {
+        mesh_firmware_forget(firmware);
+    }
+
+    dst->fw_supported = mesh_firmware_available(firmware);
+    dst->fw_busy = mesh_firmware_busy(firmware);
+    dst->fw_state = (uint8_t)firmware->state;
+    mesh_str_copy(dst->fw_message, sizeof dst->fw_message, firmware->message);
+    mesh_str_copy(dst->fw_latest, sizeof dst->fw_latest, firmware->release.version);
+
+    const struct mesh_firmware_board *const board = mesh_firmware_board(firmware);
+    mesh_str_copy(dst->fw_board, sizeof dst->fw_board, board != NULL ? board->name : "");
+
+    /*
+     * The wrong-bus refusal is the one the module cannot phrase on its own: which bus to go and
+     * use is a property of the board, and the board is here. Everything else is one line the
+     * module already knows.
+     */
+    if (firmware->blocker == MESH_FIRMWARE_BLOCKER_WRONG_BUS && board != NULL) {
+        mesh_str_copy(dst->fw_blocker_reason, sizeof dst->fw_blocker_reason,
+                      mesh_str(board->path == MESH_FIRMWARE_PATH_USB
+                                   ? MESH_STR_FW_BLOCK_CONNECT_USB
+                                   : MESH_STR_FW_BLOCK_CONNECT_BLE));
+    } else {
+        mesh_str_copy(dst->fw_blocker_reason, sizeof dst->fw_blocker_reason,
+                      mesh_firmware_blocker_reason(firmware->blocker));
+    }
+}
+
 static void mesh_app_flatten_settings(const struct mesh_radio_settings *src,
                                       struct mesh_ui_settings *dst) {
     memset(dst, 0, sizeof *dst);
@@ -1695,6 +1766,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     }
     /* flatten_settings() zeroes the struct, so the client's own facts go in after it. */
     mesh_app_flatten_client_info(app, &ui_settings.client);
+    mesh_app_flatten_firmware(app, &ui_settings);
     /* Where the radio says it is, which is not part of PositionConfig: it comes from our own
        node's record, and it is what the Position section's coordinate rows start from. */
     if (status->has_my_info) {

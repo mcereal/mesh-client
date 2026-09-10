@@ -289,6 +289,30 @@ static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui
         return;
     }
     /*
+     * About radio: a page of readings, with one verb on it.
+     *
+     * Nothing in this section is editable - which is the whole of what its name promises - so
+     * the edit keys come off, where every other read-only screen already leaves them off and
+     * this one did not: the bar was advertising a press that worked on none of its rows.
+     *
+     * A goes on for the opposite reason to the one that keeps it off a settings section below.
+     * There the bar names Left and Right because they are the gesture that works on *every*
+     * row, and A would be a sometimes-extra beside them; here there is no universal gesture at
+     * all, so the only press the screen has is the only press the bar can name. It is gated on
+     * the same condition the row is, because a device with no curl and no wget draws no verb
+     * here and a keycap for it would name a button that is not on the frame.
+     */
+    if (nav->settings_section == MESH_UI_SETTINGS_RADIO) {
+        if (snapshot != NULL && snapshot->settings.fw_supported) {
+            bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_RUN);
+        }
+        bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+        bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_REFRESH);
+        bar_add_help(snapshot, bar);
+        bar_add_tabs(bar);
+        return;
+    }
+    /*
      * A section of settings. Left and Right are the press this screen is for - they step the
      * value on the row in place - so they lead, and A is left off deliberately even though it
      * opens the picker on the rows that have one: the bar names the gesture that works on every

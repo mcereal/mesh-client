@@ -63,6 +63,17 @@ extern "C" {
  */
 #define MESH_UI_MAX_WAYPOINTS 32U
 #define MESH_UI_WAYPOINT_NAME_MAX 31U
+
+/*
+ * The radio firmware catalog's two string limits, restated for the same reason - though the
+ * reason here is the weaker one, and worth being honest about: mesh/core/firmware_catalog.h
+ * pulls in nothing at all, so including it would cost nothing today. What it would cost is the
+ * rule. This header names no core module anywhere else, which is what lets every backend and
+ * every screen test compile against a snapshot rather than against the client; a first
+ * exception is how a seam stops being one. Pinned against the core's in the firmware suite.
+ */
+#define MESH_UI_FW_VERSION_MAX 24U
+#define MESH_UI_FW_BOARD_MAX 48U
 #define MESH_UI_WAYPOINT_DESCRIPTION_MAX 101U
 #define MESH_UI_MAX_CHANNELS 8U
 #define MESH_UI_CHANNEL_NAME_MAX 12U
@@ -801,6 +812,29 @@ struct mesh_ui_settings {
     bool has_ethernet;
     bool has_pkc;
     bool can_shutdown;
+
+    /*
+     * What is known about *newer* firmware for this radio, flattened out of
+     * src/core/firmware.c the same way the client's own update state is flattened into
+     * mesh_ui_client_info - as a byte and a line of text, so store.h stays free of a module
+     * that forks child processes.
+     *
+     * Reported rather than offered: this client installs nothing yet
+     * (docs/radio-firmware-roadmap.md), and `fw_blocker_reason` is the line that says why. A
+     * refusal is a row, not a silence, because a radio behaving oddly is often a radio on old
+     * firmware and "why can I not fix that from here" deserves an answer.
+     */
+    bool fw_supported; /* a fetcher exists, so the check can do anything at all */
+    bool fw_busy;      /* a document is in flight */
+    uint8_t fw_state;  /* enum mesh_firmware_state (mesh/core/firmware.h) */
+    char fw_message[96];
+    /* The newest release on the followed channel, and the board this radio was identified as.
+       Either may be empty: a check that has not run, or a board nothing claimed. */
+    char fw_latest[MESH_UI_FW_VERSION_MAX];
+    char fw_board[MESH_UI_FW_BOARD_MAX];
+    /* Why nothing can be installed from here, already turned into a line - empty when the only
+       reason is that the phase that would do it has not been written. */
+    char fw_blocker_reason[64];
 };
 
 struct mesh_ui_my_info {

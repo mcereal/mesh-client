@@ -641,6 +641,13 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
         (void)mesh_updater_set_allow_dev(&app->updater, app->ui_preferences.update_allow_dev);
     }
 
+    /* The radio's firmware, on its own fetcher because the two are separate presses that must
+       be able to fail separately. It borrows the updater's CA bundle rather than looking for
+       one again: where the pak keeps it is a fact about this install, and two answers to that
+       is two answers that can disagree. Never fatal, for the same reason as above. */
+    (void)mesh_firmware_init(&app->firmware, &app->loop);
+    mesh_firmware_use_ca_bundle(&app->firmware, app->updater.fetch.ca_bundle);
+
     /* Optional canned.txt next to the preferences file replaces the built-in quick replies. */
     if (app->ui_preferences_path[0] != '\0') {
         char canned_path[sizeof app->ui_preferences_path + 16U];
@@ -705,6 +712,7 @@ void mesh_app_shutdown(struct mesh_app *app) {
     /* Before the loop goes: the updater has an fd registered with it, and a half-finished
        download to clean up. */
     mesh_updater_shutdown(&app->updater);
+    mesh_firmware_shutdown(&app->firmware);
     mesh_ui_controller_shutdown(&app->ui_controller);
     mesh_app_close_ui_cache_timer(app);
     if (app->ui_handshake_cache_path[0] != '\0') {
@@ -760,6 +768,7 @@ int mesh_app_run(struct mesh_app *app) {
             /* The updater's child is watched by the event loop; this only enforces its
                timeout and reaps a child whose exit the loop did not see. */
             mesh_updater_tick(&app->updater, mesh_time_monotonic_ms());
+            mesh_firmware_tick(&app->firmware, mesh_time_monotonic_ms());
             /* One antenna: a download and a link cannot both have it, and the link is the one
                that loses - a Meshtastic node ends the connection after a second of silence,
                while curl only takes longer. Derived here rather than done at the install press
