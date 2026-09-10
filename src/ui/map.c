@@ -234,6 +234,113 @@ bool mesh_ui_map_selected(const struct mesh_ui_map_view *view,
     return found;
 }
 
+/*
+ * How far ahead a marker has to be to count as ahead, in pixels.
+ *
+ * One pixel, which is the smallest difference the picture has. Below it the marker and the
+ * crosshair are the same point on the panel, and a press that "moved" onto it would report a
+ * change nothing could draw. What it catches now that the selected marker is skipped by
+ * identity is the coincident pair - two markers at one coordinate are one place, and which of
+ * them is selected there is the selection's own tie-break rather than anything a press can
+ * walk between.
+ */
+#define MAP_STEP_MIN_PX 1.0
+
+bool mesh_ui_map_step(const struct mesh_ui_map_view *view, const struct mesh_map_viewport *viewport,
+                      enum mesh_ui_map_direction direction, uint32_t *out_index) {
+    if (view == NULL || viewport == NULL || view->count == 0U) {
+        return false;
+    }
+
+    const bool vertical = direction == MESH_UI_MAP_NORTH || direction == MESH_UI_MAP_SOUTH;
+    const double reach =
+        vertical ? (double)MESH_UI_MAP_STEP_REACH_Y : (double)MESH_UI_MAP_STEP_REACH_X;
+
+    /*
+     * What the reader is already aimed at, asked of the one function that answers it.
+     *
+     * "Under the crosshair" is a disc of MESH_UI_MAP_SELECT_RADIUS_PX, not a point, so a marker
+     * can be selected while sitting some pixels ahead of centre - which a fall-back pan stopping
+     * just short of one leaves behind routinely. Read as "ahead of the press", such a marker is
+     * the nearest candidate and the press spends itself nudging the view onto something already
+     * selected: the line under the map does not change, and a press whose whole effect is a
+     * ten-pixel shift reads as a press that did nothing.
+     *
+     * So the selected marker is skipped, and it is skipped by *identity* rather than by
+     * distance. Asking mesh_ui_map_selected() rather than re-deriving "near enough" keeps the
+     * ring a backend draws, the marker A opens and the marker a direction declines to revisit as
+     * one answer - the same rule the app bar's back arrow follows. Only that one marker is
+     * skipped: another inside the same disc is still a destination, which is what lets a press
+     * step between two markers drawn on top of each other.
+     */
+    uint32_t selected = 0U;
+    const bool has_selected = mesh_ui_map_selected(view, viewport, &selected);
+
+    bool found = false;
+    uint32_t best_index = 0U;
+    double best_distance = 0.0;
+
+    for (uint32_t i = 0; i < view->count; ++i) {
+        if (has_selected && i == selected) {
+            continue;
+        }
+        /* The same offset the selection and the placement are derived from - so what a press
+           calls "west of the crosshair" is what the reader saw drawn west of it. */
+        double dx = 0.0;
+        double dy = 0.0;
+        if (!mesh_map_viewport_offset(viewport, view->markers[i].latitude_i,
+                                      view->markers[i].longitude_i, &dx, &dy)) {
+            continue;
+        }
+
+        /* Screen y grows south, so north is the negative one; resolving that here is what keeps
+           it out of the comparisons below. */
+        double along = 0.0;
+        double cross = 0.0;
+        switch (direction) {
+        case MESH_UI_MAP_NORTH:
+            along = -dy;
+            cross = dx;
+            break;
+        case MESH_UI_MAP_SOUTH:
+            along = dy;
+            cross = dx;
+            break;
+        case MESH_UI_MAP_WEST:
+            along = -dx;
+            cross = dy;
+            break;
+        case MESH_UI_MAP_EAST:
+        default:
+            along = dx;
+            cross = dy;
+            break;
+        }
+
+        if (along < MAP_STEP_MIN_PX || along > reach) {
+            continue;
+        }
+        const double span = cross < 0.0 ? -cross : cross;
+        if (span > along) {
+            /* Outside the quadrant: nearer to another direction than to this one, and it is
+               that direction's press to answer. The four of them leave nothing uncovered. */
+            continue;
+        }
+
+        const double distance = along * along + cross * cross;
+        if (!found || distance < best_distance) {
+            found = true;
+            best_distance = distance;
+            best_index = i;
+        }
+    }
+
+    if (found && out_index != NULL) {
+        *out_index = best_index;
+    }
+    return found;
+}
+
 uint32_t mesh_ui_map_points(const struct mesh_ui_map_view *view, struct mesh_geo_point *out,
                             uint32_t capacity) {
     if (view == NULL || out == NULL) {

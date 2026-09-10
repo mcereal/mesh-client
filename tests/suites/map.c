@@ -706,6 +706,237 @@ MESH_TEST_CASE(map_the_dpad_moves_the_world, unit) {
 }
 
 /*
+ * Puts a marker a given number of pixels from the middle of a view.
+ *
+ * The map's own arithmetic backwards - mesh_map_viewport_at() answers what coordinate is drawn
+ * at a pixel - so a case below can say "300 to the east and 40 down" and mean it on the picture,
+ * which is the only space the presses under test are measured in.
+ */
+static void map_test_marker_at(const struct mesh_map_viewport *viewport,
+                               struct mesh_ui_map_view *view, uint32_t id, int32_t dx_px,
+                               int32_t dy_px) {
+    struct mesh_ui_map_marker *marker = &view->markers[view->count];
+    memset(marker, 0, sizeof *marker);
+    marker->kind = (uint8_t)MESH_UI_MAP_MARKER_NODE;
+    marker->id = id;
+    mesh_map_viewport_at(viewport, viewport->width / 2 + dx_px, viewport->height / 2 + dy_px,
+                         &marker->latitude_i, &marker->longitude_i);
+    (void)mesh_geo_mercator_forward(marker->latitude_i, marker->longitude_i, &marker->point);
+    marker->openable = true;
+    ++view->count;
+}
+
+/*
+ * A direction goes to the nearest marker that way, and "that way" is a quadrant.
+ *
+ * The four 45-degree quadrants tile the plane, which is the property the whole thing rests on:
+ * every marker that is not already under the crosshair is ahead of exactly one of the four
+ * presses, so there is nothing on the panel a reader cannot reach in the direction it looks
+ * like it is in.
+ */
+MESH_TEST_CASE(map_a_direction_goes_to_the_nearest_marker_that_way, unit) {
+    struct mesh_map_viewport viewport;
+    map_test_viewport(&viewport, 16);
+
+    struct mesh_ui_map_view view;
+    memset(&view, 0, sizeof view);
+    map_test_marker_at(&viewport, &view, 1U, 300, 40);  /* east, and further */
+    map_test_marker_at(&viewport, &view, 2U, 120, 20);  /* east, and nearer */
+    map_test_marker_at(&viewport, &view, 3U, -200, 10); /* west */
+    map_test_marker_at(&viewport, &view, 4U, 40, 300);  /* south, not east: |cross| > along */
+
+    uint32_t index = 0U;
+    MESH_TEST_FAIL_IF(!mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_EAST, &index),
+                      "there is something east");
+    MESH_TEST_FAIL_IF(view.markers[index].id != 2U, "and it is the nearer of the two");
+    MESH_TEST_FAIL_IF(!mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_WEST, &index),
+                      "and something west");
+    MESH_TEST_FAIL_IF(view.markers[index].id != 3U, "which is the one drawn west");
+    MESH_TEST_FAIL_IF(!mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_SOUTH, &index),
+                      "the marker 40 across and 300 down is south");
+    MESH_TEST_FAIL_IF(view.markers[index].id != 4U, "rather than east");
+    MESH_TEST_FAIL_IF(mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_NORTH, &index),
+                      "and nothing at all is north");
+
+    /* Reach: a marker further ahead than one declared panel is left to a pan, which walks it
+       into range so the press after it can land. */
+    memset(&view, 0, sizeof view);
+    map_test_marker_at(&viewport, &view, 5U, MESH_UI_MAP_STEP_REACH_X * 2, 0);
+    MESH_TEST_FAIL_IF(mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_EAST, &index),
+                      "two panels east is out of reach");
+    memset(&view, 0, sizeof view);
+    map_test_marker_at(&viewport, &view, 6U, MESH_UI_MAP_STEP_REACH_X - 20, 0);
+    MESH_TEST_FAIL_IF(!mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_EAST, &index),
+                      "just inside one panel is not");
+
+    /* What is already under the crosshair is behind the press rather than ahead of it. */
+    memset(&view, 0, sizeof view);
+    map_test_marker_at(&viewport, &view, 7U, 0, 0);
+    MESH_TEST_FAIL_IF(mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_EAST, &index) ||
+                          mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_WEST, &index) ||
+                          mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_NORTH, &index) ||
+                          mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_SOUTH, &index),
+                      "the selected marker is not a destination");
+
+    /*
+     * And "under the crosshair" is the disc, not the point. A marker ten pixels ahead of centre
+     * is already selected - a fall-back pan stopping short of one leaves exactly that - so a
+     * press must advance past it rather than spend itself nudging the view onto something the
+     * line under the map is already naming. It is excluded by identity, which is why the marker
+     * beside it inside the same disc is still a destination.
+     */
+    memset(&view, 0, sizeof view);
+    map_test_marker_at(&viewport, &view, 8U, 10, 0);  /* selected, and not centred */
+    map_test_marker_at(&viewport, &view, 9U, 300, 0); /* the next one east */
+    uint32_t aimed = 0U;
+    MESH_TEST_FAIL_IF(!mesh_ui_map_selected(&view, &viewport, &aimed) ||
+                          view.markers[aimed].id != 8U,
+                      "the near marker is the selected one");
+    MESH_TEST_FAIL_IF(!mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_EAST, &index),
+                      "east still has somewhere to go");
+    MESH_TEST_FAIL_IF(view.markers[index].id != 9U,
+                      "and it is the next marker, not a nudge onto the selected one");
+
+    map_test_marker_at(&viewport, &view, 10U, 16, 0); /* inside the same disc, not selected */
+    MESH_TEST_FAIL_IF(!mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_EAST, &index) ||
+                          view.markers[index].id != 10U,
+                      "a second marker under the crosshair is still a destination");
+
+    record_success(test_name);
+}
+
+/*
+ * The regression this exists for: the crosshair can be put on a marker a pan could never reach.
+ *
+ * The first half of the case is the bug, written down. A pan of a fixed number of pixels only
+ * ever visits a lattice a fifth of the body wide and a fifth of it tall, and the crosshair
+ * captures a disc of MESH_UI_MAP_SELECT_RADIUS_PX - so a marker whose offset falls between the
+ * lattice's points is unselectable at that zoom no matter how long the reader pans, and about
+ * five markers in six are. On the device that reads as "the crosshair skips over it", and
+ * zooming appears to help only because it re-phases the lattice.
+ *
+ * The loop below asserts that unreachability against the old rule rather than describing it,
+ * which is what stops a future press-sized pan from quietly bringing it back.
+ */
+MESH_TEST_CASE(map_the_dpad_reaches_what_a_pan_could_not, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    map_test_populate(&store);
+
+    struct mesh_ui_action action;
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
+
+    /* Standing on our own radio, at a zoom a reader would actually use. */
+    store.nav.map_viewport.zoom = 16U;
+    (void)mesh_map_viewport_center_on(&store.nav.map_viewport, MAP_TEST_LATITUDE,
+                                      MAP_TEST_LONGITUDE);
+
+    /*
+     * BRVO, put 90 pixels east and 30 south of the crosshair: off the lattice in both axes, by
+     * more than the capture radius in each. Contrived only in being exact - between two lattice
+     * points is where most of the panel is.
+     */
+    int32_t latitude_i = 0;
+    int32_t longitude_i = 0;
+    mesh_map_viewport_at(&store.nav.map_viewport, store.nav.map_viewport.width / 2 + 90,
+                         store.nav.map_viewport.height / 2 + 30, &latitude_i, &longitude_i);
+    struct mesh_ui_handshake_state handshake = store.handshake;
+    handshake.nodes[2].position.valid = true;
+    handshake.nodes[2].position.latitude_i = latitude_i;
+    handshake.nodes[2].position.longitude_i = longitude_i;
+    mesh_ui_store_set_handshake(&store, &handshake);
+    mesh_ui_store_consume_updates(&store, NULL);
+
+    struct mesh_ui_map_view view;
+    mesh_ui_map_build(&store, &view);
+    uint32_t target = 0U;
+    MESH_TEST_FAIL_IF(!mesh_ui_map_find(&view, MESH_UI_MAP_MARKER_NODE, 0x3000U, &target),
+                      "the node is on the map");
+
+    /* Every place a fixed pan could ever leave the crosshair, out to six presses each way. */
+    for (int across = -6; across <= 6; ++across) {
+        for (int down = -6; down <= 6; ++down) {
+            struct mesh_map_viewport lattice = store.nav.map_viewport;
+            (void)mesh_map_viewport_pan(&lattice, across * (MESH_UI_MAP_FIT_WIDTH / 5),
+                                        down * (MESH_UI_MAP_FIT_HEIGHT / 5));
+            double dx = 0.0;
+            double dy = 0.0;
+            MESH_TEST_FAIL_IF(!mesh_map_viewport_offset(&lattice, view.markers[target].latitude_i,
+                                                        view.markers[target].longitude_i, &dx, &dy),
+                              "the marker places from every one of them");
+            MESH_TEST_FAIL_IF(dx * dx + dy * dy <= (double)MESH_UI_MAP_SELECT_RADIUS_PX *
+                                                       (double)MESH_UI_MAP_SELECT_RADIUS_PX,
+                              "no fixed pan ever brings this marker under the crosshair");
+        }
+    }
+
+    /* One press east, and the view is on it exactly - which is what makes the aim exact rather
+       than merely better. */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    MESH_TEST_FAIL_IF(store.nav.map_viewport.center_latitude_i != latitude_i ||
+                          store.nav.map_viewport.center_longitude_i != longitude_i,
+                      "the press lands on the marker's own coordinates");
+
+    mesh_ui_map_build(&store, &view);
+    uint32_t selected = 0U;
+    MESH_TEST_FAIL_IF(!mesh_ui_map_selected(&view, &store.nav.map_viewport, &selected),
+                      "so something is under the crosshair");
+    MESH_TEST_FAIL_IF(view.markers[selected].id != 0x3000U, "and it is the node aimed at");
+
+    /* And A opens it, which is the whole point of being able to aim. */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF(!store.nav.node_detail_open || store.nav.node_detail_node != 0x3000U,
+                      "the press that was impossible before opens that node");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * With nothing that way, the same press still pans - by the step, exactly as it always did.
+ *
+ * The fallback is what keeps "look west" honest over open grid, and it is what walks a marker
+ * beyond the step's reach into it. A map that only moved between markers would be a map that
+ * could not be looked around, which is most of what the reader does once there is a basemap
+ * under it.
+ */
+MESH_TEST_CASE(map_a_direction_pans_when_nothing_is_that_way, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    map_test_populate(&store);
+
+    struct mesh_ui_action action;
+    store.nav.screen = MESH_UI_SCREEN_NODES;
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF(!store.nav.map_open, "the map opened");
+
+    /* Well out in open country, with the whole roster behind us to the east. */
+    store.nav.map_viewport.zoom = 16U;
+    (void)mesh_map_viewport_center_on(&store.nav.map_viewport, MAP_TEST_LATITUDE,
+                                      MAP_TEST_LONGITUDE - 50000000);
+
+    struct mesh_map_viewport expected = store.nav.map_viewport;
+    MESH_TEST_FAIL_IF(!mesh_map_viewport_pan(&expected, -(MESH_UI_MAP_FIT_WIDTH / 5), 0),
+                      "a step west is a real move");
+
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_LEFT, &action);
+    MESH_TEST_FAIL_IF(store.nav.map_viewport.center_longitude_i != expected.center_longitude_i ||
+                          store.nav.map_viewport.center_latitude_i != expected.center_latitude_i,
+                      "and the press is exactly that step");
+
+    struct mesh_ui_map_view view;
+    mesh_ui_map_build(&store, &view);
+    uint32_t index = 0U;
+    MESH_TEST_FAIL_IF(mesh_ui_map_selected(&view, &store.nav.map_viewport, &index),
+                      "with nothing under the crosshair when it stops");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
  * A opens what is under the crosshair, and B comes back to the map rather than to the list.
  *
  * The second half is the one worth a test: a node opened from a map and closed onto the node

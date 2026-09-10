@@ -174,6 +174,22 @@ the reasoning generalises to the steps that are still open:
   and Y are the zoom, and START frames everything again. Marker cycling was dropped entirely:
   the crosshair is the middle of the panel and the selection is whatever is nearest it, so
   panning *is* aiming and no key has to be spent choosing between markers.
+
+  > **Corrected on the device (2026-09-10).** Panning was aiming in principle and could not aim
+  > in practice. A pan of a fixed number of pixels only ever leaves the crosshair on a lattice -
+  > 176 across and 84 down, from wherever the view opened - and the crosshair captures a disc of
+  > 28 pixels, so about a sixth of the plane was selectable and five markers in six could not be
+  > put under it at all at a given zoom. Zooming re-phases the lattice, so the reader's remedy
+  > was to zoom in and out until a node happened to land, which is what it felt like.
+  >
+  > What shipped keeps the decision above and fixes the arithmetic under it: a direction goes to
+  > the *nearest marker in the 45-degree quadrant around it* and centres the view on that
+  > marker's own coordinates, falling back to the old step when the quadrant is empty
+  > (`mesh_ui_map_step()`). It is not the marker cycling this rejected - no key was spent, the
+  > directions still mean what they say, and open grid still pans - and the selection is still
+  > derived from the centre of the view, so the nav still holds no selection. The four quadrants
+  > tile the plane, which is the property that makes every marker on the panel reachable in the
+  > direction it looks like it is in.
 - **The selection is measured in metres, not pixels.** The store owns the nav and a backend is
   handed a `const` snapshot, so the nav genuinely cannot learn how wide a backend's body is.
   Anything box-dependent would therefore be two answers - the ring a renderer draws and the node
