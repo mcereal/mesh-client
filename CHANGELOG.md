@@ -1,3 +1,13 @@
+## [2.55.0](https://github.com/mcereal/mesh-client/compare/v2.54.1...v2.55.0) (2026-09-10)
+
+### Features
+
+* **messages:** make an arriving message visible from anywhere ([7c58e93](https://github.com/mcereal/mesh-client/commit/7c58e9341f5f3e4ceeeffd8b4d3a17450150331e))
+
+### Bug Fixes
+
+* **messages:** three notification bugs from review ([9237f3a](https://github.com/mcereal/mesh-client/commit/9237f3a30ca17430e0c969de5c2024bdbc513e82))
+
 ## [2.54.1](https://github.com/mcereal/mesh-client/compare/v2.54.0...v2.54.1) (2026-09-10)
 
 ### Bug Fixes
