@@ -103,6 +103,11 @@ COMMAND="${COMMAND:-push}"
 TARGET="${BRICK_USER}@${BRICK_HOST}"
 REMOTE_TOOLS="${BRICK_SDCARD}/Tools/${BRICK_PLATFORM}"
 REMOTE_PAK="${REMOTE_TOOLS}/${PAK_NAME}.pak"
+# Where a push is assembled before it becomes the pak. Dot-prefixed and *not* ending in .pak,
+# because Tools/<platform>/ is a directory the launcher globs: a transfer that dies mid-tar
+# leaves this behind, and named "MeshClient.pak.new" it shows up in the launcher as a second,
+# broken tool until the next deploy cleans it up.
+REMOTE_STAGE="${REMOTE_TOOLS}/.${PAK_NAME}.pak.new"
 REMOTE_LOG="${BRICK_SDCARD}/.userdata/${BRICK_PLATFORM}/logs/${PAK_NAME}.txt"
 
 # shellcheck disable=SC2206
@@ -155,28 +160,37 @@ cmd_push() {
     echo "Pushing ${LOCAL_PAK} -> ${TARGET}:${REMOTE_PAK}"
     echo "  meshclient sha256 ${local_sum}"
 
-    # Stage into MeshClient.pak.new, then swap, so a half-finished transfer never
-    # leaves a broken pak in Tools/ that NextUI would try to launch.
+    # Stage beside the pak, then swap, so a half-finished transfer never leaves a broken pak
+    # in Tools/ that NextUI would try to launch. The old staging name is cleaned up too:
+    # it *did* end in .pak, so a Brick that saw a failed deploy before this fix has one.
     local remote_script
     remote_script="set -e
 mkdir -p $(sq "${REMOTE_TOOLS}")
-rm -rf $(sq "${REMOTE_PAK}.new")
-mkdir $(sq "${REMOTE_PAK}.new")
-tar -C $(sq "${REMOTE_PAK}.new") -xf -
+rm -rf $(sq "${REMOTE_STAGE}") $(sq "${REMOTE_PAK}.new")
+mkdir $(sq "${REMOTE_STAGE}")
+gunzip -c | tar -C $(sq "${REMOTE_STAGE}") -xf -
 rm -rf $(sq "${REMOTE_PAK}")
-mv $(sq "${REMOTE_PAK}.new") $(sq "${REMOTE_PAK}")
+mv $(sq "${REMOTE_STAGE}") $(sq "${REMOTE_PAK}")
 chmod +x $(sq "${REMOTE_PAK}/launch.sh") $(sq "${REMOTE_PAK}/bin/shared/meshclient")
 sync
 sha256sum $(sq "${REMOTE_PAK}/bin/shared/meshclient") 2>/dev/null | cut -d' ' -f1"
 
     if [[ ${DRY_RUN} -eq 1 ]]; then
-        printf 'tar -C %s -cf - . | ' "${LOCAL_PAK}"
+        printf 'tar -C %s -czf - . | ' "${LOCAL_PAK}"
         ssh_cmd "${remote_script}"
         return 0
     fi
 
+    # Compressed, because the transfer is the slow part and the pak is mostly one static
+    # binary: 2.86 MB becomes 1.17 MB, and on a Brick whose Wi-Fi is having a bad day that is
+    # the difference between a push that lands and one that dies mid-stream. The device
+    # inflates it with busybox `gunzip`, which is the same applet the radio-firmware download
+    # already depends on being there - see docs/radio-firmware-roadmap.md, where its presence
+    # on this platform was measured rather than assumed. `tar -xzf` is deliberately not used:
+    # busybox tar only understands -z when it was built with FEATURE_TAR_GZIP, while the
+    # separate applet is a thing we have checked for.
     local remote_sum
-    remote_sum="$(tar -C "${LOCAL_PAK}" -cf - . | ssh "${SSH_OPTS[@]}" "${TARGET}" "${remote_script}")"
+    remote_sum="$(tar -C "${LOCAL_PAK}" -czf - . | ssh "${SSH_OPTS[@]}" "${TARGET}" "${remote_script}")"
     if [[ -n "${remote_sum}" && "${remote_sum}" != "${local_sum}" ]]; then
         die "checksum mismatch after push (device ${remote_sum})"
     fi

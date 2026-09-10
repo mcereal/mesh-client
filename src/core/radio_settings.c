@@ -292,8 +292,9 @@ bool mesh_admin_request_is_action(enum mesh_admin_request_kind kind) {
        holds, so the caller follows it with a refresh - that is a read, not a read-back. */
     return kind == MESH_ADMIN_REBOOT || kind == MESH_ADMIN_SHUTDOWN ||
            kind == MESH_ADMIN_RESET_NODEDB || kind == MESH_ADMIN_FACTORY_RESET_CONFIG ||
-           kind == MESH_ADMIN_FACTORY_RESET_DEVICE || kind == MESH_ADMIN_BACKUP_PREFERENCES ||
-           kind == MESH_ADMIN_RESTORE_PREFERENCES || kind == MESH_ADMIN_REMOVE_BACKUP_PREFERENCES;
+           kind == MESH_ADMIN_FACTORY_RESET_DEVICE || kind == MESH_ADMIN_ENTER_DFU_MODE ||
+           kind == MESH_ADMIN_BACKUP_PREFERENCES || kind == MESH_ADMIN_RESTORE_PREFERENCES ||
+           kind == MESH_ADMIN_REMOVE_BACKUP_PREFERENCES;
 }
 
 static void mesh_radio_settings_record_write_result(struct mesh_radio_settings *settings,
@@ -567,6 +568,12 @@ int mesh_radio_settings_encode_request(const struct mesh_radio_settings *setting
     case MESH_ADMIN_FACTORY_RESET_DEVICE:
         admin.which_payload_variant = meshtastic_AdminMessage_factory_reset_device_tag;
         admin.factory_reset_device = 1;
+        break;
+    /* A bare bool, and no delay field to carry one: the firmware acks and resets, and the ack
+       is the last thing this link will hear. */
+    case MESH_ADMIN_ENTER_DFU_MODE:
+        admin.which_payload_variant = meshtastic_AdminMessage_enter_dfu_mode_request_tag;
+        admin.enter_dfu_mode_request = true;
         break;
     case MESH_ADMIN_SET_FIXED_POSITION:
         /* A position with no coordinates would set fixed position on and leave the radio

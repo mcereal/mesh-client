@@ -216,6 +216,24 @@ MESH_TEST_CASE(serial_transport_connect_mock, unit) {
         goto cleanup_transport;
     }
 
+    /*
+     * The port and the id are two different answers and only one of them names a place on the
+     * bus. This device came out of the scan unbound, so before the connect it had a sysfs id
+     * and no tty at all; the bind gave it "/dev/ttyUSB0". A caller that wants to know whether
+     * *this board* came back - a firmware install watching for it to re-enumerate as a
+     * bootloader - needs the id, and reading the label instead is a wait that times out.
+     */
+    if (mesh_serial_transport_connected_id(transport) == NULL ||
+        strcmp(mesh_serial_transport_connected_id(transport), "1-1:1.1") != 0) {
+        record_failure(test_name, "the connected id should be the sysfs interface, not the tty");
+        goto cleanup_transport;
+    }
+    if (strcmp(mesh_serial_transport_connected_port(transport),
+               mesh_serial_transport_connected_id(transport)) == 0) {
+        record_failure(test_name, "the path and the id must not be the same string here");
+        goto cleanup_transport;
+    }
+
     uint8_t request[128];
     got = mesh_test_serial_read(pair[1], request, sizeof request);
     if (got < (ssize_t)MESH_STREAM_FRAME_HEADER_LEN || request[0] != MESH_STREAM_FRAME_START1 ||

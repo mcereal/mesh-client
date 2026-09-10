@@ -15,6 +15,7 @@ set(MESHCLIENT_TEST_SUPPORT
     support/proto_fixture.c
     support/serial_fixture.c
     support/session_fixture.c
+    support/uf2_fixture.c
     support/ui_fixture.c
 )
 
@@ -25,6 +26,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/firmware.c
     suites/firmware_catalog.c
     suites/firmware_download.c
+    suites/firmware_install.c
     suites/geo.c
     suites/i18n.c
     suites/json.c

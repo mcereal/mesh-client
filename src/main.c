@@ -3,6 +3,7 @@
 #include "mesh/core/app.h"
 #include "mesh/core/config.h"
 #include "mesh/core/firmware_fetch.h"
+#include "mesh/core/firmware_install.h"
 #include "mesh/core/version.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/serial.h"
@@ -60,6 +61,7 @@ static size_t await_ble_discovery(struct mesh_app *app);
 static int select_serial_link(struct mesh_app *app, const char *requested,
                               struct mesh_serial_device_info *scratch, size_t scratch_len,
                               struct mesh_cli_link *link);
+static int connect_and_sync(struct mesh_app *app, const struct mesh_cli_link *link);
 static bool parse_node_id(const char *value, uint32_t *out);
 static void print_messages_pretty(FILE *out, const struct mesh_message_log *log);
 static void print_messages_json(FILE *out, const struct mesh_message_log *log);
@@ -203,16 +205,24 @@ static void cli_firmware_index(void *userdata, const struct mesh_fetch_result *r
     }
 }
 
-static int fetch_radio_firmware(struct mesh_app *app, const char *target, const char *staging) {
-    struct cli_firmware_fetch run;
-    memset(&run, 0, sizeof run);
+/*
+ * `run` is the caller's storage rather than a local, because the fetch's callbacks carry its
+ * address as their userdata: an install reading the manifest and the staged path off a struct
+ * copied out at the end would be reading one whose machine points at a dead frame.
+ */
+static int fetch_radio_firmware(struct mesh_app *app, struct cli_firmware_fetch *run,
+                                const char *target, const char *staging) {
+    if (run == NULL) {
+        return -EINVAL;
+    }
+    memset(run, 0, sizeof *run);
     /* The updater's fetcher, because it is the one that already found the pak's CA bundle -
        the Brick has no system store, so without it every HTTPS request exits 60. */
-    run.fetcher = &app->updater.fetch;
-    run.target = target;
-    run.staging = staging;
+    run->fetcher = &app->updater.fetch;
+    run->target = target;
+    run->staging = staging;
 
-    if (!mesh_fetch_available(run.fetcher)) {
+    if (!mesh_fetch_available(run->fetcher)) {
         fprintf(stderr, "No curl or wget on this device; nothing can be fetched.\n");
         return -ENOTSUP;
     }
@@ -226,53 +236,212 @@ static int fetch_radio_firmware(struct mesh_app *app, const char *target, const 
        for less. */
     request.response_max = 512U * 1024U;
     request.on_done = cli_firmware_index;
-    request.userdata = &run;
-    if (mesh_fetch_start(run.fetcher, &request, mesh_time_monotonic_ms()) != 0) {
+    request.userdata = run;
+    if (mesh_fetch_start(run->fetcher, &request, mesh_time_monotonic_ms()) != 0) {
         fprintf(stderr, "Could not start the release index fetch.\n");
         return -EIO;
     }
 
     unsigned last = 101U;
     enum mesh_firmware_fetch_state last_state = MESH_FIRMWARE_FETCH_STATE_COUNT;
-    for (int turn = 0; turn < 60000 && !run.finished; ++turn) {
+    for (int turn = 0; turn < 60000 && !run->finished; ++turn) {
         (void)mesh_event_loop_run(&app->loop, 10);
         const uint64_t now = mesh_time_monotonic_ms();
-        mesh_fetch_tick(run.fetcher, now);
-        if (run.resolved) {
-            mesh_firmware_fetch_tick(&run.fetch, now);
-            const unsigned progress = mesh_firmware_fetch_progress(&run.fetch);
+        mesh_fetch_tick(run->fetcher, now);
+        if (run->resolved) {
+            mesh_firmware_fetch_tick(&run->fetch, now);
+            const unsigned progress = mesh_firmware_fetch_progress(&run->fetch);
             /* On a change of step as well as of percentage: this makes two round trips through
                the same zip, and a bar alone cannot say which one is moving. */
-            if ((run.fetch.state != last_state || progress != last) && progress % 10U == 0U) {
-                printf("  %s %u%%\n", mesh_firmware_fetch_state_name(run.fetch.state), progress);
+            if ((run->fetch.state != last_state || progress != last) && progress % 10U == 0U) {
+                printf("  %s %u%%\n", mesh_firmware_fetch_state_name(run->fetch.state), progress);
                 last = progress;
-                last_state = run.fetch.state;
+                last_state = run->fetch.state;
             }
         }
     }
 
-    if (!run.finished) {
+    if (!run->finished) {
         fprintf(stderr, "Timed out.\n");
-        mesh_firmware_fetch_cancel(&run.fetch);
+        mesh_firmware_fetch_cancel(&run->fetch);
         return -ETIMEDOUT;
     }
-    if (!run.ok) {
+    if (!run->ok) {
         fprintf(stderr, "Failed: %s\n",
-                run.fetch.message[0] != '\0' ? run.fetch.message : "no release resolved");
+                run->fetch.message[0] != '\0' ? run->fetch.message : "no release resolved");
         return -EIO;
     }
 
     char path[MESH_FETCH_PATH_MAX];
-    printf("Image:    %s\n", run.fetch.image.name);
-    printf("Size:     %llu bytes\n", (unsigned long long)run.fetch.image.bytes);
+    printf("Image:    %s\n", run->fetch.image.name);
+    printf("Size:     %llu bytes\n", (unsigned long long)run->fetch.image.bytes);
     printf("Staged:   %s\n",
-           mesh_firmware_fetch_image_path(&run.fetch, path, sizeof path) != NULL ? path : "?");
-    if (run.fetch.path == MESH_FIRMWARE_PATH_USB) {
-        printf("UF2:      %u blocks, family %08x, %#x-%#x\n", (unsigned)run.fetch.uf2.blocks,
-               (unsigned)run.fetch.uf2.family_id, (unsigned)run.fetch.uf2.first_address,
-               (unsigned)run.fetch.uf2.last_address);
+           mesh_firmware_fetch_image_path(&run->fetch, path, sizeof path) != NULL ? path : "?");
+    if (run->fetch.path == MESH_FIRMWARE_PATH_USB) {
+        printf("UF2:      %u blocks, family %08x, %#x-%#x\n", (unsigned)run->fetch.uf2.blocks,
+               (unsigned)run->fetch.uf2.family_id, (unsigned)run->fetch.uf2.first_address,
+               (unsigned)run->fetch.uf2.last_address);
     }
     return 0;
+}
+
+/*
+ * --install-firmware: phase 3, run against a real board.
+ *
+ * The whole handover in one command - fetch the image, ask the radio to go into DFU, wait for
+ * its bootloader, write the blocks, watch it restart - because the parts of this that can only
+ * be wrong on a Brick are not parts a suite can reach: the platform mounting the bootloader's
+ * ghost FAT over /mnt/SDCARD, a full-speed USB link's real throughput, and a board that decides
+ * for itself when it has had every block.
+ *
+ * The radio has to be on **USB**, which is the same constraint the feature has: an nRF52 over
+ * BLE is phase 4's problem and phase 1's refusal row already says so. With no radio there at
+ * all the install still runs - it waits for a bootloader instead of asking for one, which is
+ * the double-tap path, and is also what a board too broken to be asked politely needs.
+ */
+struct cli_firmware_install {
+    struct mesh_app *app;
+    const struct mesh_cli_link *link;
+    unsigned armed;
+};
+
+static int cli_install_arm(void *userdata) {
+    struct cli_firmware_install *const run = (struct cli_firmware_install *)userdata;
+    if (run->link == NULL || run->link->session == NULL) {
+        return -ENOTCONN;
+    }
+    const int queued = mesh_session_radio_action(run->link->session, MESH_ADMIN_ENTER_DFU_MODE);
+    if (queued < 0) {
+        return queued;
+    }
+    run->armed += 1U;
+    /* Queued is not sent. The admin queue drains from the session's tick, which the serial
+       transport calls from its own - so the packet reaches the radio on these turns and not
+       before. */
+    for (int turn = 0; turn < 200; ++turn) {
+        mesh_transport_registry_tick(&run->app->transport_registry);
+        (void)mesh_event_loop_run(&run->app->loop, 10);
+    }
+    return 0;
+}
+
+static void cli_install_done(void *userdata, const struct mesh_firmware_install *install) {
+    (void)userdata;
+    (void)install;
+}
+
+static int install_radio_firmware(struct mesh_app *app, const char *target, const char *staging,
+                                  const char *serial_identifier) {
+    static struct cli_firmware_fetch fetched;
+    const int got = fetch_radio_firmware(app, &fetched, target, staging);
+    if (got < 0) {
+        return got;
+    }
+    if (fetched.fetch.path != MESH_FIRMWARE_PATH_USB) {
+        fprintf(stderr, "%s installs over Bluetooth, not USB; that is phase 4.\n", target);
+        return -ENOTSUP;
+    }
+    /*
+     * The family is looked up from the architecture the board's own manifest states rather than
+     * read off the image, because reading it off the image is the check answering itself. In
+     * the UI this comes from `deviceHardware` for the connected radio's hw_model, which is one
+     * step better again - it is the board saying what it is rather than the archive.
+     */
+    const uint32_t family = mesh_uf2_family_for_architecture(fetched.fetch.manifest.architecture);
+    if (family == 0U) {
+        fprintf(stderr, "No UF2 family for architecture '%s'; this board has no USB path.\n",
+                fetched.fetch.manifest.architecture);
+        return -ENOTSUP;
+    }
+
+    char image_path[MESH_FETCH_PATH_MAX];
+    if (mesh_firmware_fetch_image_path(&fetched.fetch, image_path, sizeof image_path) == NULL) {
+        fprintf(stderr, "The image was fetched and then could not be found.\n");
+        return -EIO;
+    }
+
+    int result =
+        mesh_transport_registry_start_all(&app->transport_registry, &app->config, &app->loop);
+    if (result < 0) {
+        fprintf(stderr, "Could not start the transports: %d\n", result);
+        return result;
+    }
+
+    struct mesh_serial_device_info serial_devices[MESH_SERIAL_MAX_DEVICES];
+    struct mesh_cli_link link;
+    memset(&link, 0, sizeof link);
+    struct cli_firmware_install run;
+    memset(&run, 0, sizeof run);
+    run.app = app;
+
+    const bool have_radio = select_serial_link(app, serial_identifier, serial_devices,
+                                               MESH_SERIAL_MAX_DEVICES, &link) >= 0 &&
+                            connect_and_sync(app, &link) >= 0;
+    char port[64] = {0};
+    if (have_radio) {
+        run.link = &link;
+        /*
+         * The transport's own id, not `link.peer.identifier`. That field is a *label* - the tty
+         * when there is one, the sysfs id before a driver has bound - so on a port the client
+         * has already bound once it reads "/dev/ttyUSB0", which names no place on the USB bus.
+         * The install matches a re-enumerated bootloader against the device the radio was on,
+         * so a label would make it wait out its timeout and report that no bootloader came.
+         */
+        const char *const id = mesh_serial_transport_connected_id(link.transport);
+        mesh_str_copy(port, sizeof port, id != NULL ? id : "");
+        printf("Radio:    %s on %s\n", link.peer.name, port[0] != '\0' ? port : "?");
+    } else {
+        printf("No radio on USB. Double-tap the reset button to put the board in its "
+               "bootloader.\n");
+    }
+
+    struct mesh_firmware_install install;
+    memset(&install, 0, sizeof install);
+    result = mesh_firmware_install_start(&install, &app->loop, image_path, port, family,
+                                         have_radio ? cli_install_arm : NULL, &run,
+                                         cli_install_done, &run);
+    if (result < 0) {
+        fprintf(stderr, "Could not start the install: %s\n",
+                mesh_firmware_install_error_name(install.error));
+        mesh_transport_registry_stop_all(&app->transport_registry);
+        return result;
+    }
+    if (have_radio) {
+        /* The verb is out and the radio is on its way down. A transport still holding a tty
+           that is about to disappear only produces errors about a link nobody is using. */
+        (void)link.disconnect(link.transport);
+    }
+
+    enum mesh_firmware_install_state last_state = MESH_FIRMWARE_INSTALL_STATE_COUNT;
+    unsigned last_progress = 101U;
+    while (mesh_firmware_install_busy(&install)) {
+        (void)mesh_event_loop_run(&app->loop, 50);
+        const uint64_t now = mesh_time_monotonic_ms();
+        /* The registry keeps ticking on purpose: the radio's port disappearing is what the
+           transport notices, and the client noticing is what phase 3's own "has it come back
+           yet" is written against. */
+        mesh_transport_registry_tick(&app->transport_registry);
+        mesh_firmware_install_tick(&install, now);
+        const unsigned progress = mesh_firmware_install_progress(&install);
+        if (install.state != last_state || (progress != last_progress && progress % 5U == 0U)) {
+            printf("  %s %u%%\n", mesh_firmware_install_state_name(install.state), progress);
+            /* Thirteen seconds of write with the output block-buffered behind a pipe is a
+               command that looks hung; `make deploy-run` is exactly that pipe. */
+            fflush(stdout);
+            last_state = install.state;
+            last_progress = progress;
+        }
+    }
+
+    const bool ok = install.state == MESH_FIRMWARE_INSTALL_DONE;
+    if (ok) {
+        printf("Installed. The board restarted into %s.\n", fetched.release.version);
+    } else {
+        fprintf(stderr, "Failed: %s\n", mesh_firmware_install_error_name(install.error));
+    }
+    mesh_firmware_install_cancel(&install);
+    mesh_transport_registry_stop_all(&app->transport_registry);
+    return ok ? 0 : -EIO;
 }
 
 static void print_usage(const char *program) {
@@ -303,7 +472,12 @@ static void print_usage(const char *program) {
             "      --fetch-firmware TARGET  Download the newest stable firmware image for a\n"
             "                            build target (heltec-mesh-node-t114), verify it and\n"
             "                            leave it staged. No radio is touched\n"
-            "      --staging DIR         Where --fetch-firmware stages (default: /tmp)\n"
+            "      --install-firmware TARGET  Fetch that image and write it to the radio over\n"
+            "                            USB: DFU request, wait for the bootloader, write the\n"
+            "                            blocks, watch it restart. Changes the radio\n"
+            "      --staging DIR         Where the two above stage (default: /tmp; use\n"
+            "                            /mnt/UDISK on a Brick, because a bootloader's drive\n"
+            "                            gets mounted over /mnt/SDCARD)\n"
             "  -V, --version              Print the client version and exit\n"
             "  -h, --help                 Show this help message\n",
             program);
@@ -353,6 +527,7 @@ int main(int argc, char **argv) {
        bootloader's ghost drive is mounted over /mnt/SDCARD the moment the radio
        reboots, so an image staged there vanishes from its own path. */
     const char *fetch_firmware_staging = "/tmp";
+    const char *install_firmware_target = NULL;
 
     static const struct option long_options[] = {
         {"foreground", no_argument, NULL, 'f'},
@@ -372,6 +547,7 @@ int main(int argc, char **argv) {
         {"disable-serial", no_argument, NULL, 8},
         {"fetch-firmware", required_argument, NULL, 9},
         {"staging", required_argument, NULL, 10},
+        {"install-firmware", required_argument, NULL, 11},
         {"version", no_argument, NULL, 'V'},
         {"help", no_argument, NULL, 'h'},
         {0, 0, 0, 0},
@@ -411,6 +587,9 @@ int main(int argc, char **argv) {
             if (optarg != NULL) {
                 fetch_firmware_staging = optarg;
             }
+            break;
+        case 11:
+            install_firmware_target = optarg;
             break;
         case 's':
             show_status = true;
@@ -485,11 +664,25 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
+    if (install_firmware_target != NULL) {
+        /*
+         * Transports *are* started here, unlike the fetch above: the DFU request goes down the
+         * serial link the radio is already on. Serial is a cable rather than the antenna, so
+         * the one-part-one-antenna rule the download obeys does not apply to it - and the
+         * download has finished by the time anything is connected.
+         */
+        result = install_radio_firmware(&app, install_firmware_target, fetch_firmware_staging,
+                                        serial_identifier);
+        mesh_app_shutdown(&app);
+        return result < 0 ? EXIT_FAILURE : EXIT_SUCCESS;
+    }
+
     if (fetch_firmware_target != NULL) {
         /* No transports started: this reaches the network and nothing else, which is also the
            shape phase 3 will want - the radio link goes *down* for a download, because the
            Brick's Wi-Fi and its Bluetooth are one part behind one antenna. */
-        result = fetch_radio_firmware(&app, fetch_firmware_target, fetch_firmware_staging);
+        static struct cli_firmware_fetch run;
+        result = fetch_radio_firmware(&app, &run, fetch_firmware_target, fetch_firmware_staging);
         mesh_app_shutdown(&app);
         return result < 0 ? EXIT_FAILURE : EXIT_SUCCESS;
     }

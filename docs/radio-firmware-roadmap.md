@@ -602,9 +602,9 @@ More than half of this, which is the argument for doing it now rather than in th
 | New | Roughly | Notes |
 |---|---|---|
 | `src/core/firmware_catalog.c` | 400 lines | **shipped.** Phase 1 for the two API documents; phase 2 added the board's `.mt.json` and the release's own manifest. The zip central directory went to `src/utils/zip.c` instead — it is a container reader with no firmware in it, it is reusable (the Nordic DFU package is a zip too), and it wanted a fuzz target of its own |
-| `src/core/firmware_download.c`, `_fetch.c` | 500 lines | **shipped in phase 2**, as two: the four range reads and the gzip envelope in one, and "which zip, which member" in the other. What is still to come is the *handover* half — one state per thing the screen can name, exactly as `enum mesh_update_state` does, and the only part that differs per bus |
+| `src/core/firmware_download.c`, `_fetch.c` | 500 lines | **shipped in phase 2**, as two: the four range reads and the gzip envelope in one, and "which zip, which member" in the other. The *handover* half is `firmware_install.c`, **shipped in phase 3** — one state per thing the screen can name, exactly as `enum mesh_update_state` does. It is the only part that differs per bus, so the BLE one arrives beside it rather than inside it |
 | Bootloader recognition in `serial_usb.c` | small | **shipped in phase 2.5.** A role on `struct mesh_serial_device_info`, read off the sibling interfaces the sysfs walk already visits. Fixed a live bug and is phase 3's "has it come back yet" — see [§Knowing a bootloader when we see one](#knowing-a-bootloader-when-we-see-one) |
-| `src/transport/serial/usb_msc.c` | 20 lines, then 350 | the block-device write is twenty lines and is what this hardware does; the usbfs Bulk-Only Transport behind it — CBW, SCSI `WRITE(10)`, CSW — is a **fallback for a kernel without `usb-storage`**, and phase 0 says this kernel is not one. Unmounting the drive before writing belongs here |
+| `src/transport/serial/usb_msc.c` | 20 lines, then 350 | **shipped in phase 3**, and it came to about 200 rather than 20 — the write itself *is* twenty lines, and everything around it is the three questions the twenty do not answer: which block device belongs to this bootloader, what the platform has mounted on it, and how to copy 1.4 MB without blocking the loop the UI draws on. The usbfs Bulk-Only Transport behind it — CBW, SCSI `WRITE(10)`, CSW — is still a **fallback for a kernel without `usb-storage`**, and phase 0 says this kernel is not one |
 | `src/core/uf2.c` | 150 lines | **shipped in phase 2.** Reading a `.uf2`: magic, `blockNo`/`numBlocks`, family id, `payloadSize`, and the check that the file we are about to write is for the board we are about to write it to |
 | `src/transport/ble/ble_ota.c` | 300 lines | the loader conversation. Chunk, write, await `ACK`, count. Sits on the bluez client, not on `mesh_session` |
 | `mesh_bluez_client_find_characteristics()` | small | generalise `find_meshtastic_characteristics` to any service/characteristic pair. It is already generic underneath |
@@ -743,10 +743,24 @@ worth doing in this order.
   | local header CRC | 3175933648 (agrees) | **0** |
   | central CRC | 3175933648 | 2320343302 |
   | compressed / uncompressed | 517,956 / 1,467,392 | 561,092 / 1,491,968 |
-- **A fake bootloader** on `mesh_serial_usb_mock_enable`: accepts Bulk-Only Transport,
-  reassembles the UF2 blocks it is handed, and can be told to stall a CSW, to fail a
-  `WRITE(10)`, or to vanish mid-write. The assertions are the interesting part — every block
-  arrived, each one carried the right family id, and `numBlocks` was satisfied exactly once.
+- ~~**A fake bootloader** on `mesh_serial_usb_mock_enable`~~ — **not what phase 3 built, and the
+  difference is worth recording.** That entry assumed the write would go out over usbfs
+  Bulk-Only Transport, where a mock is the only way to see a CBW. Phase 0 removed that: the
+  kernel binds `usb-storage` and the write is a `write()` to a block device, so a *seam* does
+  what a mock would have. `MESHCLIENT_SYSFS_BLOCK` is where the drive appears,
+  `MESHCLIENT_PROC_MOUNTS` is what the platform mounted on it, and `MESHCLIENT_DEV_ROOT` is
+  where the device node lives — pointed at a temporary directory, the write goes to a file,
+  which takes exactly the `open`, `write` and `fdatasync` a block device does. So
+  `tests/suites/firmware_install.c` mocks nothing: the scan really walks sysfs, the drive is
+  really found by chasing a symlink, and the write really forks a child. The tree is edited
+  between ticks, which is what a re-enumeration *is* — the radio's directory removed, the
+  bootloader's created, the disk published a moment later, and the bootloader's removed at the
+  end because a board that counted `numBlocks` blocks resets itself.
+
+  The assertions the entry asked for still hold, just one layer up: every byte arrived, the
+  image was refused for another family, and `numBlocks` was satisfied — the last of these read
+  off the *board* rather than off our own counter, which is the honest place for it. When the
+  usbfs fallback is eventually written, the mock comes back with it.
 - **A fake loader** built on `mesh_bluez_client_mock_enable`: answers `VERSION`, `ERASING`/`OK`,
   ACKs per write, and can be told to stop ACKing, to answer `ERR Hash Mismatch`, to split a
   write, or to drop the link mid-stream. Every one of those is a state the screen has to name.
@@ -776,7 +790,8 @@ worth doing in this order.
   moves and a size check that passes.
 - **On hardware**, and not skippable: a T114 or another nRF52840 over USB, including one write
   interrupted halfway and then repeated; then a real ESP32 and a real S3, one interrupted stream
-  resumed, one wrong-hash refusal, and one radio whose `app1` holds the old loader.
+  resumed, one wrong-hash refusal, and one radio whose `app1` holds the old loader. The USB half
+  of that list is `--install-firmware`'s job and is what phase 3 is verified by.
 
   The **uninterrupted** half of that has been done by hand — a full 2.7.26 `.uf2` written to a
   T114 on 2026-09-10, board rebooted, client reconnected — so what phase 3 owes on hardware is
@@ -1113,18 +1128,76 @@ and `Y forget` were unconditional on the Devices bar while the nav declined them
 of row, so both now ask `mesh_ui_device_connectable()` / `mesh_ui_device_forgettable()` — one
 function for the bar and the press, as `mesh_ui_help_offered()` already is.
 
-**Phase 3 — the USB handover.** `enter_dfu_mode_request` down the serial link, wait for the
-bootloader to enumerate, unmount the ghost drive the platform will have mounted over
+**Phase 3 — the USB handover. Written and green; _not_ yet confirmed on hardware.**
+`enter_dfu_mode_request` down the serial link, wait for
+the bootloader to enumerate, unmount the ghost drive the platform will have mounted over
 `/mnt/SDCARD`, write the `.uf2`'s blocks to the block device, watch the board reboot. This is
 the first phase that changes a radio, and it is deliberately the one whose worst outcome is
 "write the blocks again". It also covers the boards the BLE path never will: every nRF52840
 target, plus RP2040 and RP2350 for the price of a different family id.
 
-The whole of that sequence has now been done by hand on a T114 — twenty seconds from the first
-range request to a radio back on the mesh — so what this phase owes is the code, not the
-question of whether it works. The two things the manual run had to be careful about are the two
-this phase must not forget: the drive is mounted by the time we want to write to it, and
-`/mnt/SDCARD` is not where the image can live while that is true.
+The whole of that sequence had already been done by hand on a T114 before a line of it was
+written — twenty seconds from the first range request to a radio back on the mesh — so what this
+phase owed was the code, not the question of whether it works. The two things the manual run had
+to be careful about are the two the code must not forget, and both are in it: the drive is
+mounted by the time we want to write to it, and `/mnt/SDCARD` is not where the image can live
+while that is true.
+
+What it turned into: **`MESH_ADMIN_ENTER_DFU_MODE`**, one more action kind in
+[`radio_settings.c`](../src/core/radio_settings.c) encoding the bare bool at field 21;
+[`src/transport/serial/usb_msc.c`](../src/transport/serial/usb_msc.c) for the drive — finding
+the block device, reading what the platform mounted on it, taking those off, and the forked
+child that copies; and
+[`src/core/firmware_install.c`](../src/core/firmware_install.c) for the four states, which is
+the piece between "here are the bytes" and "the board is running them".
+`--install-firmware <target>` runs the whole of it.
+
+Four decisions in it are worth stating, because each was a choice with a wrong-looking
+alternative:
+
+- **The image is held in memory, not read from the staged file.** The mount shadow is why: by
+  the time the drive is writable, the file the download left behind may be underneath a
+  bootloader's ghost FAT. The install reads it whole and validates it *before* the radio is sent
+  anywhere, and the write child inherits the buffer through `fork`. That also makes the UF2
+  check the last gate rather than an early one.
+- **The write syncs every chunk.** A buffered write to a block device is absorbed by the page
+  cache at memory speed, so an unsynced child reports 100% in milliseconds and then sits in
+  `close()` for the thirteen seconds the bus takes. `fdatasync` per 32 KB is what makes the
+  reported byte count a count of bytes that reached the bus - a bar that lies the other way is a
+  bar that makes somebody pull the cable.
+- **A finished write is not "done".** The bootloader *going away* is it saying it counted
+  `numBlocks` blocks, flushed and reset - nothing tells it the transfer is over, the file does.
+  So there is a `restarting` state, and a board still sitting in DFU after the last byte is a
+  failure with its own name rather than a success. The recovery is the same write again either
+  way, which is the whole argument for this half going first.
+- **An `expect_family` of 0 is refused rather than treated as "any family".** 0 means the
+  architecture has no UF2 path at all; letting it through as a wildcard would switch off the one
+  check standing between a T114 and an image for another nRF52840 board - the same shape as the
+  manifest-name check phase 2's review turned up.
+
+The bootloader is only accepted on the **same USB device** the radio was on, because a board
+resets in place and a write must not follow one that moved. An install started with no port -
+which is what a board already in its bootloader needs - accepts any, and says so.
+
+**What it still owes.** Phases 1 and 2 each say "confirmed on hardware" and this one may not yet:
+an attempt on 2026-09-10 was defeated by a Brick whose SSH would not carry a deploy, for reasons
+still not established. Two runs are outstanding and the second is the one that matters:
+
+- a **clean install** end to end - `--install-firmware heltec-mesh-node-t114` against a T114 on
+  the cable, watching arming, waiting, writing and restarting go past in order;
+- an **interrupted** one. Pull the cable partway through the write. The expected outcome is a
+  board still sitting in its bootloader with `/dev/sda` back on the next plug, and a second
+  write that succeeds. Nothing has watched that happen - the manual run in phase 0 was
+  uninterrupted - and it is the claim the whole "the USB half is the safer half" argument rests
+  on. Until it is run, that argument is reasoning rather than evidence.
+
+Both can be run from the device itself with no host involved, which is worth knowing when the
+network is the thing that is broken:
+
+```sh
+/mnt/SDCARD/Tools/tg5040/MeshClient.pak/bin/shared/meshclient \
+  --install-firmware heltec-mesh-node-t114 --staging /mnt/UDISK
+```
 
 **Phase 4 — the BLE handover.** `ota_request`, the loader conversation, the banner, recovery.
 The phase that can leave somebody's radio needing this client to come back, arriving after the
