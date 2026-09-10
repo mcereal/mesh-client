@@ -18,6 +18,7 @@
 #include "mesh/i18n/strings.h"
 #include "mesh/ui/backends/fb_capture.h"
 #include "mesh/ui/font.h"
+#include "mesh/ui/history.h"
 #include "mesh/ui/map.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/settings.h"
@@ -249,6 +250,117 @@ static uint32_t last_card_edge_y(const struct mesh_ui_capture *capture, const ui
         return outline;
     }
     return outline > ring ? outline : ring;
+}
+
+/* How many wide bands of `role` there are down the frame - a band being a run of scanlines,
+   so a card's two-pixel edge counts once. Three cards on the Status screen is six: a top and a
+   bottom each, whichever ink they are drawn in. */
+static unsigned count_edge_bands(const struct mesh_ui_capture *capture, const uint8_t *pixels,
+                                 uint32_t width, uint32_t height, size_t stride) {
+    unsigned bands = 0U;
+    bool inside = false;
+    for (uint32_t y = 0U; y < height; ++y) {
+        const uint8_t *row = pixels + (size_t)y * stride;
+        bool wide = false;
+        unsigned outline = 0U;
+        unsigned ring = 0U;
+        for (uint32_t x = 0U; x < width; ++x) {
+            const uint8_t *pixel = row + (size_t)x * 4U;
+            outline = pixel_is_role(capture, pixel, MESH_UI_COLOR_OUTLINE) ? outline + 1U : 0U;
+            ring = pixel_is_role(capture, pixel, MESH_UI_COLOR_PRIMARY) ? ring + 1U : 0U;
+            if ((uint64_t)outline * 100U / width >= 80U || (uint64_t)ring * 100U / width >= 80U) {
+                wide = true;
+                break;
+            }
+        }
+        if (wide && !inside) {
+            bands += 1U;
+        }
+        inside = wide;
+    }
+    return bands;
+}
+
+/*
+ * The Status screen keeps its last card when the card above it overflows.
+ *
+ * The failure this pins is invisible to the compiler and nearly invisible on the panel, which
+ * is why it shipped: a column of cards is drawn top down and each takes what it wants, so the
+ * *last* card pays for everything above it - and paying means fb_draw_card() refusing it
+ * outright. On the Status screen that card is the Radio card, and it carries the `refresh`
+ * verb. mesh_ui_status_actions() offers that verb from the link state alone, with no idea what
+ * was drawn, so the cursor kept walking onto a button that was not on the frame - which is the
+ * failure "a card that can end up with no rows must not be given a verb" reached from the
+ * layout side rather than the row-count side.
+ *
+ * The Mesh card is made as tall as it ever gets: a LocalStats report puts the counter rows and
+ * the composition up, and two airtime readings put the trend up, which is two more body rows.
+ * That is not a contrived state - it is what a Brick shows a few minutes after connecting.
+ *
+ * Counted in card *edges* rather than in rows, because that is the thing a dropped card takes
+ * with it: three cards is six bands, and a Radio card refused for want of room is four.
+ */
+MESH_TEST_CASE(ui_capture_status_keeps_the_last_card_when_the_one_above_overflows, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_action action;
+    while (store.nav.screen != MESH_UI_SCREEN_STATUS) {
+        const enum mesh_ui_screen before = store.nav.screen;
+        memset(&action, 0, sizeof action);
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+        MESH_TEST_FAIL_IF_CLEANUP(store.nav.screen == before, mesh_ui_store_shutdown(&store),
+                                  "Right stopped moving before the Status tab");
+    }
+
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_ui_store_consume_updates(&store, &snapshot),
+                              mesh_ui_store_shutdown(&store), "no snapshot to render");
+
+    /* The radio's own report, which is what raises every counter row on the Mesh card and the
+       composition under them. The figures are the demo scene's, so this and the picture a
+       reviewer looks at are the same mesh. */
+    snapshot.settings.stats.valid = true;
+    snapshot.settings.stats.uptime_seconds = 806400U;
+    snapshot.settings.stats.channel_utilization = 11.5F;
+    snapshot.settings.stats.air_util_tx = 3.2F;
+    snapshot.settings.stats.num_packets_tx = 1462U;
+    snapshot.settings.stats.num_packets_rx = 5871U;
+    snapshot.settings.stats.num_packets_rx_bad = 12U;
+    snapshot.settings.stats.num_rx_dupe = 431U;
+    snapshot.settings.stats.num_tx_relay = 268U;
+    snapshot.settings.stats.num_tx_dropped = 3U;
+    snapshot.settings.stats.num_online_nodes = 9U;
+    snapshot.settings.stats.num_total_nodes = 42U;
+
+    /* And two readings of it, which is what puts the trend up - the two rows that were already
+       costing the Radio card its place before the composition existed. */
+    mesh_ui_history_reset(&snapshot.history);
+    mesh_ui_history_note_airtime(&snapshot.history, 1000U, 115, 32);
+    mesh_ui_history_note_airtime(&snapshot.history, 400000U, 580, 190);
+
+    struct mesh_ui_capture *capture = NULL;
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, 4) != 0,
+        mesh_ui_store_shutdown(&store), "capture open failed");
+
+    uint32_t width = 0U;
+    uint32_t height = 0U;
+    size_t stride = 0U;
+    const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+    mesh_ui_capture_render(capture, &snapshot);
+
+    const unsigned bands = count_edge_bands(capture, pixels, width, height, stride);
+    MESH_TEST_FAIL_IF_CLEANUP(bands < 6U, mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "a card was squeezed off the Status screen by the one above it");
+
+    mesh_ui_capture_close(capture);
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
 }
 
 /*

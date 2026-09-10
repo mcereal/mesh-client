@@ -496,6 +496,19 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   197 and seven would not fit. Empty slots are listed (the Channels rule), and a radio holding
   more than six keeps them - the save copies the tail across and closes the gaps an emptied
   slot leaves, the way a cleared admin key is compacted.
+- **A column of cards reserves room for its last card, and the reservation yields rather than
+  erasing the card making it.** Cards are drawn top down and each takes what it wants, so the
+  last one pays for everything above it - and `fb_draw_card()` pays by refusing the card
+  outright rather than by clipping it. That is worse than losing rows, because a card carries
+  *verbs*: `mesh_ui_status_actions()` offers `refresh` from the link state alone and has no idea
+  what was drawn, so the cursor walked onto a button that was not on the frame. It is the rule
+  below reached from the layout side instead of the row-count side, and it was already happening
+  on `main` - the airtime trend costs two rows and appears on the second LocalStats report, which
+  is a few minutes after connecting. `fb_draw_card_reserving()` is the fix and
+  `fb_card_min_height()` is what a screen reserves; the Status screen is the one caller, which is
+  why its Radio card is built into a local of its own and drawn after the Mesh card that reserved
+  for it. A reservation that cannot be afforded is dropped, because two cards missing is not an
+  improvement on one.
 - **A card that can end up with no rows must not be given a verb.** A card with no rows is not
   drawn, and a verb on an undrawn card leaves the action bar naming a press whose button is not
   on the frame. That is why the Radio card says "no report yet" rather than disappearing when

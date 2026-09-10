@@ -1815,6 +1815,42 @@ int fb_card_height(const struct mesh_ui_backend_fb_state *state, const struct fb
  * contrast contract; the accent edge is the indicator Material uses for focus, it is read at a
  * glance, and PRIMARY already owes both grounds 3:1.
  */
+/*
+ * The least a card can be drawn as and still be one: its heading, its first row and its padding,
+ * with the gap to the next card. What a screen reserves for a card that must not disappear.
+ *
+ * The first *row* rather than a line, because a card is refused outright at the point it has
+ * nothing but a heading - so this is the smallest height that actually draws something.
+ */
+int fb_card_min_height(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                       const struct fb_card *card);
+
+/*
+ * fb_draw_card(), keeping `reserve` pixels of the body free below this card.
+ *
+ * Why a card needs to be told this at all. A column of cards is drawn in order and each takes
+ * what it wants, so the *last* card pays for everything above it - and paying means not being
+ * drawn, because fb_draw_card() refuses a card it cannot fit rather than drawing an empty box.
+ * Losing a card is worse than losing a row, and not only because it is more content: a card
+ * carries **verbs**, and which verbs a screen offers is a table (src/ui/status.c) with no idea
+ * how tall anything came out. The cursor therefore keeps walking onto a button that is not on
+ * the frame - which is exactly the failure "a card that can end up with no rows must not be
+ * given a verb" names, reached from the layout side instead of the row-count side.
+ *
+ * A reservation turns it around: the card that can afford to drop a row drops one, and the card
+ * that would have vanished survives. It is also the right order editorially, because rows are
+ * clipped from the end and a screen declares its least important rows last.
+ *
+ * Pair it with fb_card_min_height() of whatever comes next rather than with that card's full
+ * height: the promise worth making is *that the card exists*, and a card given more room than
+ * its minimum will use it.
+ *
+ * A reservation that cannot be afforded is dropped rather than honoured - two cards missing is
+ * not an improvement on one - so this never draws less than fb_draw_card() would have.
+ */
+bool fb_draw_card_reserving(struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                            int *y, const struct fb_card *card, int reserve);
+
 bool fb_draw_card(struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout, int *y,
                   const struct fb_card *card);
 

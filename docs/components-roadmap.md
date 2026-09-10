@@ -1416,9 +1416,30 @@ in `theme.c` had ever owed, and writing the contract was most of the work.
   job one level along: 1.4:1 is a difference the eye finds reliably when there is an edge to find
   it at. An ink of its own would be another pair every theme had to be validated for, to say what
   a hole already says.
-- **One thing it left behind.** The Status card now names the bad and duplicate counts twice — on
-  the Dropped row, where they are amber because something is going wrong, and on the Heard row,
-  where they are parts of a whole. The two rows answer different questions and both answers are
-  wanted, but three rows of counters on the card that can outgrow its panel is worth a second
-  look. Reorganising them is a decision about that screen rather than about this component, which
-  is why it is written down here instead of taken.
+- **It found a card falling off the screen, and the card was already falling.** Review pointed
+  out that the two new rows pushed the Radio card past the bottom of the Status screen, where
+  `fb_draw_card()` refuses it outright. Measuring it turned up two things the report did not
+  have. The Mesh card is at capacity, so *any* addition costs the Radio card — a probe with the
+  text row cut and only the bar kept still loses it — which means "consolidate these rows" only
+  works at net zero. And rendering `trend.scene` against the tree *without* this change shows the
+  Radio card already gone: `fb_card_spark()` costs two body rows and the airtime trend arrives on
+  the radio's second LocalStats report, which is a few minutes after connecting. The composition
+  made an existing bug arrive sooner rather than causing one.
+
+  What made it worth fixing properly rather than trimming a row is what the missing card takes
+  with it. `mesh_ui_status_actions()` offers `refresh` from the link state alone and knows
+  nothing about what was drawn, so the cursor kept walking onto a button that was not on the
+  frame — which is *a card that can end up with no rows must not be given a verb* arriving from
+  the layout side. The answer is `fb_draw_card_reserving()`: a card can be told to leave room for
+  what comes after it, so the card that can afford a row loses one and the card that would have
+  vanished survives. Rows are clipped from the end and a screen declares its least important rows
+  last, so the order that falls out is already the right one.
+
+- **One thing it still leaves behind.** The Status card names the bad and duplicate counts twice
+  — on the Dropped row, where they are amber because something is going wrong, and on the Heard
+  row, where they are parts of a whole. Both answers are wanted, but the Mesh card is now
+  demonstrably over budget: with the reservation in place it sheds its last two rows in the
+  ordinary reported state, and one of them is the composition's own bar. Which rows that card
+  should give up is a decision about that screen rather than about this component, and it is a
+  visible one now rather than a hypothetical — the clipping is graceful instead of catastrophic,
+  so it can be argued about with a picture.

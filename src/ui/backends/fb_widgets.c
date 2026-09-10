@@ -2743,8 +2743,27 @@ static uint32_t fb_draw_card_row(struct mesh_ui_backend_fb_state *state,
     return 1U;
 }
 
-bool fb_draw_card(struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout, int *y,
-                  const struct fb_card *card) {
+int fb_card_min_height(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                       const struct fb_card *card) {
+    if (fb_card_is_empty(card)) {
+        return 0;
+    }
+    const struct fb_card_metrics m = fb_card_measure(state, layout, card);
+    /* One row, which is the same point fb_draw_card() refuses a card at: a heading with nothing
+       under it is not a card. What the row costs is the row's own - a note that wraps to three
+       lines is three - because the minimum has to be a card that can actually be drawn. */
+    const struct fb_card_fit least = {.rows = 1U, .tail_lines = 0U};
+    /* The box and no gap, which is where this differs from fb_card_height(). That one answers
+       "how much of the column does this card consume", so it carries the gap to whatever comes
+       under it; this one answers "how much room does this card need to exist at all". The gap
+       *between* the two cards is real and still has to be paid for - it is just not this card's
+       to state, because it belongs to whichever card is reserving the room and is added by
+       fb_draw_card_reserving(). Counting it here as well would spend a row of content on air. */
+    return fb_card_box_height(&m, layout, card, least);
+}
+
+bool fb_draw_card_reserving(struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                            int *y, const struct fb_card *card, int reserve) {
     if (y == NULL || fb_card_is_empty(card)) {
         return false;
     }
@@ -2763,7 +2782,42 @@ bool fb_draw_card(struct mesh_ui_backend_fb_state *state, const struct fb_layout
      * to reach it.
      */
     const int bottom = layout->footer_y - fb_margin(state) / 2;
-    const struct fb_card_fit fit = fb_card_clip(&m, layout, card, *y, bottom);
+    /*
+     * And `reserve` off that, which is this card being told to leave room for what comes after
+     * it.
+     *
+     * A column of cards is drawn in order and each one takes what it wants, so the last card is
+     * the one that pays for everything above it - and paying, here, means not being drawn at
+     * all. That is worse than losing a row: a card carries *verbs*, and which verbs a screen
+     * offers is a table (src/ui/status.c) that knows nothing about how tall anything came out.
+     * So the cursor keeps walking onto a button that is not on the frame, which is the failure
+     * "a card that can end up with no rows must not be given a verb" already names, arrived at
+     * from the layout side instead of the row-count side.
+     *
+     * A reservation turns that around: the card that can afford to lose a row loses one, and the
+     * card that would otherwise vanish survives. Which is also the right order editorially - the
+     * rows that go are the last ones a screen declared, and a screen declares its least
+     * important rows last.
+     */
+    /*
+     * Plus this card's own gap, because that is what separates the two: `*y` advances past the
+     * box *and* the gap, so the card being reserved for starts a gap lower than this one ends.
+     * Reserving the bare content height leaves it exactly one gap short, which on this panel is
+     * the difference between the card being drawn and not.
+     */
+    int limit = reserve > 0 ? bottom - reserve - m.gap : bottom;
+    struct fb_card_fit fit = fb_card_clip(&m, layout, card, *y, limit);
+    if (fit.rows == 0U && fit.tail_lines == 0U) {
+        /*
+         * The reservation yields rather than erasing this card.
+         *
+         * It is a promise about the card *below*, and a promise that cannot be kept without
+         * deleting the card above it is not worth keeping - two cards missing is not an
+         * improvement on one. So a reservation that cannot be afforded is dropped, and the
+         * column degrades to what it did before: whoever is drawn first gets the room.
+         */
+        fit = fb_card_clip(&m, layout, card, *y, bottom);
+    }
     if (fit.rows == 0U && fit.tail_lines == 0U) {
         return false;
     }
@@ -2887,6 +2941,11 @@ bool fb_draw_card(struct mesh_ui_backend_fb_state *state, const struct fb_layout
 
     *y = top + height + m.gap;
     return true;
+}
+
+bool fb_draw_card(struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout, int *y,
+                  const struct fb_card *card) {
+    return fb_draw_card_reserving(state, layout, y, card, 0);
 }
 
 /* ---- the snackbar ------------------------------------------------------------------------ */

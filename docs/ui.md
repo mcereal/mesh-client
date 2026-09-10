@@ -1331,6 +1331,43 @@ under the cursor, exactly as an unlit rung does and for the same reason.
 
 Rendered by `make ui-capture ARGS="devtools/ui_capture/scenes/trend.scene"`.
 
+#### A column of cards, and the one at the bottom
+
+Cards are drawn top down and each takes the room it wants, so the **last** card pays for
+everything above it — and `fb_draw_card()` pays by refusing a card it cannot fit rather than by
+clipping it. Losing a card is worse than losing rows, and not only because it is more content: a
+card carries **verbs**, and which verbs a screen offers is a table
+([`src/ui/status.c`](../src/ui/status.c)) with no idea how tall anything came out. So the cursor
+keeps walking onto a button that is not on the frame — which is exactly the failure *a card that
+can end up with no rows must not be given a verb* names, reached from the layout side instead.
+
+It was not hypothetical. The Status screen's Radio card carries `refresh`, and the airtime trend
+above it costs two body rows and appears on the radio's *second* LocalStats report — a few
+minutes after connecting. The card was already gone in ordinary use.
+
+`fb_draw_card_reserving()` turns it around: the card that can afford to drop a row drops one, and
+the card that would have vanished survives. Three things about it are decisions:
+
+- **Reserve the next card's `fb_card_min_height()`, not its full height.** What is worth
+  promising is that the card *exists* and its verb is reachable; a card handed more room than its
+  minimum will spend it.
+- **The gap belongs to the reserver.** `*y` advances past a card's box *and* its gap, so the card
+  being reserved for starts a gap lower than this one ends — `fb_draw_card_reserving()` adds its
+  own `gap` to the reservation, and `fb_card_min_height()` deliberately leaves it out. That is
+  the difference from `fb_card_height()`, which answers "how much of the column does this
+  consume" and so carries it. Counted once it is right; counted twice it costs a row of content,
+  and left out entirely the card still does not fit.
+- **A reservation that cannot be afforded is dropped.** It is a promise about the card below, and
+  a promise that can only be kept by deleting the card above is not worth keeping.
+
+It is also why `fb_render_status()` is the one screen where declaration order and drawing order
+come apart: the Radio card is built into a local of its own so the Mesh card can be drawn knowing
+what it has to leave behind. The rows the Mesh card gives up are the ones declared last, which is
+the right order — a screen declares its least important rows last.
+
+Pinned by `ui_capture_status_keeps_the_last_card_when_the_one_above_overflows`, which counts card
+*edges* rather than rows: three cards is six bands, and a card refused for want of room is four.
+
 #### `fb_draw_proportion()` — a whole and its parts
 
 The fourth quantitative component, and the first that is not one number. A meter says how much, a

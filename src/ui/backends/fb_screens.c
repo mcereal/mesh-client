@@ -1828,6 +1828,12 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
                              const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     int y = layout->body_y;
     struct fb_card card;
+    /*
+     * The Radio card gets a local of its own because it is built before the card above it is
+     * *drawn*, which is the whole of how it stops being squeezed off the screen - see the
+     * reservation below. Everything else on this screen is still declared and drawn in one go.
+     */
+    struct fb_card radio;
     char buffer[64];
     char second[64];
 
@@ -2100,8 +2106,6 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
     fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_MESSAGES,
                 MESH_STR_STATUS_MESSAGES_KEPT, (unsigned)snapshot->messages.count,
                 (unsigned)snapshot->messages.dropped);
-    (void)fb_draw_card(state, layout, &y, &card);
-
     /* ---- the radio itself: its battery, its queue, and what it last said about itself ---- */
 
     /* Uptime is in both sources, like the airtime pair above, so LocalStats wins it for the same
@@ -2169,7 +2173,7 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
      * and lifts to the raised tier the moment the tone above says it has something to report,
      * which is the fact the heading colour was already carrying alone.
      */
-    fb_card_begin(&card, radio_tone == MESH_UI_TONE_PRIMARY ? FB_CARD_OUTLINED : FB_CARD_ELEVATED,
+    fb_card_begin(&radio, radio_tone == MESH_UI_TONE_PRIMARY ? FB_CARD_OUTLINED : FB_CARD_ELEVATED,
                   MESH_UI_ICON_RADIO, MESH_STR_STATUS_CARD_RADIO, radio_tone);
     if (have_battery || have_uptime) {
         buffer[0] = '\0';
@@ -2189,7 +2193,7 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
             mesh_str_format(second, sizeof second, MESH_STR_STATUS_UPTIME_SUFFIX,
                             buffer[0] != '\0' ? ", " : "", uptime);
         }
-        fb_card_row(&card, low_battery ? MESH_UI_TONE_ERROR : MESH_UI_TONE_NORMAL,
+        fb_card_row(&radio, low_battery ? MESH_UI_TONE_ERROR : MESH_UI_TONE_NORMAL,
                     MESH_STR_STATUS_LABEL_BATTERY, MESH_STR_STATUS_SYNC_VALUE,
                     buffer[0] != '\0' ? buffer : mesh_str(MESH_STR_STATUS_BATTERY_UNKNOWN), second);
     }
@@ -2203,17 +2207,17 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
         char age[24];
         fb_format_age(notice->received, age, sizeof age);
         if (notice->seq > 1U) {
-            fb_card_row(&card, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_RADIO_SAID,
+            fb_card_row(&radio, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_RADIO_SAID,
                         MESH_STR_STATUS_RADIO_SAID_COUNT, age, notice->seq);
         } else {
-            fb_card_row_text(&card, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_RADIO_SAID, age);
+            fb_card_row_text(&radio, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_RADIO_SAID, age);
         }
-        fb_card_note(&card, notice_tone, notice->text);
+        fb_card_note(&radio, notice_tone, notice->text);
     }
     if (have_queue) {
         /* A queue under pressure is work in flight, not a fault - the tertiary. A refusal is
            a fault, and takes the error family. */
-        fb_card_row(&card, queue->res != 0 ? MESH_UI_TONE_ERROR : MESH_UI_TONE_TERTIARY,
+        fb_card_row(&radio, queue->res != 0 ? MESH_UI_TONE_ERROR : MESH_UI_TONE_TERTIARY,
                     MESH_STR_STATUS_LABEL_TX_QUEUE, MESH_STR_STATUS_TX_QUEUE, (unsigned)queue->free,
                     (unsigned)queue->maxlen,
                     queue->res != 0 ? mesh_str(MESH_STR_STATUS_TX_QUEUE_REFUSED) : "");
@@ -2221,11 +2225,11 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
     if (rebooted) {
         /* A radio that has restarted since we attached is not broken, but it is the first thing
            to know when something else looks wrong. */
-        fb_card_row(&card, MESH_UI_TONE_WARNING, MESH_STR_STATUS_LABEL_REBOOTS,
+        fb_card_row(&radio, MESH_UI_TONE_WARNING, MESH_STR_STATUS_LABEL_REBOOTS,
                     MESH_STR_STATUS_REBOOTS_SINCE, snapshot->settings.reboot_notices);
     }
     if (stats->valid && stats->has_heap) {
-        fb_card_row(&card, low_heap ? MESH_UI_TONE_WARNING : MESH_UI_TONE_DIM,
+        fb_card_row(&radio, low_heap ? MESH_UI_TONE_WARNING : MESH_UI_TONE_DIM,
                     MESH_STR_STATUS_LABEL_HEAP, MESH_STR_STATUS_HEAP,
                     stats->heap_free_bytes / 1024U, stats->heap_total_bytes / 1024U);
     }
@@ -2240,12 +2244,36 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
      * for the same reason its counters can be missing; this is the same sentence for the same
      * situation, with its own id because it is read somewhere else.
      */
-    if (fb_card_is_empty(&card) && snapshot->handshake_valid) {
-        fb_card_row_text(&card, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_RADIO_SELF,
+    if (fb_card_is_empty(&radio) && snapshot->handshake_valid) {
+        fb_card_row_text(&radio, MESH_UI_TONE_DIM, MESH_STR_STATUS_LABEL_RADIO_SELF,
                          mesh_str(MESH_STR_STATUS_RADIO_NO_REPORT));
     }
-    fb_status_card_actions(&card, &actions, MESH_UI_STATUS_CARD_RADIO, focus);
-    (void)fb_draw_card(state, layout, &y, &card);
+    fb_status_card_actions(&radio, &actions, MESH_UI_STATUS_CARD_RADIO, focus);
+    /*
+     * And now both, in the order they are read - the Mesh card first, told to leave room for
+     * this one.
+     *
+     * This is the only place on the screen where the order things are *declared* and the order
+     * they are *drawn* come apart, and it is what fixes a card disappearing. A column of cards
+     * is drawn top down and each takes what it wants, so the last one pays for everything above
+     * it by not being drawn at all - and this is the card carrying `refresh`, which
+     * mesh_ui_status_actions() offers from the link state alone. The cursor therefore walked
+     * onto a button that was not on the frame, which is "a card that can end up with no rows
+     * must not be given a verb" reached from the layout side.
+     *
+     * The Mesh card is the one that grows: its airtime block is three rows when the radio has
+     * reported twice, where the Link card above is a fixed six and is never the card that
+     * squeezes this one out. So the reservation goes there, and the rows it costs are the rows
+     * a screen declared last - which on that card is the message ring, the row a reader would
+     * have skipped anyway.
+     *
+     * The *minimum* rather than this card's full height: what is worth promising is that the
+     * card exists and its verb is reachable, and a card handed more room than its minimum will
+     * spend it.
+     */
+    (void)fb_draw_card_reserving(state, layout, &y, &card,
+                                 fb_card_min_height(state, layout, &radio));
+    (void)fb_draw_card(state, layout, &y, &radio);
 }
 
 /* "Save <section>?" for the sections whose write can cut this client off, and "Reboot the
