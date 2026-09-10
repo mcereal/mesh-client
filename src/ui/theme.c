@@ -172,6 +172,18 @@ static const struct mesh_ui_theme
                         RGB(180, 200, 255), /* periwinkle */
                     },
                 .avatar_count = 6U,
+                /* A ladder rather than a set of hues, because the contract between two of these
+                   is luminance - see MESH_UI_SERIES_COLORS. The hues are still four different
+                   ones, so a reader gets both cues; it is the lightness that is load-bearing.
+                   Palest first: on a dark ground the brightest fill is the prominent one, and
+                   the largest part of a whole is what takes it. */
+                .series =
+                    {
+                        RGB(170, 214, 250), /* pale sky */
+                        RGB(118, 168, 232), /* blue */
+                        RGB(176, 108, 190), /* orchid */
+                        RGB(104, 84, 144),  /* deep violet */
+                    },
                 .metrics = MESH_UI_METRICS_DEFAULT,
             },
             {
@@ -253,6 +265,17 @@ static const struct mesh_ui_theme
                         RGB(60, 80, 130),  /* slate */
                     },
                 .avatar_count = 6U,
+                /* The same ladder the other way up. On paper the prominent fill is the darkest
+                   one, so the sequence runs from ink towards the ground rather than from the
+                   ground towards ink - which is the avatars' own inversion one table down,
+                   applied to an order instead of to a set. */
+                .series =
+                    {
+                        RGB(20, 50, 110),   /* navy */
+                        RGB(150, 60, 20),   /* rust */
+                        RGB(120, 150, 60),  /* olive */
+                        RGB(168, 182, 200), /* pale slate */
+                    },
                 .metrics = MESH_UI_METRICS_DEFAULT,
             },
             {
@@ -336,6 +359,19 @@ static const struct mesh_ui_theme
                         RGB(255, 255, 255),
                     },
                 .avatar_count = 2U,
+                /* Four, where the avatars are two - and the difference is the whole distinction
+                   between the two palettes. This theme declines a set of hues because a hue is
+                   the cue it exists to do without; it cannot decline a *sequence*, because a
+                   chart's parts do not go away when the theme changes. So it spends its two
+                   colours and then keeps going in grey, which is the one axis it has left and
+                   the one that survives sunlight. */
+                .series =
+                    {
+                        RGB(255, 255, 255),
+                        RGB(255, 214, 0),
+                        RGB(150, 150, 150),
+                        RGB(86, 86, 86),
+                    },
                 .metrics = MESH_UI_METRICS_DEFAULT,
             },
             {
@@ -421,6 +457,21 @@ static const struct mesh_ui_theme
                         RGB(204, 121, 167), /* reddish purple */
                     },
                 .avatar_count = 6U,
+                /* Okabe-Ito again, but *four of the eight rather than any four*: the set is
+                   built to stay separable by hue under dichromacy, and the contract here is
+                   luminance, so most of it is unusable in a sequence. The sky blue and the
+                   orange are the pair that shows why - they are the two this theme relies on
+                   most, they are as far apart in hue as it has, and they are within 1.02:1 of
+                   each other in lightness. Two slices of a bar drawn in them touch and read as
+                   one slice, for a dichromat and for everybody else alike. Yellow, sky, green
+                   and blue are the four that ladder. */
+                .series =
+                    {
+                        RGB(240, 228, 66), /* yellow */
+                        RGB(86, 180, 233), /* sky blue */
+                        RGB(0, 158, 115),  /* bluish green */
+                        RGB(0, 114, 178),  /* blue */
+                    },
                 .metrics = MESH_UI_METRICS_DEFAULT,
             },
 };
@@ -691,6 +742,14 @@ struct mesh_ui_rgb mesh_ui_theme_avatar(const struct mesh_ui_theme *theme, uint3
      * colour must not do.
      */
     return theme->avatars[(seed * 2654435761U >> 16) % count];
+}
+
+struct mesh_ui_rgb mesh_ui_theme_series(const struct mesh_ui_theme *theme, uint32_t index) {
+    theme = theme_or_default(theme);
+    /* No hash, unlike the avatars above, and the difference is the point: an avatar's colour is
+       picked *for* an identity and only has to vary, where a slice's is picked *by position* and
+       has to be the same one every time the chart is drawn. A modulo is the whole lookup. */
+    return theme->series[index % MESH_UI_SERIES_COLORS];
 }
 
 const struct mesh_ui_font *mesh_ui_theme_font(const struct mesh_ui_theme *theme) {
@@ -1210,6 +1269,56 @@ bool mesh_ui_theme_validate(const struct mesh_ui_theme *theme, char *reason, siz
                          i, ratio);
             }
             return false;
+        }
+    }
+
+    /*
+     * The series palette owes its contrast in two directions, and the second one is new here.
+     *
+     * Outwards is the meter's own contract, for the meter's own reason: a slice is a fill read
+     * as a length, so it has to be findable on both grounds a chart is drawn on - the body and
+     * a card - or the chart has an edge on one screen and not on the other.
+     *
+     * Inwards is the half no palette in this file had needed before. Every other check here
+     * asks whether one colour can be seen *against a ground*; two slices of a bar are never
+     * against a ground, they are against each other, and a pair that passes every outward check
+     * can still be one undivided block. Every pair rather than the neighbouring ones, because a
+     * part measuring zero is not drawn - so any two entries can end up sharing an edge, and
+     * "adjacent" is a property of the data rather than of the palette.
+     *
+     * 1.4:1 is the meter's number, and it is a *luminance* one on purpose. Hue would let more
+     * palettes through and is the wrong cue to spend on this panel: it is what goes first in
+     * sunlight, and the colour-blind theme is here because some readers do not have it at all.
+     * A theme that wants two slices to differ by hue may still do it - it just has to move them
+     * apart in lightness as well, which is what makes the difference survive both.
+     */
+    {
+        static const enum mesh_ui_color k_series_grounds[] = {MESH_UI_COLOR_BG,
+                                                              MESH_UI_COLOR_SURFACE};
+        for (uint32_t i = 0; i < MESH_UI_SERIES_COLORS; ++i) {
+            for (size_t g = 0; g < sizeof k_series_grounds / sizeof k_series_grounds[0]; ++g) {
+                const double ratio =
+                    mesh_ui_theme_contrast(theme->series[i], theme->colors[k_series_grounds[g]]);
+                if (ratio + 0.005 < 1.4) {
+                    if (reason != NULL) {
+                        snprintf(reason, reason_len,
+                                 "series colour %u on role %d is %.2f:1, needs 1.4:1", i,
+                                 (int)k_series_grounds[g], ratio);
+                    }
+                    return false;
+                }
+            }
+            for (uint32_t j = i + 1U; j < MESH_UI_SERIES_COLORS; ++j) {
+                const double ratio = mesh_ui_theme_contrast(theme->series[i], theme->series[j]);
+                if (ratio + 0.005 < 1.4) {
+                    if (reason != NULL) {
+                        snprintf(reason, reason_len,
+                                 "series colours %u and %u are %.2f:1 apart, need 1.4:1", i, j,
+                                 ratio);
+                    }
+                    return false;
+                }
+            }
         }
     }
     return true;

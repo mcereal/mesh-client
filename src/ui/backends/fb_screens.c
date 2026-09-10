@@ -2047,6 +2047,43 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
         fb_card_row(&card, losing ? MESH_UI_TONE_WARNING : MESH_UI_TONE_DIM,
                     MESH_STR_STATUS_LABEL_DROPPED, MESH_STR_STATUS_DROPPED,
                     stats->num_packets_rx_bad, stats->num_rx_dupe, stats->num_tx_dropped);
+        /*
+         * And what those received packets were made of.
+         *
+         * The two rows above are totals, and a total answers "how much traffic" - which is not
+         * the question either of the numbers on them is interesting for. Upstream's own comment
+         * on the duplicate counter is "if this number is high, there are nodes in the mesh
+         * relaying packets when it's unnecessary", and high is a property of a *share*: 4,812
+         * duplicates is a busy mesh or a broken one depending entirely on what the other number
+         * is. Three lengths beside each other answer that without arithmetic, which is the
+         * airtime bar's argument on a whole with more than one part in it.
+         *
+         * This is a partition and the transmit counters are not, which is why there is a bar
+         * here and none under Packets: `num_packets_rx` is documented as everything received,
+         * good and bad, with the duplicates among it - where `num_tx_relay` is a *subset* of
+         * `num_packets_tx` rather than a sibling, so "tx, rx, relayed" adds up to a whole that
+         * does not exist. A composition drawn from overlapping parts is the way this component
+         * is wrong quietly.
+         *
+         * And the partition is checked rather than assumed. Two counters off the air have no
+         * promise of agreeing with a third: a firmware that counted duplicates outside its
+         * received total, or a report that arrived across a counter reset, would leave the
+         * remainder negative - and clamped to zero it would draw a bar claiming every packet the
+         * radio heard was bad. The row and its bar are skipped instead, which leaves the totals
+         * above saying what they always said.
+         */
+        const uint32_t heard = stats->num_packets_rx;
+        const uint32_t not_new = stats->num_packets_rx_bad + stats->num_rx_dupe;
+        if (heard > 0U && not_new <= heard) {
+            const uint32_t parts[] = {heard - not_new, stats->num_rx_dupe,
+                                      stats->num_packets_rx_bad};
+            fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_HEARD,
+                        MESH_STR_STATUS_HEARD, parts[0], parts[1], parts[2]);
+            /* No label: the row it sits under names all three parts, in this order, and that
+               correspondence is the only legend a bar in a row's height has room for. */
+            fb_card_proportion(&card, MESH_UI_TONE_NORMAL, MESH_STR_NONE, parts,
+                               (uint32_t)(sizeof parts / sizeof parts[0]));
+        }
     } else if (snapshot->handshake_valid) {
         /* Standing in for the two rows above, so it carries their label rather than one naming
            the card it is already inside - "Mesh: no report yet" on a card headed Mesh says the

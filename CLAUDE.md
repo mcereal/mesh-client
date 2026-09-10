@@ -148,7 +148,10 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | Fetching | `src/core/fetch.c` | one HTTPS GET as a forked curl/wget read through the loop: fetcher probing, the CA bundle the Brick has no system store for, a deadline, a cap and a reap that never blocks. Shared by the two things that reach the network |
 | Radio firmware | `src/core/firmware.c`, `firmware_catalog.c` | the *other* binary: which board this is (upstream's `deviceHardware`), what the newest release is (its firmware index), and which bus - if any - could carry an install. Reports; installs nothing. See [`docs/radio-firmware-roadmap.md`](docs/radio-firmware-roadmap.md) |
 | UI | `src/ui/` | store/controller + `nav*.c` + `settings*.c` + `layout.c` + `history.c` + `backends/{fb*,cli,stub}.c`; **`fb` is the device UI**. `backends/fb_map.c` is the one screen renderer that places things at coordinates rather than describing rows, which is why it is its own file |
-| UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window (counted in **steps**, so one row may be taller than its neighbours); cards (filled/elevated/outlined, with verbs on the heading line), buttons, chips, badges, list items (leading/marker/supporting/trailing slots, an optional full-width bar on a second step), section subheaders, switches, selection controls (checkbox/radio), segmented buttons (which fall back to the chosen word when the row is too narrow), meters (with domains and drawn threshold bands), sliders (a settings number on the scale of the values it could have had, with a value the scale cannot place drawn as a track with no handle), signal staircases, sparklines (a reading over time, on the bar's own domain, from a sample ring the client keeps), bubbles (whose trailing run is four typed slots the component measures, never a string a screen assembled), the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar |
+| UI components | `src/ui/layout.c`, `src/ui/backends/fb_widgets.c` | cell-measured line builder + scroll window (counted in **steps**, so one row may be taller than its neighbours); cards (filled/elevated/outlined, with verbs on the heading line), buttons, chips, badges, list items (leading/marker/supporting/trailing slots, an optional full-width bar on a second step), section subheaders, switches, selection controls (checkbox/radio), segmented buttons (which fall back to the chosen word when the row is too narrow), meters (with domains and drawn threshold bands), sliders (a settings number on the scale of the values it could have had, with a value the scale cannot place drawn as a track with no handle), signal staircases, sparklines (a reading over time, on the bar's own domain, from a sample ring the client keeps),
+proportion bars (a whole and the disjoint parts it is made of, in the theme's categorical
+series palette rather than in tones, with the parts filling the track exactly and a part that
+is there never rounded away to nothing), bubbles (whose trailing run is four typed slots the component measures, never a string a screen assembled), the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar |
 | Button hints | `src/ui/actions.c`, `include/mesh/ui/actions.h` | what the buttons do here, as (button, verb) pairs the action bar iterates |
 | Status verbs | `src/ui/status.c`, `include/mesh/ui/status.h` | which Status card carries which verb — read by `nav.c`, `actions.c` and the renderer alike |
 | Help | `src/ui/help.c`, `include/mesh/ui/help.h` | what the client can explain about where the user is standing, as a title, a subject and a list of paragraphs — ids the whole way down. A settings section's notes live on the things they describe (a section's beside its icon in `settings.c`, a field's in its own `k_fields` row) and this assembles them; a *feature's* are a table here, keyed on the route under the help screen |
@@ -159,7 +162,7 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | Animation | `src/ui/anim.c`, `src/ui/controller.c` | fixed-point easing + a table keyed per control; the repaint timerfd that feeds it |
 | Screen transitions | `src/ui/route.c`, `include/mesh/ui/route.h` | where the nav *is*, as a comparable place - so which way a move went is derived rather than recorded. The backend slides the body from it (`fb_transition_offset`, `fb_shift_begin`) |
 | Icons | `src/ui/icon.c`, `src/ui/icon_glyphs.c`, `include/mesh/ui/icons.def` | monochrome Material Symbols, tinted by the theme, in the row slots |
-| Themes | `src/ui/theme.c`, `src/ui/font.c` | palette by role, surface tiers, the shape scale, metrics, font registry; `MESHCLIENT_THEME` or Settings > About picks one |
+| Themes | `src/ui/theme.c`, `src/ui/font.c` | palette by role, surface tiers, the shape scale, metrics, font registry, and the two palettes that are not roles - the hashed avatar tints and the positional `series` colours a chart divides a whole with; `MESHCLIENT_THEME` or Settings > About picks one |
 | Fonts | `src/ui/font_ui.c` + generated `font_ui_glyphs.c`, `src/ui/font5x7.c` | a glyph is **coverage**, resampled from the font's master into the cell; `ui` (JetBrains Mono) is the default, `5x7` is the pixel one |
 | Text | `src/utils/text.c`, `src/ui/{font5x7,emoji}.c` | UTF-8 sanitising, cell-based measurement |
 | Strings | `src/i18n/strings.c`, `include/mesh/i18n/catalog.def` | the string catalog and the locale registry |
@@ -608,6 +611,25 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   differently each time, which is what keeps the enum, the table and - for the catalog - the
   translation template from drifting apart. Their `.def` extension is why clang-format leaves
   the tables alone.
+- **The Status card's Packets row deliberately has no bar under it, and the Heard row does.**
+  They look like the same kind of row and they are not. `num_packets_rx` is documented as
+  everything received, good and bad, with the duplicates among it - so new, dupe and bad are a
+  *partition* of it and a divided bar is a true picture. `num_tx_relay` is a **subset** of
+  `num_packets_tx` rather than a sibling of it, so "tx, rx, relayed" adds up to a whole that does
+  not exist, and a bar there would be `fb_draw_proportion()`'s one way of being wrong quietly:
+  overlapping parts still sum to something, and the picture drawn from them is confident. The
+  partition is checked at the call site as well as reasoned about - two counters off the air have
+  no promise of agreeing with a third, and a remainder that comes out negative skips the row
+  rather than clamping to zero, which would draw a bar claiming every packet the radio heard was
+  malformed.
+- **A series colour is not a tone, and the avatar tints are not a series palette.** Both are
+  tables of colours in `theme.c` and they answer different questions. A tone means good, bad or
+  caution; a series colour means *which part*, and nothing else. An avatar tint is picked by a
+  hash so it only owes variety, and a theme may state fewer of them; a series colour is picked by
+  position, so slice 0 is the same colour on every frame and every theme states all four. The
+  contract is luminance rather than hue - 1.4:1 against the grounds *and against each other* -
+  which is why the colour-blind theme spends four of Okabe-Ito's eight rather than any four: its
+  sky blue and its orange are 1.02:1 apart in lightness, so as adjacent slices they are one slice.
 - **A trend's axes are not its data.** A sparkline's x is *time* and its y is the reading's own
   `struct mesh_ui_scale` - the same one the bar beside it fills against - never the range the
   samples happen to span. Every spreadsheet does the opposite, and on the two readings this draws

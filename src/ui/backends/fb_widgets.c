@@ -2543,6 +2543,33 @@ void fb_card_spark(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_i
     row->spark = points;
 }
 
+void fb_card_proportion(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_id label,
+                        const uint32_t *values, uint32_t count) {
+    if (values == NULL || count < 2U || count > MESH_UI_PROPORTION_PARTS) {
+        return;
+    }
+    /* The whole, tested here rather than in the drawing, so that a card asking for a composition
+       and a card asking for a trend answer an absent reading the same way: with no row. */
+    uint64_t total = 0U;
+    for (uint32_t i = 0; i < count; ++i) {
+        total += values[i];
+    }
+    if (total == 0U) {
+        return;
+    }
+    struct fb_card_row *row = fb_card_next_row(card, FB_CARD_ROW_PROPORTION, tone);
+    if (row == NULL) {
+        return;
+    }
+    if (label != MESH_STR_NONE) {
+        mesh_text_sanitise_str(mesh_str(label), row->label, sizeof row->label);
+    }
+    for (uint32_t i = 0; i < count; ++i) {
+        row->parts[i] = values[i];
+    }
+    row->part_count = count;
+}
+
 void fb_card_note(struct fb_card *card, enum mesh_ui_tone tone, const char *text) {
     if (text == NULL || text[0] == '\0') {
         return;
@@ -2637,6 +2664,38 @@ static uint32_t fb_draw_card_row(struct mesh_ui_backend_fb_state *state,
                 .tone = row->tone,
             };
             fb_draw_meter(state, &meter);
+        }
+        return 1U;
+    }
+
+    if (row->kind == FB_CARD_ROW_PROPORTION) {
+        /* The meter row's own layout, because a composition is a bar and a card that placed its
+           two kinds of bar differently would be reporting a difference that is not there. */
+        const int adv = fb_char_adv(state, state->scale);
+        int bar_x = m->content_x;
+        if (row->label[0] != '\0') {
+            struct mesh_ui_line line;
+            mesh_ui_line_reset(&line);
+            mesh_ui_line_column(&line, row->label, m->label_cols);
+            mesh_ui_line_fit(&line, m->cols);
+            fb_draw_text(state, m->content_x, y, mesh_ui_line_text(&line), state->scale, color,
+                         ground);
+            bar_x = m->content_x + (int)(m->label_cols + 1U) * adv;
+        }
+        const int bar_right = m->content_x + (int)m->cols * adv;
+        const int height = fb_proportion_thickness(state, state->scale);
+        if (bar_right - bar_x > 0) {
+            struct fb_proportion bar = {
+                .rect = {.x = bar_x,
+                         .y = y + (layout->line - state->scale - height) / 2,
+                         .w = bar_right - bar_x,
+                         .h = height},
+                .count = row->part_count,
+            };
+            for (uint32_t i = 0; i < row->part_count && i < MESH_UI_PROPORTION_PARTS; ++i) {
+                bar.values[i] = row->parts[i];
+            }
+            fb_draw_proportion(state, &bar);
         }
         return 1U;
     }
@@ -3902,6 +3961,105 @@ void fb_draw_sparkline(const struct mesh_ui_backend_fb_state *state,
         mark_y = r.y;
     }
     fb_fill_rect(state, mark_x, mark_y, mark, mark, ink);
+}
+
+/* ---- the proportion bar --------------------------------------------------------------------- */
+
+/*
+ * The two halves of the seam layout.h keeps with theme.h, held equal where they finally meet.
+ *
+ * A part is layout's idea and the colour it takes is the theme's, so neither header includes the
+ * other and each states its own count - the same split MESH_WAYPOINT_NAME_MAX makes across the
+ * store's seam. This is the one translation unit that sees both, so this is where the two are
+ * proved to agree, at compile time rather than by a test that has to be remembered.
+ */
+MESH_UI_STATIC_ASSERT((int)MESH_UI_PROPORTION_PARTS == (int)MESH_UI_SERIES_COLORS,
+                      "a composition may have exactly as many parts as there are series colours");
+
+int fb_proportion_thickness(const struct mesh_ui_backend_fb_state *state, int scale) {
+    return fb_meter_thickness(state, scale);
+}
+
+void fb_draw_proportion(const struct mesh_ui_backend_fb_state *state,
+                        const struct fb_proportion *bar) {
+    if (bar == NULL || bar->count < 2U || bar->rect.w <= 0 || bar->rect.h <= 0) {
+        return;
+    }
+    const struct fb_rect r = bar->rect;
+
+    int32_t widths[MESH_UI_PROPORTION_PARTS];
+    const uint32_t parts = mesh_ui_proportion_split(bar->values, bar->count, r.w, widths);
+    if (parts == 0U) {
+        /* Nothing was heard at all, so there is no whole to divide. An empty bar here would say
+           the parts were all zero, which is a reading; this is the absence of one. */
+        return;
+    }
+
+    const int radius = fb_radius(state, MESH_UI_SHAPE_FULL);
+    /* The meter's ground under a cursor fill, for the meter's reason - see `selected`. */
+    if (bar->selected) {
+        const int pad = fb_space(state, MESH_UI_SPACE_XS);
+        fb_fill_round_rect(state, r.x - pad, r.y - pad, r.w + 2 * pad, r.h + 2 * pad, radius + pad,
+                           fb_color(state, MESH_UI_COLOR_BG));
+    }
+
+    /*
+     * Widest first, each part a pill from the bar's left edge to where that part ends.
+     *
+     * Not one rectangle per part, which is the obvious way and loses both caps: a plain rect over
+     * the last part squares off the round end the bar shares with every other bar on the card,
+     * and the first part's round end has nothing to sit in. Drawn this way the outermost fill
+     * lays the right-hand cap, each narrower one lands on top with its own left-hand cap in the
+     * same place, and the part drawn last owns the left end - so the two ends of the bar are the
+     * meter's ends and the boundaries between parts are the only new edges on it.
+     *
+     * At this radius - a pill on a bar a few pixels tall clamps to a pixel or two - a boundary
+     * comes out as a softened vertical edge rather than as a visible bulge.
+     */
+    int end = r.w;
+    for (uint32_t i = parts; i-- > 0U;) {
+        if (widths[i] > 0 && end > 0) {
+            fb_fill_round_rect(state, r.x, r.y, end, r.h, radius,
+                               mesh_ui_theme_series(state->theme, i));
+        }
+        end -= widths[i];
+    }
+
+    /*
+     * And a gap cut at each boundary, in the ground the bar is drawn on.
+     *
+     * The meter's band notches, doing the same job one level along: two parts of a composition
+     * are two fills meeting with nothing between them, and the palette only promises they are
+     * 1.4:1 apart - which is a difference the eye finds reliably when there is an edge to find it
+     * at, and less reliably across a seam it has to decide is there. A gap is that edge, and it
+     * is drawn in the absence of ink for the reason the notches are: an ink of its own would be
+     * one more pair every theme had to be validated for, to say what a hole already says.
+     *
+     * It costs each part half a pixel of length at one end. That is the same price the band marks
+     * pay and it is the right way round: the boundary is what the picture is *for*.
+     */
+    const int gap = fb_space(state, MESH_UI_SPACE_XS) > 0 ? fb_space(state, MESH_UI_SPACE_XS) : 1;
+    const struct mesh_ui_rgb ground = fb_color(state, MESH_UI_COLOR_BG);
+    int boundary = 0;
+    for (uint32_t i = 0; i + 1U < parts; ++i) {
+        boundary += widths[i];
+        if (widths[i] == 0) {
+            continue; /* a part that is not there has no edge of its own */
+        }
+        int x = r.x + boundary - gap / 2;
+        int w = gap;
+        /* Held inside the bar, so the gap at the last boundary cannot eat the round end. */
+        if (x < r.x) {
+            w -= r.x - x;
+            x = r.x;
+        }
+        if (x + w > r.x + r.w) {
+            w = r.x + r.w - x;
+        }
+        if (w > 0) {
+            fb_fill_rect(state, x, r.y, w, r.h, ground);
+        }
+    }
 }
 
 /* ---- the text field ------------------------------------------------------------------------ */

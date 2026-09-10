@@ -782,6 +782,72 @@ int fb_sparkline_height(const struct mesh_ui_backend_fb_state *state, int scale)
 void fb_draw_sparkline(const struct mesh_ui_backend_fb_state *state,
                        const struct fb_sparkline *spark);
 
+/* ---- the proportion bar ----------------------------------------------------------------------
+ *
+ * A whole and the parts it is made of: the fourth quantitative component, and the one that says
+ * what a reading is *composed of* rather than how large it is, how well it is doing or which way
+ * it is going.
+ *
+ * The Status card is why it exists. The radio reports what it heard as three counters - packets
+ * that were new, packets that were duplicates of something already relayed to us, and packets
+ * that were malformed - and printed as three numbers those answer no question anybody has. The
+ * question is a *ratio*: upstream's own comment on the duplicate counter says "if this number is
+ * high, there are nodes in the mesh relaying packets when it's unnecessary", and high is not a
+ * property of 4,812. It is a property of 4,812 out of 6,140, which is a length beside two other
+ * lengths and is read without arithmetic - the meter's argument, on a whole with more than one
+ * part in it.
+ *
+ * Four things about it are decisions rather than details:
+ *
+ *   - **It starts at three parts, because two parts is a meter.** A whole split in two is a
+ *     fraction, a fraction is what a meter draws, and a meter can carry a band and a domain that
+ *     this cannot. Heap free against heap total is a meter for that reason and not a composition,
+ *     and nothing is gained by making it one.
+ *   - **The parts must be disjoint, and that is the caller's promise.** It is the one way this
+ *     component can be wrong quietly and it is not checkable from here: three counters that
+ *     overlap still add up to something, and the bar drawn from them is a confident picture of a
+ *     whole that does not exist. The radio's own transmit counters are exactly that trap -
+ *     `num_tx_relay` is a subset of `num_packets_tx` rather than a sibling of it - so "tx, rx,
+ *     relayed" is three numbers and not three parts, and there is no bar under that row.
+ *   - **The colours are the theme's series palette, not tones.** A part means nothing except
+ *     which part it is; a tone means good, bad or caution. Filling three slices from three
+ *     families would report a judgement the data never made - and on the high-contrast theme,
+ *     where the three non-status families are one yellow, it would report nothing at all. See
+ *     MESH_UI_SERIES_COLORS.
+ *   - **Nothing animates.** The meter eases because each reading it is handed replaces the last;
+ *     these are counters that only ever climb, so between two frames a boundary moves by a
+ *     fraction of a pixel. Easing it would spend an animation slot per boundary on motion nobody
+ *     could see, and the slots are keyed per control.
+ *
+ * The slices are laid out by mesh_ui_proportion_split() (include/mesh/ui/layout.h), which is
+ * where the two rules that keep the picture honest live: they sum to the bar exactly, and a part
+ * that is there is never rounded away to nothing.
+ */
+
+struct fb_proportion {
+    struct fb_rect rect; /* fb_proportion_thickness() is the height one wants */
+    /* The parts, in the order they are drawn - which is left to right, and which is also the
+       order the row above names them in. That correspondence is the whole legend: the bar has no
+       words of its own, and a label per slice would not fit in a row's height on this panel even
+       if it did. Nothing enforces it, for the same reason nothing enforces disjointness. */
+    uint32_t values[MESH_UI_PROPORTION_PARTS];
+    uint32_t count;
+    /* The row under it carries the cursor fill, so the bar lays a ground of its own - the
+       meter's move, and needed here for the same reason: the series palette is validated against
+       the body and against a card, and on two themes the cursor fill is neither. */
+    bool selected;
+};
+
+/* The height a composition wants at `scale` - the meter's, deliberately. A card that carried a
+   bar of one weight and a bar of another would be reporting a difference between them that is
+   not there: both are a reading drawn as a length. */
+int fb_proportion_thickness(const struct mesh_ui_backend_fb_state *state, int scale);
+
+/* Draws it. Const state, like the sparkline and unlike the meter: there is no animation to step
+   - see above. Fewer than two parts, or parts that sum to nothing, draws nothing at all. */
+void fb_draw_proportion(const struct mesh_ui_backend_fb_state *state,
+                        const struct fb_proportion *bar);
+
 /* ---- the badge ------------------------------------------------------------------------------
  *
  * A capsule of text, filled from a family. Two callers: a list row's trailing slot
@@ -1521,6 +1587,11 @@ enum fb_card_row_kind {
        row, one line, for the same reason. What it costs a card is one row and what it buys is
        the direction, which is the half of a reading no other row on a card can carry. */
     FB_CARD_ROW_SPARK,
+    /* And the same shape again for a whole divided into its parts. One line, like the meter and
+       for the meter's reason: a composition is read as lengths, and lengths are as thin as the
+       theme's bar. It is the trend that needs two rows, because a shape needs a second
+       dimension and a length does not. */
+    FB_CARD_ROW_PROPORTION,
 };
 
 struct fb_card_row {
@@ -1542,6 +1613,11 @@ struct fb_card_row {
        card is built, handed over and drawn, so a row that pointed into a snapshot would be a
        card that only works while the frame that built it is still being drawn. */
     struct mesh_ui_polyline spark;
+    /* PROPORTION: the parts, held by value on the terms the band and the polyline are - a card
+       is built, handed over and drawn, so a row pointing at a caller's array would be a card
+       that only works while the frame that built it is still on the stack. */
+    uint32_t parts[MESH_UI_PROPORTION_PARTS];
+    uint32_t part_count;
 };
 
 /*
@@ -1659,6 +1735,25 @@ void fb_card_meter(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_i
  */
 void fb_card_spark(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_id label,
                    const struct mesh_ui_series *series, struct mesh_ui_scale scale);
+
+/*
+ * A divided bar: the row for what a reading is *made of*.
+ *
+ * `values` are the parts in the order they are drawn, and `tone` colours the label rather than
+ * the bar - the parts take the theme's series palette, because which part a slice is is not a
+ * judgement about it. See struct fb_proportion for what a caller is promising by calling this:
+ * that the parts are disjoint, and that whatever row names them names them in this order.
+ *
+ * Fewer than two parts, or parts summing to zero, adds no row at all - the sparkline's rule, for
+ * the sparkline's reason. A bar with nothing in it says the radio heard nothing; a radio that
+ * has not reported yet has said nothing, and those are different.
+ *
+ * `label` of MESH_STR_NONE gives the bar the card's whole content width, and that is the shape
+ * to reach for: this row goes under the row that names its parts, exactly as the airtime meter
+ * goes under the airtime figures, and a label here would be naming the subject a third time.
+ */
+void fb_card_proportion(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_id label,
+                        const uint32_t *values, uint32_t count);
 
 /*
  * A verb, as a button on the card's heading line. Declared left to right: the first call is the

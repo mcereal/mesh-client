@@ -390,6 +390,57 @@ uint8_t mesh_ui_signal_level(float snr);
 #define MESH_UI_BATTERY_LOW 30
 #define MESH_UI_BATTERY_CRITICAL 15
 
+/* ---- a composition ---------------------------------------------------------------------------
+ *
+ * A whole, and the parts it is made of - the third question a reading can be asked, after how
+ * much (a meter) and which way it is going (a series).
+ *
+ * The arithmetic is here rather than in the widget that draws it for the reason every other
+ * reading's is: there are no pixels in it, a test can reach it, and a second backend that grew
+ * a composition would otherwise derive it a second time and round it differently.
+ *
+ * Two things about it are not obvious, and both are the same rule the sparkline's y axis is:
+ * *a picture cannot be wrong quietly.*
+ *
+ *   - **The parts sum to the extent exactly.** Rounding each part on its own leaves a gap at
+ *     the end of the bar on most inputs, and a gap in a bar that says "this is all of it" is
+ *     the bar reporting a part nobody named. The leftover units go to the parts that lost most
+ *     to rounding - the largest-remainder method every seat-allocation uses, and for the same
+ *     reason: it is the split that is off by the least everywhere at once.
+ *   - **A part that is there is never rounded away to nothing.** Three bad packets in fifty
+ *     thousand is a quarter of a pixel, and drawn honestly it is a bar that says nothing is
+ *     wrong. So a non-zero part takes a unit off the longest one instead. It costs the picture
+ *     a pixel of accuracy at the one end where accuracy is worth least, and it buys the
+ *     difference between "none" and "some", which is the difference the reader came for. A part
+ *     that really is zero still gets nothing: it is not there, and inventing a sliver for it
+ *     would be the same lie the other way round.
+ */
+
+/* Parts one composition may have. It is MESH_UI_SERIES_COLORS (include/mesh/ui/theme.h) counted
+   from the other side of the seam this file keeps with the theme - what a part *is* is layout's
+   half, and what colour it takes is the theme's - so the two are stated separately and held
+   equal where they meet, by the _Static_assert in fb_widgets.c. Four is the number of
+   categorical fills the panel's lightness range can hold apart; see that file. */
+#define MESH_UI_PROPORTION_PARTS 4U
+
+/*
+ * Splits `extent` among `count` parts in proportion to `values`, writing `count` lengths to
+ * `out`.
+ *
+ * `extent` is in whatever unit the caller draws in - pixels for a bar on a panel, permille for
+ * a caller that has not laid anything out yet. The unit is the caller's because the rounding
+ * has to happen in the unit that is finally drawn: permille rounded to pixels afterwards is two
+ * roundings, and the gap the first one closed is reopened by the second.
+ *
+ * Answers with the number of lengths written, which is `count` - or 0 when there is nothing to
+ * draw at all: no parts, no extent, more parts than MESH_UI_PROPORTION_PARTS, or a whole that
+ * sums to zero. 0 is not an empty bar; it is the caller's cue to draw no bar, the way a series
+ * of fewer than two points draws no line. A track with nothing in it says the mesh is quiet,
+ * which is a different claim from having heard nothing yet.
+ */
+uint32_t mesh_ui_proportion_split(const uint32_t *values, uint32_t count, int32_t extent,
+                                  int32_t *out);
+
 /* ---- a series ------------------------------------------------------------------------------
  *
  * The same reading, kept over time, so that something can say which *way* it is going.
