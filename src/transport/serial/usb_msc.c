@@ -18,6 +18,7 @@
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/mount.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -55,7 +56,6 @@ static const char *dev_root(void) {
    never more than that far away. */
 #define MESH_USB_MSC_CHUNK 32768U
 /* The child's exit codes, so the parent can say which end failed rather than "status 1". */
-#define MESH_USB_MSC_EXIT_OPEN 10
 #define MESH_USB_MSC_EXIT_WRITE 11
 #define MESH_USB_MSC_EXIT_SYNC 12
 /* Silence that means the write has stopped rather than slowed. A stalled chunk on a bus that
@@ -128,8 +128,32 @@ static uint64_t block_size_bytes(const char *root, const char *name) {
  * The Brick's hotplug script mounts `/dev/sda` itself, and OpenWrt's `/sbin/block` may have
  * mounted `/dev/sda1` first. Both have to come off, and neither `/dev/sdaa` nor `/dev/sdb` is
  * either of them.
+ *
+ * A string is not enough to decide it, which is a measurement rather than caution. The shadow
+ * the Brick puts over `/mnt/SDCARD` appears in `/proc/mounts` as **`/dev//dev/sda`**: the
+ * hotplug script does `mount /dev/${DEVNAME}` and `${DEVNAME}` on that path already carries the
+ * `/dev/`. Tidying the path does not help either - `/dev/dev` is a real directory on this
+ * platform rather than a link, so the two spellings are two different paths to one drive. What
+ * makes them the same drive is the device number, and a mount this does not recognise is the
+ * shadow left in place and the install refused for a drive it could have had.
  */
 static bool mount_source_is_device(const char *source, const char *device) {
+    struct stat mounted;
+    struct stat ours;
+    if (stat(source, &mounted) == 0 && stat(device, &ours) == 0) {
+        if (S_ISBLK(mounted.st_mode) && S_ISBLK(ours.st_mode)) {
+            if (mounted.st_rdev == ours.st_rdev) {
+                return true;
+            }
+        } else if (mounted.st_dev == ours.st_dev && mounted.st_ino == ours.st_ino) {
+            /* Not a block device on either side, so the question is whether the two paths name
+               one file. This is the branch the suite reaches, because a test cannot make a
+               block device; the branch above is the one the Brick needs. */
+            return true;
+        }
+    }
+    /* And the string, which is what answers for a *partition* - `/dev/sda1` is a different
+       device number and still has to come off - and for the suite, whose drive is a file. */
     const size_t len = strlen(device);
     if (strncmp(source, device, len) != 0) {
         return false;
@@ -235,6 +259,66 @@ int mesh_usb_msc_find(const struct mesh_serial_device_info *device,
     return 0;
 }
 
+/*
+ * Takes the drive off its mountpoints and *claims* it, returning a writable fd or -errno.
+ *
+ * The unmount alone is not enough, and that is a measurement rather than a worry: on 2026-09-10
+ * a Brick published `/dev/sda` and the install found it, unmounted nothing (there was nothing
+ * mounted yet) and started writing **130 ms before `/etc/hotplug.d/block/10-mount` ran at all**.
+ * The platform then mounted the ghost FAT over `/mnt/SDCARD` a third of the way through the
+ * write, and the board never restarted. Winning the race is not the fix, because whoever wins
+ * it, one of the two is left mounting or writing under the other.
+ *
+ * `O_EXCL` on a block device is the fix: it is an exclusive claim rather than a flag about
+ * creation, and `mount` takes the same claim - so while this fd is open the platform's mount
+ * gets `-EBUSY` and simply does not happen, and if something already holds it we get `-EBUSY`
+ * here instead of writing into a filesystem's device. The retry is for the other order: a mount
+ * that landed between the unmount above and this open is one more unmount away.
+ *
+ * A path that is not a block device (the suite's file under `MESHCLIENT_DEV_ROOT`) takes
+ * `O_CREAT` and no claim. The two flags must not meet: `O_CREAT | O_EXCL` is the unrelated
+ * "fail if it exists", which is how this would have silently become a no-op.
+ */
+int mesh_usb_msc_claim(const char *device_path) {
+    if (device_path == NULL || device_path[0] == '\0') {
+        return -EINVAL;
+    }
+    struct stat st;
+    const bool is_block = stat(device_path, &st) == 0 && S_ISBLK(st.st_mode);
+    if (!is_block) {
+        const int file = open(device_path, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
+        return file < 0 ? -errno : file;
+    }
+
+    int err = 0;
+    for (unsigned attempt = 0; attempt < 3U; ++attempt) {
+        const int claimed = open(device_path, O_WRONLY | O_EXCL | O_CLOEXEC);
+        if (claimed >= 0) {
+            return claimed;
+        }
+        err = -errno;
+        if (err != -EBUSY) {
+            return err;
+        }
+        struct mesh_usb_msc_target again;
+        memset(&again, 0, sizeof again);
+        mesh_str_copy(again.device, sizeof again.device, device_path);
+        read_mounts(&again);
+        if (again.mount_count == 0U) {
+            /* Busy and mounted nowhere: something else on this system holds the device, and
+               that is not ours to take. */
+            return err;
+        }
+        mesh_log_info("firmware", "%s was mounted again after it came off; taking it back",
+                      device_path);
+        const int off = mesh_usb_msc_unmount(&again);
+        if (off != 0) {
+            return off;
+        }
+    }
+    return err;
+}
+
 int mesh_usb_msc_unmount(struct mesh_usb_msc_target *target) {
     if (target == NULL) {
         return -EINVAL;
@@ -268,6 +352,13 @@ static void write_release_fd(struct mesh_usb_msc_write *write) {
     /* `<= 0`, for the reason the pid test below is: a zeroed struct holds 0, and 0 is stdin -
        never a pipe this module opened. A `< 0` test here closes the client's own stdin the
        first time a cancel arrives before a start. */
+    if (write->device_fd > 0) {
+        /* Letting go of the claim, which is the other half of taking it: from here the
+           platform may mount the drive again, and on a board that restarted there is nothing
+           left to mount. */
+        close(write->device_fd);
+        write->device_fd = -1;
+    }
     if (write->progress_fd <= 0) {
         return;
     }
@@ -338,16 +429,15 @@ static int write_on_progress(int fd, uint32_t events, void *userdata) {
  * The child. Everything in here runs after fork() in a single-threaded process, so it is
  * limited to what is safe there: `write`, `open`, `fdatasync`, `_exit`.
  *
+ * The fd is opened by the parent and inherited, because the claim that keeps the platform's
+ * hotplug mount off this device has to be held from before the fork - see mesh_usb_msc_claim().
+ *
  * `fdatasync` per chunk is the whole reason the byte count means anything. Buffered writes to a
  * block device are absorbed by the page cache and return at memory speed, so an unsynced child
  * would report 100% in a few milliseconds and then sit in `close()` for thirteen seconds - the
  * progress bar lying in exactly the direction that makes a user pull the cable.
  */
-static void write_child(const uint8_t *image, size_t len, const char *device_path, int pipe_fd) {
-    const int out = open(device_path, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
-    if (out < 0) {
-        _exit(MESH_USB_MSC_EXIT_OPEN);
-    }
+static void write_child(const uint8_t *image, size_t len, int out, int pipe_fd) {
     size_t at = 0U;
     while (at < len) {
         const size_t chunk = len - at > MESH_USB_MSC_CHUNK ? MESH_USB_MSC_CHUNK : len - at;
@@ -390,9 +480,19 @@ int mesh_usb_msc_write_start(struct mesh_usb_msc_write *write, struct mesh_event
         return -EBUSY;
     }
 
+    /* Before the pipe and before the fork: the whole point of the claim is that nothing else
+       can mount this device while the write is running, and a claim taken after the child is
+       already copying is a claim taken too late. */
+    const int device_fd = mesh_usb_msc_claim(device_path);
+    if (device_fd < 0) {
+        return device_fd;
+    }
+
     int fds[2];
     if (pipe(fds) < 0) {
-        return -errno;
+        const int err = -errno;
+        close(device_fd);
+        return err;
     }
 
     const pid_t pid = fork();
@@ -400,11 +500,12 @@ int mesh_usb_msc_write_start(struct mesh_usb_msc_write *write, struct mesh_event
         const int err = -errno;
         close(fds[0]);
         close(fds[1]);
+        close(device_fd);
         return err;
     }
     if (pid == 0) {
         close(fds[0]);
-        write_child(image, len, device_path, fds[1]);
+        write_child(image, len, device_fd, fds[1]);
         _exit(MESH_USB_MSC_EXIT_WRITE); /* not reached */
     }
 
@@ -414,6 +515,9 @@ int mesh_usb_msc_write_start(struct mesh_usb_msc_write *write, struct mesh_event
     write->state = MESH_USB_MSC_WRITE_RUNNING;
     write->child = pid;
     write->progress_fd = fds[0];
+    /* The parent keeps its own copy open for the length of the write: the child's copy dies
+       with the child, and the claim has to outlive a child that failed halfway. */
+    write->device_fd = device_fd;
     write->total = (uint64_t)len;
     write->idle_deadline_ms = now_ms + MESH_USB_MSC_IDLE_TIMEOUT_MS;
 
@@ -441,10 +545,6 @@ static void write_finish(struct mesh_usb_msc_write *write, int status) {
     }
     const int code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
     switch (code) {
-    case MESH_USB_MSC_EXIT_OPEN:
-        write->error = -EACCES;
-        mesh_log_error("firmware", "The bootloader's drive could not be opened for writing");
-        break;
     case MESH_USB_MSC_EXIT_SYNC:
         write->error = -EIO;
         mesh_log_error("firmware", "The drive stopped acknowledging writes");

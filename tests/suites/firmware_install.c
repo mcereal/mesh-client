@@ -27,6 +27,7 @@
 #include "mesh/core/uf2.h"
 #include "mesh/transport/serial_usb.h"
 #include "mesh/transport/usb_msc.h"
+#include "mesh/utils/text.h"
 #include "mesh/utils/time.h"
 
 #include <dirent.h>
@@ -331,6 +332,58 @@ MESH_TEST_CASE(usb_msc_lists_every_mount_of_the_drive_and_nothing_else, unit) {
 
 /* More mountpoints than the struct can name. Nothing is unmounted at all, because a drive taken
    half off is worse than one left alone: the writeback we were avoiding is still possible. */
+/*
+ * The mount the Brick spells differently, which is the shadow that matters.
+ *
+ * `/proc/mounts` on the device carries the shadow over `/mnt/SDCARD` as **`/dev//dev/sda`** -
+ * the hotplug script does `mount /dev/${DEVNAME}` and `${DEVNAME}` there already begins with
+ * `/dev/` - and `/dev/dev` is a real directory on that platform rather than a link, so the two
+ * spellings are two paths to one drive that no amount of string tidying reconciles. A matcher
+ * that compares text misses it, and what follows from missing it is not a bad write but a
+ * refusal: the drive stays mounted, the claim comes back `-EBUSY`, and the install says
+ * "mounted" about a drive it could have had. Seen on 2026-09-10 after a board was re-plugged.
+ *
+ * What decides it is the object rather than the path. A suite cannot make a block device, so
+ * what is reachable here is the other half of the same test - one file, two spellings.
+ */
+MESH_TEST_CASE(usb_msc_knows_one_drive_spelled_two_ways, unit) {
+    struct install_fixture fixture;
+    MESH_TEST_FAIL_IF(!fixture_open(&fixture), "could not lay out the fixture trees");
+
+    bool built = usb_bootloader(fixture.usb, "2-1");
+    built = built && block_device(fixture.block, "sda", "2-1", "65801");
+
+    /* The drive itself, and a second path that goes through a link and lands on it. */
+    char drive[PATH_MAX];
+    char alias[PATH_MAX];
+    built = built && snprintf(drive, sizeof drive, "%s/sda", fixture.dev) < (int)sizeof drive &&
+            fixture_put(drive, "");
+    built = built && snprintf(alias, sizeof alias, "%s/dev", fixture.dev) < (int)sizeof alias &&
+            (symlink(fixture.dev, alias) == 0 || errno == EEXIST);
+
+    char mounts[1024];
+    snprintf(mounts, sizeof mounts,
+             "/dev/root / squashfs ro 0 0\n"
+             "%s/dev/sda /mnt/SDCARD vfat rw,iocharset=utf8 0 0\n",
+             fixture.dev);
+    built = built && fixture_put(fixture.mounts, mounts);
+    MESH_TEST_FAIL_IF_CLEANUP(!built, fixture_close(&fixture), "could not build the trees");
+
+    struct mesh_serial_device_info device;
+    struct mesh_usb_msc_target target;
+    memset(&target, 0, sizeof target);
+    const bool have = find_device("2-1:1.1", &device) && mesh_usb_msc_find(&device, &target) == 0;
+    const size_t count = target.mount_count;
+    char point[MESH_USB_MSC_PATH_MAX];
+    mesh_str_copy(point, sizeof point, count > 0U ? target.mounts[0] : "");
+    fixture_close(&fixture);
+
+    MESH_TEST_FAIL_IF(!have, "the drive should be found");
+    MESH_TEST_FAIL_IF(count != 1U, "a path that reaches our drive is a mount of our drive");
+    MESH_TEST_FAIL_IF(strcmp(point, "/mnt/SDCARD") != 0, "and it is the shadow over the card");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(usb_msc_refuses_a_drive_it_could_only_half_unmount, unit) {
     struct install_fixture fixture;
     MESH_TEST_FAIL_IF(!fixture_open(&fixture), "could not lay out the fixture trees");
@@ -444,15 +497,50 @@ MESH_TEST_CASE(usb_msc_write_reports_a_drive_it_cannot_open, unit) {
     const int started =
         mesh_usb_msc_write_start(&write, NULL, image, sizeof image,
                                  "/proc/meshclient/definitely-not-here", mesh_time_monotonic_ms());
-    MESH_TEST_FAIL_IF(started != 0, "the fork itself should succeed");
-    (void)write_settle(&write);
     const enum mesh_usb_msc_write_state state = write.state;
-    const int error = write.error;
     mesh_usb_msc_write_cancel(&write);
 
-    MESH_TEST_FAIL_IF(state != MESH_USB_MSC_WRITE_FAILED,
-                      "a drive that will not open is a failure");
-    MESH_TEST_FAIL_IF(error != -EACCES, "and it says so as the open refusing rather than as EIO");
+    /* The open is the parent's now, because the claim it takes has to be held from before the
+       fork. So a drive that will not open costs no child at all, and the caller is told why by
+       the errno the open gave rather than by an exit code standing in for it. */
+    MESH_TEST_FAIL_IF(started != -ENOENT, "a drive that will not open is refused by start");
+    MESH_TEST_FAIL_IF(state == MESH_USB_MSC_WRITE_RUNNING, "and nothing is left running");
+    record_success(test_name);
+}
+
+/*
+ * The claim, and the flag pair that must never meet.
+ *
+ * `mesh_usb_msc_claim()` asks for `O_EXCL` on a block device - an exclusive claim, which is
+ * what keeps the platform's hotplug mount off the drive for the length of the write - and for
+ * `O_CREAT` on anything else, which is what makes the write testable against a file. Putting
+ * both on one open turns the claim into the unrelated "fail if it exists", so the way this
+ * would silently stop working is a file that already exists being refused.
+ *
+ * A real block device is not something a suite can conjure, so what is checked here is the half
+ * that is reachable: the file path opens, twice, and lands its bytes where it was pointed.
+ */
+MESH_TEST_CASE(usb_msc_claim_opens_a_file_that_is_already_there, unit) {
+    char path[] = "/tmp/meshclient-claim-XXXXXX";
+    const int seeded = mkstemp(path);
+    MESH_TEST_FAIL_IF(seeded < 0, "could not seed a file to claim");
+    (void)!write(seeded, "old", 3U);
+    close(seeded);
+
+    const int first = mesh_usb_msc_claim(path);
+    if (first >= 0) {
+        close(first);
+    }
+    const int second = mesh_usb_msc_claim(path);
+    if (second >= 0) {
+        close(second);
+    }
+    const int missing = mesh_usb_msc_claim("");
+    (void)unlink(path);
+
+    MESH_TEST_FAIL_IF(first < 0, "a file that is already there should be claimable");
+    MESH_TEST_FAIL_IF(second < 0, "and claimable again - O_CREAT and O_EXCL must not meet");
+    MESH_TEST_FAIL_IF(missing != -EINVAL, "and an empty path is a refusal rather than an open");
     record_success(test_name);
 }
 
@@ -608,10 +696,22 @@ MESH_TEST_CASE(install_writes_the_image_and_waits_for_the_board_to_restart, unit
                               (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
                               "with the bar at 100 rather than falling back to 0");
 
-    /* The bootloader counted `numBlocks` blocks and reset itself; nothing told it to. */
+    /* The bootloader counted `numBlocks` blocks and reset itself; nothing told it to. The bus
+       is empty for the moment it takes to come back, and that on its own is not the answer -
+       a pulled cable looks exactly like it. */
     MESH_TEST_FAIL_IF_CLEANUP(system(command) != 0,
                               (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
                               "could not take the bootloader off the bus");
+    offset += 1000U;
+    mesh_firmware_install_tick(&install, mesh_time_monotonic_ms() + offset);
+    MESH_TEST_FAIL_IF_CLEANUP(install.state != MESH_FIRMWARE_INSTALL_RESTARTING,
+                              (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
+                              "an empty bus is still a wait: the board has not come back yet");
+
+    /* And it comes back running what we wrote, which is the half that says so. */
+    MESH_TEST_FAIL_IF_CLEANUP(!usb_radio(fixture.usb, "2-1"),
+                              (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
+                              "could not put the radio back on the bus");
     offset += 1000U;
     mesh_firmware_install_tick(&install, mesh_time_monotonic_ms() + offset);
 
@@ -774,6 +874,142 @@ MESH_TEST_CASE(install_tells_a_radio_that_stayed_from_a_bootloader_that_never_ca
                       "a verb the link refused fails before anything is armed");
     MESH_TEST_FAIL_IF(!never.finished || never.error != MESH_FIRMWARE_INSTALL_ERROR_NO_BOOTLOADER,
                       "and a bus with nothing on it is a bootloader that never came");
+    record_success(test_name);
+}
+
+/*
+ * The write that ends early because the board reset, which is what every recovery looks like.
+ *
+ * A UF2 bootloader counts the distinct blocks it has been given and resets the moment it holds
+ * `numBlocks` of them - nothing tells it the transfer is over, the file does. So the write
+ * *after* an interrupted one finishes partway through: the blocks the first attempt missed
+ * arrive, the count completes, and the drive disappears mid-copy. Watched on a T114 on
+ * 2026-09-10, where a first write raced by the platform's own mount left the board a few blocks
+ * short and the second reset it at sector 832 with `device firmware changed` in the kernel log.
+ * The client called that a write failure, so the one path this whole half rests on reported as
+ * broken every time it worked.
+ *
+ * The stall below stands in for the drive going away, because a fixture writes to a file and a
+ * file does not vanish under its writer. What is being asked is the decision either produces:
+ * a write that did not finish, plus a bootloader that is no longer on the bus.
+ */
+MESH_TEST_CASE(install_reads_a_write_that_ended_with_the_bootloader_as_the_board_restarting, unit) {
+    /* A drive whose writes fail rather than a drive that disappears, because a suite cannot
+       take a device away from a running child. `/dev/full` opens and then refuses every byte,
+       which is the same thing from the child's side: a real fork, a real open, a real failure
+       partway. */
+    MESH_TEST_FAIL_IF(access("/dev/full", W_OK) != 0, "this needs /dev/full to refuse a write");
+
+    struct install_fixture fixture;
+    MESH_TEST_FAIL_IF(!fixture_open(&fixture), "could not lay out the fixture trees");
+
+    char image_path[128];
+    char drive[PATH_MAX];
+    bool built = usb_bootloader(fixture.usb, "2-1");
+    built = built && block_device(fixture.block, "sda", "2-1", "65801");
+    built = built && stage_image(fixture.dev, 2U, image_path, sizeof image_path);
+    built = built && snprintf(drive, sizeof drive, "%s/sda", fixture.dev) < (int)sizeof drive &&
+            symlink("/dev/full", drive) == 0;
+    MESH_TEST_FAIL_IF_CLEANUP(!built, fixture_close(&fixture), "could not build the fixtures");
+
+    struct install_run run;
+    memset(&run, 0, sizeof run);
+    struct mesh_firmware_install install;
+    memset(&install, 0, sizeof install);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_firmware_install_start(&install, NULL, image_path, "2-1:1.1",
+                                                          MESH_UF2_FAMILY_NRF52840, NULL, NULL,
+                                                          install_done, &run) != 0,
+                              fixture_close(&fixture), "the install should start");
+    mesh_firmware_install_tick(&install, mesh_time_monotonic_ms());
+    MESH_TEST_FAIL_IF_CLEANUP(install.state != MESH_FIRMWARE_INSTALL_WRITING,
+                              (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
+                              "the drive is there, so the write should be running");
+
+    /* The board resets: the bootloader leaves the bus, and the write it was taking stops. */
+    char command[256];
+    snprintf(command, sizeof command, "rm -rf '%s'/2-1*", fixture.usb);
+    MESH_TEST_FAIL_IF_CLEANUP(system(command) != 0,
+                              (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
+                              "could not take the bootloader off the bus");
+
+    const uint64_t give_up = mesh_time_monotonic_ms() + 10000U;
+    while (install.state == MESH_FIRMWARE_INSTALL_WRITING && mesh_time_monotonic_ms() < give_up) {
+        mesh_firmware_install_tick(&install, mesh_time_monotonic_ms());
+    }
+    const enum mesh_firmware_install_state after_write = install.state;
+    const bool wrote_nothing = install.write.written < install.write.total;
+
+    /* And it comes back running what it was given. */
+    MESH_TEST_FAIL_IF_CLEANUP(!usb_radio(fixture.usb, "2-1"),
+                              (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
+                              "could not put the radio back on the bus");
+    mesh_firmware_install_tick(&install, mesh_time_monotonic_ms() + 1000U);
+    const struct install_run recovered = run;
+    mesh_firmware_install_cancel(&install);
+    fixture_close(&fixture);
+
+    MESH_TEST_FAIL_IF(!wrote_nothing, "the drive should have refused the image");
+    MESH_TEST_FAIL_IF(after_write != MESH_FIRMWARE_INSTALL_RESTARTING,
+                      "a write that stopped with the bootloader gone is the board restarting");
+    MESH_TEST_FAIL_IF(!recovered.finished, "the install should have reported");
+    MESH_TEST_FAIL_IF(recovered.state != MESH_FIRMWARE_INSTALL_DONE ||
+                          recovered.error != MESH_FIRMWARE_INSTALL_ERROR_NONE,
+                      "and a radio answering where the bootloader was is done, not a failure");
+    record_success(test_name);
+}
+
+/*
+ * The cable pulled, which ends the same way and must not read the same way.
+ *
+ * The bootloader disappearing is half the evidence and it is the half a yank produces too. This
+ * is the outcome the USB path's whole safety argument is about - the board is still sitting in
+ * its bootloader wherever it now is, and the recovery is to plug it back in and write again -
+ * so calling it done would be the one lie available here.
+ */
+MESH_TEST_CASE(install_does_not_call_a_pulled_cable_a_finished_install, unit) {
+    struct install_fixture fixture;
+    MESH_TEST_FAIL_IF(!fixture_open(&fixture), "could not lay out the fixture trees");
+
+    char image_path[128];
+    bool built = usb_bootloader(fixture.usb, "2-1");
+    built = built && block_device(fixture.block, "sda", "2-1", "65801");
+    built = built && stage_image(fixture.dev, 2U, image_path, sizeof image_path);
+    MESH_TEST_FAIL_IF_CLEANUP(!built, fixture_close(&fixture), "could not build the fixtures");
+
+    struct install_run run;
+    memset(&run, 0, sizeof run);
+    struct mesh_firmware_install install;
+    memset(&install, 0, sizeof install);
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_firmware_install_start(&install, NULL, image_path, "2-1:1.1",
+                                                          MESH_UF2_FAMILY_NRF52840, NULL, NULL,
+                                                          install_done, &run) != 0,
+                              fixture_close(&fixture), "the install should start");
+    mesh_firmware_install_tick(&install, mesh_time_monotonic_ms());
+    MESH_TEST_FAIL_IF_CLEANUP(install.state != MESH_FIRMWARE_INSTALL_WRITING,
+                              (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
+                              "the drive is there, so the write should be running");
+
+    char command[256];
+    snprintf(command, sizeof command, "rm -rf '%s'/2-1*", fixture.usb);
+    MESH_TEST_FAIL_IF_CLEANUP(system(command) != 0,
+                              (mesh_firmware_install_cancel(&install), fixture_close(&fixture)),
+                              "could not take the board off the bus");
+
+    /* Nothing comes back, however long it is given. */
+    uint64_t now = mesh_time_monotonic_ms() + 120000U;
+    for (unsigned tick = 0; tick < 80U && !run.finished; ++tick) {
+        mesh_firmware_install_tick(&install, now);
+        now += 1000U;
+    }
+    const struct install_run pulled = run;
+    mesh_firmware_install_cancel(&install);
+    fixture_close(&fixture);
+
+    MESH_TEST_FAIL_IF(!pulled.finished, "the install should have reported");
+    MESH_TEST_FAIL_IF(pulled.state != MESH_FIRMWARE_INSTALL_FAILED,
+                      "an empty bus is not a board running new firmware");
+    MESH_TEST_FAIL_IF(pulled.error != MESH_FIRMWARE_INSTALL_ERROR_NO_RADIO,
+                      "and it says the board never came back, not that the write was bad");
     record_success(test_name);
 }
 

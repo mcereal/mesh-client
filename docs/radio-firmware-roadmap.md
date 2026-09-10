@@ -5,13 +5,16 @@ that is [`src/core/updater.c`](../src/core/updater.c), and everything below borr
 This document is about the other binary in the room: the Meshtastic firmware running on the
 node the Brick is talking to, which today can only be changed with a computer and a cable.
 
-Status: **phase 1 has shipped**, 2026-09-09, and **phase 0's USB half has been answered on
-hardware**, 2026-09-10 — on a Brick with a Heltec Mesh Node T114 on the USB-C port, including
-one complete `.uf2` written to the bootloader and the board rebooting into it. Phase 2 and
-phase 3 are no longer proposals resting on assumptions; the numbers are in
+Status: **phases 0 through 3 have shipped and are confirmed on hardware**, the last of them on
+2026-09-10 — on a Brick with a Heltec Mesh Node T114 on the USB-C port. The client now updates
+the radio's firmware over USB: `--install-firmware` sends the board into DFU, writes the
+`.uf2` to its bootloader and watches it come back, in about twenty seconds. What phase 3's own
+runs corrected is in [§What phase 3 measured](#what-phase-3-measured), and all three of those
+were defects a suite could not have found. Phase 2 and phase 3 are no longer proposals resting
+on assumptions; the numbers are in
 [§What phase 0 measured](#what-phase-0-measured), and two of them move work off the plan
-rather than onto it. The client itself still writes nothing anywhere: it identifies the board,
-reports the newest release and says which bus - if any - could carry an install. See
+rather than onto it. What is left is the *BLE* half - phase 4 - and the UI, which is phase 5:
+today the whole feature is a command line. See
 [§Phases](#phases) for what that covers and [§What phase 1 measured](#what-phase-1-measured) for
 the three upstream facts it corrected on the way. The rest of the upstream facts were read out
 of `meshtastic/firmware` at `81b3ce8`, `meshtastic/esp32-unified-ota` at its head,
@@ -1128,7 +1131,7 @@ and `Y forget` were unconditional on the Devices bar while the nav declined them
 of row, so both now ask `mesh_ui_device_connectable()` / `mesh_ui_device_forgettable()` — one
 function for the bar and the press, as `mesh_ui_help_offered()` already is.
 
-**Phase 3 — the USB handover. Written and green; _not_ yet confirmed on hardware.**
+**Phase 3 — the USB handover. Shipped, and confirmed on hardware** on 2026-09-10.
 `enter_dfu_mode_request` down the serial link, wait for
 the bootloader to enumerate, unmount the ghost drive the platform will have mounted over
 `/mnt/SDCARD`, write the `.uf2`'s blocks to the block device, watch the board reboot. This is
@@ -1179,20 +1182,20 @@ The bootloader is only accepted on the **same USB device** the radio was on, bec
 resets in place and a write must not follow one that moved. An install started with no port -
 which is what a board already in its bootloader needs - accepts any, and says so.
 
-**What it still owes.** Phases 1 and 2 each say "confirmed on hardware" and this one may not yet:
-an attempt on 2026-09-10 was defeated by a Brick whose SSH would not carry a deploy, for reasons
-still not established. Two runs are outstanding and the second is the one that matters:
+**Confirmed on hardware**, 2026-09-10, over adb rather than SSH - which is what the previous
+day's attempt was defeated by. Both outstanding runs went, and the second one is the one that
+mattered: a **clean install** end to end (`--install-firmware heltec-mesh-node-t114` against a
+T114 on the cable, arming, waiting, writing and restarting going past in order, twenty-one
+seconds) and an **interrupted** one, with the board taken off the bus a third of the way through
+the write. The board was still sitting in its bootloader with `/dev/sda` back on the next plug,
+and the write after it succeeded. The argument that the USB half is the safer half is now
+evidence rather than reasoning.
 
-- a **clean install** end to end - `--install-firmware heltec-mesh-node-t114` against a T114 on
-  the cable, watching arming, waiting, writing and restarting go past in order;
-- an **interrupted** one. Pull the cable partway through the write. The expected outcome is a
-  board still sitting in its bootloader with `/dev/sda` back on the next plug, and a second
-  write that succeeds. Nothing has watched that happen - the manual run in phase 0 was
-  uninterrupted - and it is the claim the whole "the USB half is the safer half" argument rests
-  on. Until it is run, that argument is reasoning rather than evidence.
+It cost three fixes to get there, none of which a suite could have found, and they are in
+[§What phase 3 measured](#what-phase-3-measured).
 
-Both can be run from the device itself with no host involved, which is worth knowing when the
-network is the thing that is broken:
+Both runs can be done from the device itself with no host involved, which is worth knowing when
+the network is the thing that is broken:
 
 ```sh
 /mnt/SDCARD/Tools/tg5040/MeshClient.pak/bin/shared/meshclient \
@@ -1219,6 +1222,63 @@ loader — the phone app refuses it outright, and phase 4 reaches the same board
 installing a firmware file the user brought themselves (a nice power-user feature and an
 excellent way to flash a T-Deck image onto a T-Beam), and anything that flashes the `littlefs`
 or `factory` images.
+
+## What phase 3 measured
+
+Three defects, on the same T114 on the same afternoon, and every one of them lived in the gap
+between what the client does and what the *platform* does while it is doing it. None was
+reachable from a suite, because all three are about a second actor: the Brick's hotplug script,
+or the bootloader's own count.
+
+**The unmount is not enough, because the client can win the race.** The first clean run wrote
+every byte and the board never restarted. The kernel log says why, and the order is the
+surprise:
+
+| wall | event |
+|---|---|
+| 20:06:36.45 | `/dev/sda` attached |
+| 20:06:36.46 | the install unmounts (nothing is mounted yet) and **starts writing** |
+| 20:06:36.58 | the platform's first `mount /dev/sda /mnt/SDCARD` - fails, "bogus number of FAT structure" |
+| 20:06:40.0 | the second attempt **succeeds**, over the SD card, a third of the way through the write |
+
+This document had assumed the shadow would be up by the time the drive was writable and that
+taking it off was the whole job. It is up about 130 ms *later*, so the install unmounted an
+empty list and then wrote underneath a filesystem driver that mounted on top of it. Winning that
+race is not a fix: whoever wins it, one of the two is left mounting or writing under the other.
+`O_EXCL` on a block device is a fix - it is an exclusive claim rather than anything about
+creation, and `mount` takes the same claim, so a mount attempted while the fd is open fails with
+`-EBUSY` and there is no second party. `mesh_usb_msc_claim()` takes it in the parent before the
+fork, and the run after that had no `FAT-fs` line in the kernel log at all.
+
+**A write that ends early is what every recovery looks like.** The second run - the board still
+in its bootloader from the first - reported `write` and had in fact succeeded: the kernel logged
+`usb 2-1: device firmware changed` at sector 832 and the board came back on its firmware. The
+bootloader counts the *distinct* blocks it has been given and resets the moment it holds
+`numBlocks` of them, and its count survives a `dd` ending: so the write after an interrupted one
+completes partway through the file, by design, every time. Reported as a write failure, the one
+path this whole half rests on reads as broken exactly when it works.
+
+**And the disappearance is only half the evidence.** The fix above cannot be "the drive went
+away, so we are done", because a pulled cable ends the same way - which is the one outcome this
+path has to be honest about. What says the board restarted is the bootloader going *and* a radio
+answering where it was, about 600 ms apart on a T114. A bus with nothing on it after the restart
+window is `no radio`: the board is in its bootloader wherever it now is, and the recovery is to
+plug it in and write again. That is what the interrupted run reported, at 425,984 of 1,467,392
+bytes.
+
+**The shadow is spelled `/dev//dev/sda`.** Re-plugging the board put the ghost FAT back over
+`/mnt/SDCARD`, and `/proc/mounts` named its source with the `/dev/` twice - the hotplug script
+does `mount /dev/${DEVNAME}` and `${DEVNAME}` on that path already carries one. Tidying the path
+does not reconcile them either: `/dev/dev` is a real directory on this platform rather than a
+link, so those are two paths to one drive. A matcher comparing text misses it, and what follows
+is not a bad write but a refusal - the drive stays mounted, the claim comes back `-EBUSY`, and
+the install says "mounted" about a drive it could have had. What decides it is the device number.
+With that in, the recovery run logged `Unmounted /dev/sda from /mnt/SDCARD` and then
+`from /mnt/exUDISK`, in stack order, and the SD card was back underneath.
+
+One thing this did *not* have to fix, and it is worth recording: taking the shadow off is the
+whole of putting `/mnt/SDCARD` back. It is a stacked mount and the card is still mounted
+underneath it, so there is no remount to arrange and no state to remember.
 
 ## Before any of this is written
 

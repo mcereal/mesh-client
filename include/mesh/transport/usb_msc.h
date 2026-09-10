@@ -98,6 +98,26 @@ int mesh_usb_msc_find(const struct mesh_serial_device_info *device,
  */
 int mesh_usb_msc_unmount(struct mesh_usb_msc_target *target);
 
+/*
+ * Opens the drive for writing and claims it, returning an fd or -errno.
+ *
+ * `mesh_usb_msc_write_start()` calls this before it forks, and the unmount above is not a
+ * substitute for it. The Brick published `/dev/sda` and had it mounted over `/mnt/SDCARD`
+ * **130 ms after the write began** on 2026-09-10: the install had unmounted an empty list and
+ * won a race it could equally have lost, and the platform's mount then interleaved FAT sectors
+ * with the UF2 blocks for the rest of the write. The board never restarted.
+ *
+ * `O_EXCL` on a block device is an exclusive claim rather than anything about creation, and
+ * `mount` takes the same claim - so a mount attempted while this fd is open fails with `-EBUSY`
+ * and the race has no second party. `-EBUSY` coming back from here means the other order
+ * happened; the retry unmounts and asks again.
+ *
+ * A path that is not a block device gets `O_CREAT` and no claim, which is what makes the write
+ * testable against a file. The two flags must never meet: `O_CREAT | O_EXCL` is the unrelated
+ * "fail if it exists".
+ */
+int mesh_usb_msc_claim(const char *device_path);
+
 enum mesh_usb_msc_write_state {
     MESH_USB_MSC_WRITE_IDLE = 0,
     MESH_USB_MSC_WRITE_RUNNING,
@@ -113,6 +133,10 @@ struct mesh_usb_msc_write {
 
     pid_t child;
     int progress_fd;
+    /* The claim on the block device, held by the parent for the length of the write. The child
+       inherits it and writes through it; this copy is what keeps the platform's hotplug mount
+       off the drive even if the child dies halfway. */
+    int device_fd;
     /* The child reports a running byte count per chunk, one decimal line each; a read can land
        mid-line, so the tail is kept. */
     char pending[32];

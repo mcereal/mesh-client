@@ -28,7 +28,8 @@ static const char *const k_state_names[MESH_FIRMWARE_INSTALL_STATE_COUNT] = {
 };
 
 static const char *const k_error_names[MESH_FIRMWARE_INSTALL_ERROR_COUNT] = {
-    "none", "unavailable", "wrong image", "arm", "no bootloader", "mounted", "write", "no restart",
+    "none",    "unavailable", "wrong image", "arm",      "no bootloader",
+    "mounted", "write",       "no restart",  "no radio",
 };
 
 const char *mesh_firmware_install_state_name(enum mesh_firmware_install_state state) {
@@ -128,12 +129,8 @@ static bool install_find_bootloader(const struct mesh_firmware_install *install,
     return false;
 }
 
-/* True while a radio - anything that is not a bootloader - is still answering on our port. What
-   says the admin verb landed is this going false. */
-static bool install_radio_still_there(const struct mesh_firmware_install *install) {
-    if (install->port[0] == '\0') {
-        return false;
-    }
+/* True while a radio - anything that is not a bootloader - is answering on our port. */
+static bool install_radio_present(const struct mesh_firmware_install *install) {
     struct mesh_serial_device_info devices[MESH_SERIAL_MAX_DEVICES];
     const size_t count = mesh_serial_usb_scan(devices, MESH_SERIAL_MAX_DEVICES);
     for (size_t i = 0; i < count; ++i) {
@@ -143,6 +140,13 @@ static bool install_radio_still_there(const struct mesh_firmware_install *instal
         }
     }
     return false;
+}
+
+/* The arming question: is the radio we sent the verb to still sitting there running firmware?
+   With no port there is nothing to watch and nothing to wait for, so the answer is no - which
+   is what sends a board already in its bootloader straight to waiting. */
+static bool install_radio_still_there(const struct mesh_firmware_install *install) {
+    return install->port[0] != '\0' && install_radio_present(install);
 }
 
 /* ---- the steps -----------------------------------------------------------------------------
@@ -180,7 +184,11 @@ static void install_begin_write(struct mesh_firmware_install *install,
         mesh_usb_msc_write_start(&install->write, install->loop, install->image, install->image_len,
                                  install->target.device, now_ms);
     if (started != 0) {
-        install_fail(install, MESH_FIRMWARE_INSTALL_ERROR_WRITE);
+        /* -EBUSY is the claim being refused, which means the drive is mounted or held by
+           something that is not us - the same fact `unmounted` reports, arriving a moment
+           later. Nothing has been written either way. */
+        install_fail(install, started == -EBUSY ? MESH_FIRMWARE_INSTALL_ERROR_MOUNTED
+                                                : MESH_FIRMWARE_INSTALL_ERROR_WRITE);
         return;
     }
     install->state = MESH_FIRMWARE_INSTALL_WRITING;
@@ -228,20 +236,47 @@ static void install_tick_waiting(struct mesh_firmware_install *install, uint64_t
     }
 }
 
+static void install_enter_restarting(struct mesh_firmware_install *install, uint64_t now_ms) {
+    install->state = MESH_FIRMWARE_INSTALL_RESTARTING;
+    install->deadline_ms = now_ms + INSTALL_RESTART_TIMEOUT_MS;
+    install->next_poll_ms = now_ms + INSTALL_POLL_MS;
+}
+
 static void install_tick_writing(struct mesh_firmware_install *install, uint64_t now_ms) {
     mesh_usb_msc_write_tick(&install->write, now_ms);
     if (install->write.state == MESH_USB_MSC_WRITE_RUNNING) {
         return;
     }
     if (install->write.state != MESH_USB_MSC_WRITE_DONE) {
-        install_fail(install, MESH_FIRMWARE_INSTALL_ERROR_WRITE);
+        /*
+         * A write that ended early because the drive went away is not a broken write: it is the
+         * board saying it has counted `numBlocks` and reset, which happens partway through
+         * whenever the blocks it was missing arrive before the end of the file. That is the
+         * write *after* an interrupted one - the recovery this whole half rests on - so it is
+         * not a rare shape. Measured on a T114 on 2026-09-10: a first write raced by the
+         * platform's mount left the board a few blocks short, and the second reset it at sector
+         * 832 with `device firmware changed` in the kernel log. Reported as a write failure,
+         * every successful recovery reads as a failure.
+         *
+         * A bootloader still sitting on the bus is the other case and keeps its own name: the
+         * write really did fail and the recovery is to write it again.
+         */
+        struct mesh_serial_device_info bootloader;
+        if (install_find_bootloader(install, &bootloader)) {
+            install_fail(install, MESH_FIRMWARE_INSTALL_ERROR_WRITE);
+            return;
+        }
+        mesh_log_info("firmware",
+                      "The drive went away after %llu of %llu bytes; waiting to see what "
+                      "comes back",
+                      (unsigned long long)install->write.written,
+                      (unsigned long long)install->write.total);
+        install_enter_restarting(install, now_ms);
         return;
     }
     mesh_log_info("firmware", "Wrote %llu bytes; waiting for the board to restart",
                   (unsigned long long)install->write.total);
-    install->state = MESH_FIRMWARE_INSTALL_RESTARTING;
-    install->deadline_ms = now_ms + INSTALL_RESTART_TIMEOUT_MS;
-    install->next_poll_ms = now_ms + INSTALL_POLL_MS;
+    install_enter_restarting(install, now_ms);
 }
 
 static void install_tick_restarting(struct mesh_firmware_install *install, uint64_t now_ms) {
@@ -251,19 +286,33 @@ static void install_tick_restarting(struct mesh_firmware_install *install, uint6
     install->next_poll_ms = now_ms + INSTALL_POLL_MS;
 
     struct mesh_serial_device_info bootloader;
-    if (!install_find_bootloader(install, &bootloader)) {
-        /* The bootloader is gone, which is it saying it counted `numBlocks` blocks, flushed and
-           reset. Nothing had to tell it the transfer was over - the file said so. */
+    const bool still_in_dfu = install_find_bootloader(install, &bootloader);
+    if (!still_in_dfu && install_radio_present(install)) {
+        /*
+         * The bootloader went - which is it saying it counted `numBlocks` blocks, flushed and
+         * reset, because nothing had to tell it the transfer was over - and a radio is
+         * answering where it was. Both halves are needed: a cable pulled during the write also
+         * makes the bootloader disappear, and on that reading alone the one outcome this path
+         * has to be honest about would report as success. Measured at about 600 ms between the
+         * two on a T114.
+         */
         mesh_log_info("firmware", "The board restarted into its new firmware");
         install_finish(install, MESH_FIRMWARE_INSTALL_DONE, MESH_FIRMWARE_INSTALL_ERROR_NONE);
         return;
     }
-    if (now_ms >= install->deadline_ms) {
+    if (now_ms < install->deadline_ms) {
+        return;
+    }
+    if (still_in_dfu) {
         /* Every byte went out and the board is still in DFU, so it never saw a full set of
            blocks. The recovery is the same write again, which is the whole reason this path is
            the safe one. */
         install_fail(install, MESH_FIRMWARE_INSTALL_ERROR_NO_RESTART);
+        return;
     }
+    /* Nothing is there at all. The board left its bootloader and did not come back: an
+       unplugged cable, or a board that reset into something that does not enumerate. */
+    install_fail(install, MESH_FIRMWARE_INSTALL_ERROR_NO_RADIO);
 }
 
 /* ---- the public half -----------------------------------------------------------------------
