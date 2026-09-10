@@ -113,6 +113,7 @@ struct mesh_firmware_download {
 
     /* Filled in as the steps answer. */
     uint64_t zip_size;
+    uint64_t central_offset;
     uint64_t window_offset;
     size_t window_len;
     /* Set when the tail window did not hold the whole central directory and it was fetched on
@@ -123,7 +124,13 @@ struct mesh_firmware_download {
     bool located;
     uint64_t data_offset;
 
-    /* The child doing the inflate, or -1. Reaped by mesh_firmware_download_tick(). */
+    /*
+     * The child doing the inflate, or not a pid. Reaped by mesh_firmware_download_tick().
+     *
+     * "Not a pid" is anything <= 0 rather than -1 alone, because a zeroed struct is how this is
+     * meant to be started and 0 is what a zeroed struct holds - and kill(0, ...) is the whole
+     * process group, not a no-op.
+     */
     pid_t inflater;
     uint64_t inflate_deadline_ms;
 

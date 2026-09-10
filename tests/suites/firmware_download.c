@@ -14,6 +14,13 @@
  * comes out the far end is parsed by the manifest reader, so the case proves the chain rather
  * than the plumbing: range read, place the data, wrap it in a gzip envelope, inflate it, check
  * the CRC the central directory carried, and read the document that falls out.
+ *
+ * The orchestration above it - firmware_fetch.c, which turns a target and a release into that
+ * URL and that member name - is tested here too rather than in a suite of its own, because it
+ * needs the same fake CDN and a second copy of one is a second thing to keep true. Its cases
+ * are the two that stop before the image, since the image download is what everything above
+ * already covers: a release that built nothing for this board, and two documents disagreeing
+ * about what this board is.
  */
 
 #include "framework/mesh_test.h"
@@ -22,6 +29,7 @@
 #include "mesh/core/fetch.h"
 #include "mesh/core/firmware_catalog.h"
 #include "mesh/core/firmware_download.h"
+#include "mesh/core/firmware_fetch.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -74,40 +82,45 @@ static bool download_install_curl(const char *dir, bool corrupt) {
     if (file == NULL) {
         return false;
     }
-    fprintf(file,
-            "#!/bin/sh\n"
-            "DATA='%s'\n"
-            "head=0; out=''; range=''\n"
-            "while [ $# -gt 0 ]; do\n"
-            "  case \"$1\" in\n"
-            "    -fsSLI) head=1 ;;\n"
-            "    -o) shift; out=\"$1\" ;;\n"
-            "    -H) shift; case \"$1\" in 'Range: bytes='*) range=\"${1#Range: bytes=}\" ;; esac ;;\n"
-            "  esac\n"
-            "  shift\n"
-            "done\n"
-            "if [ \"$head\" -eq 1 ]; then\n"
-            "  printf 'HTTP/2 302 \\r\\ncontent-length: 0\\r\\n\\r\\n'\n"
-            "  printf 'HTTP/2 200 \\r\\naccept-ranges: bytes\\r\\ncontent-length: %s\\r\\n\\r\\n'\n"
-            "  exit 0\n"
-            "fi\n"
-            "[ -n \"$range\" ] || exit 3\n"
-            "first=\"${range%%%%-*}\"; last=\"${range##*-}\"\n"
-            "count=$((last - first + 1))\n"
-            "if [ \"$first\" -ge %d ]; then\n"
-            "  file=\"$DATA/zip_tail_nrf52840_2.7.26.bin\"; off=$((first - %d))\n"
-            "elif [ \"$first\" -ge %d ]; then\n"
-            "  file=\"$DATA/zip_member_t114_mt_json_2.7.26.bin\"; off=$((first - %d))\n"
-            "else\n"
-            "  exit 4\n"
-            "fi\n"
-            "tail -c \"+$((off + 1))\" \"$file\" | head -c \"$count\" > \"$out\"\n"
-            "if [ %d -eq 1 ] && [ \"$off\" -eq 111 ]; then\n"
-            "  printf '\\000' | dd of=\"$out\" bs=1 seek=200 conv=notrunc 2>/dev/null\n"
-            "fi\n"
-            "exit 0\n",
-            MESH_TEST_DATA_DIR, ZIP_SIZE, TAIL_BASE, TAIL_BASE, MEMBER_BASE, MEMBER_BASE,
-            corrupt ? 1 : 0);
+    fprintf(
+        file,
+        "#!/bin/sh\n"
+        "DATA='%s'\n"
+        "head=0; out=''; range=''\n"
+        "while [ $# -gt 0 ]; do\n"
+        "  case \"$1\" in\n"
+        "    -fsSLI) head=1 ;;\n"
+        "    -o) shift; out=\"$1\" ;;\n"
+        "    -H) shift; case \"$1\" in 'Range: bytes='*) range=\"${1#Range: bytes=}\" ;; esac ;;\n"
+        "  esac\n"
+        "  shift\n"
+        "done\n"
+        "if [ \"$head\" -eq 1 ]; then\n"
+        "  printf 'HTTP/2 302 \\r\\ncontent-length: 0\\r\\n\\r\\n'\n"
+        "  printf 'HTTP/2 200 \\r\\naccept-ranges: bytes\\r\\ncontent-length: %s\\r\\n\\r\\n'\n"
+        "  exit 0\n"
+        "fi\n"
+        /* No range and not a HEAD is the release's own manifest, which is fetched whole. */
+        "if [ -z \"$range\" ]; then\n"
+        "  cat \"$DATA/firmware_release_2.7.26.json\"\n"
+        "  exit 0\n"
+        "fi\n"
+        "first=\"${range%%%%-*}\"; last=\"${range##*-}\"\n"
+        "count=$((last - first + 1))\n"
+        "if [ \"$first\" -ge %d ]; then\n"
+        "  file=\"$DATA/zip_tail_nrf52840_2.7.26.bin\"; off=$((first - %d))\n"
+        "elif [ \"$first\" -ge %d ]; then\n"
+        "  file=\"$DATA/zip_member_t114_mt_json_2.7.26.bin\"; off=$((first - %d))\n"
+        "else\n"
+        "  exit 4\n"
+        "fi\n"
+        "tail -c \"+$((off + 1))\" \"$file\" | head -c \"$count\" > \"$out\"\n"
+        "if [ %d -eq 1 ] && [ \"$off\" -eq 111 ]; then\n"
+        "  printf '\\000' | dd of=\"$out\" bs=1 seek=200 conv=notrunc 2>/dev/null\n"
+        "fi\n"
+        "exit 0\n",
+        MESH_TEST_DATA_DIR, ZIP_SIZE, TAIL_BASE, TAIL_BASE, MEMBER_BASE, MEMBER_BASE,
+        corrupt ? 1 : 0);
     const bool executable = fchmod(fileno(file), 0755) == 0;
     fclose(file);
     return executable;
@@ -124,10 +137,32 @@ static bool download_wait(struct mesh_event_loop *loop, struct mesh_fetch *fetch
     return probe->calls > 0U;
 }
 
+/* The orchestrator's completion, which carries no result of its own: everything worth
+   asserting is on the struct, which outlives the call. */
+struct fetch_probe {
+    unsigned calls;
+};
+
+static void fetch_probe_done(void *userdata, const struct mesh_firmware_fetch *fetch) {
+    (void)fetch;
+    ((struct fetch_probe *)userdata)->calls++;
+}
+
+static bool fetch_wait_done(struct mesh_event_loop *loop, struct mesh_fetch *fetcher,
+                            struct mesh_firmware_fetch *fetch, const struct fetch_probe *probe) {
+    for (int turn = 0; turn < 600 && probe->calls == 0U; ++turn) {
+        (void)mesh_event_loop_run(loop, 10);
+        mesh_fetch_tick(fetcher, 0U);
+        mesh_firmware_fetch_tick(fetch, 0U);
+    }
+    return probe->calls > 0U;
+}
+
 /* Removes the staged files and the temporary directory, whatever the case did. */
 static void download_clean_dir(const char *dir) {
-    static const char *const k_files[] = {"curl",           "firmware.window", "firmware.central",
-                                          "firmware.header", "firmware.gz",    "firmware.image"};
+    static const char *const k_files[] = {
+        "curl",        "firmware.window", "firmware.central", "firmware.header",
+        "firmware.gz", "firmware.image"};
     char path[512];
     for (size_t i = 0; i < sizeof k_files / sizeof k_files[0]; ++i) {
         snprintf(path, sizeof path, "%s/%s", dir, k_files[i]);
@@ -233,8 +268,7 @@ MESH_TEST_CASE(firmware_download_fetches_a_member_end_to_end, unit) {
             failure = "and it should parse as the board's manifest";
             goto cleanup;
         }
-        if (manifest.hw_model != 69U ||
-            strcmp(manifest.target, "heltec-mesh-node-t114") != 0) {
+        if (manifest.hw_model != 69U || strcmp(manifest.target, "heltec-mesh-node-t114") != 0) {
             failure = "naming the board it was fetched for";
             goto cleanup;
         }
@@ -326,8 +360,8 @@ MESH_TEST_CASE(firmware_download_tells_a_missing_member_from_a_broken_one, unit)
     memset(&probe, 0, sizeof probe);
     memset(&download, 0, sizeof download);
     if (mesh_firmware_download_start(&download, &fetch, "https://example.invalid/zip",
-                                     "firmware-heltec-v3-2.7.26.54e0d8d.bin", dir,
-                                     download_record, &probe) != 0) {
+                                     "firmware-heltec-v3-2.7.26.54e0d8d.bin", dir, download_record,
+                                     &probe) != 0) {
         failure = "the download should start";
         goto cleanup;
     }
@@ -398,15 +432,15 @@ MESH_TEST_CASE(firmware_download_refuses_what_it_cannot_do, unit) {
 
     struct mesh_firmware_download download;
     memset(&download, 0, sizeof download);
-    MESH_TEST_FAIL_IF(mesh_firmware_download_start(&download, &fetch, NULL, "a", "/tmp", NULL,
-                                                   NULL) != -EINVAL,
-                      "no URL is -EINVAL");
-    MESH_TEST_FAIL_IF(mesh_firmware_download_start(&download, &fetch, "u", "", "/tmp", NULL,
-                                                   NULL) != -EINVAL,
-                      "and so is an empty member name");
-    MESH_TEST_FAIL_IF(mesh_firmware_download_start(&download, &fetch, "u", "a", "/tmp", NULL,
-                                                   NULL) != -ENOTSUP,
-                      "with no fetcher there is nothing to try");
+    MESH_TEST_FAIL_IF(
+        mesh_firmware_download_start(&download, &fetch, NULL, "a", "/tmp", NULL, NULL) != -EINVAL,
+        "no URL is -EINVAL");
+    MESH_TEST_FAIL_IF(
+        mesh_firmware_download_start(&download, &fetch, "u", "", "/tmp", NULL, NULL) != -EINVAL,
+        "and so is an empty member name");
+    MESH_TEST_FAIL_IF(
+        mesh_firmware_download_start(&download, &fetch, "u", "a", "/tmp", NULL, NULL) != -ENOTSUP,
+        "with no fetcher there is nothing to try");
     MESH_TEST_FAIL_IF(mesh_firmware_download_busy(&download),
                       "and nothing was started, so nothing is running");
     MESH_TEST_FAIL_IF(mesh_firmware_download_progress(&download) != 0U,
@@ -414,5 +448,128 @@ MESH_TEST_CASE(firmware_download_refuses_what_it_cannot_do, unit) {
     MESH_TEST_FAIL_IF(mesh_firmware_download_image_path(&download, NULL, 0U) != NULL,
                       "and no image to point at");
     mesh_fetch_shutdown(&fetch);
+    record_success(test_name);
+}
+
+/*
+ * The orchestration, over the same fake CDN: a target and a release become a zip URL and a
+ * member name, and the two documents that decide them are read in order.
+ *
+ * Both cases here stop before the image, which is deliberate - the image download is what the
+ * cases above cover, and what these are about is the *resolution*. Each is a refusal that has
+ * to be its own row: "this release built nothing for your board" is an answer about upstream,
+ * and "these two documents describe different chips" is a reason to stop rather than to pick.
+ */
+MESH_TEST_CASE(firmware_fetch_resolves_a_target_to_a_zip_and_a_member, unit) {
+    char dir[] = "/tmp/meshclient_fwdl_XXXXXX";
+    MESH_TEST_FAIL_IF(mkdtemp(dir) == NULL, "could not create a temporary directory");
+
+    const char *failure = NULL;
+    char *saved_path = NULL;
+    struct mesh_event_loop loop;
+    struct mesh_fetch fetcher;
+    struct mesh_firmware_fetch fetch;
+    struct fetch_probe probe;
+    bool loop_up = false;
+    bool fetch_up = false;
+
+    if (!download_install_curl(dir, false)) {
+        failure = "could not install the fake CDN";
+        goto cleanup;
+    }
+    {
+        const char *const old_path = getenv("PATH");
+        saved_path = strdup(old_path != NULL ? old_path : "");
+        char next[2048];
+        snprintf(next, sizeof next, "%s:%s", dir, old_path != NULL ? old_path : "/usr/bin");
+        setenv("PATH", next, 1);
+    }
+    if (mesh_event_loop_init(&loop) != 0) {
+        failure = "event loop init failed";
+        goto cleanup;
+    }
+    loop_up = true;
+    if (mesh_fetch_init(&fetcher, &loop) != 0) {
+        failure = "fetch init failed";
+        goto cleanup;
+    }
+    fetch_up = true;
+
+    /*
+     * The T114 with an ESP32-S3 expectation. Everything resolves - the release manifest names
+     * nrf52840, the zip URL is built from it, the `.mt.json` is range-read out of the zip and
+     * parsed - and then the cross-check fires, which is exactly where it should.
+     */
+    memset(&probe, 0, sizeof probe);
+    memset(&fetch, 0, sizeof fetch);
+    if (mesh_firmware_fetch_start(
+            &fetch, &fetcher, "heltec-mesh-node-t114", "2.7.26.54e0d8d",
+            "https://example.invalid/download/v2.7.26.54e0d8d/firmware-2.7.26.54e0d8d.json",
+            "esp32-s3", dir, fetch_probe_done, &probe) != 0) {
+        failure = "the fetch should start";
+        goto cleanup;
+    }
+    if (!fetch_wait_done(&loop, &fetcher, &fetch, &probe)) {
+        failure = "it should have finished";
+        goto cleanup;
+    }
+    if (fetch.state != MESH_FIRMWARE_FETCH_FAILED ||
+        fetch.error != MESH_FIRMWARE_FETCH_ERROR_MISMATCH) {
+        failure = "two documents describing different chips is a mismatch, not a guess";
+        goto cleanup;
+    }
+    /* It got far enough to have done the resolution, which is what this case is really for. */
+    if (strcmp(fetch.platform, "nrf52840") != 0) {
+        failure = "the release manifest says the T114 is built on nrf52840";
+        goto cleanup;
+    }
+    if (strcmp(fetch.zip_url, "https://example.invalid/download/v2.7.26.54e0d8d/"
+                              "firmware-nrf52840-2.7.26.54e0d8d.zip") != 0) {
+        failure = "and the zip URL is derived from the manifest's own, not from a hostname";
+        goto cleanup;
+    }
+    if (fetch.manifest.hw_model != 69U) {
+        failure = "the board manifest was read out of the zip before the check fired";
+        goto cleanup;
+    }
+
+    /* A board this release did not build for: the first document answers and nothing is
+       range-read at all. */
+    memset(&probe, 0, sizeof probe);
+    memset(&fetch, 0, sizeof fetch);
+    if (mesh_firmware_fetch_start(
+            &fetch, &fetcher, "no-such-board", "2.7.26.54e0d8d",
+            "https://example.invalid/download/v2.7.26.54e0d8d/firmware-2.7.26.54e0d8d.json", "",
+            dir, fetch_probe_done, &probe) != 0) {
+        failure = "the second fetch should start";
+        goto cleanup;
+    }
+    if (!fetch_wait_done(&loop, &fetcher, &fetch, &probe)) {
+        failure = "it should have finished too";
+        goto cleanup;
+    }
+    if (fetch.state != MESH_FIRMWARE_FETCH_FAILED ||
+        fetch.error != MESH_FIRMWARE_FETCH_ERROR_NO_TARGET) {
+        failure = "a release that built nothing for this board is its own answer";
+        goto cleanup;
+    }
+    if (fetch.zip_url[0] != '\0') {
+        failure = "and no zip was named, because there was nothing to name one for";
+        goto cleanup;
+    }
+
+cleanup:
+    if (fetch_up) {
+        mesh_fetch_shutdown(&fetcher);
+    }
+    if (loop_up) {
+        mesh_event_loop_shutdown(&loop);
+    }
+    if (saved_path != NULL) {
+        setenv("PATH", saved_path, 1);
+        free(saved_path);
+    }
+    download_clean_dir(dir);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }

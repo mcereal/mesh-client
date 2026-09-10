@@ -90,6 +90,16 @@ enum mesh_uf2_verdict mesh_uf2_validate(const uint8_t *image, size_t len, uint32
                 verdict = MESH_UF2_MALFORMED;
                 break;
             }
+            /*
+             * A block that runs off the end of the address space is not an image, and it is
+             * the one arithmetic here that could wrap: both fields are 32-bit and both come
+             * out of the file. Left in, the span a caller computes comes back negative and
+             * enormous, which is a progress bar that never moves and a size check that passes.
+             */
+            if (block.target_address > UINT32_MAX - block.payload_size) {
+                verdict = MESH_UF2_MALFORMED;
+                break;
+            }
             if (i == 0U) {
                 info.has_family = block.has_family;
                 info.family_id = block.family_id;

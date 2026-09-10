@@ -59,6 +59,7 @@ add_library(meshclient_core
     src/core/firmware.c
     src/core/firmware_catalog.c
     src/core/firmware_download.c
+    src/core/firmware_fetch.c
     src/core/message.c
     src/core/waypoint.c
     src/core/radio_settings.c

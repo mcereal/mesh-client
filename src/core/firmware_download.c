@@ -156,9 +156,8 @@ static bool download_range(struct mesh_firmware_download *download, const char *
     if (!download_path(download, name, download->active_path, sizeof download->active_path)) {
         return false;
     }
-    const int written = snprintf(download->range, sizeof download->range,
-                                 "Range: bytes=%llu-%llu", (unsigned long long)first,
-                                 (unsigned long long)last);
+    const int written = snprintf(download->range, sizeof download->range, "Range: bytes=%llu-%llu",
+                                 (unsigned long long)first, (unsigned long long)last);
     if (written <= 0 || (size_t)written >= sizeof download->range) {
         return false;
     }
@@ -246,6 +245,7 @@ static void download_read_directory(struct mesh_firmware_download *download, con
         central = mesh_zip_central_slice(&end, window, len, download->window_offset);
         central_size = end.central_size;
         entries = end.entries;
+        download->central_offset = end.central_offset;
         if (central == NULL) {
             /*
              * A directory bigger than the window. Neither release zip measured needs this -
@@ -255,6 +255,7 @@ static void download_read_directory(struct mesh_firmware_download *download, con
              */
             download->window_offset = end.central_offset;
             download->window_len = (size_t)end.central_size;
+            download->central_offset = end.central_offset;
             free(window);
             mesh_log_info("firmware", "Central directory is %u bytes; fetching it on its own",
                           (unsigned)end.central_size);
@@ -263,8 +264,8 @@ static void download_read_directory(struct mesh_firmware_download *download, con
         }
     }
 
-    const bool found = mesh_zip_find_member(central, central_size, entries, download->member,
-                                            &download->entry);
+    const bool found =
+        mesh_zip_find_member(central, central_size, entries, download->member, &download->entry);
     free(window);
     if (!found) {
         download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_NO_MEMBER);
@@ -273,6 +274,18 @@ static void download_read_directory(struct mesh_firmware_download *download, con
     if (download->entry.method != MESH_ZIP_METHOD_DEFLATE &&
         download->entry.method != MESH_ZIP_METHOD_STORE) {
         download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_UNSUPPORTED);
+        return;
+    }
+    /*
+     * The member has to sit in front of the directory that described it. Nothing in the reader
+     * can check that - it is handed a directory and not a file - and the offset is the one
+     * answer here that becomes a range request, so a member claiming to live inside the central
+     * directory would have us fetch the directory and inflate it as firmware.
+     */
+    if (download->central_offset != 0U &&
+        download->entry.local_header_offset + (uint64_t)download->entry.compressed_size >
+            download->central_offset) {
+        download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_NOT_A_ZIP);
         return;
     }
     if (download->entry.compressed_size == 0U || download->entry.uncompressed_size == 0U) {
@@ -314,36 +327,34 @@ static void download_on_fetch(void *userdata, const struct mesh_fetch_result *re
         return;
     }
     switch (download->state) {
-        case MESH_FIRMWARE_DOWNLOAD_MEASURING: {
-            uint64_t size = 0U;
-            if (!mesh_fetch_content_length(result->body, result->len, &size) ||
-                size < MESH_ZIP_LOCAL_HEADER_SIZE) {
-                download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_NOT_A_ZIP);
-                return;
-            }
-            download->zip_size = size;
-            mesh_log_info("firmware", "The release zip is %llu bytes",
-                          (unsigned long long)size);
-            download_step_window(download);
-            break;
+    case MESH_FIRMWARE_DOWNLOAD_MEASURING: {
+        uint64_t size = 0U;
+        if (!mesh_fetch_content_length(result->body, result->len, &size) ||
+            size < MESH_ZIP_LOCAL_HEADER_SIZE) {
+            download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_NOT_A_ZIP);
+            return;
         }
-        case MESH_FIRMWARE_DOWNLOAD_READING:
-            /* Which of the two reads this was is the file it landed in, and the second one
-               only ever happens after the first has moved `window_offset` onto the record's
-               own answer. */
-            download_read_directory(download,
-                                    download->directory_only ? DOWNLOAD_FILE_CENTRAL
-                                                             : DOWNLOAD_FILE_WINDOW,
-                                    download->directory_only);
-            break;
-        case MESH_FIRMWARE_DOWNLOAD_LOCATING:
-            download_read_header(download);
-            break;
-        case MESH_FIRMWARE_DOWNLOAD_FETCHING:
-            download_step_inflate(download);
-            break;
-        default:
-            break;
+        download->zip_size = size;
+        mesh_log_info("firmware", "The release zip is %llu bytes", (unsigned long long)size);
+        download_step_window(download);
+        break;
+    }
+    case MESH_FIRMWARE_DOWNLOAD_READING:
+        /* Which of the two reads this was is the file it landed in, and the second one
+           only ever happens after the first has moved `window_offset` onto the record's
+           own answer. */
+        download_read_directory(
+            download, download->directory_only ? DOWNLOAD_FILE_CENTRAL : DOWNLOAD_FILE_WINDOW,
+            download->directory_only);
+        break;
+    case MESH_FIRMWARE_DOWNLOAD_LOCATING:
+        download_read_header(download);
+        break;
+    case MESH_FIRMWARE_DOWNLOAD_FETCHING:
+        download_step_inflate(download);
+        break;
+    default:
+        break;
     }
 }
 
@@ -413,10 +424,9 @@ static bool download_envelope(struct mesh_firmware_download *download, bool *out
             const size_t chunk =
                 len - at > DOWNLOAD_STORED_BLOCK_MAX ? DOWNLOAD_STORED_BLOCK_MAX : len - at;
             const bool final = at + chunk >= len;
-            const uint8_t block[5] = {
-                (uint8_t)(final ? 0x01U : 0x00U), (uint8_t)(chunk & 0xFFU),
-                (uint8_t)((chunk >> 8) & 0xFFU), (uint8_t)(~chunk & 0xFFU),
-                (uint8_t)((~chunk >> 8) & 0xFFU)};
+            const uint8_t block[5] = {(uint8_t)(final ? 0x01U : 0x00U), (uint8_t)(chunk & 0xFFU),
+                                      (uint8_t)((chunk >> 8) & 0xFFU), (uint8_t)(~chunk & 0xFFU),
+                                      (uint8_t)((~chunk >> 8) & 0xFFU)};
             (void)fwrite(block, 1U, sizeof block, file);
             (void)fwrite(member + at, 1U, chunk, file);
             at += chunk;
@@ -497,8 +507,7 @@ static void download_reaped(struct mesh_firmware_download *download, int status)
         return;
     }
     mesh_log_info("firmware", "Staged %llu bytes of firmware", (unsigned long long)size);
-    download_finish(download, MESH_FIRMWARE_DOWNLOAD_READY,
-                    MESH_FIRMWARE_DOWNLOAD_ERROR_NONE);
+    download_finish(download, MESH_FIRMWARE_DOWNLOAD_READY, MESH_FIRMWARE_DOWNLOAD_ERROR_NONE);
 }
 
 /* ---- the public half ----------------------------------------------------------------------*/
@@ -507,8 +516,7 @@ int mesh_firmware_download_start(struct mesh_firmware_download *download, struct
                                  const char *zip_url, const char *member, const char *staging_dir,
                                  mesh_firmware_download_done_fn on_done, void *userdata) {
     if (download == NULL || fetch == NULL || zip_url == NULL || member == NULL ||
-        staging_dir == NULL || zip_url[0] == '\0' || member[0] == '\0' ||
-        staging_dir[0] == '\0') {
+        staging_dir == NULL || zip_url[0] == '\0' || member[0] == '\0' || staging_dir[0] == '\0') {
         return -EINVAL;
     }
     if (mesh_firmware_download_busy(download)) {
@@ -552,7 +560,15 @@ int mesh_firmware_download_start(struct mesh_firmware_download *download, struct
 }
 
 void mesh_firmware_download_tick(struct mesh_firmware_download *download, uint64_t now_ms) {
-    if (download == NULL || download->inflater < 0) {
+    /*
+     * `<= 0`, not `< 0`, and the difference is not pedantry: a caller's ordinary way of using
+     * this struct is to zero it and start it, and an app that ticks all its modules will tick
+     * this one before anything has been started. That leaves `inflater` at 0 - which is not a
+     * pid, but which `kill()` reads as **the whole process group**, so a `< 0` test here sends
+     * SIGKILL to the client and everything it spawned. It took a test that ticked before
+     * starting to find it, and what it looked like was the test runner being killed.
+     */
+    if (download == NULL || download->inflater <= 0) {
         return;
     }
     if (now_ms >= download->inflate_deadline_ms) {
@@ -579,7 +595,7 @@ void mesh_firmware_download_cancel(struct mesh_firmware_download *download) {
     if (download->fetch != NULL) {
         mesh_fetch_cancel(download->fetch);
     }
-    if (download->inflater >= 0) {
+    if (download->inflater > 0) {
         (void)kill(download->inflater, SIGKILL);
         (void)waitpid(download->inflater, NULL, 0);
         download->inflater = -1;
