@@ -39,6 +39,17 @@ int mesh_serial_transport_disconnect(struct mesh_transport *transport);
 
 /* The device node of the connected port, or NULL when the link is down or still waking. */
 const char *mesh_serial_transport_connected_port(struct mesh_transport *transport);
+/*
+ * The sysfs interface id of the connected port ("2-1:1.1"), or NULL when the link is down.
+ *
+ * Separate from the path above because they answer different questions and only one of them is
+ * stable. A path is what a *person* recognises and it does not exist until a driver has bound -
+ * so the same T114 is "2-1:1.1" before its first connect and "/dev/ttyUSB0" after. The id names
+ * the place on the bus, which is what a caller asking "did this board come back?" needs: a
+ * firmware install watches for the same USB device to re-enumerate as a bootloader, and a board
+ * resets in place. See mesh/core/firmware_install.h.
+ */
+const char *mesh_serial_transport_connected_id(struct mesh_transport *transport);
 /* True between the port opening and the handshake going out. */
 bool mesh_serial_transport_is_connecting(struct mesh_transport *transport);
 

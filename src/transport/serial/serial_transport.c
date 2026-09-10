@@ -718,6 +718,18 @@ const char *mesh_serial_transport_connected_port(struct mesh_transport *transpor
     return state->connected.path;
 }
 
+const char *mesh_serial_transport_connected_id(struct mesh_transport *transport) {
+    if (transport == NULL || transport->state == NULL) {
+        return NULL;
+    }
+    const struct mesh_serial_transport_state *state =
+        (const struct mesh_serial_transport_state *)transport->state;
+    if (state->link_state != MESH_SERIAL_LINK_CONNECTED || state->connected.id[0] == '\0') {
+        return NULL;
+    }
+    return state->connected.id;
+}
+
 bool mesh_serial_transport_is_connecting(struct mesh_transport *transport) {
     if (transport == NULL || transport->state == NULL) {
         return false;

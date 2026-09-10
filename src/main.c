@@ -380,8 +380,16 @@ static int install_radio_firmware(struct mesh_app *app, const char *target, cons
     char port[64] = {0};
     if (have_radio) {
         run.link = &link;
-        mesh_str_copy(port, sizeof port, link.peer.identifier);
-        printf("Radio:    %s on %s\n", link.peer.name, port);
+        /*
+         * The transport's own id, not `link.peer.identifier`. That field is a *label* - the tty
+         * when there is one, the sysfs id before a driver has bound - so on a port the client
+         * has already bound once it reads "/dev/ttyUSB0", which names no place on the USB bus.
+         * The install matches a re-enumerated bootloader against the device the radio was on,
+         * so a label would make it wait out its timeout and report that no bootloader came.
+         */
+        const char *const id = mesh_serial_transport_connected_id(link.transport);
+        mesh_str_copy(port, sizeof port, id != NULL ? id : "");
+        printf("Radio:    %s on %s\n", link.peer.name, port[0] != '\0' ? port : "?");
     } else {
         printf("No radio on USB. Double-tap the reset button to put the board in its "
                "bootloader.\n");
