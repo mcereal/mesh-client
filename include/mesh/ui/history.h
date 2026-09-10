@@ -100,6 +100,17 @@ void mesh_ui_history_note_airtime(struct mesh_ui_history *history, uint32_t now_
 void mesh_ui_history_note_battery(struct mesh_ui_history *history, uint32_t now_ms,
                                   uint32_t node_id, uint8_t battery_level);
 
+/*
+ * Whether the radio's airtime has been reported often enough to draw a line between.
+ *
+ * Two readings, which is the sparkline's own floor: one is a level and there is a component for
+ * that. It is a question of the history rather than of a series because three places ask it -
+ * the verb table that offers the chart, the action bar that names the press, and the screen that
+ * draws it - and three of them counting samples by hand is three chances to disagree about
+ * whether a screen exists.
+ */
+bool mesh_ui_history_has_airtime(const struct mesh_ui_history *history);
+
 /* That node's battery trend, or NULL when nothing has been kept for it. Borrowed: it lives as
    long as the history does, which for a snapshot is the frame being drawn from it. */
 const struct mesh_ui_series *mesh_ui_history_battery(const struct mesh_ui_history *history,

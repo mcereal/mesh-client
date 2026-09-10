@@ -731,23 +731,86 @@ void mesh_ui_series_project(const struct mesh_ui_series *series, struct mesh_ui_
         return;
     }
 
+    /* Its own two ends, which is the right window for a line drawn by itself: one series is
+       measured against nothing else, so the shape is all of the reading and the box is all of
+       the room. A picture with a second line on it wants mesh_ui_series_window() instead. */
     const struct mesh_ui_sample *oldest = mesh_ui_series_at(series, 0U);
     const struct mesh_ui_sample *newest = mesh_ui_series_newest(series);
-    /* Pushes are ordered and a backwards clock empties the series, so this cannot underflow. */
-    const uint32_t span = newest->time - oldest->time;
+    mesh_ui_series_project_over(series, scale, oldest->time, newest->time, out);
+}
+
+bool mesh_ui_series_window(const struct mesh_ui_series *const *series, uint32_t count,
+                           uint32_t *out_from, uint32_t *out_to) {
+    if (series == NULL || count == 0U) {
+        return false;
+    }
+    uint32_t from = 0U;
+    uint32_t to = 0U;
+    bool any = false;
+    for (uint32_t i = 0U; i < count; ++i) {
+        const struct mesh_ui_series *one = series[i];
+        if (one == NULL || one->count == 0U) {
+            continue; /* a series with nothing in it frames nothing, and is not an error */
+        }
+        const uint32_t first = mesh_ui_series_at(one, 0U)->time;
+        const uint32_t last = mesh_ui_series_newest(one)->time;
+        if (!any || first < from) {
+            from = first;
+        }
+        if (!any || last > to) {
+            to = last;
+        }
+        any = true;
+    }
+    /* Both ends, and two of them: everything the client keeps is stamped by one monotonic clock,
+       so a window of zero width means every reading landed inside one tick rather than that the
+       series disagree. There is nothing to lay an axis along either way. */
+    if (!any || to <= from) {
+        return false;
+    }
+    if (out_from != NULL) {
+        *out_from = from;
+    }
+    if (out_to != NULL) {
+        *out_to = to;
+    }
+    return true;
+}
+
+void mesh_ui_series_project_over(const struct mesh_ui_series *series, struct mesh_ui_scale scale,
+                                 uint32_t from, uint32_t to, struct mesh_ui_polyline *out) {
+    if (out == NULL) {
+        return;
+    }
+    memset(out, 0, sizeof *out);
+    if (series == NULL || series->count == 0U) {
+        return;
+    }
+
+    const uint32_t span = to > from ? to - from : 0U;
     const uint32_t last = series->count > 1U ? series->count - 1U : 1U;
 
     uint32_t previous = 0U;
     for (uint32_t i = 0U; i < series->count; ++i) {
         const struct mesh_ui_sample *sample = mesh_ui_series_at(series, i);
         struct mesh_ui_point *point = &out->items[i];
-        /* Across the span the readings were actually taken over - or evenly, when the clock
-           could not separate them at all, which is the one case the sample number is the axis
-           and is what `span == 0` means here. */
-        point->x = (int16_t)(span > 0U ? (int32_t)(((uint64_t)(sample->time - oldest->time) *
-                                                    (uint64_t)MESH_UI_ANIM_ONE) /
-                                                   span)
-                                       : (int32_t)(((uint64_t)i * MESH_UI_ANIM_ONE) / last));
+        /* Across the window - or evenly, when it has no width at all, which is the one case the
+           sample number is the axis and is what `span == 0` means here. */
+        int32_t x = (int32_t)(((uint64_t)i * MESH_UI_ANIM_ONE) / last);
+        if (span > 0U) {
+            /* Held at the edge it fell off, rather than wrapped: `sample->time - from` is
+               unsigned, so a reading older than the window would otherwise come out as a point
+               most of a picture to the right of everything it happened before. */
+            if (sample->time <= from) {
+                x = 0;
+            } else if (sample->time >= to) {
+                x = MESH_UI_ANIM_ONE;
+            } else {
+                x = (int32_t)(((uint64_t)(sample->time - from) * (uint64_t)MESH_UI_ANIM_ONE) /
+                              span);
+            }
+        }
+        point->x = (int16_t)x;
         point->y = (int16_t)mesh_ui_scale_permille(scale, sample->value);
         /* The first sample continues nothing; neither does one that arrived after a silence the
            series calls a break, nor one the source itself broke before - a discontinuity the

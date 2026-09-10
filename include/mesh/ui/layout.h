@@ -569,4 +569,38 @@ struct mesh_ui_polyline {
 void mesh_ui_series_project(const struct mesh_ui_series *series, struct mesh_ui_scale scale,
                             struct mesh_ui_polyline *out);
 
+/*
+ * The clock window a set of series covers: the oldest stamp on any of them, and the newest.
+ *
+ * One window for several series rather than one each, because that is the whole of what makes
+ * two lines on one picture comparable. A series projected on its own span is stretched to fill
+ * whatever box it is handed, so two of them - one an hour long, one that stopped reporting
+ * twenty minutes ago - come out the same width, and the second is drawn as though it were still
+ * arriving. Read together they say the two readings tracked each other, which is a claim neither
+ * series made. Only the sparkline can get away without this, and only because it draws one line.
+ *
+ * False when there is nothing to frame: no series, all of them empty, or every stamp alike. A
+ * window needs two ends, and the caller that cannot have one draws nothing rather than a frame
+ * around an axis of zero width.
+ */
+bool mesh_ui_series_window(const struct mesh_ui_series *const *series, uint32_t count,
+                           uint32_t *out_from, uint32_t *out_to);
+
+/*
+ * The same projection, over a window stated by the caller rather than over the series' own.
+ *
+ * mesh_ui_series_project() is this with the series' own two ends, which is the right window for
+ * a line drawn by itself. What a chart wants instead is one window across everything on it - see
+ * mesh_ui_series_window() - so that a series which stopped reporting ends where it stopped
+ * rather than at the right-hand edge.
+ *
+ * A sample outside the window is held at the edge it fell off: a window is a frame, and a
+ * reading that lands outside one is a reading the picture does not have room to be honest about.
+ * `to` at or before `from` falls back to even spacing, which is mesh_ui_series_project()'s own
+ * answer for a span of zero and is here for the same reason - the order of the samples is then
+ * all that is known about them.
+ */
+void mesh_ui_series_project_over(const struct mesh_ui_series *series, struct mesh_ui_scale scale,
+                                 uint32_t from, uint32_t to, struct mesh_ui_polyline *out);
+
 #endif /* MESH_UI_LAYOUT_H */

@@ -101,6 +101,13 @@ void mesh_ui_history_note_battery(struct mesh_ui_history *history, uint32_t now_
     mesh_ui_series_push(&slot->battery, now_ms, (int32_t)battery_level);
 }
 
+bool mesh_ui_history_has_airtime(const struct mesh_ui_history *history) {
+    /* The channel's own series rather than both: the two are pushed together by
+       mesh_ui_history_note_airtime(), so they cannot differ in count, and asking about one of a
+       pair that arrives in lockstep is asking about the pair. */
+    return history != NULL && history->channel_utilization.count >= 2U;
+}
+
 const struct mesh_ui_series *mesh_ui_history_battery(const struct mesh_ui_history *history,
                                                      uint32_t node_id) {
     if (history == NULL || node_id == 0U) {
