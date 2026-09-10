@@ -1,3 +1,14 @@
+## [2.47.0](https://github.com/mcereal/mesh-client/compare/v2.46.0...v2.47.0) (2026-09-10)
+
+### Features
+
+* **settings:** offer the radio firmware channel as a row ([57bb8e9](https://github.com/mcereal/mesh-client/commit/57bb8e97314c338be54f0f5f649c73c3a5f1078b))
+
+### Documentation
+
+* **maps:** correct the offline premise and re-sequence around acquisition ([086d1e3](https://github.com/mcereal/mesh-client/commit/086d1e37b6d6d6328a28fd3bbfb53b610ac4c964))
+* **maps:** name the right viewport inverse for an on-screen download ([2fe6656](https://github.com/mcereal/mesh-client/commit/2fe66565c8cfeb040aefcee8b485941d5145ea85))
+
 ## [2.46.0](https://github.com/mcereal/mesh-client/compare/v2.45.0...v2.46.0) (2026-09-10)
 
 ### Features

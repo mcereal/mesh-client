@@ -1,17 +1,17 @@
 {
   "name": "MeshClient",
-  "version": "v2.46.0",
+  "version": "v2.47.0",
   "type": "TOOL",
   "description": "A Meshtastic client for your handheld: read and send messages, browse the mesh, and edit your radio's settings over Bluetooth LE or USB.",
   "author": "mcereal",
   "repo_url": "https://github.com/mcereal/mesh-client",
   "release_filename": "MeshClient.pak.zip",
   "changelog": {
+    "v2.47.0": "Offer the radio firmware channel as a row.",
     "v2.46.0": "Say what firmware the radio could be running; Read the firmware catalog upstream publishes; Two findings from the Codex review; Refuse a release whose tag is a 'v' and nothing else; Drop a firmware answer that belongs to another radio.",
     "v2.45.0": "Draw every positioned node the session holds; Give the range test a scan to read, and the grace a reconnect; Auto-connect to the radio you have, not the one BlueZ remembers.",
     "v2.44.0": "Draw the map, and record what steps 1 and 2 became; Put the nodes and the places on a map; Project a coordinate onto a flat picture of the world; Keep the map's presses and its ink inside the map.",
-    "v2.43.1": "Date a press's toast by the clock driving the frames; Say why a new waypoint cannot be made.",
-    "v2.43.0": "Explain the long tail of settings rows; Stop a help topic falling back across a subheading."
+    "v2.43.1": "Date a press's toast by the clock driving the frames; Say why a new waypoint cannot be made."
   },
   "screenshots": [
     ".github/resources/screenshots/nodes.png",
