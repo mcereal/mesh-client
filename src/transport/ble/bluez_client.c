@@ -536,6 +536,12 @@ static void mesh_bluez_apply_mock_devices(struct mesh_bluez_device_info *devices
         if (!devices[i].paired && mesh_bluez_mock_is_paired(devices[i].address)) {
             devices[i].paired = true;
         }
+        /* A mock device that names a signal strength is saying it was heard, exactly as the
+           RSSI property does on the bus. A test that wants a bond with nothing behind it -
+           the node left at home - writes the 0 bluetoothd leaves behind. */
+        if (!devices[i].in_range && devices[i].rssi != 0) {
+            devices[i].in_range = true;
+        }
     }
     *count = to_copy;
 }
@@ -2802,6 +2808,8 @@ int mesh_bluez_client_list_meshtastic(struct mesh_bluez_client *client,
                     int16_t rssi = 0;
                     dbus_message_iter_get_basic(&variant_iter, &rssi);
                     info.rssi = rssi;
+                    /* The property being here at all is the range test; see `in_range`. */
+                    info.in_range = true;
                 }
 
                 dbus_message_iter_next(&props_iter);

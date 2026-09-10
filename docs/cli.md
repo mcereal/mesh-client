@@ -50,18 +50,36 @@ air** — it needs no pairing, has no range to lose, and is almost certainly why
 there.
 
 1. **USB first.** If any port is discovered, it takes the preferred one
-   (`MESHCLIENT_PREFERRED_SERIAL_DEVICE`) or the first found, with no grace period. Only if that
-   connect fails outright does it fall through to Bluetooth.
-2. **Then BLE.** The preferred node (`--preferred-device`, `MESHCLIENT_PREFERRED_BLE_DEVICE`, or
-   the last node it connected to) when it is in range, otherwise the strongest Meshtastic
-   advertiser after a 30 s grace period.
+   (`MESHCLIENT_PREFERRED_SERIAL_DEVICE`), else the port used most recently, else the first
+   found — with no grace period. Only if that connect fails outright does it fall through to
+   Bluetooth.
+2. **Then BLE**, over the nodes that answered the last scan and only those. In order:
+   1. the preferred node (`--preferred-device`, `MESHCLIENT_PREFERRED_BLE_DEVICE`, or the last
+      node connected to), if it is in range;
+   2. otherwise the radio of *yours* that is in range and was used most recently — the client
+      keeps the last eight it has connected to over either link;
+   3. otherwise the strongest Meshtastic advertiser.
+
+**Only a node that answered the scan is a candidate.** BlueZ lists every device it holds a bond
+for, so a radio switched off in another building is in that list all day with the right address,
+the right name and `Paired` set — and with no RSSI at all, which as a raw number reads as a
+stronger signal than anything real. Taking either at face value is how leaving the house with the
+second of two radios used to spend the whole session timing out against the one still at home.
+
+The grace period is how long the preferred node gets to show up before another is used: **5 s**
+when a radio of yours is already advertising — long enough for a node that is merely slow, short
+enough that being wrong costs seconds rather than half a minute — and **30 s** when the only
+alternative is a node you have never connected to.
 
 Failed attempts back off from 2 s to 60 s; only an established link clears the backoff. The two
 preferences are kept apart, so unplugging a USB node does not erase which radio to look for over
-the air.
+the air. Forgetting a node's pairing in the Devices tab also drops it from the list, so the radio
+you used before it takes its place.
 
-`--status`, `--list-devices` and `--send-text` are unaffected. Set `MESHCLIENT_AUTOCONNECT=0` to
-stop it.
+`--status`, `--list-devices` and `--send-text` do not auto-connect. They apply the same range
+test, though: the one-shot link picks among nodes that answered the scan, and `--list-devices`
+prints `[not in range]` for a bond with nothing behind it rather than an RSSI of 0. Set
+`MESHCLIENT_AUTOCONNECT=0` to stop auto-connect.
 
 ## Environment variables
 

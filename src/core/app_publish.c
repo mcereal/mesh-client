@@ -1340,7 +1340,8 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         snprintf(slot->name, sizeof slot->name, "%s", serial_devices[i].name);
         slot->kind = (uint8_t)MESH_UI_DEVICE_SERIAL;
         slot->rssi = 0;
-        slot->paired = true; /* a cable has nothing to bond */
+        slot->in_range = true; /* a port that is enumerated is plugged in */
+        slot->paired = true;   /* a cable has nothing to bond */
         slot->connected = (connected_address != NULL && connected_address[0] != '\0' &&
                            strcmp(connected_address, identifier) == 0);
         if (slot->connected) {
@@ -1375,6 +1376,13 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
             (pending_address != NULL && strcmp(pending_address, ble_devices[i].address) == 0);
         slot->connected = (connected_address != NULL && connected_address[0] != '\0' &&
                            strcmp(connected_address, ble_devices[i].address) == 0);
+        /* A radio answering us is better evidence of range than any advertisement, and the
+           scan is held down for the whole of a link - so the node we are on says so even
+           after BlueZ has dropped the RSSI it was last heard at. A connect that is merely in
+           flight is not evidence of anything: pressing A on a row for a radio that is at home
+           would otherwise turn it "in range" with a 0 dBm reading for the whole of the
+           connect timeout, and count it on the Status card while it did. */
+        slot->in_range = ble_devices[i].in_range || slot->connected;
         if (slot->connected) {
             connected_address_seen = true;
         }
@@ -1388,6 +1396,9 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         snprintf(ui_devices[device_count].name, sizeof(ui_devices[device_count].name), "%s",
                  mesh_str(MESH_STR_DEVICES_CONNECTED_NAME));
         ui_devices[device_count].rssi = 0;
+        /* The scan is held down while a link is up, so the node we are talking to has no
+           fresh RSSI - but a radio answering us is the strongest evidence of range there is. */
+        ui_devices[device_count].in_range = true;
         ui_devices[device_count].connected = true;
         ++device_count;
     }
@@ -1427,13 +1438,9 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         const uint8_t connected_kind = (active == mesh_serial_transport())
                                            ? (uint8_t)MESH_UI_DEVICE_SERIAL
                                            : (uint8_t)MESH_UI_DEVICE_BLE;
-        if (strcmp(app->ui_preferences.preferred_device, connected_address) != 0 ||
-            app->ui_preferences.preferred_device_kind != connected_kind) {
-            snprintf(app->ui_preferences.preferred_device,
-                     sizeof app->ui_preferences.preferred_device, "%s", connected_address);
-            app->ui_preferences.preferred_device_kind = connected_kind;
-            preferences_modified = true;
-        }
+        /* The helper raises ui_preferences_dirty when the file needs rewriting, which the
+           flush at the end of this function already acts on. */
+        mesh_app_note_connected_device(app, connected_address, connected_kind);
     }
 
     if (app->publish_cache == NULL) {

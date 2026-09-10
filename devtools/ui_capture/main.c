@@ -138,16 +138,30 @@ struct uicap_message_seed {
  * transcript's separators have something to separate.
  */
 static void uicap_scene_demo(struct uicap *cap) {
-    const struct mesh_ui_device devices[3] = {
+    /* The last of these is the radio that is not here: BlueZ holds its bond and lists it with
+       every other node, and it has no signal reading to draw because nothing has heard it. It
+       is in the fixture because it is the ordinary case for anyone who owns two radios, and
+       because a row that says "0dBm" about it would claim to be the loudest node on the
+       screen - see mesh_bluez_device_info.in_range. */
+    const struct mesh_ui_device devices[4] = {
         {.identifier = "F4:12:FA:00:0A:11",
          .name = "Home Base",
          .rssi = -48,
+         .in_range = true,
          .connected = true,
          .paired = true},
-        {.identifier = "F4:12:FA:00:0A:22", .name = "Summit Relay", .rssi = -71, .paired = true},
-        {.identifier = "F4:12:FA:00:0A:33", .name = "Meshtastic 4c2a", .rssi = -88},
+        {.identifier = "F4:12:FA:00:0A:22",
+         .name = "Summit Relay",
+         .rssi = -71,
+         .in_range = true,
+         .paired = true},
+        {.identifier = "F4:12:FA:00:0A:33",
+         .name = "Meshtastic 4c2a",
+         .rssi = -88,
+         .in_range = true},
+        {.identifier = "F4:12:FA:00:0A:44", .name = "Pack Radio", .paired = true},
     };
-    mesh_ui_store_set_discovery(&cap->store, devices, 3U);
+    mesh_ui_store_set_discovery(&cap->store, devices, 4U);
 
     /*
      * Four of these are zero hops away and not over MQTT, which is what makes them *heard* -
