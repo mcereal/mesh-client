@@ -140,11 +140,34 @@ static bool usb_radio(const char *root, const char *name) {
 }
 
 /*
+ * The node under `MESHCLIENT_DEV_ROOT` that stands in for `/dev/sda`.
+ *
+ * It has to exist before anything writes to it, because the claim creates nothing: on the
+ * device this opens a node the kernel published, and an `O_CREAT` there would turn a drive that
+ * vanished mid-install into a regular file sitting where the drive goes.
+ */
+static bool drive_node(const char *name) {
+    const char *const root = getenv("MESHCLIENT_DEV_ROOT");
+    char path[PATH_MAX];
+    if (root == NULL || snprintf(path, sizeof path, "%s/%s", root, name) >= (int)sizeof path) {
+        return false;
+    }
+    if (access(path, F_OK) == 0) {
+        return true;
+    }
+    return fixture_put(path, "");
+}
+
+/*
  * A block device that belongs to USB device `usb_name`.
  *
  * `/sys/block/sda` is a symlink into the device tree, and the path it points at walks through
  * every USB device between the controller and the disk - which is how a drive is tied to the
  * bootloader that published it without reading a single attribute.
+ *
+ * Publishing the disk is both halves: `usb-storage` puts the entry in sysfs and the node in
+ * `/dev`, about a second after the board re-enumerates, and a fixture that laid out only the
+ * first would be one no write could land on.
  */
 static bool block_device(const char *root, const char *name, const char *usb_name,
                          const char *sectors) {
@@ -168,7 +191,7 @@ static bool block_device(const char *root, const char *name, const char *usb_nam
         !fixture_put(size, sectors)) {
         return false;
     }
-    return true;
+    return drive_node(name);
 }
 
 struct install_fixture {
@@ -354,10 +377,7 @@ MESH_TEST_CASE(usb_msc_knows_one_drive_spelled_two_ways, unit) {
     built = built && block_device(fixture.block, "sda", "2-1", "65801");
 
     /* The drive itself, and a second path that goes through a link and lands on it. */
-    char drive[PATH_MAX];
     char alias[PATH_MAX];
-    built = built && snprintf(drive, sizeof drive, "%s/sda", fixture.dev) < (int)sizeof drive &&
-            fixture_put(drive, "");
     built = built && snprintf(alias, sizeof alias, "%s/dev", fixture.dev) < (int)sizeof alias &&
             (symlink(fixture.dev, alias) == 0 || errno == EEXIST);
 
@@ -455,6 +475,8 @@ MESH_TEST_CASE(usb_msc_write_lands_every_byte, unit) {
 
     char path[128];
     snprintf(path, sizeof path, "%s/sda", fixture.dev);
+    MESH_TEST_FAIL_IF_CLEANUP(!drive_node("sda"), (free(image), fixture_close(&fixture)),
+                              "could not publish the drive node");
 
     struct mesh_usb_msc_write write;
     memset(&write, 0, sizeof write);
@@ -509,18 +531,22 @@ MESH_TEST_CASE(usb_msc_write_reports_a_drive_it_cannot_open, unit) {
 }
 
 /*
- * The claim, and the flag pair that must never meet.
+ * The claim creates nothing, and the flag pair that must never meet.
  *
- * `mesh_usb_msc_claim()` asks for `O_EXCL` on a block device - an exclusive claim, which is
- * what keeps the platform's hotplug mount off the drive for the length of the write - and for
- * `O_CREAT` on anything else, which is what makes the write testable against a file. Putting
- * both on one open turns the claim into the unrelated "fail if it exists", so the way this
- * would silently stop working is a file that already exists being refused.
+ * `mesh_usb_msc_claim()` asks for `O_EXCL` - an exclusive claim on a block device, which is what
+ * keeps the platform's hotplug mount off the drive for the length of the write - and asks for it
+ * on its own. An `O_CREAT` beside it would be wrong twice over. It is the unrelated "fail if it
+ * exists" when the two meet, so the claim would silently stop working; and on its own it would
+ * make a **regular file where the drive goes**. That second one is not hypothetical here: this
+ * opens the one device on the system that disappears for a living, and the gap between finding
+ * `/dev/sda` and opening it is a gap a resetting bootloader fits through. What would sit there
+ * afterwards is a file holding the image, in the way of the real device node on the next plug.
  *
- * A real block device is not something a suite can conjure, so what is checked here is the half
- * that is reachable: the file path opens, twice, and lands its bytes where it was pointed.
+ * A real block device is not something a suite can conjure, so what is checked is the half that
+ * is reachable: an existing file opens, twice over, and a path with nothing at it is a refusal
+ * that leaves the path empty.
  */
-MESH_TEST_CASE(usb_msc_claim_opens_a_file_that_is_already_there, unit) {
+MESH_TEST_CASE(usb_msc_claim_opens_what_is_there_and_creates_nothing, unit) {
     char path[] = "/tmp/meshclient-claim-XXXXXX";
     const int seeded = mkstemp(path);
     MESH_TEST_FAIL_IF(seeded < 0, "could not seed a file to claim");
@@ -535,11 +561,22 @@ MESH_TEST_CASE(usb_msc_claim_opens_a_file_that_is_already_there, unit) {
     if (second >= 0) {
         close(second);
     }
-    const int missing = mesh_usb_msc_claim("");
     (void)unlink(path);
+
+    /* And the drive that went away between being found and being opened. */
+    const int gone = mesh_usb_msc_claim(path);
+    if (gone >= 0) {
+        close(gone);
+    }
+    const bool made_one = access(path, F_OK) == 0;
+    (void)unlink(path);
+
+    const int missing = mesh_usb_msc_claim("");
 
     MESH_TEST_FAIL_IF(first < 0, "a file that is already there should be claimable");
     MESH_TEST_FAIL_IF(second < 0, "and claimable again - O_CREAT and O_EXCL must not meet");
+    MESH_TEST_FAIL_IF(gone != -ENOENT, "a drive that is not there is a refusal");
+    MESH_TEST_FAIL_IF(made_one, "and nothing is left where the drive should have been");
     MESH_TEST_FAIL_IF(missing != -EINVAL, "and an empty path is a refusal rather than an open");
     record_success(test_name);
 }
@@ -909,7 +946,7 @@ MESH_TEST_CASE(install_reads_a_write_that_ended_with_the_bootloader_as_the_board
     built = built && block_device(fixture.block, "sda", "2-1", "65801");
     built = built && stage_image(fixture.dev, 2U, image_path, sizeof image_path);
     built = built && snprintf(drive, sizeof drive, "%s/sda", fixture.dev) < (int)sizeof drive &&
-            symlink("/dev/full", drive) == 0;
+            unlink(drive) == 0 && symlink("/dev/full", drive) == 0;
     MESH_TEST_FAIL_IF_CLEANUP(!built, fixture_close(&fixture), "could not build the fixtures");
 
     struct install_run run;

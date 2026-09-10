@@ -275,19 +275,21 @@ int mesh_usb_msc_find(const struct mesh_serial_device_info *device,
  * here instead of writing into a filesystem's device. The retry is for the other order: a mount
  * that landed between the unmount above and this open is one more unmount away.
  *
- * A path that is not a block device (the suite's file under `MESHCLIENT_DEV_ROOT`) takes
- * `O_CREAT` and no claim. The two flags must not meet: `O_CREAT | O_EXCL` is the unrelated
- * "fail if it exists", which is how this would have silently become a no-op.
+ * Nothing is created and nothing is tested first, and both of those are the same decision. A
+ * `stat()` ahead of the open would be answering about a *path* a moment before using it, and the
+ * device this opens is one that disappears for a living: the bootloader resets and `/dev/sda`
+ * goes with it. With an `O_CREAT` behind that reading, a drive that vanished between being found
+ * and being opened comes back as a **regular file at `/dev/sda` holding the image** - which then
+ * stands in the way of the real device node on the next plug, so every install after it writes
+ * to a file. So the open is the only test: a drive that is not there is `-ENOENT`.
+ *
+ * `O_EXCL` without `O_CREAT` is ignored on a regular file, which is what lets the suite point
+ * this at one. The two flags must never meet: together they are the unrelated "fail if it
+ * exists", which is how the claim would have silently become a no-op.
  */
 int mesh_usb_msc_claim(const char *device_path) {
     if (device_path == NULL || device_path[0] == '\0') {
         return -EINVAL;
-    }
-    struct stat st;
-    const bool is_block = stat(device_path, &st) == 0 && S_ISBLK(st.st_mode);
-    if (!is_block) {
-        const int file = open(device_path, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
-        return file < 0 ? -errno : file;
     }
 
     int err = 0;

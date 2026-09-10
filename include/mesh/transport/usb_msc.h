@@ -112,9 +112,16 @@ int mesh_usb_msc_unmount(struct mesh_usb_msc_target *target);
  * and the race has no second party. `-EBUSY` coming back from here means the other order
  * happened; the retry unmounts and asks again.
  *
- * A path that is not a block device gets `O_CREAT` and no claim, which is what makes the write
- * testable against a file. The two flags must never meet: `O_CREAT | O_EXCL` is the unrelated
- * "fail if it exists".
+ * It creates nothing, and it tests nothing before opening. A `stat()` ahead of the open would be
+ * an answer about a path a moment before it is used, and this opens the one device on the system
+ * that disappears for a living - the bootloader resets and `/dev/sda` goes with it. Behind an
+ * `O_CREAT`, a drive that vanished between being found and being opened comes back as a regular
+ * file at `/dev/sda` holding the image, which then stands in the way of the real device node on
+ * the next plug. A drive that is not there is `-ENOENT`.
+ *
+ * `O_EXCL` without `O_CREAT` is ignored on a regular file, which is what lets the suite point
+ * this at one. The two flags must never meet: together they are the unrelated "fail if it
+ * exists".
  */
 int mesh_usb_msc_claim(const char *device_path);
 
