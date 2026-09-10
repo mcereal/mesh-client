@@ -79,8 +79,13 @@ static char *fetch_install_fake_curl(const char *dir, const char *script) {
         return NULL;
     }
     fputs(script, file);
+    /* On the descriptor rather than the path: a chmod() by name looks the file up a second
+       time, and the one it finds need not be the one just written. The directory is ours and
+       0700, so nothing could actually swap it - but the pattern is the bug, not the odds, and
+       CodeQL is right to say so. */
+    const bool executable = fchmod(fileno(file), 0755) == 0;
     fclose(file);
-    if (chmod(path, 0755) != 0) {
+    if (!executable) {
         return NULL;
     }
     const char *const old_path = getenv("PATH");

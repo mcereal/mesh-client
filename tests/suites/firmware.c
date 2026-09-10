@@ -97,8 +97,10 @@ static bool firmware_harness_up(struct firmware_harness *harness) {
             "esac\n"
             "exit 7\n",
             MESH_TEST_DATA_DIR, MESH_TEST_DATA_DIR);
+    /* On the descriptor, not the path - see fetch.c's copy of this helper for why. */
+    const bool executable = fchmod(fileno(script), 0755) == 0;
     fclose(script);
-    if (chmod(curl_path, 0755) != 0) {
+    if (!executable) {
         return false;
     }
 

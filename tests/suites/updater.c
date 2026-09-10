@@ -503,8 +503,10 @@ MESH_TEST_CASE(updater_fetch_and_install, unit) {
             "while [ ! -f '%s' ]; do sleep 0.02; done\n"
             "cp '%s' \"$out\"\n",
             json_path, (unsigned)k_payload_half, payload_path, gate_path, payload_path);
+    /* On the descriptor, not the path - see fetch.c's copy of this helper for why. */
+    const bool executable = fchmod(fileno(script), 0755) == 0;
     fclose(script);
-    if (chmod(curl_path, 0755) != 0) {
+    if (!executable) {
         failure = "could not make the fake curl executable";
         goto cleanup;
     }
@@ -767,8 +769,10 @@ MESH_TEST_CASE(updater_child_outlives_stdout, unit) {
     }
     /* Closes stdout immediately, then lingers well past the test's budget. */
     fprintf(script, "#!/bin/sh\nexec >&-\nsleep 120\n");
+    /* On the descriptor, not the path - see fetch.c's copy of this helper for why. */
+    const bool executable = fchmod(fileno(script), 0755) == 0;
     fclose(script);
-    if (chmod(curl_path, 0755) != 0) {
+    if (!executable) {
         failure = "could not make the fake curl executable";
         goto cleanup;
     }
