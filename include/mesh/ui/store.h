@@ -1053,7 +1053,15 @@ struct mesh_ui_message_list {
 #define MESH_UI_READ_MARKS_MAX 32U
 
 /*
- * "Everything up to and including this packet in this conversation has been seen." A packet id
+ * What the client remembers about one conversation, keyed the way the UI names a destination.
+ *
+ * Two things, and they share a slot because they share a key and a lifetime: how far the user
+ * has read, and whether they want to hear about it at all. A mute in a table of its own would
+ * be a second array keyed on (kind, channel, node) and a second eviction rule to keep in step
+ * with this one - the read mark's key *is* the conversation's identity, so there is nothing a
+ * separate table would express that a field here does not.
+ *
+ * `packet_id` is "everything up to and including this packet has been seen". A packet id
  * rather than a timestamp or an index: ids survive the ring evicting older messages and the
  * cache merging history back in, and a mark whose message has since been evicted correctly
  * reads as "everything still in view arrived after it".
@@ -1064,6 +1072,14 @@ struct mesh_ui_read_mark {
     uint32_t node;
     uint32_t packet_id;
     uint32_t stamp; /* bumped on every write, so the least recently read can be evicted */
+    /*
+     * The user has asked not to be interrupted by this conversation: no badge on the tab, no
+     * snackbar when something arrives. The messages still arrive and the thread still fills.
+     *
+     * Deliberately not the only input to that question - see mesh_ui_store_conversation_muted(),
+     * which also honours the radio's own per-node mute. This is the half the client owns.
+     */
+    bool muted;
 };
 
 struct mesh_ui_read_state {
@@ -1208,6 +1224,9 @@ bool mesh_ui_store_handle_key(struct mesh_ui_store *store, enum mesh_ui_key key,
                               struct mesh_ui_action *out_action);
 /* Show a transient one-line notice on the backends ("Sent to ABCD"). */
 void mesh_ui_store_set_toast(struct mesh_ui_store *store, uint64_t now_ms, const char *text);
+/* A notice about something that arrived, which queues rather than replacing - see
+   mesh_ui_nav_post_toast(). */
+void mesh_ui_store_post_toast(struct mesh_ui_store *store, uint64_t now_ms, const char *text);
 /* Raises (or takes down) the BLE pairing prompt. Called from the app when the BlueZ agent has
    a question outstanding, not from the key handler; see mesh_ui_nav_open_passkey(). */
 void mesh_ui_store_open_passkey_prompt(struct mesh_ui_store *store, const char *label,
@@ -1239,6 +1258,56 @@ void mesh_ui_store_request_refresh(struct mesh_ui_store *store);
  * Returns true when a mark changed.
  */
 bool mesh_ui_store_mark_open_conversation_read(struct mesh_ui_store *store);
+
+/*
+ * Whether this conversation may interrupt the user: no tab badge, no snackbar when something
+ * arrives. `kind` is CHANNEL or DIRECT, named the way mesh_ui_nav_conversation_at() names one.
+ *
+ * Two inputs, deliberately, because there are two places a mute can already have been asked
+ * for and a client that read only its own would contradict the radio in front of the user.
+ * The local flag is the one this client owns and the only one START toggles. The other is
+ * upstream's `NodeInfo.is_muted`, whose whole definition is that the node "will not trigger a
+ * notification" - so a radio told to stop announcing a node, and a Brick that then announced
+ * it anyway, would be two answers to one question. It applies to a direct conversation only:
+ * the flag is per node and the NodeDB has nothing to say about a channel.
+ *
+ * One predicate rather than a field on the conversation, so the badge, the snackbar and the
+ * row's own icon cannot disagree about who is muted.
+ */
+bool mesh_ui_store_conversation_muted(const struct mesh_ui_store *store, uint8_t kind,
+                                      uint32_t node, uint8_t channel);
+
+/* How far this conversation has been read: the packet id of the newest message the user has
+   seen in it, or 0 when the client holds no mark. What the transcript rules its "new from here"
+   line under - read once, when the thread opens, because the mark itself moves a moment later. */
+uint32_t mesh_ui_store_conversation_read_mark(const struct mesh_ui_store *store, uint8_t kind,
+                                              uint32_t node, uint8_t channel);
+
+/* Whether *this client* is muting it, ignoring what the radio thinks. What START toggles, and
+   what the press has to read to know which way it is about to go. */
+bool mesh_ui_store_conversation_muted_locally(const struct mesh_ui_store *store, uint8_t kind,
+                                              uint32_t node, uint8_t channel);
+
+/* Sets the local mute. Returns true when it changed, so the caller can skip a repaint and a
+   save it does not need. */
+bool mesh_ui_store_set_conversation_mute(struct mesh_ui_store *store, uint8_t kind, uint32_t node,
+                                         uint8_t channel, bool muted);
+
+/*
+ * A read-only store standing in for a snapshot, for the answers that are written against one.
+ *
+ * The conversation list, the node rows, the waypoint list and the map roster are all derived by
+ * functions that take a `struct mesh_ui_store`, because that is where the data lives - and a
+ * backend and the action bar are both handed a `const struct mesh_ui_snapshot` instead. This is
+ * the adaptor, and it lives here rather than in either caller because it now has callers on
+ * both sides of that seam: the fb renderer, which had a private copy of it, and
+ * src/ui/actions.c, which needs the row under the cursor to name a press.
+ *
+ * `nav` is deliberately left zeroed. Nothing that takes a store reads it, and the screens that
+ * need one are handed it separately - a view that carried it would be a second copy of the
+ * cursor, free to disagree with the one the frame is drawn from.
+ */
+void mesh_ui_store_view(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_store *view);
 
 /*
  * The radio this snapshot is attached to, or NULL.

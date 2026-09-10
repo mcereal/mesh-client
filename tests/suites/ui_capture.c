@@ -894,6 +894,25 @@ MESH_TEST_CASE(ui_capture_slides_a_screen_in_and_settles, unit) {
     /* Off the all-traffic row, onto a conversation with a transcript in it. */
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
 
+    /*
+     * And in and out of it once before anything is measured, which is setup rather than part of
+     * the claim.
+     *
+     * What this case reads is the *band the body moved in*, taken as the columns on which two
+     * frames differ - so it needs the two frames to differ by the move and by nothing else. The
+     * first visit to a conversation marks it read, which empties its row's badge and drops the
+     * count on the Messages tab, and the tab strip has ink from one edge of the panel to the
+     * other: a nav bar that legitimately differs between the two captures puts the strip's own
+     * extents into the answer and drowns the travel. Reading it first settles the unread state,
+     * and every frame below is then taken against the same one.
+     */
+    struct mesh_ui_snapshot settling;
+    memset(&settling, 0, sizeof settling);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_consume_updates(&store, &settling);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    (void)mesh_ui_store_consume_updates(&store, &settling);
+
     struct mesh_ui_capture *capture = NULL;
     MESH_TEST_FAIL_IF_CLEANUP(
         mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, 4) != 0,
@@ -2789,4 +2808,79 @@ MESH_TEST_CASE(ui_capture_chart_keeps_its_ink_off_the_chrome, unit) {
     } else {
         record_success(test_name);
     }
+}
+
+/*
+ * The navigation bar's own badge: the one thing on the frame that speaks for a screen the user
+ * is not looking at.
+ *
+ * Asked as "is there a filled capsule up in the tab strip", because that is the whole claim -
+ * before this, an arriving message was invisible from every tab but Messages, and the strip is
+ * chrome that every screen draws. The band is the strip alone: muting also puts a bell on the
+ * conversation rows, and those are body and would answer the wrong question.
+ *
+ * Both directions are checked, and the second is the one worth having: a badge that appears is
+ * easy, and a badge that never goes away is the failure that makes the whole thing worthless.
+ */
+MESH_TEST_CASE(ui_capture_nav_bar_badges_unread_messages, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    /* Standing on another tab, which is the case the badge exists for. */
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    while (store.nav.screen != MESH_UI_SCREEN_NODES) {
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+    }
+
+    struct mesh_ui_capture *capture = NULL;
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, 4) != 0,
+        mesh_ui_store_shutdown(&store), "capture open failed");
+
+    uint32_t width = 0U;
+    uint32_t height = 0U;
+    size_t stride = 0U;
+    const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+
+    /* Wide enough that a glyph stroke cannot produce it - the capsule's top scanline runs its
+       whole width - and narrow enough for a single figure at the smallest scale a theme picks. */
+    const unsigned capsule = 20U;
+    /* The tab strip and nothing below it. It is the first thing the frame draws and it is one
+       chrome line tall, so an eighth of the panel is generous and still well clear of the body. */
+    const uint32_t strip = height / 8U;
+
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    mesh_ui_store_request_refresh(&store);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    mesh_ui_capture_render(capture, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(topmost_row_run(capture, pixels, width, height, stride,
+                                              MESH_UI_COLOR_PRIMARY, capsule) >= strip,
+                              mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "unread messages should badge the Messages tab from another tab");
+
+    /* Muting every conversation empties the total, and the badge goes with it - which is the
+       press's whole promise, and the reason the total is what the strip reads. */
+    (void)mesh_ui_store_set_conversation_mute(&store, (uint8_t)MESH_UI_CONVERSATION_CHANNEL,
+                                              MESH_MESSAGE_BROADCAST_ADDR, 0U, true);
+    (void)mesh_ui_store_set_conversation_mute(&store, (uint8_t)MESH_UI_CONVERSATION_DIRECT, 0x3000U,
+                                              0U, true);
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_ui_nav_unread_total(&store) != 0U, mesh_ui_capture_close(capture);
+        mesh_ui_store_shutdown(&store), "the fixture's two conversations should both now be muted");
+    mesh_ui_store_request_refresh(&store);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    mesh_ui_capture_render(capture, &snapshot);
+    MESH_TEST_FAIL_IF_CLEANUP(topmost_row_run(capture, pixels, width, height, stride,
+                                              MESH_UI_COLOR_PRIMARY, capsule) < strip,
+                              mesh_ui_capture_close(capture);
+                              mesh_ui_store_shutdown(&store),
+                              "a muted mesh should leave the tab strip unbadged");
+
+    mesh_ui_capture_close(capture);
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
 }

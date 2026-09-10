@@ -215,8 +215,44 @@ or an index because ids survive both the ring evicting older messages and the ca
 history back in — and a mark whose message has been evicted correctly reads as "everything in
 view is newer". `mesh_ui_store_mark_open_conversation_read` runs from `consume_updates`, so
 opening a thread clears its badge and a message landing in the thread you are sitting in never
-raises one. The all-traffic view marks nothing (it is a view, not a conversation) and its badge
-is the sum of the rest.
+raises one. Reactions are skipped when the mark is chosen, because the count skips them too: a
+mark left on a tapback is a packet the counting walk never meets, so `mark_seen` stays false and
+the conversation goes on being badged however often it is opened. The all-traffic view marks
+nothing (it is a view, not a conversation) and its badge is the sum of the rest.
+
+**The tab carries that sum**, which is what makes an arriving message visible from a screen the
+user is not on: `fb_tab_chips()` reads `mesh_ui_nav_unread_total()` and the navigation bar draws
+it as an item badge — a capsule with the figure, degrading to a plain dot once the strip has
+elided its labels, because a capsule holding "12" beside a bare icon is wider than the tab it is
+about. Only the Messages tab has one, and that is a rule rather than a starting point: a badge
+has to be **clearable by going there**, exactly as a banner has to be able to resolve. A count of
+nodes or of waypoints would be a number that never went down however often it was looked at.
+
+**A conversation can be muted** (START on its row), which takes it out of that total and out of
+the snackbar, and leaves everything else alone: its messages still arrive, its thread still
+fills, and its own row still counts what is waiting — one family quieter, with the crossed bell
+in the marker gutter beside the pinned node's star. Muting is asking not to be interrupted, not
+asking to be kept in the dark. `mesh_ui_store_conversation_muted()` is the one predicate the tab
+badge, the notice and the row all read, and it has two inputs: this client's own flag, and
+upstream's per-node `is_muted`, whose whole definition is that the node "will not trigger a
+notification". A radio told to stop announcing a node and a Brick that announced it anyway would
+be two answers to one question. Only the local half is what START toggles, and a press that
+cannot change the radio's half says so rather than appearing to fail.
+
+The flag rides `struct mesh_ui_read_mark` because it shares that record's key and its lifetime,
+which is also why the eviction there prefers an unmuted victim: a read mark is bookkeeping the
+client rebuilds by being read again, and a mute is a choice that should not vanish because
+thirty-two other conversations were opened.
+
+**The transcript rules a line where the reader stopped.** It is the bubble separator slot — the
+same row a day boundary or a long silence takes — drawn in the primary tone rather than dim, and
+it wins the slot when both want it: the date is recoverable from the clock in the bubble's own
+trailing run, and "this is where you stopped" is sayable in one place only. The mark it is drawn
+against is `nav.thread_unread_from`, captured *by the press that opened the thread*, for the
+reason a reply's target is: the store marks the open conversation read on the very next publish,
+so a line derived from the live mark would sit under the newest bubble every time. It also does
+not move while the reader is in there, so a message arriving into an open thread lands below the
+line rather than moving it.
 
 ### Nodes
 

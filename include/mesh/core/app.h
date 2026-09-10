@@ -131,6 +131,23 @@ struct mesh_app {
      * would fire on every message restored from disk at the next launch.
      */
     uint32_t ui_alert_announced_id;
+    /*
+     * The same, for a direct message - the other thing worth interrupting for, and the reason
+     * the Messages tab's badge is not enough on its own: a badge answers "is there anything
+     * there", and a message addressed to this node and to nobody else is worth answering "from
+     * whom, and what did they say" without the user having to walk to the tab to find out.
+     *
+     * Only direct messages. A channel is a room full of people talking and a notice per line
+     * would make the client unusable on any real mesh, which is the same line ALERT_APP and
+     * DETECTION_SENSOR_APP are already split along.
+     *
+     * `primed` is what stops a launch announcing history. The log is seeded from the cache
+     * before the first publish, so the newest direct message in it is one this client has very
+     * possibly already shown the user - days ago. The first pass adopts it silently and only
+     * what arrives afterwards is news.
+     */
+    uint32_t ui_message_announced_id;
+    bool ui_message_announce_primed;
     /* A Settings save in flight: the write counters seen when it was queued, so its ack or
        rejection can be announced once; see mesh_app_track_settings_save(). */
     bool settings_save_pending;

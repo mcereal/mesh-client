@@ -158,6 +158,19 @@ int fb_chip_width(const struct mesh_ui_backend_fb_state *state, enum mesh_ui_ico
 struct fb_chip {
     enum mesh_ui_icon icon;
     const char *label;
+    /*
+     * A count riding the chip: how much is waiting behind this tab. "" for none.
+     *
+     * It is the navigation bar's item badge, and it is the one thing on the frame that speaks
+     * for a screen the user is not looking at - which is why it belongs to the *strip* rather
+     * than to fb_draw_chip(). The strip is what knows whether the labels have been elided, and
+     * that is what decides the badge's shape: with words on the chips there is room for the
+     * figure, and with the strip down to bare icons a capsule holding "12" would be wider than
+     * the tab it is about, so it becomes a plain dot. A dot still answers the question the
+     * badge exists for - is there anything there - and it is the answer Material degrades to
+     * for the same reason.
+     */
+    const char *badge;
 };
 
 /* How much of the labels a strip is showing. Picked by the draw call from the room it is
@@ -1514,6 +1527,16 @@ struct fb_conversation {
     bool preview_outbound; /* it was ours, so the preview is marked as a reply */
     const char *badge;     /* unread count as it should read ("3", "99+"); "" for none */
     bool unread;
+    /*
+     * The user has asked this conversation not to interrupt them.
+     *
+     * It is a *fact about the row* rather than something the row offers, which is what puts it
+     * in the marker gutter beside the pinned node's star rather than in a trailing slot. And it
+     * changes the badge rather than removing it: a muted thread still says how much has piled
+     * up in it, in the secondary family instead of the accent, because muting a conversation is
+     * asking not to be interrupted by it and not asking to be kept in the dark about it.
+     */
+    bool muted;
     /* X has been pressed once on it: the cell asks the question rather than the footer, so the
        row that would go is the row carrying the warning. */
     bool armed;
@@ -1579,8 +1602,18 @@ struct fb_bubble_meta {
  * reported.
  */
 struct fb_bubble {
-    const char *separator; /* dim centred label above the bubble ("Today", "14:05"); "" for none */
-    const char *name;      /* sender line inside the bubble; "" when it repeats the one above */
+    const char *separator; /* centred label above the bubble ("Today", "14:05"); "" for none */
+    /*
+     * Which kind of separator it is, and so how loud it is drawn. DIM is a date or a silence;
+     * anything else is the unread line.
+     *
+     * One slot rather than two, because a bubble has one row above it and the two can want it at
+     * once - a conversation left yesterday and returned to today is exactly that case. The
+     * unread line wins there, and it should: the date is recoverable from the clock in the
+     * bubble's own trailing run, and "this is where you stopped" is sayable in one place only.
+     */
+    enum mesh_ui_tone separator_tone;
+    const char *name; /* sender line inside the bubble; "" when it repeats the one above */
     /*
      * The message this one answers, as one dim line above the text with a bar down its left
      * edge - the quote block every messenger draws for a threaded reply. "" for none, which is
@@ -1620,9 +1653,17 @@ uint32_t fb_bubble_rows(const struct mesh_ui_backend_fb_state *state,
 void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
                     int y, const struct fb_bubble *bubble);
 
-/* A dim centred label with a hairline either side, filling one body row. What separates one
-   day - or one long silence - from the next. */
-void fb_draw_separator(const struct mesh_ui_backend_fb_state *state, int y, const char *label);
+/*
+ * A centred label with a hairline either side, filling one body row. What separates one day - or
+ * one long silence - from the next, and what rules a line under where the reader last stopped.
+ *
+ * `tone` is which of those two it is. A date is furniture and is drawn dim; "new from here" is
+ * the one line on the transcript the reader is actually looking for, and a dim one is a line
+ * the eye slides off - which is the whole of why the parameter exists rather than the component
+ * picking DIM for everything.
+ */
+void fb_draw_separator(const struct mesh_ui_backend_fb_state *state, int y, const char *label,
+                       enum mesh_ui_tone tone);
 
 /* The label column width for a body this wide - narrow scales give the value more room, at the
    width the theme calls narrow. `preferred` of 0 takes the theme's own. */

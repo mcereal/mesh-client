@@ -98,6 +98,14 @@ void mesh_ui_store_set_toast(struct mesh_ui_store *store, uint64_t now_ms, const
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
 }
 
+void mesh_ui_store_post_toast(struct mesh_ui_store *store, uint64_t now_ms, const char *text) {
+    if (store == NULL) {
+        return;
+    }
+    mesh_ui_nav_post_toast(&store->nav, now_ms, text);
+    mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_NAV);
+}
+
 /* The pairing agent's question, pushed in from the app rather than raised by a key press:
    BlueZ blocks the bond until it is answered, so it takes over the screen wherever the user
    happens to be. */
@@ -598,10 +606,29 @@ static struct mesh_ui_read_mark *mesh_ui_store_read_mark_slot(struct mesh_ui_rea
     if (state->count < MESH_UI_READ_MARKS_MAX) {
         slot = &state->marks[state->count++];
     } else {
-        slot = &state->marks[0];
-        for (uint32_t i = 1; i < MESH_UI_READ_MARKS_MAX; ++i) {
-            if (state->marks[i].stamp < slot->stamp) {
+        /*
+         * Least recently read, but an unmuted mark first.
+         *
+         * A read mark is bookkeeping the client can rebuild by being read again; a mute is a
+         * choice the user made, and one that vanishes because they opened thirty-two other
+         * conversations is a setting that silently undoes itself. Preferring an unmuted victim
+         * costs one extra pass and makes the mute as durable as the table can make it. When
+         * every slot is muted there is nothing to prefer and the plain LRU stands.
+         */
+        for (uint32_t i = 0; i < MESH_UI_READ_MARKS_MAX; ++i) {
+            if (state->marks[i].muted) {
+                continue;
+            }
+            if (slot == NULL || state->marks[i].stamp < slot->stamp) {
                 slot = &state->marks[i];
+            }
+        }
+        if (slot == NULL) {
+            slot = &state->marks[0];
+            for (uint32_t i = 1; i < MESH_UI_READ_MARKS_MAX; ++i) {
+                if (state->marks[i].stamp < slot->stamp) {
+                    slot = &state->marks[i];
+                }
             }
         }
     }
@@ -610,6 +637,137 @@ static struct mesh_ui_read_mark *mesh_ui_store_read_mark_slot(struct mesh_ui_rea
     slot->node = node;
     slot->channel = channel;
     return slot;
+}
+
+/* The mark for one conversation, or NULL when the client holds none. Const twin of the slot
+   chooser above, which allocates; a reader must not. */
+static const struct mesh_ui_read_mark *
+mesh_ui_store_find_read_mark(const struct mesh_ui_read_state *state, uint8_t kind, uint32_t node,
+                             uint8_t channel) {
+    for (uint32_t i = 0; i < state->count && i < MESH_UI_READ_MARKS_MAX; ++i) {
+        const struct mesh_ui_read_mark *mark = &state->marks[i];
+        if (mark->kind != kind) {
+            continue;
+        }
+        if (kind == MESH_UI_CONVERSATION_CHANNEL && mark->channel == channel) {
+            return mark;
+        }
+        if (kind == MESH_UI_CONVERSATION_DIRECT && mark->node == node) {
+            return mark;
+        }
+    }
+    return NULL;
+}
+
+void mesh_ui_store_view(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_store *view) {
+    if (snapshot == NULL || view == NULL) {
+        return;
+    }
+    memset(view, 0, sizeof *view);
+    memcpy(view->devices, snapshot->devices, sizeof view->devices);
+    view->device_count = snapshot->device_count;
+    view->handshake = snapshot->handshake;
+    view->handshake_valid = snapshot->handshake_valid;
+    view->messages = snapshot->messages;
+    view->waypoints = snapshot->waypoints;
+    view->read_state = snapshot->read_state;
+    /* The radio's display units, which is what a waypoint's range is stated in. */
+    view->settings = snapshot->settings;
+    view->event_fd = -1;
+}
+
+uint32_t mesh_ui_store_conversation_read_mark(const struct mesh_ui_store *store, uint8_t kind,
+                                              uint32_t node, uint8_t channel) {
+    if (store == NULL) {
+        return 0U;
+    }
+    const struct mesh_ui_read_mark *mark =
+        mesh_ui_store_find_read_mark(&store->read_state, kind, node, channel);
+    return mark != NULL ? mark->packet_id : 0U;
+}
+
+bool mesh_ui_store_conversation_muted_locally(const struct mesh_ui_store *store, uint8_t kind,
+                                              uint32_t node, uint8_t channel) {
+    if (store == NULL) {
+        return false;
+    }
+    const struct mesh_ui_read_mark *mark =
+        mesh_ui_store_find_read_mark(&store->read_state, kind, node, channel);
+    return mark != NULL && mark->muted;
+}
+
+bool mesh_ui_store_conversation_muted(const struct mesh_ui_store *store, uint8_t kind,
+                                      uint32_t node, uint8_t channel) {
+    if (store == NULL) {
+        return false;
+    }
+    if (mesh_ui_store_conversation_muted_locally(store, kind, node, channel)) {
+        return true;
+    }
+    /* The radio's half, and only for a direct conversation - see the contract in store.h. The
+       roster is walked here rather than through mesh_ui_node_detail_find() because that lives
+       one layer up, in the screen that draws a node: a store reaching into it would be the
+       seam pointing the wrong way for the sake of a six-line loop. */
+    if (kind != (uint8_t)MESH_UI_CONVERSATION_DIRECT || !store->handshake_valid) {
+        return false;
+    }
+    const uint32_t count = store->handshake.node_count > MESH_UI_MAX_HANDSHAKE_NODES
+                               ? MESH_UI_MAX_HANDSHAKE_NODES
+                               : store->handshake.node_count;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (store->handshake.nodes[i].node_id == node) {
+            return store->handshake.nodes[i].is_muted;
+        }
+    }
+    return false;
+}
+
+bool mesh_ui_store_set_conversation_mute(struct mesh_ui_store *store, uint8_t kind, uint32_t node,
+                                         uint8_t channel, bool muted) {
+    if (store == NULL || (kind != (uint8_t)MESH_UI_CONVERSATION_CHANNEL &&
+                          kind != (uint8_t)MESH_UI_CONVERSATION_DIRECT)) {
+        return false;
+    }
+    /* Unmuting something the client holds no mark for is already true, and allocating a slot to
+       record it would evict a mark that means something to say nothing. */
+    if (!muted && !mesh_ui_store_conversation_muted_locally(store, kind, node, channel)) {
+        return false;
+    }
+
+    struct mesh_ui_read_mark *mark =
+        mesh_ui_store_read_mark_slot(&store->read_state, kind, node, channel);
+    if (mark->muted == muted) {
+        return false;
+    }
+    mark->muted = muted;
+    /* The stamp is what the eviction above orders by, and a mute is the user touching this
+       conversation as much as reading it is. Bumping it also moves the read state, which is
+       what tells the app there is something new to persist. */
+    store->read_state.stamp++;
+    mark->stamp = store->read_state.stamp;
+
+    /*
+     * An unmute that leaves the mark saying nothing takes the mark with it.
+     *
+     * A conversation muted before it was ever opened has `packet_id` 0, so once the mute is off
+     * the record holds no read position and no mute - it is an empty slot in a table of 32 that
+     * still costs a slot, and worse, it has just had its stamp refreshed. The eviction above
+     * prefers an unmuted victim and orders by stamp, so this one would be the *last* unmuted
+     * mark to go and a genuine read position would be thrown away ahead of it - which reads, on
+     * the device, as a conversation the user had read coming back unread.
+     */
+    if (!mark->muted && mark->packet_id == 0U) {
+        struct mesh_ui_read_state *state = &store->read_state;
+        const uint32_t index = (uint32_t)(mark - state->marks);
+        if (index < state->count) {
+            state->marks[index] = state->marks[state->count - 1U];
+            memset(&state->marks[state->count - 1U], 0, sizeof state->marks[0]);
+            state->count--;
+        }
+    }
+
+    mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_MESSAGES | MESH_UI_UPDATE_NAV);
+    return true;
 }
 
 bool mesh_ui_store_mark_open_conversation_read(struct mesh_ui_store *store) {
@@ -622,12 +780,26 @@ bool mesh_ui_store_mark_open_conversation_read(struct mesh_ui_store *store) {
         is_channel ? (uint8_t)MESH_UI_CONVERSATION_CHANNEL : (uint8_t)MESH_UI_CONVERSATION_DIRECT;
 
     /* The newest message in the conversation that carries an id. Packet id 0 means "no id" in
-       the Meshtastic protocol, so it can never be a mark; fall back to the newest one that can. */
+       the Meshtastic protocol, so it can never be a mark; fall back to the newest one that can.
+     *
+     * Reactions are skipped, and that is not a nicety - it is the same rule
+     * mesh_ui_nav_conversation_summarise() counts by, and the two have to agree or the badge
+     * cannot clear. The count walks the log ignoring reactions and looks for the marked packet
+     * to know where "read" stops; a mark left on a reaction is a packet that walk never meets,
+     * so `mark_seen` stays false and every inbound message in view goes on being counted as
+     * unread. A conversation whose newest entry was a tapback stayed badged however many times
+     * it was opened.
+     *
+     * It is also what lets the transcript find its own "new from here" line, which looks for
+     * the bubble whose predecessor is the marked one - and a reaction never gets a bubble. */
     uint32_t newest = 0U;
     const uint32_t count =
         store->messages.count > MESH_UI_MAX_MESSAGES ? MESH_UI_MAX_MESSAGES : store->messages.count;
     for (uint32_t i = 0; i < count; ++i) {
         const struct mesh_ui_message *message = &store->messages.entries[i];
+        if (message->is_reaction) {
+            continue;
+        }
         const bool belongs =
             is_channel ? (message->broadcast && message->channel == store->nav.target_channel)
                        : (!message->broadcast && message->peer == store->nav.target_node);
@@ -939,8 +1111,12 @@ static void mesh_ui_store_save_messages(FILE *file, const struct mesh_ui_message
     }
 }
 
-/* One line per conversation that has been read. The stamp is not written: load order stands in
-   for it, which is all the eviction ordering needs. */
+/* One line per conversation the client remembers anything about. The stamp is not written: load
+   order stands in for it, which is all the eviction ordering needs.
+
+   The mute is a fifth field rather than a line of its own, and it is appended rather than
+   inserted, so a file written before it existed still parses - see the loader, which takes four
+   fields or five. */
 static void mesh_ui_store_save_read_state(FILE *file, const struct mesh_ui_read_state *state) {
     if (file == NULL || state == NULL) {
         return;
@@ -948,8 +1124,8 @@ static void mesh_ui_store_save_read_state(FILE *file, const struct mesh_ui_read_
     fprintf(file, "read_marks=%u\n", state->count);
     for (uint32_t i = 0; i < state->count && i < MESH_UI_READ_MARKS_MAX; ++i) {
         const struct mesh_ui_read_mark *mark = &state->marks[i];
-        fprintf(file, "read[%u]=%u,%u,%u,%u\n", i, (unsigned)mark->kind, (unsigned)mark->channel,
-                mark->node, mark->packet_id);
+        fprintf(file, "read[%u]=%u,%u,%u,%u,%u\n", i, (unsigned)mark->kind, (unsigned)mark->channel,
+                mark->node, mark->packet_id, mark->muted ? 1U : 0U);
     }
 }
 
@@ -1495,13 +1671,20 @@ int mesh_ui_store_load(struct mesh_ui_store *store, const char *path) {
                 unsigned int channel = 0U;
                 unsigned int node = 0U;
                 unsigned int packet_id = 0U;
-                if (sscanf(value, "%u,%u,%u,%u", &kind, &channel, &node, &packet_id) == 4 &&
-                    packet_id != 0U) {
+                unsigned int muted = 0U;
+                /* Four fields is a file written before mutes existed, five is one written
+                   since; `muted` keeps its 0 either way. And a mark is worth keeping when it
+                   carries *either* half - a conversation muted before it was ever read has no
+                   packet id to name, and dropping it would unmute it on the next launch. */
+                const int fields =
+                    sscanf(value, "%u,%u,%u,%u,%u", &kind, &channel, &node, &packet_id, &muted);
+                if (fields >= 4 && (packet_id != 0U || muted != 0U)) {
                     struct mesh_ui_read_mark *mark = &read_state.marks[index];
                     mark->kind = (uint8_t)kind;
                     mark->channel = (uint8_t)channel;
                     mark->node = node;
                     mark->packet_id = packet_id;
+                    mark->muted = (muted != 0U);
                     mark->stamp = index + 1U;
                     if ((uint32_t)(index + 1U) > read_state.count) {
                         read_state.count = index + 1U;

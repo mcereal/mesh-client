@@ -423,7 +423,7 @@ static void fb_map_draw_selection(const struct mesh_ui_backend_fb_state *state,
 void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_snapshot *snapshot,
                    struct fb_layout *layout) {
     struct mesh_ui_store view_store;
-    fb_store_view(snapshot, &view_store);
+    mesh_ui_store_view(snapshot, &view_store);
     struct mesh_ui_map_view view;
     mesh_ui_map_build(&view_store, &view);
 

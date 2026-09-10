@@ -138,6 +138,12 @@ MESH_ICON_ENTRY(TRAFFIC,     "traffic")
 
 /* This node is pinned. */
 MESH_ICON_ENTRY(PINNED,      "star")
+/* This conversation has been muted: it still fills, it just does not interrupt. A bell with a
+   stroke through it rather than EXT_NOTIFY's plain one, which is a *settings section* about the
+   external notification module - one id per job, and these two jobs are only related by hardware.
+   The Messages tab's row wears it, which is what makes a quiet badge legible as a choice rather
+   than as a conversation nobody is talking in. */
+MESH_ICON_ENTRY(MUTED,       "notifications_off")
 /* This direct message was decrypted with our key pair rather than with a channel PSK, so it was
    readable by its recipient and by nobody else on the mesh. Distinct from SECURITY's shield: one
    is a section of settings, the other is a fact about one message. */

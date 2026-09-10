@@ -1312,6 +1312,134 @@ static void mesh_app_report_alerts(struct mesh_app *app) {
     mesh_ui_store_set_toast(&app->ui_store, mesh_time_monotonic_ms(), toast);
 }
 
+/*
+ * Announces the newest unseen direct message, once.
+ *
+ * mesh_app_report_alerts()'s shape and its reasoning, with three conditions of its own, because
+ * an ordinary message is worth less interruption than a critical alert and has to earn it:
+ *
+ *   - it is muted, and then it is not announced at all. That is the whole of what the press on
+ *     the conversation list buys, and the predicate is the store's so that the tab badge, this
+ *     notice and the row's own bell cannot disagree about who is muted.
+ *   - the user is already looking at it. A notice sliding over the transcript to report the
+ *     bubble that has just appeared on it is the client talking to itself; the all-traffic view
+ *     counts as looking at it, because every conversation is on that screen.
+ *   - it is the first pass. See ui_message_announce_primed.
+ *
+ * Every unseen one is announced rather than only the newest, which is where this parts company
+ * with the alerts above and why the snackbar grew a queue. Three alerts arriving together are
+ * one situation and the last of them describes it; three messages from three people are three
+ * things somebody said to you, and showing the last is losing two. They post rather than set,
+ * so they wait for whatever is on the snackbar instead of overwriting it - see
+ * mesh_ui_nav_post_toast(). The queue's own depth is what bounds a burst.
+ *
+ * A log whose last announcement has since been evicted falls back to the newest alone: the
+ * alternative is replaying however much of the ring is unaccounted for, which after a long
+ * absence is the whole of it.
+ */
+static void mesh_app_report_direct_messages(struct mesh_app *app) {
+    /*
+     * The first pass adopts whatever the cache brought with it and says none of it - see
+     * ui_message_announce_primed.
+     *
+     * Taken before the empty-log guard below, and that is the whole reason it is up here: a
+     * client that starts with no cache at all would otherwise return without priming, and spend
+     * the priming on the first message that genuinely arrived.
+     */
+    const bool announce = app->ui_message_announce_primed;
+    app->ui_message_announce_primed = true;
+
+    const struct mesh_message_log *log = mesh_session_messages(&app->session);
+    if (log == NULL || log->count == 0U) {
+        return;
+    }
+
+    /* Start after the last one announced. */
+    size_t next = 0U;
+    bool lost = false;
+    if (app->ui_message_announced_id != 0U) {
+        bool found = false;
+        for (size_t i = 0; i < log->count; ++i) {
+            const struct mesh_message *entry = mesh_message_log_at(log, i);
+            if (entry != NULL && entry->packet_id == app->ui_message_announced_id) {
+                next = i + 1U;
+                found = true;
+                break;
+            }
+        }
+        /*
+         * The message we last announced is not in the log any more, so where we had got to is
+         * unknowable - and the honest answer to that is to say nothing and take our place again
+         * from the newest, exactly as a launch does.
+         *
+         * The reachable way in is a *delete* rather than the ring: the log holds 64 and this
+         * runs on every publish, so an eviction would need 64 messages between two turns of the
+         * loop. Deleting the conversation the cursor was pointing into is one press, and
+         * treating the deletion as "everything since is new" announced whatever inbound message
+         * happened to be last - somebody else's, and one the user had already been told about,
+         * arriving as a notice a second after they pressed delete.
+         */
+        if (!found) {
+            lost = true;
+            next = 0U;
+        }
+    }
+
+    const struct mesh_ui_nav *nav = &app->ui_store.nav;
+    const bool foreground = (app->config.run_mode == MESH_APP_RUN_FOREGROUND);
+
+    for (size_t i = next; i < log->count; ++i) {
+        const struct mesh_message *entry = mesh_message_log_at(log, i);
+        if (entry == NULL) {
+            continue;
+        }
+        /* A reaction has no bubble and no words to put in a notice - the whole of what it says
+           is which message it is about - so it is skipped here exactly as the transcript and
+           the unread count skip it. */
+        if (entry->direction != MESH_MESSAGE_INBOUND || entry->is_reaction) {
+            continue;
+        }
+        if (entry->to == MESH_MESSAGE_BROADCAST_ADDR) {
+            continue;
+        }
+        /* An alert already announced itself, in its own words and its own sentence. */
+        if (entry->kind != (uint8_t)MESH_MESSAGE_KIND_TEXT) {
+            continue;
+        }
+        /* Nothing to remember it by, so it could never be marked announced. */
+        if (entry->packet_id == 0U) {
+            continue;
+        }
+
+        app->ui_message_announced_id = entry->packet_id;
+        if (!announce || lost || !foreground) {
+            continue;
+        }
+        if (mesh_ui_store_conversation_muted(&app->ui_store, (uint8_t)MESH_UI_CONVERSATION_DIRECT,
+                                             entry->from, 0U)) {
+            continue;
+        }
+        /* Already on screen: a notice reporting the bubble the reader is looking at is the
+           client talking to itself. All traffic counts, because every conversation is there. */
+        if (nav->thread_open && (nav->inbox || nav->target_node == entry->from)) {
+            continue;
+        }
+
+        /* The sender's name, then what they said - the alert's two steps and for its reason: the
+           body is up to 233 bytes against a 64-byte notice, and letting one format truncate the
+           pair is a formatting decision made by accident. */
+        char peer[MESH_UI_NAV_TARGET_NAME_MAX];
+        mesh_app_format_peer_name(mesh_session_handshake(&app->session), entry->from, peer,
+                                  sizeof peer);
+        char toast[MESH_UI_NAV_TOAST_MAX];
+        const int prefix = mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_MESSAGE_FROM, peer);
+        if (prefix > 0 && (size_t)prefix < sizeof toast) {
+            (void)mesh_str_copy(toast + prefix, sizeof toast - (size_t)prefix, entry->text);
+        }
+        mesh_ui_store_post_toast(&app->ui_store, mesh_time_monotonic_ms(), toast);
+    }
+}
+
 /* Nodes that have to appear on one sync before the divergence is worth interrupting for. */
 #define MESH_APP_OFF_RADIO_HINT_MIN 8U
 
@@ -1361,6 +1489,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     mesh_app_report_delivery(app);
     mesh_app_report_radio_notices(app);
     mesh_app_report_alerts(app);
+    mesh_app_report_direct_messages(app);
     mesh_app_report_off_radio_nodes(app);
 
     struct mesh_transport *ble = mesh_ble_transport();

@@ -82,6 +82,37 @@ static void actions_messages(const struct mesh_ui_nav *nav, const struct mesh_ui
         bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_OPEN);
         bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_NEW);
         bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_DELETE);
+        /*
+         * The mute, named for the row the cursor is on rather than for the key.
+         *
+         * A verb that reads the cursor is the Status screen's shape rather than the map's: the
+         * keycap never appears or vanishes as the user scrolls - which is the flicker the map's
+         * comment refuses - it only ever says which way this row would go. "Mute" on a muted
+         * conversation would be the bar naming the state instead of the press.
+         *
+         * Absent on the two rows that are not conversations, because there the press does
+         * nothing and a keycap that does nothing is the one thing this table exists to prevent.
+         *
+         * The view costs a snapshot-sized copy on the stack, which is worth naming because this
+         * file is otherwise arithmetic over a few nav fields. It buys the only honest answer:
+         * which row the cursor is on is derived from the message log and the channel table, and
+         * the alternative - a field on the nav saying what kind of row this is - is the second
+         * opinion about the nav that the map's selection and the app bar's back arrow both
+         * refuse. It is built on one screen, once a frame, and the renderer for that screen
+         * builds the same view a moment later.
+         */
+        {
+            struct mesh_ui_conversation conversation;
+            struct mesh_ui_store view;
+            mesh_ui_store_view(snapshot, &view);
+            if (mesh_ui_nav_conversation_at(&view, nav->cursor[MESH_UI_SCREEN_MESSAGES],
+                                            &conversation) &&
+                (conversation.kind == MESH_UI_CONVERSATION_CHANNEL ||
+                 conversation.kind == MESH_UI_CONVERSATION_DIRECT)) {
+                bar_add(bar, MESH_UI_BUTTON_START,
+                        conversation.muted ? MESH_STR_ACTION_UNMUTE : MESH_STR_ACTION_MUTE);
+            }
+        }
         bar_add_help(snapshot, bar);
         bar_add_tabs(bar);
         return;

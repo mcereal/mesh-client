@@ -2495,3 +2495,211 @@ cleanup:
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+/*
+ * A direct message announcing itself, and the two ways that must not misfire.
+ *
+ * The reporter is driven through mesh_app_publish_ui_state() rather than called directly,
+ * because when it runs relative to the rest of a publish is half of what it promises.
+ */
+MESH_TEST_CASE(app_direct_message_notice, unit) {
+    struct mesh_app *app = calloc(1U, sizeof *app);
+    if (app == NULL) {
+        record_failure(test_name, "out of memory");
+        return;
+    }
+    if (mesh_ui_store_init(&app->ui_store) != 0) {
+        free(app);
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    struct mesh_bluez_mock_config mock = {0};
+    mesh_bluez_client_mock_enable(&mock);
+    const char *failure = NULL;
+
+    app->config.run_mode = MESH_APP_RUN_FOREGROUND;
+    struct mesh_handshake_status *handshake = &app->session.handshake;
+    handshake->has_my_info = true;
+    handshake->my_info.my_node_num = 1U;
+    handshake->config_complete = true;
+    handshake->node_count = 3U;
+    handshake->nodes[0].node_id = 1U;
+    handshake->nodes[1].node_id = 2U;
+    snprintf(handshake->nodes[1].short_name, sizeof handshake->nodes[1].short_name, "ALFA");
+    handshake->nodes[2].node_id = 3U;
+    snprintf(handshake->nodes[2].short_name, sizeof handshake->nodes[2].short_name, "BRVO");
+
+    struct mesh_message message = {0};
+    message.from = 2U;
+    message.to = 1U;
+    message.direction = MESH_MESSAGE_INBOUND;
+
+    /*
+     * The cache's worth of history, adopted in silence. The log is seeded before the first
+     * publish, so anything already in it may be something the user was shown days ago.
+     */
+    message.packet_id = 100U;
+    snprintf(message.text, sizeof message.text, "%s", "from before the launch");
+    mesh_message_log_append(&app->session.messages, &message);
+    mesh_app_publish_ui_state(app);
+    if (app->ui_store.nav.toast[0] != '\0') {
+        failure = "a launch should not announce what the cache brought with it";
+        goto cleanup;
+    }
+
+    /* Now one that genuinely arrives. */
+    message.packet_id = 101U;
+    snprintf(message.text, sizeof message.text, "%s", "are you heading out");
+    mesh_message_log_append(&app->session.messages, &message);
+    mesh_app_publish_ui_state(app);
+    if (strstr(app->ui_store.nav.toast, "ALFA") == NULL ||
+        strstr(app->ui_store.nav.toast, "heading out") == NULL) {
+        failure = "a direct message should say who sent it and what they said";
+        goto cleanup;
+    }
+
+    /* A broadcast is not news: a channel is a room full of people talking. */
+    mesh_ui_store_set_toast(&app->ui_store, test_now_ms(), "");
+    message.packet_id = 102U;
+    message.to = MESH_MESSAGE_BROADCAST_ADDR;
+    snprintf(message.text, sizeof message.text, "%s", "anyone on the ridge");
+    mesh_message_log_append(&app->session.messages, &message);
+    mesh_app_publish_ui_state(app);
+    if (app->ui_store.nav.toast[0] != '\0') {
+        failure = "a broadcast should raise nothing";
+        goto cleanup;
+    }
+
+    /*
+     * And the one the review caught: deleting the conversation the cursor was pointing into.
+     *
+     * The announced packet is no longer in the log, which is indistinguishable from the ring
+     * having evicted it - so a reporter that treated "everything since" as new would announce
+     * whatever inbound message happened to be last. Here that is BRVO's older one, which the
+     * user has already been told about, arriving as a notice a second after they pressed delete.
+     */
+    message.packet_id = 50U;
+    message.from = 3U;
+    message.to = 1U;
+    snprintf(message.text, sizeof message.text, "%s", "older, and already announced");
+    mesh_message_log_append(&app->session.messages, &message);
+    mesh_app_publish_ui_state(app);
+    mesh_ui_store_set_toast(&app->ui_store, test_now_ms(), "");
+    /* Delete ALFA's conversation, which is where packet 101 - the cursor - lives. */
+    (void)mesh_message_log_forget(&app->session.messages, 2U, 0U);
+    mesh_app_publish_ui_state(app);
+    if (app->ui_store.nav.toast[0] != '\0') {
+        failure = "losing the cursor should take our place again silently, not re-announce";
+        goto cleanup;
+    }
+    /* And the client has taken its place again, so the next real arrival still speaks. */
+    message.packet_id = 103U;
+    message.from = 3U;
+    snprintf(message.text, sizeof message.text, "%s", "genuinely new");
+    mesh_message_log_append(&app->session.messages, &message);
+    mesh_app_publish_ui_state(app);
+    if (strstr(app->ui_store.nav.toast, "genuinely new") == NULL) {
+        failure = "the reporter should still be live after relocating its cursor";
+        goto cleanup;
+    }
+
+cleanup:
+    /* The publish cache is lazily allocated by the first publish, exactly as it is on a device,
+       and this app was never through mesh_app_shutdown() to have it released. */
+    free(app->publish_cache);
+    mesh_ui_store_shutdown(&app->ui_store);
+    mesh_bluez_client_mock_disable();
+    free(app);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * Unmuting a conversation the radio is also muting says so rather than claiming success.
+ *
+ * Both halves can be on at once - mute here, then mute the same node from the Nodes tab or from
+ * another client - and the local half really does clear. What does not change is the row, which
+ * the radio goes on muting; "Unmuted" there is the press lying about what it did.
+ */
+MESH_TEST_CASE(app_unmute_reports_the_radios_mute, unit) {
+    struct mesh_app *app = calloc(1U, sizeof *app);
+    if (app == NULL) {
+        record_failure(test_name, "out of memory");
+        return;
+    }
+    if (mesh_ui_store_init(&app->ui_store) != 0) {
+        free(app);
+        record_failure(test_name, "store init failed");
+        return;
+    }
+    struct mesh_bluez_mock_config mock = {0};
+    mesh_bluez_client_mock_enable(&mock);
+    const char *failure = NULL;
+
+    app->config.run_mode = MESH_APP_RUN_FOREGROUND;
+    struct mesh_ui_handshake_state published;
+    memset(&published, 0, sizeof published);
+    published.node_count = 1U;
+    published.nodes[0].node_id = 0x2000U;
+    snprintf(published.nodes[0].short_name, sizeof published.nodes[0].short_name, "ALFA");
+    mesh_ui_store_set_handshake(&app->ui_store, &published);
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    action.type = MESH_UI_ACTION_MUTE_CONVERSATION;
+    action.number = (uint32_t)MESH_UI_CONVERSATION_DIRECT;
+    action.dest = 0x2000U;
+    snprintf(action.text, sizeof action.text, "%s", "ALFA");
+
+    /* Muted here, and then muted on the radio as well. */
+    mesh_app_on_ui_action(app, &action);
+    if (!mesh_ui_store_conversation_muted_locally(
+            &app->ui_store, (uint8_t)MESH_UI_CONVERSATION_DIRECT, 0x2000U, 0U)) {
+        failure = "the press should have muted it locally";
+        goto cleanup;
+    }
+    published.nodes[0].is_muted = true;
+    mesh_ui_store_set_handshake(&app->ui_store, &published);
+
+    /* The unmute: the local flag clears, and the notice tells the truth about the outcome. */
+    mesh_app_on_ui_action(app, &action);
+    if (mesh_ui_store_conversation_muted_locally(
+            &app->ui_store, (uint8_t)MESH_UI_CONVERSATION_DIRECT, 0x2000U, 0U)) {
+        failure = "the press should still have cleared this client's own mute";
+        goto cleanup;
+    }
+    char expected[MESH_UI_NAV_TOAST_MAX];
+    mesh_str_format(expected, sizeof expected, MESH_STR_TOAST_CONVO_MUTED_ON_RADIO, "ALFA");
+    if (strcmp(app->ui_store.nav.toast, expected) != 0) {
+        failure = "an unmute the radio overrides should name the radio, not claim success";
+        goto cleanup;
+    }
+    /*
+     * While the radio is still muting it, the press has nothing to clear and says so rather than
+     * muting again - the row reads "unmute", so a press that muted would be going the wrong way.
+     */
+    mesh_app_on_ui_action(app, &action);
+    if (mesh_ui_store_conversation_muted_locally(
+            &app->ui_store, (uint8_t)MESH_UI_CONVERSATION_DIRECT, 0x2000U, 0U)) {
+        failure = "pressing unmute on a radio-muted row must not mute it locally instead";
+        goto cleanup;
+    }
+
+    /* With the radio's flag gone the row reads "mute" again, so the two presses go both ways. */
+    published.nodes[0].is_muted = false;
+    mesh_ui_store_set_handshake(&app->ui_store, &published);
+    mesh_app_on_ui_action(app, &action); /* mute */
+    mesh_app_on_ui_action(app, &action); /* and unmute */
+    mesh_str_format(expected, sizeof expected, MESH_STR_TOAST_CONVO_UNMUTED, "ALFA");
+    if (strcmp(app->ui_store.nav.toast, expected) != 0) {
+        failure = "an unmute with nothing else muting it should say so plainly";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&app->ui_store);
+    mesh_bluez_client_mock_disable();
+    free(app);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}

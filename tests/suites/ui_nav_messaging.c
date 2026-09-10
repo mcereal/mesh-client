@@ -1313,3 +1313,395 @@ cleanup:
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+/*
+ * Muting a conversation: what START on the list asks for, what the store does with it, and the
+ * two things it takes away - the tab's total and the row's emphasis - against the one it does
+ * not, which is the row's own count.
+ */
+MESH_TEST_CASE(ui_nav_mute_conversation, unit) {
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_action action;
+    struct mesh_ui_conversation conversation;
+
+    if (mesh_ui_nav_unread_total(&store) != 2U) {
+        failure = "the fixture should start with two unread conversations";
+        goto cleanup;
+    }
+
+    /* START on "All traffic" is not a press: it is a view over the conversations, not one. */
+    memset(&action, 0, sizeof action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    if (action.type == MESH_UI_ACTION_MUTE_CONVERSATION) {
+        failure = "the all-traffic row has no mute to offer";
+        goto cleanup;
+    }
+
+    /* START on the channel asks the app to flip it, naming the row it was pressed on. */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    memset(&action, 0, sizeof action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_START, &action);
+    if (action.type != MESH_UI_ACTION_MUTE_CONVERSATION ||
+        action.number != (uint32_t)MESH_UI_CONVERSATION_CHANNEL) {
+        failure = "START on a channel should ask for that channel's mute";
+        goto cleanup;
+    }
+
+    /* The app's half of it. The row still counts its one message; the total no longer does. */
+    if (!mesh_ui_store_set_conversation_mute(&store, (uint8_t)action.number, action.dest,
+                                             action.channel, true)) {
+        failure = "muting a conversation for the first time should change something";
+        goto cleanup;
+    }
+    if (!mesh_ui_nav_conversation_at(&store, 1U, &conversation) || !conversation.muted ||
+        conversation.unread != 1U) {
+        failure = "a muted row should say so and still count what is waiting in it";
+        goto cleanup;
+    }
+    if (mesh_ui_nav_unread_total(&store) != 1U) {
+        failure = "a muted conversation should not reach the tab's badge";
+        goto cleanup;
+    }
+    /* Setting it again is not a change, so the app can skip a repaint and a cache write. */
+    if (mesh_ui_store_set_conversation_mute(&store, (uint8_t)action.number, action.dest,
+                                            action.channel, true)) {
+        failure = "muting an already-muted conversation should report no change";
+        goto cleanup;
+    }
+
+    /*
+     * The radio's own per-node mute is the other half of the predicate, and only for a direct
+     * conversation: upstream's is_muted means the node "will not trigger a notification", so a
+     * client that announced it anyway would be contradicting the radio in front of the user.
+     */
+    store.handshake.nodes[2].is_muted = true;
+    mesh_ui_store_set_handshake(&store, &store.handshake);
+    if (!mesh_ui_store_conversation_muted(&store, (uint8_t)MESH_UI_CONVERSATION_DIRECT, 0x3000U,
+                                          0U)) {
+        failure = "the radio's node mute should mute that node's conversation";
+        goto cleanup;
+    }
+    if (mesh_ui_store_conversation_muted_locally(&store, (uint8_t)MESH_UI_CONVERSATION_DIRECT,
+                                                 0x3000U, 0U)) {
+        failure = "the radio's mute is not this client's own";
+        goto cleanup;
+    }
+    if (mesh_ui_nav_unread_total(&store) != 0U) {
+        failure = "a node the radio mutes should not reach the badge either";
+        goto cleanup;
+    }
+    /* A channel has no node, so the roster can say nothing about one. */
+    store.handshake.nodes[1].is_muted = true;
+    mesh_ui_store_set_handshake(&store, &store.handshake);
+    if (mesh_ui_store_conversation_muted(&store, (uint8_t)MESH_UI_CONVERSATION_CHANNEL, 0x2000U,
+                                         5U)) {
+        failure = "a node's mute must not mute a channel it happens to talk on";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A mute outlives a restart, and outlives the read mark it shares a slot with: a conversation
+ * muted before it was ever read has no packet id to be saved under, and a loader that took the
+ * id as the price of a line would unmute it on the next launch.
+ */
+MESH_TEST_CASE(ui_nav_mute_survives_the_cache, unit) {
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    char cache_path[] = "/tmp/mesh_ui_muteXXXXXX";
+    int fd = mkstemp(cache_path);
+    if (fd < 0) {
+        record_failure(test_name, "failed to create a temp cache file");
+        mesh_ui_store_shutdown(&store);
+        return;
+    }
+    close(fd);
+
+    /* Muted, never read: the mark carries a mute and a packet id of 0. */
+    (void)mesh_ui_store_set_conversation_mute(&store, (uint8_t)MESH_UI_CONVERSATION_DIRECT, 0x3000U,
+                                              0U, true);
+    if (mesh_ui_store_save(&store, cache_path) != 0) {
+        failure = "saving the cache failed";
+        goto cleanup;
+    }
+
+    struct mesh_ui_store reloaded;
+    if (mesh_ui_store_init(&reloaded) != 0) {
+        failure = "second store init failed";
+        goto cleanup;
+    }
+    if (mesh_ui_store_load(&reloaded, cache_path) != 0) {
+        failure = "loading the cache failed";
+        mesh_ui_store_shutdown(&reloaded);
+        goto cleanup;
+    }
+    if (!mesh_ui_store_conversation_muted_locally(&reloaded, (uint8_t)MESH_UI_CONVERSATION_DIRECT,
+                                                  0x3000U, 0U)) {
+        failure = "a mute with no read mark behind it should survive the cache";
+    }
+    mesh_ui_store_shutdown(&reloaded);
+
+cleanup:
+    (void)unlink(cache_path);
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * The transcript's "new from here" line: opening a thread records where the reader *was*, and
+ * keeps it while they are in there - the store marks the conversation read on the very next
+ * publish, so a divider derived from the live mark would sit under the newest bubble instead.
+ */
+MESH_TEST_CASE(ui_nav_unread_divider_marks_where_the_reader_was, unit) {
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_action action;
+
+    /* Nothing read yet, so there is no line to rule: a divider above the first bubble would
+       separate the transcript from nothing. */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.thread_unread_from != 0U) {
+        failure = "a conversation opened for the first time has no read mark to rule under";
+        goto cleanup;
+    }
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    /* The publish has marked it read, up to packet 12 - BRVO's one message. */
+    if (mesh_ui_store_conversation_read_mark(&store, (uint8_t)MESH_UI_CONVERSATION_DIRECT, 0x3000U,
+                                             0U) != 12U) {
+        failure = "the open conversation should have been marked read";
+        goto cleanup;
+    }
+    /* And the divider has *not* moved with it: the reader is still standing in there. */
+    if (store.nav.thread_unread_from != 0U) {
+        failure = "the mark moving must not move the line the reader came in at";
+        goto cleanup;
+    }
+
+    /* Leave, let something arrive, come back: now the line has somewhere to go. */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (store.nav.thread_unread_from != 12U) {
+        failure = "reopening a read conversation should rule the line under what was read";
+        goto cleanup;
+    }
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (store.nav.thread_unread_from != 0U) {
+        failure = "leaving a thread should forget where its line was";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * A read mark never lands on a reaction. The unread count walks the log ignoring them and looks
+ * for the marked packet to know where "read" stops, so a mark on a tapback is one that walk can
+ * never meet - and the conversation stays badged however often it is opened.
+ */
+MESH_TEST_CASE(ui_nav_read_mark_skips_a_reaction, unit) {
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_action action;
+    struct mesh_ui_conversation conversation;
+
+    /* A tapback on BRVO's message, arriving after it - the newest entry in that conversation. */
+    struct mesh_ui_message_list messages = store.messages;
+    struct mesh_ui_message *reaction = &messages.entries[messages.count++];
+    memset(reaction, 0, sizeof *reaction);
+    reaction->packet_id = 99U;
+    reaction->peer = 0x3000U;
+    reaction->direction = MESH_MESSAGE_INBOUND;
+    reaction->is_reaction = true;
+    reaction->reply_id = 12U;
+    snprintf(reaction->peer_name, sizeof reaction->peer_name, "%s", "BRVO");
+    snprintf(reaction->text, sizeof reaction->text, "%s", "\xF0\x9F\x91\x8D");
+    mesh_ui_store_set_messages(&store, &messages);
+
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+
+    if (mesh_ui_store_conversation_read_mark(&store, (uint8_t)MESH_UI_CONVERSATION_DIRECT, 0x3000U,
+                                             0U) != 12U) {
+        failure = "the mark should land on the newest message, not on the tapback after it";
+        goto cleanup;
+    }
+    if (!mesh_ui_nav_conversation_at(&store, 2U, &conversation) || conversation.unread != 0U) {
+        failure = "a conversation whose newest entry is a reaction should still clear its badge";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * The snackbar's queue: a second notice waits rather than overwriting the first, the tick that
+ * retires one promotes the next, a repeat of what is already up is dropped, and a full queue
+ * loses its oldest waiting entry rather than the newest thing that happened.
+ */
+MESH_TEST_CASE(ui_nav_toasts_queue_rather_than_overwrite, unit) {
+    const char *failure = NULL;
+    struct mesh_ui_nav nav;
+    mesh_ui_nav_init(&nav);
+
+    mesh_ui_nav_post_toast(&nav, 1000U, "first");
+    mesh_ui_nav_post_toast(&nav, 1000U, "second");
+    if (strcmp(nav.toast, "first") != 0 || nav.toast_queued != 1U) {
+        failure = "a notice arriving while one is up should wait behind it";
+        goto done;
+    }
+    /* A repeat of what is showing is one notice standing twice as long, not two events. */
+    mesh_ui_nav_post_toast(&nav, 1000U, "second");
+    if (nav.toast_queued != 1U) {
+        failure = "a repeat of the newest waiting notice should be dropped";
+        goto done;
+    }
+    /*
+     * A press does not wait. "Connecting to X" giving way to "X needs pairing" is one sentence
+     * finishing rather than two events, and four seconds of the optimistic half before the true
+     * one is worse than losing it - so the setter still replaces, and what was waiting still is.
+     */
+    mesh_ui_nav_set_toast(&nav, 1200U, "a press answered");
+    if (strcmp(nav.toast, "a press answered") != 0 || nav.toast_queued != 1U) {
+        failure = "a press should take the snackbar without discarding what was waiting";
+        goto done;
+    }
+    mesh_ui_nav_set_toast(&nav, 1200U, "first");
+
+    /* Nothing moves until the showing notice has stood its four seconds. */
+    if (mesh_ui_nav_tick(&nav, 2000U) || strcmp(nav.toast, "first") != 0) {
+        failure = "a notice should not be cut short by the one waiting behind it";
+        goto done;
+    }
+    if (!mesh_ui_nav_tick(&nav, 5201U) || strcmp(nav.toast, "second") != 0) {
+        failure = "the tick that retires a notice should promote the next";
+        goto done;
+    }
+    /* Dated from the promotion rather than from when it was raised: it is standing now, and a
+       deadline the backend has not seen is how the snackbar tells one notice from the next. */
+    if (nav.toast_until_ms <= 5201U || nav.toast_queued != 0U) {
+        failure = "a promoted notice should start its own four seconds";
+        goto done;
+    }
+    if (!mesh_ui_nav_tick(&nav, 20000U) || nav.toast[0] != '\0') {
+        failure = "an empty queue should let the snackbar go";
+        goto done;
+    }
+
+    /* A burst longer than the queue keeps the newest, because a notice is only worth showing
+       while it is still news. */
+    mesh_ui_nav_post_toast(&nav, 30000U, "showing");
+    mesh_ui_nav_post_toast(&nav, 30000U, "a");
+    mesh_ui_nav_post_toast(&nav, 30000U, "b");
+    mesh_ui_nav_post_toast(&nav, 30000U, "c");
+    mesh_ui_nav_post_toast(&nav, 30000U, "d");
+    if (nav.toast_queued != MESH_UI_NAV_TOAST_QUEUE || strcmp(nav.toast_queue[0], "b") != 0 ||
+        strcmp(nav.toast_queue[MESH_UI_NAV_TOAST_QUEUE - 1U], "d") != 0) {
+        failure = "a full queue should drop its oldest waiting notice, not its newest";
+        goto done;
+    }
+    /* Clearing clears the backlog with it, or the client starts talking again a moment later. */
+    mesh_ui_nav_set_toast(&nav, 30000U, NULL);
+    if (nav.toast[0] != '\0' || nav.toast_queued != 0U) {
+        failure = "clearing the notice should clear what was waiting behind it";
+    }
+
+done:
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * Unmuting a conversation that was muted before it was ever read takes the mark with it.
+ *
+ * The record then holds no read position and no mute, which is an empty slot in a table of 32 -
+ * and one whose stamp has just been refreshed, so the eviction would throw a genuine read
+ * position away ahead of it. On the device that reads as a conversation you had read coming back
+ * unread.
+ */
+MESH_TEST_CASE(ui_nav_unmuting_drops_a_mark_with_nothing_in_it, unit) {
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_action action;
+
+    /* One genuine read mark first, so there is something for a careless eviction to lose. */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (store.read_state.count != 1U) {
+        failure = "opening a conversation should leave one mark behind";
+        goto cleanup;
+    }
+
+    /* Mute a conversation that has never been opened: a mark with a mute and no read position. */
+    (void)mesh_ui_store_set_conversation_mute(&store, (uint8_t)MESH_UI_CONVERSATION_CHANNEL,
+                                              MESH_MESSAGE_BROADCAST_ADDR, 0U, true);
+    if (store.read_state.count != 2U) {
+        failure = "muting an unread conversation should take a slot";
+        goto cleanup;
+    }
+
+    (void)mesh_ui_store_set_conversation_mute(&store, (uint8_t)MESH_UI_CONVERSATION_CHANNEL,
+                                              MESH_MESSAGE_BROADCAST_ADDR, 0U, false);
+    if (store.read_state.count != 1U) {
+        failure = "unmuting it should give the slot back rather than leaving an empty mark";
+        goto cleanup;
+    }
+    /* And the mark that meant something is the one still there. */
+    if (mesh_ui_store_conversation_read_mark(&store, (uint8_t)MESH_UI_CONVERSATION_DIRECT, 0x3000U,
+                                             0U) != 12U) {
+        failure = "the genuine read mark should have survived";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
