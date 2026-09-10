@@ -1794,17 +1794,22 @@ static const struct mesh_ui_band fb_air_band = {.warn = MESH_UI_AIRTIME_BUSY_WAR
  *
  * The flat list is walked rather than the card asked what it wants, so the order the buttons
  * draw in is the order the cursor walks them by construction - see include/mesh/ui/status.h.
- * `focus` is the screen cursor; the button it lands on is the one that draws filled, and a card
- * holding it draws its focus ring.
+ * `focus` is the verb the cursor is on; the button naming it is the one that draws filled, and
+ * a card holding it draws its focus ring.
+ *
+ * A *verb* rather than a position, and that is what stops this screen drawing the highlight in
+ * one place while A runs something else. A position is only true of the list it was read
+ * against, and the list here is a function of the link: a snapshot taken across a radio going
+ * away is a cursor counted on one list and drawn on another.
  */
 static void fb_status_card_actions(struct fb_card *card,
                                    const struct mesh_ui_status_actions *actions,
-                                   enum mesh_ui_status_card which, uint32_t focus) {
+                                   enum mesh_ui_status_card which, uint8_t focus) {
     for (uint32_t i = 0U; i < actions->count && i < MESH_UI_STATUS_ACTIONS_MAX; ++i) {
         if (actions->items[i].card != (uint8_t)which) {
             continue;
         }
-        fb_card_action(card, actions->items[i].label, i == focus);
+        fb_card_action(card, actions->items[i].label, actions->items[i].verb == focus);
     }
 }
 
@@ -1851,7 +1856,11 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
     struct mesh_ui_status_actions actions;
     mesh_ui_status_actions(&actions, connected != NULL, snapshot->handshake_valid,
                            mesh_ui_history_has_airtime(&snapshot->history));
-    const uint32_t focus = snapshot->nav.cursor[MESH_UI_SCREEN_STATUS];
+    /* Resolved rather than read straight off the nav: the nav is clamped against the store and
+       this is drawn from a snapshot, so a verb that has gone since would leave no button
+       highlighted at all. mesh_ui_status_verb_resolve() answers with the one the cursor stands
+       on now, which is the same answer nav.c's own clamp reached. */
+    const uint8_t focus = mesh_ui_status_verb_resolve(&actions, snapshot->nav.status_verb);
 
     /*
      * Elevated, always. It is the first question the screen answers - is there a radio - and
@@ -2246,17 +2255,27 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
                 mesh_str_format(buffer, sizeof buffer, MESH_STR_STATUS_BATTERY_PERCENT,
                                 (unsigned)metrics->battery_level);
             }
+        } else {
+            /*
+             * The row draws for either half, so a missing battery is a word rather than a gap -
+             * and the word has to go in the buffer rather than be substituted at the draw,
+             * because the separator below is chosen from what is in it.
+             *
+             * Chosen from an empty buffer and then drawn with a fallback in it, the two
+             * disagreed and the row read "unknownup 9d 8h". The state is the ordinary one on a
+             * radio that has sent LocalStats and not yet sent DeviceMetrics: uptime is in both
+             * reports and battery is only in the second.
+             */
+            mesh_str_copy(buffer, sizeof buffer, mesh_str(MESH_STR_STATUS_BATTERY_UNKNOWN));
         }
         second[0] = '\0';
         if (have_uptime) {
             char uptime[32];
             fb_format_uptime(uptime_value, uptime, sizeof uptime);
-            mesh_str_format(second, sizeof second, MESH_STR_STATUS_UPTIME_SUFFIX,
-                            buffer[0] != '\0' ? ", " : "", uptime);
+            mesh_str_format(second, sizeof second, MESH_STR_STATUS_UPTIME_SUFFIX, uptime);
         }
         fb_card_row(&radio, low_battery ? MESH_UI_TONE_ERROR : MESH_UI_TONE_NORMAL,
-                    MESH_STR_STATUS_LABEL_BATTERY, MESH_STR_STATUS_SYNC_VALUE,
-                    buffer[0] != '\0' ? buffer : mesh_str(MESH_STR_STATUS_BATTERY_UNKNOWN), second);
+                    MESH_STR_STATUS_LABEL_BATTERY, MESH_STR_STATUS_SYNC_VALUE, buffer, second);
     }
     if (have_notice) {
         /*

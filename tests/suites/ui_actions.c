@@ -24,6 +24,7 @@
 #include "mesh/ui/actions.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/settings.h"
+#include "mesh/ui/status.h"
 #include "mesh/ui/store.h"
 
 #include <string.h>
@@ -100,7 +101,7 @@ MESH_TEST_CASE(actions_screens_offer_their_own_presses, unit) {
     mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_UP_DOWN) != MESH_STR_ACTION_CHOOSE,
                       "two verbs want a way to choose between them");
-    snapshot.nav.cursor[MESH_UI_SCREEN_STATUS] = 1U;
+    snapshot.nav.status_verb = (uint8_t)MESH_UI_STATUS_VERB_REFRESH;
     mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_REFRESH,
                       "A on the Radio card's verb should say refresh");

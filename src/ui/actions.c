@@ -357,9 +357,10 @@ static void actions_status(const struct mesh_ui_snapshot *snapshot,
     struct mesh_ui_status_actions actions;
     mesh_ui_status_actions(&actions, connected, snapshot->handshake_valid,
                            mesh_ui_history_has_airtime(&snapshot->history));
-    const uint32_t cursor = snapshot->nav.cursor[MESH_UI_SCREEN_STATUS];
-    if (cursor < actions.count) {
-        bar_add(bar, MESH_UI_BUTTON_A, actions.items[cursor].label);
+    const struct mesh_ui_status_action *chosen = mesh_ui_status_find(
+        &actions, mesh_ui_status_verb_resolve(&actions, snapshot->nav.status_verb));
+    if (chosen != NULL) {
+        bar_add(bar, MESH_UI_BUTTON_A, chosen->label);
     }
     /* Only once there is somewhere to move to. A screen offering one verb needs no gesture for
        choosing between verbs, and a keycap that does nothing is worse than one fewer. */

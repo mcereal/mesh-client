@@ -260,7 +260,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_STATUS_BATTERY_USB] = "enchufado",
     [MESH_STR_STATUS_BATTERY_PERCENT] = "%u%%",
     [MESH_STR_STATUS_BATTERY_UNKNOWN] = "desconocido",
-    [MESH_STR_STATUS_UPTIME_SUFFIX] = "%sactivo %s",
+    [MESH_STR_STATUS_UPTIME_SUFFIX] = ", activo %s",
     [MESH_STR_STATUS_SENT] = "%u tx, %u reenviados, %u descartados",
     /* Same order as the English, and it has to stay that way: the bar under this row
        draws its parts in the order the numbers are named in. */
