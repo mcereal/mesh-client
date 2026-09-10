@@ -239,8 +239,10 @@ bool mesh_ui_map_selected(const struct mesh_ui_map_view *view,
  *
  * One pixel, which is the smallest difference the picture has. Below it the marker and the
  * crosshair are the same point on the panel, and a press that "moved" onto it would report a
- * change nothing could draw - two markers at one coordinate are one place, and the selection's
- * own tie-break is what chooses between them.
+ * change nothing could draw. What it catches now that the selected marker is skipped by
+ * identity is the coincident pair - two markers at one coordinate are one place, and which of
+ * them is selected there is the selection's own tie-break rather than anything a press can
+ * walk between.
  */
 #define MAP_STEP_MIN_PX 1.0
 
@@ -254,11 +256,34 @@ bool mesh_ui_map_step(const struct mesh_ui_map_view *view, const struct mesh_map
     const double reach =
         vertical ? (double)MESH_UI_MAP_STEP_REACH_Y : (double)MESH_UI_MAP_STEP_REACH_X;
 
+    /*
+     * What the reader is already aimed at, asked of the one function that answers it.
+     *
+     * "Under the crosshair" is a disc of MESH_UI_MAP_SELECT_RADIUS_PX, not a point, so a marker
+     * can be selected while sitting some pixels ahead of centre - which a fall-back pan stopping
+     * just short of one leaves behind routinely. Read as "ahead of the press", such a marker is
+     * the nearest candidate and the press spends itself nudging the view onto something already
+     * selected: the line under the map does not change, and a press whose whole effect is a
+     * ten-pixel shift reads as a press that did nothing.
+     *
+     * So the selected marker is skipped, and it is skipped by *identity* rather than by
+     * distance. Asking mesh_ui_map_selected() rather than re-deriving "near enough" keeps the
+     * ring a backend draws, the marker A opens and the marker a direction declines to revisit as
+     * one answer - the same rule the app bar's back arrow follows. Only that one marker is
+     * skipped: another inside the same disc is still a destination, which is what lets a press
+     * step between two markers drawn on top of each other.
+     */
+    uint32_t selected = 0U;
+    const bool has_selected = mesh_ui_map_selected(view, viewport, &selected);
+
     bool found = false;
     uint32_t best_index = 0U;
     double best_distance = 0.0;
 
     for (uint32_t i = 0; i < view->count; ++i) {
+        if (has_selected && i == selected) {
+            continue;
+        }
         /* The same offset the selection and the placement are derived from - so what a press
            calls "west of the crosshair" is what the reader saw drawn west of it. */
         double dx = 0.0;

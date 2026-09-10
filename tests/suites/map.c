@@ -769,9 +769,7 @@ MESH_TEST_CASE(map_a_direction_goes_to_the_nearest_marker_that_way, unit) {
     MESH_TEST_FAIL_IF(!mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_EAST, &index),
                       "just inside one panel is not");
 
-    /* What is already under the crosshair is behind the press rather than ahead of it, so a
-       direction always moves - the property that lets a press step between two markers sitting
-       on top of each other. */
+    /* What is already under the crosshair is behind the press rather than ahead of it. */
     memset(&view, 0, sizeof view);
     map_test_marker_at(&viewport, &view, 7U, 0, 0);
     MESH_TEST_FAIL_IF(mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_EAST, &index) ||
@@ -779,6 +777,30 @@ MESH_TEST_CASE(map_a_direction_goes_to_the_nearest_marker_that_way, unit) {
                           mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_NORTH, &index) ||
                           mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_SOUTH, &index),
                       "the selected marker is not a destination");
+
+    /*
+     * And "under the crosshair" is the disc, not the point. A marker ten pixels ahead of centre
+     * is already selected - a fall-back pan stopping short of one leaves exactly that - so a
+     * press must advance past it rather than spend itself nudging the view onto something the
+     * line under the map is already naming. It is excluded by identity, which is why the marker
+     * beside it inside the same disc is still a destination.
+     */
+    memset(&view, 0, sizeof view);
+    map_test_marker_at(&viewport, &view, 8U, 10, 0);  /* selected, and not centred */
+    map_test_marker_at(&viewport, &view, 9U, 300, 0); /* the next one east */
+    uint32_t aimed = 0U;
+    MESH_TEST_FAIL_IF(!mesh_ui_map_selected(&view, &viewport, &aimed) ||
+                          view.markers[aimed].id != 8U,
+                      "the near marker is the selected one");
+    MESH_TEST_FAIL_IF(!mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_EAST, &index),
+                      "east still has somewhere to go");
+    MESH_TEST_FAIL_IF(view.markers[index].id != 9U,
+                      "and it is the next marker, not a nudge onto the selected one");
+
+    map_test_marker_at(&viewport, &view, 10U, 16, 0); /* inside the same disc, not selected */
+    MESH_TEST_FAIL_IF(!mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_EAST, &index) ||
+                          view.markers[index].id != 10U,
+                      "a second marker under the crosshair is still a destination");
 
     record_success(test_name);
 }

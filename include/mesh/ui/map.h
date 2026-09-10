@@ -261,10 +261,15 @@ enum mesh_ui_map_direction {
  * furthest way; a tie goes to the marker built first, which is the order mesh_ui_map_selected()
  * already settles two markers at one place with.
  *
- * A marker under the crosshair is not a candidate - it is behind the press, not ahead of it -
- * so a direction always moves. Two markers a few pixels apart are therefore how the reader
- * chooses between them: the press steps from one to the other, which is the disambiguation a
- * cluster needs and which no amount of panning could do before.
+ * The marker under the crosshair is not a candidate - it is what the reader is already aimed at,
+ * not something ahead of the press - and it is excluded by *identity*: mesh_ui_map_selected()
+ * is asked, rather than "near enough" being re-derived here. That matters because being under
+ * the crosshair is a disc rather than a point, so a marker can be selected while sitting a few
+ * pixels ahead of centre; treated as a candidate it would win every time, and the press would
+ * spend itself nudging the view onto something already selected while the line under the map
+ * said nothing new. Only that one marker is skipped, so two markers a few pixels apart are
+ * still how the reader chooses between them - the press steps from one to the other, which is
+ * the disambiguation a cluster needs and which no amount of panning could do before.
  *
  * False when the quadrant is empty, and the caller then pans by its own step: open grid still
  * pans, which is what a map under a basemap will need and what makes "look west" honest when
