@@ -106,7 +106,7 @@ suite needs it.
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Verified 2026-09-08: 283 unit tests, all passing, zero compiler warnings - under the host
+Verified 2026-09-09: 391 unit tests, all passing, zero compiler warnings - under the host
 toolchain *and* the cross one, which are not the same check: see
 [`docs/testing.md`](docs/testing.md#what-ci-runs).
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
@@ -165,7 +165,7 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | Strings | `src/i18n/strings.c`, `include/mesh/i18n/catalog.def` | the string catalog and the locale registry |
 | Dev tools | `devtools/`, `scripts/{ui-capture.sh,frames.py}` | off-screen UI capture; PNG/GIF encoding, stdlib only |
 | Geography | `src/geo/` | `mesh_geo_coords_valid()` — the bounds test every coordinate ingress asks, so the air, the cache and the keyboard cannot disagree about where Earth ends — `mesh_geo_vector_between()`, the haversine distance and initial bearing the Waypoints tab reads a range from, and `mesh_geo_mercator_forward()`, the projection the map places a marker with. **The only directory in the tree that includes `<math.h>`**, and the reason libm is linked |
-| The map | `src/map/viewport.c`, `src/ui/map.c`, `src/ui/nav_map.c`, `src/ui/backends/fb_map.c` | Where the map is looking (centre, integer zoom, pan, fit, metres per pixel), the markers built from the roster and the waypoint book, the presses, and the drawing. No basemap yet — see [`docs/maps-roadmap.md`](docs/maps-roadmap.md). `viewport.c` deliberately has **no `<math.h>`**: everything transcendental about a map is a property of the projection, one directory down |
+| The map | `src/map/viewport.c`, `src/ui/map.c`, `src/ui/nav_map.c`, `src/ui/backends/fb_map.c` | Where the map is looking (centre, integer zoom, pan, fit, metres per pixel), the markers built from the map's own roster (`handshake.map_nodes` - **not** the node list's 128) and the waypoint book, the presses, and the drawing. No basemap yet — see [`docs/maps-roadmap.md`](docs/maps-roadmap.md). `viewport.c` deliberately has **no `<math.h>`**: everything transcendental about a map is a property of the projection, one directory down |
 | Shared utils | `src/utils/` | `text` (UTF-8 + `mesh_str_copy`), `time` (`mesh_time_monotonic_ms`), `env` (`mesh_env_bool`/`_int`), `json` (a cursor that walks structure, because a release note eventually contains the keys a scanner would look for), `log`, `sha256`, `array` |
 
 `include/mesh/` mirrors `src/` one-for-one — `core/`, `transport/`, `ui/`, `proto/`, `geo/`, `utils/` —
@@ -321,6 +321,17 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   (`mesh_session_default_identity`). An empty `User` in a NodeInfo must not blank a name we have.
 - **A radio reboot after a settings write is expected.** The link drops and auto-connect
   reconnects.
+- **The BLE device list is not a list of nodes in range, and `rssi` is not a range test.** The
+  enumeration behind it is `GetManagedObjects`, a walk of every device object BlueZ *holds* -
+  and a bond outlives the radio being in the room, so a node switched off in another building
+  sits in that list all day with its address, its name and `Paired` intact. What it does not
+  have is an `RSSI` property: bluetoothd drops that from a device it has not heard in the
+  current discovery session. Hence `mesh_bluez_device_info.in_range`, and hence the filter every
+  selection path applies before it looks at anything else. Reading the absence as a number is
+  worse than useless: 0 is a *high* RSSI, so an out-of-range bond beat every node that actually
+  answered - which is what sent the client after the radio left at home while the one in the
+  user's pocket advertised into an empty list. A row in the Devices tab says "not in range"
+  for the same reason rather than "0dBm".
 - **Key repeat is generated in `input.c`, not by the kernel.** Autorepeat is an EV_KEY/EV_REP
   feature and the d-pad is an absolute axis (`ABS_HAT0X/Y`), which never repeats however long it
   is held. The timerfd in `mesh_ui_input` is what makes holding down scroll a long node list, and
@@ -334,15 +345,48 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   pairs are the same press on every other screen, and splitting them here is what lets the map
   have the d-pad without the tab strip above the body going dead. The action bar still says
   "L/R tabs" here and still means it.
+- **`map_open` outliving a change of tab is deliberate, and the key handler must still check
+  `nav->screen`.** Every tab keeps its own place, so coming back to Nodes shows the view that was
+  left — which means the flag says *where the Nodes tab is standing*, not *what the reader is
+  looking at*. Two presses make the difference: a shoulder walks off the tab with the map still
+  open behind it, and A on a waypoint marker jumps to the Waypoints tab outright. Read as "a map
+  is open somewhere", the arrows pan a map nobody can see and the first B on that place closes it
+  instead of the place. `mesh_ui_nav_map_key()` gates on the screen for that reason.
+- **The map clips its artwork to its own body, and `visible` is not enough on its own.** A
+  placement can only honestly speak for a marker's *centre*, but a marker is not a point once it
+  is drawn: a rounded-position footprint is the widest thing the map places, so a marker centred
+  a pixel inside the top edge paints most of itself over the app bar. The clip goes on the fb
+  state, where `fb_fill_packed()` already honours one — every fill, glyph and icon span goes
+  through that one function — and it *intersects* the partial-redraw path's clip rather than
+  replacing it.
+- **The map draws a different roster from the Nodes list, and it is not a subset.** The list
+  publishes the best 128 of the session's 256 (`handshake.nodes`), because a rank says how
+  likely you are to talk to a node; a marker is on the panel or it is not, so the map gets
+  `handshake.map_nodes` - every *positioned* node the session holds, as a 36-byte
+  `struct mesh_ui_map_node` rather than the 532-byte summary, which is why the snapshot grew by
+  9 KB instead of 68. Two consequences. A handshake nobody published (a cache load before the
+  first publish, a fixture, the capture harness) has `map_node_count == 0` and
+  `mesh_ui_map_build()` falls back to the rows - a default, not a second opinion, because
+  publish scans a superset of the rows it copies. And **map-only nodes now exist**: a node
+  ranked 200th has a marker and no row, so `mesh_ui_node_detail_find()` cannot answer for it and
+  A on that marker deliberately does nothing (`marker->openable`, from the published `has_row`),
+  exactly as A on empty grid does. Without that guard the detail opens, cannot be filled, and is
+  clamped shut on the next press. Resolving it properly is the app/store seam
+  [`docs/maps-roadmap.md`](docs/maps-roadmap.md#the-roster-decision-taken) describes.
 - **The map has no selection field on the nav, and must not grow one.** What A opens is the
   marker nearest the middle of the view, derived every frame by `mesh_ui_map_selected()`. That is
   the app bar's back arrow and the transition route again: a second opinion about the nav is a
   second opinion that can be wrong, and here it would let the ring a backend draws and the node a
-  press opens name two different nodes. It works because the distance is measured *in metres*
-  against a radius converted through `mesh_map_viewport_metres_per_pixel()`, which depends on
-  zoom and latitude and not on the panel — the store owns the nav and a backend is handed a
-  `const` snapshot, so the two genuinely cannot ask each other how wide the body is. Anything
-  box-dependent there is the bug.
+  press opens name two different nodes. It works because the distance is measured **in pixels
+  from the middle of the view**, through `mesh_map_viewport_offset()` — which is the same
+  arithmetic a placement does with the panel left off the end, so `mesh_map_viewport_place()` is
+  written in terms of it. Two properties come out of that and both are load-bearing. It needs no
+  box: the store owns the nav and a backend is handed a `const` snapshot, so the two genuinely
+  cannot ask each other how wide the body is, and anything box-dependent there is the bug. And it
+  is measured *in the projection* rather than across the ground, which is the only reading that
+  gets the poles right — a fix beyond the display limit is drawn at the limit, so a marker at 88
+  degrees north and a view framed on it are the same point on the picture and three degrees apart
+  on Earth. A geodesic distance there refuses a marker sitting under the crosshair.
 - **The map's fit is computed against a declared box, not a measured one.** For the same reason:
   the nav cannot learn a backend's body size. `MESH_UI_MAP_FIT_WIDTH` is deliberately *smaller*
   than any body this client draws into, because a fit computed for a small box and drawn into a

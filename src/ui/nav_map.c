@@ -151,6 +151,24 @@ static bool mesh_ui_nav_map_confirm(struct mesh_ui_nav *nav, const struct mesh_u
     }
 
     const struct mesh_ui_map_marker *marker = &view.markers[index];
+    if (!marker->openable) {
+        /*
+         * A node the map can draw and the client cannot open: the map takes every positioned
+         * node the session holds and the list publishes the ranked 128, so a node far enough
+         * down that ranking has a marker and no row. Nothing happens, for the same reason
+         * nothing happens on empty grid - and the same silence, because the reader is not
+         * making a mistake. The line under the map is still naming the node and its range,
+         * which is most of what a detail would have said about a node this far away.
+         *
+         * Refused here rather than left to mesh_ui_nav_clamp(). The clamp does close such a
+         * detail - it runs on every snapshot, so the frame after the press is drawn without it
+         * - but the press has already reset the list cursor on its way past and left
+         * `node_detail_node` naming a node nothing is showing. A press that does nothing and
+         * moves something is worse than one that does nothing. See struct mesh_ui_map_node's
+         * `has_row` for the seam that would let this press work instead.
+         */
+        return false;
+    }
     if (marker->kind == MESH_UI_MAP_MARKER_WAYPOINT) {
         mesh_ui_nav_open_waypoint(nav, marker->id);
         return true;

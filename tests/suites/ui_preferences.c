@@ -195,3 +195,132 @@ MESH_TEST_CASE(ui_preferences_known_radios, unit) {
     unlink(prefab_path);
     record_success(test_name);
 }
+
+/* The list of radios this client has connected to over BLE or USB: the order is the value, and
+   auto-connect reads it to answer "which of mine is in earshot" rather than "which is loudest". */
+MESH_TEST_CASE(ui_preferences_known_devices, unit) {
+    struct mesh_ui_preferences prefs;
+    memset(&prefs, 0, sizeof prefs);
+
+    if (mesh_ui_preferences_device_rank(&prefs, "AA:BB:CC:DD:EE:01", (uint8_t)MESH_UI_DEVICE_BLE) !=
+        -1) {
+        record_failure(test_name, "an empty list should know nothing");
+        return;
+    }
+
+    (void)mesh_ui_preferences_note_device(&prefs, "AA:BB:CC:DD:EE:01", (uint8_t)MESH_UI_DEVICE_BLE);
+    (void)mesh_ui_preferences_note_device(&prefs, "/dev/ttyUSB0", (uint8_t)MESH_UI_DEVICE_SERIAL);
+    (void)mesh_ui_preferences_note_device(&prefs, "AA:BB:CC:DD:EE:02", (uint8_t)MESH_UI_DEVICE_BLE);
+
+    /* Most recent first, and the head is preferred_device: the two are one fact. */
+    if (prefs.known_device_count != 3U ||
+        mesh_ui_preferences_device_rank(&prefs, "AA:BB:CC:DD:EE:02", (uint8_t)MESH_UI_DEVICE_BLE) !=
+            0 ||
+        mesh_ui_preferences_device_rank(&prefs, "/dev/ttyUSB0", (uint8_t)MESH_UI_DEVICE_SERIAL) !=
+            1 ||
+        mesh_ui_preferences_device_rank(&prefs, "AA:BB:CC:DD:EE:01", (uint8_t)MESH_UI_DEVICE_BLE) !=
+            2 ||
+        strcmp(prefs.preferred_device, "AA:BB:CC:DD:EE:02") != 0) {
+        record_failure(test_name, "the list should be most recent first");
+        return;
+    }
+
+    /* The kind is part of the identity: the same string over the other link is another device,
+       which is what stops a tty path being handed to BLE. */
+    if (mesh_ui_preferences_device_rank(&prefs, "/dev/ttyUSB0", (uint8_t)MESH_UI_DEVICE_BLE) !=
+        -1) {
+        record_failure(test_name, "the transport should be part of a device's identity");
+        return;
+    }
+
+    /* An address is a BLE address however BlueZ or a config file happened to case it. */
+    if (mesh_ui_preferences_device_rank(&prefs, "aa:bb:cc:dd:ee:01", (uint8_t)MESH_UI_DEVICE_BLE) !=
+        2) {
+        record_failure(test_name, "a BLE address should match without regard to case");
+        return;
+    }
+
+    /* Coming back to an older radio moves it to the front rather than adding a second entry. */
+    (void)mesh_ui_preferences_note_device(&prefs, "AA:BB:CC:DD:EE:01", (uint8_t)MESH_UI_DEVICE_BLE);
+    if (prefs.known_device_count != 3U ||
+        mesh_ui_preferences_device_rank(&prefs, "AA:BB:CC:DD:EE:01", (uint8_t)MESH_UI_DEVICE_BLE) !=
+            0 ||
+        mesh_ui_preferences_device_rank(&prefs, "AA:BB:CC:DD:EE:02", (uint8_t)MESH_UI_DEVICE_BLE) !=
+            1) {
+        record_failure(test_name, "reconnecting should move a radio to the front");
+        return;
+    }
+
+    /* Only the handful you own is kept; the oldest falls off the end. */
+    for (unsigned i = 0; i < MESH_UI_MAX_KNOWN_DEVICES; ++i) {
+        char address[32];
+        snprintf(address, sizeof address, "AA:BB:CC:DD:FF:%02u", i);
+        (void)mesh_ui_preferences_note_device(&prefs, address, (uint8_t)MESH_UI_DEVICE_BLE);
+    }
+    if (prefs.known_device_count != MESH_UI_MAX_KNOWN_DEVICES ||
+        mesh_ui_preferences_device_rank(&prefs, "AA:BB:CC:DD:EE:01", (uint8_t)MESH_UI_DEVICE_BLE) !=
+            -1) {
+        record_failure(test_name, "the list should be bounded, oldest first out");
+        return;
+    }
+
+    char prefab_path[128];
+    snprintf(prefab_path, sizeof prefab_path, "/tmp/meshclient_devices_%ld", (long)getpid());
+    if (mesh_ui_preferences_save(&prefs, prefab_path) != 0) {
+        unlink(prefab_path);
+        record_failure(test_name, "save failed");
+        return;
+    }
+
+    struct mesh_ui_preferences loaded;
+    if (mesh_ui_preferences_load(&loaded, prefab_path) != 0 ||
+        loaded.known_device_count != prefs.known_device_count) {
+        unlink(prefab_path);
+        record_failure(test_name, "load failed");
+        return;
+    }
+    for (uint8_t i = 0; i < prefs.known_device_count; ++i) {
+        if (strcmp(loaded.known_devices[i].identifier, prefs.known_devices[i].identifier) != 0 ||
+            loaded.known_devices[i].kind != prefs.known_devices[i].kind) {
+            unlink(prefab_path);
+            record_failure(test_name, "the order is the value and must survive the file");
+            return;
+        }
+    }
+
+    /* Forgetting a pairing drops the radio and hands the head to the one used before it. */
+    if (!mesh_ui_preferences_forget_device(&loaded, loaded.known_devices[0].identifier,
+                                           loaded.known_devices[0].kind)) {
+        unlink(prefab_path);
+        record_failure(test_name, "forget should report the device it removed");
+        return;
+    }
+    if (loaded.known_device_count != prefs.known_device_count - 1U ||
+        strcmp(loaded.preferred_device, prefs.known_devices[1].identifier) != 0) {
+        unlink(prefab_path);
+        record_failure(test_name, "forgetting the head should promote the next radio");
+        return;
+    }
+
+    /* A file written before the list existed carries one radio in preferred_device, and it is
+       genuinely the most recent one - so the first launch after an update already knows it. */
+    FILE *legacy = fopen(prefab_path, "w");
+    if (legacy == NULL) {
+        unlink(prefab_path);
+        record_failure(test_name, "failed to rewrite temp file");
+        return;
+    }
+    fprintf(legacy, "preferred_device=AA:BB:CC:DD:EE:09\npreferred_device_kind=ble\n");
+    fclose(legacy);
+    memset(&loaded, 0, sizeof loaded);
+    if (mesh_ui_preferences_load(&loaded, prefab_path) != 0 || loaded.known_device_count != 1U ||
+        mesh_ui_preferences_device_rank(&loaded, "AA:BB:CC:DD:EE:09",
+                                        (uint8_t)MESH_UI_DEVICE_BLE) != 0) {
+        unlink(prefab_path);
+        record_failure(test_name, "a file from before the list should seed it from the head");
+        return;
+    }
+
+    unlink(prefab_path);
+    record_success(test_name);
+}

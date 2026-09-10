@@ -483,6 +483,10 @@ MESH_STR_ENTRY(DEVICES_BADGE_PAIRED,      "paired")
 /* How the device is attached, against the row's trailing edge. USB is a bus name and stays as
    it is; dBm is the signal strength of a Bluetooth node. */
 MESH_STR_ENTRY(DEVICES_TRAILING_USB,      "USB")
+/* Said of a Bluetooth radio this Brick is paired with but has not heard in the last scan -
+   it is switched off, or out of range. Stands where the signal strength would be, because
+   there is no reading to put there. */
+MESH_STR_ENTRY(DEVICES_TRAILING_AWAY,     "not in range")
 MESH_STR_ENTRY(DEVICES_TRAILING_RSSI,     "%ddBm")
 /* The name given to a radio we are talking to but never saw advertise. */
 MESH_STR_ENTRY(DEVICES_CONNECTED_NAME,    "Connected")

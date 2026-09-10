@@ -16,6 +16,7 @@
 #include "mesh/transport/ble.h"
 #include "mesh/transport/serial.h"
 #include "mesh/ui/node_detail.h"
+#include "mesh/ui/preferences.h"
 #include "mesh/utils/log.h"
 #include "mesh/utils/text.h"
 #include "mesh/utils/time.h"
@@ -25,6 +26,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) {
     struct mesh_app *app = (struct mesh_app *)userdata;
@@ -40,10 +42,7 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
     case MESH_UI_ACTION_CONNECT: {
         mesh_log_info("ui", "Connect to %s (%s) requested from the device", action->identifier,
                       action->kind == (uint8_t)MESH_UI_DEVICE_SERIAL ? "usb" : "ble");
-        snprintf(app->ui_preferences.preferred_device, sizeof app->ui_preferences.preferred_device,
-                 "%s", action->identifier);
-        app->ui_preferences.preferred_device_kind = action->kind;
-        app->ui_preferences_dirty = true;
+        mesh_app_note_connected_device(app, action->identifier, action->kind);
         /* Asking for a radio lifts a hold an earlier disconnect put on auto-connect. */
         app->autoconnect_held = false;
         app->autoconnect_failures = 0U;
@@ -654,6 +653,20 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
                pairs again; do not let auto-connect spend the next minute proving it. */
             if (was_connected) {
                 app->autoconnect_held = true;
+            }
+            /* And drop it from the radios we reach for. A node whose bond we just threw away
+               is the one thing auto-connect must not rank first the next time it is in the
+               room; the list falls through to the radio used before it. */
+            if (mesh_ui_preferences_forget_device(&app->ui_preferences, action->identifier,
+                                                  action->kind)) {
+                app->ui_preferences_dirty = true;
+            }
+            if (strcasecmp(app->config.preferred_ble_device, action->identifier) == 0) {
+                snprintf(app->config.preferred_ble_device, sizeof app->config.preferred_ble_device,
+                         "%s",
+                         app->ui_preferences.preferred_device_kind == (uint8_t)MESH_UI_DEVICE_SERIAL
+                             ? ""
+                             : app->ui_preferences.preferred_device);
             }
             mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_FORGOT_DEVICE, action->identifier);
             mesh_log_info("ui", "Forgot BLE node %s", action->identifier);

@@ -216,6 +216,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_DEVICES_BADGE_NEEDS_PAIR] = "requiere vinculación",
     [MESH_STR_DEVICES_BADGE_PAIRED] = "vinculado",
     [MESH_STR_DEVICES_TRAILING_USB] = "USB",
+    [MESH_STR_DEVICES_TRAILING_AWAY] = "fuera de alcance",
     [MESH_STR_DEVICES_TRAILING_RSSI] = "%ddBm",
     [MESH_STR_DEVICES_CONNECTED_NAME] = "Conectado",
     [MESH_STR_STATUS_CARD_LINK] = "Enlace",

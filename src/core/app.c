@@ -213,10 +213,47 @@ static const struct mesh_ui_backend *mesh_app_select_backend(struct mesh_app *ap
     return backend;
 }
 
+void mesh_app_note_connected_device(struct mesh_app *app, const char *identifier, uint8_t kind) {
+    if (app == NULL || identifier == NULL || identifier[0] == '\0') {
+        return;
+    }
+    if (mesh_ui_preferences_note_device(&app->ui_preferences, identifier, kind)) {
+        app->ui_preferences_dirty = true;
+    }
+    /* --preferred-device pinned whatever the launch asked for, and this overwrites it on
+       purpose: the flag says which node to reach for, and the node you are on now is a later
+       and better answer to that than the one you named before you left the house. */
+    char *slot = kind == (uint8_t)MESH_UI_DEVICE_SERIAL ? app->config.preferred_serial_device
+                                                        : app->config.preferred_ble_device;
+    const size_t slot_len = kind == (uint8_t)MESH_UI_DEVICE_SERIAL
+                                ? sizeof app->config.preferred_serial_device
+                                : sizeof app->config.preferred_ble_device;
+    if (strcmp(slot, identifier) != 0) {
+        snprintf(slot, slot_len, "%s", identifier);
+        /* A different node is a different wait. The grace period is how long *this* node gets
+           to show up, so a switch restarts it: without this, a radio chosen an hour into a
+           session would be handed a window that expired at launch, and the first drop after it
+           would go straight back to the node it replaced. */
+        app->autoconnect_started_ms = 0U;
+        app->autoconnect_waiting_logged = false;
+    }
+}
+
 #define MESH_APP_AUTOCONNECT_RETRY_MS 2000U
 #define MESH_APP_AUTOCONNECT_MAX_BACKOFF_MS 60000U
-/* How long a saved preferred node gets to show up in discovery before another node is used. */
+/* How long a saved preferred node gets to show up in discovery before a stranger is used. */
 #define MESH_APP_AUTOCONNECT_PREFERRED_GRACE_MS 30000U
+/*
+ * And how long it gets when another radio of ours is already advertising.
+ *
+ * The long grace is the price of not settling for a node that is not yours, and it is worth
+ * paying when the alternative is a stranger. It is not worth paying when the alternative is the
+ * second radio you own, sitting in your hand: walking out of the house with it means the saved
+ * node is at home and is never going to answer, and half a minute of "connecting..." is the
+ * whole of what that wait buys. Long enough that a node which is merely slow to advertise still
+ * wins its slot, short enough that being wrong about it costs a few seconds.
+ */
+#define MESH_APP_AUTOCONNECT_KNOWN_GRACE_MS 5000U
 
 /* Exponential backoff, shared by the two ways a connect can fail: the errno connect() handed
    back, and the failure that only surfaces later from tick(). Returns the delay it scheduled. */
@@ -248,8 +285,13 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     const bool link_up = (mesh_app_connected_identifier() != NULL);
     if (link_up) {
         /* An established link is the only proof an attempt worked, so it is the only thing that
-           clears the backoff. */
+           clears the backoff. It also re-arms the grace period for whatever comes after this
+           link, rather than leaving it expired for the life of the process: a settings write
+           reboots the radio, and a preferred node that is a few seconds from advertising again
+           must not lose its slot to the second radio on the desk. */
         app->autoconnect_failures = 0U;
+        app->autoconnect_started_ms = 0U;
+        app->autoconnect_waiting_logged = false;
     }
     if (ble == NULL || link_up || mesh_app_link_connecting()) {
         return;
@@ -272,12 +314,30 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     if (port_count > 0U) {
         const struct mesh_serial_device_info *port = &ports[0];
         const char *preferred_port = app->config.preferred_serial_device;
+        bool port_chosen = false;
         if (preferred_port[0] != '\0') {
             for (size_t i = 0; i < port_count; ++i) {
                 if (strcmp(ports[i].id, preferred_port) == 0 ||
                     (ports[i].path[0] != '\0' && strcmp(ports[i].path, preferred_port) == 0)) {
                     port = &ports[i];
+                    port_chosen = true;
                     break;
+                }
+            }
+        }
+        /* Two cables is rarer than two radios, but the question is the same one: with the
+           preferred port absent, the port we used most recently beats whichever the kernel
+           happened to enumerate first. There is no grace period here - a plugged-in node is
+           already present, so nothing is going to show up by waiting. */
+        if (!port_chosen) {
+            int best_rank = -1;
+            for (size_t i = 0; i < port_count; ++i) {
+                const char *identifier = ports[i].path[0] != '\0' ? ports[i].path : ports[i].id;
+                const int rank = mesh_ui_preferences_device_rank(&app->ui_preferences, identifier,
+                                                                 (uint8_t)MESH_UI_DEVICE_SERIAL);
+                if (rank >= 0 && (best_rank < 0 || rank < best_rank)) {
+                    best_rank = rank;
+                    port = &ports[i];
                 }
             }
         }
@@ -299,13 +359,31 @@ void mesh_app_autoconnect(struct mesh_app *app) {
 
     struct mesh_bluez_device_info devices[MESH_UI_MAX_DEVICES];
     size_t device_count = mesh_ble_transport_get_devices(ble, devices, MESH_UI_MAX_DEVICES);
-    if (device_count == 0U) {
-        return; /* nothing in range yet; discovery keeps running */
+
+    /*
+     * Only a node that answered this scan is a candidate.
+     *
+     * The enumeration behind that list is a walk of every device object BlueZ holds, and a bond
+     * outlives the radio being in the room - so a node left at home is in it all day, with the
+     * saved address and the saved name and Paired set. Auto-connect used to take that as its
+     * target and spend the whole session timing out against a radio in another building while
+     * the one in your pocket advertised into an empty list. See mesh_bluez_device_info.in_range.
+     */
+    size_t in_range[MESH_UI_MAX_DEVICES];
+    size_t in_range_count = 0U;
+    for (size_t i = 0; i < device_count; ++i) {
+        if (devices[i].in_range) {
+            in_range[in_range_count++] = i;
+        }
     }
-    /* The grace period below is a scanning window, so it starts at the first scan result rather
-       than at app start: BlueZ can arrive long after we do (the first launch after the Brick
-       wakes), and a window that expired while nothing was scanning would hand the preferred
-       node's slot to whatever answered first. */
+    if (in_range_count == 0U) {
+        return; /* nothing in earshot yet; discovery keeps running */
+    }
+
+    /* The grace period below is a scanning window, so it starts at the first node actually
+       heard rather than at app start: BlueZ can arrive long after we do (the first launch after
+       the Brick wakes), and a window that expired while nothing was scanning would hand the
+       preferred node's slot to whatever answered first. */
     if (app->autoconnect_started_ms == 0U) {
         app->autoconnect_started_ms = now;
     }
@@ -313,35 +391,66 @@ void mesh_app_autoconnect(struct mesh_app *app) {
     const struct mesh_bluez_device_info *target = NULL;
     const char *preferred = app->config.preferred_ble_device;
     if (preferred[0] != '\0') {
-        for (size_t i = 0; i < device_count; ++i) {
-            if (strcasecmp(devices[i].address, preferred) == 0 ||
-                strcasecmp(devices[i].name, preferred) == 0) {
-                target = &devices[i];
+        for (size_t i = 0; i < in_range_count; ++i) {
+            const struct mesh_bluez_device_info *device = &devices[in_range[i]];
+            if (strcasecmp(device->address, preferred) == 0 ||
+                strcasecmp(device->name, preferred) == 0) {
+                target = device;
                 break;
             }
         }
-        if (target == NULL &&
-            now - app->autoconnect_started_ms < MESH_APP_AUTOCONNECT_PREFERRED_GRACE_MS) {
-            if (!app->autoconnect_waiting_logged) {
-                mesh_log_info("app", "Preferred device '%s' not in range yet; waiting", preferred);
-                app->autoconnect_waiting_logged = true;
+    }
+
+    /* Failing that, the radio of ours that is in earshot and was used most recently. Rank order
+       is the whole point: with three of your own nodes on the table you get the one you were
+       using, and the loudest advertiser only decides between nodes you have never connected
+       to. */
+    if (target == NULL) {
+        const struct mesh_bluez_device_info *known = NULL;
+        int best_rank = -1;
+        for (size_t i = 0; i < in_range_count; ++i) {
+            const struct mesh_bluez_device_info *device = &devices[in_range[i]];
+            const int rank = mesh_ui_preferences_device_rank(&app->ui_preferences, device->address,
+                                                             (uint8_t)MESH_UI_DEVICE_BLE);
+            if (rank >= 0 && (best_rank < 0 || rank < best_rank)) {
+                best_rank = rank;
+                known = device;
             }
-            app->autoconnect_retry_at_ms = now + 1000U;
-            return;
+        }
+
+        if (preferred[0] != '\0') {
+            const uint64_t grace = known != NULL ? MESH_APP_AUTOCONNECT_KNOWN_GRACE_MS
+                                                 : MESH_APP_AUTOCONNECT_PREFERRED_GRACE_MS;
+            if (now - app->autoconnect_started_ms < grace) {
+                if (!app->autoconnect_waiting_logged) {
+                    mesh_log_info("app", "Preferred device '%s' not in range yet; waiting",
+                                  preferred);
+                    app->autoconnect_waiting_logged = true;
+                }
+                app->autoconnect_retry_at_ms = now + 1000U;
+                return;
+            }
+        }
+        target = known;
+        if (target != NULL) {
+            mesh_log_info("app", "%s; using your most recent node %s (%s, %d dBm)",
+                          preferred[0] != '\0' ? "Preferred device not in range"
+                                               : "No preferred device saved",
+                          target->name, target->address, (int)target->rssi);
         }
     }
 
     if (target == NULL) {
-        size_t best = 0U;
-        for (size_t i = 1; i < device_count; ++i) {
-            if (devices[i].rssi > devices[best].rssi) {
-                best = i;
+        size_t best = in_range[0];
+        for (size_t i = 1; i < in_range_count; ++i) {
+            if (devices[in_range[i]].rssi > devices[best].rssi) {
+                best = in_range[i];
             }
         }
         target = &devices[best];
         mesh_log_info("app", "%s; using strongest node %s (%s, %d dBm)",
                       preferred[0] != '\0' ? "Preferred device not in range"
-                                           : "No preferred device saved",
+                                           : "No node of yours in range",
                       target->name, target->address, (int)target->rssi);
     }
 

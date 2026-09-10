@@ -1650,6 +1650,10 @@ static void fb_render_devices(struct mesh_ui_backend_fb_state *state,
            line answers "how is this attached" either way. */
         if (device->kind == (uint8_t)MESH_UI_DEVICE_SERIAL) {
             mesh_str_copy(attach, sizeof attach, mesh_str(MESH_STR_DEVICES_TRAILING_USB));
+        } else if (!device->in_range) {
+            /* A bond BlueZ holds for a radio it cannot hear has no reading behind it, and the
+               0 that leaves in the struct would draw as the strongest node on the screen. */
+            mesh_str_copy(attach, sizeof attach, mesh_str(MESH_STR_DEVICES_TRAILING_AWAY));
         } else {
             mesh_str_format(attach, sizeof attach, MESH_STR_DEVICES_TRAILING_RSSI,
                             (int)device->rssi);
@@ -1887,9 +1891,17 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
                          mesh_str(MESH_STR_STATUS_SYNC_WAITING));
     }
     /* What else is within reach, which is the same subject as what we are attached to - and on
-       a screen where the radio is gone it is the row that says whether anything is there. */
+       a screen where the radio is gone it is the row that says whether anything is there. The
+       row says "in range" and means it: the Devices tab also lists radios BlueZ is merely
+       bonded to, and counting those here would report a node that is at home as reachable. */
+    size_t devices_in_range = 0U;
+    for (size_t i = 0; i < snapshot->device_count; ++i) {
+        if (snapshot->devices[i].in_range) {
+            ++devices_in_range;
+        }
+    }
     fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_DEVICES,
-                MESH_STR_STATUS_DEVICES_IN_RANGE, snapshot->device_count);
+                MESH_STR_STATUS_DEVICES_IN_RANGE, devices_in_range);
     fb_status_card_actions(&card, &actions, MESH_UI_STATUS_CARD_LINK, focus);
     (void)fb_draw_card(state, layout, &y, &card);
 
