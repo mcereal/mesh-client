@@ -848,6 +848,22 @@ MESH_TEST_CASE(radio_settings_action_queue, unit) {
                               meshtastic_AdminMessage_factory_reset_device_tag ||
                           encoded.factory_reset_device == 0,
                       "factory_reset_device is wrong");
+    /*
+     * The verb that starts a firmware install, pinned like the rest and for a sharper reason: a
+     * protobuf regeneration that moved this field number would send the radio nowhere and the
+     * install would then sit waiting for a bootloader that was never asked for. Field 21, a
+     * bare bool, and no seconds - the firmware acks and resets, so there is no delay to carry.
+     */
+    MESH_TEST_FAIL_IF(!test_action_encodes_as(MESH_ADMIN_ENTER_DFU_MODE, &encoded) ||
+                          encoded.which_payload_variant !=
+                              meshtastic_AdminMessage_enter_dfu_mode_request_tag ||
+                          !encoded.enter_dfu_mode_request ||
+                          meshtastic_AdminMessage_enter_dfu_mode_request_tag != 21,
+                      "enter_dfu_mode_request is wrong");
+    MESH_TEST_FAIL_IF(!mesh_admin_request_is_action(MESH_ADMIN_ENTER_DFU_MODE) ||
+                          mesh_admin_request_is_write(MESH_ADMIN_ENTER_DFU_MODE),
+                      "and it is an action rather than a write: nothing is read back from a "
+                      "radio that has become a bootloader");
 
     record_success(test_name);
 }

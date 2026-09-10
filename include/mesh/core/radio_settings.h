@@ -55,6 +55,19 @@ enum mesh_admin_request_kind {
     MESH_ADMIN_RESET_NODEDB,
     MESH_ADMIN_FACTORY_RESET_CONFIG, /* config to defaults, BLE bonds kept */
     MESH_ADMIN_FACTORY_RESET_DEVICE, /* everything to defaults, BLE bonds cleared */
+    /*
+     * Into the UF2 bootloader, so a `.uf2` can be written to the drive it presents. An action
+     * like the rest, and the odd one out in one way: **its reply is the link dropping**. The
+     * firmware acks and then resets, so a client that waited for the ack to be followed by
+     * anything would be waiting on a radio that is already gone. What says it worked is the
+     * USB device re-enumerating as a bootloader - see mesh/core/firmware_install.h - and the
+     * fallback when it does not is a double-tap of reset, which does the same thing by hand.
+     *
+     * RP2040 and RP2350 take the same verb to the same place (`reset_usb_boot()`), which is
+     * why the install path is written as "write a UF2 to a bootloader" rather than as "update
+     * an nRF52". An ESP32 has no UF2 bootloader and the firmware ignores it there.
+     */
+    MESH_ADMIN_ENTER_DFU_MODE,
     /* The radio's own location, set by hand. Unlike the rest of the Position section these do
        not go through set_config: the firmware stores the coordinates *and* sets
        `position.fixed_position` itself, so a client that only flipped the config flag would

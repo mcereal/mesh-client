@@ -1994,6 +1994,8 @@ static const char *mesh_session_action_name(enum mesh_admin_request_kind kind) {
         return "factory reset (config)";
     case MESH_ADMIN_FACTORY_RESET_DEVICE:
         return "factory reset (device)";
+    case MESH_ADMIN_ENTER_DFU_MODE:
+        return "DFU mode";
     default:
         return "?";
     }
