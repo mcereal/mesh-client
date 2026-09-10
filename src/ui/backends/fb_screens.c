@@ -2083,8 +2083,9 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
          * *now*, which is the alarm. This is the tally, and a tally's job is proportion.
          */
         fb_card_row(&card,
-                    stats->num_tx_dropped * 100U > stats->num_packets_tx ? MESH_UI_TONE_WARNING
-                                                                         : MESH_UI_TONE_NORMAL,
+                    (uint64_t)stats->num_tx_dropped * 100U > stats->num_packets_tx
+                        ? MESH_UI_TONE_WARNING
+                        : MESH_UI_TONE_NORMAL,
                     MESH_STR_STATUS_LABEL_SENT, MESH_STR_STATUS_SENT, stats->num_packets_tx,
                     stats->num_tx_relay, stats->num_tx_dropped);
         /*
@@ -2114,10 +2115,23 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
          * radio heard was bad. The row and its bar are skipped instead, which leaves the Sent
          * row above saying what it always said.
          */
+        /*
+         * Both share tests are done 64 bits wide, and so is the sum feeding this one. These are
+         * `uint32_t` off the air multiplied by a constant, so a share written at the counters'
+         * own width wraps at a total the wire can perfectly well carry - `dropped * 100` at 43
+         * million and `not_new * 2` at two billion - and a wrapped product does not fail loudly.
+         * It compares small, so the row goes back to its resting colour at exactly the totals
+         * that earned the warning. The widening is the cheapest thing on this screen and it is
+         * the difference between a tone that is wrong and a tone that is quietly wrong.
+         *
+         * The sum is the same argument one step earlier: `rx_bad + rx_dupe` at 32 bits can wrap
+         * to a *small* number, which then passes the partition check below and draws a bar with
+         * a remainder computed from a total that never happened.
+         */
         const uint32_t heard = stats->num_packets_rx;
-        const uint32_t not_new = stats->num_packets_rx_bad + stats->num_rx_dupe;
+        const uint64_t not_new = (uint64_t)stats->num_packets_rx_bad + stats->num_rx_dupe;
         if (heard > 0U && not_new <= heard) {
-            const uint32_t parts[] = {heard - not_new, stats->num_rx_dupe,
+            const uint32_t parts[] = {heard - (uint32_t)not_new, stats->num_rx_dupe,
                                       stats->num_packets_rx_bad};
             fb_card_row(&card, not_new * 2U > heard ? MESH_UI_TONE_WARNING : MESH_UI_TONE_NORMAL,
                         MESH_STR_STATUS_LABEL_HEARD, MESH_STR_STATUS_HEARD, parts[0], parts[1],
