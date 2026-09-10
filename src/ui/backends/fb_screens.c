@@ -1640,6 +1640,12 @@ static void fb_render_devices(struct mesh_ui_backend_fb_state *state,
             status_family = MESH_UI_FAMILY_SUCCESS;
         } else if (device->busy) {
             status = mesh_str(MESH_STR_DEVICES_BADGE_WORKING);
+        } else if (device->bootloader) {
+            /* Ahead of the BLE arms because it is the one refusal a USB row can carry, and
+               warning for the same reason `needs pairing` is: the row will not connect as it
+               stands, and there is something the user can do about it. */
+            status = mesh_str(MESH_STR_DEVICES_BADGE_BOOTLOADER);
+            status_family = MESH_UI_FAMILY_WARNING;
         } else if (device->kind == (uint8_t)MESH_UI_DEVICE_BLE && !device->paired) {
             status = mesh_str(MESH_STR_DEVICES_BADGE_NEEDS_PAIR);
             status_family = MESH_UI_FAMILY_WARNING;

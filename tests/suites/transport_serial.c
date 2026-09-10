@@ -20,10 +20,13 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
@@ -388,4 +391,220 @@ cleanup:
     if (pair[1] >= 0) {
         close(pair[1]);
     }
+}
+
+/* ---- what is on the other end of the cable ----------------------------------------------------
+ */
+
+/*
+ * The role detection, against a sysfs tree laid out exactly as the Brick's was measured on
+ * 2026-09-10 with a T114 and a Heltec V3. The mock replaces mesh_serial_usb_scan() whole, so it
+ * can prove what the transport does with a role and nothing about how the role is decided;
+ * MESHCLIENT_SYSFS_USB is the seam that lets the reading itself be tested.
+ */
+
+static bool fixture_write(const char *path, const char *contents) {
+    FILE *file = fopen(path, "w");
+    if (file == NULL) {
+        return false;
+    }
+    const bool ok = fputs(contents, file) >= 0;
+    return fclose(file) == 0 && ok;
+}
+
+/* One interface directory: <root>/<name>/{bInterfaceClass,SubClass,Protocol,Number}, plus a
+   driver symlink when a driver has claimed it. */
+static bool fixture_interface(const char *root, const char *name, const char *cls,
+                              const char *subclass, const char *protocol, const char *number,
+                              const char *driver) {
+    char dir[PATH_MAX];
+    char file[PATH_MAX];
+    if (snprintf(dir, sizeof dir, "%s/%s", root, name) >= (int)sizeof dir) {
+        return false;
+    }
+    if (mkdir(dir, 0755) != 0 && errno != EEXIST) {
+        return false;
+    }
+    struct {
+        const char *attr;
+        const char *value;
+    } attrs[] = {{"bInterfaceClass", cls},
+                 {"bInterfaceSubClass", subclass},
+                 {"bInterfaceProtocol", protocol},
+                 {"bInterfaceNumber", number}};
+    for (size_t i = 0; i < sizeof attrs / sizeof attrs[0]; ++i) {
+        if (snprintf(file, sizeof file, "%s/%s", dir, attrs[i].attr) >= (int)sizeof file ||
+            !fixture_write(file, attrs[i].value)) {
+            return false;
+        }
+    }
+    if (driver != NULL) {
+        char parent[PATH_MAX];
+        char target[PATH_MAX];
+        if (snprintf(parent, sizeof parent, "%s/drivers", root) >= (int)sizeof parent ||
+            snprintf(target, sizeof target, "%s/%s", parent, driver) >= (int)sizeof target ||
+            snprintf(file, sizeof file, "%s/driver", dir) >= (int)sizeof file) {
+            return false;
+        }
+        if ((mkdir(parent, 0755) != 0 && errno != EEXIST) ||
+            (mkdir(target, 0755) != 0 && errno != EEXIST)) {
+            return false;
+        }
+        if (symlink(target, file) != 0 && errno != EEXIST) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* The device directory the interfaces hang off: <root>/<name>/{idVendor,idProduct,...}. */
+static bool fixture_device(const char *root, const char *name, const char *vid, const char *pid,
+                           const char *product) {
+    char dir[PATH_MAX];
+    char file[PATH_MAX];
+    if (snprintf(dir, sizeof dir, "%s/%s", root, name) >= (int)sizeof dir) {
+        return false;
+    }
+    if (mkdir(dir, 0755) != 0 && errno != EEXIST) {
+        return false;
+    }
+    struct {
+        const char *attr;
+        const char *value;
+    } attrs[] = {
+        {"idVendor", vid}, {"idProduct", pid}, {"product", product},
+        {"busnum", "2"},   {"devnum", "3"},
+    };
+    for (size_t i = 0; i < sizeof attrs / sizeof attrs[0]; ++i) {
+        if (snprintf(file, sizeof file, "%s/%s", dir, attrs[i].attr) >= (int)sizeof file ||
+            !fixture_write(file, attrs[i].value)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void fixture_remove(const char *root) {
+    char command[PATH_MAX + 16];
+    if (snprintf(command, sizeof command, "rm -rf '%s'", root) < (int)sizeof command) {
+        (void)system(command);
+    }
+}
+
+static const struct mesh_serial_device_info *find_by_id(const struct mesh_serial_device_info *list,
+                                                        size_t count, const char *id) {
+    for (size_t i = 0; i < count; ++i) {
+        if (strcmp(list[i].id, id) == 0) {
+            return &list[i];
+        }
+    }
+    return NULL;
+}
+
+MESH_TEST_CASE(serial_scan_reads_the_role_off_sysfs, unit) {
+    char root[] = "/tmp/meshclient-sysfs-XXXXXX";
+    MESH_TEST_FAIL_IF(mkdtemp(root) == NULL, "could not make a fixture sysfs tree");
+
+    bool built = true;
+    /* 2-1: a T114 running firmware - the MCU's own USB, a CDC pair and no drive. */
+    built = built && fixture_device(root, "2-1", "239a", "4405", "HT-n5262");
+    built = built && fixture_interface(root, "2-1:1.0", "02", "02", "00", "00", NULL);
+    built = built && fixture_interface(root, "2-1:1.1", "0a", "00", "00", "01", NULL);
+    /* 3-1: the same board in its UF2 bootloader - a different product id, and a mass-storage
+       Bulk-Only interface beside the CDC pair. */
+    built = built && fixture_device(root, "3-1", "239a", "0071", "HT-n5262");
+    built = built && fixture_interface(root, "3-1:1.0", "02", "02", "00", "00", NULL);
+    built = built && fixture_interface(root, "3-1:1.1", "0a", "00", "00", "01", NULL);
+    built = built && fixture_interface(root, "3-1:1.2", "08", "06", "50", "02", "usb-storage");
+    /* 4-1: a Heltec V3 - a CP2102 bridge, one vendor-class interface, driver already bound. */
+    built = built && fixture_device(root, "4-1", "10c4", "ea60", "CP2102 USB to UART Bridge");
+    built = built && fixture_interface(root, "4-1:1.0", "ff", "00", "00", "00", "cp210x");
+    MESH_TEST_FAIL_IF_CLEANUP(!built, fixture_remove(root), "could not lay out the fixture tree");
+
+    MESH_TEST_FAIL_IF_CLEANUP(setenv("MESHCLIENT_SYSFS_USB", root, 1) != 0, fixture_remove(root),
+                              "could not point the scan at the fixture");
+
+    struct mesh_serial_device_info devices[MESH_SERIAL_MAX_DEVICES];
+    const size_t count = mesh_serial_usb_scan(devices, MESH_SERIAL_MAX_DEVICES);
+    (void)unsetenv("MESHCLIENT_SYSFS_USB");
+    fixture_remove(root);
+
+    MESH_TEST_FAIL_IF(count != 3U, "the scan should offer all three interfaces, bootloader too");
+
+    const struct mesh_serial_device_info *node = find_by_id(devices, count, "2-1:1.1");
+    const struct mesh_serial_device_info *boot = find_by_id(devices, count, "3-1:1.1");
+    const struct mesh_serial_device_info *bridge = find_by_id(devices, count, "4-1:1.0");
+    MESH_TEST_FAIL_IF(node == NULL || boot == NULL || bridge == NULL,
+                      "the scan lost one of the three devices");
+
+    MESH_TEST_FAIL_IF(node->role != MESH_SERIAL_ROLE_NODE,
+                      "a CDC pair with no drive is a node running firmware");
+    MESH_TEST_FAIL_IF(boot->role != MESH_SERIAL_ROLE_BOOTLOADER,
+                      "a CDC pair with a Bulk-Only drive beside it is a UF2 bootloader");
+    MESH_TEST_FAIL_IF(bridge->role != MESH_SERIAL_ROLE_BRIDGE,
+                      "a vendor-class interface on a serial driver is a UART bridge");
+
+    /* The predicate the transport and auto-connect both ask, so they cannot disagree. */
+    MESH_TEST_FAIL_IF(!mesh_serial_device_is_radio(node) || !mesh_serial_device_is_radio(bridge),
+                      "a node and a bridge are both things a session can be attempted on");
+    MESH_TEST_FAIL_IF(mesh_serial_device_is_radio(boot), "a bootloader is not a radio");
+
+    /* A bridge has its driver and normal DTR; a native node needs the Brick's usbfs poke. The
+       role must not have disturbed the reading that decides which. */
+    MESH_TEST_FAIL_IF(!node->needs_line_state,
+                      "an unbound native node still needs the usbfs line state");
+    MESH_TEST_FAIL_IF(bridge->needs_line_state || bridge->control_interface >= 0,
+                      "a bridge has no CDC control interface to poke");
+    MESH_TEST_FAIL_IF(boot->control_interface != 0,
+                      "the bootloader's control interface should still be found at 0");
+
+    record_success(test_name);
+}
+
+/*
+ * The refusal. A bootloader presents the same CDC pair the firmware did, so every step of the
+ * connect would succeed and the handshake would then be asked of something that speaks no
+ * protobuf - which draws as a connected radio with the progress bar turning forever.
+ */
+MESH_TEST_CASE(serial_transport_refuses_a_bootloader, unit) {
+    struct mesh_serial_device_info device = mesh_test_serial_device();
+    device.role = MESH_SERIAL_ROLE_BOOTLOADER;
+    device.product_id = 0x0071U;
+
+    struct mesh_serial_usb_mock_config mock;
+    memset(&mock, 0, sizeof mock);
+    mock.devices = &device;
+    mock.device_count = 1U;
+    mock.bound_path = "/dev/ttyUSB0";
+    mock.open_fd = -1;
+    mesh_serial_usb_mock_enable(&mock);
+
+    struct mesh_event_loop loop;
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_event_loop_init(&loop) != 0, mesh_serial_usb_mock_disable(),
+                              "event loop init failed");
+
+    struct mesh_transport *transport = mesh_serial_transport();
+    struct mesh_app_config config = mesh_app_config_default();
+    MESH_TEST_FAIL_IF_CLEANUP(transport->ops->start(transport, &config, &loop) != 0,
+                              (mesh_event_loop_shutdown(&loop), mesh_serial_usb_mock_disable()),
+                              "serial start failed");
+
+    const int result = mesh_serial_transport_connect(transport, "1-1:1.1");
+    const size_t binds = mesh_serial_usb_mock_bind_calls();
+    const size_t line_states = mesh_serial_usb_mock_line_state_calls();
+    const bool connecting = mesh_serial_transport_is_connecting(transport);
+    char reason[MESH_TRANSPORT_ERROR_MAX] = {0};
+    const bool said_why = transport->ops->take_error(transport, reason, sizeof reason);
+
+    transport->ops->stop(transport);
+    mesh_event_loop_shutdown(&loop);
+    mesh_serial_usb_mock_disable();
+
+    MESH_TEST_FAIL_IF(result != -ENOTSUP, "connecting to a bootloader should be refused");
+    MESH_TEST_FAIL_IF(binds != 0U, "a bootloader should never be bound to a serial driver");
+    MESH_TEST_FAIL_IF(line_states != 0U, "a bootloader should never be sent DTR");
+    MESH_TEST_FAIL_IF(connecting, "the refusal must not leave the link waking");
+    MESH_TEST_FAIL_IF(!said_why, "the refusal should say why, not fail silently");
+
+    record_success(test_name);
 }

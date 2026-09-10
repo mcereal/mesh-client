@@ -850,7 +850,7 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             return false;
         }
         const struct mesh_ui_device *device = &store->devices[cursor];
-        if (device->connected || device->identifier[0] == '\0') {
+        if (!mesh_ui_device_connectable(device)) {
             return false;
         }
         if (action != NULL) {
@@ -1335,7 +1335,7 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
                arms it and the backends say so. A press on any other row re-arms from there. */
             const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_DEVICES];
             if (cursor >= store->device_count ||
-                store->devices[cursor].kind != (uint8_t)MESH_UI_DEVICE_BLE) {
+                !mesh_ui_device_forgettable(&store->devices[cursor])) {
                 return changed; /* a USB port has no bond to forget */
             }
             if (!nav->devices_forget_armed || nav->devices_forget_row != cursor) {

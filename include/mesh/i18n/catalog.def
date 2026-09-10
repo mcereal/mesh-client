@@ -484,6 +484,10 @@ MESH_STR_ENTRY(DEVICES_BADGE_CONNECTED,   "connected")
 MESH_STR_ENTRY(DEVICES_BADGE_WORKING,     "working...")
 MESH_STR_ENTRY(DEVICES_BADGE_NEEDS_PAIR,  "needs pairing")
 MESH_STR_ENTRY(DEVICES_BADGE_PAIRED,      "paired")
+/* A USB node in its UF2 bootloader. A warning rather than a fault: the board is healthy and one
+   press of reset runs it again - and phase 3 is what makes this row the start of an install
+   rather than only an explanation. */
+MESH_STR_ENTRY(DEVICES_BADGE_BOOTLOADER,  "in bootloader")
 /* How the device is attached, against the row's trailing edge. USB is a bus name and stays as
    it is; dBm is the signal strength of a Bluetooth node. */
 MESH_STR_ENTRY(DEVICES_TRAILING_USB,      "USB")
@@ -1822,6 +1826,10 @@ MESH_STR_ENTRY(LINK_USB_GONE,             "USB port is gone; is it still plugged
 MESH_STR_ENTRY(LINK_USB_NO_DRIVER,        "%.20s: no USB serial driver (%d)")
 MESH_STR_ENTRY(LINK_USB_OPEN_FAILED,      "Cannot open %.24s: %.20s")
 MESH_STR_ENTRY(LINK_USB_NO_ANSWER,        "%.24s: the radio did not answer")
+/* Said of a node sitting in its UF2 bootloader: the cable is fine and the device is there, but
+   what is on the other end speaks no protobuf. Names the way out, because a single press of
+   reset is the whole of it. */
+MESH_STR_ENTRY(LINK_USB_BOOTLOADER,       "%.20s is in its bootloader; press reset to run it")
 
 /* ---- the banner --------------------------------------------------------------------------------- */
 

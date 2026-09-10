@@ -32,6 +32,37 @@ extern "C" {
 
 #define MESH_SERIAL_MAX_DEVICES 8U
 
+/*
+ * What the USB device on the other end of this interface actually is.
+ *
+ * The scan matches two structurally different things and the difference decides whether a
+ * bootloader is even a possibility. A UART bridge (CP2102, CH341, FTDI) is a separate chip: the
+ * USB device is the adapter, the radio is on the far side of a UART, and USB can say nothing
+ * about what is wired to it - so a bridge is never a bootloader, whatever the board behind it is
+ * doing. A native-USB node is the MCU's own peripheral, and there the question is real: an
+ * Adafruit UF2 bootloader presents a mass-storage endpoint beside its CDC pair, and that
+ * sibling interface is the whole tell.
+ *
+ * It matters because a bootloader speaks no protobuf and will never answer a handshake. Without
+ * this the client binds one, asserts DTR, auto-connects and asks for a config sync that nothing
+ * replies to, which reads on the frame as a connected radio with the progress bar turning
+ * forever.
+ */
+enum mesh_serial_device_role {
+    /* The MCU's own USB, running firmware: what a handshake can be attempted against. Also the
+       answer for a bridge, whose far side we cannot see and must assume is a radio. */
+    MESH_SERIAL_ROLE_NODE,
+    /* A UART bridge chip. Reported separately from a node because the two need different
+       treatment on the Brick - a bridge has a driver and normal DTR, a native node needs the
+       generic-usbserial bind and the usbfs line-state poke - and because only the other kind
+       can be a bootloader. */
+    MESH_SERIAL_ROLE_BRIDGE,
+    /* A UF2 bootloader: a CDC pair with a mass-storage interface (08/06/50) beside it. Not a
+       radio. Phase 3 writes a .uf2 to the drive this exposes; until then it is a row that says
+       what it is and refuses to be connected to. */
+    MESH_SERIAL_ROLE_BOOTLOADER,
+};
+
 struct mesh_serial_device_info {
     /* Stable identifier for the UI and for reconnects: the sysfs interface name ("1-1:1.1"). */
     char id[64];
@@ -51,11 +82,21 @@ struct mesh_serial_device_info {
     /* Bound by the generic usbserial driver, which cannot drive DTR: it has to go through
        usbfs after the port is open. */
     bool needs_line_state;
+    /* enum mesh_serial_device_role, read off the device's own interfaces during the scan.
+       Stored as the enum because nothing outside this header needs to widen it. */
+    enum mesh_serial_device_role role;
 };
 
+/* True when this device cannot carry a Meshtastic session - today, only a bootloader. Asked by
+   the transport before it opens a port and by auto-connect before it picks one, so that the two
+   cannot disagree about which devices are candidates. */
+bool mesh_serial_device_is_radio(const struct mesh_serial_device_info *device);
+
 /* Scans /sys/bus/usb/devices for USB serial candidates: interfaces already bound to a usb-serial
-   driver, plus unbound CDC-Data interfaces that could be bound. Returns how many entries were
-   written (at most `capacity`). */
+   driver, plus unbound CDC-Data interfaces that could be bound. Fills in `role` from the sibling
+   interfaces of the device each one belongs to. Returns how many entries were written (at most
+   `capacity`). A bootloader is still returned - it is a row that says what it is, not a device
+   the list hides. */
 size_t mesh_serial_usb_scan(struct mesh_serial_device_info *out, size_t capacity);
 
 /* Binds an unbound CDC-Data interface to the generic usbserial driver and waits (up to about a

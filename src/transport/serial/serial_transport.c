@@ -392,6 +392,22 @@ int mesh_serial_transport_connect(struct mesh_transport *transport, const char *
         return -ENODEV;
     }
 
+    /*
+     * A bootloader is not a radio. It presents a CDC pair like the firmware it replaced - same
+     * device, often the same product string - so everything below would work: the bind would
+     * take, the tty would appear, DTR would go out, and the handshake would then be asked of
+     * something that speaks no protobuf and will never answer. What the frame shows for that is
+     * a connected radio with the progress bar turning forever, which is the one state a link is
+     * not allowed to have. Refuse here rather than at the callers: auto-connect and a press in
+     * the Devices tab both arrive through this function.
+     */
+    if (!mesh_serial_device_is_radio(device)) {
+        mesh_log_info("serial", "%s (%04x:%04x) is in its bootloader, not running firmware",
+                      device->name, device->vendor_id, device->product_id);
+        mesh_serial_set_error(state, MESH_STR_LINK_USB_BOOTLOADER, device->name);
+        return -ENOTSUP;
+    }
+
     /* On the Brick the node has no driver until we ask for one, and no tty until it binds. */
     if (!device->bound || device->path[0] == '\0') {
         const int bind_result = mesh_serial_usb_bind(device);
@@ -616,9 +632,11 @@ static int mesh_serial_start(struct mesh_transport *transport, const struct mesh
     } else {
         for (size_t i = 0; i < found; ++i) {
             const struct mesh_serial_device_info *device = &state->devices[i];
-            mesh_log_info("serial", "Found %s (%04x:%04x) at %s%s", device->name, device->vendor_id,
-                          device->product_id, device->bound ? device->path : "(unbound)",
-                          device->needs_line_state ? ", needs DTR over usbfs" : "");
+            mesh_log_info("serial", "Found %s (%04x:%04x) at %s%s%s", device->name,
+                          device->vendor_id, device->product_id,
+                          device->bound ? device->path : "(unbound)",
+                          device->needs_line_state ? ", needs DTR over usbfs" : "",
+                          mesh_serial_device_is_radio(device) ? "" : ", in its bootloader");
         }
     }
 

@@ -145,7 +145,18 @@ static void uicap_scene_demo(struct uicap *cap) {
        is in the fixture because it is the ordinary case for anyone who owns two radios, and
        because a row that says "0dBm" about it would claim to be the loudest node on the
        screen - see mesh_bluez_device_info.in_range. */
-    const struct mesh_ui_device devices[4] = {
+    const struct mesh_ui_device devices[5] = {
+        /* The USB port comes first because that is the order the client publishes them in - a
+           plugged-in node needs no pairing and no range, so it is the row the cursor should
+           start on. This one is a node sitting in its UF2 bootloader: it is here because a
+           refusal is a row rather than silence, and because it is the only state a USB row can
+           carry that stops A working. */
+        {.identifier = "/dev/ttyUSB0",
+         .name = "HT-n5262",
+         .in_range = true,
+         .paired = true,
+         .bootloader = true,
+         .kind = (uint8_t)MESH_UI_DEVICE_SERIAL},
         {.identifier = "F4:12:FA:00:0A:11",
          .name = "Home Base",
          .rssi = -48,
@@ -163,7 +174,7 @@ static void uicap_scene_demo(struct uicap *cap) {
          .in_range = true},
         {.identifier = "F4:12:FA:00:0A:44", .name = "Pack Radio", .paired = true},
     };
-    mesh_ui_store_set_discovery(&cap->store, devices, 4U);
+    mesh_ui_store_set_discovery(&cap->store, devices, 5U);
 
     /*
      * Four of these are zero hops away and not over MQTT, which is what makes them *heard* -

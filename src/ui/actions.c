@@ -214,9 +214,28 @@ static void actions_devices(const struct mesh_ui_nav *nav, const struct mesh_ui_
         bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_CANCEL);
         return;
     }
-    bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_CONNECT);
+    /*
+     * A and Y are properties of the row under the cursor, and the nav has always known it:
+     * both handlers declined on rows the bar went on naming anyway. A bootloader is what made
+     * that visible - "A connect" over a node that speaks no protobuf is the bar promising the
+     * one thing this whole change exists to stop - but the row already connected and the USB
+     * port with no bond were the same mistake, quieter.
+     *
+     * X is deliberately not asked here: its handler drops whichever link is up regardless of
+     * the cursor, so it is not about the row.
+     */
+    const struct mesh_ui_device *row = NULL;
+    const uint32_t cursor = nav->cursor[MESH_UI_SCREEN_DEVICES];
+    if (cursor < snapshot->device_count) {
+        row = &snapshot->devices[cursor];
+    }
+    if (mesh_ui_device_connectable(row)) {
+        bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_CONNECT);
+    }
     bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_DISCONNECT);
-    bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_FORGET);
+    if (mesh_ui_device_forgettable(row)) {
+        bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_FORGET);
+    }
     bar_add_help(snapshot, bar);
     bar_add_tabs(bar);
 }

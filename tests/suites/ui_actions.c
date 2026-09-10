@@ -27,6 +27,7 @@
 #include "mesh/ui/status.h"
 #include "mesh/ui/store.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /* A snapshot with nothing in it but the nav, which is all the bar reads. */
@@ -48,6 +49,21 @@ static enum mesh_str_id actions_label_for(const struct mesh_ui_action_bar *bar,
     return MESH_STR_NONE;
 }
 
+/* One more row on the Devices tab, with the cursor left on it. */
+static struct mesh_ui_device *actions_add_device(struct mesh_ui_snapshot *snapshot,
+                                                 const char *identifier,
+                                                 enum mesh_ui_device_kind kind) {
+    struct mesh_ui_device *device = &snapshot->devices[snapshot->device_count];
+    memset(device, 0, sizeof *device);
+    snprintf(device->identifier, sizeof device->identifier, "%s", identifier);
+    device->kind = (uint8_t)kind;
+    device->in_range = true;
+    device->paired = true;
+    snapshot->nav.cursor[MESH_UI_SCREEN_DEVICES] = (uint32_t)snapshot->device_count;
+    snapshot->device_count += 1U;
+    return device;
+}
+
 MESH_TEST_CASE(actions_screens_offer_their_own_presses, unit) {
     struct mesh_ui_snapshot snapshot;
     struct mesh_ui_action_bar bar;
@@ -59,7 +75,9 @@ MESH_TEST_CASE(actions_screens_offer_their_own_presses, unit) {
     MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_SHOULDERS) != MESH_STR_ACTION_TABS,
                       "the shoulders move between tabs on every screen that is not an overlay");
 
+    /* Both of these are properties of the row, so the tab needs one to offer either. */
     snapshot.nav.screen = MESH_UI_SCREEN_DEVICES;
+    actions_add_device(&snapshot, "F4:12:FA:00:0A:22", MESH_UI_DEVICE_BLE);
     mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_CONNECT,
                       "A should connect on the Devices tab");
@@ -202,6 +220,7 @@ MESH_TEST_CASE(actions_arm_before_they_destroy, unit) {
 
     actions_snapshot(&snapshot);
     snapshot.nav.screen = MESH_UI_SCREEN_DEVICES;
+    actions_add_device(&snapshot, "F4:12:FA:00:0A:22", MESH_UI_DEVICE_BLE);
     snapshot.nav.devices_forget_armed = true;
     mesh_ui_actions_for(&snapshot, &bar);
     MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_Y) != MESH_STR_ACTION_CONFIRM_FORGET,
@@ -382,5 +401,62 @@ MESH_TEST_CASE(actions_the_chart_offers_only_the_way_out, unit) {
     }
     MESH_TEST_FAIL_IF(!names_a_node_press,
                       "a chart open on another tab must not silence this one's presses");
+    record_success(test_name);
+}
+
+/*
+ * The Devices bar is read off the row under the cursor, because A and Y are properties of the
+ * row and always were - the nav's handlers declined on three kinds of row while the bar named
+ * both keycaps on all of them. A bootloader is the case that made it worth fixing: "A connect"
+ * over a node that speaks no protobuf is the bar promising exactly the thing that cannot happen.
+ */
+MESH_TEST_CASE(actions_devices_ask_the_row_under_the_cursor, unit) {
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_action_bar bar;
+
+    /* An empty list offers neither: there is no row to act on. X stays, because dropping the
+       live link is not about the cursor. */
+    actions_snapshot(&snapshot);
+    snapshot.nav.screen = MESH_UI_SCREEN_DEVICES;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_NONE,
+                      "an empty device list has nothing for A to connect to");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_Y) != MESH_STR_NONE,
+                      "an empty device list has nothing for Y to forget");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_X) != MESH_STR_ACTION_DISCONNECT,
+                      "X drops whichever link is up and does not depend on the row");
+
+    /* A USB node in its bootloader: no session to open, and no bond to forget either. */
+    actions_snapshot(&snapshot);
+    snapshot.nav.screen = MESH_UI_SCREEN_DEVICES;
+    struct mesh_ui_device *boot =
+        actions_add_device(&snapshot, "/dev/ttyUSB0", MESH_UI_DEVICE_SERIAL);
+    boot->bootloader = true;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_NONE,
+                      "A must not offer to connect to a bootloader");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_Y) != MESH_STR_NONE,
+                      "a USB port has no bond for Y to forget");
+
+    /* The same port running firmware is connectable again - and still has nothing to forget. */
+    boot->bootloader = false;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_ACTION_CONNECT,
+                      "a USB node running firmware is something A can open a link to");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_Y) != MESH_STR_NONE,
+                      "a USB port still has no bond to forget");
+
+    /* The row we are already on: Y can still drop the bond, A has nothing left to do. */
+    actions_snapshot(&snapshot);
+    snapshot.nav.screen = MESH_UI_SCREEN_DEVICES;
+    struct mesh_ui_device *live =
+        actions_add_device(&snapshot, "F4:12:FA:00:0A:11", MESH_UI_DEVICE_BLE);
+    live->connected = true;
+    mesh_ui_actions_for(&snapshot, &bar);
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_A) != MESH_STR_NONE,
+                      "A must not offer to connect to the radio already connected");
+    MESH_TEST_FAIL_IF(actions_label_for(&bar, MESH_UI_BUTTON_Y) != MESH_STR_ACTION_FORGET,
+                      "a bonded radio can still be forgotten while it is the one we are on");
+
     record_success(test_name);
 }
