@@ -1,3 +1,14 @@
+## [2.48.0](https://github.com/mcereal/mesh-client/compare/v2.47.1...v2.48.0) (2026-09-10)
+
+### Features
+
+* **ui:** add a proportion bar and the categorical palette it needs ([4b857d3](https://github.com/mcereal/mesh-client/commit/4b857d340a3493994958fbf757c9c704bfb2e02e))
+
+### Bug Fixes
+
+* **ui:** draw a proportion bar's gaps in the ground it is actually on ([cbf40ff](https://github.com/mcereal/mesh-client/commit/cbf40ffb034788540b8cff79beb7331478fea715))
+* **ui:** reserve room for the last card in a column ([158203c](https://github.com/mcereal/mesh-client/commit/158203cd2c45a275ff03620ea2bac3d2019e7c9f))
+
 ## [2.47.1](https://github.com/mcereal/mesh-client/compare/v2.47.0...v2.47.1) (2026-09-10)
 
 ### Bug Fixes
