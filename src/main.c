@@ -135,10 +135,13 @@ static void list_all_devices(struct mesh_app *app) {
     const struct mesh_serial_device_info *ports = mesh_serial_transport_devices(serial, NULL);
     printf("USB serial ports (%zu)\n", serial_count);
     for (size_t i = 0; i < serial_count && ports != NULL; ++i) {
-        printf("- %s (%04x:%04x) id=%s port=%s%s\n", ports[i].name, ports[i].vendor_id,
+        /* A port that cannot carry a session says so, exactly as the Devices tab badges it:
+           this listing is where "why will that not connect" gets answered on the CLI. */
+        printf("- %s (%04x:%04x) id=%s port=%s%s%s\n", ports[i].name, ports[i].vendor_id,
                ports[i].product_id, ports[i].id,
                ports[i].path[0] != '\0' ? ports[i].path : "(unbound)",
-               ports[i].needs_line_state ? " [DTR via usbfs]" : "");
+               ports[i].needs_line_state ? " [DTR via usbfs]" : "",
+               mesh_serial_device_is_radio(&ports[i]) ? "" : " [in bootloader]");
     }
 }
 
@@ -477,12 +480,23 @@ static int select_serial_link(struct mesh_app *app, const char *requested,
         return -ENODEV;
     }
 
-    const char *wanted = (requested != NULL && requested[0] != '\0')
-                             ? requested
-                             : app->config.preferred_serial_device;
-    const struct mesh_serial_device_info *target = &scratch[0];
+    /*
+     * Named is honoured, chosen is filtered.
+     *
+     * `--serial <id>` names a port, and if that port is a node in its bootloader the right
+     * answer is the connect's refusal with its reason - not a silent hop to some other radio
+     * the user did not ask for. Everything else is the *client* choosing: the remembered
+     * preferred port, and the bare "whatever is plugged in" default. Those choose the way
+     * mesh_app_autoconnect() does, because they are the same decision, and a bootloader is not
+     * a candidate for either. Without the split, one node in DFU ahead of a working radio in
+     * the scan makes --status and --send-text fail with -ENOTSUP while the radio that would
+     * have answered sits in the same list.
+     */
+    const bool named = requested != NULL && requested[0] != '\0';
+    const char *const wanted = named ? requested : app->config.preferred_serial_device;
+    const struct mesh_serial_device_info *target = NULL;
+
     if (wanted[0] != '\0') {
-        target = NULL;
         for (size_t i = 0; i < count; ++i) {
             if (strcmp(scratch[i].id, wanted) == 0 ||
                 (scratch[i].path[0] != '\0' && strcmp(scratch[i].path, wanted) == 0)) {
@@ -490,10 +504,29 @@ static int select_serial_link(struct mesh_app *app, const char *requested,
                 break;
             }
         }
-        if (target == NULL) {
+        if (named && target == NULL) {
             mesh_log_error("main", "No USB serial port matches '%s'", wanted);
             return -ENODEV;
         }
+        if (!named && target != NULL && !mesh_serial_device_is_radio(target)) {
+            /* The port we used last time is in its bootloader. A preference is not an
+               instruction, so anything actually running firmware beats it. */
+            target = NULL;
+        }
+    }
+
+    if (target == NULL) {
+        for (size_t i = 0; i < count; ++i) {
+            if (mesh_serial_device_is_radio(&scratch[i])) {
+                target = &scratch[i];
+                break;
+            }
+        }
+    }
+    if (target == NULL) {
+        mesh_log_error("main", "Every USB serial port is a node in its bootloader; "
+                               "press reset on the board to run its firmware");
+        return -ENODEV;
     }
 
     link->transport = serial;
