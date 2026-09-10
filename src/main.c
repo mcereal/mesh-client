@@ -233,6 +233,7 @@ static int fetch_radio_firmware(struct mesh_app *app, const char *target, const 
     }
 
     unsigned last = 101U;
+    enum mesh_firmware_fetch_state last_state = MESH_FIRMWARE_FETCH_STATE_COUNT;
     for (int turn = 0; turn < 60000 && !run.finished; ++turn) {
         (void)mesh_event_loop_run(&app->loop, 10);
         const uint64_t now = mesh_time_monotonic_ms();
@@ -240,9 +241,12 @@ static int fetch_radio_firmware(struct mesh_app *app, const char *target, const 
         if (run.resolved) {
             mesh_firmware_fetch_tick(&run.fetch, now);
             const unsigned progress = mesh_firmware_fetch_progress(&run.fetch);
-            if (progress != last && progress % 10U == 0U) {
+            /* On a change of step as well as of percentage: this makes two round trips through
+               the same zip, and a bar alone cannot say which one is moving. */
+            if ((run.fetch.state != last_state || progress != last) && progress % 10U == 0U) {
                 printf("  %s %u%%\n", mesh_firmware_fetch_state_name(run.fetch.state), progress);
                 last = progress;
+                last_state = run.fetch.state;
             }
         }
     }

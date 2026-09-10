@@ -620,7 +620,14 @@ unsigned mesh_firmware_download_progress(const struct mesh_firmware_download *do
     if (download == NULL) {
         return 0U;
     }
-    if (download->state == MESH_FIRMWARE_DOWNLOAD_READY) {
+    /*
+     * The member has landed by the time the inflate starts, so INFLATING is 100 and not 0.
+     * Reported the other way the bar ran to full, dropped to empty and filled again - which is
+     * what it did on the device the first time this was watched, and which reads as a download
+     * starting over rather than as a step finishing.
+     */
+    if (download->state == MESH_FIRMWARE_DOWNLOAD_READY ||
+        download->state == MESH_FIRMWARE_DOWNLOAD_INFLATING) {
         return 100U;
     }
     if (download->state != MESH_FIRMWARE_DOWNLOAD_FETCHING ||

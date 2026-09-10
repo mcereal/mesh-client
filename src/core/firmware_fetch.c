@@ -16,8 +16,7 @@
 static void fetch_on_manifest(void *userdata, const struct mesh_fetch_result *result);
 static void fetch_on_download(void *userdata, const struct mesh_firmware_download *download);
 
-static void fetch_finish(struct mesh_firmware_fetch *fetch,
-                         enum mesh_firmware_fetch_state state,
+static void fetch_finish(struct mesh_firmware_fetch *fetch, enum mesh_firmware_fetch_state state,
                          enum mesh_firmware_fetch_error error, const char *message) {
     fetch->state = state;
     fetch->error = error;
@@ -58,9 +57,8 @@ static bool fetch_build_zip_url(struct mesh_firmware_fetch *fetch) {
         return false;
     }
     memcpy(fetch->zip_url, fetch->manifest_url, dir_len);
-    const int written =
-        snprintf(fetch->zip_url + dir_len, sizeof fetch->zip_url - dir_len, "firmware-%s-%s.zip",
-                 fetch->platform, fetch->version);
+    const int written = snprintf(fetch->zip_url + dir_len, sizeof fetch->zip_url - dir_len,
+                                 "firmware-%s-%s.zip", fetch->platform, fetch->version);
     return written > 0 && (size_t)written < sizeof fetch->zip_url - dir_len;
 }
 
@@ -90,19 +88,21 @@ static void fetch_on_manifest(void *userdata, const struct mesh_fetch_result *re
         return;
     }
     if (!fetch_build_zip_url(fetch)) {
-        fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_DOCUMENT, "the release URL is not one we "
-                                                              "can build a zip name from");
+        fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_DOCUMENT,
+                   "the release URL is not one we "
+                   "can build a zip name from");
         return;
     }
     mesh_log_info("firmware", "%s is built on %s; reading %s", fetch->target, fetch->platform,
                   fetch->zip_url);
 
     char member[MESH_ZIP_NAME_MAX];
-    const int written = snprintf(member, sizeof member, "firmware-%s-%s.mt.json", fetch->target,
-                                 fetch->version);
+    const int written =
+        snprintf(member, sizeof member, "firmware-%s-%s.mt.json", fetch->target, fetch->version);
     if (written <= 0 || (size_t)written >= sizeof member) {
-        fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_DOCUMENT, "the manifest member name is too "
-                                                              "long to ask for");
+        fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_DOCUMENT,
+                   "the manifest member name is too "
+                   "long to ask for");
         return;
     }
     fetch->state = MESH_FIRMWARE_FETCH_ASKING;
@@ -151,9 +151,9 @@ static void fetch_read_manifest(struct mesh_firmware_fetch *fetch) {
     }
     /* With no expectation the manifest is taken at its word, which is what an inspection
        wants; the install path always states one. */
-    fetch->path = mesh_firmware_path_for_architecture(
-        fetch->expect_architecture[0] != '\0' ? fetch->expect_architecture
-                                              : fetch->manifest.architecture);
+    fetch->path = mesh_firmware_path_for_architecture(fetch->expect_architecture[0] != '\0'
+                                                          ? fetch->expect_architecture
+                                                          : fetch->manifest.architecture);
 
     const struct mesh_firmware_image *const image =
         mesh_firmware_manifest_image(&fetch->manifest, fetch->path);
@@ -168,8 +168,9 @@ static void fetch_read_manifest(struct mesh_firmware_fetch *fetch) {
 
     fetch->state = MESH_FIRMWARE_FETCH_DOWNLOADING;
     if (!fetch_start_download(fetch, fetch->image.name)) {
-        fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_UNAVAILABLE, "the image download would not "
-                                                                 "start");
+        fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_UNAVAILABLE,
+                   "the image download would not "
+                   "start");
     }
 }
 
@@ -204,8 +205,9 @@ static void fetch_check_image(struct mesh_firmware_fetch *fetch) {
     uint8_t *const bytes = malloc((size_t)fetch->image.bytes);
     if (bytes == NULL) {
         fclose(file);
-        fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_DOWNLOAD, "there is no room to read the "
-                                                              "image");
+        fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_DOWNLOAD,
+                   "there is no room to read the "
+                   "image");
         return;
     }
     const size_t got = fread(bytes, 1U, (size_t)fetch->image.bytes, file);
@@ -221,8 +223,7 @@ static void fetch_check_image(struct mesh_firmware_fetch *fetch) {
                                          ? fetch->expect_architecture
                                          : fetch->manifest.architecture;
     const uint32_t family = mesh_uf2_family_for_architecture(architecture);
-    const enum mesh_uf2_verdict verdict =
-        mesh_uf2_validate(bytes, got, family, &fetch->uf2);
+    const enum mesh_uf2_verdict verdict = mesh_uf2_validate(bytes, got, family, &fetch->uf2);
     free(bytes);
     if (verdict != MESH_UF2_OK) {
         char message[MESH_FIRMWARE_FETCH_MESSAGE_MAX];
@@ -261,8 +262,8 @@ int mesh_firmware_fetch_start(struct mesh_firmware_fetch *fetch, struct mesh_fet
                               const char *expect_architecture, const char *staging_dir,
                               mesh_firmware_fetch_done_fn on_done, void *userdata) {
     if (fetch == NULL || fetcher == NULL || target == NULL || version == NULL ||
-        manifest_url == NULL || staging_dir == NULL || target[0] == '\0' ||
-        version[0] == '\0' || manifest_url[0] == '\0' || staging_dir[0] == '\0') {
+        manifest_url == NULL || staging_dir == NULL || target[0] == '\0' || version[0] == '\0' ||
+        manifest_url[0] == '\0' || staging_dir[0] == '\0') {
         return -EINVAL;
     }
     if (mesh_firmware_fetch_busy(fetch)) {
@@ -322,8 +323,7 @@ bool mesh_firmware_fetch_busy(const struct mesh_firmware_fetch *fetch) {
     if (fetch == NULL) {
         return false;
     }
-    return fetch->state != MESH_FIRMWARE_FETCH_IDLE &&
-           fetch->state != MESH_FIRMWARE_FETCH_READY &&
+    return fetch->state != MESH_FIRMWARE_FETCH_IDLE && fetch->state != MESH_FIRMWARE_FETCH_READY &&
            fetch->state != MESH_FIRMWARE_FETCH_FAILED;
 }
 
@@ -352,20 +352,20 @@ const char *mesh_firmware_fetch_image_path(const struct mesh_firmware_fetch *fet
 
 const char *mesh_firmware_fetch_state_name(enum mesh_firmware_fetch_state state) {
     switch (state) {
-        case MESH_FIRMWARE_FETCH_IDLE:
-            return "idle";
-        case MESH_FIRMWARE_FETCH_RESOLVING:
-            return "resolving";
-        case MESH_FIRMWARE_FETCH_ASKING:
-            return "reading the board manifest";
-        case MESH_FIRMWARE_FETCH_DOWNLOADING:
-            return "downloading";
-        case MESH_FIRMWARE_FETCH_READY:
-            return "ready";
-        case MESH_FIRMWARE_FETCH_FAILED:
-            return "failed";
-        case MESH_FIRMWARE_FETCH_STATE_COUNT:
-        default:
-            return "unknown";
+    case MESH_FIRMWARE_FETCH_IDLE:
+        return "idle";
+    case MESH_FIRMWARE_FETCH_RESOLVING:
+        return "resolving";
+    case MESH_FIRMWARE_FETCH_ASKING:
+        return "reading the board manifest";
+    case MESH_FIRMWARE_FETCH_DOWNLOADING:
+        return "downloading";
+    case MESH_FIRMWARE_FETCH_READY:
+        return "ready";
+    case MESH_FIRMWARE_FETCH_FAILED:
+        return "failed";
+    case MESH_FIRMWARE_FETCH_STATE_COUNT:
+    default:
+        return "unknown";
     }
 }
