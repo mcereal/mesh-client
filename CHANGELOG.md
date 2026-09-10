@@ -1,3 +1,22 @@
+## [2.53.0](https://github.com/mcereal/mesh-client/compare/v2.52.0...v2.53.0) (2026-09-10)
+
+### Features
+
+* **firmware:** ask a radio to enter its UF2 bootloader ([1a2833a](https://github.com/mcereal/mesh-client/commit/1a2833a96964f1a5baff00d3f2ed1eb7fac41e5c))
+* **firmware:** write a UF2 to a radio's bootloader over USB ([2143699](https://github.com/mcereal/mesh-client/commit/2143699d6ab74107af445327ef0bf43785c32874))
+
+### Bug Fixes
+
+* **deploy:** compress the push stream ([c565f06](https://github.com/mcereal/mesh-client/commit/c565f06b1ede3880f09f77e050b2bd06963830b3))
+* **deploy:** stage a push under a name the launcher does not glob ([9ad77f2](https://github.com/mcereal/mesh-client/commit/9ad77f2192985e1b8ea1074a8388c60ee247fcf5))
+* **firmware:** fill in why an install refused to start ([61824f1](https://github.com/mcereal/mesh-client/commit/61824f13c01b1cce17940c3bb7dcb33d96271c1d))
+* **firmware:** match the bootloader on the bus id, not on the tty label ([c5e047d](https://github.com/mcereal/mesh-client/commit/c5e047dd509c56706647ba8ec055b0f10f230726))
+
+### Documentation
+
+* **firmware:** mark phase 3 shipped and correct its test plan ([957934e](https://github.com/mcereal/mesh-client/commit/957934ea2061c7d4eaf6823a4e26f9c31fd2ceef))
+* **firmware:** say plainly that phase 3 is unconfirmed on hardware ([d78515c](https://github.com/mcereal/mesh-client/commit/d78515cbb2182778f0f66ca452b46c32144e413f))
+
 ## [2.52.0](https://github.com/mcereal/mesh-client/compare/v2.51.1...v2.52.0) (2026-09-10)
 
 ### Features
