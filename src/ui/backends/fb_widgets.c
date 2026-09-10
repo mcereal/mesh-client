@@ -2369,23 +2369,19 @@ static struct fb_card_metrics fb_card_measure(const struct mesh_ui_backend_fb_st
 }
 
 /*
- * Body rows one row of content occupies. A note and a trend are the two that are more than one,
- * and they are more than one for opposite reasons - a note has more words than fit on a line,
- * and a trend has a second dimension.
+ * Body rows one row of content occupies. A note is the only one that is more than one, because
+ * it is the only one with more words than fit on a line: every picture a card can carry is a
+ * *length*, and a length is as thin as the theme's bar.
  *
- * That is also why a bar costs a card nothing and a line costs it a row. A meter's whole
- * reading is a length, so it can be as thin as the theme likes and still say everything it has
- * to say; a sparkline's reading is a *shape*, and a shape squeezed into the height of a hairline
- * is a hairline. One extra body row is what makes the difference between a climb and a fall
- * legible at arm's length, and it is the honest price of the only row on a card that can say
- * which way something is going.
+ * There was a second, and losing it is worth a sentence because it is the rule arriving from the
+ * other side. A trend row cost two, since a sparkline's reading is a shape rather than a length
+ * and a shape in the height of a hairline is a hairline. It had one caller - the Status screen's
+ * airtime block - and that screen now opens the same readings as a chart, which says everything
+ * the two rows said and four things they could not. So the shape went to a screen and the card
+ * kept the bar, and what is left here is the general form: a card draws levels, and a shape
+ * wants a body.
  */
-#define FB_CARD_SPARK_LINES 2U
-
 static uint32_t fb_card_row_lines(const struct fb_card_row *row, size_t cols) {
-    if (row->kind == FB_CARD_ROW_SPARK) {
-        return FB_CARD_SPARK_LINES;
-    }
     if (row->kind != FB_CARD_ROW_NOTE) {
         return 1U;
     }
@@ -2523,33 +2519,6 @@ void fb_card_meter(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_i
     row->meter_id = id;
 }
 
-void fb_card_spark(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_id label,
-                   const struct mesh_ui_series *series, struct mesh_ui_scale scale) {
-    /*
-     * No row at all rather than an empty one, and the test is here rather than at the call site
-     * so that every card asking for a trend answers it the same way. A box with one reading in
-     * it is a level; a box with none says the radio has gone quiet, which it has not.
-     *
-     * A drawable segment rather than a sample count, which is not the same test: every sample
-     * that follows a silence the series calls a break starts a line rather than continuing one,
-     * so two reports either side of a link that was down draw no stroke at all. Counted instead,
-     * this row spends two of the most crowded card's rows on a floor and a dot.
-     */
-    if (!mesh_ui_series_has_segment(series)) {
-        return;
-    }
-    struct mesh_ui_polyline points;
-    mesh_ui_series_project(series, scale, &points);
-    struct fb_card_row *row = fb_card_next_row(card, FB_CARD_ROW_SPARK, tone);
-    if (row == NULL) {
-        return;
-    }
-    if (label != MESH_STR_NONE) {
-        mesh_text_sanitise_str(mesh_str(label), row->label, sizeof row->label);
-    }
-    row->spark = points;
-}
-
 void fb_card_proportion(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_id label,
                         const uint32_t *values, uint32_t count) {
     if (values == NULL || count < 2U || count > MESH_UI_PROPORTION_PARTS) {
@@ -2607,7 +2576,7 @@ int fb_card_height(const struct mesh_ui_backend_fb_state *state, const struct fb
     }
     const struct fb_card_metrics m = fb_card_measure(state, layout, card);
     const struct fb_card_fit whole = {.rows = card->count, .tail_lines = 0U};
-    return fb_card_box_height(&m, layout, card, whole) + m.gap;
+    return fb_card_box_height(&m, layout, card, whole);
 }
 
 /* One row of content, drawn at `y` and returning the rows it used. `max_lines` of 0 means the
@@ -2710,37 +2679,6 @@ static uint32_t fb_draw_card_row(struct mesh_ui_backend_fb_state *state,
         return 1U;
     }
 
-    if (row->kind == FB_CARD_ROW_SPARK) {
-        /* The same shape and the same arithmetic as the bar above, so a card carrying both puts
-           them in one column and on one rhythm - which is the whole reason the trend is a row
-           of this card rather than a picture somewhere else on the screen. */
-        const int adv = fb_char_adv(state, state->scale);
-        int line_x = m->content_x;
-        if (row->label[0] != '\0') {
-            struct mesh_ui_line label;
-            mesh_ui_line_reset(&label);
-            mesh_ui_line_column(&label, row->label, m->label_cols);
-            mesh_ui_line_fit(&label, m->cols);
-            fb_draw_text(state, m->content_x, y, mesh_ui_line_text(&label), state->scale, color,
-                         ground);
-            line_x = m->content_x + (int)(m->label_cols + 1U) * adv;
-        }
-        const int line_right = m->content_x + (int)m->cols * adv;
-        /* The rows it was measured for, less the leading that keeps it off the row above and
-           the row below - so a trend sits inside its two rows the way a bar sits inside its
-           one, rather than touching the words either side of it. */
-        const int height = (int)FB_CARD_SPARK_LINES * layout->line - state->scale * 2;
-        if (line_right - line_x > 0 && height > 0) {
-            const struct fb_sparkline spark = {
-                .rect = {.x = line_x, .y = y + state->scale, .w = line_right - line_x, .h = height},
-                .points = &row->spark,
-                .tone = row->tone,
-            };
-            fb_draw_sparkline(state, &spark);
-        }
-        return FB_CARD_SPARK_LINES;
-    }
-
     struct mesh_ui_line line;
     mesh_ui_line_reset(&line);
     mesh_ui_line_column(&line, row->label, m->label_cols);
@@ -2760,12 +2698,12 @@ int fb_card_min_height(const struct mesh_ui_backend_fb_state *state, const struc
        under it is not a card. What the row costs is the row's own - a note that wraps to three
        lines is three - because the minimum has to be a card that can actually be drawn. */
     const struct fb_card_fit least = {.rows = 1U, .tail_lines = 0U};
-    /* The box and no gap, which is where this differs from fb_card_height(). That one answers
-       "how much of the column does this card consume", so it carries the gap to whatever comes
-       under it; this one answers "how much room does this card need to exist at all". The gap
-       *between* the two cards is real and still has to be paid for - it is just not this card's
-       to state, because it belongs to whichever card is reserving the room and is added by
-       fb_draw_card_reserving(). Counting it here as well would spend a row of content on air. */
+    /* The box and no gap, exactly as fb_card_height() answers now. The gap *between* the two
+       cards is real and still has to be paid for - it is just not this card's to state, because
+       it belongs to whichever card is reserving the room and is added by
+       fb_draw_card_reserving(). Counting it here as well would spend a row of content on air,
+       and counting it in one of the pair and not the other is a reservation that is a row too
+       generous depending on which of them a screen asked. */
     return fb_card_box_height(&m, layout, card, least);
 }
 

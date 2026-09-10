@@ -1710,10 +1710,6 @@ enum fb_card_row_kind {
        like a field row, so a card with one costs no more room and the clip arithmetic above is
        unchanged - a bar is thinner than the text it sits among, not taller. */
     FB_CARD_ROW_METER,
-    /* The same shape for a trend line: a label column and a sparkline across the rest of the
-       row, one line, for the same reason. What it costs a card is one row and what it buys is
-       the direction, which is the half of a reading no other row on a card can carry. */
-    FB_CARD_ROW_SPARK,
     /* And the same shape again for a whole divided into its parts. One line, like the meter and
        for the meter's reason: a composition is read as lengths, and lengths are as thin as the
        theme's bar. It is the trend that needs two rows, because a shape needs a second
@@ -1736,10 +1732,6 @@ struct fb_card_row {
     struct mesh_ui_band meter_band;
     bool meter_banded;
     uint32_t meter_id;
-    /* SPARK: the samples, already normalised. Held by value on the same terms the band is - a
-       card is built, handed over and drawn, so a row that pointed into a snapshot would be a
-       card that only works while the frame that built it is still being drawn. */
-    struct mesh_ui_polyline spark;
     /* PROPORTION: the parts, held by value on the terms the band and the polyline are - a card
        is built, handed over and drawn, so a row pointing at a caller's array would be a card
        that only works while the frame that built it is still on the stack. */
@@ -1848,22 +1840,6 @@ void fb_card_meter(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_i
                    uint32_t id);
 
 /*
- * A line: the row for the same number's *direction*.
- *
- * `series` is the readings kept for it and `scale` the domain they are drawn on - the same one
- * the bar above it fills against, which is what lets the two be read together rather than each
- * against its own idea of full. A series with fewer than two samples adds no row at all, so a
- * card asks for the trend and gets it once there is one, rather than reserving an empty box
- * against a reading the radio has yet to repeat.
- *
- * `label` of MESH_STR_NONE gives the line the card's whole content width, and it is the shape
- * to reach for here for the reason the meter's is: a trend under a bar under the words is
- * already the third thing said about one number, and a label would be the fourth.
- */
-void fb_card_spark(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_id label,
-                   const struct mesh_ui_series *series, struct mesh_ui_scale scale);
-
-/*
  * A divided bar: the row for what a reading is *made of*.
  *
  * `values` are the parts in the order they are drawn, and `tone` colours the label rather than
@@ -1899,9 +1875,18 @@ void fb_card_action(struct fb_card *card, enum mesh_str_id label, bool selected)
    and no rows is still empty: an action row alone is a button strip, not a card. */
 bool fb_card_is_empty(const struct fb_card *card);
 
-/* Pixels the card occupies, the gap to the next card included. What fb_draw_card() measures
-   with; exposed because a screen laying cards out against something else needs the same
-   answer, and a second way of measuring one is how the two come to disagree. */
+/*
+ * The room a card needs to say *everything* it holds: its heading, every row, and its padding.
+ * The other half of the reservation pair below - and on the same terms, so a screen can hand
+ * either to fb_draw_card_reserving() and get what it asked for. Neither carries the gap between
+ * the two cards, because that gap belongs to the card doing the reserving.
+ *
+ * Which of the two a screen reserves is an editorial decision and is allowed to be a *reading*
+ * rather than a constant. The Status tab is the worked example: its Radio card is a heading over
+ * a battery figure while the radio is well and five rows of explanation when it is not, so the
+ * card above it promises the minimum in the first case and the whole in the second. See
+ * fb_render_status().
+ */
 int fb_card_height(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
                    const struct fb_card *card);
 
@@ -1928,8 +1913,8 @@ int fb_card_height(const struct mesh_ui_backend_fb_state *state, const struct fb
  * glance, and PRIMARY already owes both grounds 3:1.
  */
 /*
- * The least a card can be drawn as and still be one: its heading, its first row and its padding,
- * with the gap to the next card. What a screen reserves for a card that must not disappear.
+ * The least a card can be drawn as and still be one: its heading, its first row and its padding.
+ * What a screen reserves for a card that must not disappear but has nothing urgent to say.
  *
  * The first *row* rather than a line, because a card is refused outright at the point it has
  * nothing but a heading - so this is the smallest height that actually draws something.

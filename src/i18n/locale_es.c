@@ -233,7 +233,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_STATUS_LABEL_AIRTIME] = "Uso del aire",
     [MESH_STR_STATUS_LABEL_BATTERY] = "Batería",
     [MESH_STR_STATUS_LABEL_PACKETS] = "Paquetes",
-    [MESH_STR_STATUS_LABEL_DROPPED] = "Descartados",
+    [MESH_STR_STATUS_LABEL_SENT] = "Enviados",
     [MESH_STR_STATUS_LABEL_HEARD] = "Recibidos",
     [MESH_STR_STATUS_LABEL_HEAP] = "Memoria",
     [MESH_STR_STATUS_LABEL_TX_QUEUE] = "Cola TX",
@@ -261,8 +261,7 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_STATUS_BATTERY_PERCENT] = "%u%%",
     [MESH_STR_STATUS_BATTERY_UNKNOWN] = "desconocido",
     [MESH_STR_STATUS_UPTIME_SUFFIX] = "%sactivo %s",
-    [MESH_STR_STATUS_PACKETS] = "%u tx, %u rx, %u reenviados",
-    [MESH_STR_STATUS_DROPPED] = "%u rx err., %u repetidos, %u tx",
+    [MESH_STR_STATUS_SENT] = "%u tx, %u reenviados, %u descartados",
     /* Same order as the English, and it has to stay that way: the bar under this row
        draws its parts in the order the numbers are named in. */
     [MESH_STR_STATUS_HEARD] = "%u nuevos, %u repetidos, %u err.",

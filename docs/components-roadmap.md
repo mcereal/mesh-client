@@ -448,10 +448,12 @@ Three rules came out of doing it, and they are the ones a sparkline or a stacked
 
 > **Landed.** `struct mesh_ui_series` and `mesh_ui_series_project()` in
 > [`layout.h`](../include/mesh/ui/layout.h), `struct mesh_ui_history` in
-> [`history.h`](../include/mesh/ui/history.h), `fb_draw_sparkline()` with `FB_CARD_ROW_SPARK`
-> and `FB_TRAILING_SPARK`. Kept below because it is the entry the work agreed with most - the
-> ring really was the larger half - and because the four ways a trend line is wrong quietly are
-> what the next thing that wants history will face. See §14.
+> [`history.h`](../include/mesh/ui/history.h), `fb_draw_sparkline()` with `FB_TRAILING_SPARK`.
+> Kept below because it is the entry the work agreed with most - the ring really was the larger
+> half - and because the four ways a trend line is wrong quietly are what the next thing that
+> wants history will face. See §14. The `FB_CARD_ROW_SPARK` size it also shipped with is gone:
+> §2.18's chart is what a reading somebody has stopped to look at actually wants, so the card
+> row was squeezed out from above rather than trimmed for room - see §17.
 
 **2.13 There is still no sparkline.** The gap that remains, and the only one on this list whose
 cost is not in the component. A meter and a staircase both report a *level*; nothing reports a
@@ -473,7 +475,7 @@ well, a sparkline says which way — all three are one number. A composition is 
 that are parts of one, and every screen holding some has been printing them as a list.
 
 The Status card is where it shows. The radio reports what it heard as three counters, and the
-row says `12 bad rx, 431 dupe, 3 tx`. Upstream's own comment on the duplicate counter is *"if
+row says `5428 new, 431 dupe, 12 bad`. Upstream's own comment on the duplicate counter is *"if
 this number is high, there are nodes in the mesh relaying packets when it's unnecessary"* — and
 **high is not a property of 431.** It is a property of 431 against 5,871, which is the airtime
 bar's argument arriving on a whole with more than one part in it: a percentage has to be read
@@ -498,7 +500,7 @@ problem at all:
   property of the data.
 - **The parts have to be disjoint, and nothing can check that from inside the component.** This
   is the way a composition is wrong quietly, and it is not hypothetical: `num_tx_relay` is a
-  *subset* of `num_packets_tx` rather than a sibling of it, so the Packets row's three numbers
+  *subset* of `num_packets_tx` rather than a sibling of it, so the transmit row's three numbers
   add up to a confident picture of a whole that does not exist. §2.12's first rule, on a
   component that has more ways to break it.
 
@@ -550,6 +552,45 @@ Two things it found that the composition's entry did not, and both are about wha
 - **Two lines share one window, or the picture lies.** `mesh_ui_series_project()` stretches a
   series across its own span - correct for a line drawn alone, and wrong the moment there is a
   second one beside it.
+
+### Tier 2.5 — the screen, not the component
+
+**2.20 The Status screen is a fixed column with no scroll, and this is the third step to end
+with "the card is over budget."** §15 recorded it, §16 changed its terms, §17 bought five rows
+back — and every one of those was a trim of something that should not have been on the frame
+twice. That supply is now spent. The next feature that wants a row on this screen has nowhere to
+take one from, and the failure is not a missing row: `fb_draw_card()` clips from the end, so what
+goes is whatever a screen declared last, silently, on a device with no way to scroll to it.
+
+Every other screen in this client is a list and lists scroll. `fb_list_rail()` puts a rail up
+from `count`, `first` and `visible` with no screen asking. Status has no list model, because it
+is a column of cards.
+
+Two answers, and the constraint that decides between them is the same one either way:
+
+- **Make the column scroll.** Nothing is ever lost. But the Status cursor is an *index into the
+  verbs its cards offer* — Up and Down walk buttons, not rows — so there is no press left to
+  scroll with, and the three verbs a fully-reported screen offers are three positions to scroll
+  to. Deriving the scroll from the focused card gets the reader to three places, and to none at
+  all with the link down and no verbs on offer.
+- **Give each card a level under it.** The card on Status is the glance; a `detail` verb opens a
+  full-body scrolling list of everything that card knows. It is the pattern the client already
+  uses twice over — Nodes → node detail, and Status → trend — and it is the only one that scales
+  past the next feature. What it costs is the same constraint from the other side: three more
+  verbs, and the list may only ever grow *at its end*, so appending them gives a cursor order of
+  `[disconnect, refresh, trend, link, mesh, radio]` — walking down the screen and then back up
+  it. `status.h` already names the way out: *"the cursor has to start remembering which verb it
+  was on rather than which index."*
+
+So the work is that sentence, not the screen. Until the Status cursor is keyed on a verb rather
+than on a position, both answers are blocked and neither is blocked by anything else. It is a
+small, testable change with no visible effect on its own, which is exactly the kind of thing that
+should land before the screen that needs it rather than inside it.
+
+Worth doing when a feature actually wants a row here and there is none to give. It is written
+down now because §17 made the argument possible to have with a picture instead of a hypothesis:
+the screen fits today, and it fits because five rows of duplication were removed rather than
+because it has room.
 
 ### Tier 3 — worth knowing, not worth doing yet
 
@@ -1483,6 +1524,11 @@ in `theme.c` had ever owed, and writing the contract was most of the work.
   visible one now rather than a hypothetical — the clipping is graceful instead of catastrophic,
   so it can be argued about with a picture.
 
+  > **Settled in §17,** and the answer was that it gave up nothing: five rows came back, every one
+  > of them something already on the frame or already said better elsewhere. The measurement was
+  > also worse than this paragraph recorded — four rows were being clipped, and the composition
+  > bar was one of them, so §2.17's component had never been on screen in ordinary use.
+
 ## 16. What doing 2.18 and 2.19 changed
 
 The entry was right that the cost would be a route and wrong about which part of the route was
@@ -1589,3 +1635,97 @@ of thing from every other level in this client, and that most of the care went t
   none today, because there is one trend and it is the radio we are attached to - and a press to
   open it with, which on a screen whose rows are a list is a genuine question rather than a
   spare button. Worth doing when somebody wants it; the component is not what is missing.
+
+## 17. What deciding §15's leftover changed
+
+§15 ended with a decision it declined to take: the Mesh card is over budget, both the bad and the
+duplicate counts are named twice, and *which rows that card should give up* is a decision about
+that screen rather than about the composition bar. Taking it turned out not to be a question
+about which rows to give up at all. Nothing was given up. Five rows came back, and every one of
+them was something already on the frame or already said better somewhere else.
+
+The measurement first, because it was worse than the entry recorded. Rendered against the tree at
+§16, the Mesh card in the ordinary reported state was clipped after its `Packets` row: it lost
+`Dropped`, `Heard`, the proportion bar under `Heard` — the component §2.17 was built for, which
+had therefore **never been on screen in ordinary use** — and the message ring. Four rows, not two.
+
+- **Two rows of the Link card were the line under the keycaps, verbatim.** `fb_link_summary()`
+  builds that line out of `transport_status` and `fb_device_label()` of the connected device, on
+  every frame of every screen, and the card's Transport and Radio rows were built from the same
+  two expressions a dozen rows further up. Not the same two *facts* — the same two calls. This is
+  the banner's own rule (*a banner says only what nothing else on the frame says*) arriving on a
+  card row, and it had been sitting at the top of the one column here that runs out of room,
+  where a recovered row shifts everything below it up. What made it a rule rather than a deletion
+  is the state it is conditional on: with no radio the summary line says the quit hint instead of
+  a device, so the rows come back and the card is where "not connected" is written. Whether
+  anything else is saying it is a question about the state, not about the row.
+
+- **The airtime block was four rows about one number, and the chart had already taken the fourth.**
+  The figure, the banded bar, and a two-row trend line. §16 recorded that the card's small line
+  had become an *entrance* rather than the whole of what the client could say about a direction —
+  and an entrance is what the `trend` verb on the heading already is, at a cost of no rows at all.
+  So the shape went to the screen built for it and the card kept the pair: the words say how
+  busy, the bar says whether that is a lot. Neither replaces the other, and neither is the
+  direction.
+
+- **Which left `fb_card_spark()` with no callers, and deleting it is the finding rather than the
+  tidy-up.** §14 argued the sparkline into two sizes — full width on a card for a reading somebody
+  has stopped to look at, six cells in a row's trailing slot for one the eye is passing — and the
+  argument was right at the time. It stopped being right when a whole body with labelled axes, a
+  named span, ruled thresholds and a second series arrived, because that is what *stopped to look
+  at* actually wants. The middle size was squeezed out from above rather than trimmed for room,
+  and the pair that survives is sharper than the one it replaced: **a row carries a glance, a
+  screen carries a study.** A component set is not a seam, so a card-row kind with no screen
+  needing it is drift rather than headroom.
+
+- **"Dropped" was never one subject, which is why it could not stop restating the row below it.**
+  A malformed packet is something we *heard*; a packet the transmit queue refused is something we
+  did not send. The old split cut across that — `Packets` (tx, rx, relayed), `Dropped` (bad rx,
+  dupe, tx dropped), `Heard` (new, dupe, bad) — so the same duplicate count was amber three rows
+  up because something was going wrong and neutral below because it was a share. Both answers
+  were wanted and neither needed the other's row. Split by *direction* instead and each number is
+  named once: `Sent` is the transmit side whole and `Heard` is the receive side whole, with the
+  bar under the one that is actually a partition. The received total is not a fourth number on
+  the row, because it is the sum of the three and the length of the bar — which is precisely what
+  the row it replaced was doing wrong.
+
+- **A colour on a lifetime counter has to be a share, and that is the general form of §15's
+  complaint.** These are totals since the radio booted, so anything read off an absolute lights
+  once and stays lit for the rest of the connection: twelve malformed packets in six thousand is
+  what the old `Dropped` row spent its warning on, for nine days of uptime. A ratio recovers as
+  the radio runs well, which is the only behaviour a colour on a running total can have and still
+  mean something. Both rows take one, and the thresholds differ because the things do — half for
+  the received side, where a duplicate is ordinary mesh traffic, and one in a hundred for a send
+  that failed. The *live* half stays where it was on purpose: the Radio card's TX queue row goes
+  to the error family the moment the radio is refusing sends now, which is the alarm. These are
+  the tally, and a tally's job is proportion.
+
+- **The reservation was static and the screen's priority is not, and that was §15's own fix
+  getting the important case backwards.** With the five rows recovered the healthy screen fits
+  whole — and the *worst* case still clipped, in the wrong direction. The Radio card exists only
+  to explain trouble: every row on it appears when something is wrong, so its worst case is all
+  of them at once, and those are the highest-value words on the frame. Reserved at
+  `fb_card_min_height()` it got two rows, and a firmware notice reading "Channel key mismatch on
+  LongFast" was clipped off the bottom while the Mesh card kept its message ring. **How much to
+  reserve is a reading rather than a constant**, and the reading already existed: `radio_tone` is
+  that card's report on its own contents and is what picks its variant. It now picks its claim on
+  the column too — the minimum while the radio is well, `fb_card_height()` when it is not — so a
+  quiet card recedes and a card with something wrong to say takes the room to say it. The rows it
+  takes are the ones the Mesh card declared last, which are the rows a reader chasing a fault
+  would have skipped.
+
+- **`fb_card_height()` had no callers and disagreed with its sibling about a gap.** It carried the
+  gap to the next card; `fb_card_min_height()` deliberately did not, because
+  `fb_draw_card_reserving()` adds one. Two functions answering "how much room does this card
+  need" with a row's worth of difference between them, one of them unused — which is a trap
+  waiting for its first caller rather than a distinction. They are a pair now and neither carries
+  the gap.
+
+- **One thing it leaves behind, and it is bigger than the last two were.** Every row this
+  recovered was duplication, and that supply is now spent — the screen fits because five rows of
+  it were removed, not because it has room. The next feature that wants a row here has nothing to
+  take one from, and what it will get instead is a silent clip from the end. §2.20 is the
+  argument written out, and what it turns on is a single sentence `status.h` has been carrying
+  since the verbs were added: the Status cursor is an index, and it has to start remembering
+  which verb it was on rather than which position. Both structural answers are blocked behind
+  that and nothing else is.
