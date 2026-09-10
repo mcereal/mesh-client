@@ -69,6 +69,42 @@ file rather than assumed.
 `/mnt/SDCARD`: the nRF52 bootloader's mass-storage drive gets mounted over that card the moment
 a radio reboots into DFU, and a file staged there disappears from its own path.
 
+## Installing radio firmware
+
+```sh
+meshclient --install-firmware heltec-mesh-node-t114 --staging /mnt/UDISK
+```
+
+Everything the fetch does, and then **the radio is changed**: an `enter_dfu_mode_request` goes
+down the serial link, the client watches the USB tree until the board comes back as a
+bootloader, takes the drive off whatever the platform mounted it at, writes the `.uf2`'s blocks
+to it, and waits for the board to reset itself into the new firmware. About eight seconds of
+download and thirteen of write on a T114, with a second for the reboot.
+
+The radio has to be on **USB**. That is the feature's constraint rather than the command's — an
+nRF52 has no over-the-air path from here at all, which is what the About screen's "connect it by
+USB" row already says. An ESP32 target is refused here outright.
+
+**With no radio connected it still runs.** It says so, and then waits for a bootloader instead of
+asking for one — which is the recovery path: a double-tap of the reset button does by hand
+exactly what the admin verb does, and it is what a board too broken to be asked politely needs.
+When a radio *is* connected the bootloader is only accepted on the same USB port it was on, so a
+write cannot follow a board that moved.
+
+Three things about it are worth knowing before running it on a Brick:
+
+- **Stage outside `/mnt/SDCARD`.** The platform mounts the bootloader's 32 MB ghost FAT over the
+  SD card, taking the pak, the binary, the CA bundle and the log with it. The client reads the
+  image into memory before sending the radio anywhere, so the install survives that — but a
+  `--staging /mnt/SDCARD` puts the *download* somewhere that vanishes underneath it.
+- **The drive is unmounted, and that is also the repair.** The shadow is a stacked mount, so
+  taking it off is what puts `/mnt/SDCARD` back. A mountpoint that will not come off is a
+  refusal rather than a lazy unmount: a write racing the VFAT driver over one device is not a
+  thing to leave in.
+- **An interrupted write is not a broken radio.** The board sits in its bootloader, which any
+  computer on any OS can talk to, and the recovery is to run the same command again. That is the
+  whole reason the USB half was built before the Bluetooth one.
+
 ## Auto-connect
 
 In foreground mode the app connects by itself, and **a plugged-in node wins over anything on the
