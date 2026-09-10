@@ -1,17 +1,17 @@
 {
   "name": "MeshClient",
-  "version": "v2.44.0",
+  "version": "v2.45.0",
   "type": "TOOL",
   "description": "A Meshtastic client for your handheld: read and send messages, browse the mesh, and edit your radio's settings over Bluetooth LE or USB.",
   "author": "mcereal",
   "repo_url": "https://github.com/mcereal/mesh-client",
   "release_filename": "MeshClient.pak.zip",
   "changelog": {
+    "v2.45.0": "Draw every positioned node the session holds; Give the range test a scan to read, and the grace a reconnect; Auto-connect to the radio you have, not the one BlueZ remembers.",
     "v2.44.0": "Draw the map, and record what steps 1 and 2 became; Put the nodes and the places on a map; Project a coordinate onto a flat picture of the world; Keep the map's presses and its ink inside the map.",
     "v2.43.1": "Date a press's toast by the clock driving the frames; Say why a new waypoint cannot be made.",
     "v2.43.0": "Explain the long tail of settings rows; Stop a help topic falling back across a subheading.",
-    "v2.42.0": "Explain the features as well as the settings; Ask the route whether a settings section is what is on the panel.",
-    "v2.41.0": "Explain settings in the client, on a help screen SELECT opens; Make the help press and its keycap agree in every section state."
+    "v2.42.0": "Explain the features as well as the settings; Ask the route whether a settings section is what is on the panel."
   },
   "screenshots": [
     ".github/resources/screenshots/nodes.png",

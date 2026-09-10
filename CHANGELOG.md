@@ -1,3 +1,21 @@
+## [2.45.0](https://github.com/mcereal/mesh-client/compare/v2.44.0...v2.45.0) (2026-09-10)
+
+### Features
+
+* **map:** draw every positioned node the session holds ([fefdb4f](https://github.com/mcereal/mesh-client/commit/fefdb4f349258fd1e32d4dc3affde6495c9bbd9b))
+
+### Bug Fixes
+
+* **app:** auto-connect to the radio you have, not the one BlueZ remembers ([d4ba6bd](https://github.com/mcereal/mesh-client/commit/d4ba6bdb9770d521f98cf7bfb97f22db7f8bf6fb))
+* **app:** give the range test a scan to read, and the grace a reconnect ([8cce1f6](https://github.com/mcereal/mesh-client/commit/8cce1f6dfe9461eed2cae070b574f6de3755dc3e))
+
+### Documentation
+
+* add the USB/UF2 path and put it first ([37ed61b](https://github.com/mcereal/mesh-client/commit/37ed61b9cc0d185bc9e3a95cf5da014da568ec63))
+* assess updating the radio's firmware from the Brick ([10f6dfc](https://github.com/mcereal/mesh-client/commit/10f6dfc3f9df483e9c323ab2540cfa5c98628a0c))
+* correct how the map decides what the crosshair is on ([cbc35db](https://github.com/mcereal/mesh-client/commit/cbc35dbe4319f284dbe0b59ff9a16fb562edbb1a)), closes [#123](https://github.com/mcereal/mesh-client/issues/123)
+* correct two claims in the radio firmware assessment ([54ef467](https://github.com/mcereal/mesh-client/commit/54ef467efca47ced80f9d437e7435bce13aee75a))
+
 ## [2.44.0](https://github.com/mcereal/mesh-client/compare/v2.43.1...v2.44.0) (2026-09-09)
 
 ### Features
