@@ -2525,14 +2525,21 @@ void fb_card_meter(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_i
 
 void fb_card_spark(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_id label,
                    const struct mesh_ui_series *series, struct mesh_ui_scale scale) {
-    struct mesh_ui_polyline points;
-    mesh_ui_series_project(series, scale, &points);
-    /* No row at all rather than an empty one, and the test is here rather than at the call site
-       so that every card asking for a trend answers it the same way. A box with one reading in
-       it is a level; a box with none says the radio has gone quiet, which it has not. */
-    if (points.count < 2U) {
+    /*
+     * No row at all rather than an empty one, and the test is here rather than at the call site
+     * so that every card asking for a trend answers it the same way. A box with one reading in
+     * it is a level; a box with none says the radio has gone quiet, which it has not.
+     *
+     * A drawable segment rather than a sample count, which is not the same test: every sample
+     * that follows a silence the series calls a break starts a line rather than continuing one,
+     * so two reports either side of a link that was down draw no stroke at all. Counted instead,
+     * this row spends two of the most crowded card's rows on a floor and a dot.
+     */
+    if (!mesh_ui_series_has_segment(series)) {
         return;
     }
+    struct mesh_ui_polyline points;
+    mesh_ui_series_project(series, scale, &points);
     struct fb_card_row *row = fb_card_next_row(card, FB_CARD_ROW_SPARK, tone);
     if (row == NULL) {
         return;

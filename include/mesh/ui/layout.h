@@ -570,6 +570,23 @@ void mesh_ui_series_project(const struct mesh_ui_series *series, struct mesh_ui_
                             struct mesh_ui_polyline *out);
 
 /*
+ * Whether any two adjacent readings are one line.
+ *
+ * Not the same question as "are there two readings", and the difference is a picture with
+ * nothing in it. Every sample that follows a silence longer than the series' `gap_ms`, or that
+ * the source itself broke before, starts a segment rather than continuing one - so two readings
+ * either side of a link that was down for a quarter of an hour are two samples the ring holds
+ * and no line at all. A count says yes; a chart drawn from them has axes, a legend and nothing
+ * between them.
+ *
+ * So anything that offers a picture asks this rather than counting: what a trend promises is a
+ * shape, and the honest answer when there is none is to offer nothing. It is deliberately the
+ * same break test mesh_ui_series_project_over() applies, because the alternative is a predicate
+ * that can say a line exists and a projection that declines to draw one.
+ */
+bool mesh_ui_series_has_segment(const struct mesh_ui_series *series);
+
+/*
  * The clock window a set of series covers: the oldest stamp on any of them, and the newest.
  *
  * One window for several series rather than one each, because that is the whole of what makes

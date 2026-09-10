@@ -1569,6 +1569,19 @@ of thing from every other level in this client, and that most of the care went t
   UI layer rather than in `utils/` because what they answer with is a *string id*, and the
   thresholds are the arithmetic while "%um ago" is the i18n layer's to answer for.
 
+- **"Are there two readings" is not "is there a line", and the first version asked the wrong
+  one.** Review caught it: the verb was offered on a sample *count*, and a count cannot see a
+  break. Two airtime reports either side of a link that was down for a quarter of an hour are two
+  samples the ring holds and no stroke at all - the second starts a segment rather than
+  continuing the first - so the press opened a chart with axes, a legend and nothing between
+  them, which is precisely the empty state the clamp exists to make unreachable. The fix is a
+  predicate rather than a count, and it shares the projection's own break test:
+  `mesh_ui_series_has_segment()` and `mesh_ui_series_project_over()` call one function, because a
+  predicate written twice is a screen that offers a picture and a renderer that then declines to
+  draw one. It turned up the same mistake one component back - `fb_card_spark()` was also
+  counting, and was therefore able to spend two rows of the most crowded card on a floor and a
+  dot.
+
 - **One thing it leaves behind, and it is the entry above's.** A node's battery is the obvious
   second caller: the node detail already draws it as a trailing sparkline, the history already
   keeps one per node, and `fb_draw_chart()` takes a series and a scale without caring what they

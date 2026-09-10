@@ -212,6 +212,68 @@ MESH_TEST_CASE(series_projected_over_a_window_stays_inside_it, unit) {
 }
 
 /*
+ * A line exists when two adjacent readings are one, which is not the same as there being two.
+ *
+ * The predicate and the projection have to agree, because the failure they can have between them
+ * is silent in the worst way: a screen that offers a picture and a renderer that then declines to
+ * draw one, leaving axes and a legend around nothing. They share the break test for that reason,
+ * and this walks the three ways a series can be samples without being a line.
+ */
+MESH_TEST_CASE(series_offers_a_line_only_when_one_can_be_drawn, unit) {
+    struct mesh_ui_series series;
+
+    /* Nothing, and one reading: a level, and there is a component for that. */
+    mesh_ui_series_reset(&series, 1000U);
+    MESH_TEST_FAIL_IF(mesh_ui_series_has_segment(&series), "an empty series is not a line");
+    mesh_ui_series_push(&series, 0U, 10);
+    MESH_TEST_FAIL_IF(mesh_ui_series_has_segment(&series), "one reading is not a line");
+    MESH_TEST_FAIL_IF(mesh_ui_series_has_segment(NULL), "no series is not a line");
+
+    /* Two, with a silence between them. The pen lifts at the second, so there is no stroke. */
+    mesh_ui_series_reset(&series, 1000U);
+    mesh_ui_series_push(&series, 0U, 10);
+    mesh_ui_series_push(&series, 5000U, 20);
+    MESH_TEST_FAIL_IF(mesh_ui_series_has_segment(&series),
+                      "two readings across a silence are two points, not a line");
+
+    /* Two, with a break the clock cannot see - a reading refused rather than missing. */
+    mesh_ui_series_reset(&series, 0U);
+    mesh_ui_series_push(&series, 0U, 10);
+    mesh_ui_series_break(&series);
+    mesh_ui_series_push(&series, 100U, 20);
+    MESH_TEST_FAIL_IF(mesh_ui_series_has_segment(&series),
+                      "a break the source declared is still a break");
+
+    /* And one unbroken pair anywhere in the ring is a line, wherever the breaks are around it. */
+    mesh_ui_series_push(&series, 200U, 30);
+    MESH_TEST_FAIL_IF(!mesh_ui_series_has_segment(&series),
+                      "a reading that continues the one before it is a line");
+
+    /*
+     * The two answers are one answer. Whatever the shape of the series, "this has a segment" and
+     * "the projection draws a stroke" must be the same claim - so the projection is walked for a
+     * point that continues its predecessor and the two are compared.
+     */
+    static const uint32_t k_times[] = {0U, 400U, 5000U, 5400U, 5800U, 12000U};
+    for (uint32_t take = 0U; take <= sizeof k_times / sizeof k_times[0]; ++take) {
+        mesh_ui_series_reset(&series, 1000U);
+        for (uint32_t i = 0U; i < take; ++i) {
+            mesh_ui_series_push(&series, k_times[i], (int32_t)i * 10);
+        }
+        struct mesh_ui_polyline points;
+        mesh_ui_series_project(&series, (struct mesh_ui_scale){0, 100}, &points);
+        bool drawn = false;
+        for (uint32_t i = 1U; i < points.count; ++i) {
+            drawn = drawn || !points.items[i].gap;
+        }
+        MESH_TEST_FAIL_IF(drawn != mesh_ui_series_has_segment(&series),
+                          "the predicate and the projection disagree about whether there is a "
+                          "line");
+    }
+    record_success(test_name);
+}
+
+/*
  * Whether there is a trend to draw at all, asked once.
  *
  * Three places read it - the verb table that offers the chart, the action bar that names the
@@ -227,7 +289,29 @@ MESH_TEST_CASE(history_says_when_there_is_an_airtime_trend, unit) {
     MESH_TEST_FAIL_IF(mesh_ui_history_has_airtime(&history), "one reading is a level, not a trend");
 
     mesh_ui_history_note_airtime(&history, 2000U, 140, 40);
-    MESH_TEST_FAIL_IF(!mesh_ui_history_has_airtime(&history), "two readings make a line");
+    MESH_TEST_FAIL_IF(!mesh_ui_history_has_airtime(&history),
+                      "two readings a minute apart make a line");
+
+    /*
+     * And two readings a break apart are not a line either, which is the case a count cannot
+     * see. A link down for a quarter of an hour and then back is two samples the ring holds and
+     * a silence the series calls a break - so the projection lifts the pen at the second one and
+     * a chart drawn from them has axes, a legend and nothing between them.
+     *
+     * The test is a *drawable segment* rather than a sample count for that reason: what the verb
+     * promises is a picture, and the honest answer when there is none is not to offer it.
+     */
+    mesh_ui_history_reset(&history);
+    mesh_ui_history_note_airtime(&history, 1000U, 110, 30);
+    mesh_ui_history_note_airtime(&history, 1000U + MESH_UI_HISTORY_RADIO_GAP_MS + 1000U, 140, 40);
+    MESH_TEST_FAIL_IF(mesh_ui_history_has_airtime(&history),
+                      "two readings with a silence between them draw no line");
+
+    /* One more punctual reading after it, and there is a segment again - the break is at the
+       sample that follows the silence, not at every sample after it. */
+    mesh_ui_history_note_airtime(&history, 1000U + MESH_UI_HISTORY_RADIO_GAP_MS + 61000U, 150, 45);
+    MESH_TEST_FAIL_IF(!mesh_ui_history_has_airtime(&history),
+                      "a reading that continues the one before it is a line");
 
     /* And a radio swap takes it with the roster, which is what closes the chart under a reader
        looking at a mesh that is no longer theirs. */

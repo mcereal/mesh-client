@@ -721,6 +721,40 @@ const struct mesh_ui_sample *mesh_ui_series_newest(const struct mesh_ui_series *
     return mesh_ui_series_at(series, series->count - 1U);
 }
 
+/*
+ * Whether `sample` starts a segment rather than continuing the one before it.
+ *
+ * The first sample continues nothing; neither does one that arrived after a silence the series
+ * calls a break, nor one the source itself broke before - a discontinuity the clock cannot see,
+ * which is what mesh_ui_series_break() exists for.
+ *
+ * One function because two callers ask it: the projection, which lifts the pen, and
+ * mesh_ui_series_has_segment(), which decides whether there is a line to offer at all. Written
+ * twice they can disagree, and the way they disagree is a screen that offers a picture the
+ * renderer then declines to draw.
+ */
+static bool series_breaks_at(const struct mesh_ui_series *series,
+                             const struct mesh_ui_sample *sample, uint32_t index,
+                             uint32_t previous) {
+    return index == 0U || sample->gap ||
+           (series->gap_ms > 0U && (sample->time - previous) > series->gap_ms);
+}
+
+bool mesh_ui_series_has_segment(const struct mesh_ui_series *series) {
+    if (series == NULL || series->count < 2U) {
+        return false; /* one reading is a level, and there is a component for that */
+    }
+    uint32_t previous = 0U;
+    for (uint32_t i = 0U; i < series->count; ++i) {
+        const struct mesh_ui_sample *sample = mesh_ui_series_at(series, i);
+        if (!series_breaks_at(series, sample, i, previous)) {
+            return true; /* one unbroken pair is a line, wherever in the ring it sits */
+        }
+        previous = sample->time;
+    }
+    return false;
+}
+
 void mesh_ui_series_project(const struct mesh_ui_series *series, struct mesh_ui_scale scale,
                             struct mesh_ui_polyline *out) {
     if (out == NULL) {
@@ -812,11 +846,7 @@ void mesh_ui_series_project_over(const struct mesh_ui_series *series, struct mes
         }
         point->x = (int16_t)x;
         point->y = (int16_t)mesh_ui_scale_permille(scale, sample->value);
-        /* The first sample continues nothing; neither does one that arrived after a silence the
-           series calls a break, nor one the source itself broke before - a discontinuity the
-           clock cannot see, which is what mesh_ui_series_break() exists for. */
-        point->gap = (i == 0U) || sample->gap ||
-                     (series->gap_ms > 0U && (sample->time - previous) > series->gap_ms);
+        point->gap = series_breaks_at(series, sample, i, previous);
         previous = sample->time;
     }
     out->count = series->count;

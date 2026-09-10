@@ -103,11 +103,16 @@ void mesh_ui_history_note_battery(struct mesh_ui_history *history, uint32_t now_
 /*
  * Whether the radio's airtime has been reported often enough to draw a line between.
  *
- * Two readings, which is the sparkline's own floor: one is a level and there is a component for
- * that. It is a question of the history rather than of a series because three places ask it -
- * the verb table that offers the chart, the action bar that names the press, and the screen that
- * draws it - and three of them counting samples by hand is three chances to disagree about
- * whether a screen exists.
+ * A drawable *segment* rather than two readings, which is not the same test and is the way this
+ * was first written wrong: every sample that follows a silence the series calls a break starts a
+ * line rather than continuing one, so two reports either side of a link that was down for a
+ * quarter of an hour are two samples the ring holds and no stroke at all. Counted, the verb
+ * offers a chart with axes, a legend and nothing between them.
+ *
+ * It is a question of the history rather than of a series because three places ask it - the verb
+ * table that offers the chart, the action bar that names the press, and the clamp that closes
+ * the screen when it empties - and three of them working it out by hand is three chances to
+ * disagree about whether a screen exists.
  */
 bool mesh_ui_history_has_airtime(const struct mesh_ui_history *history);
 

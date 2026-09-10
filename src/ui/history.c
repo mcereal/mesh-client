@@ -103,9 +103,14 @@ void mesh_ui_history_note_battery(struct mesh_ui_history *history, uint32_t now_
 
 bool mesh_ui_history_has_airtime(const struct mesh_ui_history *history) {
     /* The channel's own series rather than both: the two are pushed together by
-       mesh_ui_history_note_airtime(), so they cannot differ in count, and asking about one of a
-       pair that arrives in lockstep is asking about the pair. */
-    return history != NULL && history->channel_utilization.count >= 2U;
+       mesh_ui_history_note_airtime(), so they break in the same places, and asking about one of
+       a pair that arrives in lockstep is asking about the pair.
+
+       A segment rather than a count, because what the verb offers is a *picture*. Two reports
+       either side of a link that was down for a quarter of an hour are two samples the ring
+       holds and no line at all - the second one starts a segment rather than continuing the
+       first - so a count would offer a chart with axes, a legend and nothing between them. */
+    return history != NULL && mesh_ui_series_has_segment(&history->channel_utilization);
 }
 
 const struct mesh_ui_series *mesh_ui_history_battery(const struct mesh_ui_history *history,
