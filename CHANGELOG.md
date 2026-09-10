@@ -1,3 +1,14 @@
+## [2.51.1](https://github.com/mcereal/mesh-client/compare/v2.51.0...v2.51.1) (2026-09-10)
+
+### Bug Fixes
+
+* **cli:** do not pick a bootloader as the implicit serial target ([25574ea](https://github.com/mcereal/mesh-client/commit/25574ea503e5615e25655ffe3e9fec1b10608c7e))
+* **serial:** stop calling a UF2 bootloader a radio ([1bca3d0](https://github.com/mcereal/mesh-client/commit/1bca3d0edd097c411389e78c618234f76cd8397a))
+
+### Documentation
+
+* **firmware:** answer phase 0's USB half on hardware ([7b9ef44](https://github.com/mcereal/mesh-client/commit/7b9ef44cba494074c3e76c9a229d4781e71735d9))
+
 ## [2.51.0](https://github.com/mcereal/mesh-client/compare/v2.50.0...v2.51.0) (2026-09-10)
 
 ### Features
