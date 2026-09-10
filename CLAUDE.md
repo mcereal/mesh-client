@@ -857,7 +857,7 @@ generated during the release; hand edits to either are overwritten.
 | [`docs/cli.md`](docs/cli.md) | flags, environment variables, on-device controls |
 | [`docs/device.md`](docs/device.md) | Brick setup, deploy loop, screenshots, troubleshooting |
 | [`docs/settings-roadmap.md`](docs/settings-roadmap.md) | radio settings phases and admin verbs |
-| [`docs/radio-firmware-roadmap.md`](docs/radio-firmware-roadmap.md) | updating the *radio's* firmware - UF2 over USB, OTA over BLE - what is reachable and in what order. Phases 0-2 have shipped and phase 3 is written but not yet confirmed on hardware, so an nRF52840 on a cable can be updated from the CLI; the BLE half and the UI are phases 4 and 5 |
+| [`docs/radio-firmware-roadmap.md`](docs/radio-firmware-roadmap.md) | updating the *radio's* firmware - UF2 over USB, OTA over BLE - what is reachable and in what order. Phases 0-3 have shipped and are confirmed on hardware, so an nRF52840 on a cable can be updated from the CLI; the BLE half and the UI are phases 4 and 5, and phase 0's BLE throughput question is now answered too - the Brick's kernel refuses the OTA loader's connection-interval request, which the client has to ask for itself |
 | [`docs/components-roadmap.md`](docs/components-roadmap.md) | UI component set audit and the order to close its gaps |
 | [`docs/semantic-release.md`](docs/semantic-release.md) | versioning, packaging, release assets |
 | [`docs/testing.md`](docs/testing.md) | test categories and how to run them |

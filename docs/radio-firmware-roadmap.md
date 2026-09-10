@@ -22,8 +22,10 @@ of `meshtastic/firmware` at `81b3ce8`, `meshtastic/esp32-unified-ota` at its hea
 and `meshtastic/Meshtastic-Android`'s `feature/firmware` module, and the release layout was
 measured against
 `v2.7.26.54e0d8d` and `v2.8.0.47db0e3` by range-reading the published zips. Everything about
-the *BLE* half is still a proposal and is marked as such; the measurements it still needs are in
-[§Before any of this is written](#before-any-of-this-is-written).
+the *BLE* half is still a proposal and is marked as such, though its throughput question is now
+answered too and the answer has a condition attached -
+[§What phase 0 measured on BLE](#what-phase-0-measured-on-ble). The measurements it still needs
+are in [§Before any of this is written](#before-any-of-this-is-written).
 
 It supersedes the one-line answer in
 [`settings-roadmap.md`](settings-roadmap.md) — "large, hardware-specific, can brick the radio,
@@ -341,10 +343,14 @@ Three details that are load-bearing, and one of them was a bug in the phone app 
   is 4 KB and it drops what does not fit, silently as far as the wire is concerned.
 - **`ERASING` needs a minute, not a second.** The phone app allows 60 s there against 10 s for
   an ACK.
-- The loader requests MTU 517 and a 15 ms connection interval, so the ceiling is around 30 KB/s
-  and the floor — if BlueZ gives us 23-byte MTU and a round trip per write — is far below that.
-  A 2.2 MB image is therefore somewhere between one minute and unusable, which is precisely why
-  the first thing to do is measure it (below).
+- **The loader requests a 15 ms connection interval and this kernel will refuse it.** That was
+  measured rather than reasoned - see
+  [§What phase 0 measured on BLE](#what-phase-0-measured-on-ble) - and it is the difference
+  between a five-minute install and a seventeen-minute one, because the protocol above spends a
+  round trip per chunk and a round trip is a small number of connection intervals. The MTU is the
+  other half and is the half that came out well: 255 negotiated, so `min(512, negotiated)` is a
+  252-byte chunk rather than the 20-byte one that would have made this unusable. Asking for the
+  interval is therefore part of starting an OTA, and giving it back is part of finishing one.
 
 On success the loader clears the reboot counters, sets `app0` as the boot partition and
 restarts; the radio comes back on the mesh running the new firmware. On a hash mismatch it
@@ -872,7 +878,9 @@ The lookup returns all of them and a count.
 Answered on 2026-09-10 against the real pair: a TrimUI Brick (`tg5040`, TinaLinux, Linux
 4.9.191) with a Heltec Mesh Node T114 (`239a:4405`, `hw_model` 69, running
 `2.7.26.54e0d8d`) on the USB-C port. Questions 1, 2, 3 and 7 are the USB path's and are now
-closed; 4, 5, 6 and the battery half of 8 are the BLE path's and still are not. The headline is
+closed. Question 4 is the BLE path's and was answered the same day against a different board -
+[§What phase 0 measured on BLE](#what-phase-0-measured-on-ble) - which leaves 5, 6 and the
+battery half of 8, all three of which need a radio committed to a loader. The headline is
 that **the whole of part two and part four ran end to end on the device** — a range-read of the
 release zip, a gzip-envelope inflate, a UF2 validated block by block, 1,467,392 bytes written to
 the bootloader, and the board back on the mesh — which makes phase 3 an implementation rather
@@ -1039,11 +1047,100 @@ back out. What it did settle is cheaper and was not on the list:
   `ota_request` and strand itself — which makes it the right phase 4 test target and the wrong
   thing to experiment on today. When phase 4 does run against it, have `esptool` staged.
 
-The one BLE question it could help with early is **question 4**, and it turns out not to be the
-blocker there: MTU and `WriteValue` cost are a property of the Brick's BlueZ (5.78 here, so
-`AcquireWrite` is available and its reply carries the MTU) talking to *any* peripheral, and the
-T114 has BLE too. Measuring both is still worth it — an ESP32 BLE stack negotiates differently
-from an nRF52 one — but nothing has to wait for it.
+The one BLE question it could help with early is **question 4**, and it turned out not to be the
+blocker there: MTU and `WriteValue` cost are a property of the Brick's BlueZ (5.78 here) talking
+to *any* peripheral, and the T114 has BLE too. In the event the V3 answered it alone —
+`AcquireWrite` is not available after all, and what the measurement found was a property of the
+Brick's *kernel* rather than of either radio. Repeating it against an nRF52 stack is still worth
+doing, but nothing waits for it.
+
+## What phase 0 measured on BLE
+
+Answered on 2026-09-10 against the other pair: the same Brick with a **Heltec V3** (ESP32-S3)
+bonded over BLE, the client running and holding the link throughout. Everything below was read
+off that live link with `btmon`, `bluetoothctl` and BlueZ's own D-Bus properties — no code was
+written for it, because BlueZ here is **5.78**, which is new enough to have every API question 4
+asks about.
+
+**Q4 — the MTU is 255, `AcquireWrite` is not the lever, and the connection interval is.** Three
+parts, and the third is the one that decides whether phase 4 is a feature.
+
+*The MTU is 255.* Every characteristic on the radio reports it, so a chunk is **252 bytes** —
+an ATT `Write Request` spends one byte on the opcode and two on the handle — and a 252-byte
+write does go out as a single request, confirmed on the wire as `len 254`. That is neither the
+23-byte worst case the question feared nor the 517 the loader asks for: `/etc/bluetooth/main.conf`
+sets nothing, so BlueZ offers its own default and the ESP32 answers 255. `min(512, negotiated)`
+therefore reads 252 here, and it is worth keeping as that expression rather than a constant,
+because the loader is a different firmware and may well answer differently.
+
+*`AcquireWrite` answers `org.bluez.Error.NotSupported`.* BlueZ hands out the fd only for a
+characteristic that declares `write-without-response`, and the radio's `toRadio` declares plain
+`write`. The loader's `…0005` declares both, so the fd would be available there — and it would
+buy nothing, because **the loader's protocol is stop-and-wait**: one chunk, one `ACK`, next
+chunk. A socket whose whole advantage is that writes can be queued into it has nothing to queue.
+The question asked whether `AcquireWrite` fixes a slow write path; the answer is that the write
+path is not the slow part.
+
+*The connection interval is.* Measured as ATT `Write Request` → `Write Response` at HCI level,
+twelve writes per row:
+
+| Connection interval | 252-byte write, median RTT | Implied one-way rate |
+|---|---|---|
+| **30 ms** — what the link actually runs at | 86.7 ms | 2.9 KB/s |
+| 15 ms — forced | 41.2 ms | 6.1 KB/s |
+| 7.5 ms — forced | 25.3 ms | 10.0 KB/s |
+
+A round trip costs two to three intervals rather than one, and the reason is that there is **no
+Data Length Extension** on this link: `LE Read Remote Used Features` comes back
+`0x01 0xf9 0x01 …`, and bit 5 of that first byte is clear. So the link layer moves **27-byte**
+PDUs, a 252-byte write is ten of them, and the trace shows about four going out per connection
+event.
+
+**And the interval is not ours by default.** The Brick connects at 30 ms and stays there. A
+peripheral may ask for something else — the V3 asks for 30–50 ms with a peripheral latency of 2,
+to save its own power — and the kernel decides by comparing the request against
+`/sys/kernel/debug/bluetooth/hci0/conn_{min,max}_interval`, which on this device are **40 and
+56**: 50 ms and 70 ms. That request was **rejected** twice, once with the window at 40–56 and
+once at 6–12, and **accepted** the moment the window was widened to 6–56 — at which point the
+link moved to 50 ms with a latency of 2 and got *slower*.
+
+Which is the finding phase 4 has to carry. **The loader asks for 15 ms, `12` is below
+`conn_min_interval`'s 40, so the Brick will reject it and hold the loader at 30 ms** — the
+slowest row in the table. Widening the window is not a fix on its own, because it equally lets a
+peripheral negotiate the link *down*, which is exactly what happened when it was tried. What
+does work is asking for the interval ourselves: `LE Connection Update` on the open handle was
+accepted at both 15 ms and 7.5 ms, took effect immediately, and needed no reconnect.
+
+So what does an OTA cost? 2.2 MB in 252-byte chunks is 8,730 chunks, and one chunk is a write
+plus the `ACK` notification behind it, which cannot arrive sooner than the next connection
+event:
+
+| Interval | ≈ per chunk | 2.2 MB |
+|---|---|---|
+| 30 ms, left alone | ~115 ms | **~17 min** |
+| 15 ms | ~55 ms | ~8 min |
+| 7.5 ms | ~35 ms | **~5 min** |
+
+The write half of each of those is measured and the `ACK` half is an interval added to it — an
+estimate, because measuring the real one needs the loader, and getting a loader means committing
+a radio to it. So the honest answer to question 4 is: **BLE OTA is a feature, at about five
+minutes rather than one, and only if the client takes the connection interval into its own
+hands.** Left alone it is a seventeen-minute progress bar on a radio that cannot be used until it
+finishes, which is precisely the shape
+[§And then the awkward part](#and-then-the-awkward-part) says the client must not leave a user
+holding.
+
+Two things follow for phase 4 beyond the number. The interval has to be *restored* afterwards —
+7.5 ms is a fine way to spend five minutes and a poor way to spend a day on a battery — so it is
+a hold with a matching release, the shape the updater's sleep hold already has. And the two
+mechanisms are not equivalent: the debugfs window is system-wide and stays where it is put, the
+`LE Connection Update` is per-connection and dies with the link, which is the one to reach for.
+
+**Questions 5 and 6 are still open, and deliberately.** Both are about the loader — whether
+BlueZ tries to encrypt to an unbonded address at MAC+1, and whether it serves a stale GATT
+database to a radio that rebooted — and neither can be asked without sending a radio into a
+loader that has no way back out. They are phase 4's first two measurements rather than phase 0's
+last two, and they should be taken with the client already able to finish the job.
 
 ## Phases
 
@@ -1053,10 +1150,11 @@ Each phase is worth shipping alone, which is the test of whether the order is ri
 on a Brick with a radio attached. Two of them can move a whole phase: whether the kernel gives
 us a block device for a bootloader in mass-storage mode (question 1), and what BLE write
 throughput through D-Bus actually costs (question 4). Both are cheaper to know now than to
-design around later — and question 1 duly moved one, in the direction of less work. Questions 1,
-2, 3 and 7 are answered in [§What phase 0 measured](#what-phase-0-measured); 4, 5, 6 and the
-battery half of 8 are the BLE path's and are still open, which is one more reason phase 4 comes
-after phase 3.
+design around later — and both duly moved one: question 1 in the direction of less work, question
+4 in the direction of a fixed connection interval phase 4 would otherwise have shipped without.
+Questions 1, 2, 3 and 7 are answered in [§What phase 0 measured](#what-phase-0-measured) and 4 in
+[§What phase 0 measured on BLE](#what-phase-0-measured-on-ble); 5, 6 and the battery half of 8
+need a radio sent into a loader, so they are phase 4's own first measurements.
 
 **Phase 1 — tell the truth. Shipped, and confirmed on hardware** on 2026-09-10 against both
 architectures. Settings → About radio learns the release index: what the radio runs, what the
@@ -1204,7 +1302,9 @@ the network is the thing that is broken:
 
 **Phase 4 — the BLE handover.** `ota_request`, the loader conversation, the banner, recovery.
 The phase that can leave somebody's radio needing this client to come back, arriving after the
-download half has been proven by phase 3 and after phase 0 has said what the throughput is.
+download half has been proven by phase 3 and after phase 0 has said what the throughput is - which
+it now has, together with the reason the client has to ask for a 7.5 ms connection interval before
+it starts and give it back afterwards.
 
 **Phase 5 — the edges.** Resume a partial stream, a battery floor, the variant picker, a "the
 loader answered but this is the old one" path, a bootloader that needs a double-tap because the
@@ -1300,10 +1400,14 @@ reading that only the BLE path still needs a number for.
    bootloader *discards*, so the flash costs nothing on top of a full-speed USB link. Sleep never
    came into it at twenty seconds end to end; if it ever does, the answer is the hold the
    updater already takes.
-4. **BLE throughput.** What does a 512-byte `WriteValue` cost through BlueZ on this hardware, and
-   what MTU does the Brick negotiate? At 20-byte writes and a round trip each, 2.2 MB is not a
-   feature. If it is bad, does `AcquireWrite` (a socket fd, which the event loop would be happy
-   with) fix it?
+4. ~~**BLE throughput.**~~ **Answered: MTU 255, so a 252-byte chunk — and the cost is the
+   connection interval, not the write.** A 252-byte `WriteValue` round trip is 86.7 ms at the
+   30 ms interval the Brick connects at, 41.2 ms at 15 ms and 25.3 ms at 7.5 ms, which is a
+   2.2 MB image in seventeen, eight or five minutes. `AcquireWrite` is `NotSupported` on a
+   `write`-only characteristic and would buy nothing on a stop-and-wait protocol anyway. The
+   loader's own request for 15 ms will be **refused** by this kernel, so the client has to ask for
+   the interval itself and hand it back after. See
+   [§What phase 0 measured on BLE](#what-phase-0-measured-on-ble).
 5. **The bond.** The radio is bonded; the loader at MAC+1 is a different address with no
    security. Does BlueZ connect cleanly, or does it try to encrypt with a key nobody has?
 6. **Cached services.** After the radio reboots into the loader and back out again, does BlueZ
