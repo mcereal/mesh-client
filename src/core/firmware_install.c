@@ -28,8 +28,7 @@ static const char *const k_state_names[MESH_FIRMWARE_INSTALL_STATE_COUNT] = {
 };
 
 static const char *const k_error_names[MESH_FIRMWARE_INSTALL_ERROR_COUNT] = {
-    "none",         "unavailable", "wrong image", "arm",
-    "no bootloader", "mounted",    "write",       "no restart",
+    "none", "unavailable", "wrong image", "arm", "no bootloader", "mounted", "write", "no restart",
 };
 
 const char *mesh_firmware_install_state_name(enum mesh_firmware_install_state state) {
@@ -62,6 +61,22 @@ static void install_finish(struct mesh_firmware_install *install,
     if (on_done != NULL) {
         on_done(userdata, install);
     }
+}
+
+/*
+ * A start that never started: `state` and `error` say why, and no callback will arrive.
+ *
+ * Separate from install_fail() because that one reports, and a refusal from start() must not -
+ * the caller is still inside its own call and learns the outcome from the return value. What
+ * they share is the contract that a refusal is a row rather than silence, which is why every
+ * negative return from start() comes through here.
+ */
+static void install_refuse(struct mesh_firmware_install *install,
+                           enum mesh_firmware_install_error error) {
+    install_release(install);
+    install->state = MESH_FIRMWARE_INSTALL_FAILED;
+    install->error = error;
+    install->on_done = NULL;
 }
 
 static void install_fail(struct mesh_firmware_install *install,
@@ -104,7 +119,8 @@ static bool install_find_bootloader(const struct mesh_firmware_install *install,
     struct mesh_serial_device_info devices[MESH_SERIAL_MAX_DEVICES];
     const size_t count = mesh_serial_usb_scan(devices, MESH_SERIAL_MAX_DEVICES);
     for (size_t i = 0; i < count; ++i) {
-        if (devices[i].role == MESH_SERIAL_ROLE_BOOTLOADER && install_on_our_port(install, &devices[i])) {
+        if (devices[i].role == MESH_SERIAL_ROLE_BOOTLOADER &&
+            install_on_our_port(install, &devices[i])) {
             *out = devices[i];
             return true;
         }
@@ -121,7 +137,8 @@ static bool install_radio_still_there(const struct mesh_firmware_install *instal
     struct mesh_serial_device_info devices[MESH_SERIAL_MAX_DEVICES];
     const size_t count = mesh_serial_usb_scan(devices, MESH_SERIAL_MAX_DEVICES);
     for (size_t i = 0; i < count; ++i) {
-        if (devices[i].role != MESH_SERIAL_ROLE_BOOTLOADER && install_on_our_port(install, &devices[i])) {
+        if (devices[i].role != MESH_SERIAL_ROLE_BOOTLOADER &&
+            install_on_our_port(install, &devices[i])) {
             return true;
         }
     }
@@ -159,8 +176,9 @@ static void install_begin_write(struct mesh_firmware_install *install,
         return;
     }
 
-    const int started = mesh_usb_msc_write_start(&install->write, install->loop, install->image,
-                                                 install->image_len, install->target.device, now_ms);
+    const int started =
+        mesh_usb_msc_write_start(&install->write, install->loop, install->image, install->image_len,
+                                 install->target.device, now_ms);
     if (started != 0) {
         install_fail(install, MESH_FIRMWARE_INSTALL_ERROR_WRITE);
         return;
@@ -282,32 +300,42 @@ static uint8_t *install_read_image(const char *path, size_t *out_len) {
 }
 
 int mesh_firmware_install_start(struct mesh_firmware_install *install, struct mesh_event_loop *loop,
-                                const char *image_path, const char *port_id,
-                                uint32_t expect_family, mesh_firmware_install_arm_fn arm,
-                                void *arm_userdata, mesh_firmware_install_done_fn on_done,
-                                void *userdata) {
-    if (install == NULL || image_path == NULL || image_path[0] == '\0') {
+                                const char *image_path, const char *port_id, uint32_t expect_family,
+                                mesh_firmware_install_arm_fn arm, void *arm_userdata,
+                                mesh_firmware_install_done_fn on_done, void *userdata) {
+    if (install == NULL) {
         return -EINVAL;
     }
-    /*
-     * 0 does not mean "any family". It means the architecture has no UF2 path at all - every
-     * ESP32, portduino - and passing it through as an expectation would check the image against
-     * itself, which is the one guard between this board and an image for another one.
-     */
-    if (expect_family == 0U) {
-        return -EINVAL;
-    }
+    /* Before the memset, and the only check that has to be: everything after this point is
+       allowed to scribble on the struct, and a running install is not. */
     if (mesh_firmware_install_busy(install)) {
         return -EBUSY;
+    }
+
+    /* From here every return fills in `state` and `error`, which is what lets a caller print
+       why rather than "could not start the install: none". */
+    memset(install, 0, sizeof *install);
+
+    /*
+     * A family of 0 does not mean "any family". It means the architecture has no UF2 path at
+     * all - every ESP32, portduino - and passing it through as an expectation would check the
+     * image against itself, which is the one guard between this board and an image for another.
+     */
+    if (image_path == NULL || image_path[0] == '\0' || expect_family == 0U) {
+        install_refuse(install, MESH_FIRMWARE_INSTALL_ERROR_UNAVAILABLE);
+        return -EINVAL;
     }
 
     size_t len = 0U;
     uint8_t *const image = install_read_image(image_path, &len);
     if (image == NULL) {
+        /* Missing, unreadable, empty, or larger than any UF2 for a board this reaches. All
+           four are the same sentence to a reader: the image is not there to be written. */
+        mesh_log_error("firmware", "The staged image could not be read: %s", image_path);
+        install_refuse(install, MESH_FIRMWARE_INSTALL_ERROR_UNAVAILABLE);
         return -EIO;
     }
 
-    memset(install, 0, sizeof *install);
     install->loop = loop;
     install->image = image;
     install->image_len = len;
@@ -324,10 +352,7 @@ int mesh_firmware_install_start(struct mesh_firmware_install *install, struct me
     if (verdict != MESH_UF2_OK) {
         mesh_log_error("firmware", "The staged image is not a UF2 for this board (verdict %d)",
                        (int)verdict);
-        install_release(install);
-        install->state = MESH_FIRMWARE_INSTALL_FAILED;
-        install->error = MESH_FIRMWARE_INSTALL_ERROR_WRONG_IMAGE;
-        install->on_done = NULL;
+        install_refuse(install, MESH_FIRMWARE_INSTALL_ERROR_WRONG_IMAGE);
         return -EINVAL;
     }
 
@@ -336,10 +361,7 @@ int mesh_firmware_install_start(struct mesh_firmware_install *install, struct me
         if (armed != 0) {
             mesh_log_error("firmware", "The radio would not take the DFU request: %s",
                            strerror(-armed));
-            install_release(install);
-            install->state = MESH_FIRMWARE_INSTALL_FAILED;
-            install->error = MESH_FIRMWARE_INSTALL_ERROR_ARM;
-            install->on_done = NULL;
+            install_refuse(install, MESH_FIRMWARE_INSTALL_ERROR_ARM);
             return armed;
         }
         install->state = MESH_FIRMWARE_INSTALL_ARMING;
@@ -361,9 +383,9 @@ void mesh_firmware_install_tick(struct mesh_firmware_install *install, uint64_t 
         return;
     }
     if (install->deadline_ms == 0U && mesh_firmware_install_busy(install)) {
-        install->deadline_ms = now_ms + (install->state == MESH_FIRMWARE_INSTALL_ARMING
-                                             ? INSTALL_ARM_TIMEOUT_MS
-                                             : INSTALL_WAIT_TIMEOUT_MS);
+        install->deadline_ms =
+            now_ms + (install->state == MESH_FIRMWARE_INSTALL_ARMING ? INSTALL_ARM_TIMEOUT_MS
+                                                                     : INSTALL_WAIT_TIMEOUT_MS);
         install->next_poll_ms = now_ms;
     }
     switch (install->state) {

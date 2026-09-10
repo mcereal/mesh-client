@@ -162,10 +162,9 @@ struct mesh_firmware_install {
  * different row from "the radio would not take the request".
  */
 int mesh_firmware_install_start(struct mesh_firmware_install *install, struct mesh_event_loop *loop,
-                                const char *image_path, const char *port_id,
-                                uint32_t expect_family, mesh_firmware_install_arm_fn arm,
-                                void *arm_userdata, mesh_firmware_install_done_fn on_done,
-                                void *userdata);
+                                const char *image_path, const char *port_id, uint32_t expect_family,
+                                mesh_firmware_install_arm_fn arm, void *arm_userdata,
+                                mesh_firmware_install_done_fn on_done, void *userdata);
 
 /* Drives every step. Call every loop turn. */
 void mesh_firmware_install_tick(struct mesh_firmware_install *install, uint64_t now_ms);
