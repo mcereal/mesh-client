@@ -1,3 +1,18 @@
+## [2.49.0](https://github.com/mcereal/mesh-client/compare/v2.48.0...v2.49.0) (2026-09-10)
+
+### Features
+
+* **ui:** draw the airtime trend as a chart with its axes named ([0620378](https://github.com/mcereal/mesh-client/commit/062037888f5c8ee177c790a8a0f42144f9409934))
+* **ui:** measure several series on one clock window ([41a5be3](https://github.com/mcereal/mesh-client/commit/41a5be341544fd647bebdcf38999ef010c08033f))
+
+### Bug Fixes
+
+* **ui:** offer a trend only when there is a line to draw ([2444d8a](https://github.com/mcereal/mesh-client/commit/2444d8a97d4538985f5a2a06cb95b2e77acd49c9))
+
+### Code Refactoring
+
+* **ui:** say how long ago and how long for in one place ([95536d4](https://github.com/mcereal/mesh-client/commit/95536d42156d0e421a4f362cb203c5479e79f20c))
+
 ## [2.48.0](https://github.com/mcereal/mesh-client/compare/v2.47.1...v2.48.0) (2026-09-10)
 
 ### Features
