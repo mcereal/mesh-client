@@ -1860,14 +1860,30 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
      */
     fb_card_begin(&card, FB_CARD_ELEVATED, MESH_UI_ICON_LINK, MESH_STR_STATUS_CARD_LINK,
                   connected != NULL ? MESH_UI_TONE_SUCCESS : MESH_UI_TONE_ERROR);
-    fb_card_row_text(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_TRANSPORT,
-                     snapshot->transport_status[0] != '\0'
-                         ? snapshot->transport_status
-                         : mesh_str(MESH_STR_HEADER_TRANSPORT_STARTING));
-    fb_card_row_text(&card, connected != NULL ? MESH_UI_TONE_SUCCESS : MESH_UI_TONE_ERROR,
-                     MESH_STR_STATUS_LABEL_RADIO,
-                     connected != NULL ? fb_device_label(connected)
-                                       : mesh_str(MESH_STR_STATUS_NOT_CONNECTED));
+    /*
+     * The transport and the radio it found - but only while nothing else on the frame is
+     * saying them.
+     *
+     * This is the banner's rule arriving on a card row, and it is the same two expressions
+     * rather than the same two facts: fb_link_summary() builds the line under the keycaps from
+     * `transport_status` and fb_device_label() of the connected device, on every frame of every
+     * screen. With a radio attached that line reads "running: Home Base" and these two rows say
+     * it again a dozen rows further up, at the top of the one column on this client that runs
+     * out of room - so they were being paid for twice and read once.
+     *
+     * With no radio the line says the quit hint instead of a device, so the rows are back and
+     * the card is where "not connected" is written. Which is the whole of the rule: a row says
+     * only what nothing else on the frame says, and whether anything else is saying it is a
+     * question about the state rather than about the row.
+     */
+    if (connected == NULL) {
+        fb_card_row_text(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_TRANSPORT,
+                         snapshot->transport_status[0] != '\0'
+                             ? snapshot->transport_status
+                             : mesh_str(MESH_STR_HEADER_TRANSPORT_STARTING));
+        fb_card_row_text(&card, MESH_UI_TONE_ERROR, MESH_STR_STATUS_LABEL_RADIO,
+                         mesh_str(MESH_STR_STATUS_NOT_CONNECTED));
+    }
     if (snapshot->handshake_valid) {
         const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
         /* A running sync says how far along it is rather than only that it is running: the
@@ -2002,13 +2018,23 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
                         util, tx);
         }
         /*
-         * And the same number as a length, directly under the words.
+         * Two rows about this figure and no third, which is a change from what shipped here.
          *
-         * The row above says how busy the air is; this one says *busy*, and it is the one that
-         * works from across a table. A percentage has to be read and then held against a
-         * threshold nobody carries around - "is 31% a lot?" - where a bar a third full is
-         * compared against the track it sits in, which is right there. The pair is the point:
-         * neither replaces the other.
+         * There were three: the words, this bar, and a full-width trend line under it. The line
+         * was right while it was the *whole* of what the client could say about a direction -
+         * and it stopped being that when the chart arrived. `trend` on the heading above opens
+         * the same readings with their axes labelled, their span named, their thresholds ruled
+         * across the plot and our own transmit share beside them, which is every question the
+         * line could answer and four it could not. So the shape moved to the screen built for
+         * it, the verb on the heading is the entrance - and an entrance costs no row where the
+         * line cost two, on the one card here that had none to spend.
+         *
+         * What is left is the pair, and the pair is the point: the words say how busy, and the
+         * bar says whether that is a lot. Neither replaces the other. A percentage has to be
+         * read and then held against a threshold nobody carries around - "is 31% a lot?" -
+         * where a bar a third full is compared against the track it sits in, which is right
+         * there. The band goes with it, so the track carries a notch at a quarter and one at a
+         * half, and "a bar a third full" becomes "a bar past the first mark".
          *
          * Only when there is a real reading. A track drawn empty because the radio has not
          * reported yet says the mesh is quiet, which is a different claim from saying nothing.
@@ -2016,78 +2042,86 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
          * No label: the row above already names it twice over, and a label column here would
          * cost the track the third of its length that makes a fill readable as a proportion.
          *
-         * The band goes with it, so the track carries a notch at a quarter and one at a half -
-         * which is what turns "a bar a third full" into "a bar past the first mark". The reader
-         * no longer has to know the threshold to see that it has been crossed.
-         *
          * A zeroed scale: this reading is already permille, so there is no domain to state.
          */
         if (have_util) {
             fb_card_meter(&card, MESH_UI_TONE_SUCCESS, MESH_STR_NONE, util_permille,
                           (struct mesh_ui_scale){0, 0}, &fb_air_band, FB_ANIM_ID_AIRTIME);
-            /*
-             * And the same number again, over the reports before this one: whether the mesh is
-             * getting busier.
-             *
-             * The third row about one figure, and the one the other two cannot cover between
-             * them. A percentage says how busy, a bar says whether that is a lot, and neither
-             * distinguishes a mesh at 31% and settling from a mesh at 31% on its way past 50 -
-             * which is the difference between waiting and moving. On the same domain and drawn
-             * directly under the bar, so the line's height and the fill's length are one scale
-             * read twice.
-             *
-             * It costs a row and only ever when there is a trend to draw: the radio has to have
-             * reported twice, which on a fresh link is a few minutes in. A card that reserved
-             * the row against a second report would spend it saying nothing on exactly the
-             * screen that has least room to spare.
-             */
-            fb_card_spark(&card, air_tone, MESH_STR_NONE, &snapshot->history.channel_utilization,
-                          (struct mesh_ui_scale){0, 0});
         }
     }
 
     if (stats->valid) {
-        fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_PACKETS,
-                    MESH_STR_STATUS_PACKETS, stats->num_packets_tx, stats->num_packets_rx,
-                    stats->num_tx_relay);
-        /* Bad and dropped packets are the two numbers that explain a mesh that "works but loses
-           messages", so they get their own row instead of being folded into Packets. */
-        const bool losing = stats->num_packets_rx_bad > 0U || stats->num_tx_dropped > 0U;
-        fb_card_row(&card, losing ? MESH_UI_TONE_WARNING : MESH_UI_TONE_DIM,
-                    MESH_STR_STATUS_LABEL_DROPPED, MESH_STR_STATUS_DROPPED,
-                    stats->num_packets_rx_bad, stats->num_rx_dupe, stats->num_tx_dropped);
         /*
-         * And what those received packets were made of.
+         * The counters, split by direction - which is a change from what shipped here, and the
+         * change is that each number is now named once.
          *
-         * The two rows above are totals, and a total answers "how much traffic" - which is not
-         * the question either of the numbers on them is interesting for. Upstream's own comment
-         * on the duplicate counter is "if this number is high, there are nodes in the mesh
-         * relaying packets when it's unnecessary", and high is a property of a *share*: 4,812
-         * duplicates is a busy mesh or a broken one depending entirely on what the other number
-         * is. Three lengths beside each other answer that without arithmetic, which is the
-         * airtime bar's argument on a whole with more than one part in it.
+         * There were three rows: Packets (tx, rx, relayed), Dropped (bad rx, dupe, tx dropped)
+         * and Heard (new, dupe, bad). The middle one restated two of the third's three parts
+         * three rows further up, in a different order, under a heading that read as a fault -
+         * so the same duplicate count was amber on one row because something was going wrong
+         * and neutral on the next because it was a share. Both answers were wanted and neither
+         * needed the other's row.
          *
-         * This is a partition and the transmit counters are not, which is why there is a bar
-         * here and none under Packets: `num_packets_rx` is documented as everything received,
-         * good and bad, with the duplicates among it - where `num_tx_relay` is a *subset* of
-         * `num_packets_tx` rather than a sibling, so "tx, rx, relayed" adds up to a whole that
-         * does not exist. A composition drawn from overlapping parts is the way this component
-         * is wrong quietly.
+         * Sent is the transmit side whole, and Heard is the receive side whole. What made the
+         * old split incoherent is that "dropped" was never one subject: a malformed packet is
+         * something we *heard*, and a packet the radio could not send is something we did not.
+         *
+         * No bar under this one, and that is §2.17's rule rather than a gap: `num_tx_relay` is
+         * documented as a subset of `num_packets_tx` rather than a sibling of it, so tx,
+         * relayed and dropped add up to a whole that does not exist. A composition drawn from
+         * overlapping parts is the one way that component is wrong quietly.
+         *
+         * Both rows take their tone from a *share*, and the thresholds differ because the two
+         * things do: one in a hundred here, half below. These are lifetime counters since the
+         * radio booted, so anything read off an absolute count lights once and then stays lit
+         * for the rest of the connection - which is what the Dropped row this replaces did with
+         * twelve malformed packets in six thousand. A ratio recovers as the radio runs well,
+         * which is the behaviour a colour on a running total has to have to mean anything.
+         *
+         * The live half of this is already elsewhere and deliberately stays there: the Radio
+         * card's TX queue row goes to the error family the moment the radio is refusing sends
+         * *now*, which is the alarm. This is the tally, and a tally's job is proportion.
+         */
+        fb_card_row(&card,
+                    stats->num_tx_dropped * 100U > stats->num_packets_tx ? MESH_UI_TONE_WARNING
+                                                                         : MESH_UI_TONE_NORMAL,
+                    MESH_STR_STATUS_LABEL_SENT, MESH_STR_STATUS_SENT, stats->num_packets_tx,
+                    stats->num_tx_relay, stats->num_tx_dropped);
+        /*
+         * And the receive side, which is a partition and so gets the picture.
+         *
+         * Upstream's own comment on the duplicate counter is "if this number is high, there are
+         * nodes in the mesh relaying packets when it's unnecessary", and high is a property of a
+         * *share*: 4,812 duplicates is a busy mesh or a broken one depending entirely on what
+         * the other number is. Three lengths beside each other answer that without arithmetic,
+         * which is the airtime bar's argument on a whole with more than one part in it.
+         *
+         * The received total is not a fourth number on the row. It is the sum of the three, and
+         * it is the length of the bar underneath - so stating it as well would be the row saying
+         * one thing twice, which is what the row this replaced was doing three rows up.
+         *
+         * The tone is read off the share, for the same reason the bar exists at all. It was an
+         * absolute count on the Dropped row: twelve malformed packets in six thousand lit a
+         * warning that then stayed lit for the life of the connection. A mesh where most of what
+         * arrives is not new is the thing worth colouring, and that is a ratio. Half is the
+         * threshold because it is the one a reader can check against the bar with no arithmetic
+         * at all - the first slice is shorter than the rest of the track.
          *
          * And the partition is checked rather than assumed. Two counters off the air have no
          * promise of agreeing with a third: a firmware that counted duplicates outside its
          * received total, or a report that arrived across a counter reset, would leave the
          * remainder negative - and clamped to zero it would draw a bar claiming every packet the
-         * radio heard was bad. The row and its bar are skipped instead, which leaves the totals
-         * above saying what they always said.
+         * radio heard was bad. The row and its bar are skipped instead, which leaves the Sent
+         * row above saying what it always said.
          */
         const uint32_t heard = stats->num_packets_rx;
         const uint32_t not_new = stats->num_packets_rx_bad + stats->num_rx_dupe;
         if (heard > 0U && not_new <= heard) {
             const uint32_t parts[] = {heard - not_new, stats->num_rx_dupe,
                                       stats->num_packets_rx_bad};
-            fb_card_row(&card, MESH_UI_TONE_NORMAL, MESH_STR_STATUS_LABEL_HEARD,
-                        MESH_STR_STATUS_HEARD, parts[0], parts[1], parts[2]);
+            fb_card_row(&card, not_new * 2U > heard ? MESH_UI_TONE_WARNING : MESH_UI_TONE_NORMAL,
+                        MESH_STR_STATUS_LABEL_HEARD, MESH_STR_STATUS_HEARD, parts[0], parts[1],
+                        parts[2]);
             /* No label: the row it sits under names all three parts, in this order, and that
                correspondence is the only legend a bar in a row's height has room for. */
             fb_card_proportion(&card, MESH_UI_TONE_NORMAL, MESH_STR_NONE, parts,
@@ -2280,12 +2314,29 @@ static void fb_render_status(struct mesh_ui_backend_fb_state *state,
      * a screen declared last - which on that card is the message ring, the row a reader would
      * have skipped anyway.
      *
-     * The *minimum* rather than this card's full height: what is worth promising is that the
-     * card exists and its verb is reachable, and a card handed more room than its minimum will
-     * spend it.
+     * **How much** room is a reading rather than a constant, and that is the half of this the
+     * first version got backwards.
+     *
+     * Reserving the minimum promises the card exists and its verb is reachable, which is the
+     * right promise while the radio is well: the card is then a heading over a battery figure,
+     * the Mesh card's counters are the screen's subject, and a card handed more room than it
+     * needs will spend it. It is the wrong promise in exactly the state this card exists for.
+     * Every row on it appears only when something is wrong, so the worst case is all of them at
+     * once - a firmware notice, a refused send, a reboot count, a flat battery - and those are
+     * the highest-value words on the frame. Under a fixed minimum the Mesh card kept its message
+     * ring and the radio's own explanation of why nothing is working was clipped off the bottom.
+     *
+     * So the reservation follows the tone the card already computed for itself. `radio_tone` is
+     * that card's report on its own contents and it is what decides its variant a few lines up;
+     * it decides its claim on the column here, on the same reading and for the same reason. A
+     * quiet card recedes; a card with something wrong to say takes the room to say it, and the
+     * rows it takes are the ones the Mesh card declared last - the message ring and the received
+     * composition, which are the rows a reader chasing a fault would have skipped.
      */
     (void)fb_draw_card_reserving(state, layout, &y, &card,
-                                 fb_card_min_height(state, layout, &radio));
+                                 radio_tone == MESH_UI_TONE_PRIMARY
+                                     ? fb_card_min_height(state, layout, &radio)
+                                     : fb_card_height(state, layout, &radio));
     (void)fb_draw_card(state, layout, &y, &radio);
 }
 

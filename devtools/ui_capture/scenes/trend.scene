@@ -40,26 +40,34 @@ battery ALFA 24
 hold 260
 
 # Open it and walk down to the device metrics, where the battery row is.
-key down 1
+#
+# Two downs, not one: row 0 of the Nodes tab is the Map, row 1 is our own radio and row 2 is
+# Alfa Ridge. A node on mains has no battery trend to draw, so getting this wrong renders a
+# screen with nothing of the component on it.
+key down 2
 key a
 key down 26
 hold 2000
 
-# ---- the card: the mesh getting busier -------------------------------------------------------
+# ---- the card: the mesh getting busier, and where its shape went -----------------------------
 #
 # `stats` and each `airtime` line after it are one LocalStats report each, which is what the
 # radio sends its attached client every few minutes - so this is an hour of mesh compressed into
 # a few seconds. `stats` goes first for the reason it does in gauges.scene: the counter rows want
 # the radio's real traffic rather than a row of zeroes.
 #
-# Watch the three airtime rows together: the figure says 58%, the bar says that is past both of
-# its marks, and only the line says it was a tenth of that when we started. The first two are the
-# same sentence at two levels of effort; the third is a different sentence, and it is the one
-# that says whether to wait.
+# The Status card carries the *pair* and no third row: the figure says 58%, and the bar under it
+# says that is past both of its marks. Two levels of effort at one sentence, and neither replaces
+# the other - a percentage has to be held against a threshold nobody carries around, where a bar
+# is compared against the track it sits in.
 #
-# The line appears on the second report and not before. A trend needs two readings, and a box
-# drawn empty against a radio that has reported once would say the mesh is quiet when nothing
-# has been said about it at all.
+# What it deliberately does not carry is the shape. There was a full-width trend line here and it
+# cost this card - the most crowded on the client - two body rows to say which way the number was
+# going. `trend` on the heading now opens the same readings as a chart, with the axes labelled,
+# the span named, the thresholds ruled across the plot and our own transmit share beside them:
+# every question the line answered and four it could not, for a verb that costs no row at all.
+# See chart.scene for the press. What is left of the sparkline in this client is the six cells
+# above, in a row's trailing slot - a row carries a glance, a screen carries a study.
 tab status
 stats
 hold 500

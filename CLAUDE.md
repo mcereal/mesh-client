@@ -531,12 +531,16 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   *verbs*: `mesh_ui_status_actions()` offers `refresh` from the link state alone and has no idea
   what was drawn, so the cursor walked onto a button that was not on the frame. It is the rule
   below reached from the layout side instead of the row-count side, and it was already happening
-  on `main` - the airtime trend costs two rows and appears on the second LocalStats report, which
-  is a few minutes after connecting. `fb_draw_card_reserving()` is the fix and
-  `fb_card_min_height()` is what a screen reserves; the Status screen is the one caller, which is
-  why its Radio card is built into a local of its own and drawn after the Mesh card that reserved
-  for it. A reservation that cannot be afforded is dropped, because two cards missing is not an
-  improvement on one.
+  on `main` - the airtime block cost four rows, two of them a trend line arriving on the second
+  LocalStats report a few minutes after connecting. `fb_draw_card_reserving()` is the fix; the
+  Status screen is the one caller, which is why its Radio card is built into a local of its own
+  and drawn after the Mesh card that reserved for it. A reservation that cannot be afforded is
+  dropped, because two cards missing is not an improvement on one. **How much to reserve is a
+  reading rather than a constant**: `fb_card_min_height()` promises the card exists and
+  `fb_card_height()` promises it can say everything, and the Status screen picks between them on
+  `radio_tone` - the same reading that picks that card's variant. A card whose every row appears
+  only when something is broken is the wrong card to hand a minimum, and under one the radio's
+  own account of why nothing worked was clipped while the Mesh card kept its message ring.
 - **A card that can end up with no rows must not be given a verb.** A card with no rows is not
   drawn, and a verb on an undrawn card leaves the action bar naming a press whose button is not
   on the frame. That is why the Radio card says "no report yet" rather than disappearing when
@@ -652,17 +656,34 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   differently each time, which is what keeps the enum, the table and - for the catalog - the
   translation template from drifting apart. Their `.def` extension is why clang-format leaves
   the tables alone.
-- **The Status card's Packets row deliberately has no bar under it, and the Heard row does.**
-  They look like the same kind of row and they are not. `num_packets_rx` is documented as
-  everything received, good and bad, with the duplicates among it - so new, dupe and bad are a
-  *partition* of it and a divided bar is a true picture. `num_tx_relay` is a **subset** of
-  `num_packets_tx` rather than a sibling of it, so "tx, rx, relayed" adds up to a whole that does
-  not exist, and a bar there would be `fb_draw_proportion()`'s one way of being wrong quietly:
-  overlapping parts still sum to something, and the picture drawn from them is confident. The
-  partition is checked at the call site as well as reasoned about - two counters off the air have
-  no promise of agreeing with a third, and a remainder that comes out negative skips the row
-  rather than clamping to zero, which would draw a bar claiming every packet the radio heard was
-  malformed.
+- **The Status card's counters are split by direction, and only the received side gets a bar.**
+  Sent is tx, relayed and dropped; Heard is new, dupe and bad with a divided bar under it. They
+  look like the same kind of row and they are not. `num_packets_rx` is documented as everything
+  received, good and bad, with the duplicates among it - so those three are a *partition* of it
+  and a divided bar is a true picture. `num_tx_relay` is a **subset** of `num_packets_tx` rather
+  than a sibling of it, so the Sent row's three numbers add up to a whole that does not exist,
+  and a bar there would be `fb_draw_proportion()`'s one way of being wrong quietly: overlapping
+  parts still sum to something, and the picture drawn from them is confident. The partition is
+  checked at the call site as well as reasoned about - two counters off the air have no promise
+  of agreeing with a third, and a remainder that comes out negative skips the row rather than
+  clamping to zero, which would draw a bar claiming every packet the radio heard was malformed.
+  The received *total* is deliberately not a fourth number on the Heard row: it is the sum of the
+  three and the length of the bar, and the row that used to state it also restated two of the
+  three parts under a heading that read as a fault.
+- **Both counter rows take their tone from a share, never from a count.** These are lifetime
+  totals since the radio booted, so a colour read off an absolute lights once and then stays lit
+  for the rest of the connection - twelve malformed packets in six thousand is what the row this
+  replaced spent its warning on. A ratio recovers as the radio runs well. The live half is
+  elsewhere on purpose: the Radio card's TX queue row goes to the error family the moment the
+  radio is refusing sends *now*, which is the alarm, where these are the tally.
+- **Two rows of the Link card stand down while a radio is attached, and it is not a missing
+  else.** `fb_link_summary()` builds the line under the keycaps out of `transport_status` and
+  `fb_device_label()` of the connected device, on every frame of every screen - so with a link up
+  it reads "running: Home Base" and the card's Transport and Radio rows were the same two
+  expressions a dozen rows further up, at the top of the one column here that runs out of room.
+  With no radio that line says the quit hint instead, so the rows come back and the card is where
+  "not connected" is written. It is the banner's rule on a card row: whether anything else is
+  saying it is a question about the state, not about the row.
 - **A series colour is not a tone, and the avatar tints are not a series palette.** Both are
   tables of colours in `theme.c` and they answer different questions. A tone means good, bad or
   caution; a series colour means *which part*, and nothing else. An avatar tint is picked by a

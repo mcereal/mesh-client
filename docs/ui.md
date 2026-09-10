@@ -1305,18 +1305,22 @@ Nothing animates, unlike the meter and the slider. A meter eases towards each re
 new value *replaces* the last one; a series keeps them, so there is nothing to move between —
 easing the newest point into place would show a shape that was never a reading.
 
-It comes in two sizes, and the pair is the same distinction the meter's two already make:
+It draws in one place — `FB_TRAILING_SPARK`, six cells against a row's trailing edge, for a
+reading the eye is passing: the node detail's battery, beside the figure.
 
-| Where | Size | For |
-|---|---|---|
-| `FB_CARD_ROW_SPARK` | the card's content width, two body rows | a reading somebody has stopped to look at — the Status tab's airtime, under the bar that reads it |
-| `FB_TRAILING_SPARK` | six cells against a row's trailing edge | one the eye is passing — the node detail's battery, beside the figure |
+It shipped in two, and losing the second is worth recording because of *what* took it. There was
+a `FB_CARD_ROW_SPARK` as well — the card's content width, two body rows, for a reading somebody
+has stopped to look at — and its one caller was the Status tab's airtime, under the bar that
+reads it. Then [`fb_draw_chart()`](#fb_draw_chart--the-axis-frame) arrived, and a whole
+body with its axes labelled, its span named, its thresholds ruled across it and a second series
+beside the first is what *"a reading somebody has stopped to look at"* actually wants. The middle
+size was squeezed out from above rather than trimmed for room, and what is left is the honest
+pair: **a row carries a glance, a screen carries a study.**
 
-The card row is the one place in the set where a picture costs more than the text it sits among,
-and the reason is worth stating: a meter's whole reading is a *length*, so it can be as thin as
-the theme likes; a sparkline's reading is a *shape*, and a shape squeezed into the height of a
-hairline is a hairline. One extra body row is what makes a climb and a fall legible at arm's
-length.
+The reason a card row cost two where a meter costs none is still the rule, and it is why a card
+draws levels and a shape gets a body: a meter's whole reading is a *length*, so it can be as thin
+as the theme likes; a sparkline's reading is a *shape*, and a shape squeezed into the height of a
+hairline is a hairline.
 
 Two smaller decisions from doing it. The stroke is drawn a pixel column at a time rather than
 with Bresenham's, because consecutive columns are then joined by construction — on an axis
@@ -1341,22 +1345,28 @@ card carries **verbs**, and which verbs a screen offers is a table
 keeps walking onto a button that is not on the frame — which is exactly the failure *a card that
 can end up with no rows must not be given a verb* names, reached from the layout side instead.
 
-It was not hypothetical. The Status screen's Radio card carries `refresh`, and the airtime trend
-above it costs two body rows and appears on the radio's *second* LocalStats report — a few
-minutes after connecting. The card was already gone in ordinary use.
+It was not hypothetical. The Status screen's Radio card carries `refresh`, and the airtime block
+above it once cost four body rows — the figure, the bar, and a trend line that took two more and
+appeared on the radio's *second* LocalStats report, a few minutes after connecting. The card was
+already gone in ordinary use.
 
 `fb_draw_card_reserving()` turns it around: the card that can afford to drop a row drops one, and
 the card that would have vanished survives. Three things about it are decisions:
 
-- **Reserve the next card's `fb_card_min_height()`, not its full height.** What is worth
-  promising is that the card *exists* and its verb is reachable; a card handed more room than its
-  minimum will spend it.
+- **How much to reserve is a reading, not a constant.** `fb_card_min_height()` is the heading and
+  one row — *this card exists and its verb is reachable* — and `fb_card_height()` is every row it
+  holds. A card handed more than it needs will spend it, so the minimum is right for a card with
+  nothing urgent to say. It is wrong for one whose rows only appear when something is broken:
+  the Status tab's Radio card is a heading over a battery figure while the radio is well and five
+  rows of explanation when it is not, so `fb_render_status()` reserves by `radio_tone` — the same
+  reading that already picks that card's variant. Under a fixed minimum the Mesh card kept its
+  message ring and the radio's own account of why nothing worked was clipped off the bottom.
 - **The gap belongs to the reserver.** `*y` advances past a card's box *and* its gap, so the card
   being reserved for starts a gap lower than this one ends — `fb_draw_card_reserving()` adds its
-  own `gap` to the reservation, and `fb_card_min_height()` deliberately leaves it out. That is
-  the difference from `fb_card_height()`, which answers "how much of the column does this
-  consume" and so carries it. Counted once it is right; counted twice it costs a row of content,
-  and left out entirely the card still does not fit.
+  own `gap` to the reservation, and neither height function carries it. Counted once it is right;
+  counted twice it costs a row of content, and left out entirely the card still does not fit.
+  (`fb_card_height()` used to carry it and had no callers; a pair of reservation heights that
+  disagreed about a gap is a trap rather than a distinction.)
 - **A reservation that cannot be afforded is dropped.** It is a promise about the card below, and
   a promise that can only be kept by deleting the card above is not worth keeping.
 
@@ -1373,7 +1383,7 @@ Pinned by `ui_capture_status_keeps_the_last_card_when_the_one_above_overflows`, 
 The fourth quantitative component, and the first that is not one number. A meter says how much, a
 staircase says how well, a sparkline says which way; all three read a single figure. A
 composition reads several that are parts of one, and until this existed a screen holding some
-printed them as a list — `12 bad rx, 431 dupe, 3 tx`, three numbers with no sense of proportion
+printed them as a list — `5428 new, 431 dupe, 12 bad`, three numbers with no sense of proportion
 between them.
 
 Which is the whole point of them. Upstream's own comment on the duplicate counter is *"if this
@@ -1391,7 +1401,7 @@ Four things about it are decisions rather than details:
   three counters that overlap still add up to something, and the bar drawn from them is a
   confident picture of a whole that does not exist. The radio's transmit counters are exactly
   that trap — `num_tx_relay` is a *subset* of `num_packets_tx` — which is why there is a bar
-  under the Status card's Heard row and none under its Packets row.
+  under the Status card's Heard row and none under its Sent row.
 - **The colours are the theme's series palette, not tones.** See [Themes](#themes): a part means
   nothing except which part it is, where a tone means good, bad or caution.
 - **Nothing animates.** These are counters that only climb, so between two frames a boundary
