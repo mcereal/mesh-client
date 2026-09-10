@@ -362,3 +362,58 @@ cleanup:
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+/*
+ * What makes a held answer still this radio's, which is the test app_publish asks on every
+ * frame to decide whether to throw it away.
+ *
+ * Both inputs, and the model alone is not enough: two identical boards on different firmware
+ * share a model, and a client testing only that would leave the version row reading the new
+ * radio while the row under it reported a verdict computed from the old one. The version alone
+ * is not enough either - two different boards can be on the same release.
+ */
+MESH_TEST_CASE(firmware_answer_belongs_to_the_radio_it_was_asked_about, unit) {
+    struct firmware_harness harness;
+    const char *failure = NULL;
+    if (!firmware_harness_up(&harness)) {
+        failure = "the harness should come up with a fetcher";
+        goto cleanup;
+    }
+
+    /* Nothing held yet, so nothing can be stale - whatever it is asked about. */
+    if (!mesh_firmware_answers_for(&harness.firmware, 69U, "2.7.20.6658ec2") ||
+        !mesh_firmware_answers_for(&harness.firmware, 0U, "")) {
+        failure = "an idle module holds no answer to invalidate";
+        goto cleanup;
+    }
+
+    mesh_firmware_set_bus(&harness.firmware, MESH_FIRMWARE_PATH_USB);
+    if (mesh_firmware_check(&harness.firmware, 69U, "2.7.20.6658ec2", 0U) != 0 ||
+        !firmware_settle(&harness)) {
+        failure = "the check should run";
+        goto cleanup;
+    }
+    if (!mesh_firmware_answers_for(&harness.firmware, 69U, "2.7.20.6658ec2")) {
+        failure = "the radio it was asked about still owns the answer";
+        goto cleanup;
+    }
+    /* The second T114 on the bench, running something else. Same model, different answer. */
+    if (mesh_firmware_answers_for(&harness.firmware, 69U, "2.7.26.54e0d8d")) {
+        failure = "another board of the same model on other firmware is another answer";
+        goto cleanup;
+    }
+    /* A different board that happens to be on the same release. */
+    if (mesh_firmware_answers_for(&harness.firmware, 43U, "2.7.20.6658ec2")) {
+        failure = "another board on the same firmware is another answer";
+        goto cleanup;
+    }
+    if (mesh_firmware_answers_for(&harness.firmware, 69U, NULL)) {
+        failure = "a radio that has stopped saying what it runs is not the one that did";
+        goto cleanup;
+    }
+
+cleanup:
+    firmware_harness_down(&harness);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}

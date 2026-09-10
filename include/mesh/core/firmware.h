@@ -163,6 +163,23 @@ int mesh_firmware_check(struct mesh_firmware *firmware, uint32_t hw_model, const
 void mesh_firmware_tick(struct mesh_firmware *firmware, uint64_t now_ms);
 
 /*
+ * True when the answer being held was computed for the radio described by `hw_model` and
+ * `running` - that is, when it is still worth showing.
+ *
+ * Both, because both went into it: the model decided which board this is and the version
+ * decided whether the newest release was news. Either one moving makes the whole answer stale,
+ * and the model alone is not enough - two identical boards on different firmware share a model,
+ * and a caller testing only that would leave the version row reading the new radio while the
+ * row under it reported a verdict computed from the old one. It is also what catches a radio
+ * that updated its own firmware, which is not a swap at all and stales the answer just the
+ * same.
+ *
+ * Always true at IDLE: there is no answer to be stale.
+ */
+bool mesh_firmware_answers_for(const struct mesh_firmware *firmware, uint32_t hw_model,
+                               const char *running);
+
+/*
  * Drops whatever the last check concluded, back to idle.
  *
  * For a radio swap: the board, the version and the blocker were all answers about a node that

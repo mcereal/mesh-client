@@ -806,19 +806,20 @@ static void mesh_app_flatten_firmware(struct mesh_app *app, struct mesh_ui_setti
     mesh_firmware_set_bus(firmware, mesh_app_firmware_bus());
 
     /*
-     * A radio that is not the one the last check was about.
+     * A check whose answer is about a radio that is no longer the one on the other end.
      *
-     * The board, the version and the refusal were all answers about a node that is no longer on
-     * the other end, and a row still naming the old one is worse than a row saying nothing yet.
-     * Derived from the model the session is reporting rather than hooked onto the swap in
-     * session.c, so every route to another radio is covered by the one test - and gated on
-     * knowing a model at all, because a link that has merely *dropped* clears the metadata and
-     * the answer is still worth reading with the radio in a pocket.
+     * What makes an answer still this radio's is mesh_firmware_answers_for(), which owns the
+     * test because it owns the answer. Asked here rather than hooked onto the swap in
+     * session.c, so every route to another radio is covered by the one call.
+     *
+     * Gated on knowing a model, because a link that has merely *dropped* clears the metadata
+     * and the answer is still worth reading with the radio back in a pocket.
      */
     const struct mesh_radio_settings *const radio = mesh_session_settings(&app->session);
-    const uint32_t model =
-        (radio != NULL && radio->has_metadata) ? (uint32_t)radio->metadata.hw_model : 0U;
-    if (firmware->state != MESH_FIRMWARE_IDLE && model != 0U && model != firmware->hw_model) {
+    const bool known = radio != NULL && radio->has_metadata;
+    const uint32_t model = known ? (uint32_t)radio->metadata.hw_model : 0U;
+    if (model != 0U &&
+        !mesh_firmware_answers_for(firmware, model, radio->metadata.firmware_version)) {
         mesh_firmware_forget(firmware);
     }
 

@@ -326,6 +326,15 @@ void mesh_firmware_set_bus(struct mesh_firmware *firmware, enum mesh_firmware_pa
     firmware_recompute_blocker(firmware);
 }
 
+bool mesh_firmware_answers_for(const struct mesh_firmware *firmware, uint32_t hw_model,
+                               const char *running) {
+    if (firmware == NULL || firmware->state == MESH_FIRMWARE_IDLE) {
+        return true;
+    }
+    return firmware->hw_model == hw_model &&
+           strcmp(firmware->running, running != NULL ? running : "") == 0;
+}
+
 void mesh_firmware_forget(struct mesh_firmware *firmware) {
     if (firmware == NULL || mesh_firmware_busy(firmware)) {
         return;

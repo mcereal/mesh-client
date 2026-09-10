@@ -181,6 +181,8 @@ void mesh_json_init(struct mesh_json *json, const char *text, size_t len) {
     if (json == NULL) {
         return;
     }
+    /* Nothing has been entered yet, so nothing is at its first member. */
+    json->at_first = false;
     if (text == NULL) {
         json->cursor = NULL;
         json->end = NULL;
@@ -191,11 +193,19 @@ void mesh_json_init(struct mesh_json *json, const char *text, size_t len) {
 }
 
 bool mesh_json_enter_object(struct mesh_json *json) {
-    return json != NULL && json->cursor != NULL && json_take(json, '{');
+    if (json == NULL || json->cursor == NULL || !json_take(json, '{')) {
+        return false;
+    }
+    json->at_first = true;
+    return true;
 }
 
 bool mesh_json_enter_array(struct mesh_json *json) {
-    return json != NULL && json->cursor != NULL && json_take(json, '[');
+    if (json == NULL || json->cursor == NULL || !json_take(json, '[')) {
+        return false;
+    }
+    json->at_first = true;
+    return true;
 }
 
 bool mesh_json_next_key(struct mesh_json *json, char *out, size_t out_len) {
@@ -205,11 +215,25 @@ bool mesh_json_next_key(struct mesh_json *json, char *out, size_t out_len) {
     if (out != NULL && out_len > 0U) {
         out[0] = '\0';
     }
-    /* A comma before the next key, or nothing before the first. */
-    (void)json_take(json, ',');
+    /* The closing brace first, so a well-formed object ends with the cursor after it. */
     if (json_take(json, '}')) {
+        json->at_first = false;
         return false;
     }
+    /*
+     * Then the comma, which is *required* before every member but the first.
+     *
+     * It used to be taken if present and shrugged off if not, which let `{"a":1 "b":2}` walk as
+     * though the separator were there. That is leniency in a reader whose whole job is to
+     * decide whether a document off the network is the shape it claims to be - and this file
+     * says in its own header that malformed input is a false return. A missing separator is
+     * malformed, and reporting the contents of a document we have already decided we cannot
+     * trust is worse than reporting nothing.
+     */
+    if (!json->at_first && !json_take(json, ',')) {
+        return false;
+    }
+    json->at_first = false;
     if (!json_take(json, '"')) {
         return false;
     }
@@ -223,10 +247,15 @@ bool mesh_json_next_element(struct mesh_json *json) {
     if (json == NULL || json->cursor == NULL) {
         return false;
     }
-    (void)json_take(json, ',');
     if (json_take(json, ']')) {
+        json->at_first = false;
         return false;
     }
+    /* Required before every element but the first, for the reason next_key states. */
+    if (!json->at_first && !json_take(json, ',')) {
+        return false;
+    }
+    json->at_first = false;
     /* Anything else is an element, and the cursor is already on it. An empty document ends
        the walk rather than reporting one more. */
     return json_peek(json) != '\0';

@@ -104,6 +104,52 @@ MESH_TEST_CASE(json_unescapes_and_truncates_strings, unit) {
     record_success(test_name);
 }
 
+/*
+ * A member with no separator before it is not a member.
+ *
+ * This reader used to take a comma if it saw one and carry on if it did not, which let
+ * `{"a":1 "b":2}` walk as though the document were well formed. Leniency is the wrong bargain
+ * for a parser whose whole job is deciding whether bytes off the network are the shape they
+ * claim to be - and the header promises a false return on malformed input, which it was not
+ * keeping.
+ */
+MESH_TEST_CASE(json_requires_separators_between_members, unit) {
+    struct mesh_json json;
+    char key[8];
+    char value[8];
+
+    mesh_json_init(&json, "{\"a\": \"one\" \"b\": \"two\"}", 0U);
+    MESH_TEST_FAIL_IF(!mesh_json_enter_object(&json), "the document is an object");
+    MESH_TEST_FAIL_IF(!mesh_json_next_key(&json, key, sizeof key) || strcmp(key, "a") != 0,
+                      "the first member needs no comma before it");
+    MESH_TEST_FAIL_IF(!mesh_json_read_string(&json, value, sizeof value), "and reads normally");
+    MESH_TEST_FAIL_IF(mesh_json_next_key(&json, key, sizeof key),
+                      "the second, with no comma before it, is not a member");
+
+    mesh_json_init(&json, "[1 2]", 0U);
+    MESH_TEST_FAIL_IF(!mesh_json_enter_array(&json), "the document is an array");
+    MESH_TEST_FAIL_IF(!mesh_json_next_element(&json) || !mesh_json_skip_value(&json),
+                      "the first element needs no comma before it");
+    MESH_TEST_FAIL_IF(mesh_json_next_element(&json), "and the second is not an element");
+
+    /* The well-formed shapes the change could have broken: an empty container, a container
+       whose first member is one, and a nested walk coming back out to a separator its parent
+       still has to require. */
+    mesh_json_init(&json, "{}", 0U);
+    MESH_TEST_FAIL_IF(!mesh_json_enter_object(&json), "an empty object is an object");
+    MESH_TEST_FAIL_IF(mesh_json_next_key(&json, key, sizeof key), "and holds no key");
+
+    mesh_json_init(&json, "[[], [{\"a\": 1}, 2], 3]", 0U);
+    MESH_TEST_FAIL_IF(!mesh_json_enter_array(&json), "the document is an array");
+    unsigned elements = 0U;
+    while (mesh_json_next_element(&json)) {
+        MESH_TEST_FAIL_IF(!mesh_json_skip_value(&json), "every element should skip");
+        elements++;
+    }
+    MESH_TEST_FAIL_IF(elements != 3U, "three elements, however deeply the middle one nests");
+    record_success(test_name);
+}
+
 /* A truncated document ends the walk instead of running off the end. Every one of these is a
    buffer that stops mid-value, which is what a dropped connection produces. */
 MESH_TEST_CASE(json_refuses_truncated_input, unit) {

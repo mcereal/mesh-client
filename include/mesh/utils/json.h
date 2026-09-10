@@ -41,6 +41,16 @@ extern "C" {
 struct mesh_json {
     const char *cursor;
     const char *end;
+    /*
+     * Whether the object or array being walked has yielded anything yet - which is the whole of
+     * what it takes to *require* the separator between members rather than merely allow it.
+     *
+     * Set by entering a container and cleared by the first thing taken out of it, so a copy of
+     * the cursor resumes with the same answer. Nesting needs no stack: an inner walk leaves it
+     * false, and false is exactly right for the outer container, which by then is past its own
+     * first member.
+     */
+    bool at_first;
 };
 
 /* `len` may be 0 for a NUL-terminated string. */
@@ -57,6 +67,10 @@ bool mesh_json_enter_array(struct mesh_json *json);
  * Reads the next key of the object being walked and leaves the cursor on its value. False at
  * the closing brace, which it consumes - so a loop over the keys ends with the cursor after
  * the object, ready for whatever follows it.
+ *
+ * The comma before every member but the first is **required**, not merely allowed: a document
+ * missing one is malformed, and a reader that walked it anyway would be reporting the contents
+ * of something it had already decided it could not trust.
  *
  * The caller must read or skip the value before asking for the next key.
  */
