@@ -1128,7 +1128,8 @@ and `Y forget` were unconditional on the Devices bar while the nav declined them
 of row, so both now ask `mesh_ui_device_connectable()` / `mesh_ui_device_forgettable()` — one
 function for the bar and the press, as `mesh_ui_help_offered()` already is.
 
-**Phase 3 — the USB handover. Shipped.** `enter_dfu_mode_request` down the serial link, wait for
+**Phase 3 — the USB handover. Written and green; _not_ yet confirmed on hardware.**
+`enter_dfu_mode_request` down the serial link, wait for
 the bootloader to enumerate, unmount the ghost drive the platform will have mounted over
 `/mnt/SDCARD`, write the `.uf2`'s blocks to the block device, watch the board reboot. This is
 the first phase that changes a radio, and it is deliberately the one whose worst outcome is
@@ -1177,6 +1178,26 @@ alternative:
 The bootloader is only accepted on the **same USB device** the radio was on, because a board
 resets in place and a write must not follow one that moved. An install started with no port -
 which is what a board already in its bootloader needs - accepts any, and says so.
+
+**What it still owes.** Phases 1 and 2 each say "confirmed on hardware" and this one may not yet:
+an attempt on 2026-09-10 was defeated by a Brick whose SSH would not carry a deploy, for reasons
+still not established. Two runs are outstanding and the second is the one that matters:
+
+- a **clean install** end to end - `--install-firmware heltec-mesh-node-t114` against a T114 on
+  the cable, watching arming, waiting, writing and restarting go past in order;
+- an **interrupted** one. Pull the cable partway through the write. The expected outcome is a
+  board still sitting in its bootloader with `/dev/sda` back on the next plug, and a second
+  write that succeeds. Nothing has watched that happen - the manual run in phase 0 was
+  uninterrupted - and it is the claim the whole "the USB half is the safer half" argument rests
+  on. Until it is run, that argument is reasoning rather than evidence.
+
+Both can be run from the device itself with no host involved, which is worth knowing when the
+network is the thing that is broken:
+
+```sh
+/mnt/SDCARD/Tools/tg5040/MeshClient.pak/bin/shared/meshclient \
+  --install-firmware heltec-mesh-node-t114 --staging /mnt/UDISK
+```
 
 **Phase 4 — the BLE handover.** `ota_request`, the loader conversation, the banner, recovery.
 The phase that can leave somebody's radio needing this client to come back, arriving after the
