@@ -11,6 +11,12 @@
  * and a screen that quietly redefines two of the four directions deserves to say so somewhere a
  * reader will find it.
  *
+ * What moving the world does not mean is moving it by a fixed amount. A press goes to the next
+ * marker in that direction and stops exactly on it, falling back to a pan when the direction is
+ * empty - because a view that only ever landed on multiples of its own step could not be aimed
+ * at most of what it was drawing. See mesh_ui_map_step() for the arithmetic that says how much
+ * of it, and MAP_PAN_STEP_X for what the fallback is still for.
+ *
  * The shoulders keep the tabs. L1/R1 and Left/Right are the same press everywhere else in the
  * client, and this is the one screen that splits them - so the pair that still walks the tab
  * strip is the pair the action bar has always named, and the strip above the body never stops
@@ -24,12 +30,19 @@
 #include <string.h>
 
 /*
- * How far one press of a direction moves the world, in pixels.
+ * How far one press of a direction moves the world when there is nothing that way, in pixels.
  *
  * A fraction of the declared body rather than a fixed number of pixels, so a press covers the
  * same *proportion* of the view at every zoom - which is what makes panning feel like moving a
  * map rather than like nudging one. Roughly a fifth of the body: four presses cross the panel,
- * which is few enough to be quick and many enough to stop on something.
+ * which is few enough to be quick and many enough to see where you are going.
+ *
+ * "Many enough to stop on something" is what this used to claim, and it was false. A pan of a
+ * fixed number of pixels only ever visits a lattice - 176 across and 84 down from wherever the
+ * view opened - and the crosshair captures a disc of MESH_UI_MAP_SELECT_RADIUS_PX, which is 28.
+ * A sixth of the plane is inside that lattice's discs, so five markers in six could not be put
+ * under the crosshair at all at a given zoom. What stops on something now is
+ * mesh_ui_map_step(); this is the fallback for open grid, where there is nothing to stop on.
  */
 #define MAP_PAN_STEP_X (MESH_UI_MAP_FIT_WIDTH / 5)
 #define MAP_PAN_STEP_Y (MESH_UI_MAP_FIT_HEIGHT / 5)
@@ -127,6 +140,44 @@ bool mesh_ui_nav_map_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *
 }
 
 /*
+ * A direction on the map: onto the next marker that way, or a pan when there is none.
+ *
+ * Both halves are the same sentence - "look west" - and the difference between them is only
+ * whether there is anything west to look at. Landing on the marker's own coordinates is what
+ * makes the aim exact: the selection is still derived from the centre of the view by
+ * mesh_ui_map_selected(), so the ring a backend draws and the marker A opens remain one answer,
+ * and the nav still holds no selection of its own. See mesh_ui_map_step() for why a pan alone
+ * could not aim at all.
+ *
+ * The fall-through is a real path rather than a safety net: it is what pans across open grid,
+ * and it is what walks a distant marker into reach so the press after it can land.
+ */
+static bool mesh_ui_nav_map_move(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                 enum mesh_ui_map_direction direction) {
+    struct mesh_ui_map_view view;
+    map_view(store, &view);
+
+    uint32_t index = 0U;
+    if (mesh_ui_map_step(&view, &nav->map_viewport, direction, &index) &&
+        mesh_map_viewport_center_on(&nav->map_viewport, view.markers[index].latitude_i,
+                                    view.markers[index].longitude_i)) {
+        return true;
+    }
+
+    switch (direction) {
+    case MESH_UI_MAP_NORTH:
+        return mesh_map_viewport_pan(&nav->map_viewport, 0, -MAP_PAN_STEP_Y);
+    case MESH_UI_MAP_SOUTH:
+        return mesh_map_viewport_pan(&nav->map_viewport, 0, MAP_PAN_STEP_Y);
+    case MESH_UI_MAP_WEST:
+        return mesh_map_viewport_pan(&nav->map_viewport, -MAP_PAN_STEP_X, 0);
+    case MESH_UI_MAP_EAST:
+    default:
+        return mesh_map_viewport_pan(&nav->map_viewport, MAP_PAN_STEP_X, 0);
+    }
+}
+
+/*
  * A on the map: open whatever the crosshair is on.
  *
  * The two kinds of marker go to two different places, and the second one changes tab. That is
@@ -216,27 +267,31 @@ bool mesh_ui_nav_map_key(struct mesh_ui_nav *nav, const struct mesh_ui_store *st
      * The four directions, taken here rather than falling through to the routing that turns
      * Left and Right into a change of tab. This is the only screen in the client that takes
      * them, and the shoulders are left alone so the tab strip still works from here.
+     *
+     * North-up, so the d-pad's names become the ground's: Left is west. Which is also what the
+     * move is expressed in, because the marker it is looking for is on the ground and only the
+     * pan underneath it is in pixels.
      */
     case MESH_UI_KEY_UP:
         if (handled != NULL) {
             *handled = true;
         }
-        return mesh_map_viewport_pan(&nav->map_viewport, 0, -MAP_PAN_STEP_Y);
+        return mesh_ui_nav_map_move(nav, store, MESH_UI_MAP_NORTH);
     case MESH_UI_KEY_DOWN:
         if (handled != NULL) {
             *handled = true;
         }
-        return mesh_map_viewport_pan(&nav->map_viewport, 0, MAP_PAN_STEP_Y);
+        return mesh_ui_nav_map_move(nav, store, MESH_UI_MAP_SOUTH);
     case MESH_UI_KEY_LEFT:
         if (handled != NULL) {
             *handled = true;
         }
-        return mesh_map_viewport_pan(&nav->map_viewport, -MAP_PAN_STEP_X, 0);
+        return mesh_ui_nav_map_move(nav, store, MESH_UI_MAP_WEST);
     case MESH_UI_KEY_RIGHT:
         if (handled != NULL) {
             *handled = true;
         }
-        return mesh_map_viewport_pan(&nav->map_viewport, MAP_PAN_STEP_X, 0);
+        return mesh_ui_nav_map_move(nav, store, MESH_UI_MAP_EAST);
     /*
      * X in, Y out. The pair the roadmap named, and the pair that is free here: A is the press
      * that opens, B is the way back, and the two remaining face buttons are the two remaining

@@ -345,6 +345,18 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   pairs are the same press on every other screen, and splitting them here is what lets the map
   have the d-pad without the tab strip above the body going dead. The action bar still says
   "L/R tabs" here and still means it.
+- **A direction on the map stops on the next marker that way, and only pans when there is
+  none.** It looks like snapping bolted onto a pan and it is the other way round: a pan of a
+  fixed number of pixels leaves the crosshair on a lattice (a fifth of the body across, a fifth
+  down) and the crosshair captures a disc of `MESH_UI_MAP_SELECT_RADIUS_PX`, so a sixth of the
+  plane was selectable and five markers in six could not be aimed at *at all* at a given zoom -
+  which on the device reads as the crosshair skipping over nodes, and as zooming sometimes
+  fixing it, because a zoom re-phases the lattice. `mesh_ui_map_step()` takes the nearest marker
+  in the 45-degree quadrant around the press (the four tile the plane, so nothing on the panel
+  is unreachable) and the view centres on its own coordinates, which is what makes the landing
+  exact. The fallback pan is not a leftover: it is what crosses open grid, and what walks a
+  marker beyond the step's reach into it. The selection is still *derived* from the centre - the
+  nav grew no selection field, and must not.
 - **`map_open` outliving a change of tab is deliberate, and the key handler must still check
   `nav->screen`.** Every tab keeps its own place, so coming back to Nodes shows the view that was
   left — which means the flag says *where the Nodes tab is standing*, not *what the reader is

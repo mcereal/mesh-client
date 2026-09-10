@@ -234,6 +234,88 @@ bool mesh_ui_map_selected(const struct mesh_ui_map_view *view,
     return found;
 }
 
+/*
+ * How far ahead a marker has to be to count as ahead, in pixels.
+ *
+ * One pixel, which is the smallest difference the picture has. Below it the marker and the
+ * crosshair are the same point on the panel, and a press that "moved" onto it would report a
+ * change nothing could draw - two markers at one coordinate are one place, and the selection's
+ * own tie-break is what chooses between them.
+ */
+#define MAP_STEP_MIN_PX 1.0
+
+bool mesh_ui_map_step(const struct mesh_ui_map_view *view, const struct mesh_map_viewport *viewport,
+                      enum mesh_ui_map_direction direction, uint32_t *out_index) {
+    if (view == NULL || viewport == NULL || view->count == 0U) {
+        return false;
+    }
+
+    const bool vertical = direction == MESH_UI_MAP_NORTH || direction == MESH_UI_MAP_SOUTH;
+    const double reach =
+        vertical ? (double)MESH_UI_MAP_STEP_REACH_Y : (double)MESH_UI_MAP_STEP_REACH_X;
+
+    bool found = false;
+    uint32_t best_index = 0U;
+    double best_distance = 0.0;
+
+    for (uint32_t i = 0; i < view->count; ++i) {
+        /* The same offset the selection and the placement are derived from - so what a press
+           calls "west of the crosshair" is what the reader saw drawn west of it. */
+        double dx = 0.0;
+        double dy = 0.0;
+        if (!mesh_map_viewport_offset(viewport, view->markers[i].latitude_i,
+                                      view->markers[i].longitude_i, &dx, &dy)) {
+            continue;
+        }
+
+        /* Screen y grows south, so north is the negative one; resolving that here is what keeps
+           it out of the comparisons below. */
+        double along = 0.0;
+        double cross = 0.0;
+        switch (direction) {
+        case MESH_UI_MAP_NORTH:
+            along = -dy;
+            cross = dx;
+            break;
+        case MESH_UI_MAP_SOUTH:
+            along = dy;
+            cross = dx;
+            break;
+        case MESH_UI_MAP_WEST:
+            along = -dx;
+            cross = dy;
+            break;
+        case MESH_UI_MAP_EAST:
+        default:
+            along = dx;
+            cross = dy;
+            break;
+        }
+
+        if (along < MAP_STEP_MIN_PX || along > reach) {
+            continue;
+        }
+        const double span = cross < 0.0 ? -cross : cross;
+        if (span > along) {
+            /* Outside the quadrant: nearer to another direction than to this one, and it is
+               that direction's press to answer. The four of them leave nothing uncovered. */
+            continue;
+        }
+
+        const double distance = along * along + cross * cross;
+        if (!found || distance < best_distance) {
+            found = true;
+            best_distance = distance;
+            best_index = i;
+        }
+    }
+
+    if (found && out_index != NULL) {
+        *out_index = best_index;
+    }
+    return found;
+}
+
 uint32_t mesh_ui_map_points(const struct mesh_ui_map_view *view, struct mesh_geo_point *out,
                             uint32_t capacity) {
     if (view == NULL || out == NULL) {

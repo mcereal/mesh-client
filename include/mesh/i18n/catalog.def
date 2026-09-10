@@ -1077,7 +1077,7 @@ MESH_STR_ENTRY(HELP_LABEL_MAP_MOVE,       "Moving around")
 MESH_STR_ENTRY(HELP_LABEL_MAP_PICK,       "Opening a marker")
 MESH_STR_ENTRY(HELP_LABEL_MAP_TRUST,      "How much to believe it")
 MESH_STR_ENTRY(HELP_NOTE_MAP,             "Every node and shared place that has reported a position, drawn north-up. There is no map underneath yet, so the grid and the scale bar are what distances are read against.")
-MESH_STR_ENTRY(HELP_NOTE_MAP_MOVE,        "The d-pad slides the view rather than moving a cursor, which is unlike every other screen here. The shoulder buttons still change tab, and START frames everything again.")
+MESH_STR_ENTRY(HELP_NOTE_MAP_MOVE,        "The d-pad moves the view, not a cursor: a direction stops on the next marker that way, or slides the view when there is none. The shoulders still change tab and START frames everything.")
 MESH_STR_ENTRY(HELP_NOTE_MAP_PICK,        "Whatever is nearest the crosshair in the middle is what A opens, so aiming is panning. A node opens its details and a place opens on the Waypoints tab.")
 MESH_STR_ENTRY(HELP_NOTE_MAP_TRUST,       "A marker is where a node last said it was, not where it is now. Senders often round their position on purpose, and the ring around a marker is how far out it may be.")
 

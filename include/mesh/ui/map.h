@@ -206,6 +206,74 @@ bool mesh_ui_map_selected(const struct mesh_ui_map_view *view,
                           const struct mesh_map_viewport *viewport, uint32_t *out_index);
 
 /*
+ * How far ahead of the crosshair a direction will look for a marker, in pixels.
+ *
+ * One declared panel that way, and it is the fit's box for the fit's reason: the nav owns the
+ * map's state and is never told how big a backend's body is, so a reach expressed in the
+ * picture has to be declared rather than measured. Too small is the safe direction again - it
+ * costs a press, where a reach of the whole world would answer a nudge west with a node in the
+ * next county.
+ *
+ * A marker further out is still reached by pressing the same direction: the step falls back to
+ * a pan, the pan brings the marker inside the reach, and the press after that lands on it.
+ */
+#define MESH_UI_MAP_STEP_REACH_X MESH_UI_MAP_FIT_WIDTH
+#define MESH_UI_MAP_STEP_REACH_Y MESH_UI_MAP_FIT_HEIGHT
+
+/*
+ * Which way a press is going, in compass terms rather than in the d-pad's.
+ *
+ * North-up is a property of the map, so a direction here is a direction on the ground: Left
+ * means look west, and this is the enum that says so. It also keeps the step's arithmetic free
+ * of the screen's y sign, which is the one place a map's directions are easy to write upside
+ * down.
+ */
+enum mesh_ui_map_direction {
+    MESH_UI_MAP_NORTH = 0,
+    MESH_UI_MAP_SOUTH,
+    MESH_UI_MAP_WEST,
+    MESH_UI_MAP_EAST,
+};
+
+/*
+ * Where a direction should take the view: the nearest marker that way, or none.
+ *
+ * This is what makes panning able to aim rather than merely to move. A pan of a fixed number of
+ * pixels puts the crosshair on a lattice - a fifth of the body across and a fifth down, from
+ * wherever the view happened to open - and a marker is selectable only within
+ * MESH_UI_MAP_SELECT_RADIUS_PX of one of those points. The disc is 28 pixels and the cell is
+ * 176 by 84, so about a sixth of the panel is reachable and five markers in six could not be
+ * put under the crosshair *at all* at a given zoom, however long the reader panned. Zooming
+ * re-phases the lattice, which is why the symptom reads as "sometimes it works": the reader was
+ * not aiming, they were resampling.
+ *
+ * So a direction lands *on* something when there is something that way. The view centres
+ * exactly on the marker's own coordinates, which is what makes the landing exact - the
+ * selection is still derived from the centre by mesh_ui_map_selected(), there is still no
+ * selection on the nav, and the marker the ring goes round is by construction the one the press
+ * opens. Nothing was spent to get it: the same four keys, and a direction that still means what
+ * it says.
+ *
+ * "That way" is the 45-degree quadrant around the direction pressed - |cross| <= |along| - and
+ * the four quadrants tile the plane, so every marker on the panel is one press away from
+ * wherever the reader is standing, in the direction it looks like it is in. Among the
+ * candidates the nearest wins, so a press walks outward through them rather than jumping the
+ * furthest way; a tie goes to the marker built first, which is the order mesh_ui_map_selected()
+ * already settles two markers at one place with.
+ *
+ * A marker under the crosshair is not a candidate - it is behind the press, not ahead of it -
+ * so a direction always moves. Two markers a few pixels apart are therefore how the reader
+ * chooses between them: the press steps from one to the other, which is the disambiguation a
+ * cluster needs and which no amount of panning could do before.
+ *
+ * False when the quadrant is empty, and the caller then pans by its own step: open grid still
+ * pans, which is what a map under a basemap will need and what makes "look west" honest when
+ * there is nothing west.
+ */
+bool mesh_ui_map_step(const struct mesh_ui_map_view *view, const struct mesh_map_viewport *viewport,
+                      enum mesh_ui_map_direction direction, uint32_t *out_index);
+
+/*
  * The markers' projected positions, for framing them.
  *
  * A plain copy out of the marker list, because mesh_map_viewport_fit() takes points and must not

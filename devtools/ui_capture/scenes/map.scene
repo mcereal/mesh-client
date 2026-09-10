@@ -2,8 +2,15 @@
 #
 # What this scene is for is the d-pad. It is the only screen in the client where the four
 # directions move the picture instead of a cursor, and that is not a thing a still can show - so
-# the sequence below aims the crosshair by panning, which is what "aiming is panning" looks like
-# from the outside.
+# the sequence below aims the crosshair, which is what "aiming is panning" looks like from the
+# outside.
+#
+# Aiming is the word that had to be earned. A direction used to move the view by a fifth of the
+# body, which meant the crosshair only ever landed on a lattice 176 across and 84 down while the
+# crosshair itself captures 28 - so five markers in six could not be put under it at all, and the
+# reader's remedy was to zoom in and out until one happened to line up. A direction now stops on
+# the next marker that way and pans only when there is nothing that way, which is what the
+# presses below are chosen to show: each one lands, and the line under the map fills in.
 #
 # The places are put at nodes that are already in the demo roster, so every distance on the panel
 # is measured between two real fixes rather than between two numbers typed to agree - the same
@@ -24,29 +31,33 @@ hold 1600
 # which here is open grid between the cluster and the far node, so the line under the map says
 # there is nothing under it and the crosshair is drawn dim.
 #
-# Closer, then west and south onto the cluster. The line under the map fills in as the crosshair
-# arrives: the node's name, how far it is from our own radio and which way, and how much of its
-# position to believe.
-key x
-hold 900
+# One press west and it is on ALFA. The view centres on the marker's own coordinates rather than
+# sliding a fixed distance towards it, so the landing is exact: the node's name, how far it is
+# from our own radio and which way, and how much of its position to believe.
 key left
-hold 700
-key down 2
 hold 1800
 
-# One level closer again, on something. The grid's spacing steps down the 1-2-5 ladder with the
-# zoom and the scale bar follows it, so the picture stays readable as a measurement.
+# One level closer. A zoom keeps the centre, so what was aimed at stays aimed at while the grid's
+# spacing steps down the 1-2-5 ladder and the scale bar follows it.
 key x
 hold 1600
 
+# East twice, marker to marker: our own radio, then FXTR beyond it. No key was spent to get this
+# - it is the same four directions - and open grid still pans, which is what the fall-back is
+# for and what a basemap will need.
+key right
+hold 1400
+key right
+hold 1600
+
 # And opening what the crosshair is on: the node's own detail, over the map rather than instead
-# of it - so B lands back on the view that was panned to rather than on the list.
+# of it - so B lands back on the view that was aimed rather than on the list.
 key a
 hold 1600
 key b
 hold 1200
 
-# Back to everything, which is the view the map opened on. That is what makes the first pan
+# Back to everything, which is the view the map opened on. That is what makes the first press
 # something a reader can undo.
 key start
 hold 1400
