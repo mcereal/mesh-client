@@ -1648,3 +1648,60 @@ done:
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+/*
+ * Unmuting a conversation that was muted before it was ever read takes the mark with it.
+ *
+ * The record then holds no read position and no mute, which is an empty slot in a table of 32 -
+ * and one whose stamp has just been refreshed, so the eviction would throw a genuine read
+ * position away ahead of it. On the device that reads as a conversation you had read coming back
+ * unread.
+ */
+MESH_TEST_CASE(ui_nav_unmuting_drops_a_mark_with_nothing_in_it, unit) {
+    const char *failure = NULL;
+    mesh_ui_canned_reset();
+
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+    mesh_test_nav_populate(&store);
+
+    struct mesh_ui_snapshot snapshot;
+    struct mesh_ui_action action;
+
+    /* One genuine read mark first, so there is something for a careless eviction to lose. */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_B, &action);
+    if (store.read_state.count != 1U) {
+        failure = "opening a conversation should leave one mark behind";
+        goto cleanup;
+    }
+
+    /* Mute a conversation that has never been opened: a mark with a mute and no read position. */
+    (void)mesh_ui_store_set_conversation_mute(&store, (uint8_t)MESH_UI_CONVERSATION_CHANNEL,
+                                              MESH_MESSAGE_BROADCAST_ADDR, 0U, true);
+    if (store.read_state.count != 2U) {
+        failure = "muting an unread conversation should take a slot";
+        goto cleanup;
+    }
+
+    (void)mesh_ui_store_set_conversation_mute(&store, (uint8_t)MESH_UI_CONVERSATION_CHANNEL,
+                                              MESH_MESSAGE_BROADCAST_ADDR, 0U, false);
+    if (store.read_state.count != 1U) {
+        failure = "unmuting it should give the slot back rather than leaving an empty mark";
+        goto cleanup;
+    }
+    /* And the mark that meant something is the one still there. */
+    if (mesh_ui_store_conversation_read_mark(&store, (uint8_t)MESH_UI_CONVERSATION_DIRECT, 0x3000U,
+                                             0U) != 12U) {
+        failure = "the genuine read mark should have survived";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}

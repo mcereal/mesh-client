@@ -106,7 +106,7 @@ suite needs it.
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Verified 2026-09-10: 481 unit tests, all passing, zero compiler warnings - under the host
+Verified 2026-09-10: 484 unit tests, all passing, zero compiler warnings - under the host
 toolchain *and* the cross one, which are not the same check: see
 [`docs/testing.md`](docs/testing.md#what-ci-runs).
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
@@ -468,6 +468,25 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   counted. A conversation whose newest entry was a tapback stayed badged however often it was
   opened. It is also what lets the transcript find its own line, which looks for the bubble whose
   predecessor is the marked one - and a reaction never gets a bubble.
+- **Unmuting is reported from what it achieved, not from what it set.** Both halves can be on at
+  once - muted here, then muted on the radio from the Nodes tab or by another client - and the
+  local half really does clear, while the row goes on drawing itself muted because the radio is
+  still muting that node. So the toast is chosen by asking
+  `mesh_ui_store_conversation_muted()` again *after* the write. "Unmuted" on a row that is still
+  muted is the one thing worse than a press that does nothing, which is a press that lies.
+- **A notification cursor that has gone missing re-places itself in silence.** When the packet
+  `ui_message_announced_id` names is no longer in the log, where we had got to is unknowable, so
+  the reporter takes its place again from the newest and announces none of it - exactly as a
+  launch does. The reachable way in is a *delete*, not the ring: the log holds 64 and the
+  reporter runs on every publish, so an eviction would need 64 messages between two turns of the
+  loop. Read as "everything since is new", deleting a conversation announced whatever inbound
+  message happened to be last - somebody else's, already announced, arriving a second after the
+  user pressed delete.
+- **An unmute that empties a mark takes the mark with it.** A conversation muted before it was
+  ever opened has `packet_id` 0, so clearing the mute leaves a record holding no read position
+  and no mute - and one whose stamp has just been refreshed, which under the eviction above is
+  the *last* unmuted mark to go. A genuine read position would be thrown away ahead of it, which
+  on the device reads as a conversation you had read coming back unread.
 - **A press replaces the snackbar and an arrival queues behind it, and that is two functions on
   purpose.** `mesh_ui_nav_set_toast()` supersedes what is showing because it is the client
   answering the button just pressed, and what it replaces is usually the earlier half of the same

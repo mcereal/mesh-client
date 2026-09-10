@@ -745,6 +745,27 @@ bool mesh_ui_store_set_conversation_mute(struct mesh_ui_store *store, uint8_t ki
        what tells the app there is something new to persist. */
     store->read_state.stamp++;
     mark->stamp = store->read_state.stamp;
+
+    /*
+     * An unmute that leaves the mark saying nothing takes the mark with it.
+     *
+     * A conversation muted before it was ever opened has `packet_id` 0, so once the mute is off
+     * the record holds no read position and no mute - it is an empty slot in a table of 32 that
+     * still costs a slot, and worse, it has just had its stamp refreshed. The eviction above
+     * prefers an unmuted victim and orders by stamp, so this one would be the *last* unmuted
+     * mark to go and a genuine read position would be thrown away ahead of it - which reads, on
+     * the device, as a conversation the user had read coming back unread.
+     */
+    if (!mark->muted && mark->packet_id == 0U) {
+        struct mesh_ui_read_state *state = &store->read_state;
+        const uint32_t index = (uint32_t)(mark - state->marks);
+        if (index < state->count) {
+            state->marks[index] = state->marks[state->count - 1U];
+            memset(&state->marks[state->count - 1U], 0, sizeof state->marks[0]);
+            state->count--;
+        }
+    }
+
     mesh_ui_store_mark_dirty(store, MESH_UI_UPDATE_MESSAGES | MESH_UI_UPDATE_NAV);
     return true;
 }

@@ -506,6 +506,25 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
 
         (void)mesh_ui_store_set_conversation_mute(&app->ui_store, kind, action->dest,
                                                   action->channel, !local);
+
+        /*
+         * And what the press actually achieved, asked again rather than assumed.
+         *
+         * Both halves can be on at once - mute a conversation here, then mute the same node from
+         * the Nodes tab or from another client - and there the guard above does not fire,
+         * because the local half really was on and really has just been cleared. What has not
+         * changed is the row: the radio is still muting that node, so it draws itself muted and
+         * goes on interrupting nobody. Saying "Unmuted" there is the one thing worse than the
+         * press doing nothing, which is the press lying about it.
+         */
+        const bool still_muted =
+            mesh_ui_store_conversation_muted(&app->ui_store, kind, action->dest, action->channel);
+        if (local && still_muted) {
+            mesh_str_format(toast, sizeof toast, MESH_STR_TOAST_CONVO_MUTED_ON_RADIO, name);
+            mesh_ui_store_set_toast(&app->ui_store, now, toast);
+            mesh_log_info("ui", "Cleared the local mute on %s; the radio still mutes it", name);
+            return;
+        }
         mesh_str_format(toast, sizeof toast,
                         !local ? MESH_STR_TOAST_CONVO_MUTED : MESH_STR_TOAST_CONVO_UNMUTED, name);
         mesh_ui_store_set_toast(&app->ui_store, now, toast);

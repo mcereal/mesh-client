@@ -1356,6 +1356,7 @@ static void mesh_app_report_direct_messages(struct mesh_app *app) {
 
     /* Start after the last one announced. */
     size_t next = 0U;
+    bool lost = false;
     if (app->ui_message_announced_id != 0U) {
         bool found = false;
         for (size_t i = 0; i < log->count; ++i) {
@@ -1366,11 +1367,21 @@ static void mesh_app_report_direct_messages(struct mesh_app *app) {
                 break;
             }
         }
-        /* The ring has evicted it, so how much has happened since is unknowable and the newest
-           entry is the only news that can be placed. Replaying from the oldest instead would,
-           after a long absence, announce the whole ring. */
+        /*
+         * The message we last announced is not in the log any more, so where we had got to is
+         * unknowable - and the honest answer to that is to say nothing and take our place again
+         * from the newest, exactly as a launch does.
+         *
+         * The reachable way in is a *delete* rather than the ring: the log holds 64 and this
+         * runs on every publish, so an eviction would need 64 messages between two turns of the
+         * loop. Deleting the conversation the cursor was pointing into is one press, and
+         * treating the deletion as "everything since is new" announced whatever inbound message
+         * happened to be last - somebody else's, and one the user had already been told about,
+         * arriving as a notice a second after they pressed delete.
+         */
         if (!found) {
-            next = log->count - 1U;
+            lost = true;
+            next = 0U;
         }
     }
 
@@ -1401,7 +1412,7 @@ static void mesh_app_report_direct_messages(struct mesh_app *app) {
         }
 
         app->ui_message_announced_id = entry->packet_id;
-        if (!announce || !foreground) {
+        if (!announce || lost || !foreground) {
             continue;
         }
         if (mesh_ui_store_conversation_muted(&app->ui_store, (uint8_t)MESH_UI_CONVERSATION_DIRECT,
