@@ -1,3 +1,13 @@
+## [2.50.0](https://github.com/mcereal/mesh-client/compare/v2.49.0...v2.50.0) (2026-09-10)
+
+### Features
+
+* **ui:** say each Status reading once and give the room to the card in trouble ([d0a3974](https://github.com/mcereal/mesh-client/commit/d0a3974665afc0a1c727892b59d5598f101a7b78))
+
+### Bug Fixes
+
+* **ui:** measure the Status card's shares 64 bits wide ([6db5a8e](https://github.com/mcereal/mesh-client/commit/6db5a8e8549d632e2660c87bef70d4757e855b30))
+
 ## [2.49.0](https://github.com/mcereal/mesh-client/compare/v2.48.0...v2.49.0) (2026-09-10)
 
 ### Features
