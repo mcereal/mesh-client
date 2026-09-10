@@ -199,6 +199,57 @@ bool mesh_firmware_release_parse(const char *json_text, size_t len,
     return true;
 }
 
+/* ---- the release's own manifest ----------------------------------------------------------- */
+
+bool mesh_firmware_platform_parse(const char *json_text, size_t len, const char *target, char *out,
+                                  size_t out_len) {
+    if (json_text == NULL || target == NULL || out == NULL || out_len == 0U || target[0] == '\0') {
+        return false;
+    }
+    out[0] = '\0';
+
+    struct mesh_json json;
+    mesh_json_init(&json, json_text, len);
+    if (!mesh_json_object_find(&json, "targets")) {
+        return false;
+    }
+    if (!mesh_json_enter_array(&json)) {
+        return false;
+    }
+    while (mesh_json_next_element(&json)) {
+        if (!mesh_json_enter_object(&json)) {
+            return false;
+        }
+        char key[32];
+        char board[MESH_FIRMWARE_TARGET_MAX];
+        char platform[MESH_FIRMWARE_ARCH_MAX];
+        board[0] = '\0';
+        platform[0] = '\0';
+        while (mesh_json_next_key(&json, key, sizeof key)) {
+            bool read = false;
+            if (strcmp(key, "board") == 0) {
+                read = mesh_json_read_string(&json, board, sizeof board);
+            } else if (strcmp(key, "platform") == 0) {
+                read = mesh_json_read_string(&json, platform, sizeof platform);
+            }
+            if (!read && !mesh_json_skip_value(&json)) {
+                return false;
+            }
+        }
+        if (strcmp(board, target) == 0 && platform[0] != '\0') {
+            /*
+             * The walk stops here rather than running to the end of the array. That is not an
+             * optimisation: this document lists a board once, and a reader that kept going
+             * would let a later duplicate - the shape a bad merge produces - overwrite the
+             * answer with whichever copy was last.
+             */
+            mesh_str_copy(out, out_len, platform);
+            return true;
+        }
+    }
+    return false;
+}
+
 /* ---- versions ---------------------------------------------------------------------------- */
 
 /* Reads the leading run of digits and steps `cursor` past it and any single separator after.

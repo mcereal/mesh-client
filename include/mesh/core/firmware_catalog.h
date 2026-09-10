@@ -217,6 +217,24 @@ bool mesh_firmware_boards_parse(const char *json, size_t len, uint32_t hw_model,
 bool mesh_firmware_release_parse(const char *json, size_t len, enum mesh_firmware_channel channel,
                                  struct mesh_firmware_release *out);
 
+/*
+ * The platform a release built `target` for, out of that release's own manifest
+ * (`firmware-<version>.json`, the `.json` the index calls `zip_url`).
+ *
+ * **This is what names the zip**, and it is the one string that cannot come from anywhere
+ * else. `deviceHardware.architecture` says `esp32-s3` where this says `esp32s3`, and
+ * `firmware-esp32-s3-2.7.26.54e0d8d.zip` is a 404 while `firmware-esp32s3-…zip` is 170 MB of
+ * zip - so the difference is a hard failure rather than a tidiness point. They agree for every
+ * nRF52 and RP2040 board and disagree for exactly the ESP32-S3 family, which is the worst
+ * possible distribution: code written and tested against an nRF52 board is correct.
+ *
+ * False when the document did not parse or built nothing for that target - which is a real
+ * answer rather than an error. A release that dropped a board is how a board stops being
+ * supported, and the row that says so is not the row that says the document was unreadable.
+ */
+bool mesh_firmware_platform_parse(const char *json, size_t len, const char *target, char *out,
+                                  size_t out_len);
+
 /* The verdict for an `architecture` string as the hardware document spells it. Unknown
    architectures - including ones upstream adds after this ships - are NONE, which is the answer
    that refuses rather than the one that guesses. */

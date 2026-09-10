@@ -42,8 +42,7 @@ bool mesh_uf2_block_parse(const uint8_t *bytes, size_t len, struct mesh_uf2_bloc
         return false;
     }
     memset(out, 0, sizeof *out);
-    if (uf2_u32(bytes) != MESH_UF2_MAGIC_START0 ||
-        uf2_u32(bytes + 4U) != MESH_UF2_MAGIC_START1 ||
+    if (uf2_u32(bytes) != MESH_UF2_MAGIC_START0 || uf2_u32(bytes + 4U) != MESH_UF2_MAGIC_START1 ||
         uf2_u32(bytes + MESH_UF2_BLOCK_SIZE - 4U) != MESH_UF2_MAGIC_END) {
         return false;
     }

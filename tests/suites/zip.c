@@ -70,8 +70,7 @@ MESH_TEST_CASE(zip_reads_a_release_tail, unit) {
 
     /* The point of a 64 KB window: both these directories are already in it, so the download
        is two round trips rather than three. */
-    const uint8_t *const central =
-        mesh_zip_central_slice(&end, zip.window, zip.len, zip.offset);
+    const uint8_t *const central = mesh_zip_central_slice(&end, zip.window, zip.len, zip.offset);
     MESH_TEST_FAIL_IF_CLEANUP(central == NULL, zip_close(&zip),
                               "the directory fits inside the tail window");
 
@@ -82,8 +81,8 @@ MESH_TEST_CASE(zip_reads_a_release_tail, unit) {
     MESH_TEST_FAIL_IF_CLEANUP(!member, zip_close(&zip),
                               "the T114's image should be in the directory");
     MESH_TEST_FAIL_IF_CLEANUP(entry.compressed_size != 517956U ||
-                                  entry.uncompressed_size != 1467392U, zip_close(&zip),
-                              "both sizes come off the central directory");
+                                  entry.uncompressed_size != 1467392U,
+                              zip_close(&zip), "both sizes come off the central directory");
     MESH_TEST_FAIL_IF_CLEANUP(entry.crc32 != 3175933648U, zip_close(&zip),
                               "and so does the CRC the inflate is checked against");
     MESH_TEST_FAIL_IF_CLEANUP(entry.method != MESH_ZIP_METHOD_DEFLATE, zip_close(&zip),
@@ -110,13 +109,12 @@ MESH_TEST_CASE(zip_reads_a_prefixed_member, unit) {
                       "the 2.8.0 tail window should be readable");
 
     struct mesh_zip_end end;
-    MESH_TEST_FAIL_IF_CLEANUP(!mesh_zip_find_end(zip.window, zip.len, zip.offset, &end), zip_close(&zip),
-                              "2.8.0's record is in the window too");
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_zip_find_end(zip.window, zip.len, zip.offset, &end),
+                              zip_close(&zip), "2.8.0's record is in the window too");
     MESH_TEST_FAIL_IF_CLEANUP(end.entries != 171U || end.central_size != 21358U, zip_close(&zip),
                               "171 members and a 21,358-byte directory");
 
-    const uint8_t *const central =
-        mesh_zip_central_slice(&end, zip.window, zip.len, zip.offset);
+    const uint8_t *const central = mesh_zip_central_slice(&end, zip.window, zip.len, zip.offset);
     MESH_TEST_FAIL_IF_CLEANUP(central == NULL, zip_close(&zip),
                               "a bigger directory still fits the window");
 
@@ -127,13 +125,13 @@ MESH_TEST_CASE(zip_reads_a_prefixed_member, unit) {
     MESH_TEST_FAIL_IF_CLEANUP(!member, zip_close(&zip),
                               "the basename should find it under its new prefix");
     MESH_TEST_FAIL_IF_CLEANUP(
-        strcmp(entry.name, "nrf52840/firmware-heltec-mesh-node-t114-2.8.0.47db0e3.uf2") != 0, zip_close(&zip),
-                              "and the stored path is the prefixed one");
+        strcmp(entry.name, "nrf52840/firmware-heltec-mesh-node-t114-2.8.0.47db0e3.uf2") != 0,
+        zip_close(&zip), "and the stored path is the prefixed one");
     MESH_TEST_FAIL_IF_CLEANUP((entry.flags & MESH_ZIP_FLAG_DATA_DESCRIPTOR) == 0U, zip_close(&zip),
                               "2.8.0's members defer their sizes to a data descriptor");
     MESH_TEST_FAIL_IF_CLEANUP(entry.compressed_size != 561092U ||
-                                  entry.uncompressed_size != 1491968U ||
-                                  entry.crc32 != 2320343302U, zip_close(&zip),
+                                  entry.uncompressed_size != 1491968U || entry.crc32 != 2320343302U,
+                              zip_close(&zip),
                               "which is why all three of those come from the directory");
     zip_close(&zip);
     record_success(test_name);
@@ -151,24 +149,23 @@ MESH_TEST_CASE(zip_never_matches_a_directory_marker, unit) {
     MESH_TEST_FAIL_IF(!zip_open("zip_tail_nrf52840_2.8.0.bin", ZIP_SIZE_2_8_0, &zip),
                       "the 2.8.0 tail window should be readable");
     struct mesh_zip_end end;
-    MESH_TEST_FAIL_IF_CLEANUP(!mesh_zip_find_end(zip.window, zip.len, zip.offset, &end), zip_close(&zip),
-                              "the record should be found");
-    const uint8_t *const central =
-        mesh_zip_central_slice(&end, zip.window, zip.len, zip.offset);
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_zip_find_end(zip.window, zip.len, zip.offset, &end),
+                              zip_close(&zip), "the record should be found");
+    const uint8_t *const central = mesh_zip_central_slice(&end, zip.window, zip.len, zip.offset);
     MESH_TEST_FAIL_IF_CLEANUP(central == NULL, zip_close(&zip),
                               "the directory should be in the window");
 
     struct mesh_zip_entry entry;
     MESH_TEST_FAIL_IF_CLEANUP(
         mesh_zip_find_member(central, end.central_size, end.entries, "", &entry), zip_close(&zip),
-                              "an empty basename matches nothing");
+        "an empty basename matches nothing");
     MESH_TEST_FAIL_IF_CLEANUP(
-        mesh_zip_find_member(central, end.central_size, end.entries, "nrf52840/", &entry), zip_close(&zip),
-                              "and neither does the directory's own stored name");
+        mesh_zip_find_member(central, end.central_size, end.entries, "nrf52840/", &entry),
+        zip_close(&zip), "and neither does the directory's own stored name");
     MESH_TEST_FAIL_IF_CLEANUP(
         mesh_zip_find_member(central, end.central_size, end.entries,
-                             "firmware-heltec-mesh-node-t114-2.7.26.54e0d8d.uf2", &entry), zip_close(&zip),
-                              "nor does the previous release's file name");
+                             "firmware-heltec-mesh-node-t114-2.7.26.54e0d8d.uf2", &entry),
+        zip_close(&zip), "nor does the previous release's file name");
     zip_close(&zip);
     record_success(test_name);
 }
@@ -223,8 +220,8 @@ MESH_TEST_CASE(zip_says_when_the_directory_is_outside_the_window, unit) {
     MESH_TEST_FAIL_IF(!zip_open("zip_tail_nrf52840_2.7.26.bin", ZIP_SIZE_2_7_26, &zip),
                       "the 2.7.26 tail window should be readable");
     struct mesh_zip_end end;
-    MESH_TEST_FAIL_IF_CLEANUP(!mesh_zip_find_end(zip.window, zip.len, zip.offset, &end), zip_close(&zip),
-                              "the record should be found");
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_zip_find_end(zip.window, zip.len, zip.offset, &end),
+                              zip_close(&zip), "the record should be found");
 
     /* The last 8 KB of the same window: the record is still in it, the 16 KB directory is not. */
     const size_t small = 8192U;
@@ -232,14 +229,13 @@ MESH_TEST_CASE(zip_says_when_the_directory_is_outside_the_window, unit) {
     const uint64_t shifted_offset = zip.offset + (uint64_t)(zip.len - small);
 
     struct mesh_zip_end from_small;
-    MESH_TEST_FAIL_IF_CLEANUP(
-        !mesh_zip_find_end(shifted, small, shifted_offset, &from_small), zip_close(&zip),
-                              "a smaller window still finds the record");
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_zip_find_end(shifted, small, shifted_offset, &from_small),
+                              zip_close(&zip), "a smaller window still finds the record");
     MESH_TEST_FAIL_IF_CLEANUP(from_small.central_offset != end.central_offset, zip_close(&zip),
                               "and reports the same directory");
-    MESH_TEST_FAIL_IF_CLEANUP(
-        mesh_zip_central_slice(&from_small, shifted, small, shifted_offset) != NULL, zip_close(&zip),
-                              "but cannot hand back a directory it does not hold");
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_zip_central_slice(&from_small, shifted, small, shifted_offset) !=
+                                  NULL,
+                              zip_close(&zip), "but cannot hand back a directory it does not hold");
     zip_close(&zip);
     record_success(test_name);
 }
@@ -257,22 +253,22 @@ MESH_TEST_CASE(zip_finds_the_record_and_not_a_coincidence, unit) {
     MESH_TEST_FAIL_IF(!zip_open("zip_tail_nrf52840_2.7.26.bin", ZIP_SIZE_2_7_26, &zip),
                       "the 2.7.26 tail window should be readable");
     struct mesh_zip_end end;
-    MESH_TEST_FAIL_IF_CLEANUP(!mesh_zip_find_end(zip.window, zip.len, zip.offset, &end), zip_close(&zip),
-                              "the record should be found");
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_zip_find_end(zip.window, zip.len, zip.offset, &end),
+                              zip_close(&zip), "the record should be found");
 
-    const uint8_t *const central =
-        mesh_zip_central_slice(&end, zip.window, zip.len, zip.offset);
+    const uint8_t *const central = mesh_zip_central_slice(&end, zip.window, zip.len, zip.offset);
     MESH_TEST_FAIL_IF_CLEANUP(central == NULL, zip_close(&zip),
                               "the directory should be in the window");
     /* The first four bytes of the directory it named are a central header signature. A record
        found by coincidence would point somewhere these are not. */
-    MESH_TEST_FAIL_IF_CLEANUP(central[0] != 0x50U || central[1] != 0x4BU ||
-                                  central[2] != 0x01U || central[3] != 0x02U, zip_close(&zip),
-                              "the offset it reported is a real central directory");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        central[0] != 0x50U || central[1] != 0x4BU || central[2] != 0x01U || central[3] != 0x02U,
+        zip_close(&zip), "the offset it reported is a real central directory");
 
     /* A truncated window - one holding less than a whole record - has no answer at all. */
     struct mesh_zip_end nothing;
-    MESH_TEST_FAIL_IF_CLEANUP(mesh_zip_find_end(zip.window, 8U, zip.offset, &nothing), zip_close(&zip),
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_zip_find_end(zip.window, 8U, zip.offset, &nothing),
+                              zip_close(&zip),
                               "and a window too short to hold a record finds none");
     zip_close(&zip);
     record_success(test_name);

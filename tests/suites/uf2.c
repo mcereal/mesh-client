@@ -62,13 +62,13 @@ MESH_TEST_CASE(uf2_reads_a_release_block, unit) {
     /* The last block of the real file, which the cut kept. Its address is where the roadmap's
        measurement said the image ends. */
     struct mesh_uf2_block last;
-    MESH_TEST_FAIL_IF_CLEANUP(!mesh_uf2_block_parse((const uint8_t *)bytes + 3U * MESH_UF2_BLOCK_SIZE,
-                                                    MESH_UF2_BLOCK_SIZE, &last),
-                              free(bytes), "the last block should parse too");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        !mesh_uf2_block_parse((const uint8_t *)bytes + 3U * MESH_UF2_BLOCK_SIZE,
+                              MESH_UF2_BLOCK_SIZE, &last),
+        free(bytes), "the last block should parse too");
     MESH_TEST_FAIL_IF_CLEANUP(last.block_no != 2865U, free(bytes),
                               "and be the 2,866th, counted from zero");
-    MESH_TEST_FAIL_IF_CLEANUP(last.target_address != 0xD9100U, free(bytes),
-                              "ending at 0xD9100");
+    MESH_TEST_FAIL_IF_CLEANUP(last.target_address != 0xD9100U, free(bytes), "ending at 0xD9100");
     free(bytes);
     record_success(test_name);
 }
@@ -190,8 +190,7 @@ MESH_TEST_CASE(uf2_refuses_a_file_that_is_not_a_sequence, unit) {
     uint8_t swapped[sizeof pair];
     memcpy(swapped, pair + MESH_UF2_BLOCK_SIZE, MESH_UF2_BLOCK_SIZE);
     memcpy(swapped + MESH_UF2_BLOCK_SIZE, pair, MESH_UF2_BLOCK_SIZE);
-    MESH_TEST_FAIL_IF(mesh_uf2_validate(swapped, sizeof swapped, 0U, NULL) !=
-                          MESH_UF2_OUT_OF_ORDER,
+    MESH_TEST_FAIL_IF(mesh_uf2_validate(swapped, sizeof swapped, 0U, NULL) != MESH_UF2_OUT_OF_ORDER,
                       "blocks out of order are refused");
 
     /* A payload longer than a block can hold. The field is self-declared, which is the shape

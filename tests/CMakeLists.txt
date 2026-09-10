@@ -24,6 +24,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/fetch.c
     suites/firmware.c
     suites/firmware_catalog.c
+    suites/firmware_download.c
     suites/geo.c
     suites/i18n.c
     suites/json.c

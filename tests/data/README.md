@@ -18,6 +18,8 @@ Refresh one by fetching it again, not by editing it.
 | `t114_2.7.26.mt.json` | that member of the 2.7.26 nrf52840 zip, inflated | 2026-09-10 | nothing — all 1,157 bytes |
 | `heltec_v3_2.7.26.mt.json` | the same member of the 2.7.26 **esp32s3** zip | 2026-09-10 | nothing — all 2,205 bytes |
 | `t114_2.7.26.uf2` | the T114's image out of the 2.7.26 nrf52840 zip | 2026-09-10 | four of its 2,866 blocks — see below |
+| `zip_member_t114_mt_json_2.7.26.bin` | that member's local header and deflated bytes, as served | 2026-09-10 | nothing — 597 bytes covering both |
+| `firmware_release_2.7.26.json` | `…/download/v2.7.26.54e0d8d/firmware-2.7.26.54e0d8d.json` | 2026-09-10 | nothing — all 129 targets |
 
 `firmware_list.json` is the one that is not whole, because the served document is 155 KB and
 almost all of it is release notes. Kept: the first four entries of each channel, every key each
@@ -55,6 +57,15 @@ partitions and names three. The image is selected by a different question on eac
 parser written against either fixture alone finds nothing for half the boards this feature
 serves. The pair also carries the three-spellings trap: `mcu` is `esp32s3` and `architecture` is
 `esp32-s3` on the V3, and both are `nrf52840` on the T114.
+
+**`zip_member_t114_mt_json_2.7.26.bin` is a member the way the CDN hands one over**: the 30
+fixed bytes of its local file header, the 53-byte name and 28-byte extra field after it, and
+then all 486 bytes of its deflated payload. It is the T114's `.mt.json` rather than its `.uf2`
+because at 486 bytes it is a fixture and at 517,956 it is not, and it exercises exactly the same
+four steps. `tests/suites/firmware_download.c` serves it — and the tail window above it — at the
+offsets the real zip keeps them at, so the whole chain runs against real bytes: range read, place
+the data, wrap it in a gzip envelope, inflate it, check the CRC the central directory carried,
+and read the document that falls out.
 
 **`t114_2.7.26.uf2` is four blocks of 2,866** — the first two and the last two of the real
 image, cut and otherwise untouched, so 2 KB instead of 1.4 MB. Keeping both ends rather than a

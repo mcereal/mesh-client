@@ -163,8 +163,7 @@ bool mesh_zip_find_member(const uint8_t *central, size_t len, uint32_t entries,
 
 bool mesh_zip_local_data_start(const uint8_t *header, size_t len,
                                const struct mesh_zip_entry *entry, uint64_t *out_offset) {
-    if (header == NULL || entry == NULL || out_offset == NULL ||
-        len < MESH_ZIP_LOCAL_HEADER_SIZE) {
+    if (header == NULL || entry == NULL || out_offset == NULL || len < MESH_ZIP_LOCAL_HEADER_SIZE) {
         return false;
     }
     if (zip_u32(header) != ZIP_SIG_LOCAL) {
@@ -178,7 +177,6 @@ bool mesh_zip_local_data_start(const uint8_t *header, size_t len,
      */
     const uint16_t name_len = zip_u16(header + 26U);
     const uint16_t extra_len = zip_u16(header + 28U);
-    *out_offset =
-        entry->local_header_offset + MESH_ZIP_LOCAL_HEADER_SIZE + name_len + extra_len;
+    *out_offset = entry->local_header_offset + MESH_ZIP_LOCAL_HEADER_SIZE + name_len + extra_len;
     return true;
 }

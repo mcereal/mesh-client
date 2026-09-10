@@ -339,3 +339,49 @@ MESH_TEST_CASE(firmware_catalog_manifest_survives_a_shape_it_did_not_expect, uni
     MESH_TEST_FAIL_IF(manifest.count != 1U, "but it is not one of the files");
     record_success(test_name);
 }
+
+/*
+ * The fourth document, and the one string that names the zip.
+ *
+ * `firmware-<version>.json` is what the index calls `zip_url` for a current release: a version
+ * and a flat list of every board it built, with the platform each one belongs to. That
+ * platform is the URL's, and it is not the architecture: `firmware-esp32-s3-2.7.26.54e0d8d.zip`
+ * is a 404 while `firmware-esp32s3-…` is 170 MB of zip, so the difference is a hard failure
+ * rather than a tidiness point.
+ */
+MESH_TEST_CASE(firmware_catalog_names_the_platform_that_names_the_zip, unit) {
+    size_t len = 0U;
+    char *const document = mesh_test_data_read("firmware_release_2.7.26.json", &len);
+    MESH_TEST_FAIL_IF(document == NULL, "the release manifest should be readable");
+
+    char platform[MESH_FIRMWARE_ARCH_MAX];
+    const bool t114 = mesh_firmware_platform_parse(document, len, "heltec-mesh-node-t114", platform,
+                                                   sizeof platform);
+    MESH_TEST_FAIL_IF_CLEANUP(!t114, free(document), "2.7.26 built for the T114");
+    MESH_TEST_FAIL_IF_CLEANUP(strcmp(platform, "nrf52840") != 0, free(document),
+                              "on the nrf52840 platform");
+
+    /* The trap, in the one family where it bites. */
+    const bool v3 =
+        mesh_firmware_platform_parse(document, len, "heltec-v3", platform, sizeof platform);
+    MESH_TEST_FAIL_IF_CLEANUP(!v3, free(document), "and for the Heltec V3");
+    MESH_TEST_FAIL_IF_CLEANUP(strcmp(platform, "esp32s3") != 0, free(document),
+                              "whose platform is esp32s3, not the esp32-s3 of its architecture");
+
+    const bool pico =
+        mesh_firmware_platform_parse(document, len, "pico2w", platform, sizeof platform);
+    MESH_TEST_FAIL_IF_CLEANUP(!pico || strcmp(platform, "rp2350") != 0, free(document),
+                              "an RP2350 board resolves to its own zip too");
+
+    /* A board this release did not build for is a real answer and leaves nothing behind. */
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_firmware_platform_parse(document, len, "no-such-board", platform, sizeof platform),
+        free(document), "a board upstream dropped is not in the list");
+    MESH_TEST_FAIL_IF_CLEANUP(platform[0] != '\0', free(document),
+                              "and a refusal writes nothing into the caller's buffer");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_firmware_platform_parse(document, len, "", platform, sizeof platform), free(document),
+        "nor does an empty target match the first entry");
+    free(document);
+    record_success(test_name);
+}
