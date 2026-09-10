@@ -168,7 +168,7 @@ cmd_push() {
 mkdir -p $(sq "${REMOTE_TOOLS}")
 rm -rf $(sq "${REMOTE_STAGE}") $(sq "${REMOTE_PAK}.new")
 mkdir $(sq "${REMOTE_STAGE}")
-tar -C $(sq "${REMOTE_STAGE}") -xf -
+gunzip -c | tar -C $(sq "${REMOTE_STAGE}") -xf -
 rm -rf $(sq "${REMOTE_PAK}")
 mv $(sq "${REMOTE_STAGE}") $(sq "${REMOTE_PAK}")
 chmod +x $(sq "${REMOTE_PAK}/launch.sh") $(sq "${REMOTE_PAK}/bin/shared/meshclient")
@@ -176,13 +176,21 @@ sync
 sha256sum $(sq "${REMOTE_PAK}/bin/shared/meshclient") 2>/dev/null | cut -d' ' -f1"
 
     if [[ ${DRY_RUN} -eq 1 ]]; then
-        printf 'tar -C %s -cf - . | ' "${LOCAL_PAK}"
+        printf 'tar -C %s -czf - . | ' "${LOCAL_PAK}"
         ssh_cmd "${remote_script}"
         return 0
     fi
 
+    # Compressed, because the transfer is the slow part and the pak is mostly one static
+    # binary: 2.86 MB becomes 1.17 MB, and on a Brick whose Wi-Fi is having a bad day that is
+    # the difference between a push that lands and one that dies mid-stream. The device
+    # inflates it with busybox `gunzip`, which is the same applet the radio-firmware download
+    # already depends on being there - see docs/radio-firmware-roadmap.md, where its presence
+    # on this platform was measured rather than assumed. `tar -xzf` is deliberately not used:
+    # busybox tar only understands -z when it was built with FEATURE_TAR_GZIP, while the
+    # separate applet is a thing we have checked for.
     local remote_sum
-    remote_sum="$(tar -C "${LOCAL_PAK}" -cf - . | ssh "${SSH_OPTS[@]}" "${TARGET}" "${remote_script}")"
+    remote_sum="$(tar -C "${LOCAL_PAK}" -czf - . | ssh "${SSH_OPTS[@]}" "${TARGET}" "${remote_script}")"
     if [[ -n "${remote_sum}" && "${remote_sum}" != "${local_sum}" ]]; then
         die "checksum mismatch after push (device ${remote_sum})"
     fi
