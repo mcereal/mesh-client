@@ -115,6 +115,11 @@ struct mesh_ui_device {
     bool paired;
     /* The link this row is being brought up on right now (connecting, or bonding). */
     bool busy;
+    /* USB only: this device is a node sitting in its UF2 bootloader rather than running
+       firmware. It cannot carry a session, and the row says so instead of disappearing - the
+       Devices tab is where "why will this not connect" is answered, and a board in its
+       bootloader is the most answerable version of that question there is. */
+    bool bootloader;
     uint8_t kind; /* enum mesh_ui_device_kind */
 };
 
@@ -1245,6 +1250,23 @@ bool mesh_ui_store_mark_open_conversation_read(struct mesh_ui_store *store);
  */
 const struct mesh_ui_device *
 mesh_ui_snapshot_connected_device(const struct mesh_ui_snapshot *snapshot);
+
+/*
+ * What A and Y would do on a Devices row, asked by the press and by the action bar.
+ *
+ * Same reasoning as the function above, one level down: a bar that names a keycap the press
+ * then declines is the keycap-that-does-nothing `src/ui/actions.c` refuses everywhere else, and
+ * the only way two files stay agreed about it is to give them one function to ask. Both of these
+ * were conditions written into the nav's handlers with an unconditional entry in the bar beside
+ * them, which is exactly how that disagreement arises.
+ *
+ * NULL is false for both, so a cursor past the end needs no separate test at either call site.
+ */
+/* A opens a link: a row with an address, not already the one we are on, and not a node sitting
+   in its bootloader - which has no session to offer however good the cable is. */
+bool mesh_ui_device_connectable(const struct mesh_ui_device *device);
+/* Y forgets a bond, so only a BLE row has one to forget; a USB port has nothing to bond. */
+bool mesh_ui_device_forgettable(const struct mesh_ui_device *device);
 
 bool mesh_ui_store_consume_updates(struct mesh_ui_store *store, struct mesh_ui_snapshot *snapshot);
 

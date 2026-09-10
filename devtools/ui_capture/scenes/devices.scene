@@ -14,6 +14,15 @@ scene demo
 tab devices
 hold 1200
 
+# The first row is the USB port, which is where the client puts it, and this one is a node in
+# its UF2 bootloader. It is the only refusal a USB row can carry: the cable is fine and the
+# board is healthy, but what is on the other end speaks no protobuf, so A will not open a link
+# and the row says why instead of the list quietly dropping it. Warning rather than error for
+# the same reason "needs pairing" is - there is something the user can do, and it is one press
+# of reset.
+key down
+hold 900
+
 # Down the list. The cursor's fill is the other pairing the capsule has to survive - a badge is
 # a stated family either way, so it does not restate itself under the cursor.
 key down
@@ -30,6 +39,7 @@ hold 900
 
 # The same list in every theme. The capsule's fill and its ink come from one call, so nothing
 # here is a pair anybody matched by eye.
+key up
 key up
 key up
 theme light

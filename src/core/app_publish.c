@@ -1415,6 +1415,7 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
         slot->rssi = 0;
         slot->in_range = true; /* a port that is enumerated is plugged in */
         slot->paired = true;   /* a cable has nothing to bond */
+        slot->bootloader = !mesh_serial_device_is_radio(&serial_devices[i]);
         slot->connected = (connected_address != NULL && connected_address[0] != '\0' &&
                            strcmp(connected_address, identifier) == 0);
         if (slot->connected) {

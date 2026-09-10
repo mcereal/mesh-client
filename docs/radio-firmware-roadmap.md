@@ -1013,14 +1013,26 @@ Phase 0 has now run the whole of it by hand on the device, so what this phase ow
 fixtures and the four ways it can go wrong — the refused suffix range, the moving member path,
 the empty local header and a central directory that does not fit the window.
 
-**Phase 2.5 — stop calling a bootloader a radio.** Small enough that it is barely a phase, and
-it is listed as one because it is a **bug today** rather than groundwork: double-tap any nRF52
+**Phase 2.5 — stop calling a bootloader a radio. Shipped.** Small enough that it is barely a
+phase, and it was listed as one because it was a **bug** rather than groundwork: double-tap any nRF52
 node with the client running and the frame says connected with the progress bar turning forever,
 because `mesh_serial_usb_scan()` matches the bootloader's CDC and auto-connect syncs against it.
 The fix is a role on the device info, read off the sibling interfaces —
 [§Knowing a bootloader when we see one](#knowing-a-bootloader-when-we-see-one) — and it is
 phase 3's "has it come back yet" written first and in the negative. Shipping it before phase 3
 means the detection is already proven when the phase that depends on it arrives.
+
+What it turned into: `enum mesh_serial_device_role` on `struct mesh_serial_device_info`, filled
+in by the same sysfs walk that already found the CDC control interface;
+`mesh_serial_transport_connect()` refusing a bootloader with `-ENOTSUP` before it binds
+anything; `mesh_app_autoconnect()` skipping one when it picks a port; an `in bootloader` badge
+in the Devices tab; and `MESHCLIENT_SYSFS_USB`, a test seam that lets the reading be checked
+against a fixture tree laid out as the Brick's sysfs was measured — the mock replaces the scan
+whole, so it can prove what the transport does with a role and nothing about how the role is
+decided. It also closed a rule the client was breaking either side of the new case: `A connect`
+and `Y forget` were unconditional on the Devices bar while the nav declined them on three kinds
+of row, so both now ask `mesh_ui_device_connectable()` / `mesh_ui_device_forgettable()` — one
+function for the bar and the press, as `mesh_ui_help_offered()` already is.
 
 **Phase 3 — the USB handover.** `enter_dfu_mode_request` down the serial link, wait for the
 bootloader to enumerate, unmount the ghost drive the platform will have mounted over

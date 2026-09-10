@@ -21,13 +21,30 @@
 #include <time.h>
 #include <unistd.h>
 
-#define MESH_SERIAL_SYSFS_USB "/sys/bus/usb/devices"
+#define MESH_SERIAL_SYSFS_USB_DEFAULT "/sys/bus/usb/devices"
 #define MESH_SERIAL_GENERIC_NEW_ID "/sys/bus/usb-serial/drivers/generic/new_id"
+
+/*
+ * Where the USB tree is read from. Overridable so that the one piece of judgement here - which
+ * of the three roles a device is - can be tested against a fixture tree laid out exactly as the
+ * Brick's sysfs was measured, rather than only through the mock, which replaces the scan whole
+ * and so tests everything about it except the reading. Nothing in the client sets this; it is a
+ * test seam and the default is the real path.
+ */
+static const char *sysfs_usb_root(void) {
+    const char *const from_env = getenv("MESHCLIENT_SYSFS_USB");
+    return (from_env != NULL && from_env[0] != '\0') ? from_env : MESH_SERIAL_SYSFS_USB_DEFAULT;
+}
 
 /* USB interface classes we care about. */
 #define MESH_USB_CLASS_COMM 0x02U
 #define MESH_USB_SUBCLASS_ACM 0x02U
 #define MESH_USB_CLASS_CDC_DATA 0x0AU
+/* Mass storage, SCSI transparent command set, Bulk-Only Transport - what every UF2 bootloader
+   presents beside its CDC pair, and what the kernel's usb-storage driver binds. */
+#define MESH_USB_CLASS_MASS_STORAGE 0x08U
+#define MESH_USB_SUBCLASS_SCSI 0x06U
+#define MESH_USB_PROTOCOL_BULK_ONLY 0x50U
 
 /*
  * The USBDEVFS request codes have the high bit set, and the two libcs disagree on the parameter:
@@ -204,16 +221,31 @@ static bool split_interface_name(const char *name, char *device_out, size_t devi
     return true;
 }
 
-/* bInterfaceNumber of the device's CDC control interface (class 02 subclass 02), or -1. */
-static int find_control_interface(const char *device_name) {
-    DIR *dir = opendir(MESH_SERIAL_SYSFS_USB);
+/*
+ * What the rest of a USB device looks like, read once for both of the questions the scan asks
+ * about siblings. It was two walks of the same directory - one for the control interface, one
+ * that would have been added for the drive - and two readings of one device is how they come to
+ * disagree about which device they were reading.
+ */
+struct mesh_serial_device_facts {
+    /* bInterfaceNumber of the CDC control interface (class 02 subclass 02), or -1 when this is
+       a UART bridge with nothing to set the line state on. */
+    int control_interface;
+    /* A mass-storage Bulk-Only interface sits on the same device: this is a UF2 bootloader. */
+    bool has_mass_storage;
+};
+
+static void read_device_facts(const char *device_name, struct mesh_serial_device_facts *out) {
+    out->control_interface = -1;
+    out->has_mass_storage = false;
+
+    DIR *dir = opendir(sysfs_usb_root());
     if (dir == NULL) {
-        return -1;
+        return;
     }
 
-    int control = -1;
     const struct dirent *entry = NULL;
-    while (control < 0 && (entry = readdir(dir)) != NULL) {
+    while ((entry = readdir(dir)) != NULL) {
         char owner[64];
         if (!split_interface_name(entry->d_name, owner, sizeof owner) ||
             strcmp(owner, device_name) != 0) {
@@ -221,26 +253,44 @@ static int find_control_interface(const char *device_name) {
         }
 
         char iface_dir[PATH_MAX];
-        if (snprintf(iface_dir, sizeof iface_dir, "%s/%s", MESH_SERIAL_SYSFS_USB, entry->d_name) >=
+        if (snprintf(iface_dir, sizeof iface_dir, "%s/%s", sysfs_usb_root(), entry->d_name) >=
             (int)sizeof iface_dir) {
             continue;
         }
 
         unsigned long iface_class = 0U;
         unsigned long iface_subclass = 0U;
-        unsigned long iface_number = 0U;
         if (read_sysfs_number(iface_dir, "bInterfaceClass", 16, &iface_class) < 0 ||
-            read_sysfs_number(iface_dir, "bInterfaceSubClass", 16, &iface_subclass) < 0 ||
-            read_sysfs_number(iface_dir, "bInterfaceNumber", 16, &iface_number) < 0) {
+            read_sysfs_number(iface_dir, "bInterfaceSubClass", 16, &iface_subclass) < 0) {
             continue;
         }
+
         if (iface_class == MESH_USB_CLASS_COMM && iface_subclass == MESH_USB_SUBCLASS_ACM) {
-            control = (int)iface_number;
+            unsigned long iface_number = 0U;
+            if (out->control_interface < 0 &&
+                read_sysfs_number(iface_dir, "bInterfaceNumber", 16, &iface_number) == 0) {
+                out->control_interface = (int)iface_number;
+            }
+            continue;
+        }
+
+        if (iface_class == MESH_USB_CLASS_MASS_STORAGE &&
+            iface_subclass == MESH_USB_SUBCLASS_SCSI) {
+            /* The protocol byte is checked rather than assumed: 0x50 is Bulk-Only, and the
+               older CBI transports are not something to mistake for a UF2 drive. */
+            unsigned long iface_protocol = 0U;
+            if (read_sysfs_number(iface_dir, "bInterfaceProtocol", 16, &iface_protocol) == 0 &&
+                iface_protocol == MESH_USB_PROTOCOL_BULK_ONLY) {
+                out->has_mass_storage = true;
+            }
         }
     }
 
     closedir(dir);
-    return control;
+}
+
+bool mesh_serial_device_is_radio(const struct mesh_serial_device_info *device) {
+    return device != NULL && device->role != MESH_SERIAL_ROLE_BOOTLOADER;
 }
 
 static size_t mock_scan(struct mesh_serial_device_info *out, size_t capacity) {
@@ -265,9 +315,9 @@ size_t mesh_serial_usb_scan(struct mesh_serial_device_info *out, size_t capacity
         return mock_scan(out, capacity);
     }
 
-    DIR *dir = opendir(MESH_SERIAL_SYSFS_USB);
+    DIR *dir = opendir(sysfs_usb_root());
     if (dir == NULL) {
-        mesh_log_debug("serial", "No USB sysfs at %s: %s", MESH_SERIAL_SYSFS_USB, strerror(errno));
+        mesh_log_debug("serial", "No USB sysfs at %s: %s", sysfs_usb_root(), strerror(errno));
         return 0U;
     }
 
@@ -281,9 +331,9 @@ size_t mesh_serial_usb_scan(struct mesh_serial_device_info *out, size_t capacity
 
         char iface_dir[PATH_MAX];
         char device_dir[PATH_MAX];
-        if (snprintf(iface_dir, sizeof iface_dir, "%s/%s", MESH_SERIAL_SYSFS_USB, entry->d_name) >=
+        if (snprintf(iface_dir, sizeof iface_dir, "%s/%s", sysfs_usb_root(), entry->d_name) >=
                 (int)sizeof iface_dir ||
-            snprintf(device_dir, sizeof device_dir, "%s/%s", MESH_SERIAL_SYSFS_USB, device_name) >=
+            snprintf(device_dir, sizeof device_dir, "%s/%s", sysfs_usb_root(), device_name) >=
                 (int)sizeof device_dir) {
             continue;
         }
@@ -300,13 +350,30 @@ size_t mesh_serial_usb_scan(struct mesh_serial_device_info *out, size_t capacity
             continue;
         }
 
+        struct mesh_serial_device_facts facts;
+        read_device_facts(device_name, &facts);
+
         struct mesh_serial_device_info *info = &out[count];
         memset(info, 0, sizeof *info);
         mesh_str_copy(info->id, sizeof info->id, entry->d_name);
         info->bound = find_interface_tty(iface_dir, info->path, sizeof info->path);
-        info->control_interface = find_control_interface(device_name);
+        info->control_interface = facts.control_interface;
         info->needs_line_state =
             info->control_interface >= 0 && (!has_driver || strcmp(driver, "cdc_acm") != 0);
+
+        /*
+         * The interface class is what separates the two kinds, not the driver: the generic
+         * usbserial driver binds a native node's CDC-Data interface as readily as cp210x binds
+         * a bridge's vendor-class one, so asking "which driver claimed it" would call a bound
+         * T114 a bridge. A drive only means anything on the native side, which is why the
+         * bootloader test sits inside this branch rather than beside it.
+         */
+        if (cdc_data) {
+            info->role =
+                facts.has_mass_storage ? MESH_SERIAL_ROLE_BOOTLOADER : MESH_SERIAL_ROLE_NODE;
+        } else {
+            info->role = MESH_SERIAL_ROLE_BRIDGE;
+        }
 
         unsigned long value = 0U;
         if (read_sysfs_number(device_dir, "idVendor", 16, &value) == 0) {
@@ -376,7 +443,7 @@ int mesh_serial_usb_bind(struct mesh_serial_device_info *device) {
                   device->product_id);
 
     char iface_dir[PATH_MAX];
-    if (snprintf(iface_dir, sizeof iface_dir, "%s/%s", MESH_SERIAL_SYSFS_USB, device->id) >=
+    if (snprintf(iface_dir, sizeof iface_dir, "%s/%s", sysfs_usb_root(), device->id) >=
         (int)sizeof iface_dir) {
         return -ENAMETOOLONG;
     }

@@ -1562,3 +1562,12 @@ mesh_ui_snapshot_connected_device(const struct mesh_ui_snapshot *snapshot) {
     }
     return NULL;
 }
+
+bool mesh_ui_device_connectable(const struct mesh_ui_device *device) {
+    return device != NULL && device->identifier[0] != '\0' && !device->connected &&
+           !device->bootloader;
+}
+
+bool mesh_ui_device_forgettable(const struct mesh_ui_device *device) {
+    return device != NULL && device->kind == (uint8_t)MESH_UI_DEVICE_BLE;
+}

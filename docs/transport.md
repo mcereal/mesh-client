@@ -152,6 +152,48 @@ Note the `MESH_IOCTL_REQUEST` shim: glibc's `ioctl` takes `unsigned long`, musl'
 and the USBDEVFS codes have the high bit set. The release build is musl and the dev container
 glibc, so both need narrowing.
 
+#### What is on the other end: `enum mesh_serial_device_role`
+
+The scan matches two structurally different things, and only one of them can ever be a
+bootloader:
+
+- **a UART bridge** — the V3's CP2102 is `10c4:ea60`, one vendor-class interface (`ff/00/00`)
+  that `cp210x` claims. The USB device is *the adapter*; the radio is behind a UART where USB
+  cannot see it, so the bridge says nothing about what is wired to it and can never itself be a
+  bootloader;
+- **a native-USB node** — the T114 is its own MCU (`239a:4405`, a CDC pair, no driver until we
+  bind one), which is what the workaround above exists for. Here the question is real.
+
+For the second kind the device answers structurally: an Adafruit UF2 bootloader presents a
+**mass-storage Bulk-Only interface (`08/06/50`) beside its CDC pair**, and that sibling is the
+whole tell. `read_device_facts()` reads it in the same walk that finds the CDC control
+interface — one reading of one device, because two walks are how two answers come to disagree
+about which device they were reading.
+
+**This is a bug fix before it is groundwork.** A bootloader presents the same CDC pair the
+firmware did, so without the role every step of a connect succeeds — the bind takes, the tty
+appears, DTR goes out — and the handshake is then asked of something that speaks no protobuf.
+Measured on 2026-09-10: double-tapping a T114's reset with the client running had it bind
+`239a:0071` itself, auto-connect, and request a config sync that nothing would ever answer,
+which draws as a connected radio with the progress bar turning forever.
+
+`mesh_serial_device_is_radio()` is the predicate; `mesh_serial_transport_connect()` refuses a
+bootloader with `-ENOTSUP` before it binds anything, and `mesh_app_autoconnect()` skips one when
+choosing a port so it does not attempt the same refusal on every retry. The Devices tab still
+lists it, carrying an `in bootloader` badge — a refusal is a row, not silence — and the action
+bar drops `A connect` there, because the bar and the press ask one function
+(`mesh_ui_device_connectable()`). Phase 3 of
+[`radio-firmware-roadmap.md`](radio-firmware-roadmap.md) reads the same role in the affirmative
+to answer "has the board come back yet".
+
+A note for the ESP32 half of that roadmap: a board behind a bridge chip has **no USB-side
+bootloader signal at all** — an ESP32 in ROM download mode leaves the CP2102 unchanged — so that
+question can only be answered over BLE.
+
+`MESHCLIENT_SYSFS_USB` overrides the sysfs root. Nothing in the client sets it; it exists so the
+role reading can be tested against a fixture tree laid out as the Brick's sysfs actually was,
+which the mock cannot do because it replaces the scan whole.
+
 #### Device findings (Brick, TinaLinux 4.9.191, 2026-09-04)
 
 - The USB-C port is a host port (`sunxi-ohci`) and enumerates a Heltec nRF52840 node
