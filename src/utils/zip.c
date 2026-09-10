@@ -104,10 +104,16 @@ const uint8_t *mesh_zip_central_slice(const struct mesh_zip_end *end, const uint
     return window + (size_t)into;
 }
 
-bool mesh_zip_find_member(const uint8_t *central, size_t len, uint32_t entries,
-                          const char *basename, struct mesh_zip_entry *out) {
-    if (central == NULL || basename == NULL || out == NULL || basename[0] == '\0') {
-        return false;
+enum mesh_zip_search mesh_zip_find_member(const uint8_t *central, size_t len, uint32_t entries,
+                                          const char *basename, struct mesh_zip_entry *out) {
+    if (central == NULL || out == NULL) {
+        return MESH_ZIP_MALFORMED;
+    }
+    /* An empty basename is a caller asking for nothing, not a broken archive - and it is the
+       one a directory marker would otherwise match. */
+    if (basename == NULL || basename[0] == '\0') {
+        memset(out, 0, sizeof *out);
+        return MESH_ZIP_ABSENT;
     }
     memset(out, 0, sizeof *out);
 
@@ -116,11 +122,11 @@ bool mesh_zip_find_member(const uint8_t *central, size_t len, uint32_t entries,
        either one can be the shorter truth. */
     for (uint32_t n = 0U; n < entries; ++n) {
         if (at > len || len - at < ZIP_CENTRAL_HEADER_SIZE) {
-            return false;
+            return MESH_ZIP_MALFORMED;
         }
         const uint8_t *const header = central + at;
         if (zip_u32(header) != ZIP_SIG_CENTRAL) {
-            return false;
+            return MESH_ZIP_MALFORMED;
         }
         const uint16_t name_len = zip_u16(header + 28U);
         const uint16_t extra_len = zip_u16(header + 30U);
@@ -128,7 +134,7 @@ bool mesh_zip_find_member(const uint8_t *central, size_t len, uint32_t entries,
         const size_t entry_size =
             ZIP_CENTRAL_HEADER_SIZE + (size_t)name_len + (size_t)extra_len + (size_t)comment_len;
         if (entry_size > len - at) {
-            return false;
+            return MESH_ZIP_MALFORMED;
         }
 
         /* A name that does not fit is skipped rather than truncated: a truncated name can
@@ -151,14 +157,15 @@ bool mesh_zip_find_member(const uint8_t *central, size_t len, uint32_t entries,
                 if (out->local_header_offset == (uint64_t)ZIP_U32_SENTINEL ||
                     out->compressed_size == ZIP_U32_SENTINEL ||
                     out->uncompressed_size == ZIP_U32_SENTINEL) {
-                    return false;
+                    return MESH_ZIP_MALFORMED;
                 }
-                return true;
+                return MESH_ZIP_FOUND;
             }
         }
         at += entry_size;
     }
-    return false;
+    /* The walk finished, every entry was a real one, and none of them was this. */
+    return MESH_ZIP_ABSENT;
 }
 
 bool mesh_zip_local_data_start(const uint8_t *header, size_t len,

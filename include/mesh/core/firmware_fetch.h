@@ -67,9 +67,14 @@ enum mesh_firmware_fetch_error {
     MESH_FIRMWARE_FETCH_ERROR_NO_TARGET,
     /* The `.mt.json` came back and names no image for this bus. */
     MESH_FIRMWARE_FETCH_ERROR_NO_IMAGE,
-    /* The manifest describes a board on a different architecture from the one the caller
-       resolved. Two documents disagreeing about what this board is, which is the moment to
-       stop rather than to pick a side. */
+    /*
+     * The archive's own manifest is for a different board, a different release, or - where the
+     * caller stated one - a different architecture. Two documents disagreeing about what this
+     * board is, which is the moment to stop rather than to pick a side. The board and release
+     * halves are checked whatever the caller passed, because the member was found by a
+     * basename that names both and a file disagreeing with its own name is the one way an
+     * image for the wrong nRF52840 board would pass every check after this.
+     */
     MESH_FIRMWARE_FETCH_ERROR_MISMATCH,
     /* A range read or the inflate failed; `download_error` says which. */
     MESH_FIRMWARE_FETCH_ERROR_DOWNLOAD,
@@ -126,6 +131,10 @@ struct mesh_firmware_fetch {
  * an inspection wants and what the install path must never do - the architecture is what
  * chooses the family the image is checked against, so with no expectation the guard checks the
  * image against itself.
+ *
+ * `target` and `version` are checked against the manifest whatever is passed here, because
+ * those two need nothing from the caller to be checkable: they are what the member's own name
+ * was built from.
  *
  * Returns 0, or -errno. On 0 `on_done` is called exactly once, later, from the loop.
  */

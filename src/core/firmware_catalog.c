@@ -394,6 +394,15 @@ bool mesh_firmware_manifest_parse(const char *json_text, size_t len,
     return true;
 }
 
+bool mesh_firmware_manifest_describes(const struct mesh_firmware_manifest *manifest,
+                                      const char *target, const char *version) {
+    if (manifest == NULL || target == NULL || version == NULL || target[0] == '\0' ||
+        version[0] == '\0') {
+        return false;
+    }
+    return strcmp(manifest->target, target) == 0 && strcmp(manifest->version, version) == 0;
+}
+
 /* True when `name` ends in `suffix`. The UF2 selector, and the reason it is a suffix test
    rather than a `part_name` one is that an nRF52 manifest carries no `part_name` at all. */
 static bool catalog_name_ends_with(const char *name, const char *suffix) {

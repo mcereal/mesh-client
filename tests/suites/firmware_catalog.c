@@ -385,3 +385,52 @@ MESH_TEST_CASE(firmware_catalog_names_the_platform_that_names_the_zip, unit) {
     free(document);
     record_success(test_name);
 }
+
+/*
+ * A manifest has to agree with its own file name, and the case that matters is two boards that
+ * differ in nothing else.
+ *
+ * The T114 and the RAK4631 are both nRF52840, so they share an architecture, share a UF2
+ * family, and each publishes an intact image with a CRC that checks. If a release archive ever
+ * carried one board's manifest under the other's name, every guard after this one would pass -
+ * and the radio would be flashed with firmware for a different board. This is where that stops,
+ * and it needs nothing from the caller: the name the member was found by carries both halves.
+ */
+MESH_TEST_CASE(firmware_catalog_manifest_must_agree_with_its_own_name, unit) {
+    size_t len = 0U;
+    char *const document = mesh_test_data_read("t114_2.7.26.mt.json", &len);
+    MESH_TEST_FAIL_IF(document == NULL, "the T114's manifest should be readable");
+
+    struct mesh_firmware_manifest manifest;
+    const bool parsed = mesh_firmware_manifest_parse(document, len, &manifest);
+    free(document);
+    MESH_TEST_FAIL_IF(!parsed, "it should parse");
+
+    MESH_TEST_FAIL_IF(
+        !mesh_firmware_manifest_describes(&manifest, "heltec-mesh-node-t114", "2.7.26.54e0d8d"),
+        "the real manifest describes the board and release its name says");
+
+    /* Another nRF52840 board: the one this guard exists for. */
+    MESH_TEST_FAIL_IF(mesh_firmware_manifest_describes(&manifest, "rak4631", "2.7.26.54e0d8d"),
+                      "and not a different board on the same architecture");
+    /* The right board, the wrong release - which is what a stale or mixed archive looks like. */
+    MESH_TEST_FAIL_IF(
+        mesh_firmware_manifest_describes(&manifest, "heltec-mesh-node-t114", "2.8.0.47db0e3"),
+        "nor a different release of the right board");
+    /* A prefix is not a match: `heltec-mesh-node-t114` and `heltec-mesh-node-t114-inkhud` are
+       two targets upstream really ships. */
+    MESH_TEST_FAIL_IF(mesh_firmware_manifest_describes(&manifest, "heltec-mesh-node-t114-inkhud",
+                                                       "2.7.26.54e0d8d"),
+                      "and a longer target that starts the same way is a different board");
+
+    /* An argument that says nothing is a caller that does not know what it asked for, which
+       cannot be satisfied - never a wildcard. */
+    MESH_TEST_FAIL_IF(mesh_firmware_manifest_describes(&manifest, "", "2.7.26.54e0d8d"),
+                      "an empty target matches nothing");
+    MESH_TEST_FAIL_IF(mesh_firmware_manifest_describes(&manifest, "heltec-mesh-node-t114", ""),
+                      "and neither does an empty version");
+    MESH_TEST_FAIL_IF(
+        mesh_firmware_manifest_describes(NULL, "heltec-mesh-node-t114", "2.7.26.54e0d8d"),
+        "nor does no manifest at all");
+    record_success(test_name);
+}

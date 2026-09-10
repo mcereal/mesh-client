@@ -75,10 +75,10 @@ MESH_TEST_CASE(zip_reads_a_release_tail, unit) {
                               "the directory fits inside the tail window");
 
     struct mesh_zip_entry entry;
-    const bool member =
+    const enum mesh_zip_search member =
         mesh_zip_find_member(central, end.central_size, end.entries,
                              "firmware-heltec-mesh-node-t114-2.7.26.54e0d8d.uf2", &entry);
-    MESH_TEST_FAIL_IF_CLEANUP(!member, zip_close(&zip),
+    MESH_TEST_FAIL_IF_CLEANUP(member != MESH_ZIP_FOUND, zip_close(&zip),
                               "the T114's image should be in the directory");
     MESH_TEST_FAIL_IF_CLEANUP(entry.compressed_size != 517956U ||
                                   entry.uncompressed_size != 1467392U,
@@ -119,10 +119,10 @@ MESH_TEST_CASE(zip_reads_a_prefixed_member, unit) {
                               "a bigger directory still fits the window");
 
     struct mesh_zip_entry entry;
-    const bool member =
+    const enum mesh_zip_search member =
         mesh_zip_find_member(central, end.central_size, end.entries,
                              "firmware-heltec-mesh-node-t114-2.8.0.47db0e3.uf2", &entry);
-    MESH_TEST_FAIL_IF_CLEANUP(!member, zip_close(&zip),
+    MESH_TEST_FAIL_IF_CLEANUP(member != MESH_ZIP_FOUND, zip_close(&zip),
                               "the basename should find it under its new prefix");
     MESH_TEST_FAIL_IF_CLEANUP(
         strcmp(entry.name, "nrf52840/firmware-heltec-mesh-node-t114-2.8.0.47db0e3.uf2") != 0,
@@ -156,15 +156,18 @@ MESH_TEST_CASE(zip_never_matches_a_directory_marker, unit) {
                               "the directory should be in the window");
 
     struct mesh_zip_entry entry;
+    /* ABSENT rather than merely "not found": a directory that walked cleanly and had no such
+       member is a fact about the release, and it must not read as a broken archive. */
     MESH_TEST_FAIL_IF_CLEANUP(
-        mesh_zip_find_member(central, end.central_size, end.entries, "", &entry), zip_close(&zip),
-        "an empty basename matches nothing");
-    MESH_TEST_FAIL_IF_CLEANUP(
-        mesh_zip_find_member(central, end.central_size, end.entries, "nrf52840/", &entry),
-        zip_close(&zip), "and neither does the directory's own stored name");
+        mesh_zip_find_member(central, end.central_size, end.entries, "", &entry) != MESH_ZIP_ABSENT,
+        zip_close(&zip), "an empty basename matches nothing");
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_zip_find_member(central, end.central_size, end.entries,
+                                                   "nrf52840/", &entry) != MESH_ZIP_ABSENT,
+                              zip_close(&zip), "and neither does the directory's own stored name");
     MESH_TEST_FAIL_IF_CLEANUP(
         mesh_zip_find_member(central, end.central_size, end.entries,
-                             "firmware-heltec-mesh-node-t114-2.7.26.54e0d8d.uf2", &entry),
+                             "firmware-heltec-mesh-node-t114-2.7.26.54e0d8d.uf2",
+                             &entry) != MESH_ZIP_ABSENT,
         zip_close(&zip), "nor does the previous release's file name");
     zip_close(&zip);
     record_success(test_name);
@@ -270,6 +273,62 @@ MESH_TEST_CASE(zip_finds_the_record_and_not_a_coincidence, unit) {
     MESH_TEST_FAIL_IF_CLEANUP(mesh_zip_find_end(zip.window, 8U, zip.offset, &nothing),
                               zip_close(&zip),
                               "and a window too short to hold a record finds none");
+    zip_close(&zip);
+    record_success(test_name);
+}
+
+/*
+ * A directory that stops being one is not the same answer as a release that has no such file.
+ *
+ * They arrive looking identical - the walk ends without a match - and collapsing them tells
+ * somebody with a truncated download that upstream has dropped their board, which is both
+ * wrong and unretryable. The two mutations below are the two shapes it really comes in: a
+ * directory cut short by a range read that returned less than it promised, and one whose bytes
+ * stopped being headers partway through.
+ */
+MESH_TEST_CASE(zip_tells_a_broken_directory_from_a_missing_member, unit) {
+    struct zip_fixture zip;
+    MESH_TEST_FAIL_IF(!zip_open("zip_tail_nrf52840_2.7.26.bin", ZIP_SIZE_2_7_26, &zip),
+                      "the 2.7.26 tail window should be readable");
+    struct mesh_zip_end end;
+    MESH_TEST_FAIL_IF_CLEANUP(!mesh_zip_find_end(zip.window, zip.len, zip.offset, &end),
+                              zip_close(&zip), "the record should be found");
+    const uint8_t *const central = mesh_zip_central_slice(&end, zip.window, zip.len, zip.offset);
+    MESH_TEST_FAIL_IF_CLEANUP(central == NULL, zip_close(&zip),
+                              "the directory should be in the window");
+
+    struct mesh_zip_entry entry;
+    /* The whole directory, a name that is not in it: the release simply has no such file. */
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_zip_find_member(central, end.central_size, end.entries,
+                             "firmware-heltec-v3-2.7.26.54e0d8d.bin", &entry) != MESH_ZIP_ABSENT,
+        zip_close(&zip), "an ESP32 image is not in the nrf52840 zip, and that is absence");
+
+    /* The same directory cut in half, still claiming 139 entries - which is what a range read
+       that came back short leaves behind. The walk runs out of bytes mid-entry. */
+    MESH_TEST_FAIL_IF_CLEANUP(
+        mesh_zip_find_member(central, end.central_size / 2U, end.entries,
+                             "firmware-heltec-mesh-node-t114-2.7.26.54e0d8d.uf2",
+                             &entry) != MESH_ZIP_MALFORMED,
+        zip_close(&zip), "a directory cut short is malformed, not a missing file");
+
+    /* And one whose bytes stop being headers. The first entry is real, the second is not. */
+    uint8_t *const broken = malloc(end.central_size);
+    MESH_TEST_FAIL_IF_CLEANUP(broken == NULL, zip_close(&zip), "out of memory");
+    memcpy(broken, central, end.central_size);
+    {
+        /* Step over the first entry the way the walk does, then break the next signature. */
+        const size_t first = 46U + (size_t)(broken[28] | (broken[29] << 8)) +
+                             (size_t)(broken[30] | (broken[31] << 8)) +
+                             (size_t)(broken[32] | (broken[33] << 8));
+        broken[first] ^= 0xFFU;
+        const enum mesh_zip_search search =
+            mesh_zip_find_member(broken, end.central_size, end.entries,
+                                 "firmware-heltec-mesh-node-t114-2.7.26.54e0d8d.uf2", &entry);
+        free(broken);
+        MESH_TEST_FAIL_IF_CLEANUP(search != MESH_ZIP_MALFORMED, zip_close(&zip),
+                                  "a header that lost its signature is malformed too");
+    }
     zip_close(&zip);
     record_success(test_name);
 }

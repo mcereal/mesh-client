@@ -119,6 +119,25 @@ const uint8_t *mesh_zip_central_slice(const struct mesh_zip_end *end, const uint
                                       size_t len, uint64_t window_offset);
 
 /*
+ * How a search of the central directory ended.
+ *
+ * ABSENT and MALFORMED are told apart because they are opposite answers wearing the same
+ * clothes. "This release does not build that file" is a fact about upstream and there is
+ * nothing to retry; "the bytes stopped being a directory" is a fact about the transfer and
+ * retrying is exactly right. Collapsed into one boolean - which is how this was first written -
+ * a truncated archive tells somebody their board is no longer supported.
+ */
+enum mesh_zip_search {
+    MESH_ZIP_FOUND = 0,
+    /* The walk completed and no entry had that basename. */
+    MESH_ZIP_ABSENT,
+    /* It stopped being a central directory before the walk finished: a header with no
+       signature, an entry running past the bytes we hold, or a zip64 sentinel where an offset
+       or a size should be. */
+    MESH_ZIP_MALFORMED,
+};
+
+/*
  * Finds the member whose **basename** is `basename`.
  *
  * Basename rather than whole path because the path in front of it is not stable across
@@ -126,11 +145,9 @@ const uint8_t *mesh_zip_central_slice(const struct mesh_zip_end *end, const uint
  * `nrf52840/` in the 2.8.0 one, so a reader matching the full path finds the file in the
  * release it was written against and nothing in the next. An entry whose stored name ends in
  * '/' is a directory marker with an empty basename and never matches.
- *
- * False when no entry matched or the directory did not walk.
  */
-bool mesh_zip_find_member(const uint8_t *central, size_t len, uint32_t entries,
-                          const char *basename, struct mesh_zip_entry *out);
+enum mesh_zip_search mesh_zip_find_member(const uint8_t *central, size_t len, uint32_t entries,
+                                          const char *basename, struct mesh_zip_entry *out);
 
 /*
  * Where `entry`'s compressed bytes begin, given the fixed part of its local header.

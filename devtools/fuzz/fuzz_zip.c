@@ -60,12 +60,21 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
             (void)touch;
 
             struct mesh_zip_entry entry;
-            /* Two names: one that the input can be made to contain, and one that no directory
-               walk should ever match, so both sides of the search are explored. */
-            static const char *const k_wanted[] = {"firmware.uf2", ""};
+            /*
+             * An empty basename is a caller asking for nothing. It has to come back ABSENT
+             * however mangled the directory is - never FOUND, which would be a directory
+             * marker matching, and never MALFORMED, which would send a caller retrying a
+             * download over a question it asked wrong.
+             */
+            if (mesh_zip_find_member(central, end.central_size, end.entries, "", &entry) !=
+                MESH_ZIP_ABSENT) {
+                fuzz_broke("an empty basename is neither found nor malformed");
+            }
+            /* And one name the input can be made to contain, so a real search is explored. */
+            static const char *const k_wanted[] = {"firmware.uf2"};
             for (size_t i = 0; i < sizeof k_wanted / sizeof k_wanted[0]; ++i) {
-                if (!mesh_zip_find_member(central, end.central_size, end.entries, k_wanted[i],
-                                          &entry)) {
+                if (mesh_zip_find_member(central, end.central_size, end.entries, k_wanted[i],
+                                         &entry) != MESH_ZIP_FOUND) {
                     continue;
                 }
                 if (memchr(entry.name, '\0', sizeof entry.name) == NULL) {

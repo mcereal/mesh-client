@@ -139,9 +139,29 @@ static void fetch_read_manifest(struct mesh_firmware_fetch *fetch) {
         return;
     }
     /*
-     * The cross-check. Two documents describing one board, and a disagreement means the target
-     * resolved to something whose manifest is about a different chip - at which point picking
-     * a side is picking which way to be wrong.
+     * The manifest has to be about the board and the release we asked for.
+     *
+     * This is checked *first* and unconditionally, and both of those matter. The member was
+     * found by the basename `firmware-<target>-<version>.mt.json`, so a mismatch here means an
+     * archive whose file says one thing on the outside and another on the inside - and what it
+     * would cost is the failure this whole feature is built around not having: two nRF52840
+     * boards share an architecture, share a UF2 family, and would sail through every check
+     * after this one. The size and the CRC would agree too, because they would be that other
+     * board's image and it really is intact.
+     *
+     * Unconditional because it needs nothing from the caller. The architecture check below can
+     * only fire when somebody supplied an expectation, which the inspection path deliberately
+     * does not - so without this, `--fetch-firmware` had no cross-check at all.
+     */
+    if (!mesh_firmware_manifest_describes(&fetch->manifest, fetch->target, fetch->version)) {
+        fetch_fail(fetch, MESH_FIRMWARE_FETCH_ERROR_MISMATCH,
+                   "the manifest in this archive is for a different board or release");
+        return;
+    }
+    /*
+     * And the architecture, where the caller stated one. Two documents describing one board,
+     * and a disagreement means the target resolved to something whose manifest is about a
+     * different chip - at which point picking a side is picking which way to be wrong.
      */
     if (fetch->expect_architecture[0] != '\0' &&
         strcmp(fetch->expect_architecture, fetch->manifest.architecture) != 0) {

@@ -264,10 +264,20 @@ static void download_read_directory(struct mesh_firmware_download *download, con
         }
     }
 
-    const bool found =
+    const enum mesh_zip_search search =
         mesh_zip_find_member(central, central_size, entries, download->member, &download->entry);
     free(window);
-    if (!found) {
+    if (search == MESH_ZIP_MALFORMED) {
+        /*
+         * Deliberately not NO_MEMBER. The walk stopped being a walk, which says nothing about
+         * whether the file we want is in there - and NO_MEMBER is the row that tells somebody
+         * upstream no longer builds for their board, which is a sentence about a different
+         * thing and one they cannot retry their way out of.
+         */
+        download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_NOT_A_ZIP);
+        return;
+    }
+    if (search != MESH_ZIP_FOUND) {
         download_fail(download, MESH_FIRMWARE_DOWNLOAD_ERROR_NO_MEMBER);
         return;
     }

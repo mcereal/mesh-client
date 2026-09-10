@@ -76,8 +76,13 @@ enum mesh_firmware_download_error {
     MESH_FIRMWARE_DOWNLOAD_ERROR_NETWORK,
     /* The staging directory could not be written to, or a staged file could not be read back. */
     MESH_FIRMWARE_DOWNLOAD_ERROR_STAGING,
-    /* What came back is not a zip: no end-of-central-directory record, or a directory that did
-       not walk. Also what a captive portal's login page looks like from here. */
+    /*
+     * What came back is not a zip: no end-of-central-directory record, or a directory that
+     * stopped being one partway through the walk. Also what a captive portal's login page
+     * looks like from here, and what a truncated directory looks like on the second pass.
+     * Distinct from NO_MEMBER on purpose - one is a fact about the archive and the other is a
+     * fact about the release, and only one of them is worth retrying.
+     */
     MESH_FIRMWARE_DOWNLOAD_ERROR_NOT_A_ZIP,
     /* The zip is fine and does not contain that file. This release does not build for this
        board - a real answer, and not the same row as any of the above. */

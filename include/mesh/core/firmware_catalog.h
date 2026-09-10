@@ -181,6 +181,22 @@ struct mesh_firmware_manifest {
 bool mesh_firmware_manifest_parse(const char *json, size_t len, struct mesh_firmware_manifest *out);
 
 /*
+ * True when `manifest` is about that board and that release.
+ *
+ * The question a caller has to ask before it believes a manifest it pulled out of an archive.
+ * A member is found by the basename `firmware-<target>-<version>.mt.json`, so this is asking
+ * whether the file agrees with its own name - and a mispackaged archive where it does not is
+ * the one way an image for the *wrong* board passes everything downstream: two nRF52840
+ * targets share an architecture, share a UF2 family, and would carry a size and a CRC that
+ * match perfectly, because that other image really is intact.
+ *
+ * Both halves are required. A NULL or empty argument is not a wildcard - it is a caller that
+ * does not know what it asked for, which cannot be satisfied and answers false.
+ */
+bool mesh_firmware_manifest_describes(const struct mesh_firmware_manifest *manifest,
+                                      const char *target, const char *version);
+
+/*
  * The one file in `manifest` that is the image for `path`, or NULL.
  *
  * **One question per path, rather than one predicate that tries to be both.** The USB path
