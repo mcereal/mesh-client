@@ -103,6 +103,11 @@ COMMAND="${COMMAND:-push}"
 TARGET="${BRICK_USER}@${BRICK_HOST}"
 REMOTE_TOOLS="${BRICK_SDCARD}/Tools/${BRICK_PLATFORM}"
 REMOTE_PAK="${REMOTE_TOOLS}/${PAK_NAME}.pak"
+# Where a push is assembled before it becomes the pak. Dot-prefixed and *not* ending in .pak,
+# because Tools/<platform>/ is a directory the launcher globs: a transfer that dies mid-tar
+# leaves this behind, and named "MeshClient.pak.new" it shows up in the launcher as a second,
+# broken tool until the next deploy cleans it up.
+REMOTE_STAGE="${REMOTE_TOOLS}/.${PAK_NAME}.pak.new"
 REMOTE_LOG="${BRICK_SDCARD}/.userdata/${BRICK_PLATFORM}/logs/${PAK_NAME}.txt"
 
 # shellcheck disable=SC2206
@@ -155,16 +160,17 @@ cmd_push() {
     echo "Pushing ${LOCAL_PAK} -> ${TARGET}:${REMOTE_PAK}"
     echo "  meshclient sha256 ${local_sum}"
 
-    # Stage into MeshClient.pak.new, then swap, so a half-finished transfer never
-    # leaves a broken pak in Tools/ that NextUI would try to launch.
+    # Stage beside the pak, then swap, so a half-finished transfer never leaves a broken pak
+    # in Tools/ that NextUI would try to launch. The old staging name is cleaned up too:
+    # it *did* end in .pak, so a Brick that saw a failed deploy before this fix has one.
     local remote_script
     remote_script="set -e
 mkdir -p $(sq "${REMOTE_TOOLS}")
-rm -rf $(sq "${REMOTE_PAK}.new")
-mkdir $(sq "${REMOTE_PAK}.new")
-tar -C $(sq "${REMOTE_PAK}.new") -xf -
+rm -rf $(sq "${REMOTE_STAGE}") $(sq "${REMOTE_PAK}.new")
+mkdir $(sq "${REMOTE_STAGE}")
+tar -C $(sq "${REMOTE_STAGE}") -xf -
 rm -rf $(sq "${REMOTE_PAK}")
-mv $(sq "${REMOTE_PAK}.new") $(sq "${REMOTE_PAK}")
+mv $(sq "${REMOTE_STAGE}") $(sq "${REMOTE_PAK}")
 chmod +x $(sq "${REMOTE_PAK}/launch.sh") $(sq "${REMOTE_PAK}/bin/shared/meshclient")
 sync
 sha256sum $(sq "${REMOTE_PAK}/bin/shared/meshclient") 2>/dev/null | cut -d' ' -f1"
