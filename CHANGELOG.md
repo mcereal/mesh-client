@@ -1,3 +1,10 @@
+## [2.54.1](https://github.com/mcereal/mesh-client/compare/v2.54.0...v2.54.1) (2026-09-10)
+
+### Bug Fixes
+
+* **firmware:** hold the drive, and read a write that ended as a restart ([6713140](https://github.com/mcereal/mesh-client/commit/6713140776dc8466bf8977967019b5f59d410a6d))
+* **firmware:** open the drive without testing it first ([2029852](https://github.com/mcereal/mesh-client/commit/20298525df37da9090dea502dc3e59d3206f9f1b))
+
 ## [2.54.0](https://github.com/mcereal/mesh-client/compare/v2.53.0...v2.54.0) (2026-09-10)
 
 ### Features
