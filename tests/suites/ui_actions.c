@@ -340,3 +340,46 @@ MESH_TEST_CASE(actions_no_snapshot_is_an_empty_bar, unit) {
     mesh_ui_actions_for(NULL, NULL); /* must not crash */
     record_success(test_name);
 }
+
+/*
+ * The chart's bar, which is the shortest on any screen outside a dialog.
+ *
+ * What is checked is mostly what is *absent*: a chart has no cursor and nothing to pan, so a
+ * d-pad entry here would be the one thing this table exists to prevent - a keycap that does
+ * nothing. And A is absent for the same reason, which is the half that matters: the cards
+ * underneath do offer A, and a bar that went on naming their verb over the picture would be
+ * telling the reader to press a button whose effect they cannot see.
+ */
+MESH_TEST_CASE(actions_the_chart_offers_only_the_way_out, unit) {
+    struct mesh_ui_snapshot snapshot;
+    memset(&snapshot, 0, sizeof snapshot);
+    snapshot.nav.screen = MESH_UI_SCREEN_STATUS;
+    snapshot.nav.trend_open = true;
+    snapshot.handshake_valid = true;
+
+    struct mesh_ui_action_bar bar;
+    mesh_ui_actions_for(&snapshot, &bar);
+
+    bool has_back = false;
+    for (size_t i = 0; i < bar.count; ++i) {
+        MESH_TEST_FAIL_IF(bar.items[i].button == MESH_UI_BUTTON_A, "a chart has nothing to open");
+        MESH_TEST_FAIL_IF(bar.items[i].button == MESH_UI_BUTTON_UP_DOWN,
+                          "a chart has no cursor to move");
+        has_back = has_back || bar.items[i].label == MESH_STR_ACTION_BACK;
+    }
+    MESH_TEST_FAIL_IF(!has_back, "a chart must say how to leave it");
+    MESH_TEST_FAIL_IF(!mesh_ui_action_bar_goes_back(&bar),
+                      "the top app bar's arrow is derived from the same table");
+
+    /* And the flag alone is not enough: it outlives a change of tab, so a bar that read it
+       without the screen would draw the chart's three keycaps over the Nodes list. */
+    snapshot.nav.screen = MESH_UI_SCREEN_NODES;
+    mesh_ui_actions_for(&snapshot, &bar);
+    bool names_a_node_press = false;
+    for (size_t i = 0; i < bar.count; ++i) {
+        names_a_node_press = names_a_node_press || bar.items[i].button == MESH_UI_BUTTON_A;
+    }
+    MESH_TEST_FAIL_IF(!names_a_node_press,
+                      "a chart open on another tab must not silence this one's presses");
+    record_success(test_name);
+}

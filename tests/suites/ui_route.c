@@ -329,3 +329,45 @@ cleanup:
     MESH_TEST_FAIL_IF(failure != NULL, failure);
     record_success(test_name);
 }
+
+/*
+ * The Status tab has a level too, and it is a picture rather than a list.
+ *
+ * The tab that had nothing to open is the case a depth table is most likely to be missed from -
+ * "Status is flat" was true for the whole life of this file - and getting it wrong is invisible
+ * in a screenshot: the chart would arrive without a slide and without the back arrow the trail
+ * of the frame derives from the same answer.
+ */
+MESH_TEST_CASE(ui_route_the_chart_is_a_level_of_the_status_tab, unit) {
+    struct mesh_ui_nav nav;
+    memset(&nav, 0, sizeof nav);
+    nav.screen = MESH_UI_SCREEN_STATUS;
+
+    struct mesh_ui_route cards;
+    mesh_ui_route_of(&nav, &cards);
+    MESH_TEST_FAIL_IF(cards.depth != 0U || cards.level != MESH_UI_ROUTE_LIST,
+                      "the cards are the tab's own level");
+
+    nav.trend_open = true;
+    struct mesh_ui_route chart;
+    mesh_ui_route_of(&nav, &chart);
+    MESH_TEST_FAIL_IF(chart.depth != 1U || chart.level != MESH_UI_ROUTE_TREND,
+                      "the chart is one level in");
+    MESH_TEST_FAIL_IF(mesh_ui_route_move(&cards, &chart) != MESH_UI_TRANSITION_FORWARD,
+                      "opening the chart should slide forward");
+    MESH_TEST_FAIL_IF(mesh_ui_route_move(&chart, &cards) != MESH_UI_TRANSITION_BACK,
+                      "leaving it should slide back");
+
+    /*
+     * And the cursor is still not part of it. The Status cursor is an index into the card verbs,
+     * so a route that carried it would call moving between two buttons a change of place - and
+     * would restart the slide under the reader's thumb on every press of Down.
+     */
+    nav.trend_open = false;
+    nav.cursor[MESH_UI_SCREEN_STATUS] = 2U;
+    struct mesh_ui_route moved;
+    mesh_ui_route_of(&nav, &moved);
+    MESH_TEST_FAIL_IF(!mesh_ui_route_same(&cards, &moved),
+                      "walking the verbs is not a change of place");
+    record_success(test_name);
+}

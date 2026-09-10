@@ -43,13 +43,20 @@ enum mesh_ui_status_card {
 /*
  * The verbs.
  *
- * Both are presses that already exist elsewhere, which is deliberate: this step gives a card
- * somewhere to put a verb, and a verb invented for the occasion would have been arguing two
- * things at once. Disconnect is X on the Devices tab and Refresh is X on Settings.
+ * The first two are presses that already exist elsewhere, which was deliberate: the step that
+ * gave a card somewhere to put a verb would have been arguing two things at once if it had also
+ * invented one. Disconnect is X on the Devices tab and Refresh is X on Settings.
+ *
+ * Trend is the first that exists nowhere else, and it is a verb rather than a row because the
+ * Status screen has no rows to press: the cursor here walks card buttons, so "open the airtime
+ * readings as a chart" had nowhere else to be. It is also the only one that is not a request
+ * over the air - what it opens is what this client has already watched - and it is still gated
+ * on the link for the ordering reason mesh_ui_status_actions() gives.
  */
 enum mesh_ui_status_verb {
     MESH_UI_STATUS_VERB_DISCONNECT = 0, /* drop the link that is up */
     MESH_UI_STATUS_VERB_REFRESH,        /* re-read the radio's configuration */
+    MESH_UI_STATUS_VERB_TREND,          /* open the airtime history as a chart */
     MESH_UI_STATUS_VERB_COUNT,
 };
 
@@ -71,15 +78,19 @@ struct mesh_ui_status_actions {
 /*
  * The verbs on offer, in the order the cursor walks them.
  *
- * `connected` is whether a radio is attached and `synced` whether it has answered the config
- * handshake. Both are facts the store and the snapshot each hold under the same names, which is
- * why they arrive as booleans rather than as one of the two structs: this is called from nav.c
- * with a store, from actions.c with a snapshot, and from the renderer with a snapshot.
+ * `connected` is whether a radio is attached, `synced` whether it has answered the config
+ * handshake, and `has_trend` whether there are two airtime readings to draw a line between.
+ * All three are facts the store and the snapshot each hold under the same names, which is why
+ * they arrive as booleans rather than as one of the two structs: this is called from nav.c with
+ * a store, from actions.c with a snapshot, and from the renderer with a snapshot.
  *
- * With no radio attached the answer is nothing at all: every verb here is a request over the
- * air, and the list is append-only precisely because both of them turn on the same fact.
+ * With no radio attached the answer is nothing at all. Two of the three verbs are requests over
+ * the air and have no meaning without one; the third does - a trend is what this client watched,
+ * and it survives the link dropping - and is gated anyway, because what keeps the list
+ * append-only is that every entry on it turns on the entries before it.
  */
-void mesh_ui_status_actions(struct mesh_ui_status_actions *out, bool connected, bool synced);
+void mesh_ui_status_actions(struct mesh_ui_status_actions *out, bool connected, bool synced,
+                            bool has_trend);
 
 /*
  * The verbs `card` holds: how many, and where the first of them sits in the flat list.

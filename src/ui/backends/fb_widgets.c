@@ -2525,14 +2525,21 @@ void fb_card_meter(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_i
 
 void fb_card_spark(struct fb_card *card, enum mesh_ui_tone tone, enum mesh_str_id label,
                    const struct mesh_ui_series *series, struct mesh_ui_scale scale) {
-    struct mesh_ui_polyline points;
-    mesh_ui_series_project(series, scale, &points);
-    /* No row at all rather than an empty one, and the test is here rather than at the call site
-       so that every card asking for a trend answers it the same way. A box with one reading in
-       it is a level; a box with none says the radio has gone quiet, which it has not. */
-    if (points.count < 2U) {
+    /*
+     * No row at all rather than an empty one, and the test is here rather than at the call site
+     * so that every card asking for a trend answers it the same way. A box with one reading in
+     * it is a level; a box with none says the radio has gone quiet, which it has not.
+     *
+     * A drawable segment rather than a sample count, which is not the same test: every sample
+     * that follows a silence the series calls a break starts a line rather than continuing one,
+     * so two reports either side of a link that was down draw no stroke at all. Counted instead,
+     * this row spends two of the most crowded card's rows on a floor and a dot.
+     */
+    if (!mesh_ui_series_has_segment(series)) {
         return;
     }
+    struct mesh_ui_polyline points;
+    mesh_ui_series_project(series, scale, &points);
     struct fb_card_row *row = fb_card_next_row(card, FB_CARD_ROW_SPARK, tone);
     if (row == NULL) {
         return;
@@ -4129,6 +4136,240 @@ void fb_draw_proportion(const struct mesh_ui_backend_fb_state *state,
             fb_fill_rect(state, x, r.y, w, r.h, ground);
         }
     }
+}
+
+/* ---- the chart ------------------------------------------------------------------------------ */
+
+/* The two lines of chrome under the plot: what the horizontal covers, then what the lines are.
+   Both are the axis - a picture whose axes are unnamed is the sparkline, which is a different
+   component with a different job. */
+#define FB_CHART_FOOTER_LINES 2
+
+/*
+ * How thick a line on a chart is, which is deliberately not the sparkline's stroke.
+ *
+ * A series colour promises 1.4:1 against the grounds and against the other series, and that is a
+ * *fill's* contract - it was measured on a bar several pixels tall, and it is the reason
+ * MESH_UI_SERIES_COLORS may never be used as an ink. A stroke half the glyph scale wide is not a
+ * fill; at the contrast the palette guarantees, a hairline in one of these colours is a line the
+ * reader has to hunt for on the very theme that exists so nobody has to.
+ *
+ * So a chart's lines are drawn at least twice as thick as a row's, which is what a chart has the
+ * room for and what makes the colour the palette was validated for the colour that is actually
+ * on the panel.
+ */
+static int fb_chart_stroke(int scale) {
+    const int stroke = scale > 0 ? scale : 1;
+    return stroke > 2 ? stroke : 2;
+}
+
+/* The hairline the axis and the threshold rules are drawn at: a mark rather than a reading, so
+   it is as thin as this panel can draw and still be seen. */
+static int fb_chart_rule(int scale) {
+    const int rule = (scale > 0 ? scale : 1) / 2;
+    return rule > 1 ? rule : 1;
+}
+
+int fb_chart_min_height(const struct mesh_ui_backend_fb_state *state,
+                        const struct fb_layout *layout) {
+    (void)state;
+    /* The chrome, and a plot at least as tall again as the chrome under it. Below that the
+       picture is shorter than its own caption, which reads as a rendering fault rather than as a
+       small chart. */
+    return layout->line * (FB_CHART_FOOTER_LINES * 2);
+}
+
+/*
+ * One threshold, drawn across the plot as a broken rule.
+ *
+ * Broken rather than solid, and that is the whole of what tells it from the axis and from the
+ * data: a chart with three solid horizontals on it has three things that look like readings. The
+ * meter answers the same question by cutting a notch in its own track, which is a gap in a thing
+ * the eye has already found; there is no track here to cut, so the mark has to be visibly a mark.
+ */
+static void fb_chart_threshold(const struct mesh_ui_backend_fb_state *state,
+                               const struct fb_rect *plot, int travel, int32_t permille, int rule,
+                               struct mesh_ui_rgb ink) {
+    if (permille < 0 || permille > MESH_UI_ANIM_ONE) {
+        /* Outside the domain the lines are drawn on. Nothing is clamped to an edge here: a
+           threshold pinned to the top of a chart is a threshold the trend can never be seen
+           crossing, which is worse than one the reader can see is off the picture. */
+        return;
+    }
+    const int y = plot->y + travel - (int)(((int64_t)permille * travel) / MESH_UI_ANIM_ONE);
+    const int dash = rule * 3;
+    for (int x = plot->x; x < plot->x + plot->w; x += dash * 2) {
+        const int w = (x + dash > plot->x + plot->w) ? plot->x + plot->w - x : dash;
+        fb_fill_rect(state, x, y, w, rule, ink);
+    }
+}
+
+/*
+ * The legend: a swatch and a word per line, in the order the lines were handed over.
+ *
+ * The swatch carries the colour and the word is in the body's own ink, which is the rule a
+ * series colour never gets out of - it is a fill, so it fills a square, and the text beside it is
+ * text. Naming the parts in their own colours is what every spreadsheet does and it is four more
+ * contrast pairs per theme, to say what a swatch already says.
+ */
+static void fb_chart_legend(const struct mesh_ui_backend_fb_state *state,
+                            const struct fb_layout *layout, const struct fb_chart *chart, int x,
+                            int y) {
+    const int scale = layout->small;
+    const int adv = fb_char_adv(state, scale);
+    const int cap = mesh_ui_font_cap(fb_font(state), scale);
+    const int line = fb_line_adv(state, scale);
+    const struct mesh_ui_rgb ink = fb_color(state, MESH_UI_COLOR_TEXT_DIM);
+    const struct mesh_ui_rgb ground = fb_color(state, MESH_UI_COLOR_BG);
+
+    for (uint32_t i = 0U; i < chart->count && i < FB_CHART_LINES; ++i) {
+        const enum mesh_str_id label = chart->lines[i].label;
+        if (label == MESH_STR_NONE) {
+            continue;
+        }
+        const char *word = mesh_str(label);
+        const int width = cap + adv + (int)mesh_ui_text_cells(word) * adv;
+        if (x + width > chart->rect.x + chart->rect.w) {
+            /* Out of line. The entry is dropped whole rather than cut, for the reason a bubble's
+               trailing run drops a chip rather than truncating one: half a word beside a colour
+               is a legend that names the wrong thing, and the reader has no way to tell. */
+            return;
+        }
+        /* Vertically centred on the capitals beside it rather than on the cell, which is the
+           icon slot's rule - a square sized to the cell stands a seventh taller than the word it
+           is labelling on any face with real descenders. */
+        fb_fill_round_rect(state, x, y + (line - cap) / 2, cap, cap,
+                           fb_radius(state, MESH_UI_SHAPE_SM),
+                           mesh_ui_theme_series(state->theme, i));
+        fb_draw_text(state, x + cap + adv, y, word, scale, ink, ground);
+        x += width + adv * 2;
+    }
+}
+
+void fb_draw_chart(const struct mesh_ui_backend_fb_state *state, const struct fb_layout *layout,
+                   const struct fb_chart *chart) {
+    if (chart == NULL || chart->rect.w <= 0 || chart->rect.h <= 0) {
+        return;
+    }
+    if (chart->rect.h < fb_chart_min_height(state, layout)) {
+        return; /* see fb_chart_min_height(): there is no clipped chart */
+    }
+
+    const int scale = layout->small;
+    const int adv = fb_char_adv(state, scale);
+    const int rule = fb_chart_rule(state->scale);
+
+    /*
+     * The room the vertical's two ends want, taken off the left before anything is placed.
+     *
+     * Measured from the labels themselves rather than reserved as a fixed column: this is the
+     * only screen on the panel, so a chart of percentages should not be inset as far as one of
+     * five-digit counts. The gap after them is one cell, which is the same gap a list row leaves
+     * between its label column and its value.
+     */
+    const size_t top_cells = chart->top != NULL ? mesh_ui_text_cells(chart->top) : 0U;
+    const size_t bottom_cells = chart->bottom != NULL ? mesh_ui_text_cells(chart->bottom) : 0U;
+    const size_t axis_cells = top_cells > bottom_cells ? top_cells : bottom_cells;
+    const int gutter = axis_cells > 0U ? (int)(axis_cells + 1U) * adv : 0;
+
+    struct fb_rect plot = {
+        .x = chart->rect.x + gutter,
+        .y = chart->rect.y,
+        .w = chart->rect.w - gutter,
+        .h = chart->rect.h - FB_CHART_FOOTER_LINES * layout->line,
+    };
+    if (plot.w <= 0 || plot.h <= rule) {
+        return;
+    }
+
+    const struct mesh_ui_rgb furniture = fb_color(state, MESH_UI_COLOR_METER_TRACK);
+    const struct mesh_ui_rgb ground = fb_color(state, MESH_UI_COLOR_BG);
+
+    /*
+     * The frame: the two axes and nothing else.
+     *
+     * Two rather than four, because the two that are not drawn would be saying something. A rule
+     * along the top of a chart reads as the domain's ceiling and this one has a label saying
+     * where that is; a rule up the right-hand edge reads as the present, which is where the
+     * lines end anyway. What is left is the pair that say "measured from here".
+     */
+    const int interior = plot.h - rule;
+    fb_fill_rect(state, plot.x, plot.y, rule, plot.h, furniture);
+    fb_fill_rect(state, plot.x, plot.y + interior, plot.w, rule, furniture);
+
+    /*
+     * The height a reading travels over, which is the interior less the stroke - so a reading at
+     * the top of its domain draws its whole line inside the plot rather than half outside it.
+     * The sparkline's arithmetic, with a thicker pen.
+     */
+    const int stroke = fb_chart_stroke(state->scale);
+    const int travel = interior > stroke ? interior - stroke : 0;
+    const int span = plot.w > 1 ? plot.w - 1 : 0;
+
+    /* The thresholds, under the lines: a mark the data can be seen crossing has to be behind it,
+       or the mark is what is on top of the reading. */
+    if (chart->band != NULL) {
+        fb_chart_threshold(state, &plot, travel,
+                           mesh_ui_scale_permille(chart->scale, chart->band->warn), rule,
+                           furniture);
+        fb_chart_threshold(state, &plot, travel,
+                           mesh_ui_scale_permille(chart->scale, chart->band->bad), rule, furniture);
+    }
+
+    /* The two ends of the vertical, against the plot's own top and bottom. */
+    const int label_line = fb_line_adv(state, scale);
+    const struct mesh_ui_rgb ink = fb_color(state, MESH_UI_COLOR_TEXT_DIM);
+    if (chart->top != NULL) {
+        fb_draw_text(state, plot.x - (int)(top_cells + 1U) * adv, plot.y, chart->top, scale, ink,
+                     ground);
+    }
+    if (chart->bottom != NULL) {
+        fb_draw_text(state, plot.x - (int)(bottom_cells + 1U) * adv, plot.y + interior - label_line,
+                     chart->bottom, scale, ink, ground);
+    }
+
+    /*
+     * The lines, in the order they were handed over, each in the series colour of its position.
+     *
+     * By position rather than by anything about the data, which is the palette's whole contract:
+     * slice 0 is the same colour on every frame and every theme, so the legend under the plot
+     * goes on meaning what it said the last time this screen was opened.
+     */
+    for (uint32_t i = 0U; i < chart->count && i < FB_CHART_LINES; ++i) {
+        const struct mesh_ui_polyline *points = chart->lines[i].points;
+        if (points == NULL || points->count < 2U) {
+            continue; /* one reading is a level; the sparkline's rule, unchanged */
+        }
+        const struct mesh_ui_rgb colour = mesh_ui_theme_series(state->theme, i);
+        int previous_x = 0;
+        int previous_y = 0;
+        for (uint32_t j = 0U; j < points->count && j < MESH_UI_SERIES_MAX; ++j) {
+            const struct mesh_ui_point *point = &points->items[j];
+            const int x = plot.x + (int)(((int64_t)point->x * span) / MESH_UI_ANIM_ONE);
+            const int y = plot.y + travel - (int)(((int64_t)point->y * travel) / MESH_UI_ANIM_ONE);
+            if (!point->gap && j > 0U) {
+                fb_spark_segment(state, previous_x, previous_y, x, y, stroke, colour);
+            }
+            previous_x = x;
+            previous_y = y;
+        }
+    }
+
+    /*
+     * And the chrome under it: what the horizontal covers, then what the lines are.
+     *
+     * The span is centred on the plot rather than tucked under either end, because it names the
+     * whole axis rather than a point on it - "last 45m" under the left-hand end reads as a label
+     * for that end, which is the one place on the axis it is not true of.
+     */
+    int y = plot.y + plot.h;
+    if (chart->span != NULL) {
+        const int width = (int)mesh_ui_text_cells(chart->span) * adv;
+        const int x = plot.x + (plot.w - width) / 2;
+        fb_draw_text(state, x > plot.x ? x : plot.x, y, chart->span, scale, ink, ground);
+    }
+    y += layout->line;
+    fb_chart_legend(state, layout, chart, plot.x, y);
 }
 
 /* ---- the text field ------------------------------------------------------------------------ */

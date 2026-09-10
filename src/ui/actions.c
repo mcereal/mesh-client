@@ -1,6 +1,7 @@
 #include "mesh/ui/actions.h"
 
 #include "mesh/ui/help.h"
+#include "mesh/ui/history.h"
 #include "mesh/ui/input.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/settings.h"
@@ -325,6 +326,22 @@ static void actions_settings(const struct mesh_ui_nav *nav, const struct mesh_ui
     bar_add_tabs(bar);
 }
 
+/*
+ * The chart, which is the one screen in the client with nothing on it to choose.
+ *
+ * Three keycaps, and the shortest bar there is outside a dialog: B leaves, SELECT explains, the
+ * shoulders change tab. There is deliberately no d-pad entry - a chart has no cursor and nothing
+ * to pan, and naming "move" here would be the one thing this table exists to prevent, a keycap
+ * that does nothing. Quit is left off for the same reason it is on the cards underneath: the
+ * status line already ends in it when there is no radio, and this screen only exists while
+ * there is one.
+ */
+static void actions_trend(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_action_bar *bar) {
+    bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+    bar_add_help(snapshot, bar);
+    bar_add_tabs(bar);
+}
+
 static void actions_status(const struct mesh_ui_snapshot *snapshot,
                            struct mesh_ui_action_bar *bar) {
     const bool connected = mesh_ui_snapshot_connected_device(snapshot) != NULL;
@@ -338,7 +355,8 @@ static void actions_status(const struct mesh_ui_snapshot *snapshot,
      * is drawing - one table, read twice, which is what stops the two disagreeing.
      */
     struct mesh_ui_status_actions actions;
-    mesh_ui_status_actions(&actions, connected, snapshot->handshake_valid);
+    mesh_ui_status_actions(&actions, connected, snapshot->handshake_valid,
+                           mesh_ui_history_has_airtime(&snapshot->history));
     const uint32_t cursor = snapshot->nav.cursor[MESH_UI_SCREEN_STATUS];
     if (cursor < actions.count) {
         bar_add(bar, MESH_UI_BUTTON_A, actions.items[cursor].label);
@@ -461,7 +479,13 @@ void mesh_ui_actions_for(const struct mesh_ui_snapshot *snapshot, struct mesh_ui
         break;
     case MESH_UI_SCREEN_STATUS:
     default:
-        actions_status(snapshot, out);
+        /* The chart over the cards, on the same terms the map is drawn over the node list: the
+           screen is checked as well as the flag, because the flag outlives a change of tab. */
+        if (nav->trend_open) {
+            actions_trend(snapshot, out);
+        } else {
+            actions_status(snapshot, out);
+        }
         break;
     }
 }

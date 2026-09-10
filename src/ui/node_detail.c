@@ -1,6 +1,7 @@
 #include "mesh/ui/node_detail.h"
 
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/duration.h"
 #include "mesh/utils/text.h"
 
 /* session.h for the traceroute state enum: the UI struct carries it as a byte so store.h
@@ -191,37 +192,6 @@ static void rows_trend(struct node_rows *rows, const struct mesh_ui_series *seri
     item->trend = series;
 }
 
-/* "4m", "3h", "2d" - the same shorthand the Nodes list uses, so the two agree. An unset or
-   future stamp reads as "?" rather than a wrapped enormous age. */
-static void format_age(uint32_t stamp, uint32_t now, char *out, size_t out_len) {
-    if (stamp == 0U || now == 0U || stamp > now) {
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT));
-        return;
-    }
-    const uint32_t seconds = now - stamp;
-    if (seconds < 60U) {
-        mesh_str_format(out, out_len, MESH_STR_TIME_AGO_SECONDS, seconds);
-    } else if (seconds < 3600U) {
-        mesh_str_format(out, out_len, MESH_STR_TIME_AGO_MINUTES, seconds / 60U);
-    } else if (seconds < 86400U) {
-        mesh_str_format(out, out_len, MESH_STR_TIME_AGO_HOURS, seconds / 3600U);
-    } else {
-        mesh_str_format(out, out_len, MESH_STR_TIME_AGO_DAYS, seconds / 86400U);
-    }
-}
-
-static void format_uptime(uint32_t seconds, char *out, size_t out_len) {
-    if (seconds >= 86400U) {
-        mesh_str_format(out, out_len, MESH_STR_TIME_DAYS_HOURS, seconds / 86400U,
-                        (seconds % 86400U) / 3600U);
-    } else if (seconds >= 3600U) {
-        mesh_str_format(out, out_len, MESH_STR_TIME_HOURS_MINUTES, seconds / 3600U,
-                        (seconds % 3600U) / 60U);
-    } else {
-        mesh_str_format(out, out_len, MESH_STR_TIME_MINUTES_SHORT, seconds / 60U);
-    }
-}
-
 static void node_rows_identity(struct node_rows *rows, const struct mesh_ui_node_summary *node) {
     rows_heading(rows, MESH_STR_NODE_HEAD_IDENTITY);
 
@@ -291,7 +261,7 @@ static void node_rows_signal(struct node_rows *rows, const struct mesh_ui_node_s
     rows_heading(rows, MESH_STR_NODE_HEAD_SIGNAL);
 
     char age[24];
-    format_age(node->last_heard, now, age, sizeof age);
+    mesh_ui_format_age(node->last_heard, now, age, sizeof age);
     rows_text(rows, MESH_STR_NODE_LAST_HEARD, age);
 
     if (!is_self) {
@@ -315,7 +285,7 @@ static void node_rows_signal(struct node_rows *rows, const struct mesh_ui_node_s
                stops the row reading as a description of the packet that just arrived. */
             if (node->rssi_time != 0U && node->last_heard > node->rssi_time) {
                 char measured[24];
-                format_age(node->rssi_time, now, measured, sizeof measured);
+                mesh_ui_format_age(node->rssi_time, now, measured, sizeof measured);
                 rows_info(rows, MESH_STR_NODE_RSSI, MESH_STR_NODE_VAL_RSSI_AGED, (int)node->rx_rssi,
                           measured);
             } else {
@@ -376,11 +346,11 @@ static void node_rows_power(struct node_rows *rows, const struct mesh_ui_node_su
     }
     if (metrics->has_uptime) {
         char uptime[24];
-        format_uptime(metrics->uptime_seconds, uptime, sizeof uptime);
+        mesh_ui_format_duration(metrics->uptime_seconds, uptime, sizeof uptime);
         rows_text(rows, MESH_STR_NODE_UPTIME, uptime);
     }
     char age[24];
-    format_age(metrics->time, now, age, sizeof age);
+    mesh_ui_format_age(metrics->time, now, age, sizeof age);
     rows_text(rows, MESH_STR_NODE_REPORTED, age);
 }
 
@@ -429,10 +399,10 @@ static void node_rows_position(struct node_rows *rows, const struct mesh_ui_node
      */
     char age[24];
     if (position->time != 0U) {
-        format_age(position->time, now, age, sizeof age);
+        mesh_ui_format_age(position->time, now, age, sizeof age);
         rows_text(rows, MESH_STR_NODE_FIX, age);
     } else {
-        format_age(position->received, now, age, sizeof age);
+        mesh_ui_format_age(position->received, now, age, sizeof age);
         rows_text(rows, MESH_STR_NODE_FIX_RECEIVED, age);
     }
 }
@@ -471,7 +441,7 @@ static void node_rows_environment(struct node_rows *rows, const struct mesh_ui_n
                   (double)env->current);
     }
     char age[24];
-    format_age(env->time, now, age, sizeof age);
+    mesh_ui_format_age(env->time, now, age, sizeof age);
     rows_text(rows, MESH_STR_NODE_REPORTED, age);
 }
 
@@ -507,7 +477,7 @@ static void node_rows_power_metrics(struct node_rows *rows, const struct mesh_ui
         }
     }
     char age[24];
-    format_age(power->time, now, age, sizeof age);
+    mesh_ui_format_age(power->time, now, age, sizeof age);
     rows_text(rows, MESH_STR_NODE_REPORTED, age);
 }
 
@@ -544,7 +514,7 @@ static void node_rows_air_quality(struct node_rows *rows, const struct mesh_ui_n
         rows_info(rows, MESH_STR_NODE_NOX_INDEX, MESH_STR_NODE_VAL_INDEX, (double)air->nox_index);
     }
     char age[24];
-    format_age(air->time, now, age, sizeof age);
+    mesh_ui_format_age(air->time, now, age, sizeof age);
     rows_text(rows, MESH_STR_NODE_REPORTED, age);
 }
 
@@ -567,7 +537,7 @@ static void node_rows_health(struct node_rows *rows, const struct mesh_ui_node_s
                   (double)health->temperature, (double)health->temperature * 1.8 + 32.0);
     }
     char age[24];
-    format_age(health->time, now, age, sizeof age);
+    mesh_ui_format_age(health->time, now, age, sizeof age);
     rows_text(rows, MESH_STR_NODE_REPORTED, age);
 }
 
@@ -580,7 +550,7 @@ static void node_rows_host(struct node_rows *rows, const struct mesh_ui_node_sum
     rows_heading(rows, MESH_STR_NODE_HEAD_HOST);
     if (host->has_uptime) {
         char uptime[32];
-        format_uptime(host->uptime_seconds, uptime, sizeof uptime);
+        mesh_ui_format_duration(host->uptime_seconds, uptime, sizeof uptime);
         rows_text(rows, MESH_STR_NODE_UPTIME, uptime);
     }
     if (host->has_freemem) {
@@ -603,7 +573,7 @@ static void node_rows_host(struct node_rows *rows, const struct mesh_ui_node_sum
                   (double)host->load5 / 100.0, (double)host->load15 / 100.0);
     }
     char age[24];
-    format_age(host->time, now, age, sizeof age);
+    mesh_ui_format_age(host->time, now, age, sizeof age);
     rows_text(rows, MESH_STR_NODE_REPORTED, age);
 }
 
@@ -664,7 +634,7 @@ static void node_rows_neighbors(struct node_rows *rows, const struct mesh_ui_nod
             rows_named(rows, name, MESH_STR_NODE_VAL_SNR, (double)heard->entries[i].snr);
         }
         char age[24];
-        format_age(heard->time, now, age, sizeof age);
+        mesh_ui_format_age(heard->time, now, age, sizeof age);
         rows_text(rows, MESH_STR_NODE_REPORTED, age);
     }
 
@@ -778,7 +748,7 @@ static void node_rows_route(struct node_rows *rows, const struct mesh_ui_node_su
        when it was measured rather than presenting it as a standing fact - the same trailing
        stamp the metrics and position groups carry. */
     char age[24];
-    format_age(trace->completed, now, age, sizeof age);
+    mesh_ui_format_age(trace->completed, now, age, sizeof age);
     rows_text(rows, MESH_STR_NODE_MEASURED, age);
 }
 

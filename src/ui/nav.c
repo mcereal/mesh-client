@@ -13,6 +13,7 @@
 
 #include "mesh/core/message.h"
 #include "mesh/ui/help.h"
+#include "mesh/ui/history.h"
 #include "mesh/ui/map.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/reactions.h"
@@ -273,7 +274,8 @@ static void mesh_ui_nav_status_actions(const struct mesh_ui_store *store,
     for (size_t i = 0; i < store->device_count; ++i) {
         connected = connected || store->devices[i].connected;
     }
-    mesh_ui_status_actions(out, connected, store->handshake_valid);
+    mesh_ui_status_actions(out, connected, store->handshake_valid,
+                           mesh_ui_history_has_airtime(&store->history));
 }
 
 uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
@@ -376,6 +378,16 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
        behind. It runs after the node detail's close so a map closing under an open detail takes
        the detail with it rather than stranding it one level up from nowhere. */
     moved = mesh_ui_nav_map_clamp(nav, store) || moved;
+    /*
+     * And a chart with nothing left to draw, which is the map's clamp one screen along: a radio
+     * swap empties the history the way it empties the roster, and a picture of a reading nobody
+     * is holding any more is the empty-graticule trap with fewer clues in it. An empty frame
+     * with its axes still labelled looks like a mesh that went perfectly quiet.
+     */
+    if (nav->trend_open && !mesh_ui_history_has_airtime(&store->history)) {
+        nav->trend_open = false;
+        moved = true;
+    }
 
     /*
      * Help, whose paragraph list can shrink under an open screen: a radio answering for a
@@ -928,6 +940,13 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
                 break;
             }
             return false;
+        case MESH_UI_STATUS_VERB_TREND:
+            /* The one verb here that raises no action: what it opens is a screen drawn from what
+               this client already watched, so there is nothing to ask the radio for and nothing
+               for mesh_app to do. It returns true rather than false for exactly that reason -
+               the nav changed, and nobody else is going to say so. */
+            nav->trend_open = true;
+            return true;
         case MESH_UI_STATUS_VERB_REFRESH:
         default:
             /* No pending edits to report: this screen has none to hold, unlike X on Settings. */
@@ -1110,6 +1129,36 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         const bool result = mesh_ui_nav_map_key(nav, store, key, &handled);
         if (handled) {
             return result || changed;
+        }
+    }
+
+    /*
+     * And the trend chart, for the map's reason with the map's exception the other way round.
+     *
+     * A chart has no cursor and no rows, so every press that walks or opens something means
+     * nothing here - and the two that would otherwise reach the cards underneath are the
+     * dangerous ones: Down would move a cursor nobody can see, and A would run whichever verb it
+     * had moved onto. Swallowing them is what makes B the only way out, which is what the action
+     * bar says.
+     *
+     * The shoulders and the d-pad's own Left and Right are deliberately not taken, which is
+     * where this differs from the map: there is nothing to pan, so they stay the tab switch they
+     * are on every other screen. And the screen is checked as well as the flag, because the flag
+     * outlives the tab - see `trend_open`.
+     */
+    if (nav->trend_open && nav->screen == MESH_UI_SCREEN_STATUS) {
+        switch (key) {
+        case MESH_UI_KEY_LEFT:
+        case MESH_UI_KEY_RIGHT:
+        case MESH_UI_KEY_L1:
+        case MESH_UI_KEY_R1:
+        case MESH_UI_KEY_SELECT:
+            break; /* the tabs, and the help press: both mean here what they mean everywhere */
+        case MESH_UI_KEY_B:
+            nav->trend_open = false;
+            return true;
+        default:
+            return changed;
         }
     }
 

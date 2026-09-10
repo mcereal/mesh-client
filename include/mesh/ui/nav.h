@@ -244,6 +244,21 @@ struct mesh_ui_nav {
     bool map_open;
     struct mesh_map_viewport map_viewport;
     /*
+     * Status tab: the airtime chart is open over the cards.
+     *
+     * The one level this tab has, and it carries no cursor of its own - a chart is a picture and
+     * there is nothing on it to choose between, so cursor[STATUS] stays where it was and is
+     * still pointing at the trend verb when B lands back on the cards. That is why the flag
+     * exists at all rather than the screen being a fourth card: the cards are a list of verbs
+     * the cursor walks, and a picture is not a verb.
+     *
+     * It outlives a change of tab, as map_open does and for the same reason - every tab keeps
+     * its own place - which means it says *where the Status tab is standing* rather than *what
+     * is on the panel*. Anything reading it has to check `screen` as well, or a press meant for
+     * the Nodes list closes a chart nobody can see.
+     */
+    bool trend_open;
+    /*
      * Waypoints tab: a place's detail is open (cursor[WAYPOINTS] indexes its rows) rather than
      * the list, whose position is parked in waypoint_list_cursor meanwhile. The same two-level
      * shape as Nodes, Messages and Settings.

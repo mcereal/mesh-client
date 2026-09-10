@@ -101,6 +101,227 @@ MESH_TEST_CASE(series_projects_x_on_time_and_y_on_the_domain, unit) {
     record_success(test_name);
 }
 
+/*
+ * Two series on one picture are measured on one window.
+ *
+ * This is the projection's own rule arriving one component along, and it is the way a chart is
+ * wrong quietly. A series projected on its *own* span fills whatever box it is handed, so two of
+ * them - one still arriving, one that stopped an hour ago - come out the same width, and the
+ * second is drawn as though it were current. On the airtime chart that is our transmit share
+ * being drawn as though it had climbed to meet the channel's total.
+ */
+MESH_TEST_CASE(series_share_one_window_across_a_chart, unit) {
+    struct mesh_ui_series busy;
+    struct mesh_ui_series ours;
+    mesh_ui_series_reset(&busy, 0U);
+    mesh_ui_series_reset(&ours, 0U);
+    /* The channel is still reporting; ours stopped at the halfway mark. */
+    mesh_ui_series_push(&busy, 0U, 10);
+    mesh_ui_series_push(&busy, 5000U, 20);
+    mesh_ui_series_push(&busy, 10000U, 30);
+    mesh_ui_series_push(&ours, 0U, 1);
+    mesh_ui_series_push(&ours, 5000U, 2);
+
+    const struct mesh_ui_series *const both[] = {&busy, &ours};
+    uint32_t from = 42U;
+    uint32_t to = 42U;
+    MESH_TEST_FAIL_IF(!mesh_ui_series_window(both, 2U, &from, &to), "two series frame a window");
+    MESH_TEST_FAIL_IF(from != 0U || to != 10000U,
+                      "the window is the union of the series, not one of them");
+
+    const struct mesh_ui_scale scale = {0, 100};
+    struct mesh_ui_polyline points;
+    mesh_ui_series_project_over(&ours, scale, from, to, &points);
+    MESH_TEST_FAIL_IF(points.count != 2U, "every sample should still be projected");
+    MESH_TEST_FAIL_IF(points.items[1].x != MESH_UI_ANIM_ONE / 2,
+                      "a series that stopped halfway through should end halfway across");
+
+    /* And the one that reaches the end of the window still reaches the end of the box, so the
+       two are directly comparable rather than merely both present. */
+    mesh_ui_series_project_over(&busy, scale, from, to, &points);
+    MESH_TEST_FAIL_IF(points.items[2].x != MESH_UI_ANIM_ONE,
+                      "the series that runs to the window's end should reach the right edge");
+
+    /* A window with no width to it is refused rather than answered with a point. The client's
+       clock is monotonic and one report stamps both series, so this is a clock too coarse to
+       separate two pushes - and the caller's answer to it is to draw no span, not a zero one. */
+    struct mesh_ui_series flat;
+    mesh_ui_series_reset(&flat, 0U);
+    mesh_ui_series_push(&flat, 7000U, 1);
+    mesh_ui_series_push(&flat, 7000U, 2);
+    const struct mesh_ui_series *const one[] = {&flat};
+    MESH_TEST_FAIL_IF(mesh_ui_series_window(one, 1U, &from, &to),
+                      "a window of zero width is not a window");
+
+    /* Nothing to frame, in the three ways there are. An empty series is not an error - the pair
+       on the Status card start empty and fill one report at a time. */
+    struct mesh_ui_series empty;
+    mesh_ui_series_reset(&empty, 0U);
+    const struct mesh_ui_series *const nothing[] = {&empty, NULL};
+    MESH_TEST_FAIL_IF(mesh_ui_series_window(nothing, 2U, &from, &to), "empty series framed one");
+    MESH_TEST_FAIL_IF(mesh_ui_series_window(NULL, 2U, &from, &to), "no series framed one");
+    MESH_TEST_FAIL_IF(mesh_ui_series_window(both, 0U, &from, &to), "no count framed one");
+    record_success(test_name);
+}
+
+/*
+ * A reading outside the window is held at the edge it fell off, and the fallback is the
+ * projection's own.
+ *
+ * The holding matters because the arithmetic is unsigned: a sample older than the window would
+ * otherwise come out most of a picture to the *right* of everything that happened after it,
+ * which is a line drawn backwards rather than a line drawn wrongly.
+ */
+MESH_TEST_CASE(series_projected_over_a_window_stays_inside_it, unit) {
+    struct mesh_ui_series series;
+    mesh_ui_series_reset(&series, 0U);
+    mesh_ui_series_push(&series, 1000U, 10);
+    mesh_ui_series_push(&series, 2000U, 20);
+    mesh_ui_series_push(&series, 3000U, 30);
+
+    const struct mesh_ui_scale scale = {0, 100};
+    struct mesh_ui_polyline points;
+    /* A window that starts after the first reading and ends before the last. */
+    mesh_ui_series_project_over(&series, scale, 2000U, 2500U, &points);
+    MESH_TEST_FAIL_IF(points.items[0].x != 0,
+                      "a reading before the window should hold at its left");
+    MESH_TEST_FAIL_IF(points.items[1].x != 0, "the window's own start is its left edge");
+    MESH_TEST_FAIL_IF(points.items[2].x != MESH_UI_ANIM_ONE,
+                      "a reading after the window should hold at its right");
+
+    /* A window with no width falls back to even spacing, which is mesh_ui_series_project()'s own
+       answer for a span of zero: the order of the samples is then all that is known about them. */
+    mesh_ui_series_project_over(&series, scale, 5000U, 5000U, &points);
+    MESH_TEST_FAIL_IF(points.items[0].x != 0 || points.items[1].x != MESH_UI_ANIM_ONE / 2 ||
+                          points.items[2].x != MESH_UI_ANIM_ONE,
+                      "a window of no width should space the samples evenly");
+
+    /* And the ordinary window is what mesh_ui_series_project() itself produces, because that is
+       what it is written in terms of. Two projections that could differ is two answers to where
+       a reading goes. */
+    struct mesh_ui_polyline own;
+    mesh_ui_series_project(&series, scale, &own);
+    mesh_ui_series_project_over(&series, scale, 1000U, 3000U, &points);
+    for (uint32_t i = 0U; i < own.count; ++i) {
+        MESH_TEST_FAIL_IF(own.items[i].x != points.items[i].x ||
+                              own.items[i].y != points.items[i].y ||
+                              own.items[i].gap != points.items[i].gap,
+                          "a series' own span should project exactly as the window does");
+    }
+    record_success(test_name);
+}
+
+/*
+ * A line exists when two adjacent readings are one, which is not the same as there being two.
+ *
+ * The predicate and the projection have to agree, because the failure they can have between them
+ * is silent in the worst way: a screen that offers a picture and a renderer that then declines to
+ * draw one, leaving axes and a legend around nothing. They share the break test for that reason,
+ * and this walks the three ways a series can be samples without being a line.
+ */
+MESH_TEST_CASE(series_offers_a_line_only_when_one_can_be_drawn, unit) {
+    struct mesh_ui_series series;
+
+    /* Nothing, and one reading: a level, and there is a component for that. */
+    mesh_ui_series_reset(&series, 1000U);
+    MESH_TEST_FAIL_IF(mesh_ui_series_has_segment(&series), "an empty series is not a line");
+    mesh_ui_series_push(&series, 0U, 10);
+    MESH_TEST_FAIL_IF(mesh_ui_series_has_segment(&series), "one reading is not a line");
+    MESH_TEST_FAIL_IF(mesh_ui_series_has_segment(NULL), "no series is not a line");
+
+    /* Two, with a silence between them. The pen lifts at the second, so there is no stroke. */
+    mesh_ui_series_reset(&series, 1000U);
+    mesh_ui_series_push(&series, 0U, 10);
+    mesh_ui_series_push(&series, 5000U, 20);
+    MESH_TEST_FAIL_IF(mesh_ui_series_has_segment(&series),
+                      "two readings across a silence are two points, not a line");
+
+    /* Two, with a break the clock cannot see - a reading refused rather than missing. */
+    mesh_ui_series_reset(&series, 0U);
+    mesh_ui_series_push(&series, 0U, 10);
+    mesh_ui_series_break(&series);
+    mesh_ui_series_push(&series, 100U, 20);
+    MESH_TEST_FAIL_IF(mesh_ui_series_has_segment(&series),
+                      "a break the source declared is still a break");
+
+    /* And one unbroken pair anywhere in the ring is a line, wherever the breaks are around it. */
+    mesh_ui_series_push(&series, 200U, 30);
+    MESH_TEST_FAIL_IF(!mesh_ui_series_has_segment(&series),
+                      "a reading that continues the one before it is a line");
+
+    /*
+     * The two answers are one answer. Whatever the shape of the series, "this has a segment" and
+     * "the projection draws a stroke" must be the same claim - so the projection is walked for a
+     * point that continues its predecessor and the two are compared.
+     */
+    static const uint32_t k_times[] = {0U, 400U, 5000U, 5400U, 5800U, 12000U};
+    for (uint32_t take = 0U; take <= sizeof k_times / sizeof k_times[0]; ++take) {
+        mesh_ui_series_reset(&series, 1000U);
+        for (uint32_t i = 0U; i < take; ++i) {
+            mesh_ui_series_push(&series, k_times[i], (int32_t)i * 10);
+        }
+        struct mesh_ui_polyline points;
+        mesh_ui_series_project(&series, (struct mesh_ui_scale){0, 100}, &points);
+        bool drawn = false;
+        for (uint32_t i = 1U; i < points.count; ++i) {
+            drawn = drawn || !points.items[i].gap;
+        }
+        MESH_TEST_FAIL_IF(drawn != mesh_ui_series_has_segment(&series),
+                          "the predicate and the projection disagree about whether there is a "
+                          "line");
+    }
+    record_success(test_name);
+}
+
+/*
+ * Whether there is a trend to draw at all, asked once.
+ *
+ * Three places read it - the verb table that offers the chart, the action bar that names the
+ * press and the clamp that closes the screen when it empties - and a fourth counting samples by
+ * hand would be a fourth opinion about whether a screen exists.
+ */
+MESH_TEST_CASE(history_says_when_there_is_an_airtime_trend, unit) {
+    struct mesh_ui_history history;
+    mesh_ui_history_reset(&history);
+    MESH_TEST_FAIL_IF(mesh_ui_history_has_airtime(&history), "an empty history has no trend");
+
+    mesh_ui_history_note_airtime(&history, 1000U, 110, 30);
+    MESH_TEST_FAIL_IF(mesh_ui_history_has_airtime(&history), "one reading is a level, not a trend");
+
+    mesh_ui_history_note_airtime(&history, 2000U, 140, 40);
+    MESH_TEST_FAIL_IF(!mesh_ui_history_has_airtime(&history),
+                      "two readings a minute apart make a line");
+
+    /*
+     * And two readings a break apart are not a line either, which is the case a count cannot
+     * see. A link down for a quarter of an hour and then back is two samples the ring holds and
+     * a silence the series calls a break - so the projection lifts the pen at the second one and
+     * a chart drawn from them has axes, a legend and nothing between them.
+     *
+     * The test is a *drawable segment* rather than a sample count for that reason: what the verb
+     * promises is a picture, and the honest answer when there is none is not to offer it.
+     */
+    mesh_ui_history_reset(&history);
+    mesh_ui_history_note_airtime(&history, 1000U, 110, 30);
+    mesh_ui_history_note_airtime(&history, 1000U + MESH_UI_HISTORY_RADIO_GAP_MS + 1000U, 140, 40);
+    MESH_TEST_FAIL_IF(mesh_ui_history_has_airtime(&history),
+                      "two readings with a silence between them draw no line");
+
+    /* One more punctual reading after it, and there is a segment again - the break is at the
+       sample that follows the silence, not at every sample after it. */
+    mesh_ui_history_note_airtime(&history, 1000U + MESH_UI_HISTORY_RADIO_GAP_MS + 61000U, 150, 45);
+    MESH_TEST_FAIL_IF(!mesh_ui_history_has_airtime(&history),
+                      "a reading that continues the one before it is a line");
+
+    /* And a radio swap takes it with the roster, which is what closes the chart under a reader
+       looking at a mesh that is no longer theirs. */
+    mesh_ui_history_forget(&history);
+    MESH_TEST_FAIL_IF(mesh_ui_history_has_airtime(&history),
+                      "a forgotten history should offer nothing to draw");
+    MESH_TEST_FAIL_IF(mesh_ui_history_has_airtime(NULL), "no history is no trend");
+    record_success(test_name);
+}
+
 /* A silence longer than the series' own gap breaks the line rather than sloping across it. */
 MESH_TEST_CASE(series_breaks_the_line_at_a_gap, unit) {
     struct mesh_ui_series series;

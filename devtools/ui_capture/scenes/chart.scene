@@ -1,0 +1,69 @@
+# The fifth quantitative component, and the first that is a screen.
+#
+# Everything before it fits in a row and pays for that by having no numbers on it. A sparkline is
+# a shape, and the reader has to already know what it is a shape of - which is the right trade in
+# a list, where the row above names the reading and the bar beside it says how far along. It
+# stops being the right trade the moment somebody stops to look, and this is that press.
+#
+# Watch what the room buys. The vertical has its two ends labelled, so "high" is a number rather
+# than a feeling. The horizontal says how long, which is the difference between a mesh that got
+# busy this afternoon and one that got busy in the last ten minutes. The thresholds the card's
+# bar cuts notches at are rules across the plot, so the trend can be *seen* crossing them. And
+# there are two lines, which is the thing a row could never have: our own transmit share inside
+# the channel's total, named by a legend a row has no space for.
+
+scene demo
+delay 240
+config
+
+# An hour of mesh in a few seconds. Each `airtime` line is one LocalStats report, which is what
+# the radio sends its attached client every few minutes; `stats` goes first so the counter rows
+# have the radio's real traffic under them rather than a row of zeroes.
+tab status
+stats
+hold 400
+airtime 6 2
+hold 400
+airtime 9 3
+hold 400
+airtime 14 4
+hold 400
+airtime 13 4
+hold 400
+airtime 21 6
+hold 400
+airtime 28 9
+hold 400
+airtime 34 11
+hold 400
+airtime 47 15
+hold 900
+
+# The verb only appears once there are two readings to draw a line between, and it appears at the
+# *end* of the list - the Status cursor is an index into the verbs, so a third one arriving
+# anywhere else would change what the next A press does without the cursor moving.
+key down 2
+hold 900
+key a
+hold 2400
+
+# The same picture in every theme. Nothing here is switched by hand: the lines take the series
+# palette by position, so line 0 is the same colour on every theme and the legend under the plot
+# goes on meaning what it said. The colour-blind theme is where that contract bites - its
+# entries are four of Okabe-Ito's eight, chosen on lightness rather than hue, because two lines a
+# dichromat can tell apart by hue are still one line in sunlight.
+theme light
+hold 1300
+theme contrast
+hold 1300
+theme colorblind
+hold 1600
+
+# And back out. B is the only way off this screen and the action bar says so: there is no cursor
+# on a chart, so the presses that walk and open things mean nothing here and are swallowed rather
+# than reaching the cards underneath - where Down would move a cursor nobody can see and A would
+# run whichever verb it had moved onto.
+theme dark
+hold 600
+key b
+hold 1400

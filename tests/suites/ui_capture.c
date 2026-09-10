@@ -2688,3 +2688,105 @@ MESH_TEST_CASE(ui_capture_map_keeps_its_ink_off_the_chrome, unit) {
         record_success(test_name);
     }
 }
+
+/*
+ * A chart's line stays inside the plot, at both ends of its domain.
+ *
+ * The arithmetic that places a reading is a subtraction from the bottom of the box - a height on
+ * a panel whose origin is its top corner - and the way it goes wrong is at the ends: a reading at
+ * the top of its domain drawn without room for its own stroke paints half of that stroke above
+ * the plot, which on this screen is the app bar. It is the sparkline's `travel` one component
+ * along, with a pen twice as thick, and a chart's pen is thick enough for the spill to be
+ * several pixels rather than one.
+ *
+ * Checked the map's way: the same frame with the readings at the bottom of the domain and at the
+ * top of it, compared outside the body. The chrome cannot move between the two - the title says
+ * Airtime either way and the keycaps are the same three - so anything that differs there is ink
+ * that escaped.
+ */
+MESH_TEST_CASE(ui_capture_chart_keeps_its_ink_off_the_chrome, unit) {
+    struct mesh_ui_snapshot *snapshot = calloc(1U, sizeof *snapshot);
+    const char *failure = NULL;
+    if (snapshot == NULL) {
+        record_failure(test_name, "snapshot allocation failed");
+        return;
+    }
+
+    snapshot->nav.screen = MESH_UI_SCREEN_STATUS;
+    snapshot->nav.trend_open = true;
+    snapshot->handshake_valid = true;
+
+    const int scale = 4; /* what the Brick draws at, and what the bands below are true for */
+    const uint32_t top_band = 96U;
+    const uint32_t bottom_band = 56U;
+
+    struct mesh_ui_capture *capture = NULL;
+    uint8_t *reference = NULL;
+    size_t frame_bytes = 0U;
+    bool body_moved = false;
+
+    for (int pass = 0; pass < 2 && failure == NULL; ++pass) {
+        /* Flat on the floor of the domain, then flat against its ceiling. Six readings a minute
+           apart, so the line crosses the whole plot rather than sitting in a corner of it. */
+        const int32_t level = pass == 0 ? 0 : 1000;
+        mesh_ui_history_reset(&snapshot->history);
+        for (uint32_t i = 0U; i < 6U; ++i) {
+            mesh_ui_history_note_airtime(&snapshot->history, 60000U * (i + 1U), level, level);
+        }
+
+        if (mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, scale) !=
+            0) {
+            failure = "capture open failed";
+            break;
+        }
+        mesh_ui_capture_set_theme(capture, mesh_ui_theme_at(0));
+        mesh_ui_capture_set_scale(capture, scale);
+        uint32_t width = 0U, height = 0U;
+        size_t stride = 0U;
+        const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+        mesh_ui_capture_render(capture, snapshot);
+
+        if (pass == 0) {
+            frame_bytes = (size_t)height * stride;
+            free(reference);
+            reference = malloc(frame_bytes);
+            if (reference == NULL) {
+                failure = "frame allocation failed";
+            } else {
+                memcpy(reference, pixels, frame_bytes);
+            }
+        } else if (height > top_band + bottom_band) {
+            for (uint32_t y = 0; y < height && failure == NULL; ++y) {
+                const size_t offset = (size_t)y * stride;
+                if (y >= top_band && y < height - bottom_band) {
+                    /* The body, where the line is entitled to be - and where it had better have
+                       moved, or the comparison above is comparing two identical frames and would
+                       pass against a chart that drew nothing at all. */
+                    body_moved = body_moved || memcmp(reference + offset, pixels + offset,
+                                                      (size_t)width * 4U) != 0;
+                    continue;
+                }
+                if (memcmp(reference + offset, pixels + offset, (size_t)width * 4U) != 0) {
+                    failure = "a reading at the top of the domain put ink on the chrome";
+                }
+            }
+        }
+        mesh_ui_capture_close(capture);
+        capture = NULL;
+    }
+
+    if (failure == NULL && !body_moved) {
+        failure = "the two readings drew the same picture, so nothing was tested";
+    }
+
+    if (capture != NULL) {
+        mesh_ui_capture_close(capture);
+    }
+    free(reference);
+    free(snapshot);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}

@@ -13,6 +13,7 @@
 
 #include "mesh/geo/coords.h"
 #include "mesh/i18n/strings.h"
+#include "mesh/ui/duration.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/utils/text.h"
 #include "mesh/utils/time.h"
@@ -164,24 +165,6 @@ static void waypoint_display_name(const struct mesh_ui_waypoint *waypoint, char 
     mesh_str_copy(out, out_len,
                   waypoint->name[0] != '\0' ? waypoint->name
                                             : mesh_str(MESH_STR_WAYPOINTS_UNNAMED));
-}
-
-/* "4m ago", "3h ago" - the node detail's shorthand, so the two screens agree about ages. */
-static void waypoint_format_age(uint32_t stamp, uint32_t now, char *out, size_t out_len) {
-    if (stamp == 0U || now == 0U || stamp > now) {
-        snprintf(out, out_len, "%s", mesh_str(MESH_STR_COMMON_UNKNOWN_SHORT));
-        return;
-    }
-    const uint32_t seconds = now - stamp;
-    if (seconds < 60U) {
-        mesh_str_format(out, out_len, MESH_STR_TIME_AGO_SECONDS, seconds);
-    } else if (seconds < 3600U) {
-        mesh_str_format(out, out_len, MESH_STR_TIME_AGO_MINUTES, seconds / 60U);
-    } else if (seconds < 86400U) {
-        mesh_str_format(out, out_len, MESH_STR_TIME_AGO_HOURS, seconds / 3600U);
-    } else {
-        mesh_str_format(out, out_len, MESH_STR_TIME_AGO_DAYS, seconds / 86400U);
-    }
 }
 
 /* ---- the list -------------------------------------------------------------------------------- */
@@ -352,7 +335,7 @@ bool mesh_ui_waypoint_row(const struct mesh_ui_store *store, uint32_t index,
        makes for the same reason, and the same one mesh_time_wall_set_fixed() pins in a test. The
        credible one, because a Brick with no network boots into 1970 and every age measured
        against that comes out as decades; 0 yields "?", which is the honest answer. */
-    waypoint_format_age(waypoint->heard, mesh_time_wall_credible_s(), age, sizeof age);
+    mesh_ui_format_age(waypoint->heard, mesh_time_wall_credible_s(), age, sizeof age);
     mesh_str_format(out->shared, sizeof out->shared, MESH_STR_WAYPOINTS_ROW_SHARED, sharer, age);
     return true;
 }
@@ -479,7 +462,7 @@ static void waypoint_rows_shared(struct waypoint_rows *rows,
     waypoint_channel_name(handshake, waypoint->channel, value, sizeof value);
     rows_text(rows, MESH_STR_WAYPOINT_CHANNEL, value);
 
-    waypoint_format_age(waypoint->heard, now, value, sizeof value);
+    mesh_ui_format_age(waypoint->heard, now, value, sizeof value);
     rows_text(rows, MESH_STR_WAYPOINT_HEARD, value);
 
     if (waypoint->expire == 0U) {

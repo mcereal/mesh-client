@@ -98,6 +98,16 @@ static const struct mesh_ui_help_entry k_help_status[] = {
     {MESH_STR_HELP_LABEL_STATUS_COUNTS, MESH_STR_HELP_NOTE_STATUS_COUNTS},
 };
 
+/* The airtime chart, whose two paragraphs are both about reading a picture rather than about
+   working a screen - which is why it is a feature of its own rather than the Status tab's help
+   one level in. What a reader arrives wanting to know here is what the axes mean, and the cards
+   underneath have no axes. */
+static const struct mesh_ui_help_entry k_help_trend[] = {
+    {MESH_STR_NONE, MESH_STR_HELP_NOTE_TREND},
+    {MESH_STR_HELP_LABEL_TREND_AXES, MESH_STR_HELP_NOTE_TREND_AXES},
+    {MESH_STR_HELP_LABEL_TREND_MARKS, MESH_STR_HELP_NOTE_TREND_MARKS},
+};
+
 struct help_feature {
     uint8_t screen; /* enum mesh_ui_screen */
     uint8_t level;  /* enum mesh_ui_route_level */
@@ -133,6 +143,8 @@ static const struct help_feature k_help_features[] = {
                  k_help_waypoints),
     HELP_FEATURE(MESH_UI_SCREEN_DEVICES, MESH_UI_ROUTE_LIST, MESH_STR_TAB_DEVICES, k_help_devices),
     HELP_FEATURE(MESH_UI_SCREEN_STATUS, MESH_UI_ROUTE_LIST, MESH_STR_TAB_STATUS, k_help_status),
+    HELP_FEATURE(MESH_UI_SCREEN_STATUS, MESH_UI_ROUTE_TREND, MESH_STR_HELP_SUBJECT_TREND,
+                 k_help_trend),
 };
 
 #undef HELP_FEATURE
