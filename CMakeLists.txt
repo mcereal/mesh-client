@@ -64,6 +64,7 @@ add_library(meshclient_core
     src/core/session.c
     src/core/signals.c
     src/core/store_forward.c
+    src/core/uf2.c
     src/core/updater.c
     src/core/version.c
     src/transport/transport_registry.c
@@ -84,6 +85,7 @@ add_library(meshclient_core
     src/utils/sha256.c
     src/utils/text.c
     src/utils/time.c
+    src/utils/zip.c
     src/ui/actions.c
     src/ui/chrome.c
     src/ui/help.c
