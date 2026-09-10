@@ -4,10 +4,15 @@ Status: **steps 1 and 2 of the delivery sequence have shipped** - the geography 
 complete and there is a marker map on the device, with no basemap under it, and it now draws
 every positioned node the session holds rather than the 128 the node list publishes. See
 §"What steps 1 and 2 became" for what landed and what it deliberately did not, and
-§"The roster decision, taken" for the one open decision that has since been closed. Steps 3 to 5 -
-the offline raster spike, the offline release and the optional extensions - are still proposed,
-based on the repository inspected on 2026-09-07, and no device benchmarks accompany them. The
-**pre-work in §"Pre-work that matters" shipped first**, on its own and ahead of any map.
+§"The roster decision, taken" for the one open decision that has since been closed. Steps 3 to 6
+- the offline raster spike, the offline release, downloading a pack on the device and the
+optional extensions - are still proposed, based on the repository inspected on 2026-09-07, and
+no device benchmarks accompany them. The **pre-work in §"Pre-work that matters" shipped first**,
+on its own and ahead of any map.
+
+§"How a pack gets onto the device" (2026-09-10) corrects a premise that ran through the original
+assessment - that the Brick has no network - and re-sequences the delivery steps around the
+correction. It is the section to read before acting on any statement about "offline" below.
 
 ## Recommended first release
 
@@ -15,6 +20,11 @@ Build an offline, north-up raster map showing the client's known node locations.
 button-driven pan, integer zoom, centering on the connected radio or a selected node, and
 opening node details. Keep markers useful when no basemap covers the viewport. Prepare and
 sideload a small regional map pack on a host computer before adding downloads on the Brick.
+
+"Offline" here means the map must be *usable* with no network, which is nearly all of the time
+it is read - not that the Brick has none. It has WiFi, and this client already downloads over
+it. Sideload-first is a sequencing choice and a consequence of not hosting a tile service, not
+a property of the hardware; see §"How a pack gets onto the device".
 
 This fits the existing C17, software-framebuffer architecture. Vector maps would add geometry
 decoding, styling, label placement and font concerns; defer that work until a concrete need
@@ -316,12 +326,106 @@ Start offline. OSM's standard public raster server explicitly prohibits bulk dow
 offline packs; use self-rendered tiles or a source permitting the intended offline distribution.
 Keep visible attribution in the map layout. See the
 [OSMF tile policy](https://operations.osmfoundation.org/policies/tiles/), checked 2026-09-07.
-Provider choice and permitted regional coverage remain open decisions.
+Provider choice and permitted regional coverage remain open decisions - see §"How a pack gets
+onto the device", which revises what "start offline" was resting on.
 
 If online tiles follow, add bounded requests, cancellation, timeout/backoff, cache validation,
 disk quotas and atomic writes. Reuse/extract the updater's process and certificate mechanics
 where appropriate, not its release-download state machine. Tile HTTP is a map source, not a
 Meshtastic radio transport. Disconnection must leave cached maps and markers usable.
+
+## How a pack gets onto the device
+
+> **Revised 2026-09-10**, and the paragraph above is what it revises. "Start offline" was
+> written as though the Brick had no network, which is wrong: the correction and what it does
+> and does not change are below.
+
+**The Brick has WiFi, and this client already uses it.** [`docs/device.md`](device.md) opens on
+getting a Brick to "receives builds over WiFi"; [`src/core/updater.c`](../src/core/updater.c)
+forks curl and ships its own CA bundle, because the Brick has no system CA store - no
+`/etc/ssl` at all. Every install from the Pak Store is a download. So nothing about this
+hardware forces a pack to arrive on an SD card.
+
+**What is true is that the Brick is offline nearly all the time it is being used**, which is a
+different and more useful statement. It is on a network at moments the reader chooses - at
+home, at the hotel, before setting out - and off it for the whole of the time the map matters,
+because a mesh is what you carry where there is no other network. That asymmetry says exactly
+when a download may happen: **never while the map is being read**, and always at a moment the
+reader picked. It is a weaker constraint than "no network ever" and a sharper one, because it
+rules out on-demand tile fetching as a *strategy* while leaving downloading as a *feature*.
+
+### Acquisition and rendering are separable, and the spike is about rendering
+
+Worth stating plainly, because this document ran the two together and so did the reasoning that
+put "online sources" under optional extensions.
+
+- **Rendering** is whether the Brick can read a tile off its storage and decode it fast enough
+  not to stall the event loop while BLE is being serviced. That is the whole of what step 3
+  asks, and **how the pack arrived does not change the answer** - a cold read plus decode costs
+  what it costs whether the bytes were copied over USB or fetched over WiFi.
+- **Acquisition** is how the pack gets there. It is a product question, it is where the
+  licensing lives, and it can be answered after step 3 without step 3 waiting on it.
+
+This also settles what "choose a first region" means for the spike, which the closing section
+overstates: for a *measurement* it is a test fixture, not a commitment. Any few square
+kilometres will do, including synthetic tiles. The region question only becomes a product
+decision at step 4.
+
+### Two acquisition shapes, and the target wants both
+
+Not alternatives. They are what a reader does at two different moments, and neither covers the
+other:
+
+1. **A region chosen ahead of time.** The Merlin Bird ID model: at the hotel, on WiFi, before
+   the trip, you fetch the pack for where you are going. This is the common case, because a
+   reader generally knows where they will be, and it is the one that can fetch a *large* area
+   while there is bandwidth and time to spare.
+2. **Download what is on screen.** The map already pans and zooms, so the viewport already
+   knows a bounding box and a zoom - `mesh_map_viewport_fit()` run backwards - and "get me
+   this" needs no region list, no place-name search and no keyboard. It is the answer when the
+   plan changed and there is still a network.
+
+The first needs a way to *name* a region without a map of the world to point at, which is a real
+UI problem on a d-pad - a list of pre-cut packs is the cheap answer and a coarse world map you
+pan is the better one. The second has no such problem and is nearly free given the map that
+exists. Neither is a reason to drop the other.
+
+### The constraint that gates this: no self-hosted tile service
+
+**As of 2026-09-10 the project is not committing to running a map download service.** This is a
+stated project constraint rather than a technical finding, and it is revisable - but until it
+changes, it decides what an in-app downloader can be.
+
+What it does **not** block: the step 3 spike (no source needed - synthetic or self-rendered
+tiles answer the measurement), and the step 4 sideload path (the reader builds or fetches a pack
+on a computer, so the project hosts nothing).
+
+What it does block is the in-app downloader, which has to download *from somewhere*. The options
+and what each costs:
+
+| Source | What it needs | Why it is awkward here |
+| --- | --- | --- |
+| OSM's public raster server | Nothing | Explicitly prohibited for this use; not an option |
+| A commercial provider (API key) | A key shipped in the pak | The pak is open source. A key in it is a key anyone can extract and spend, and the quota is the project's |
+| A provider, reader-supplied key | A settings field | A URL template plus a key runs right at `MESH_UI_SETTING_TEXT_MAX`, which is 80, so it may not even fit - and a d-pad keyboard is not a way to enter one either. A reader who must drop a config file on the SD card could have dropped the pack there instead |
+| Self-hosted | A service, and a bill | Ruled out for now |
+
+The middle rows are why the sideload path stays the honest first release: **an in-app downloader
+is only clearly better than sideloading when it needs no secret from the reader.** That is the
+condition to test a source against, and it is a sharper filter than "does the licence permit
+offline use".
+
+One format is worth evaluating specifically because it narrows the hosting question rather than
+answering it: a **single-file tile archive read over HTTP range requests**
+([PMTiles](https://docs.protomaps.com/pmtiles/) is the current one; MBTiles is its SQLite-shaped
+predecessor and is not designed to be read that way). It turns "run a tile server" into "put a file
+on static storage", which is a much smaller commitment than a service - and the *same file* is
+what a reader would sideload, so the two acquisition paths share a format instead of each having
+one. It is still a file somebody hosts, so it does not make the constraint above go away.
+
+Attribution is required on the map layout whichever path a pack arrives by, and the metadata a
+pack carries - source, attribution, coverage, supported zooms, generation date - is what makes
+that drawable.
 
 ## Delivery sequence and acceptance
 
@@ -338,9 +442,17 @@ Meshtastic radio transport. Disconnection must leave cached maps and markers usa
 4. **Offline release.** Pack validation/import instructions, loading/missing/corrupt tile states,
    bounded cache, stale/approximate markers, label prioritization, scale and attribution.
    Include cache/source changes in repaint invalidation and deterministic capture tests.
-5. **Optional extensions.** Online sources, saved areas, trails and neighbor edges
-   can follow independently. Neighbor links express reported connectivity, not radio range;
-   neither traceroutes nor neighbor reports provide route navigation.
+   Sideload is the delivery path here, and remains so while §"How a pack gets onto the device"
+   rules out hosting a service - not because the hardware requires it.
+5. **Downloading a pack on the device.** Promoted out of "optional extensions", where it sat on
+   the mistaken premise that the Brick had no network. Both shapes: a region chosen ahead of
+   time, and the area currently on screen. Bounded requests, cancellation, timeout/backoff,
+   disk quotas, atomic writes, and resumption - a regional pack is thousands of requests and a
+   reader will walk away mid-download. **Gated on a source that needs no secret from the
+   reader**, which is the filter, not the licence alone.
+6. **Optional extensions.** Saved areas, trails and neighbor edges can follow independently.
+   Neighbor links express reported connectivity, not radio range; neither traceroutes nor
+   neighbor reports provide route navigation.
 
 Suggested controls for the initial nested map view: D-pad pans, X/Y zoom, A opens the selected
 marker, B returns, Select recenters, shoulders cycle visible markers. Route these before the
@@ -363,14 +475,22 @@ Planning estimate for one developer familiar with this tree: 2–4 focused days 
 foundation, 3–5 for an interactive marker view, 5–10 for offline tile integration, and 3–5 for
 pack workflow and device hardening: roughly 3–5 working weeks for a usable offline release.
 These are estimates, not measured commitments; storage/decode latency and source preparation
-are the largest unknowns. A marker-only milestone can land substantially earlier.
+are the largest unknowns. They do not cover step 5, which was an optional extension when they
+were written. A marker-only milestone can land substantially earlier.
 
 Steps 1 and 2 have shipped; see §"What steps 1 and 2 became". **Recommended next implementation
-is the offline raster spike (step 3)**, and the two decisions it is blocked on are unchanged:
-choose a first region and useful zoom range, and choose a tile source with suitable offline
-rights. Neither needs a provider account to begin measuring - a self-rendered pack of a few
-square kilometres is enough to answer the question step 3 actually asks, which is what a cold
-read plus decode costs on the Brick’s storage while BLE is being serviced.
+is the offline raster spike (step 3), and it is no longer blocked on anything.** This section
+used to name two decisions it waited on - a first region and zoom range, and a tile source with
+offline rights - and §"How a pack gets onto the device" retires both as blockers: for a
+*measurement* a region is a test fixture rather than a commitment, and a source is an
+*acquisition* question that step 3 does not touch. Synthetic tiles, or a self-rendered pack of a
+few square kilometres, answer what step 3 actually asks: what a cold read plus decode costs on
+the Brick’s storage while BLE is being serviced. That number decides whether raster is viable
+here at all, and nothing else should be built before it is known.
+
+The source decision does not disappear, it moves: it gates **step 5**, the on-device download,
+and the filter to judge a candidate by is sharper than a licence - see the table in §"How a
+pack gets onto the device".
 
 The decision carried over from the fourth pre-work item - whether the map sees everything the
 session holds - **has been taken**; see §"The roster decision, taken". Two smaller things came
