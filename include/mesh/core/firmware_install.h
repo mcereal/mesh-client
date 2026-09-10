@@ -19,9 +19,17 @@
  *               a second later. Watching for what enumerated rather than counting seconds, so a
  *               board that needs a double-tap by hand is the same path with a slower clock.
  *   writing     the blocks, through a forked child, at about 113 KB/s.
- *   restarting  the bootloader going away again, which is it saying it had every block it was
- *               promised. A board still sitting there after the last byte is a failure with its
- *               own name, because the recovery for it is the same write once more.
+ *   restarting  the bootloader going away again *and a radio answering where it was*, which
+ *               together are it saying it had every block it was promised. A board still
+ *               sitting there after the last byte is a failure with its own name, because the
+ *               recovery for it is the same write once more; a bus with nothing on it is a
+ *               different one, because a pulled cable ends the same way and reporting it as
+ *               done would be this path's one available lie.
+ *
+ * The write ending early is not one of the failures. A bootloader that has been given the
+ * blocks it was missing resets in the middle of the file - which is what the write *after* an
+ * interrupted one looks like every time - so a drive that goes away mid-write is read the same
+ * way as one that goes away at the end of it.
  *
  * **This does not go through mesh_session.** A bootloader is not a Meshtastic node: it speaks no
  * protobuf, has no node number and will never answer a handshake. The one thing that does need
@@ -86,6 +94,11 @@ enum mesh_firmware_install_error {
     /* Every block went out and the board is still sitting in its bootloader, which means it
        never counted `numBlocks` of them. Same recovery. */
     MESH_FIRMWARE_INSTALL_ERROR_NO_RESTART,
+    /* The bootloader went away and nothing came back on its port. A pulled cable is the
+       ordinary cause and the board is in its bootloader wherever it is now, so the recovery is
+       to plug it in and write again; a board that reset into something that does not enumerate
+       is the other reading, and it needs the reset button. */
+    MESH_FIRMWARE_INSTALL_ERROR_NO_RADIO,
     MESH_FIRMWARE_INSTALL_ERROR_COUNT,
 };
 
