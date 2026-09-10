@@ -181,12 +181,60 @@ static const char *fb_chip_strip_label(const struct fb_chip *chip, size_t index,
     return "";
 }
 
+/*
+ * What a chip's badge takes, at this label setting - see struct fb_chip for why the setting is
+ * what decides its shape. Zero when there is nothing waiting, so an unbadged strip measures and
+ * draws exactly as it did before badges existed.
+ */
+static int fb_chip_badge_width(const struct mesh_ui_backend_fb_state *state, const char *badge,
+                               enum fb_chip_labels labels, int scale) {
+    if (badge == NULL || badge[0] == '\0') {
+        return 0;
+    }
+    return labels == FB_CHIP_LABELS_NONE ? fb_char_adv(state, scale)
+                                         : fb_badge_width(state, badge, scale);
+}
+
+/*
+ * Draws it against the chip's trailing edge, in the space fb_chip_badge_width() reserved.
+ *
+ * Beside the pill rather than inside it, which is both what Material's navigation bar does and
+ * the only placement that stays honest here: fb_draw_button() centres its content in the box it
+ * is given, so a pill widened to swallow a badge would slide its own icon and label sideways by
+ * half the badge - and on the active tab, the one wearing a fill, the words would run under the
+ * capsule at the wider glyph scales.
+ */
+static void fb_draw_chip_badge(const struct mesh_ui_backend_fb_state *state, int x, int y,
+                               const char *badge, enum fb_chip_labels labels, int scale) {
+    const int width = fb_chip_badge_width(state, badge, labels, scale);
+    if (width <= 0) {
+        return;
+    }
+    /* The chip's own box, as fb_draw_chip() derives it. */
+    const int top = y - scale;
+    const int height = fb_line_adv(state, scale);
+
+    if (labels == FB_CHIP_LABELS_NONE) {
+        const int size = width / 2 > 0 ? width / 2 : 1;
+        const struct mesh_ui_paint paint =
+            fb_paint(state, MESH_UI_FAMILY_PRIMARY, MESH_UI_SLOT_BASE, MESH_UI_STATE_REST);
+        fb_fill_round_rect(state, x + (width - size) / 2, top + (height - size) / 2, size, size,
+                           fb_radius(state, MESH_UI_SHAPE_FULL), paint.fill);
+        return;
+    }
+
+    const struct fb_rect box = {.x = x, .y = top, .w = width, .h = height};
+    const int text_h = (int)fb_font(state)->height * scale;
+    fb_draw_badge(state, &box, top + (height - text_h) / 2, badge, MESH_UI_FAMILY_PRIMARY, scale);
+}
+
 int fb_chip_strip_width(const struct mesh_ui_backend_fb_state *state, const struct fb_chip *chips,
                         size_t count, size_t active, enum fb_chip_labels labels, int scale) {
     int width = 0;
     for (size_t i = 0; i < count; ++i) {
         width += fb_chip_width(state, chips[i].icon,
                                fb_chip_strip_label(&chips[i], i, active, labels), scale);
+        width += fb_chip_badge_width(state, chips[i].badge, labels, scale);
     }
     return width;
 }
@@ -207,9 +255,21 @@ int fb_draw_chip_strip(const struct mesh_ui_backend_fb_state *state, int x, int 
                        enum mesh_ui_color ground, int scale) {
     const enum fb_chip_labels labels = fb_chip_strip_fit(state, chips, count, active, room, scale);
     for (size_t i = 0; i < count; ++i) {
-        x = fb_draw_chip(state, x, y, chips[i].icon,
-                         fb_chip_strip_label(&chips[i], i, active, labels), i == active, ground,
-                         scale);
+        /*
+         * The badge goes in the gap fb_draw_chip() already leaves after the pill, and the chip
+         * that carries one is that much wider. Measured and drawn by the same two calls in the
+         * same order as the width above, because a strip that measures itself differently from
+         * the way it draws is a strip whose last tab falls off the panel.
+         */
+        const int after = fb_draw_chip(state, x, y, chips[i].icon,
+                                       fb_chip_strip_label(&chips[i], i, active, labels),
+                                       i == active, ground, scale);
+        const int badge = fb_chip_badge_width(state, chips[i].badge, labels, scale);
+        if (badge > 0) {
+            fb_draw_chip_badge(state, after - fb_char_adv(state, scale), y, chips[i].badge, labels,
+                               scale);
+        }
+        x = after + badge;
     }
     return x;
 }
@@ -1707,6 +1767,15 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
 void fb_draw_conversation(struct mesh_ui_backend_fb_state *state, struct fb_list *list,
                           uint32_t index, const struct fb_conversation *conversation) {
     fb_list_rail(state, list);
+    /*
+     * Unread, and allowed to say so.
+     *
+     * The two emphases a new message earns - the preview at full weight, and the row refusing
+     * to stay quiet under the cursor - are exactly what a mute is asking this row to stop
+     * doing, so they are decided together here rather than by the caller passing `unread`
+     * false. The count itself is untouched: it goes on drawing, one family quieter.
+     */
+    const bool emphasis = conversation->unread && !conversation->muted;
     struct mesh_ui_line preview;
     mesh_ui_line_reset(&preview);
     if (conversation->armed) {
@@ -1735,6 +1804,11 @@ void fb_draw_conversation(struct mesh_ui_backend_fb_state *state, struct fb_list
             },
         .text = conversation->name,
         .tone = conversation->name_tone,
+        /* The bell with a stroke through it, in the gutter the pinned star uses. The slot is
+           reserved on every row and not only on the muted ones, because a list that indents
+           only some of its rows is a list whose names start in two columns. */
+        .marker_icon = conversation->muted ? MESH_UI_ICON_MUTED : MESH_UI_ICON_NONE,
+        .marker_slot = true,
         /* The age sits against the right edge, quietly, the way a messenger dates a
            conversation - a fact you glance at, not one you read. */
         .trailing = {.kind = FB_TRAILING_TEXT, .text = conversation->age},
@@ -1748,11 +1822,17 @@ void fb_draw_conversation(struct mesh_ui_backend_fb_state *state, struct fb_list
         /* An unread preview is the row's own words at full weight - never the name's tone,
            which says what kind of conversation this is rather than how much of it is new. The
            half that still reads once the badge has been marked away. */
-        .supporting_tone = conversation->armed    ? MESH_UI_TONE_ERROR
-                           : conversation->unread ? MESH_UI_TONE_STRONG
-                                                  : MESH_UI_TONE_DIM,
-        .supporting_quiet = !conversation->armed && !conversation->unread,
-        .supporting_trailing = {.kind = FB_TRAILING_BADGE, .text = conversation->badge},
+        .supporting_tone = conversation->armed ? MESH_UI_TONE_ERROR
+                           : emphasis          ? MESH_UI_TONE_STRONG
+                                               : MESH_UI_TONE_DIM,
+        .supporting_quiet = !conversation->armed && !emphasis,
+        /* Secondary rather than the accent on a muted row - see struct fb_conversation. The
+           capsule is still there and still counts; it just stops being the loudest thing on
+           the screen, which is the whole of what the user asked for. */
+        .supporting_trailing = {.kind = FB_TRAILING_BADGE,
+                                .family = conversation->muted ? MESH_UI_FAMILY_SECONDARY
+                                                              : MESH_UI_FAMILY_PRIMARY,
+                                .text = conversation->badge},
         .accent_edge = true,
         .divider = true,
     };
@@ -2021,7 +2101,8 @@ uint32_t fb_bubble_rows(const struct mesh_ui_backend_fb_state *state,
     return fb_bubble_measure(state, layout, bubble).rows;
 }
 
-void fb_draw_separator(const struct mesh_ui_backend_fb_state *state, int y, const char *label) {
+void fb_draw_separator(const struct mesh_ui_backend_fb_state *state, int y, const char *label,
+                       enum mesh_ui_tone tone) {
     const int adv = fb_char_adv(state, state->scale);
     const int rule_y = y + ((int)fb_font(state)->height * state->scale) / 2;
     const int left = fb_margin(state);
@@ -2038,7 +2119,7 @@ void fb_draw_separator(const struct mesh_ui_backend_fb_state *state, int y, cons
     fb_draw_rule(state, left, rule_y, x - left - adv, state->scale, MESH_UI_COLOR_RULE);
     fb_draw_rule(state, x + width + adv, rule_y, right - (x + width + adv), state->scale,
                  MESH_UI_COLOR_RULE);
-    fb_draw_text(state, x, y, label, state->scale, fb_tone_color(state, MESH_UI_TONE_DIM),
+    fb_draw_text(state, x, y, label, state->scale, fb_tone_color(state, tone),
                  fb_color(state, MESH_UI_COLOR_BG));
 }
 
@@ -2064,7 +2145,7 @@ void fb_draw_bubble(const struct mesh_ui_backend_fb_state *state, const struct f
     const size_t max = fb_bubble_max_cols(state, layout);
 
     if (fb_bubble_has(bubble->separator)) {
-        fb_draw_separator(state, y, bubble->separator);
+        fb_draw_separator(state, y, bubble->separator, bubble->separator_tone);
         y += layout->line;
     }
 

@@ -150,6 +150,10 @@ MESH_STR_ENTRY(ACTION_WRITE,              "write")
 /* Put an emoji on the message under the cursor - a tapback, not a message of its own. Every
    messenger has a word for this one and it is rarely "react"; use the one yours uses. */
 MESH_STR_ENTRY(ACTION_REACT,              "react")
+/* Stop a conversation interrupting: no badge on the tab, no notice over whatever the user is
+   doing. Its messages still arrive and its thread still fills, so this is not "block". */
+MESH_STR_ENTRY(ACTION_MUTE,               "mute")
+MESH_STR_ENTRY(ACTION_UNMUTE,             "unmute")
 /* Start a conversation with somebody there is no thread for yet. */
 MESH_STR_ENTRY(ACTION_NEW,                "new")
 /* Keep this node at the top of the list. The star beside a pinned row is the same fact. */
@@ -237,6 +241,9 @@ MESH_STR_ENTRY(THREAD_TITLE,              "%s  %s")
 MESH_STR_ENTRY(THREAD_TITLE_OLDER,        "%s  %s  (+%u older)")
 MESH_STR_ENTRY(THREAD_KIND_CHANNEL,       "channel")
 MESH_STR_ENTRY(THREAD_KIND_DIRECT,        "direct")
+/* The line across the transcript where the reader stopped last time, drawn in the same slot the
+   day separators use. Short: it shares a body row with a hairline either side of it. */
+MESH_STR_ENTRY(THREAD_UNREAD_FROM_HERE,   "New")
 
 /* A message bubble's own header line. SENT is what one of ours says instead of a name. */
 MESH_STR_ENTRY(BUBBLE_SENT,               "sent")
@@ -1069,9 +1076,11 @@ MESH_STR_ENTRY(HELP_SUBJECT_MAP,          "Map")
 /* Messages: the conversation list. */
 MESH_STR_ENTRY(HELP_LABEL_MESSAGES_NEW,   "Starting a conversation")
 MESH_STR_ENTRY(HELP_LABEL_MESSAGES_DROP,  "Deleting one")
+MESH_STR_ENTRY(HELP_LABEL_MESSAGES_MUTE,  "Muting one")
 MESH_STR_ENTRY(HELP_NOTE_MESSAGES,        "Every conversation this client has heard, newest first: one node you have exchanged messages with, or one channel. The top row carries all traffic at once.")
 MESH_STR_ENTRY(HELP_NOTE_MESSAGES_NEW,    "Y asks who to write to and opens the keyboard on the conversation you pick. A conversation appears here on its own as soon as anything arrives in it.")
 MESH_STR_ENTRY(HELP_NOTE_MESSAGES_DROP,   "X twice drops a conversation from this client. It removes nothing from the mesh and nothing from the radio, and anything new in it starts the conversation again.")
+MESH_STR_ENTRY(HELP_NOTE_MESSAGES_MUTE,   "START stops a conversation interrupting you: no count on the Messages tab, no notice over what you are doing. Its messages still arrive and the row still counts them. A node the radio mutes is too.")
 
 /* Messages: one transcript. */
 MESH_STR_ENTRY(HELP_LABEL_THREAD_MARKS,   "The mark on a message")
@@ -1939,6 +1948,13 @@ MESH_STR_ENTRY(TOAST_MUTE_REQUESTED,      "Mute already requested")
 MESH_STR_ENTRY(TOAST_MUTED,               "Muted %.20s")
 MESH_STR_ENTRY(TOAST_UNMUTED,             "Unmuted %.20s")
 MESH_STR_ENTRY(TOAST_MUTE_FAILED,         "Mute failed (%d)")
+/* Muting a *conversation*, which is this client's own doing and not the radio's - hence a
+   different sentence from the two above, so a reader can tell which of the two they just did.
+   The third is the press that cannot do its job: the radio is already muting that node, so
+   there is nothing a local unmute could change, and the row says which one is in force. */
+MESH_STR_ENTRY(TOAST_CONVO_MUTED,         "Muted %.20s; it will not interrupt")
+MESH_STR_ENTRY(TOAST_CONVO_UNMUTED,       "Unmuted %.20s")
+MESH_STR_ENTRY(TOAST_CONVO_MUTED_ON_RADIO, "%.20s is muted on the radio")
 /* Removing a node from the radio's database. It comes back the moment it transmits again. */
 MESH_STR_ENTRY(TOAST_REMOVED_NODE,        "Removed %.14s; back when it speaks")
 MESH_STR_ENTRY(TOAST_REMOVE_SELF,         "That is the radio you are connected to")
@@ -2007,6 +2023,10 @@ MESH_STR_ENTRY(TOAST_LINK_LOST,           "Radio link lost; reconnecting")
 /* An alert message, which the firmware raises for something worth interrupting for. The text
    of the alert follows the colon. */
 MESH_STR_ENTRY(TOAST_ALERT_FROM,          "Alert from %.16s: ")
+/* A direct message arriving while the reader is somewhere else. The message itself follows the
+   colon, exactly as an alert's text does. Only the sender's name here: a broadcast raises
+   nothing, so there is no channel to name. */
+MESH_STR_ENTRY(TOAST_MESSAGE_FROM,        "%.16s: ")
 MESH_STR_ENTRY(TOAST_NODES_OFF_RADIO,     "%u nodes now off radio; forget them in Settings")
 
 /* ---- self-update -------------------------------------------------------------------------------- */

@@ -53,6 +53,9 @@
  *                          no longer carries - what a NodeDB reset leaves behind
  *   pin NAME               pin that node, which is what X on the Nodes tab does on a device -
  *                          the star in a row's marker gutter
+ *   mute NAME|#CHANNEL     mute that conversation, which is what START on the Messages list
+ *                          does on a device - the crossed bell in the marker gutter, the badge
+ *                          one family quieter, and the count gone from the Messages tab
  *
  * Every command but the setup four emits one frame (`key ... 3` emits three), and the screen
  * the script starts on is emitted before any of them.
@@ -1195,6 +1198,52 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
        a mesh_ui_action and the store stops there, so the press this harness can make does not
        reach the flag. Without it the marker gutter's star has nothing to draw and the one row
        shape that carries it cannot be looked at. */
+    /*
+     * What START on the conversation list does on a device.
+     *
+     * A verb rather than a press, for the reason the header gives about actions: the harness
+     * cannot act on a `mesh_ui_action`, and muting is one - the nav is handed a const store, so
+     * the press asks the app and the app is what writes. This is the app's half, and without it
+     * a muted row is unfilmable, which for a UI change is another way of saying unreviewable.
+     */
+    if (strcmp(command, "mute") == 0) {
+        char *name = uicap_word(&rest);
+        if (name == NULL) {
+            fprintf(stderr, "uicap: line %u: 'mute' needs a short name or #channel\n", line_number);
+            exit(1);
+        }
+        uicap_start(cap);
+        const struct mesh_ui_handshake_state *handshake = &cap->store.handshake;
+        bool matched = false;
+        if (name[0] == '#') {
+            for (uint32_t i = 0; i < handshake->channel_count && i < MESH_UI_MAX_CHANNELS; ++i) {
+                if (strcmp(handshake->channels[i].name, name + 1) == 0) {
+                    matched = mesh_ui_store_set_conversation_mute(
+                        &cap->store, (uint8_t)MESH_UI_CONVERSATION_CHANNEL,
+                        MESH_MESSAGE_BROADCAST_ADDR, handshake->channels[i].index, true);
+                    break;
+                }
+            }
+        } else {
+            for (uint32_t i = 0; i < handshake->node_count && i < MESH_UI_MAX_HANDSHAKE_NODES;
+                 ++i) {
+                if (strcmp(handshake->nodes[i].short_name, name) == 0) {
+                    matched = mesh_ui_store_set_conversation_mute(
+                        &cap->store, (uint8_t)MESH_UI_CONVERSATION_DIRECT,
+                        handshake->nodes[i].node_id, 0U, true);
+                    break;
+                }
+            }
+        }
+        if (!matched) {
+            fprintf(stderr, "uicap: line %u: no conversation in the scene called '%s'\n",
+                    line_number, name);
+            exit(1);
+        }
+        uicap_emit(cap);
+        return;
+    }
+
     if (strcmp(command, "pin") == 0) {
         char *name = uicap_word(&rest);
         if (name == NULL) {

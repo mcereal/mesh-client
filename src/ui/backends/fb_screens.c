@@ -39,22 +39,6 @@
 #include <string.h>
 #include <time.h>
 
-void fb_store_view(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_store *view) {
-    memset(view, 0, sizeof *view);
-    memcpy(view->devices, snapshot->devices, sizeof view->devices);
-    view->device_count = snapshot->device_count;
-    view->handshake = snapshot->handshake;
-    view->handshake_valid = snapshot->handshake_valid;
-    view->messages = snapshot->messages;
-    view->waypoints = snapshot->waypoints;
-    view->read_state = snapshot->read_state;
-    /* The radio's display units, which is what a waypoint's range is stated in. `nav` stays
-       zeroed: nothing that takes a store reads it, and the screens that need one are handed it
-       separately - a view that carried it would be a second copy of the cursor. */
-    view->settings = snapshot->settings;
-    view->event_fd = -1;
-}
-
 /* What to call it: the advertised name when it has one, otherwise whatever we addressed it by. */
 static const char *fb_device_label(const struct mesh_ui_device *device) {
     return device->name[0] != '\0' ? device->name : device->identifier;
@@ -98,12 +82,48 @@ static enum mesh_ui_icon fb_screen_icon(enum mesh_ui_screen screen) {
 
 /* One chip per screen, in tab order. Static because the set never changes and the strip only
    reads it; what moves is which index is active. */
-static const struct fb_chip *fb_tab_chips(void) {
+/*
+ * The tab strip, and the one number on it that is about a screen the user is not looking at.
+ *
+ * It used to be a function of the screen enum alone, which is why an arriving message was
+ * invisible from every tab but Messages: the conversation list badged its own rows, and nothing
+ * carried that off the screen. The badge is the navigation bar doing what a navigation bar is
+ * for - saying which of the places you are not is worth going to.
+ *
+ * Only the Messages tab has one, and that is not a simplification waiting to be generalised. A
+ * badge has to be *clearable by going there*, exactly as a banner has to be able to resolve:
+ * unread messages are, because opening the conversation marks them read. A count of nodes or of
+ * waypoints would be a number that never went down however often it was looked at.
+ *
+ * The count is mesh_ui_nav_unread_total(), so a muted conversation contributes nothing to it -
+ * see the note there for why a permanently badged tab is the same as an unbadged one.
+ */
+static const struct fb_chip *fb_tab_chips(const struct mesh_ui_snapshot *snapshot) {
     static struct fb_chip chips[MESH_UI_SCREEN_COUNT];
+    /* Static because the strip points at it for the length of the draw, and the frame is built
+       and drawn on one turn of the one loop this client has. The chips array above is static
+       for the same reason and has always been. */
+    static char unread[8];
+
+    struct mesh_ui_store view;
+    mesh_ui_store_view(snapshot, &view);
+    const uint32_t total = mesh_ui_nav_unread_total(&view);
+    unread[0] = '\0';
+    if (total > 0U) {
+        /* "99+" past two figures, which is the conversation row's rule and for the stronger
+           reason: this capsule is competing with five tabs for the width of the panel. */
+        if (total > 99U) {
+            snprintf(unread, sizeof unread, "%s", mesh_str(MESH_STR_MESSAGES_UNREAD_OVERFLOW));
+        } else {
+            snprintf(unread, sizeof unread, "%u", (unsigned)total);
+        }
+    }
+
     for (int i = 0; i < MESH_UI_SCREEN_COUNT; ++i) {
         const enum mesh_ui_screen screen = (enum mesh_ui_screen)i;
         chips[i].icon = fb_screen_icon(screen);
         chips[i].label = mesh_ui_screen_name(screen);
+        chips[i].badge = (screen == MESH_UI_SCREEN_MESSAGES) ? unread : "";
     }
     return chips;
 }
@@ -141,7 +161,7 @@ static void fb_render_conversations(struct mesh_ui_backend_fb_state *state,
                                     struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     struct mesh_ui_store view;
-    fb_store_view(snapshot, &view);
+    mesh_ui_store_view(snapshot, &view);
 
     const uint32_t count = mesh_ui_nav_conversation_count(&view);
     char title[96];
@@ -212,15 +232,16 @@ static void fb_render_conversations(struct mesh_ui_backend_fb_state *state,
             .preview_outbound = conversation.preview_outbound,
             .badge = badge,
             .unread = (conversation.unread > 0U),
+            .muted = conversation.muted,
             .armed = mesh_ui_nav_conversation_is_armed(nav, &conversation),
             /* All traffic is accented because it is a view rather than somebody; a channel
                used to be too, and no longer needs to be now that its avatar carries the tag.
                That frees the strong tone to mean what it means everywhere else on this
                screen: there is something here you have not read. */
-            .name_tone = is_new                                            ? MESH_UI_TONE_DIM
-                         : (conversation.kind == MESH_UI_CONVERSATION_ALL) ? MESH_UI_TONE_PRIMARY
-                         : (conversation.unread > 0U)                      ? MESH_UI_TONE_STRONG
-                                                                           : MESH_UI_TONE_NORMAL,
+            .name_tone = is_new                                              ? MESH_UI_TONE_DIM
+                         : (conversation.kind == MESH_UI_CONVERSATION_ALL)   ? MESH_UI_TONE_PRIMARY
+                         : (conversation.unread > 0U && !conversation.muted) ? MESH_UI_TONE_STRONG
+                                                                             : MESH_UI_TONE_NORMAL,
         };
         fb_draw_conversation(state, &list, i, &cell);
     }
@@ -266,6 +287,10 @@ struct fb_thread_cache {
     uint32_t count;
     bool inbox;
     uint32_t target_node;
+    /* Part of the key, because it decides which row carries the unread line and it can move
+       without a single message doing so: leaving a conversation and coming straight back is the
+       same log, the same indices and the same target with the line in a different place. */
+    uint32_t unread_from;
     const struct mesh_ui_theme *theme;
     const struct mesh_i18n_locale *locale;
     int scale;
@@ -483,6 +508,29 @@ static void fb_thread_row_build(const struct mesh_ui_snapshot *snapshot, const u
     } else if (fb_thread_elapsed(previous->rx_time, message->rx_time) >= FB_THREAD_GAP_SECONDS) {
         fb_format_clock(message->rx_time, row->separator, sizeof row->separator);
     }
+    row->bubble.separator_tone = MESH_UI_TONE_DIM;
+
+    /*
+     * And the line under where the reader stopped last time, which takes the slot from a date
+     * when both want it - see struct fb_bubble for why that is the right way round.
+     *
+     * "The first message after the marked one" is exactly "the message whose predecessor is the
+     * marked one", which is why this is a comparison against `previous` rather than a search:
+     * the transcript is in order, so the bubble that follows the last one read is the first one
+     * that was not. It needs the mark the *press* captured (nav.thread_unread_from) and not the
+     * store's own, which has already advanced to the newest message by the time a frame is
+     * built - see the field.
+     *
+     * `previous` being non-NULL is doing a second job: a conversation whose every message is
+     * new gets no line, because a divider hanging above the first bubble separates the
+     * transcript from nothing.
+     */
+    if (nav->thread_unread_from != 0U && previous != NULL &&
+        previous->packet_id == nav->thread_unread_from) {
+        mesh_str_copy(row->separator, sizeof row->separator,
+                      mesh_str(MESH_STR_THREAD_UNREAD_FROM_HERE));
+        row->bubble.separator_tone = MESH_UI_TONE_PRIMARY;
+    }
 
     /*
      * Who sent it, said once per run. In a direct conversation the title already answers it, so
@@ -617,7 +665,8 @@ static struct fb_thread_cache *fb_thread_cache_get(struct mesh_ui_backend_fb_sta
     }
     const bool changed =
         !cache->valid || cache->count != count || cache->inbox != snapshot->nav.inbox ||
-        cache->target_node != snapshot->nav.target_node || cache->theme != state->theme ||
+        cache->target_node != snapshot->nav.target_node ||
+        cache->unread_from != snapshot->nav.thread_unread_from || cache->theme != state->theme ||
         cache->locale != mesh_i18n_locale() || cache->scale != state->scale ||
         cache->cols != layout->cols || strcmp(cache->calendar, calendar) != 0 ||
         memcmp(cache->indices, indices, count * sizeof *indices) != 0 ||
@@ -628,6 +677,7 @@ static struct fb_thread_cache *fb_thread_cache_get(struct mesh_ui_backend_fb_sta
         cache->count = count;
         cache->inbox = snapshot->nav.inbox;
         cache->target_node = snapshot->nav.target_node;
+        cache->unread_from = snapshot->nav.thread_unread_from;
         cache->theme = state->theme;
         cache->locale = mesh_i18n_locale();
         cache->scale = state->scale;
@@ -1015,7 +1065,7 @@ static void fb_render_waypoints(struct mesh_ui_backend_fb_state *state,
     }
 
     struct mesh_ui_store view;
-    fb_store_view(snapshot, &view);
+    mesh_ui_store_view(snapshot, &view);
     const uint32_t count = mesh_ui_waypoint_count(&view);
     const uint32_t places = count > 0U ? count - 1U : 0U;
 
@@ -1128,7 +1178,7 @@ static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
     /* The discs come from the nav layer, which wants a store rather than the handshake alone -
        the same view the conversation list and the picker build, so all three ask one function. */
     struct mesh_ui_store view;
-    fb_store_view(snapshot, &view);
+    mesh_ui_store_view(snapshot, &view);
     /* One row for the map on the front of the list. The count is the same arithmetic
        mesh_ui_nav_row_count() does, and it is written out here rather than shared because the
        nav's answer already carries the empty-roster case this branch cannot reach. */
@@ -1388,7 +1438,7 @@ static void fb_render_picker(struct mesh_ui_backend_fb_state *state,
                              const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     struct mesh_ui_store view;
-    fb_store_view(snapshot, &view);
+    mesh_ui_store_view(snapshot, &view);
 
     const uint32_t count = mesh_ui_nav_picker_count(&view);
     char title[96];
@@ -2985,7 +3035,7 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
     layout.line = fb_line_adv(state, state->scale);
     layout.cols = fb_cols(state, state->scale);
 
-    fb_draw_nav_bar(state, &layout, fb_tab_chips(), MESH_UI_SCREEN_COUNT,
+    fb_draw_nav_bar(state, &layout, fb_tab_chips(snapshot), MESH_UI_SCREEN_COUNT,
                     (size_t)snapshot->nav.screen);
 
     /*

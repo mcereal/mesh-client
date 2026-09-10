@@ -47,6 +47,7 @@ static const struct mesh_ui_help_entry k_help_messages[] = {
     {MESH_STR_NONE, MESH_STR_HELP_NOTE_MESSAGES},
     {MESH_STR_HELP_LABEL_MESSAGES_NEW, MESH_STR_HELP_NOTE_MESSAGES_NEW},
     {MESH_STR_HELP_LABEL_MESSAGES_DROP, MESH_STR_HELP_NOTE_MESSAGES_DROP},
+    {MESH_STR_HELP_LABEL_MESSAGES_MUTE, MESH_STR_HELP_NOTE_MESSAGES_MUTE},
 };
 
 static const struct mesh_ui_help_entry k_help_thread[] = {

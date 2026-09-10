@@ -237,6 +237,23 @@ They belong in the conversation they were sent to, but not as ordinary messages,
   situation — and it is tracked by packet id rather than by a count, because the log merges a
   cached history back in at startup and a counter would re-fire the lot at the next launch.
 
+A **direct message** toasts too, on the same machinery and with three conditions of its own,
+because an ordinary message is worth less interruption than a critical alert and has to earn it:
+the conversation is not muted, the user is not already looking at it (the all-traffic view
+counts as looking at it), and it is not the first pass after a launch — the log is seeded from
+the cache before the first publish, so the newest direct message in it may be one the user was
+shown days ago, and the first pass adopts it silently. A broadcast raises nothing at all: a
+channel is a room full of people talking, and a notice per line would make the client unusable
+on any real mesh. That is the same line `ALERT_APP` and `DETECTION_SENSOR_APP` are split along.
+
+Notices **queue** rather than overwrite. There is one snackbar and it stands for four seconds, so
+two things happening at once used to mean the user saw the second — survivable while almost
+nothing raised a notice, and not once an arriving message could. Three wait at most; a full queue
+drops its *oldest waiting* entry, because a backlog is only worth keeping while it is still news
+and a burst whose tail was dropped would withhold what happened last. A repeat of what is already
+showing is dropped as well: two identical notices in a row are one notice standing for eight
+seconds.
+
 Nothing this client sends is ever an alert or a detection; there is no reason to originate one.
 
 #### Reactions are not messages

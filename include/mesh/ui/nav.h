@@ -66,6 +66,17 @@ enum mesh_ui_screen {
 /* nav.settings_channel when the Channels section shows its list rather than one channel. */
 #define MESH_UI_SETTINGS_NO_CHANNEL 0xFFU
 #define MESH_UI_NAV_TOAST_MAX 64U
+/*
+ * Notices waiting behind the one on screen.
+ *
+ * There is one snackbar and it stands for four seconds, so two things happening at once used to
+ * mean the second overwrote the first and the user saw one of them - which was survivable while
+ * almost nothing raised a notice, and stopped being so once an arriving message could. Three is
+ * twelve seconds of backlog at the far end: long enough that nothing in a burst is simply lost,
+ * short enough that a notice is still about something that just happened. A fourth would be
+ * telling the user about something sixteen seconds old.
+ */
+#define MESH_UI_NAV_TOAST_QUEUE 3U
 #define MESH_UI_CANNED_MAX 16U
 #define MESH_UI_CANNED_TEXT_MAX 64U
 /* Upstream Data.payload caps at 233 bytes; the draft and action text hold that plus a NUL. */
@@ -167,12 +178,35 @@ struct mesh_ui_nav {
     uint8_t messages_delete_kind; /* enum mesh_ui_conversation_kind */
     uint8_t messages_delete_channel;
     uint32_t messages_delete_node;
+    /*
+     * Where the reader had got to when they opened this thread: the packet id their read mark
+     * named, or 0 when there was nothing to remember. The transcript rules a line under it.
+     *
+     * Recorded by the press that opened the thread, for the reason a reply's target is - the
+     * store marks the open conversation read on the very next publish, so by the time a frame
+     * is drawn the mark itself says "all of it", and a divider derived from the live mark would
+     * sit under the newest bubble every time. This is the one copy of where the user *was*, and
+     * it deliberately does not move while they are in there: a message arriving into an open
+     * thread lands below the line rather than moving it.
+     */
+    uint32_t thread_unread_from;
     /* The open thread is the all-traffic one; meaningless unless thread_open. */
     bool inbox;
     char target_name[MESH_UI_NAV_TARGET_NAME_MAX];
     /* One-line transient notice ("Sent to ABCD", "Connecting..."); empty when none. */
     char toast[MESH_UI_NAV_TOAST_MAX];
     uint64_t toast_until_ms;
+    /*
+     * What is waiting to be said, oldest first. Undated by construction: a queued notice has
+     * not started standing yet, and it takes its deadline from the tick that promotes it - so
+     * the queue needs no clock and mesh_ui_nav_raise_toast()'s undated path costs nothing here.
+     *
+     * Full means the *oldest waiting* one goes, never the newest. A backlog is only worth
+     * keeping while it is still news, and a burst whose tail was dropped would show the user
+     * the three oldest things that happened and silently withhold what happened last.
+     */
+    char toast_queue[MESH_UI_NAV_TOAST_QUEUE][MESH_UI_NAV_TOAST_MAX];
+    uint8_t toast_queued;
     /* Filtered message count at the last clamp, so a cursor parked on the newest message
        follows new traffic instead of being left behind. */
     uint32_t messages_seen;
@@ -403,6 +437,18 @@ enum mesh_ui_action_type {
        back from the cache, and the store - and a delete that missed any of them would put the
        conversation back on the next publish. */
     MESH_UI_ACTION_DELETE_CONVERSATION,
+    /*
+     * Stops one conversation interrupting the user: `number` is the enum
+     * mesh_ui_conversation_kind, `dest` the peer for a direct one and `channel` the slot for a
+     * channel, exactly as the delete above names one.
+     *
+     * A bare toggle rather than a wanted state, for MESH_UI_ACTION_TOGGLE_MUTE's reason turned
+     * around: there the wire verb offers nothing else, and here the *store* is the only thing
+     * that knows the answer. The nav can see that a conversation is muted but not by which of
+     * the two halves - its own flag, or the radio's per-node one - so a wanted state read here
+     * would be the nav guessing at a question mesh_ui_store_conversation_muted() answers.
+     */
+    MESH_UI_ACTION_MUTE_CONVERSATION,
     /* About section: ask GitHub what the newest release is, and install the one a check
        found. Two actions rather than one because installing replaces the running binary. */
     MESH_UI_ACTION_CHECK_UPDATE,
@@ -548,8 +594,16 @@ struct mesh_ui_conversation {
     uint32_t message_count;
     bool preview_outbound;
     /* Inbound messages that arrived after this conversation was last read. The "All traffic"
-       row carries the total across every other row rather than a mark of its own. */
+       row carries the total across every other row rather than a mark of its own.
+     *
+     * Counted on a muted conversation exactly as on any other: the row still says how much has
+     * piled up, because muting a channel is asking not to be interrupted by it and not asking
+     * to be lied to about it. What a mute takes away is the *total* - see
+     * mesh_ui_nav_unread_total(), which is what the tab badge and the all-traffic row read. */
     uint32_t unread;
+    /* Whether this conversation may interrupt: mesh_ui_store_conversation_muted()'s answer,
+       carried on the row so the list can mark it and the action bar can name the press. */
+    bool muted;
 };
 
 /*
@@ -568,6 +622,12 @@ bool mesh_ui_nav_conversation_is_armed(const struct mesh_ui_nav *nav,
 
 /* Inbound messages across every channel and peer that have not been read. */
 uint32_t mesh_ui_nav_unread_total(const struct mesh_ui_store *store);
+
+/* START on a conversation row: ask the app to flip its mute. Neither "All traffic" nor "New
+   message" is a conversation, so the press does nothing on either. Returns true when the frame
+   changed - which it does not here, because what changes is the app's to publish. */
+bool mesh_ui_nav_mute_conversation(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                   uint32_t index, struct mesh_ui_action *action);
 
 /*
  * The two cells an avatar shows for `name`, upper-cased.
@@ -637,6 +697,11 @@ void mesh_ui_nav_set_toast(struct mesh_ui_nav *nav, uint64_t now_ms, const char 
    stands for four seconds of whichever clock is driving the frames, and a capture is the same
    on any host. Nothing else raises one: an undated notice never expires. */
 void mesh_ui_nav_raise_toast(struct mesh_ui_nav *nav, const char *text);
+
+/* The same snackbar, for a notice nothing the user did asked for - something arrived. It waits
+   for whatever is showing rather than replacing it, and waits behind anything already waiting.
+   See the definition for why an arrival yields and a press does not. */
+void mesh_ui_nav_post_toast(struct mesh_ui_nav *nav, uint64_t now_ms, const char *text);
 /* Dates an undated notice. A no-op on one that is already dated, or on no notice at all. */
 void mesh_ui_nav_date_toast(struct mesh_ui_nav *nav, uint64_t now_ms);
 /* Clears an expired toast; returns true if it did. */

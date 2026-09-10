@@ -357,6 +357,9 @@ static void mesh_ui_nav_conversation_summarise(const struct mesh_ui_store *store
     } else {
         conversation->unread = since_mark;
     }
+
+    conversation->muted = mesh_ui_store_conversation_muted(
+        store, conversation->kind, conversation->node, conversation->channel);
 }
 
 uint32_t mesh_ui_nav_unread_total(const struct mesh_ui_store *store) {
@@ -370,6 +373,20 @@ uint32_t mesh_ui_nav_unread_total(const struct mesh_ui_store *store) {
         struct mesh_ui_conversation conversation;
         if (!mesh_ui_nav_conversation_at(store, i, &conversation)) {
             break;
+        }
+        /*
+         * A muted conversation contributes nothing, and this is the one place that rule needs
+         * to be written: this total is what the navigation bar badges the Messages tab with and
+         * what the all-traffic row carries, so both are "how much is waiting that asked to be
+         * waited for". The rows themselves still count their own - see struct
+         * mesh_ui_conversation.
+         *
+         * It is also what keeps the badge worth looking at. One busy channel outruns everything
+         * else on a mesh, and a tab that is permanently badged says exactly as much as one that
+         * never is.
+         */
+        if (conversation.muted) {
+            continue;
         }
         total += conversation.unread;
     }
@@ -632,6 +649,36 @@ bool mesh_ui_nav_delete_conversation(struct mesh_ui_nav *nav, const struct mesh_
        before the messages have gone is how a failed delete comes to look like a successful
        one. Standing the arming down is a change on its own, though. */
     return true;
+}
+
+/*
+ * START on a conversation row: mute it, or let it interrupt again.
+ *
+ * The press goes to the app rather than being done here because the mute lives in the store and
+ * the nav is handed a `const` one - the same reason deleting a conversation is an action. What
+ * comes back is a toast and a republished list.
+ */
+bool mesh_ui_nav_mute_conversation(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
+                                   uint32_t index, struct mesh_ui_action *action) {
+    (void)nav;
+    struct mesh_ui_conversation conversation;
+    if (!mesh_ui_nav_conversation_at(store, index, &conversation)) {
+        return false;
+    }
+    if (conversation.kind != MESH_UI_CONVERSATION_CHANNEL &&
+        conversation.kind != MESH_UI_CONVERSATION_DIRECT) {
+        return false;
+    }
+    if (action != NULL) {
+        action->type = MESH_UI_ACTION_MUTE_CONVERSATION;
+        action->number = conversation.kind;
+        action->dest = conversation.node;
+        action->channel = conversation.channel;
+        /* The name off the row, for the toast - the delete's reasoning exactly: a channel's
+           name lives in the handshake's channel table that only this layer walks. */
+        mesh_str_copy(action->text, sizeof action->text, conversation.name);
+    }
+    return false;
 }
 
 /* A on a conversation row. Returns true when the frame changed. */

@@ -77,6 +77,11 @@ void mesh_ui_nav_open_thread(struct mesh_ui_nav *nav, const struct mesh_ui_store
     if (!nav->thread_open) {
         nav->conversation_list_cursor = nav->cursor[MESH_UI_SCREEN_MESSAGES];
     }
+    nav->thread_unread_from = mesh_ui_store_conversation_read_mark(
+        store,
+        node_id == MESH_MESSAGE_BROADCAST_ADDR ? (uint8_t)MESH_UI_CONVERSATION_CHANNEL
+                                               : (uint8_t)MESH_UI_CONVERSATION_DIRECT,
+        node_id, channel);
     mesh_ui_nav_set_target(nav, store, node_id, channel, name_hint);
     nav->thread_open = true;
     nav->screen = MESH_UI_SCREEN_MESSAGES;
@@ -92,6 +97,9 @@ void mesh_ui_nav_open_all_traffic(struct mesh_ui_nav *nav) {
     }
     nav->inbox = true;
     nav->thread_open = true;
+    /* All traffic keeps no mark of its own - opening it marks nothing read - so there is no
+       "where you were" for it to rule a line under. */
+    nav->thread_unread_from = 0U;
     nav->messages_seen = 0U;
     nav->screen = MESH_UI_SCREEN_MESSAGES;
     nav->cursor[MESH_UI_SCREEN_MESSAGES] = 0U;
@@ -126,6 +134,7 @@ static bool mesh_ui_nav_close_thread(struct mesh_ui_nav *nav) {
     }
     nav->thread_open = false;
     nav->inbox = false;
+    nav->thread_unread_from = 0U;
     nav->messages_seen = 0U;
     nav->reply_to = 0U;
     nav->reaction_open = false;
@@ -1244,8 +1253,26 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
         return mesh_ui_nav_move_cursor(nav, store, -1) || changed;
     case MESH_UI_KEY_DOWN:
         return mesh_ui_nav_move_cursor(nav, store, +1) || changed;
-    case MESH_UI_KEY_A:
     case MESH_UI_KEY_START:
+        /*
+         * The conversation list is the second screen to spend START on something of its own,
+         * and it is spent for the map's reason: there is no other key left. A opens, Y writes,
+         * X deletes, SELECT explains and the shoulders walk the tabs, which is every button
+         * this case has but B - and B means "back" on every screen in the client, which is a
+         * meaning worth more than a mute.
+         *
+         * What it costs is START's usual job of standing in for A, on this one screen. That is
+         * the trade the map already made for `fit`, and it is affordable for the same reason:
+         * A itself is untouched and the action bar names the press, so the button that opens a
+         * conversation is still the button the frame says opens a conversation.
+         */
+        if (nav->screen == MESH_UI_SCREEN_MESSAGES && !nav->thread_open) {
+            return mesh_ui_nav_mute_conversation(nav, store, nav->cursor[nav->screen],
+                                                 out_action) ||
+                   changed;
+        }
+        return mesh_ui_nav_confirm(nav, store, out_action) || changed;
+    case MESH_UI_KEY_A:
         return mesh_ui_nav_confirm(nav, store, out_action) || changed;
     case MESH_UI_KEY_B:
         /* Back out of a thread to the conversation list; elsewhere B is a no-op so a stray
@@ -1435,13 +1462,75 @@ bool mesh_ui_nav_close_passkey(struct mesh_ui_nav *nav) {
 /* How long a transient notice stands. One number, read by the setter and by the stamp below. */
 #define MESH_UI_NAV_TOAST_MS 4000U
 
+/*
+ * Takes a notice that cannot be said yet, or says why it need not be.
+ *
+ * Returns true when the caller has nothing more to do - the notice is queued, or is a repeat of
+ * one the user is already looking at. False means the snackbar is free and the caller should put
+ * the notice straight on it.
+ *
+ * The repeat test is against what is *showing* and against the newest thing waiting, which is
+ * the shape the duplicate actually takes: one event reported twice in a row - a link dropping,
+ * a request refused again - rather than the same sentence coming back around after two others.
+ * Two identical notices in a row are one notice that stood for eight seconds, which is a
+ * snackbar with a stuck button rather than news.
+ */
+static bool mesh_ui_nav_queue_toast(struct mesh_ui_nav *nav, const char *text) {
+    if (nav->toast[0] == '\0') {
+        return false; /* nothing is up; say it now */
+    }
+    const char *newest =
+        nav->toast_queued > 0U ? nav->toast_queue[nav->toast_queued - 1U] : nav->toast;
+    if (strcmp(newest, text) == 0) {
+        return true;
+    }
+    if (nav->toast_queued >= MESH_UI_NAV_TOAST_QUEUE) {
+        /* Drop the oldest waiting one and close the gap - see the field for why it is that end. */
+        memmove(&nav->toast_queue[0], &nav->toast_queue[1],
+                (MESH_UI_NAV_TOAST_QUEUE - 1U) * sizeof nav->toast_queue[0]);
+        nav->toast_queued = MESH_UI_NAV_TOAST_QUEUE - 1U;
+    }
+    snprintf(nav->toast_queue[nav->toast_queued++], MESH_UI_NAV_TOAST_MAX, "%s", text);
+    return true;
+}
+
 void mesh_ui_nav_set_toast(struct mesh_ui_nav *nav, uint64_t now_ms, const char *text) {
     if (nav == NULL) {
         return;
     }
     if (text == NULL || text[0] == '\0') {
+        /* Clearing clears the backlog with it: an empty notice means "say nothing", and a queue
+           that outlived it would start talking again a moment later. */
         nav->toast[0] = '\0';
         nav->toast_until_ms = 0U;
+        nav->toast_queued = 0U;
+        return;
+    }
+    snprintf(nav->toast, sizeof nav->toast, "%s", text);
+    nav->toast_until_ms = now_ms + MESH_UI_NAV_TOAST_MS;
+}
+
+/*
+ * A notice nothing the user did has asked for: something arrived.
+ *
+ * The difference from the setter above is which one yields, and it is the whole reason there are
+ * two. A notice raised by a *press* supersedes whatever is on the snackbar, because it is the
+ * client answering the button that was just pressed and the thing it replaces is usually the
+ * earlier half of the same story - "Connecting to NodeSeven" giving way to "NodeSeven needs
+ * pairing" is one sentence finishing, not two events, and making the user watch the optimistic
+ * half for four seconds before the true one is worse than losing it.
+ *
+ * A notice about something that *arrived* has no such claim. It is news the user did not ask
+ * for, it is not superseding anything, and overwriting the answer to a press with it is how a
+ * button comes to look as though it did nothing. So this one waits its turn - and waits behind
+ * the other notifications already waiting, which is what stops a burst of arrivals showing the
+ * user only whichever happened to be last.
+ */
+void mesh_ui_nav_post_toast(struct mesh_ui_nav *nav, uint64_t now_ms, const char *text) {
+    if (nav == NULL || text == NULL || text[0] == '\0') {
+        return;
+    }
+    if (mesh_ui_nav_queue_toast(nav, text)) {
         return;
     }
     snprintf(nav->toast, sizeof nav->toast, "%s", text);
@@ -1482,6 +1571,20 @@ void mesh_ui_nav_date_toast(struct mesh_ui_nav *nav, uint64_t now_ms) {
 bool mesh_ui_nav_tick(struct mesh_ui_nav *nav, uint64_t now_ms) {
     if (nav == NULL || nav->toast[0] == '\0' || now_ms < nav->toast_until_ms) {
         return false;
+    }
+    if (nav->toast_queued > 0U) {
+        /*
+         * The next one takes the snackbar, dated from this tick rather than from whenever it was
+         * raised: it is starting to stand now. That also gives it a `until_ms` the backend has
+         * not seen, which is how the widget tells one notice from the next - so it slides in
+         * rather than appearing to be the same notice with different words.
+         */
+        snprintf(nav->toast, sizeof nav->toast, "%s", nav->toast_queue[0]);
+        nav->toast_until_ms = now_ms + MESH_UI_NAV_TOAST_MS;
+        memmove(&nav->toast_queue[0], &nav->toast_queue[1],
+                (MESH_UI_NAV_TOAST_QUEUE - 1U) * sizeof nav->toast_queue[0]);
+        nav->toast_queued--;
+        return true;
     }
     nav->toast[0] = '\0';
     nav->toast_until_ms = 0U;

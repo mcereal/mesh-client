@@ -106,7 +106,7 @@ suite needs it.
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Verified 2026-09-10: 475 unit tests, all passing, zero compiler warnings - under the host
+Verified 2026-09-10: 481 unit tests, all passing, zero compiler warnings - under the host
 toolchain *and* the cross one, which are not the same check: see
 [`docs/testing.md`](docs/testing.md#what-ci-runs).
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
@@ -417,6 +417,76 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   would re-aim the reply at whatever a message arriving mid-compose had slid under it. Y clears
   it on purpose - the action bar calls Y *write*, and a new message to a conversation is not an
   answer to the last thing said in it.
+- **START on the conversation list is not A, and it is the second screen to spend it.** START
+  stands in for A everywhere else; here it mutes the row under the cursor. It is spent for the
+  map's reason - there is no other key left. A opens, Y writes, X deletes, SELECT explains and
+  the shoulders walk the tabs, which is every button but B, and B means "back" on every screen
+  in the client. The action bar names the press, and it names it for the row rather than for the
+  key: "unmute" on a muted conversation, and nothing at all on the two rows that are not
+  conversations, because a keycap that does nothing is what that table exists to prevent.
+- **A mute rides `struct mesh_ui_read_mark`, and the eviction there prefers an unmuted slot.**
+  A mute and a read mark share a key and a lifetime - both are what the client remembers about
+  one conversation - so a table of its own would be a second array keyed on the same three
+  fields with a second eviction rule to keep in step. What is not shared is how much losing one
+  costs: a read mark is bookkeeping the client rebuilds by being read again, and a mute is a
+  choice, so a mute that vanished because thirty-two other conversations were opened would be a
+  setting silently undoing itself. The saved line grew a fifth field rather than a new one, and
+  the loader takes four or five - and it keeps a mark carrying *either* half, because a
+  conversation muted before it was ever read has no packet id to be saved under.
+- **"Muted" has two inputs and one predicate.** `mesh_ui_store_conversation_muted()` reads this
+  client's own flag *and* upstream's per-node `is_muted`, whose whole definition is that the node
+  "will not trigger a notification" - a radio told to stop announcing a node and a Brick that
+  announced it anyway are two answers to one question. Only the local half is what START
+  toggles, and only a direct conversation has the other: the NodeDB has nothing to say about a
+  channel. One predicate rather than a field, so the tab badge, the snackbar and the row's own
+  bell cannot disagree.
+- **A muted conversation still counts its own unread, and is missing only from the total.** The
+  row goes on saying how much has piled up, one family quieter: muting is asking not to be
+  interrupted, not asking to be kept in the dark. What a mute takes away is
+  `mesh_ui_nav_unread_total()`, which is what the Messages tab's badge and the all-traffic row
+  read - and that is also what keeps the badge worth looking at, since one busy channel outruns
+  everything else on a mesh and a permanently badged tab says as much as an unbadged one.
+- **Only the Messages tab carries a badge, and that is a rule rather than a start.** A badge has
+  to be **clearable by going there**, exactly as a banner has to be able to resolve. Unread
+  messages are, because opening the conversation marks them read; a count of nodes or of
+  waypoints would be a number that never went down however often it was looked at.
+- **The transcript's unread line is captured by the press that opened the thread, not derived
+  from the read mark.** `mesh_ui_store_mark_open_conversation_read()` runs from
+  `consume_updates`, so by the time a frame is built the mark already says "all of it" and a
+  line drawn against it would sit under the newest bubble every time. `nav.thread_unread_from`
+  is the one copy of where the reader *was*, it is the reply target's pattern, and it
+  deliberately does not move while they are in there - a message arriving into an open thread
+  lands below the line rather than moving it. It is part of the thread row cache's key for the
+  same reason: leaving a conversation and coming straight back is the same log, the same indices
+  and the same target with the line somewhere else.
+- **The unread line takes the separator slot from a date when both want it.** A bubble has one
+  row above it. The date is recoverable from the clock in the bubble's own trailing run, and
+  "this is where you stopped" is sayable in one place only.
+- **A read mark never lands on a reaction.** The unread count walks the log ignoring reactions
+  and looks for the marked packet to know where "read" stops, so a mark on a tapback is a packet
+  that walk can never meet: `mark_seen` stays false and every message in view goes on being
+  counted. A conversation whose newest entry was a tapback stayed badged however often it was
+  opened. It is also what lets the transcript find its own line, which looks for the bubble whose
+  predecessor is the marked one - and a reaction never gets a bubble.
+- **A press replaces the snackbar and an arrival queues behind it, and that is two functions on
+  purpose.** `mesh_ui_nav_set_toast()` supersedes what is showing because it is the client
+  answering the button just pressed, and what it replaces is usually the earlier half of the same
+  story - "Connecting to NodeSeven" giving way to "NodeSeven needs pairing" is one sentence
+  finishing, and four seconds of the optimistic half before the true one is worse than losing it.
+  `mesh_ui_nav_post_toast()` is for news the user did not ask for: it has nothing to supersede,
+  and overwriting the answer to a press with it is how a button comes to look as though it did
+  nothing. A full queue drops its *oldest waiting* entry - a backlog is only worth keeping while
+  it is still news - and a repeat of what is already up is dropped, because two identical notices
+  in a row are one notice standing for eight seconds.
+- **A direct message announces itself and a broadcast never does.** It is the alert/detection
+  line one step further out: a channel is a room full of people talking, and a notice per line
+  would make the client unusable on any real mesh. Every unseen direct message is announced
+  rather than only the newest, which is where this parts company with the alerts - three alerts
+  arriving together are one situation and the last describes it, while three messages from three
+  people are three things somebody said to you. That is what the queue is for. A launch announces
+  none of it: the log is seeded from the cache before the first publish, so the first pass adopts
+  what it finds silently - and the priming is taken *before* the empty-log guard, or a client
+  that starts with no cache spends it on the first message that genuinely arrived.
 - **A reaction deliberately goes out without want_ack.** It has no bubble - the transcript
   filters it out and draws it as a chip on the message it names - so a delivery mark it earned
   would be one nothing on the frame could ever draw, bought with a retransmit round on a shared
