@@ -2691,6 +2691,9 @@ static uint32_t fb_draw_card_row(struct mesh_ui_backend_fb_state *state,
                          .w = bar_right - bar_x,
                          .h = height},
                 .count = row->part_count,
+                /* The card's own fill, which depends on its variant - the same colour every
+                   other row on it draws its text over. */
+                .ground = ground,
             };
             for (uint32_t i = 0; i < row->part_count && i < MESH_UI_PROPORTION_PARTS; ++i) {
                 bar.values[i] = row->parts[i];
@@ -4035,11 +4038,18 @@ void fb_draw_proportion(const struct mesh_ui_backend_fb_state *state,
      * is drawn in the absence of ink for the reason the notches are: an ink of its own would be
      * one more pair every theme had to be validated for, to say what a hole already says.
      *
+     * In the caller's ground rather than in MESH_UI_COLOR_BG, which is where this differs from
+     * the band notch it is otherwise copying. A notch divides a bar the eye has already found;
+     * these gaps have to be *invisible*, and a bar on a card whose gaps are the body's colour has
+     * stripes in it rather than divisions. Under a cursor fill it is the pad above that is
+     * behind the bar, so that is what the gaps take there.
+     *
      * It costs each part half a pixel of length at one end. That is the same price the band marks
      * pay and it is the right way round: the boundary is what the picture is *for*.
      */
     const int gap = fb_space(state, MESH_UI_SPACE_XS) > 0 ? fb_space(state, MESH_UI_SPACE_XS) : 1;
-    const struct mesh_ui_rgb ground = fb_color(state, MESH_UI_COLOR_BG);
+    const struct mesh_ui_rgb ground =
+        bar->selected ? fb_color(state, MESH_UI_COLOR_BG) : bar->ground;
     int boundary = 0;
     for (uint32_t i = 0; i + 1U < parts; ++i) {
         boundary += widths[i];

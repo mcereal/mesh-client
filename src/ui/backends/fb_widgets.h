@@ -832,9 +832,24 @@ struct fb_proportion {
        if it did. Nothing enforces it, for the same reason nothing enforces disjointness. */
     uint32_t values[MESH_UI_PROPORTION_PARTS];
     uint32_t count;
+    /*
+     * What is behind the bar, which the gaps between the parts are cut in.
+     *
+     * Stated by the caller rather than assumed, and it is the one field here with no sensible
+     * default: a composition is drawn *inside* something - a card whose fill depends on its
+     * variant - and a gap painted in the body's ground on a card is not a gap, it is a stripe
+     * of a colour from somewhere else. The meter can get away with assuming, because a band
+     * notch is a mark whose job is to divide a bar it is already inside; these gaps have to
+     * *disappear*, which is a claim about what surrounds them.
+     *
+     * A zeroed struct is black rather than unset, so there is nothing to detect here: a caller
+     * that forgets this draws black gaps, which is visible immediately.
+     */
+    struct mesh_ui_rgb ground;
     /* The row under it carries the cursor fill, so the bar lays a ground of its own - the
        meter's move, and needed here for the same reason: the series palette is validated against
-       the body and against a card, and on two themes the cursor fill is neither. */
+       the body and against a card, and on two themes the cursor fill is neither. The gaps follow
+       it: what is behind the bar on a selected row is the pad, not `ground`. */
     bool selected;
 };
 
