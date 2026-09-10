@@ -39,10 +39,12 @@ hold 400
 airtime 47 15
 hold 900
 
-# The verb only appears once there are two readings to draw a line between, and it appears at the
-# *end* of the list - the Status cursor is an index into the verbs, so a third one arriving
-# anywhere else would change what the next A press does without the cursor moving.
-key down 2
+# The verb only appears once there are two readings to draw a line between, and it appears on
+# the Mesh card, one step down - which is where the *card* is. It used to be appended after the
+# Radio card's refresh whatever the column looked like, because the cursor was an index into the
+# verbs and a verb arriving anywhere but the end changed what the next A press did. The cursor
+# names a verb now, so the list is written in the order the cards draw.
+key down
 hold 900
 key a
 hold 2400

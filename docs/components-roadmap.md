@@ -555,6 +555,12 @@ Two things it found that the composition's entry did not, and both are about wha
 
 ### Tier 2.5 — the screen, not the component
 
+> **The prerequisite has landed; the screen has not.** The Status cursor names a verb
+> (`nav->status_verb`) rather than a position, which is the single sentence this entry says both
+> answers are blocked behind. What it bought immediately was the list's *order* - the verbs are
+> written in the order the cards draw now, so Down walks down the screen - and the trend's honest
+> condition. What it unblocks is below, unchanged. See §18.
+
 **2.20 The Status screen is a fixed column with no scroll, and this is the third step to end
 with "the card is over budget."** §15 recorded it, §16 changed its terms, §17 bought five rows
 back — and every one of those was a trim of something that should not have been on the frame
@@ -586,6 +592,11 @@ So the work is that sentence, not the screen. Until the Status cursor is keyed o
 than on a position, both answers are blocked and neither is blocked by anything else. It is a
 small, testable change with no visible effect on its own, which is exactly the kind of thing that
 should land before the screen that needs it rather than inside it.
+
+> It turned out to have a visible effect after all, and the effect was a bug this entry had
+> already described without noticing: `[disconnect, refresh, trend]` is not only the cursor
+> order a *future* set of detail verbs would walk badly, it is the order the cursor was walking
+> **today** - Link, Radio, Mesh, down to the bottom card and back up to the middle one. See §18.
 
 Worth doing when a feature actually wants a row here and there is none to give. It is written
 down now because §17 made the argument possible to have with a picture instead of a hypothesis:
@@ -1729,3 +1740,79 @@ had therefore **never been on screen in ordinary use** — and the message ring.
   since the verbs were added: the Status cursor is an index, and it has to start remembering
   which verb it was on rather than which position. Both structural answers are blocked behind
   that and nothing else is.
+
+## 18. What doing §2.20's prerequisite changed
+
+§2.20 says the work is a sentence rather than a screen: *the Status cursor has to start
+remembering which verb it was on rather than which index*. That was right, and two things about
+it were not.
+
+- **It was not invisible, and what it was hiding was on screen already.** The entry files this
+  under "a small, testable change with no visible effect on its own", because it was reasoning
+  about the *future* cursor order of `[disconnect, refresh, trend, link, mesh, radio]`. The
+  three verbs that already existed walked in exactly that shape: the cards draw Link, Mesh,
+  Radio and the verbs ran Link, Radio, Mesh, so Down took the ring from the top card to the
+  bottom one and then back up to the middle. It had been that way since §16 added the trend, and
+  the reason it was that way is the reason this step exists - an index made the list
+  append-only, so a verb went where it was *added* rather than where its card is. The table is
+  in card order now and Down walks down the screen. That is the whole of the visible change and
+  it is worth more than the prerequisite it came attached to.
+
+- **The gate on the trend was a third thing the index was paying for.** §16 recorded that
+  `mesh_ui_status_actions()` restates `connected` and `synced` for a verb that needs neither,
+  and that the restatement was a rule about the list rather than about the press. With the
+  cursor naming a verb the rule is gone, so the condition is now the honest one: the trend is
+  offered whenever there is a line to draw. The chart is a picture of readings this client
+  already holds, and they outlive the radio going away - so the screen a reader would most want
+  after a link drops is now reachable *after* the link drops.
+
+- **Resolve, not clamp, and the empty list is the interesting case.** The generic cursor clamp
+  holds an index in range, which is the wrong shape twice over here: the entry that vanishes is
+  not the last one, and an empty list has no position to hold. `mesh_ui_status_verb_resolve()`
+  answers with the verb itself while it is on offer, the nearest verb above it when it has gone,
+  and - when the screen is offering nothing at all - the remembered verb, untouched. That last
+  case is the one the index could not have and it is the one a user feels: a Brick loses its
+  link constantly, and the old cursor snapped to the top of the list every time it came back.
+
+- **Three readers, and none of them holds a position now.** The renderer asks whether the button
+  it is about to draw names the verb the cursor is on, the action bar asks the list for that
+  verb's label, and `nav.c` runs the verb it finds and does nothing when it finds none - one
+  lookup, `mesh_ui_status_find()`, in all three. That is the map's own rule arriving on a
+  different screen: what a backend is handed is a `const` snapshot, and a snapshot taken across
+  a radio going away carries a cursor counted against one list and drawn against another. A
+  verb cannot be counted against the wrong list; it either is on it or it is not.
+
+- **`cursor[MESH_UI_SCREEN_STATUS]` is now unused, and that is a trap rather than a saving.**
+  §17 deleted `fb_card_height()` for having no callers and called the deletion the finding. This
+  is the same shape and cannot be deleted - the array is one entry per tab - so it is pinned
+  instead: a test asserts the row cursor stays at 0 while the Status cursor moves, and the field
+  is documented as the thing not to read. A dead field that still looks like the answer is worse
+  than a missing one.
+
+- **It found a row that read `unknownup 9d 8h`.** Rendering the no-radio state to check the trend
+  verb turned it up. The Radio card's battery row builds its two halves separately and chooses
+  the separator between them from whether the first is empty - but the *draw* substitutes the
+  word "unknown" for an empty first half, so the two disagreed exactly when the battery was
+  missing and the uptime was not. That is the ordinary state on a radio that has sent LocalStats
+  and not yet sent DeviceMetrics: uptime is in both reports and battery is only in the second.
+  The fix is to put the word in the buffer rather than at the draw, which makes the separator
+  unconditional - so it went into the string, where a locale can have its own punctuation, and
+  came out of the caller.
+
+- **What it leaves behind is §2.20 itself, and the two answers are no longer equally blocked.**
+  Both are open now. The scrolling column is still the weaker one for the reason the entry gave:
+  there is no press left to scroll with, and deriving the scroll from the focused card reaches
+  as many places as there are verbs - three on a fully-reported screen and none with the link
+  down. A level under each card is the one that scales, and appending `link`, `mesh` and `radio`
+  detail verbs is now a table entry each: they interleave with the verbs already there in card
+  order, so the cursor walks `[disconnect, link] [trend, mesh] [refresh, radio]` straight down
+  the screen instead of down it and back up.
+
+  What that step should settle when it is taken, and what this one deliberately did not: **the
+  glance should be a declared budget rather than a clip.** `fb_draw_card_reserving()` makes the
+  overflow graceful, but the rows it sheds are still chosen by running out of room. With a level
+  under each card the glance can state how many rows it is worth - the same shape as the
+  transcript handing the list its heights - and everything past that goes to the detail rather
+  than off the bottom. The Mesh card is the worked example waiting: it is two subjects wearing
+  one heading, the mesh out there (NodeDB, airtime) and our own traffic through it (sent, heard,
+  what the ring is holding), and a level under it is where that split stops costing a card.

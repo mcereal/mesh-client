@@ -557,7 +557,7 @@ MESH_STR_ENTRY(STATUS_PERCENT,            "%.1f%%")
 MESH_STR_ENTRY(STATUS_BATTERY_USB,        "plugged in")
 MESH_STR_ENTRY(STATUS_BATTERY_PERCENT,    "%u%%")
 MESH_STR_ENTRY(STATUS_BATTERY_UNKNOWN,    "unknown")
-MESH_STR_ENTRY(STATUS_UPTIME_SUFFIX,      "%sup %s")
+MESH_STR_ENTRY(STATUS_UPTIME_SUFFIX,      ", up %s")
 /* The transmit side, whole: everything we put on the air, how much of it was a relay for
    somebody else, and how much the radio could not send because its queue was full. No bar
    under it, and that is a rule rather than a gap - the relayed count is a *subset* of the

@@ -156,7 +156,7 @@ sparkline draws in a row, in a whole body, with its domain's ends labelled, its 
 its thresholds ruled across the plot and more than one line on it - the one component here that
 is a screen rather than a slot), bubbles (whose trailing run is four typed slots the component measures, never a string a screen assembled), the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar |
 | Button hints | `src/ui/actions.c`, `include/mesh/ui/actions.h` | what the buttons do here, as (button, verb) pairs the action bar iterates |
-| Status verbs | `src/ui/status.c`, `include/mesh/ui/status.h` | which Status card carries which verb — read by `nav.c`, `actions.c` and the renderer alike |
+| Status verbs | `src/ui/status.c`, `include/mesh/ui/status.h` | which Status card carries which verb, in the order the cards draw — read by `nav.c`, `actions.c` and the renderer alike, and walked by a cursor that names a *verb* (`nav->status_verb`) rather than a position |
 | Help | `src/ui/help.c`, `include/mesh/ui/help.h` | what the client can explain about where the user is standing, as a title, a subject and a list of paragraphs — ids the whole way down. A settings section's notes live on the things they describe (a section's beside its icon in `settings.c`, a field's in its own `k_fields` row) and this assembles them; a *feature's* are a table here, keyed on the route under the help screen |
 | The trend screen | `src/ui/backends/fb_screens.c` (`fb_render_trend`), `src/ui/status.c`, `src/ui/route.c` | The airtime chart the Status screen's Mesh card opens: a level of the Status tab (`nav->trend_open`, `MESH_UI_ROUTE_TREND`) with no cursor on it, drawn by the one component that fills a body |
 | Durations | `src/ui/duration.c`, `include/mesh/ui/duration.h` | "4m ago" and "3h 20m", once. A UI file with no pixels in it, because what a ladder of unit thresholds answers with is a *string id* |
@@ -432,14 +432,15 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   chip is what is lost and the mark saying the message failed is what survives. Concatenating
   them back into one string reintroduces the bug, and `ui_capture_bubble_contains_its_own_ink`
   is what catches it.
-- **The trend verb is gated on the link, and what it opens is not.** Every other verb on the
-  Status screen is a request over the air; this one opens a chart of readings this client already
-  holds, which outlive the radio going away. Offering it with the link down would still be wrong,
-  because the Status cursor is an *index* into the verb list: with no link the list would be
-  `[trend]` alone, and a radio arriving would slide disconnect in underneath a cursor sitting on
-  index 0. The condition on a verb has to imply the conditions on the verbs before it, which is
-  why `mesh_ui_status_actions()` restates `connected` and `synced` for a fact that cannot be true
-  without them.
+- **The Status cursor is a verb, not a position, and `cursor[MESH_UI_SCREEN_STATUS]` is unused.**
+  Status is the one screen with no rows: its cards offer verbs and Up/Down walk those, so what
+  the nav holds is `status_verb` (`enum mesh_ui_status_verb`) and the row cursor stays at 0.
+  Reading that array entry is reading a position nothing maintains. It was an index once, and
+  the index is what forced two rules that are now gone: the verb list had to be append-only, and
+  every verb had to restate the conditions of the verbs before it. `mesh_ui_status_verb_resolve()`
+  answers where a cursor whose verb has gone stands, and the verb it is holding is deliberately
+  *kept* while the screen offers none - a link that drops and comes back lands the reader on
+  their own button rather than at the top.
 - **The chart swallows the d-pad and A, and does not take the shoulders.** It is the map's split
   in reverse. The map takes the four directions because Left there means "look west"; the chart
   takes them because there is nothing on it to move - and what a press would otherwise fall
@@ -485,10 +486,13 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   says it on every frame - why the update banner stands down inside Settings > About, and why an
   update a build cannot install raises nothing. There is no dismissal, on purpose: dismissal is
   a nav change, and refusing it is what keeps the table to states that go away on their own.
-- **The Status cursor is an index into the verbs its cards offer, so that list may only ever
-  grow at its end.** Both verbs are gated on the link being up for that reason as much as for
-  their own: a verb appearing *ahead* of the cursor changes what the next A press does without
-  the cursor moving. See `mesh_ui_status_actions()`.
+- **The Status verb list is written in the order the cards draw, and that is the whole of its
+  ordering rule.** Link, then Mesh, then Radio - so Down walks down the screen. It was ordered by
+  when each verb was added, because the cursor was an index and a verb arriving anywhere but the
+  end changed what A did; the trend therefore sat after the Radio card's refresh while its card
+  is the middle one. A verb added to `k_status_verbs[]` goes where its card is, and states its
+  own condition and nothing else's - which is why the trend needs neither the link nor the
+  handshake, only a line to draw.
 - **A card's focus ring is painted inward and is not part of its layout.** The card's edge is in
   the content inset and in the box height, so a ring that widened it would make a card grow when
   the cursor arrived and shift every card below it.

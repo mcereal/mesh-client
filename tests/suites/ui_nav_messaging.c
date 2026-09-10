@@ -8,6 +8,7 @@
 #include "mesh/core/message.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/reactions.h"
+#include "mesh/ui/status.h"
 #include "mesh/ui/store.h"
 
 #include <stdbool.h>
@@ -314,7 +315,7 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
     if (store.nav.screen != MESH_UI_SCREEN_STATUS ||
         mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_STATUS) != 2U ||
-        store.nav.cursor[MESH_UI_SCREEN_STATUS] != 0U) {
+        store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT) {
         failure = "Status should offer the two verbs its cards carry";
         goto cleanup;
     }
@@ -326,14 +327,14 @@ MESH_TEST_CASE(ui_nav_navigation, unit) {
     }
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    if (store.nav.cursor[MESH_UI_SCREEN_STATUS] != 1U ||
+    if (store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_REFRESH ||
         action.type != MESH_UI_ACTION_REFRESH_SETTINGS) {
         failure = "A on the Radio card should re-read the configuration";
         goto cleanup;
     }
     /* And the cursor stops there: two verbs, no third card to step onto. */
     mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    if (store.nav.cursor[MESH_UI_SCREEN_STATUS] != 1U) {
+    if (store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_REFRESH) {
         failure = "DOWN must clamp at the last verb on Status";
         goto cleanup;
     }

@@ -5,84 +5,162 @@
 /*
  * The table.
  *
- * Written out per state rather than composed, for the reason the action-bar tables in
+ * Written out as a table rather than composed, for the reason the action-bar tables in
  * src/ui/actions.c are: what a screen offers in a given state should be readable in one place
  * and checkable against the nav that handles the press.
  *
- * Both verbs need a link, and that is the whole of the gating. Disconnect needs one to drop.
- * Refresh needs one because a refresh is a request over the air - mesh_session_refresh_settings()
- * answers -ENOTCONN without one and the app toasts "not connected" - so offering it while the
- * radio is away is offering a press whose only outcome is a complaint. It needs the handshake
- * on top of that, because re-reading a configuration nothing has sent yet reports nothing and
- * reads as broken.
+ * **The order is the order the cards draw**, and that is the whole of what the cursor walks -
+ * Link, then Mesh, then Radio. It reads as the obvious arrangement and it was not reachable
+ * until the cursor stopped being an index: the trend arrived last and had to be appended, so
+ * Down walked Link, Radio, Mesh and the highlight went to the bottom card and then back up to
+ * the middle one. Now that the cursor remembers a verb, where a verb sits in this list is a
+ * question about reading order and nothing else. A verb added here goes where its card is.
  *
- * **The list only ever grows at the end, and that is a requirement rather than a coincidence.**
- * The cursor on this screen is an index into it, so a verb inserted *ahead* of the cursor would
- * silently change what the next A press does: a client holding a cached configuration would
- * offer refresh alone, and auto-connect arriving would slide disconnect in underneath a cursor
- * still sitting on index 0 - so a press meant to re-read the settings would drop the link that
- * had just come up. Gating both on `connected` removes the case rather than compensating for
- * it: the list is empty, then [disconnect], then [disconnect, refresh], and nothing is ever
- * inserted before something already on it. A verb added here has to keep that true, or the
- * cursor has to start remembering which verb it was on rather than which index.
+ * **A row states its own condition and nothing else's**, which is the other half of the same
+ * change. Disconnect needs a link to drop. Refresh needs one because a refresh is a request
+ * over the air - mesh_session_refresh_settings() answers -ENOTCONN without one and the app
+ * toasts "not connected" - and it needs the handshake on top of that, because re-reading a
+ * configuration nothing has sent yet reports nothing and reads as broken. The trend needs
+ * neither: what it opens is a picture of what this client already watched, and the history
+ * outlives the radio going away.
  *
- * The Mesh card offers one, and for most of this screen's life it offered none. What changed is
- * that the card acquired a picture: the airtime bar and the trend line under it are a reading
- * somebody can now want to see properly, and a chart is a screen rather than a row. Every
- * *other* verb about the mesh still belongs somewhere else - trace a node, ask it for a fix, or
- * one of the destructive ones that wants the confirmation dialog and is tied to a settings
- * section. A card with no verb is simply skipped by the cursor, which is what makes the flat
- * list work.
+ * That last line used to read `synced && has_trend`, and the two redundant conditions were
+ * load-bearing for the *list* rather than true of the press: with the cursor an index, a verb
+ * whose condition did not imply the conditions of the verbs before it could slide in ahead of
+ * a parked cursor and change what A did without the cursor moving. Restating them was the
+ * cheapest way to make that checkable by reading this function. The cursor is a verb now, so
+ * the honest condition is also the safe one.
  *
- * The trend verb is the one entry here that is not a request over the air, and gating it on the
- * link is therefore a rule about the *list* rather than about the press. What it opens outlives
- * the radio going away - the history is ours - so a client with a trend and no link could
- * honestly offer it. It does not, because offering it there is what puts a verb in front of the
- * cursor: with the link down the list would be [trend] alone, and a radio arriving would slide
- * disconnect in underneath a cursor sitting on index 0. That is the same trap the paragraph
- * above describes, and the same answer - remove the case rather than compensate for it.
+ * The Mesh card offers one verb and for most of this screen's life it offered none. What
+ * changed is that the card acquired a picture: the airtime bar is a reading somebody can now
+ * want to see properly, and a chart is a screen rather than a row. Every *other* verb about the
+ * mesh still belongs somewhere else - trace a node, ask it for a fix, or one of the destructive
+ * ones that wants the confirmation dialog and is tied to a settings section. A card with no
+ * verb is simply skipped by the cursor, which is what makes the flat list work.
  */
+
+/* What a row needs to be true before it is offered, as the three facts the caller holds. */
+enum status_need {
+    STATUS_NEED_LINK = 1U << 0,  /* a radio is attached */
+    STATUS_NEED_SYNC = 1U << 1,  /* it has answered the config handshake */
+    STATUS_NEED_TREND = 1U << 2, /* there is a line to draw */
+};
+
+struct status_entry {
+    uint8_t card; /* enum mesh_ui_status_card */
+    uint8_t verb; /* enum mesh_ui_status_verb */
+    enum mesh_str_id label;
+    uint8_t needs; /* enum status_need, ORed */
+};
+
+static const struct status_entry k_status_verbs[] = {
+    {(uint8_t)MESH_UI_STATUS_CARD_LINK, (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT,
+     MESH_STR_ACTION_DISCONNECT, STATUS_NEED_LINK},
+    {(uint8_t)MESH_UI_STATUS_CARD_MESH, (uint8_t)MESH_UI_STATUS_VERB_TREND, MESH_STR_ACTION_TREND,
+     STATUS_NEED_TREND},
+    {(uint8_t)MESH_UI_STATUS_CARD_RADIO, (uint8_t)MESH_UI_STATUS_VERB_REFRESH,
+     MESH_STR_ACTION_REFRESH, STATUS_NEED_LINK | STATUS_NEED_SYNC},
+};
+
+#define STATUS_VERB_TABLE_COUNT (sizeof k_status_verbs / sizeof k_status_verbs[0])
+
+/*
+ * Where a verb sits in the table, whether or not it is currently offered.
+ *
+ * This is the order the cursor walks and the order a shrinking list is repaired against, so it
+ * has to be answerable for a verb that has just gone - which is exactly the question the list
+ * on offer cannot answer. A verb that is in no table ranks past the end, so a cursor holding
+ * one lands on the last verb rather than the first.
+ */
+static uint32_t status_rank(uint8_t verb) {
+    for (uint32_t i = 0U; i < STATUS_VERB_TABLE_COUNT; ++i) {
+        if (k_status_verbs[i].verb == verb) {
+            return i;
+        }
+    }
+    return (uint32_t)STATUS_VERB_TABLE_COUNT;
+}
+
 void mesh_ui_status_actions(struct mesh_ui_status_actions *out, bool connected, bool synced,
                             bool has_trend) {
     if (out == NULL) {
         return;
     }
     memset(out, 0, sizeof *out);
-    if (!connected) {
-        return;
-    }
 
-    out->items[out->count].card = (uint8_t)MESH_UI_STATUS_CARD_LINK;
-    out->items[out->count].verb = (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT;
-    out->items[out->count].label = MESH_STR_ACTION_DISCONNECT;
-    ++out->count;
+    uint8_t have = 0U;
+    have |= connected ? (uint8_t)STATUS_NEED_LINK : 0U;
+    have |= synced ? (uint8_t)STATUS_NEED_SYNC : 0U;
+    have |= has_trend ? (uint8_t)STATUS_NEED_TREND : 0U;
 
-    if (synced) {
-        out->items[out->count].card = (uint8_t)MESH_UI_STATUS_CARD_RADIO;
-        out->items[out->count].verb = (uint8_t)MESH_UI_STATUS_VERB_REFRESH;
-        out->items[out->count].label = MESH_STR_ACTION_REFRESH;
+    for (uint32_t i = 0U; i < STATUS_VERB_TABLE_COUNT; ++i) {
+        const struct status_entry *entry = &k_status_verbs[i];
+        if ((entry->needs & have) != entry->needs) {
+            continue;
+        }
+        if (out->count >= MESH_UI_STATUS_ACTIONS_MAX) {
+            break;
+        }
+        out->items[out->count].card = entry->card;
+        out->items[out->count].verb = entry->verb;
+        out->items[out->count].label = entry->label;
         ++out->count;
     }
+}
 
-    /*
-     * And last, so that everything already on the list keeps its index.
-     *
-     * `synced` as well as `has_trend`, though the readings cannot arrive without it: the
-     * condition on a verb has to imply the conditions on the verbs before it, or refresh
-     * appearing later inserts itself in front of this one. Restating it here is a line of code
-     * against a class of bug, and it is what makes the rule checkable by reading this function
-     * rather than by reasoning about which report arrives first.
-     *
-     * It is on the Mesh card because the readings are: the airtime figure, the banded bar and
-     * the small line are all on that card, and a verb opening the large version of the picture
-     * belongs beside the small one rather than on the card about the radio's own health.
-     */
-    if (synced && has_trend) {
-        out->items[out->count].card = (uint8_t)MESH_UI_STATUS_CARD_MESH;
-        out->items[out->count].verb = (uint8_t)MESH_UI_STATUS_VERB_TREND;
-        out->items[out->count].label = MESH_STR_ACTION_TREND;
-        ++out->count;
+const struct mesh_ui_status_action *
+mesh_ui_status_find(const struct mesh_ui_status_actions *actions, uint8_t verb) {
+    if (actions == NULL) {
+        return NULL;
     }
+    for (uint32_t i = 0U; i < actions->count && i < MESH_UI_STATUS_ACTIONS_MAX; ++i) {
+        if (actions->items[i].verb == verb) {
+            return &actions->items[i];
+        }
+    }
+    return NULL;
+}
+
+uint8_t mesh_ui_status_verb_resolve(const struct mesh_ui_status_actions *actions, uint8_t verb) {
+    if (actions == NULL || actions->count == 0U) {
+        return verb;
+    }
+    if (mesh_ui_status_find(actions, verb) != NULL) {
+        return verb;
+    }
+    /* The list is a subsequence of the table, so the last entry ranking before the missing verb
+       is the nearest one above it on the screen. Nothing before it means the cursor was on the
+       first verb of a list that has lost it, and the first survivor is where it belongs. */
+    const uint32_t rank = status_rank(verb);
+    uint8_t nearest = actions->items[0].verb;
+    for (uint32_t i = 0U; i < actions->count && i < MESH_UI_STATUS_ACTIONS_MAX; ++i) {
+        if (status_rank(actions->items[i].verb) >= rank) {
+            break;
+        }
+        nearest = actions->items[i].verb;
+    }
+    return nearest;
+}
+
+uint8_t mesh_ui_status_verb_step(const struct mesh_ui_status_actions *actions, uint8_t verb,
+                                 int delta) {
+    if (actions == NULL || actions->count == 0U || delta == 0) {
+        return verb;
+    }
+    /* From wherever the cursor actually stands, which is not necessarily where it remembers
+       standing: a verb can have gone since the last frame, and a press should move from the
+       button the reader can see highlighted. */
+    const uint8_t from = mesh_ui_status_verb_resolve(actions, verb);
+    for (uint32_t i = 0U; i < actions->count && i < MESH_UI_STATUS_ACTIONS_MAX; ++i) {
+        if (actions->items[i].verb != from) {
+            continue;
+        }
+        if (delta < 0) {
+            return i == 0U ? from : actions->items[i - 1U].verb;
+        }
+        return (i + 1U >= actions->count) ? from : actions->items[i + 1U].verb;
+    }
+    return from;
 }
 
 uint32_t mesh_ui_status_card_actions(const struct mesh_ui_status_actions *actions,

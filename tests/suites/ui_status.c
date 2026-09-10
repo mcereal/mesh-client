@@ -22,10 +22,9 @@
 MESH_TEST_CASE(ui_status_verbs_follow_the_link, unit) {
     struct mesh_ui_status_actions actions;
 
-    /* Nothing attached: nothing to disconnect from and no configuration to re-read, so the
-       screen is the readout it has always been. */
+    /* Nothing attached and nothing watched: the screen is the readout it has always been. */
     mesh_ui_status_actions(&actions, false, false, false);
-    MESH_TEST_FAIL_IF(actions.count != 0U, "a screen with no radio should offer no verb");
+    MESH_TEST_FAIL_IF(actions.count != 0U, "a screen with nothing to act on should offer no verb");
 
     /* Attached but still syncing: the link can be dropped, and that is all. */
     mesh_ui_status_actions(&actions, true, false, false);
@@ -34,10 +33,10 @@ MESH_TEST_CASE(ui_status_verbs_follow_the_link, unit) {
                           actions.items[0].verb != (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT,
                       "an attached radio should offer disconnect on the Link card");
 
-    /* A cached configuration and no radio is still no verbs. A refresh is a request over the
+    /* A cached configuration and no radio is still no refresh. That one is a request over the
        air, so offering it with the link gone is offering a press whose only outcome is a
-       complaint - and it is what would otherwise slide in ahead of the cursor; see below. */
-    mesh_ui_status_actions(&actions, false, true, true);
+       complaint. */
+    mesh_ui_status_actions(&actions, false, true, false);
     MESH_TEST_FAIL_IF(actions.count != 0U, "a refresh with no link is a press that cannot work");
 
     mesh_ui_status_actions(&actions, true, true, false);
@@ -45,30 +44,39 @@ MESH_TEST_CASE(ui_status_verbs_follow_the_link, unit) {
     MESH_TEST_FAIL_IF(actions.items[1].card != (uint8_t)MESH_UI_STATUS_CARD_RADIO ||
                           actions.items[1].verb != (uint8_t)MESH_UI_STATUS_VERB_REFRESH,
                       "a synced radio should offer refresh on the Radio card");
+
     /*
-     * And with readings to draw, the chart the Mesh card opens - third, because the list may
-     * only grow at its end.
+     * And with readings to draw, the chart the Mesh card opens - *second*, because Mesh is the
+     * middle card and this list is written in the order the cards draw.
      *
-     * The order the cursor walks is deliberately *not* the order the cards draw here, which is
-     * the one thing the trend verb changed: Mesh is the middle card and its verb is last. The
-     * two orders were the same while the table was two entries long, and reading that
-     * coincidence as a rule is what a card-ordered list would have done - at the cost of sliding
-     * this verb in ahead of refresh the moment a radio reported twice.
+     * That is the change the verb-keyed cursor bought. While the cursor was an index the list
+     * had to be append-only, so the verb that arrived last had to go last whatever card it
+     * belonged to, and Down walked Link, Radio, Mesh - down to the bottom card and then back up
+     * to the middle one.
      */
     mesh_ui_status_actions(&actions, true, true, true);
     MESH_TEST_FAIL_IF(actions.count != 3U, "readings to draw should offer the trend as well");
-    MESH_TEST_FAIL_IF(actions.items[2].card != (uint8_t)MESH_UI_STATUS_CARD_MESH ||
-                          actions.items[2].verb != (uint8_t)MESH_UI_STATUS_VERB_TREND,
+    MESH_TEST_FAIL_IF(actions.items[1].card != (uint8_t)MESH_UI_STATUS_CARD_MESH ||
+                          actions.items[1].verb != (uint8_t)MESH_UI_STATUS_VERB_TREND,
                       "the trend belongs to the Mesh card, whose readings it draws");
 
-    /* A trend with no link is no verbs at all. The chart itself would be honest - the history is
-       ours and outlives the radio - but offering it there is what would put it at index 0, so
-       the gate is about the list rather than about the press. */
+    /*
+     * A trend with no link is the trend on its own, and that is the honest condition rather
+     * than a relaxation.
+     *
+     * What the verb opens is a picture of what this client watched, which outlives the radio
+     * going away - the history is ours. It was gated on the link anyway while the cursor was an
+     * index, because a verb whose condition did not imply its neighbours' could slide in ahead
+     * of a parked cursor. Nothing slides now: the cursor names a verb.
+     */
     mesh_ui_status_actions(&actions, false, false, true);
-    MESH_TEST_FAIL_IF(actions.count != 0U, "a verb with no link is a verb ahead of the cursor");
+    MESH_TEST_FAIL_IF(actions.count != 1U ||
+                          actions.items[0].verb != (uint8_t)MESH_UI_STATUS_VERB_TREND,
+                      "a trend outlives the radio, and so does the verb that opens it");
 
     /* Every verb names a string, because the button draws it and the action bar names the same
        one. An entry with no label is a button with no word on it. */
+    mesh_ui_status_actions(&actions, true, true, true);
     for (uint32_t i = 0U; i < actions.count; ++i) {
         MESH_TEST_FAIL_IF(actions.items[i].label == MESH_STR_NONE, "a verb with no word");
     }
@@ -76,26 +84,27 @@ MESH_TEST_CASE(ui_status_verbs_follow_the_link, unit) {
 }
 
 /*
- * The list only ever grows at its end.
+ * Whatever the state, the list is the table in the table's own order.
  *
- * The Status cursor is an index, so a verb that appeared *ahead* of it would change what the
- * next A press does without the cursor moving - a client holding a cached configuration would
- * offer refresh alone, and auto-connect arriving would slide disconnect in underneath a cursor
- * still on index 0, so a press meant to re-read the settings would drop the link that had just
- * come up. Every state the two facts can be in is walked here rather than the two that happen
- * to be reachable today, because the invariant is what a third verb has to be checked against.
+ * This is what replaced "the list only ever grows at its end", and it is a weaker rule doing a
+ * stronger job. The old one existed because the cursor was an index: a verb appearing *ahead*
+ * of it changed what the next A press did without the cursor moving, so every verb had to be
+ * gated on the verbs before it and the list could only ever be a prefix. The cursor names a
+ * verb now, so a verb may arrive or leave anywhere - what still may not happen is two verbs
+ * swapping places, because the order the cursor walks is the order the cards draw and a reader
+ * watching the highlight move is entitled to have it move down the screen.
+ *
+ * Every combination of the three facts is walked rather than the ones a radio happens to reach,
+ * because the invariant is what a fourth verb has to be checked against.
  */
-MESH_TEST_CASE(ui_status_verbs_only_ever_append, unit) {
-    struct mesh_ui_status_actions previous;
-    memset(&previous, 0, sizeof previous);
-
-    /* Every combination of the three facts, which is what makes this a check on the invariant
-       rather than on the states a radio happens to reach. */
+MESH_TEST_CASE(ui_status_verbs_stay_in_card_order, unit) {
+    /* The order the cards draw, which is the order the table is written in. */
     static const uint8_t order[] = {
         (uint8_t)MESH_UI_STATUS_VERB_DISCONNECT,
-        (uint8_t)MESH_UI_STATUS_VERB_REFRESH,
         (uint8_t)MESH_UI_STATUS_VERB_TREND,
+        (uint8_t)MESH_UI_STATUS_VERB_REFRESH,
     };
+
     for (int state = 0; state < 8; ++state) {
         const bool connected = (state & 1) != 0;
         const bool synced = (state & 2) != 0;
@@ -103,19 +112,100 @@ MESH_TEST_CASE(ui_status_verbs_only_ever_append, unit) {
         struct mesh_ui_status_actions actions;
         mesh_ui_status_actions(&actions, connected, synced, has_trend);
 
-        /* Whatever the state, what a shorter list holds is a prefix of the longest one this can
-           produce: index 0 is always disconnect, index 1 always refresh, index 2 always the
-           trend. A verb that is not offered is missing from the *end*, never from the middle. */
-        for (uint32_t i = 0U; i < actions.count; ++i) {
-            MESH_TEST_FAIL_IF(i >= sizeof order / sizeof order[0] ||
-                                  actions.items[i].verb != order[i],
-                              "a verb moved to a different index, so a parked cursor now means "
-                              "something else");
-        }
         MESH_TEST_FAIL_IF(actions.count > MESH_UI_STATUS_ACTIONS_MAX, "more verbs than the cap");
-        previous = actions;
+
+        /* A subsequence of the table: every verb offered appears in it, once, after the one
+           offered before it. A card ordering that held only in the fully-reported state would
+           be exactly the coincidence the old prefix rule was read off. */
+        uint32_t at = 0U;
+        for (uint32_t i = 0U; i < actions.count; ++i) {
+            uint32_t rank = (uint32_t)(sizeof order / sizeof order[0]);
+            for (uint32_t r = at; r < sizeof order / sizeof order[0]; ++r) {
+                if (order[r] == actions.items[i].verb) {
+                    rank = r;
+                    break;
+                }
+            }
+            MESH_TEST_FAIL_IF(rank >= sizeof order / sizeof order[0],
+                              "a verb the cards do not draw, or one drawn out of order");
+            at = rank + 1U;
+        }
+
+        /* And each verb's own condition, stated once here so the table cannot quietly grow a
+           dependency on its neighbours again. */
+        MESH_TEST_FAIL_IF((mesh_ui_status_find(&actions, MESH_UI_STATUS_VERB_DISCONNECT) != NULL) !=
+                              connected,
+                          "disconnect is offered exactly when there is a link to drop");
+        MESH_TEST_FAIL_IF((mesh_ui_status_find(&actions, MESH_UI_STATUS_VERB_REFRESH) != NULL) !=
+                              (connected && synced),
+                          "refresh is offered exactly when there is a radio to ask");
+        MESH_TEST_FAIL_IF((mesh_ui_status_find(&actions, MESH_UI_STATUS_VERB_TREND) != NULL) !=
+                              has_trend,
+                          "the trend is offered exactly when there is a line to draw");
     }
-    (void)previous;
+    record_success(test_name);
+}
+
+/*
+ * A cursor holding a verb lands somewhere sensible whatever the list does under it.
+ *
+ * The whole of what makes the list free to change shape. Four cases and each is one the index
+ * could not answer: the verb is still there, so nothing moves; it has gone and something above
+ * it survives, so the cursor steps up rather than to the top; it has gone and nothing above it
+ * has, so the cursor takes the first survivor; and there is nothing on offer at all, where the
+ * remembered verb is kept because a screen drawing no buttons has nothing to be wrong about -
+ * which is what puts the reader back on their own button when the radio returns.
+ */
+MESH_TEST_CASE(ui_status_cursor_resolves_to_a_verb_on_offer, unit) {
+    struct mesh_ui_status_actions all;
+    mesh_ui_status_actions(&all, true, true, true);
+    MESH_TEST_FAIL_IF(mesh_ui_status_verb_resolve(&all, MESH_UI_STATUS_VERB_REFRESH) !=
+                          MESH_UI_STATUS_VERB_REFRESH,
+                      "a verb still on offer is where the cursor stays");
+
+    /* The radio goes away with the cursor on refresh, and the trend it was reading stays. The
+       nearest verb above refresh is that trend, on the card just up the screen. */
+    struct mesh_ui_status_actions trend_only;
+    mesh_ui_status_actions(&trend_only, false, false, true);
+    MESH_TEST_FAIL_IF(mesh_ui_status_verb_resolve(&trend_only, MESH_UI_STATUS_VERB_REFRESH) !=
+                          MESH_UI_STATUS_VERB_TREND,
+                      "a cursor whose verb has gone steps to the nearest one above it");
+
+    /* And with the cursor on the first verb of a list that has lost it, the first survivor. */
+    MESH_TEST_FAIL_IF(mesh_ui_status_verb_resolve(&trend_only, MESH_UI_STATUS_VERB_DISCONNECT) !=
+                          MESH_UI_STATUS_VERB_TREND,
+                      "nothing above it means the first verb on offer");
+
+    struct mesh_ui_status_actions none;
+    mesh_ui_status_actions(&none, false, false, false);
+    MESH_TEST_FAIL_IF(mesh_ui_status_verb_resolve(&none, MESH_UI_STATUS_VERB_REFRESH) !=
+                          MESH_UI_STATUS_VERB_REFRESH,
+                      "an empty screen keeps the reader's place rather than resetting it");
+    MESH_TEST_FAIL_IF(mesh_ui_status_find(&none, MESH_UI_STATUS_VERB_REFRESH) != NULL,
+                      "and a kept place is still not a verb on offer");
+
+    /* Stepping walks the list on offer and stops at its ends rather than wrapping - the same
+       answer every other cursor in this client gives a press at the end of a list. */
+    MESH_TEST_FAIL_IF(mesh_ui_status_verb_step(&all, MESH_UI_STATUS_VERB_DISCONNECT, +1) !=
+                          MESH_UI_STATUS_VERB_TREND,
+                      "Down from the Link card reaches the Mesh card");
+    MESH_TEST_FAIL_IF(mesh_ui_status_verb_step(&all, MESH_UI_STATUS_VERB_TREND, +1) !=
+                          MESH_UI_STATUS_VERB_REFRESH,
+                      "and then the Radio card");
+    MESH_TEST_FAIL_IF(mesh_ui_status_verb_step(&all, MESH_UI_STATUS_VERB_REFRESH, +1) !=
+                          MESH_UI_STATUS_VERB_REFRESH,
+                      "and stops there");
+    MESH_TEST_FAIL_IF(mesh_ui_status_verb_step(&all, MESH_UI_STATUS_VERB_DISCONNECT, -1) !=
+                          MESH_UI_STATUS_VERB_DISCONNECT,
+                      "Up at the top of the list is not a move");
+    /* Stepping from a verb that has gone starts from where the cursor is *drawn*, not from
+       where it remembers being - the reader is moving away from a highlight they can see. */
+    MESH_TEST_FAIL_IF(mesh_ui_status_verb_step(&trend_only, MESH_UI_STATUS_VERB_REFRESH, -1) !=
+                          MESH_UI_STATUS_VERB_TREND,
+                      "a step from a departed verb starts at the button on the frame");
+    MESH_TEST_FAIL_IF(mesh_ui_status_verb_step(NULL, MESH_UI_STATUS_VERB_TREND, +1) !=
+                          MESH_UI_STATUS_VERB_TREND,
+                      "no list is no move");
     record_success(test_name);
 }
 
@@ -128,17 +218,29 @@ MESH_TEST_CASE(ui_status_card_shares_are_slices_of_the_list, unit) {
                               1U ||
                           first != 0U,
                       "the Link card holds the first verb");
-    MESH_TEST_FAIL_IF(mesh_ui_status_card_actions(&actions, MESH_UI_STATUS_CARD_RADIO, &first) !=
-                              1U ||
-                          first != 1U,
-                      "the Radio card holds the second");
-    /* And the Mesh card the third, which is the case that proves a card's share is a slice of
-       the flat list rather than a run of it: the cards draw Link, Mesh, Radio and the verbs run
-       Link, Radio, Mesh. */
+    /* The Mesh card second and the Radio card third, which is the cards' own order - the flat
+       list and the column now run the same way, and a card's share is a run of it. */
     MESH_TEST_FAIL_IF(mesh_ui_status_card_actions(&actions, MESH_UI_STATUS_CARD_MESH, &first) !=
                               1U ||
-                          first != 2U,
+                          first != 1U,
                       "the Mesh card holds the trend");
+    MESH_TEST_FAIL_IF(mesh_ui_status_card_actions(&actions, MESH_UI_STATUS_CARD_RADIO, &first) !=
+                              1U ||
+                          first != 2U,
+                      "the Radio card holds the refresh");
+    /* Which is a property of the table rather than of this state, so it is checked as one:
+       walking the cards in the order they draw walks the list in the order it is offered. */
+    uint32_t walked = 0U;
+    for (int c = 0; c < MESH_UI_STATUS_CARD_COUNT; ++c) {
+        uint32_t at = 0U;
+        const uint32_t held =
+            mesh_ui_status_card_actions(&actions, (enum mesh_ui_status_card)c, &at);
+        if (held == 0U) {
+            continue;
+        }
+        MESH_TEST_FAIL_IF(at != walked, "a card's verbs are not where the column draws them");
+        walked += held;
+    }
 
     /* Every verb belongs to exactly one card, so the shares add up to the whole list. Without
        this a card could be dropped from the table and the cursor would still step onto its
@@ -158,15 +260,21 @@ MESH_TEST_CASE(ui_status_card_shares_are_slices_of_the_list, unit) {
 }
 
 /*
- * The cursor is clamped when a verb disappears under it.
+ * The cursor keeps its verb while the list changes shape under it.
  *
- * Status is the one screen whose row count is a function of the link rather than of a list, so
- * the row that vanishes is not the last one: dropping the link takes the *first* verb away and
- * leaves the second, and a cursor left where it was would be naming a button one past the end.
- * mesh_ui_nav_clamp() runs over every screen for exactly this, and the case exists because it
- * would be easy to add a screen it does not cover.
+ * Status is the one screen whose list is a function of the link rather than of a roster, so the
+ * entry that vanishes is not the last one: dropping the link takes the *first* verb away and
+ * can leave the trend behind it. An index left where it was would name a different button; a
+ * verb cannot, which is the whole of what this cursor is for.
+ *
+ * Three things are checked here and the last two were not possible before. A verb still on
+ * offer keeps the cursor exactly where it was. A screen with nothing to offer holds the
+ * reader's place rather than resetting it, so the radio coming back lands them on the button
+ * they were standing on. And cursor[STATUS] takes no part in any of it - it is pinned at 0
+ * because this screen has no rows, and a future reader picking it up would be reading a
+ * position nothing maintains.
  */
-MESH_TEST_CASE(ui_status_cursor_survives_the_link_dropping, unit) {
+MESH_TEST_CASE(ui_status_cursor_keeps_its_verb, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
 
@@ -184,13 +292,16 @@ MESH_TEST_CASE(ui_status_cursor_survives_the_link_dropping, unit) {
         }
     }
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    if (store.nav.cursor[MESH_UI_SCREEN_STATUS] != 1U) {
+    if (store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_REFRESH) {
         failure = "Down should reach the Radio card's verb";
         goto cleanup;
     }
+    if (store.nav.cursor[MESH_UI_SCREEN_STATUS] != 0U) {
+        failure = "the Status cursor is a verb; the row cursor must stay out of it";
+        goto cleanup;
+    }
 
-    /* The radio goes away, and both verbs go with it - every one of them is a request over the
-       air. The cursor has to come back to 0 rather than sit past the end of an empty list. */
+    /* The radio goes away, and both of its verbs with it - each is a request over the air. */
     struct mesh_ui_device devices[1] = {
         {.identifier = "AA:BB:CC:DD:EE:01", .name = "NodeOne", .rssi = -45, .connected = false},
     };
@@ -200,11 +311,7 @@ MESH_TEST_CASE(ui_status_cursor_survives_the_link_dropping, unit) {
         goto cleanup;
     }
     if (mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_STATUS) != 0U) {
-        failure = "a radio that has gone leaves no verb behind it";
-        goto cleanup;
-    }
-    if (snapshot.nav.cursor[MESH_UI_SCREEN_STATUS] != 0U) {
-        failure = "the cursor must be clamped back onto an empty list";
+        failure = "a radio that has gone and nothing watched leaves no verb behind it";
         goto cleanup;
     }
     memset(&action, 0, sizeof action);
@@ -213,9 +320,15 @@ MESH_TEST_CASE(ui_status_cursor_survives_the_link_dropping, unit) {
         failure = "A on a screen with no verbs must do nothing";
         goto cleanup;
     }
+    /* Nor may a press that reaches nothing move the place being held. */
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    if (store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_REFRESH) {
+        failure = "a screen with no buttons should hold the reader's place";
+        goto cleanup;
+    }
 
-    /* And when it comes back, the cursor lands on the first verb rather than on whichever one
-       happens to sit at the index it was left at. */
+    /* And when it comes back, the cursor is on the verb it was left on rather than at the top
+       of a list it never chose to be at the top of. */
     devices[0].connected = true;
     mesh_ui_store_set_discovery(&store, devices, 1U);
     if (!mesh_ui_store_consume_updates(&store, &snapshot)) {
@@ -224,8 +337,73 @@ MESH_TEST_CASE(ui_status_cursor_survives_the_link_dropping, unit) {
     }
     memset(&action, 0, sizeof action);
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    if (action.type != MESH_UI_ACTION_DISCONNECT) {
-        failure = "the cursor should be on the first verb when the list comes back";
+    if (action.type != MESH_UI_ACTION_REFRESH_SETTINGS) {
+        failure = "the cursor should come back on the verb it was left on";
+        goto cleanup;
+    }
+
+cleanup:
+    mesh_ui_store_shutdown(&store);
+    MESH_TEST_FAIL_IF(failure != NULL, failure);
+    record_success(test_name);
+}
+
+/*
+ * And a verb arriving ahead of the cursor changes nothing about what A does.
+ *
+ * The case the old index could not survive, and the reason §2.20 called this the change that
+ * unblocks the screen. The cursor sits on the Radio card's refresh; the radio then reports
+ * airtime twice, which puts a trend verb on the Mesh card - one card *up* the screen, so as an
+ * index it would slide underneath the cursor and the next A press would open a chart instead
+ * of re-reading the configuration.
+ */
+MESH_TEST_CASE(ui_status_a_new_verb_does_not_move_the_cursor, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    const char *failure = NULL;
+    struct mesh_ui_action action;
+    struct mesh_ui_snapshot snapshot;
+    mesh_test_nav_populate(&store);
+
+    while (store.nav.screen != MESH_UI_SCREEN_STATUS) {
+        const enum mesh_ui_screen before = store.nav.screen;
+        (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_RIGHT, &action);
+        if (store.nav.screen == before) {
+            failure = "Right stopped moving before the Status tab";
+            goto cleanup;
+        }
+    }
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
+    if (store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_REFRESH) {
+        failure = "Down should reach the Radio card's verb";
+        goto cleanup;
+    }
+
+    /* Two airtime reports, which is what makes there be a trend at all. */
+    struct mesh_ui_settings settings = store.settings;
+    settings.stats.valid = true;
+    settings.stats.channel_utilization = 11.0f;
+    settings.stats.air_util_tx = 3.0f;
+    mesh_ui_store_tick(&store, 1000U);
+    mesh_ui_store_set_settings(&store, &settings);
+    settings.stats.channel_utilization = 24.0f;
+    mesh_ui_store_tick(&store, 2000U);
+    mesh_ui_store_set_settings(&store, &settings);
+    (void)mesh_ui_store_consume_updates(&store, &snapshot);
+
+    if (mesh_ui_nav_row_count(&store.nav, &store, MESH_UI_SCREEN_STATUS) != 3U) {
+        failure = "the readings should have added a verb";
+        goto cleanup;
+    }
+    if (store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_REFRESH) {
+        failure = "a verb arriving above the cursor moved it";
+        goto cleanup;
+    }
+    memset(&action, 0, sizeof action);
+    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
+    if (action.type != MESH_UI_ACTION_REFRESH_SETTINGS || store.nav.trend_open) {
+        failure = "A ran the verb that slid in rather than the one under the cursor";
         goto cleanup;
     }
 
@@ -276,10 +454,10 @@ MESH_TEST_CASE(ui_status_trend_opens_swallows_and_closes, unit) {
         goto cleanup;
     }
 
+    /* One press, because Mesh is the middle card and the list runs in the cards' order. */
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
-    if (store.nav.cursor[MESH_UI_SCREEN_STATUS] != 2U) {
-        failure = "Down twice should reach the Mesh card's verb";
+    if (store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_TREND) {
+        failure = "Down should reach the Mesh card's verb";
         goto cleanup;
     }
 
@@ -300,7 +478,7 @@ MESH_TEST_CASE(ui_status_trend_opens_swallows_and_closes, unit) {
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_DOWN, &action);
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_UP, &action);
     (void)mesh_ui_store_handle_key(&store, MESH_UI_KEY_A, &action);
-    if (store.nav.cursor[MESH_UI_SCREEN_STATUS] != 2U || !store.nav.trend_open) {
+    if (store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_TREND || !store.nav.trend_open) {
         failure = "a chart has no cursor, so the d-pad must not move one";
         goto cleanup;
     }
@@ -327,7 +505,7 @@ MESH_TEST_CASE(ui_status_trend_opens_swallows_and_closes, unit) {
         failure = "B should leave the chart";
         goto cleanup;
     }
-    if (store.nav.cursor[MESH_UI_SCREEN_STATUS] != 2U) {
+    if (store.nav.status_verb != (uint8_t)MESH_UI_STATUS_VERB_TREND) {
         failure = "leaving the chart should land back on the verb that opened it";
         goto cleanup;
     }

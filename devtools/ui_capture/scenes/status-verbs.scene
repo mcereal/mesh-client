@@ -1,0 +1,46 @@
+# The Status cursor, once it is a verb rather than a position.
+#
+# Nothing on this screen looks new and two things about it are. The cursor used to be an *index*
+# into the verbs the cards offer, which had two costs and neither of them was visible in a still.
+#
+# The first is the one this films. An index made the list append-only - a verb appearing ahead of
+# the cursor would change what the next A press did without the cursor moving - so a verb went
+# where it was added rather than where its card is, and the trend arrived last. Down therefore
+# walked Link, Radio, Mesh: the ring dropped to the bottom card and then came back up to the
+# middle one. Watch it walk down the column instead.
+#
+# The second is what the same change buys, and it is at the end: the trend is a picture of what
+# this client already watched, so it no longer waits on the link. Every other verb here is a
+# request over the air and still does.
+
+scene demo
+delay 260
+config
+
+tab status
+stats
+hold 700
+
+# An hour of mesh, so there is a line to draw and a third verb to walk onto.
+airtime 6 2
+hold 300
+airtime 11 4
+hold 300
+airtime 19 6
+hold 300
+airtime 28 9
+hold 900
+
+# Down the column, one card at a time. The ring follows the cursor, the button under it fills,
+# and the action bar renames A each step - one table read by three places, which is what stops
+# the highlight and the press disagreeing.
+key down
+hold 1400
+key down
+hold 1400
+
+# And back up to the top of it.
+key up
+hold 900
+key up
+hold 1200

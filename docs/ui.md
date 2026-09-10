@@ -434,7 +434,7 @@ half-line of extra space every so often standing in for a grouping. It is now th
 | Card | What it holds | Variant | Heading colour | Verb |
 |---|---|---|---|---|
 | **Link** | transport, radio, sync, our node, the primary channel, devices in range | elevated, always | good when a radio is attached, bad when none is | *disconnect*, while one is |
-| **Mesh** | NodeDB and roster counts, airtime with a banded bar and a trend under it, packets, what the ring is holding | filled | the airtime tone — warning past 25% channel utilization, error past 50% | none |
+| **Mesh** | NodeDB and roster counts, airtime with a banded bar, the two counter rows and the proportion under the received one, what the ring is holding | filled | the airtime tone — warning past 25% channel utilization, error past 50% | *trend*, once there is a line to draw |
 | **Radio** | battery and uptime, what the firmware last said, reboots, the TX queue, free heap | outlined while quiet, elevated when not | the worst thing on it: bad for a flat battery, a refused packet or an `ERROR` notice | *refresh*, once it has synced |
 
 The heading colour is the point. Every row on the Radio card exists only when something is
@@ -454,17 +454,24 @@ the action bar, and `fb_screens.c` hangs the buttons on the cards. It is flat ra
 per-card because Left and Right are the tab switch here as everywhere, so there was no second
 axis to spend on a cursor inside a card.
 
-Both verbs are presses that already existed elsewhere — X on Devices and X on Settings — which is
-deliberate: the step gave a card somewhere to put a verb, and a verb invented for it would have
-been arguing two things at once. Both also need a link, refresh included: a refresh is a request
-over the air, so offering it while the radio is away is offering a press whose only outcome is a
-complaint. That gating is load-bearing for a second reason — **the list may only ever grow at its
-end**. The cursor is an index into it, so a verb appearing *ahead* of the cursor would change what
-the next A press does without the cursor moving; with both verbs turning on the same fact the list
-goes empty → *disconnect* → *disconnect, refresh*, and nothing is ever inserted before something
-already on it. What is *not* there is a destructive one: the confirmation
-dialog is still keyed on `nav->settings_section`, so "reboot the radio" from this screen means
-decoupling the dialog from the settings model first.
+**The cursor is a verb, not a position** (`nav->status_verb`), and `cursor[MESH_UI_SCREEN_STATUS]`
+is unused. It was an index into that list, which made the list *append-only*: a verb appearing
+ahead of the cursor changed what the next A press did without the cursor moving, so every verb
+had to be gated on the verbs before it, and a verb went where it was added rather than where its
+card is. Two things came out of naming the verb instead. The list is written in the **order the
+cards draw** — Link, Mesh, Radio — so Down walks down the screen, where it used to reach the
+bottom card and then come back up to the middle one. And each verb states **its own** condition:
+the two that are requests over the air need a link, and the *trend* does not, because what it
+opens is a picture of readings this client already holds and the history outlives the radio
+going away. `mesh_ui_status_verb_resolve()` is where a cursor whose verb has gone lands — the
+nearest verb above it, and the reader's own place kept untouched while the screen offers none, so
+a link that drops and comes back puts them back on the button they were on.
+
+The first two verbs are presses that already existed elsewhere — X on Devices and X on Settings —
+which is deliberate: the step gave a card somewhere to put a verb, and a verb invented for it
+would have been arguing two things at once. What is *not* there is a destructive one: the
+confirmation dialog is still keyed on `nav->settings_section`, so "reboot the radio" from this
+screen means decoupling the dialog from the settings model first.
 
 Two consequences worth knowing:
 
@@ -485,12 +492,18 @@ Two consequences worth knowing:
   would step onto nothing. The Mesh card already had the same row for the same reason.
 
 Status does not scroll. On a radio reporting everything at once the last row or two of the Radio
-card are dropped rather than drawn over the action bar, which is the card's own contract; a
-scrolling Status is the obvious next step and is a nav change, not a rendering one.
+card are dropped rather than drawn over the action bar, which is the card's own contract —
+softened by `fb_draw_card_reserving()`, which lets the Mesh card give up its last rows so the
+card below it is drawn at all. Where that goes next is
+[`docs/components-roadmap.md`](components-roadmap.md) §2.20: a level under each card, now that
+the cursor names a verb and three more verbs can be added without re-ordering the ones already
+there.
 
 `make ui-capture ARGS="devtools/ui_capture/scenes/card-actions.scene -o cards.gif"` walks the
 three weights, the ring moving between cards, and the Radio card lifting as the radio gets into
-trouble, in all four themes.
+trouble, in all four themes. `status-verbs.scene` is the cursor itself: the ring walking down
+the column in the cards' own order, and the trend verb standing on a card with no radio behind
+it.
 
 ### Settings — `src/ui/settings*.c`
 

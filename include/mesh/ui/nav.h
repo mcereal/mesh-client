@@ -147,6 +147,8 @@ enum mesh_ui_picker_follow {
  */
 struct mesh_ui_nav {
     enum mesh_ui_screen screen;
+    /* One row cursor per tab. The Status entry is unused and stays 0: that screen has no rows,
+       and what its cursor holds is `status_verb` below. */
     uint32_t cursor[MESH_UI_SCREEN_COUNT];
     uint32_t target_node;
     uint8_t target_channel;
@@ -244,13 +246,31 @@ struct mesh_ui_nav {
     bool map_open;
     struct mesh_map_viewport map_viewport;
     /*
+     * Status tab: which verb the cursor is on.
+     *
+     * **This is the Status cursor, and cursor[MESH_UI_SCREEN_STATUS] is not.** Status is the one
+     * screen with no rows: its cards offer verbs, Up and Down walk those, and what the cursor
+     * holds is `enum mesh_ui_status_verb` rather than a position in the list of them. The
+     * difference is what a verb appearing or disappearing does. As an index it moved the
+     * cursor's meaning without moving the cursor, so the list had to be append-only and every
+     * verb had to restate the conditions of the verbs before it; as a verb the list is free to
+     * be written in the order the cards draw, and a link that drops and comes back leaves the
+     * reader on the button they were standing on.
+     *
+     * MESH_UI_STATUS_VERB_COUNT is "no verb", which is what a screen offering none holds. The
+     * value is otherwise only ever one mesh_ui_status_verb_resolve() answered with, so nothing
+     * reads it without asking the list on offer whether it is still there - see
+     * include/mesh/ui/status.h.
+     */
+    uint8_t status_verb;
+    /*
      * Status tab: the airtime chart is open over the cards.
      *
      * The one level this tab has, and it carries no cursor of its own - a chart is a picture and
-     * there is nothing on it to choose between, so cursor[STATUS] stays where it was and is
-     * still pointing at the trend verb when B lands back on the cards. That is why the flag
-     * exists at all rather than the screen being a fourth card: the cards are a list of verbs
-     * the cursor walks, and a picture is not a verb.
+     * there is nothing on it to choose between, so `status_verb` stays where it was and is still
+     * naming the trend verb when B lands back on the cards. That is why the flag exists at all
+     * rather than the screen being a fourth card: the cards are a list of verbs the cursor
+     * walks, and a picture is not a verb.
      *
      * It outlives a change of tab, as map_open does and for the same reason - every tab keeps
      * its own place - which means it says *where the Status tab is standing* rather than *what

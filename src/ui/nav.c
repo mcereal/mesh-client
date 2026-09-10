@@ -390,6 +390,27 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
     }
 
     /*
+     * And the Status cursor, which is a verb rather than a position and so is repaired rather
+     * than clipped. The generic loop below cannot do it: it holds an index in range, and the
+     * verb that goes is not the last one - dropping the link takes disconnect away and can
+     * leave the trend behind it.
+     *
+     * mesh_ui_status_verb_resolve() hands back the verb itself while it is still offered, which
+     * is the ordinary case and the whole point: a verb arriving or leaving anywhere in the list
+     * no longer moves what A does. With nothing on offer the remembered verb is kept, so a link
+     * that drops and comes back lands the reader back on the button they were on.
+     */
+    {
+        struct mesh_ui_status_actions actions;
+        mesh_ui_nav_status_actions(store, &actions);
+        const uint8_t verb = mesh_ui_status_verb_resolve(&actions, nav->status_verb);
+        if (verb != nav->status_verb) {
+            nav->status_verb = verb;
+            moved = true;
+        }
+    }
+
+    /*
      * Help, whose paragraph list can shrink under an open screen: a radio answering for a
      * section it had not sent yet adds rows, and a link dropping takes them away again, so the
      * count this cursor was placed against is not the count the next frame draws.
@@ -490,6 +511,19 @@ static bool mesh_ui_nav_switch_screen(struct mesh_ui_nav *nav, int delta) {
 
 static bool mesh_ui_nav_move_cursor(struct mesh_ui_nav *nav, const struct mesh_ui_store *store,
                                     int delta) {
+    if (nav->screen == MESH_UI_SCREEN_STATUS) {
+        /* Status has no rows to walk. Its cursor is a verb, so a press moves along the list on
+           offer and names what it lands on rather than counting how far it got - see
+           include/mesh/ui/status.h. */
+        struct mesh_ui_status_actions actions;
+        mesh_ui_nav_status_actions(store, &actions);
+        const uint8_t next = mesh_ui_status_verb_step(&actions, nav->status_verb, delta);
+        if (next == nav->status_verb) {
+            return false;
+        }
+        nav->status_verb = next;
+        return true;
+    }
     const uint32_t rows = mesh_ui_nav_row_count(nav, store, nav->screen);
     if (rows == 0U) {
         return false;
@@ -918,13 +952,18 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
     default: {
         struct mesh_ui_status_actions actions;
         mesh_ui_nav_status_actions(store, &actions);
-        if (cursor >= actions.count) {
+        /* The verb the cursor is on, asked for by name. A verb the screen is not offering is a
+           button nobody can see, so the press does nothing - which is also what makes the check
+           the same one the renderer and the action bar make. */
+        const struct mesh_ui_status_action *chosen =
+            mesh_ui_status_find(&actions, nav->status_verb);
+        if (chosen == NULL) {
             return false;
         }
         if (action == NULL) {
             return false;
         }
-        switch ((enum mesh_ui_status_verb)actions.items[cursor].verb) {
+        switch ((enum mesh_ui_status_verb)chosen->verb) {
         case MESH_UI_STATUS_VERB_DISCONNECT:
             /* The same press X makes on the Devices tab, and it names the radio for the same
                reason: only one link is ever up, so the transport is told which one to drop
