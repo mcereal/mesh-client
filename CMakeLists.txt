@@ -60,6 +60,7 @@ add_library(meshclient_core
     src/core/firmware_catalog.c
     src/core/firmware_download.c
     src/core/firmware_fetch.c
+    src/core/firmware_install.c
     src/core/message.c
     src/core/waypoint.c
     src/core/radio_settings.c
@@ -74,6 +75,7 @@ add_library(meshclient_core
     src/transport/ble/bluez_client.c
     src/transport/serial/serial_transport.c
     src/transport/serial/serial_usb.c
+    src/transport/serial/usb_msc.c
     src/proto/stream_framing.c
     src/geo/coords.c
     src/geo/mercator.c

@@ -16,20 +16,12 @@
 
 #include "framework/mesh_test.h"
 #include "support/data_fixture.h"
+#include "support/uf2_fixture.h"
 
 #include "mesh/core/uf2.h"
 
 #include <stdlib.h>
 #include <string.h>
-
-/* Writes `value` where a UF2 block keeps `numBlocks`. The only mutation any case here makes,
-   and it is what turns a cut file into a complete one. */
-static void uf2_set_num_blocks(uint8_t *block, uint32_t value) {
-    block[24] = (uint8_t)(value & 0xFFU);
-    block[25] = (uint8_t)((value >> 8) & 0xFFU);
-    block[26] = (uint8_t)((value >> 16) & 0xFFU);
-    block[27] = (uint8_t)((value >> 24) & 0xFFU);
-}
 
 /*
  * Every field of a real block, pinned.
@@ -133,7 +125,7 @@ MESH_TEST_CASE(uf2_refuses_another_chips_image, unit) {
     uint8_t whole[MESH_UF2_BLOCK_SIZE];
     memcpy(whole, bytes, sizeof whole);
     free(bytes);
-    uf2_set_num_blocks(whole, 1U);
+    mesh_test_uf2_set_num_blocks(whole, 1U);
 
     struct mesh_uf2_info info;
     MESH_TEST_FAIL_IF(mesh_uf2_validate(whole, sizeof whole, MESH_UF2_FAMILY_NRF52840, &info) !=
@@ -167,8 +159,8 @@ MESH_TEST_CASE(uf2_refuses_a_file_that_is_not_a_sequence, unit) {
     uint8_t pair[2U * MESH_UF2_BLOCK_SIZE];
     memcpy(pair, bytes, sizeof pair);
     free(bytes);
-    uf2_set_num_blocks(pair, 2U);
-    uf2_set_num_blocks(pair + MESH_UF2_BLOCK_SIZE, 2U);
+    mesh_test_uf2_set_num_blocks(pair, 2U);
+    mesh_test_uf2_set_num_blocks(pair + MESH_UF2_BLOCK_SIZE, 2U);
     MESH_TEST_FAIL_IF(mesh_uf2_validate(pair, sizeof pair, MESH_UF2_FAMILY_NRF52840, NULL) !=
                           MESH_UF2_OK,
                       "two consecutive real blocks are a valid two-block image");
