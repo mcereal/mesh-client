@@ -337,8 +337,8 @@ Three details that are load-bearing, and one of them was a bug in the phone app 
 
 - **One chunk is one GATT write.** The loader ACKs per *write*, not per declared chunk, so a
   512-byte chunk that BlueZ splits into 509 + 3 earns two ACKs and desynchronises the cadence
-  from then on. Chunk size is `min(512, negotiated write payload)`, and the write is a single
-  call.
+  from then on. Chunk size is `min(512, mtu - 3)` - the negotiated write *payload*, not the
+  negotiated MTU - and the write is a single call.
 - **One chunk outstanding at a time.** Write, wait for `ACK`, write. The loader's receive buffer
   is 4 KB and it drops what does not fit, silently as far as the wire is concerned.
 - **`ERASING` needs a minute, not a second.** The phone app allows 60 s there against 10 s for
@@ -348,7 +348,7 @@ Three details that are load-bearing, and one of them was a bug in the phone app 
   [§What phase 0 measured on BLE](#what-phase-0-measured-on-ble) - and it is the difference
   between a five-minute install and a seventeen-minute one, because the protocol above spends a
   round trip per chunk and a round trip is a small number of connection intervals. The MTU is the
-  other half and is the half that came out well: 255 negotiated, so `min(512, negotiated)` is a
+  other half and is the half that came out well: 255 negotiated, so `min(512, mtu - 3)` is a
   252-byte chunk rather than the 20-byte one that would have made this unusable. Asking for the
   interval is therefore part of starting an OTA, and giving it back is part of finishing one.
 
@@ -1069,9 +1069,29 @@ parts, and the third is the one that decides whether phase 4 is a feature.
 an ATT `Write Request` spends one byte on the opcode and two on the handle — and a 252-byte
 write does go out as a single request, confirmed on the wire as `len 254`. That is neither the
 23-byte worst case the question feared nor the 517 the loader asks for: `/etc/bluetooth/main.conf`
-sets nothing, so BlueZ offers its own default and the ESP32 answers 255. `min(512, negotiated)`
-therefore reads 252 here, and it is worth keeping as that expression rather than a constant,
-because the loader is a different firmware and may well answer differently.
+sets nothing, so BlueZ offers its own default and the ESP32 answers 255.
+
+The chunk size is therefore `min(512, mtu - 3)`, and the `- 3` is not a detail. An ATT MTU is
+the size of the whole PDU, so a chunk written as `min(512, mtu)` would be 255 bytes here - three
+more than a `Write Request` can carry - and BlueZ does not refuse those three bytes. Its
+`characteristic_write_value()` picks the procedure by exactly this arithmetic:
+
+```c
+if (value_len <= mtu - 3 && !offset)
+        chrc->write_op = start_write_request(...);
+else
+        chrc->write_op = start_long_write(...);
+```
+
+So one byte over turns the chunk into a **long write**: a `Prepare Write` per fragment and an
+`Execute Write` to close it, which is several writes where the loader is counting one and ACKs
+each of them. That is the desynchronised cadence [§The protocol](#the-protocol) warns about,
+reached by arithmetic rather than by a chunk size anyone chose. Keep it as the expression rather
+than as 252 - the loader is a different firmware and may answer with a different MTU.
+
+(That last part is read out of `bluez-5.78/src/gatt-client.c`, which is the version on the
+Brick, rather than watched on the wire: every other number in this section is a measurement, and
+this one is a code path.)
 
 *`AcquireWrite` answers `org.bluez.Error.NotSupported`.* BlueZ hands out the fd only for a
 characteristic that declares `write-without-response`, and the radio's `toRadio` declares plain
