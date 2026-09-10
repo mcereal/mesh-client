@@ -1,3 +1,9 @@
+## [2.51.0](https://github.com/mcereal/mesh-client/compare/v2.50.0...v2.51.0) (2026-09-10)
+
+### Features
+
+* **ui:** key the Status cursor on a verb rather than a position ([eac21e1](https://github.com/mcereal/mesh-client/commit/eac21e10768387b9ed3f0eb83d792e1a53e2ee64))
+
 ## [2.50.0](https://github.com/mcereal/mesh-client/compare/v2.49.0...v2.50.0) (2026-09-10)
 
 ### Features
