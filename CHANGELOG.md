@@ -1,3 +1,20 @@
+## [2.46.0](https://github.com/mcereal/mesh-client/compare/v2.45.0...v2.46.0) (2026-09-10)
+
+### Features
+
+* **core:** read the firmware catalog upstream publishes ([d8b824f](https://github.com/mcereal/mesh-client/commit/d8b824fc3edb2879109385c59e76811e4ee13aba))
+* **settings:** say what firmware the radio could be running ([593a31f](https://github.com/mcereal/mesh-client/commit/593a31fb2aa6aca42c5a750acf4deb2b96279ef6))
+
+### Bug Fixes
+
+* **core:** drop a firmware answer that belongs to another radio ([014f7bd](https://github.com/mcereal/mesh-client/commit/014f7bd2e76e5e18b0faaacac2020b4320724a5d))
+* **core:** refuse a release whose tag is a 'v' and nothing else ([4e90f4d](https://github.com/mcereal/mesh-client/commit/4e90f4df40fef88f05af668dc27ec7d7958c9fba))
+* two findings from the Codex review ([e505b1e](https://github.com/mcereal/mesh-client/commit/e505b1eda725780d265592bf2b545000214efb45))
+
+### Code Refactoring
+
+* **core:** lift the forked fetcher out of the updater ([d26cc75](https://github.com/mcereal/mesh-client/commit/d26cc75bd9f02705ff4d47f16dfc2c0eb10d1de2))
+
 ## [2.45.0](https://github.com/mcereal/mesh-client/compare/v2.44.0...v2.45.0) (2026-09-10)
 
 ### Features
