@@ -44,7 +44,7 @@ help:
 	@echo "  make docker-screenshots - make screenshots inside the dev container (use this on macOS)"
 	@echo "  make docker-fuzz    - make fuzz inside the dev container (use this on macOS)"
 	@echo ""
-	@echo "Device targets (TrimUI Brick over SSH; configure .brick.env, see docs/device.md):"
+	@echo "Device targets (TrimUI Brick over WiFi/SSH or USB/adb; configure .brick.env, see docs/device.md):"
 	@echo "  make deploy         - Push dist/MeshClient.pak to the Brick's Tools/tg5040/"
 	@echo "  make brick          - docker-pak + deploy in one step"
 	@echo "  make deploy-run     - Run launch.sh on the device, streaming output (ARGS=\"--list-devices\")"
@@ -53,8 +53,9 @@ help:
 	@echo "  make deploy-shot    - Screenshot the device's screen to a PNG (ARGS=\"-d 10 -o nodes.png\")"
 	@echo "  make deploy-clip    - Film the device's screen to a GIF (ARGS=\"-d 10 -n 30 -o open.gif\")"
 	@echo "  make deploy-input-map - Identify the device's buttons: press them, read the codes"
-	@echo "  make deploy-shell   - SSH into the device"
-	@echo "  make deploy-key     - Install your SSH public key on the device"
+	@echo "  make deploy-shell   - Open a shell on the device"
+	@echo "  make deploy-key     - Install your SSH public key on the device (SSH transport only)"
+	@echo "  (transport auto-detects USB when a cable is attached; force with BRICK_TRANSPORT=ssh|adb)"
 
 setup:
 	./scripts/setup-linux.sh

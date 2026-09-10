@@ -5,7 +5,9 @@ once it is there. Everything below assumes NextUI (platform key `tg5040`).
 
 ## One-time setup
 
-The SD card comes out of the device exactly once, for step 2. After that everything is SSH.
+The SD card comes out of the device exactly once, for step 2. After that everything is over the
+network (SSH) or the USB cable (adb); the USB path needs no on-device setup - see
+[USB instead of WiFi](#usb-instead-of-wifi) - so steps 3-5 are only for the WiFi route.
 
 1. **Charge it.** A Brick that sat unused for months has a drained cell and will not boot from
    the USB-C port on a laptop. Use a USB-A to USB-C cable into a plain 5 V wall charger. The
@@ -80,6 +82,10 @@ make brick            # docker-pak (static aarch64 build) + push to Tools/tg5040
 make deploy           # push only, if dist/ is already current
 make deploy-logs      # tail /.userdata/tg5040/logs/MeshClient.txt while you launch from the Tools menu
 ```
+
+These run over WiFi/SSH or over USB, whichever is available; the transport auto-detects a USB
+cable and falls back to SSH. When the network route to the Brick is flaky, plug in the USB-C
+charging port and the same targets keep working - see [USB instead of WiFi](#usb-instead-of-wifi).
 
 Launch the pak from **Tools > MeshClient** on the device for anything involving the screen. It
 scans, connects on its own (the last node it talked to, or the strongest one in range if there is
@@ -291,7 +297,7 @@ for MeshClient:
   read-only, so `~/.ssh/authorized_keys` might not survive. Fall back to the password, or check
   the SSH Server pak's README for its persistent key location.
 - **`meshclient binary not found in PATH`** in the log: the push did not finish, or `launch.sh`
-  was run from the wrong directory. Re-run `make deploy`; it stages into `MeshClient.pak.new`
+  was run from the wrong directory. Re-run `make deploy`; it stages into `.MeshClient.pak.new`
   and swaps, so a partial copy never lands under the real name.
 - **Screen stays black while the log shows the HUD backend active:** the display engine is
   showing a different framebuffer page than the one being drawn. `cat
@@ -319,12 +325,45 @@ for MeshClient:
   the absolute `PAK_DIR` fix and wrote to `logs/.txt` with `$HOME` at `.userdata/tg5040/`
   when started as `./launch.sh`. Redeploy; move anything useful out of
   `.userdata/tg5040/.meshclient/` into `.userdata/tg5040/MeshClient/.meshclient/`.
-- **Transfers are slow:** the pak is small (well under 5 MB), so a push should take a few
-  seconds. If it stalls, the Brick has dropped WiFi; NextUI's deep sleep turns the radio off, so
-  keep the device awake while pushing.
+- **Transfers are slow or SSH stalls:** the pak is small (well under 5 MB), so a push should
+  take a few seconds. If it stalls, the Brick has dropped WiFi (NextUI's deep sleep turns the
+  radio off, so keep the device awake while pushing), or the router is handling the LAN route
+  badly. When the device pings and downloads fine but SSH hangs, switch to USB - see
+  [USB instead of WiFi](#usb-instead-of-wifi).
 
-## USB instead of WiFi?
+## USB instead of WiFi
 
-Not worth it today. NextUI does not expose USB mass storage by default, the community
-mass-storage pak warns about SD corruption, and ADB is not confirmed to be enabled out of the
-box. WiFi plus the SSH Server pak is the supported path.
+The same `make deploy*` targets run over USB, which is the path to reach for when the LAN route
+to the Brick is unreliable - a captive or mesh router (Plume and similar) that handles
+client-to-client traffic badly can leave SSH stalling even though the device pings and downloads
+fine. USB sidesteps the network entirely.
+
+NextUI runs `adbd` by default, so the Brick presents an ADB gadget with nothing to install on
+it. What matters is the port and the host tool:
+
+- **The port.** The Brick has two USB-C ports and only one is wired to the SoC's USB gadget: the
+  **port that also charges**. Use that one, with a data cable, straight into the host. The other
+  port does not present a data device (the host sees nothing) - if `adb devices` is empty, try
+  the other port first.
+- **The host.** Install `adb`: macOS `brew install --cask android-platform-tools`, Linux your
+  distro's `android-tools`/`adb` package. Then:
+
+  ```bash
+  adb devices                 # the Brick shows up as "TRIMUI ADB"; note the serial if you have >1
+  make deploy-check           # transport auto-detects USB when a cable is attached
+  make brick                  # build + push over USB, no WiFi, no key
+  ```
+
+The transport is chosen by `BRICK_TRANSPORT` (`auto` by default): `auto` uses USB when a device
+is attached and falls back to WiFi/SSH otherwise. Force it either way with `BRICK_TRANSPORT=adb`
+or `BRICK_TRANSPORT=ssh` in `.brick.env`, or `--transport`. With more than one device attached,
+set `BRICK_ADB_SERIAL` (or `--serial`).
+
+Everything works over either transport except `make deploy-key`, which is SSH-only (USB needs no
+key). Under the hood the Brick's `adbd` is old - no `exec-out`, no no-pty shell, and it does not
+report remote exit codes - so the USB path moves every byte with `adb push`/`adb pull` (the
+binary-safe sync protocol) and verifies the pushed pak by checksum rather than by exit status.
+
+Note this is device data access, not USB mass storage: NextUI does not expose the SD card as a
+disk by default, and the community mass-storage pak warns about SD corruption. ADB reaches the
+running system directly, which is what the deploy loop wants.

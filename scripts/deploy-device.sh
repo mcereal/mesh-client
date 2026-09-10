@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
-# Push, run, and inspect MeshClient.pak on a TrimUI Brick over SSH.
+# Push, run, and inspect MeshClient.pak on a TrimUI Brick over SSH or USB (adb).
 #
-# Runs on the development host (macOS or Linux). The device side needs NextUI with WiFi
-# configured and the "SSH Server" pak (dropbear) from the Pak Store running; see
-# docs/device.md for the one-time setup. Only busybox tools are assumed on the device:
-# no rsync, no scp needed — transfers go through `tar | ssh tar`.
+# Runs on the development host (macOS or Linux). Two transports, one command set:
+#
+#   ssh  - the Brick on WiFi with the "SSH Server" pak (dropbear) running. Only busybox tools
+#          are assumed on the device: no rsync, no scp - transfers go through `tar | ssh tar`.
+#   adb  - the Brick on the USB-C DATA port (the one that also charges) with its adb gadget up
+#          (adbd runs by default on NextUI). No WiFi, no SSH server, no key needed. This is the
+#          reliable path when the LAN route to the device is flaky - see docs/device.md.
+#
+# The transport is chosen by BRICK_TRANSPORT (auto|ssh|adb); `auto` (the default) uses adb when
+# a device is attached, otherwise ssh. The Brick's adbd is old - no `exec-out`, no no-pty shell,
+# and it does not report remote exit codes - so the adb path moves every byte with the native
+# `adb push`/`adb pull` sync protocol and uses `adb shell` only for text, verifying by checksum.
 #
 # Usage: scripts/deploy-device.sh [options] <command> [-- args...]
 #
@@ -26,12 +34,14 @@
 #                      each one reports. Args: -t SECS (record for a fixed time instead of
 #                      waiting for Enter), -k (keep the raw capture directory).
 #   shell              Interactive shell on the device
-#   setup-key          Install ~/.ssh/id_*.pub into the device's authorized_keys (asks password once)
+#   setup-key          Install ~/.ssh/id_*.pub into the device's authorized_keys (SSH only)
 #
 # Options:
-#   -H, --host HOST    Device IP or hostname            (env BRICK_HOST)
-#   -u, --user USER    SSH user, default root           (env BRICK_USER)
-#   -p, --port PORT    SSH port, default 22             (env BRICK_PORT)
+#   -t, --transport T  Transport: auto|ssh|adb                 (env BRICK_TRANSPORT, default auto)
+#   -H, --host HOST    Device IP or hostname (ssh)             (env BRICK_HOST)
+#   -u, --user USER    SSH user, default root (ssh)            (env BRICK_USER)
+#   -p, --port PORT    SSH port, default 22 (ssh)              (env BRICK_PORT)
+#   -s, --serial SN    adb device serial, if more than one     (env BRICK_ADB_SERIAL)
 #   -n, --dry-run      Print the commands instead of running them
 #   -h, --help
 #
@@ -45,7 +55,8 @@ INVOKE_DIR="${PWD}"
 cd "${REPO_ROOT}"
 
 # .brick.env supplies defaults only: values already in the environment win, flags win over both.
-BRICK_VARS=(BRICK_HOST BRICK_USER BRICK_PORT BRICK_PLATFORM BRICK_SDCARD BRICK_SSH_OPTS)
+BRICK_VARS=(BRICK_TRANSPORT BRICK_HOST BRICK_USER BRICK_PORT BRICK_PLATFORM BRICK_SDCARD \
+    BRICK_SSH_OPTS BRICK_ADB BRICK_ADB_SERIAL)
 if [[ -f .brick.env ]]; then
     for v in "${BRICK_VARS[@]}"; do
         eval "_env_set_${v}=\${${v}+set}; _env_val_${v}=\${${v}-}"
@@ -57,12 +68,15 @@ if [[ -f .brick.env ]]; then
     done
 fi
 
+BRICK_TRANSPORT="${BRICK_TRANSPORT:-auto}"
 BRICK_HOST="${BRICK_HOST:-}"
 BRICK_USER="${BRICK_USER:-root}"
 BRICK_PORT="${BRICK_PORT:-22}"
 BRICK_PLATFORM="${BRICK_PLATFORM:-tg5040}"
 BRICK_SDCARD="${BRICK_SDCARD:-/mnt/SDCARD}"
 BRICK_SSH_OPTS="${BRICK_SSH_OPTS:--o StrictHostKeyChecking=accept-new -o ConnectTimeout=5}"
+BRICK_ADB="${BRICK_ADB:-adb}"
+BRICK_ADB_SERIAL="${BRICK_ADB_SERIAL:-}"
 PAK_NAME="MeshClient"
 LOCAL_PAK="dist/${PAK_NAME}.pak"
 DRY_RUN=0
@@ -80,9 +94,11 @@ COMMAND=""
 PASSTHRU=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        -t|--transport) BRICK_TRANSPORT="$2"; shift 2 ;;
         -H|--host) BRICK_HOST="$2"; shift 2 ;;
         -u|--user) BRICK_USER="$2"; shift 2 ;;
         -p|--port) BRICK_PORT="$2"; shift 2 ;;
+        -s|--serial) BRICK_ADB_SERIAL="$2"; shift 2 ;;
         -n|--dry-run) DRY_RUN=1; shift ;;
         -h|--help) usage; exit 0 ;;
         --) shift; PASSTHRU=("$@"); break ;;
@@ -98,9 +114,6 @@ while [[ $# -gt 0 ]]; do
 done
 COMMAND="${COMMAND:-push}"
 
-[[ -n "${BRICK_HOST}" ]] || die "no device host. Set BRICK_HOST in .brick.env or pass --host (see docs/device.md)"
-
-TARGET="${BRICK_USER}@${BRICK_HOST}"
 REMOTE_TOOLS="${BRICK_SDCARD}/Tools/${BRICK_PLATFORM}"
 REMOTE_PAK="${REMOTE_TOOLS}/${PAK_NAME}.pak"
 # Where a push is assembled before it becomes the pak. Dot-prefixed and *not* ending in .pak,
@@ -110,28 +123,170 @@ REMOTE_PAK="${REMOTE_TOOLS}/${PAK_NAME}.pak"
 REMOTE_STAGE="${REMOTE_TOOLS}/.${PAK_NAME}.pak.new"
 REMOTE_LOG="${BRICK_SDCARD}/.userdata/${BRICK_PLATFORM}/logs/${PAK_NAME}.txt"
 
-# shellcheck disable=SC2206
-SSH_OPTS=(${BRICK_SSH_OPTS} -p "${BRICK_PORT}")
+# --- Transport selection ----------------------------------------------------------------------
 
-# Run a command string on the device. ssh joins its arguments and hands the string to
-# the remote login shell (busybox sh), so multi-line scripts work as-is.
-ssh_cmd() {
-    if [[ ${DRY_RUN} -eq 1 ]]; then
-        printf 'ssh %s %s %s\n' "${SSH_OPTS[*]}" "${TARGET}" "$(sq "$1")"
-        return 0
-    fi
-    ssh "${SSH_OPTS[@]}" "${TARGET}" "$1"
+# Serials of the adb devices that are online right now, one per line.
+adb_online_serials() {
+    "${BRICK_ADB}" devices 2>/dev/null | awk 'NR>1 && $2=="device"{print $1}'
 }
 
-ssh_tty() {
+adb_available() {
+    command -v "${BRICK_ADB}" >/dev/null 2>&1
+}
+
+# Does the one attached adb device look like a Brick? `/usr/trimui` is a TrimUI-firmware marker
+# that no phone or emulator carries. This gates `auto` only: an unrelated Android device left
+# plugged in must not capture a deploy meant for the Brick on WiFi. An explicit `--transport adb`
+# skips the probe - the user named the target. Best-effort: a device that cannot answer is
+# treated as not-a-Brick, so auto falls back to ssh rather than writing to something unknown.
+adb_is_brick() {
+    local probe=("${BRICK_ADB}")
+    [[ -n "${1:-}" ]] && probe+=(-s "$1")
+    "${probe[@]}" shell '[ -d /usr/trimui ] && echo brick' 2>/dev/null | tr -d '\r' | grep -q brick
+}
+
+# Resolve TRANSPORT (ssh|adb) from BRICK_TRANSPORT. `auto` prefers a physically-attached Brick
+# over the LAN, which is the whole point: the cable is the reliable path. It prefers adb only
+# when exactly one device is attached and it identifies as a Brick, so a phone on the same USB
+# hub cannot steal a deploy.
+case "${BRICK_TRANSPORT}" in
+    ssh) TRANSPORT=ssh ;;
+    adb) TRANSPORT=adb ;;
+    auto)
+        _auto_serials="$(adb_available && adb_online_serials || true)"
+        _auto_n="$(printf '%s' "${_auto_serials}" | grep -c . || true)"
+        if [[ "${_auto_n}" == "1" ]] && adb_is_brick "${_auto_serials}"; then
+            TRANSPORT=adb
+        elif [[ -n "${BRICK_HOST}" ]]; then
+            TRANSPORT=ssh
+        elif [[ "${_auto_n}" -ge 1 ]]; then
+            # No host to fall back to; use the attached device(s) and let the checks below ask
+            # for a serial if there is more than one.
+            TRANSPORT=adb
+        else
+            TRANSPORT=ssh
+        fi
+        ;;
+    *) die "unknown transport: ${BRICK_TRANSPORT} (auto|ssh|adb)" ;;
+esac
+
+# Per-transport wiring: SSH_OPTS/TARGET for ssh, ADB_CMD/serial for adb, and a DEV_LABEL both
+# use in messages.
+if [[ "${TRANSPORT}" == "ssh" ]]; then
+    [[ -n "${BRICK_HOST}" ]] || die "no device host. Set BRICK_HOST in .brick.env or pass --host (see docs/device.md)"
+    TARGET="${BRICK_USER}@${BRICK_HOST}"
+    DEV_LABEL="${TARGET}"
+    # shellcheck disable=SC2206
+    SSH_OPTS=(${BRICK_SSH_OPTS} -p "${BRICK_PORT}")
+else
+    adb_available || die "adb not found. Install it (macOS: brew install --cask android-platform-tools) or set BRICK_ADB (see docs/device.md)"
+    ADB_CMD=("${BRICK_ADB}")
+    if [[ -n "${BRICK_ADB_SERIAL}" ]]; then
+        ADB_CMD+=(-s "${BRICK_ADB_SERIAL}")
+    else
+        _n="$(adb_online_serials | wc -l | tr -d ' ')"
+        if [[ "${DRY_RUN}" -ne 1 ]]; then
+            [[ "${_n}" != "0" ]] || die "no adb device attached. Plug the USB-C DATA port (the one that also charges) into this host, or use --transport ssh"
+            [[ "${_n}" == "1" ]] || die "${_n} adb devices attached; set BRICK_ADB_SERIAL or pass --serial (adb devices)"
+        fi
+    fi
+    DEV_LABEL="adb:${BRICK_ADB_SERIAL:-$(adb_online_serials | head -n1)}"
+    DEV_LABEL="${DEV_LABEL:-adb}"
+fi
+
+# --- Remote primitives ------------------------------------------------------------------------
+#
+# Three text/interactive primitives and two binary ones. The remote *script strings* are shared:
+# both transports hand the string to the device's busybox sh, so anything built with sq() below
+# runs unchanged either way. Only the invocation and the byte-moving differ.
+#
+# The Brick's adb allocates a pty for every `adb shell`, so its stdout arrives with CRLF line
+# endings and is not binary-safe; remote_exec strips the \r for the text callers, and no binary
+# ever crosses `adb shell` - it goes through push/pull instead.
+
+# Run a command string on the device, non-interactive, text stdout to our stdout (callers may
+# capture it). ssh joins its arguments and hands the string to the remote shell.
+remote_exec() {
     if [[ ${DRY_RUN} -eq 1 ]]; then
-        printf 'ssh -t %s %s %s\n' "${SSH_OPTS[*]}" "${TARGET}" "${1:-}"
+        if [[ "${TRANSPORT}" == "adb" ]]; then
+            printf 'adb %s shell %s\n' "${BRICK_ADB_SERIAL:+-s ${BRICK_ADB_SERIAL}}" "$(sq "$1")"
+        else
+            printf 'ssh %s %s %s\n' "${SSH_OPTS[*]}" "${TARGET}" "$(sq "$1")"
+        fi
         return 0
     fi
-    if [[ -n "${1:-}" ]]; then
-        ssh -t "${SSH_OPTS[@]}" "${TARGET}" "$1"
+    if [[ "${TRANSPORT}" == "adb" ]]; then
+        "${ADB_CMD[@]}" shell "$1" | tr -d '\r'
     else
-        ssh -t "${SSH_OPTS[@]}" "${TARGET}"
+        ssh "${SSH_OPTS[@]}" "${TARGET}" "$1"
+    fi
+}
+
+# Streaming text with no capture (tail -f, a live run): no \r strip, because tr would block-buffer
+# and stall the stream. A cosmetic \r in a terminal is harmless.
+remote_stream() {
+    if [[ ${DRY_RUN} -eq 1 ]]; then
+        remote_exec "$1"
+        return 0
+    fi
+    if [[ "${TRANSPORT}" == "adb" ]]; then
+        "${ADB_CMD[@]}" shell "$1"
+    else
+        ssh "${SSH_OPTS[@]}" "${TARGET}" "$1"
+    fi
+}
+
+# Interactive session, with or without a command.
+remote_tty() {
+    if [[ ${DRY_RUN} -eq 1 ]]; then
+        if [[ "${TRANSPORT}" == "adb" ]]; then
+            printf 'adb %s shell %s\n' "${BRICK_ADB_SERIAL:+-s ${BRICK_ADB_SERIAL}}" "${1:-}"
+        else
+            printf 'ssh -t %s %s %s\n' "${SSH_OPTS[*]}" "${TARGET}" "${1:-}"
+        fi
+        return 0
+    fi
+    if [[ "${TRANSPORT}" == "adb" ]]; then
+        if [[ -n "${1:-}" ]]; then "${ADB_CMD[@]}" shell "$1"; else "${ADB_CMD[@]}" shell; fi
+    else
+        if [[ -n "${1:-}" ]]; then ssh -t "${SSH_OPTS[@]}" "${TARGET}" "$1"; else ssh -t "${SSH_OPTS[@]}" "${TARGET}"; fi
+    fi
+}
+
+# Pull one device file to a local path, binary-safe. adb uses the sync protocol; ssh reads it
+# back over `cat` (binary over ssh is fine).
+remote_pull_file() {
+    local remote="$1" local_dest="$2"
+    if [[ ${DRY_RUN} -eq 1 ]]; then
+        if [[ "${TRANSPORT}" == "adb" ]]; then
+            printf 'adb pull %s %s\n' "${remote}" "${local_dest}"
+        else
+            printf 'ssh %s %s %s > %s\n' "${SSH_OPTS[*]}" "${TARGET}" "$(sq "cat $(sq "${remote}")")" "${local_dest}"
+        fi
+        return 0
+    fi
+    if [[ "${TRANSPORT}" == "adb" ]]; then
+        "${ADB_CMD[@]}" pull "${remote}" "${local_dest}" >/dev/null
+    else
+        ssh "${SSH_OPTS[@]}" "${TARGET}" "cat $(sq "${remote}")" > "${local_dest}"
+    fi
+}
+
+# Pull the contents of a device directory into a local directory, binary-safe.
+remote_pull_dir() {
+    local remote="$1" local_dest="$2"
+    if [[ ${DRY_RUN} -eq 1 ]]; then
+        if [[ "${TRANSPORT}" == "adb" ]]; then
+            printf 'adb pull %s/. %s\n' "${remote}" "${local_dest}"
+        else
+            printf 'ssh %s %s %s | tar xf - -C %s\n' "${SSH_OPTS[*]}" "${TARGET}" "$(sq "tar cf - -C $(sq "${remote}") .")" "${local_dest}"
+        fi
+        return 0
+    fi
+    if [[ "${TRANSPORT}" == "adb" ]]; then
+        "${ADB_CMD[@]}" pull "${remote}/." "${local_dest}" >/dev/null
+    else
+        ssh "${SSH_OPTS[@]}" "${TARGET}" "tar cf - -C $(sq "${remote}") ." | tar xf - -C "${local_dest}"
     fi
 }
 
@@ -157,41 +312,74 @@ cmd_push() {
 
     local local_sum
     local_sum="$(sha256_of "${LOCAL_PAK}/bin/shared/meshclient")"
-    echo "Pushing ${LOCAL_PAK} -> ${TARGET}:${REMOTE_PAK}"
+    echo "Pushing ${LOCAL_PAK} -> ${DEV_LABEL}:${REMOTE_PAK} (${TRANSPORT})"
     echo "  meshclient sha256 ${local_sum}"
 
-    # Stage beside the pak, then swap, so a half-finished transfer never leaves a broken pak
-    # in Tools/ that NextUI would try to launch. The old staging name is cleaned up too:
-    # it *did* end in .pak, so a Brick that saw a failed deploy before this fix has one.
-    local remote_script
-    remote_script="set -e
+    # Stage beside the pak under a dot-prefixed name that does NOT end in .pak, then swap, so a
+    # half-finished transfer never leaves a broken pak in Tools/ that NextUI would try to launch
+    # (Tools/<platform>/ is globbed by the launcher). Both the new stage name and the legacy
+    # "MeshClient.pak.new" are cleaned up - a Brick that saw a failed deploy before either fix
+    # may hold one. `sync` and a chmod (harmless on the SD card's FAT mount, load-bearing on a
+    # real fs) precede reading the checksum back.
+    local swap_script
+    swap_script="set -e
+rm -rf $(sq "${REMOTE_PAK}")
+mv $(sq "${REMOTE_STAGE}") $(sq "${REMOTE_PAK}")
+chmod +x $(sq "${REMOTE_PAK}/launch.sh") $(sq "${REMOTE_PAK}/bin/shared/meshclient")
+sync"
+
+    local remote_sum
+    if [[ "${TRANSPORT}" == "adb" ]]; then
+        # adb's sync protocol is the only binary-safe channel this adbd has; stage the tree with
+        # it (no gzip - the sync protocol carries the transfer and USB is fast), then swap and
+        # checksum over a text shell.
+        local stage_script="rm -rf $(sq "${REMOTE_STAGE}") $(sq "${REMOTE_PAK}.new"); mkdir -p $(sq "${REMOTE_STAGE}")"
+        if [[ ${DRY_RUN} -eq 1 ]]; then
+            remote_exec "${stage_script}"
+            printf 'adb push %s/. %s\n' "${LOCAL_PAK}" "${REMOTE_STAGE}"
+            remote_exec "${swap_script}"
+            remote_exec "sha256sum $(sq "${REMOTE_PAK}/bin/shared/meshclient") | cut -d' ' -f1"
+            return 0
+        fi
+        remote_exec "${stage_script}" >/dev/null
+        "${ADB_CMD[@]}" push "${LOCAL_PAK}/." "${REMOTE_STAGE}" >/dev/null
+        remote_exec "${swap_script}" >/dev/null
+        remote_sum="$(remote_exec "sha256sum $(sq "${REMOTE_PAK}/bin/shared/meshclient") 2>/dev/null | cut -d' ' -f1")"
+    else
+        # ssh: one connection, a compressed tar in, checksum out. Compressed because the transfer
+        # is the slow part and the pak is mostly one static binary (2.86 MB -> 1.17 MB), which on
+        # a Brick whose Wi-Fi is having a bad day is the difference between a push that lands and
+        # one that dies mid-stream. The device inflates with busybox `gunzip` (the applet the
+        # radio-firmware download already relies on - docs/radio-firmware-roadmap.md); `tar -xzf`
+        # is avoided because busybox tar only understands -z when built with FEATURE_TAR_GZIP.
+        local remote_script
+        remote_script="set -e
 mkdir -p $(sq "${REMOTE_TOOLS}")
 rm -rf $(sq "${REMOTE_STAGE}") $(sq "${REMOTE_PAK}.new")
 mkdir $(sq "${REMOTE_STAGE}")
 gunzip -c | tar -C $(sq "${REMOTE_STAGE}") -xf -
-rm -rf $(sq "${REMOTE_PAK}")
-mv $(sq "${REMOTE_STAGE}") $(sq "${REMOTE_PAK}")
-chmod +x $(sq "${REMOTE_PAK}/launch.sh") $(sq "${REMOTE_PAK}/bin/shared/meshclient")
-sync
+${swap_script}
 sha256sum $(sq "${REMOTE_PAK}/bin/shared/meshclient") 2>/dev/null | cut -d' ' -f1"
-
-    if [[ ${DRY_RUN} -eq 1 ]]; then
-        printf 'tar -C %s -czf - . | ' "${LOCAL_PAK}"
-        ssh_cmd "${remote_script}"
-        return 0
+        if [[ ${DRY_RUN} -eq 1 ]]; then
+            printf 'tar -C %s -czf - . | ' "${LOCAL_PAK}"
+            remote_exec "${remote_script}"
+            return 0
+        fi
+        remote_sum="$(tar -C "${LOCAL_PAK}" -czf - . | ssh "${SSH_OPTS[@]}" "${TARGET}" "${remote_script}")"
     fi
 
-    # Compressed, because the transfer is the slow part and the pak is mostly one static
-    # binary: 2.86 MB becomes 1.17 MB, and on a Brick whose Wi-Fi is having a bad day that is
-    # the difference between a push that lands and one that dies mid-stream. The device
-    # inflates it with busybox `gunzip`, which is the same applet the radio-firmware download
-    # already depends on being there - see docs/radio-firmware-roadmap.md, where its presence
-    # on this platform was measured rather than assumed. `tar -xzf` is deliberately not used:
-    # busybox tar only understands -z when it was built with FEATURE_TAR_GZIP, while the
-    # separate applet is a thing we have checked for.
-    local remote_sum
-    remote_sum="$(tar -C "${LOCAL_PAK}" -czf - . | ssh "${SSH_OPTS[@]}" "${TARGET}" "${remote_script}")"
-    if [[ -n "${remote_sum}" && "${remote_sum}" != "${local_sum}" ]]; then
+    remote_sum="$(printf '%s' "${remote_sum}" | tr -d '[:space:]')"
+    if [[ -z "${remote_sum}" ]]; then
+        # An empty checksum is the only failure signal the adb path has: this adbd does not
+        # report remote exit codes, so a failed swap, chmod or checksum returns "success" with
+        # no output. Treat it as a failed deploy rather than printing "Deployed" over a pak that
+        # may be missing or half-written. Over ssh the remote script runs under `set -e` and a
+        # real failure surfaces on its own, so a rare empty result there is only a warning.
+        if [[ "${TRANSPORT}" == "adb" ]]; then
+            die "push not verified: the device returned no checksum, so the swap or checksum step failed (this adbd does not report exit codes). The pak may be incomplete; re-run."
+        fi
+        echo "  (device did not return a checksum; skipped verification)"
+    elif [[ "${remote_sum}" != "${local_sum}" ]]; then
         die "checksum mismatch after push (device ${remote_sum})"
     fi
     echo "Deployed. Launch it from Tools > ${PAK_NAME} on the device, or: $0 run"
@@ -205,13 +393,13 @@ cmd_run() {
     for arg in ${PASSTHRU[@]+"${PASSTHRU[@]}"}; do
         remote_cmd+=" $(sq "${arg}")"
     done
-    ssh_tty "${remote_cmd}"
+    remote_tty "${remote_cmd}"
 }
 
 cmd_logs() {
-    echo "Tailing ${TARGET}:${REMOTE_LOG} (Ctrl-C to stop)"
+    echo "Tailing ${DEV_LABEL}:${REMOTE_LOG} (Ctrl-C to stop)"
     # The logs dir is created by launch.sh on first run; make it so tailing before that just waits.
-    ssh_cmd "mkdir -p $(sq "$(dirname "${REMOTE_LOG}")") && touch $(sq "${REMOTE_LOG}") && tail -n 50 -f $(sq "${REMOTE_LOG}")"
+    remote_stream "mkdir -p $(sq "$(dirname "${REMOTE_LOG}")") && touch $(sq "${REMOTE_LOG}") && tail -n 50 -f $(sq "${REMOTE_LOG}")"
 }
 
 cmd_check() {
@@ -249,8 +437,8 @@ if [ -c /dev/fb0 ]; then r fb0 "present"; else r fb0 "MISSING"; fi
 echo "network:"
 r ip "$(ip -4 -o addr show 2>/dev/null | awk "!/ lo /{print \$4}" | tr "\n" " ")"
 '
-    echo "Checking ${TARGET}"
-    ssh_cmd "${remote_script}"
+    echo "Checking ${DEV_LABEL} (${TRANSPORT})"
+    remote_exec "${remote_script}"
 }
 
 # Screenshot or film the device's screen by reading its framebuffer.
@@ -258,7 +446,7 @@ r ip "$(ip -4 -o addr show 2>/dev/null | awk "!/ lo /{print \$4}" | tr "\n" " ")
 # NextUI's own screenshot shortcut lives inside minarch and captures that process's GL surface,
 # so it cannot see a pak like ours drawing straight to /dev/fb0. Reading fb0 catches whatever is
 # actually on the panel - our HUD, the launcher, a crash - and needs nothing on the device
-# beyond the SSH server that is already there.
+# beyond the transport already in use.
 #
 # fb0 on a Brick is 1024x16384: a stack of 768-row pages the display engine flips between. The
 # fb backend draws page 0 and mirrors into page 1 (see src/ui/backends/fb.c), so page 0 is what
@@ -270,26 +458,31 @@ r ip "$(ip -4 -o addr show 2>/dev/null | awk "!/ lo /{print \$4}" | tr "\n" " ")
 # encoder.
 
 # Geometry from the device rather than hardcoded; `check` reads the same two files. Sets
-# FB_WIDTH / FB_HEIGHT / FB_PAGE_BYTES, and FB_HAS_GZIP for the callers that stream.
+# FB_WIDTH / FB_HEIGHT / FB_PAGE_BYTES, and FB_HAS_GZIP for the ssh path that streams (the adb
+# path writes to a device file and pulls it, so it never gzips).
 fb_geometry() {
     local probe="cat /sys/class/graphics/fb0/virtual_size /sys/class/graphics/fb0/bits_per_pixel;"
     probe+=" command -v gzip >/dev/null 2>&1 && echo gzip || echo raw"
 
     local width bpp
     if [[ ${DRY_RUN} -eq 1 ]]; then
-        ssh_cmd "${probe}"
+        remote_exec "${probe}"
         width=1024
         bpp=32
         FB_HAS_GZIP=0
     else
         local reply
-        reply="$(ssh "${SSH_OPTS[@]}" "${TARGET}" "${probe}" | tr '\n' ' ')"
+        reply="$(remote_exec "${probe}" | tr '\n' ' ')"
         # "1024,16384", "32" and "gzip" on their own lines; splitting on whitespace beats
         # trimming a trailing newline out of a suffix match.
         local fields=(${reply})
         width="${fields[0]%%,*}"
         bpp="${fields[1]:-}"
-        [[ "${fields[2]:-raw}" == "gzip" ]] && FB_HAS_GZIP=1 || FB_HAS_GZIP=0
+        if [[ "${TRANSPORT}" == "adb" ]]; then
+            FB_HAS_GZIP=0
+        else
+            [[ "${fields[2]:-raw}" == "gzip" ]] && FB_HAS_GZIP=1 || FB_HAS_GZIP=0
+        fi
     fi
     [[ "${bpp}" == "32" ]] || die "fb0 reports '${bpp}' bits per pixel; only 32 is converted"
 
@@ -298,7 +491,9 @@ fb_geometry() {
     FB_PAGE_BYTES=$((FB_WIDTH * 4 * FB_HEIGHT))
 }
 
-# Reads `count` consecutive pages of page `page` into `dest`, through one SSH connection.
+# Reads `count` consecutive frames of page `page` into `dest`. ssh streams the frames back down
+# one connection; adb writes them to a device file and pulls it (its shell stdout is not binary
+# safe), which the fast USB link makes cheap.
 fb_read_pages() {
     local dest="$1" count="$2" page="$3" interval="$4"
     # A row per block rather than a page per block: busybox dd stops at the first short read, and
@@ -310,26 +505,36 @@ fb_read_pages() {
     [[ "${interval}" != "0" ]] && loop+=" sleep ${interval};"
     loop+=" i=\$((i+1)); done"
 
-    local remote_script="${loop}"
-    if [[ ${FB_HAS_GZIP} -eq 1 ]]; then
-        remote_script="{ ${loop} ; } | gzip -1"
-    fi
-
-    if [[ ${DRY_RUN} -eq 1 ]]; then
-        ssh_cmd "${remote_script}"
-        return 0
-    fi
-
-    if [[ ${FB_HAS_GZIP} -eq 1 ]]; then
-        ssh "${SSH_OPTS[@]}" "${TARGET}" "${remote_script}" | gzip -dc > "${dest}"
+    if [[ "${TRANSPORT}" == "adb" ]]; then
+        local devcap="/tmp/mc-fbcap"
+        local remote_script="{ ${loop} ; } > ${devcap}"
+        if [[ ${DRY_RUN} -eq 1 ]]; then
+            remote_exec "${remote_script}"
+            remote_pull_file "${devcap}" "${dest}"
+            remote_exec "rm -f ${devcap}"
+            return 0
+        fi
+        remote_exec "${remote_script}" >/dev/null
+        remote_pull_file "${devcap}" "${dest}"
+        remote_exec "rm -f ${devcap}" >/dev/null
     else
-        ssh "${SSH_OPTS[@]}" "${TARGET}" "${remote_script}" > "${dest}"
+        local remote_script="${loop}"
+        [[ ${FB_HAS_GZIP} -eq 1 ]] && remote_script="{ ${loop} ; } | gzip -1"
+        if [[ ${DRY_RUN} -eq 1 ]]; then
+            remote_exec "${remote_script}"
+            return 0
+        fi
+        if [[ ${FB_HAS_GZIP} -eq 1 ]]; then
+            ssh "${SSH_OPTS[@]}" "${TARGET}" "${remote_script}" | gzip -dc > "${dest}"
+        else
+            ssh "${SSH_OPTS[@]}" "${TARGET}" "${remote_script}" > "${dest}"
+        fi
     fi
 
     local read_bytes expected=$((FB_PAGE_BYTES * count))
     read_bytes="$(wc -c < "${dest}" | tr -d ' ')"
     [[ "${read_bytes}" == "${expected}" ]] ||
-        die "read ${read_bytes} bytes of ${expected}; can ${BRICK_USER} read /dev/fb0?"
+        die "read ${read_bytes} bytes of ${expected}; can the device read /dev/fb0?"
 }
 
 cmd_shot() {
@@ -377,11 +582,11 @@ cmd_shot() {
     done
 }
 
-# Film the screen: the same page read over and over down one SSH connection, encoded as a GIF.
+# Film the screen: the same page read over and over, encoded as a GIF.
 #
-# The frame rate is whatever the device and the link manage - a page is 3 MB, and a Brick over
-# WiFi gets a handful of frames a second - so what comes back is not real time. -r sets how fast
-# it plays back rather than how fast it was shot; slow it down when the capture was slow.
+# The frame rate is whatever the device and the link manage - a page is 3 MB - so what comes back
+# is not real time. -r sets how fast it plays back rather than how fast it was shot; slow it down
+# when the capture was slow. (Over USB the capture is much faster than over WiFi.)
 cmd_clip() {
     local out="" delay=0 count=24 page=0 downscale=2 rate=200 interval=0
     local args=(${PASSTHRU[@]+"${PASSTHRU[@]}"})
@@ -435,7 +640,7 @@ input_map_abort() {
     if [[ ${INPUT_MAP_RECORDING} -eq 1 ]]; then
         echo
         echo "Interrupted; stopping the readers on the device."
-        ssh_cmd "${INPUT_MAP_STOP}; rm -rf ${INPUT_MAP_DIR}" >/dev/null 2>&1 || true
+        remote_exec "${INPUT_MAP_STOP}; rm -rf ${INPUT_MAP_DIR}" >/dev/null 2>&1 || true
         INPUT_MAP_RECORDING=0
     fi
     exit 130
@@ -477,13 +682,13 @@ cmd_input_map() {
     # pkill, and the error went to /dev/null with everything else. The symptom was a reader count
     # that climbed 5, 9, 13 across runs - four leaked `cat`s per invocation, each holding an fd to
     # a file the next run had already unlinked. A pattern is the wrong tool here even where pkill
-    # exists, because ssh hands the whole script to `sh -c`, so the remote shell's own command
-    # line contains the pattern and `-f` matches the shell that is running the kill.
+    # exists, because the remote shell's own command line contains the pattern and `-f` matches
+    # the shell that is running the kill.
     local start_script="[ -f ${pid_file} ] && kill \$(cat ${pid_file}) 2>/dev/null;"
     start_script+=" rm -rf ${INPUT_MAP_DIR}; mkdir -p ${INPUT_MAP_DIR};"
     start_script+=" for d in /dev/input/event*; do"
-    # The subshell is what detaches the reader, so it outlives this ssh session; $! inside it is
-    # the cat's own pid, which is the whole point of writing it from in there.
+    # The subshell is what detaches the reader, so it outlives this session; $! inside it is the
+    # cat's own pid, which is the whole point of writing it from in there.
     start_script+=" (cat \"\$d\" > ${INPUT_MAP_DIR}/\"\$(basename \"\$d\")\".bin 2>/dev/null &"
     start_script+=" echo \$! >> ${pid_file}); done;"
     start_script+=" sleep 1; ls ${INPUT_MAP_DIR} | grep '\\.bin$' | tr '\\n' ' '"
@@ -491,12 +696,13 @@ cmd_input_map() {
     INPUT_MAP_STOP="kill \$(cat ${pid_file} 2>/dev/null) 2>/dev/null; sleep 1"
 
     if [[ ${DRY_RUN} -eq 1 ]]; then
-        ssh_cmd "${start_script}"
-        ssh_cmd "${INPUT_MAP_STOP}; tar cf - -C ${INPUT_MAP_DIR} ."
+        remote_exec "${start_script}"
+        remote_exec "${INPUT_MAP_STOP}"
+        remote_pull_dir "${INPUT_MAP_DIR}" "<tmp>"
         return 0
     fi
 
-    echo "Recording: $(ssh_cmd "${start_script}")"
+    echo "Recording: $(remote_exec "${start_script}")"
     # From here the device is holding four processes of ours, and every way out has to end them:
     # a Ctrl-C at the prompt below, or during the timed sleep, otherwise leaves them writing to
     # /tmp on the device until the next run or a reboot.
@@ -515,14 +721,15 @@ cmd_input_map() {
 
     local capture
     capture="$(mktemp -d)"
-    ssh_cmd "${INPUT_MAP_STOP}; tar cf - -C ${INPUT_MAP_DIR} ." | tar xf - -C "${capture}"
+    remote_exec "${INPUT_MAP_STOP}" >/dev/null
+    remote_pull_dir "${INPUT_MAP_DIR}" "${capture}"
     INPUT_MAP_RECORDING=0
     trap - INT TERM
-    ssh_cmd "rm -rf ${INPUT_MAP_DIR}" || true
+    remote_exec "rm -rf ${INPUT_MAP_DIR}" >/dev/null || true
 
     echo
     echo "== what each device can emit =="
-    ssh_cmd "cat /proc/bus/input/devices" | python3 "${REPO_ROOT}/scripts/input-map.py" caps
+    remote_exec "cat /proc/bus/input/devices" | python3 "${REPO_ROOT}/scripts/input-map.py" caps
 
     echo
     echo "== what you pressed =="
@@ -542,10 +749,11 @@ cmd_input_map() {
 }
 
 cmd_shell() {
-    ssh_tty
+    remote_tty
 }
 
 cmd_setup_key() {
+    [[ "${TRANSPORT}" == "ssh" ]] || die "setup-key is SSH only; the adb (USB) transport needs no key"
     local pub
     pub="$(ls ~/.ssh/id_ed25519.pub ~/.ssh/id_rsa.pub 2>/dev/null | head -n1 || true)"
     [[ -n "${pub}" ]] || die "no public key in ~/.ssh (id_ed25519.pub or id_rsa.pub). Run ssh-keygen -t ed25519."
@@ -554,7 +762,7 @@ cmd_setup_key() {
     remote_script='mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh" && cat >> "$HOME/.ssh/authorized_keys" && chmod 600 "$HOME/.ssh/authorized_keys" && echo "key installed in $HOME/.ssh/authorized_keys"'
     if [[ ${DRY_RUN} -eq 1 ]]; then
         printf 'cat %s | ' "${pub}"
-        ssh_cmd "${remote_script}"
+        remote_exec "${remote_script}"
         return 0
     fi
     ssh "${SSH_OPTS[@]}" "${TARGET}" "${remote_script}" < "${pub}"
