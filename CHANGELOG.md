@@ -1,3 +1,10 @@
+## [2.47.1](https://github.com/mcereal/mesh-client/compare/v2.47.0...v2.47.1) (2026-09-10)
+
+### Bug Fixes
+
+* **map:** step past the marker the crosshair is already on ([cfd8074](https://github.com/mcereal/mesh-client/commit/cfd8074802dc7a80929b51cf1d9a3762b13dba50))
+* **map:** step to the next marker instead of panning onto a lattice ([77371bc](https://github.com/mcereal/mesh-client/commit/77371bc80cad18766306f8c5643fc91686a65941))
+
 ## [2.47.0](https://github.com/mcereal/mesh-client/compare/v2.46.0...v2.47.0) (2026-09-10)
 
 ### Features
