@@ -134,6 +134,27 @@ delivered, `!!` when routing failed. Broadcasts go out on the channel shown in `
 channel table comes from the radio during the config sync. Text is drawn at four times the 5x7
 font; set `MESHCLIENT_FB_SCALE=3` in `launch.sh` for more rows or `5` for bigger type.
 
+### Putting a map on it
+
+The map draws a tile pack from
+`/mnt/SDCARD/.userdata/tg5040/MeshClient/.meshclient/map.mctp` — beside the node cache and the
+canned messages, and deliberately outside the pak, which self-update replaces. Copy one across
+with the rest of the userdata (`make deploy` does not touch it) and check it before the map does:
+
+```sh
+make deploy-run ARGS="--map-pack /mnt/SDCARD/.userdata/tg5040/MeshClient/.meshclient/map.mctp"
+```
+
+That prints the pack's name, its attribution, the zooms and the coverage it actually holds, and
+decodes one tile out of the middle of it — on the board that will draw it, off the card it will
+be read from, which is the half a host suite cannot answer for. With no pack installed the map
+draws its graticule and says nothing.
+
+Packs are built on a host with `devtools/map_pack/map_pack.py` — `build` converts an MBTiles
+file or a `z/x/y` tree, and `synth` draws a synthetic one, which is what to try first: it needs
+no tile source and no licence, and it is what proves the card, the decoder and the fill loop on
+a particular Brick. See [`docs/cli.md`](cli.md#looking-inside-a-tile-pack).
+
 ### Starting it from the Mac
 
 `make deploy-start` starts the client the way **Tools > MeshClient** does, and that is the only

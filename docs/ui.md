@@ -347,9 +347,9 @@ It arms on the first press and acts on the second, the node detail's rule.
 ### The map — `src/map/viewport.c`, `src/ui/map.c`, `src/ui/nav_map.c`, `src/ui/backends/fb_map.c`
 
 A picture of the nodes and the shared places, opened from the first row of the Nodes list or
-from a node detail's **Show on map**. There is no basemap under it — see
-[`docs/maps-roadmap.md`](maps-roadmap.md) — so what it draws is a graticule, the markers, a
-crosshair and a scale bar to read the distances against.
+from a node detail's **Show on map**. What it draws is a graticule, the markers, a crosshair and
+a scale bar to read the distances against — and, where a tile pack covers the view, the streets
+under all of it.
 
 It is the one screen in this client that is not a list, and three things follow from that.
 
@@ -416,6 +416,55 @@ channel's own `position_precision` row read. A filled disc rather than a ring be
 alpha on this panel: a ring would have to be a fill and a second fill in the ground colour, and
 the second would erase the grid inside it, which is the thing the distance is judged against.
 
+**The basemap is drawn over the graticule, not instead of it.** A tile is opaque, so drawing the
+grid first and the tiles over it means the grid survives in exactly the places there is no tile:
+the edge of a regional pack, the holes every pack has in it, and the second before a tile
+arrives. Nothing has to decide whether to draw a grid — the tiles decide it, one square at a
+time, and a reader who pans off the edge of their pack watches the streets stop and the lines
+carry on.
+
+**One tile is read per frame.** A cold tile off the Brick's card is 2–5 ms and a view stands on
+about twenty of them, so a frame that filled the whole panel would be a tenth of a second in
+which nothing else is serviced — on a client that is one epoll loop with the BLE link in it,
+that is not a slow map. `fb_map_draw_basemap()` draws what the cache already holds, then reads
+and decodes exactly one more, nearest the middle of the view first, because the middle is where
+the crosshair is and where the reader is looking. A view fills in about twenty frames with input
+handled between each. What asks for those frames is `fb_basemap_pending()` through
+`fb_state_animating()`: a frame is otherwise a function of the snapshot, and no press and no
+packet says that a tile is still on its way.
+
+A tile the pack does not hold costs no read at all — `mesh_map_source_has()` answers out of the
+index already in RAM — so the frame's one read is always spent on a tile that will actually
+arrive. Without that, one hole on screen would consume the single read every frame forever and
+the tiles *around* it would never load. A tile that will not decode is recorded as a hole for the
+same reason: it is not a tile that arrives by being asked again.
+
+A missing tile and a tile that is merely late are drawn the same, which is a decision rather than
+an oversight. A placeholder square would cover the markers for the two thirds of a second a view
+takes to fill, which is a worse frame than the grid the map already draws. What the two states
+differ in is what the client *does*: one asks for another frame and the other stops asking.
+
+**A name over a picture gets a halo and the corner furniture gets a plate.** A glyph carries
+coverage rather than a mask, so every run of text in this backend is blended against a colour the
+caller says it has just filled. Over the map's own surface that is true; over a street it is a
+guess, and the way it goes wrong is a fringe of panel colour around every letter. A marker's name
+is drawn a pixel out in each direction in the ground colour and then over itself, which is what
+every map in the world does with a label and keeps the streets under it visible. The scale bar
+and the pack's attribution are not on the map — they are chrome pinned to a corner — so they get
+a chip instead. Both only where a tile is: over the bare graticule they would rub out the very
+lines a distance is judged against.
+
+**A pack's attribution is drawn because the pack carries it.** Every raster style that permits
+offline use asks for a line of credit, and the builder is the thing that knows what it converted,
+so the line rides in the pack's header rather than in a table in the client. It is not
+translated, for the reason a hardware model name is not.
+
+Where a pack comes from is `fb_basemap_open_default()`: `MESHCLIENT_MAP_PACK` when it is set,
+otherwise `$HOME/.meshclient/map.mctp`, which is where a sideload lands. Nothing there is the
+ordinary case and says nothing. The capture harness deliberately does *not* look at either — a
+scene names its pack with `map pack <path>`, because a frame that quietly picked up whatever pack
+the developer had installed would render differently on two machines.
+
 `fb_map.c` is its own file rather than a renderer in `fb_screens.c`, and that is not a size
 decision. Everything in `fb_screens.c` describes rows and hands them to a component; this places
 things at coordinates. Keeping it apart is what stops "a screen renderer never computes a pixel"
@@ -423,7 +472,15 @@ from becoming a rule with an exception buried inside it.
 
 ```
 make ui-capture ARGS="devtools/ui_capture/scenes/map.scene -o map.gif"
+make demo-pack   # build/demo.mctp: a synthetic pack of the demo roster's own coordinates
+make ui-capture ARGS="devtools/ui_capture/scenes/basemap.scene -o basemap.gif"
 ```
+
+`make demo-pack` draws the pack rather than downloading one, so a basemap can be looked at
+without choosing a tile source and without anybody else's pixels in the tree. It is
+`devtools/map_pack/map_pack.py synth`, which is stdlib-only like the rest of that tool and
+deterministic — the same command writes the same bytes, which is what a scene compared against a
+reference frame needs.
 
 ### Node detail — `src/ui/node_detail.c`
 
