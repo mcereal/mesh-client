@@ -1,3 +1,10 @@
+## [2.56.1](https://github.com/mcereal/mesh-client/compare/v2.56.0...v2.56.1) (2026-09-11)
+
+### Bug Fixes
+
+* **app:** route a network row's press to the network transport ([8e3195d](https://github.com/mcereal/mesh-client/commit/8e3195d024487f411503ddb3298ce9e60e570861))
+* **tcp:** adopt a connect's host as the one to go back to ([899a665](https://github.com/mcereal/mesh-client/commit/899a665df6f3bb5ea1cb7506fe35fbe48d42288f))
+
 ## [2.56.0](https://github.com/mcereal/mesh-client/compare/v2.55.0...v2.56.0) (2026-09-11)
 
 ### Features
