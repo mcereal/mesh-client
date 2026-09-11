@@ -1,3 +1,9 @@
+## [2.61.1](https://github.com/mcereal/mesh-client/compare/v2.61.0...v2.61.1) (2026-09-11)
+
+### Bug Fixes
+
+* **devtools:** count the Map row when a scene walks the Nodes list ([a7c98bf](https://github.com/mcereal/mesh-client/commit/a7c98bf7f8ef0bdc0400a310c639c31f40ef3b10))
+
 ## [2.61.0](https://github.com/mcereal/mesh-client/compare/v2.60.0...v2.61.0) (2026-09-11)
 
 ### Features
