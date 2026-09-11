@@ -18,8 +18,16 @@
 #
 # Commands:
 #   push               Copy dist/MeshClient.pak to <sdcard>/Tools/<platform>/MeshClient.pak (default)
-#   run [-- args]      Run launch.sh on the device in the foreground, streaming output.
-#                      Extra args go to meshclient, e.g. `run -- --list-devices`.
+#   start [-- args]    Start MeshClient the way Tools > MeshClient does: NextUI's launcher steps
+#                      aside, so it stops painting the screen and acting on the buttons, and comes
+#                      back when the client exits. Stops any MeshClient already running first.
+#                      Returns once the client is up; extra args go to meshclient.
+#   stop               Stop every MeshClient on the device, however it was started, and wait for
+#                      the launcher to come back. End every on-device test with this.
+#   run [-- args]      `start`, then follow the log until the client exits; Ctrl-C stops it.
+#                      Args that make meshclient print and exit (--list-devices, --status,
+#                      --send-text, --fetch-firmware, --install-firmware, --version, --help) run
+#                      it directly instead, with its output here, e.g. `run -- --list-devices`.
 #   logs               Tail the on-device log (<sdcard>/.userdata/<platform>/logs/MeshClient.txt)
 #   check              Report what the device has: SD card, BlueZ, D-Bus socket, adapter, fb0, RAM
 #   shot [-- args]     Screenshot whatever is on the screen, straight off /dev/fb0, as a PNG.
@@ -382,18 +390,181 @@ sha256sum $(sq "${REMOTE_PAK}/bin/shared/meshclient") 2>/dev/null | cut -d' ' -f
     elif [[ "${remote_sum}" != "${local_sum}" ]]; then
         die "checksum mismatch after push (device ${remote_sum})"
     fi
-    echo "Deployed. Launch it from Tools > ${PAK_NAME} on the device, or: $0 run"
+    echo "Deployed. Launch it from Tools > ${PAK_NAME} on the device, or: $0 start"
+    # A client that was running before the push is still the previous build: the swap replaced
+    # the file, not the process holding the old one open.
+    if [[ ${DRY_RUN} -ne 1 ]]; then
+        local running
+        running="$(remote_exec 'pidof meshclient || true')"
+        if [[ -n "${running}" ]]; then
+            echo "Note: MeshClient (pid ${running}) is still running the previous build."
+            echo "      '$0 start' restarts it on this one; '$0 stop' ends it."
+        fi
+    fi
 }
 
-cmd_run() {
-    echo "Running ${REMOTE_PAK}/launch.sh ${PASSTHRU[*]+"${PASSTHRU[*]}"} (Ctrl-C to stop)"
-    echo "Note: launch.sh forces --foreground and the fb backend; the NextUI launcher may repaint over it."
-    local remote_cmd="cd $(sq "${REMOTE_PAK}") && exec $(sq "${REMOTE_PAK}/launch.sh")"
+# --- Running the client -----------------------------------------------------------------------
+#
+# NextUI's launch loop (.system/<platform>/paks/MinUI.pak/launch.sh on the card) runs nextui.elf,
+# and when that exits it evals whatever /tmp/next holds - the pak's launch.sh, when Tools >
+# MeshClient was pressed - then starts nextui.elf again, for as long as /tmp/nextui_exec exists.
+# That hand-off is the only way a pak gets the device to itself. A client started straight from a
+# shell runs *beside* the launcher, which goes on painting fb0 and, since nothing grabs the pad,
+# acting on every button: L1 flips MeshClient's tab and NextUI's page at once and the panel
+# flickers between the two. So `start` does what the Tools menu does: it writes /tmp/next in
+# nextui.elf's own format and takes the launcher off the screen.
+#
+# The launcher is killed with SIGKILL, and must never get TERM or INT. SDL turns either into
+# SDL_QUIT, nextui.elf answers SDL_QUIT with PWR_powerOff(), and PLAT_powerOff() deletes
+# /tmp/nextui_exec and touches /tmp/poweroff on its way out - so the loop runs the pak once more
+# and powers the Brick off the moment it exits. That was measured, twice. KILL cannot be caught:
+# the launcher dies without taking that path, and the loop just runs /tmp/next.
+#
+# Every script below reports failure as a line starting ERROR:, because this adbd returns no exit
+# codes.
+
+# Stop every meshclient on the device and, when one was stopped, wait for the launcher to come
+# back - the loop restarts it once the pak exits.
+stop_script() {
+    cat <<'EOF'
+pids="$(pidof meshclient)"
+if [ -z "$pids" ]; then
+    echo "No MeshClient running."
+    exit 0
+fi
+echo "Stopping MeshClient (pid $pids)"
+kill -TERM $pids
+i=0
+while [ $i -lt 20 ] && pidof meshclient >/dev/null; do sleep 0.5; i=$((i + 1)); done
+pids="$(pidof meshclient)"
+if [ -n "$pids" ]; then
+    echo "Still running after 10s; killing pid $pids"
+    kill -KILL $pids
+    sleep 1
+fi
+if pidof meshclient >/dev/null; then
+    echo "ERROR: meshclient is still running (pid $(pidof meshclient))"
+    exit 0
+fi
+if [ -f /tmp/nextui_exec ]; then
+    i=0
+    while [ $i -lt 20 ] && ! pidof nextui.elf >/dev/null; do sleep 0.5; i=$((i + 1)); done
+    if pidof nextui.elf >/dev/null; then
+        echo "Stopped; NextUI is back on screen."
+    else
+        echo "ERROR: stopped, but NextUI's launcher did not come back within 10s"
+    fi
+else
+    echo "Stopped."
+fi
+EOF
+}
+
+# Hand $1 - a command in /tmp/next's format - to NextUI's launch loop, and wait for meshclient.
+start_script() {
+    cat <<EOF
+if [ ! -f /tmp/nextui_exec ]; then
+    echo "ERROR: NextUI's launch loop is not running (no /tmp/nextui_exec), so nothing would run the pak"
+    exit 0
+fi
+i=0
+while [ \$i -lt 20 ] && ! pidof nextui.elf >/dev/null; do sleep 0.5; i=\$((i + 1)); done
+if ! pidof nextui.elf >/dev/null; then
+    echo "ERROR: NextUI's launcher is not running - is a game or another pak open? Exit it first"
+    exit 0
+fi
+printf '%s' $(sq "$1") > /tmp/next
+kill -KILL \$(pidof nextui.elf)
+i=0
+while [ \$i -lt 30 ] && ! pidof meshclient >/dev/null; do sleep 0.5; i=\$((i + 1)); done
+if pidof meshclient >/dev/null; then
+    echo "STARTED \$(pidof meshclient)"
+else
+    echo "ERROR: MeshClient did not start within 15s (the launcher comes back on its own); see ${REMOTE_LOG}"
+fi
+EOF
+}
+
+cmd_stop() {
+    local out
+    out="$(remote_exec "$(stop_script)")"
+    printf '%s\n' "${out}"
+    [[ ${DRY_RUN} -eq 1 ]] || ! grep -q '^ERROR:' <<<"${out}"
+}
+
+cmd_start() {
+    local next_cmd arg out
+    # nextui.elf's own format for a pak: the quoted path to its launch.sh. Args follow it the way a
+    # ROM follows an emulator's path.
+    next_cmd="$(sq "${REMOTE_PAK}/launch.sh")"
+    for arg in ${PASSTHRU[@]+"${PASSTHRU[@]}"}; do
+        next_cmd+=" $(sq "${arg}")"
+    done
+    # One client at a time: a second one fights the first for the radio link and the panel.
+    cmd_stop || die "could not stop the running MeshClient"
+    echo "Starting ${PAK_NAME} through NextUI's launch loop, as Tools > ${PAK_NAME} does"
+    out="$(remote_exec "$(start_script "${next_cmd}")")"
+    if [[ ${DRY_RUN} -eq 1 ]]; then
+        printf '%s\n' "${out}"
+        return 0
+    fi
+    grep -q '^STARTED' <<<"${out}" || die "${out#ERROR: }"
+    echo "MeshClient is running (pid ${out#STARTED }). End the test with: $0 stop"
+}
+
+# Does this invocation make meshclient print something and exit, rather than bring up the UI?
+run_is_headless() {
     local arg
+    for arg in ${PASSTHRU[@]+"${PASSTHRU[@]}"}; do
+        case "${arg}" in
+            --list-devices|--status|-s|--send-text|--send-text=*|--fetch-firmware|--fetch-firmware=*| \
+            --install-firmware|--install-firmware=*|--version|-V|--help|-h) return 0 ;;
+        esac
+    done
+    return 1
+}
+
+# A headless run draws nothing, so it needs no hand-off - and it keeps its output and exit status
+# here, which a run through the launch loop cannot. It still stops a running client first unless
+# all it does is print a version or the usage: two clients cannot share one radio link.
+cmd_run_direct() {
+    local arg needs_radio=1
+    for arg in ${PASSTHRU[@]+"${PASSTHRU[@]}"}; do
+        case "${arg}" in --version|-V|--help|-h) needs_radio=0 ;; esac
+    done
+    if [[ ${needs_radio} -eq 1 ]]; then
+        cmd_stop || die "could not stop the running MeshClient"
+    fi
+    echo "Running ${REMOTE_PAK}/launch.sh ${PASSTHRU[*]+"${PASSTHRU[*]}"} (Ctrl-C to stop)"
+    local remote_cmd="cd $(sq "${REMOTE_PAK}") && exec $(sq "${REMOTE_PAK}/launch.sh")"
     for arg in ${PASSTHRU[@]+"${PASSTHRU[@]}"}; do
         remote_cmd+=" $(sq "${arg}")"
     done
     remote_tty "${remote_cmd}"
+}
+
+run_cleanup() {
+    trap - EXIT INT TERM
+    echo
+    cmd_stop || true
+}
+
+cmd_run() {
+    if run_is_headless; then
+        cmd_run_direct
+        return
+    fi
+    # Follow from the first line this run writes rather than from the end, so start-up is shown.
+    local lines=0
+    if [[ ${DRY_RUN} -ne 1 ]]; then
+        lines="$(remote_exec "cat $(sq "${REMOTE_LOG}") 2>/dev/null | wc -l" | tr -d '[:space:]')"
+    fi
+    # Whatever ends this - the client exiting, Ctrl-C, the task being killed - ends the client too.
+    trap run_cleanup EXIT
+    trap 'exit 130' INT TERM
+    cmd_start
+    echo "Following ${REMOTE_LOG}; Ctrl-C stops the client."
+    remote_stream "tail -n +$((${lines:-0} + 1)) -f $(sq "${REMOTE_LOG}") & t=\$!; while pidof meshclient >/dev/null; do sleep 1; done; kill \$t 2>/dev/null; echo 'MeshClient exited.'"
 }
 
 cmd_logs() {
@@ -772,6 +943,8 @@ cmd_setup_key() {
 
 case "${COMMAND}" in
     push) cmd_push ;;
+    start) cmd_start ;;
+    stop) cmd_stop || die "stop failed" ;;
     run) cmd_run ;;
     logs) cmd_logs ;;
     check) cmd_check ;;

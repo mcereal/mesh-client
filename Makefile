@@ -13,7 +13,7 @@ DOCKER := ./scripts/docker.sh
         ui-capture screenshots \
         docker-image docker-cross-image docker-shell docker-debug docker-test docker-run docker-pak \
         docker-clean docker-ui-capture docker-screenshots docker-fuzz \
-        deploy deploy-run deploy-logs deploy-check deploy-shot deploy-clip deploy-input-map \
+        deploy deploy-start deploy-stop deploy-run deploy-logs deploy-check deploy-shot deploy-clip deploy-input-map \
         deploy-shell deploy-key brick
 
 help:
@@ -47,7 +47,9 @@ help:
 	@echo "Device targets (TrimUI Brick over WiFi/SSH or USB/adb; configure .brick.env, see docs/device.md):"
 	@echo "  make deploy         - Push dist/MeshClient.pak to the Brick's Tools/tg5040/"
 	@echo "  make brick          - docker-pak + deploy in one step"
-	@echo "  make deploy-run     - Run launch.sh on the device, streaming output (ARGS=\"--list-devices\")"
+	@echo "  make deploy-start   - Start MeshClient on the device as Tools > MeshClient does (NextUI steps aside)"
+	@echo "  make deploy-stop    - Stop every MeshClient on the device; end every on-device test with this"
+	@echo "  make deploy-run     - deploy-start + follow the log; Ctrl-C stops it (ARGS=\"--list-devices\" runs headless)"
 	@echo "  make deploy-logs    - Tail the on-device MeshClient.txt log"
 	@echo "  make deploy-check   - Report SD card / BlueZ / D-Bus / adapter / fb0 state on the device"
 	@echo "  make deploy-shot    - Screenshot the device's screen to a PNG (ARGS=\"-d 10 -o nodes.png\")"
@@ -170,6 +172,14 @@ deploy:
 	$(DEPLOY) push
 
 brick: docker-pak deploy
+
+# Start and stop through NextUI's own launch loop, so the launcher is off the screen and off the
+# buttons while the client runs; see scripts/deploy-device.sh.
+deploy-start:
+	$(DEPLOY) start -- $(ARGS)
+
+deploy-stop:
+	$(DEPLOY) stop
 
 deploy-run:
 	$(DEPLOY) run -- $(ARGS)
