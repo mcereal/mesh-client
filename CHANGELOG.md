@@ -1,3 +1,13 @@
+## [2.58.0](https://github.com/mcereal/mesh-client/compare/v2.57.0...v2.58.0) (2026-09-11)
+
+### Features
+
+* **firmware:** install ESP32 radio firmware over Bluetooth ([dc3c01b](https://github.com/mcereal/mesh-client/commit/dc3c01b8eebce20e08e71091595ae9e2891b09bf))
+
+### Bug Fixes
+
+* **firmware:** arm only the named radio, and only behind an empty admin queue ([1a7208a](https://github.com/mcereal/mesh-client/commit/1a7208a5a9075393fb1a8694e9d4e0c743861dbb))
+
 ## [2.57.0](https://github.com/mcereal/mesh-client/compare/v2.56.1...v2.57.0) (2026-09-11)
 
 ### Features
