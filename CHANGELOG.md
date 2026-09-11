@@ -1,3 +1,13 @@
+## [2.61.0](https://github.com/mcereal/mesh-client/compare/v2.60.0...v2.61.0) (2026-09-11)
+
+### Features
+
+* **map:** decode a tile, with Wuffs vendored ([81d0511](https://github.com/mcereal/mesh-client/commit/81d05115d0fe5390b8022378143a486729912c68))
+
+### Documentation
+
+* **map:** say that a tile damaged after its last pixel still decodes ([c4f3b50](https://github.com/mcereal/mesh-client/commit/c4f3b50eef3f64ac43f1c38591883fc25bec66b0))
+
 ## [2.60.0](https://github.com/mcereal/mesh-client/compare/v2.59.0...v2.60.0) (2026-09-11)
 
 ### Features
