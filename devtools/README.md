@@ -54,6 +54,35 @@ devtools/tile_bench/summarize.py build/tile_bench/results/<run>.txt
 The tiles are synthetic and deliberately so: drawn to cost what a Carto-style palette PNG costs,
 and a 24-bit shaded set for the heavy end. The results are in the roadmap.
 
+## `map_pack` — building a raster tile pack
+
+Turns an MBTiles file or a `z/x/y` directory of PNGs into the single-file pack the client reads
+(`*.mctp`), and inspects or checks one that already exists. Stdlib only - no image library, no
+network - so it runs anywhere Python does.
+
+```bash
+map_pack.py build --mbtiles region.mbtiles -o region.mctp \
+    --name "Vancouver" --attribution "(c) OpenStreetMap contributors"
+map_pack.py build --xyz tiles/ -o region.mctp --max-zoom 16 --bbox 49.1,-123.3,49.4,-122.9
+map_pack.py info region.mctp
+map_pack.py verify region.mctp
+```
+
+The conversion happens on the host because of what the Brick measured: on a FAT32 card with
+32 KiB clusters mounted `sync`, a single file with a sorted index reached a cold tile in 0.80 ms
+where MBTiles took 4.6 ms and a `z/x/y` tree took 4.6 ms with a 40 ms tail - and SQLite would
+have cost 718 KB of binary to carry. The TMS row order MBTiles stores its tiles in is turned the
+right way up here too, so the client only ever sees one convention. See
+[`docs/maps-roadmap.md`](../docs/maps-roadmap.md#the-pack-format) for the format and
+[`docs/cli.md`](../docs/cli.md#looking-inside-a-tile-pack) for `--map-pack`, which reads a pack
+back on the device.
+
+`build` refuses anything the device could not draw - a tile that is not a 256x256 PNG, a zoom
+above 18, a tile over a megabyte - because a pack that fails at the blit fails where nobody is
+watching a terminal. `verify` re-reads every tile the way the reader would and says which of
+them are palette PNGs: a 24-bit pack is legal and costs 1.7x the decode and 2.7x the bytes, and
+quantising is the style renderer's job rather than this tool's.
+
 ## `perf` — `meshclient_perf`
 
 Measures the same text rasterizer with its glyph cache disabled and warm, and verifies that

@@ -34,6 +34,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/i18n.c
     suites/json.c
     suites/map.c
+    suites/map_pack.c
     suites/message.c
     suites/radio_settings.c
     suites/session.c

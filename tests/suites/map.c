@@ -1340,3 +1340,167 @@ MESH_TEST_CASE(map_press_refuses_a_node_it_cannot_open, unit) {
     mesh_ui_store_shutdown(&store);
     record_success(test_name);
 }
+
+/*
+ * The span and the placement are two readings of one view, so they have to land on the same
+ * pixel.
+ *
+ * This is the case that catches every off-by-one in the tile arithmetic at once. Blit the span
+ * the way a renderer will - the first tile's corner at (origin_x, origin_y), each one after it a
+ * tile further along - and the world pixel under the middle of the panel must be the same one
+ * mesh_map_viewport_place() puts the centre's own coordinate at. A span shifted by a tile, or a
+ * corner computed with a truncation instead of a floor, still looks like a map; it is a map of
+ * somewhere 256 metres away.
+ */
+MESH_TEST_CASE(map_tile_span_agrees_with_a_placement, unit) {
+    for (uint8_t zoom = 10U; zoom <= 18U; ++zoom) {
+        struct mesh_map_viewport viewport;
+        map_test_viewport(&viewport, zoom);
+
+        struct mesh_map_tile_span span;
+        MESH_TEST_FAIL_IF(!mesh_map_viewport_tiles(&viewport, &span), "a panel covers tiles");
+        MESH_TEST_FAIL_IF(span.zoom != zoom, "at the zoom it was asked about");
+        MESH_TEST_FAIL_IF(span.origin_x > 0 || span.origin_x <= -MESH_MAP_TILE_SIZE,
+                          "the first column starts at or before the box's own corner");
+        MESH_TEST_FAIL_IF(span.origin_y > 0 || span.origin_y <= -MESH_MAP_TILE_SIZE,
+                          "and so does the first row, away from the world's edge");
+
+        /* The span has to cover the box: the last tile's far edge is at or past the far corner. */
+        MESH_TEST_FAIL_IF(span.origin_x + span.columns * MESH_MAP_TILE_SIZE < MAP_TEST_WIDTH,
+                          "the columns reach the right-hand edge");
+        MESH_TEST_FAIL_IF(span.origin_y + span.rows * MESH_MAP_TILE_SIZE < MAP_TEST_HEIGHT,
+                          "and the rows reach the bottom");
+
+        /* Which tile the centre of the panel falls in, by walking the blit. */
+        const int32_t column = (MAP_TEST_WIDTH / 2 - span.origin_x) / MESH_MAP_TILE_SIZE;
+        const int32_t row = (MAP_TEST_HEIGHT / 2 - span.origin_y) / MESH_MAP_TILE_SIZE;
+        struct mesh_map_tile_key key;
+        MESH_TEST_FAIL_IF(!mesh_map_tile_span_key(&span, column, row, &key),
+                          "the middle of the panel is on a tile of the span");
+
+        /* And where the centre's own coordinate says it is, in that tile's pixels. */
+        struct mesh_map_placement placement;
+        MESH_TEST_FAIL_IF(
+            !mesh_map_viewport_place(&viewport, MAP_TEST_LATITUDE, MAP_TEST_LONGITUDE, &placement),
+            "the centre places");
+        const int32_t tile_x = span.origin_x + column * MESH_MAP_TILE_SIZE;
+        const int32_t tile_y = span.origin_y + row * MESH_MAP_TILE_SIZE;
+        MESH_TEST_FAIL_IF(placement.x < tile_x || placement.x >= tile_x + MESH_MAP_TILE_SIZE,
+                          "and lands inside the tile the blit put under it");
+        MESH_TEST_FAIL_IF(placement.y < tile_y || placement.y >= tile_y + MESH_MAP_TILE_SIZE,
+                          "on both axes");
+    }
+    record_success(test_name);
+}
+
+/*
+ * A view on the antimeridian asks for tiles on both sides of the world, and the fold is what
+ * makes them addressable.
+ *
+ * The same seam mesh_map_viewport_offset() takes the short way round: a box centred at 180
+ * degrees covers the last columns of the world and the first ones, and a span that did not fold
+ * would be asking a pack for tile 262144 at zoom 18 - which is not a tile, so the eastern half
+ * of the panel would simply be blank.
+ */
+MESH_TEST_CASE(map_tile_span_wraps_across_the_antimeridian, unit) {
+    /* Either side of the seam, because the two run off opposite edges of the world and only one
+       of them needs the flooring divide: a box a fraction of a pixel west of longitude 180 west
+       starts at tile -1, and a truncation says tile 0 - which drops the panel's leftmost
+       column exactly where nobody looks. */
+    const int32_t centres[] = {1799999000, -1799999000};
+    for (size_t i = 0U; i < sizeof centres / sizeof centres[0]; ++i) {
+        struct mesh_map_viewport viewport;
+        mesh_map_viewport_init(&viewport, MAP_TEST_LATITUDE, centres[i], 8U);
+        mesh_map_viewport_resize(&viewport, MAP_TEST_WIDTH, MAP_TEST_HEIGHT);
+
+        struct mesh_map_tile_span span;
+        MESH_TEST_FAIL_IF(!mesh_map_viewport_tiles(&viewport, &span), "the seam covers tiles");
+
+        const int32_t world = 1 << 8;
+        MESH_TEST_FAIL_IF(span.x0 >= 0 && span.x0 + span.columns <= world,
+                          "and the span runs off one edge of the world");
+
+        bool saw_last = false;
+        bool saw_first = false;
+        for (int32_t column = 0; column < span.columns; ++column) {
+            struct mesh_map_tile_key key;
+            MESH_TEST_FAIL_IF(!mesh_map_tile_span_key(&span, column, 0, &key),
+                              "every column of the span names a tile");
+            MESH_TEST_FAIL_IF((int32_t)key.x >= world, "and every one of them is on the world");
+            saw_last = saw_last || (int32_t)key.x == world - 1;
+            saw_first = saw_first || key.x == 0U;
+        }
+        MESH_TEST_FAIL_IF(!saw_last || !saw_first, "with the world's two edges both on the panel");
+    }
+    record_success(test_name);
+}
+
+/*
+ * Rows stop at the top of the world where columns wrap around it.
+ *
+ * A cylinder and a sheet: panning east forever arrives back where it started and panning north
+ * does not. A span that wrapped rows would ask a pack for a tile below the bottom of the world
+ * while drawing the top of it, which is a picture of the wrong hemisphere in the sky.
+ */
+MESH_TEST_CASE(map_tile_span_clamps_rows_at_the_top_of_the_world, unit) {
+    struct mesh_map_viewport viewport;
+    /* The display limit, which is as far north as a map can look. */
+    mesh_map_viewport_init(&viewport, 850511288, 0, 1U);
+    mesh_map_viewport_resize(&viewport, MAP_TEST_WIDTH, MAP_TEST_HEIGHT);
+
+    struct mesh_map_tile_span span;
+    MESH_TEST_FAIL_IF(!mesh_map_viewport_tiles(&viewport, &span),
+                      "the top of the world covers tiles");
+    MESH_TEST_FAIL_IF(span.y0 != 0, "the first row is the world's own first row");
+    MESH_TEST_FAIL_IF(span.rows > 2, "and there are no rows above it to ask for");
+    /* Half the panel is above the world, so the first row starts partway down it - the one case
+       where the origin is positive rather than a fraction of a tile behind the corner. */
+    MESH_TEST_FAIL_IF(span.origin_y <= 0, "the world's edge is below the top of the box");
+
+    struct mesh_map_tile_key key;
+    MESH_TEST_FAIL_IF(!mesh_map_tile_span_key(&span, 0, span.rows - 1, &key),
+                      "the last row names a tile");
+    MESH_TEST_FAIL_IF(key.y >= 2U, "inside the two rows zoom 1 has");
+    record_success(test_name);
+}
+
+/* A viewport nothing has measured yet answers nothing, which is the ordinary first frame: the
+   nav opens the map before a backend has laid a body out. */
+MESH_TEST_CASE(map_tile_span_needs_a_box, unit) {
+    struct mesh_map_viewport viewport;
+    mesh_map_viewport_init(&viewport, MAP_TEST_LATITUDE, MAP_TEST_LONGITUDE, 12U);
+
+    struct mesh_map_tile_span span;
+    MESH_TEST_FAIL_IF(mesh_map_viewport_tiles(&viewport, &span), "no box, no tiles");
+    MESH_TEST_FAIL_IF(span.columns != 0 || span.rows != 0, "and the span is zeroed");
+
+    struct mesh_map_tile_key key;
+    MESH_TEST_FAIL_IF(mesh_map_tile_span_key(&span, 0, 0, &key), "which names no tile");
+    record_success(test_name);
+}
+
+/*
+ * At zoom 0 the world is one tile and the panel is four of them wide, so the same tile is asked
+ * for several times over.
+ *
+ * Not a bug and not something to clamp away: a world narrower than the panel repeats, which is
+ * what every map does at its far zoom-out, and clamping the columns would leave the sides of the
+ * panel empty instead. It costs one decode and several blits, because the keys are equal.
+ */
+MESH_TEST_CASE(map_tile_span_repeats_a_world_narrower_than_the_panel, unit) {
+    struct mesh_map_viewport viewport;
+    mesh_map_viewport_init(&viewport, 0, 0, 0U);
+    mesh_map_viewport_resize(&viewport, MAP_TEST_WIDTH, MAP_TEST_HEIGHT);
+
+    struct mesh_map_tile_span span;
+    MESH_TEST_FAIL_IF(!mesh_map_viewport_tiles(&viewport, &span), "zoom 0 covers tiles");
+    MESH_TEST_FAIL_IF(span.columns < 4, "the panel is several worlds wide");
+    MESH_TEST_FAIL_IF(span.rows != 1, "and the world has exactly one row");
+    for (int32_t column = 0; column < span.columns; ++column) {
+        struct mesh_map_tile_key key;
+        MESH_TEST_FAIL_IF(!mesh_map_tile_span_key(&span, column, 0, &key),
+                          "every column names a tile");
+        MESH_TEST_FAIL_IF(key.x != 0U || key.y != 0U, "and all of them are the only tile there is");
+    }
+    record_success(test_name);
+}

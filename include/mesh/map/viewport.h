@@ -2,6 +2,7 @@
 #define MESH_MAP_VIEWPORT_H
 
 #include "mesh/geo/mercator.h"
+#include "mesh/map/tile.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -25,42 +26,13 @@ extern "C" {
  * protobuf, the UI store, the framebuffer or a filesystem header - the boundary
  * docs/maps-roadmap.md proposed, now with a caller to hold it honest.
  *
- * What is deliberately *not* here is tile addressing. The roadmap lists visible tile keys under
- * this module, and they belong here when there is a tile to fetch; there is no basemap yet, and
- * a function nothing calls is a function no test can be wrong about. `geo` was built the same
- * way - the bounds test alone until a range needed a vector - and the map inherits the habit.
+ * Tile addressing was deliberately absent from this header until there was a tile to fetch,
+ * which is the habit `geo` was built with - the bounds test alone until a range needed a
+ * vector. There is a tile to fetch now: mesh/map/source.h reads one out of a pack, so
+ * mesh_map_viewport_tiles() is what asks it for the right ones. The *vocabulary* of a tile is
+ * one header down in mesh/map/tile.h, so that a source can speak it without inheriting the
+ * projection.
  */
-
-/*
- * The tile pyramid's own units: a world is 256 pixels square at zoom 0 and doubles each level.
- *
- * A raster tile set is cut this way, so measuring the world in these units now is what lets a
- * basemap drop in later without every coordinate in the client being rescaled. It costs nothing
- * to agree with the pyramid before there is one.
- */
-#define MESH_MAP_TILE_SIZE 256
-
-/*
- * The zoom range the client offers.
- *
- * 0 is the whole world in one 256 px tile, which on this panel is a picture of Earth the size of
- * a postage stamp - useless to look at and exactly right as the far end of a zoom-out, because
- * a mesh that spans two continents has to be able to show both. 18 is roughly building-scale,
- * which is finer than any position on a mesh is reported to: `precision_bits` rounds a fix to
- * hundreds of metres, and offering a zoom where two markers a metre apart are separable would
- * be the client claiming a precision it was never sent.
- */
-#define MESH_MAP_ZOOM_MIN 0
-#define MESH_MAP_ZOOM_MAX 18
-
-/*
- * The zoom a map opens at when there is nothing to fit - one marker, or none.
- *
- * About a kilometre across the panel, which is the scale a handheld's "where am I" wants: close
- * enough that a street would be recognisable if a basemap were under it, wide enough that a
- * neighbour a few hundred metres away is on the same screen.
- */
-#define MESH_MAP_ZOOM_DEFAULT 14
 
 struct mesh_map_viewport {
     /* Where the middle of the box is. Always a valid coordinate: every call below leaves it
@@ -182,6 +154,27 @@ bool mesh_map_viewport_zoom_by(struct mesh_map_viewport *viewport, int delta);
  */
 bool mesh_map_viewport_fit(struct mesh_map_viewport *viewport, const struct mesh_geo_point *points,
                            size_t count, int32_t margin);
+
+/*
+ * Which tiles of the pyramid the box is standing on.
+ *
+ * The half of a basemap that is arithmetic: a caller with this and a source has everything it
+ * needs to fill the panel, and neither of them has to know where the map is looking. What comes
+ * back is a rectangle in tile space plus where its corner lands, so a blit is that corner plus a
+ * multiple of a tile - see struct mesh_map_tile_span for why it is a rectangle and not a list.
+ *
+ * False - and `out` zeroed - when the viewport has no area, which is the ordinary first frame
+ * rather than an error, or when the box has been panned so far up or down that no row of the
+ * world is under it.
+ *
+ * The span is measured against the box the viewport *has*, which is why a renderer resizes its
+ * own copy to the real body before asking. Handing it the nav's declared
+ * MESH_UI_MAP_FIT_WIDTH would fetch fewer tiles than the reader can see - the same asymmetry
+ * that makes a declared box the safe side for a fit and the wrong side for anything that has to
+ * cover the panel.
+ */
+bool mesh_map_viewport_tiles(const struct mesh_map_viewport *viewport,
+                             struct mesh_map_tile_span *out);
 
 /*
  * How many metres a pixel covers at the centre of the view - what a scale bar is drawn from.

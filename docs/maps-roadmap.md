@@ -15,6 +15,12 @@ said nothing should be built before: raster is viable, one tile at a time on the
 no helper process - from a **single-file pack decoded by Wuffs**. The `z/x/y` tree and MBTiles
 both lost on this hardware, and the reasons are specific to it. See §"What the Brick measured".
 
+**Step 3's first half is now in the client (2026-09-11):** the pack the measurement chose is a
+format with a reader (`src/map/source_pack.c`), a host-side builder (`devtools/map_pack`) and
+a `--map-pack` flag that opens one on the device, and the viewport answers which tiles a box is
+standing on. Nothing is decoded and nothing is drawn yet - that is the decoder, the tile cache
+and the blit, which are what is left of step 3. See §"The pack format".
+
 §"How a pack gets onto the device" (2026-09-10) corrects a premise that ran through the original
 assessment - that the Brick has no network - and re-sequences the delivery steps around the
 correction. It is the section to read before acting on any statement about "offline" below.
@@ -391,6 +397,79 @@ above:
   single file on FAT32 **cannot exceed 4 GiB**, so a large region is split into files or the
   format's directories are read lazily. Both are pack-format questions, not rendering ones.
 
+## The pack format
+
+> **Landed 2026-09-11.** The reader is [`src/map/source_pack.c`](../src/map/source_pack.c), the
+> seam it sits behind is [`include/mesh/map/source.h`](../include/mesh/map/source.h), and packs
+> are built on a host with [`devtools/map_pack`](../devtools/map_pack/map_pack.py).
+
+The measurement above chose a single indexed file over a `z/x/y` tree and over MBTiles, so the
+client carries a format of its own rather than reading one of the two the rest of the world
+publishes. That is a cost worth naming: every pack has to be converted before it can be used,
+and a reader cannot point the client at an MBTiles file they already have. What it buys is the
+0.80 ms cold tile, no SQLite in the binary, and a transfer to the card that takes 16 seconds
+rather than 55 - all three of which are properties of *this* hardware rather than of raster
+maps, which is why the conversion is a host step and not a device one.
+
+It is shaped like PMTiles and it is not PMTiles. What the two share is the only property that
+mattered: a tile is at a known offset in one file, so reading one is a seek and a read. PMTiles'
+own directory encoding - varints, compressed leaf directories, a hilbert-ordered id space - is
+what makes a *planet* file readable over HTTP range requests, and none of it is needed by a
+regional pack whose whole index fits in RAM. If step 5 ever fetches tiles over range requests,
+that is the moment to read the real thing; until then this is the same idea with the parts a
+Brick does not need left out.
+
+Little-endian throughout, read byte by byte:
+
+| Offset | Size | Field |
+| ---: | ---: | --- |
+| 0 | 8 | `"MCTPACK2"` |
+| 8 | 2 | tile size in pixels |
+| 10 | 1 | tile format (1 = PNG) |
+| 11 | 1 | reserved, zero |
+| 12 | 4 | index offset from the start of the file |
+| 16 | 4 | tile count |
+| 20 | 4 | reserved, zero |
+| 24 | 8 | generated: seconds since the epoch, 0 when the builder did not say |
+| 32 | 64 | attribution, UTF-8, NUL padded |
+| 96 | 32 | name, UTF-8, NUL padded |
+| 128 | 24 x count | the index, sorted ascending by (z, x, y) |
+
+An index entry is `u8 zoom`, three reserved bytes, `u32 x`, `u32 y`, `u32 length`, `u64 offset`.
+The tile bytes follow the index, in index order. "MCTPACK2" rather than "MCTPACK1" because
+there was a 1: the headerless layout `devtools/tile_bench` measured with, which was never a
+format anything shipped and carried no way to say what was in it. The entry is deliberately
+unchanged at 24 bytes, so the numbers the benchmark produced are the numbers this reader gets.
+
+Four decisions in it are worth stating, because each one is a bug this cannot have:
+
+- **The zoom range and the coverage are derived from the index, not declared in the header.**
+  It is the rule the app bar's back arrow and the map's selection already follow. A header field
+  saying where a pack covers is a field that can be wrong, and the way it goes wrong is a builder
+  that names a city and packs a suburb - believed by every screen that draws it. The union is
+  taken across zooms on the unit square, so a coarse tile that reaches further than the deep ones
+  sets the edge.
+- **Everything a read would have to trust is checked once, at open.** Zooms the client can
+  address, tiles inside the world at their own zoom, extents inside the file, and the index's
+  own sort order - because a binary search over an index that is not sorted does not fail, it
+  *misses*, which on the device is a blank square nobody can explain. Afterwards a tile is a
+  `bsearch` and one `pread` and cannot be wrong about anything, which is what keeps the per-frame
+  cost off the event loop.
+- **The tile dimensions and the format are restricted rather than believed**, which this
+  document asks for by name. A file claiming 512-pixel tiles is a screen full of quarter-tiles
+  found out at the blit; a file holding vector tiles is the failure MBTiles is famous for, where
+  a raster-only reader opens one happily and draws nothing.
+- **A missing tile is an answer, not an error.** Every pack is a rectangle of the world with
+  holes in it - a sparse pack is the ordinary case for a coastline - so a read that finds nothing
+  returns 0 and the map draws the hole, which is a state it needs anyway while a tile is still on
+  its way.
+
+What is deliberately *not* in it: a compression flag (the tiles are PNGs, which are already
+deflated), a per-tile checksum (the PNG's own CRCs cover the bytes, and the decoder checks them),
+and leaf directories. A pack of a million tiles would hold 24 MB of index in RAM, which is where
+the format would have to grow them - and a single file on FAT32 cannot exceed 4 GiB, so a region
+that large is split into files either way. Neither is a rendering question.
+
 ## Proposed module boundaries
 
 Names below are proposals, not APIs that already exist.
@@ -402,14 +481,15 @@ Names below are proposals, not APIs that already exist.
 | — *exists:* [`include/mesh/geo/vector.h`](../include/mesh/geo/vector.h) | Distance and initial bearing between two points, and the eight-point compass. Written because the Waypoints tab needed a range, not speculatively - projection still waits for a map. The one `<math.h>` in the tree | The Waypoints list and one place's detail |
 | — *exists:* [`include/mesh/geo/mercator.h`](../include/mesh/geo/mercator.h) | Web Mercator and its inverse, the display limit, the longitude wrap, and the projection’s own scale factor. The second `<math.h>` in the tree | The viewport, and anything that needs a coordinate turned into a position |
 | — *exists:* [`include/mesh/map/viewport.h`](../include/mesh/map/viewport.h) | Centre/zoom, world-to-screen and back, pan, bounds fitting, metres per pixel. **No tile keys**: those arrive with a tile to fetch | The map screen, and a future location preview |
-| `include/mesh/map/viewport.h`, `src/map/viewport.c` | Visible tile keys, once there are tiles | Full map, future location preview |
-| `include/mesh/map/source.h`, `src/map/source_*.c` | Map metadata and tile-byte lookup behind a small source interface | Offline packs; optional HTTP source later |
+| — *exists:* [`include/mesh/map/tile.h`](../include/mesh/map/tile.h) | The pyramid's own vocabulary - tile size, the zoom range, a key, and the block of them a box covers. Its own header because the viewport and a source both need it and must not include each other | The viewport and every source |
+| — *exists:* `mesh_map_viewport_tiles()` in [`src/map/viewport.c`](../src/map/viewport.c) | Which tiles the box is standing on, and where the first one's corner lands. Measured against the box the viewport *has*, which is why a renderer resizes its own copy first | The map screen, and a "download what is on screen" press later |
+| — *exists:* [`include/mesh/map/source.h`](../include/mesh/map/source.h), [`src/map/source_pack.c`](../src/map/source_pack.c) | Map metadata and tile-byte lookup behind a small source interface. One implementation, the single-file pack the device measurement chose; an HTTP source would arrive here and change nothing above | The offline pack, `--map-pack`, and step 5's optional HTTP source |
 | `src/map/tile_cache.c` | Byte-budgeted decoded tile cache, request deduplication and eviction | Any map viewport |
 | — *exists:* `struct mesh_ui_map_node` in [`include/mesh/ui/store.h`](../include/mesh/ui/store.h) | The compact projection: every positioned node the *session* holds, not the ranked 128 the list publishes. Filled by `src/core/app_publish.c` | The markers, and anything else that wants a position without a summary |
 | — *exists:* [`src/ui/map.c`](../src/ui/map.c) | Markers from the map's roster and the waypoint book; the selection, measured from the view’s centre in metres | Framebuffer and test consumers |
 | — *exists:* [`src/ui/nav_map.c`](../src/ui/nav_map.c) | Button handling and map navigation state. Takes the d-pad *ahead* of the tab routing, and deliberately leaves the shoulders to it | Existing store/controller path |
 | — *exists:* [`src/ui/backends/fb_map.c`](../src/ui/backends/fb_map.c) | Graticule, markers, labels, crosshair and scale bar. Tiles and attribution when there are any | Device and off-screen capture |
-| `devtools/map_pack/` | Validate/prepare regional packs, show coverage and size | Host workflow and fixtures |
+| — *exists:* [`devtools/map_pack/`](../devtools/map_pack/map_pack.py) | Validate and prepare regional packs from MBTiles or a `z/x/y` tree, and show coverage and size. Where the TMS row order is turned the right way up, so the client sees one convention | Host workflow and fixtures |
 
 Geography and viewport code should not include protobuf, UI store, framebuffer or filesystem
 headers. Keep tile addressing in the map layer; normalize storage-specific row conventions
@@ -588,6 +668,9 @@ that drawable.
 3. **Offline raster spike.** Small licensed regional pack, decoder, clipped image blit and
    resource lifecycle. Measure cold/warm pan, memory, executable growth and input latency on
    the Brick while receiving mesh traffic. Select the production source based on those results.
+   *The measurement has run and the source is selected, and its reader, its format and its
+   host-side builder have landed - see §"The pack format". The decoder, the tile cache and the
+   blit are what is left, in the order §"Effort and first decision" gives.*
 4. **Offline release.** Pack validation/import instructions, loading/missing/corrupt tile states,
    bounded cache, stale/approximate markers, label prioritization, scale and attribution.
    Include cache/source changes in repaint invalidation and deterministic capture tests.
@@ -628,11 +711,34 @@ are the largest unknowns. They do not cover step 5, which was an optional extens
 were written. A marker-only milestone can land substantially earlier.
 
 Steps 1 and 2 have shipped, and step 3's *measurement* has run - see §"What the Brick measured",
-which chose a single-file pack, Wuffs and one tile per event-loop turn. **Recommended next
-implementation is the rest of step 3 inside the client**: a pack reader behind the source seam, a
-decoded-tile cache, one decode per turn, the clipped blit in `fb_map.c` and a capture fixture - and
-then the integrated input-latency number the standalone benchmark could not give. The history of
-how step 3 was unblocked follows. **It was no longer blocked on anything.** This section
+which chose a single-file pack, Wuffs and one tile per event-loop turn. The **pack reader behind
+the source seam has landed** with it - see §"The pack format" - along with the viewport's tile
+keys, a host-side builder and `--map-pack` for reading one back on the device.
+
+**Recommended next implementation is the rest of step 3**, in this order, because each one is
+useless without the one before it:
+
+1. **The decoder.** Wuffs, which the measurement chose: twice stb_image's speed on palette
+   tiles, memory-safe by construction, and it allocates nothing - a 44.6 KB decoder plus a
+   caller-owned 64-192 KB work buffer, for +106 KB of code. It arrives as a pinned third-party
+   source the way nanopb does, behind a one-function seam that hands back pixels, so the tests
+   below it can inject fixtures rather than PNGs. This is the only step that adds a dependency,
+   which is why it is worth deciding on its own.
+2. **The tile cache.** Byte-budgeted, LRU, keyed on `struct mesh_map_tile_key` - so a world
+   narrower than the panel decodes one tile and blits it several times - with the decoded
+   representation chosen to suit the blit rather than the decoder. `struct fb_state` carries a
+   `bytes_per_pixel` that is not always 4, so what a cache holds and what a panel wants are two
+   questions.
+3. **One decode per turn, and the clipped blit in `fb_map.c`.** The measurement's headline
+   finding: a cold tile is 2-5 ms, so a full view fills in twenty turns of one tile each rather
+   than one 45 ms stall, with input serviced between them. The blit intersects the map's own
+   clip, which `fb_fill_packed()` already honours.
+4. **A capture fixture and the integrated latency number.** A deterministic pack under
+   `tests/data/`, so a UI capture of the map has tiles under it and a frame comparison can catch
+   a damage-invalidation bug - and then the input-latency measurement the standalone benchmark
+   could not give, taken inside the real client while BLE is being serviced.
+
+The history of how step 3 was unblocked follows. **It was no longer blocked on anything.** This section
 used to name two decisions it waited on - a first region and zoom range, and a tile source with
 offline rights - and §"How a pack gets onto the device" retires both as blockers: for a
 *measurement* a region is a test fixture rather than a commitment, and a source is an

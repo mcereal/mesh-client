@@ -119,7 +119,7 @@ suite needs it.
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Verified 2026-09-11: 524 unit tests, all passing, zero compiler warnings - under the host
+Verified 2026-09-11: 544 unit tests, all passing, zero compiler warnings - under the host
 toolchain *and* the cross one, which are not the same check: see
 [`docs/testing.md`](docs/testing.md#what-ci-runs).
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
@@ -187,7 +187,7 @@ is a screen rather than a slot), bubbles (whose trailing run is four typed slots
 | Strings | `src/i18n/strings.c`, `include/mesh/i18n/catalog.def` | the string catalog and the locale registry |
 | Dev tools | `devtools/`, `scripts/{ui-capture.sh,frames.py}` | off-screen UI capture; PNG/GIF encoding, stdlib only |
 | Geography | `src/geo/` | `mesh_geo_coords_valid()` — the bounds test every coordinate ingress asks, so the air, the cache and the keyboard cannot disagree about where Earth ends — `mesh_geo_vector_between()`, the haversine distance and initial bearing the Waypoints tab reads a range from, and `mesh_geo_mercator_forward()`, the projection the map places a marker with. **The only directory in the tree that includes `<math.h>`**, and the reason libm is linked |
-| The map | `src/map/viewport.c`, `src/ui/map.c`, `src/ui/nav_map.c`, `src/ui/backends/fb_map.c` | Where the map is looking (centre, integer zoom, pan, fit, metres per pixel), the markers built from the map's own roster (`handshake.map_nodes` - **not** the node list's 128) and the waypoint book, the presses, and the drawing. No basemap yet — see [`docs/maps-roadmap.md`](docs/maps-roadmap.md). `viewport.c` deliberately has **no `<math.h>`**: everything transcendental about a map is a property of the projection, one directory down |
+| The map | `src/map/viewport.c`, `src/map/tile.c`, `src/map/source_pack.c`, `src/ui/map.c`, `src/ui/nav_map.c`, `src/ui/backends/fb_map.c` | Where the map is looking (centre, integer zoom, pan, fit, metres per pixel), which tiles that box is standing on (`mesh_map_viewport_tiles()`), where a tile's bytes come from (`source.h`, and the single-file `MCTPACK2` pack behind it), the markers built from the map's own roster (`handshake.map_nodes` - **not** the node list's 128) and the waypoint book, the presses, and the drawing. There are tiles to read and **nothing decodes or draws one yet** — see [`docs/maps-roadmap.md`](docs/maps-roadmap.md). `viewport.c` deliberately has **no `<math.h>`**: everything transcendental about a map is a property of the projection, one directory down |
 | Shared utils | `src/utils/` | `text` (UTF-8 + `mesh_str_copy`), `time` (`mesh_time_monotonic_ms`), `env` (`mesh_env_bool`/`_int`), `json` (a cursor that walks structure, because a release note eventually contains the keys a scanner would look for), `log`, `sha256`, `array` |
 
 `include/mesh/` mirrors `src/` one-for-one — `core/`, `transport/`, `ui/`, `proto/`, `geo/`, `utils/` —
@@ -457,6 +457,18 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   exactly as A on empty grid does. Without that guard the detail opens, cannot be filled, and is
   clamped shut on the next press. Resolving it properly is the app/store seam
   [`docs/maps-roadmap.md`](docs/maps-roadmap.md#the-roster-decision-taken) describes.
+- **The tile pack is a format of the client's own, and that is a measurement rather than a
+  preference.** Reading MBTiles or PMTiles directly is the obvious thing and it lost on this
+  hardware: on the Brick's FAT32 card with 32 KiB clusters mounted `sync`, a single file with a
+  sorted index reached a cold tile in 0.80 ms where MBTiles took 4.6 ms and a `z/x/y` tree took
+  4.6 ms with a 40 ms tail - and SQLite would have cost 718 KB on a 2.88 MB binary. So the
+  conversion is a host step (`devtools/map_pack`) and the device reads one file. The pack's
+  **zoom range and coverage are derived from its index, never read out of its header**, which is
+  the app bar's back arrow one layer down: a header field saying what a file contains is a field
+  that can be wrong, and the way it goes wrong is a builder that names a city and packs a suburb.
+  Everything else a read would have to trust is checked **once, at open** - extents inside the
+  file, tiles inside the world, and the index's own sort order, because a `bsearch` over an
+  unsorted index does not fail, it misses. See [`docs/maps-roadmap.md`](docs/maps-roadmap.md).
 - **The map has no selection field on the nav, and must not grow one.** What A opens is the
   marker nearest the middle of the view, derived every frame by `mesh_ui_map_selected()`. That is
   the app bar's back arrow and the transition route again: a second opinion about the nav is a
