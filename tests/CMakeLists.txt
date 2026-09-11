@@ -35,6 +35,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/json.c
     suites/map.c
     suites/map_pack.c
+    suites/tile_image.c
     suites/message.c
     suites/radio_settings.c
     suites/session.c
@@ -103,6 +104,14 @@ set_tests_properties(meshclient_core_unit PROPERTIES LABELS "unit")
 add_test(NAME meshclient_hardcoded_strings
          COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/check-strings.py)
 set_tests_properties(meshclient_hardcoded_strings PROPERTIES LABELS "unit")
+
+# A vendored third-party file is upstream's, not ours. third_party/wuffs/wuffs-v0.4.c is 3.6 MB
+# of generated C that no review will ever read, so an edit in place is invisible - and a fix
+# that lives only here is a fix nobody upstream knows about. check-vendor.py re-checks it against
+# the digest its own README states, which is also the copy a human reads.
+add_test(NAME meshclient_vendored_files
+         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/check-vendor.py)
+set_tests_properties(meshclient_vendored_files PROPERTIES LABELS "unit")
 
 # scripts/frames.py hand-rolls GIF's variable-width LZW, and the one thing that is easy to get
 # subtly wrong there - when the code width grows - produces a file that still opens and shows

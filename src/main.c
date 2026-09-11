@@ -7,6 +7,7 @@
 #include "mesh/core/firmware_ota.h"
 #include "mesh/core/version.h"
 #include "mesh/map/source.h"
+#include "mesh/map/tile_image.h"
 #include "mesh/map/viewport.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/ble_bluez.h"
@@ -209,10 +210,35 @@ static int describe_map_pack(const char *path) {
         const int length = tile == NULL
                                ? -ENOMEM
                                : mesh_map_source_read(&source, key, tile, MESH_MAP_TILE_BYTES_MAX);
-        free(tile);
         if (length > 0) {
             printf("  middle tile  z%u/%u/%u, %d bytes\n", (unsigned)key.zoom, key.x, key.y,
                    length);
+            /*
+             * And decoded, which is the half a host test cannot answer for. The pack reader
+             * proves an offset points at bytes; this proves the bytes are a picture, on the
+             * board that will draw it - a pack quantised by a tool nobody here ran, off a card
+             * formatted by a laptop, through the decoder the Brick was measured with.
+             */
+            uint8_t *const pixels = malloc(MESH_MAP_TILE_IMAGE_BYTES);
+            const int decoded = pixels == NULL
+                                    ? -ENOMEM
+                                    : mesh_map_tile_decode((const uint8_t *)tile, (size_t)length,
+                                                           pixels, MESH_MAP_TILE_IMAGE_BYTES);
+            if (decoded == 0) {
+                /* The middle pixel, as the panel would hold it. Four numbers are enough to tell
+                   a decode that worked from one that produced a plausible-looking nothing. */
+                const uint8_t *const middle =
+                    pixels + (MESH_MAP_TILE_IMAGE_BYTES / 2U) + (MESH_MAP_TILE_SIZE / 2U) * 4U;
+                printf("  decoded      %ux%u, %zu KiB, middle pixel #%02X%02X%02X alpha %u\n",
+                       (unsigned)MESH_MAP_TILE_SIZE, (unsigned)MESH_MAP_TILE_SIZE,
+                       MESH_MAP_TILE_IMAGE_BYTES / 1024U, middle[2], middle[1], middle[0],
+                       middle[3]);
+            } else {
+                fprintf(stderr, "  could not decode z%u/%u/%u: %s\n", (unsigned)key.zoom, key.x,
+                        key.y, strerror(-decoded));
+                result = decoded;
+            }
+            free(pixels);
         } else if (length == 0) {
             /* Not a failure: a pack is a rectangle of the world with holes in it, and the
                middle of a coastal region is often water nobody cut a tile for. */
@@ -223,6 +249,7 @@ static int describe_map_pack(const char *path) {
                     strerror(-length));
             result = length;
         }
+        free(tile);
     }
 
     mesh_map_source_close(&source);

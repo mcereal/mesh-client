@@ -20,6 +20,8 @@ Refresh one by fetching it again, not by editing it.
 | `t114_2.7.26.uf2` | the T114's image out of the 2.7.26 nrf52840 zip | 2026-09-10 | four of its 2,866 blocks — see below |
 | `zip_member_t114_mt_json_2.7.26.bin` | that member's local header and deflated bytes, as served | 2026-09-10 | nothing — 597 bytes covering both |
 | `firmware_release_2.7.26.json` | `…/download/v2.7.26.54e0d8d/firmware-2.7.26.54e0d8d.json` | 2026-09-10 | nothing — all 129 targets |
+| `tile_palette.png` | `devtools/tile_bench/gen_tiles.py`, the palette set's median tile at zoom 16 | 2026-09-11 | nothing — all 9,391 bytes |
+| `tile_truecolour.png` | the same generator's 24-bit set, its median tile | 2026-09-11 | nothing — all 25,868 bytes |
 
 `firmware_list.json` is the one that is not whole, because the served document is 155 KB and
 almost all of it is release notes. Kept: the first four entries of each channel, every key each
@@ -73,3 +75,29 @@ prefix pins where the image starts (`0x26000`) and where it ends (`0xD9100`), an
 suite both download failures for free: the first half is a truncated file, and the whole of it
 is a file missing its middle, which the third block announces by being numbered 2,864 where 2
 was due.
+
+## The map tile fixtures
+
+**The two exceptions to "fetched from a real service", and deliberately not to "nothing here is
+hand-authored".** There is no real tile to fetch: OSM's tile policy prohibits bulk downloads and
+this project hosts no tile service, which is the constraint
+[`docs/maps-roadmap.md`](../../docs/maps-roadmap.md) is built around. So these come from
+[`devtools/tile_bench/gen_tiles.py`](../../devtools/tile_bench/gen_tiles.py) — the generator
+that was written for the *device measurement*, months before there was a decoder in the client
+to test, and whose output the Brick decoded to produce the numbers that chose Wuffs. It is an
+independent encoder (Python's `zlib` and the PNG spec) that knows nothing about
+`src/map/tile_image.c`, which is the property the rule above is actually about.
+
+One of each colour type, because a pack can hold either and they take different paths through
+the decoder: `tile_palette.png` is 8-bit indexed, which is what the pack builder quantises to
+and what the measurement's 1.24 ms is for, and `tile_truecolour.png` is 24-bit RGB, the
+bracket the roadmap kept for a hillshaded style at 2.09 ms. Each is its set's **median** tile by
+size rather than a hand-picked one, so neither is easy by selection.
+
+`tile_palette.png` carries the property the colour test rests on: of its 31 palette entries,
+**not one has its red and blue swapped also present**. That is what lets
+`tests/suites/tile_image.c` check the decoder's channel order against the file rather than
+against itself — every decoded pixel's RGB has to appear in the PNG's own `PLTE` chunk, which a
+swizzle that swapped two channels fails on every non-grey pixel in the picture. The alternative
+was asserting the colours a working decoder happened to produce, which is the fixture-tests-the-
+parser-against-itself trap one level down.
