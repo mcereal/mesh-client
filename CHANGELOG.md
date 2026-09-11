@@ -1,3 +1,9 @@
+## [2.63.1](https://github.com/mcereal/mesh-client/compare/v2.63.0...v2.63.1) (2026-09-11)
+
+### Bug Fixes
+
+* **map:** bound a direction's reach to one step so the map can be explored ([cbfeecb](https://github.com/mcereal/mesh-client/commit/cbfeecb8c40ffc0175d163ceb55966c5abf92638))
+
 ## [2.63.0](https://github.com/mcereal/mesh-client/compare/v2.62.0...v2.63.0) (2026-09-11)
 
 ### Features
