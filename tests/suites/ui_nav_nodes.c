@@ -16,6 +16,135 @@
 #include <string.h>
 #include <unistd.h>
 
+/*
+ * A on a reading the client has been watching opens that reading's chart; B closes it; and the
+ * chart swallows everything else.
+ *
+ * The swallow is the half worth a test rather than a screenshot. A chart has no rows, so a press
+ * that fell through would reach the detail's own cursor underneath - Down would move a cursor
+ * nobody can see, and the next A would run whichever row it had landed on, which on this screen
+ * includes "remove from radio".
+ */
+MESH_TEST_CASE(ui_nav_node_trend_opens_from_its_row, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.has_my_info = true;
+    handshake.my_info.node_num = 0x1000U;
+    handshake.node_count = 1U;
+    handshake.nodes[0].node_id = 0x2000U;
+    handshake.nodes[0].environment.valid = true;
+    handshake.nodes[0].environment.has_temperature = true;
+    handshake.nodes[0].environment.temperature = 21.0f;
+
+    /* Two reports, because one reading is a level and the row only offers a chart once there is
+       a line to draw. */
+    mesh_ui_store_tick(&store, 1000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+    handshake.nodes[0].environment.temperature = 23.0f;
+    mesh_ui_store_tick(&store, 2000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+
+    struct mesh_ui_nav nav;
+    mesh_ui_nav_init(&nav);
+    nav.screen = MESH_UI_SCREEN_NODES;
+    nav.node_detail_open = true;
+    nav.node_detail_node = 0x2000U;
+
+    /* Find the temperature row the way the nav does, then stand on it. */
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    const uint32_t count =
+        mesh_ui_node_detail_build(&handshake.nodes[0], false, 0U, NULL, false, &handshake,
+                                  &store.history, items, MESH_UI_NODE_ITEMS_MAX);
+    uint32_t row = count;
+    for (uint32_t i = 0U; i < count; ++i) {
+        if (items[i].trend_reading == MESH_UI_HISTORY_TEMPERATURE) {
+            row = i;
+            break;
+        }
+    }
+    MESH_TEST_FAIL_IF(row == count, "a watched temperature should offer a chart from its row");
+    nav.cursor[MESH_UI_SCREEN_NODES] = row;
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF(nav.node_trend != MESH_UI_HISTORY_TEMPERATURE,
+                      "A on the row should open that reading's chart");
+    MESH_TEST_FAIL_IF(action.type != MESH_UI_ACTION_NONE,
+                      "opening a chart asks the radio for nothing");
+
+    /* The swallow: the picture has nothing to move, so Down must not reach the rows under it. */
+    const uint32_t cursor = nav.cursor[MESH_UI_SCREEN_NODES];
+    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_DOWN, &action);
+    MESH_TEST_FAIL_IF(nav.cursor[MESH_UI_SCREEN_NODES] != cursor,
+                      "the chart should swallow the d-pad rather than walk the rows beneath it");
+    MESH_TEST_FAIL_IF(nav.node_trend != MESH_UI_HISTORY_TEMPERATURE, "and stay open under it");
+
+    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_B, &action);
+    MESH_TEST_FAIL_IF(nav.node_trend != MESH_UI_HISTORY_NONE, "B should close the chart");
+    MESH_TEST_FAIL_IF(!nav.node_detail_open, "and land back on the detail rather than the list");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * A chart with nothing left to draw closes itself, and closing the detail takes its chart.
+ *
+ * Both are the map's clamp one screen along. A picture of a reading nobody is holding any more
+ * is worse than an empty list: an axis frame with its ends still labelled and no line in it
+ * reads as a node that went perfectly quiet.
+ */
+MESH_TEST_CASE(ui_nav_node_trend_closes_when_it_empties, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.roster_owner = 0xAAAAU;
+    handshake.node_count = 1U;
+    handshake.nodes[0].node_id = 0x2000U;
+    handshake.nodes[0].environment.valid = true;
+    handshake.nodes[0].environment.has_temperature = true;
+    handshake.nodes[0].environment.temperature = 21.0f;
+    mesh_ui_store_tick(&store, 1000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+
+    struct mesh_ui_nav nav;
+    mesh_ui_nav_init(&nav);
+    nav.screen = MESH_UI_SCREEN_NODES;
+    nav.node_detail_open = true;
+    nav.node_detail_node = 0x2000U;
+    nav.node_trend = MESH_UI_HISTORY_TEMPERATURE;
+
+    /* A radio swap empties the history the way it empties the roster. */
+    handshake.roster_owner = 0xBBBBU;
+    handshake.nodes[0].environment.valid = false;
+    mesh_ui_store_tick(&store, 2000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+    (void)mesh_ui_nav_clamp(&nav, &store);
+    MESH_TEST_FAIL_IF(nav.node_trend != MESH_UI_HISTORY_NONE,
+                      "a chart with no readings left should close");
+    MESH_TEST_FAIL_IF(!nav.node_detail_open, "and leave the detail it was opened over");
+
+    /* And the other way: closing the detail cannot leave a chart of it behind, or the next node
+       opened would land straight on a chart of the last one's reading. */
+    nav.node_trend = MESH_UI_HISTORY_TEMPERATURE;
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    nav.node_trend = MESH_UI_HISTORY_NONE;
+    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_B, &action);
+    MESH_TEST_FAIL_IF(nav.node_detail_open, "B off the detail should close it");
+    MESH_TEST_FAIL_IF(nav.node_trend != MESH_UI_HISTORY_NONE,
+                      "and no chart may outlive the detail it was a level of");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
 /* The Nodes tab's pin: X from either level, and the detail's own row. The nav sends the state
    it wants rather than a bare toggle, so a press that races a NodeInfo cannot cancel itself. */
 MESH_TEST_CASE(ui_nav_node_favorite, unit) {

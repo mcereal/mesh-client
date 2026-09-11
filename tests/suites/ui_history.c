@@ -401,18 +401,19 @@ MESH_TEST_CASE(series_with_no_span_falls_back_to_even_spacing, unit) {
 MESH_TEST_CASE(history_keeps_a_battery_per_node, unit) {
     struct mesh_ui_history history;
     mesh_ui_history_reset(&history);
-    MESH_TEST_FAIL_IF(mesh_ui_history_battery(&history, 0x1234U) != NULL,
+    MESH_TEST_FAIL_IF(mesh_ui_history_series(&history, 0x1234U, MESH_UI_HISTORY_BATTERY) != NULL,
                       "a node nothing has been kept for has no trend");
 
     mesh_ui_history_note_battery(&history, 1000U, 0x1234U, 90U);
     mesh_ui_history_note_battery(&history, 2000U, 0x1234U, 88U);
     mesh_ui_history_note_battery(&history, 1500U, 0x5678U, 40U);
 
-    const struct mesh_ui_series *series = mesh_ui_history_battery(&history, 0x1234U);
+    const struct mesh_ui_series *series =
+        mesh_ui_history_series(&history, 0x1234U, MESH_UI_HISTORY_BATTERY);
     MESH_TEST_FAIL_IF(series == NULL || series->count != 2U, "both readings should be kept");
     MESH_TEST_FAIL_IF(mesh_ui_series_newest(series)->value != 88,
                       "the newest reading should be the newest push");
-    MESH_TEST_FAIL_IF(mesh_ui_history_battery(&history, 0x5678U) == NULL,
+    MESH_TEST_FAIL_IF(mesh_ui_history_series(&history, 0x5678U, MESH_UI_HISTORY_BATTERY) == NULL,
                       "a second node should get a slot of its own");
 
     /*
@@ -421,7 +422,8 @@ MESH_TEST_CASE(history_keeps_a_battery_per_node, unit) {
      * trend keeps what it had.
      */
     mesh_ui_history_note_battery(&history, 3000U, 0x1234U, 101U);
-    MESH_TEST_FAIL_IF(mesh_ui_history_battery(&history, 0x1234U)->count != 2U,
+    MESH_TEST_FAIL_IF(mesh_ui_history_series(&history, 0x1234U, MESH_UI_HISTORY_BATTERY)->count !=
+                          2U,
                       "a node on mains reports no battery level to plot");
     record_success(test_name);
 }
@@ -442,7 +444,8 @@ MESH_TEST_CASE(history_breaks_a_battery_trend_across_external_power, unit) {
     mesh_ui_history_note_battery(&history, 2000U, 0x1234U, 101U); /* plugged in */
     mesh_ui_history_note_battery(&history, 3000U, 0x1234U, 79U);
 
-    const struct mesh_ui_series *series = mesh_ui_history_battery(&history, 0x1234U);
+    const struct mesh_ui_series *series =
+        mesh_ui_history_series(&history, 0x1234U, MESH_UI_HISTORY_BATTERY);
     MESH_TEST_FAIL_IF(series == NULL || series->count != 2U,
                       "only the two real levels should be readings");
 
@@ -454,7 +457,7 @@ MESH_TEST_CASE(history_breaks_a_battery_trend_across_external_power, unit) {
     /* A node nothing has been watching has no trend to discontinue, and recording that it is
        plugged in would spend a slot a node with readings could have used. */
     mesh_ui_history_note_battery(&history, 4000U, 0x9999U, 101U);
-    MESH_TEST_FAIL_IF(mesh_ui_history_battery(&history, 0x9999U) != NULL,
+    MESH_TEST_FAIL_IF(mesh_ui_history_series(&history, 0x9999U, MESH_UI_HISTORY_BATTERY) != NULL,
                       "external power alone should not claim a slot");
     record_success(test_name);
 }
@@ -471,11 +474,11 @@ MESH_TEST_CASE(history_evicts_the_least_recently_heard_node, unit) {
     mesh_ui_history_note_battery(&history, 9000U, 0x100U, 49U);
     mesh_ui_history_note_battery(&history, 9100U, 0xBEEFU, 30U);
 
-    MESH_TEST_FAIL_IF(mesh_ui_history_battery(&history, 0xBEEFU) == NULL,
+    MESH_TEST_FAIL_IF(mesh_ui_history_series(&history, 0xBEEFU, MESH_UI_HISTORY_BATTERY) == NULL,
                       "the arriving node should have taken a slot");
-    MESH_TEST_FAIL_IF(mesh_ui_history_battery(&history, 0x100U) == NULL,
+    MESH_TEST_FAIL_IF(mesh_ui_history_series(&history, 0x100U, MESH_UI_HISTORY_BATTERY) == NULL,
                       "a node heard from again should not be the one evicted");
-    MESH_TEST_FAIL_IF(mesh_ui_history_battery(&history, 0x101U) != NULL,
+    MESH_TEST_FAIL_IF(mesh_ui_history_series(&history, 0x101U, MESH_UI_HISTORY_BATTERY) != NULL,
                       "the least recently heard node should be the one that went");
     record_success(test_name);
 }
@@ -538,6 +541,126 @@ MESH_TEST_CASE(store_records_airtime_as_the_radio_reports_it, unit) {
  * different mesh: a trend stitched across the swap would draw one node's battery falling into
  * another node's.
  */
+/*
+ * The two readings a node's air carries, each kept on its own and under one stamp.
+ *
+ * The independence is the whole of what this checks. EnvironmentMetrics is an optional-field
+ * message, so a node with a thermometer and no hygrometer is ordinary - and a push that filled
+ * the missing half with a zero would draw a flat line at freezing rather than no line at all.
+ */
+MESH_TEST_CASE(history_keeps_temperature_and_humidity_apart, unit) {
+    struct mesh_ui_history history;
+    mesh_ui_history_reset(&history);
+
+    mesh_ui_history_note_environment(&history, 1000U, 0x1234U, true, 215, true, 470);
+    mesh_ui_history_note_environment(&history, 2000U, 0x1234U, true, 208, false, 0);
+
+    const struct mesh_ui_series *temp =
+        mesh_ui_history_series(&history, 0x1234U, MESH_UI_HISTORY_TEMPERATURE);
+    const struct mesh_ui_series *wet =
+        mesh_ui_history_series(&history, 0x1234U, MESH_UI_HISTORY_HUMIDITY);
+    MESH_TEST_FAIL_IF(temp == NULL || temp->count != 2U,
+                      "both temperature readings should be kept");
+    MESH_TEST_FAIL_IF(wet == NULL || wet->count != 1U,
+                      "a report with no humidity is not a humidity reading");
+    MESH_TEST_FAIL_IF(mesh_ui_series_at(temp, 1U)->value != 208,
+                      "the series holds tenths of a degree as pushed");
+
+    /* And a below-zero reading is a reading, which is the one way this differs from every
+       percentage in the client: the guard that reads "not above zero" as "nothing was said"
+       would erase every winter night on the mesh. */
+    mesh_ui_history_note_environment(&history, 3000U, 0x1234U, true, -85, false, 0);
+    MESH_TEST_FAIL_IF(mesh_ui_series_newest(temp)->value != -85, "a frost is a reading");
+
+    /* A report carrying neither takes no slot: claiming one to remember that a node reports
+       nothing is how the node somebody is watching gets evicted. */
+    mesh_ui_history_note_environment(&history, 4000U, 0x9999U, false, 0, false, 0);
+    MESH_TEST_FAIL_IF(mesh_ui_history_series(&history, 0x9999U, MESH_UI_HISTORY_TEMPERATURE) !=
+                          NULL,
+                      "an empty environment report should claim no slot");
+    record_success(test_name);
+}
+
+/* One slot per node, carrying every reading - so a node evicted out of one takes all three of
+   its trends with it rather than leaving a temperature under the arriving node's name. */
+MESH_TEST_CASE(history_evicts_a_node_with_all_of_its_readings, unit) {
+    struct mesh_ui_history history;
+    mesh_ui_history_reset(&history);
+
+    for (uint32_t i = 0U; i < MESH_UI_HISTORY_NODES; ++i) {
+        mesh_ui_history_note_environment(&history, 1000U + i, 0x100U + i, true, 200, true, 500);
+    }
+    /* The first slot is the least recently heard from, so a thirteenth node takes it. */
+    mesh_ui_history_note_environment(&history, 9000U, 0xBEEFU, true, 300, false, 0);
+
+    MESH_TEST_FAIL_IF(mesh_ui_history_series(&history, 0x100U, MESH_UI_HISTORY_TEMPERATURE) != NULL,
+                      "the evicted node should keep no temperature");
+    MESH_TEST_FAIL_IF(mesh_ui_history_series(&history, 0x100U, MESH_UI_HISTORY_HUMIDITY) != NULL,
+                      "nor a humidity the arriving node never reported");
+    MESH_TEST_FAIL_IF(mesh_ui_history_series(&history, 0xBEEFU, MESH_UI_HISTORY_HUMIDITY) != NULL,
+                      "a reading the arriving node did not report is not its predecessor's");
+    MESH_TEST_FAIL_IF(mesh_ui_history_series(&history, 0xBEEFU, MESH_UI_HISTORY_TEMPERATURE) ==
+                          NULL,
+                      "the arriving node keeps what it did report");
+    record_success(test_name);
+}
+
+/* A reading off the air becomes an integer exactly once, and a temperature's guard cannot be the
+   percentage's: zero is the middle of this domain rather than the bottom of it. */
+MESH_TEST_CASE(history_temperature_survives_the_wire, unit) {
+    MESH_TEST_FAIL_IF(mesh_ui_temperature_decidegrees(21.4f) != 214, "tenths, rounded");
+    MESH_TEST_FAIL_IF(mesh_ui_temperature_decidegrees(-8.46f) != -85,
+                      "a negative rounds away from zero rather than toward it");
+    MESH_TEST_FAIL_IF(mesh_ui_temperature_decidegrees(0.0f) != 0, "zero is a temperature");
+    MESH_TEST_FAIL_IF(mesh_ui_temperature_decidegrees(999.0f) != MESH_UI_TEMPERATURE_CEILING,
+                      "a fault clamps to the end of the scale");
+    MESH_TEST_FAIL_IF(mesh_ui_temperature_decidegrees(-999.0f) != MESH_UI_TEMPERATURE_FLOOR,
+                      "and so does one the other way");
+    const float nan_reading = 0.0f / 0.0f;
+    MESH_TEST_FAIL_IF(mesh_ui_temperature_decidegrees(nan_reading) != MESH_UI_TEMPERATURE_FLOOR,
+                      "a NaN is not a reading and must not sail through the bounds");
+    record_success(test_name);
+}
+
+/* The store's own push: a node's air is keyed on the environment struct having changed, and not
+   on the battery report next to it - two Telemetry variants arriving on two schedules. */
+MESH_TEST_CASE(store_records_node_environment_on_its_own_schedule, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init should succeed");
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.roster_owner = 0xAAAAU;
+    handshake.node_count = 1U;
+    handshake.nodes[0].node_id = 0x4242U;
+    handshake.nodes[0].environment.valid = true;
+    handshake.nodes[0].environment.has_temperature = true;
+    handshake.nodes[0].environment.temperature = 21.5f;
+
+    mesh_ui_store_tick(&store, 1000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+
+    /* A battery report moving underneath is not a new temperature. */
+    handshake.nodes[0].metrics.valid = true;
+    handshake.nodes[0].metrics.has_battery = true;
+    handshake.nodes[0].metrics.battery_level = 80U;
+    mesh_ui_store_tick(&store, 2000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+    const struct mesh_ui_series *temp =
+        mesh_ui_history_series(&store.history, 0x4242U, MESH_UI_HISTORY_TEMPERATURE);
+    MESH_TEST_FAIL_IF(temp == NULL || temp->count != 1U,
+                      "a device-metrics report is not an environment reading");
+
+    handshake.nodes[0].environment.temperature = 22.1f;
+    mesh_ui_store_tick(&store, 3000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+    MESH_TEST_FAIL_IF(temp->count != 2U, "a fresh environment report should be a reading");
+    MESH_TEST_FAIL_IF(mesh_ui_series_newest(temp)->value != 221, "in tenths, as the row draws it");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(store_records_node_batteries_and_forgets_on_a_radio_swap, unit) {
     struct mesh_ui_store store;
     MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init should succeed");
@@ -558,20 +681,23 @@ MESH_TEST_CASE(store_records_node_batteries_and_forgets_on_a_radio_swap, unit) {
     handshake.nodes[0].last_heard = 42U;
     mesh_ui_store_tick(&store, 2000U);
     mesh_ui_store_set_handshake(&store, &handshake);
-    MESH_TEST_FAIL_IF(mesh_ui_history_battery(&store.history, 0x4242U)->count != 1U,
-                      "a roster republish with no new telemetry is not a reading");
+    MESH_TEST_FAIL_IF(
+        mesh_ui_history_series(&store.history, 0x4242U, MESH_UI_HISTORY_BATTERY)->count != 1U,
+        "a roster republish with no new telemetry is not a reading");
 
     handshake.nodes[0].metrics.battery_level = 76U;
     handshake.nodes[0].metrics.uptime_seconds = 900U;
     mesh_ui_store_tick(&store, 3000U);
     mesh_ui_store_set_handshake(&store, &handshake);
-    MESH_TEST_FAIL_IF(mesh_ui_history_battery(&store.history, 0x4242U)->count != 2U,
-                      "a fresh telemetry report should be a reading");
+    MESH_TEST_FAIL_IF(
+        mesh_ui_history_series(&store.history, 0x4242U, MESH_UI_HISTORY_BATTERY)->count != 2U,
+        "a fresh telemetry report should be a reading");
 
     handshake.roster_owner = 0xBBBBU;
     mesh_ui_store_tick(&store, 4000U);
     mesh_ui_store_set_handshake(&store, &handshake);
-    const struct mesh_ui_series *after = mesh_ui_history_battery(&store.history, 0x4242U);
+    const struct mesh_ui_series *after =
+        mesh_ui_history_series(&store.history, 0x4242U, MESH_UI_HISTORY_BATTERY);
     MESH_TEST_FAIL_IF(after == NULL || after->count != 1U,
                       "a radio swap should leave only what this radio has said");
 

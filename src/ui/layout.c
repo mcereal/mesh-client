@@ -555,6 +555,31 @@ int32_t mesh_ui_percent_permille(float percent) {
     return (int32_t)(percent * 10.0f + 0.5f);
 }
 
+int32_t mesh_ui_temperature_decidegrees(float celsius) {
+    /*
+     * A NaN is caught by a pair of bounds neither of which it satisfies, rather than by the
+     * single `!(x > 0)` the percentage one step up uses. That guard works there because zero is
+     * the bottom of a percentage's domain, so "not above it" and "no reading" are the same
+     * answer; a temperature's domain runs through zero and well below it, and -8 degrees is an
+     * ordinary night rather than a sensor that said nothing. So the two ends do the work, and a
+     * reading that is neither above the floor nor below the ceiling is not a number at all.
+     *
+     * Clamped rather than refused, because both ends are already outside what a node on a mesh
+     * can survive: a reading past either is a sensor fault, and the honest thing to draw for one
+     * is a line pinned against the end of the scale rather than a gap that reads as silence.
+     */
+    if (!(celsius >= (float)MESH_UI_TEMPERATURE_FLOOR / 10.0f)) {
+        return MESH_UI_TEMPERATURE_FLOOR;
+    }
+    if (celsius >= (float)MESH_UI_TEMPERATURE_CEILING / 10.0f) {
+        return MESH_UI_TEMPERATURE_CEILING;
+    }
+    /* Rounded away from zero rather than truncated, for the reason mesh_ui_percent_permille()
+       rounds: a cast alone truncates toward zero, which moves a negative reading *up* - so a
+       thermometer falling through -0.4 would draw as holding at zero. */
+    return celsius >= 0.0f ? (int32_t)(celsius * 10.0f + 0.5f) : (int32_t)(celsius * 10.0f - 0.5f);
+}
+
 uint8_t mesh_ui_signal_level(float snr) {
     /*
      * A ladder of `>=` walked from the top, so a NaN - which compares false against everything

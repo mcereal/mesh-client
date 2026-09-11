@@ -1149,11 +1149,23 @@ static void fb_render_waypoints(struct mesh_ui_backend_fb_state *state,
     }
 }
 
+/* Defined below, beside the Status tab's chart it is the twin of: both drive fb_draw_chart()
+   over a whole body, and keeping them apart from the list renderers keeps this one next to the
+   component set it is really about. */
+static void fb_render_node_trend(struct mesh_ui_backend_fb_state *state,
+                                 const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout);
+
 static void fb_render_nodes(struct mesh_ui_backend_fb_state *state,
                             const struct mesh_ui_snapshot *snapshot, struct fb_layout *layout) {
     const struct mesh_ui_nav *nav = &snapshot->nav;
     if (nav->node_detail_open) {
-        fb_render_node_detail(state, snapshot, layout);
+        /* The chart over the detail, the way the detail is drawn over the list. The reading is
+           checked rather than a flag because it *is* the flag: MESH_UI_HISTORY_NONE is closed. */
+        if (nav->node_trend != MESH_UI_HISTORY_NONE) {
+            fb_render_node_trend(state, snapshot, layout);
+        } else {
+            fb_render_node_detail(state, snapshot, layout);
+        }
         return;
     }
     if (!snapshot->handshake_valid || snapshot->handshake.node_count == 0U) {
@@ -3041,6 +3053,145 @@ static void fb_render_trend(struct mesh_ui_backend_fb_state *state,
            is a line here they can watch the trend cross. */
         .band = &fb_air_band,
         .scale = domain,
+    };
+    fb_draw_chart(state, layout, &chart);
+}
+
+/*
+ * One of a node's readings over time, drawn from the row the press was made on.
+ *
+ * The whole of what this screen knows comes from rebuilding the detail's rows and finding the
+ * one whose trend is the reading the nav is holding - and that is the point rather than a
+ * shortcut. A row already carries the four things a chart has to get right together: the series,
+ * the domain it is measured on, the band ruled across it and the words naming it. Taking them
+ * from the row means the chart and the bar the reader opened it from are one statement, drawn
+ * twice at two sizes. Taking them from a switch here would be a second opinion about what a
+ * temperature is measured between, and the first thing it would get wrong is the day one of them
+ * changed.
+ *
+ * A reading whose row has gone - the node stopped reporting it, the history was forgotten under
+ * us - draws the detail instead. mesh_ui_nav_clamp() closes the chart on the same condition a
+ * publish later, so this is the frame in between rather than a state the client sits in.
+ */
+static void fb_render_node_trend(struct mesh_ui_backend_fb_state *state,
+                                 const struct mesh_ui_snapshot *snapshot,
+                                 struct fb_layout *layout) {
+    const struct mesh_ui_nav *nav = &snapshot->nav;
+    const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
+    const struct mesh_ui_node_summary *node = mesh_ui_node_detail_find(hs, nav->node_detail_node);
+    if (node == NULL) {
+        fb_render_node_detail(state, snapshot, layout);
+        return;
+    }
+    const bool is_self = hs->has_my_info && node->node_id == hs->my_info.node_num;
+
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    const uint32_t count =
+        mesh_ui_node_detail_build(node, is_self, mesh_time_wall_s(), &snapshot->traceroute, false,
+                                  hs, &snapshot->history, items, MESH_UI_NODE_ITEMS_MAX);
+    const struct mesh_ui_node_item *row = NULL;
+    for (uint32_t i = 0U; i < count; ++i) {
+        if (items[i].trend != NULL && items[i].trend_reading == nav->node_trend) {
+            row = &items[i];
+            break;
+        }
+    }
+    if (row == NULL) {
+        fb_render_node_detail(state, snapshot, layout);
+        return;
+    }
+
+    /* The reading names the screen; the node is on the trail, because the app bar's overline
+       says only what nothing else on the frame says and the navigation bar is already saying
+       Nodes. */
+    enum mesh_str_id title = MESH_STR_NODE_TREND_BATTERY;
+    switch ((enum mesh_ui_history_reading)nav->node_trend) {
+    case MESH_UI_HISTORY_TEMPERATURE:
+        title = MESH_STR_NODE_TREND_TEMPERATURE;
+        break;
+    case MESH_UI_HISTORY_HUMIDITY:
+        title = MESH_STR_NODE_TREND_HUMIDITY;
+        break;
+    case MESH_UI_HISTORY_BATTERY:
+    case MESH_UI_HISTORY_NONE:
+    case MESH_UI_HISTORY_READING_COUNT:
+    default:
+        break;
+    }
+    char trail[48];
+    const char *name = node->long_name[0] != '\0'    ? node->long_name
+                       : node->short_name[0] != '\0' ? node->short_name
+                                                     : NULL;
+    if (name != NULL) {
+        mesh_str_copy(trail, sizeof trail, name);
+    } else {
+        mesh_str_format(trail, sizeof trail, MESH_STR_NODE_VAL_USER_ID_HEX, node->node_id);
+    }
+    /* The node *is* the trail here, and it is the one screen where that does not repeat the
+       frame: the title is the reading, and without this nothing on the panel would say which
+       node's temperature is being drawn. The detail underneath spends its title line on the same
+       name for the opposite reason - there, nothing else was competing for it. */
+    fb_draw_app_bar(
+        state, layout,
+        &(const struct fb_app_bar){.trail = {trail}, .trail_count = 1U, .title = mesh_str(title)});
+
+    /*
+     * One line, and so no legend to name it: the title says which reading this is, and a legend
+     * repeating it would be the frame saying one thing twice. That is also the whole reason the
+     * two readings the user asked for are two screens - a chart carries one domain, and a
+     * temperature in degrees and a humidity in percent do not share one, so drawing them
+     * together would put a label on an axis only one of them was measured against.
+     */
+    struct mesh_ui_polyline points;
+    uint32_t from = 0U;
+    uint32_t to = 0U;
+    const struct mesh_ui_series *const series[] = {row->trend};
+    const bool windowed = mesh_ui_series_window(series, 1U, &from, &to);
+    mesh_ui_series_project_over(row->trend, row->scale, from, to, &points);
+
+    /* The ends in the reading's own units, which is what the row's scale is already stated in -
+       so the axis and the bar the reader came from are labelled off one pair of numbers. A
+       zeroed domain is the identity one: the reading is already permille, and its ends are the
+       whole percentages either side of it. */
+    char top[16];
+    char bottom[16];
+    if (nav->node_trend == MESH_UI_HISTORY_TEMPERATURE) {
+        mesh_str_format(top, sizeof top, MESH_STR_NODE_TREND_AXIS_CELSIUS, row->scale.max / 10);
+        mesh_str_format(bottom, sizeof bottom, MESH_STR_NODE_TREND_AXIS_CELSIUS,
+                        row->scale.min / 10);
+    } else if (row->scale.min == row->scale.max) {
+        mesh_str_format(top, sizeof top, MESH_STR_TREND_AXIS_PERCENT, 100U);
+        mesh_str_format(bottom, sizeof bottom, MESH_STR_TREND_AXIS_PERCENT, 0U);
+    } else {
+        mesh_str_format(top, sizeof top, MESH_STR_TREND_AXIS_PERCENT, (unsigned)row->scale.max);
+        mesh_str_format(bottom, sizeof bottom, MESH_STR_TREND_AXIS_PERCENT,
+                        (unsigned)row->scale.min);
+    }
+
+    char span[48];
+    span[0] = '\0';
+    if (windowed) {
+        char words[24];
+        mesh_ui_format_duration((to - from) / 1000U, words, sizeof words);
+        mesh_str_format(span, sizeof span, MESH_STR_TREND_SPAN, words);
+    }
+
+    const int margin = fb_margin(state);
+    const struct fb_chart chart = {
+        .rect = {.x = margin,
+                 .y = layout->body_y,
+                 .w = (int)state->var.xres - margin * 2,
+                 .h = layout->footer_y - fb_gutter(state) - layout->body_y},
+        .lines = {{.points = &points, .label = MESH_STR_NONE}},
+        .count = 1U,
+        .top = top,
+        .bottom = bottom,
+        .span = span[0] != '\0' ? span : NULL,
+        /* The row's own band, so the amber the reader saw under the figure is a rule here they
+           can watch the trend cross - and a row with no band rules none rather than inventing
+           thresholds the bar did not have. */
+        .band = row->banded ? &row->band : NULL,
+        .scale = row->scale,
     };
     fb_draw_chart(state, layout, &chart);
 }

@@ -267,16 +267,41 @@ static void mesh_ui_store_note_roster(struct mesh_ui_store *store,
                                : MESH_UI_MAX_HANDSHAKE_NODES;
     for (uint32_t i = 0U; i < count; ++i) {
         const struct mesh_ui_node_summary *node = &next->nodes[i];
-        if (!node->metrics.valid || !node->metrics.has_battery) {
-            continue;
-        }
         const struct mesh_ui_node_summary *was =
             swapped ? NULL : mesh_ui_store_find_node(&store->handshake, node->node_id);
-        if (was != NULL && memcmp(&was->metrics, &node->metrics, sizeof node->metrics) == 0) {
-            continue;
+
+        if (node->metrics.valid && node->metrics.has_battery &&
+            !(was != NULL && memcmp(&was->metrics, &node->metrics, sizeof node->metrics) == 0)) {
+            mesh_ui_history_note_battery(&store->history, (uint32_t)store->now_ms, node->node_id,
+                                         node->metrics.battery_level);
         }
-        mesh_ui_history_note_battery(&store->history, (uint32_t)store->now_ms, node->node_id,
-                                     node->metrics.battery_level);
+
+        /*
+         * The same shape for the node's air, and it is a *separate* test rather than a second
+         * reading taken off the first.
+         *
+         * DeviceMetrics and EnvironmentMetrics are two Telemetry variants that arrive in two
+         * packets on two schedules - a node can report its battery for an hour without its
+         * thermometer saying anything, and a weather station with no battery reports air and
+         * nothing else. Keyed on the metrics struct the way the battery is, a sensor reading
+         * would be pushed once per battery report and dropped whenever the battery held still,
+         * which is a temperature series sampled by the wrong clock.
+         *
+         * Compared whole for the reason the LocalStats push is: no field of it is a stamp we can
+         * trust. `environment.time` is our own clock when the packet landed, which on a Brick
+         * with no RTC is 0 on every report, so the struct having changed is the only honest test
+         * that a node has said something new.
+         */
+        if (node->environment.valid &&
+            !(was != NULL &&
+              memcmp(&was->environment, &node->environment, sizeof node->environment) == 0)) {
+            mesh_ui_history_note_environment(
+                &store->history, (uint32_t)store->now_ms, node->node_id,
+                node->environment.has_temperature,
+                mesh_ui_temperature_decidegrees(node->environment.temperature),
+                node->environment.has_humidity,
+                mesh_ui_percent_permille(node->environment.relative_humidity));
+        }
     }
 }
 

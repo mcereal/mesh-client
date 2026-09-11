@@ -509,6 +509,17 @@ problem at all:
 > `mesh_ui_series_project_over()` in [`layout.h`](../include/mesh/ui/layout.h),
 > `MESH_UI_STATUS_VERB_TREND`, `nav->trend_open`, `MESH_UI_ROUTE_TREND` and `fb_render_trend()`.
 > See §16.
+>
+> **And spent a second time**, which is what an entry costing a route rather than a component was
+> supposed to buy. A node's detail opens the same chart over its own readings - battery,
+> temperature, humidity - through `nav->node_trend` and `fb_render_node_trend()`, for a series
+> apiece in `history.c` and a level of the Nodes tab. One thing the first caller never had to
+> decide came out of it and is now a rule: **a chart carries one vertical, so two readings in
+> different units are two screens.** The airtime chart draws two lines because both are permille
+> of the same air; degrees and percent are not, and a shared plot would have labelled an axis only
+> one line was measured against - the auto-scaling lie made worse, because an axis with numbers on
+> it gets believed. Growing `fb_chart` a per-line scale is the fix that looks obvious and is the
+> bug; the press names a reading instead, and the route carries it in `slot`.
 
 **2.18 There is no way to say what a reading *was*, with numbers on it.** The fifth quantitative
 question, and the first whose answer is a screen. The four components above all fit in a row, and

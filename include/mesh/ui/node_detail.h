@@ -136,6 +136,20 @@ struct mesh_ui_node_item {
      * so a row with a trend and no ends to draw it between would be a line against nothing.
      */
     const struct mesh_ui_series *trend;
+    /*
+     * METER: which reading that trend is of, and so which chart A on this row opens.
+     *
+     * MESH_UI_HISTORY_NONE on every row without one, which is what makes "is this row pressable"
+     * the same question as "does this row have a trend" - see mesh_ui_node_detail_trend_at().
+     *
+     * It is on the row rather than worked out from the row's label or its position because the
+     * row is where the chart's *whole* statement already lives: the scale it is drawn against,
+     * the band ruled across it, the words naming it and the series itself are four things that
+     * have to agree, and they agree by being one row. A renderer that looked up the series by
+     * reading and the scale by a switch of its own would be the node detail's opinion about
+     * temperature and the chart's, which is the split status.c exists to prevent one tab over.
+     */
+    uint8_t trend_reading; /* enum mesh_ui_history_reading */
 };
 
 /*
@@ -167,6 +181,27 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
                                    bool remove_armed, const struct mesh_ui_handshake_state *roster,
                                    const struct mesh_ui_history *history,
                                    struct mesh_ui_node_item *out, uint32_t capacity);
+
+/*
+ * Which reading row `row` of this node's detail charts, or MESH_UI_HISTORY_NONE when that row
+ * charts nothing - which is most of them, and every row of a node nothing has been watched on.
+ *
+ * Three callers ask it and they must not answer it separately: the nav decides whether A opens
+ * a chart, the action bar decides whether to name the press, and the renderer decides what to
+ * draw. That is status.c's rule about verbs applied to rows - the button under the cursor and
+ * the verb in the bar disagreeing is exactly what a second opinion here would produce.
+ *
+ * It builds the rows to answer, which is what every other question about this screen already
+ * costs: the row list is built per frame by the renderer and per press by the nav, because which
+ * rows exist depends on what the node has reported. It takes no clock for the same reason
+ * mesh_ui_node_detail_count() passes none - the wall time formats ages into values and adds no
+ * row, and the nav has been relying on that to agree with the renderer since before this.
+ */
+enum mesh_ui_history_reading
+mesh_ui_node_detail_trend_at(const struct mesh_ui_node_summary *node, bool is_self,
+                             const struct mesh_ui_traceroute *trace,
+                             const struct mesh_ui_handshake_state *roster,
+                             const struct mesh_ui_history *history, uint32_t row);
 
 /* Rows the node would produce. The nav needs nothing else from this module. */
 uint32_t mesh_ui_node_detail_count(const struct mesh_ui_node_summary *node, bool is_self,

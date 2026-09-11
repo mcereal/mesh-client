@@ -623,6 +623,23 @@ MESH_STR_ENTRY(TREND_SPAN,                "last %s")
    numbers because an axis end is read rather than measured. */
 MESH_STR_ENTRY(TREND_AXIS_PERCENT,        "%u%%")
 
+/*
+ * The same chart, opened over a node's detail rather than over the Status cards.
+ *
+ * One title per reading rather than one title with the reading glued into it, because a title is
+ * a *name* and the three of these are three names - and because the node's own name is already
+ * on the app bar's line above, so a heading repeating it would be the breadcrumb mistake the
+ * top app bar exists to have stopped. Which one is drawn is the reading the press named.
+ */
+MESH_STR_ENTRY(NODE_TREND_BATTERY,        "Battery")
+MESH_STR_ENTRY(NODE_TREND_TEMPERATURE,    "Temperature")
+MESH_STR_ENTRY(NODE_TREND_HUMIDITY,       "Humidity")
+/* The two ends of the vertical when the reading is a temperature: whole degrees Celsius, because
+   an axis end is read rather than measured and the tenths the series is kept in would be four
+   cells of precision nobody is asking the axis for. Untranslated unit letter, as the region
+   codes and the modem presets are - "C" is the symbol rather than a word. */
+MESH_STR_ENTRY(NODE_TREND_AXIS_CELSIUS,   "%dC")
+
 /* ---- a node's detail screen ------------------------------------------------------------------ */
 
 /*
@@ -1150,11 +1167,18 @@ MESH_STR_ENTRY(HELP_NOTE_STATUS_COUNTS,   "NodeDB is what the radio still holds 
 /* The trend chart, which is a screen of its own rather than a row on the Status list - so it is
    keyed on its route rather than read off a settings row. */
 MESH_STR_ENTRY(HELP_SUBJECT_TREND,        "Airtime trend")
+MESH_STR_ENTRY(HELP_SUBJECT_NODE_CHART,   "This node's trend")
 MESH_STR_ENTRY(HELP_LABEL_TREND_AXES,     "What the axes say")
 MESH_STR_ENTRY(HELP_LABEL_TREND_MARKS,    "The lines across it")
 MESH_STR_ENTRY(HELP_NOTE_TREND,           "How busy the air has been, over the reports this client has watched. The card's small line says which way; this says how far and since when.")
 MESH_STR_ENTRY(HELP_NOTE_TREND_AXES,      "Up is the share of the air in use, from nothing to all of it - never the range these readings span, so two visits can be compared. Across is time, and the span under it says how long.")
 MESH_STR_ENTRY(HELP_NOTE_TREND_MARKS,     "The faint rules are where airtime stops being comfortable - the thresholds that turn the card's bar amber. A break in a line is a period the radio reported nothing, not a reading of zero.")
+/* The chart one of those small graphs opens, which is a screen rather than a row - so its help
+   is keyed on the route and sits here with the airtime chart's rather than on a field. */
+MESH_STR_ENTRY(HELP_LABEL_NODE_CHART,     "What this shows")
+MESH_STR_ENTRY(HELP_NOTE_NODE_CHART,      "One reading of this node over time, on the same scale as the bar you opened it from - never the range these readings span, so two visits compare. Across is time, and the span says how long.")
+MESH_STR_ENTRY(HELP_LABEL_NODE_CHART_GAPS, "Gaps and rules")
+MESH_STR_ENTRY(HELP_NOTE_NODE_CHART_GAPS, "The faint rules are where the reading troubles the node reporting it, not the weather. A break is a stretch it said nothing, not a zero. Nothing here survives a restart: it is what this client saw.")
 
 
 /* ---- settings: field labels ------------------------------------------------------------------- */

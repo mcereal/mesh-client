@@ -338,6 +338,59 @@ cleanup:
  * in a screenshot: the chart would arrive without a slide and without the back arrow the trail
  * of the frame derives from the same answer.
  */
+/*
+ * A node's chart is the fourth level of the Nodes tab, and the two readings on one node are two
+ * places rather than one repainted.
+ *
+ * That is the whole reason the reading lives in `slot` instead of a bare "a chart is open" flag.
+ * Read as one place, B out of a temperature chart would land on the humidity one it had replaced
+ * without a slide, and opening the second from the first would animate nothing at all.
+ */
+MESH_TEST_CASE(ui_route_a_node_chart_names_its_reading, unit) {
+    struct mesh_ui_nav nav;
+    memset(&nav, 0, sizeof nav);
+    nav.screen = MESH_UI_SCREEN_NODES;
+    nav.node_detail_open = true;
+    nav.node_detail_node = 0x4242U;
+
+    struct mesh_ui_route detail;
+    mesh_ui_route_of(&nav, &detail);
+    MESH_TEST_FAIL_IF(detail.depth != 1U || detail.level != MESH_UI_ROUTE_NODE,
+                      "the detail is one level into the tab");
+
+    nav.node_trend = MESH_UI_HISTORY_TEMPERATURE;
+    struct mesh_ui_route warm;
+    mesh_ui_route_of(&nav, &warm);
+    MESH_TEST_FAIL_IF(warm.depth != 2U || warm.level != MESH_UI_ROUTE_TREND,
+                      "a chart is one level over the detail");
+    MESH_TEST_FAIL_IF(warm.subject != 0x4242U, "and it is about the node the detail was");
+    MESH_TEST_FAIL_IF(mesh_ui_route_move(&detail, &warm) != MESH_UI_TRANSITION_FORWARD,
+                      "opening it should slide forward");
+    MESH_TEST_FAIL_IF(mesh_ui_route_move(&warm, &detail) != MESH_UI_TRANSITION_BACK,
+                      "and B should slide back");
+
+    nav.node_trend = MESH_UI_HISTORY_HUMIDITY;
+    struct mesh_ui_route wet;
+    mesh_ui_route_of(&nav, &wet);
+    MESH_TEST_FAIL_IF(mesh_ui_route_same(&warm, &wet),
+                      "two readings of one node are two places, not one repainted");
+
+    /* And neither of them is the Status tab's chart, which is the same level with both fields
+       empty. They are told apart by the screen before anything else, but the fields are what
+       stops a node's chart and the airtime one comparing equal if that ever changed. */
+    struct mesh_ui_nav status;
+    memset(&status, 0, sizeof status);
+    status.screen = MESH_UI_SCREEN_STATUS;
+    status.trend_open = true;
+    struct mesh_ui_route airtime;
+    mesh_ui_route_of(&status, &airtime);
+    MESH_TEST_FAIL_IF(mesh_ui_route_same(&airtime, &warm),
+                      "the airtime chart is not a node's chart");
+    MESH_TEST_FAIL_IF(airtime.subject != 0U || airtime.slot != 0U,
+                      "the airtime chart names no node and no reading");
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(ui_route_the_chart_is_a_level_of_the_status_tab, unit) {
     struct mesh_ui_nav nav;
     memset(&nav, 0, sizeof nav);

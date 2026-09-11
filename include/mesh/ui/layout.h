@@ -317,6 +317,18 @@ int32_t mesh_ui_scale_permille(struct mesh_ui_scale scale, int32_t value);
 int32_t mesh_ui_percent_permille(float percent);
 
 /*
+ * A temperature the radio reports as a float, as the tenths of a degree the rest of this speaks.
+ *
+ * The same job mesh_ui_percent_permille() does one line up and the same reason for existing -
+ * one place where a reading off the air becomes an integer, so two screens drawing it cannot
+ * round it differently - but it cannot share that function's guard. A percentage's domain starts
+ * at zero, so "not above zero" stands in for "no reading"; a temperature's runs through zero, and
+ * a client that read -8 degrees as a sensor saying nothing would erase every winter night on the
+ * mesh. See the bounds test in src/ui/layout.c for how a NaN is caught instead.
+ */
+int32_t mesh_ui_temperature_decidegrees(float celsius);
+
+/*
  * Where a LoRa link's signal-to-noise ratio changes meaning, in dB.
  *
  * Whole numbers rather than floats so that a threshold band can be stated in the same terms,
@@ -389,6 +401,49 @@ uint8_t mesh_ui_signal_level(float snr);
  */
 #define MESH_UI_BATTERY_LOW 30
 #define MESH_UI_BATTERY_CRITICAL 15
+
+/*
+ * Where a node's own enclosure stops being comfortable, in tenths of a degree Celsius.
+ *
+ * This is a *node health* threshold rather than a weather one, which is the whole of why it can
+ * be stated at all: nothing here knows whether 35 degrees of air is pleasant, and a client that
+ * coloured the weather would be inventing an opinion. What it does know is that the radio
+ * reporting the reading is sitting in it - LoRa modules derate above about 60 and the lithium
+ * cells behind them stop taking a charge around there - so the band is asking "is this box
+ * cooking?", which is exactly the question a solar repeater in a field cannot be asked any
+ * other way.
+ *
+ * Tenths rather than whole degrees because that is the precision the sensors on the wire
+ * actually carry, and the same reason mesh_ui_percent_permille() exists one reading over: a
+ * whole degree would put a staircase under a reading that was holding still.
+ */
+#define MESH_UI_TEMPERATURE_WARM 500
+#define MESH_UI_TEMPERATURE_HOT 600
+
+/*
+ * The two ends a temperature is drawn between, in the same tenths.
+ *
+ * Wide enough that a real reading is never against the stop - the coldest inhabited places sit
+ * near -40 and a dark enclosure in summer sun clears 70 - and narrow enough that an ordinary
+ * day is not a flat line through the middle of an empty plot. They are the ends of what a node
+ * on this mesh could plausibly report, not the ends of what a thermometer can measure.
+ */
+#define MESH_UI_TEMPERATURE_FLOOR (-400)
+#define MESH_UI_TEMPERATURE_CEILING 800
+
+/*
+ * Where humidity starts being a problem for the node reporting it, in permille.
+ *
+ * The same rule as the temperature above, and the same reason it is sayable: this is not a
+ * comment on the weather. Condensation forms on a board whose enclosure is at the dew point,
+ * and the margin before that shrinks fast above eighty percent - so the band says "this node is
+ * getting wet", which is the failure a sealed box in a field actually has.
+ *
+ * Permille because mesh_ui_percent_permille() is where every percentage off the air becomes an
+ * integer, and a second unit for this one would be a second rounding.
+ */
+#define MESH_UI_HUMIDITY_DAMP 800
+#define MESH_UI_HUMIDITY_WET 900
 
 /* ---- a composition ---------------------------------------------------------------------------
  *
