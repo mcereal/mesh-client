@@ -605,6 +605,19 @@ int mesh_session_set_node_favorite(struct mesh_session *session, uint32_t node_i
 int mesh_session_radio_action(struct mesh_session *session, enum mesh_admin_request_kind kind);
 
 /*
+ * Asks the radio to reboot into its ESP32 OTA loader, holding it to the image whose SHA-256 is
+ * `hash` (mesh_radio_settings_queue_ota). Not a radio_action, because it is the one action with
+ * a payload and the one that does not undo itself: the loader has no way back, and the radio is
+ * off the mesh until something sends it that image. The answer arrives as a ClientNotification
+ * (mesh_session_notification) - see mesh/core/firmware_ota.h for how it is read.
+ *
+ * Returns the number of admin requests queued, -ENOTCONN before the handshake has my_info,
+ * -EINVAL for a missing hash, -EBUSY when one is already queued.
+ */
+int mesh_session_request_ble_ota(struct mesh_session *session,
+                                 const uint8_t hash[MESH_ADMIN_OTA_HASH_LEN]);
+
+/*
  * Flips a node's muted flag in the radio's NodeDB. `toggle_muted_node` is a toggle on the
  * wire - there is no way to state the flag we want, the way the favorite and ignore pair let
  * us - so the cached flag is flipped to match and a press that races an incoming NodeInfo can

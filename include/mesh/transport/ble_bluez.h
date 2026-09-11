@@ -208,15 +208,42 @@ struct mesh_bluez_mock_config {
     size_t *write_call_count;
     size_t *write_lengths;
     size_t write_lengths_capacity;
+    /* The service each of `devices` advertises, parallel to it. When set, a listing by service
+       returns only the devices whose entry matches, the way BlueZ answers from the advertised
+       UUIDs; NULL keeps every device answering every listing, which is what the suites written
+       before there was more than one service expect. */
+    const char *const *device_service_uuids;
+    /* The negotiated ATT MTU every characteristic reports. 0 is BlueZ with no MTU property. */
+    uint16_t mtu;
+    /* Called with every write that succeeds, after the captures above. A fake peripheral - the
+       OTA loader in tests/suites/ble_ota.c - answers from here by queueing notifications for
+       the test to emit, never by emitting them inline: a real answer arrives on a later turn of
+       the loop, and one delivered inside the write would be a peripheral faster than light. */
+    void (*write_hook)(void *userdata, const char *char_path, const uint8_t *data, size_t len);
+    void *write_hook_userdata;
 };
 
 int mesh_bluez_client_init(struct mesh_bluez_client *client);
+/*
+ * The same on a connection of its own. `dbus_bus_get` hands every caller in the process one
+ * shared system-bus connection, and a client installs its watch functions on it and pops every
+ * message off it - so a second client on the shared one takes the first's replies and
+ * notifications away from it. The BLE install is that second client, and it runs while the
+ * transport's is still carrying the ota_request and the radio's answer to it.
+ */
+int mesh_bluez_client_init_private(struct mesh_bluez_client *client);
 void mesh_bluez_client_shutdown(struct mesh_bluez_client *client);
 int mesh_bluez_client_check_ready(struct mesh_bluez_client *client);
 int mesh_bluez_client_find_adapter(struct mesh_bluez_client *client, char *path, size_t path_len);
 int mesh_bluez_client_start_discovery(struct mesh_bluez_client *client, const char *adapter_path);
 int mesh_bluez_client_stop_discovery(struct mesh_bluez_client *client, const char *adapter_path);
 int mesh_bluez_client_list_meshtastic(struct mesh_bluez_client *client,
+                                      struct mesh_bluez_device_info *devices, size_t capacity,
+                                      size_t *count);
+/* Every device BlueZ holds that advertises `service_uuid`, compared without regard to case.
+   list_meshtastic() is this with the Meshtastic service; the OTA loader is the other caller,
+   and the reason it exists - the loader is a different peripheral with a different service. */
+int mesh_bluez_client_list_by_service(struct mesh_bluez_client *client, const char *service_uuid,
                                       struct mesh_bluez_device_info *devices, size_t capacity,
                                       size_t *count);
 /* Sends Device1.Connect and returns at once. -EBUSY if one is already in flight. */
@@ -282,6 +309,20 @@ int mesh_bluez_client_read(struct mesh_bluez_client *client, const char *char_pa
 int mesh_bluez_client_find_meshtastic_characteristics(struct mesh_bluez_client *client,
                                                       const char *device_path,
                                                       struct mesh_bluez_meshtastic_chars *out);
+/* The object path of one characteristic under `device_path`, by UUID. -ENOENT when the device
+   has resolved no such characteristic. Blocks for at most a second, like the lookup above. */
+int mesh_bluez_client_find_characteristic(struct mesh_bluez_client *client, const char *device_path,
+                                          const char *char_uuid, char *out_path, size_t out_len);
+/*
+ * GattCharacteristic1.MTU: the ATT MTU BlueZ negotiated for the link this characteristic is on.
+ *
+ * A write carries `mtu - 3` bytes as one Write Request; one byte more and BlueZ quietly turns
+ * it into a Prepare/Execute long write, which is several writes to a peripheral that counts
+ * them. So anything that paces a peripheral per write needs this number rather than a guess.
+ * -ENOTSUP when BlueZ does not publish the property (it did not before 5.62).
+ */
+int mesh_bluez_client_characteristic_mtu(struct mesh_bluez_client *client, const char *char_path,
+                                         uint16_t *out_mtu);
 int mesh_bluez_client_attach_loop(struct mesh_bluez_client *client, struct mesh_event_loop *loop);
 void mesh_bluez_client_detach_loop(struct mesh_bluez_client *client);
 int mesh_bluez_client_process(struct mesh_bluez_client *client);

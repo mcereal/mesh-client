@@ -11,6 +11,7 @@ set(MESHCLIENT_TEST_FRAMEWORK
 )
 
 set(MESHCLIENT_TEST_SUPPORT
+    support/ble_ota_fixture.c
     support/data_fixture.c
     support/proto_fixture.c
     support/serial_fixture.c
@@ -21,12 +22,14 @@ set(MESHCLIENT_TEST_SUPPORT
 
 set(MESHCLIENT_TEST_SUITES
     suites/app.c
+    suites/ble_ota.c
     suites/core_basics.c
     suites/fetch.c
     suites/firmware.c
     suites/firmware_catalog.c
     suites/firmware_download.c
     suites/firmware_install.c
+    suites/firmware_ota.c
     suites/geo.c
     suites/i18n.c
     suites/json.c

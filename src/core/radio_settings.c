@@ -294,7 +294,7 @@ bool mesh_admin_request_is_action(enum mesh_admin_request_kind kind) {
            kind == MESH_ADMIN_RESET_NODEDB || kind == MESH_ADMIN_FACTORY_RESET_CONFIG ||
            kind == MESH_ADMIN_FACTORY_RESET_DEVICE || kind == MESH_ADMIN_ENTER_DFU_MODE ||
            kind == MESH_ADMIN_BACKUP_PREFERENCES || kind == MESH_ADMIN_RESTORE_PREFERENCES ||
-           kind == MESH_ADMIN_REMOVE_BACKUP_PREFERENCES;
+           kind == MESH_ADMIN_REMOVE_BACKUP_PREFERENCES || kind == MESH_ADMIN_OTA_REQUEST;
 }
 
 static void mesh_radio_settings_record_write_result(struct mesh_radio_settings *settings,
@@ -575,6 +575,24 @@ int mesh_radio_settings_encode_request(const struct mesh_radio_settings *setting
         admin.which_payload_variant = meshtastic_AdminMessage_enter_dfu_mode_request_tag;
         admin.enter_dfu_mode_request = true;
         break;
+    /* The hash is the whole of this verb's safety: the loader flashes only an image that
+       hashes to it. An all-zero one is a caller that forgot to fill it in, and the radio would
+       take it - and then strand itself in a loader waiting for a file that cannot exist. */
+    case MESH_ADMIN_OTA_REQUEST: {
+        bool any = false;
+        for (size_t i = 0; i < MESH_ADMIN_OTA_HASH_LEN; ++i) {
+            any = any || request->payload.ota_hash[i] != 0U;
+        }
+        if (!any) {
+            return -EINVAL;
+        }
+        admin.which_payload_variant = meshtastic_AdminMessage_ota_request_tag;
+        admin.ota_request.reboot_ota_mode = meshtastic_OTAMode_OTA_BLE;
+        admin.ota_request.ota_hash.size = MESH_ADMIN_OTA_HASH_LEN;
+        memcpy(admin.ota_request.ota_hash.bytes, request->payload.ota_hash,
+               MESH_ADMIN_OTA_HASH_LEN);
+        break;
+    }
     case MESH_ADMIN_SET_FIXED_POSITION:
         /* A position with no coordinates would set fixed position on and leave the radio
            broadcasting whatever it had before. */
@@ -825,7 +843,8 @@ int mesh_radio_settings_queue_toggle_muted(struct mesh_radio_settings *settings,
 
 int mesh_radio_settings_queue_action(struct mesh_radio_settings *settings,
                                      enum mesh_admin_request_kind kind, uint32_t seconds) {
-    if (settings == NULL || !mesh_admin_request_is_action(kind)) {
+    /* An ota_request is an action with a payload, and this call has nowhere to put one. */
+    if (settings == NULL || !mesh_admin_request_is_action(kind) || kind == MESH_ADMIN_OTA_REQUEST) {
         return -EINVAL;
     }
     /* Only the reboot and the shutdown have a delay; the resets carry nothing, and pinning
@@ -845,6 +864,41 @@ int mesh_radio_settings_queue_action(struct mesh_radio_settings *settings,
     }
     size_t added = mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_OWNER, 0U);
     added += mesh_radio_settings_enqueue(settings, kind, type);
+    return (int)added;
+}
+
+int mesh_radio_settings_queue_ota(struct mesh_radio_settings *settings,
+                                  const uint8_t hash[MESH_ADMIN_OTA_HASH_LEN]) {
+    if (settings == NULL || hash == NULL) {
+        return -EINVAL;
+    }
+    bool any = false;
+    for (size_t i = 0; i < MESH_ADMIN_OTA_HASH_LEN; ++i) {
+        any = any || hash[i] != 0U;
+    }
+    if (!any) {
+        return -EINVAL;
+    }
+    /* Deduplicated like any action - but refused rather than folded, because the payload is
+       the point: two presses naming two images must not become one request naming whichever
+       came first. */
+    if (mesh_radio_settings_queued(settings, MESH_ADMIN_OTA_REQUEST, 0U)) {
+        return -EBUSY;
+    }
+    const size_t needed =
+        (mesh_radio_settings_queued(settings, MESH_ADMIN_GET_OWNER, 0U) ? 0U : 1U) + 1U;
+    if (settings->queue_len + needed > MESH_RADIO_SETTINGS_FETCH_MAX) {
+        return -ENOSPC;
+    }
+    size_t added = mesh_radio_settings_enqueue(settings, MESH_ADMIN_GET_OWNER, 0U);
+    /* The slot enqueue() is about to fill, so the hash can go in after it has been zeroed. */
+    struct mesh_admin_request *const slot =
+        &settings
+             ->queue[(settings->queue_head + settings->queue_len) % MESH_RADIO_SETTINGS_FETCH_MAX];
+    if (mesh_radio_settings_enqueue(settings, MESH_ADMIN_OTA_REQUEST, 0U) == 1U) {
+        memcpy(slot->payload.ota_hash, hash, MESH_ADMIN_OTA_HASH_LEN);
+        added += 1U;
+    }
     return (int)added;
 }
 

@@ -4,6 +4,7 @@
 
 #include "mesh/geo/coords.h"
 #include "mesh/utils/log.h"
+#include "mesh/utils/sha256.h"
 #include "mesh/utils/text.h"
 #include "mesh/utils/time.h"
 
@@ -2022,13 +2023,38 @@ static const char *mesh_session_action_name(enum mesh_admin_request_kind kind) {
         return "factory reset (device)";
     case MESH_ADMIN_ENTER_DFU_MODE:
         return "DFU mode";
+    case MESH_ADMIN_OTA_REQUEST:
+        return "BLE OTA";
     default:
         return "?";
     }
 }
 
+int mesh_session_request_ble_ota(struct mesh_session *session,
+                                 const uint8_t hash[MESH_ADMIN_OTA_HASH_LEN]) {
+    if (session == NULL || hash == NULL) {
+        return -EINVAL;
+    }
+    if (session->send == NULL || !session->handshake.has_my_info) {
+        return -ENOTCONN;
+    }
+    const int queued = mesh_radio_settings_queue_ota(&session->settings, hash);
+    if (queued < 0) {
+        return queued;
+    }
+    char hex[MESH_SHA256_HEX_LEN];
+    mesh_sha256_hex(hash, hex, sizeof hex);
+    /* Louder than the other actions' line has any need to be, and the hash is in it on
+       purpose: from here the radio is held to exactly one image, and if this install has to be
+       finished by hand the log is where somebody finds out which. */
+    mesh_log_warn("session", "Requested %s of node 0x%08x for image %s (%d requests)",
+                  mesh_session_action_name(MESH_ADMIN_OTA_REQUEST),
+                  session->handshake.my_info.my_node_num, hex, queued);
+    return queued;
+}
+
 int mesh_session_radio_action(struct mesh_session *session, enum mesh_admin_request_kind kind) {
-    if (session == NULL || !mesh_admin_request_is_action(kind)) {
+    if (session == NULL || !mesh_admin_request_is_action(kind) || kind == MESH_ADMIN_OTA_REQUEST) {
         return -EINVAL;
     }
     if (session->send == NULL || !session->handshake.has_my_info) {

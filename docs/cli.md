@@ -94,9 +94,10 @@ bootloader, takes the drive off whatever the platform mounted it at, writes the 
 to it, and waits for the board to reset itself into the new firmware. About eight seconds of
 download and thirteen of write on a T114, with a second for the reboot.
 
-The radio has to be on **USB**. That is the feature's constraint rather than the command's — an
-nRF52 has no over-the-air path from here at all, which is what the About screen's "connect it by
-USB" row already says. An ESP32 target is refused here outright.
+An nRF52 or RP2040 radio has to be on **USB**. That is the feature's constraint rather than the
+command's — an nRF52 has no over-the-air path from here at all, which is what the About screen's
+"connect it by USB" row already says. An ESP32 target goes over Bluetooth instead; see
+[below](#over-bluetooth-esp32).
 
 **With no radio connected it still runs.** It says so, and then waits for a bootloader instead of
 asking for one — which is the recovery path: a double-tap of the reset button does by hand
@@ -117,6 +118,36 @@ Three things about it are worth knowing before running it on a Brick:
 - **An interrupted write is not a broken radio.** The board sits in its bootloader, which any
   computer on any OS can talk to, and the recovery is to run the same command again. That is the
   whole reason the USB half was built before the Bluetooth one.
+
+### Over Bluetooth (ESP32)
+
+```sh
+meshclient --install-firmware heltec-v3 --staging /mnt/UDISK -p 9C:13:9E:9D:0A:D9
+```
+
+The same command for an ESP32 or ESP32-S3 target, and a different handover: the fetch runs with
+no transport up (the Brick's Wi-Fi and Bluetooth are one part), then the client connects to the
+radio over BLE, checks that the radio's `hw_model` is the one the image is for, and sends an
+`ota_request` holding it to the image's SHA-256. The radio reboots into its OTA loader - a
+different BLE peripheral, at the radio's address plus one - and the client finds it, asks for a
+7.5 ms connection interval, streams the image, and waits for the radio to advertise again. Then
+it connects once more and prints the firmware and reboot count the radio reports, because that
+line is the evidence the install happened.
+
+Name the radio with `-p ADDRESS`. Without it the loudest radio in range is picked, and the
+`hw_model` check will refuse an nRF52 that happened to be louder rather than send it anything.
+With it there is **no fallback**: `--status` settles for the loudest node when the named one is
+not in range, and an install does not - a second radio of the same model would pass the
+`hw_model` check and be flashed in its place. A named radio that does not answer is taken to be
+the one already in its loader, which is what the resume path below looks for.
+
+**This is the half with a hazard, and the command is built around it.** Once the radio is in its
+loader it stays there - off the mesh, advertising the loader's service - until something sends it
+the image it was promised. A transfer that breaks is retried from the start, up to three times,
+because that is what the loader does with a link that comes back. If the client itself is
+stopped, **run the same command again**: with no radio answering it looks for one already in its
+loader (at `-p`'s address plus one) and finishes the job. The staged image is kept, and the loader
+only accepts an image with the hash it was given, so it has to be the same release.
 
 ## Auto-connect
 

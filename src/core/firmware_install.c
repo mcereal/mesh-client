@@ -3,6 +3,7 @@
 #include "mesh/core/firmware_install.h"
 
 #include "mesh/transport/serial_usb.h"
+#include "mesh/utils/file.h"
 #include "mesh/utils/log.h"
 #include "mesh/utils/text.h"
 
@@ -318,36 +319,6 @@ static void install_tick_restarting(struct mesh_firmware_install *install, uint6
 /* ---- the public half -----------------------------------------------------------------------
  */
 
-static uint8_t *install_read_image(const char *path, size_t *out_len) {
-    FILE *const file = fopen(path, "rb");
-    if (file == NULL) {
-        return NULL;
-    }
-    if (fseek(file, 0, SEEK_END) != 0) {
-        fclose(file);
-        return NULL;
-    }
-    const long size = ftell(file);
-    if (size <= 0 || (size_t)size > MESH_FIRMWARE_INSTALL_IMAGE_MAX ||
-        fseek(file, 0, SEEK_SET) != 0) {
-        fclose(file);
-        return NULL;
-    }
-    uint8_t *const bytes = malloc((size_t)size);
-    if (bytes == NULL) {
-        fclose(file);
-        return NULL;
-    }
-    const size_t got = fread(bytes, 1U, (size_t)size, file);
-    fclose(file);
-    if (got != (size_t)size) {
-        free(bytes);
-        return NULL;
-    }
-    *out_len = got;
-    return bytes;
-}
-
 int mesh_firmware_install_start(struct mesh_firmware_install *install, struct mesh_event_loop *loop,
                                 const char *image_path, const char *port_id, uint32_t expect_family,
                                 mesh_firmware_install_arm_fn arm, void *arm_userdata,
@@ -376,7 +347,7 @@ int mesh_firmware_install_start(struct mesh_firmware_install *install, struct me
     }
 
     size_t len = 0U;
-    uint8_t *const image = install_read_image(image_path, &len);
+    uint8_t *const image = mesh_file_read(image_path, MESH_FIRMWARE_INSTALL_IMAGE_MAX, &len);
     if (image == NULL) {
         /* Missing, unreadable, empty, or larger than any UF2 for a board this reaches. All
            four are the same sentence to a reader: the image is not there to be written. */

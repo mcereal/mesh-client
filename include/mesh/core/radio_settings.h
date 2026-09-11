@@ -98,7 +98,25 @@ enum mesh_admin_request_kind {
     MESH_ADMIN_BACKUP_PREFERENCES,
     MESH_ADMIN_RESTORE_PREFERENCES,
     MESH_ADMIN_REMOVE_BACKUP_PREFERENCES,
+    /*
+     * Into the ESP32 OTA loader, for a BLE install: `ota_request` with `reboot_ota_mode`
+     * OTA_BLE and the SHA-256 of the image about to be sent, in payload.ota_hash. The firmware
+     * stores the hash, points its boot partition at the loader in `app1` and reboots a second
+     * later - and the loader will then flash only an image with that hash. See
+     * mesh/core/firmware_ota.h.
+     *
+     * An action, because nothing is read back, but not one mesh_radio_settings_queue_action()
+     * will take: an ota_request without a hash is refused by the firmware, so it has its own
+     * queue call that insists on one. Its answer is a ClientNotification rather than anything
+     * this queue waits for - "Rebooting to BLE OTA", or the firmware's reason for refusing -
+     * and **unlike every other action here it takes the radio off the mesh until something
+     * finishes the job**: the loader has no way back.
+     */
+    MESH_ADMIN_OTA_REQUEST,
 };
+
+/* The length of an OTA hash: SHA-256, and the firmware refuses anything else. */
+#define MESH_ADMIN_OTA_HASH_LEN 32U
 
 /* How long the radio is told to wait before a reboot or a shutdown. Not zero: the firmware
    answers before it acts, and the Routing ack has to get out of the door while the radio is
@@ -122,6 +140,7 @@ struct mesh_admin_request {
         /* The canned message list as one string, exactly as the wire carries it. Sized from
            the admin field rather than from a number here, so a protobuf bump moves both. */
         char text[sizeof(((meshtastic_AdminMessage *)0)->set_canned_message_module_messages)];
+        uint8_t ota_hash[MESH_ADMIN_OTA_HASH_LEN]; /* MESH_ADMIN_OTA_REQUEST */
     } payload;
 };
 
@@ -380,6 +399,13 @@ int mesh_radio_settings_queue_toggle_muted(struct mesh_radio_settings *settings,
    request and is not queued twice. */
 int mesh_radio_settings_queue_action(struct mesh_radio_settings *settings,
                                      enum mesh_admin_request_kind kind, uint32_t seconds);
+
+/* Queues an ota_request for a BLE install of the image whose SHA-256 is `hash`, behind a
+   get_owner for the passkey like every action. Returns the number of requests queued, -EINVAL
+   for a missing or all-zero hash, -EBUSY when one is already queued (a second press must not
+   quietly swap the hash the loader will hold the radio to), -ENOSPC when the queue is full. */
+int mesh_radio_settings_queue_ota(struct mesh_radio_settings *settings,
+                                  const uint8_t hash[MESH_ADMIN_OTA_HASH_LEN]);
 
 /* True while a set_* is queued or awaiting its reply. */
 bool mesh_radio_settings_write_pending(const struct mesh_radio_settings *settings);
