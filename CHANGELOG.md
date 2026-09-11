@@ -1,3 +1,18 @@
+## [2.62.0](https://github.com/mcereal/mesh-client/compare/v2.61.1...v2.62.0) (2026-09-11)
+
+### Features
+
+* **map:** keep decoded tiles, and remember which ones are not there ([5b03d06](https://github.com/mcereal/mesh-client/commit/5b03d06323bffb3fa416c67a63ccbb70779287fa))
+
+### Bug Fixes
+
+* **map:** keep a hole when a tile claim is refused ([d384144](https://github.com/mcereal/mesh-client/commit/d384144e142a48b130bcfc7ffd2d00c8799d1a2f))
+
+### Documentation
+
+* correct three claims in the Steam Deck notes ([4cd9d97](https://github.com/mcereal/mesh-client/commit/4cd9d97b33afc407dec54d2cac1d696673da5eba))
+* what running mesh-client on a Steam Deck takes ([69c4ea6](https://github.com/mcereal/mesh-client/commit/69c4ea653f0d1236dc7f5569baeeef5098e51241))
+
 ## [2.61.1](https://github.com/mcereal/mesh-client/compare/v2.61.0...v2.61.1) (2026-09-11)
 
 ### Bug Fixes
