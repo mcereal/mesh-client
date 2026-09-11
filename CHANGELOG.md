@@ -1,3 +1,18 @@
+## [2.63.0](https://github.com/mcereal/mesh-client/compare/v2.62.0...v2.63.0) (2026-09-11)
+
+### Features
+
+* **devtools:** draw a tile pack, and a scene that reads one ([6ab0581](https://github.com/mcereal/mesh-client/commit/6ab05819eb0776e791a5209f8625d37be884da1a))
+* **map:** draw the basemap under the markers ([7c14810](https://github.com/mcereal/mesh-client/commit/7c1481036102223e6ad458ffe99a6550d3e7d305))
+
+### Bug Fixes
+
+* **devtools:** wrap a synthetic pack's columns, and make its output directory ([9ba894d](https://github.com/mcereal/mesh-client/commit/9ba894ddbb027fcc15f6e1ffef26f4dc1b8ee253)), closes [#155](https://github.com/mcereal/mesh-client/issues/155)
+
+### Documentation
+
+* **map:** record what the fill loop and the blit turned out to be ([4ebd943](https://github.com/mcereal/mesh-client/commit/4ebd9438e5637d9a6e69f27ad2117923994d744c))
+
 ## [2.62.0](https://github.com/mcereal/mesh-client/compare/v2.61.1...v2.62.0) (2026-09-11)
 
 ### Features
