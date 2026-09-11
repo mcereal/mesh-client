@@ -984,6 +984,45 @@ static unsigned uicap_number(const char *text, const char *what) {
     return (unsigned)value;
 }
 
+/*
+ * "1280x800" - the panel to render into.
+ *
+ * A flag rather than a scene command, unlike the theme. A theme can change between two frames
+ * of one capture and the frames are still the same size; a geometry cannot, because the GIF
+ * those frames become has one canvas. So the size belongs to the run, and a scene that wants to
+ * be seen on two panels is rendered twice.
+ *
+ * The bounds are a typo guard rather than a claim about what renders: the page is width * height
+ * * 4 bytes, so a missed digit is a gigabyte. The small end is what the unit tests already draw
+ * at, which is well below anything with a nav bar on it - the renderer copes, it just has
+ * nothing left to say.
+ */
+#define UICAP_GEOMETRY_MIN 32U
+#define UICAP_GEOMETRY_MAX 4096U
+
+static void uicap_geometry(const char *text, uint32_t *out_width, uint32_t *out_height) {
+    char *end = NULL;
+    const unsigned long width = strtoul(text, &end, 10);
+    if (end == text || (*end != 'x' && *end != 'X')) {
+        fprintf(stderr, "uicap: --geometry: '%s' is not WxH, e.g. 1280x800\n", text);
+        exit(1);
+    }
+    const char *const height_text = end + 1;
+    const unsigned long height = strtoul(height_text, &end, 10);
+    if (end == height_text || *end != '\0') {
+        fprintf(stderr, "uicap: --geometry: '%s' is not WxH, e.g. 1280x800\n", text);
+        exit(1);
+    }
+    if (width < UICAP_GEOMETRY_MIN || width > UICAP_GEOMETRY_MAX || height < UICAP_GEOMETRY_MIN ||
+        height > UICAP_GEOMETRY_MAX) {
+        fprintf(stderr, "uicap: --geometry: %lux%lu is outside %ux%u..%ux%u\n", width, height,
+                UICAP_GEOMETRY_MIN, UICAP_GEOMETRY_MIN, UICAP_GEOMETRY_MAX, UICAP_GEOMETRY_MAX);
+        exit(1);
+    }
+    *out_width = (uint32_t)width;
+    *out_height = (uint32_t)height;
+}
+
 static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) {
     char *rest = line;
     char *command = uicap_word(&rest);
@@ -2091,9 +2130,11 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
 
 static void uicap_usage(void) {
     fputs("usage: meshclient_uicap [--script FILE] [--out DIR] [--scale N] [--delay MS]\n"
-          "                        [--theme NAME] [--prefix NAME] [--quiet] [--reference]\n\n"
+          "                        [--geometry WxH] [--theme NAME] [--prefix NAME]\n"
+          "                        [--quiet] [--reference]\n\n"
           "Reads a scene script (stdin by default), writes DIR/NAME-NNNN.ppm and\n"
-          "DIR/frames.txt. See devtools/ui_capture/scenes/ for examples.\n",
+          "DIR/frames.txt. See devtools/ui_capture/scenes/ for examples.\n\n"
+          "--geometry is the panel to draw into; the default is the Brick's 1024x768.\n",
           stderr);
 }
 
@@ -2110,6 +2151,8 @@ int main(int argc, char **argv) {
 
     bool reference = false;
     const char *script_path = NULL;
+    uint32_t width = MESH_UI_CAPTURE_WIDTH;
+    uint32_t height = MESH_UI_CAPTURE_HEIGHT;
     for (int i = 1; i < argc; ++i) {
         const char *arg = argv[i];
         const char *value = i + 1 < argc ? argv[i + 1] : NULL;
@@ -2123,6 +2166,8 @@ int main(int argc, char **argv) {
             cap.scale = (int)uicap_number(argv[++i], "--scale");
         } else if (strcmp(arg, "--delay") == 0 && value != NULL) {
             cap.delay_ms = uicap_number(argv[++i], "--delay");
+        } else if (strcmp(arg, "--geometry") == 0 && value != NULL) {
+            uicap_geometry(argv[++i], &width, &height);
         } else if (strcmp(arg, "--theme") == 0 && value != NULL) {
             cap.theme_id = argv[++i];
         } else if (strcmp(arg, "--reference") == 0) {
@@ -2147,8 +2192,7 @@ int main(int argc, char **argv) {
     if (mesh_ui_store_init(&cap.store) != 0) {
         die("cannot initialise the UI store");
     }
-    if (mesh_ui_capture_open(&cap.capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT,
-                             cap.scale) != 0) {
+    if (mesh_ui_capture_open(&cap.capture, width, height, cap.scale) != 0) {
         die("cannot allocate the off-screen page");
     }
 
@@ -2194,8 +2238,8 @@ int main(int argc, char **argv) {
     mesh_ui_store_shutdown(&cap.store);
 
     if (!cap.quiet) {
-        printf("uicap: %u frame%s in %s\n", cap.frame_count, cap.frame_count == 1U ? "" : "s",
-               cap.out_dir);
+        printf("uicap: %u frame%s at %ux%u in %s\n", cap.frame_count,
+               cap.frame_count == 1U ? "" : "s", width, height, cap.out_dir);
     }
     return 0;
 }

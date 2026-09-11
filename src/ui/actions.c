@@ -3,6 +3,7 @@
 #include "mesh/ui/help.h"
 #include "mesh/ui/history.h"
 #include "mesh/ui/input.h"
+#include "mesh/ui/input_profile.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/status.h"
@@ -13,35 +14,20 @@
 /*
  * The caps.
  *
- * "A" through "START" are what is printed on the Brick; the two pairs are drawn from the
- * font's arrows (U+2190..U+2193), which is why they are a keycap the eye reads as a direction
- * rather than the words "Up/Down" spending four cells saying it.
+ * The table itself is not here, and that is the point. What is printed beside a button and
+ * which evdev code that button reports are one fact about one piece of plastic, so they are
+ * stated in one row of one table - src/ui/input_profile.c - rather than in two files that a
+ * port has to remember to correct together. This module asks; it does not hold an opinion.
  *
- * MESH_UI_BUTTON_QUIT is the one that is not a constant, and it is answered by the input layer
- * rather than here: MESHCLIENT_QUIT_KEYS can move it to a key whose name nobody knows, and the
- * module that parsed that variable is the one that can say so.
+ * MESH_UI_BUTTON_QUIT is the exception, for the reason it always was: MESHCLIENT_QUIT_KEYS can
+ * move it to a key whose name nobody knows, so the module that parsed that variable is the one
+ * that can say what to draw on it.
  */
-static const char *const k_caps[MESH_UI_BUTTON_COUNT] = {
-    [MESH_UI_BUTTON_A] = "A",
-    [MESH_UI_BUTTON_B] = "B",
-    [MESH_UI_BUTTON_X] = "X",
-    [MESH_UI_BUTTON_Y] = "Y",
-    [MESH_UI_BUTTON_START] = "START",
-    [MESH_UI_BUTTON_SELECT] = "SELECT",
-    [MESH_UI_BUTTON_SHOULDERS] = "L/R",
-    [MESH_UI_BUTTON_UP_DOWN] = "\xE2\x86\x91\xE2\x86\x93",    /* up arrow, down arrow */
-    [MESH_UI_BUTTON_LEFT_RIGHT] = "\xE2\x86\x90\xE2\x86\x92", /* left arrow, right arrow */
-    [MESH_UI_BUTTON_QUIT] = NULL,
-};
-
 const char *mesh_ui_button_cap(enum mesh_ui_button button) {
     if (button == MESH_UI_BUTTON_QUIT) {
         return mesh_ui_input_quit_cap();
     }
-    if ((unsigned)button >= (unsigned)MESH_UI_BUTTON_COUNT || k_caps[button] == NULL) {
-        return "";
-    }
-    return k_caps[button];
+    return mesh_ui_input_profile_cap(mesh_ui_input_profile_from_env(), button);
 }
 
 /*

@@ -32,14 +32,16 @@ struct mesh_ui_snapshot;
 /*
  * A keycap, not a key code.
  *
- * These are the labels printed on the Brick's case, plus the two directional pairs, plus the
- * one that leaves - and each is a *thing a finger presses*, which is why the shoulders are one
- * entry rather than two. L1 and R1 never do different jobs; a bar that drew them separately
- * would spend two keycaps saying one thing.
+ * These are the labels printed on the case, plus the two directional pairs, plus the one that
+ * leaves - and each is a *thing a finger presses*, which is why the shoulders are one entry
+ * rather than two. L1 and R1 never do different jobs; a bar that drew them separately would
+ * spend two keycaps saying one thing.
  *
- * The face buttons deliberately do not carry their evdev codes here. Those are in
- * src/ui/input.c and they are not by position (see the note in CLAUDE.md); this enum is about
- * what is written on the plastic.
+ * This enum names the buttons; it does not say what is written on them or which evdev code each
+ * reports. Those are one fact about one piece of plastic and they are stated together, a row
+ * per device, in src/ui/input_profile.c - the face buttons are not by position (see the note in
+ * CLAUDE.md), and a port that corrected the codes without the words would leave this bar naming
+ * a key that does something else.
  */
 enum mesh_ui_button {
     MESH_UI_BUTTON_A = 0,

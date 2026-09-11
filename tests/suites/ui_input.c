@@ -7,13 +7,16 @@
 
 #include "mesh/core/event_loop.h"
 #include "mesh/core/message.h"
+#include "mesh/ui/actions.h"
 #include "mesh/ui/backend.h"
 #include "mesh/ui/backends/cli.h"
 #include "mesh/ui/backends/stub.h"
 #include "mesh/ui/controller.h"
 #include "mesh/ui/input.h"
+#include "mesh/ui/input_profile.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/store.h"
+#include "mesh/utils/array.h"
 
 #include <errno.h>
 #include <linux/input.h>
@@ -24,6 +27,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 
 struct test_key_capture {
@@ -512,6 +516,221 @@ MESH_TEST_CASE(input_brick_face_buttons, unit) {
             record_failure(test_name, detail);
             return;
         }
+    }
+    record_success(test_name);
+}
+
+/*
+ * The registry has to hold its shape, for the reason the theme table does: anyone may add a row
+ * and nothing else in the build would notice a row that bound three face buttons.
+ */
+MESH_TEST_CASE(input_profiles_are_complete, unit) {
+    const size_t count = mesh_ui_input_profile_count();
+    MESH_TEST_FAIL_IF(count == 0U, "the profile registry is empty");
+    MESH_TEST_FAIL_IF(mesh_ui_input_profile_default() == NULL, "there is no default profile");
+
+    for (size_t i = 0; i < count; ++i) {
+        const struct mesh_ui_input_profile *profile = mesh_ui_input_profile_at(i);
+        char reason[128];
+        if (profile == NULL) {
+            record_failure(test_name, "the registry has a hole in it");
+            return;
+        }
+        if (!mesh_ui_input_profile_validate(profile, reason, sizeof reason)) {
+            record_failure(test_name, reason);
+            return;
+        }
+        /* Two rows with one name is a profile nobody can select, since the lookup takes the
+           first match and says nothing about the second. */
+        for (size_t j = i + 1U; j < count; ++j) {
+            const struct mesh_ui_input_profile *other = mesh_ui_input_profile_at(j);
+            if (other != NULL && strcasecmp(profile->name, other->name) == 0) {
+                char detail[96];
+                snprintf(detail, sizeof detail, "two profiles are called %s", profile->name);
+                record_failure(test_name, detail);
+                return;
+            }
+        }
+    }
+
+    /* The pak ships for the Brick, so that is what an unconfigured client must be. */
+    MESH_TEST_FAIL_IF(strcmp(mesh_ui_input_profile_default()->name, "brick") != 0,
+                      "the default profile should be the Brick's");
+    record_success(test_name);
+}
+
+/*
+ * The two conventions disagree about exactly the two buttons that confirm and go back, which is
+ * the whole reason a profile exists rather than a longer switch: on a pad following the Xbox
+ * convention the code the Brick calls A is B, so a port that extended the table instead of
+ * replacing it would swap confirm and back and nothing would fail to compile.
+ */
+MESH_TEST_CASE(input_profile_decides_which_button_confirms, unit) {
+    const struct mesh_ui_input_profile *brick = mesh_ui_input_profile_by_name("brick");
+    const struct mesh_ui_input_profile *xbox = mesh_ui_input_profile_by_name("xbox");
+    MESH_TEST_FAIL_IF(brick == NULL || xbox == NULL, "both shipped profiles should resolve");
+
+    MESH_TEST_FAIL_IF(mesh_ui_input_profile_key(brick, BTN_EAST) != MESH_UI_KEY_A,
+                      "the Brick's A is BTN_EAST");
+    MESH_TEST_FAIL_IF(mesh_ui_input_profile_key(brick, BTN_SOUTH) != MESH_UI_KEY_B,
+                      "the Brick's B is BTN_SOUTH");
+    MESH_TEST_FAIL_IF(mesh_ui_input_profile_key(xbox, BTN_SOUTH) != MESH_UI_KEY_A,
+                      "an Xbox-convention A is BTN_SOUTH");
+    MESH_TEST_FAIL_IF(mesh_ui_input_profile_key(xbox, BTN_EAST) != MESH_UI_KEY_B,
+                      "an Xbox-convention B is BTN_EAST");
+
+    /* Name resolution is how a launch.sh sets this, so it takes the spelling a person types. */
+    MESH_TEST_FAIL_IF(mesh_ui_input_profile_by_name("XBOX") != xbox,
+                      "profile names should be case-insensitive");
+    MESH_TEST_FAIL_IF(mesh_ui_input_profile_by_name("") != NULL ||
+                          mesh_ui_input_profile_by_name(NULL) != NULL ||
+                          mesh_ui_input_profile_by_name("no-such-pad") != NULL,
+                      "an unknown name should not resolve");
+    record_success(test_name);
+}
+
+/*
+ * The regression this whole table exists for.
+ *
+ * The codes lived in src/ui/input.c and the caps in src/ui/actions.c, and a port that corrected
+ * one and not the other leaves the action bar naming a key that does something else - which is
+ * invisible, because the binding still works. Both public entry points are asked here, under a
+ * profile that is not the default, so the two cannot come from different places again.
+ */
+MESH_TEST_CASE(input_profile_caps_and_codes_move_together, unit) {
+    const char *failure = NULL;
+
+    setenv("MESHCLIENT_INPUT_PROFILE", "xbox", 1);
+    mesh_ui_input_profile_reload();
+
+    if (mesh_ui_input_map_key(BTN_SOUTH) != MESH_UI_KEY_A ||
+        mesh_ui_input_map_key(BTN_EAST) != MESH_UI_KEY_B) {
+        failure = "the selected profile should decide what the face buttons report";
+        goto restore;
+    }
+    if (strcmp(mesh_ui_button_cap(MESH_UI_BUTTON_A), "A") != 0 ||
+        strcmp(mesh_ui_button_cap(MESH_UI_BUTTON_B), "B") != 0) {
+        failure = "the cap should come from the profile the codes came from";
+        goto restore;
+    }
+    /* A convention is not a profile's to restate, and must survive the switch. */
+    if (mesh_ui_input_map_key(KEY_ENTER) != MESH_UI_KEY_A ||
+        mesh_ui_input_map_key(BTN_TL) != MESH_UI_KEY_L1) {
+        failure = "the shared conventions should answer under any profile";
+        goto restore;
+    }
+
+    /* A typo is a wrong label, not a client that cannot be driven: it falls back rather than
+       leaving the face buttons bound to nothing. */
+    setenv("MESHCLIENT_INPUT_PROFILE", "no-such-pad", 1);
+    mesh_ui_input_profile_reload();
+    if (mesh_ui_input_map_key(BTN_EAST) != MESH_UI_KEY_A) {
+        failure = "an unknown profile should fall back to the default";
+    }
+
+restore:
+    unsetenv("MESHCLIENT_INPUT_PROFILE");
+    mesh_ui_input_profile_reload();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
+    }
+    /* And back where every other test in this binary expects to find it. */
+    MESH_TEST_FAIL_IF(mesh_ui_input_map_key(BTN_EAST) != MESH_UI_KEY_A,
+                      "the unconfigured client should be the Brick");
+    record_success(test_name);
+}
+
+/* An EVIOCGBIT bitmap with one code set, which is how a node says what it can report. */
+struct test_evdev_bits {
+    unsigned long words[MESH_UI_INPUT_BIT_WORDS(KEY_MAX + 1U)];
+};
+
+static void test_evdev_bits_set(struct test_evdev_bits *bits, unsigned int code) {
+    bits->words[code / MESH_UI_INPUT_BITS_PER_LONG] |= 1UL << (code % MESH_UI_INPUT_BITS_PER_LONG);
+}
+
+/*
+ * The filter that keeps a pad from being crowded out.
+ *
+ * Taking the first few nodes that open worked on a Brick by accident - it has three or four and
+ * one of them is the pad. On a host with a keyboard, a mouse, two trackpads and an
+ * accelerometer, the pad is not necessarily among them, and the client comes up with no buttons
+ * at all. Plugging a USB keyboard into a Brick is the same thing one node at a time.
+ */
+MESH_TEST_CASE(input_device_filter_keeps_the_pad, unit) {
+    struct test_evdev_bits keys;
+    struct test_evdev_bits axes;
+    const size_t words = MESH_ARRAY_LEN(keys.words);
+
+    /* A pad: the face buttons are keys and the d-pad is a pair of absolute axes. */
+    memset(&keys, 0, sizeof keys);
+    test_evdev_bits_set(&keys, BTN_EAST);
+    MESH_TEST_FAIL_IF(!mesh_ui_input_device_wanted(keys.words, words, NULL, 0U),
+                      "a node reporting a face button is the pad");
+
+    memset(&axes, 0, sizeof axes);
+    test_evdev_bits_set(&axes, ABS_HAT0X);
+    MESH_TEST_FAIL_IF(!mesh_ui_input_device_wanted(NULL, 0U, axes.words, words),
+                      "a node reporting the d-pad hat is worth watching");
+
+    /* The Brick's PMIC: one key, and one this client deliberately does not answer, because a
+       tap of the power button is the console's sleep gesture. */
+    memset(&keys, 0, sizeof keys);
+    test_evdev_bits_set(&keys, KEY_POWER);
+    memset(&axes, 0, sizeof axes);
+    MESH_TEST_FAIL_IF(mesh_ui_input_device_wanted(keys.words, words, axes.words, words),
+                      "a node whose only key is KEY_POWER is not one we read");
+
+    /* A mouse or a trackpad: absolute axes, none of them a hat. */
+    memset(&keys, 0, sizeof keys);
+    memset(&axes, 0, sizeof axes);
+    test_evdev_bits_set(&axes, ABS_X);
+    test_evdev_bits_set(&axes, ABS_Y);
+    MESH_TEST_FAIL_IF(mesh_ui_input_device_wanted(keys.words, words, axes.words, words),
+                      "a pointer's axes are not the d-pad");
+
+    /* A node that cannot answer is watched: being unable to tell is not evidence of a useless
+       device, and the two failures cost very different things. */
+    MESH_TEST_FAIL_IF(!mesh_ui_input_device_wanted(NULL, 0U, NULL, 0U),
+                      "a node that cannot say what it reports should still be watched");
+
+    record_success(test_name);
+}
+
+/*
+ * The filter has to follow the quit keys as well as the profile, or an override moves quitting
+ * onto a node the filter has just dropped - which is a client that cannot be left.
+ */
+MESH_TEST_CASE(input_device_filter_follows_the_quit_keys, unit) {
+    struct test_evdev_bits keys;
+    const size_t words = MESH_ARRAY_LEN(keys.words);
+    const char *failure = NULL;
+
+    memset(&keys, 0, sizeof keys);
+    test_evdev_bits_set(&keys, KEY_POWER);
+
+    unsetenv("MESHCLIENT_QUIT_KEYS");
+    mesh_ui_input_reload_quit_keys();
+    if (mesh_ui_input_device_wanted(keys.words, words, NULL, 0U)) {
+        failure = "KEY_POWER is not read by default";
+        goto restore;
+    }
+
+    /* Somebody has moved quitting onto the power button. The node holding it is now the only
+       way out of the client, so the filter must keep it. */
+    setenv("MESHCLIENT_QUIT_KEYS", "116", 1);
+    mesh_ui_input_reload_quit_keys();
+    if (!mesh_ui_input_device_wanted(keys.words, words, NULL, 0U)) {
+        failure = "a node holding the configured quit key must be watched";
+    }
+
+restore:
+    unsetenv("MESHCLIENT_QUIT_KEYS");
+    mesh_ui_input_reload_quit_keys();
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+        return;
     }
     record_success(test_name);
 }
