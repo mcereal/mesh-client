@@ -35,6 +35,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/json.c
     suites/map.c
     suites/map_pack.c
+    suites/tile_cache.c
     suites/tile_image.c
     suites/message.c
     suites/radio_settings.c

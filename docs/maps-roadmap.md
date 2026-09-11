@@ -21,10 +21,13 @@ a `--map-pack` flag that opens one on the device, and the viewport answers which
 standing on. See §"The pack format".
 
 **And the decoder with it (2026-09-11):** Wuffs is vendored and a tile's bytes become pixels
-through one function, `mesh_map_tile_decode()`. Nothing is *drawn* yet - that is the tile cache
-and the blit, which are what is left of step 3. One thing the integration measured differently
+through one function, `mesh_map_tile_decode()`. One thing the integration measured differently
 from the spike, and it is about the pak's build rather than about Wuffs: see §"What the decoder
 actually cost".
+
+**And the cache the pixels land in (2026-09-11):** byte-budgeted, LRU, and holding what a tile
+is *not* as well as what it is - see §"What the cache turned out to be". Nothing is *drawn* yet.
+What is left of step 3 is the fill loop and the blit, and both of them are in `fb_map.c`.
 
 §"How a pack gets onto the device" (2026-09-10) corrects a premise that ran through the original
 assessment - that the Brick has no network - and re-sequences the delivery steps around the
@@ -519,6 +522,58 @@ twice that and is refused with a stated `-ENOTSUP` rather than paid for: no tile
 and no panel here could show it. None of it is allocated per tile, which is the property that
 matters on an event loop - a decode cannot pause to find memory and cannot fail for want of it.
 
+## What the cache turned out to be
+
+> **Landed 2026-09-11.** [`src/map/tile_cache.c`](../src/map/tile_cache.c), 15 cases in
+> `tests/suites/tile_cache.c`, and no pack or decoder linked into any of them.
+
+Three decisions, of which only the first was the one step 3's entry expected to be making.
+
+**A cached tile is the decoder's pixels, not the panel's.** The entry above asked for "the
+decoded representation chosen to suit the blit rather than the decoder", and that came out the
+other way round for a reason that is about the boundary rather than about bytes. `struct
+fb_state` reads its `bytes_per_pixel` off the kernel at runtime; storing panel-format pixels
+means `src/map/` learning that number, which is the one thing §"Proposed module boundaries" says
+the map layer may not do. It would also make a cached tile the property of one backend - the
+capture harness renders at four bytes a pixel whatever the device is doing, so one cache would be
+holding the wrong format for one of the two. The cost is stated rather than hidden: on a panel
+narrower than four bytes the cache holds more bytes than that panel needs, and the blit converts
+per *drawn* pixel, joining the switch `fb_fill_packed()` already makes rather than adding one.
+
+**A missing tile has to be remembered, and it is the reason the cache has two tables.** This was
+not in the plan at all, and it is what step 3's one-decode-per-turn budget runs into: every pack
+is a rectangle of the world with holes in it, and without a record of what has already been
+asked for and refused, a single hole on screen spends that one read every turn forever - so a
+view with any sea in it never finishes filling the tiles around it. The holes are kept in a
+table of their own because a hole costs twelve bytes and a tile costs 256 KiB, and sharing the
+slots would let a sparse view evict the picture to remember the sea. The invariant that makes
+the pair safe is that **a key is in at most one of the two tables**, or the cache answers READY
+or ABSENT for one tile depending on which it consults first.
+
+That is also why what a lookup returns is a *state* rather than a pointer that may be NULL.
+`MISS` and `ABSENT` are drawn differently - one is a tile still on its way and the other is the
+final picture of open water - and a renderer that could not tell them apart would either show a
+loading state forever over the sea or stop drawing one at all.
+
+**The cache counts its own answers, because nothing else can ask for the repaint.** A frame in
+this client is a function of the snapshot, and no radio packet arrives to say that a tile
+landed. `mesh_map_tile_cache_revision()` changes whenever the cache's answer about some key
+changes - a commit, an eviction, an absence learned or dropped, a clear - and not on a plain
+hit, which changes only what eviction takes next. Where the two readings differ it errs towards
+reporting a change: a repaint nobody needed costs a frame, and one that did not happen is a map
+that stays blank until the user presses something. This is the "publish small resource
+revisions and loading state" §"Proposed module boundaries" asks for, in the one place that
+needs it.
+
+Two smaller things worth keeping. Eviction is a linear scan over at most 64 slots rather than an
+LRU list, because a frame asks about twenty tiles and the whole of that bookkeeping is less
+arithmetic than placing one marker - where a list that comes apart leaks a slot silently and
+shows up as a map that reads the card more often as it runs. And **opening a different source
+must clear the cache**: a key is three numbers about the world rather than about a file, so two
+packs of the same city hold different pictures at the same key, and a cache carried across a
+swap draws the old pack's streets under the new pack's attribution with nothing on the frame
+looking wrong.
+
 ## Proposed module boundaries
 
 Names below are proposals, not APIs that already exist.
@@ -534,7 +589,7 @@ Names below are proposals, not APIs that already exist.
 | — *exists:* `mesh_map_viewport_tiles()` in [`src/map/viewport.c`](../src/map/viewport.c) | Which tiles the box is standing on, and where the first one's corner lands. Measured against the box the viewport *has*, which is why a renderer resizes its own copy first | The map screen, and a "download what is on screen" press later |
 | — *exists:* [`include/mesh/map/source.h`](../include/mesh/map/source.h), [`src/map/source_pack.c`](../src/map/source_pack.c) | Map metadata and tile-byte lookup behind a small source interface. One implementation, the single-file pack the device measurement chose; an HTTP source would arrive here and change nothing above | The offline pack, `--map-pack`, and step 5's optional HTTP source |
 | — *exists:* [`include/mesh/map/tile_image.h`](../include/mesh/map/tile_image.h), [`src/map/tile_image.c`](../src/map/tile_image.c) | A tile's bytes to pixels, in one stated order, with a bounded and constant footprint. The only file in the client that includes Wuffs | The tile cache, and `--map-pack` |
-| `src/map/tile_cache.c` | Byte-budgeted decoded tile cache, request deduplication and eviction | Any map viewport |
+| — *exists:* [`include/mesh/map/tile_cache.h`](../include/mesh/map/tile_cache.h), [`src/map/tile_cache.c`](../src/map/tile_cache.c) | Byte-budgeted decoded tile cache, request de-duplication and eviction - plus the holes, which are what stop a sparse pack spending the fill budget forever. A store, not a loader: it opens nothing and decodes nothing | Any map viewport |
 | — *exists:* `struct mesh_ui_map_node` in [`include/mesh/ui/store.h`](../include/mesh/ui/store.h) | The compact projection: every positioned node the *session* holds, not the ranked 128 the list publishes. Filled by `src/core/app_publish.c` | The markers, and anything else that wants a position without a summary |
 | — *exists:* [`src/ui/map.c`](../src/ui/map.c) | Markers from the map's roster and the waypoint book; the selection, measured from the view’s centre in metres | Framebuffer and test consumers |
 | — *exists:* [`src/ui/nav_map.c`](../src/ui/nav_map.c) | Button handling and map navigation state. Takes the d-pad *ahead* of the tab routing, and deliberately leaves the shoulders to it | Existing store/controller path |
@@ -775,11 +830,11 @@ useless without the one before it:
    file's *colour type* and not only of the tile size, so it is sized for 8-bit RGBA rather
    than for the palette tiles a pack is built from; and the decoder's struct is opaque in C, so
    its size can only be asked for and is checked at every decode.
-2. **The tile cache.** Byte-budgeted, LRU, keyed on `struct mesh_map_tile_key` - so a world
-   narrower than the panel decodes one tile and blits it several times - with the decoded
-   representation chosen to suit the blit rather than the decoder. `struct fb_state` carries a
-   `bytes_per_pixel` that is not always 4, so what a cache holds and what a panel wants are two
-   questions.
+2. ~~**The tile cache.**~~ **Done**, 2026-09-11. Byte-budgeted and LRU, keyed on
+   `struct mesh_map_tile_key`, behind [`include/mesh/map/tile_cache.h`](../include/mesh/map/tile_cache.h).
+   The open question in this entry - what a cache holds against what a panel wants - is
+   answered in favour of the decoder, and two things came out of building it that were not in
+   the entry. See §"What the cache turned out to be".
 3. **One decode per turn, and the clipped blit in `fb_map.c`.** The measurement's headline
    finding: a cold tile is 2-5 ms, so a full view fills in twenty turns of one tile each rather
    than one 45 ms stall, with input serviced between them. The blit intersects the map's own
