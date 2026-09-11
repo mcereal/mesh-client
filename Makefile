@@ -98,6 +98,7 @@ ui-capture:
 # anybody else's pixels. It is centred on the demo roster's own coordinates, which is what puts
 # streets under the markers in devtools/ui_capture/scenes/basemap.scene. See docs/ui.md.
 demo-pack:
+	mkdir -p $(BUILD_ROOT)
 	python3 devtools/map_pack/map_pack.py synth -o $(BUILD_ROOT)/demo.mctp \
 	    --centre 47.6205,-122.3350 --span-km 5 --min-zoom 12 --max-zoom 16 --no-date \
 	    --name "Demo region" --attribution "Synthetic tiles, no copyright"

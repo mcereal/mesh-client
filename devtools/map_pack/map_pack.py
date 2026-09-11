@@ -339,7 +339,18 @@ def synth_tile(z, x, y):
 
 
 def synth_span(centre, span_km, zoom):
-    """The tile rectangle a box of `span_km` around a point covers at one zoom."""
+    """The tiles a box of `span_km` around a point covers at one zoom, as (columns, rows).
+
+    Columns **wrap** and rows **clamp**, which is the difference between a cylinder and a sheet
+    and is the same rule the client's own mesh_map_viewport_tiles() follows: panning east for
+    ever arrives back where it started, and there is nothing above the top row of the world. A
+    pack centred on the antimeridian covers both halves of its span; one centred on a pole stops
+    at the edge of the pyramid.
+
+    Both helpers floor rather than truncate. Truncation is towards zero, so a longitude a hair
+    west of the antimeridian lands in column 0 instead of column -1 - which is the same bug one
+    step earlier, and the reason the wrap above would otherwise have nothing to wrap.
+    """
     latitude, longitude = centre
     # A degree of latitude is 111.32 km everywhere; a degree of longitude is that times the
     # cosine of the latitude, which is the whole of the projection this needs.
@@ -350,16 +361,22 @@ def synth_span(centre, span_km, zoom):
     scale = 1 << zoom
 
     def tile_x(lon):
-        return int((lon + 180.0) / 360.0 * scale)
+        return math.floor((lon + 180.0) / 360.0 * scale)
 
     def tile_y(lat):
         clamped = max(-85.05112878, min(85.05112878, lat))
         sin = math.sin(math.radians(clamped))
-        return int((0.5 - math.log((1 + sin) / (1 - sin)) / (4 * math.pi)) * scale)
+        return math.floor((0.5 - math.log((1 + sin) / (1 - sin)) / (4 * math.pi)) * scale)
 
     x0, x1 = tile_x(west), tile_x(east)
     y0, y1 = tile_y(north), tile_y(south)
-    return range(max(0, x0), min(scale - 1, x1) + 1), range(max(0, y0), min(scale - 1, y1) + 1)
+    if x1 - x0 + 1 >= scale:
+        # A span wider than the world is the world, once. Without this a low zoom asks for the
+        # same column several times over and the pack refuses itself: two entries at one key.
+        columns = list(range(scale))
+    else:
+        columns = [x % scale for x in range(x0, x1 + 1)]
+    return columns, list(range(max(0, y0), min(scale - 1, y1) + 1))
 
 
 def synth(args):
