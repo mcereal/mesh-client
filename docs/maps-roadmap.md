@@ -10,6 +10,11 @@ optional extensions - are still proposed, based on the repository inspected on 2
 no device benchmarks accompany them. The **pre-work in §"Pre-work that matters" shipped first**,
 on its own and ahead of any map.
 
+**Step 3's measurement has run on a Brick (2026-09-11)** and answers the question this document
+said nothing should be built before: raster is viable, one tile at a time on the event loop, with
+no helper process - from a **single-file pack decoded by Wuffs**. The `z/x/y` tree and MBTiles
+both lost on this hardware, and the reasons are specific to it. See §"What the Brick measured".
+
 §"How a pack gets onto the device" (2026-09-10) corrects a premise that ran through the original
 assessment - that the Brick has no network - and re-sequences the delivery steps around the
 correction. It is the section to read before acting on any statement about "offline" below.
@@ -274,6 +279,118 @@ open and which is still open: the cache holds the published 128, so a restart br
 nodes and the map's roster is rebuilt from those. Widening the cache is a decision for whoever
 needs all 256 back after a restart, and it is independent of everything above.
 
+## What the Brick measured
+
+> **Measured 2026-09-11** on a TrimUI Brick (4x Cortex-A53, `schedutil` 408 MHz-2 GHz, 1 GB)
+> with [`devtools/tile_bench`](../devtools/README.md#tile_bench--what-a-map-tile-costs-on-the-device),
+> which reads, decodes and blits one tile the way a client would and runs on the device over adb.
+> This is the cold-read-plus-decode number step 3 asked for, and the decisions below rest on it.
+
+What was compared: three layouts - a `z/x/y` file tree, MBTiles (SQLite 3.53, statically
+linked), and a single file with a sorted in-memory index shaped like PMTiles - and two PNG
+decoders, stb_image 2.30 and Wuffs 0.4. The page cache was either **warm**, **dropped once**
+before 200 tiles, or **dropped before every tile** (the worst case: a tile nobody has read, in a
+directory nobody has read). Tiles are synthetic - see the caveats - and are 256x256 palette PNGs,
+9.4 KiB median, over a 3,069-tile z12-16 pyramid; the 24-bit set is 25 KiB median. Both decoders
+produced **identical pixels on all 800 tiles checked**. All numbers are milliseconds.
+
+**One tile, from the SD card, cache dropped before every tile:**
+
+| Layout | Decoder | Fetch p50 | Fetch p99 | Decode p50 | Tile p50 | Tile p99 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| single-file pack | Wuffs | 0.80 | 2.9 | 1.24 | **2.3** | **4.4** |
+| single-file pack | stb_image | 0.83 | 4.5 | 2.41 | 3.6 | 8.2 |
+| MBTiles | Wuffs | 4.6 | 20.3 | 1.28 | 6.2 | 21.9 |
+| `z/x/y` tree | Wuffs | 4.6 | 40.9 | 1.24 | 6.1 | 42.5 |
+| single-file pack, 24-bit tiles | Wuffs | 1.1 | 1.4 | 2.09 | 3.4 | 6.7 |
+
+Warm, every layout's fetch is under half a millisecond and a tile is decode plus a 0.2-0.4 ms blit.
+
+**A whole 1024x768 map from cold** (5x4 tiles at an arbitrary offset, which is the most one can
+touch), then from that same view **one pan across** (a new column: four tiles, twenty blitted
+from decoded ones) and **one pan down** (a new row: five tiles), 20 rounds each. The pan-down
+column comes from a second idle run, in which every other column reproduced the first to within a
+millisecond. The rest was run first with the client stopped and the launcher's `schedutil`
+governor, then with
+the client running and connected over BLE to a Heltec V3, which NextUI runs under `performance`
+(a fixed 2 GHz; see the last point below). The client's 147-node NodeDB sync overlapped only the
+first ten seconds of that run - the first row's rounds - and the rest ran beside a connected,
+mostly quiet client:
+
+| Layout | Decoder | View p50 / max | Pan across p50 / max | Pan down p50 / max | View p50 / max, client running |
+| --- | --- | ---: | ---: | ---: | ---: |
+| single-file pack | Wuffs | **43 / 47** | **12.5 / 14.4** | **12.4 / 15.1** | **41 / 46** |
+| single-file pack | stb_image | 66 / 78 | 16.8 / 18.9 | 17.2 / 20.7 | 64 / 79 |
+| MBTiles | Wuffs | 58 / 68 | 15.1 / 19.0 | 15.5 / 17.8 | 54 / 69 |
+| `z/x/y` tree | Wuffs | 90 / 141 | 19.2 / 26.8 | 16.9 / 20.2 | 85 / 253 |
+| `z/x/y` tree | stb_image | 111 / 246 | 22.2 / 26.4 | 22.4 / 24.2 | 119 / **625** |
+
+What this settles:
+
+- **Raster is viable here, on the loop, without a helper process.** A cold tile is 2-5 ms, so the
+  roadmap's "bounded count of tiles per turn" is literally one tile per turn: a full view fills
+  in twenty turns of ~2 ms each rather than one 45 ms stall, and input is serviced between them.
+  The helper-process protocol the resource strategy held in reserve is not needed, and should not
+  be built. The one thing a turn cannot promise is the SD card's own rare stall: one tile in two
+  hundred took 32-38 ms in the cold-per-tile runs, on every layout.
+- **The pack is a single file, not a directory tree, and it is not SQLite.** The card is FAT32
+  with **32 KiB clusters** and mounted `sync`. A tree of 3,069 tiles holding 28.4 MiB occupies
+  **99 MiB** on it (every tile rounds up to a cluster), took **55 s** to push over adb against 16 s
+  for the same tiles as one file, and a cold lookup walks FAT directories: 4.6 ms median, 40 ms at
+  p99, and the worst view - during the client's NodeDB sync - was **625 ms**. The client's own
+  saves go to the same sync-mounted card, and the tree got *worse* with the client running despite
+  the faster clock. MBTiles avoids the directories and pays in B-tree pages from cold (4.6 ms
+  median fetch), plus **+718 KB** of SQLite on a 2.88 MB binary. The PMTiles-shaped pack is best on
+  every column, and its view was unchanged with the client running (41/46 against 43/47) - which,
+  with the clock faster on that side, says the client's load cost it no more than the difference
+  between the governors, not that it cost nothing.
+- **The decoder is Wuffs.** Twice as fast as stb_image on palette tiles (1.2 vs 2.4 ms) and 1.8x
+  on 24-bit, memory-safe by construction, and it allocates nothing: its whole footprint was a
+  **44.6 KB** decoder plus a **64-192 KB** caller-owned work buffer, which is the bounded
+  allocation this document asked a decoder to prove. It costs **+106 KB** of code against stb's
+  +52 KB, which is the price of the checking.
+- **A pan costs the same in both directions, so plain `(z, x, y)` order is enough.** The worry was
+  that the pack's order favours one direction: a new column is one contiguous run, while a new row
+  is five tiles spread through the file. It did not show - a pan down read one more tile than a
+  pan across and took the same 12.4 ms - because each tile of a new row sits just after a tile the
+  view has already read, and readahead has it. That adjacency holds at any pack size, so tiles do
+  not need a space-filling-curve order for panning. Zooming, which reads a different level of the
+  pack, was not measured.
+- **Packs should be palette PNGs.** The 24-bit set decodes 1.7x slower and is 2.7x larger for no
+  gain on a 1024x768 panel; quantising is the pack builder's job, on the host, once.
+- **The SD card is fast enough; the internal ext4 is not needed.** The same pack on `/mnt/UDISK`
+  fetched in 0.58 ms rather than 0.80 - not worth leaving per-pak state on the card for. Writing is
+  the slow direction (28 MiB in 16 s to the card, 7 s to ext4, both over adb), which is step 5's
+  concern rather than rendering's.
+- **The clock depends on who started the process, and the client gets the fast one.** NextUI's
+  launch loop (`.system/tg5040/paks/MinUI.pak/launch.sh`) runs the launcher under `schedutil`,
+  408-1800 MHz, and switches to `performance`, a fixed 2 GHz, before it runs any pak - "they can
+  change it themselves after launch if they want". So the client as launched decodes at the warm
+  numbers: with it up, a cold pack-and-Wuffs tile was **2.2 ms at p50 and 2.8 ms at p99**. Under
+  `schedutil` and after a one-second pause, decode goes from 1.2 to **4.7 ms** (tile p99 9.7 ms,
+  with the cache dropped before the pause so that the timed tile is the first work after it),
+  which is what the first press after a spell of reading would cost if the client ever dropped to
+  `schedutil` to save battery. That is a trade worth making knowingly, and the map is where it
+  would show.
+
+What it did **not** measure, and each is a reason to keep going rather than a reason to doubt the
+above:
+
+- **Input latency inside the real client.** This is a separate process on an idle launcher and a
+  running client; the contention it saw is the client's CPU and SD traffic, not the client's own
+  loop doing the decoding. The integrated number comes with the first tile blit in `fb_map.c`.
+- **A like-for-like contention comparison.** The idle and client runs differ in governor as well
+  as in load. Pinning it on both sides (`sh /mnt/SDCARD/.system/tg5040/bin/governor.sh
+  performance`, then `auto` to hand the launcher back) separates the two.
+- **Real tiles.** The synthetic set is drawn to be Carto-shaped and calibrated to size, but dense
+  urban Carto z16 tiles run ~15-25 KiB, above the palette set's 9.4 KiB median - which is why the
+  24-bit set exists to bracket them. Decode is dominated by pixel count, so the conclusion is not
+  expected to move; the absolute numbers might by a millisecond.
+- **A regional-size pack.** This one is 28 MiB with its whole index in RAM (24 B a tile). A pack of
+  a million tiles would need 24 MB of index, which is why PMTiles has leaf directories - and a
+  single file on FAT32 **cannot exceed 4 GiB**, so a large region is split into files or the
+  format's directories are read lazily. Both are pack-format questions, not rendering ones.
+
 ## Proposed module boundaries
 
 Names below are proposals, not APIs that already exist.
@@ -310,6 +427,11 @@ presentation. Completion must invalidate the map even when no new radio packet h
 Capture tests should inject the same resource interface with deterministic fixture tiles.
 
 ## Basemap and resource strategy
+
+> **Answered by measurement (2026-09-11)** - see §"What the Brick measured". The comparison below
+> was run, and it came out the other way from the preference stated in it: MBTiles lost to a
+> single-file indexed pack on FAT32, on fetch latency, under load and on binary size, and Wuffs
+> was chosen as the decoder. The paragraph is kept as the question that was asked.
 
 Prototype with synthetic tiles, then compare a directory of XYZ PNG tiles against read-only
 raster MBTiles on the device. Prefer MBTiles for a user-facing regional pack if its SQLite
@@ -505,8 +627,12 @@ These are estimates, not measured commitments; storage/decode latency and source
 are the largest unknowns. They do not cover step 5, which was an optional extension when they
 were written. A marker-only milestone can land substantially earlier.
 
-Steps 1 and 2 have shipped; see §"What steps 1 and 2 became". **Recommended next implementation
-is the offline raster spike (step 3), and it is no longer blocked on anything.** This section
+Steps 1 and 2 have shipped, and step 3's *measurement* has run - see §"What the Brick measured",
+which chose a single-file pack, Wuffs and one tile per event-loop turn. **Recommended next
+implementation is the rest of step 3 inside the client**: a pack reader behind the source seam, a
+decoded-tile cache, one decode per turn, the clipped blit in `fb_map.c` and a capture fixture - and
+then the integrated input-latency number the standalone benchmark could not give. The history of
+how step 3 was unblocked follows. **It was no longer blocked on anything.** This section
 used to name two decisions it waited on - a first region and zoom range, and a tile source with
 offline rights - and §"How a pack gets onto the device" retires both as blockers: for a
 *measurement* a region is a test fixture rather than a commitment, and a source is an
