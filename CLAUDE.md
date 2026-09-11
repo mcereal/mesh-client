@@ -79,8 +79,18 @@ make deploy-logs                          # tail the device log
 make deploy-check                         # report BlueZ, D-Bus and fb0 state on device
 make deploy-shot ARGS="-d 10 -o x.png"    # screenshot /dev/fb0 (page 0; -P 1 is the launcher)
 make deploy-clip ARGS="-d 10 -n 30"       # film /dev/fb0 to a GIF (a few fps; not real time)
-make deploy-run ARGS="--list-devices"     # run launch.sh on device headless, streaming output
+make deploy-start                         # start the UI as Tools > MeshClient does; NextUI steps aside
+make deploy-stop                          # stop every MeshClient on device, bring NextUI back
+make deploy-run                           # deploy-start + follow the log; stops the client on exit
+make deploy-run ARGS="--list-devices"     # print-and-exit flags run headless, output here
 ```
+
+**An on-device test ends with `make deploy-stop`.** Starting the client is `make deploy-start`
+(or `deploy-run`), never `launch.sh` from a device shell: that runs the client *beside* NextUI's
+launcher, which keeps painting `fb0` and acting on every button, so the user's first L1 flashes
+the launcher's menu through the HUD. Killing the host side of a run does not stop the client on
+the device, so a test that does not end with `deploy-stop` leaves one running behind the
+launcher. See [`docs/device.md`](docs/device.md#starting-it-from-the-mac).
 
 Sanitizers: `make debug CMAKE_ARGS="-- -DMESHCLIENT_ENABLE_ASAN=ON"` (or `UBSAN`, or both).
 CI runs the suite under both, and cross-builds the pak, on every pull request - see
@@ -601,6 +611,11 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   chart has is spent making the mark wide enough to be the fill the palette was validated for.
 - **The framebuffer needs all three steps** — draw page 0, `FBIOPAN_DISPLAY`, mirror into page 1
   — or the screen is black.
+- **`deploy-start` kills NextUI's launcher with `SIGKILL`, and `TERM` there powers the Brick
+  off.** SDL turns `TERM`/`INT` into a quit event, `nextui.elf` answers it with `PWR_powerOff()`,
+  and `PLAT_powerOff()` deletes `/tmp/nextui_exec` and touches `/tmp/poweroff` - so the launch
+  loop runs the pending pak and shuts the device down when it exits. Measured twice, by accident.
+  Do not "gentle" the kill, and never `kill $(pidof nextui.elf)` in a device shell.
 - **Only the release build is a release.** Do not stamp a local build to test the updater; lift
   the guard (`MESHCLIENT_UPDATE_ALLOW_DEV=1`, or Settings → About → Dev updates).
 - **Do not edit `project(meshclient VERSION x.y.z ...)`** in `CMakeLists.txt` or bump it by hand;

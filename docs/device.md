@@ -81,6 +81,9 @@ make deploy-run ARGS="--version"
 make brick            # docker-pak (static aarch64 build) + push to Tools/tg5040/MeshClient.pak
 make deploy           # push only, if dist/ is already current
 make deploy-logs      # tail /.userdata/tg5040/logs/MeshClient.txt while you launch from the Tools menu
+make deploy-start     # or launch it from here: the same hand-off the Tools menu does
+make deploy-stop      # stop every MeshClient on the device and give it back to NextUI
+make deploy-run       # deploy-start + follow the log; Ctrl-C (or the client exiting) stops it
 ```
 
 These run over WiFi/SSH or over USB, whichever is available; the transport auto-detects a USB
@@ -131,8 +134,36 @@ delivered, `!!` when routing failed. Broadcasts go out on the channel shown in `
 channel table comes from the radio during the config sync. Text is drawn at four times the 5x7
 font; set `MESHCLIENT_FB_SCALE=3` in `launch.sh` for more rows or `5` for bigger type.
 
-The framebuffer backend and the NextUI launcher share `/dev/fb0`, so a run started over SSH
-while the launcher is on screen may get painted over. For headless checks SSH is fine:
+### Starting it from the Mac
+
+`make deploy-start` starts the client the way **Tools > MeshClient** does, and that is the only
+way it gets the device to itself. NextUI's launch loop (`MinUI.pak/launch.sh` under `.system/`)
+runs `nextui.elf` and, when it exits, runs whatever command it left in `/tmp/next`, then starts the
+launcher again. A client started straight from a shell runs *beside* the launcher instead: both
+draw to `/dev/fb0`, and since nothing grabs the pad both act on every button - L1 changes
+MeshClient's tab and NextUI's page at once, and the panel flickers between them. So
+`deploy-start` writes `/tmp/next` in the launcher's own format and takes the launcher off the
+screen; `deploy-stop` ends the client and the loop brings the launcher back.
+
+```bash
+make deploy-start                        # stops any running client first, returns once it is up
+make deploy-shot ARGS="-o nodes.png"     # ... drive it, look at it ...
+make deploy-stop                         # always: nothing is left running behind the launcher
+make deploy-run                          # start + follow the log; stops the client on exit or Ctrl-C
+```
+
+There is never more than one client: `deploy-start`, `deploy-run` and a headless run each stop
+whatever is running first, because two clients fight over one radio link. A `make deploy` over a
+running client says so, since the process still holds the previous build.
+
+**The launcher is taken off the screen with `SIGKILL`, and must never be sent `TERM` or `INT`.**
+SDL turns either signal into a quit event, which `nextui.elf` handles by powering off:
+`PLAT_powerOff()` deletes `/tmp/nextui_exec` and touches `/tmp/poweroff`, so the loop runs the pak
+once more and **shuts the Brick down the moment it exits**. `KILL` cannot be caught, so the launcher
+dies without that path. A `kill $(pidof nextui.elf)` typed into a device shell is a power-off.
+
+A run that only prints and exits needs none of that, and keeps its output and exit status on the
+Mac:
 
 ```bash
 make deploy-run ARGS="--list-devices"
@@ -189,11 +220,11 @@ To see a UI change without a Brick at all - from a container, CI, or a cloud ses
 `scripts/ui-capture.sh` renders the same screens off-screen from a scripted sequence of button
 presses. See [`docs/ui.md`](ui.md#looking-at-a-ui-change).
 
-**Launch MeshClient from the Tools menu, not over SSH.** Started with `nohup ./launch.sh` from
-an SSH session, the client does draw - but NextUI's launcher is still the foreground app and
-keeps repainting `fb0` over it, so every shot comes back as the launcher's menu on both pages.
-Opening the pak from Tools is what suspends that repaint. (The client itself runs fine either
-way; this only affects what is on the panel.)
+**Launch MeshClient from the Tools menu or with `make deploy-start`, not with `launch.sh` from a
+shell.** Started with `nohup ./launch.sh`, the client does draw - but NextUI's launcher is still
+running and keeps repainting `fb0` over it, so shots come back as the launcher's menu on both
+pages. Both supported ways take the launcher off the screen first; see
+[Starting it from the Mac](#starting-it-from-the-mac).
 
 Two things to know when a shot looks wrong:
 
@@ -344,7 +375,13 @@ for MeshClient:
   really is fb0: `head -c 3145728 /dev/zero | tr '\000' '\377' | dd of=/dev/fb0 bs=4096
   seek=768 conv=notrunc` paints page 1 white until the next redraw.
 - **Nothing on screen but the log shows discovery working:** the fb backend lost the
-  framebuffer to the launcher. Exit to the Tools menu and launch the pak from there.
+  framebuffer to the launcher. Exit to the Tools menu and launch the pak from there, or use
+  `make deploy-start`.
+- **The screen flickers to NextUI when a button is pressed:** the client was started beside the
+  launcher rather than instead of it. `make deploy-stop`, then `make deploy-start`.
+- **The Brick powered off when the client exited:** something sent `nextui.elf` a `TERM` or `INT`,
+  which it treats as a power-off request. See
+  [Starting it from the Mac](#starting-it-from-the-mac).
 - **Buttons do nothing / the client will not exit:** press MENU. The client watches every
   `/dev/input/event*` node and quits on MENU (`KEY_MENU` 139 or `BTN_MODE` 316), POWER or ESC;
   SELECT and START are navigation keys, not quit keys. If none of those work, the Brick reports
