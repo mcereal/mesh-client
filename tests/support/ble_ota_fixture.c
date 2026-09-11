@@ -142,9 +142,8 @@ void mesh_test_ota_loader_flush(struct mesh_test_ota_loader *loader) {
     const size_t queued = loader->queued;
     loader->queued = 0U;
     for (size_t i = 0; i < queued; ++i) {
-        mesh_bluez_client_mock_emit_notification(loader->notify_path,
-                                                 (const uint8_t *)loader->queue[i],
-                                                 strlen(loader->queue[i]));
+        mesh_bluez_client_mock_emit_notification(
+            loader->notify_path, (const uint8_t *)loader->queue[i], strlen(loader->queue[i]));
     }
 }
 

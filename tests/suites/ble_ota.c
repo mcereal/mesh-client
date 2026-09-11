@@ -95,9 +95,9 @@ MESH_TEST_CASE(ble_ota_chunk_follows_the_mtu, unit) {
     MESH_TEST_FAIL_IF(mesh_ble_ota_chunk_for_mtu(517U) != 512U ||
                           mesh_ble_ota_chunk_for_mtu(600U) != 512U,
                       "the loader's own 512 is the ceiling");
-    MESH_TEST_FAIL_IF(mesh_ble_ota_chunk_for_mtu(23U) != 20U,
-                      "the default MTU is a 20-byte chunk");
-    MESH_TEST_FAIL_IF(mesh_ble_ota_chunk_for_mtu(0U) != 20U || mesh_ble_ota_chunk_for_mtu(22U) != 20U,
+    MESH_TEST_FAIL_IF(mesh_ble_ota_chunk_for_mtu(23U) != 20U, "the default MTU is a 20-byte chunk");
+    MESH_TEST_FAIL_IF(mesh_ble_ota_chunk_for_mtu(0U) != 20U ||
+                          mesh_ble_ota_chunk_for_mtu(22U) != 20U,
                       "no MTU, or one ATT does not allow, falls back to 20 rather than guessing");
     record_success(test_name);
 }
@@ -115,22 +115,20 @@ MESH_TEST_CASE(ble_ota_sends_an_image, unit) {
     char hex[MESH_SHA256_HEX_LEN];
     mesh_sha256_hex(rig.sha256, hex, sizeof hex);
     snprintf(expected, sizeof expected, "OTA %u %s\n", RIG_IMAGE_LEN, hex);
-    MESH_TEST_FAIL_IF_CLEANUP(rig.loader.command_count != 2U ||
-                                  strcmp(rig.loader.commands[0], "VERSION\n") != 0 ||
-                                  strcmp(rig.loader.commands[1], expected) != 0,
-                              rig_close(&rig),
-                              "VERSION, then OTA with the size and the hash, each one write");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        rig.loader.command_count != 2U || strcmp(rig.loader.commands[0], "VERSION\n") != 0 ||
+            strcmp(rig.loader.commands[1], expected) != 0,
+        rig_close(&rig), "VERSION, then OTA with the size and the hash, each one write");
     MESH_TEST_FAIL_IF_CLEANUP(strcmp(rig.ota.loader_version, "43 2.7.26.54e0d8d 7 v1.0.0") != 0,
                               rig_close(&rig), "what followed VERSION's OK should be kept");
     MESH_TEST_FAIL_IF_CLEANUP(rig.ota.state != MESH_BLE_OTA_DONE || !rig.loader.finished_ok ||
                                   rig.loader.received != RIG_IMAGE_LEN,
                               rig_close(&rig),
                               "every byte should arrive and hash to what the OTA command named");
-    MESH_TEST_FAIL_IF_CLEANUP(rig.loader.largest_write > RIG_CHUNK ||
-                                  rig.loader.first_binary_len != RIG_CHUNK ||
-                                  rig.loader.uneven_writes != 0U,
-                              rig_close(&rig),
-                              "every chunk but the last should be exactly one MTU's payload");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        rig.loader.largest_write > RIG_CHUNK || rig.loader.first_binary_len != RIG_CHUNK ||
+            rig.loader.uneven_writes != 0U,
+        rig_close(&rig), "every chunk but the last should be exactly one MTU's payload");
     /* Ten full chunks and one short one: eleven writes of image, and ten ACKs, because the
        last is answered OK. */
     MESH_TEST_FAIL_IF_CLEANUP(rig.loader.writes != 2U + 11U || rig.loader.acks != 10U,
@@ -216,12 +214,10 @@ MESH_TEST_CASE(ble_ota_write_refused, unit) {
     MESH_TEST_FAIL_IF_CLEANUP(!rig_open(&rig, 4U), rig_close(&rig), "the rig should open");
     MESH_TEST_FAIL_IF_CLEANUP(rig_begin(&rig) != 0, rig_close(&rig), "begin");
     rig_run(&rig, 60000U);
-    MESH_TEST_FAIL_IF_CLEANUP(rig.ota.state != MESH_BLE_OTA_FAILED ||
-                                  rig.ota.error != MESH_BLE_OTA_ERROR_WRITE ||
-                                  rig.ota.write_error != -ENOTCONN ||
-                                  rig.ota.acked != 2U * RIG_CHUNK,
-                              rig_close(&rig),
-                              "a write BlueZ refuses ends the conversation with BlueZ's reason");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        rig.ota.state != MESH_BLE_OTA_FAILED || rig.ota.error != MESH_BLE_OTA_ERROR_WRITE ||
+            rig.ota.write_error != -ENOTCONN || rig.ota.acked != 2U * RIG_CHUNK,
+        rig_close(&rig), "a write BlueZ refuses ends the conversation with BlueZ's reason");
     rig_close(&rig);
     record_success(test_name);
 }
@@ -313,8 +309,8 @@ MESH_TEST_CASE(ble_hci_address_and_adapter, unit) {
                           mesh_ble_hci_adapter_index("/org/bluez") != -EINVAL ||
                           mesh_ble_hci_adapter_index("/org/bluez/hci0/dev_X") != -EINVAL,
                       "the adapter index is the number after hci");
-    MESH_TEST_FAIL_IF(mesh_ble_hci_request_interval(0, "not an address",
-                                                    &mesh_ble_hci_ota_params) != -EINVAL,
-                      "a bad address is refused before a socket is opened");
+    MESH_TEST_FAIL_IF(
+        mesh_ble_hci_request_interval(0, "not an address", &mesh_ble_hci_ota_params) != -EINVAL,
+        "a bad address is refused before a socket is opened");
     record_success(test_name);
 }

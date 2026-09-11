@@ -34,8 +34,8 @@ static const char *const k_state_names[MESH_FIRMWARE_OTA_STATE_COUNT] = {
 };
 
 static const char *const k_error_names[MESH_FIRMWARE_OTA_ERROR_COUNT] = {
-    "none",     "unavailable", "wrong image",    "arm",           "refused",  "no loader",
-    "connect",  "transfer",    "loader refused", "hash mismatch", "no radio",
+    "none",    "unavailable", "wrong image",    "arm",           "refused",  "no loader",
+    "connect", "transfer",    "loader refused", "hash mismatch", "no radio",
 };
 
 const char *mesh_firmware_ota_state_name(enum mesh_firmware_ota_state state) {
@@ -232,7 +232,7 @@ static void ota_enter_waiting(struct mesh_firmware_ota *ota, uint64_t now_ms) {
 
 /* The transfer, or the connect, broke. Try the loader again while there are tries left. */
 static void ota_retry(struct mesh_firmware_ota *ota, enum mesh_firmware_ota_error error,
-                     uint64_t now_ms) {
+                      uint64_t now_ms) {
     ota_release_loader(ota);
     ota->attempts += 1U;
     if (ota->attempts >= MESH_FIRMWARE_OTA_ATTEMPTS) {
@@ -518,8 +518,9 @@ int mesh_firmware_ota_start(struct mesh_firmware_ota *ota,
     const enum mesh_esp_image_verdict verdict =
         mesh_esp_image_validate(ota->image, ota->image_len, chip, &ota->esp);
     if (verdict != MESH_ESP_IMAGE_OK) {
-        mesh_log_error("firmware", "The staged image is not an application for chip %#x: %s "
-                                   "(it says chip %#x)",
+        mesh_log_error("firmware",
+                       "The staged image is not an application for chip %#x: %s "
+                       "(it says chip %#x)",
                        (unsigned)chip, mesh_esp_image_verdict_name(verdict),
                        (unsigned)ota->esp.chip_id);
         ota_refuse(ota, MESH_FIRMWARE_OTA_ERROR_WRONG_IMAGE);
@@ -565,8 +566,8 @@ int mesh_firmware_ota_start(struct mesh_firmware_ota *ota,
 }
 
 void mesh_firmware_ota_radio_said(struct mesh_firmware_ota *ota, const char *text) {
-    if (ota == NULL || (ota->state != MESH_FIRMWARE_OTA_ARMING &&
-                        ota->state != MESH_FIRMWARE_OTA_WAITING) ||
+    if (ota == NULL ||
+        (ota->state != MESH_FIRMWARE_OTA_ARMING && ota->state != MESH_FIRMWARE_OTA_WAITING) ||
         ota->loader_seen) {
         return;
     }

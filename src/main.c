@@ -431,17 +431,49 @@ static bool cli_await_fresh_handshake(struct mesh_app *app, const struct mesh_cl
     return false;
 }
 
-/* Lets the session's own start-up requests drain, so the ota_request is not queued behind them
-   while arming's clock runs. */
-static void cli_settle_admin_queue(struct mesh_app *app, const struct mesh_cli_link *link) {
+/*
+ * Lets the session's own start-up requests drain, so the ota_request is not queued behind them
+ * while arming's clock runs. Both halves of the queue: mesh_radio_settings_busy() answers only for
+ * the request in flight, and two queued requests each allowed their five-second reply timeout are
+ * the whole of arming's ten. False when it would not drain, which refuses the install before the
+ * radio is asked anything rather than racing the clock.
+ */
+static bool cli_settle_admin_queue(struct mesh_app *app, const struct mesh_cli_link *link) {
     for (int turn = 0; turn < 300; ++turn) {
         const struct mesh_radio_settings *const settings = mesh_session_settings(link->session);
-        if (settings == NULL || !mesh_radio_settings_busy(settings)) {
-            return;
+        if (settings == NULL ||
+            (!mesh_radio_settings_busy(settings) && settings->queue_len == 0U)) {
+            return true;
         }
         mesh_transport_registry_tick(&app->transport_registry);
         (void)mesh_event_loop_run(&app->loop, 50);
     }
+    return false;
+}
+
+/*
+ * select_ble_link() for a firmware install: when -p names a radio, that radio or none.
+ *
+ * The general selector falls back to the loudest node when the preferred one is not in range,
+ * which is right for --status and wrong here twice over. Before arming, a second radio of the same
+ * model would pass the hw_model check and be flashed in place of the one named; and a radio already
+ * in its loader - absent by definition - would have a bystander picked instead of the resume path
+ * looking for its loader. After the install, the confirmation would print the wrong radio.
+ */
+static bool cli_select_named_ble_link(struct mesh_app *app, struct mesh_bluez_device_info *scratch,
+                                      struct mesh_cli_link *link) {
+    if (select_ble_link(app, scratch, link) < 0) {
+        return false;
+    }
+    const char *const wanted = app->config.preferred_ble_device;
+    if (wanted[0] != '\0' && strcasecmp(link->peer.identifier, wanted) != 0 &&
+        strcasecmp(link->peer.name, wanted) != 0) {
+        printf("%s is not in range; not falling back to %s for a firmware install.\n", wanted,
+               link->peer.identifier);
+        memset(link, 0, sizeof *link);
+        return false;
+    }
+    return true;
 }
 
 static int install_radio_firmware_ble(struct mesh_app *app,
@@ -465,7 +497,7 @@ static int install_radio_firmware_ble(struct mesh_app *app,
     struct mesh_cli_link link;
     memset(&link, 0, sizeof link);
     const bool have_radio =
-        select_ble_link(app, ble_devices, &link) >= 0 && connect_and_sync(app, &link) >= 0;
+        cli_select_named_ble_link(app, ble_devices, &link) && connect_and_sync(app, &link) >= 0;
     char radio_address[MESH_FIRMWARE_OTA_ADDRESS_MAX] = {0};
     if (have_radio) {
         mesh_str_copy(radio_address, sizeof radio_address, link.peer.identifier);
@@ -496,7 +528,13 @@ static int install_radio_firmware_ble(struct mesh_app *app,
             mesh_transport_registry_stop_all(&app->transport_registry);
             return -EINVAL;
         }
-        cli_settle_admin_queue(app, &link);
+        if (!cli_settle_admin_queue(app, &link)) {
+            fprintf(stderr, "The radio's own admin requests did not finish; not starting an "
+                            "install behind them.\n");
+            (void)link.disconnect(link.transport);
+            mesh_transport_registry_stop_all(&app->transport_registry);
+            return -EBUSY;
+        }
     } else {
         uint8_t scratch[6];
         if (mesh_ble_hci_parse_address(app->config.preferred_ble_device, scratch)) {
@@ -638,7 +676,7 @@ static int install_radio_firmware_ble(struct mesh_app *app,
             struct mesh_cli_link after;
             memset(&after, 0, sizeof after);
             bool confirmed = false;
-            if (select_ble_link(app, ble_devices, &after) >= 0) {
+            if (cli_select_named_ble_link(app, ble_devices, &after)) {
                 const struct mesh_handshake_status *const before =
                     mesh_session_handshake(after.session);
                 const uint32_t stale_request = before != NULL ? before->request_id : 0U;

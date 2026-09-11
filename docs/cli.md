@@ -136,6 +136,10 @@ line is the evidence the install happened.
 
 Name the radio with `-p ADDRESS`. Without it the loudest radio in range is picked, and the
 `hw_model` check will refuse an nRF52 that happened to be louder rather than send it anything.
+With it there is **no fallback**: `--status` settles for the loudest node when the named one is
+not in range, and an install does not - a second radio of the same model would pass the
+`hw_model` check and be flashed in its place. A named radio that does not answer is taken to be
+the one already in its loader, which is what the resume path below looks for.
 
 **This is the half with a hazard, and the command is built around it.** Once the radio is in its
 loader it stays there - off the mesh, advertising the loader's service - until something sends it

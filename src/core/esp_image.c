@@ -63,10 +63,10 @@ bool mesh_esp_chip_for_architecture(const char *architecture, uint16_t *out_chip
         const char *name;
         uint16_t chip;
     } k_chips[] = {
-        {"esp32", MESH_ESP_CHIP_ESP32},       {"esp32-s2", MESH_ESP_CHIP_ESP32_S2},
-        {"esp32s2", MESH_ESP_CHIP_ESP32_S2},  {"esp32-s3", MESH_ESP_CHIP_ESP32_S3},
-        {"esp32s3", MESH_ESP_CHIP_ESP32_S3},  {"esp32-c3", MESH_ESP_CHIP_ESP32_C3},
-        {"esp32c3", MESH_ESP_CHIP_ESP32_C3},  {"esp32-c6", MESH_ESP_CHIP_ESP32_C6},
+        {"esp32", MESH_ESP_CHIP_ESP32},      {"esp32-s2", MESH_ESP_CHIP_ESP32_S2},
+        {"esp32s2", MESH_ESP_CHIP_ESP32_S2}, {"esp32-s3", MESH_ESP_CHIP_ESP32_S3},
+        {"esp32s3", MESH_ESP_CHIP_ESP32_S3}, {"esp32-c3", MESH_ESP_CHIP_ESP32_C3},
+        {"esp32c3", MESH_ESP_CHIP_ESP32_C3}, {"esp32-c6", MESH_ESP_CHIP_ESP32_C6},
         {"esp32c6", MESH_ESP_CHIP_ESP32_C6},
     };
     for (size_t i = 0; i < sizeof k_chips / sizeof k_chips[0]; ++i) {

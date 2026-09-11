@@ -62,8 +62,8 @@ static void ota_fail(struct mesh_ble_ota *ota, enum mesh_ble_ota_error error, ui
     ota->error = error;
     ota->finished_ms = now_ms;
     mesh_log_error("ble_ota", "The loader conversation failed: %s%s%s, at %zu of %zu bytes",
-                   mesh_ble_ota_error_name(error), ota->reason[0] != '\0' ? ": " : "",
-                   ota->reason, ota->acked, ota->image_len);
+                   mesh_ble_ota_error_name(error), ota->reason[0] != '\0' ? ": " : "", ota->reason,
+                   ota->acked, ota->image_len);
 }
 
 /* ---- what the loader says ------------------------------------------------------------------
@@ -152,9 +152,8 @@ static bool ota_pump(struct mesh_ble_ota *ota, uint64_t now_ms) {
     }
     /* The same call issues the write and, while its reply is pending, polls it - so it is made
        with the same bytes until it stops answering -EAGAIN. */
-    const int result = mesh_bluez_client_write(ota->client, ota->write_path,
-                                               MESH_BLE_OTA_WRITE_UUID, ota->write_data,
-                                               ota->write_len);
+    const int result = mesh_bluez_client_write(
+        ota->client, ota->write_path, MESH_BLE_OTA_WRITE_UUID, ota->write_data, ota->write_len);
     if (result == -EAGAIN) {
         return true;
     }
@@ -163,8 +162,7 @@ static bool ota_pump(struct mesh_ble_ota *ota, uint64_t now_ms) {
         return true;
     }
     ota->write_error = result;
-    mesh_log_warn("ble_ota", "A %zu-byte write was refused: %s", ota->write_len,
-                  strerror(-result));
+    mesh_log_warn("ble_ota", "A %zu-byte write was refused: %s", ota->write_len, strerror(-result));
     ota_fail(ota, MESH_BLE_OTA_ERROR_WRITE, now_ms);
     return false;
 }

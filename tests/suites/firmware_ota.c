@@ -182,8 +182,8 @@ MESH_TEST_CASE(esp_image_reads_a_real_header, unit) {
                       "and not an ESP32 one - chip 0 is a real chip, not a wildcard - and a "
                       "refusal still says which chip it was for");
     MESH_TEST_FAIL_IF(mesh_esp_image_validate(image, MESH_ESP_IMAGE_MIN_LEN - 1U,
-                                              MESH_ESP_CHIP_ESP32_S3, NULL) !=
-                          MESH_ESP_IMAGE_TOO_SHORT,
+                                              MESH_ESP_CHIP_ESP32_S3,
+                                              NULL) != MESH_ESP_IMAGE_TOO_SHORT,
                       "a header cut short is too short");
     image[32] ^= 0xFFU;
     MESH_TEST_FAIL_IF(mesh_esp_image_validate(image, sizeof image, MESH_ESP_CHIP_ESP32_S3, NULL) !=
@@ -203,7 +203,8 @@ MESH_TEST_CASE(esp_image_reads_a_real_header, unit) {
     MESH_TEST_FAIL_IF(!mesh_esp_chip_for_architecture("esp32s3", &chip) ||
                           chip != MESH_ESP_CHIP_ESP32_S3,
                       "and the release manifest's, which is the one that bites");
-    MESH_TEST_FAIL_IF(!mesh_esp_chip_for_architecture("esp32", &chip) || chip != MESH_ESP_CHIP_ESP32,
+    MESH_TEST_FAIL_IF(!mesh_esp_chip_for_architecture("esp32", &chip) ||
+                          chip != MESH_ESP_CHIP_ESP32,
                       "the original ESP32 is chip 0");
     MESH_TEST_FAIL_IF(mesh_esp_chip_for_architecture("nrf52840", &chip) ||
                           mesh_esp_chip_for_architecture(NULL, &chip),
@@ -268,10 +269,9 @@ MESH_TEST_CASE(firmware_ota_installs_over_ble, unit) {
                               "the radio is held to the hash of the bytes that will be sent");
 
     rig_run(&rig, MESH_FIRMWARE_OTA_WAITING, 2000U);
-    MESH_TEST_FAIL_IF_CLEANUP(rig.ota.state != MESH_FIRMWARE_OTA_ARMING ||
-                                  rig.start_discovery_calls != 0U,
-                              rig_close(&rig),
-                              "nothing is scanned for while the radio has not answered");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        rig.ota.state != MESH_FIRMWARE_OTA_ARMING || rig.start_discovery_calls != 0U,
+        rig_close(&rig), "nothing is scanned for while the radio has not answered");
     mesh_firmware_ota_radio_said(&rig.ota, "Rebooting to BLE OTA");
     rig_run(&rig, MESH_FIRMWARE_OTA_CONNECTING, 3000U);
     MESH_TEST_FAIL_IF_CLEANUP(rig.ota.state != MESH_FIRMWARE_OTA_WAITING || !rig.ota.go_ahead ||
@@ -284,8 +284,7 @@ MESH_TEST_CASE(firmware_ota_installs_over_ble, unit) {
     MESH_TEST_FAIL_IF_CLEANUP(rig.ota.state != MESH_FIRMWARE_OTA_RESTARTING ||
                                   strcmp(rig.ota.loader_address, RIG_LOADER) != 0,
                               rig_close(&rig), "the loader should be found and take the image");
-    MESH_TEST_FAIL_IF_CLEANUP(g_interval_calls != 1U ||
-                                  strcmp(g_interval_address, RIG_LOADER) != 0,
+    MESH_TEST_FAIL_IF_CLEANUP(g_interval_calls != 1U || strcmp(g_interval_address, RIG_LOADER) != 0,
                               rig_close(&rig),
                               "the fast interval is asked for once, on the loader's link");
     MESH_TEST_FAIL_IF_CLEANUP(!rig.loader.finished_ok || rig.loader.received != RIG_IMAGE_LEN,
@@ -299,14 +298,12 @@ MESH_TEST_CASE(firmware_ota_installs_over_ble, unit) {
                               "a radio nobody has heard is not back yet");
     rig.devices[0].rssi = -55;
     rig_run(&rig, MESH_FIRMWARE_OTA_DONE, 5000U);
-    MESH_TEST_FAIL_IF_CLEANUP(rig.ota.state != MESH_FIRMWARE_OTA_DONE || !rig.ota.radio_seen ||
-                                  rig.done_calls != 1U ||
-                                  mesh_firmware_ota_progress(&rig.ota) != 100U ||
-                                  mesh_firmware_ota_radio_in_loader(&rig.ota),
-                              rig_close(&rig),
-                              "the radio advertising again is done, reported exactly once");
-    MESH_TEST_FAIL_IF_CLEANUP(rig.ota.image != NULL, rig_close(&rig),
-                              "and the image is let go of");
+    MESH_TEST_FAIL_IF_CLEANUP(
+        rig.ota.state != MESH_FIRMWARE_OTA_DONE || !rig.ota.radio_seen || rig.done_calls != 1U ||
+            mesh_firmware_ota_progress(&rig.ota) != 100U ||
+            mesh_firmware_ota_radio_in_loader(&rig.ota),
+        rig_close(&rig), "the radio advertising again is done, reported exactly once");
+    MESH_TEST_FAIL_IF_CLEANUP(rig.ota.image != NULL, rig_close(&rig), "and the image is let go of");
     rig_close(&rig);
     record_success(test_name);
 }
