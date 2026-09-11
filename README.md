@@ -124,6 +124,7 @@ With the Brick on WiFi and the SSH Server pak installed, skip the SD card: set `
 - [`docs/i18n.md`](docs/i18n.md) — the string catalog, adding a string, adding a language
 - [`docs/cli.md`](docs/cli.md) — flags, environment variables, on-device controls
 - [`docs/device.md`](docs/device.md) — Brick setup and the deploy loop
+- [`docs/steamdeck.md`](docs/steamdeck.md) — building and running on a Steam Deck
 - [`docs/settings-roadmap.md`](docs/settings-roadmap.md) — radio settings, phase by phase
 - [`docs/components-roadmap.md`](docs/components-roadmap.md) — the UI component set: what it has, what it is missing
 - [`docs/testing.md`](docs/testing.md) — test categories and filtering
