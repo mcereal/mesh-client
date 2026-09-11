@@ -119,7 +119,7 @@ suite needs it.
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Verified 2026-09-11: 544 unit tests, all passing, zero compiler warnings - under the host
+Verified 2026-09-11: 549 unit tests, all passing, zero compiler warnings - under the host
 toolchain *and* the cross one, which are not the same check: see
 [`docs/testing.md`](docs/testing.md#what-ci-runs).
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
@@ -187,7 +187,7 @@ is a screen rather than a slot), bubbles (whose trailing run is four typed slots
 | Strings | `src/i18n/strings.c`, `include/mesh/i18n/catalog.def` | the string catalog and the locale registry |
 | Dev tools | `devtools/`, `scripts/{ui-capture.sh,frames.py}` | off-screen UI capture; PNG/GIF encoding, stdlib only |
 | Geography | `src/geo/` | `mesh_geo_coords_valid()` — the bounds test every coordinate ingress asks, so the air, the cache and the keyboard cannot disagree about where Earth ends — `mesh_geo_vector_between()`, the haversine distance and initial bearing the Waypoints tab reads a range from, and `mesh_geo_mercator_forward()`, the projection the map places a marker with. **The only directory in the tree that includes `<math.h>`**, and the reason libm is linked |
-| The map | `src/map/viewport.c`, `src/map/tile.c`, `src/map/source_pack.c`, `src/ui/map.c`, `src/ui/nav_map.c`, `src/ui/backends/fb_map.c` | Where the map is looking (centre, integer zoom, pan, fit, metres per pixel), which tiles that box is standing on (`mesh_map_viewport_tiles()`), where a tile's bytes come from (`source.h`, and the single-file `MCTPACK2` pack behind it), the markers built from the map's own roster (`handshake.map_nodes` - **not** the node list's 128) and the waypoint book, the presses, and the drawing. There are tiles to read and **nothing decodes or draws one yet** — see [`docs/maps-roadmap.md`](docs/maps-roadmap.md). `viewport.c` deliberately has **no `<math.h>`**: everything transcendental about a map is a property of the projection, one directory down |
+| The map | `src/map/viewport.c`, `src/map/tile.c`, `src/map/source_pack.c`, `src/map/tile_image.c`, `src/ui/map.c`, `src/ui/nav_map.c`, `src/ui/backends/fb_map.c` | Where the map is looking (centre, integer zoom, pan, fit, metres per pixel), which tiles that box is standing on (`mesh_map_viewport_tiles()`), where a tile's bytes come from (`source.h`, and the single-file `MCTPACK2` pack behind it), what those bytes decode to (`mesh_map_tile_decode()`, the one file that includes Wuffs), the markers built from the map's own roster (`handshake.map_nodes` - **not** the node list's 128) and the waypoint book, the presses, and the drawing. A tile can be read and decoded and **nothing draws one yet** — the cache and the blit are next, see [`docs/maps-roadmap.md`](docs/maps-roadmap.md). `viewport.c` deliberately has **no `<math.h>`**: everything transcendental about a map is a property of the projection, one directory down |
 | Shared utils | `src/utils/` | `text` (UTF-8 + `mesh_str_copy`), `time` (`mesh_time_monotonic_ms`), `env` (`mesh_env_bool`/`_int`), `json` (a cursor that walks structure, because a release note eventually contains the keys a scanner would look for), `log`, `sha256`, `array` |
 
 `include/mesh/` mirrors `src/` one-for-one — `core/`, `transport/`, `ui/`, `proto/`, `geo/`, `utils/` —
@@ -469,6 +469,25 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   Everything else a read would have to trust is checked **once, at open** - extents inside the
   file, tiles inside the world, and the index's own sort order, because a `bsearch` over an
   unsorted index does not fail, it misses. See [`docs/maps-roadmap.md`](docs/maps-roadmap.md).
+- **The tile decoder's memory is static, constant, and sized for a colour type no pack
+  contains.** A decode on an event loop must not pause to find memory or fail for want of it, so
+  `src/map/tile_image.c` holds two fixed blocks - 48 KiB for Wuffs' decoder and 256 KiB of
+  scratch - and allocates nothing per tile. Both numbers are **asked for and checked rather than
+  known**: Wuffs' decoder struct is opaque in C and upstream says its size is not stable across
+  versions, and the scratch is `width * bytes_per_pixel * height + width`, which scales with the
+  *file's colour type* rather than with the tile size. That second one is why the buffer is
+  sized for 8-bit RGBA (262,400 bytes) when a pack builder quantises to palette (65,792): a
+  style with transparency is an ordinary thing to publish, and a buffer sized from the palette
+  case refuses every 24-bit tile with the constant looking perfectly reasonable. Sixteen bits a
+  channel needs twice again and is refused with `-ENOTSUP` on purpose.
+- **The pak is built without `--gc-sections`, so a third-party module ships whole.**
+  `scripts/cross-build.sh` uses plain `-Os` with no `-ffunction-sections`, which means nothing
+  is dropped *within* an object file and any code compiled into one is code that ships. It is
+  why `src/map/wuffs_png.h` names Wuffs' BASE **sub-modules** rather than BASE (31 KB, where a
+  build that collected sections would have saved 128 bytes), and why the decoder costs 335 KB
+  where the spike's probe - which did collect sections - predicted 106 KB. Read a size
+  measurement's build flags before believing it about this binary. See
+  [`docs/maps-roadmap.md`](docs/maps-roadmap.md).
 - **The map has no selection field on the nav, and must not grow one.** What A opens is the
   marker nearest the middle of the view, derived every frame by `mesh_ui_map_selected()`. That is
   the app bar's back arrow and the transition route again: a second opinion about the nav is a

@@ -18,8 +18,13 @@ both lost on this hardware, and the reasons are specific to it. See §"What the 
 **Step 3's first half is now in the client (2026-09-11):** the pack the measurement chose is a
 format with a reader (`src/map/source_pack.c`), a host-side builder (`devtools/map_pack`) and
 a `--map-pack` flag that opens one on the device, and the viewport answers which tiles a box is
-standing on. Nothing is decoded and nothing is drawn yet - that is the decoder, the tile cache
-and the blit, which are what is left of step 3. See §"The pack format".
+standing on. See §"The pack format".
+
+**And the decoder with it (2026-09-11):** Wuffs is vendored and a tile's bytes become pixels
+through one function, `mesh_map_tile_decode()`. Nothing is *drawn* yet - that is the tile cache
+and the blit, which are what is left of step 3. One thing the integration measured differently
+from the spike, and it is about the pak's build rather than about Wuffs: see §"What the decoder
+actually cost".
 
 §"How a pack gets onto the device" (2026-09-10) corrects a premise that ran through the original
 assessment - that the Brick has no network - and re-sequences the delivery steps around the
@@ -470,6 +475,50 @@ and leaf directories. A pack of a million tiles would hold 24 MB of index in RAM
 the format would have to grow them - and a single file on FAT32 cannot exceed 4 GiB, so a region
 that large is split into files either way. Neither is a rendering question.
 
+## What the decoder actually cost
+
+> **Measured 2026-09-11**, integrating the decoder the spike chose. The spike's figure was
+> +106 KB of code; the client's is **335 KB**, and the difference is not Wuffs.
+
+`devtools/tile_bench/build.sh` compiled its size probes with `-ffunction-sections
+-fdata-sections` and linked them with `-Wl,--gc-sections`, so a function nothing called was
+dropped before it was measured. [`scripts/cross-build.sh`](../scripts/cross-build.sh) builds the
+pak with plain `-Os` and none of those. With no per-function sections there is nothing for a
+linker to drop *inside* an object file, so the whole compiled subset ships whether or not the
+client reaches it - and the subset is large because Wuffs' BASE module carries a general pixel
+swizzler that can convert any format to any other, plus a 16 KiB CRC32 table.
+
+Measured on the host at `-Os`, which is the pak's optimisation level if not its target:
+
+| | text | data | bss |
+| --- | ---: | ---: | ---: |
+| `wuffs_png.c.o`, BASE named whole | 366,371 | 1,032 | — |
+| `wuffs_png.c.o`, BASE's three needed sub-modules | **335,107** | 488 | — |
+| the client's own decoder state (`tile_image.c`) | — | — | 311,552 |
+
+Two things follow, one taken and one proposed.
+
+**Taken: BASE is named by sub-module.** PNG reaches CORE, INTERFACES and PIXCONV; FLOATCONV,
+INTCONV, MAGIC and UTF8 are what a JSON decoder wants and are now never compiled. It is worth
+31 KB under the pak's build and 128 bytes under a build that collects sections, which is a neat
+demonstration of where the cost actually lives.
+
+**Proposed, and deliberately not done here: give the cross build `-ffunction-sections
+-fdata-sections -Wl,--gc-sections`.** Measured on the host, it takes **136 KB** off the whole
+binary - most of it not the decoder's - and the spike already built and ran a static aarch64
+binary that way on the device, so the configuration is not speculative. It is a change to how
+the pak is produced rather than to what is in it, which is why it is a separate decision: it
+touches every release asset and the self-update path, where the binary is what gets downloaded.
+
+The bss line is the client's own and is a deliberate constant: a 48 KiB decoder (Wuffs' struct
+is opaque in C and its size is explicitly not stable across versions, so the block is sized with
+headroom and checked at every decode) and a 256 KiB scratch buffer. The scratch is sized for
+8-bit RGBA - `width * bytes_per_pixel * height + width`, which is 262,400 at four bytes a pixel -
+because a style with transparency is an ordinary thing to publish. Sixteen bits a channel needs
+twice that and is refused with a stated `-ENOTSUP` rather than paid for: no tile server emits it
+and no panel here could show it. None of it is allocated per tile, which is the property that
+matters on an event loop - a decode cannot pause to find memory and cannot fail for want of it.
+
 ## Proposed module boundaries
 
 Names below are proposals, not APIs that already exist.
@@ -484,6 +533,7 @@ Names below are proposals, not APIs that already exist.
 | — *exists:* [`include/mesh/map/tile.h`](../include/mesh/map/tile.h) | The pyramid's own vocabulary - tile size, the zoom range, a key, and the block of them a box covers. Its own header because the viewport and a source both need it and must not include each other | The viewport and every source |
 | — *exists:* `mesh_map_viewport_tiles()` in [`src/map/viewport.c`](../src/map/viewport.c) | Which tiles the box is standing on, and where the first one's corner lands. Measured against the box the viewport *has*, which is why a renderer resizes its own copy first | The map screen, and a "download what is on screen" press later |
 | — *exists:* [`include/mesh/map/source.h`](../include/mesh/map/source.h), [`src/map/source_pack.c`](../src/map/source_pack.c) | Map metadata and tile-byte lookup behind a small source interface. One implementation, the single-file pack the device measurement chose; an HTTP source would arrive here and change nothing above | The offline pack, `--map-pack`, and step 5's optional HTTP source |
+| — *exists:* [`include/mesh/map/tile_image.h`](../include/mesh/map/tile_image.h), [`src/map/tile_image.c`](../src/map/tile_image.c) | A tile's bytes to pixels, in one stated order, with a bounded and constant footprint. The only file in the client that includes Wuffs | The tile cache, and `--map-pack` |
 | `src/map/tile_cache.c` | Byte-budgeted decoded tile cache, request deduplication and eviction | Any map viewport |
 | — *exists:* `struct mesh_ui_map_node` in [`include/mesh/ui/store.h`](../include/mesh/ui/store.h) | The compact projection: every positioned node the *session* holds, not the ranked 128 the list publishes. Filled by `src/core/app_publish.c` | The markers, and anything else that wants a position without a summary |
 | — *exists:* [`src/ui/map.c`](../src/ui/map.c) | Markers from the map's roster and the waypoint book; the selection, measured from the view’s centre in metres | Framebuffer and test consumers |
@@ -718,12 +768,13 @@ keys, a host-side builder and `--map-pack` for reading one back on the device.
 **Recommended next implementation is the rest of step 3**, in this order, because each one is
 useless without the one before it:
 
-1. **The decoder.** Wuffs, which the measurement chose: twice stb_image's speed on palette
-   tiles, memory-safe by construction, and it allocates nothing - a 44.6 KB decoder plus a
-   caller-owned 64-192 KB work buffer, for +106 KB of code. It arrives as a pinned third-party
-   source the way nanopb does, behind a one-function seam that hands back pixels, so the tests
-   below it can inject fixtures rather than PNGs. This is the only step that adds a dependency,
-   which is why it is worth deciding on its own.
+1. ~~**The decoder.**~~ **Done**, 2026-09-11. Wuffs at a pinned revision in
+   `third_party/wuffs`, behind `mesh_map_tile_decode()`. What the spike predicted held except
+   for the code size, which is a fact about the pak's build - see §"What the decoder actually
+   cost". Two numbers the spike had not pinned down: the work buffer is a function of the
+   file's *colour type* and not only of the tile size, so it is sized for 8-bit RGBA rather
+   than for the palette tiles a pack is built from; and the decoder's struct is opaque in C, so
+   its size can only be asked for and is checked at every decode.
 2. **The tile cache.** Byte-budgeted, LRU, keyed on `struct mesh_map_tile_key` - so a world
    narrower than the panel decodes one tile and blits it several times - with the decoded
    representation chosen to suit the blit rather than the decoder. `struct fb_state` carries a
