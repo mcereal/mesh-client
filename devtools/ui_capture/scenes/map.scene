@@ -5,12 +5,18 @@
 # the sequence below aims the crosshair, which is what "aiming is panning" looks like from the
 # outside.
 #
-# Aiming is the word that had to be earned. A direction used to move the view by a fifth of the
-# body, which meant the crosshair only ever landed on a lattice 176 across and 84 down while the
-# crosshair itself captures 28 - so five markers in six could not be put under it at all, and the
-# reader's remedy was to zoom in and out until one happened to line up. A direction now stops on
-# the next marker that way and pans only when there is nothing that way, which is what the
-# presses below are chosen to show: each one lands, and the line under the map fills in.
+# Aiming is the word that had to be earned, and it was earned twice. A direction used to move the
+# view by a fifth of the body, which meant the crosshair only ever landed on a lattice 176 across
+# and 84 down while the crosshair itself captures 28 - so five markers in six could not be put
+# under it at all, and the reader's remedy was to zoom in and out until one happened to line up.
+# Then it aimed too well: a press went to the nearest marker in its quadrant however far away it
+# was, so on a mesh of any density every tap handed the reader the next node and the ground
+# between two of them could not be stood on at all.
+#
+# What a press is now is a *step* - about a fifth of the body, as the pan always was - which ends
+# on a marker when there is one inside it. So the first half of this scene is aiming, each press
+# landing and the line under the map filling in, and the last half is the other half: the same
+# key over ground with nothing near enough on it, moving the world instead.
 #
 # The places are put at nodes that are already in the demo roster, so every distance on the panel
 # is measured between two real fixes rather than between two numbers typed to agree - the same
@@ -61,3 +67,15 @@ hold 1200
 # something a reader can undo.
 key start
 hold 1400
+
+# And two levels closer than the fit, where the cluster is off the panel and the header says 0 of
+# 24 - which is the other half of the rule. There is nothing within a step of the crosshair, so
+# the presses below are pans: the grid moves under a crosshair that stays empty, which is what
+# looking around between two nodes is. A press that went to the nearest marker however far away
+# it was would have answered each of these by teleporting back onto the cluster.
+key x 2
+hold 1200
+key left
+hold 1200
+key up
+hold 1600

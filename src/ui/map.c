@@ -252,9 +252,17 @@ bool mesh_ui_map_step(const struct mesh_ui_map_view *view, const struct mesh_map
         return false;
     }
 
+    /*
+     * How far ahead a press will look, and how far to the side it will look while doing it: one
+     * step of the pan it stands in for, per axis. A press therefore moves the view by about the
+     * same amount whether it lands on a marker or pans, which is what leaves the ground between
+     * two markers reachable - see the header for what a reach of the whole panel did instead.
+     */
     const bool vertical = direction == MESH_UI_MAP_NORTH || direction == MESH_UI_MAP_SOUTH;
-    const double reach =
-        vertical ? (double)MESH_UI_MAP_STEP_REACH_Y : (double)MESH_UI_MAP_STEP_REACH_X;
+    const double reach_along =
+        vertical ? (double)MESH_UI_MAP_PAN_STEP_Y : (double)MESH_UI_MAP_PAN_STEP_X;
+    const double reach_cross =
+        vertical ? (double)MESH_UI_MAP_PAN_STEP_X : (double)MESH_UI_MAP_PAN_STEP_Y;
 
     /*
      * What the reader is already aimed at, asked of the one function that answers it.
@@ -317,10 +325,17 @@ bool mesh_ui_map_step(const struct mesh_ui_map_view *view, const struct mesh_map
             break;
         }
 
-        if (along < MAP_STEP_MIN_PX || along > reach) {
+        if (along < MAP_STEP_MIN_PX || along > reach_along) {
             continue;
         }
         const double span = cross < 0.0 ? -cross : cross;
+        if (span > reach_cross) {
+            /* Further to the side than one press moves the world sideways. Answering "north"
+               with a marker mostly to the east is a press that did not do what it said, and the
+               pan that runs instead walks the reader towards it in the direction they asked
+               for. */
+            continue;
+        }
         if (span > along) {
             /* Outside the quadrant: nearer to another direction than to this one, and it is
                that direction's press to answer. The four of them leave nothing uncovered. */

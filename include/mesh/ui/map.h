@@ -206,19 +206,30 @@ bool mesh_ui_map_selected(const struct mesh_ui_map_view *view,
                           const struct mesh_map_viewport *viewport, uint32_t *out_index);
 
 /*
- * How far ahead of the crosshair a direction will look for a marker, in pixels.
+ * How far one press of a direction moves the world, in pixels - and therefore how far ahead of
+ * the crosshair that press will look for a marker to land on instead.
  *
- * One declared panel that way, and it is the fit's box for the fit's reason: the nav owns the
- * map's state and is never told how big a backend's body is, so a reach expressed in the
- * picture has to be declared rather than measured. Too small is the safe direction again - it
- * costs a press, where a reach of the whole world would answer a nudge west with a node in the
- * next county.
+ * One number for both halves, deliberately. A press is a *step*, and what stopping on a marker
+ * changes is where the step ends, never how long it is: a marker inside the step is where the
+ * step stops, and a marker beyond it is somewhere the next step can go. That is what keeps a
+ * direction honest - the world moves about as far per press whether or not there is anything
+ * that way - and it is what lets a reader cross open ground between two nodes instead of being
+ * handed the next one every time they tap.
  *
- * A marker further out is still reached by pressing the same direction: the step falls back to
- * a pan, the pan brings the marker inside the reach, and the press after that lands on it.
+ * A reach of the whole declared panel is what this replaced, and on a mesh with any density it
+ * answered every press with a marker: nothing in between was reachable, because nothing in
+ * between was ever where a press stopped. Too *short* a reach costs a press and no more - the
+ * step falls back to a pan, the pan brings the marker inside the reach, and the press after
+ * that lands on it exactly.
+ *
+ * A fraction of the declared body rather than a fixed count of pixels, so a press covers the
+ * same *proportion* of the view at every zoom. Roughly a fifth: five presses cross the panel,
+ * which is few enough to be quick and many enough to see where you are going. The nav owns the
+ * map's state and is never told how big a backend's body is, which is why this is expressed
+ * against the declared box (MESH_UI_MAP_FIT_WIDTH) rather than a measured one.
  */
-#define MESH_UI_MAP_STEP_REACH_X MESH_UI_MAP_FIT_WIDTH
-#define MESH_UI_MAP_STEP_REACH_Y MESH_UI_MAP_FIT_HEIGHT
+#define MESH_UI_MAP_PAN_STEP_X (MESH_UI_MAP_FIT_WIDTH / 5)
+#define MESH_UI_MAP_PAN_STEP_Y (MESH_UI_MAP_FIT_HEIGHT / 5)
 
 /*
  * Which way a press is going, in compass terms rather than in the d-pad's.
@@ -255,11 +266,21 @@ enum mesh_ui_map_direction {
  * it says.
  *
  * "That way" is the 45-degree quadrant around the direction pressed - |cross| <= |along| - and
- * the four quadrants tile the plane, so every marker on the panel is one press away from
- * wherever the reader is standing, in the direction it looks like it is in. Among the
- * candidates the nearest wins, so a press walks outward through them rather than jumping the
- * furthest way; a tie goes to the marker built first, which is the order mesh_ui_map_selected()
- * already settles two markers at one place with.
+ * the four quadrants tile the plane, so nothing on the panel is in a direction no press names.
+ * Among the candidates the nearest wins, so a press walks outward through them rather than
+ * jumping the furthest way; a tie goes to the marker built first, which is the order
+ * mesh_ui_map_selected() already settles two markers at one place with.
+ *
+ * "Near enough to land on" is one step, measured per axis: a candidate is inside the box that
+ * one press of the pan covers, MESH_UI_MAP_PAN_STEP_X across and MESH_UI_MAP_PAN_STEP_Y down.
+ * So a press moves the view by about a step whether it lands on something or not, and a marker
+ * further out is walked up to rather than teleported to - the step falls back to a pan, and the
+ * press after it lands exactly. Without that bound this aimed *too* well: with a reach of the
+ * whole declared panel every press on a mesh of any density had a marker to answer with, so the
+ * ground between two nodes was not merely hard to stop on, it was unreachable, and a reader
+ * tapping a direction cycled through the roster instead of exploring the map. Bounding the
+ * cross axis matters as much as the along one: a marker far off to the side is a sideways lurch
+ * from a press that said "north", which is a press that did not do what it said.
  *
  * The marker under the crosshair is not a candidate - it is what the reader is already aimed at,
  * not something ahead of the press - and it is excluded by *identity*: mesh_ui_map_selected()

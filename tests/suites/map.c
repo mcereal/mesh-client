@@ -740,10 +740,10 @@ MESH_TEST_CASE(map_a_direction_goes_to_the_nearest_marker_that_way, unit) {
 
     struct mesh_ui_map_view view;
     memset(&view, 0, sizeof view);
-    map_test_marker_at(&viewport, &view, 1U, 300, 40);  /* east, and further */
+    map_test_marker_at(&viewport, &view, 1U, 160, 40);  /* east, and further */
     map_test_marker_at(&viewport, &view, 2U, 120, 20);  /* east, and nearer */
-    map_test_marker_at(&viewport, &view, 3U, -200, 10); /* west */
-    map_test_marker_at(&viewport, &view, 4U, 40, 300);  /* south, not east: |cross| > along */
+    map_test_marker_at(&viewport, &view, 3U, -150, 10); /* west */
+    map_test_marker_at(&viewport, &view, 4U, 40, 80);   /* south, not east: |cross| > along */
 
     uint32_t index = 0U;
     MESH_TEST_FAIL_IF(!mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_EAST, &index),
@@ -753,21 +753,35 @@ MESH_TEST_CASE(map_a_direction_goes_to_the_nearest_marker_that_way, unit) {
                       "and something west");
     MESH_TEST_FAIL_IF(view.markers[index].id != 3U, "which is the one drawn west");
     MESH_TEST_FAIL_IF(!mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_SOUTH, &index),
-                      "the marker 40 across and 300 down is south");
+                      "the marker 40 across and 80 down is south");
     MESH_TEST_FAIL_IF(view.markers[index].id != 4U, "rather than east");
     MESH_TEST_FAIL_IF(mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_NORTH, &index),
                       "and nothing at all is north");
 
-    /* Reach: a marker further ahead than one declared panel is left to a pan, which walks it
-       into range so the press after it can land. */
+    /* Reach: a marker further ahead than one step is left to a pan, which walks it into range
+       so the press after it can land. */
     memset(&view, 0, sizeof view);
-    map_test_marker_at(&viewport, &view, 5U, MESH_UI_MAP_STEP_REACH_X * 2, 0);
+    map_test_marker_at(&viewport, &view, 5U, MESH_UI_MAP_PAN_STEP_X + 20, 0);
     MESH_TEST_FAIL_IF(mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_EAST, &index),
-                      "two panels east is out of reach");
+                      "beyond one step east is out of reach");
     memset(&view, 0, sizeof view);
-    map_test_marker_at(&viewport, &view, 6U, MESH_UI_MAP_STEP_REACH_X - 20, 0);
+    map_test_marker_at(&viewport, &view, 6U, MESH_UI_MAP_PAN_STEP_X - 20, 0);
     MESH_TEST_FAIL_IF(!mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_EAST, &index),
-                      "just inside one panel is not");
+                      "just inside one step is not");
+
+    /* And the side of the step is bounded too: a marker within reach ahead but further to the
+       side than a press moves the world sideways is a lurch rather than a step, so it is left
+       to the pan that heads towards it. */
+    memset(&view, 0, sizeof view);
+    map_test_marker_at(&viewport, &view, 11U, MESH_UI_MAP_PAN_STEP_X - 10,
+                       MESH_UI_MAP_PAN_STEP_Y + 20);
+    MESH_TEST_FAIL_IF(mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_EAST, &index),
+                      "east does not answer with a marker most of a panel to the south");
+    memset(&view, 0, sizeof view);
+    map_test_marker_at(&viewport, &view, 12U, MESH_UI_MAP_PAN_STEP_X - 10,
+                       MESH_UI_MAP_PAN_STEP_Y - 20);
+    MESH_TEST_FAIL_IF(!mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_EAST, &index),
+                      "and inside the step's own box it does");
 
     /* What is already under the crosshair is behind the press rather than ahead of it. */
     memset(&view, 0, sizeof view);
@@ -787,7 +801,7 @@ MESH_TEST_CASE(map_a_direction_goes_to_the_nearest_marker_that_way, unit) {
      */
     memset(&view, 0, sizeof view);
     map_test_marker_at(&viewport, &view, 8U, 10, 0);  /* selected, and not centred */
-    map_test_marker_at(&viewport, &view, 9U, 300, 0); /* the next one east */
+    map_test_marker_at(&viewport, &view, 9U, 150, 0); /* the next one east */
     uint32_t aimed = 0U;
     MESH_TEST_FAIL_IF(!mesh_ui_map_selected(&view, &viewport, &aimed) ||
                           view.markers[aimed].id != 8U,
@@ -801,6 +815,56 @@ MESH_TEST_CASE(map_a_direction_goes_to_the_nearest_marker_that_way, unit) {
     MESH_TEST_FAIL_IF(!mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_EAST, &index) ||
                           view.markers[index].id != 10U,
                       "a second marker under the crosshair is still a destination");
+
+    record_success(test_name);
+}
+
+/*
+ * The other half of aiming: a press between two distant markers explores rather than cycles.
+ *
+ * This is the correction to the correction. A press that went to the nearest marker in its
+ * quadrant *however far away it was* could aim at anything and could look around at nothing: on
+ * a mesh with a few dozen positioned nodes every tap of a direction had a marker to answer
+ * with, so the view jumped from node to node and the ground between two of them was not merely
+ * awkward to stop on, it was unreachable - the reader's own report, "with every dpad tap it
+ * just cycles to the next".
+ *
+ * What bounds it is the step itself: a press moves the world about one pan, whether or not
+ * there is something to land on. So the case below walks a marker three steps away into reach
+ * one press at a time, and the last press is the one that lands on it exactly - which is both
+ * halves at once, a map that can be looked around and a marker that can still be aimed at.
+ */
+MESH_TEST_CASE(map_a_direction_explores_before_it_lands, unit) {
+    struct mesh_map_viewport viewport;
+    map_test_viewport(&viewport, 16);
+
+    struct mesh_ui_map_view view;
+    memset(&view, 0, sizeof view);
+    map_test_marker_at(&viewport, &view, 1U, MESH_UI_MAP_PAN_STEP_X * 3, 0);
+
+    /* Three steps east is nothing a press may land on, so the first two presses are pans - and
+       a pan is what the reader wanted: the view moves over the ground in between. */
+    uint32_t index = 0U;
+    for (int press = 0; press < 2; ++press) {
+        MESH_TEST_FAIL_IF(mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_EAST, &index),
+                          "a marker further off than one step is not a destination yet");
+        MESH_TEST_FAIL_IF(!mesh_map_viewport_pan(&viewport, MESH_UI_MAP_PAN_STEP_X, 0),
+                          "so the press pans instead");
+        MESH_TEST_FAIL_IF(mesh_ui_map_selected(&view, &viewport, &index),
+                          "and stops on open ground, which is what exploring is");
+    }
+
+    /* Now it is within the step, and the press that finds it lands on its own coordinates. */
+    MESH_TEST_FAIL_IF(!mesh_ui_map_step(&view, &viewport, MESH_UI_MAP_EAST, &index),
+                      "the third press has it in reach");
+    MESH_TEST_FAIL_IF(view.markers[index].id != 1U, "and it is the marker walked up to");
+    MESH_TEST_FAIL_IF(!mesh_map_viewport_center_on(&viewport, view.markers[index].latitude_i,
+                                                   view.markers[index].longitude_i),
+                      "the view centres on it");
+    uint32_t selected = 0U;
+    MESH_TEST_FAIL_IF(!mesh_ui_map_selected(&view, &viewport, &selected) ||
+                          view.markers[selected].id != 1U,
+                      "so the marker the press walked to is the one under the crosshair");
 
     record_success(test_name);
 }

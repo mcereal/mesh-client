@@ -362,20 +362,32 @@ zoom in whole levels, START frames everything again, B leaves, and SELECT is hel
 suggested SELECT for recentring, before there was a help screen; a keycap that means one thing
 everywhere it means anything is worth more than that suggestion.
 
-**A direction stops on the next marker that way**, and pans by a fifth of the body only when
-there is nothing that way. That is `mesh_ui_map_step()`, and it is a correction rather than a
-flourish: a pan of a fixed number of pixels only ever leaves the crosshair on a lattice 176
+**A direction is one step, and a marker inside that step is where the step ends.** A press moves
+the world by about a fifth of the body — `MESH_UI_MAP_PAN_STEP_X/Y`, which is what the fallback
+pans by — and `mesh_ui_map_step()` spends that same distance landing exactly on a marker when
+there is one within it. Both halves are corrections rather than flourishes, and they are
+corrections in opposite directions.
+
+The first: a pan of a fixed number of pixels only ever leaves the crosshair on a lattice 176
 across and 84 down, the crosshair captures a disc of 28, and π·28² over 176·84 is a sixth — so
 *five markers in six could not be put under the crosshair at all* at a given zoom, however long
 the reader panned. Zooming re-phased the lattice, which made the symptom read as "sometimes it
 works" and sent readers zooming in and out to shake a node loose. "That way" is the 45-degree
-quadrant around the press, and the four of them tile the plane, so everything on the panel is
-one press away in the direction it looks like it is in; among the candidates the nearest wins,
-so a press walks outward rather than jumping the furthest way. The view centres on the marker's
-own coordinates, so the landing is exact and the selection below is still derived rather than
-recorded — and because what is already under the crosshair is behind the press rather than ahead
-of it, a direction always moves, which is how a reader steps between two markers drawn on top of
-each other.
+quadrant around the press, and the four of them tile the plane, so nothing on the panel lies in
+a direction no press names; among the candidates the nearest wins, so a press walks outward
+rather than jumping the furthest way. The view centres on the marker's own coordinates, so the
+landing is exact and the selection below is still derived rather than recorded — and because what
+is already under the crosshair is behind the press rather than ahead of it, a direction always
+moves, which is how a reader steps between two markers drawn on top of each other.
+
+The second: that step's reach was the whole declared panel to begin with, and aiming that far
+ahead cost the panning it was bolted onto. On a mesh with a few dozen positioned nodes every tap
+had a marker somewhere in its quadrant to answer with, so the view cycled through the roster and
+the ground *between* two nodes could not be stood on — the lattice complaint again, from the
+other side. The reach is therefore one step, bounded on **both** axes: the along bound is what
+leaves open ground reachable, and the cross bound is what stops a press that said "north" from
+answering with a sideways lurch onto something mostly east. A marker further out is walked up to
+rather than teleported to — the step falls back to a pan, and the press after it lands.
 
 **Panning is aiming, so there is no selection to store.** The crosshair is the middle of the
 panel and the selected marker is whatever is nearest it, derived on every frame by
