@@ -11,15 +11,19 @@
 scene demo
 tab nodes
 
+# Row 0 of the Nodes list is the Map, so a node's row is its index in the demo roster plus one:
+# Echo Repeater is seeds[5] and row 6, Delta Camp is seeds[4] and row 5.
+
 # Echo Repeater: hears three, and two of those report hearing it back.
-key down 5
+key down 6
 key a
-key down 30
+key down 34
 hold 1600
 key b
 
-# Delta Camp: hears nobody, which is what a node off the mesh looks like.
-key down 1
+# Delta Camp: hears nobody, which is what a node off the mesh looks like. B left the cursor on
+# Echo's own row, so this is one step back up the list rather than an index into it.
+key up 1
 key a
-key down 20
+key down 21
 hold 1600
