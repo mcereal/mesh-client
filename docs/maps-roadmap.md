@@ -307,20 +307,23 @@ produced **identical pixels on all 800 tiles checked**. All numbers are millisec
 Warm, every layout's fetch is under half a millisecond and a tile is decode plus a 0.2-0.4 ms blit.
 
 **A whole 1024x768 map from cold** (5x4 tiles at an arbitrary offset, which is the most one can
-touch), then **one pan** of a tile's width (four new tiles, twenty blitted from decoded ones), 20
-rounds each - first with the client stopped and the launcher's `schedutil` governor, then with
+touch), then from that same view **one pan across** (a new column: four tiles, twenty blitted
+from decoded ones) and **one pan down** (a new row: five tiles), 20 rounds each. The pan-down
+column comes from a second idle run, in which every other column reproduced the first to within a
+millisecond. The rest was run first with the client stopped and the launcher's `schedutil`
+governor, then with
 the client running and connected over BLE to a Heltec V3, which NextUI runs under `performance`
 (a fixed 2 GHz; see the last point below). The client's 147-node NodeDB sync overlapped only the
 first ten seconds of that run - the first row's rounds - and the rest ran beside a connected,
 mostly quiet client:
 
-| Layout | Decoder | View p50 | View max | Pan p50 | Pan max | View p50 / max, client syncing |
-| --- | --- | ---: | ---: | ---: | ---: | ---: |
-| single-file pack | Wuffs | **43** | **47** | **12.5** | **14.4** | **41 / 46** |
-| single-file pack | stb_image | 66 | 78 | 16.8 | 18.9 | 64 / 79 |
-| MBTiles | Wuffs | 58 | 68 | 15.1 | 19.0 | 54 / 69 |
-| `z/x/y` tree | Wuffs | 90 | 141 | 19.2 | 26.8 | 85 / 253 |
-| `z/x/y` tree | stb_image | 111 | 246 | 22.2 | 26.4 | 119 / **625** |
+| Layout | Decoder | View p50 / max | Pan across p50 / max | Pan down p50 / max | View p50 / max, client running |
+| --- | --- | ---: | ---: | ---: | ---: |
+| single-file pack | Wuffs | **43 / 47** | **12.5 / 14.4** | **12.4 / 15.1** | **41 / 46** |
+| single-file pack | stb_image | 66 / 78 | 16.8 / 18.9 | 17.2 / 20.7 | 64 / 79 |
+| MBTiles | Wuffs | 58 / 68 | 15.1 / 19.0 | 15.5 / 17.8 | 54 / 69 |
+| `z/x/y` tree | Wuffs | 90 / 141 | 19.2 / 26.8 | 16.9 / 20.2 | 85 / 253 |
+| `z/x/y` tree | stb_image | 111 / 246 | 22.2 / 26.4 | 22.4 / 24.2 | 119 / **625** |
 
 What this settles:
 
@@ -346,6 +349,13 @@ What this settles:
   **44.6 KB** decoder plus a **64-192 KB** caller-owned work buffer, which is the bounded
   allocation this document asked a decoder to prove. It costs **+106 KB** of code against stb's
   +52 KB, which is the price of the checking.
+- **A pan costs the same in both directions, so plain `(z, x, y)` order is enough.** The worry was
+  that the pack's order favours one direction: a new column is one contiguous run, while a new row
+  is five tiles spread through the file. It did not show - a pan down read one more tile than a
+  pan across and took the same 12.4 ms - because each tile of a new row sits just after a tile the
+  view has already read, and readahead has it. That adjacency holds at any pack size, so tiles do
+  not need a space-filling-curve order for panning. Zooming, which reads a different level of the
+  pack, was not measured.
 - **Packs should be palette PNGs.** The 24-bit set decodes 1.7x slower and is 2.7x larger for no
   gain on a 1024x768 panel; quantising is the pack builder's job, on the host, once.
 - **The SD card is fast enough; the internal ext4 is not needed.** The same pack on `/mnt/UDISK`
@@ -357,7 +367,8 @@ What this settles:
   408-1800 MHz, and switches to `performance`, a fixed 2 GHz, before it runs any pak - "they can
   change it themselves after launch if they want". So the client as launched decodes at the warm
   numbers: with it up, a cold pack-and-Wuffs tile was **2.2 ms at p50 and 2.8 ms at p99**. Under
-  `schedutil` and after a one-second pause, decode goes from 1.2 to **4.8 ms** (tile p99 10.8 ms),
+  `schedutil` and after a one-second pause, decode goes from 1.2 to **4.7 ms** (tile p99 9.7 ms,
+  with the cache dropped before the pause so that the timed tile is the first work after it),
   which is what the first press after a spell of reading would cost if the client ever dropped to
   `schedutil` to save battery. That is a trade worth making knowingly, and the map is where it
   would show.
