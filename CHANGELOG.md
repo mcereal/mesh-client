@@ -1,3 +1,13 @@
+## [2.57.0](https://github.com/mcereal/mesh-client/compare/v2.56.1...v2.57.0) (2026-09-11)
+
+### Features
+
+* **input:** make the pad and the panel table-driven ([5b5fcd5](https://github.com/mcereal/mesh-client/commit/5b5fcd51b6b874854cbaeb9136ab1a698e64aa3d))
+
+### Bug Fixes
+
+* **input:** bind the xbox profile's X and Y by code, not by compass name ([77dfda1](https://github.com/mcereal/mesh-client/commit/77dfda1a77d587063fcb80a0f1d2942bc225c1a8))
+
 ## [2.56.1](https://github.com/mcereal/mesh-client/compare/v2.56.0...v2.56.1) (2026-09-11)
 
 ### Bug Fixes
