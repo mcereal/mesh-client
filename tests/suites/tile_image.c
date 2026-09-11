@@ -285,6 +285,57 @@ MESH_TEST_CASE(tile_image_refuses_what_is_not_a_tile, unit) {
 }
 
 /*
+ * A tile damaged after its last pixel still decodes, and one damaged before it does not.
+ *
+ * The pair is the point. A cut that reaches the pixel data fails, because the zlib stream
+ * carries its own checksum and a short one cannot be read out; a cut that only reaches IEND -
+ * twelve bytes of constant, carrying nothing - leaves a picture that is whole and verified, and
+ * refusing it would put a blank square on the map where a correct tile exists. There is no case
+ * where enforcing the terminator stops a *wrong* picture from being drawn.
+ *
+ * Written down as a case because it is a decision, and an undecided one looks identical: the
+ * decoder does this whether or not anybody meant it to, so without this the next person to read
+ * the contract would have to guess which it was.
+ */
+MESH_TEST_CASE(tile_image_reads_a_tile_damaged_after_its_last_pixel, unit) {
+    struct tile_decoded *const tile = tile_load(TILE_PALETTE_PNG);
+    MESH_TEST_FAIL_IF(tile == NULL, "the palette fixture loads");
+
+    /* Where IEND starts: the last chunk, twelve bytes of length, type and checksum. */
+    const size_t terminator = tile->encoded_len - 12U;
+    MESH_TEST_FAIL_IF_CLEANUP(memcmp(tile->encoded + terminator + 4U, "IEND", 4U) != 0,
+                              tile_free(tile), "the fixture ends with an IEND chunk");
+
+    /* Gone entirely, and the pixels still come out. */
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_map_tile_decode(tile->encoded, terminator, tile->pixels,
+                                                   MESH_MAP_TILE_IMAGE_BYTES) != 0,
+                              tile_free(tile), "a tile with no terminator still decodes");
+
+    /* And present but wrong, which is what a bad sector on those twelve bytes looks like. */
+    uint8_t *const damaged = malloc(tile->encoded_len);
+    MESH_TEST_FAIL_IF_CLEANUP(damaged == NULL, tile_free(tile), "a copy to damage");
+    memcpy(damaged, tile->encoded, tile->encoded_len);
+    damaged[tile->encoded_len - 1U] = (uint8_t)~damaged[tile->encoded_len - 1U];
+    const int tail =
+        mesh_map_tile_decode(damaged, tile->encoded_len, tile->pixels, MESH_MAP_TILE_IMAGE_BYTES);
+    free(damaged);
+    MESH_TEST_FAIL_IF_CLEANUP(tail != 0, tile_free(tile),
+                              "and so does one whose terminator is corrupt");
+
+    /*
+     * The other side of the line: twenty bytes short reaches into the compressed pixels, and
+     * that is refused. Without this half the case above would read as "the decoder ignores
+     * damage", which is the opposite of what it does.
+     */
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_map_tile_decode(tile->encoded, tile->encoded_len - 20U,
+                                                   tile->pixels,
+                                                   MESH_MAP_TILE_IMAGE_BYTES) != -EILSEQ,
+                              tile_free(tile), "a cut that reaches the pixels is -EILSEQ");
+    tile_free(tile);
+    record_success(test_name);
+}
+
+/*
  * Decoding holds a constant amount of memory, and decoding more tiles does not hold more.
  *
  * The promise docs/maps-roadmap.md asked a decoder to prove, and the reason this one was picked

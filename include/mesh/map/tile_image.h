@@ -56,7 +56,7 @@ extern "C" {
  *
  *   -EINVAL   the arguments are not usable, or the image is not MESH_MAP_TILE_SIZE square
  *   -ENOBUFS  `pixels` is smaller than a tile
- *   -EILSEQ   the bytes are not a PNG, or are a broken one
+ *   -EILSEQ   the bytes are not a PNG, or its pixels cannot be read out whole
  *   -ENOTSUP  a PNG this client does not decode: sixteen bits a channel, in practice
  *
  * The last three are worth keeping apart, because they are somebody else's problem in three
@@ -64,6 +64,19 @@ extern "C" {
  * image is a file being broken, and is a Tuesday - a pack lives on a card somebody pulled out
  * of a laptop. And a PNG we decline is a *pack builder* having produced something no map style
  * needs, which is the one of the three a user can fix.
+ *
+ * **A file damaged after its last pixel still decodes**, and that is a decision rather than an
+ * oversight. A PNG whose IDAT is complete has all 65,536 pixels in it and they have been
+ * checked - the zlib stream carries its own checksum, so a cut that reaches the pixel data
+ * fails here. What is left after that is IEND, twelve bytes of constant carrying no data, and
+ * refusing a whole and verified picture because its terminator was lost would put a blank
+ * square on the map where a correct tile exists. On a handheld whose pack is the only map there
+ * is, that trade is the wrong way round: there is no case where enforcing the terminator stops
+ * a *wrong* picture being drawn, only cases where it stops a right one.
+ *
+ * It is a narrow class in any event. A pack truncated in transit never reaches here - the
+ * source refuses one whose index describes bytes the file does not have - so this is corruption
+ * inside an intact file that lands on a tile's last bytes and nowhere else.
  *
  * Only a tile exactly MESH_MAP_TILE_SIZE square is accepted, and that is a refusal rather than a
  * scale. The pack builder rejects any other size on the host and a pack states its tile size in
