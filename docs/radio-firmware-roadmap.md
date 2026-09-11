@@ -5,15 +5,18 @@ that is [`src/core/updater.c`](../src/core/updater.c), and everything below borr
 This document is about the other binary in the room: the Meshtastic firmware running on the
 node the Brick is talking to, which today can only be changed with a computer and a cable.
 
-Status: **phases 0 through 3 have shipped and are confirmed on hardware**, the last of them on
-2026-09-10 — on a Brick with a Heltec Mesh Node T114 on the USB-C port. The client now updates
-the radio's firmware over USB: `--install-firmware` sends the board into DFU, writes the
-`.uf2` to its bootloader and watches it come back, in about twenty seconds. What phase 3's own
+Status: **phases 0 through 4 have shipped and are confirmed on hardware**, the last of them on
+2026-09-11 — a Heltec V3 updated over Bluetooth from a Brick, with nothing plugged in. The client
+now updates the radio's firmware on both buses: over USB `--install-firmware` sends an nRF52
+into DFU, writes the `.uf2` to its bootloader and watches it come back in about twenty seconds;
+over BLE it sends an ESP32 into its OTA loader, streams the image and watches it come back in
+about three and a half minutes. What phase 4's run measured is in
+[§What phase 4 measured](#what-phase-4-measured). What phase 3's own
 runs corrected is in [§What phase 3 measured](#what-phase-3-measured), and all three of those
 were defects a suite could not have found. Phase 2 and phase 3 are no longer proposals resting
 on assumptions; the numbers are in
 [§What phase 0 measured](#what-phase-0-measured), and two of them move work off the plan
-rather than onto it. What is left is the *BLE* half - phase 4 - and the UI, which is phase 5:
+rather than onto it. What is left is the UI, which is phase 5, and the edges it carries:
 today the whole feature is a command line. See
 [§Phases](#phases) for what that covers and [§What phase 1 measured](#what-phase-1-measured) for
 the three upstream facts it corrected on the way. The rest of the upstream facts were read out
@@ -21,11 +24,12 @@ of `meshtastic/firmware` at `81b3ce8`, `meshtastic/esp32-unified-ota` at its hea
 `meshtastic/firmware-ota` (the old loader), `adafruit/Adafruit_nRF52_Bootloader` (the UF2 side)
 and `meshtastic/Meshtastic-Android`'s `feature/firmware` module, and the release layout was
 measured against
-`v2.7.26.54e0d8d` and `v2.8.0.47db0e3` by range-reading the published zips. Everything about
-the *BLE* half is still a proposal and is marked as such, though its throughput question is now
-answered too and the answer has a condition attached -
-[§What phase 0 measured on BLE](#what-phase-0-measured-on-ble). The measurements it still needs
-are in [§Before any of this is written](#before-any-of-this-is-written).
+`v2.7.26.54e0d8d` and `v2.8.0.47db0e3` by range-reading the published zips, and the loader's
+protocol out of `meshtastic/esp32-unified-ota` at its head. The BLE half was built against the
+condition [§What phase 0 measured on BLE](#what-phase-0-measured-on-ble) attached to it - the
+client asks for its own connection interval - and that condition held on the wire. The one
+measurement still open is a battery reading; see
+[§Before any of this is written](#before-any-of-this-is-written).
 
 It supersedes the one-line answer in
 [`settings-roadmap.md`](settings-roadmap.md) — "large, hardware-specific, can brick the radio,
@@ -312,9 +316,9 @@ The loader is a different BLE peripheral than the radio was a moment ago:
   `62ec0272-3ec5-11eb-b378-0242ac130005` to write (write / write-no-response) and
   `...0003` to notify. Scan on the service UUID; treat the name and the address as
   corroboration, not as the filter.
-- **No pairing.** The loader registers no security on either characteristic. Whether BlueZ tries
-  to encrypt anyway because it holds a bond for that address is one of the things
-  [§Before any of this is written](#before-any-of-this-is-written) asks us to measure.
+- **No pairing.** The loader registers no security on either characteristic, and BlueZ does not
+  try to encrypt: the bond is the radio's address and the loader's is another one. Measured in
+  phase 4 - see [§What phase 4 measured](#what-phase-4-measured).
 
 ### The protocol
 
@@ -615,9 +619,12 @@ More than half of this, which is the argument for doing it now rather than in th
 | Bootloader recognition in `serial_usb.c` | small | **shipped in phase 2.5.** A role on `struct mesh_serial_device_info`, read off the sibling interfaces the sysfs walk already visits. Fixed a live bug and is phase 3's "has it come back yet" — see [§Knowing a bootloader when we see one](#knowing-a-bootloader-when-we-see-one) |
 | `src/transport/serial/usb_msc.c` | 20 lines, then 350 | **shipped in phase 3**, and it came to about 200 rather than 20 — the write itself *is* twenty lines, and everything around it is the three questions the twenty do not answer: which block device belongs to this bootloader, what the platform has mounted on it, and how to copy 1.4 MB without blocking the loop the UI draws on. The usbfs Bulk-Only Transport behind it — CBW, SCSI `WRITE(10)`, CSW — is still a **fallback for a kernel without `usb-storage`**, and phase 0 says this kernel is not one |
 | `src/core/uf2.c` | 150 lines | **shipped in phase 2.** Reading a `.uf2`: magic, `blockNo`/`numBlocks`, family id, `payloadSize`, and the check that the file we are about to write is for the board we are about to write it to |
-| `src/transport/ble/ble_ota.c` | 300 lines | the loader conversation. Chunk, write, await `ACK`, count. Sits on the bluez client, not on `mesh_session` |
-| `mesh_bluez_client_find_characteristics()` | small | generalise `find_meshtastic_characteristics` to any service/characteristic pair. It is already generic underneath |
-| Write-without-response | small | one `{"type": "command"}` entry in the options dict that is currently always empty |
+| `src/transport/ble/ble_ota.c` | 300 lines | **shipped in phase 4**, at about 400. The loader conversation: VERSION, OTA, the erase, one chunk per write with one outstanding, `ERR` in the loader's own words. Answers are recorded where they arrive and acted on from the tick, so a write is never issued from inside a D-Bus callback. Sits on the bluez client, not on `mesh_session` |
+| `src/core/firmware_ota.c` | - | **shipped in phase 4**, and not in this table before: the handover the conversation is one step of - arm, find the loader, connect, send, watch the radio return - with three attempts at the loader and `mesh_firmware_ota_radio_in_loader()` for what the banner will say. The BLE counterpart of `firmware_install.c` |
+| `src/transport/ble/ble_hci.c` | - | **shipped in phase 4**: the raw `LE Connection Update` phase 0 said the client would need, since BlueZ has no D-Bus call for it. Finds the handle with `HCIGETCONNLIST` |
+| `src/core/esp_image.c` | - | **shipped in phase 4**: the ESP32 app header's magic and chip id, the counterpart of `uf2.c`'s family check. The loader only learns an image is for another chip in `esp_ota_end()`, after the whole transfer |
+| `mesh_bluez_client_find_characteristics()` | small | **shipped** as `mesh_bluez_client_find_characteristic()`, with `_list_by_service()` and `_characteristic_mtu()` beside it, and `mesh_bluez_client_init_private()` - the install's own D-Bus connection, because the shared one would hand the transport's replies to it |
+| Write-without-response | small | **not needed.** The protocol is stop-and-wait, so there is nothing to queue into the socket it would buy; a Write Request per chunk ran at 11.7 KB/s |
 | UI: a Firmware section, a progress screen, a banner, a confirm sheet | medium | see below |
 | Strings, help notes, icons | small | catalog lines, one section note plus per-row notes, no new icons expected |
 
@@ -1320,14 +1327,46 @@ the network is the thing that is broken:
   --install-firmware heltec-mesh-node-t114 --staging /mnt/UDISK
 ```
 
-**Phase 4 — the BLE handover.** `ota_request`, the loader conversation, the banner, recovery.
-The phase that can leave somebody's radio needing this client to come back, arriving after the
-download half has been proven by phase 3 and after phase 0 has said what the throughput is - which
-it now has, together with the reason the client has to ask for a 7.5 ms connection interval before
-it starts and give it back afterwards.
+**Phase 4 — the BLE handover. Shipped, and confirmed on hardware** on 2026-09-11. `ota_request`,
+the loader conversation, recovery. The phase that can leave somebody's radio needing this client
+to come back, which is why it was built to come back: a transfer that breaks is retried from the
+start up to three times, and the same command started again with no radio answering finds a
+radio already in its loader and finishes the job.
 
-**Phase 5 — the edges.** Resume a partial stream, a battery floor, the variant picker, a "the
-loader answered but this is the old one" path, a bootloader that needs a double-tap because the
+What it turned into: **`MESH_ADMIN_OTA_REQUEST`** in
+[`radio_settings.c`](../src/core/radio_settings.c), carrying the image's SHA-256 and pinned in a
+hand-derived golden; [`firmware_ota.c`](../src/core/firmware_ota.c) for the handover and
+[`ble_ota.c`](../src/transport/ble/ble_ota.c) for the protocol inside it;
+[`ble_hci.c`](../src/transport/ble/ble_hci.c) for the connection interval; and
+[`esp_image.c`](../src/core/esp_image.c) for the chip check. `--install-firmware heltec-v3`
+runs the whole of it, and the suite runs it against a fake loader that hashes what it is sent.
+
+Five decisions in it are worth stating:
+
+- **The radio is held to the hash of the bytes that will be sent**, because the image is read
+  into memory and hashed before the radio is asked anything. Hashing the file and then reading it
+  again would leave a window for the two to differ.
+- **The connected radio's `hw_model` is compared with the image's before arming.** The chip check
+  cannot tell a Heltec V3 from a T-Beam S3, and a CLI that picks the loudest radio in the room can
+  have picked an nRF52 - whose firmware ignores `ota_request` and reboots a second later anyway.
+- **The loader is found by its service, and the address is corroboration.** One loader in range
+  is taken at any address; several are told apart by the radio's address plus one. Taking the
+  wrong one costs nothing: it holds another image's hash and refuses ours in so many words.
+- **A loader's own refusal is final and a broken transfer is not.** `ERR Hash Rejected` answers
+  the same way every time, so it ends the install; a timeout, a dropped link or a hash mismatch
+  goes back to the loader, which forgets a half-written image and starts over on the next `OTA`.
+- **The install has its own D-Bus connection.** `dbus_bus_get` hands every caller one shared
+  connection, and a client installs its watch functions on it and pops every message - so a
+  second client on the shared one would take the transport's replies away from it while that
+  transport was still carrying the `ota_request`.
+
+The banner and the startup recovery the roadmap filed here are UI, and moved to phase 5 with the
+rest of it: the command line's recovery is the command.
+
+**Phase 5 — the UI and the edges.** The Firmware rows, the confirm sheet, the progress screen,
+the "radio is in update mode" banner (`mesh_firmware_ota_radio_in_loader()` is its predicate) and
+recovery on startup - scan for a loader before scanning for radios. Then a battery floor, the
+variant picker, a "the loader answered but this is the old one" path, a bootloader that needs a double-tap because the
 admin verb never reached it, and the help notes that explain what any of it means.
 
 **Later, maybe never.** nRF52 over *Nordic DFU*, i.e. over BLE. Note what this is and is not:
@@ -1400,6 +1439,53 @@ One thing this did *not* have to fix, and it is worth recording: taking the shad
 whole of putting `/mnt/SDCARD` back. It is a stacked mount and the card is still mounted
 underneath it, so there is no remount to arrange and no state to remember.
 
+## What phase 4 measured
+
+One run, on 2026-09-11: the Brick on adb, a **Heltec V3** (`9C:13:9E:9D:0A:D9`, `hw_model` 43,
+bonded) on the desk running `2.7.26.54e0d8d` with 2.7.26's unified loader in `app1`, and
+`--install-firmware heltec-v3` reflashing that same release - the safest first run there is,
+since the image the radio was held to is the one it already ran. `btmon` recorded the HCI traffic
+throughout. It went end to end on the first attempt, and the timeline is the finding:
+
+| wall (UTC) | step |
+|---|---|
+| 16:32:33.26 | `ota_request` sent, behind a `get_owner` for the passkey |
+| 16:32:34.11 | `ClientNotification`: "Rebooting to BLE OTA" - 0.84 s |
+| 16:32:36.03 | loader found at **`9C:13:9E:9D:0A:DA`**, -44 dBm - 1.9 s after the go-ahead |
+| 16:32:36.48 | `LE Connection Update` to 7.5 ms sent; accepted 0.2 s later |
+| 16:32:37.31 | services resolved, MTU **517**, so **512-byte chunks** |
+| 16:32:37.34 | VERSION: `OK 0 2.7.26.54e0d8d 310 v1.0.1` |
+| 16:32:41.67 | erase done - **4.2 s** |
+| 16:35:42.61 | last chunk answered OK: 2,109,248 bytes in **180.9 s, 11,657 B/s** |
+| 16:35:50.75 | the radio advertising at its own address again - 8.1 s |
+
+About three and a half minutes from the request to a radio back on the mesh. And the radio
+proved it had been flashed rather than merely rebooted: its reboot count was **310 before and 1
+after**, because the loader resets the counter it keeps in the radio's NVS.
+
+Five things this settles or corrects:
+
+- **The loader is at the radio's address plus one**, on an ESP32-S3 too - the phone app's
+  `calculateMacPlusOne` is right for this path. BlueZ heard it only by address (its alias was the
+  address itself), so the `Meshtastic_XXYY` name never reached the device list; scanning on the
+  service rather than the name was the right call for more than the reason it was made.
+- **Three and a half minutes, not five.** Phase 0's estimate assumed the 252-byte chunk the
+  radio's own link negotiated. The loader asks NimBLE for 517 and got it, so a chunk is 512 bytes
+  and the image is 4,120 of them - about 44 ms apiece at 7.5 ms. The estimate table in
+  [§What phase 0 measured on BLE](#what-phase-0-measured-on-ble) stands as the worst case, for a
+  loader that negotiates less.
+- **The interval really was ours to take.** The capture shows the client's `LE Connection
+  Update` completing at 7.50 ms, and the loader's own L2CAP request for 12/12 - 15 ms - answered
+  `Connection Parameters rejected` by the kernel, exactly as phase 0 predicted. Left alone, the
+  link would have stayed at the 30 ms it opened at.
+- **VERSION's first field is not a hardware model.** The loader reads `hwVendor` out of the
+  radio's NVS and this one said 0. It is logged, never checked - the `hw_model` comparison happens
+  against the radio before arming, where the value is the firmware's own.
+- **A reconnect in the same process sees the last session.** The CLI's confirmation step printed
+  reboot count 310 after the install - the handshake the session still held from before it, since
+  the session outlives the transport being stopped. The run's only defect, and a CLI one: the
+  step now waits for a handshake with a new request id. A fresh `--status` read 1.
+
 ## Before any of this is written
 
 Eight questions, all answerable in an afternoon with `make deploy-*`, all capable of changing
@@ -1428,11 +1514,13 @@ reading that only the BLE path still needs a number for.
    loader's own request for 15 ms will be **refused** by this kernel, so the client has to ask for
    the interval itself and hand it back after. See
    [§What phase 0 measured on BLE](#what-phase-0-measured-on-ble).
-5. **The bond.** The radio is bonded; the loader at MAC+1 is a different address with no
-   security. Does BlueZ connect cleanly, or does it try to encrypt with a key nobody has?
-6. **Cached services.** After the radio reboots into the loader and back out again, does BlueZ
-   re-discover its GATT database, or does it serve a stale one? The phone app has a
-   cache-refresh reconnect delay for a reason.
+5. ~~**The bond.**~~ **Answered: BlueZ connects cleanly.** The loader was at MAC+1, BlueZ held no
+   bond for that address and issued no `LE Start Encryption` on its link - the capture's two are
+   both on the radio's. See [§What phase 4 measured](#what-phase-4-measured).
+6. ~~**Cached services.**~~ **Answered: nothing stale.** The loader is a different address, so it
+   never meets the radio's cache; and the radio, back on its new firmware, resolved its services
+   and handshook normally on the next connect. The phone app's cache-refresh delay is not needed
+   here.
 7. ~~**`gzip`.**~~ **Answered: yes**, busybox 1.27.2's, along with `zcat` and `gunzip` — and it
    enforces both the CRC32 and the `ISIZE`, so the envelope is the download's integrity check and
    not just an inflate. There is no `unzip`, which closes the third option on its own. zlib is
@@ -1441,8 +1529,10 @@ reading that only the BLE path still needs a number for.
    continuous writing on either bus, and what floor should refuse the press? The USB path no
    longer asks this — thirteen seconds is not a power question — so it is the BLE path's alone.
    And take a node flashed with an older full install, send it `ota_request`, and confirm the
-   refusal arrives as a `ClientNotification` the way the source says it does — the one upstream
-   claim in this document that nothing here has watched happen.
+   refusal arrives as a `ClientNotification` the way the source says it does. **Half answered**:
+   the *go-ahead* arrived that way on 2026-09-11, 0.84 s after the request, and the install moved
+   on it - so the channel is confirmed and only a refusal's wording remains unwatched. The battery
+   half is still open: the Brick was on the Mac's USB power for the run.
 
 ## Sources
 

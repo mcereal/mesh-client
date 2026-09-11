@@ -4,12 +4,16 @@
 #include "mesh/core/config.h"
 #include "mesh/core/firmware_fetch.h"
 #include "mesh/core/firmware_install.h"
+#include "mesh/core/firmware_ota.h"
 #include "mesh/core/version.h"
 #include "mesh/transport/ble.h"
+#include "mesh/transport/ble_bluez.h"
+#include "mesh/transport/ble_hci.h"
 #include "mesh/transport/serial.h"
 #include "mesh/transport/tcp.h"
 #include "mesh/utils/array.h"
 #include "mesh/utils/log.h"
+#include "mesh/utils/sha256.h"
 #include "mesh/utils/text.h"
 #include "mesh/utils/time.h"
 
@@ -358,6 +362,302 @@ static void cli_install_done(void *userdata, const struct mesh_firmware_install 
     (void)install;
 }
 
+/*
+ * --install-firmware for an ESP32 target: phase 4, over Bluetooth.
+ *
+ * The ota_request goes down the BLE link the radio is on, holding it to the SHA-256 of the image
+ * already fetched; the radio reboots into its OTA loader; the install finds the loader, streams
+ * the image to it and watches the radio come back - and then connects to it once more, because
+ * the radio saying which firmware it runs is the proof a progress bar is not.
+ *
+ * With no radio answering it still runs, and looks for one already in its loader. That is the
+ * way back for an install that was interrupted, which on this path matters more than on the USB
+ * one: a radio in the loader stays there, off the mesh, until something finishes the job. `-p`
+ * names the radio's address, so the loader is looked for at the address it will have.
+ */
+struct cli_ota_install {
+    const struct mesh_cli_link *link;
+};
+
+static int cli_ota_arm(void *userdata, const uint8_t sha256[32]) {
+    struct cli_ota_install *const run = (struct cli_ota_install *)userdata;
+    if (run->link == NULL || run->link->session == NULL) {
+        return -ENOTCONN;
+    }
+    /* Queued, not sent: the loop below keeps ticking the transport while arming, which is what
+       delivers it and what brings the radio's answer back. */
+    const int queued = mesh_session_request_ble_ota(run->link->session, sha256);
+    return queued < 0 ? queued : 0;
+}
+
+static int cli_ota_interval(int hci_dev, const char *address) {
+    return mesh_ble_hci_request_interval(hci_dev, address, &mesh_ble_hci_ota_params);
+}
+
+static void cli_ota_done(void *userdata, const struct mesh_firmware_ota *ota) {
+    (void)userdata;
+    (void)ota;
+}
+
+/* What the radio says it is running. After an install this line is the evidence. */
+static void cli_print_radio(const char *label, const struct mesh_cli_link *link) {
+    const struct mesh_radio_settings *const settings = mesh_session_settings(link->session);
+    const struct mesh_handshake_status *const status = mesh_session_handshake(link->session);
+    const bool known = settings != NULL && settings->has_metadata;
+    printf("%s %s (%s), firmware %s, hw_model %u, reboot count %u\n", label, link->peer.name,
+           link->peer.identifier, known ? settings->metadata.firmware_version : "?",
+           known ? (unsigned)settings->metadata.hw_model : 0U,
+           status != NULL ? (unsigned)status->my_info.reboot_count : 0U);
+}
+
+/*
+ * Waits for a handshake newer than `stale_request`. The session outlives the transport being
+ * stopped and started, so after an in-process reconnect connect_and_sync() finds the *previous*
+ * link's my_info and returns at once - which on the device printed the reboot count from before
+ * the install under a line claiming to be after it. A new config request id is what says the
+ * radio has actually answered this time.
+ */
+static bool cli_await_fresh_handshake(struct mesh_app *app, const struct mesh_cli_link *link,
+                                      uint32_t stale_request) {
+    for (int turn = 0; turn < 300; ++turn) {
+        const struct mesh_handshake_status *const status = mesh_session_handshake(link->session);
+        if (status != NULL && status->request_id != stale_request && !status->request_in_flight &&
+            status->config_complete) {
+            return true;
+        }
+        mesh_transport_registry_tick(&app->transport_registry);
+        (void)mesh_event_loop_run(&app->loop, 50);
+    }
+    return false;
+}
+
+/* Lets the session's own start-up requests drain, so the ota_request is not queued behind them
+   while arming's clock runs. */
+static void cli_settle_admin_queue(struct mesh_app *app, const struct mesh_cli_link *link) {
+    for (int turn = 0; turn < 300; ++turn) {
+        const struct mesh_radio_settings *const settings = mesh_session_settings(link->session);
+        if (settings == NULL || !mesh_radio_settings_busy(settings)) {
+            return;
+        }
+        mesh_transport_registry_tick(&app->transport_registry);
+        (void)mesh_event_loop_run(&app->loop, 50);
+    }
+}
+
+static int install_radio_firmware_ble(struct mesh_app *app,
+                                      const struct cli_firmware_fetch *fetched) {
+    char image_path[MESH_FETCH_PATH_MAX];
+    if (mesh_firmware_fetch_image_path(&fetched->fetch, image_path, sizeof image_path) == NULL) {
+        fprintf(stderr, "The image was fetched and then could not be found.\n");
+        return -EIO;
+    }
+
+    /* The download is over, so the antenna is free for Bluetooth: the Brick's Wi-Fi and its
+       Bluetooth are one part, which is why the fetch ran with no transport up at all. */
+    int result =
+        mesh_transport_registry_start_all(&app->transport_registry, &app->config, &app->loop);
+    if (result < 0) {
+        fprintf(stderr, "Could not start the transports: %d\n", result);
+        return result;
+    }
+
+    static struct mesh_bluez_device_info ble_devices[16];
+    struct mesh_cli_link link;
+    memset(&link, 0, sizeof link);
+    const bool have_radio =
+        select_ble_link(app, ble_devices, &link) >= 0 && connect_and_sync(app, &link) >= 0;
+    char radio_address[MESH_FIRMWARE_OTA_ADDRESS_MAX] = {0};
+    if (have_radio) {
+        mesh_str_copy(radio_address, sizeof radio_address, link.peer.identifier);
+        cli_print_radio("Radio:   ", &link);
+        /*
+         * The image names a board and the radio says which board it is, and the two are compared
+         * before the radio is asked anything. The chip check the install makes cannot tell a
+         * Heltec V3 from a T-Beam S3, and a CLI that picks the loudest radio in the room will
+         * happily have picked the wrong one - on an nRF52 the firmware ignores ota_request and
+         * reboots anyway.
+         */
+        const struct mesh_radio_settings *const settings = mesh_session_settings(link.session);
+        if (settings == NULL || !settings->has_metadata) {
+            fprintf(stderr, "The radio did not say what it is; not asking it into a loader "
+                            "blind.\n");
+            (void)link.disconnect(link.transport);
+            mesh_transport_registry_stop_all(&app->transport_registry);
+            return -EIO;
+        }
+        if (fetched->fetch.manifest.hw_model != 0U &&
+            settings->metadata.hw_model != fetched->fetch.manifest.hw_model) {
+            fprintf(stderr,
+                    "That radio is hw_model %u and %s is for hw_model %u. Name the radio with "
+                    "-p ADDRESS.\n",
+                    (unsigned)settings->metadata.hw_model, fetched->fetch.manifest.target,
+                    (unsigned)fetched->fetch.manifest.hw_model);
+            (void)link.disconnect(link.transport);
+            mesh_transport_registry_stop_all(&app->transport_registry);
+            return -EINVAL;
+        }
+        cli_settle_admin_queue(app, &link);
+    } else {
+        uint8_t scratch[6];
+        if (mesh_ble_hci_parse_address(app->config.preferred_ble_device, scratch)) {
+            mesh_str_copy(radio_address, sizeof radio_address, app->config.preferred_ble_device);
+        }
+        /* Nothing to arm, so the transport has nothing to do and must not scan beside us. */
+        mesh_transport_registry_stop_all(&app->transport_registry);
+        printf("No radio answered. Looking for one already in its OTA loader%s%s.\n",
+               radio_address[0] != '\0' ? " near " : "", radio_address);
+    }
+
+    static struct mesh_bluez_client client;
+    result = mesh_bluez_client_init_private(&client);
+    char adapter[MESH_FIRMWARE_OTA_PATH_MAX];
+    if (result == 0) {
+        (void)mesh_bluez_client_attach_loop(&client, &app->loop);
+        result = mesh_bluez_client_find_adapter(&client, adapter, sizeof adapter);
+    }
+    if (result < 0) {
+        fprintf(stderr, "Could not reach BlueZ for the install: %d\n", result);
+        mesh_bluez_client_shutdown(&client);
+        if (have_radio) {
+            (void)link.disconnect(link.transport);
+            mesh_transport_registry_stop_all(&app->transport_registry);
+        }
+        return result;
+    }
+
+    struct cli_ota_install run = {.link = have_radio ? &link : NULL};
+    uint32_t seen_notification = 0U;
+    if (have_radio) {
+        const struct mesh_client_notification *const note = mesh_session_notification(link.session);
+        seen_notification = note != NULL ? note->seq : 0U;
+    }
+
+    struct mesh_firmware_ota_params params;
+    memset(&params, 0, sizeof params);
+    params.client = &client;
+    params.adapter_path = adapter;
+    params.image_path = image_path;
+    params.architecture = fetched->fetch.manifest.architecture;
+    params.radio_address = radio_address;
+    params.arm = have_radio ? cli_ota_arm : NULL;
+    params.arm_userdata = &run;
+    params.request_interval = cli_ota_interval;
+    params.on_done = cli_ota_done;
+
+    static struct mesh_firmware_ota ota;
+    memset(&ota, 0, sizeof ota);
+    result = mesh_firmware_ota_start(&ota, &params);
+    if (result < 0) {
+        fprintf(stderr, "Could not start the install: %s\n",
+                mesh_firmware_ota_error_name(ota.error));
+        mesh_bluez_client_shutdown(&client);
+        if (have_radio) {
+            (void)link.disconnect(link.transport);
+            mesh_transport_registry_stop_all(&app->transport_registry);
+        }
+        return result;
+    }
+    char hex[MESH_SHA256_HEX_LEN];
+    mesh_sha256_hex(ota.sha256, hex, sizeof hex);
+    printf("SHA-256:  %s\n", hex);
+    fflush(stdout);
+
+    bool link_up = have_radio;
+    enum mesh_firmware_ota_state last_state = MESH_FIRMWARE_OTA_STATE_COUNT;
+    enum mesh_ble_ota_state last_step = MESH_BLE_OTA_STATE_COUNT;
+    unsigned last_progress = 101U;
+    while (mesh_firmware_ota_busy(&ota)) {
+        (void)mesh_event_loop_run(&app->loop, 20);
+        const uint64_t now = mesh_time_monotonic_ms();
+        if (link_up) {
+            mesh_transport_registry_tick(&app->transport_registry);
+            const struct mesh_client_notification *const note =
+                mesh_session_notification(link.session);
+            if (note != NULL && note->seq != seen_notification) {
+                seen_notification = note->seq;
+                printf("  the radio says: %s\n", note->text);
+                mesh_firmware_ota_radio_said(&ota, note->text);
+            }
+            if (ota.state != MESH_FIRMWARE_OTA_ARMING) {
+                /* On its way into the loader, or refused: either way this link has said all it
+                   will, and a transport left up would reconnect to a radio that is not there and
+                   keep a scan of its own running beside the install's. */
+                (void)link.disconnect(link.transport);
+                mesh_transport_registry_stop_all(&app->transport_registry);
+                link_up = false;
+            }
+        }
+        (void)mesh_bluez_client_process(&client);
+        mesh_firmware_ota_tick(&ota, now);
+
+        const unsigned progress = mesh_firmware_ota_progress(&ota);
+        const enum mesh_ble_ota_state step =
+            ota.state == MESH_FIRMWARE_OTA_SENDING ? ota.conversation.state : MESH_BLE_OTA_IDLE;
+        if (ota.state != last_state || step != last_step ||
+            (progress != last_progress && progress % 5U == 0U)) {
+            if (ota.state == MESH_FIRMWARE_OTA_SENDING) {
+                printf("  sending: %s %u%% (%u B/s)\n", mesh_ble_ota_state_name(step), progress,
+                       (unsigned)mesh_ble_ota_bytes_per_second(&ota.conversation, now));
+            } else {
+                printf("  %s\n", mesh_firmware_ota_state_name(ota.state));
+            }
+            fflush(stdout);
+            last_state = ota.state;
+            last_step = step;
+            last_progress = progress;
+        }
+    }
+
+    const bool ok = ota.state == MESH_FIRMWARE_OTA_DONE;
+    if (ok) {
+        printf("Installed%s.\n", ota.radio_seen ? "; the radio restarted and is advertising again"
+                                                : "; there was no radio address to watch for");
+    } else {
+        fprintf(stderr, "Failed: %s%s%s%s\n", mesh_firmware_ota_error_name(ota.error),
+                ota.reason[0] != '\0' ? " (" : "", ota.reason, ota.reason[0] != '\0' ? ")" : "");
+        if (mesh_firmware_ota_radio_in_loader(&ota)) {
+            fprintf(stderr, "The radio is in its OTA loader, off the mesh, until it is sent this "
+                            "image. Run the same command again to finish.\n");
+        }
+    }
+    const bool confirm = ok && ota.radio_seen;
+    char confirm_address[MESH_FIRMWARE_OTA_ADDRESS_MAX];
+    mesh_str_copy(confirm_address, sizeof confirm_address, ota.radio_address);
+    mesh_firmware_ota_cancel(&ota);
+    mesh_bluez_client_shutdown(&client);
+    if (link_up) {
+        (void)link.disconnect(link.transport);
+        mesh_transport_registry_stop_all(&app->transport_registry);
+    }
+
+    if (confirm) {
+        mesh_str_copy(app->config.preferred_ble_device, sizeof app->config.preferred_ble_device,
+                      confirm_address);
+        if (mesh_transport_registry_start_all(&app->transport_registry, &app->config, &app->loop) ==
+            0) {
+            struct mesh_cli_link after;
+            memset(&after, 0, sizeof after);
+            bool confirmed = false;
+            if (select_ble_link(app, ble_devices, &after) >= 0) {
+                const struct mesh_handshake_status *const before =
+                    mesh_session_handshake(after.session);
+                const uint32_t stale_request = before != NULL ? before->request_id : 0U;
+                confirmed = connect_and_sync(app, &after) >= 0 &&
+                            cli_await_fresh_handshake(app, &after, stale_request);
+                if (confirmed) {
+                    cli_print_radio("Now:     ", &after);
+                }
+                (void)after.disconnect(after.transport);
+            }
+            if (!confirmed) {
+                printf("Could not reconnect to confirm; the loader did report success.\n");
+            }
+            mesh_transport_registry_stop_all(&app->transport_registry);
+        }
+    }
+    return ok ? 0 : -EIO;
+}
+
 static int install_radio_firmware(struct mesh_app *app, const char *target, const char *staging,
                                   const char *serial_identifier) {
     static struct cli_firmware_fetch fetched;
@@ -365,8 +665,11 @@ static int install_radio_firmware(struct mesh_app *app, const char *target, cons
     if (got < 0) {
         return got;
     }
+    if (fetched.fetch.path == MESH_FIRMWARE_PATH_BLE) {
+        return install_radio_firmware_ble(app, &fetched);
+    }
     if (fetched.fetch.path != MESH_FIRMWARE_PATH_USB) {
-        fprintf(stderr, "%s installs over Bluetooth, not USB; that is phase 4.\n", target);
+        fprintf(stderr, "%s has no install path from here.\n", target);
         return -ENOTSUP;
     }
     /*
@@ -505,9 +808,11 @@ static void print_usage(const char *program) {
             "      --fetch-firmware TARGET  Download the newest stable firmware image for a\n"
             "                            build target (heltec-mesh-node-t114), verify it and\n"
             "                            leave it staged. No radio is touched\n"
-            "      --install-firmware TARGET  Fetch that image and write it to the radio over\n"
-            "                            USB: DFU request, wait for the bootloader, write the\n"
-            "                            blocks, watch it restart. Changes the radio\n"
+            "      --install-firmware TARGET  Fetch that image and install it. An nRF52 or\n"
+            "                            RP2040 goes over USB (DFU request, bootloader, blocks);\n"
+            "                            an ESP32 over Bluetooth (OTA request, loader, stream),\n"
+            "                            and with no radio answering it resumes one already in\n"
+            "                            its loader - name it with -p. Changes the radio\n"
             "      --staging DIR         Where the two above stage (default: /tmp; use\n"
             "                            /mnt/UDISK on a Brick, because a bootloader's drive\n"
             "                            gets mounted over /mnt/SDCARD)\n"

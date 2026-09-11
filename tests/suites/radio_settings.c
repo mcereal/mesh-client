@@ -1181,3 +1181,70 @@ MESH_TEST_CASE(radio_settings_extra_verbs, unit) {
                       "a backup should go to the radio's flash");
     record_success(test_name);
 }
+
+/*
+ * The ota_request on the wire, pinned against bytes derived by hand from admin.proto rather
+ * than from our own encoder - message_encode_text_golden's reasoning, with a sharper edge: a
+ * regeneration that moved field 102 would send a radio nowhere, and one that moved the hash
+ * would hold it to an image nobody is going to send.
+ */
+MESH_TEST_CASE(radio_settings_ota_request_golden, unit) {
+    uint8_t hash[MESH_ADMIN_OTA_HASH_LEN];
+    for (size_t i = 0; i < sizeof hash; ++i) {
+        hash[i] = (uint8_t)(i + 1U);
+    }
+    /* Field 102, length-delimited: (102 << 3) | 2 = 818, the varint B2 06. Inside it, 36
+       bytes: reboot_ota_mode (field 1, varint) = OTA_BLE (1), then ota_hash (field 2,
+       length-delimited) of 32. */
+    uint8_t expected[7U + MESH_ADMIN_OTA_HASH_LEN] = {0xB2, 0x06, 0x24, 0x08, 0x01, 0x12, 0x20};
+    memcpy(&expected[7], hash, sizeof hash);
+
+    struct mesh_radio_settings settings;
+    mesh_radio_settings_reset(&settings);
+    struct mesh_admin_request request;
+    memset(&request, 0, sizeof request);
+    request.kind = MESH_ADMIN_OTA_REQUEST;
+    request.my_node = 0x1234U;
+    request.packet_id = 90U;
+    memcpy(request.payload.ota_hash, hash, sizeof hash);
+    uint8_t buffer[512];
+    size_t written = 0U;
+    MESH_TEST_FAIL_IF(mesh_radio_settings_encode_request(&settings, &request, buffer, sizeof buffer,
+                                                         &written) != 0,
+                      "the ota_request should encode");
+    meshtastic_ToRadio to_radio = meshtastic_ToRadio_init_default;
+    pb_istream_t in = pb_istream_from_buffer(buffer, written);
+    MESH_TEST_FAIL_IF(!pb_decode(&in, meshtastic_ToRadio_fields, &to_radio) ||
+                          to_radio.packet.decoded.portnum != meshtastic_PortNum_ADMIN_APP,
+                      "it should be an ADMIN_APP packet");
+    MESH_TEST_FAIL_IF(
+        to_radio.packet.decoded.payload.size != sizeof expected ||
+            memcmp(to_radio.packet.decoded.payload.bytes, expected, sizeof expected) != 0,
+        "the AdminMessage should be exactly ota_request { OTA_BLE, hash }");
+
+    memset(request.payload.ota_hash, 0, sizeof request.payload.ota_hash);
+    MESH_TEST_FAIL_IF(
+        mesh_radio_settings_encode_request(&settings, &request, buffer, sizeof buffer, &written) !=
+            -EINVAL,
+        "an all-zero hash is a caller that forgot, and the radio would strand itself on it");
+
+    /* Queued behind a passkey like every action, once, and never by the payload-less path. */
+    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_ota(&settings, hash) != 2 ||
+                          mesh_radio_settings_queue_ota(&settings, hash) != -EBUSY,
+                      "one ota_request behind a passkey refresh, and a second is refused");
+    MESH_TEST_FAIL_IF(mesh_radio_settings_queue_action(&settings, MESH_ADMIN_OTA_REQUEST, 0U) !=
+                          -EINVAL,
+                      "queue_action has nowhere to put the hash");
+    struct mesh_admin_request next;
+    MESH_TEST_FAIL_IF(!mesh_radio_settings_next_request(&settings, 1000U, &next) ||
+                          next.kind != MESH_ADMIN_GET_OWNER,
+                      "the passkey refresh goes first");
+    mesh_radio_settings_mark_sent(&settings, 91U, 1000U);
+    MESH_TEST_FAIL_IF(!mesh_radio_settings_next_request(
+                          &settings, 1000U + MESH_RADIO_SETTINGS_REPLY_TIMEOUT_MS + 1U, &next) ||
+                          next.kind != MESH_ADMIN_OTA_REQUEST ||
+                          memcmp(next.payload.ota_hash, hash, sizeof hash) != 0 ||
+                          settings.pending_is_write,
+                      "and the request follows carrying its hash, uncounted as a save");
+    record_success(test_name);
+}

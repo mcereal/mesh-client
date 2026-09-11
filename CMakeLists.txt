@@ -54,6 +54,7 @@ add_library(meshclient_core
     src/core/app_publish.c
     src/core/app_settings.c
     src/core/config.c
+    src/core/esp_image.c
     src/core/event_loop.c
     src/core/fetch.c
     src/core/firmware.c
@@ -61,6 +62,7 @@ add_library(meshclient_core
     src/core/firmware_download.c
     src/core/firmware_fetch.c
     src/core/firmware_install.c
+    src/core/firmware_ota.c
     src/core/message.c
     src/core/waypoint.c
     src/core/radio_settings.c
@@ -72,6 +74,8 @@ add_library(meshclient_core
     src/core/version.c
     src/transport/transport_registry.c
     src/transport/stream_link.c
+    src/transport/ble/ble_hci.c
+    src/transport/ble/ble_ota.c
     src/transport/ble/ble_transport.c
     src/transport/ble/bluez_client.c
     src/transport/serial/serial_transport.c
@@ -86,6 +90,7 @@ add_library(meshclient_core
     src/i18n/strings.c
     src/i18n/locale_es.c
     src/utils/env.c
+    src/utils/file.c
     src/utils/json.c
     src/utils/log.c
     src/utils/sha256.c

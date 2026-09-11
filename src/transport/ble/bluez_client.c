@@ -518,7 +518,8 @@ static bool mesh_bluez_mock_is_paired(const char *address) {
     return false;
 }
 
-static void mesh_bluez_apply_mock_devices(struct mesh_bluez_device_info *devices, size_t capacity,
+static void mesh_bluez_apply_mock_devices(const char *service_uuid,
+                                          struct mesh_bluez_device_info *devices, size_t capacity,
                                           size_t *count) {
     if (devices == NULL || count == NULL) {
         return;
@@ -527,23 +528,26 @@ static void mesh_bluez_apply_mock_devices(struct mesh_bluez_device_info *devices
     if (!g_mock_state.enabled || g_mock_state.config.devices == NULL) {
         return;
     }
-    size_t to_copy = g_mock_state.config.device_count;
-    if (to_copy > capacity) {
-        to_copy = capacity;
-    }
-    for (size_t i = 0; i < to_copy; ++i) {
-        devices[i] = g_mock_state.config.devices[i];
-        if (!devices[i].paired && mesh_bluez_mock_is_paired(devices[i].address)) {
-            devices[i].paired = true;
+    const char *const *services = g_mock_state.config.device_service_uuids;
+    size_t copied = 0U;
+    for (size_t i = 0; i < g_mock_state.config.device_count && copied < capacity; ++i) {
+        if (services != NULL && service_uuid != NULL &&
+            (services[i] == NULL || strcasecmp(services[i], service_uuid) != 0)) {
+            continue;
+        }
+        struct mesh_bluez_device_info *const device = &devices[copied++];
+        *device = g_mock_state.config.devices[i];
+        if (!device->paired && mesh_bluez_mock_is_paired(device->address)) {
+            device->paired = true;
         }
         /* A mock device that names a signal strength is saying it was heard, exactly as the
            RSSI property does on the bus. A test that wants a bond with nothing behind it -
            the node left at home - writes the 0 bluetoothd leaves behind. */
-        if (!devices[i].in_range && devices[i].rssi != 0) {
-            devices[i].in_range = true;
+        if (!device->in_range && device->rssi != 0) {
+            device->in_range = true;
         }
     }
-    *count = to_copy;
+    *count = copied;
 }
 
 /* Everything but `enabled` and `config`: the per-run counters a test would otherwise see carried
@@ -577,7 +581,7 @@ void mesh_bluez_client_mock_disable(void) {
     mesh_bluez_mock_reset_counters();
 }
 
-int mesh_bluez_client_init(struct mesh_bluez_client *client) {
+static int mesh_bluez_client_open(struct mesh_bluez_client *client, bool private_bus) {
     if (client == NULL) {
         return -EINVAL;
     }
@@ -623,15 +627,20 @@ int mesh_bluez_client_init(struct mesh_bluez_client *client) {
     dbus_error_init(&error);
 
     const char *test_address = g_mock_state.enabled ? g_mock_state.config.read_bus_address : NULL;
-    DBusConnection *connection = test_address != NULL
-                                     ? dbus_connection_open_private(test_address, &error)
-                                     : dbus_bus_get(DBUS_BUS_SYSTEM, &error);
+    DBusConnection *connection = NULL;
+    if (test_address != NULL) {
+        connection = dbus_connection_open_private(test_address, &error);
+    } else if (private_bus) {
+        connection = dbus_bus_get_private(DBUS_BUS_SYSTEM, &error);
+    } else {
+        connection = dbus_bus_get(DBUS_BUS_SYSTEM, &error);
+    }
     if (connection != NULL && test_address != NULL && !dbus_bus_register(connection, &error)) {
         dbus_connection_close(connection);
         dbus_connection_unref(connection);
         connection = NULL;
     }
-    client->connection_private = test_address != NULL;
+    client->connection_private = test_address != NULL || private_bus;
     if (connection == NULL) {
         if (dbus_error_is_set(&error)) {
             mesh_log_warn("bluez", "Failed to connect to system bus: %s", error.message);
@@ -665,9 +674,18 @@ int mesh_bluez_client_init(struct mesh_bluez_client *client) {
         g_mock_state.client = client;
         return 0;
     }
+    (void)private_bus;
     mesh_log_debug("bluez", "DBus support disabled at build time");
     return -ENOSYS;
 #endif
+}
+
+int mesh_bluez_client_init(struct mesh_bluez_client *client) {
+    return mesh_bluez_client_open(client, false);
+}
+
+int mesh_bluez_client_init_private(struct mesh_bluez_client *client) {
+    return mesh_bluez_client_open(client, true);
 }
 
 void mesh_bluez_client_mock_emit_notification(const char *char_path, const uint8_t *data,
@@ -2285,11 +2303,16 @@ int mesh_bluez_client_write(struct mesh_bluez_client *client, const char *device
         }
 
         g_mock_state.write_calls++;
+        int result = g_mock_state.config.write_result;
         if (g_mock_state.config.write_fail_after_calls != 0U &&
             g_mock_state.write_calls > g_mock_state.config.write_fail_after_calls) {
-            return g_mock_state.config.write_result_late;
+            result = g_mock_state.config.write_result_late;
         }
-        return g_mock_state.config.write_result;
+        if (result == 0 && g_mock_state.config.write_hook != NULL) {
+            g_mock_state.config.write_hook(g_mock_state.config.write_hook_userdata, device_path,
+                                           data, len);
+        }
+        return result;
     }
 
 #ifdef MESH_HAVE_DBUS
@@ -2535,6 +2558,104 @@ int mesh_bluez_client_find_meshtastic_characteristics(struct mesh_bluez_client *
 #endif
 }
 
+int mesh_bluez_client_find_characteristic(struct mesh_bluez_client *client, const char *device_path,
+                                          const char *char_uuid, char *out_path, size_t out_len) {
+    if (client == NULL || device_path == NULL || char_uuid == NULL || out_path == NULL ||
+        out_len == 0U) {
+        return -EINVAL;
+    }
+    out_path[0] = '\0';
+
+    if (g_mock_state.enabled) {
+        /* Deterministic, so a test can name the path a write or a notification belongs to. */
+        snprintf(out_path, out_len, "%s/%s", device_path, char_uuid);
+        return 0;
+    }
+
+#ifdef MESH_HAVE_DBUS
+    DBusConnection *connection = (DBusConnection *)client->connection;
+    if (connection == NULL) {
+        return -ENOTCONN;
+    }
+    return mesh_bluez_find_characteristics(connection, device_path, char_uuid, out_path, out_len);
+#else
+    return -ENOSYS;
+#endif
+}
+
+int mesh_bluez_client_characteristic_mtu(struct mesh_bluez_client *client, const char *char_path,
+                                         uint16_t *out_mtu) {
+    if (client == NULL || char_path == NULL || out_mtu == NULL) {
+        return -EINVAL;
+    }
+    *out_mtu = 0U;
+
+    if (g_mock_state.enabled) {
+        if (g_mock_state.config.mtu == 0U) {
+            return -ENOTSUP;
+        }
+        *out_mtu = g_mock_state.config.mtu;
+        return 0;
+    }
+
+#ifdef MESH_HAVE_DBUS
+    DBusConnection *connection = (DBusConnection *)client->connection;
+    if (connection == NULL) {
+        return -ENOTCONN;
+    }
+    DBusMessage *message = dbus_message_new_method_call("org.bluez", char_path,
+                                                        "org.freedesktop.DBus.Properties", "Get");
+    if (message == NULL) {
+        return -ENOMEM;
+    }
+    const char *interface = "org.bluez.GattCharacteristic1";
+    const char *property = "MTU";
+    if (!dbus_message_append_args(message, DBUS_TYPE_STRING, &interface, DBUS_TYPE_STRING,
+                                  &property, DBUS_TYPE_INVALID)) {
+        dbus_message_unref(message);
+        return -ENOMEM;
+    }
+
+    DBusError error;
+    dbus_error_init(&error);
+    /* Once per connection, and only by a caller that is about to spend minutes on this link,
+       so a second-long blocking call is the lookup above's bargain again. */
+    DBusMessage *reply =
+        dbus_connection_send_with_reply_and_block(connection, message, 1000, &error);
+    dbus_message_unref(message);
+    if (reply == NULL) {
+        int mapped = -EIO;
+        if (dbus_error_is_set(&error)) {
+            /* A BlueZ without the property answers InvalidArgs, which is "not supported". */
+            mapped = (error.name != NULL &&
+                      strcmp(error.name, "org.freedesktop.DBus.Error.InvalidArgs") == 0)
+                         ? -ENOTSUP
+                         : mesh_bluez_dbus_error_to_errno(&error);
+            mesh_log_warn("bluez", "MTU unavailable on %s: %s", char_path, error.message);
+            dbus_error_free(&error);
+        }
+        return mapped;
+    }
+
+    int result = -EPROTO;
+    DBusMessageIter iter, value;
+    if (dbus_message_iter_init(reply, &iter) &&
+        dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_VARIANT) {
+        dbus_message_iter_recurse(&iter, &value);
+        if (dbus_message_iter_get_arg_type(&value) == DBUS_TYPE_UINT16) {
+            dbus_uint16_t mtu = 0U;
+            dbus_message_iter_get_basic(&value, &mtu);
+            *out_mtu = (uint16_t)mtu;
+            result = mtu > 0U ? 0 : -ENOTSUP;
+        }
+    }
+    dbus_message_unref(reply);
+    return result;
+#else
+    return -ENOSYS;
+#endif
+}
+
 int mesh_bluez_client_read(struct mesh_bluez_client *client, const char *char_path, uint8_t *out,
                            size_t capacity, size_t *out_len) {
     if (client == NULL || char_path == NULL || out == NULL || out_len == NULL) {
@@ -2634,25 +2755,17 @@ int mesh_bluez_client_read(struct mesh_bluez_client *client, const char *char_pa
 #endif
 }
 
-#ifdef MESH_HAVE_DBUS
-static bool uuid_equals_meshtastic(const char *uuid) {
-    if (uuid == NULL) {
-        return false;
-    }
-    char buffer[37];
-    size_t index = 0;
-    for (const char *c = uuid; *c != '\0' && index < sizeof(buffer) - 1; ++c) {
-        buffer[index++] = (char)toupper((unsigned char)*c);
-    }
-    buffer[index] = '\0';
-    return strcmp(buffer, MESH_BLE_MESHTASTIC_SERVICE_UUID) == 0;
-}
-#endif
-
 int mesh_bluez_client_list_meshtastic(struct mesh_bluez_client *client,
                                       struct mesh_bluez_device_info *devices, size_t capacity,
                                       size_t *count) {
-    if (client == NULL || devices == NULL || count == NULL) {
+    return mesh_bluez_client_list_by_service(client, MESH_BLE_MESHTASTIC_SERVICE_UUID, devices,
+                                             capacity, count);
+}
+
+int mesh_bluez_client_list_by_service(struct mesh_bluez_client *client, const char *service_uuid,
+                                      struct mesh_bluez_device_info *devices, size_t capacity,
+                                      size_t *count) {
+    if (client == NULL || service_uuid == NULL || devices == NULL || count == NULL) {
         return -EINVAL;
     }
 
@@ -2669,7 +2782,7 @@ int mesh_bluez_client_list_meshtastic(struct mesh_bluez_client *client,
         if (g_mock_state.config.list_calls != NULL) {
             ++*g_mock_state.config.list_calls;
         }
-        mesh_bluez_apply_mock_devices(devices, capacity, count);
+        mesh_bluez_apply_mock_devices(service_uuid, devices, capacity, count);
         return g_mock_state.config.list_result;
     }
 
@@ -2779,7 +2892,7 @@ int mesh_bluez_client_list_meshtastic(struct mesh_bluez_client *client,
                     while (dbus_message_iter_get_arg_type(&uuid_array) == DBUS_TYPE_STRING) {
                         const char *uuid = NULL;
                         dbus_message_iter_get_basic(&uuid_array, &uuid);
-                        if (uuid_equals_meshtastic(uuid)) {
+                        if (uuid != NULL && strcasecmp(uuid, service_uuid) == 0) {
                             has_service = true;
                         }
                         dbus_message_iter_next(&uuid_array);
