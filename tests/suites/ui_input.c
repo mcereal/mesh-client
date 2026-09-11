@@ -574,10 +574,40 @@ MESH_TEST_CASE(input_profile_decides_which_button_confirms, unit) {
                       "the Brick's A is BTN_EAST");
     MESH_TEST_FAIL_IF(mesh_ui_input_profile_key(brick, BTN_SOUTH) != MESH_UI_KEY_B,
                       "the Brick's B is BTN_SOUTH");
+    MESH_TEST_FAIL_IF(mesh_ui_input_profile_key(brick, BTN_WEST) != MESH_UI_KEY_X,
+                      "the Brick's X, on top, is BTN_WEST");
+    MESH_TEST_FAIL_IF(mesh_ui_input_profile_key(brick, BTN_NORTH) != MESH_UI_KEY_Y,
+                      "the Brick's Y, on the left, is BTN_NORTH");
     MESH_TEST_FAIL_IF(mesh_ui_input_profile_key(xbox, BTN_SOUTH) != MESH_UI_KEY_A,
                       "an Xbox-convention A is BTN_SOUTH");
     MESH_TEST_FAIL_IF(mesh_ui_input_profile_key(xbox, BTN_EAST) != MESH_UI_KEY_B,
                       "an Xbox-convention B is BTN_EAST");
+
+    /*
+     * X and Y, which is where this went wrong first and would go wrong again.
+     *
+     * The compass aliases do not describe an Xbox pad's X and Y: BTN_X *is* BTN_NORTH (307) and
+     * BTN_Y *is* BTN_WEST (308), while the buttons carrying those letters are on the left and on
+     * top respectively. So the table is written with BTN_X/BTN_Y and asserted against the
+     * numbers, because a test written in the same misleading names as the bug would pass it.
+     */
+    MESH_TEST_FAIL_IF(mesh_ui_input_profile_key(xbox, 307U) != MESH_UI_KEY_X,
+                      "an Xbox-convention X (on the left) is 307, BTN_X");
+    MESH_TEST_FAIL_IF(mesh_ui_input_profile_key(xbox, 308U) != MESH_UI_KEY_Y,
+                      "an Xbox-convention Y (on top) is 308, BTN_Y");
+
+    /*
+     * The Brick and an Xbox pad report the *same* two codes for their top and left buttons -
+     * both are xpad underneath - and disagree only about which letter is printed there. So X and
+     * Y are swapped between the profiles exactly as A and B are, and a profile that shared one
+     * pair with the other would be describing one of the two devices wrongly.
+     */
+    MESH_TEST_FAIL_IF(mesh_ui_input_profile_key(brick, 307U) ==
+                          mesh_ui_input_profile_key(xbox, 307U),
+                      "the two conventions disagree about the left-hand button");
+    MESH_TEST_FAIL_IF(mesh_ui_input_profile_key(brick, 308U) ==
+                          mesh_ui_input_profile_key(xbox, 308U),
+                      "the two conventions disagree about the top button");
 
     /* Name resolution is how a launch.sh sets this, so it takes the spelling a person types. */
     MESH_TEST_FAIL_IF(mesh_ui_input_profile_by_name("XBOX") != xbox,

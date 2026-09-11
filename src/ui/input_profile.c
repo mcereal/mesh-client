@@ -60,21 +60,30 @@ static const struct mesh_ui_input_binding k_bindings_brick[] = {
 };
 
 /*
- * The other convention: an Xbox-style pad, where the BTN_ names mean what they say.
+ * The other convention: an Xbox-style pad, which is what a Steam Deck, an Xbox pad and most USB
+ * controllers report. The profile a desktop or a handheld that is not a Brick most likely wants.
  *
- * A is the bottom button (BTN_SOUTH) and B is the right one (BTN_EAST) - exactly the two the
- * Brick swaps. This is what a Steam Deck, an Xbox pad and most USB controllers report, so it is
- * the profile a desktop or a handheld that is not a Brick most likely wants.
+ * **Written with the legacy BTN_A/B/X/Y aliases, and the directional names are a trap here.**
+ * BTN_X is BTN_NORTH (307) and BTN_Y is BTN_WEST (308), but an Xbox pad's X is on the LEFT and
+ * its Y is on TOP - so the compass names describe neither this layout nor, for those two, any
+ * other. They are aliases of the older BTN_X/BTN_Y values, whose numbering predates them.
+ * Writing this table by position gets A and B right and silently swaps X and Y, which is the
+ * Brick's own mistake one profile over.
+ *
+ * The Brick is the evidence rather than the header, because it is measured: it impersonates an
+ * Xbox 360 pad, so xpad drives it, and its TOP button - the 360's Y slot - reports 308 while its
+ * LEFT button - the 360's X slot - reports 307. A real Xbox pad puts Y on top and X on the left,
+ * so it reports the same two codes for the buttons carrying those letters.
  *
  * It is here rather than in a doc because the pair of tables is the point: a device that gets
  * this wrong is not broken in a way anyone can see. Confirm and back trade places, which reads
  * as the client ignoring A and going back on its own.
  */
 static const struct mesh_ui_input_binding k_bindings_xbox[] = {
-    {BTN_SOUTH, MESH_UI_KEY_A}, /* 304 - printed A, at the bottom */
-    {BTN_EAST, MESH_UI_KEY_B},  /* 305 - printed B, on the right */
-    {BTN_WEST, MESH_UI_KEY_X},  /* 308 - printed X, on the left */
-    {BTN_NORTH, MESH_UI_KEY_Y}, /* 307 - printed Y, on top */
+    {BTN_A, MESH_UI_KEY_A}, /* 304 (BTN_SOUTH) - printed A, at the bottom */
+    {BTN_B, MESH_UI_KEY_B}, /* 305 (BTN_EAST)  - printed B, on the right */
+    {BTN_X, MESH_UI_KEY_X}, /* 307 (BTN_NORTH) - printed X, on the LEFT */
+    {BTN_Y, MESH_UI_KEY_Y}, /* 308 (BTN_WEST)  - printed Y, on TOP */
 };
 
 /*

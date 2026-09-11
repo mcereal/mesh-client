@@ -293,6 +293,15 @@ The Brick puts A on the right and reports it as `BTN_EAST`; a Steam Deck, an Xbo
 controllers put A at the bottom and report it as `BTN_SOUTH` - so the same code means *confirm* on
 one device and *back* on the other.
 
+**The compass names are a trap for X and Y, on either device.** `BTN_X` *is* `BTN_NORTH` (307)
+and `BTN_Y` *is* `BTN_WEST` (308) - the directional aliases were added later, over the older
+`BTN_X`/`BTN_Y` numbering, and for these two they describe no real diamond. An Xbox pad's X is on
+the **left** and reports 307; its Y is on **top** and reports 308. The Brick reports the same two
+codes in the same two places and prints the opposite letters on them, which is why its table above
+reads `X (top) -> BTN_WEST`. Write either profile by reading the compass name as a position and
+you get A and B right and silently swap X and Y. `tests/suites/ui_input.c` asserts both by number
+for that reason.
+
 That is why the codes and the keycaps are one table rather than two. `src/ui/input_profile.c`
 holds a row per device: which evdev code each printed button reports, and what is printed on it.
 `MESHCLIENT_INPUT_PROFILE` picks one - `brick` by default, `xbox` for the other convention - and
