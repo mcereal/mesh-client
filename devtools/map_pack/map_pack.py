@@ -44,6 +44,7 @@ import sqlite3
 import struct
 import sys
 import time
+import zlib
 
 MAGIC = b"MCTPACK2"
 HEADER = struct.Struct("<8sHBBIII")  # magic, tile size, format, reserved, index offset, count, reserved
@@ -158,24 +159,233 @@ def filter_tiles(tiles, min_zoom, max_zoom, bbox):
     return kept
 
 
-def build(args):
-    if (args.mbtiles is None) == (args.xyz is None):
-        die("give exactly one of --mbtiles and --xyz")
-    tiles = read_mbtiles(args.mbtiles) if args.mbtiles else read_xyz(args.xyz)
-    if args.bbox is not None:
-        parts = [float(p) for p in args.bbox.split(",")]
-        if len(parts) != 4:
-            die("--bbox wants south,west,north,east")
-        args.bbox = tuple(parts)
-    tiles = filter_tiles(tiles, args.min_zoom, args.max_zoom, args.bbox)
-    if not tiles:
-        die("nothing to pack")
-    if len(tiles) > TILES_MAX:
-        die(f"{len(tiles)} tiles; the reader holds {TILES_MAX}")
+# ---- synth: a pack of a place that does not exist -------------------------------------------
+#
+# What it is for is the thing a licence cannot be argued with about. Step 3 of
+# docs/maps-roadmap.md asks what a cold read plus a decode costs on the Brick and what a filled
+# panel looks like, and neither question is about *whose* map it is - so the answer does not have
+# to wait on choosing a tile source, and a UI capture of the map does not have to ship somebody
+# else's pixels to have tiles under it.
+#
+# The drawing is deliberately the shape of a Carto-style OSM tile rather than anything pretty:
+# flat landcover, water, a road grid with casings, and building blocks. That is what decides the
+# two numbers that matter - the PNG's colour type and its size - and a gradient-filled tile would
+# answer them wrongly in both directions.
+#
+# Everything is a function of position in a *reference* space (zoom SYNTH_REFERENCE_ZOOM), so the
+# same street is in the same place at every zoom and a pack's levels line up the way a real
+# pyramid's do. A zoom draws less of it rather than something else: minor roads and buildings
+# stop below the zoom where they would be a texture.
 
-    # Refused rather than packed, because every one of these is a tile the client would open the
-    # pack for and then be unable to draw - and a pack that fails at the blit fails on the
-    # device, where nobody is watching a terminal.
+SYNTH_REFERENCE_ZOOM = 16
+SYNTH_PALETTE = [
+    (242, 239, 233),  # 0 land
+    (170, 211, 223),  # 1 water
+    (200, 250, 204),  # 2 park
+    (255, 255, 255),  # 3 road fill
+    (214, 206, 196),  # 4 road casing
+    (224, 223, 223),  # 5 building
+    (247, 244, 238),  # 6 residential
+]
+SYNTH_LAND, SYNTH_WATER, SYNTH_PARK = 0, 1, 2
+SYNTH_ROAD, SYNTH_CASING, SYNTH_BUILDING, SYNTH_RESIDENTIAL = 3, 4, 5, 6
+
+
+def synth_hash(x, y, salt=0):
+    """A stable value in [0, 1) for a lattice point. Deterministic across machines and runs,
+    which is the whole requirement: a capture compared against a reference has to draw the same
+    pack twice."""
+    h = (x * 374761393 + y * 668265263 + salt * 2654435761) & 0xFFFFFFFF
+    h = (h ^ (h >> 13)) * 1274126177 & 0xFFFFFFFF
+    return ((h ^ (h >> 16)) & 0xFFFFFF) / float(0xFFFFFF)
+
+
+def synth_field(rx, ry, cell, salt):
+    """Bilinear value noise over a lattice of `cell` reference pixels."""
+    gx, gy = rx // cell, ry // cell
+    fx = (rx - gx * cell) / float(cell)
+    fy = (ry - gy * cell) / float(cell)
+    # Smoothstep, so the cells do not read as a grid of diamonds.
+    fx = fx * fx * (3.0 - 2.0 * fx)
+    fy = fy * fy * (3.0 - 2.0 * fy)
+    a = synth_hash(gx, gy, salt)
+    b = synth_hash(gx + 1, gy, salt)
+    c = synth_hash(gx, gy + 1, salt)
+    d = synth_hash(gx + 1, gy + 1, salt)
+    return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy
+
+
+def synth_png(indices):
+    """A 256x256 palette PNG, which is the colour type the Brick decodes fastest."""
+
+    def chunk(kind, payload):
+        return (
+            struct.pack(">I", len(payload))
+            + kind
+            + payload
+            + struct.pack(">I", zlib.crc32(kind + payload) & 0xFFFFFFFF)
+        )
+
+    raw = bytearray()
+    for row in range(TILE_SIZE):
+        raw.append(0)  # filter: none. A flat tile has nothing for a predictor to win on.
+        raw += indices[row * TILE_SIZE : (row + 1) * TILE_SIZE]
+    palette = b"".join(bytes(colour) for colour in SYNTH_PALETTE)
+    return (
+        PNG_SIGNATURE
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", TILE_SIZE, TILE_SIZE, 8, 3, 0, 0, 0))
+        + chunk(b"PLTE", palette)
+        + chunk(b"IDAT", zlib.compress(bytes(raw), 9))
+        + chunk(b"IEND", b"")
+    )
+
+
+def synth_tile(z, x, y):
+    """One tile drawn from its own address, as palette indices.
+
+    The numbers are metres in disguise. A reference pixel is about 2.4 m at zoom 16 in the
+    mid-latitudes, so a street every 64 of them is a block of about 150 m and an arterial every
+    256 is one every 600 - which is what makes a zoomed-out level of the pack look like a city
+    rather than like graph paper. A level draws less of the same place as it zooms out: streets
+    stop below 15 and buildings below 16, where each would be a pixel wide and would come out as
+    texture.
+    """
+    step = 1 << (SYNTH_REFERENCE_ZOOM - z) if z <= SYNTH_REFERENCE_ZOOM else 1
+    origin_x = x * TILE_SIZE * step
+    origin_y = y * TILE_SIZE * step
+    pixels = bytearray(TILE_SIZE * TILE_SIZE)
+
+    # Landcover first, on a 4-pixel lattice: finer than the eye separates at this size and
+    # sixteen times less arithmetic than per pixel, which is what keeps a whole pyramid inside a
+    # few seconds of a stdlib-only script. The wet blocks are kept, because everything drawn
+    # after this has to stop at the water rather than run over it.
+    block = 4
+    blocks = TILE_SIZE // block
+    wet = bytearray(blocks * blocks)
+    for by in range(blocks):
+        for bx in range(blocks):
+            rx = origin_x + bx * block * step
+            ry = origin_y + by * block * step
+            water = synth_field(rx, ry, 1024, 1)
+            green = synth_field(rx, ry, 512, 2)
+            if water < 0.36:
+                index = SYNTH_WATER
+                wet[by * blocks + bx] = 1
+            elif green > 0.70:
+                index = SYNTH_PARK
+            elif green < 0.38:
+                index = SYNTH_RESIDENTIAL
+            else:
+                index = SYNTH_LAND
+            for row in range(by * block, by * block + block):
+                start = row * TILE_SIZE + bx * block
+                pixels[start : start + block] = bytes([index]) * block
+
+    def dry(column, row):
+        return wet[(row // block) * blocks + (column // block)] == 0
+
+    def paint(column, row, index):
+        if dry(column, row):
+            pixels[row * TILE_SIZE + column] = index
+
+    def stripe(spacing, width, casing, minimum_zoom):
+        """One family of streets: a grid in reference space, drawn as spans.
+
+        A road is a fill with a casing either side of it, which is what a road looks like on
+        every raster style and is the reason a tile's palette holds two entries for one street.
+        Bridges are not drawn: a road that meets water simply stops, because a pack of a place
+        that does not exist has no business inventing a crossing.
+        """
+        if z < minimum_zoom:
+            return
+        half = max(1, (width // step) // 2)
+        edge = half + max(1, casing // step)
+        first = (origin_x // spacing) * spacing
+        while first <= origin_x + TILE_SIZE * step:
+            centre = (first - origin_x) // step
+            for row in range(TILE_SIZE):
+                for column in range(max(0, centre - edge), min(TILE_SIZE, centre + edge)):
+                    paint(column, row, SYNTH_ROAD if abs(column - centre) < half else SYNTH_CASING)
+            first += spacing
+        first = (origin_y // spacing) * spacing
+        while first <= origin_y + TILE_SIZE * step:
+            centre = (first - origin_y) // step
+            for row in range(max(0, centre - edge), min(TILE_SIZE, centre + edge)):
+                index = SYNTH_ROAD if abs(row - centre) < half else SYNTH_CASING
+                for column in range(TILE_SIZE):
+                    paint(column, row, index)
+            first += spacing
+
+    # Buildings before the streets, so a block sits between two of them rather than over one.
+    if z >= 16:
+        cell = 64
+        for cell_y in range((origin_y // cell) * cell, origin_y + TILE_SIZE * step + cell, cell):
+            for cell_x in range((origin_x // cell) * cell, origin_x + TILE_SIZE * step + cell, cell):
+                if synth_hash(cell_x, cell_y, 3) > 0.62:
+                    continue
+                inset = 14 + int(synth_hash(cell_x, cell_y, 4) * 10)
+                left = (cell_x + inset - origin_x) // step
+                top = (cell_y + inset - origin_y) // step
+                right = (cell_x + cell - inset - origin_x) // step
+                bottom = (cell_y + cell - inset - origin_y) // step
+                for row in range(max(0, top), min(TILE_SIZE, bottom)):
+                    for column in range(max(0, left), min(TILE_SIZE, right)):
+                        paint(column, row, SYNTH_BUILDING)
+
+    stripe(256, 12, 4, 11)  # the arterials, which are on every level a pack holds
+    stripe(64, 5, 2, 15)  # and the streets, once a street is more than a pixel wide
+
+    return synth_png(pixels)
+
+
+def synth_span(centre, span_km, zoom):
+    """The tile rectangle a box of `span_km` around a point covers at one zoom."""
+    latitude, longitude = centre
+    # A degree of latitude is 111.32 km everywhere; a degree of longitude is that times the
+    # cosine of the latitude, which is the whole of the projection this needs.
+    half_lat = (span_km / 2.0) / 111.32
+    half_lon = half_lat / max(0.01, math.cos(math.radians(latitude)))
+    north, south = latitude + half_lat, latitude - half_lat
+    west, east = longitude - half_lon, longitude + half_lon
+    scale = 1 << zoom
+
+    def tile_x(lon):
+        return int((lon + 180.0) / 360.0 * scale)
+
+    def tile_y(lat):
+        clamped = max(-85.05112878, min(85.05112878, lat))
+        sin = math.sin(math.radians(clamped))
+        return int((0.5 - math.log((1 + sin) / (1 - sin)) / (4 * math.pi)) * scale)
+
+    x0, x1 = tile_x(west), tile_x(east)
+    y0, y1 = tile_y(north), tile_y(south)
+    return range(max(0, x0), min(scale - 1, x1) + 1), range(max(0, y0), min(scale - 1, y1) + 1)
+
+
+def synth(args):
+    parts = args.centre.split(",")
+    if len(parts) != 2:
+        die("--centre wants lat,lon in degrees")
+    centre = (float(parts[0]), float(parts[1]))
+    if args.min_zoom > args.max_zoom:
+        die("--min-zoom is above --max-zoom")
+
+    tiles = {}
+    for zoom in range(args.min_zoom, args.max_zoom + 1):
+        columns, rows = synth_span(centre, args.span_km, zoom)
+        for x in columns:
+            for y in rows:
+                tiles[(zoom, x, y)] = synth_tile(zoom, x, y)
+        print(f"  z{zoom}: {len(columns)}x{len(rows)} tiles")
+    write_pack(tiles, args.output, args.name, args.attribution, args.no_date)
+
+
+def check_tiles(tiles):
+    """Every reason the client would open a pack and then be unable to draw it.
+
+    Refused here rather than packed, because a pack that fails at the blit fails on the device,
+    where nobody is watching a terminal.
+    """
     for key, data in sorted(tiles.items()):
         shape = png_size(data)
         if shape is None:
@@ -187,17 +397,26 @@ def build(args):
         if key[0] > ZOOM_MAX:
             die(f"tile {key} is above zoom {ZOOM_MAX}, which the client cannot address")
 
+
+def write_pack(tiles, output, name, attribution, no_date):
+    """The one place a *.mctp is written, whatever drew the tiles."""
+    if not tiles:
+        die("nothing to pack")
+    if len(tiles) > TILES_MAX:
+        die(f"{len(tiles)} tiles; the reader holds {TILES_MAX}")
+    check_tiles(tiles)
+
     order = sorted(tiles)
     index_at = HEADER_LEN
     offset = index_at + ENTRY_LEN * len(order)
-    generated = 0 if args.no_date else int(time.time())
+    generated = 0 if no_date else int(time.time())
 
-    with open(args.output, "wb") as out:
+    with open(output, "wb") as out:
         header = HEADER.pack(MAGIC, TILE_SIZE, FORMAT_PNG, 0, index_at, len(order), 0)
         out.write(header)
         out.write(struct.pack("<q", generated))
-        out.write(text_field(args.attribution, ATTRIBUTION_MAX, "--attribution"))
-        out.write(text_field(args.name, NAME_MAX, "--name"))
+        out.write(text_field(attribution, ATTRIBUTION_MAX, "--attribution"))
+        out.write(text_field(name, NAME_MAX, "--name"))
         assert out.tell() == HEADER_LEN, out.tell()
         for key in order:
             out.write(ENTRY.pack(key[0], key[1], key[2], len(tiles[key]), offset))
@@ -205,8 +424,22 @@ def build(args):
         for key in order:
             out.write(tiles[key])
 
-    print(f"{args.output}: {len(order)} tiles, {os.path.getsize(args.output) / 1e6:.1f} MB")
-    describe(args.output)
+    print(f"{output}: {len(order)} tiles, {os.path.getsize(output) / 1e6:.1f} MB")
+    describe(output)
+
+
+def build(args):
+    if (args.mbtiles is None) == (args.xyz is None):
+        die("give exactly one of --mbtiles and --xyz")
+    tiles = read_mbtiles(args.mbtiles) if args.mbtiles else read_xyz(args.xyz)
+    if args.bbox is not None:
+        parts = [float(p) for p in args.bbox.split(",")]
+        if len(parts) != 4:
+            die("--bbox wants south,west,north,east")
+        args.bbox = tuple(parts)
+    tiles = filter_tiles(tiles, args.min_zoom, args.max_zoom, args.bbox)
+
+    write_pack(tiles, args.output, args.name, args.attribution, args.no_date)
 
 
 def load(path):
@@ -363,6 +596,21 @@ def main():
     shown = commands.add_parser("info", help="print a pack's metadata and derived coverage")
     shown.add_argument("pack")
     shown.set_defaults(run=lambda args: describe(args.pack))
+
+    drawn = commands.add_parser(
+        "synth", help="draw a pack of a place that does not exist, for tests and captures"
+    )
+    drawn.add_argument("-o", "--output", required=True)
+    drawn.add_argument("--centre", required=True, help="lat,lon the pack is drawn around")
+    drawn.add_argument("--span-km", type=float, default=4.0, help="how wide the pack is")
+    drawn.add_argument("--min-zoom", type=int, default=12)
+    drawn.add_argument("--max-zoom", type=int, default=16)
+    drawn.add_argument("--name", default="Synthetic")
+    drawn.add_argument("--attribution", default="Synthetic tiles, no copyright")
+    drawn.add_argument(
+        "--no-date", action="store_true", help="leave the generation date unset (reproducible)"
+    )
+    drawn.set_defaults(run=synth)
 
     checked = commands.add_parser("verify", help="check every tile the way the reader would")
     checked.add_argument("pack")

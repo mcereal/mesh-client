@@ -1120,6 +1120,35 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
         return;
     }
 
+    /*
+     * The pictures under the map - "map pack build/demo.mctp".
+     *
+     * Named by the scene rather than found in the environment, for the reason
+     * mesh_ui_capture_open_map_pack() gives: a frame that quietly picked up whatever pack the
+     * developer had installed would render differently on two machines, which is the one thing a
+     * reviewable picture may not do. A missing pack is a mistake in the scene and says so, rather
+     * than a map that comes out bare for a reason nobody can see.
+     *
+     * The tiles then fill one per frame exactly as they do on the device, so the frames a press
+     * settles over are a view filling in - which is the thing this scene is a picture of.
+     */
+    if (strcmp(command, "map") == 0) {
+        char *what = uicap_word(&rest);
+        const char *path = uicap_tail(rest);
+        if (what == NULL || strcmp(what, "pack") != 0 || path == NULL || path[0] == '\0') {
+            fprintf(stderr, "uicap: line %u: 'map' takes 'pack <path>'\n", line_number);
+            exit(1);
+        }
+        uicap_start(cap);
+        const int opened = mesh_ui_capture_open_map_pack(cap->capture, path);
+        if (opened < 0) {
+            fprintf(stderr, "uicap: line %u: could not open the tile pack %s: %s\n", line_number,
+                    path, strerror(-opened));
+            exit(1);
+        }
+        return;
+    }
+
     if (strcmp(command, "key") == 0) {
         char *name = uicap_word(&rest);
         char *count_text = uicap_word(&rest);

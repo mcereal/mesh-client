@@ -10,7 +10,7 @@ export BUILD_ROOT
 DOCKER := ./scripts/docker.sh
 
 .PHONY: help setup debug release relwithdebinfo build test package proto clean distclean run format fuzz \
-        ui-capture screenshots \
+        ui-capture screenshots demo-pack \
         docker-image docker-cross-image docker-shell docker-debug docker-test docker-run docker-pak \
         docker-clean docker-ui-capture docker-screenshots docker-fuzz \
         deploy deploy-start deploy-stop deploy-run deploy-logs deploy-check deploy-shot deploy-clip deploy-input-map \
@@ -28,6 +28,7 @@ help:
 	@echo "  make format         - clang-format all tracked .c/.h files"
 	@echo "  make ui-capture     - Render a UI scene to a GIF without a device (ARGS=\"scene -o out.gif\")"
 	@echo "  make screenshots    - Re-render the listing stills in .github/resources/screenshots"
+	@echo "  make demo-pack      - Draw a synthetic map pack into $(BUILD_ROOT)/demo.mctp"
 	@echo "  make fuzz           - Build and run the libFuzzer harnesses (ARGS=\"--time 600\" to hunt)"
 	@echo "  make clean          - Remove build artifacts"
 	@echo "  make distclean      - Remove build and dist outputs"
@@ -89,6 +90,17 @@ run: debug
 # The companion to deploy-shot for a change that is about a transition; see docs/ui.md.
 ui-capture:
 	./scripts/ui-capture.sh $(ARGS)
+
+# A tile pack of a place that does not exist, drawn on this machine.
+#
+# What the basemap scene is a picture of, and what --map-pack reads on a device - built rather
+# than downloaded, so nothing here waits on choosing a tile source and nothing in the tree is
+# anybody else's pixels. It is centred on the demo roster's own coordinates, which is what puts
+# streets under the markers in devtools/ui_capture/scenes/basemap.scene. See docs/ui.md.
+demo-pack:
+	python3 devtools/map_pack/map_pack.py synth -o $(BUILD_ROOT)/demo.mctp \
+	    --centre 47.6205,-122.3350 --span-km 5 --min-zoom 12 --max-zoom 16 --no-date \
+	    --name "Demo region" --attribution "Synthetic tiles, no copyright"
 
 # The libFuzzer harnesses over the two places bytes we did not write enter the client: the
 # serial frame parser and the session's FromRadio decode. No arguments is the deterministic
