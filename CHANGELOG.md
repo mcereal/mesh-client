@@ -1,3 +1,18 @@
+## [2.60.0](https://github.com/mcereal/mesh-client/compare/v2.59.0...v2.60.0) (2026-09-11)
+
+### Features
+
+* **map:** read a tile pack, and say which tiles a view stands on ([895d95c](https://github.com/mcereal/mesh-client/commit/895d95ce451b9e79ad64349bebb6cbfda21cd475))
+
+### Bug Fixes
+
+* **map:** zero a refused source, and diagnose a short pack index ([fbfaf2a](https://github.com/mcereal/mesh-client/commit/fbfaf2a91d67793a08b978143220e02415e7b0ea))
+
+### Documentation
+
+* **maps:** record that pans cost the same in both directions ([27016f4](https://github.com/mcereal/mesh-client/commit/27016f4e85f5c93b6f7c65940a41d4c9eeed0e18))
+* **maps:** record what the Brick measured for step 3 ([8bb9c8a](https://github.com/mcereal/mesh-client/commit/8bb9c8a41290cf21ca09312462f6facc1a05d374))
+
 ## [2.59.0](https://github.com/mcereal/mesh-client/compare/v2.58.0...v2.59.0) (2026-09-11)
 
 ### Features

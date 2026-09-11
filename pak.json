@@ -1,17 +1,17 @@
 {
   "name": "MeshClient",
-  "version": "v2.59.0",
+  "version": "v2.60.0",
   "type": "TOOL",
   "description": "A Meshtastic client for your handheld: read and send messages, browse the mesh, and edit your radio's settings over Bluetooth LE or USB.",
   "author": "mcereal",
   "repo_url": "https://github.com/mcereal/mesh-client",
   "release_filename": "MeshClient.pak.zip",
   "changelog": {
+    "v2.60.0": "Read a tile pack, and say which tiles a view stands on; Zero a refused source, and diagnose a short pack index.",
     "v2.59.0": "Chart a node's temperature and humidity over time; Close a node's chart with its row, and need a line to open one.",
     "v2.58.0": "Install ESP32 radio firmware over Bluetooth; Arm only the named radio, and only behind an empty admin queue.",
     "v2.57.0": "Make the pad and the panel table-driven; Bind the xbox profile's X and Y by code, not by compass name.",
-    "v2.56.1": "Adopt a connect's host as the one to go back to; Route a network row's press to the network transport.",
-    "v2.56.0": "Reach a Meshtastic node over the network; A network link is not a Bluetooth radio; Four findings from review."
+    "v2.56.1": "Adopt a connect's host as the one to go back to; Route a network row's press to the network transport."
   },
   "screenshots": [
     ".github/resources/screenshots/nodes.png",
