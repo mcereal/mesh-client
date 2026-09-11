@@ -42,10 +42,18 @@ distrobox enter --name meshdev -- bash -lc '
 **The `/run/dbus` mount is the whole difference between this and `make docker-test`.** Inside the
 dev container there is no BlueZ, so the BLE transport sits in `waiting-for-bluez` and the CLI
 backend is selected. Binding the host's system bus socket into the container hands it the *host's*
-BlueZ instead: `pkg-config --exists dbus-1` succeeds at build time so `MESH_HAVE_DBUS` is set, and
-`org.bluez` answers at run time so the transport actually connects. Without it the BLE transport
-compiles out and reports `disabled`, which on a machine with a working adapter three inches away
-reads as a bug in the client.
+BlueZ instead, so `org.bluez` answers and the transport actually connects.
+
+**The two halves of that are separate, and confusing them sends you to the wrong fix.** Whether
+the BLE transport exists at all is decided at *build* time, by `pkg_check_modules(DBUS dbus-1)` in
+`CMakeLists.txt` setting `MESH_HAVE_DBUS` — and `libdbus-1-dev` is in the package list above, so
+in this container it is always set and the transport is always compiled in. The mount decides only
+whether that transport can reach a bus at *run* time. So the two failures look different and
+`CLAUDE.md` names both: no D-Bus headers at build time compiles the transport out entirely and it
+reports `disabled`; headers but no reachable bus leaves it compiled in and sitting in
+`waiting-for-bluez`, with the CLI backend selected. Omitting `--volume /run/dbus:/run/dbus`
+produces the **second**, so a client that cannot see a radio three inches away wants a container
+recreated with the mount, not a rebuild.
 
 Two details make the rest work by themselves. distrobox shares the home directory, so the repo is
 at `/home/deck/mesh-client` inside the container and out, and the CMake cache's absolute paths
@@ -164,16 +172,33 @@ mode, as a non-Steam shortcut, with no root and no VT switch.
 
 Three things to get right:
 
-- **The capture clock is scripted on purpose.** `mesh_ui_capture_advance()` exists because "a
-  capture whose contents depend on the machine that took it is not a reviewable picture" — the
-  harness names the time so a transition is reproducible frame for frame. A live backend wants the
-  opposite, so it must drive `advance()` from `mesh_time_monotonic_ms()` each frame. It only ever
-  moves forwards, which is exactly the contract a monotonic clock satisfies.
+- **The capture clock is scripted on purpose, and `advance()` takes a delta.**
+  `mesh_ui_capture_advance()` exists because "a capture whose contents depend on the machine that
+  took it is not a reviewable picture" — the harness names the time so a transition is reproducible
+  frame for frame. A live backend wants the opposite, and the trap is that `advance(ms)` *adds*
+  `ms` to the capture's clock rather than setting it: handed `mesh_time_monotonic_ms()` every frame
+  it would add the machine's whole uptime per frame, and every animation would finish on the frame
+  it started. The public API therefore needs the elapsed delta, with the previous monotonic reading
+  kept by the backend. Better still, put the backend in `src/ui/backends/` beside `fb_capture.c` —
+  which is where it belongs anyway, since `fb_capture.c` is already "the only other caller of
+  `fb_internal.h`" and that header is not to be reached from outside the group — and then drive the
+  clock the way [`fb.c`](../src/ui/backends/fb.c) itself does, with the absolute
+  `fb_state_set_now(state, mesh_time_monotonic_ms())`. That is the one place the monotonic reading
+  can be passed through unchanged, and `fb_state_set_now()` is where the never-goes-backwards guard
+  actually lives.
 - **It must not reach the Brick's binary.** The pak is a static aarch64 link built without
   `--gc-sections`, so anything compiled in is shipped. This goes behind an opt-in
   `-DMESHCLIENT_ENABLE_SDL=ON` that `scripts/cross-build.sh` never sets.
-- **The selector already has room.** `MESHCLIENT_UI_BACKEND` is documented as `fb|cli|stub`; `sdl`
-  slots in beside them, and `mesh_app_select_backend()`'s existing fall-through does the rest.
+- **The selector needs a branch of its own; there is no fall-through to inherit.**
+  `MESHCLIENT_UI_BACKEND` is documented as `fb|cli|stub`, and `mesh_app_select_backend()` matches
+  `cli` and `stub` explicitly and sends *everything else* — including a value it warns about as
+  unknown — down the framebuffer path, which falls back to CLI when `/dev/fb0` cannot be opened. So
+  compiling an SDL backend and setting `MESHCLIENT_UI_BACKEND=sdl` would, on this machine, log
+  `Unknown UI backend 'sdl'` and select CLI. The work is an explicit `sdl` arm beside the other
+  two, plus a decision the doc cannot make for you: whether the default path tries SDL before the
+  framebuffer or only after it fails. On a Deck the two never compete — `fb0` is unopenable — but
+  on a dev host with both available the ordering is a real choice, and the Brick must keep
+  resolving to `fb`.
 
 SteamOS ships SDL2 (2.32.56) and SDL2_ttf system-wide, and `libsdl2-dev` is one `apt-get` away in
 the container, so neither side needs anything vendored.
