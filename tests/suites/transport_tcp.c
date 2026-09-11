@@ -481,9 +481,23 @@ MESH_TEST_CASE(tcp_transport_link_drop, unit) {
         record_failure(test_name, "a dropped link must detach the session");
         goto cleanup;
     }
-    /* Back to the status the transport had before the connect, not a stuck "connected". */
-    if (strcmp(transport->ops->status(transport), "no-host") != 0) {
+    /*
+     * Not a stuck "connected" - and not "no-host" either, which it would have been before
+     * connect() started adopting its target. This link was pointed at a host and still knows
+     * which one; it simply is not connected to it, which is what "running" says.
+     */
+    if (strcmp(transport->ops->status(transport), "running") != 0) {
         record_failure(test_name, "status should fall back to the transport's own state");
+        goto cleanup;
+    }
+    /*
+     * And the host outlives the link, so auto-connect has somewhere to go back to. A press that
+     * reached the link but not this would be reconnected to whatever the startup configuration
+     * named - here, nothing at all.
+     */
+    if (mesh_tcp_transport_configured_target(transport) == NULL ||
+        strcmp(mesh_tcp_transport_configured_target(transport), radio.target) != 0) {
+        record_failure(test_name, "a dropped link should still know the host it was pointed at");
         goto cleanup;
     }
 
@@ -813,6 +827,26 @@ MESH_TEST_CASE(tcp_connect_routes_to_the_network_transport, unit) {
     if (mesh_ui_preferences_device_rank(&app.ui_preferences, radio.target,
                                         (uint8_t)MESH_UI_DEVICE_TCP) >= 0) {
         failure = "a network host does not belong in the scan-ranking history";
+        goto cleanup;
+    }
+
+    /*
+     * And the press has to survive the link, or it is a choice that lasts until the first drop.
+     * Auto-connect goes back to the host the *transport* was pointed at, so a press that
+     * reached only the app's preference would send it to whatever the startup configuration
+     * named - which here is nothing, so the network arm would be skipped entirely and the host
+     * the user picked would never be reconnected.
+     */
+    (void)mesh_tcp_transport_disconnect(transport);
+    if (mesh_tcp_transport_connected_target(transport) != NULL) {
+        failure = "the link should be down before auto-connect is asked to rebuild it";
+        goto cleanup;
+    }
+
+    mesh_app_autoconnect(&app);
+    if (mesh_tcp_transport_connected_target(transport) == NULL &&
+        !mesh_tcp_transport_is_connecting(transport)) {
+        failure = "auto-connect should go back to the host the press chose";
         goto cleanup;
     }
 
