@@ -557,20 +557,26 @@ MESH_TEST_CASE(history_keeps_temperature_and_humidity_apart, unit) {
 
     const struct mesh_ui_series *temp =
         mesh_ui_history_series(&history, 0x1234U, MESH_UI_HISTORY_TEMPERATURE);
-    const struct mesh_ui_series *wet =
-        mesh_ui_history_series(&history, 0x1234U, MESH_UI_HISTORY_HUMIDITY);
     MESH_TEST_FAIL_IF(temp == NULL || temp->count != 2U,
                       "both temperature readings should be kept");
-    MESH_TEST_FAIL_IF(wet == NULL || wet->count != 1U,
-                      "a report with no humidity is not a humidity reading");
     MESH_TEST_FAIL_IF(mesh_ui_series_at(temp, 1U)->value != 208,
                       "the series holds tenths of a degree as pushed");
+    const struct mesh_ui_series *wet =
+        mesh_ui_history_series(&history, 0x1234U, MESH_UI_HISTORY_HUMIDITY);
+    MESH_TEST_FAIL_IF(wet == NULL || wet->count != 1U,
+                      "a report with no humidity is not a humidity reading");
 
     /* And a below-zero reading is a reading, which is the one way this differs from every
        percentage in the client: the guard that reads "not above zero" as "nothing was said"
        would erase every winter night on the mesh. */
     mesh_ui_history_note_environment(&history, 3000U, 0x1234U, true, -85, false, 0);
     MESH_TEST_FAIL_IF(mesh_ui_series_newest(temp)->value != -85, "a frost is a reading");
+
+    /* The humidity catches up the moment the node reports one again, on its own count rather
+       than on the three temperatures that went past it. */
+    mesh_ui_history_note_environment(&history, 4000U, 0x1234U, true, 190, true, 455);
+    MESH_TEST_FAIL_IF(wet->count != 2U, "humidity should hold only the reports that carried one");
+    MESH_TEST_FAIL_IF(temp->count != 4U, "and the temperature should hold all four");
 
     /* A report carrying neither takes no slot: claiming one to remember that a node reports
        nothing is how the node somebody is watching gets evicted. */
@@ -587,11 +593,15 @@ MESH_TEST_CASE(history_evicts_a_node_with_all_of_its_readings, unit) {
     struct mesh_ui_history history;
     mesh_ui_history_reset(&history);
 
+    /* Two reports each, because one reading is a level rather than a trend and
+       mesh_ui_history_series() answers NULL until there is a segment to draw between them. */
     for (uint32_t i = 0U; i < MESH_UI_HISTORY_NODES; ++i) {
         mesh_ui_history_note_environment(&history, 1000U + i, 0x100U + i, true, 200, true, 500);
+        mesh_ui_history_note_environment(&history, 2000U + i, 0x100U + i, true, 210, true, 490);
     }
     /* The first slot is the least recently heard from, so a thirteenth node takes it. */
     mesh_ui_history_note_environment(&history, 9000U, 0xBEEFU, true, 300, false, 0);
+    mesh_ui_history_note_environment(&history, 9100U, 0xBEEFU, true, 310, false, 0);
 
     MESH_TEST_FAIL_IF(mesh_ui_history_series(&history, 0x100U, MESH_UI_HISTORY_TEMPERATURE) != NULL,
                       "the evicted node should keep no temperature");

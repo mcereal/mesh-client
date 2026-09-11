@@ -216,9 +216,20 @@ static void rows_trend(struct node_rows *rows, enum mesh_ui_history_reading read
     if (rows->items == NULL || rows->count == 0U || rows->count > rows->capacity) {
         return;
     }
+    /*
+     * A drawable *segment*, not a sample - mesh_ui_history_has_airtime()'s test, asked here
+     * because this is where a reading becomes both a picture and a press.
+     *
+     * Every sample following a silence the series calls a break starts a line rather than
+     * continuing one, so a node heard once, or twice either side of a two-hour gap, is readings
+     * the ring holds and no stroke at all. The sparkline was already honest about that by
+     * drawing nothing; the press is not, because what A would open is an axis frame with its
+     * ends labelled and nothing between them. Gating the attach rather than the press keeps the
+     * two answers one answer: a row has a trend, or it has neither trend nor verb.
+     */
     const struct mesh_ui_series *series =
         mesh_ui_history_series(rows->history, rows->node_id, reading);
-    if (series == NULL) {
+    if (series == NULL || !mesh_ui_series_has_segment(series)) {
         return;
     }
     struct mesh_ui_node_item *item = &rows->items[rows->count - 1U];
@@ -920,6 +931,30 @@ mesh_ui_node_detail_trend_at(const struct mesh_ui_node_summary *node, bool is_se
         return MESH_UI_HISTORY_NONE;
     }
     return (enum mesh_ui_history_reading)items[row].trend_reading;
+}
+
+bool mesh_ui_node_detail_trend_row(const struct mesh_ui_node_summary *node, bool is_self,
+                                   const struct mesh_ui_traceroute *trace,
+                                   const struct mesh_ui_handshake_state *roster,
+                                   const struct mesh_ui_history *history,
+                                   enum mesh_ui_history_reading reading,
+                                   struct mesh_ui_node_item *out) {
+    if (node == NULL || history == NULL || reading == MESH_UI_HISTORY_NONE) {
+        return false;
+    }
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    const uint32_t count = mesh_ui_node_detail_build(node, is_self, 0U, trace, false, roster,
+                                                     history, items, MESH_UI_NODE_ITEMS_MAX);
+    for (uint32_t i = 0U; i < count; ++i) {
+        if (items[i].trend == NULL || items[i].trend_reading != (uint8_t)reading) {
+            continue;
+        }
+        if (out != NULL) {
+            *out = items[i];
+        }
+        return true;
+    }
+    return false;
 }
 
 uint32_t mesh_ui_node_detail_count(const struct mesh_ui_node_summary *node, bool is_self,

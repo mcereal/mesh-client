@@ -193,9 +193,13 @@ const struct mesh_ui_series *mesh_ui_history_series(const struct mesh_ui_history
         default:
             return NULL;
         }
-        /* An empty series is the same answer as no slot at all: there is nothing to draw. A
-           caller handed one would have to make that test itself, and the two callers that
-           forgot would draw an axis frame around an empty plot. */
+        /*
+         * An empty series is the same answer as no slot at all: nothing has been kept. Whether
+         * what *is* kept can be drawn is a further question and deliberately not this one - the
+         * airtime pair next door is shaped the same way, with the series reachable on the struct
+         * and mesh_ui_history_has_airtime() answering separately for the picture. A caller that
+         * wanted the samples rather than a stroke would have nowhere else to go.
+         */
         return series->count > 0U ? series : NULL;
     }
     return NULL;

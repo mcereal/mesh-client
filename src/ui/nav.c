@@ -320,12 +320,21 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
                either: the screen it would open is the same nothing one level in. */
             return nodes > 0U ? nodes + 1U : 0U;
         }
-        if (nav->node_trend != MESH_UI_HISTORY_NONE) {
-            /* A chart over the detail, which has no rows for the same reason the map has none:
-               it is a picture. The detail's cursor is parked where it was and comes back with
-               it, which is what puts the reader back on the row they opened. */
-            return 0U;
-        }
+        /*
+         * The detail's own rows, whether or not a chart is open over them - which is where this
+         * parts company with the map two branches up, and the difference is what the level
+         * underneath does with its cursor.
+         *
+         * The map parks the list position in `node_list_cursor` and puts it back on the way out,
+         * so the list's own cursor being zeroed by the clamp below costs nothing. A chart parks
+         * nothing: the cursor it is standing on *is* the detail's, and it is what puts the reader
+         * back on the row they pressed. Answering 0 here hands that cursor to the clamp's
+         * empty-list arm, which sets it to 0 on the very next publish - so B out of a chart
+         * landed on "Message this node" every time.
+         *
+         * A count with no way to move it is not a contradiction: mesh_ui_nav_handle_key()
+         * swallows the d-pad while the chart is up, so the cursor cannot walk underneath it.
+         */
         const struct mesh_ui_node_summary *node =
             mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node);
         return mesh_ui_node_detail_count(node, mesh_ui_nav_node_is_self(store, node),
@@ -408,20 +417,29 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
         moved = true;
     }
     /*
-     * And the same for a node's chart, which has two ways to empty rather than one: the history
-     * can be forgotten under it, and the node itself can fall out of the list - so this runs
-     * after the detail's own close above, which has already cleared the reading in that case and
-     * leaves this looking at a closed chart.
+     * And the same for a node's chart, which has three ways to empty rather than one: the node
+     * can fall out of the list, the history can be forgotten under it, and the *row* can go
+     * while the history stays. It runs after the detail's own close above, which has already
+     * cleared the reading in the first case and leaves this looking at a closed chart.
      *
-     * The series is asked for rather than a count, because mesh_ui_history_series() already
-     * answers NULL for an empty one and a second opinion about "is there anything to draw" is
-     * how the screen and the clamp come to disagree.
+     * The third is why this asks for the row rather than for the series, and it is the one that
+     * cost a review round. A reading is an optional field of an optional Telemetry variant, so a
+     * node that reports temperature and then reports without it takes the row away while the
+     * readings the client already kept stay exactly as drawable as they were. Asked of the
+     * history the chart stays open over a row that no longer exists - the renderer falls back to
+     * the detail while this, the action bar, the help screen and the key handler all still
+     * believe a picture is up, so the reader gets a list whose d-pad is swallowed until they
+     * press B. The row is the honest question, and it is the same one the press asked.
      */
-    if (nav->node_detail_open && nav->node_trend != MESH_UI_HISTORY_NONE &&
-        mesh_ui_history_series(&store->history, nav->node_detail_node,
-                               (enum mesh_ui_history_reading)nav->node_trend) == NULL) {
-        nav->node_trend = MESH_UI_HISTORY_NONE;
-        moved = true;
+    if (nav->node_detail_open && nav->node_trend != MESH_UI_HISTORY_NONE) {
+        const struct mesh_ui_node_summary *charted =
+            mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node);
+        if (!mesh_ui_node_detail_trend_row(charted, mesh_ui_nav_node_is_self(store, charted),
+                                           &store->traceroute, &store->handshake, &store->history,
+                                           (enum mesh_ui_history_reading)nav->node_trend, NULL)) {
+            nav->node_trend = MESH_UI_HISTORY_NONE;
+            moved = true;
+        }
     }
 
     /*

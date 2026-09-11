@@ -203,6 +203,31 @@ mesh_ui_node_detail_trend_at(const struct mesh_ui_node_summary *node, bool is_se
                              const struct mesh_ui_handshake_state *roster,
                              const struct mesh_ui_history *history, uint32_t row);
 
+/*
+ * The row charting `reading`, or false when this node has none.
+ *
+ * The other half of the question above, asked the other way round: that one starts from a row and
+ * says which reading it charts, this one starts from a reading and finds its row. Both build, and
+ * both exist so that the press, the bar, the clamp and the renderer are reading one answer.
+ *
+ * Two callers, and the reason they must be the same call is a state the client could otherwise
+ * sit in. A reading is an *optional field* of an optional Telemetry variant, so a later report
+ * that omits it takes the row away while the history the client already kept stays exactly as
+ * full as it was. Asked of the history, the chart stays open over a row that is gone: the
+ * renderer falls back to drawing the detail, while the nav, the action bar, the help screen and
+ * the key handler all still believe a picture is up - so the reader is looking at a list whose
+ * d-pad is swallowed until they press B. Asked of the row, it closes.
+ *
+ * `out` may be NULL for a caller that only wants the answer, which is the clamp; the renderer
+ * takes the copy because the row is where the chart's whole statement lives.
+ */
+bool mesh_ui_node_detail_trend_row(const struct mesh_ui_node_summary *node, bool is_self,
+                                   const struct mesh_ui_traceroute *trace,
+                                   const struct mesh_ui_handshake_state *roster,
+                                   const struct mesh_ui_history *history,
+                                   enum mesh_ui_history_reading reading,
+                                   struct mesh_ui_node_item *out);
+
 /* Rows the node would produce. The nav needs nothing else from this module. */
 uint32_t mesh_ui_node_detail_count(const struct mesh_ui_node_summary *node, bool is_self,
                                    const struct mesh_ui_traceroute *trace,

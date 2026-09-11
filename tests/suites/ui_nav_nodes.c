@@ -5,6 +5,7 @@
 #include "framework/mesh_test.h"
 #include "support/ui_fixture.h"
 
+#include "mesh/ui/history.h"
 #include "mesh/ui/nav.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/settings.h"
@@ -86,6 +87,182 @@ MESH_TEST_CASE(ui_nav_node_trend_opens_from_its_row, unit) {
     (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_B, &action);
     MESH_TEST_FAIL_IF(nav.node_trend != MESH_UI_HISTORY_NONE, "B should close the chart");
     MESH_TEST_FAIL_IF(!nav.node_detail_open, "and land back on the detail rather than the list");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * Closing the chart lands back on the row it was opened from.
+ *
+ * The regression is a clamp away rather than a press away, which is what made it invisible: a
+ * chart is a picture, so the obvious thing for the Nodes tab's row count to answer while one is
+ * open is zero - and the clamp's empty-list arm reads a zero as "put the cursor back to the top".
+ * mesh_ui_store_consume_updates() clamps on the publish right after the press, so by the time B
+ * was pressed the detail's cursor had already been reset and every chart exited onto "Message
+ * this node". The map gets away with answering zero because it parks the list position in
+ * node_list_cursor; a chart parks nothing, because the cursor it stands on is the detail's own.
+ */
+MESH_TEST_CASE(ui_nav_node_trend_keeps_the_row_it_was_opened_from, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.node_count = 1U;
+    handshake.nodes[0].node_id = 0x2000U;
+    handshake.nodes[0].environment.valid = true;
+    handshake.nodes[0].environment.has_temperature = true;
+    handshake.nodes[0].environment.temperature = 21.0f;
+    mesh_ui_store_tick(&store, 1000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+    handshake.nodes[0].environment.temperature = 23.0f;
+    mesh_ui_store_tick(&store, 2000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+
+    struct mesh_ui_nav nav;
+    mesh_ui_nav_init(&nav);
+    nav.screen = MESH_UI_SCREEN_NODES;
+    nav.node_detail_open = true;
+    nav.node_detail_node = 0x2000U;
+
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    const uint32_t count =
+        mesh_ui_node_detail_build(&handshake.nodes[0], false, 0U, NULL, false, &handshake,
+                                  &store.history, items, MESH_UI_NODE_ITEMS_MAX);
+    uint32_t row = count;
+    for (uint32_t i = 0U; i < count; ++i) {
+        if (items[i].trend_reading == MESH_UI_HISTORY_TEMPERATURE) {
+            row = i;
+            break;
+        }
+    }
+    MESH_TEST_FAIL_IF(row == count, "the temperature row should be chartable");
+    MESH_TEST_FAIL_IF(row == 0U, "the row must not be row 0, or this proves nothing");
+    nav.cursor[MESH_UI_SCREEN_NODES] = row;
+
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_A, &action);
+    MESH_TEST_FAIL_IF(nav.node_trend != MESH_UI_HISTORY_TEMPERATURE, "A should open the chart");
+
+    /* The publish that follows the press, which is where this used to be lost. */
+    (void)mesh_ui_nav_clamp(&nav, &store);
+    MESH_TEST_FAIL_IF(nav.cursor[MESH_UI_SCREEN_NODES] != row,
+                      "a clamp under an open chart must not reset the detail's cursor");
+
+    (void)mesh_ui_nav_handle_key(&nav, &store, MESH_UI_KEY_B, &action);
+    MESH_TEST_FAIL_IF(nav.cursor[MESH_UI_SCREEN_NODES] != row,
+                      "B out of a chart should land on the row it was opened from");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * One reading is a level, not a trend, so its row offers no chart.
+ *
+ * mesh_ui_history_series() answers on a drawable *segment* rather than on a count, which is
+ * mesh_ui_history_has_airtime()'s rule and matters more here because this answer decides a
+ * press: counted, a node heard once would offer a chart, and A would open an axis frame with its
+ * ends labelled and nothing between them.
+ */
+MESH_TEST_CASE(ui_nav_node_trend_needs_a_line_to_draw, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.node_count = 1U;
+    handshake.nodes[0].node_id = 0x2000U;
+    handshake.nodes[0].environment.valid = true;
+    handshake.nodes[0].environment.has_temperature = true;
+    handshake.nodes[0].environment.temperature = 21.0f;
+    mesh_ui_store_tick(&store, 1000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+
+    MESH_TEST_FAIL_IF(mesh_ui_node_detail_trend_row(&handshake.nodes[0], false, NULL, &handshake,
+                                                    &store.history, MESH_UI_HISTORY_TEMPERATURE,
+                                                    NULL),
+                      "a single reading is a level and offers no chart");
+
+    /* A second report, far enough after the first to be inside the node gap, makes a line. */
+    handshake.nodes[0].environment.temperature = 23.0f;
+    mesh_ui_store_tick(&store, 2000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+    MESH_TEST_FAIL_IF(!mesh_ui_node_detail_trend_row(&handshake.nodes[0], false, NULL, &handshake,
+                                                     &store.history, MESH_UI_HISTORY_TEMPERATURE,
+                                                     NULL),
+                      "two readings one tick apart are a line");
+
+    /* And two readings either side of a silence longer than the node gap are two samples the
+       ring holds and no stroke at all, which is not a chart either. */
+    struct mesh_ui_history gapped;
+    mesh_ui_history_reset(&gapped);
+    mesh_ui_history_note_environment(&gapped, 1000U, 0x2000U, true, 210, false, 0);
+    mesh_ui_history_note_environment(&gapped, 1000U + MESH_UI_HISTORY_NODE_GAP_MS + 1000U, 0x2000U,
+                                     true, 230, false, 0);
+    MESH_TEST_FAIL_IF(mesh_ui_node_detail_trend_row(&handshake.nodes[0], false, NULL, &handshake,
+                                                    &gapped, MESH_UI_HISTORY_TEMPERATURE, NULL),
+                      "two readings with no line between them are not a chart");
+
+    mesh_ui_store_shutdown(&store);
+    record_success(test_name);
+}
+
+/*
+ * A chart closes when its *row* goes, not only when its readings do.
+ *
+ * A reading is an optional field of an optional Telemetry variant, so a node that reports a
+ * temperature and then reports without one takes the row away while the history stays exactly as
+ * drawable as it was. Asked of the history the chart stayed open over a row that no longer
+ * existed - the renderer fell back to drawing the detail while the nav, the action bar and the
+ * key handler all still believed a picture was up, so the reader got a list whose d-pad was
+ * swallowed until they pressed B.
+ */
+MESH_TEST_CASE(ui_nav_node_trend_closes_when_its_row_goes, unit) {
+    struct mesh_ui_store store;
+    MESH_TEST_FAIL_IF(mesh_ui_store_init(&store) != 0, "store init failed");
+
+    struct mesh_ui_handshake_state handshake;
+    memset(&handshake, 0, sizeof handshake);
+    handshake.node_count = 1U;
+    handshake.nodes[0].node_id = 0x2000U;
+    handshake.nodes[0].environment.valid = true;
+    handshake.nodes[0].environment.has_temperature = true;
+    handshake.nodes[0].environment.temperature = 21.0f;
+    mesh_ui_store_tick(&store, 1000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+    handshake.nodes[0].environment.temperature = 23.0f;
+    mesh_ui_store_tick(&store, 2000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+
+    struct mesh_ui_nav nav;
+    mesh_ui_nav_init(&nav);
+    nav.screen = MESH_UI_SCREEN_NODES;
+    nav.node_detail_open = true;
+    nav.node_detail_node = 0x2000U;
+    nav.node_trend = MESH_UI_HISTORY_TEMPERATURE;
+
+    (void)mesh_ui_nav_clamp(&nav, &store);
+    MESH_TEST_FAIL_IF(nav.node_trend != MESH_UI_HISTORY_TEMPERATURE,
+                      "a chart over a row that is still there stays open");
+
+    /* The node keeps reporting, and stops reporting a temperature. The history it already gave
+       us is untouched and still perfectly drawable. */
+    handshake.nodes[0].environment.has_temperature = false;
+    handshake.nodes[0].environment.has_pressure = true;
+    handshake.nodes[0].environment.barometric_pressure = 1013.0f;
+    mesh_ui_store_tick(&store, 3000U);
+    mesh_ui_store_set_handshake(&store, &handshake);
+    MESH_TEST_FAIL_IF(
+        mesh_ui_history_series(&store.history, 0x2000U, MESH_UI_HISTORY_TEMPERATURE) == NULL,
+        "the readings we were given are still there, which is the whole trap");
+
+    (void)mesh_ui_nav_clamp(&nav, &store);
+    MESH_TEST_FAIL_IF(nav.node_trend != MESH_UI_HISTORY_NONE,
+                      "a chart whose row has gone should close rather than swallow the d-pad");
+    MESH_TEST_FAIL_IF(!nav.node_detail_open, "and leave the detail it was opened over");
 
     mesh_ui_store_shutdown(&store);
     record_success(test_name);

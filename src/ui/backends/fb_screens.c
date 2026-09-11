@@ -3085,21 +3085,13 @@ static void fb_render_node_trend(struct mesh_ui_backend_fb_state *state,
     }
     const bool is_self = hs->has_my_info && node->node_id == hs->my_info.node_num;
 
-    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
-    const uint32_t count =
-        mesh_ui_node_detail_build(node, is_self, mesh_time_wall_s(), &snapshot->traceroute, false,
-                                  hs, &snapshot->history, items, MESH_UI_NODE_ITEMS_MAX);
-    const struct mesh_ui_node_item *row = NULL;
-    for (uint32_t i = 0U; i < count; ++i) {
-        if (items[i].trend != NULL && items[i].trend_reading == nav->node_trend) {
-            row = &items[i];
-            break;
-        }
-    }
-    if (row == NULL) {
+    struct mesh_ui_node_item found;
+    if (!mesh_ui_node_detail_trend_row(node, is_self, &snapshot->traceroute, hs, &snapshot->history,
+                                       (enum mesh_ui_history_reading)nav->node_trend, &found)) {
         fb_render_node_detail(state, snapshot, layout);
         return;
     }
+    const struct mesh_ui_node_item *row = &found;
 
     /* The reading names the screen; the node is on the trail, because the app bar's overline
        says only what nothing else on the frame says and the navigation bar is already saying

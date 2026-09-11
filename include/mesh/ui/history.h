@@ -179,8 +179,12 @@ bool mesh_ui_history_has_airtime(const struct mesh_ui_history *history);
  * Keyed on the reading rather than three functions named after them, because by the time this
  * is asked the reading is usually a value somebody is holding - the row the cursor is on, the
  * chart the nav has open - and a caller that had to switch on it to pick a function would be
- * deciding which readings exist for the second time. An empty series answers NULL exactly as an
- * absent one does: what both mean to every caller is "there is nothing to draw".
+ * deciding which readings exist for the second time.
+ *
+ * "Kept" means a sample, not a drawable line. Whether the readings can be *stroked* is the
+ * further question mesh_ui_history_has_airtime() answers for the radio's own pair, and it is
+ * asked here where the drawing is decided - see rows_trend() in src/ui/node_detail.c, which is
+ * the one place a reading becomes a picture and a press.
  */
 const struct mesh_ui_series *mesh_ui_history_series(const struct mesh_ui_history *history,
                                                     uint32_t node_id,
