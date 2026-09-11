@@ -1,3 +1,23 @@
+## [2.56.0](https://github.com/mcereal/mesh-client/compare/v2.55.0...v2.56.0) (2026-09-11)
+
+### Features
+
+* **transport:** reach a Meshtastic node over the network ([e5d127c](https://github.com/mcereal/mesh-client/commit/e5d127cce527e6182297ec1f8c095de88bd89de0))
+
+### Bug Fixes
+
+* **transport:** four findings from review ([c0c0b52](https://github.com/mcereal/mesh-client/commit/c0c0b527d92312954e12c733c4bf2b00af62ae56))
+* **ui:** a network link is not a Bluetooth radio ([ddcadc7](https://github.com/mcereal/mesh-client/commit/ddcadc7da7b849f89eaa0ad7e8774ed38e249b49))
+
+### Documentation
+
+* **firmware:** answer phase 0's BLE throughput question ([6601d01](https://github.com/mcereal/mesh-client/commit/6601d01c58a18c24cbb403ecba2615c3a99be998))
+* **firmware:** size a chunk from the write payload, not the MTU ([a227952](https://github.com/mcereal/mesh-client/commit/a227952700ceab515711c1c182d5900bacdbb3f8))
+
+### Code Refactoring
+
+* **transport:** lift the shared half out of the serial link ([f4b881d](https://github.com/mcereal/mesh-client/commit/f4b881d49c848f25468445f3ef71c53d7c36b030))
+
 ## [2.55.0](https://github.com/mcereal/mesh-client/compare/v2.54.1...v2.55.0) (2026-09-10)
 
 ### Features
