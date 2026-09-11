@@ -481,9 +481,23 @@ MESH_TEST_CASE(tcp_transport_link_drop, unit) {
         record_failure(test_name, "a dropped link must detach the session");
         goto cleanup;
     }
-    /* Back to the status the transport had before the connect, not a stuck "connected". */
-    if (strcmp(transport->ops->status(transport), "no-host") != 0) {
+    /*
+     * Not a stuck "connected" - and not "no-host" either, which it would have been before
+     * connect() started adopting its target. This link was pointed at a host and still knows
+     * which one; it simply is not connected to it, which is what "running" says.
+     */
+    if (strcmp(transport->ops->status(transport), "running") != 0) {
         record_failure(test_name, "status should fall back to the transport's own state");
+        goto cleanup;
+    }
+    /*
+     * And the host outlives the link, so auto-connect has somewhere to go back to. A press that
+     * reached the link but not this would be reconnected to whatever the startup configuration
+     * named - here, nothing at all.
+     */
+    if (mesh_tcp_transport_configured_target(transport) == NULL ||
+        strcmp(mesh_tcp_transport_configured_target(transport), radio.target) != 0) {
+        record_failure(test_name, "a dropped link should still know the host it was pointed at");
         goto cleanup;
     }
 
@@ -722,6 +736,135 @@ cleanup:
  *
  * Four assertions, one per wrong answer that field gave.
  */
+/*
+ * A press on a network row reaches the network transport.
+ *
+ * The dispatch it goes through used to be "serial, or else Bluetooth", and each of those casts
+ * transport->state to its own struct - so the wrong arm is not a connect that fails but a read
+ * of one transport's state through another's type, which is the disconnect chain's bug in the
+ * other direction. Nothing offers this press yet (a row is connectable only while it is not
+ * connected, and a network link's one row exists only while it is), so this pins the routing
+ * ahead of the row that will use it.
+ */
+MESH_TEST_CASE(tcp_connect_routes_to_the_network_transport, unit) {
+    struct tcp_test_radio radio;
+    tcp_test_radio_init(&radio);
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+    const char *failure = NULL;
+    bool app_ready = false;
+    char home_dir[] = "/tmp/mesh_tcp_routeXXXXXX";
+    bool home_made = false;
+
+    if (!tcp_test_radio_listen(&radio)) {
+        record_failure(test_name, "could not listen on the loopback");
+        goto cleanup;
+    }
+    if (mkdtemp(home_dir) == NULL) {
+        record_failure(test_name, "mkdtemp failed");
+        goto cleanup;
+    }
+    home_made = true;
+    setenv("HOME", home_dir, 1);
+    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
+    unsetenv("MESHCLIENT_AUTOCONNECT");
+
+    /* No host configured: the press is what supplies the address, which is also what proves it
+       landed in the network preference rather than the Bluetooth one. */
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    config.enable_ble = false;
+    config.enable_serial = false;
+    config.enable_tcp = true;
+
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+
+    if (mesh_transport_registry_start_all(&app.transport_registry, &app.config, &app.loop) < 0) {
+        failure = "transport start failed";
+        goto cleanup;
+    }
+
+    if (app.ui_controller.on_action == NULL) {
+        failure = "the app should have installed a UI action handler";
+        goto cleanup;
+    }
+
+    /* Through the handler a press goes through rather than the routing function underneath it,
+       so the log line, the device history and the dispatch are all on the path under test. */
+    struct mesh_ui_action action;
+    memset(&action, 0, sizeof action);
+    action.type = MESH_UI_ACTION_CONNECT;
+    action.kind = (uint8_t)MESH_UI_DEVICE_TCP;
+    snprintf(action.identifier, sizeof action.identifier, "%s", radio.target);
+    app.ui_controller.on_action(app.ui_controller.action_userdata, &action);
+
+    struct mesh_transport *transport = mesh_tcp_transport();
+    if (mesh_tcp_transport_connected_target(transport) == NULL) {
+        (void)mesh_event_loop_run(&app.loop, 200);
+    }
+    if (mesh_tcp_transport_connected_target(transport) == NULL) {
+        failure = "the press should have reached the network transport";
+        goto cleanup;
+    }
+    if (!tcp_test_radio_accept(&radio)) {
+        failure = "the listener did not see the connection";
+        goto cleanup;
+    }
+
+    if (strcmp(app.config.preferred_tcp_host, radio.target) != 0) {
+        failure = "the address should become the network preference";
+        goto cleanup;
+    }
+    if (app.config.preferred_ble_device[0] != '\0') {
+        failure = "an address is not a radio to look for over the air";
+        goto cleanup;
+    }
+    /* The recent-device history ranks a scan, and a host is in no scan. */
+    if (mesh_ui_preferences_device_rank(&app.ui_preferences, radio.target,
+                                        (uint8_t)MESH_UI_DEVICE_TCP) >= 0) {
+        failure = "a network host does not belong in the scan-ranking history";
+        goto cleanup;
+    }
+
+    /*
+     * And the press has to survive the link, or it is a choice that lasts until the first drop.
+     * Auto-connect goes back to the host the *transport* was pointed at, so a press that
+     * reached only the app's preference would send it to whatever the startup configuration
+     * named - which here is nothing, so the network arm would be skipped entirely and the host
+     * the user picked would never be reconnected.
+     */
+    (void)mesh_tcp_transport_disconnect(transport);
+    if (mesh_tcp_transport_connected_target(transport) != NULL) {
+        failure = "the link should be down before auto-connect is asked to rebuild it";
+        goto cleanup;
+    }
+
+    mesh_app_autoconnect(&app);
+    if (mesh_tcp_transport_connected_target(transport) == NULL &&
+        !mesh_tcp_transport_is_connecting(transport)) {
+        failure = "auto-connect should go back to the host the press chose";
+        goto cleanup;
+    }
+
+    record_success(test_name);
+
+cleanup:
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    }
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    tcp_test_radio_close(&radio);
+    if (home_made) {
+        rmdir(home_dir);
+    }
+}
+
 MESH_TEST_CASE(tcp_link_is_published_as_a_network_device, unit) {
     struct tcp_test_radio radio;
     tcp_test_radio_init(&radio);

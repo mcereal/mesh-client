@@ -41,9 +41,23 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
 
     switch (action->type) {
     case MESH_UI_ACTION_CONNECT: {
+        /* The kind, in the log's own words. Inline rather than behind a helper because
+           scripts/check-strings.py exempts a literal inside mesh_log() and nowhere else, and
+           these three are log words - untranslated, like every other line this file writes. */
         mesh_log_info("ui", "Connect to %s (%s) requested from the device", action->identifier,
-                      action->kind == (uint8_t)MESH_UI_DEVICE_SERIAL ? "usb" : "ble");
-        mesh_app_note_connected_device(app, action->identifier, action->kind);
+                      action->kind == (uint8_t)MESH_UI_DEVICE_SERIAL ? "usb"
+                      : action->kind == (uint8_t)MESH_UI_DEVICE_TCP  ? "network"
+                                                                     : "ble");
+        /*
+         * A network link is deliberately not remembered here, for the reason
+         * mesh_app_publish_ui_state() does not remember it either: this history is what
+         * auto-connect ranks a *scan* with, and a host is in no scan - configuration already
+         * holds it. Recorded, an address would sit in the eight slots a real radio needs,
+         * matching nothing that could ever be scanned.
+         */
+        if (action->kind != (uint8_t)MESH_UI_DEVICE_TCP) {
+            mesh_app_note_connected_device(app, action->identifier, action->kind);
+        }
         /* Asking for a radio lifts a hold an earlier disconnect put on auto-connect. */
         app->autoconnect_held = false;
         app->autoconnect_failures = 0U;

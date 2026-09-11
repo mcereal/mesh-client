@@ -81,8 +81,15 @@ struct mesh_tcp_transport_state {
     bool pending_registered;
     uint64_t connect_deadline_ms;
 
-    char target[MESH_TCP_TARGET_MAX];     /* what is being connected to, or what is up */
-    char configured[MESH_TCP_TARGET_MAX]; /* what the config said, whether or not it is up */
+    char target[MESH_TCP_TARGET_MAX]; /* what is being connected to, or what is up */
+    /*
+     * The last host this transport was pointed at, whether or not it is up: the configuration
+     * at startup, and then whatever a connect asked for. Updated by connect() rather than by a
+     * setter of its own, so the two cannot drift - a press that reached the link but not this
+     * would be reconnected, after the first drop, to the host it replaced, or to none at all
+     * when the startup configuration named none.
+     */
+    char configured[MESH_TCP_TARGET_MAX];
     uint64_t next_heartbeat_ms;
 
     /* Owned only when nothing was injected; `session` is what the code uses. */
@@ -421,6 +428,13 @@ int mesh_tcp_transport_connect(struct mesh_transport *transport, const char *tar
 #endif
 
     mesh_str_copy(state->target, sizeof state->target, target);
+    /*
+     * Adopted here rather than only at start: connecting to a host *is* pointing this link at
+     * it, and auto-connect reads this to know where to go back to. Taken after the target has
+     * been parsed and found to be an address, so a refused one never becomes what we retry.
+     */
+    mesh_str_copy(state->configured, sizeof state->configured, target);
+    state->state = MESH_TCP_STATE_READY;
 
     const int connected = connect(fd, (const struct sockaddr *)&address, address_len);
     if (connected < 0 && errno != EINPROGRESS) {

@@ -43,8 +43,27 @@
  * connected is one auto-connect will happily talk over.
  */
 
+/*
+ * The disconnect chain's twin, and it gets its arms stated for the same reason: each of these
+ * transports casts `transport->state` to its own struct, so a kind routed to the wrong one is
+ * not a connect that fails, it is a read of one transport's state through another's type. An
+ * "everything else" arm means Bluetooth, and a kind that is not Bluetooth falls into it.
+ *
+ * Nothing reaches the network arm today - a row is connectable only while it is *not* connected
+ * (mesh_ui_device_connectable), and the one row a network link has exists only while it is - so
+ * this is what that row's press will find already correct rather than a trap laid where the next
+ * change steps.
+ */
 static struct mesh_transport *mesh_app_transport_for_kind(uint8_t kind) {
-    return kind == (uint8_t)MESH_UI_DEVICE_SERIAL ? mesh_serial_transport() : mesh_ble_transport();
+    switch ((enum mesh_ui_device_kind)kind) {
+    case MESH_UI_DEVICE_SERIAL:
+        return mesh_serial_transport();
+    case MESH_UI_DEVICE_TCP:
+        return mesh_tcp_transport();
+    case MESH_UI_DEVICE_BLE:
+        break;
+    }
+    return mesh_ble_transport();
 }
 
 struct mesh_transport *mesh_app_active_transport(void) {
@@ -136,6 +155,19 @@ int mesh_app_link_connect(struct mesh_app *app, const char *identifier, uint8_t 
             mesh_serial_transport_disconnect(transport);
         }
         return mesh_serial_transport_connect(transport, identifier);
+    }
+
+    /* A third preference for the same reason the first two are apart: a host written down is
+       not a radio to look for over the air, and storing it under the BLE preference would send
+       auto-connect hunting for an advertisement no address can ever match. */
+    if (kind == (uint8_t)MESH_UI_DEVICE_TCP) {
+        snprintf(app->config.preferred_tcp_host, sizeof app->config.preferred_tcp_host, "%s",
+                 identifier);
+        if (mesh_tcp_transport_connected_target(transport) != NULL ||
+            mesh_tcp_transport_is_connecting(transport)) {
+            mesh_tcp_transport_disconnect(transport);
+        }
+        return mesh_tcp_transport_connect(transport, identifier);
     }
 
     snprintf(app->config.preferred_ble_device, sizeof app->config.preferred_ble_device, "%s",
