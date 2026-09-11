@@ -86,6 +86,8 @@ add_library(meshclient_core
     src/geo/coords.c
     src/geo/mercator.c
     src/geo/vector.c
+    src/map/source_pack.c
+    src/map/tile.c
     src/map/viewport.c
     src/i18n/strings.c
     src/i18n/locale_es.c

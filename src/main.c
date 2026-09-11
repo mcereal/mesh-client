@@ -6,6 +6,8 @@
 #include "mesh/core/firmware_install.h"
 #include "mesh/core/firmware_ota.h"
 #include "mesh/core/version.h"
+#include "mesh/map/source.h"
+#include "mesh/map/viewport.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/ble_bluez.h"
 #include "mesh/transport/ble_hci.h"
@@ -144,6 +146,87 @@ static size_t await_ble_discovery(struct mesh_app *app) {
         mesh_transport_registry_tick(&app->transport_registry);
         (void)mesh_ble_transport_refresh_devices(ble);
     }
+}
+
+/*
+ * --map-pack: what a tile pack says about itself, and whether it reads.
+ *
+ * It exists for the reason --fetch-firmware existed before there was a firmware screen: the
+ * pack is read on the device, off a FAT32 card, and "does this file open and can a tile come
+ * out of it" is not a question the host suite can answer about the card in somebody's Brick.
+ * It also gives the sideload path of docs/maps-roadmap.md's step 4 something to *check with*,
+ * which is otherwise a reader copying a file across and finding out at the map.
+ *
+ * Nothing is decoded and no transport is started: this opens a file, prints what the header and
+ * the index add up to, and reads one tile's bytes to prove the offsets are real.
+ */
+static int describe_map_pack(const char *path) {
+    struct mesh_map_source source;
+    const int opened = mesh_map_source_open_pack(path, &source);
+    if (opened < 0) {
+        fprintf(stderr, "Could not open %s: %s\n", path, strerror(-opened));
+        return opened;
+    }
+
+    printf("Tile pack %s\n", path);
+    printf("  name         %s\n", source.info.name[0] != '\0' ? source.info.name : "(unset)");
+    printf("  attribution  %s\n",
+           source.info.attribution[0] != '\0' ? source.info.attribution : "(unset)");
+    if (source.info.generated_s > 0) {
+        const time_t when = (time_t)source.info.generated_s;
+        struct tm parts;
+        char stamp[32];
+        if (gmtime_r(&when, &parts) != NULL &&
+            strftime(stamp, sizeof stamp, "%Y-%m-%d", &parts) > 0U) {
+            printf("  generated    %s\n", stamp);
+        }
+    }
+    printf("  tiles        %u, zoom %u-%u\n", source.info.tiles, (unsigned)source.info.min_zoom,
+           (unsigned)source.info.max_zoom);
+    /* The coverage the reader derived from the index rather than anything the file claimed -
+       which is the number worth printing, because it is the one a wrong pack disagrees with. */
+    printf("  coverage     %.5f,%.5f to %.5f,%.5f\n", (double)source.info.south_i / 1e7,
+           (double)source.info.west_i / 1e7, (double)source.info.north_i / 1e7,
+           (double)source.info.east_i / 1e7);
+
+    /* One tile, at the middle of the coverage at its deepest zoom: the cheapest thing that
+       proves an offset in the index points at bytes the card really has. */
+    struct mesh_map_viewport viewport;
+    mesh_map_viewport_init(&viewport, (source.info.north_i / 2) + (source.info.south_i / 2),
+                           (source.info.east_i / 2) + (source.info.west_i / 2),
+                           source.info.max_zoom);
+    mesh_map_viewport_resize(&viewport, 1, 1);
+    struct mesh_map_tile_span span;
+    struct mesh_map_tile_key key;
+    int result = 0;
+    if (!mesh_map_viewport_tiles(&viewport, &span) || !mesh_map_tile_span_key(&span, 0, 0, &key)) {
+        fprintf(stderr, "  the coverage names no tile; the pack is not readable\n");
+        result = -EINVAL;
+    } else {
+        /* Heap rather than a static: a megabyte of zeroed BSS carried by every run of the
+           client, for a buffer one flag uses, is a page table's worth of nothing. */
+        uint8_t *const tile = malloc(MESH_MAP_TILE_BYTES_MAX);
+        const int length = tile == NULL
+                               ? -ENOMEM
+                               : mesh_map_source_read(&source, key, tile, MESH_MAP_TILE_BYTES_MAX);
+        free(tile);
+        if (length > 0) {
+            printf("  middle tile  z%u/%u/%u, %d bytes\n", (unsigned)key.zoom, key.x, key.y,
+                   length);
+        } else if (length == 0) {
+            /* Not a failure: a pack is a rectangle of the world with holes in it, and the
+               middle of a coastal region is often water nobody cut a tile for. */
+            printf("  middle tile  z%u/%u/%u is not in the pack\n", (unsigned)key.zoom, key.x,
+                   key.y);
+        } else {
+            fprintf(stderr, "  could not read z%u/%u/%u: %s\n", (unsigned)key.zoom, key.x, key.y,
+                    strerror(-length));
+            result = length;
+        }
+    }
+
+    mesh_map_source_close(&source);
+    return result;
 }
 
 /* --list-devices: both transports, so a USB node shows up next to the BLE advertisers. */
@@ -854,6 +937,9 @@ static void print_usage(const char *program) {
             "      --staging DIR         Where the two above stage (default: /tmp; use\n"
             "                            /mnt/UDISK on a Brick, because a bootloader's drive\n"
             "                            gets mounted over /mnt/SDCARD)\n"
+            "      --map-pack PATH       Print what a raster tile pack holds - its\n"
+            "                            attribution, coverage and zooms - and read one tile\n"
+            "                            out of it. No radio and no network are touched\n"
             "  -V, --version              Print the client version and exit\n"
             "  -h, --help                 Show this help message\n",
             program);
@@ -904,6 +990,7 @@ int main(int argc, char **argv) {
        reboots, so an image staged there vanishes from its own path. */
     const char *fetch_firmware_staging = "/tmp";
     const char *install_firmware_target = NULL;
+    const char *map_pack_path = NULL;
 
     static const struct option long_options[] = {
         {"foreground", no_argument, NULL, 'f'},
@@ -926,6 +1013,7 @@ int main(int argc, char **argv) {
         {"fetch-firmware", required_argument, NULL, 9},
         {"staging", required_argument, NULL, 10},
         {"install-firmware", required_argument, NULL, 11},
+        {"map-pack", required_argument, NULL, 14},
         {"version", no_argument, NULL, 'V'},
         {"help", no_argument, NULL, 'h'},
         {0, 0, 0, 0},
@@ -1017,6 +1105,9 @@ int main(int argc, char **argv) {
         case 13:
             config.enable_tcp = false;
             break;
+        case 14:
+            map_pack_path = optarg;
+            break;
         case 'V':
             printf("meshclient %s\n", mesh_version_string());
             return EXIT_SUCCESS;
@@ -1035,6 +1126,12 @@ int main(int argc, char **argv) {
 
     if (status_output_path != NULL) {
         output_json = true;
+    }
+
+    /* Ahead of mesh_app_init(), like --version: a pack is a file, and reading one needs no
+       event loop, no transports and no radio. */
+    if (map_pack_path != NULL) {
+        return describe_map_pack(map_pack_path) < 0 ? EXIT_FAILURE : EXIT_SUCCESS;
     }
 
     struct mesh_app app;

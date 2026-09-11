@@ -149,6 +149,34 @@ stopped, **run the same command again**: with no radio answering it looks for on
 loader (at `-p`'s address plus one) and finishes the job. The staged image is kept, and the loader
 only accepts an image with the hash it was given, so it has to be the same release.
 
+## Looking inside a tile pack
+
+```sh
+meshclient --map-pack /mnt/SDCARD/Tools/tg5040/MeshClient.pak/maps/region.mctp
+```
+
+Prints what a raster tile pack holds — its name, its attribution, the date it was cut, how many
+tiles at which zooms, the area they cover — and reads one tile out of the middle of that area to
+prove the index's offsets point at bytes the card really has. **No radio and no network are
+touched**, and nothing is decoded: this is a file, a header and one `pread`.
+
+It exists for the reason `--fetch-firmware` existed before there was a firmware screen. A pack
+is read on the device, off a FAT32 card, and "does this file open, and can a tile come out of
+it" is not a question the host test suite can answer about the card in somebody's Brick. It is
+also what the sideload path has to check with — otherwise a reader copies a file across and
+finds out at the map.
+
+The coverage it prints is **derived from the tiles the pack actually holds**, not read out of a
+header field, so it is the number a mis-built pack disagrees with. A "middle tile is not in the
+pack" line is not a fault: a pack is a rectangle of the world with holes in it, and the middle
+of a coastal region is often water nobody cut a tile for.
+
+Packs are built on a host with
+[`devtools/map_pack/map_pack.py`](../devtools/map_pack/map_pack.py), which converts an MBTiles
+file or a `z/x/y` tree and refuses anything the device could not draw. The format and why the
+client carries one of its own are in
+[`docs/maps-roadmap.md`](maps-roadmap.md#the-pack-format).
+
 ## Auto-connect
 
 In foreground mode the app connects by itself, and **a plugged-in node wins over anything on the

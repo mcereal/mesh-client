@@ -346,6 +346,82 @@ bool mesh_map_viewport_fit(struct mesh_map_viewport *viewport, const struct mesh
     return true;
 }
 
+/*
+ * floor() and a flooring divide, neither of which is worth including <math.h> for.
+ *
+ * The cast toward zero is the whole problem: a box whose left edge is a fifth of a pixel west
+ * of the world's own left edge is at tile -1, and truncation says tile 0 - so the first column
+ * of the map would be missing exactly when the reader has panned onto the antimeridian, which
+ * is the one place nobody looks.
+ */
+static int64_t viewport_floor(double value) {
+    const int64_t whole = (int64_t)value;
+    return (double)whole > value ? whole - 1 : whole;
+}
+
+static int64_t viewport_floor_tile(int64_t pixels) {
+    const int64_t quotient = pixels / MESH_MAP_TILE_SIZE;
+    return (pixels % MESH_MAP_TILE_SIZE != 0 && pixels < 0) ? quotient - 1 : quotient;
+}
+
+bool mesh_map_viewport_tiles(const struct mesh_map_viewport *viewport,
+                             struct mesh_map_tile_span *out) {
+    if (out == NULL) {
+        return false;
+    }
+    memset(out, 0, sizeof *out);
+    if (!viewport_has_area(viewport)) {
+        return false;
+    }
+
+    const struct mesh_geo_point center = viewport_center_point(viewport);
+    const double world = viewport_world_pixels(viewport->zoom);
+    /* The box's own corner in world pixels. The centre is a valid coordinate by construction,
+       so this is the only place the box's size enters the arithmetic. */
+    const int64_t left = viewport_floor(center.x * world - (double)viewport->width / 2.0);
+    const int64_t top = viewport_floor(center.y * world - (double)viewport->height / 2.0);
+    /* The last pixel the box covers, not one past it: a box 256 wide starting exactly on a tile
+       boundary is one tile, and asking about pixel 256 would make it two. */
+    const int64_t right = left + (int64_t)viewport->width - 1;
+    const int64_t bottom = top + (int64_t)viewport->height - 1;
+
+    const int64_t x0 = viewport_floor_tile(left);
+    const int64_t x1 = viewport_floor_tile(right);
+    int64_t y0 = viewport_floor_tile(top);
+    int64_t y1 = viewport_floor_tile(bottom);
+
+    out->zoom = viewport->zoom;
+    out->x0 = (int32_t)x0;
+    out->columns = (int32_t)(x1 - x0 + 1);
+    out->origin_x = (int32_t)(x0 * MESH_MAP_TILE_SIZE - left);
+
+    /*
+     * Rows are clamped to the world where columns wrap around it, which is the difference
+     * between a cylinder and a sheet: panning east forever arrives back where it started, and
+     * panning north does not - there is nothing above the top row, and a map that asked for it
+     * would be asking a pack for a tile no pyramid has ever contained.
+     */
+    const int64_t world_tiles = (int64_t)1 << viewport->zoom;
+    if (y0 < 0) {
+        y0 = 0;
+    }
+    if (y1 > world_tiles - 1) {
+        y1 = world_tiles - 1;
+    }
+    if (y1 < y0) {
+        /* The whole box is off the top or the bottom of the world. The centre is clamped to the
+           display limit so this needs a box taller than the world itself - zoom 0 on this
+           panel - but it is reachable, and a span of no rows says so rather than a row that is
+           not there. */
+        memset(out, 0, sizeof *out);
+        return false;
+    }
+    out->y0 = (int32_t)y0;
+    out->rows = (int32_t)(y1 - y0 + 1);
+    out->origin_y = (int32_t)(y0 * MESH_MAP_TILE_SIZE - top);
+    return true;
+}
+
 double mesh_map_viewport_metres_per_pixel(const struct mesh_map_viewport *viewport) {
     if (viewport == NULL) {
         return 0.0;
