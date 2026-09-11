@@ -312,6 +312,40 @@ MESH_TEST_CASE(map_tile_cache_keys_answer_one_way_only, unit) {
     record_success(test_name);
 }
 
+MESH_TEST_CASE(map_tile_cache_keeps_a_hole_when_a_claim_is_refused, unit) {
+    struct mesh_map_tile_cache *const cache = tile_cache_new(1U);
+    MESH_TEST_FAIL_IF(cache == NULL, "cache allocation failed");
+
+    /*
+     * A refused claim must leave the cache exactly as it found it.
+     *
+     * Claiming clears the record that a key is missing, because the caller is about to decode
+     * it - but a claim that then fails to secure a slot has decoded nothing, and a cache that
+     * had already dropped the absence answers MISS for a tile it knows is not in the pack. The
+     * fill loop spends a read rediscovering it, which is the whole cost the absent table exists
+     * to avoid, reappearing only when the cache is under pressure.
+     *
+     * Getting here needs every slot to be loading at once, which one decode in flight never
+     * produces - so this is the invariant held honest rather than a case the client meets.
+     */
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_map_tile_cache_claim(cache, tile_key(1U, 0U)) == NULL,
+                              tile_cache_free(cache), "the only slot should claim");
+
+    const struct mesh_map_tile_key sea = tile_key(2U, 0U);
+    mesh_map_tile_cache_note_absent(cache, sea);
+    const uint32_t before = mesh_map_tile_cache_revision(cache);
+
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_map_tile_cache_claim(cache, sea) != NULL, tile_cache_free(cache),
+                              "a claim with every slot loading should be refused");
+    MESH_TEST_FAIL_IF_CLEANUP(tile_state(cache, sea) != MESH_MAP_TILE_ABSENT,
+                              tile_cache_free(cache),
+                              "a refused claim should not forget that the tile is missing");
+    MESH_TEST_FAIL_IF_CLEANUP(mesh_map_tile_cache_revision(cache) != before, tile_cache_free(cache),
+                              "a claim that changed nothing should not ask for a repaint");
+    tile_cache_free(cache);
+    record_success(test_name);
+}
+
 MESH_TEST_CASE(map_tile_cache_forgets_the_hole_nobody_is_looking_at, unit) {
     struct mesh_map_tile_cache *const cache = tile_cache_new(1U);
     MESH_TEST_FAIL_IF(cache == NULL, "cache allocation failed");

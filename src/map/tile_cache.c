@@ -207,13 +207,13 @@ uint8_t *mesh_map_tile_cache_claim(struct mesh_map_tile_cache *cache,
         return NULL;
     }
 
-    /* Whatever we thought about this key being missing, the caller is about to decode it. */
-    bool answer_changed = absent_forget(cache, key);
+    bool answer_changed = false;
 
     size_t at = slot_find(cache, key);
     if (at < cache->slot_count) {
         /* Already loading: the same buffer, not a second slot. This is the whole of request
-           de-duplication - a caller cannot spend two slots on one tile however often it asks. */
+           de-duplication - a caller cannot spend two slots on one tile however often it asks.
+           A loading key is never in the absent table, so there is nothing to forget here. */
         if (cache->slots[at].loading) {
             return slot_pixels(cache, at);
         }
@@ -224,12 +224,19 @@ uint8_t *mesh_map_tile_cache_claim(struct mesh_map_tile_cache *cache,
     } else {
         at = slot_evict(cache);
         if (at >= cache->slot_count) {
+            /* Nothing has been touched, which is the point of doing this before the absence is
+               dropped: a refused claim must leave the cache exactly as it found it. Forgetting
+               first and failing after would turn a key we *know* is not in the pack back into an
+               unknown one, and the fill loop would spend a read rediscovering it. */
             return NULL;
         }
         answer_changed |= slot_release(cache, at);
         cache->slots[at].key = key;
     }
 
+    /* The slot is secured, so it is now true that this key is no longer one we think is
+       missing: the caller is about to decode it. */
+    answer_changed |= absent_forget(cache, key);
     cache->slots[at].loading = true;
     cache->slots[at].used = cache_tick(cache);
     if (answer_changed) {
