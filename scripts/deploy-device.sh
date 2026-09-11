@@ -517,7 +517,8 @@ run_is_headless() {
     local arg
     for arg in ${PASSTHRU[@]+"${PASSTHRU[@]}"}; do
         case "${arg}" in
-            --list-devices|--status|-s|--send-text|--send-text=*|--fetch-firmware|--fetch-firmware=*| \
+            --list-devices|--status|-s|--status-output|--status-output=*| \
+            --send-text|--send-text=*|--fetch-firmware|--fetch-firmware=*| \
             --install-firmware|--install-firmware=*|--version|-V|--help|-h) return 0 ;;
         esac
     done
@@ -543,8 +544,14 @@ cmd_run_direct() {
     remote_tty "${remote_cmd}"
 }
 
+RUN_STREAM_PID=""
+
 run_cleanup() {
     trap - EXIT INT TERM
+    # The stream only ends by itself when the client does, so it has to be ended here.
+    if [[ -n "${RUN_STREAM_PID}" ]]; then
+        kill "${RUN_STREAM_PID}" 2>/dev/null || true
+    fi
     echo
     cmd_stop || true
 }
@@ -564,7 +571,14 @@ cmd_run() {
     trap 'exit 130' INT TERM
     cmd_start
     echo "Following ${REMOTE_LOG}; Ctrl-C stops the client."
-    remote_stream "tail -n +$((${lines:-0} + 1)) -f $(sq "${REMOTE_LOG}") & t=\$!; while pidof meshclient >/dev/null; do sleep 1; done; kill \$t 2>/dev/null; echo 'MeshClient exited.'"
+    # In the background and waited on, not in the foreground: bash defers a trap until the
+    # foreground command returns, and this one returns only when the client exits - so a TERM
+    # sent to this script alone would never reach run_cleanup. `wait` returns on a trapped signal.
+    # stdin is passed on explicitly because an asynchronous command's defaults to /dev/null.
+    remote_stream "tail -n +$((${lines:-0} + 1)) -f $(sq "${REMOTE_LOG}") & t=\$!; while pidof meshclient >/dev/null; do sleep 1; done; kill \$t 2>/dev/null; echo 'MeshClient exited.'" <&0 &
+    RUN_STREAM_PID=$!
+    wait "${RUN_STREAM_PID}" || true
+    RUN_STREAM_PID=""
 }
 
 cmd_logs() {
