@@ -339,6 +339,21 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   address somebody wrote down stays written down with the WiFi off. Without
   `autoconnect_tcp_retry_at_ms` that arm runs first on every turn, fails five seconds later on
   its own connect deadline, and Bluetooth is never reached at all.
+- **A network link's Devices row is synthesised rather than discovered, and its `in_range` is
+  false while it is connected.** `mesh_app_publish_ui_state()` has always built a row for
+  "connected, but in nobody's list"; for BLE and USB that is a connect which beat its own
+  discovery and the real row replaces it a moment later, and for TCP there is no discovery to
+  catch up, so it is the only row that link will ever have. It must state
+  `MESH_UI_DEVICE_TCP`: the slot is `memset` to zero, `MESH_UI_DEVICE_BLE` is `0`, and a
+  renderer asks that one field three separate questions - which disc, whether the trailing edge
+  is an RSSI, and whether `Y` may forget it. Unstated, the link drew a Bluetooth disc, reported
+  `0dBm` - the absent-reading-as-a-number this client refuses everywhere else, and the
+  *strongest* signal on the screen - and offered to forget a bond that was never made. `name` is
+  left empty for the same reason: `MESH_STR_DEVICES_CONNECTED_NAME` is a placeholder held until
+  an advertisement arrives, and a host has none coming, so it would have stood permanently where
+  the address goes. And `in_range` is false because the Status card counts that field and means
+  *earshot* by it - a host answers from anywhere, which is evidence of no distance at all, so the
+  renderer's TCP arm sits ahead of the in-range one rather than letting it say "not in range".
 - **The heartbeat is the TCP link's and not the session's tick.** `ToRadio.heartbeat` is what
   stops a radio dropping a client that has had nothing to say, and a quiet mesh is the ordinary
   case - but a BLE link needs none of it, since the GATT connection is its own liveness. So it is

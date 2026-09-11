@@ -503,6 +503,10 @@ MESH_STR_ENTRY(DEVICES_TRAILING_USB,      "USB")
    there is no reading to put there. */
 MESH_STR_ENTRY(DEVICES_TRAILING_AWAY,     "not in range")
 MESH_STR_ENTRY(DEVICES_TRAILING_RSSI,     "%ddBm")
+/* Said of a node reached over the network. Stands where the signal strength would be, for the
+   opposite reason to "not in range": there is no reading to put there because there is no
+   distance to measure, not because we failed to measure one. */
+MESH_STR_ENTRY(DEVICES_TRAILING_NETWORK,  "network")
 /* The name given to a radio we are talking to but never saw advertise. */
 MESH_STR_ENTRY(DEVICES_CONNECTED_NAME,    "Connected")
 

@@ -92,21 +92,35 @@ enum mesh_ui_update_flag {
 };
 typedef uint32_t mesh_ui_update_flags;
 
-/* How a device is reached. The Devices tab lists both kinds in one list, and the app routes
+/* How a device is reached. The Devices tab lists every kind in one list, and the app routes
    a connect to the matching transport. */
 enum mesh_ui_device_kind {
     MESH_UI_DEVICE_BLE = 0,
     MESH_UI_DEVICE_SERIAL,
+    /*
+     * A node reached over the network.
+     *
+     * There is no discovery behind this kind - a network cannot be scanned - so the only row
+     * that ever carries it is the link that is already up, named by the address it was
+     * configured with. It exists so that row cannot be taken for a Bluetooth bond: BLE is 0,
+     * so a slot that never states its kind is a BLE radio by default, and a renderer asking
+     * "which icon, which supporting line, may this be forgotten" got three wrong answers from
+     * the one field nobody set.
+     */
+    MESH_UI_DEVICE_TCP,
 };
 
 struct mesh_ui_device {
     char identifier[64];
     char name[64];
-    int8_t rssi; /* BLE only; 0 for a USB port, and meaningless unless in_range */
+    int8_t rssi; /* BLE only; 0 for a USB port or a network host, and meaningless unless
+                    in_range */
     /* Whether the radio answered the last scan. BlueZ lists every node it holds a bond for,
        so a row can name a radio sitting at home all day; it has no RSSI to show and saying
        "0dBm" about it reads as the strongest signal on the screen. Always true for a USB
-       port, which is present or is not a row. */
+       port, which is present or is not a row, and always false for a network host, which
+       answers from anywhere and so is evidence of no distance at all - the Status card counts
+       this field and means earshot by it. */
     bool in_range;
     bool connected;
     /* BLE only: BlueZ holds a bond for this node. A node in PIN mode that is not paired

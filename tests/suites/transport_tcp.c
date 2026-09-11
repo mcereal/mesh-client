@@ -6,12 +6,14 @@
 #include "support/proto_fixture.h"
 #include "support/serial_fixture.h"
 
+#include "mesh/core/app.h"
 #include "mesh/core/config.h"
 #include "mesh/core/event_loop.h"
 #include "mesh/core/session.h"
 #include "mesh/proto/stream_framing.h"
 #include "mesh/transport/tcp.h"
 #include "mesh/transport/transport.h"
+#include "mesh/ui/store.h"
 
 #include <pb_decode.h>
 
@@ -705,4 +707,124 @@ MESH_TEST_CASE(tcp_transport_idles_without_a_host, unit) {
 
 cleanup:
     transport->ops->stop(transport);
+}
+
+/*
+ * What the Devices tab is told about a link that nothing enumerated.
+ *
+ * A network host is in no scan, so the only row a TCP link ever gets is the one
+ * mesh_app_publish_ui_state() synthesises for "connected, but in nobody's list". That slot is
+ * memset to zero and MESH_UI_DEVICE_BLE is 0, so until the kind was stated the row came out a
+ * Bluetooth radio: a Bluetooth disc, `0dBm` against its trailing edge - an absent RSSI read as
+ * a number, which is the strongest reading on the screen - and Y offering to forget a bond that
+ * was never made. The placeholder name went with it, standing permanently where the address
+ * belongs, because the advertisement it waits for is never coming.
+ *
+ * Four assertions, one per wrong answer that field gave.
+ */
+MESH_TEST_CASE(tcp_link_is_published_as_a_network_device, unit) {
+    struct tcp_test_radio radio;
+    tcp_test_radio_init(&radio);
+    struct mesh_app app;
+    memset(&app, 0, sizeof app);
+    const char *failure = NULL;
+    bool app_ready = false;
+    char home_dir[] = "/tmp/mesh_tcp_publishXXXXXX";
+    bool home_made = false;
+
+    if (!tcp_test_radio_listen(&radio)) {
+        record_failure(test_name, "could not listen on the loopback");
+        goto cleanup;
+    }
+    if (mkdtemp(home_dir) == NULL) {
+        record_failure(test_name, "mkdtemp failed");
+        goto cleanup;
+    }
+    home_made = true;
+    setenv("HOME", home_dir, 1);
+    setenv("MESHCLIENT_UI_BACKEND", "stub", 1);
+    unsetenv("MESHCLIENT_AUTOCONNECT");
+
+    /* The network link alone, so the row under test is the only row. */
+    struct mesh_app_config config = mesh_app_config_default();
+    config.run_mode = MESH_APP_RUN_FOREGROUND;
+    config.enable_ble = false;
+    config.enable_serial = false;
+    config.enable_tcp = true;
+    snprintf(config.preferred_tcp_host, sizeof config.preferred_tcp_host, "%s", radio.target);
+
+    if (mesh_app_init(&app, &config) != 0) {
+        failure = "app init failed";
+        goto cleanup;
+    }
+    app_ready = true;
+
+    struct mesh_transport *transport = mesh_tcp_transport();
+    if (mesh_transport_registry_start_all(&app.transport_registry, &app.config, &app.loop) < 0) {
+        failure = "transport start failed";
+        goto cleanup;
+    }
+    if (mesh_tcp_transport_connect(transport, radio.target) != 0) {
+        failure = "connect failed";
+        goto cleanup;
+    }
+    if (mesh_tcp_transport_connected_target(transport) == NULL) {
+        (void)mesh_event_loop_run(&app.loop, 200);
+    }
+    if (mesh_tcp_transport_connected_target(transport) == NULL) {
+        failure = "the link should be connected";
+        goto cleanup;
+    }
+    if (!tcp_test_radio_accept(&radio)) {
+        failure = "the listener did not see the connection";
+        goto cleanup;
+    }
+
+    mesh_app_publish_ui_state(&app);
+
+    if (app.ui_store.device_count != 1U) {
+        failure = "a connected network link should be the one row";
+        goto cleanup;
+    }
+    const struct mesh_ui_device *row = &app.ui_store.devices[0];
+    if (row->kind != (uint8_t)MESH_UI_DEVICE_TCP) {
+        failure = "a network link is not a Bluetooth radio";
+        goto cleanup;
+    }
+    if (strcmp(row->identifier, radio.target) != 0) {
+        failure = "the row should be identified by the address it was configured with";
+        goto cleanup;
+    }
+    /* Empty, so every label falls back to the address rather than to a placeholder that is
+       waiting for an advertisement no host will ever send. */
+    if (row->name[0] != '\0') {
+        failure = "a network link has no name but its address";
+        goto cleanup;
+    }
+    if (row->in_range) {
+        failure = "a host answers from anywhere, so it is no evidence of earshot";
+        goto cleanup;
+    }
+    if (!row->connected) {
+        failure = "the link is up and the row should say so";
+        goto cleanup;
+    }
+    if (mesh_ui_device_forgettable(row)) {
+        failure = "there is no bond behind a network link to forget";
+        goto cleanup;
+    }
+
+    record_success(test_name);
+
+cleanup:
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    }
+    if (app_ready) {
+        mesh_app_shutdown(&app);
+    }
+    tcp_test_radio_close(&radio);
+    if (home_made) {
+        rmdir(home_dir);
+    }
 }

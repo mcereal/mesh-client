@@ -12,7 +12,7 @@ session never sees GATT, ttys or framing; a link never decodes a protobuf.**
 |---|---|
 | BLE (BlueZ over D-Bus) | shipped, the default |
 | Serial (USB) | shipped, CLI-selectable |
-| TCP (network) | shipped, configuration-selectable; no Devices row yet |
+| TCP (network) | shipped, configuration-selectable; no Devices row to *find* one yet |
 | HTTP | not implemented |
 
 Two of those four are one wire format. The serial and TCP APIs both carry
@@ -287,15 +287,33 @@ way of *typing* an address, which does not exist yet either.
 
 ### What it does not have yet
 
-**A row in the Devices tab.** A network cannot be scanned the way a USB bus or a Bluetooth
-adapter can — there is no equivalent of a sysfs walk or an advertisement — so the only thing
-this link could list is the address somebody already wrote down, and on a handheld there is
-nowhere to write one. Until both halves exist, the link is reached from configuration:
+**A way to *find* a node in the Devices tab.** A network cannot be scanned the way a USB bus or
+a Bluetooth adapter can — there is no equivalent of a sysfs walk or an advertisement — so the
+only thing this link could list is the address somebody already wrote down, and on a handheld
+there is nowhere to write one. Until both halves exist, the link is reached from configuration:
 `--tcp-host`, `MESHCLIENT_TCP_HOST`, or `preferred_tcp_host`. See [`cli.md`](cli.md).
+
+The link that is *already up* does get a row, and it is worth knowing why, because it is not a
+row anybody added. `mesh_app_publish_ui_state()` has always synthesised one for "connected, but
+in nobody's list" — for BLE and USB that is a connect which beat its own discovery, and the real
+row replaces it a moment later. For a network link there is no discovery to catch up, so the
+synthesised row is the steady state and the only row a TCP link will ever have. It carries
+`MESH_UI_DEVICE_TCP`, is named by its address, says `network` where a Bluetooth row says its
+RSSI, and offers `X disconnect` and no `Y forget` — there is no bond behind it to forget.
+
+That kind is load-bearing rather than decorative. The slot is `memset` to zero and
+`MESH_UI_DEVICE_BLE` is `0`, so a row that does not state its kind *is* a Bluetooth radio, and a
+renderer asks the field three separate questions. Unstated, the network link drew a Bluetooth
+disc, reported `0dBm` — an absent RSSI read as a number, which is the strongest signal on the
+screen and the one reading this client refuses everywhere else — and offered to forget a bond
+that was never made. It also counted toward the Status card's "*n* in range", which means
+earshot by that field. `tcp_link_is_published_as_a_network_device` pins all four.
 
 Everything else in the app already knows about it: `mesh_app_active_transport()`,
 `mesh_app_connected_identifier()` and `mesh_app_link_connecting()` all count a TCP link, so the
-status line under the keycaps names it and auto-connect will not talk over it.
+status line under the keycaps names it — by its address, since a network host has no
+advertisement coming and so never earns the placeholder name a radio wears until one does — and
+auto-connect will not talk over it.
 
 ### Where it sits in auto-connect
 
