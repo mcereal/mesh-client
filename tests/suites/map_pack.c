@@ -329,6 +329,19 @@ MESH_TEST_CASE(map_pack_missing_file_is_enoent, unit) {
     MESH_TEST_FAIL_IF(opened != -ENOENT, "a path that is not there is -ENOENT");
     MESH_TEST_FAIL_IF(source.read != NULL || source.context != NULL, "and leaves nothing to close");
 
+    /* The same promise for the arguments that never reach a file: a caller that closes
+       unconditionally on its way out - which is what "nothing to close" is for - would
+       otherwise be calling through whatever `close` its uninitialised local happened to hold. */
+    struct mesh_map_source unopened;
+    memset(&unopened, 0xAB, sizeof unopened);
+    MESH_TEST_FAIL_IF(mesh_map_source_open_pack(NULL, &unopened) != -EINVAL,
+                      "a NULL path is -EINVAL");
+    MESH_TEST_FAIL_IF(unopened.close != NULL || unopened.read != NULL || unopened.context != NULL,
+                      "and it still leaves nothing to close");
+    mesh_map_source_close(&unopened);
+    MESH_TEST_FAIL_IF(mesh_map_source_open_pack("/tmp", NULL) != -EINVAL,
+                      "and no output is -EINVAL rather than a write through NULL");
+
     /* Closing a source that was never opened is deliberately safe, so a caller on its way out
        does not have to remember whether it got one. */
     mesh_map_source_close(&source);

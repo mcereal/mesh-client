@@ -280,10 +280,17 @@ static void pack_close(struct mesh_map_source *source) {
 }
 
 int mesh_map_source_open_pack(const char *path, struct mesh_map_source *out) {
-    if (path == NULL || out == NULL) {
+    if (out == NULL) {
         return -EINVAL;
     }
+    /* Zeroed before the path is even looked at, because the contract is that a failed open
+       leaves nothing to close - and a caller that closes unconditionally on its way out, which
+       is what that contract is for, would otherwise be calling through whatever `close` was in
+       an uninitialised local. */
     memset(out, 0, sizeof *out);
+    if (path == NULL) {
+        return -EINVAL;
+    }
 
     const int fd = open(path, O_RDONLY | O_CLOEXEC);
     if (fd < 0) {

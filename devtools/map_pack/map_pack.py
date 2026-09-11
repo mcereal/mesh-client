@@ -221,8 +221,18 @@ def load(path):
         generated = struct.unpack("<q", raw[24:32])[0]
         attribution = raw[32:96].split(b"\0", 1)[0].decode("utf-8", "replace")
         name = raw[96:128].split(b"\0", 1)[0].decode("utf-8", "replace")
+        # Bounded before the seek and checked after the read, the way the reader does it and for
+        # the same reason: `count` comes off the disk, so 24 bytes times an unchecked u32 is a
+        # hundred-gigabyte read, and a file whose index was cut short is exactly the corruption
+        # `verify` exists to name. Reported rather than raised - a traceback is not a diagnosis.
+        if count == 0 or count > TILES_MAX:
+            die(f"{path} declares {count} tiles")
+        if index_at < HEADER_LEN:
+            die(f"{path} puts its index at {index_at}, inside its own header")
         handle.seek(index_at)
         index_raw = handle.read(ENTRY_LEN * count)
+    if len(index_raw) != ENTRY_LEN * count:
+        die(f"{path} declares {count} tiles and holds index for {len(index_raw) // ENTRY_LEN}")
     entries = [ENTRY.unpack_from(index_raw, i * ENTRY_LEN) for i in range(count)]
     return {
         "path": path,
