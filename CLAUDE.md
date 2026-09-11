@@ -28,6 +28,7 @@ make proto                                # regenerate nanopb sources
 make release && make package              # release binary + dist/MeshClient.pak.zip
 make fuzz                                 # libFuzzer over the two decoders that read the air
 make ui-capture ARGS="<scene> -o x.gif"   # render a UI scene to a GIF, no device needed
+make demo-pack                            # draw a synthetic tile pack into build/demo.mctp
 make screenshots                          # re-render the five listing stills in .github/resources
 ```
 
@@ -119,7 +120,7 @@ suite needs it.
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Verified 2026-09-11: 550 unit tests, all passing, zero compiler warnings - under the host
+Verified 2026-09-11: 569 unit tests, all passing, zero compiler warnings - under the host
 toolchain *and* the cross one, which are not the same check: see
 [`docs/testing.md`](docs/testing.md#what-ci-runs).
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
@@ -187,7 +188,7 @@ is a screen rather than a slot), bubbles (whose trailing run is four typed slots
 | Strings | `src/i18n/strings.c`, `include/mesh/i18n/catalog.def` | the string catalog and the locale registry |
 | Dev tools | `devtools/`, `scripts/{ui-capture.sh,frames.py}` | off-screen UI capture; PNG/GIF encoding, stdlib only |
 | Geography | `src/geo/` | `mesh_geo_coords_valid()` — the bounds test every coordinate ingress asks, so the air, the cache and the keyboard cannot disagree about where Earth ends — `mesh_geo_vector_between()`, the haversine distance and initial bearing the Waypoints tab reads a range from, and `mesh_geo_mercator_forward()`, the projection the map places a marker with. **The only directory in the tree that includes `<math.h>`**, and the reason libm is linked |
-| The map | `src/map/viewport.c`, `src/map/tile.c`, `src/map/source_pack.c`, `src/map/tile_image.c`, `src/map/tile_cache.c`, `src/ui/map.c`, `src/ui/nav_map.c`, `src/ui/backends/fb_map.c` | Where the map is looking (centre, integer zoom, pan, fit, metres per pixel), which tiles that box is standing on (`mesh_map_viewport_tiles()`), where a tile's bytes come from (`source.h`, and the single-file `MCTPACK2` pack behind it), what those bytes decode to (`mesh_map_tile_decode()`, the one file that includes Wuffs), which decoded tiles are still held (`tile_cache.c`: byte-budgeted, LRU, and holding the *holes* as well as the pixels), the markers built from the map's own roster (`handshake.map_nodes` - **not** the node list's 128) and the waypoint book, the presses, and the drawing. A tile can be read, decoded and kept, and **nothing draws one yet** — the fill loop and the blit are next, both in `fb_map.c`, see [`docs/maps-roadmap.md`](docs/maps-roadmap.md). `viewport.c` deliberately has **no `<math.h>`**: everything transcendental about a map is a property of the projection, one directory down |
+| The map | `src/map/viewport.c`, `src/map/tile.c`, `src/map/source_pack.c`, `src/map/tile_image.c`, `src/map/tile_cache.c`, `src/ui/map.c`, `src/ui/nav_map.c`, `src/ui/backends/fb_map.c` | Where the map is looking (centre, integer zoom, pan, fit, metres per pixel), which tiles that box is standing on (`mesh_map_viewport_tiles()`), where a tile's bytes come from (`source.h`, and the single-file `MCTPACK2` pack behind it), what those bytes decode to (`mesh_map_tile_decode()`, the one file that includes Wuffs), which decoded tiles are still held (`tile_cache.c`: byte-budgeted, LRU, and holding the *holes* as well as the pixels), the markers built from the map's own roster (`handshake.map_nodes` - **not** the node list's 128) and the waypoint book, the presses, and the drawing. A tile is read, decoded, kept and **drawn**: `fb_map.c` holds the fill loop and `fb_blit_bgra()` is the blit, one tile read per frame with the graticule showing through wherever there is not one. Where a pack comes from is `fb_basemap_open_default()` (`MESHCLIENT_MAP_PACK`, else `$HOME/.meshclient/map.mctp`); `devtools/map_pack/map_pack.py synth` draws one to try it with. See [`docs/maps-roadmap.md`](docs/maps-roadmap.md). `viewport.c` deliberately has **no `<math.h>`**: everything transcendental about a map is a property of the projection, one directory down |
 | Shared utils | `src/utils/` | `text` (UTF-8 + `mesh_str_copy`), `time` (`mesh_time_monotonic_ms`), `env` (`mesh_env_bool`/`_int`), `json` (a cursor that walks structure, because a release note eventually contains the keys a scanner would look for), `log`, `sha256`, `array` |
 
 `include/mesh/` mirrors `src/` one-for-one — `core/`, `transport/`, `ui/`, `proto/`, `geo/`, `utils/` —
@@ -469,6 +470,26 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   Everything else a read would have to trust is checked **once, at open** - extents inside the
   file, tiles inside the world, and the index's own sort order, because a `bsearch` over an
   unsorted index does not fail, it misses. See [`docs/maps-roadmap.md`](docs/maps-roadmap.md).
+- **The basemap is drawn *over* the graticule rather than instead of it, and a tile still coming
+  looks exactly like a tile that is not there.** A tile is opaque, so drawing the grid first
+  means it survives in precisely the places there is no tile - a pack's edge, its holes, and the
+  second before one arrives - and nothing has to decide whether to draw a grid. Telling MISS from
+  ABSENT *in ink* was tried in the design and is worse than either: a placeholder square covers
+  the markers for the two thirds of a second a view takes to fill, which is the whole of the time
+  anybody is looking at it. The two states differ in what the client **does** - one asks for
+  another frame, the other stops asking - which is where the distinction pays for itself.
+- **One tile is read per frame, and a tile the pack does not hold costs no read at all.** A cold
+  tile is 2-5 ms on the Brick's card and a view stands on twenty of them, so a frame that filled
+  the panel would be a tenth of a second with the BLE link unread. `mesh_map_source_has()` answers
+  out of the index in RAM, so an absence is learned for the price of a `bsearch` and the frame's
+  one read always goes to a tile that will arrive. What asks for the next frame is
+  `fb_basemap_pending()` through `fb_state_animating()`: a frame is otherwise a function of the
+  snapshot, and no press and no packet says a tile is on its way.
+- **A marker's name is drawn five times.** A glyph carries coverage, not a mask, so text is
+  blended against a colour the caller says it has just filled - which is a guess the moment a name
+  stands on a street. The four extra runs are the halo in the ground colour, and they are drawn
+  only where a tile is; the scale bar and the pack's attribution take a chip instead, because they
+  are chrome pinned to a corner rather than things on the map.
 - **The tile cache remembers which tiles are *not* in the pack, and that table is not an
   optimisation.** The fill loop gets one read per turn of the event loop, because a cold tile is
   2-5 ms on the Brick's card. Every pack is a rectangle of the world with holes in it, so

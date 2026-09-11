@@ -11,11 +11,13 @@
  */
 
 #include "framework/mesh_test.h"
+#include "support/map_fixture.h"
 #include "support/ui_fixture.h"
 
 #include "mesh/core/message.h"
 #include "mesh/core/updater.h"
 #include "mesh/i18n/strings.h"
+#include "mesh/map/viewport.h"
 #include "mesh/ui/backends/fb_capture.h"
 #include "mesh/ui/font.h"
 #include "mesh/ui/history.h"
@@ -2700,6 +2702,386 @@ MESH_TEST_CASE(ui_capture_map_keeps_its_ink_off_the_chrome, unit) {
         mesh_ui_capture_close(capture);
     }
     free(reference);
+    free(snapshot);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+/*
+ * How many pixels of a frame are one of a fixture pack's tile colours.
+ *
+ * A fixture tile is one flat colour and no theme draws it, so this counts the basemap and
+ * nothing else - which is what lets a case say "the first frame drew one tile" without knowing
+ * where the tile grid happened to land in the body.
+ */
+static size_t count_pack_tiles(const uint8_t *pixels, uint32_t width, uint32_t height,
+                               size_t stride, size_t tiles, unsigned shade) {
+    size_t found = 0U;
+    for (uint32_t y = 0U; y < height; ++y) {
+        const uint8_t *row = pixels + (size_t)y * stride;
+        for (uint32_t x = 0U; x < width; ++x) {
+            const uint8_t *pixel = row + (size_t)x * 4U;
+            for (size_t tile = 0U; tile < tiles; ++tile) {
+                uint8_t rgb[3];
+                mesh_test_map_tile_colour(tile, shade, rgb);
+                /* The capture's page is B, G, R, X - see pixel_is_background(). */
+                if (pixel[0] == rgb[2] && pixel[1] == rgb[1] && pixel[2] == rgb[0]) {
+                    ++found;
+                    break;
+                }
+            }
+        }
+    }
+    return found;
+}
+
+static size_t count_fixture_tiles(const uint8_t *pixels, uint32_t width, uint32_t height,
+                                  size_t stride, size_t tiles) {
+    return count_pack_tiles(pixels, width, height, stride, tiles, 0U);
+}
+
+/*
+ * The basemap: the tiles a pack holds, drawn under the markers and inside the map's own body.
+ *
+ * Three things are checked here and each one is a bug that has a way of being invisible.
+ *
+ * **The tiles reach the panel at all**, which is the fill loop, the cache and the decoder end to
+ * end - a fixture pack of solid colours, so a frame can be counted for pixels no theme and no
+ * marker draws.
+ *
+ * **They stay inside the map's body.** A blit is by a long way the widest thing this screen
+ * places - a tile is 256 pixels square where a marker is a dozen - so a blit that clipped for
+ * itself instead of going through the one function every fill in this backend goes through
+ * would paint over the app bar, and would do it on any view whose tile grid happens not to line
+ * up with the body. Checked the way the marker case above is: the chrome either side of the map
+ * is compared against the same frame drawn with no pack at all, and the two must be identical.
+ *
+ * **One tile arrives per frame.** That is the property the whole design rests on - a cold tile
+ * is 2-5 ms on the Brick's card and a view stands on about twenty of them, so a frame that drew
+ * them all would be a tenth of a second in which nothing else is serviced. A first frame that
+ * covered the body would pass a test that only looked for tiles, which is why the count after
+ * one frame is compared against the count once it has settled.
+ */
+MESH_TEST_CASE(ui_capture_map_draws_a_basemap_one_tile_at_a_time, unit) {
+    /* Where the demo roster stands, at a zoom whose tiles are a few hundred metres across. */
+    const int32_t latitude_i = 476180000;
+    const int32_t longitude_i = -1223320000;
+    const uint8_t zoom = 15U;
+    const int scale = 4;
+
+    struct mesh_map_tile_key keys[35];
+    const size_t tiles = mesh_test_map_keys_around(latitude_i, longitude_i, zoom, 7, 5, keys,
+                                                   sizeof keys / sizeof keys[0]);
+    if (tiles == 0U) {
+        record_failure(test_name, "the fixture covers no tiles");
+        return;
+    }
+    struct mesh_test_map_pack pack;
+    const int wrote = mesh_test_map_pack_write(&pack, keys, tiles, 0U, "Fixture", "No copyright");
+    if (wrote < 0) {
+        record_failure(test_name, "the fixture pack could not be written");
+        return;
+    }
+
+    struct mesh_ui_snapshot *snapshot = calloc(1U, sizeof *snapshot);
+    uint8_t *bare = NULL;
+    const char *failure = NULL;
+    if (snapshot == NULL) {
+        mesh_test_map_pack_remove(&pack);
+        record_failure(test_name, "snapshot allocation failed");
+        return;
+    }
+    snapshot->nav.screen = MESH_UI_SCREEN_NODES;
+    snapshot->nav.map_open = true;
+    snapshot->handshake_valid = true;
+    snapshot->handshake.has_my_info = true;
+    snapshot->handshake.my_info.node_num = 0x1000U;
+    snapshot->handshake.node_count = 1U;
+    snapshot->handshake.nodes[0].node_id = 0x1000U;
+    snapshot->handshake.nodes[0].in_nodedb = true;
+    snprintf(snapshot->handshake.nodes[0].short_name,
+             sizeof snapshot->handshake.nodes[0].short_name, "ME");
+    snapshot->handshake.nodes[0].position.valid = true;
+    snapshot->handshake.nodes[0].position.latitude_i = latitude_i;
+    snapshot->handshake.nodes[0].position.longitude_i = longitude_i;
+    mesh_map_viewport_init(&snapshot->nav.map_viewport, latitude_i, longitude_i, zoom);
+
+    /* The bands the marker case established: chrome at this scale and nothing else. */
+    const uint32_t top_band = 96U;
+    const uint32_t bottom_band = 56U;
+
+    struct mesh_ui_capture *capture = NULL;
+    uint32_t width = 0U;
+    uint32_t height = 0U;
+    size_t stride = 0U;
+
+    /* The same frame with no pack open, which is what the chrome is compared against. */
+    if (mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, scale) != 0) {
+        failure = "capture open failed";
+    } else {
+        mesh_ui_capture_set_theme(capture, mesh_ui_theme_at(0));
+        mesh_ui_capture_set_scale(capture, scale);
+        const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+        mesh_ui_capture_render(capture, snapshot);
+        bare = malloc((size_t)height * stride);
+        if (bare == NULL || pixels == NULL) {
+            failure = "frame allocation failed";
+        } else {
+            memcpy(bare, pixels, (size_t)height * stride);
+        }
+        if (mesh_ui_capture_animating(capture)) {
+            failure = "a map with no pack asks for another frame";
+        }
+        mesh_ui_capture_close(capture);
+        capture = NULL;
+    }
+
+    size_t after_one = 0U;
+    size_t settled = 0U;
+    unsigned frames = 0U;
+    if (failure == NULL &&
+        mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, scale) != 0) {
+        failure = "capture open failed";
+    } else if (failure == NULL) {
+        mesh_ui_capture_set_theme(capture, mesh_ui_theme_at(0));
+        mesh_ui_capture_set_scale(capture, scale);
+        if (mesh_ui_capture_open_map_pack(capture, pack.path) != 0) {
+            failure = "the capture would not open the fixture pack";
+        }
+    }
+
+    if (failure == NULL) {
+        const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+        mesh_ui_capture_render(capture, snapshot);
+        after_one = count_fixture_tiles(pixels, width, height, stride, tiles);
+
+        /* Settled: frames until it stops asking for more, with a ceiling well above the tiles a
+           view can stand on so a loop that never stopped is a failure rather than a hang. */
+        for (frames = 1U; frames < 200U && mesh_ui_capture_animating(capture); ++frames) {
+            mesh_ui_capture_advance(capture, 33U);
+            mesh_ui_capture_render(capture, snapshot);
+        }
+        settled = count_fixture_tiles(pixels, width, height, stride, tiles);
+
+        if (mesh_ui_capture_animating(capture)) {
+            failure = "the map never stopped asking for another frame";
+        } else if (settled == 0U) {
+            failure = "no tile reached the panel";
+        } else if (after_one == 0U) {
+            failure = "the first frame drew no tile at all";
+        } else if (after_one * 2U > settled) {
+            failure = "the first frame drew more than its one tile";
+        } else if (frames < 4U) {
+            failure = "the view filled in fewer frames than it has tiles";
+        }
+    }
+
+    if (failure == NULL && height > bottom_band) {
+        const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+        for (uint32_t y = 0U; y < height && failure == NULL; ++y) {
+            if (y >= top_band && y < height - bottom_band) {
+                continue; /* the body, where a tile is entitled to be */
+            }
+            if (memcmp(bare + (size_t)y * stride, pixels + (size_t)y * stride, stride) != 0) {
+                failure = "a tile put ink on the chrome around the map";
+            }
+        }
+    }
+
+    if (capture != NULL) {
+        mesh_ui_capture_close(capture);
+    }
+    mesh_test_map_pack_remove(&pack);
+    free(bare);
+    free(snapshot);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+/*
+ * Walking off the map stops it asking for frames.
+ *
+ * The flag that keeps the repaint timer running while a view fills says what the *last frame*
+ * wanted, and a reader who opens the map and leaves before it has filled leaves it set. Latched,
+ * that is thirty frames a second of a screen with no map on it for as long as the client runs -
+ * on a handheld, the battery, and invisible from the outside because every one of those frames
+ * is correct. So it is cleared at the top of every frame and only a frame that draws the map
+ * sets it again.
+ */
+MESH_TEST_CASE(ui_capture_map_stops_asking_once_it_is_left, unit) {
+    const int32_t latitude_i = 476180000;
+    const int32_t longitude_i = -1223320000;
+    const uint8_t zoom = 15U;
+    const int scale = 4;
+
+    struct mesh_map_tile_key keys[35];
+    const size_t tiles = mesh_test_map_keys_around(latitude_i, longitude_i, zoom, 7, 5, keys,
+                                                   sizeof keys / sizeof keys[0]);
+    struct mesh_test_map_pack pack;
+    if (tiles == 0U ||
+        mesh_test_map_pack_write(&pack, keys, tiles, 0U, "Fixture", "No copyright") < 0) {
+        record_failure(test_name, "the fixture pack could not be written");
+        return;
+    }
+
+    struct mesh_ui_snapshot *snapshot = calloc(1U, sizeof *snapshot);
+    struct mesh_ui_capture *capture = NULL;
+    const char *failure = NULL;
+    if (snapshot == NULL) {
+        failure = "snapshot allocation failed";
+    } else {
+        snapshot->nav.screen = MESH_UI_SCREEN_NODES;
+        snapshot->nav.map_open = true;
+        snapshot->handshake_valid = true;
+        mesh_map_viewport_init(&snapshot->nav.map_viewport, latitude_i, longitude_i, zoom);
+    }
+    if (failure == NULL &&
+        mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, scale) != 0) {
+        failure = "capture open failed";
+    }
+    if (failure == NULL && mesh_ui_capture_open_map_pack(capture, pack.path) != 0) {
+        failure = "the capture would not open the fixture pack";
+    }
+    if (failure == NULL) {
+        mesh_ui_capture_render(capture, snapshot);
+        if (!mesh_ui_capture_animating(capture)) {
+            failure = "a view with tiles still to fetch asked for no further frame";
+        }
+    }
+    if (failure == NULL) {
+        /*
+         * Off the map, with the fill unfinished.
+         *
+         * Settling rather than checking the very next frame, because leaving a screen is a
+         * transition and a transition is entitled to its frames. What is being checked is that
+         * the asking *ends*: the slide is a few hundred milliseconds and the tiles left behind
+         * would be for ever.
+         */
+        snapshot->nav.map_open = false;
+        snapshot->nav.screen = MESH_UI_SCREEN_SETTINGS;
+        unsigned frames = 0U;
+        for (; frames < 60U && mesh_ui_capture_animating(capture); ++frames) {
+            mesh_ui_capture_advance(capture, 33U);
+            mesh_ui_capture_render(capture, snapshot);
+        }
+        if (mesh_ui_capture_animating(capture)) {
+            failure = "a screen with no map on it went on asking for frames";
+        }
+    }
+
+    if (capture != NULL) {
+        mesh_ui_capture_close(capture);
+    }
+    mesh_test_map_pack_remove(&pack);
+    free(snapshot);
+    if (failure != NULL) {
+        record_failure(test_name, failure);
+    } else {
+        record_success(test_name);
+    }
+}
+
+/*
+ * Opening a second pack forgets the first one's pixels.
+ *
+ * A tile key is three numbers about the world and none about the file it came out of, so two
+ * packs of the same place hold different pictures at the same key. A cache carried across the
+ * swap draws the old pack's streets under the new pack's attribution - and every pixel of it is
+ * a real tile in the right place, so there is nothing on the frame that looks wrong. That is why
+ * it is checked here rather than left to the eye: two fixtures over the same keys in different
+ * colours, and the frame after the swap must hold none of the first one's.
+ */
+MESH_TEST_CASE(ui_capture_map_forgets_the_pack_it_swapped_out, unit) {
+    const int32_t latitude_i = 476180000;
+    const int32_t longitude_i = -1223320000;
+    const uint8_t zoom = 15U;
+    const int scale = 4;
+
+    struct mesh_map_tile_key keys[35];
+    const size_t tiles = mesh_test_map_keys_around(latitude_i, longitude_i, zoom, 7, 5, keys,
+                                                   sizeof keys / sizeof keys[0]);
+    struct mesh_test_map_pack first;
+    struct mesh_test_map_pack second;
+    if (tiles == 0U ||
+        mesh_test_map_pack_write(&first, keys, tiles, 0U, "One", "No copyright") < 0) {
+        record_failure(test_name, "the first fixture pack could not be written");
+        return;
+    }
+    if (mesh_test_map_pack_write(&second, keys, tiles, 7U, "Two", "No copyright") < 0) {
+        mesh_test_map_pack_remove(&first);
+        record_failure(test_name, "the second fixture pack could not be written");
+        return;
+    }
+
+    struct mesh_ui_snapshot *snapshot = calloc(1U, sizeof *snapshot);
+    const char *failure = NULL;
+    struct mesh_ui_capture *capture = NULL;
+    if (snapshot == NULL) {
+        failure = "snapshot allocation failed";
+    } else {
+        snapshot->nav.screen = MESH_UI_SCREEN_NODES;
+        snapshot->nav.map_open = true;
+        snapshot->handshake_valid = true;
+        mesh_map_viewport_init(&snapshot->nav.map_viewport, latitude_i, longitude_i, zoom);
+    }
+
+    if (failure == NULL &&
+        mesh_ui_capture_open(&capture, MESH_UI_CAPTURE_WIDTH, MESH_UI_CAPTURE_HEIGHT, scale) != 0) {
+        failure = "capture open failed";
+    }
+    if (failure == NULL) {
+        mesh_ui_capture_set_theme(capture, mesh_ui_theme_at(0));
+        mesh_ui_capture_set_scale(capture, scale);
+        uint32_t width = 0U;
+        uint32_t height = 0U;
+        size_t stride = 0U;
+        const uint8_t *pixels = mesh_ui_capture_pixels(capture, &width, &height, &stride);
+
+        if (mesh_ui_capture_open_map_pack(capture, first.path) != 0) {
+            failure = "the capture would not open the first pack";
+        } else {
+            for (unsigned frame = 0U; frame < 200U; ++frame) {
+                mesh_ui_capture_render(capture, snapshot);
+                if (!mesh_ui_capture_animating(capture)) {
+                    break;
+                }
+                mesh_ui_capture_advance(capture, 33U);
+            }
+            if (count_pack_tiles(pixels, width, height, stride, tiles, 0U) == 0U) {
+                failure = "the first pack drew nothing to forget";
+            }
+        }
+
+        if (failure == NULL && mesh_ui_capture_open_map_pack(capture, second.path) != 0) {
+            failure = "the capture would not open the second pack";
+        }
+        if (failure == NULL) {
+            for (unsigned frame = 0U; frame < 200U; ++frame) {
+                mesh_ui_capture_render(capture, snapshot);
+                if (!mesh_ui_capture_animating(capture)) {
+                    break;
+                }
+                mesh_ui_capture_advance(capture, 33U);
+            }
+            if (count_pack_tiles(pixels, width, height, stride, tiles, 7U) == 0U) {
+                failure = "the second pack did not reach the panel";
+            } else if (count_pack_tiles(pixels, width, height, stride, tiles, 0U) != 0U) {
+                failure = "the first pack's tiles survived the swap";
+            }
+        }
+    }
+
+    if (capture != NULL) {
+        mesh_ui_capture_close(capture);
+    }
+    mesh_test_map_pack_remove(&first);
+    mesh_test_map_pack_remove(&second);
     free(snapshot);
     if (failure != NULL) {
         record_failure(test_name, failure);

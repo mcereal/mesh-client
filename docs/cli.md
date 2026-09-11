@@ -177,6 +177,27 @@ file or a `z/x/y` tree and refuses anything the device could not draw. The forma
 client carries one of its own are in
 [`docs/maps-roadmap.md`](maps-roadmap.md#the-pack-format).
 
+### Where the map reads one from
+
+The client draws the pack at **`$HOME/.meshclient/map.mctp`** — on the device that is the
+launcher's userdata directory, beside the node cache and the preferences, which is deliberately
+*not* inside the pak: the pak is what self-update replaces, and a region somebody spent an
+afternoon converting is their file rather than ours. `MESHCLIENT_MAP_PACK` names another path.
+
+One pack, because choosing between several is a screen and the screen belongs with the import
+step rather than with the first thing that can draw one. Nothing installed is the ordinary case
+and says nothing in the log; a pack that was *named* and will not open says so, because the bare
+graticule the map then draws is the only other evidence a reader gets.
+
+```sh
+python3 devtools/map_pack/map_pack.py synth -o demo.mctp --centre 47.62,-122.33 --span-km 5
+```
+
+`synth` draws a pack of a place that does not exist — flat landcover, water, a road grid and
+building blocks, which is the shape of a raster tile that decides what one costs to read and
+decode. It is what `make demo-pack` runs, and it is how the map can be looked at on a device
+without settling the question of whose tiles to ship.
+
 ## Auto-connect
 
 In foreground mode the app connects by itself, and **a plugged-in node wins over anything on the
@@ -233,6 +254,7 @@ prints `[not in range]` for a bond with nothing behind it rather than an RSSI of
 | `MESHCLIENT_SCAN_RESUME_GRACE_MS` | how long a teardown keeps the BLE scan down, 0–60000; default 3000. It exists so the scan is not started for the one second between a drop and the auto-connect that follows it, only to be stopped again microseconds before `Connect`. `0` restores the old always-scan-when-idle behaviour |
 | `MESHCLIENT_UI_BACKEND` | `fb\|cli\|stub`; `fb` unless there is no `/dev/fb0` |
 | `MESHCLIENT_FB_SCALE` | framebuffer font multiplier, 2–6; default is whatever the theme asks for (4) |
+| `MESHCLIENT_MAP_PACK` | the tile pack the map draws, instead of `$HOME/.meshclient/map.mctp`. Read once at startup, so a pack swapped underneath a running client is not picked up |
 | `MESHCLIENT_THEME` | `dark\|light\|contrast\|colorblind`. Outranks the theme picked in Settings → About, which then shows as a fact rather than a switch; unset, the saved choice applies, and an unknown name warns and falls back rather than leaving a handheld with no UI |
 | `MESHCLIENT_LANG` | which language the UI is drawn in, e.g. `en`. Matched on the language part alone, so `fr_CA.UTF-8` finds `fr`; it outranks `LC_ALL`, `LC_MESSAGES` and `LANG`, and a language this build does not have leaves English in force. Settings → About says which one resolved. See [`docs/i18n.md`](i18n.md) |
 | `MESHCLIENT_INPUT_PROFILE` | which pad this is: `brick` (the default) or `xbox`. It decides which evdev code each *printed* face button reports, and the keycaps the action bar draws beside its verbs — one table, because a port that corrected the codes and not the words would leave the bar naming a key that does something else. `xbox` is the ordinary Linux convention (A is `BTN_SOUTH`), which the Brick reverses. An unknown name warns and falls back; the client is perfectly usable with the wrong profile, just confusing. See [`docs/device.md`](device.md#another-pad-another-profile) |

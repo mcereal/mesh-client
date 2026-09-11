@@ -96,6 +96,11 @@ static int mesh_ui_backend_fb_init(void **state_out, void *userdata) {
         }
     }
     fb_apply_theme_from_env(state);
+    /* The map's pictures, when this device has any. Opened here rather than on the first frame
+       that draws a map: a pack is a file and a header, so a reader who sideloaded a broken one
+       finds out in the log at startup rather than the first time they press A on the node
+       list. */
+    fb_basemap_open_default(state);
 
     mesh_log_info("ui",
                   "Framebuffer UI backend active (%ux%u %u bpp, virtual %ux%u, offset %u,%u, "
@@ -113,6 +118,7 @@ static int mesh_ui_backend_fb_init(void **state_out, void *userdata) {
 static void mesh_ui_backend_fb_shutdown(void *state_ptr, void *userdata) {
     struct mesh_ui_backend_fb_state *state = (struct mesh_ui_backend_fb_state *)state_ptr;
     if (state != NULL) {
+        fb_basemap_close(state);
         fb_glyph_cache_free(state);
         fb_thread_cache_free(state);
         fb_render_cache_free(state);

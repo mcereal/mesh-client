@@ -1,0 +1,45 @@
+# The map with tiles under it: a pack read off the card, one tile per frame.
+#
+# What this scene is a picture of is the *filling*, which is the whole of the decision behind it.
+# A cold tile costs 2-5 ms on the Brick's card and a view stands on about twenty of them, so
+# drawing a full panel in one pass would be a tenth of a second in which the BLE link goes
+# unread - on a client that is one epoll loop, that is not a slow map, it is a client that stops.
+# One tile a frame fills the same view in about twenty frames with input serviced between each,
+# and that is what the frames after every press below are.
+#
+# The pack is named rather than found: a scene that picked up whatever pack the developer had
+# installed would render differently on two machines. It is drawn rather than downloaded, so
+# nothing here is anybody else's pixels - `make demo-pack` writes it, and docs/ui.md says what
+# that is for.
+#
+# The graticule is still under the tiles and is not replaced by them, which is what the holes at
+# the pack's edge and the seconds before a tile arrives are drawn as. Pan far enough and the
+# pictures run out and the grid is all there is, which is the honest picture of a regional pack.
+
+scene demo
+map pack build/demo.mctp
+waypoint ALFA Ridge repeater | up the fire road, gate code is on the tag
+
+# Into the map from the first row of the Nodes list, which is where it is opened from.
+tab nodes
+hold 800
+key a
+hold 2000
+
+# A direction stops on the next marker that way, so the view re-centres and the tiles under the
+# new middle are fetched from there outwards - the nearest to the crosshair first, because that
+# is where the reader is looking.
+key left
+hold 1800
+
+# One level closer. Every tile in view is a different tile at a different zoom, so this is the
+# fill loop's real workload rather than a pan's edge row.
+key x
+hold 2000
+
+# And back out twice, to where the pack's own edge is on the panel: the streets stop and the
+# graticule carries on, which is what a pack of one region looks like from far enough away.
+key y
+hold 1200
+key y
+hold 2400

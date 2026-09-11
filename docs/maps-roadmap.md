@@ -1,7 +1,8 @@
 # Map support assessment
 
 Status: **steps 1 and 2 of the delivery sequence have shipped** - the geography contract is
-complete and there is a marker map on the device, with no basemap under it, and it now draws
+complete and there is a marker map on the device - with a basemap under it as of step 3, below -
+and it now draws
 every positioned node the session holds rather than the 128 the node list publishes. See
 §"What steps 1 and 2 became" for what landed and what it deliberately did not, and
 §"The roster decision, taken" for the one open decision that has since been closed. Steps 3 to 6
@@ -26,8 +27,13 @@ from the spike, and it is about the pak's build rather than about Wuffs: see §"
 actually cost".
 
 **And the cache the pixels land in (2026-09-11):** byte-budgeted, LRU, and holding what a tile
-is *not* as well as what it is - see §"What the cache turned out to be". Nothing is *drawn* yet.
-What is left of step 3 is the fill loop and the blit, and both of them are in `fb_map.c`.
+is *not* as well as what it is - see §"What the cache turned out to be".
+
+**Step 3 is complete (2026-09-11): there is a basemap under the markers.** The fill loop and the
+blit are in `fb_map.c`, one tile is read and decoded per frame, and a pack can be drawn on a host
+rather than downloaded - which is what lets a UI capture of the map have streets under it with
+nobody's licence involved. See §"What the fill loop and the blit turned out to be". What is left
+of step 3's *entry* is its last line: the integrated input-latency number, which needs a Brick.
 
 §"How a pack gets onto the device" (2026-09-10) corrects a premise that ran through the original
 assessment - that the Brick has no network - and re-sequences the delivery steps around the
@@ -574,6 +580,87 @@ packs of the same city hold different pictures at the same key, and a cache carr
 swap draws the old pack's streets under the new pack's attribution with nothing on the frame
 looking wrong.
 
+## What the fill loop and the blit turned out to be
+
+> **Landed 2026-09-11.** [`src/ui/backends/fb_map.c`](../src/ui/backends/fb_map.c) (the fill
+> loop, `fb_basemap_*`), [`src/ui/backends/fb_draw.c`](../src/ui/backends/fb_draw.c)
+> (`fb_blit_bgra()`), and three cases in `tests/suites/ui_capture.c` that draw a fixture pack
+> through the real renderer.
+
+The entry this closes said "one decode per turn, and the clipped blit". Both are there and
+neither was the interesting part. Five things are worth recording.
+
+**A hole costs no read at all, and that is what makes one read a frame enough.** The plan
+budgeted one *read* per turn and expected absences to be learned by spending one. They are not:
+`mesh_map_source_has()` answers out of the index already in RAM, so a tile the pack does not hold
+is recorded as absent for the price of a `bsearch`, and the frame's one read is always spent on a
+tile that will actually arrive. Without it, a view with any sea in it spends its whole budget
+discovering the sea again - which the cache's absence table already prevented across frames, and
+this prevents *within* one.
+
+**The tile that gets read is the one nearest the middle of the view.** A view fills outwards from
+the crosshair, which is where the reader is aiming and where the selection is derived from. Filling
+from the top-left corner is the obvious loop and is wrong for the same reason the selection is
+measured in pixels from the centre.
+
+**The graticule stayed, and the tiles are drawn over it.** The grid was written as "the whole of
+the basemap for now" and the obvious change was to replace it. Drawing it underneath instead
+means it survives in exactly the places there is no tile - the edge of a regional pack, the holes
+in it, the second before a tile arrives - so nothing has to decide whether to draw a grid, and a
+pack's edge is a thing a reader can see rather than a blank they have to interpret.
+
+**MISS and ABSENT are drawn the same, against what §"What the cache turned out to be" says.**
+That section argued they are two different pictures and a renderer that could not tell them apart
+would show a loading state forever over open sea. Drawing them apart turned out to be worse than
+either: a placeholder square over each missing tile covers the markers for the two thirds of a
+second a view takes to fill, which is the whole of the time anybody is looking at it. So the
+difference between them stayed exactly where it was useful - the cache still answers two ways,
+and what differs is whether the client asks for another frame - and none of it reaches the ink.
+The distinction earns its keep in the loop rather than on the panel.
+
+**Text over a picture needed something the rest of this client has never needed.** A glyph here
+carries coverage rather than a mask, so every run is blended against a colour the caller says it
+has just filled - true everywhere in a client that fills its own rows, and a guess the moment a
+name stands on a street. A marker's name is drawn a pixel out in each direction in the ground
+colour and then over itself; the scale bar and the pack's attribution get a chip instead, because
+they are chrome pinned to a corner rather than things on the map. Both only where a tile is: over
+the bare graticule they would rub out the lines a distance is judged against.
+
+Doing that surfaced a bug that was already there, which is the usual way. `fb_draw_text()` places
+a run by the top of its *cell*, and the map's labels were reserving a collision box a line above
+where they landed - so a name was tested against a rectangle nothing was drawn in, and the
+overlap rules the label pass exists for had been quietly inert. The halo made it visible because
+a halo in the wrong place is a halo you can see.
+
+### What a pack costs to look at, and why one is drawn rather than shipped
+
+`map_pack.py synth` draws a pack of a place that does not exist: flat landcover, water, a road
+grid with casings and building blocks, all as a function of position in a fixed reference space,
+so the same street is in the same place at every zoom. It exists because the two questions left
+in step 3 - what a filled panel looks like and what a tile costs to read - are not questions
+about *whose* map it is, and a synthetic pack answers both without the source decision this
+document keeps for step 5.
+
+It is also what keeps the repository free of tiles. A pack of the demo roster's own coordinates
+is 244 tiles and about a megabyte; `make demo-pack` writes it in four seconds from a stdlib-only
+script, deterministically, which is what a scene compared against a reference frame needs.
+
+### What is still open
+
+- **The integrated latency number**, on a Brick, with BLE being serviced. Everything about the
+  fill loop's shape is derived from the standalone benchmark in §"What the Brick measured"; what
+  has not been measured is a frame of the real client with a decode in it.
+- **The blit's cost on a 16-bit panel.** The fast path is a copy with the alpha forced opaque,
+  taken when the mapping holds exactly the word the decoder produces - which the Brick's 32 bpp
+  fb0 does. Anything else packs per run of one colour, which is cheap on the palette tiles a pack
+  is built from and has not been measured on anything else.
+- **Partial redraw.** A map frame redraws the whole body, tiles included, whenever anything
+  changes. The frame is compared against the previous one before it reaches the panel, so nothing
+  *transfers* twice - but the blit runs regardless, and a pan that moves the view by a few pixels
+  redraws twenty tiles to move twenty tiles.
+- **Choosing between packs**, which is a settings screen and belongs with step 4's import step.
+  Today it is one path and one pack.
+
 ## Proposed module boundaries
 
 Names below are proposals, not APIs that already exist.
@@ -773,9 +860,12 @@ that drawable.
 3. **Offline raster spike.** Small licensed regional pack, decoder, clipped image blit and
    resource lifecycle. Measure cold/warm pan, memory, executable growth and input latency on
    the Brick while receiving mesh traffic. Select the production source based on those results.
-   *The measurement has run and the source is selected, and its reader, its format and its
-   host-side builder have landed - see §"The pack format". The decoder, the tile cache and the
-   blit are what is left, in the order §"Effort and first decision" gives.*
+   *Done, bar the measurement on hardware: the source is selected and its reader, its format,
+   its host-side builder, the decoder, the cache, the fill loop and the blit have all landed -
+   see §"The pack format", §"What the decoder actually cost", §"What the cache turned out to be"
+   and §"What the fill loop and the blit turned out to be". A pack can also now be *drawn* rather
+   than converted (`map_pack.py synth`), which is what took the licence question off step 3's
+   path entirely.*
 4. **Offline release.** Pack validation/import instructions, loading/missing/corrupt tile states,
    bounded cache, stale/approximate markers, label prioritization, scale and attribution.
    Include cache/source changes in repaint invalidation and deterministic capture tests.
@@ -835,14 +925,20 @@ useless without the one before it:
    The open question in this entry - what a cache holds against what a panel wants - is
    answered in favour of the decoder, and two things came out of building it that were not in
    the entry. See §"What the cache turned out to be".
-3. **One decode per turn, and the clipped blit in `fb_map.c`.** The measurement's headline
-   finding: a cold tile is 2-5 ms, so a full view fills in twenty turns of one tile each rather
-   than one 45 ms stall, with input serviced between them. The blit intersects the map's own
-   clip, which `fb_fill_packed()` already honours.
-4. **A capture fixture and the integrated latency number.** A deterministic pack under
-   `tests/data/`, so a UI capture of the map has tiles under it and a frame comparison can catch
-   a damage-invalidation bug - and then the input-latency measurement the standalone benchmark
-   could not give, taken inside the real client while BLE is being serviced.
+3. ~~**One decode per turn, and the clipped blit in `fb_map.c`.**~~ **Done**, 2026-09-11. A
+   frame draws what the cache holds and then reads exactly one more tile, nearest the middle of
+   the view; the blit goes through the same clip every fill in that backend goes through. Three
+   things came out of building it that the entry did not anticipate, and one of them is a
+   correction to a bug that was already there. See §"What the fill loop and the blit turned out
+   to be".
+4. **The integrated latency number**, which is the one thing here that needs a Brick: the
+   input-latency measurement the standalone benchmark could not give, taken inside the real
+   client with a pack on the card while BLE is being serviced. The *capture* half of this entry
+   landed with step 3 - `map pack` in a scene script, `make demo-pack` to draw the pack it names,
+   and three cases in `tests/suites/ui_capture.c` that render a fixture pack through the real
+   renderer. A pack is drawn rather than committed: 244 tiles of synthetic streets is a megabyte
+   of binary in a repository, against four seconds of a stdlib script that produces the same
+   bytes every time.
 
 The history of how step 3 was unblocked follows. **It was no longer blocked on anything.** This section
 used to name two decisions it waited on - a first region and zoom range, and a tile source with

@@ -82,10 +82,18 @@ int mesh_ui_capture_open(struct mesh_ui_capture **out, uint32_t width, uint32_t 
     return 0;
 }
 
+int mesh_ui_capture_open_map_pack(struct mesh_ui_capture *capture, const char *path) {
+    if (capture == NULL) {
+        return -EINVAL;
+    }
+    return fb_basemap_open(&capture->state, path);
+}
+
 void mesh_ui_capture_close(struct mesh_ui_capture *capture) {
     if (capture == NULL) {
         return;
     }
+    fb_basemap_close(&capture->state);
     fb_glyph_cache_free(&capture->state);
     fb_thread_cache_free(&capture->state);
     fb_render_cache_free(&capture->state);

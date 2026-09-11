@@ -18,13 +18,18 @@
 
 #include "mesh/geo/coords.h"
 #include "mesh/i18n/strings.h"
+#include "mesh/map/tile_image.h"
 #include "mesh/ui/map.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/waypoints.h"
+#include "mesh/utils/log.h"
 #include "mesh/utils/text.h"
 
+#include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 /*
  * The graticule's steps, in fixed-point 1e-7 degrees.
@@ -244,6 +249,49 @@ static void fb_map_draw_grid(const struct mesh_ui_backend_fb_state *state,
 }
 
 /*
+ * The two ways a word is made legible over a picture, and why the map needs both.
+ *
+ * A glyph carries coverage rather than a mask, so every piece of text in this backend is blended
+ * against a colour the caller says it has just filled (fb_draw_text()'s `ground`). Over the
+ * map's own surface that claim is true by construction. Over a basemap tile it is a guess, and
+ * the way it goes wrong is a fringe of panel colour around every letter standing on a street -
+ * which on a pale style is a name nobody can read.
+ *
+ * A marker's name gets a **halo**: the same run drawn a pixel out in each direction in the
+ * ground colour, then the name over it. That is what every map in the world does with a label,
+ * and it is the right shape here for the map's own reason - a name belongs to the thing under
+ * it, so it has to stay readable without hiding the streets it is standing on.
+ *
+ * The ruler and the credit get a **plate**, because they are not on the map: they are chrome
+ * pinned to a corner, they never move, and a chip under them is what keeps a corner readable
+ * whatever the pack happens to draw there.
+ *
+ * Both are drawn only where a tile is. Over the bare graticule the ground they lay down is the
+ * colour that is already there, and all they would achieve is rubbing out the grid lines a
+ * distance is judged against.
+ */
+static void fb_map_plate(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h,
+                         int scale) {
+    const int pad = fb_space_at(state, MESH_UI_SPACE_XS, scale);
+    fb_fill_round_rect(state, x - pad, y - pad, w + pad * 2, h + pad * 2,
+                       fb_radius(state, MESH_UI_SHAPE_SM),
+                       fb_color(state, MESH_UI_COLOR_SURFACE_LOW));
+}
+
+static void fb_map_text(const struct mesh_ui_backend_fb_state *state, int x, int y,
+                        const char *text, int scale, struct mesh_ui_rgb ink,
+                        struct mesh_ui_rgb ground, bool halo) {
+    if (halo) {
+        const int out = fb_rule_height(state, scale);
+        fb_draw_text(state, x - out, y, text, scale, ground, ground);
+        fb_draw_text(state, x + out, y, text, scale, ground, ground);
+        fb_draw_text(state, x, y - out, text, scale, ground, ground);
+        fb_draw_text(state, x, y + out, text, scale, ground, ground);
+    }
+    fb_draw_text(state, x, y, text, scale, ink, ground);
+}
+
+/*
  * The scale bar: a round distance, and how long that is on this panel.
  *
  * The one thing on the frame that makes the grid readable as a measurement rather than as
@@ -252,7 +300,7 @@ static void fb_map_draw_grid(const struct mesh_ui_backend_fb_state *state,
  */
 static void fb_map_draw_scale(const struct mesh_ui_backend_fb_state *state,
                               const struct mesh_map_viewport *viewport,
-                              const struct fb_map_box *body, bool imperial, int scale) {
+                              const struct fb_map_box *body, bool imperial, bool plate, int scale) {
     const double metres_per_pixel = mesh_map_viewport_metres_per_pixel(viewport);
     if (metres_per_pixel <= 0.0) {
         return;
@@ -292,12 +340,51 @@ static void fb_map_draw_scale(const struct mesh_ui_backend_fb_state *state,
 
     const struct mesh_ui_rgb ink = fb_color(state, MESH_UI_COLOR_TEXT_DIM);
     const struct mesh_ui_rgb ground = fb_color(state, MESH_UI_COLOR_SURFACE_LOW);
+    /* Over a picture the whole bar needs a ground of its own - see fb_map_plate(). Over the
+       graticule it needs none, and would cover the lines it is the ruler for. */
+    if (plate) {
+        fb_map_plate(state, x, text_y, length, bar_y + thickness - text_y, scale);
+    }
     /* The bar and a tick at each end, so the length being measured is the span between two
        marks rather than a line that might be a rule. */
     fb_fill_rect(state, x, bar_y, length, thickness, ink);
     fb_fill_rect(state, x, bar_y - tick, thickness, tick, ink);
     fb_fill_rect(state, x + length - thickness, bar_y - tick, thickness, tick, ink);
     fb_draw_text(state, x, text_y, label, scale, ink, ground);
+}
+
+/*
+ * Who made the map: a line of credit in the corner, drawn only when there are tiles to credit.
+ *
+ * Every raster style that permits offline use asks for it, which is why a pack carries the line
+ * rather than the client holding a table of them - the builder knows what it converted and the
+ * client does not. It is drawn from the pack's own bytes and not translated, for the reason a
+ * hardware model name is not: it is a name somebody else chose.
+ *
+ * The bottom right, because the bottom left is the scale bar's and the top is the app bar's.
+ * It is the one thing on this screen that may be dropped for want of room: a panel too narrow to
+ * hold the credit and the ruler is a panel where the ruler wins, and the pack is still named in
+ * the log and in the settings row that eventually lists what is installed.
+ */
+static void fb_map_draw_attribution(const struct mesh_ui_backend_fb_state *state,
+                                    const struct fb_map_box *body, const char *attribution,
+                                    int scale) {
+    if (attribution == NULL || attribution[0] == '\0') {
+        return;
+    }
+    const int pad = fb_space_at(state, MESH_UI_SPACE_SM, scale);
+    const int width = (int)fb_width(attribution) * fb_char_adv(state, scale);
+    const int height = (int)fb_font(state)->height * scale;
+    const int x = body->x + body->w - pad - width;
+    const int y = body->y + body->h - pad - height;
+    /* Half the body, so a long credit is dropped rather than drawn across the ruler it would
+       otherwise meet in the middle. */
+    if (width <= 0 || width > body->w / 2) {
+        return;
+    }
+    fb_map_plate(state, x, y, width, height, scale);
+    fb_draw_text(state, x, y, attribution, scale, fb_color(state, MESH_UI_COLOR_TEXT_DIM),
+                 fb_color(state, MESH_UI_COLOR_SURFACE_LOW));
 }
 
 /*
@@ -420,6 +507,264 @@ static void fb_map_draw_selection(const struct mesh_ui_backend_fb_state *state,
     fb_draw_text(state, fb_margin(state), y, line, scale, paint.fill, ground);
 }
 
+/* ---- the basemap -------------------------------------------------------------------------- */
+
+/*
+ * Where a sideloaded pack lands when nobody names one.
+ *
+ * Under the client's own directory rather than beside the pak, because the pak is what
+ * self-update replaces and a map is the user's file: a reader who spent an afternoon converting
+ * a region should not lose it to an update. `$HOME` on the device is the launcher's userdata
+ * directory (Tools/tg5040/MeshClient.pak/launch.sh), which is where the node cache and the
+ * preferences already live.
+ *
+ * One path and one pack. Choosing between several is a screen, and a screen for it belongs with
+ * the import step docs/maps-roadmap.md keeps for step 4 - not with the first thing that can draw
+ * one.
+ */
+#define FB_BASEMAP_DEFAULT_PATH "%s/.meshclient/map.mctp"
+
+/* How far a tile's pixels are apart, row to row: the decoder's format, not the panel's. */
+#define FB_BASEMAP_TILE_STRIDE ((size_t)MESH_MAP_TILE_SIZE * (size_t)MESH_MAP_TILE_PIXEL_BYTES)
+
+bool fb_basemap_pending(const struct mesh_ui_backend_fb_state *state) {
+    return state != NULL && state->basemap != NULL && state->basemap->pending;
+}
+
+/*
+ * Forgets what the last frame wanted, before this one says what it wants.
+ *
+ * The flag is what keeps the repaint timer running while a view fills, so it has to be a
+ * statement about *this* frame rather than a latch. Left set, a reader who opened the map and
+ * walked off to Settings before it finished would leave the client asking for thirty frames a
+ * second of a screen with no map on it, for as long as the client ran - which on a handheld is
+ * the battery, and is invisible because every one of those frames is correct.
+ */
+void fb_basemap_frame_begin(struct mesh_ui_backend_fb_state *state) {
+    if (state != NULL && state->basemap != NULL) {
+        state->basemap->pending = false;
+    }
+}
+
+void fb_basemap_close(struct mesh_ui_backend_fb_state *state) {
+    if (state == NULL || state->basemap == NULL) {
+        return;
+    }
+    struct fb_basemap *const basemap = state->basemap;
+    state->basemap = NULL;
+    mesh_map_tile_cache_deinit(&basemap->cache);
+    mesh_map_source_close(&basemap->source);
+    free(basemap->encoded);
+    free(basemap);
+}
+
+int fb_basemap_open(struct mesh_ui_backend_fb_state *state, const char *path) {
+    if (state == NULL || path == NULL || path[0] == '\0') {
+        return -EINVAL;
+    }
+    /* Whatever was open goes first, and its cache goes with it - see the header's note on why a
+       tile key outlives the file it came out of. */
+    fb_basemap_close(state);
+
+    struct fb_basemap *const basemap = calloc(1U, sizeof *basemap);
+    if (basemap == NULL) {
+        return -ENOMEM;
+    }
+    int result = mesh_map_source_open_pack(path, &basemap->source);
+    if (result == 0) {
+        result = mesh_map_tile_cache_init(&basemap->cache, MESH_MAP_TILE_CACHE_BYTES_DEFAULT);
+    }
+    if (result == 0) {
+        basemap->encoded = malloc(MESH_MAP_TILE_BYTES_MAX);
+        result = basemap->encoded != NULL ? 0 : -ENOMEM;
+    }
+    if (result < 0) {
+        mesh_map_tile_cache_deinit(&basemap->cache);
+        mesh_map_source_close(&basemap->source);
+        free(basemap->encoded);
+        free(basemap);
+        return result;
+    }
+
+    basemap->open = true;
+    state->basemap = basemap;
+    mesh_log_info("ui", "Map pack %s: %s, %u tiles, zoom %u-%u, holding up to %zu KiB of them",
+                  path, basemap->source.info.name[0] != '\0' ? basemap->source.info.name : path,
+                  basemap->source.info.tiles, (unsigned)basemap->source.info.min_zoom,
+                  (unsigned)basemap->source.info.max_zoom,
+                  mesh_map_tile_cache_bytes(&basemap->cache) / 1024U);
+    return 0;
+}
+
+void fb_basemap_open_default(struct mesh_ui_backend_fb_state *state) {
+    if (state == NULL) {
+        return;
+    }
+    const char *named = getenv("MESHCLIENT_MAP_PACK");
+    char path[512];
+    if (named == NULL || named[0] == '\0') {
+        const char *home = getenv("HOME");
+        if (home == NULL || home[0] == '\0') {
+            return;
+        }
+        if (snprintf(path, sizeof path, FB_BASEMAP_DEFAULT_PATH, home) >= (int)sizeof path) {
+            return;
+        }
+        named = path;
+        /* Nothing sideloaded is the ordinary case and says nothing: a client that warned about
+           a missing map on every launch would be warning about a feature nobody asked for. */
+        if (access(named, R_OK) != 0) {
+            return;
+        }
+    }
+    const int opened = fb_basemap_open(state, named);
+    if (opened < 0) {
+        /* Named and unreadable is worth a line, though: somebody pointed the client at a file,
+           and the map about to draw a bare graticule is the only other evidence they get. */
+        mesh_log_warn("ui", "Map pack %s could not be opened: %s", named, strerror(-opened));
+    }
+}
+
+/*
+ * The tiles under the markers: what is held, one that is not, and the grid showing through the
+ * holes.
+ *
+ * Three properties of this loop are the whole of docs/maps-roadmap.md's step 3 and none of them
+ * is obvious from the shape of it.
+ *
+ * **One read per frame.** A cold tile off the Brick's card is 2-5 ms and a view stands on about
+ * twenty of them, so filling the panel in one pass is a tenth of a second in which nothing else
+ * is serviced - on a client that is one epoll loop, that is the BLE link going unread. One tile
+ * a frame fills the same view in about twenty frames with input handled between each, which is
+ * what the measurement in that document asked for.
+ *
+ * **A hole costs nothing to learn.** A pack is a rectangle of the world with sea in it, and
+ * mesh_map_source_has() answers out of the index already in RAM - so a tile the pack does not
+ * hold is recorded as absent without touching the card, and the frame's one read is spent on a
+ * tile that will actually arrive. Without that record the single read would go to the same hole
+ * every frame forever and the tiles *around* it would never load.
+ *
+ * **The tile that is read is the one nearest the middle.** The crosshair is in the middle of the
+ * body and so is whatever the reader is aiming at, so a view fills outwards from what is being
+ * looked at rather than from its top-left corner.
+ *
+ * What a missing tile is drawn as is the graticule the map drew before there were tiles at all,
+ * and MISS and ABSENT are drawn the same: a placeholder square would cover the markers for the
+ * two-thirds of a second a view takes to fill, which is a worse frame than the grid. The two
+ * states differ in what the client *does* - one asks for another frame and the other stops
+ * asking - which is the difference that matters on a handheld.
+ *
+ * Returns whether any tile was drawn, which is what decides whether the names on top of them
+ * need a plate behind them.
+ */
+static bool fb_map_draw_basemap(struct mesh_ui_backend_fb_state *state,
+                                const struct mesh_map_viewport *viewport,
+                                const struct fb_map_box *body) {
+    struct fb_basemap *const basemap = state->basemap;
+    if (basemap == NULL || !basemap->open) {
+        return false;
+    }
+    struct mesh_map_tile_span span;
+    if (!mesh_map_viewport_tiles(viewport, &span)) {
+        return false;
+    }
+
+    bool drew = false;
+    unsigned wanted = 0U;
+    int64_t nearest = 0;
+    struct mesh_map_tile_key next;
+    int next_x = 0;
+    int next_y = 0;
+    memset(&next, 0, sizeof next);
+
+    for (int32_t row = 0; row < span.rows; ++row) {
+        for (int32_t column = 0; column < span.columns; ++column) {
+            struct mesh_map_tile_key key;
+            if (!mesh_map_tile_span_key(&span, column, row, &key)) {
+                continue;
+            }
+            const int x = body->x + span.origin_x + column * MESH_MAP_TILE_SIZE;
+            const int y = body->y + span.origin_y + row * MESH_MAP_TILE_SIZE;
+
+            const uint8_t *pixels = NULL;
+            const enum mesh_map_tile_state held =
+                mesh_map_tile_cache_get(&basemap->cache, key, &pixels);
+            if (held == MESH_MAP_TILE_READY) {
+                fb_blit_bgra(state, x, y, MESH_MAP_TILE_SIZE, MESH_MAP_TILE_SIZE, pixels,
+                             FB_BASEMAP_TILE_STRIDE);
+                drew = true;
+                continue;
+            }
+            if (held == MESH_MAP_TILE_ABSENT) {
+                continue;
+            }
+            if (!mesh_map_source_has(&basemap->source, key)) {
+                mesh_map_tile_cache_note_absent(&basemap->cache, key);
+                continue;
+            }
+
+            const int64_t dx = (int64_t)(x + MESH_MAP_TILE_SIZE / 2) - (body->x + body->w / 2);
+            const int64_t dy = (int64_t)(y + MESH_MAP_TILE_SIZE / 2) - (body->y + body->h / 2);
+            const int64_t distance = dx * dx + dy * dy;
+            if (wanted == 0U || distance < nearest) {
+                nearest = distance;
+                next = key;
+                next_x = x;
+                next_y = y;
+            }
+            ++wanted;
+        }
+    }
+
+    /* The one this frame is about to fetch is not one the next frame will want, so what is left
+       over is what asks for another frame. */
+    basemap->pending = wanted > 1U;
+    if (basemap->pending) {
+        /* And what the next frame has to redraw. Without this the frame after an animation
+           would be clipped to the widget that was moving and the tile just decoded would not
+           reach the panel until something else changed. */
+        fb_animation_damage(state, body->x, body->y, body->w, body->h);
+    }
+    if (wanted == 0U) {
+        return drew;
+    }
+
+    /*
+     * The read and the decode, after the frame has drawn what it already had - so a tile lands
+     * on the frame that fetched it rather than on the one after, which halves how long a view
+     * takes to fill for the cost of the blit being written twice in this function.
+     */
+    const int length =
+        mesh_map_source_read(&basemap->source, next, basemap->encoded, MESH_MAP_TILE_BYTES_MAX);
+    uint8_t *const slot = length > 0 ? mesh_map_tile_cache_claim(&basemap->cache, next) : NULL;
+    const int decoded = slot == NULL ? -ENOENT
+                                     : mesh_map_tile_decode(basemap->encoded, (size_t)length, slot,
+                                                            MESH_MAP_TILE_CACHE_TILE_BYTES);
+    if (decoded == 0) {
+        mesh_map_tile_cache_commit(&basemap->cache, next);
+        fb_blit_bgra(state, next_x, next_y, MESH_MAP_TILE_SIZE, MESH_MAP_TILE_SIZE, slot,
+                     FB_BASEMAP_TILE_STRIDE);
+        return true;
+    }
+
+    /*
+     * Anything else is a hole, whichever of the three it was - the pack answering differently
+     * from its own index, a card that cannot be read, or bytes that are not a picture. None of
+     * them is a tile that arrives by being asked again, and the frame's one read is the thing
+     * being spent: a tile retried every frame is the fill loop stuck on it while the rest of the
+     * view stays empty. A re-opened pack is what forgets it.
+     */
+    if (slot != NULL) {
+        mesh_map_tile_cache_abandon(&basemap->cache, next);
+    }
+    mesh_map_tile_cache_note_absent(&basemap->cache, next);
+    if (length != 0) {
+        mesh_log_warn("ui", "Map tile z%u/%u/%u will not draw: %s", (unsigned)next.zoom, next.x,
+                      next.y, strerror(length < 0 ? -length : -decoded));
+    }
+    return drew;
+}
+
 void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_snapshot *snapshot,
                    struct fb_layout *layout) {
     struct mesh_ui_store view_store;
@@ -509,6 +854,16 @@ void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_
        markers sit in rather than as the screen's own background with dots on it. */
     fb_fill_rect(state, body.x, body.y, body.w, body.h, fb_color(state, MESH_UI_COLOR_SURFACE_LOW));
     fb_map_draw_grid(state, &viewport, &body, fb_color(state, MESH_UI_COLOR_RULE));
+
+    /*
+     * The pictures, over the graticule rather than instead of it.
+     *
+     * Drawn in this order because a tile is opaque, so the grid survives exactly where there is
+     * no tile - which is what a pack's edge, its holes and the seconds before a tile arrives all
+     * look like, and is the one thing a map with nothing under it is entitled to draw. Nothing
+     * has to decide whether to draw the grid: the tiles decide it, one square at a time.
+     */
+    const bool basemap = fb_map_draw_basemap(state, &viewport, &body);
 
     const int radius = fb_map_marker_radius(state);
     const double metres_per_pixel = mesh_map_viewport_metres_per_pixel(&viewport);
@@ -635,11 +990,20 @@ void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_
         }
         const int cx = body.x + placement.x;
         const int cy = body.y + placement.y;
+        /*
+         * The box is the one the text occupies, which is the cell's height and not the cap's.
+         *
+         * fb_draw_text() places a run by the top of its cell (fb_draw_glyph_ramp()), so a box
+         * measured in cap heights and a run drawn from the marker's middle were a name reserving
+         * a rectangle a line above where it landed - collisions tested against nothing, and once
+         * there was a halo to draw, a halo in the wrong place.
+         */
+        const int text_h = (int)fb_font(state)->height * scale;
         const struct fb_map_box label = {
             .x = cx + radius + fb_space_at(state, MESH_UI_SPACE_XS, scale),
-            .y = cy - cap / 2,
+            .y = cy - text_h / 2,
             .w = (int)fb_width(marker->label) * fb_char_adv(state, scale),
-            .h = cap,
+            .h = text_h,
         };
         if (label.x + label.w >= body.x + body.w) {
             continue;
@@ -660,13 +1024,16 @@ void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_
         ++labels_drawn;
         const struct mesh_ui_paint paint =
             fb_paint(state, fb_map_marker_family(marker), MESH_UI_SLOT_BASE, MESH_UI_STATE_REST);
-        fb_draw_text(state, label.x, cy + cap / 2, marker->label, scale, paint.fill, ground);
+        fb_map_text(state, label.x, label.y, marker->label, scale, paint.fill, ground, basemap);
     }
 
     uint32_t selected = 0U;
     const bool on_something = mesh_ui_map_selected(&view, &viewport, &selected);
     fb_map_draw_crosshair(state, &body, on_something);
-    fb_map_draw_scale(state, &viewport, &body, snapshot->settings.units == 1U, scale);
+    fb_map_draw_scale(state, &viewport, &body, snapshot->settings.units == 1U, basemap, scale);
+    if (basemap) {
+        fb_map_draw_attribution(state, &body, state->basemap->source.info.attribution, scale);
+    }
     fb_map_clip_pop(state, &clip);
 
     /* Outside the box, because it is what the map has to say rather than part of what it draws. */
