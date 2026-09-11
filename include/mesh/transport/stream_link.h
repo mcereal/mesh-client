@@ -37,6 +37,21 @@ extern "C" {
    ever holds what the user and the admin queue produced in one turn of the loop. */
 #define MESH_STREAM_LINK_MAX_OUTBOUND 8U
 
+/*
+ * What the descriptor is, which decides how a write to it is made.
+ *
+ * Not a detail: writing to a socket whose peer has gone raises `SIGPIPE`, whose default
+ * disposition kills the process - so a radio that drops off the WiFi between two turns of the
+ * loop would take the client down with it, before the `-EPIPE` this code handles could ever be
+ * returned. `send(MSG_NOSIGNAL)` is the suppression, and it is a socket call: on a tty it fails
+ * with `ENOTSOCK`, which is why the link has to be told which kind it holds rather than picking
+ * one. A tty needs none of it - a write to an unplugged port is `EIO`, not a signal.
+ */
+enum mesh_stream_link_kind {
+    MESH_STREAM_LINK_FILE = 0, /* a tty: write() */
+    MESH_STREAM_LINK_SOCKET,   /* a socket: send() with MSG_NOSIGNAL */
+};
+
 /* One framed ToRadio packet, header included, with a cursor for partial writes. */
 struct mesh_stream_link_packet {
     size_t length;
@@ -47,6 +62,7 @@ struct mesh_stream_link_packet {
 
 struct mesh_stream_link {
     int fd;
+    enum mesh_stream_link_kind kind;
     bool fd_registered;
     bool want_write; /* EPOLLOUT is armed because the write queue has a remainder */
     struct mesh_event_loop *loop;
@@ -84,12 +100,16 @@ void mesh_stream_link_set_session(struct mesh_stream_link *link, struct mesh_ses
  * Adopts `fd` - which must already be open and non-blocking - and watches it for readability.
  * The link owns the descriptor from here: close() is mesh_stream_link_close()'s to call.
  *
+ * `kind` says what the descriptor is, which decides how writes are made; see above, and get it
+ * wrong towards SOCKET and every write fails with ENOTSOCK.
+ *
  * `callback` and `userdata` go to the event loop unchanged, so the transport keeps its own
  * dispatch. A NULL `loop` opens the link unwatched, which is what a test driving pump() by hand
  * wants. Returns 0, or a negative errno with the descriptor left alone for the caller to close.
  */
-int mesh_stream_link_open(struct mesh_stream_link *link, int fd, struct mesh_event_loop *loop,
-                          mesh_event_callback callback, void *userdata);
+int mesh_stream_link_open(struct mesh_stream_link *link, int fd, enum mesh_stream_link_kind kind,
+                          struct mesh_event_loop *loop, mesh_event_callback callback,
+                          void *userdata);
 /* Unwatches and closes the descriptor, resets the parser, and fails every queued packet against
    the session. Safe on a closed link. */
 void mesh_stream_link_close(struct mesh_stream_link *link);

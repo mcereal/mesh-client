@@ -498,6 +498,95 @@ cleanup:
 }
 
 /*
+ * A peer that vanished must come back as an error, not as a signal.
+ *
+ * Writing to a socket whose far end has gone raises SIGPIPE, and its default disposition kills
+ * the process - so a radio dropping off the WiFi between two turns of the loop would take the
+ * whole client down before the -EIO this code handles could ever be returned. The suppression is
+ * `send(MSG_NOSIGNAL)` in stream_link.c; if it regresses, this case does not fail politely, it
+ * kills the test binary, which is the loudest way a suite can report it.
+ *
+ * Two writes, not one: after a clean FIN the first still goes into the send buffer, and it is
+ * the RST that comes back which makes the next one EPIPE.
+ */
+MESH_TEST_CASE(tcp_transport_survives_a_peer_that_vanished, unit) {
+    struct tcp_test_radio radio;
+    tcp_test_radio_init(&radio);
+    struct mesh_event_loop loop;
+    bool loop_up = false;
+    struct mesh_transport *transport = mesh_tcp_transport();
+    bool started = false;
+
+    if (!tcp_test_radio_listen(&radio)) {
+        record_failure(test_name, "could not listen on the loopback");
+        goto cleanup;
+    }
+    if (mesh_event_loop_init(&loop) != 0) {
+        record_failure(test_name, "event loop init failed");
+        goto cleanup;
+    }
+    loop_up = true;
+
+    struct mesh_app_config config = mesh_app_config_default();
+    if (transport->ops->start(transport, &config, &loop) != 0) {
+        record_failure(test_name, "tcp start failed");
+        goto cleanup;
+    }
+    started = true;
+
+    if (mesh_tcp_transport_connect(transport, radio.target) != 0) {
+        record_failure(test_name, "connect failed");
+        goto cleanup;
+    }
+    if (mesh_tcp_transport_connected_target(transport) == NULL) {
+        (void)mesh_event_loop_run(&loop, 200);
+    }
+    if (mesh_tcp_transport_connected_target(transport) == NULL || !tcp_test_radio_accept(&radio)) {
+        record_failure(test_name, "the link should be up before the peer goes away");
+        goto cleanup;
+    }
+
+    /* Drained first, so the close is a FIN rather than an RST: the harder of the two cases, and
+       the one a radio rebooting actually produces. */
+    uint8_t discard[256];
+    (void)mesh_test_serial_read(radio.accepted, discard, sizeof discard);
+    close(radio.accepted);
+    radio.accepted = -1;
+    mesh_test_serial_sleep_ms(20);
+
+    struct mesh_session *session = mesh_tcp_transport_session(transport);
+    int result = 0;
+    for (int i = 0; i < 20 && result >= 0; ++i) {
+        result = mesh_session_send_heartbeat(session);
+        mesh_test_serial_sleep_ms(10);
+    }
+
+    if (result >= 0) {
+        record_failure(test_name, "writing at a socket whose peer has gone should fail");
+        goto cleanup;
+    }
+    if (mesh_tcp_transport_connected_target(transport) != NULL) {
+        record_failure(test_name, "a failed write should reset the link");
+        goto cleanup;
+    }
+    if (mesh_session_attached(session)) {
+        record_failure(test_name, "a reset link must detach the session");
+        goto cleanup;
+    }
+
+    record_success(test_name);
+
+cleanup:
+    if (started) {
+        transport->ops->stop(transport);
+    }
+    if (loop_up) {
+        mesh_event_loop_shutdown(&loop);
+    }
+    tcp_test_radio_close(&radio);
+}
+
+/*
  * A name is refused, and the refusal says what to do instead.
  *
  * This is the one deliberate limitation of the link: resolving a name means getaddrinfo(), which

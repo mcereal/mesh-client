@@ -270,8 +270,8 @@ int mesh_serial_transport_connect(struct mesh_transport *transport, const char *
     }
 
     /* The link takes the descriptor from here, parser and queue reset with it. */
-    const int opened =
-        mesh_stream_link_open(&state->link, fd, state->loop, mesh_serial_fd_callback, transport);
+    const int opened = mesh_stream_link_open(&state->link, fd, MESH_STREAM_LINK_FILE, state->loop,
+                                             mesh_serial_fd_callback, transport);
     if (opened < 0) {
         mesh_log_warn("serial", "Cannot watch %s: %d", device->path, opened);
         mesh_serial_port_close(fd);

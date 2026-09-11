@@ -17,6 +17,7 @@
 #include "mesh/geo/coords.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/serial.h"
+#include "mesh/transport/tcp.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/preferences.h"
 #include "mesh/utils/log.h"
@@ -1637,7 +1638,17 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     }
 
     bool preferences_modified = false;
-    if (connected_address != NULL && connected_address[0] != '\0') {
+    /*
+     * A network link is deliberately not remembered here.
+     *
+     * This history is what auto-connect ranks a *scan* with - which of the radios in the list is
+     * most recently yours - and a network host is not in any scan: it is found in configuration,
+     * which already remembers it. Recorded, it would be filed under the only other kind there is,
+     * so an IP address would sit in the BLE history as a preferred device no advertisement can
+     * ever match, pushing a real radio out of eight slots to do it.
+     */
+    if (connected_address != NULL && connected_address[0] != '\0' &&
+        active != mesh_tcp_transport()) {
         const uint8_t connected_kind = (active == mesh_serial_transport())
                                            ? (uint8_t)MESH_UI_DEVICE_SERIAL
                                            : (uint8_t)MESH_UI_DEVICE_BLE;

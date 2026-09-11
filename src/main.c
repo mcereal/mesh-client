@@ -41,8 +41,34 @@ struct mesh_cli_link {
     struct mesh_session *session;
     int (*connect)(struct mesh_transport *transport, const char *identifier);
     int (*disconnect)(struct mesh_transport *transport);
+    /*
+     * Whether the link is still up or still coming up.
+     *
+     * Every transport here connects asynchronously - BLE resolves its services on its own time,
+     * serial waits out a settle window, a TCP connect completes or is refused on a later turn of
+     * the loop - so the 0 that connect() returned says only that the attempt started. Without
+     * this, a connect that failed a second later is indistinguishable from a radio that is slow
+     * to answer, and connect_and_sync() waits out every one of its iterations before printing an
+     * empty handshake and exiting successfully.
+     */
+    bool (*is_live)(struct mesh_transport *transport);
     struct mesh_cli_peer peer;
 };
+
+static bool cli_ble_is_live(struct mesh_transport *transport) {
+    return mesh_ble_transport_connected_address(transport) != NULL ||
+           mesh_ble_transport_is_connecting(transport) || mesh_ble_transport_is_pairing(transport);
+}
+
+static bool cli_serial_is_live(struct mesh_transport *transport) {
+    return mesh_serial_transport_connected_port(transport) != NULL ||
+           mesh_serial_transport_is_connecting(transport);
+}
+
+static bool cli_tcp_is_live(struct mesh_transport *transport) {
+    return mesh_tcp_transport_connected_target(transport) != NULL ||
+           mesh_tcp_transport_is_connecting(transport);
+}
 
 static void print_handshake_json(FILE *out, const struct mesh_cli_peer *device,
                                  const struct mesh_handshake_status *status,
@@ -838,6 +864,7 @@ static int select_ble_link(struct mesh_app *app, struct mesh_bluez_device_info *
     link->session = mesh_ble_transport_session(ble);
     link->connect = mesh_ble_transport_connect;
     link->disconnect = mesh_ble_transport_disconnect;
+    link->is_live = cli_ble_is_live;
     link->peer.transport = "ble";
     link->peer.name = target->name;
     link->peer.identifier = target->address;
@@ -911,6 +938,7 @@ static int select_serial_link(struct mesh_app *app, const char *requested,
     link->session = mesh_serial_transport_session(serial);
     link->connect = mesh_serial_transport_connect;
     link->disconnect = mesh_serial_transport_disconnect;
+    link->is_live = cli_serial_is_live;
     link->peer.transport = "serial";
     link->peer.name = target->name;
     /* The tty is what the user recognises; before the bind there is only the sysfs id. */
@@ -936,6 +964,7 @@ static int select_tcp_link(struct mesh_app *app, struct mesh_cli_link *link) {
     link->session = mesh_tcp_transport_session(tcp);
     link->connect = mesh_tcp_transport_connect;
     link->disconnect = mesh_tcp_transport_disconnect;
+    link->is_live = cli_tcp_is_live;
     link->peer.transport = "tcp";
     /* The address is the whole of what is known about the far end until it answers: nothing has
        been heard from it yet, so there is no name to show and never an RSSI. */
@@ -974,6 +1003,26 @@ static int connect_and_sync(struct mesh_app *app, const struct mesh_cli_link *li
         if (status != NULL && !status->request_in_flight &&
             (status->config_complete || status->has_my_info)) {
             break;
+        }
+
+        /*
+         * The link went away while we were waiting. Checked after the handshake test rather than
+         * before it, so a link that answered and then dropped still reports what it said - and
+         * the transport's one-shot error is only asked for once we know there is a failure to
+         * explain, which keeps a stale message from an earlier attempt out of a good connect.
+         */
+        if (link->is_live != NULL && !link->is_live(link->transport)) {
+            char failure[MESH_TRANSPORT_ERROR_MAX];
+            if (link->transport->ops->take_error != NULL &&
+                link->transport->ops->take_error(link->transport, failure, sizeof failure)) {
+                /* The transport's own line usually names the peer already, so this does not
+                   say it twice. */
+                mesh_log_error("main", "Connect failed: %s", failure);
+            } else {
+                mesh_log_error("main", "Lost the link to %s before the handshake completed",
+                               link->peer.identifier);
+            }
+            return -ECONNREFUSED;
         }
     }
 

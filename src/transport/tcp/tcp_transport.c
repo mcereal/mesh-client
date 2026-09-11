@@ -291,8 +291,8 @@ static void mesh_tcp_finish_connect(struct mesh_tcp_transport_state *state,
     state->pending_fd = -1;
     state->pending_registered = false;
 
-    const int opened =
-        mesh_stream_link_open(&state->link, fd, state->loop, mesh_tcp_fd_callback, transport);
+    const int opened = mesh_stream_link_open(&state->link, fd, MESH_STREAM_LINK_SOCKET, state->loop,
+                                             mesh_tcp_fd_callback, transport);
     if (opened < 0) {
         mesh_log_warn("tcp", "Cannot watch %s: %d", state->target, opened);
         close(fd);

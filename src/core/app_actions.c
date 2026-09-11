@@ -15,6 +15,7 @@
 #include "mesh/i18n/strings.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/serial.h"
+#include "mesh/transport/tcp.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/preferences.h"
 #include "mesh/utils/log.h"
@@ -664,10 +665,18 @@ void mesh_app_on_ui_action(void *userdata, const struct mesh_ui_action *action) 
                  action->identifier[0] != '\0' ? action->identifier
                                                : (identifier != NULL ? identifier : ""));
 
+        /*
+         * Every transport gets its own arm, and the last one is not an "everything else".
+         * mesh_app_active_transport() can name any of the three, and each of these casts
+         * transport->state to its own struct - so a link routed to the wrong one is not a
+         * disconnect that fails, it is a read of one transport's state through another's type.
+         */
         int result = -ENOTCONN;
         if (transport == mesh_serial_transport()) {
             result = mesh_serial_transport_disconnect(transport);
-        } else if (transport != NULL) {
+        } else if (transport == mesh_tcp_transport()) {
+            result = mesh_tcp_transport_disconnect(transport);
+        } else if (transport == mesh_ble_transport()) {
             result = mesh_ble_transport_disconnect(transport);
         }
 

@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 #define MESH_STREAM_LINK_READ_CHUNK 1024U
@@ -24,6 +25,19 @@ void mesh_stream_link_init(struct mesh_stream_link *link, const char *tag,
     link->tag = tag != NULL ? tag : "link";
     link->session = session;
     mesh_stream_parser_reset(&link->parser);
+}
+
+/*
+ * The one write in this file, so the SIGPIPE suppression cannot be forgotten on one path and
+ * applied on another. MSG_NOSIGNAL is a socket flag and a tty write takes none, which is the
+ * whole of why the link is told what it holds.
+ */
+static ssize_t mesh_stream_link_write(const struct mesh_stream_link *link, const uint8_t *data,
+                                      size_t len) {
+    if (link->kind == MESH_STREAM_LINK_SOCKET) {
+        return send(link->fd, data, len, MSG_NOSIGNAL);
+    }
+    return write(link->fd, data, len);
 }
 
 void mesh_stream_link_set_session(struct mesh_stream_link *link, struct mesh_session *session) {
@@ -99,7 +113,8 @@ int mesh_stream_link_flush(struct mesh_stream_link *link) {
 
     while (link->write_queue_len > 0U) {
         struct mesh_stream_link_packet *slot = &link->write_queue[link->write_queue_head];
-        const ssize_t written = write(link->fd, slot->data + slot->sent, slot->length - slot->sent);
+        const ssize_t written =
+            mesh_stream_link_write(link, slot->data + slot->sent, slot->length - slot->sent);
         if (written < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 break; /* the far end is not draining; EPOLLOUT brings us back */
@@ -107,6 +122,8 @@ int mesh_stream_link_flush(struct mesh_stream_link *link) {
             if (errno == EINTR) {
                 continue;
             }
+            /* EPIPE lands here rather than as a dead process, which is what MSG_NOSIGNAL above
+               bought: the far end went away and the owner gets to say so in its own words. */
             mesh_log_warn(link->tag, "write failed: %s", strerror(errno));
             return -EIO;
         }
@@ -147,7 +164,7 @@ int mesh_stream_link_write_raw(struct mesh_stream_link *link, const uint8_t *dat
     if (link->fd < 0) {
         return -ENOTCONN;
     }
-    const ssize_t written = write(link->fd, data, len);
+    const ssize_t written = mesh_stream_link_write(link, data, len);
     if (written < 0) {
         return -errno;
     }
@@ -235,8 +252,9 @@ int mesh_stream_link_pump(struct mesh_stream_link *link) {
 
 /* ------------------------------------------------------------------ lifecycle */
 
-int mesh_stream_link_open(struct mesh_stream_link *link, int fd, struct mesh_event_loop *loop,
-                          mesh_event_callback callback, void *userdata) {
+int mesh_stream_link_open(struct mesh_stream_link *link, int fd, enum mesh_stream_link_kind kind,
+                          struct mesh_event_loop *loop, mesh_event_callback callback,
+                          void *userdata) {
     if (link == NULL || fd < 0) {
         return -EINVAL;
     }
@@ -255,6 +273,7 @@ int mesh_stream_link_open(struct mesh_stream_link *link, int fd, struct mesh_eve
     }
 
     link->fd = fd;
+    link->kind = kind;
     link->loop = loop;
     link->want_write = false;
     mesh_stream_parser_reset(&link->parser);
