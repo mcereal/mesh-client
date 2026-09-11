@@ -187,7 +187,7 @@ is a screen rather than a slot), bubbles (whose trailing run is four typed slots
 | Strings | `src/i18n/strings.c`, `include/mesh/i18n/catalog.def` | the string catalog and the locale registry |
 | Dev tools | `devtools/`, `scripts/{ui-capture.sh,frames.py}` | off-screen UI capture; PNG/GIF encoding, stdlib only |
 | Geography | `src/geo/` | `mesh_geo_coords_valid()` — the bounds test every coordinate ingress asks, so the air, the cache and the keyboard cannot disagree about where Earth ends — `mesh_geo_vector_between()`, the haversine distance and initial bearing the Waypoints tab reads a range from, and `mesh_geo_mercator_forward()`, the projection the map places a marker with. **The only directory in the tree that includes `<math.h>`**, and the reason libm is linked |
-| The map | `src/map/viewport.c`, `src/map/tile.c`, `src/map/source_pack.c`, `src/map/tile_image.c`, `src/ui/map.c`, `src/ui/nav_map.c`, `src/ui/backends/fb_map.c` | Where the map is looking (centre, integer zoom, pan, fit, metres per pixel), which tiles that box is standing on (`mesh_map_viewport_tiles()`), where a tile's bytes come from (`source.h`, and the single-file `MCTPACK2` pack behind it), what those bytes decode to (`mesh_map_tile_decode()`, the one file that includes Wuffs), the markers built from the map's own roster (`handshake.map_nodes` - **not** the node list's 128) and the waypoint book, the presses, and the drawing. A tile can be read and decoded and **nothing draws one yet** — the cache and the blit are next, see [`docs/maps-roadmap.md`](docs/maps-roadmap.md). `viewport.c` deliberately has **no `<math.h>`**: everything transcendental about a map is a property of the projection, one directory down |
+| The map | `src/map/viewport.c`, `src/map/tile.c`, `src/map/source_pack.c`, `src/map/tile_image.c`, `src/map/tile_cache.c`, `src/ui/map.c`, `src/ui/nav_map.c`, `src/ui/backends/fb_map.c` | Where the map is looking (centre, integer zoom, pan, fit, metres per pixel), which tiles that box is standing on (`mesh_map_viewport_tiles()`), where a tile's bytes come from (`source.h`, and the single-file `MCTPACK2` pack behind it), what those bytes decode to (`mesh_map_tile_decode()`, the one file that includes Wuffs), which decoded tiles are still held (`tile_cache.c`: byte-budgeted, LRU, and holding the *holes* as well as the pixels), the markers built from the map's own roster (`handshake.map_nodes` - **not** the node list's 128) and the waypoint book, the presses, and the drawing. A tile can be read, decoded and kept, and **nothing draws one yet** — the fill loop and the blit are next, both in `fb_map.c`, see [`docs/maps-roadmap.md`](docs/maps-roadmap.md). `viewport.c` deliberately has **no `<math.h>`**: everything transcendental about a map is a property of the projection, one directory down |
 | Shared utils | `src/utils/` | `text` (UTF-8 + `mesh_str_copy`), `time` (`mesh_time_monotonic_ms`), `env` (`mesh_env_bool`/`_int`), `json` (a cursor that walks structure, because a release note eventually contains the keys a scanner would look for), `log`, `sha256`, `array` |
 
 `include/mesh/` mirrors `src/` one-for-one — `core/`, `transport/`, `ui/`, `proto/`, `geo/`, `utils/` —
@@ -469,6 +469,29 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   Everything else a read would have to trust is checked **once, at open** - extents inside the
   file, tiles inside the world, and the index's own sort order, because a `bsearch` over an
   unsorted index does not fail, it misses. See [`docs/maps-roadmap.md`](docs/maps-roadmap.md).
+- **The tile cache remembers which tiles are *not* in the pack, and that table is not an
+  optimisation.** The fill loop gets one read per turn of the event loop, because a cold tile is
+  2-5 ms on the Brick's card. Every pack is a rectangle of the world with holes in it, so
+  without a record of what has already been asked for and refused, one hole on screen spends
+  that single read every turn forever and a view with any sea in it never finishes filling the
+  tiles *around* it. The holes live in a table of their own because a hole costs twelve bytes
+  and a tile costs 256 KiB, and sharing the slots would let a sparse view evict the picture to
+  remember the sea. What makes the pair safe is that **a key is in at most one of the two
+  tables** - otherwise the cache answers `READY` or `ABSENT` for one tile depending on which it
+  looks at first. It is also why a lookup answers with a *state* rather than a pointer that may
+  be NULL: `MISS` is a tile still on its way and `ABSENT` is the final picture, and they are
+  drawn differently.
+- **A cached tile is in the decoder's pixel format, not the panel's, and `src/map/` may not
+  learn which the panel is.** `struct fb_state` reads `bytes_per_pixel` off the kernel and it is
+  not always 4, so a cache holding panel-format pixels would be the map layer including the
+  framebuffer - and would make a cached tile the property of *one* backend, since the capture
+  harness renders at four bytes a pixel whatever the device is doing. The blit converts per
+  drawn pixel, joining the switch `fb_fill_packed()` already makes.
+- **Opening a different tile pack must clear the cache.** A key is three numbers about the world,
+  not about a file: two packs of the same city both hold a tile at (14, 8192, 5461) and they are
+  different pictures. Carried across a swap, the map draws the old pack's streets under the new
+  pack's attribution, and every pixel of it is a real tile in the right place - so there is
+  nothing on the frame that looks wrong.
 - **The tile decoder's memory is static, constant, and sized for a colour type no pack
   contains.** A decode on an event loop must not pause to find memory or fail for want of it, so
   `src/map/tile_image.c` holds two fixed blocks - 48 KiB for Wuffs' decoder and 256 KiB of

@@ -88,6 +88,7 @@ add_library(meshclient_core
     src/geo/vector.c
     src/map/source_pack.c
     src/map/tile.c
+    src/map/tile_cache.c
     src/map/tile_image.c
     src/map/viewport.c
     src/map/wuffs_png.c
