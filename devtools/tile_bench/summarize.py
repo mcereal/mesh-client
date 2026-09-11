@@ -40,13 +40,14 @@ def tiles_table(rows):
 
 def view_table(rows):
     out = [
-        "| Layout | Decoder | View p50 | View p90 | View max | Pan p50 | Pan p90 | Pan max |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Layout | Decoder | View p50 | View p90 | View max | Pan across p50 | Pan across max | Pan down p50 | Pan down max |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for r in rows:
+        across = "hpan" if "hpan_p50" in r else "pan"  # logs from before the two were split
         out.append(
             f"| {r['layout']} | {r['decoder']} | {r['view_p50']} | {r['view_p90']} | {r['view_max']} | "
-            f"{r['pan_p50']} | {r['pan_p90']} | {r['pan_max']} |"
+            f"{r[across + '_p50']} | {r[across + '_max']} | {r.get('vpan_p50', '-')} | {r.get('vpan_max', '-')} |"
         )
     return out
 

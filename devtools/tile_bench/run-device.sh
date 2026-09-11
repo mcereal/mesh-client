@@ -4,6 +4,9 @@
 #
 #   devtools/tile_bench/run-device.sh [--no-push] [CASE...]
 #
+# --no-push skips the tile sets, which are slow to copy and change only when gen_tiles.py does;
+# the binary is pushed every time.
+#
 # CASE is any of: verify tiles rgb udisk view gap (default: all of them). The client must not be
 # running (`make deploy-stop`), unless measuring contention on purpose - see docs/maps-roadmap.md.
 #
@@ -48,8 +51,6 @@ timed_push() {
 
 if [[ $PUSH -eq 1 ]]; then
     sh_dev "rm -rf $SD $UD; mkdir -p $SD/palette $SD/rgb $UD/palette"
-    adb push "$BIN" "$UD/tile_bench" >/dev/null
-    sh_dev "chmod +x $UD/tile_bench"
     for f in manifest.txt pack.mctp tiles.mbtiles; do
         timed_push "sd:palette/$f" "$TILES/palette/$f" "$SD/palette/$f"
     done
@@ -61,8 +62,26 @@ if [[ $PUSH -eq 1 ]]; then
     timed_push "udisk:palette/pack.mctp" "$TILES/palette/pack.mctp" "$UD/palette/pack.mctp"
     sh_dev "du -sk $SD/palette/xyz $SD/palette/pack.mctp $SD/palette/tiles.mbtiles" | tee -a "$LOG"
 fi
+# Always, so --no-push still runs the bench that was just built.
+adb push "$BIN" "$UD/tile_bench" >/dev/null
+sh_dev "chmod +x $UD/tile_bench"
 
-bench() { sh_dev "$UD/tile_bench $*" | tee -a "$LOG"; }
+# The Brick's adbd returns no exit status, so a run that crashed shows up only as a missing RESULT
+# line, and a verify that found differences only as a bad= other than 0. Either stops the matrix
+# here, rather than leaving a summary with a hole in it that nothing points at.
+bench() {
+    local out
+    out="$(sh_dev "$UD/tile_bench $*")"
+    printf '%s\n' "$out" | tee -a "$LOG"
+    if ! grep -q '^RESULT ' <<<"$out"; then
+        echo "tile_bench $* printed no RESULT; stopping" >&2
+        exit 1
+    fi
+    if grep -q '^RESULT mode=verify' <<<"$out" && ! grep -q ' bad=0$' <<<"$out"; then
+        echo "tile_bench $*: stb and Wuffs disagree; stopping" >&2
+        exit 1
+    fi
+}
 
 for c in "${CASES[@]}"; do
     case "$c" in

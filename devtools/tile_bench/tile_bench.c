@@ -9,7 +9,7 @@
  * it on its own and gen_tiles.py writes what it reads.
  *
  *   tile_bench -d SET -l xyz|pack|mbtiles -D none|stb|wuffs -m warm|cold-once|cold-each [-n N]
- *   tile_bench -d SET -l LAYOUT -D DECODER -m view [-r R]      a full view, then one pan
+ *   tile_bench -d SET -l LAYOUT -D DECODER -m view [-r R]      a full view, then pans
  *   tile_bench -d SET -l LAYOUT -m verify [-n N]               stb and Wuffs agree, pixel for pixel
  *
  * A decode always ends in a 256x256 BGRX tile, which is what the framebuffer wants. Wuffs writes
@@ -461,11 +461,13 @@ static int run_tiles(struct source *src, enum decoder d, enum mode mode, const s
         drop_caches();
     }
     for (size_t i = 0; i < n; i++) {
-        if (gap_ms > 0) {
-            sleep_ms(gap_ms);
-        }
+        /* The drop is work - a sync and a walk of the page cache - and would start the clock
+         * ramping, so it goes before the idle gap: the timed tile is the first thing after it. */
         if (mode == MODE_COLD_EACH) {
             drop_caches();
+        }
+        if (gap_ms > 0) {
+            sleep_ms(gap_ms);
         }
         uint64_t t0 = now_ns();
         long len = source_fetch(src, keys[i], buf, TILE_BYTES_MAX);
@@ -505,68 +507,103 @@ static int run_tiles(struct source *src, enum decoder d, enum mode mode, const s
     return 0;
 }
 
+/* The view's decoded tiles: VIEW_ROWS + 1 rows of VIEW_COLS + 1, the extra column and row being
+ * where a pan across and a pan down land. */
+static uint32_t *view_slot(uint32_t *tiles, int row, int col) {
+    return tiles + ((size_t)row * (VIEW_COLS + 1) + (size_t)col) * TILE_PIXELS;
+}
+
+static bool load_tile(struct source *src, enum decoder d, struct tile_key k, uint8_t *buf,
+                      uint32_t *tile) {
+    long len = source_fetch(src, k, buf, TILE_BYTES_MAX);
+    return len >= 0 && decode(d, buf, (size_t)len, tile);
+}
+
+/* One pan of a tile from the view at (tx, ty): the new column (across) or row (down) is read and
+ * decoded, and the whole body is redrawn from tiles already decoded - which is the decoded-tile
+ * cache the roadmap proposes, at its smallest. */
+static bool pan_view(struct source *src, enum decoder d, const struct manifest *m, uint32_t tx,
+                     uint32_t ty, int offx, int offy, bool across, uint8_t *buf, uint32_t *tiles,
+                     uint32_t *frame) {
+    int count = across ? VIEW_ROWS : VIEW_COLS;
+    for (int i = 0; i < count; i++) {
+        int row = across ? i : VIEW_ROWS;
+        int col = across ? VIEW_COLS : i;
+        struct tile_key k = {m->zoom, tx + (uint32_t)col, ty + (uint32_t)row};
+        if (!load_tile(src, d, k, buf, view_slot(tiles, row, col))) {
+            return false;
+        }
+    }
+    int dr = across ? 0 : 1;
+    int dc = across ? 1 : 0;
+    for (int row = 0; row < VIEW_ROWS; row++) {
+        for (int col = 0; col < VIEW_COLS; col++) {
+            blit(frame, view_slot(tiles, row + dr, col + dc), col * TILE_PX - offx,
+                 row * TILE_PX - offy);
+        }
+    }
+    return true;
+}
+
 /* A whole body's worth from cold: VIEW_COLS x VIEW_ROWS tiles at an arbitrary pixel offset,
- * which is the most a 1024x768 map can touch. Then one pan of a tile's width: the new column is
- * read and decoded, and the whole body is redrawn from the tiles already decoded - which is the
- * decoded-tile cache the roadmap proposes, at its smallest. */
+ * which is the most a 1024x768 map can touch. Then, from that same view, one pan across and one
+ * pan down, timed apart because a pack's order is not symmetric: in (z, x, y) order a new column
+ * is one contiguous run, while a new row is VIEW_COLS tiles spread through the file - each just
+ * after a tile the view has already read, where readahead may or may not have been. Which of the
+ * two goes first alternates by round, so neither always inherits the other's cache. */
 static int run_view(struct source *src, enum decoder d, const struct manifest *m, size_t rounds,
                     uint8_t *buf, uint32_t *frame) {
-    uint32_t *tiles = malloc((size_t)VIEW_ROWS * (VIEW_COLS + 1) * TILE_PIXELS * 4U);
+    uint32_t *tiles = malloc((size_t)(VIEW_ROWS + 1) * (VIEW_COLS + 1) * TILE_PIXELS * 4U);
     uint64_t *view = calloc(rounds, sizeof *view);
-    uint64_t *pan = calloc(rounds, sizeof *pan);
-    if (tiles == NULL || view == NULL || pan == NULL || m->width < VIEW_COLS + 1 ||
-        m->height < VIEW_ROWS) {
+    uint64_t *across = calloc(rounds, sizeof *across);
+    uint64_t *down = calloc(rounds, sizeof *down);
+    if (tiles == NULL || view == NULL || across == NULL || down == NULL ||
+        m->width < VIEW_COLS + 1 || m->height < VIEW_ROWS + 1) {
         return 1;
     }
     for (size_t r = 0; r < rounds; r++) {
         uint32_t tx = m->x0 + rng_next() % (m->width - VIEW_COLS);
-        uint32_t ty = m->y0 + rng_next() % (m->height - VIEW_ROWS + 1);
+        uint32_t ty = m->y0 + rng_next() % (m->height - VIEW_ROWS);
         int offx = (int)(rng_next() % TILE_PX), offy = (int)(rng_next() % TILE_PX);
         drop_caches();
         uint64_t t0 = now_ns();
         for (int row = 0; row < VIEW_ROWS; row++) {
             for (int col = 0; col < VIEW_COLS; col++) {
-                uint32_t *t = tiles + ((size_t)row * (VIEW_COLS + 1) + (size_t)col) * TILE_PIXELS;
+                uint32_t *t = view_slot(tiles, row, col);
                 struct tile_key k = {m->zoom, tx + (uint32_t)col, ty + (uint32_t)row};
-                long len = source_fetch(src, k, buf, TILE_BYTES_MAX);
-                if (len < 0 || !decode(d, buf, (size_t)len, t)) {
+                if (!load_tile(src, d, k, buf, t)) {
                     return 1;
                 }
                 blit(frame, t, col * TILE_PX - offx, row * TILE_PX - offy);
             }
         }
-        uint64_t t1 = now_ns();
-        for (int row = 0; row < VIEW_ROWS; row++) {
-            uint32_t *t = tiles + ((size_t)row * (VIEW_COLS + 1) + VIEW_COLS) * TILE_PIXELS;
-            struct tile_key k = {m->zoom, tx + VIEW_COLS, ty + (uint32_t)row};
-            long len = source_fetch(src, k, buf, TILE_BYTES_MAX);
-            if (len < 0 || !decode(d, buf, (size_t)len, t)) {
+        view[r] = now_ns() - t0;
+        for (int i = 0; i < 2; i++) {
+            bool is_across = (i == 0) == (r % 2 == 0);
+            uint64_t p0 = now_ns();
+            if (!pan_view(src, d, m, tx, ty, offx, offy, is_across, buf, tiles, frame)) {
                 return 1;
             }
+            (is_across ? across : down)[r] = now_ns() - p0;
         }
-        for (int row = 0; row < VIEW_ROWS; row++) {
-            for (int col = 1; col <= VIEW_COLS; col++) {
-                const uint32_t *t =
-                    tiles + ((size_t)row * (VIEW_COLS + 1) + (size_t)col) * TILE_PIXELS;
-                blit(frame, t, (col - 1) * TILE_PX - offx, row * TILE_PX - offy);
-            }
-        }
-        uint64_t t2 = now_ns();
-        view[r] = t1 - t0;
-        pan[r] = t2 - t1;
     }
-    struct stats sv = summarize(view, rounds), sp = summarize(pan, rounds);
-    printf("%zu rounds of a %dx%d view from cold, then one pan\n", rounds, VIEW_COLS, VIEW_ROWS);
+    struct stats sv = summarize(view, rounds), sa = summarize(across, rounds),
+                 sd = summarize(down, rounds);
+    printf("%zu rounds of a %dx%d view from cold, then a pan across and a pan down\n", rounds,
+           VIEW_COLS, VIEW_ROWS);
     print_stats("view", sv);
-    print_stats("pan", sp);
+    print_stats("across", sa);
+    print_stats("down", sd);
     printf("RESULT layout=%s decoder=%s mode=view n=%zu", k_layouts[src->layout], k_decoders[d],
            rounds);
     result_field("view", sv);
-    result_field("pan", sp);
+    result_field("hpan", sa);
+    result_field("vpan", sd);
     printf("\n");
     free(tiles);
     free(view);
-    free(pan);
+    free(across);
+    free(down);
     return 0;
 }
 
