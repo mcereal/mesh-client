@@ -418,18 +418,26 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   pairs are the same press on every other screen, and splitting them here is what lets the map
   have the d-pad without the tab strip above the body going dead. The action bar still says
   "L/R tabs" here and still means it.
-- **A direction on the map stops on the next marker that way, and only pans when there is
-  none.** It looks like snapping bolted onto a pan and it is the other way round: a pan of a
-  fixed number of pixels leaves the crosshair on a lattice (a fifth of the body across, a fifth
-  down) and the crosshair captures a disc of `MESH_UI_MAP_SELECT_RADIUS_PX`, so a sixth of the
-  plane was selectable and five markers in six could not be aimed at *at all* at a given zoom -
-  which on the device reads as the crosshair skipping over nodes, and as zooming sometimes
-  fixing it, because a zoom re-phases the lattice. `mesh_ui_map_step()` takes the nearest marker
-  in the 45-degree quadrant around the press (the four tile the plane, so nothing on the panel
-  is unreachable) and the view centres on its own coordinates, which is what makes the landing
-  exact. The fallback pan is not a leftover: it is what crosses open grid, and what walks a
-  marker beyond the step's reach into it. The selection is still *derived* from the centre - the
-  nav grew no selection field, and must not.
+- **A direction on the map is one step, and landing on a marker changes where that step ends
+  rather than how long it is.** It looks like snapping bolted onto a pan and it is the other way
+  round: a pan of a fixed number of pixels leaves the crosshair on a lattice (a fifth of the
+  body across, a fifth down) and the crosshair captures a disc of
+  `MESH_UI_MAP_SELECT_RADIUS_PX`, so a sixth of the plane was selectable and five markers in six
+  could not be aimed at *at all* at a given zoom - which on the device reads as the crosshair
+  skipping over nodes, and as zooming sometimes fixing it, because a zoom re-phases the lattice.
+  `mesh_ui_map_step()` takes the nearest marker in the 45-degree quadrant around the press (the
+  four tile the plane, so nothing is in a direction no press names) and the view centres on its
+  own coordinates, which is what makes the landing exact. The fallback pan is not a leftover: it
+  is what crosses open grid, and what walks a marker beyond the step's reach into it. The
+  selection is still *derived* from the centre - the nav grew no selection field, and must not.
+  **The reach is one pan step, per axis, and is the same number the fallback pans by**
+  (`MESH_UI_MAP_PAN_STEP_X/Y`, declared once in `map.h` so the two cannot drift apart). A reach
+  of the whole declared panel is what this replaced, and it was the first correction overshot:
+  on a mesh with a few dozen positioned nodes every tap had a marker somewhere in its quadrant
+  to answer with, so the view cycled through the roster and the ground *between* two nodes was
+  unreachable - the same complaint as the lattice, from the other side. Bounding the cross axis
+  matters as much as the along one, or a press that said "north" answers with a sideways lurch
+  onto something mostly east.
 - **`map_open` outliving a change of tab is deliberate, and the key handler must still check
   `nav->screen`.** Every tab keeps its own place, so coming back to Nodes shows the view that was
   left — which means the flag says *where the Nodes tab is standing*, not *what the reader is

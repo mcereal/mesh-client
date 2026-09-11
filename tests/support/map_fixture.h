@@ -52,8 +52,7 @@ void mesh_test_map_tile_colour(size_t index, unsigned shade, uint8_t rgb[3]);
  * arithmetic twice is how the two copies come to disagree. Fills `out` with
  * `columns * rows` keys and returns how many were written.
  */
-size_t mesh_test_map_keys_around(int32_t latitude_i, int32_t longitude_i, uint8_t zoom,
-                                 int columns, int rows, struct mesh_map_tile_key *out,
-                                 size_t cap);
+size_t mesh_test_map_keys_around(int32_t latitude_i, int32_t longitude_i, uint8_t zoom, int columns,
+                                 int rows, struct mesh_map_tile_key *out, size_t cap);
 
 #endif /* MESH_TEST_MAP_FIXTURE_H */

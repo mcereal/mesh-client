@@ -11,11 +11,23 @@
  * and a screen that quietly redefines two of the four directions deserves to say so somewhere a
  * reader will find it.
  *
- * What moving the world does not mean is moving it by a fixed amount. A press goes to the next
- * marker in that direction and stops exactly on it, falling back to a pan when the direction is
- * empty - because a view that only ever landed on multiples of its own step could not be aimed
- * at most of what it was drawing. See mesh_ui_map_step() for the arithmetic that says how much
- * of it, and MAP_PAN_STEP_X for what the fallback is still for.
+ * What moving the world does not mean is moving it by a fixed amount. A press goes about a step
+ * that way and stops exactly on a marker when there is one within the step, falling back to a
+ * plain pan when there is not - because a view that only ever landed on multiples of its own
+ * step could not be aimed at most of what it was drawing, and a press that went to the next
+ * marker however far away it was could not be used to look around at all. See
+ * mesh_ui_map_step() for the arithmetic, and MESH_UI_MAP_PAN_STEP_X for the length both halves
+ * share - one number in map.h rather than a pan of this file's own, because a reach longer than
+ * the pan is a map that hands the reader the next node on every tap and never the ground
+ * between two of them, and a pan longer than the reach is a map that steps over markers.
+ *
+ * "A pan is many enough to stop on something" is what this file used to claim, and it was
+ * false: a pan of a fixed number of pixels only ever visits a lattice - 176 across and 84 down
+ * from wherever the view opened - while the crosshair captures a disc of
+ * MESH_UI_MAP_SELECT_RADIUS_PX, which is 28. A sixth of the plane is inside that lattice's
+ * discs, so five markers in six could not be put under the crosshair at all at a given zoom.
+ * What stops on something is mesh_ui_map_step(); the pan below is what runs when it has nothing
+ * within reach to stop on.
  *
  * The shoulders keep the tabs. L1/R1 and Left/Right are the same press everywhere else in the
  * client, and this is the one screen that splits them - so the pair that still walks the tab
@@ -28,24 +40,6 @@
 #include "mesh/ui/map.h"
 
 #include <string.h>
-
-/*
- * How far one press of a direction moves the world when there is nothing that way, in pixels.
- *
- * A fraction of the declared body rather than a fixed number of pixels, so a press covers the
- * same *proportion* of the view at every zoom - which is what makes panning feel like moving a
- * map rather than like nudging one. Roughly a fifth of the body: four presses cross the panel,
- * which is few enough to be quick and many enough to see where you are going.
- *
- * "Many enough to stop on something" is what this used to claim, and it was false. A pan of a
- * fixed number of pixels only ever visits a lattice - 176 across and 84 down from wherever the
- * view opened - and the crosshair captures a disc of MESH_UI_MAP_SELECT_RADIUS_PX, which is 28.
- * A sixth of the plane is inside that lattice's discs, so five markers in six could not be put
- * under the crosshair at all at a given zoom. What stops on something now is
- * mesh_ui_map_step(); this is the fallback for open grid, where there is nothing to stop on.
- */
-#define MAP_PAN_STEP_X (MESH_UI_MAP_FIT_WIDTH / 5)
-#define MAP_PAN_STEP_Y (MESH_UI_MAP_FIT_HEIGHT / 5)
 
 /* Builds the marker set for the store as it is now. The map has no cached view: the roster
    re-ranks and fixes arrive, and a set built once at open would be the map disagreeing with the
@@ -166,14 +160,14 @@ static bool mesh_ui_nav_map_move(struct mesh_ui_nav *nav, const struct mesh_ui_s
 
     switch (direction) {
     case MESH_UI_MAP_NORTH:
-        return mesh_map_viewport_pan(&nav->map_viewport, 0, -MAP_PAN_STEP_Y);
+        return mesh_map_viewport_pan(&nav->map_viewport, 0, -MESH_UI_MAP_PAN_STEP_Y);
     case MESH_UI_MAP_SOUTH:
-        return mesh_map_viewport_pan(&nav->map_viewport, 0, MAP_PAN_STEP_Y);
+        return mesh_map_viewport_pan(&nav->map_viewport, 0, MESH_UI_MAP_PAN_STEP_Y);
     case MESH_UI_MAP_WEST:
-        return mesh_map_viewport_pan(&nav->map_viewport, -MAP_PAN_STEP_X, 0);
+        return mesh_map_viewport_pan(&nav->map_viewport, -MESH_UI_MAP_PAN_STEP_X, 0);
     case MESH_UI_MAP_EAST:
     default:
-        return mesh_map_viewport_pan(&nav->map_viewport, MAP_PAN_STEP_X, 0);
+        return mesh_map_viewport_pan(&nav->map_viewport, MESH_UI_MAP_PAN_STEP_X, 0);
     }
 }
 

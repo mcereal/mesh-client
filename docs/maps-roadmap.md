@@ -213,8 +213,26 @@ the reasoning generalises to the steps that are still open:
   > (`mesh_ui_map_step()`). It is not the marker cycling this rejected - no key was spent, the
   > directions still mean what they say, and open grid still pans - and the selection is still
   > derived from the centre of the view, so the nav still holds no selection. The four quadrants
-  > tile the plane, which is the property that makes every marker on the panel reachable in the
-  > direction it looks like it is in.
+  > tile the plane, which is the property that makes nothing on the panel lie in a direction no
+  > press names.
+
+  > **Corrected again, from the same device (2026-09-11).** The first correction fixed the aim
+  > and took the exploring with it. Its reach was the whole declared panel, so on a mesh with a
+  > few dozen positioned nodes *every* tap of a direction had a marker somewhere in its quadrant
+  > to answer with: the view hopped from node to node, and the ground between two of them was
+  > not merely awkward to stop on - it was unreachable, which is the lattice complaint again
+  > from the other side. The reader's report was "with every dpad tap it just cycles to the
+  > next... it will snap to nodes that are several squares over instead of letting you move
+  > around in between".
+  >
+  > What bounds it is the step itself. A press is one pan - `MESH_UI_MAP_PAN_STEP_X/Y`, declared
+  > once in `map.h` and used by both halves so they cannot drift apart - and landing on a marker
+  > changes where that step *ends*, never how long it is. A candidate has to sit inside the box
+  > one press covers, on both axes: the along bound is what leaves open ground reachable, and
+  > the cross bound is what stops a press that said "north" from answering with a sideways lurch
+  > onto something mostly east. A marker further out is walked up to instead - the step falls
+  > back to a pan, the pan brings it inside the reach, and the press after that lands on it
+  > exactly, which costs a press and gives back the whole plane between the markers.
 - **The selection is measured in metres, not pixels.** The store owns the nav and a backend is
   handed a `const` snapshot, so the nav genuinely cannot learn how wide a backend's body is.
   Anything box-dependent would therefore be two answers - the ring a renderer draws and the node

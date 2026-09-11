@@ -272,9 +272,8 @@ void mesh_test_map_pack_remove(struct mesh_test_map_pack *pack) {
     pack->path[0] = '\0';
 }
 
-size_t mesh_test_map_keys_around(int32_t latitude_i, int32_t longitude_i, uint8_t zoom,
-                                 int columns, int rows, struct mesh_map_tile_key *out,
-                                 size_t cap) {
+size_t mesh_test_map_keys_around(int32_t latitude_i, int32_t longitude_i, uint8_t zoom, int columns,
+                                 int rows, struct mesh_map_tile_key *out, size_t cap) {
     if (out == NULL || columns <= 0 || rows <= 0) {
         return 0U;
     }
