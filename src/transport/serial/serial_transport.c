@@ -6,6 +6,7 @@
 
 #include "mesh/core/config.h"
 #include "mesh/proto/stream_framing.h"
+#include "mesh/transport/stream_link.h"
 #include "mesh/utils/log.h"
 #include "mesh/utils/time.h"
 
@@ -17,10 +18,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#define MESH_SERIAL_MAX_OUTBOUND_PACKETS 8U
-#define MESH_SERIAL_READ_CHUNK 1024U
-/* Reads per event-loop turn. A NodeDB sync arrives as a burst; bound it so UI input still flows. */
-#define MESH_SERIAL_READS_PER_TURN 8U
 /* Rescan of sysfs from tick() is rate limited; a hotplugged node shows up within this. */
 #define MESH_SERIAL_SCAN_INTERVAL_MS 3000U
 /*
@@ -43,14 +40,6 @@ enum mesh_serial_link_state {
     MESH_SERIAL_LINK_CONNECTED,
 };
 
-/* One framed ToRadio packet, header included, with a cursor for partial writes. */
-struct mesh_serial_outbound_packet {
-    size_t length;
-    size_t sent;
-    uint32_t packet_id; /* message log id to fail if this never reaches the radio; 0 = none */
-    uint8_t data[MESH_STREAM_FRAME_HEADER_LEN + MESH_STREAM_FRAME_MAX_PAYLOAD];
-};
-
 struct mesh_serial_transport_state {
     enum mesh_serial_state state;
     enum mesh_serial_link_state link_state;
@@ -59,19 +48,11 @@ struct mesh_serial_transport_state {
     size_t device_count;
     uint64_t last_scan_ms;
 
-    int fd;
-    bool fd_registered;
-    bool want_write; /* EPOLLOUT is armed because the write queue has a remainder */
+    /* The descriptor, the frame parser and the outbound queue: everything about this link
+       that a TCP link does identically. See mesh/transport/stream_link.h. */
+    struct mesh_stream_link link;
     struct mesh_serial_device_info connected;
     uint64_t wake_done_at_ms;
-
-    struct mesh_stream_parser parser;
-    size_t frames_received;
-    size_t bytes_received;
-
-    struct mesh_serial_outbound_packet write_queue[MESH_SERIAL_MAX_OUTBOUND_PACKETS];
-    size_t write_queue_head;
-    size_t write_queue_len;
 
     /* The Meshtastic conversation itself. The link attaches to it once the port is awake. */
     /* Owned only when nothing was injected; `session` is what the code uses. */
@@ -108,146 +89,28 @@ static const char *mesh_serial_state_to_string(enum mesh_serial_state state) {
 }
 
 static void mesh_serial_reset_link(struct mesh_serial_transport_state *state, const char *reason);
-static int mesh_serial_flush_write_queue(struct mesh_serial_transport_state *state);
 static size_t mesh_serial_scan_internal(struct mesh_serial_transport_state *state);
 
-/* ------------------------------------------------------------------ write queue */
+/* ------------------------------------------------------------------ send */
 
-static void mesh_serial_clear_write_queue(struct mesh_serial_transport_state *state) {
-    for (size_t i = 0; i < state->write_queue_len; ++i) {
-        const size_t index = (state->write_queue_head + i) % MESH_SERIAL_MAX_OUTBOUND_PACKETS;
-        const uint32_t packet_id = state->write_queue[index].packet_id;
-        if (packet_id != 0U) {
-            mesh_session_packet_failed(state->session, packet_id);
-        }
-    }
-    state->write_queue_head = 0U;
-    state->write_queue_len = 0U;
-}
-
-static int mesh_serial_queue_packet(struct mesh_serial_transport_state *state,
-                                    const uint8_t *packet, size_t len, uint32_t packet_id) {
-    if (state->write_queue_len >= MESH_SERIAL_MAX_OUTBOUND_PACKETS) {
-        return -ENOSPC;
-    }
-
-    const size_t index =
-        (state->write_queue_head + state->write_queue_len) % MESH_SERIAL_MAX_OUTBOUND_PACKETS;
-    struct mesh_serial_outbound_packet *slot = &state->write_queue[index];
-    size_t written = 0U;
-    const int encoded =
-        mesh_stream_frame_encode(packet, len, slot->data, sizeof slot->data, &written);
-    if (encoded < 0) {
-        return encoded;
-    }
-
-    slot->length = written;
-    slot->sent = 0U;
-    slot->packet_id = packet_id;
-    state->write_queue_len += 1U;
-    return 0;
-}
-
-/* Keeps EPOLLOUT armed exactly while the queue has a remainder, so a tty that filled up wakes
-   the loop instead of waiting out the poll timeout. */
-static void mesh_serial_update_write_interest(struct mesh_serial_transport_state *state) {
-    if (!state->fd_registered || state->loop == NULL) {
-        return;
-    }
-    const bool want = state->write_queue_len > 0U;
-    if (want == state->want_write) {
-        return;
-    }
-    const uint32_t events = want ? (uint32_t)(EPOLLIN | EPOLLOUT) : (uint32_t)EPOLLIN;
-    if (mesh_event_loop_update_fd(state->loop, state->fd, events) == 0) {
-        state->want_write = want;
-    }
-}
-
-static int mesh_serial_flush_write_queue(struct mesh_serial_transport_state *state) {
-    if (state->fd < 0) {
-        return -ENOTCONN;
-    }
-
-    while (state->write_queue_len > 0U) {
-        struct mesh_serial_outbound_packet *slot = &state->write_queue[state->write_queue_head];
-        const ssize_t written =
-            write(state->fd, slot->data + slot->sent, slot->length - slot->sent);
-        if (written < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                break; /* the tty is full; EPOLLOUT brings us back */
-            }
-            if (errno == EINTR) {
-                continue;
-            }
-            mesh_log_warn("serial", "write failed: %s", strerror(errno));
-            mesh_serial_reset_link(state, "write failed");
-            return -EIO;
-        }
-
-        slot->sent += (size_t)written;
-        if (slot->sent < slot->length) {
-            break;
-        }
-        state->write_queue_head = (state->write_queue_head + 1U) % MESH_SERIAL_MAX_OUTBOUND_PACKETS;
-        state->write_queue_len -= 1U;
-    }
-
-    mesh_serial_update_write_interest(state);
-    return 0;
-}
-
+/*
+ * The link reports a failed write and stops; deciding what that means is this transport's job,
+ * and what it means here is that the cable went away mid-packet.
+ */
 static int mesh_serial_session_send(void *ctx, const uint8_t *packet, size_t len,
                                     uint32_t packet_id) {
     struct mesh_serial_transport_state *state = (struct mesh_serial_transport_state *)ctx;
-    if (state == NULL || state->fd < 0) {
+    if (state == NULL) {
         return -ENOTCONN;
     }
-
-    const int queued = mesh_serial_queue_packet(state, packet, len, packet_id);
-    if (queued < 0) {
-        return queued;
+    const int result = mesh_stream_link_send(&state->link, packet, len, packet_id);
+    if (result == -EIO) {
+        mesh_serial_reset_link(state, "write failed");
     }
-    mesh_serial_update_write_interest(state);
-    return mesh_serial_flush_write_queue(state);
+    return result;
 }
 
 /* ------------------------------------------------------------------ read path */
-
-static void mesh_serial_on_frame(const uint8_t *payload, size_t len, void *ctx) {
-    struct mesh_serial_transport_state *state = (struct mesh_serial_transport_state *)ctx;
-    state->frames_received += 1U;
-    mesh_session_handle_from_radio(state->session, payload, len);
-}
-
-/* Whatever sits between frames is the radio's own log. Surface it at debug, one line at a time,
-   with control bytes stripped so it cannot scribble on the terminal. */
-static void mesh_serial_on_text(const uint8_t *text, size_t len, void *ctx) {
-    (void)ctx;
-    char line[160];
-    size_t out = 0U;
-    for (size_t i = 0; i < len; ++i) {
-        const uint8_t byte = text[i];
-        if (byte == '\n' || byte == '\r') {
-            if (out > 0U) {
-                line[out] = '\0';
-                mesh_log_debug("serial", "radio: %s", line);
-                out = 0U;
-            }
-            continue;
-        }
-        if (out + 1U >= sizeof line) {
-            line[out] = '\0';
-            mesh_log_debug("serial", "radio: %s", line);
-            out = 0U;
-        }
-        line[out++] = (byte >= 0x20U && byte < 0x7FU) ? (char)byte : '.';
-    }
-    if (out > 0U) {
-        line[out] = '\0';
-        mesh_log_debug("serial", "radio: %s", line);
-    }
-}
 
 int mesh_serial_transport_pump(struct mesh_transport *transport) {
     if (transport == NULL || transport->state == NULL) {
@@ -255,43 +118,15 @@ int mesh_serial_transport_pump(struct mesh_transport *transport) {
     }
     struct mesh_serial_transport_state *state =
         (struct mesh_serial_transport_state *)transport->state;
-    if (state->fd < 0) {
-        return -ENOTCONN;
-    }
 
-    const struct mesh_stream_parser_callbacks callbacks = {
-        .on_frame = mesh_serial_on_frame,
-        .on_text = mesh_serial_on_text,
-        .ctx = state,
-    };
-
-    size_t total = 0U;
-    for (unsigned turn = 0U; turn < MESH_SERIAL_READS_PER_TURN; ++turn) {
-        uint8_t buffer[MESH_SERIAL_READ_CHUNK];
-        const ssize_t got = read(state->fd, buffer, sizeof buffer);
-        if (got > 0) {
-            total += (size_t)got;
-            state->bytes_received += (size_t)got;
-            mesh_stream_parser_push(&state->parser, buffer, (size_t)got, &callbacks);
-            continue;
-        }
-        if (got == 0) {
-            /* A tty does not normally report EOF; the node was unplugged. */
-            mesh_serial_reset_link(state, "port closed");
-            return -ENOTCONN;
-        }
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            break;
-        }
-        if (errno == EINTR) {
-            continue;
-        }
-        mesh_log_warn("serial", "read failed: %s", strerror(errno));
+    const int result = mesh_stream_link_pump(&state->link);
+    if (result == -ENOTCONN) {
+        /* A tty does not normally report EOF; the node was unplugged. */
+        mesh_serial_reset_link(state, "port closed");
+    } else if (result == -EIO) {
         mesh_serial_reset_link(state, "read failed");
-        return -EIO;
     }
-
-    return (int)total;
+    return result;
 }
 
 static int mesh_serial_fd_callback(int fd, uint32_t events, void *userdata) {
@@ -308,7 +143,10 @@ static int mesh_serial_fd_callback(int fd, uint32_t events, void *userdata) {
         return 0;
     }
     if ((events & (uint32_t)EPOLLOUT) != 0U) {
-        (void)mesh_serial_flush_write_queue(state);
+        if (mesh_stream_link_flush(&state->link) == -EIO) {
+            mesh_serial_reset_link(state, "write failed");
+            return 0;
+        }
     }
     if ((events & (uint32_t)EPOLLIN) != 0U) {
         (void)mesh_serial_transport_pump(transport);
@@ -318,19 +156,6 @@ static int mesh_serial_fd_callback(int fd, uint32_t events, void *userdata) {
 
 /* ------------------------------------------------------------------ link */
 
-static void mesh_serial_detach_fd(struct mesh_serial_transport_state *state) {
-    if (state->fd < 0) {
-        return;
-    }
-    if (state->fd_registered && state->loop != NULL) {
-        mesh_event_loop_remove_fd(state->loop, state->fd);
-    }
-    mesh_serial_port_close(state->fd);
-    state->fd = -1;
-    state->fd_registered = false;
-    state->want_write = false;
-}
-
 static void mesh_serial_reset_link(struct mesh_serial_transport_state *state, const char *reason) {
     if (state == NULL || state->link_state == MESH_SERIAL_LINK_DISCONNECTED) {
         return;
@@ -338,12 +163,12 @@ static void mesh_serial_reset_link(struct mesh_serial_transport_state *state, co
     char port[sizeof state->connected.path];
     snprintf(port, sizeof port, "%s",
              state->connected.path[0] != '\0' ? state->connected.path : "port");
-    mesh_serial_detach_fd(state);
     state->link_state = MESH_SERIAL_LINK_DISCONNECTED;
     state->wake_done_at_ms = 0U;
-    mesh_stream_parser_reset(&state->parser);
     mesh_session_detach(state->session);
-    mesh_serial_clear_write_queue(state);
+    /* Unwatches and closes the descriptor, resets the parser, and marks whatever was still
+       queued FAILED in the message log - the three things this used to do by hand. */
+    mesh_stream_link_close(&state->link);
     memset(&state->connected, 0, sizeof state->connected);
     mesh_log_info("serial", "Disconnected from %s (%s)", port, reason);
 }
@@ -423,7 +248,6 @@ int mesh_serial_transport_connect(struct mesh_transport *transport, const char *
         mesh_serial_set_error(state, MESH_STR_LINK_USB_OPEN_FAILED, device->path, strerror(-fd));
         return fd;
     }
-    state->fd = fd;
     state->connected = *device;
 
     /*
@@ -445,28 +269,19 @@ int mesh_serial_transport_connect(struct mesh_transport *transport, const char *
         }
     }
 
-    if (state->loop != NULL) {
-        const int add_result =
-            mesh_event_loop_add_fd(state->loop, fd, EPOLLIN, mesh_serial_fd_callback, transport);
-        if (add_result < 0) {
-            mesh_log_warn("serial", "Cannot watch %s: %d", device->path, add_result);
-            mesh_serial_detach_fd(state);
-            memset(&state->connected, 0, sizeof state->connected);
-            return add_result;
-        }
-        state->fd_registered = true;
-        state->want_write = false;
+    /* The link takes the descriptor from here, parser and queue reset with it. */
+    const int opened =
+        mesh_stream_link_open(&state->link, fd, state->loop, mesh_serial_fd_callback, transport);
+    if (opened < 0) {
+        mesh_log_warn("serial", "Cannot watch %s: %d", device->path, opened);
+        mesh_serial_port_close(fd);
+        memset(&state->connected, 0, sizeof state->connected);
+        return opened;
     }
-
-    mesh_stream_parser_reset(&state->parser);
-    state->frames_received = 0U;
-    state->bytes_received = 0U;
-    state->write_queue_head = 0U;
-    state->write_queue_len = 0U;
 
     uint8_t wake[MESH_SERIAL_WAKE_BYTES];
     memset(wake, (int)MESH_STREAM_FRAME_START2, sizeof wake);
-    if (write(fd, wake, sizeof wake) < 0) {
+    if (mesh_stream_link_write_raw(&state->link, wake, sizeof wake) < 0) {
         mesh_log_debug("serial", "%s: wake write failed (%s)", device->path, strerror(errno));
     }
 
@@ -581,8 +396,11 @@ static void mesh_serial_tick(struct mesh_transport *transport) {
     if (state->link_state == MESH_SERIAL_LINK_WAKING) {
         mesh_serial_finish_wake(state);
     } else if (state->link_state == MESH_SERIAL_LINK_CONNECTED) {
-        (void)mesh_serial_flush_write_queue(state);
-        mesh_session_tick(state->session, now);
+        if (mesh_stream_link_flush(&state->link) == -EIO) {
+            mesh_serial_reset_link(state, "write failed");
+        } else {
+            mesh_session_tick(state->session, now);
+        }
     }
 
     /* Only rescan while idle: a live link holds the port, and sysfs will not change under it. */
@@ -605,10 +423,8 @@ static int mesh_serial_start(struct mesh_transport *transport, const struct mesh
     struct mesh_session *injected = state->session != &state->own_session ? state->session : NULL;
     memset(state, 0, sizeof *state);
     state->session = injected;
-    state->fd = -1;
     state->loop = loop;
     state->link_state = MESH_SERIAL_LINK_DISCONNECTED;
-    mesh_stream_parser_reset(&state->parser);
     /* The app hands every link the same session; standalone (tests, --list-devices) each link
        falls back to its own and initialises it here. */
     if (state->session == NULL) {
@@ -617,6 +433,7 @@ static int mesh_serial_start(struct mesh_transport *transport, const struct mesh
     if (state->session == &state->own_session) {
         mesh_session_init(state->session);
     }
+    mesh_stream_link_init(&state->link, "serial", state->session);
 
     if (!config->enable_serial) {
         mesh_log_info("serial", "Serial transport disabled by configuration");
@@ -650,7 +467,7 @@ static void mesh_serial_stop(struct mesh_transport *transport) {
     struct mesh_serial_transport_state *state =
         (struct mesh_serial_transport_state *)transport->state;
     mesh_serial_reset_link(state, "shutting down");
-    mesh_serial_detach_fd(state);
+    mesh_stream_link_close(&state->link);
     state->device_count = 0U;
     state->loop = NULL;
     state->state = MESH_SERIAL_STATE_IDLE;
@@ -678,7 +495,10 @@ static void mesh_serial_set_session(struct mesh_transport *transport,
     if (transport == NULL || transport->state == NULL) {
         return;
     }
-    ((struct mesh_serial_transport_state *)transport->state)->session = session;
+    struct mesh_serial_transport_state *state =
+        (struct mesh_serial_transport_state *)transport->state;
+    state->session = session;
+    mesh_stream_link_set_session(&state->link, session);
 }
 
 static bool mesh_serial_take_error(struct mesh_transport *transport, char *out, size_t out_len) {
@@ -746,9 +566,10 @@ struct mesh_serial_transport_stats mesh_serial_transport_stats(struct mesh_trans
     }
     const struct mesh_serial_transport_state *state =
         (const struct mesh_serial_transport_state *)transport->state;
-    stats.frames_received = state->frames_received;
-    stats.bytes_received = state->bytes_received;
-    stats.junk_bytes = state->parser.dropped_bytes;
+    const struct mesh_stream_link_stats link = mesh_stream_link_stats(&state->link);
+    stats.frames_received = link.frames_received;
+    stats.bytes_received = link.bytes_received;
+    stats.junk_bytes = link.junk_bytes;
     return stats;
 }
 
@@ -778,7 +599,7 @@ mesh_serial_transport_handshake_status(struct mesh_transport *transport) {
 }
 
 struct mesh_transport *mesh_serial_transport(void) {
-    static struct mesh_serial_transport_state state = {.fd = -1};
+    static struct mesh_serial_transport_state state = {.link = {.fd = -1}};
     static struct mesh_transport transport = {
         .name = "serial",
         .state = &state,
