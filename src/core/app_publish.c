@@ -17,6 +17,7 @@
 #include "mesh/geo/coords.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/serial.h"
+#include "mesh/transport/tcp.h"
 #include "mesh/ui/node_detail.h"
 #include "mesh/ui/preferences.h"
 #include "mesh/utils/log.h"
@@ -1594,15 +1595,42 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
 
     if (connected_address != NULL && connected_address[0] != '\0' && !connected_address_seen &&
         device_count < MESH_UI_MAX_DEVICES) {
-        snprintf(ui_devices[device_count].identifier, sizeof(ui_devices[device_count].identifier),
-                 "%s", connected_address);
-        snprintf(ui_devices[device_count].name, sizeof(ui_devices[device_count].name), "%s",
-                 mesh_str(MESH_STR_DEVICES_CONNECTED_NAME));
-        ui_devices[device_count].rssi = 0;
+        struct mesh_ui_device *slot = &ui_devices[device_count];
+        /*
+         * The link that is up but in nobody's list.
+         *
+         * For BLE and USB this is a race - a connect that beat its own discovery - and the row
+         * is replaced by the real one the moment the scan catches up. For a network link it is
+         * the steady state: nothing enumerates a host, so this is the only row a TCP link will
+         * ever have, and what it says about itself is what the whole client says about itself
+         * in the line under the keycaps.
+         *
+         * Which is why the kind is stated rather than left to the memset. BLE is 0, so an unset
+         * `kind` is a Bluetooth radio - and a renderer asks it three separate questions. The
+         * network link drew a Bluetooth disc, reported `0dBm` (the reading this file refuses
+         * everywhere else, because an absent RSSI read as a number is the *strongest* signal on
+         * the screen) and offered Y to forget a bond that was never made.
+         */
+        const bool over_network = (active == mesh_tcp_transport());
+
+        snprintf(slot->identifier, sizeof slot->identifier, "%s", connected_address);
+        slot->kind = over_network ? (uint8_t)MESH_UI_DEVICE_TCP : (uint8_t)MESH_UI_DEVICE_BLE;
+        /*
+         * A placeholder name is for something that is going to arrive. A radio's advertisement
+         * does; a host's does not, so on a network link "Connected" would have stood
+         * permanently where the address goes, and the address is the only thing about this row
+         * the reader did not already know. Left empty, every label falls back to `identifier`.
+         */
+        if (!over_network) {
+            snprintf(slot->name, sizeof slot->name, "%s",
+                     mesh_str(MESH_STR_DEVICES_CONNECTED_NAME));
+        }
+        slot->rssi = 0;
         /* The scan is held down while a link is up, so the node we are talking to has no
-           fresh RSSI - but a radio answering us is the strongest evidence of range there is. */
-        ui_devices[device_count].in_range = true;
-        ui_devices[device_count].connected = true;
+           fresh RSSI - but a radio answering us is the strongest evidence of range there is.
+           A host answers from anywhere, so it is evidence of no distance at all. */
+        slot->in_range = !over_network;
+        slot->connected = true;
         ++device_count;
     }
 
@@ -1637,7 +1665,17 @@ void mesh_app_publish_ui_state(struct mesh_app *app) {
     }
 
     bool preferences_modified = false;
-    if (connected_address != NULL && connected_address[0] != '\0') {
+    /*
+     * A network link is deliberately not remembered here.
+     *
+     * This history is what auto-connect ranks a *scan* with - which of the radios in the list is
+     * most recently yours - and a network host is not in any scan: it is found in configuration,
+     * which already remembers it. Recorded, it would be filed under the only other kind there is,
+     * so an IP address would sit in the BLE history as a preferred device no advertisement can
+     * ever match, pushing a real radio out of eight slots to do it.
+     */
+    if (connected_address != NULL && connected_address[0] != '\0' &&
+        active != mesh_tcp_transport()) {
         const uint8_t connected_kind = (active == mesh_serial_transport())
                                            ? (uint8_t)MESH_UI_DEVICE_SERIAL
                                            : (uint8_t)MESH_UI_DEVICE_BLE;

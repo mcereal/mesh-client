@@ -71,11 +71,13 @@ add_library(meshclient_core
     src/core/updater.c
     src/core/version.c
     src/transport/transport_registry.c
+    src/transport/stream_link.c
     src/transport/ble/ble_transport.c
     src/transport/ble/bluez_client.c
     src/transport/serial/serial_transport.c
     src/transport/serial/serial_usb.c
     src/transport/serial/usb_msc.c
+    src/transport/tcp/tcp_transport.c
     src/proto/stream_framing.c
     src/geo/coords.c
     src/geo/mercator.c

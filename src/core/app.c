@@ -14,6 +14,7 @@
 #include "mesh/i18n/strings.h"
 #include "mesh/transport/ble.h"
 #include "mesh/transport/serial.h"
+#include "mesh/transport/tcp.h"
 #include "mesh/ui/backends/cli.h"
 #include "mesh/ui/backends/stub.h"
 #include "mesh/ui/preferences.h"
@@ -32,9 +33,14 @@
 /* ---- link routing --------------------------------------------------------------------- */
 
 /*
- * Two links, one session, one radio at a time. The Devices tab lists BLE advertisers and USB
+ * Three links, one session, one radio at a time. The Devices tab lists BLE advertisers and USB
  * ports together, so a connect has to be routed to the transport that owns the row, and taking
- * one link up drops the other.
+ * one link up drops the others.
+ *
+ * The network link has no row yet - it has no discovery to build one from, and the address it
+ * would name has nowhere to be typed on a handheld - so it is reached from configuration rather
+ * than from a press. Everything below still has to know about it: a link nothing here counts as
+ * connected is one auto-connect will happily talk over.
  */
 
 static struct mesh_transport *mesh_app_transport_for_kind(uint8_t kind) {
@@ -44,14 +50,21 @@ static struct mesh_transport *mesh_app_transport_for_kind(uint8_t kind) {
 struct mesh_transport *mesh_app_active_transport(void) {
     struct mesh_transport *serial = mesh_serial_transport();
     struct mesh_transport *ble = mesh_ble_transport();
+    struct mesh_transport *tcp = mesh_tcp_transport();
     if (serial != NULL && mesh_serial_transport_connected_port(serial) != NULL) {
         return serial;
+    }
+    if (tcp != NULL && mesh_tcp_transport_connected_target(tcp) != NULL) {
+        return tcp;
     }
     if (ble != NULL && mesh_ble_transport_connected_address(ble) != NULL) {
         return ble;
     }
     if (serial != NULL && mesh_serial_transport_is_connecting(serial)) {
         return serial;
+    }
+    if (tcp != NULL && mesh_tcp_transport_is_connecting(tcp)) {
+        return tcp;
     }
     if (ble != NULL &&
         (mesh_ble_transport_is_connecting(ble) || mesh_ble_transport_is_pairing(ble))) {
@@ -65,6 +78,10 @@ const char *mesh_app_connected_identifier(void) {
     if (port != NULL && port[0] != '\0') {
         return port;
     }
+    const char *target = mesh_tcp_transport_connected_target(mesh_tcp_transport());
+    if (target != NULL && target[0] != '\0') {
+        return target;
+    }
     const char *address = mesh_ble_transport_connected_address(mesh_ble_transport());
     return (address != NULL && address[0] != '\0') ? address : NULL;
 }
@@ -74,7 +91,8 @@ bool mesh_app_link_connecting(void) {
        taking the serial link up underneath it would leave two transports on one session. */
     return mesh_ble_transport_is_connecting(mesh_ble_transport()) ||
            mesh_ble_transport_is_pairing(mesh_ble_transport()) ||
-           mesh_serial_transport_is_connecting(mesh_serial_transport());
+           mesh_serial_transport_is_connecting(mesh_serial_transport()) ||
+           mesh_tcp_transport_is_connecting(mesh_tcp_transport());
 }
 
 /* Drops whatever link is up or coming up, except the transport we are about to use. */
@@ -90,6 +108,11 @@ static void mesh_app_release_other_link(const struct mesh_transport *keep) {
     if (serial != keep && (mesh_serial_transport_connected_port(serial) != NULL ||
                            mesh_serial_transport_is_connecting(serial))) {
         mesh_serial_transport_disconnect(serial);
+    }
+    struct mesh_transport *tcp = mesh_tcp_transport();
+    if (tcp != keep && (mesh_tcp_transport_connected_target(tcp) != NULL ||
+                        mesh_tcp_transport_is_connecting(tcp))) {
+        mesh_tcp_transport_disconnect(tcp);
     }
 }
 
@@ -240,6 +263,14 @@ void mesh_app_note_connected_device(struct mesh_app *app, const char *identifier
 }
 
 #define MESH_APP_AUTOCONNECT_RETRY_MS 2000U
+/*
+ * How long the network arm waits after an attempt that produced no link.
+ *
+ * Longer than the retry above because a network attempt costs the whole connect deadline before
+ * it can fail, and what has to fit in the gap is the other two arms: this is what lets a client
+ * with a stale address still find the node in its pocket.
+ */
+#define MESH_APP_AUTOCONNECT_TCP_RETRY_MS 30000U
 #define MESH_APP_AUTOCONNECT_MAX_BACKOFF_MS 60000U
 /* How long a saved preferred node gets to show up in discovery before a stranger is used. */
 #define MESH_APP_AUTOCONNECT_PREFERRED_GRACE_MS 30000U
@@ -291,6 +322,7 @@ void mesh_app_autoconnect(struct mesh_app *app) {
            must not lose its slot to the second radio on the desk. */
         app->autoconnect_failures = 0U;
         app->autoconnect_started_ms = 0U;
+        app->autoconnect_tcp_retry_at_ms = 0U;
         app->autoconnect_waiting_logged = false;
     }
     if (ble == NULL || link_up || mesh_app_link_connecting()) {
@@ -370,8 +402,33 @@ void mesh_app_autoconnect(struct mesh_app *app) {
             app->autoconnect_retry_at_ms = now + MESH_APP_AUTOCONNECT_RETRY_MS;
             return;
         }
-        mesh_log_warn("app", "Auto-connect to %s over USB failed (%d); trying Bluetooth",
+        mesh_log_warn("app", "Auto-connect to %s over USB failed (%d); trying the network",
                       identifier, serial_result);
+    }
+
+    /*
+     * Then a configured network host. Like a cable it needs no pairing and has no range to lose,
+     * and unlike anything on the air it is a place somebody deliberately wrote down - so it
+     * outranks a scan. It is only ever tried when a host was configured, which is empty by
+     * default: a client that has never set one behaves exactly as it did before this link.
+     */
+    struct mesh_transport *tcp = mesh_tcp_transport();
+    const char *tcp_target = mesh_tcp_transport_configured_target(tcp);
+    if (tcp_target != NULL && now >= app->autoconnect_tcp_retry_at_ms) {
+        /* Stamped before the attempt, not after it: most of the ways this fails do so on the
+           connect deadline, long after the call returned 0 and this function went home. */
+        app->autoconnect_tcp_retry_at_ms = now + MESH_APP_AUTOCONNECT_TCP_RETRY_MS;
+        mesh_app_release_other_link(tcp);
+        const int tcp_result = mesh_tcp_transport_connect(tcp, tcp_target);
+        if (tcp_result == 0) {
+            mesh_log_info("app", "Auto-connecting to %s over the network", tcp_target);
+            /* Not a success yet: the connect has not completed and the handshake has not gone
+               out. The counter stays where it is until a link is actually up. */
+            app->autoconnect_retry_at_ms = now + MESH_APP_AUTOCONNECT_RETRY_MS;
+            return;
+        }
+        mesh_log_warn("app", "Auto-connect to %s over the network failed (%d); trying Bluetooth",
+                      tcp_target, tcp_result);
     }
 
     struct mesh_bluez_device_info devices[MESH_UI_MAX_DEVICES];
@@ -700,6 +757,15 @@ int mesh_app_init(struct mesh_app *app, const struct mesh_app_config *config) {
     result = mesh_transport_registry_register(&app->transport_registry, mesh_serial_transport());
     if (result < 0) {
         mesh_log_error("app", "Failed to register serial transport: %d", result);
+        mesh_ui_controller_shutdown(&app->ui_controller);
+        mesh_ui_store_shutdown(&app->ui_store);
+        mesh_event_loop_shutdown(&app->loop);
+        return result;
+    }
+
+    result = mesh_transport_registry_register(&app->transport_registry, mesh_tcp_transport());
+    if (result < 0) {
+        mesh_log_error("app", "Failed to register network transport: %d", result);
         mesh_ui_controller_shutdown(&app->ui_controller);
         mesh_ui_store_shutdown(&app->ui_store);
         mesh_event_loop_shutdown(&app->loop);

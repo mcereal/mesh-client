@@ -216,6 +216,32 @@ int mesh_session_begin_handshake(struct mesh_session *session) {
     return 0;
 }
 
+int mesh_session_send_heartbeat(struct mesh_session *session) {
+    if (session == NULL) {
+        return -EINVAL;
+    }
+    if (session->send == NULL) {
+        return -ENOTCONN;
+    }
+
+    meshtastic_ToRadio beat = meshtastic_ToRadio_init_default;
+    beat.which_payload_variant = meshtastic_ToRadio_heartbeat_tag;
+    /* The nonce is echoed nowhere and correlates nothing - upstream's own clients send 0 - so
+       there is nothing here to generate or to match a reply against. */
+    beat.heartbeat.nonce = 0U;
+
+    uint8_t payload[16];
+    pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof payload);
+    if (!pb_encode(&stream, meshtastic_ToRadio_fields, &beat)) {
+        mesh_log_error("session", "Failed to encode heartbeat: %s", PB_GET_ERROR(&stream));
+        return -EIO;
+    }
+
+    /* Packet id 0: a heartbeat is not a message, so nothing in the log is waiting on it and a
+       failure to send it must not mark anything FAILED. */
+    return mesh_session_send_raw(session, payload, stream.bytes_written, 0U);
+}
+
 static bool mesh_session_node_known(const struct mesh_session *session, uint32_t node_id) {
     const struct mesh_handshake_status *handshake = &session->handshake;
     for (size_t i = 0; i < handshake->node_count && i < MESH_SESSION_MAX_NODES; ++i) {

@@ -77,6 +77,16 @@ struct mesh_app {
     uint64_t autoconnect_started_ms;
     uint64_t autoconnect_retry_at_ms;
     unsigned autoconnect_failures;
+    /*
+     * When the network arm of auto-connect may try again.
+     *
+     * Its own stamp rather than a share of the one above, because a configured host is the one
+     * candidate that can be absent without being *gone*: a cable is plugged in or it is not and
+     * a node is advertising or it is not, but an address somebody wrote down stays written down
+     * with the WiFi off. Without this the network arm runs first on every turn, fails five
+     * seconds later on its connect deadline, and Bluetooth is never reached at all.
+     */
+    uint64_t autoconnect_tcp_retry_at_ms;
     bool autoconnect_disabled;
     bool autoconnect_waiting_logged;
     /* Set by an explicit disconnect from the Devices tab and cleared by the next explicit

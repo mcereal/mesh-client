@@ -45,6 +45,27 @@ static const char *fb_device_label(const struct mesh_ui_device *device) {
 }
 
 /*
+ * The disc a device row carries: which bus the radio is on, in one place.
+ *
+ * `LINK` rather than a network glyph of its own on purpose. Adding an icon means regenerating
+ * the whole sprite table out of Material Symbols, and upstream has moved since icon_glyphs.c
+ * was last built, so every icon in the client would change in a transport change. The id is
+ * honest in the meantime - what this row is, is the link itself, which is exactly the one kind
+ * here that was never discovered and never advertised.
+ */
+static enum mesh_ui_icon fb_device_icon(const struct mesh_ui_device *device) {
+    switch ((enum mesh_ui_device_kind)device->kind) {
+    case MESH_UI_DEVICE_SERIAL:
+        return MESH_UI_ICON_USB;
+    case MESH_UI_DEVICE_TCP:
+        return MESH_UI_ICON_LINK;
+    case MESH_UI_DEVICE_BLE:
+        break;
+    }
+    return MESH_UI_ICON_BLUETOOTH;
+}
+
+/*
  * The icon a screen is known by: on its tab, and again on the empty state that stands in for
  * its list. One answer in one place, because a tab and its empty screen showing two different
  * symbols for the same thing is exactly the drift a table like this prevents.
@@ -1708,6 +1729,11 @@ static void fb_render_devices(struct mesh_ui_backend_fb_state *state,
            line answers "how is this attached" either way. */
         if (device->kind == (uint8_t)MESH_UI_DEVICE_SERIAL) {
             mesh_str_copy(attach, sizeof attach, mesh_str(MESH_STR_DEVICES_TRAILING_USB));
+        } else if (device->kind == (uint8_t)MESH_UI_DEVICE_TCP) {
+            /* Ahead of the in-range arm, which a network link would otherwise fall into and
+               answer "not in range" - a sentence about earshot, said of the one link that has
+               none to be outside of. */
+            mesh_str_copy(attach, sizeof attach, mesh_str(MESH_STR_DEVICES_TRAILING_NETWORK));
         } else if (!device->in_range) {
             /* A bond BlueZ holds for a radio it cannot hear has no reading behind it, and the
                0 that leaves in the struct would draw as the strongest node on the screen. */
@@ -1743,8 +1769,7 @@ static void fb_render_devices(struct mesh_ui_backend_fb_state *state,
             .leading =
                 {
                     .kind = FB_LEADING_AVATAR,
-                    .icon = device->kind == (uint8_t)MESH_UI_DEVICE_SERIAL ? MESH_UI_ICON_USB
-                                                                           : MESH_UI_ICON_BLUETOOTH,
+                    .icon = fb_device_icon(device),
                     .tint = i,
                     .role = device->connected ? MESH_UI_COLOR_SUCCESS
                             : armed           ? MESH_UI_COLOR_ERROR

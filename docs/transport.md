@@ -1,6 +1,6 @@
 # Transports
 
-Meshtastic exposes the same protobuf device API over BLE, Serial and HTTP. This client speaks
+Meshtastic exposes the same protobuf device API over BLE, Serial, TCP and HTTP. This client speaks
 `ToRadio`/`FromRadio` once, in `struct mesh_session` (see [`architecture.md`](architecture.md)),
 and snaps transports underneath it.
 
@@ -12,7 +12,14 @@ session never sees GATT, ttys or framing; a link never decodes a protobuf.**
 |---|---|
 | BLE (BlueZ over D-Bus) | shipped, the default |
 | Serial (USB) | shipped, CLI-selectable |
+| TCP (network) | shipped, configuration-selectable; no Devices row to *find* one yet |
 | HTTP | not implemented |
+
+Two of those four are one wire format. The serial and TCP APIs both carry
+`0x94 0xC3`-framed protobufs over a byte stream, and the only thing that differs is how the file
+descriptor is obtained - so the identical half lives in **`src/transport/stream_link.c`** and
+each transport writes only its own way of getting connected. See
+[`struct mesh_stream_link`](#srctransportstream_linkc--the-half-both-stream-links-share).
 
 ## Bluetooth LE
 
@@ -217,6 +224,122 @@ to remove.
 
 - The app and UI still reach for `mesh_ble_transport()` directly in about 30 places. Lifting that
   to an "active link" the app holds would remove a good deal of per-kind branching.
+
+## `src/transport/stream_link.c` — the half both stream links share
+
+`struct mesh_stream_link` owns everything about an *established* byte stream: the descriptor, the
+frame parser, the framed outbound queue with its partial-write cursor, and the `EPOLLOUT` arming
+that keeps the loop awake exactly while that queue has a remainder. Both the serial and the TCP
+transport own one.
+
+It is a **component, not a seam**. It holds no policy: it decides nothing about when to connect,
+and it never resets itself. `pump()` and `flush()` report a fatal error and stop; the transport
+that owns the link decides what that means and says so in its own words — "port closed" and "the
+radio closed the connection" are the same `-ENOTCONN` and two different sentences, and only the
+transport knows which it is.
+
+That split is also what keeps the *connecting* socket out of the link. A non-blocking connect
+reports by becoming **writable**, so it is watched with `EPOLLOUT` and reading it would be
+meaningless; the TCP transport therefore holds that descriptor itself and hands it over at the
+moment the connect completes. A link is never in a state where `pump()` must not be called.
+
+## TCP (network)
+
+### `src/transport/tcp/tcp_transport.c`
+
+A node reached over the network: an ESP32 with its network module enabled, or `meshtasticd` on
+anything that runs Linux. Both listen on **4403**, and both speak the same framing
+`src/proto/stream_framing.c` already parses — so the transport is a socket, a connect state
+machine and nothing else.
+
+The connect is non-blocking: `socket(… | SOCK_NONBLOCK)`, `connect()`, and either it completes
+immediately (usual on loopback) or returns `EINPROGRESS` and the loop finishes it. There is no
+wake burst and no settle window, unlike a tty — a socket that has completed a three-way handshake
+has a far end that is listening by definition, and nothing was on the stream before us to leave a
+parser mid-frame. The handshake goes out the moment the connect lands.
+
+Three things it does that the serial link does not:
+
+- **A connect deadline of its own.** The kernel's answer to a dead address is a couple of minutes
+  of SYN retries, which on a handheld reads as a press that did nothing. Five seconds, then the
+  attempt fails and says so.
+- **A heartbeat.** `ToRadio.heartbeat` every 30 s while the link is up
+  (`mesh_session_send_heartbeat()`). The radio drops a client that has gone silent and a quiet
+  mesh is the ordinary case, so without it a link that is working perfectly is dropped for having
+  nothing to say. It costs one 6-byte frame.
+- **`TCP_NODELAY` and keepalive.** Meshtastic's traffic is small request/reply pairs, which is
+  exactly what Nagle delays. Keepalive is the other half of the heartbeat's problem: a heartbeat
+  proves the radio still wants us, and keepalive is what notices the network went away without
+  anybody closing anything — a Brick carried out of WiFi range.
+
+### An address, not a name
+
+**`getaddrinfo()` blocks, and this client is one epoll loop with no threads in it.** A DNS lookup
+that takes five seconds is five seconds of frozen UI, and there is no non-blocking resolver in
+POSIX: `getaddrinfo_a` is a glibc extension that starts threads. So a target here is a numeric
+literal — `192.168.1.50`, `192.168.1.50:4403`, `[fd00::1]:4403` — and a name is refused in words
+(`use an IP address, not a name`) rather than paid for in a stall.
+
+This is a deliberate limitation and not a permanent one. The shape that would lift it is the one
+[`src/core/fetch.c`](../src/core/fetch.c) already uses for HTTPS: fork a child, let it block, read
+the answer back through the loop. That is its own piece of work and it belongs with the on-device
+way of *typing* an address, which does not exist yet either.
+
+### What it does not have yet
+
+**A way to *find* a node in the Devices tab.** A network cannot be scanned the way a USB bus or
+a Bluetooth adapter can — there is no equivalent of a sysfs walk or an advertisement — so the
+only thing this link could list is the address somebody already wrote down, and on a handheld
+there is nowhere to write one. Until both halves exist, the link is reached from configuration:
+`--tcp-host`, `MESHCLIENT_TCP_HOST`, or `preferred_tcp_host`. See [`cli.md`](cli.md).
+
+The link that is *already up* does get a row, and it is worth knowing why, because it is not a
+row anybody added. `mesh_app_publish_ui_state()` has always synthesised one for "connected, but
+in nobody's list" — for BLE and USB that is a connect which beat its own discovery, and the real
+row replaces it a moment later. For a network link there is no discovery to catch up, so the
+synthesised row is the steady state and the only row a TCP link will ever have. It carries
+`MESH_UI_DEVICE_TCP`, is named by its address, says `network` where a Bluetooth row says its
+RSSI, and offers `X disconnect` and no `Y forget` — there is no bond behind it to forget.
+
+That kind is load-bearing rather than decorative. The slot is `memset` to zero and
+`MESH_UI_DEVICE_BLE` is `0`, so a row that does not state its kind *is* a Bluetooth radio, and a
+renderer asks the field three separate questions. Unstated, the network link drew a Bluetooth
+disc, reported `0dBm` — an absent RSSI read as a number, which is the strongest signal on the
+screen and the one reading this client refuses everywhere else — and offered to forget a bond
+that was never made. It also counted toward the Status card's "*n* in range", which means
+earshot by that field. `tcp_link_is_published_as_a_network_device` pins all four.
+
+Everything else in the app already knows about it: `mesh_app_active_transport()`,
+`mesh_app_connected_identifier()` and `mesh_app_link_connecting()` all count a TCP link, so the
+status line under the keycaps names it — by its address, since a network host has no
+advertisement coming and so never earns the placeholder name a radio wears until one does — and
+auto-connect will not talk over it.
+
+### Where it sits in auto-connect
+
+After a cable and before the air. A configured host needs no pairing and has no range to lose,
+and unlike anything on a scan it is a place somebody deliberately wrote down — but it is also the
+one candidate that can be absent without being *gone*, since an address stays written down with
+the WiFi off. So the network arm has a retry stamp of its own
+(`autoconnect_tcp_retry_at_ms`, 30 s): without it that arm runs first on every turn, fails five
+seconds later on its connect deadline, and Bluetooth is never reached at all.
+
+With no host configured — the default — none of this runs and auto-connect behaves exactly as it
+did before the link existed.
+
+### Testing it against real firmware
+
+This is the transport's other reason to exist. `meshtasticd` runs on ordinary Linux, so the
+handshake, the NodeDB sync, the admin queue and Store & Forward can be exercised against *real
+firmware* rather than against a mock:
+
+```sh
+meshtasticd &                                   # or a container
+./build/debug/meshclient --tcp-host 127.0.0.1 --status
+```
+
+`tests/suites/transport_tcp.c` needs none of that — it stands a listener on the loopback and
+scripts a radio into it, so the suite has no external dependency.
 
 ## HTTP
 
