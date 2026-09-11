@@ -41,7 +41,20 @@ BLE is the default. `--serial[=ID]` points `--status` and `--send-text` at a USB
 `ID` is a sysfs interface id (`1-1:1.1`) or a device node (`/dev/ttyUSB0`), and without one the
 first port found is used.
 
-`--disable-ble` / `--disable-serial` turn a transport off entirely.
+`--tcp-host ADDR[:PORT]` points them at a node on the network instead — an ESP32 with its
+network module enabled, or `meshtasticd` on any Linux box. The port defaults to 4403. **It takes
+a numeric address, not a name**: resolving one would block the client's single event loop, so
+`meshtastic.local` is refused in words rather than paid for in a frozen UI. See
+[`transport.md`](transport.md#an-address-not-a-name).
+
+```sh
+meshclient --tcp-host 192.168.1.50 --status
+meshclient --tcp-host '[fd00::1]:4403' --send-text "hello"
+```
+
+`--serial` outranks `--tcp-host` when both are given: it is the more explicit of the two.
+
+`--disable-ble` / `--disable-serial` / `--disable-tcp` turn a transport off entirely.
 
 ## Fetching radio firmware
 
@@ -113,9 +126,14 @@ there.
 
 1. **USB first.** If any port is discovered, it takes the preferred one
    (`MESHCLIENT_PREFERRED_SERIAL_DEVICE`), else the port used most recently, else the first
-   found — with no grace period. Only if that connect fails outright does it fall through to
-   Bluetooth.
-2. **Then BLE**, over the nodes that answered the last scan and only those. In order:
+   found — with no grace period. Only if that connect fails outright does it fall through.
+2. **Then a configured network host**, if `MESHCLIENT_TCP_HOST` / `--tcp-host` named one. It
+   needs no pairing and has no range to lose, and unlike anything on a scan it is a place
+   somebody deliberately wrote down. It is also the one candidate that can be absent without
+   being *gone* — an address stays written down with the WiFi off — so this arm gets at most one
+   attempt every 30 s, which is what leaves room for the other two. With no host configured, the
+   default, this step does not exist.
+3. **Then BLE**, over the nodes that answered the last scan and only those. In order:
    1. the preferred node (`--preferred-device`, `MESHCLIENT_PREFERRED_BLE_DEVICE`, or the last
       node connected to), if it is in range;
    2. otherwise the radio of *yours* that is in range and was used most recently — the client
@@ -149,8 +167,9 @@ prints `[not in range]` for a bond with nothing behind it rather than an RSSI of
 |---|---|
 | `MESHCLIENT_RUN_MODE` | `foreground` / single-poll, same as `--foreground` |
 | `MESHCLIENT_IDLE_TIMEOUT_MS` | poll timeout, same as `--timeout` |
-| `MESHCLIENT_DISABLE_BLE`, `MESHCLIENT_DISABLE_SERIAL` | turn a transport off |
+| `MESHCLIENT_DISABLE_BLE`, `MESHCLIENT_DISABLE_SERIAL`, `MESHCLIENT_DISABLE_TCP` | turn a transport off |
 | `MESHCLIENT_PREFERRED_BLE_DEVICE`, `MESHCLIENT_PREFERRED_SERIAL_DEVICE` | preferred node / port |
+| `MESHCLIENT_TCP_HOST` | the node to reach over the network, `ADDR` or `ADDR:PORT`, same as `--tcp-host`. Not named `PREFERRED_` like the two above because there is nothing to prefer it over: the other two pick one of several things the client found, and this one *is* the link |
 | `MESHCLIENT_AUTOCONNECT` | `0` stops the foreground loop connecting on its own |
 | `MESHCLIENT_SCAN_RESUME_GRACE_MS` | how long a teardown keeps the BLE scan down, 0–60000; default 3000. It exists so the scan is not started for the one second between a drop and the auto-connect that follows it, only to be stopped again microseconds before `Connect`. `0` restores the old always-scan-when-idle behaviour |
 | `MESHCLIENT_UI_BACKEND` | `fb\|cli\|stub`; `fb` unless there is no `/dev/fb0` |

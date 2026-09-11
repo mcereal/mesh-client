@@ -3,7 +3,8 @@
 ## Project Structure & Module Organization
 
 Keep platform-agnostic client code in `src/` (subfolders such as `core/`, `transport/ble`,
-`transport/serial`, `proto/`, `ui/`, `utils/`) with shared headers under `include/`.
+`transport/serial`, `transport/tcp`, `proto/`, `ui/`, `utils/`) with shared headers under
+`include/`.
 Device-facing assets live in `Tools/tg5040/MeshClient.pak/`: `bin/shared/` for utilities bundled
 across platforms, `bin/tg5040/` for committed aarch64 binaries. Reusable scripts go under
 `scripts/`, host-side development tools under `devtools/` (never `tools/` — `Tools/` already

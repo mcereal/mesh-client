@@ -18,6 +18,13 @@ struct mesh_app_config mesh_app_config_default(void) {
     config.preferred_ble_device[0] = '\0';
     config.enable_serial = true;
     config.preferred_serial_device[0] = '\0';
+    /*
+     * On by default, like the other two, and idle until a host is configured: an enabled
+     * transport with nothing to connect to costs one status string and no sockets, where a
+     * transport off by default would mean MESHCLIENT_TCP_HOST silently doing nothing.
+     */
+    config.enable_tcp = true;
+    config.preferred_tcp_host[0] = '\0';
     return config;
 }
 
@@ -57,6 +64,7 @@ void mesh_app_config_apply_env_overrides(struct mesh_app_config *config) {
 
     apply_disable_override("MESHCLIENT_DISABLE_BLE", "BLE", &config->enable_ble);
     apply_disable_override("MESHCLIENT_DISABLE_SERIAL", "serial", &config->enable_serial);
+    apply_disable_override("MESHCLIENT_DISABLE_TCP", "network", &config->enable_tcp);
 
     const char *preferred_env = getenv("MESHCLIENT_PREFERRED_BLE_DEVICE");
     if (preferred_env != NULL) {
@@ -68,5 +76,13 @@ void mesh_app_config_apply_env_overrides(struct mesh_app_config *config) {
     if (preferred_serial_env != NULL) {
         mesh_str_copy(config->preferred_serial_device, sizeof config->preferred_serial_device,
                       preferred_serial_env);
+    }
+
+    /* Named for what it is rather than MESHCLIENT_PREFERRED_TCP_DEVICE: the other two pick one
+       of several things the client found, and this one *is* the link - there is nothing to
+       prefer it over. */
+    const char *tcp_host_env = getenv("MESHCLIENT_TCP_HOST");
+    if (tcp_host_env != NULL) {
+        mesh_str_copy(config->preferred_tcp_host, sizeof config->preferred_tcp_host, tcp_host_env);
     }
 }

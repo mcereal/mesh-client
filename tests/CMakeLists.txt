@@ -39,6 +39,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/transport_ble_link.c
     suites/transport_ble_pairing.c
     suites/transport_serial.c
+    suites/transport_tcp.c
     suites/ui_actions.c
     suites/ui_anim.c
     suites/ui_capture.c

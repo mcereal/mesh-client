@@ -504,6 +504,17 @@ bool mesh_session_attached(const struct mesh_session *session);
 int mesh_session_begin_handshake(struct mesh_session *session);
 
 /*
+ * Sends one ToRadio.heartbeat.
+ *
+ * Upstream calls it "currently only needed to keep serial connections alive, but can be used by
+ * any PhoneAPI", and over TCP it is what stops the radio dropping a client that has had nothing
+ * to say. A BLE link needs none - the GATT connection is its own liveness - which is why this is
+ * something a transport asks for on its own schedule rather than something the session does on a
+ * tick. Returns 0, -ENOTCONN without a link, or the send error.
+ */
+int mesh_session_send_heartbeat(struct mesh_session *session);
+
+/*
  * How many nodes the replay now running has delivered, counted by the sync epoch each NodeInfo
  * is stamped with. Against my_info.nodedb_count this is the only honest progress figure the
  * client has: the roster's own size is not one, because the roster outlives the radio's NodeDB

@@ -137,7 +137,7 @@ evdev -> mesh_ui_input -> controller -> nav.c -> mesh_ui_action -> mesh_app_on_u
 | Area | Where | Notes |
 |---|---|---|
 | Event loop | `src/core/event_loop.c` | epoll, 32 fd sources, **no threads** |
-| Transports | `src/transport/` | registry + BLE (BlueZ/D-Bus) + serial (USB) |
+| Transports | `src/transport/` | registry + BLE (BlueZ/D-Bus) + serial (USB) + TCP (network). `stream_link.c` is the half the serial and TCP links share - descriptor, frame parser, framed write queue with its partial-write cursor and `EPOLLOUT` arming - because their wire is one format and only the getting-connected half differs |
 | Session | `src/core/session.c` | handshake, node roster, channels, message log, packet ids |
 | Admin protocol | `src/core/radio_settings.c` | `AdminMessage` get/set queue, passkeys, radio actions, NodeDB verbs, the module table, and the four verbs that are not a section (connection status, device UI, canned messages, ringtone) |
 | Store & Forward | `src/core/store_forward.c` | the client half of `STORE_FORWARD_APP`: finding a router, asking it for the traffic that arrived while the Brick was off, and folding the replay back into the message log |
@@ -304,7 +304,8 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
 
 - **No threads.** Everything is the one epoll loop.
 - **BLE is not Nordic UART** and carries no length framing: one bare protobuf per GATT
-  write/read. Framing is a serial-only concern, and it is `src/proto/stream_framing.c`.
+  write/read. Framing is a *stream* concern - serial and TCP, which are one wire format - and it
+  is `src/proto/stream_framing.c`.
 - **The Brick's face buttons do not report by position.** A is `BTN_EAST` (305), B is `BTN_SOUTH`
   (304), the button printed **Y (left) is `BTN_NORTH` (307)**, so X (top) is `BTN_WEST` (308).
   Pinned in `input_brick_face_buttons`. The pad impersonates an Xbox 360 controller, and the rest
@@ -314,6 +315,35 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   free codes. The pad also *declares* a `KEY_F1`, a `KEY_F2` and two volume keys it never sends,
   which is why the map is measured with `make deploy-input-map` rather than read off the
   capability bitmaps. The whole table is in [`docs/device.md`](docs/device.md#the-buttons-and-what-they-report).
+- **The TCP link refuses a hostname, and that is the design rather than a missing feature.**
+  `getaddrinfo()` blocks and this client is one epoll loop with no threads in it, so a DNS lookup
+  is however many seconds of frozen UI; there is no non-blocking resolver in POSIX, and
+  `getaddrinfo_a` starts threads. A target is therefore a numeric literal and `meshtastic.local`
+  gets a refusal a user can read. Lifting it means the forked-child shape `fetch.c` already uses
+  for HTTPS, and that belongs with the on-device way of *typing* an address, which does not exist
+  either. See [`docs/transport.md`](docs/transport.md#an-address-not-a-name).
+- **The connecting socket is deliberately not the stream link's, and `struct mesh_stream_link`
+  must not grow a connecting state.** A link is an *established* stream: it watches for
+  readability and reads. A non-blocking connect is the opposite - it reports by becoming
+  **writable**, and reading it would be meaningless - so the TCP transport holds that descriptor
+  itself and hands it over at the moment the connect completes. That is what keeps the link free
+  of a state in which its own `pump()` must not be called.
+- **The stream link never resets itself, and that is not an omission.** `pump()` and `flush()`
+  report a fatal error and stop; the transport that owns the link decides what it means. "port
+  closed" and "the radio closed the connection" are the same `-ENOTCONN` and two different
+  sentences, and only the transport knows which one it is - the same rule that keeps a renderer
+  naming a string id rather than a sentence.
+- **The network arm of auto-connect has a retry stamp of its own, and sharing the general one
+  would break it.** A configured host is the one candidate that can be absent without being
+  *gone*: a cable is plugged in or it is not and a node is advertising or it is not, but an
+  address somebody wrote down stays written down with the WiFi off. Without
+  `autoconnect_tcp_retry_at_ms` that arm runs first on every turn, fails five seconds later on
+  its own connect deadline, and Bluetooth is never reached at all.
+- **The heartbeat is the TCP link's and not the session's tick.** `ToRadio.heartbeat` is what
+  stops a radio dropping a client that has had nothing to say, and a quiet mesh is the ordinary
+  case - but a BLE link needs none of it, since the GATT connection is its own liveness. So it is
+  something a transport asks for on its own schedule (`mesh_session_send_heartbeat()`) rather
+  than something `mesh_session_tick()` does to every link.
 - **The power button is deliberately not a quit key.** It was one until the Brick was measured:
   the PMIC (`axp2202-pek`, its own input device) really does emit `KEY_POWER`, so a tap of the
   button - this hardware's sleep gesture - tore the client down instead of suspending it. Sleep

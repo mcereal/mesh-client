@@ -1755,6 +1755,10 @@ MESH_STR_ENTRY(TRANSPORT_PAIRING,         "pairing")
 MESH_STR_ENTRY(TRANSPORT_WAITING_BLUEZ,   "waiting-for-bluez")
 MESH_STR_ENTRY(TRANSPORT_WAITING_ADAPTER, "waiting-for-adapter")
 MESH_STR_ENTRY(TRANSPORT_NO_PORTS,        "no-ports")
+/* The TCP link's equivalent of "no-ports". A network cannot be scanned for radios the way a USB
+   bus or a Bluetooth adapter can, so this link has nothing to look for until somebody writes an
+   address down: it is idle because it was never told where to go, not because nothing answered. */
+MESH_STR_ENTRY(TRANSPORT_NO_HOST,         "no-host")
 
 /* ---- delivery ---------------------------------------------------------------------------------- */
 
@@ -1839,6 +1843,17 @@ MESH_STR_ENTRY(LINK_USB_NO_ANSWER,        "%.24s: the radio did not answer")
    what is on the other end speaks no protobuf. Names the way out, because a single press of
    reset is the whole of it. */
 MESH_STR_ENTRY(LINK_USB_BOOTLOADER,       "%.20s is in its bootloader; press reset to run it")
+/* Network. "%s" here is an address and a port as the user wrote them, not a node name: nothing
+   has been heard from the far end yet at the point most of these are said. An IP address is not
+   translated, and neither is the C library's own word for an errno. */
+MESH_STR_ENTRY(LINK_TCP_DISABLED,         "Network links are disabled")
+MESH_STR_ENTRY(LINK_TCP_BAD_TARGET,       "%.32s is not an address and port")
+/* Said when the target parses but is a name rather than a numeric address. Resolving one would
+   block the client's single loop, so this names the thing the user can do instead. */
+MESH_STR_ENTRY(LINK_TCP_NEEDS_ADDRESS,    "%.24s: use an IP address, not a name")
+MESH_STR_ENTRY(LINK_TCP_UNREACHABLE,      "%.24s: %.20s")
+MESH_STR_ENTRY(LINK_TCP_TIMEOUT,          "%.32s did not answer")
+MESH_STR_ENTRY(LINK_TCP_NO_ANSWER,        "%.24s: the radio did not answer")
 
 /* ---- the banner --------------------------------------------------------------------------------- */
 
