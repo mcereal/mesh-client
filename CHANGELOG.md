@@ -1,3 +1,13 @@
+## [2.59.0](https://github.com/mcereal/mesh-client/compare/v2.58.0...v2.59.0) (2026-09-11)
+
+### Features
+
+* **ui:** chart a node's temperature and humidity over time ([db4d095](https://github.com/mcereal/mesh-client/commit/db4d095bd40a3f5c780c815be67e70bf66a007b4))
+
+### Bug Fixes
+
+* **ui:** close a node's chart with its row, and need a line to open one ([21c2969](https://github.com/mcereal/mesh-client/commit/21c29693961c6f1c7f2888ae1c6d5f3b3aa1379f))
+
 ## [2.58.0](https://github.com/mcereal/mesh-client/compare/v2.57.0...v2.58.0) (2026-09-11)
 
 ### Features
