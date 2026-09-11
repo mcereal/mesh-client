@@ -23,6 +23,8 @@
  * table swap the whole look.
  */
 
+#include "mesh/map/source.h"
+#include "mesh/map/tile_cache.h"
 #include "mesh/ui/anim.h"
 #include "mesh/ui/icon.h"
 #include "mesh/ui/route.h"
@@ -38,6 +40,39 @@ struct fb_glyph_cache;
 struct fb_thread_cache;
 struct fb_render_cache;
 
+/*
+ * The pictures under the map: a tile pack, the tiles decoded out of it, and the buffer one
+ * tile's bytes are read into.
+ *
+ * It hangs off the backend rather than off the store, and that is the same boundary the rest of
+ * the map already draws. A backend is handed a `const` snapshot: it cannot write a tile back
+ * into the nav, and the nav must not learn how wide this panel's body is - so which tiles are
+ * wanted is a question only the thing that measured the body can ask, and what it gets back is
+ * pixels in a format only a thing that knows the panel can use. Both halves live here.
+ *
+ * Allocated on open, so a client with no pack pays one pointer. mesh/map/ is what is inside
+ * it; src/ui/backends/fb_map.c is the only file that touches these fields.
+ */
+struct fb_basemap {
+    struct mesh_map_source source;
+    struct mesh_map_tile_cache cache;
+    /* One tile's encoded bytes. A caller's local in the flag that describes a pack, and a
+       long-lived block here, because the fill loop reads one on the frame path and a megabyte
+       is not a thing to put on the stack under a renderer. */
+    uint8_t *encoded;
+    bool open;
+    /*
+     * Whether the last frame wanted a tile it did not have.
+     *
+     * This is what asks for the next frame: a frame is otherwise a function of the snapshot,
+     * and no press and no packet says that a tile is still on its way. One tile is read per
+     * frame (docs/maps-roadmap.md's one decode per turn of the event loop), so a full view
+     * fills over about twenty frames with input serviced between them rather than in one stall
+     * the length of a dropped connection.
+     */
+    bool pending;
+};
+
 struct fb_damage_rect {
     int x, y, right, bottom;
     bool valid;
@@ -47,6 +82,8 @@ struct mesh_ui_backend_fb_state {
     struct fb_glyph_cache *glyph_cache;
     struct fb_thread_cache *thread_cache;
     struct fb_render_cache *render_cache;
+    /* NULL until a pack is opened, which is every run that was not pointed at one. */
+    struct fb_basemap *basemap;
     bool partial_disabled;
     bool clip_active;
     struct fb_damage_rect clip;
@@ -367,6 +404,15 @@ int fb_draw_wrapped_at(const struct mesh_ui_backend_fb_state *state, int x, int 
 void fb_fill_rect(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h,
                   struct mesh_ui_rgb color);
 /*
+ * A rectangle of BGRA pixels - what mesh_map_tile_decode() produces - drawn at `x`, `y`.
+ *
+ * `stride` is the source's row length in bytes, so a caller may hand over part of a larger
+ * image. Clipped by the same rules every fill in this backend is, which is what puts a map tile
+ * inside the map's own body rather than over the app bar above it.
+ */
+void fb_blit_bgra(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h,
+                  const uint8_t *pixels, size_t stride);
+/*
  * The same box with its corners taken off, `radius` pixels each - the shape an avatar disc, a
  * count pill and a selected row are. A radius of half the shorter side is a circle (or a
  * capsule); anything larger is clamped to that, so a caller can ask for "as round as it goes"
@@ -391,6 +437,39 @@ size_t fb_width(const char *line);
    rows - see the paragraph at the top of it. */
 void fb_render_map(struct mesh_ui_backend_fb_state *state, const struct mesh_ui_snapshot *snapshot,
                    struct fb_layout *layout);
+
+/*
+ * Opens the tile pack at `path` and hangs it off the state. 0, or -errno from the pack reader.
+ *
+ * A second open closes the first and **clears the cache with it**: a key is three numbers about
+ * the world rather than about a file, so two packs of the same city hold different pictures at
+ * the same key - carried across a swap, the map draws the old pack's streets under the new
+ * pack's attribution and nothing on the frame looks wrong.
+ */
+int fb_basemap_open(struct mesh_ui_backend_fb_state *state, const char *path);
+
+/*
+ * Opens whatever pack this device has, if any: MESHCLIENT_MAP_PACK when it is set, otherwise
+ * the conventional file a sideload lands at. Missing is the ordinary case and is not an error -
+ * the map draws its graticule and says nothing.
+ *
+ * The device backend calls this and the capture harness deliberately does not: a scene names
+ * its pack, because a frame that quietly picked up whatever pack the developer had installed
+ * would render differently on two machines.
+ */
+void fb_basemap_open_default(struct mesh_ui_backend_fb_state *state);
+
+/* Closes the pack, releases the cache and the read buffer, and leaves the state with no
+   basemap. Safe on a state that never opened one. */
+void fb_basemap_close(struct mesh_ui_backend_fb_state *state);
+
+/* Whether the frame just drawn wanted a tile it did not have - what fb_state_animating() adds
+   to the animations when it decides whether another frame is owed. */
+bool fb_basemap_pending(const struct mesh_ui_backend_fb_state *state);
+
+/* Clears that, so a frame drawing any other screen stops the map asking for the next one. Called
+   once per frame by fb_render_snapshot(), before anything is drawn. */
+void fb_basemap_frame_begin(struct mesh_ui_backend_fb_state *state);
 
 /* ---- fb_screens.c ------------------------------------------------------------------------ */
 

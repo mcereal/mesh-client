@@ -3193,6 +3193,9 @@ void fb_render_snapshot(struct mesh_ui_backend_fb_state *state,
     /* Before anything is measured: a theme carries the glyph scale and the margin the whole
        frame is laid out against, so adopting one mid-frame would draw half of each. */
     (void)fb_state_follow_snapshot(state, snapshot);
+    /* What the *last* frame wanted of the basemap is not this frame's business - see
+       fb_basemap_frame_begin(). Only a frame that draws the map asks for another one. */
+    fb_basemap_frame_begin(state);
     fb_render_begin(state, snapshot);
 
     fb_clear(state, fb_color(state, MESH_UI_COLOR_BG));

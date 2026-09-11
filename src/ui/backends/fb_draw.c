@@ -11,6 +11,7 @@
 #include "fb_internal.h"
 
 #include "mesh/i18n/strings.h"
+#include "mesh/map/tile_image.h"
 #include "mesh/ui/emoji.h"
 #include "mesh/ui/icon.h"
 #include "mesh/utils/text.h"
@@ -82,9 +83,12 @@ bool fb_state_animating(const struct mesh_ui_backend_fb_state *state) {
         return false;
     }
     /* The transition is asked about separately from the table because it is kept separately -
-       see `slide` on the state. A frame owes another one while either has somewhere to be. */
+       see `slide` on the state. A frame owes another one while either has somewhere to be.
+       A map still filling owes one for a reason that is not an animation at all: the next tile
+       is read on the next frame, so without this the fill would stop wherever the last press
+       left it. */
     return mesh_ui_anim_active(&state->slide, state->now_ms) ||
-           mesh_ui_anim_table_active(&state->anim, state->now_ms);
+           mesh_ui_anim_table_active(&state->anim, state->now_ms) || fb_basemap_pending(state);
 }
 
 /*
@@ -326,6 +330,135 @@ static inline uint32_t compose_color(const struct mesh_ui_backend_fb_state *stat
 }
 
 /*
+ * Where a rectangle really lands: the frame's transform, the panel's edges and whatever clip is
+ * in force, applied once - and how many pixels came off its leading edges on the way.
+ *
+ * Two callers, and the second is why `dx` and `dy` are answered at all. A fill is one colour, so
+ * it does not care which part of itself survived; a blit is a picture, and the part of the box
+ * that was trimmed is exactly the part of the source that must be skipped. Working it out here
+ * rather than in the blit is what keeps one copy of the rules - a second copy is how a clip
+ * comes to be honoured by the fills and not by the pictures.
+ */
+struct fb_clipped_box {
+    int x, y, w, h;
+    int dx, dy;
+};
+
+static bool fb_clip_box(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h,
+                        struct fb_clipped_box *out) {
+    int dx = 0;
+    int dy = 0;
+    /*
+     * The frame's transform, before anything is measured against the panel: a screen arriving
+     * from off the right-hand edge is drawn at coordinates that are not on the panel at all,
+     * and the clamp below is what turns that into the part of it that has arrived. The band is
+     * applied here rather than left to the caller for the same reason - a row whose glyphs
+     * overhang the top of the body must be cut off at the body, not drawn over the navigation
+     * bar it is sliding underneath. See fb_shift_begin().
+     */
+    if (state->shift_active) {
+        x += state->shift_x;
+        if (y < state->shift_top) {
+            const int trimmed = state->shift_top - y;
+            h -= trimmed;
+            dy += trimmed;
+            y = state->shift_top;
+        }
+        if (y + h > state->shift_bottom) {
+            h = state->shift_bottom - y;
+        }
+        if (h <= 0) {
+            return false;
+        }
+    }
+    if (x < 0) {
+        w += x;
+        dx -= x;
+        x = 0;
+    }
+    if (y < 0) {
+        h += y;
+        dy -= y;
+        y = 0;
+    }
+    if (x + w > (int)state->var.xres) {
+        w = (int)state->var.xres - x;
+    }
+    if (y + h > (int)state->var.yres) {
+        h = (int)state->var.yres - y;
+    }
+    if (w <= 0 || h <= 0) {
+        return false;
+    }
+
+    if (state->clip_active) {
+        const int right = x + w < state->clip.right ? x + w : state->clip.right;
+        const int bottom = y + h < state->clip.bottom ? y + h : state->clip.bottom;
+        if (x < state->clip.x) {
+            dx += state->clip.x - x;
+            x = state->clip.x;
+        }
+        if (y < state->clip.y) {
+            dy += state->clip.y - y;
+            y = state->clip.y;
+        }
+        w = right - x;
+        h = bottom - y;
+        if (w <= 0 || h <= 0) {
+            return false;
+        }
+    }
+
+    out->x = x;
+    out->y = y;
+    out->w = w;
+    out->h = h;
+    out->dx = dx;
+    out->dy = dy;
+    return true;
+}
+
+/* One row of a span, in the mapping's own pixel format. The format is fixed for the life of the
+   mapping, so the switch belongs out here rather than inside the column loop it used to sit
+   in.
+
+   The stores go through memcpy rather than a cast to uint32_t*: the compiler emits the same
+   single instruction, but a row pointer is only as aligned as fix.line_length makes it, and
+   casting one to a wider type is undefined where the hardware is strict about it. */
+static inline void fb_store_span(uint8_t *row, int w, uint32_t packed, size_t bpp) {
+    switch (bpp) {
+    case 4: {
+        uint8_t *px = row;
+        for (int col = 0; col < w; ++col, px += 4) {
+            memcpy(px, &packed, 4U);
+        }
+        break;
+    }
+    case 3: {
+        uint8_t *px = row;
+        for (int col = 0; col < w; ++col) {
+            px[0] = (uint8_t)(packed & 0xFFU);
+            px[1] = (uint8_t)((packed >> 8) & 0xFFU);
+            px[2] = (uint8_t)((packed >> 16) & 0xFFU);
+            px += 3;
+        }
+        break;
+    }
+    case 2: {
+        const uint16_t narrow = (uint16_t)packed;
+        uint8_t *px = row;
+        for (int col = 0; col < w; ++col, px += 2) {
+            memcpy(px, &narrow, 2U);
+        }
+        break;
+    }
+    default:
+        memset(row, (int)(packed & 0xFFU), (size_t)w);
+        break;
+    }
+}
+
+/*
  * Fill a clipped, axis-aligned span with an already-packed pixel value.
  *
  * This is the one place that touches the mapping. Everything above it packs its colour once
@@ -338,100 +471,114 @@ static void fb_fill_packed(const struct mesh_ui_backend_fb_state *state, int x, 
     if (w <= 0 || h <= 0) {
         return;
     }
-    /*
-     * The frame's transform, before anything is measured against the panel: a screen arriving
-     * from off the right-hand edge is drawn at coordinates that are not on the panel at all,
-     * and the clamp below is what turns that into the part of it that has arrived. The band is
-     * applied here rather than left to the caller for the same reason - a row whose glyphs
-     * overhang the top of the body must be cut off at the body, not drawn over the navigation
-     * bar it is sliding underneath. See fb_shift_begin().
-     */
-    if (state->shift_active) {
-        x += state->shift_x;
-        if (y < state->shift_top) {
-            h -= state->shift_top - y;
-            y = state->shift_top;
-        }
-        if (y + h > state->shift_bottom) {
-            h = state->shift_bottom - y;
-        }
-        if (h <= 0) {
-            return;
-        }
-    }
-    if (x < 0) {
-        w += x;
-        x = 0;
-    }
-    if (y < 0) {
-        h += y;
-        y = 0;
-    }
-    if (x + w > (int)state->var.xres) {
-        w = (int)state->var.xres - x;
-    }
-    if (y + h > (int)state->var.yres) {
-        h = (int)state->var.yres - y;
-    }
-    if (w <= 0 || h <= 0) {
+    struct fb_clipped_box box;
+    if (!fb_clip_box(state, x, y, w, h, &box)) {
         return;
-    }
-
-    if (state->clip_active) {
-        const int right = x + w < state->clip.right ? x + w : state->clip.right;
-        const int bottom = y + h < state->clip.bottom ? y + h : state->clip.bottom;
-        if (x < state->clip.x)
-            x = state->clip.x;
-        if (y < state->clip.y)
-            y = state->clip.y;
-        w = right - x;
-        h = bottom - y;
-        if (w <= 0 || h <= 0)
-            return;
     }
 
     const size_t bpp = state->bytes_per_pixel;
     const size_t stride = state->fix.line_length;
-    uint8_t *row = state->fb_ptr + (size_t)y * stride + (size_t)x * bpp;
+    uint8_t *row = state->fb_ptr + (size_t)box.y * stride + (size_t)box.x * bpp;
 
-    /* The pixel format is fixed for the life of the mapping, so the switch belongs out here
-       rather than inside the column loop it used to sit in. */
-    for (int r = 0; r < h; ++r, row += stride) {
-        if ((size_t)(row - state->fb_ptr) + (size_t)w * bpp > state->fb_size) {
+    for (int r = 0; r < box.h; ++r, row += stride) {
+        if ((size_t)(row - state->fb_ptr) + (size_t)box.w * bpp > state->fb_size) {
             return;
         }
-        /* The stores go through memcpy rather than a cast to uint32_t*: the compiler emits the same
-           single instruction, but a row pointer is only as aligned as fix.line_length makes it, and
-           casting one to a wider type is undefined where the hardware is strict about it. */
-        switch (bpp) {
-        case 4: {
-            uint8_t *px = row;
-            for (int col = 0; col < w; ++col, px += 4) {
-                memcpy(px, &packed, 4U);
-            }
-            break;
+        fb_store_span(row, box.w, packed, bpp);
+    }
+}
+
+/*
+ * Whether this mapping holds exactly the word a decoded tile is already made of.
+ *
+ * The decoder hands back BGRA (mesh/map/tile_image.h), which read four bytes at a time on a
+ * little-endian machine is 0xAARRGGBB - and that is what compose_color() answers for a 32 bpp
+ * panel whose channels sit where every 32 bpp panel puts them. Where the two agree a tile's
+ * pixels are the panel's pixels and the blit is a copy with the alpha forced opaque; where they
+ * do not - a 16 bpp panel, or channels in an order nobody expects - every pixel has to be
+ * packed, and the blit takes the slow path.
+ *
+ * Asked rather than assumed, and asked with two probes rather than one: a single value can
+ * agree by accident with a format that has a channel in the wrong place, and the Brick's own
+ * fb0 is read out of the kernel at runtime like anybody else's.
+ */
+static bool fb_blit_is_direct(const struct mesh_ui_backend_fb_state *state) {
+    return state->bytes_per_pixel == 4U &&
+           compose_color(state, 0x12U, 0x34U, 0x56U) == 0xFF123456U &&
+           compose_color(state, 0xA0U, 0xB0U, 0xC0U) == 0xFFA0B0C0U;
+}
+
+/*
+ * Draw a rectangle of BGRA pixels - a decoded map tile, and nothing else so far.
+ *
+ * It goes through fb_clip_box() rather than clamping for itself, which is what makes the map's
+ * own clip cover the picture as well as the ink: every fill, glyph and icon in this backend is
+ * clipped by that one function, and a blit that did its own arithmetic would be the one thing
+ * on the frame that could paint over the app bar. The part of the box that was trimmed is the
+ * part of the source that is skipped, which is what `dx` and `dy` come back for.
+ *
+ * `stride` is the source's own row length in bytes, so a caller can hand over a sub-rectangle
+ * of a larger image without copying it out first.
+ *
+ * The slow path coalesces runs of one colour before packing it, for the reason fb_fill_packed()
+ * exists: compose_color() per pixel is about a third of a frame, and a map tile quantised to a
+ * palette - which is what the pack builder produces - is long runs of landcover with roads drawn
+ * through it. A photograph would degenerate to a pack per pixel, and there are none of those in
+ * a tile pack.
+ */
+void fb_blit_bgra(const struct mesh_ui_backend_fb_state *state, int x, int y, int w, int h,
+                  const uint8_t *pixels, size_t stride) {
+    if (state == NULL || pixels == NULL || w <= 0 || h <= 0) {
+        return;
+    }
+    struct fb_clipped_box box;
+    if (!fb_clip_box(state, x, y, w, h, &box)) {
+        return;
+    }
+
+    const size_t bpp = state->bytes_per_pixel;
+    const size_t dst_stride = state->fix.line_length;
+    const bool direct = fb_blit_is_direct(state);
+    uint8_t *dst = state->fb_ptr + (size_t)box.y * dst_stride + (size_t)box.x * bpp;
+    const uint8_t *src =
+        pixels + (size_t)box.dy * stride + (size_t)box.dx * MESH_MAP_TILE_PIXEL_BYTES;
+
+    for (int row = 0; row < box.h; ++row, dst += dst_stride, src += stride) {
+        if ((size_t)(dst - state->fb_ptr) + (size_t)box.w * bpp > state->fb_size) {
+            return;
         }
-        case 3: {
-            uint8_t *px = row;
-            for (int col = 0; col < w; ++col) {
-                px[0] = (uint8_t)(packed & 0xFFU);
-                px[1] = (uint8_t)((packed >> 8) & 0xFFU);
-                px[2] = (uint8_t)((packed >> 16) & 0xFFU);
-                px += 3;
+        if (direct) {
+            /* The alpha is forced rather than copied: the Brick's display engine composites fb0
+               per pixel, so a tile carrying anything but 255 there would be a hole in the map.
+               Every other pixel this backend writes is opaque for the same reason. */
+            uint8_t *out = dst;
+            const uint8_t *in = src;
+            for (int col = 0; col < box.w; ++col, out += 4, in += 4) {
+                uint32_t word;
+                memcpy(&word, in, 4U);
+                word |= 0xFF000000U;
+                memcpy(out, &word, 4U);
             }
-            break;
+            continue;
         }
-        case 2: {
-            const uint16_t narrow = (uint16_t)packed;
-            uint8_t *px = row;
-            for (int col = 0; col < w; ++col, px += 2) {
-                memcpy(px, &narrow, 2U);
+        int col = 0;
+        while (col < box.w) {
+            uint32_t word;
+            memcpy(&word, src + (size_t)col * MESH_MAP_TILE_PIXEL_BYTES, 4U);
+            int end = col + 1;
+            while (end < box.w) {
+                uint32_t next;
+                memcpy(&next, src + (size_t)end * MESH_MAP_TILE_PIXEL_BYTES, 4U);
+                if (next != word) {
+                    break;
+                }
+                ++end;
             }
-            break;
-        }
-        default:
-            memset(row, (int)(packed & 0xFFU), (size_t)w);
-            break;
+            const uint32_t packed =
+                compose_color(state, (uint8_t)((word >> 16) & 0xFFU),
+                              (uint8_t)((word >> 8) & 0xFFU), (uint8_t)(word & 0xFFU));
+            fb_store_span(dst + (size_t)col * bpp, end - col, packed, bpp);
+            col = end;
         }
     }
 }

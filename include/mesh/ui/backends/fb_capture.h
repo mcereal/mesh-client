@@ -36,6 +36,21 @@ void mesh_ui_capture_close(struct mesh_ui_capture *capture);
 /* Reference rendering for pixel comparisons and CPU measurements. */
 void mesh_ui_capture_set_reference(struct mesh_ui_capture *capture, bool reference);
 
+/*
+ * Opens a tile pack, so a captured map has a basemap under it. 0, or a negative errno from the
+ * pack reader.
+ *
+ * Named rather than discovered, which is the difference between this and the device backend: on
+ * the Brick a pack is whatever was sideloaded, and here a frame that quietly picked up whatever
+ * pack the developer happened to have installed would render differently on two machines. A
+ * scene says which pack it is a picture of, or gets no tiles.
+ *
+ * The tiles fill one per frame, exactly as they do on the device, so a scene holds for a moment
+ * after opening the map the way it holds for an animation - mesh_ui_capture_animating() reports
+ * a view still filling.
+ */
+int mesh_ui_capture_open_map_pack(struct mesh_ui_capture *capture, const char *path);
+
 /* Same clamping as the scale passed to open(). */
 void mesh_ui_capture_set_scale(struct mesh_ui_capture *capture, int scale);
 
