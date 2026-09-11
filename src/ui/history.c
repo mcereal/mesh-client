@@ -2,6 +2,15 @@
 
 #include <string.h>
 
+/* Every series a slot holds, emptied and told the node gap. One function because a reading
+   added to the struct and forgotten here is a series with a gap of 0, which never breaks - so
+   the first thing it would draw is a line straight across whatever silence came before it. */
+static void mesh_ui_history_clear_node(struct mesh_ui_history_node *slot) {
+    mesh_ui_series_reset(&slot->battery, MESH_UI_HISTORY_NODE_GAP_MS);
+    mesh_ui_series_reset(&slot->temperature, MESH_UI_HISTORY_NODE_GAP_MS);
+    mesh_ui_series_reset(&slot->humidity, MESH_UI_HISTORY_NODE_GAP_MS);
+}
+
 void mesh_ui_history_reset(struct mesh_ui_history *history) {
     if (history == NULL) {
         return;
@@ -10,7 +19,7 @@ void mesh_ui_history_reset(struct mesh_ui_history *history) {
     mesh_ui_series_reset(&history->channel_utilization, MESH_UI_HISTORY_RADIO_GAP_MS);
     mesh_ui_series_reset(&history->air_util_tx, MESH_UI_HISTORY_RADIO_GAP_MS);
     for (uint32_t i = 0U; i < MESH_UI_HISTORY_NODES; ++i) {
-        mesh_ui_series_reset(&history->nodes[i].battery, MESH_UI_HISTORY_NODE_GAP_MS);
+        mesh_ui_history_clear_node(&history->nodes[i]);
     }
 }
 
@@ -60,7 +69,10 @@ static struct mesh_ui_history_node *mesh_ui_history_slot(struct mesh_ui_history 
     }
     if (oldest->node_id != node_id) {
         oldest->node_id = node_id;
-        mesh_ui_series_reset(&oldest->battery, MESH_UI_HISTORY_NODE_GAP_MS);
+        /* Every series, not the one the caller is about to push: the slot is being handed to a
+           different node, and a temperature left behind by the node evicted out of it would be
+           drawn under the arriving node's name. */
+        mesh_ui_history_clear_node(oldest);
     }
     return oldest;
 }
@@ -113,16 +125,82 @@ bool mesh_ui_history_has_airtime(const struct mesh_ui_history *history) {
     return history != NULL && mesh_ui_series_has_segment(&history->channel_utilization);
 }
 
-const struct mesh_ui_series *mesh_ui_history_battery(const struct mesh_ui_history *history,
-                                                     uint32_t node_id) {
+void mesh_ui_history_note_environment(struct mesh_ui_history *history, uint32_t now_ms,
+                                      uint32_t node_id, bool has_temperature,
+                                      int32_t temperature_decidegrees, bool has_humidity,
+                                      int32_t humidity_permille) {
+    if (history == NULL || node_id == 0U) {
+        return;
+    }
+    /*
+     * Nothing reported is not a reading, and it is not a slot either.
+     *
+     * EnvironmentMetrics is an optional-field message and most nodes carrying one fill in a
+     * subset of it - a barometer with no thermometer is a real device. So a report arriving with
+     * neither of the two readings this keeps is a node saying something about its air pressure,
+     * and taking a slot for it would evict a node whose temperature somebody is watching in
+     * order to remember that this one has none. The battery push next door refuses its own
+     * version of this for the same reason.
+     */
+    if (!has_temperature && !has_humidity) {
+        return;
+    }
+    struct mesh_ui_history_node *slot = mesh_ui_history_slot(history, node_id);
+    slot->seen = now_ms;
+    /*
+     * Each reading on its own, because a node reports the two independently and a report that
+     * dropped one of them is a silence in that series rather than in the other. Pushed under one
+     * stamp, so the pair is one moment.
+     *
+     * There is no break to arm on the half that went missing: an absent field is exactly the
+     * silence `gap_ms` was written for, and the reading coming back after three quiet reports is
+     * either inside the window - in which case it really does continue - or past it, in which
+     * case the series breaks it without being told. That is the difference from the battery's
+     * external-power case, which arrives *punctually* and so is invisible to the clock.
+     */
+    if (has_temperature) {
+        mesh_ui_series_push(&slot->temperature, now_ms, temperature_decidegrees);
+    }
+    if (has_humidity) {
+        mesh_ui_series_push(&slot->humidity, now_ms, humidity_permille);
+    }
+}
+
+const struct mesh_ui_series *mesh_ui_history_series(const struct mesh_ui_history *history,
+                                                    uint32_t node_id,
+                                                    enum mesh_ui_history_reading reading) {
     if (history == NULL || node_id == 0U) {
         return NULL;
     }
     for (uint32_t i = 0U; i < MESH_UI_HISTORY_NODES; ++i) {
         const struct mesh_ui_history_node *slot = &history->nodes[i];
-        if (slot->node_id == node_id && slot->battery.count > 0U) {
-            return &slot->battery;
+        if (slot->node_id != node_id) {
+            continue;
         }
+        const struct mesh_ui_series *series = NULL;
+        switch (reading) {
+        case MESH_UI_HISTORY_BATTERY:
+            series = &slot->battery;
+            break;
+        case MESH_UI_HISTORY_TEMPERATURE:
+            series = &slot->temperature;
+            break;
+        case MESH_UI_HISTORY_HUMIDITY:
+            series = &slot->humidity;
+            break;
+        case MESH_UI_HISTORY_NONE:
+        case MESH_UI_HISTORY_READING_COUNT:
+        default:
+            return NULL;
+        }
+        /*
+         * An empty series is the same answer as no slot at all: nothing has been kept. Whether
+         * what *is* kept can be drawn is a further question and deliberately not this one - the
+         * airtime pair next door is shaped the same way, with the series reachable on the struct
+         * and mesh_ui_history_has_airtime() answering separately for the picture. A caller that
+         * wanted the samples rather than a stroke would have nowhere else to go.
+         */
+        return series->count > 0U ? series : NULL;
     }
     return NULL;
 }

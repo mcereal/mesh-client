@@ -172,7 +172,7 @@ is a screen rather than a slot), bubbles (whose trailing run is four typed slots
 | The pad | `src/ui/input.c`, `src/ui/input_profile.c` | `input.c` is the evdev reader - which nodes are worth watching, key repeat, the quit keys, and the codes a *convention* decides (keyboard keys, shoulders, START/SELECT, the hat). `input_profile.c` is what the **case** decides: a row per device holding both which evdev code each printed face button reports *and* what is printed on it, because a port that corrected one without the other leaves the action bar naming a key that does something else. `MESHCLIENT_INPUT_PROFILE` picks one |
 | Status verbs | `src/ui/status.c`, `include/mesh/ui/status.h` | which Status card carries which verb, in the order the cards draw — read by `nav.c`, `actions.c` and the renderer alike, and walked by a cursor that names a *verb* (`nav->status_verb`) rather than a position |
 | Help | `src/ui/help.c`, `include/mesh/ui/help.h` | what the client can explain about where the user is standing, as a title, a subject and a list of paragraphs — ids the whole way down. A settings section's notes live on the things they describe (a section's beside its icon in `settings.c`, a field's in its own `k_fields` row) and this assembles them; a *feature's* are a table here, keyed on the route under the help screen |
-| The trend screen | `src/ui/backends/fb_screens.c` (`fb_render_trend`), `src/ui/status.c`, `src/ui/route.c` | The airtime chart the Status screen's Mesh card opens: a level of the Status tab (`nav->trend_open`, `MESH_UI_ROUTE_TREND`) with no cursor on it, drawn by the one component that fills a body |
+| The trend screens | `src/ui/backends/fb_screens.c` (`fb_render_trend`, `fb_render_node_trend`), `src/ui/status.c`, `src/ui/route.c` | The two charts, drawn by the one component that fills a body and carrying no cursor. The airtime one is a level of the Status tab (`nav->trend_open`); a node's is a level of its detail (`nav->node_trend`, which holds the *reading* rather than a flag). Both are `MESH_UI_ROUTE_TREND` - the node's fills `subject` and `slot`, which is what makes one node's temperature and its humidity two places |
 | Durations | `src/ui/duration.c`, `include/mesh/ui/duration.h` | "4m ago" and "3h 20m", once. A UI file with no pixels in it, because what a ladder of unit thresholds answers with is a *string id* |
 | Waypoints UI | `src/ui/waypoints.c`, `src/ui/nav_waypoints.c` | the list's order (nearest first, from our own fix), a place's detail rows, and the distance/compass formatting the same two screens read |
 | Tapbacks | `src/ui/reactions.c`, `include/mesh/ui/reactions.h` | the fixed emoji set X offers over a bubble: the glyph, which goes on the air unchanged, and the catalog id that names it |
@@ -594,6 +594,34 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   answers where a cursor whose verb has gone stands, and the verb it is holding is deliberately
   *kept* while the screen offers none - a link that drops and comes back lands the reader on
   their own button rather than at the top.
+- **A chart carries one vertical, so a node's temperature and its humidity are two screens.**
+  `struct fb_chart` has a single `scale` and a single pair of axis labels, and every line in it is
+  projected against that one domain - which is exactly why the airtime chart can draw two lines:
+  channel utilisation and transmit share are both permille of the same air. Degrees Celsius and
+  relative humidity are not, so a single plot of the pair would have labelled an axis only one of
+  them was measured against, which is the auto-scaling lie one step worse - an axis with numbers
+  on it gets believed. So the press on a node's row names a *reading*, `nav->node_trend` holds it,
+  and the route carries it in `slot`. Drawing them together is the fix that looks obvious and is
+  the bug.
+- **A node chart takes its whole statement off the row it was opened from, and must not switch on
+  the reading itself.** `fb_render_node_trend()` rebuilds the detail's rows and finds the one
+  whose `trend_reading` matches the nav, then reads the series, the domain, the band and the words
+  out of it. Those four have to agree, and they agree by being one row: a renderer that looked up
+  the series by reading and the scale by a switch of its own would be the node detail's opinion
+  about what a temperature is measured between and the chart's, and the first thing it would get
+  wrong is the day one of them changed. Same rule as `status.c`'s verb table, one tab over.
+- **The temperature and humidity bands are about the node, not about the weather.** Nothing in
+  this client knows whether 35 degrees of air is pleasant, and a band coloured for *that* would be
+  an opinion it has no business having. `MESH_UI_TEMPERATURE_WARM` and `MESH_UI_HUMIDITY_DAMP` are
+  where a sealed box on a pole starts derating and where condensation starts forming on the board
+  inside it - a question about the radio that reported the reading, which is the only one the
+  client can answer and the one a solar repeater in a field is opened for.
+- **A node's air is pushed into the history on its own test, not on the battery's.** DeviceMetrics
+  and EnvironmentMetrics are two Telemetry variants arriving in two packets on two schedules, so
+  `mesh_ui_store_note_roster()` compares `environment` separately from `metrics`. Keyed on the
+  battery's struct, a sensor reading would be sampled once per battery report and dropped whenever
+  the battery held still - a temperature series on the wrong clock. And an EnvironmentMetrics
+  carrying neither reading takes no slot, or a barometer would evict the node somebody is watching.
 - **The chart swallows the d-pad and A, and does not take the shoulders.** It is the map's split
   in reverse. The map takes the four directions because Left there means "look west"; the chart
   takes them because there is nothing on it to move - and what a press would otherwise fall

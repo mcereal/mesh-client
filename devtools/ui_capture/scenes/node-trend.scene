@@ -1,0 +1,77 @@
+# The chart, opened over a node instead of over the Status cards.
+#
+# chart.scene shows the component doing the thing it was built for: two lines about the radio in
+# your hand, on one domain, with the thresholds ruled across them. This is the same component
+# spent a second time, and the scene is arranged around the one decision that made it possible -
+# a chart carries *one* vertical, so a temperature in degrees and a humidity in percent are two
+# screens rather than two lines. Drawn together, only one of them would have been measured
+# against the axis the reader is reading.
+#
+# What it costs is a series in history.c and a level of the Nodes tab. What it buys is the
+# question a solar repeater in a field is actually opened for: not "how warm is it" - the row
+# already says that - but "has this box been cooking all afternoon".
+
+scene demo
+scale 4
+delay 220
+
+# ---- an afternoon of readings ---------------------------------------------------------------
+#
+# Echo Repeater is the demo's solar node, and `environment` is one EnvironmentMetrics report: a
+# temperature and a humidity arriving together, which is how the wire carries them. Its own verb
+# rather than an argument to `battery`, because the two are separate Telemetry variants on
+# separate schedules - the store keys each on its own struct having changed, so a node reporting
+# air while its battery holds still is the ordinary case and not an edge one.
+#
+# The readings climb through the afternoon and the humidity falls as they do, which is what air
+# does and also what makes the pair worth two screens: they move in opposite directions, so a
+# single auto-scaled plot of both would have drawn two lines crossing and meant nothing by it.
+tab nodes
+environment ECHO 9 78
+hold 260
+environment ECHO 14 71
+hold 260
+environment ECHO 21 63
+hold 260
+environment ECHO 28 55
+hold 260
+environment ECHO 36 47
+hold 260
+environment ECHO 44 41
+hold 260
+environment ECHO 51 36
+hold 260
+
+# ---- the row, and then the picture ----------------------------------------------------------
+#
+# Row 6 of the Nodes list is Echo Repeater - row 0 is the Map, so a node's row is its index in
+# the roster plus one. Row 21 of its detail is Temperature: the Environment heading is row 20,
+# and this node has no device-metrics group above it because a repeater on mains reports no
+# battery.
+#
+# The row is a meter now rather than a bare figure, which is what earns it the press: it has a
+# bar, a band and six cells of line in its trailing slot, and A opens the same reading with the
+# room to say what its axes are. That is the rule the Status card's verb set - a row carries a
+# glance, a screen carries a study - reached from the other direction.
+key down 6
+key a
+key down 21
+hold 1400
+key a
+hold 2600
+
+# ---- and the other one ------------------------------------------------------------------------
+#
+# B lands back on the row it was opened from rather than on the list, because the chart is a
+# level of the detail. Then one row down and the same press, and the humidity is its own place: a
+# slide rather than a repaint, which is the route carrying the *reading* in its slot rather than
+# a bare "a chart is open".
+#
+# The two screens are the argument for the split. Both say "%" or "C" at the ends of their
+# vertical and mean it; a shared plot could have labelled only one of them.
+key b
+key down 1
+key a
+hold 2600
+key b
+hold 700

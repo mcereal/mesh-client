@@ -150,6 +150,10 @@ static bool mesh_ui_nav_close_node_detail(struct mesh_ui_nav *nav) {
     nav->node_detail_open = false;
     nav->node_detail_node = 0U;
     nav->node_remove_armed = false;
+    /* The chart is a level *of* the detail, so it cannot outlive it. Left set, it would be the
+       map's `map_open` bug one screen along: the next node opened would land straight on a chart
+       of whichever reading the last one was showing. */
+    nav->node_trend = MESH_UI_HISTORY_NONE;
     nav->cursor[MESH_UI_SCREEN_NODES] = nav->node_list_cursor;
     return true;
 }
@@ -316,6 +320,21 @@ uint32_t mesh_ui_nav_row_count(const struct mesh_ui_nav *nav, const struct mesh_
                either: the screen it would open is the same nothing one level in. */
             return nodes > 0U ? nodes + 1U : 0U;
         }
+        /*
+         * The detail's own rows, whether or not a chart is open over them - which is where this
+         * parts company with the map two branches up, and the difference is what the level
+         * underneath does with its cursor.
+         *
+         * The map parks the list position in `node_list_cursor` and puts it back on the way out,
+         * so the list's own cursor being zeroed by the clamp below costs nothing. A chart parks
+         * nothing: the cursor it is standing on *is* the detail's, and it is what puts the reader
+         * back on the row they pressed. Answering 0 here hands that cursor to the clamp's
+         * empty-list arm, which sets it to 0 on the very next publish - so B out of a chart
+         * landed on "Message this node" every time.
+         *
+         * A count with no way to move it is not a contradiction: mesh_ui_nav_handle_key()
+         * swallows the d-pad while the chart is up, so the cursor cannot walk underneath it.
+         */
         const struct mesh_ui_node_summary *node =
             mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node);
         return mesh_ui_node_detail_count(node, mesh_ui_nav_node_is_self(store, node),
@@ -396,6 +415,31 @@ bool mesh_ui_nav_clamp(struct mesh_ui_nav *nav, const struct mesh_ui_store *stor
     if (nav->trend_open && !mesh_ui_history_has_airtime(&store->history)) {
         nav->trend_open = false;
         moved = true;
+    }
+    /*
+     * And the same for a node's chart, which has three ways to empty rather than one: the node
+     * can fall out of the list, the history can be forgotten under it, and the *row* can go
+     * while the history stays. It runs after the detail's own close above, which has already
+     * cleared the reading in the first case and leaves this looking at a closed chart.
+     *
+     * The third is why this asks for the row rather than for the series, and it is the one that
+     * cost a review round. A reading is an optional field of an optional Telemetry variant, so a
+     * node that reports temperature and then reports without it takes the row away while the
+     * readings the client already kept stay exactly as drawable as they were. Asked of the
+     * history the chart stays open over a row that no longer exists - the renderer falls back to
+     * the detail while this, the action bar, the help screen and the key handler all still
+     * believe a picture is up, so the reader gets a list whose d-pad is swallowed until they
+     * press B. The row is the honest question, and it is the same one the press asked.
+     */
+    if (nav->node_detail_open && nav->node_trend != MESH_UI_HISTORY_NONE) {
+        const struct mesh_ui_node_summary *charted =
+            mesh_ui_node_detail_find(&store->handshake, nav->node_detail_node);
+        if (!mesh_ui_node_detail_trend_row(charted, mesh_ui_nav_node_is_self(store, charted),
+                                           &store->traceroute, &store->handshake, &store->history,
+                                           (enum mesh_ui_history_reading)nav->node_trend, NULL)) {
+            nav->node_trend = MESH_UI_HISTORY_NONE;
+            moved = true;
+        }
     }
 
     /*
@@ -769,6 +813,22 @@ static bool mesh_ui_nav_confirm(struct mesh_ui_nav *nav, const struct mesh_ui_st
             mesh_ui_node_detail_build(node, mesh_ui_nav_node_is_self(store, node), 0U,
                                       &store->traceroute, nav->node_remove_armed, &store->handshake,
                                       &store->history, items, MESH_UI_NODE_ITEMS_MAX);
+        /*
+         * A meter row carrying a trend opens that trend as a chart, and it is taken ahead of the
+         * action-row guard below because it is the one press on this screen that is not an
+         * action row: the row is a *reading*, and what A does on it is look closer rather than
+         * ask the radio for anything.
+         *
+         * Which reading is read off the row rather than decided here, so the line the chart
+         * draws and the bar the cursor was on are the same statement - see the row's
+         * `trend_reading`. A row with no trend falls through to the guard and A means nothing on
+         * it, which is what keeps the action bar honest: it names the press from the same field.
+         */
+        if (cursor < count && items[cursor].kind == MESH_UI_NODE_ROW_METER &&
+            items[cursor].trend_reading != MESH_UI_HISTORY_NONE) {
+            nav->node_trend = items[cursor].trend_reading;
+            return true;
+        }
         if (cursor >= count || items[cursor].kind != MESH_UI_NODE_ROW_ACTION) {
             return false;
         }
@@ -1204,6 +1264,31 @@ bool mesh_ui_nav_handle_key(struct mesh_ui_nav *nav, const struct mesh_ui_store 
             break; /* the tabs, and the help press: both mean here what they mean everywhere */
         case MESH_UI_KEY_B:
             nav->trend_open = false;
+            return true;
+        default:
+            return changed;
+        }
+    }
+
+    /*
+     * And a node's chart, which is the same picture with the same presses.
+     *
+     * It is a separate arm rather than a condition added to the one above because the two charts
+     * are on different tabs and close different things - and because this one sits over a *list*
+     * rather than over the Status cards, so what Down would reach through to is the detail's own
+     * cursor. Same swallow, same exceptions, same reason B is the only way out.
+     */
+    if (nav->node_trend != MESH_UI_HISTORY_NONE && nav->screen == MESH_UI_SCREEN_NODES &&
+        nav->node_detail_open) {
+        switch (key) {
+        case MESH_UI_KEY_LEFT:
+        case MESH_UI_KEY_RIGHT:
+        case MESH_UI_KEY_L1:
+        case MESH_UI_KEY_R1:
+        case MESH_UI_KEY_SELECT:
+            break; /* the tabs, and the help press: both mean here what they mean everywhere */
+        case MESH_UI_KEY_B:
+            nav->node_trend = MESH_UI_HISTORY_NONE;
             return true;
         default:
             return changed;

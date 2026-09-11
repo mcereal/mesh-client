@@ -291,6 +291,15 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_HELP_SUBJECT_TREND] = "Tendencia del aire",
     [MESH_STR_HELP_LABEL_TREND_AXES] = "Qué dicen los ejes",
     [MESH_STR_HELP_LABEL_TREND_MARKS] = "Las líneas que lo cruzan",
+
+    /* A node's own chart. The three titles are the reading's name rather than a sentence about
+       it, exactly as the row labels further down are - and the axis keeps its bare "C", which is
+       a symbol rather than a word and is left alone here for the reason the region codes are. */
+    [MESH_STR_NODE_TREND_BATTERY] = "Batería",
+    [MESH_STR_NODE_TREND_TEMPERATURE] = "Temperatura",
+    [MESH_STR_NODE_TREND_HUMIDITY] = "Humedad",
+    [MESH_STR_NODE_TREND_AXIS_CELSIUS] = "%dC",
+    [MESH_STR_HELP_SUBJECT_NODE_CHART] = "Tendencia de este nodo",
     [MESH_STR_NODE_HEAD_IDENTITY] = "Identidad",
     [MESH_STR_NODE_HEAD_SIGNAL] = "Señal",
     [MESH_STR_NODE_HEAD_METRICS] = "Métricas del equipo",
@@ -454,6 +463,8 @@ const char *const mesh_i18n_table_es[MESH_STR_COUNT] = {
     [MESH_STR_HELP_LABEL_NODES_CACHED] = "Nodos que la radio ha olvidado",
     [MESH_STR_HELP_LABEL_NODE_FIX] = "Posición y recepción",
     [MESH_STR_HELP_LABEL_NODE_TREND] = "Los gráficos pequeños",
+    [MESH_STR_HELP_LABEL_NODE_CHART] = "Qué muestra esto",
+    [MESH_STR_HELP_LABEL_NODE_CHART_GAPS] = "Huecos y líneas",
     [MESH_STR_HELP_LABEL_WAYPOINT_NEW] = "Nombrar un lugar",
     [MESH_STR_HELP_LABEL_WAYPOINT_SHARE] = "Quién más lo ve",
     [MESH_STR_HELP_LABEL_WAYPOINT_DROP] = "Borrar uno",

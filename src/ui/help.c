@@ -109,6 +109,21 @@ static const struct mesh_ui_help_entry k_help_trend[] = {
     {MESH_STR_HELP_LABEL_TREND_MARKS, MESH_STR_HELP_NOTE_TREND_MARKS},
 };
 
+/*
+ * A node's own chart, which is the airtime one's twin and deliberately not its entry.
+ *
+ * Both are pictures with axes, so the shape of what has to be said is the same - but every
+ * sentence in it differs. This one is a single reading rather than two lines, its rules are about
+ * the node reporting the reading rather than about the band being busy, and the reading it is of
+ * was chosen by the row the reader pressed, which the airtime chart has no equivalent of. A
+ * shared entry would have had to say all of that in the general, which is how a help screen ends
+ * up telling the reader nothing they could not see.
+ */
+static const struct mesh_ui_help_entry k_help_node_chart[] = {
+    {MESH_STR_HELP_LABEL_NODE_CHART, MESH_STR_HELP_NOTE_NODE_CHART},
+    {MESH_STR_HELP_LABEL_NODE_CHART_GAPS, MESH_STR_HELP_NOTE_NODE_CHART_GAPS},
+};
+
 struct help_feature {
     uint8_t screen; /* enum mesh_ui_screen */
     uint8_t level;  /* enum mesh_ui_route_level */
@@ -136,6 +151,12 @@ static const struct help_feature k_help_features[] = {
        first thing its help has to say. */
     HELP_FEATURE(MESH_UI_SCREEN_NODES, MESH_UI_ROUTE_MAP, MESH_STR_HELP_SUBJECT_MAP, k_help_map),
     HELP_FEATURE(MESH_UI_SCREEN_NODES, MESH_UI_ROUTE_NODE, MESH_STR_HELP_SUBJECT_NODE, k_help_node),
+    /* And the chart one of that detail's readings opens. Keyed on the route like every other
+       entry here, which is what got it the right help without the press that opens it having to
+       say anything: MESH_UI_ROUTE_TREND under the Nodes tab is this, and under the Status tab is
+       the airtime one two rows down. */
+    HELP_FEATURE(MESH_UI_SCREEN_NODES, MESH_UI_ROUTE_TREND, MESH_STR_HELP_SUBJECT_NODE_CHART,
+                 k_help_node_chart),
     HELP_FEATURE(MESH_UI_SCREEN_WAYPOINTS, MESH_UI_ROUTE_LIST, MESH_STR_TAB_WAYPOINTS,
                  k_help_waypoints),
     /* One open place, answered by the list's paragraphs: it is the same feature one level in,

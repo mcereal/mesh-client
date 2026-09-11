@@ -23,17 +23,23 @@ static uint8_t route_screen_depth(const struct mesh_ui_nav *nav) {
         return nav->thread_open ? 1U : 0U;
     case MESH_UI_SCREEN_NODES: {
         /*
-         * Three levels, and the map is the middle one *when it is open*: the list, the map over
-         * it, and a node's detail over that. A detail opened from the list is one level in; the
-         * same detail opened from the map is two, and that is not bookkeeping - it is what makes
-         * B out of it slide the right way, because the place it lands on is the map rather than
-         * the list.
+         * Four levels, and the map is the second *when it is open*: the list, the map over it, a
+         * node's detail over that, and a chart of one of that detail's readings over that. A
+         * detail opened from the list is one level in; the same detail opened from the map is
+         * two, and that is not bookkeeping - it is what makes B out of it slide the right way,
+         * because the place it lands on is the map rather than the list.
          */
         uint8_t depth = 0U;
         if (nav->map_open) {
             depth++;
         }
         if (nav->node_detail_open) {
+            depth++;
+        }
+        /* And a fourth, when one of the detail's readings has been opened as a chart. It only
+           counts under an open detail: the reading outlives a change of tab the way map_open
+           does, so on its own it says where this tab is standing rather than what is drawn. */
+        if (nav->node_detail_open && nav->node_trend != 0U) {
             depth++;
         }
         return depth;
@@ -87,11 +93,23 @@ static void route_screen_place(const struct mesh_ui_nav *nav, struct mesh_ui_rou
         }
         return;
     case MESH_UI_SCREEN_NODES:
-        /* The detail first: it is the topmost of the tab's three levels, and `level` says what
-           is being drawn rather than what is underneath it. */
+        /* The topmost first, and `level` says what is being drawn rather than what is underneath
+           it. A chart of one of the node's readings is the highest of the tab's four levels. */
         if (nav->node_detail_open) {
-            out->level = MESH_UI_ROUTE_NODE;
             out->subject = nav->node_detail_node;
+            if (nav->node_trend != 0U) {
+                /*
+                 * The reading goes in `slot`, which is what makes a node's temperature and its
+                 * humidity two places rather than one repainted - so backing out of one lands on
+                 * the detail rather than on the other, and opening the second from the first
+                 * slides. The Status tab's chart is the same level with neither field set, and
+                 * the two cannot collide: that one is on another screen.
+                 */
+                out->level = MESH_UI_ROUTE_TREND;
+                out->slot = nav->node_trend;
+                return;
+            }
+            out->level = MESH_UI_ROUTE_NODE;
             return;
         }
         if (nav->map_open) {
@@ -127,8 +145,9 @@ static void route_screen_place(const struct mesh_ui_nav *nav, struct mesh_ui_rou
             out->level = MESH_UI_ROUTE_TREND;
         }
         /* No subject and no slot: there is one trend, and it is the radio we are attached to.
-           A second chart - a node's battery, which is the obvious next caller - would name its
-           node here, and would then be two places rather than one repainted. */
+           The Nodes tab's charts are the same level with both fields filled - a node in
+           `subject` and the reading in `slot` - which is what keeps them distinct from this one
+           and from each other. */
         return;
     case MESH_UI_SCREEN_DEVICES:
     default:

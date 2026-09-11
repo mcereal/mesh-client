@@ -1492,6 +1492,32 @@ is the level, `MESH_UI_ROUTE_TREND` is the place, and
 [`fb_render_trend()`](../src/ui/backends/fb_screens.c) is a dozen lines because a chart has no
 rows to measure and no cursor to place.
 
+It is spent twice. A node's detail carries the same component over its own readings —
+`nav->node_trend` is the level, the same `MESH_UI_ROUTE_TREND` with the node in `subject` and the
+*reading* in `slot` is the place, and [`fb_render_node_trend()`](../src/ui/backends/fb_screens.c)
+draws it. Three things about the second caller are worth stating, because each is a decision the
+first one never had to make:
+
+- **A chart carries one vertical, so two readings are two screens.** Temperature in degrees and
+  humidity in percent do not share a domain, and `struct fb_chart` has one `scale` and one pair
+  of axis labels — drawn together, only one of the lines would have been measured against the
+  numbers the reader is reading. The airtime chart gets away with two lines because both of them
+  are permille of the same air. So the press names a reading and the route carries it, which is
+  also what makes a node's temperature and its humidity two *places*: B lands on the detail
+  rather than on the other chart, and opening the second from the first slides.
+- **Everything the chart needs comes off the row it was opened from.** `fb_render_node_trend()`
+  rebuilds the detail's rows and finds the one whose `trend_reading` the nav is holding, then
+  takes the series, the domain, the band and the words from it. A switch of its own would be the
+  node detail's opinion about what a temperature is measured between and the chart's, which is
+  the split [`src/ui/status.c`](../src/ui/status.c) exists to prevent one tab over.
+- **The bands are about the node, not about the weather.** `MESH_UI_TEMPERATURE_WARM` and
+  `MESH_UI_HUMIDITY_DAMP` are where a sealed box on a pole starts derating and where condensation
+  starts forming on the board inside it. Nothing here knows whether 35 degrees of air is pleasant,
+  and a client that coloured *that* would be inventing an opinion; what it does know is that the
+  radio reporting the reading is sitting in it.
+
+Rendered by `make ui-capture ARGS="devtools/ui_capture/scenes/node-trend.scene"`.
+
 What the room buys, in the order it matters:
 
 - **The vertical says what it is measuring.** Its two ends are labelled, in the reading's own
@@ -2508,6 +2534,7 @@ clock, so a `hold` past four seconds followed by a `frame` films it sliding back
 | `syncing on\|off` | put the config handshake back in flight, or finish it. What the screen progress bar reports, and unreachable any other way in a scene: `scene demo` starts with the handshake already complete because every screen in it needs a roster |
 | `offradio NAME\|all` | mark that node (or every node but ours) as one the radio's NodeDB no longer carries - what a NodeDB reset leaves behind. Its own verb because no press can reach it: the reset goes out over the air and the answer arrives on the next sync, and the harness has neither |
 | `battery NAME PERCENT` | one telemetry report from that node: a battery level, and the uptime that moves with it. Several of these lines are what makes a trend, and the command takes one reading at a time on purpose - a verb that took a whole series would let a scene declare a shape the client could not have been told |
+| `environment NAME C [HUMIDITY]` | one EnvironmentMetrics report from that node: a temperature in whole degrees Celsius and, optionally, a relative humidity in percent. A verb of its own rather than an argument to `battery`, because on the wire they are two Telemetry variants on two schedules - the store keys each on its own struct having changed, so only separate verbs can produce the ordinary case of a sensor reporting air while its battery holds still |
 | `nofix` | take our own radio's fix away. `scene demo` gives it one because every range on the Waypoints tab is measured from it, and this is the other state: a Brick has no GPS, so a radio with no fix and no fixed position set is the ordinary case, and it is what the "New waypoint here" row's supporting line and its refused press are about. Its own verb because no press removes a fix - a position arrives off the air, and there is no air here |
 | `pin NAME` | pin that node — the star in a row's marker gutter. Its own verb for the same reason: X on the Nodes tab raises a `mesh_ui_action` and the store stops there, so the press the harness can make never reaches the flag |
 

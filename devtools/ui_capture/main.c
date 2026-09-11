@@ -1374,6 +1374,54 @@ static void uicap_run_line(struct uicap *cap, char *line, unsigned line_number) 
     }
 
     /*
+     * One EnvironmentMetrics report for a node: a temperature in whole degrees and, optionally,
+     * a humidity.
+     *
+     * Its own verb rather than an argument to `battery`, because on the wire they are two
+     * Telemetry variants on two schedules - and the store keys each on its own struct having
+     * changed, so a scene that fed them together could not produce the ordinary case this is
+     * for: a sensor reporting air while its battery holds still. The uptime bump `battery`
+     * makes has no counterpart here for the same reason; the reading itself is what moves.
+     */
+    if (strcmp(command, "environment") == 0) {
+        char *name = uicap_word(&rest);
+        char *celsius = uicap_word(&rest);
+        char *humidity = uicap_word(&rest);
+        if (name == NULL || celsius == NULL) {
+            fprintf(stderr,
+                    "uicap: line %u: 'environment' needs a short name, a temperature in C and an "
+                    "optional humidity\n",
+                    line_number);
+            exit(1);
+        }
+        uicap_start(cap);
+        struct mesh_ui_handshake_state handshake = cap->store.handshake;
+        bool matched = false;
+        for (uint32_t i = 0; i < handshake.node_count && i < MESH_UI_MAX_HANDSHAKE_NODES; ++i) {
+            struct mesh_ui_node_summary *node = &handshake.nodes[i];
+            if (strcmp(node->short_name, name) != 0) {
+                continue;
+            }
+            node->environment.valid = true;
+            node->environment.has_temperature = true;
+            node->environment.temperature = (float)uicap_number(celsius, "environment");
+            if (humidity != NULL) {
+                node->environment.has_humidity = true;
+                node->environment.relative_humidity = (float)uicap_number(humidity, "environment");
+            }
+            matched = true;
+        }
+        if (!matched) {
+            fprintf(stderr, "uicap: line %u: no node in the scene called '%s'\n", line_number,
+                    name);
+            exit(1);
+        }
+        mesh_ui_store_set_handshake(&cap->store, &handshake);
+        uicap_emit(cap);
+        return;
+    }
+
+    /*
      * Take our own radio's fix away.
      *
      * `scene demo` gives it one because every range on the Waypoints tab is measured from it,

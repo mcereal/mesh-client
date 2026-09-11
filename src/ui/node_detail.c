@@ -22,10 +22,16 @@ struct node_rows {
     struct mesh_ui_node_item *items;
     uint32_t capacity;
     uint32_t count;
-    /* This node's battery trend, resolved once by the build rather than looked up per row.
-       NULL when nothing has been watched, which is every caller that passes no history and
-       every node the client has not heard a second reading from. */
-    const struct mesh_ui_series *battery_trend;
+    /*
+     * What the client has watched this node do, and which node that is.
+     *
+     * The pair rather than one pre-resolved series, because three rows now ask for one and the
+     * lookup is keyed on the reading: resolving them all up front would be three fields that
+     * only ever have one reader each, and a fourth reading would be a fourth. NULL history is
+     * every caller that passes none, and answers NULL for every reading.
+     */
+    const struct mesh_ui_history *history;
+    uint32_t node_id;
 };
 
 static struct mesh_ui_node_item *rows_next(struct node_rows *rows) {
@@ -130,6 +136,22 @@ static const struct mesh_ui_band node_channel_util_band = {.warn = MESH_UI_AIRTI
                                                            .bad = MESH_UI_AIRTIME_BUSY_BAD};
 static const struct mesh_ui_band node_air_tx_band = {.warn = MESH_UI_AIRTIME_TX_WARN,
                                                      .bad = MESH_UI_AIRTIME_TX_BAD};
+/*
+ * The node's own air, and the two bands that are about the *node* rather than about the weather.
+ *
+ * A meter's test is whether the figure has ends the reader does not know, and a temperature is
+ * the one reading on this screen where that depends on what is being asked. Nobody needs a bar
+ * to understand 22 degrees of afternoon; everybody needs one to know whether the box on the pole
+ * is inside what its cells and its LoRa module will tolerate. The thresholds in layout.h are
+ * stated for the second question, which is the only one this client can answer, and the scale
+ * runs wide enough that an ordinary day is not pinned against either end.
+ */
+static const struct mesh_ui_scale node_temperature_scale = {MESH_UI_TEMPERATURE_FLOOR,
+                                                            MESH_UI_TEMPERATURE_CEILING};
+static const struct mesh_ui_band node_temperature_band = {.warn = MESH_UI_TEMPERATURE_WARM,
+                                                          .bad = MESH_UI_TEMPERATURE_HOT};
+static const struct mesh_ui_band node_humidity_band = {.warn = MESH_UI_HUMIDITY_DAMP,
+                                                       .bad = MESH_UI_HUMIDITY_WET};
 static const struct mesh_ui_scale node_snr_scale = {MESH_UI_SNR_FLOOR, MESH_UI_SNR_CEILING};
 static const struct mesh_ui_band node_snr_band = {.warn = MESH_UI_SNR_FAIR,
                                                   .bad = MESH_UI_SNR_POOR};
@@ -180,9 +202,34 @@ static void rows_gauge(struct node_rows *rows, int32_t value, struct mesh_ui_sca
  * happen. That is not defensiveness: a trend on an info row would be a line with no ends to be
  * drawn between, and the ends are the meter's.
  */
-static void rows_trend(struct node_rows *rows, const struct mesh_ui_series *series) {
-    if (series == NULL || rows->items == NULL || rows->count == 0U ||
-        rows->count > rows->capacity) {
+/*
+ * Hangs this node's trend of `reading` on the meter row just emitted, and says which reading it
+ * is so a press can name it.
+ *
+ * The series and the reading are set together and never apart, which is the whole reason the
+ * lookup is in here rather than at the call site: they are one statement - "this row's bar has
+ * been doing this" - and a row carrying a battery series labelled as a temperature is a chart
+ * that draws the wrong line under the right axis. A reading with nothing watched leaves both
+ * unset, so the row is a bar with no press rather than a press with nothing behind it.
+ */
+static void rows_trend(struct node_rows *rows, enum mesh_ui_history_reading reading) {
+    if (rows->items == NULL || rows->count == 0U || rows->count > rows->capacity) {
+        return;
+    }
+    /*
+     * A drawable *segment*, not a sample - mesh_ui_history_has_airtime()'s test, asked here
+     * because this is where a reading becomes both a picture and a press.
+     *
+     * Every sample following a silence the series calls a break starts a line rather than
+     * continuing one, so a node heard once, or twice either side of a two-hour gap, is readings
+     * the ring holds and no stroke at all. The sparkline was already honest about that by
+     * drawing nothing; the press is not, because what A would open is an axis frame with its
+     * ends labelled and nothing between them. Gating the attach rather than the press keeps the
+     * two answers one answer: a row has a trend, or it has neither trend nor verb.
+     */
+    const struct mesh_ui_series *series =
+        mesh_ui_history_series(rows->history, rows->node_id, reading);
+    if (series == NULL || !mesh_ui_series_has_segment(series)) {
         return;
     }
     struct mesh_ui_node_item *item = &rows->items[rows->count - 1U];
@@ -190,6 +237,7 @@ static void rows_trend(struct node_rows *rows, const struct mesh_ui_series *seri
         return;
     }
     item->trend = series;
+    item->trend_reading = (uint8_t)reading;
 }
 
 static void node_rows_identity(struct node_rows *rows, const struct mesh_ui_node_summary *node) {
@@ -324,7 +372,7 @@ static void node_rows_power(struct node_rows *rows, const struct mesh_ui_node_su
             /* And which way it has been going, which is the question a battery percentage is
                nearly always a proxy for. Drawn on the bar's own scale, so the line and the bar
                under it are one reading measured twice rather than two. */
-            rows_trend(rows, rows->battery_trend);
+            rows_trend(rows, MESH_UI_HISTORY_BATTERY);
         }
     }
     if (metrics->has_voltage) {
@@ -415,13 +463,28 @@ static void node_rows_environment(struct node_rows *rows, const struct mesh_ui_n
     }
     rows_heading(rows, MESH_STR_NODE_HEAD_ENVIRONMENT);
 
+    /*
+     * The two readings the client keeps a trend of, so each is a figure, a bar and a line.
+     *
+     * Both rows keep the value text they had - the bar is a third thing said about the reading
+     * rather than a replacement for it, which is the rule the battery row above follows and the
+     * reason the CLI backend still shows a complete fact. The bar is drawn in the unit the series
+     * is kept in so that the row and the chart it opens are one reading measured once: tenths of
+     * a degree here, permille there, converted where every other reading off the air is.
+     */
     if (env->has_temperature) {
         rows_info(rows, MESH_STR_NODE_TEMPERATURE, MESH_STR_NODE_VAL_TEMPERATURE,
                   (double)env->temperature, (double)env->temperature * 9.0 / 5.0 + 32.0);
+        rows_gauge(rows, mesh_ui_temperature_decidegrees(env->temperature), node_temperature_scale,
+                   &node_temperature_band);
+        rows_trend(rows, MESH_UI_HISTORY_TEMPERATURE);
     }
     if (env->has_humidity) {
         rows_info(rows, MESH_STR_NODE_HUMIDITY, MESH_STR_NODE_VAL_PERCENT_FINE,
                   (double)env->relative_humidity);
+        rows_gauge(rows, mesh_ui_percent_permille(env->relative_humidity), node_permille_scale,
+                   &node_humidity_band);
+        rows_trend(rows, MESH_UI_HISTORY_HUMIDITY);
     }
     if (env->has_pressure) {
         rows_info(rows, MESH_STR_NODE_PRESSURE, MESH_STR_NODE_VAL_PRESSURE,
@@ -765,7 +828,8 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
         .items = out,
         .capacity = (out == NULL) ? MESH_UI_NODE_ITEMS_MAX : capacity,
         .count = 0U,
-        .battery_trend = mesh_ui_history_battery(history, node->node_id),
+        .history = history,
+        .node_id = node->node_id,
     };
 
     /* The actions lead: opening a node from the Nodes tab used to go straight to its
@@ -838,6 +902,59 @@ uint32_t mesh_ui_node_detail_build(const struct mesh_ui_node_summary *node, bool
     node_rows_neighbors(&rows, node, roster, now);
 
     return rows.count;
+}
+
+enum mesh_ui_history_reading
+mesh_ui_node_detail_trend_at(const struct mesh_ui_node_summary *node, bool is_self,
+                             const struct mesh_ui_traceroute *trace,
+                             const struct mesh_ui_handshake_state *roster,
+                             const struct mesh_ui_history *history, uint32_t row) {
+    if (node == NULL || history == NULL || row >= MESH_UI_NODE_ITEMS_MAX) {
+        return MESH_UI_HISTORY_NONE;
+    }
+    /*
+     * The whole list, to read one row of it.
+     *
+     * Which rows exist depends on what the node has reported, so there is no arithmetic that
+     * gets from a row number to a reading without building - and the two callers that ask this
+     * are already in a build's company: the renderer has just drawn the list, and the nav is
+     * answering a press on it. Doing it again here costs a hundred and twenty rows of stack and
+     * buys the guarantee that the row the cursor is on is the row this answers for.
+     *
+     * `remove_armed` is false because it changes one row's value text and no row's existence,
+     * which is the only thing that could move a reading to a different index.
+     */
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    const uint32_t count = mesh_ui_node_detail_build(node, is_self, 0U, trace, false, roster,
+                                                     history, items, MESH_UI_NODE_ITEMS_MAX);
+    if (row >= count) {
+        return MESH_UI_HISTORY_NONE;
+    }
+    return (enum mesh_ui_history_reading)items[row].trend_reading;
+}
+
+bool mesh_ui_node_detail_trend_row(const struct mesh_ui_node_summary *node, bool is_self,
+                                   const struct mesh_ui_traceroute *trace,
+                                   const struct mesh_ui_handshake_state *roster,
+                                   const struct mesh_ui_history *history,
+                                   enum mesh_ui_history_reading reading,
+                                   struct mesh_ui_node_item *out) {
+    if (node == NULL || history == NULL || reading == MESH_UI_HISTORY_NONE) {
+        return false;
+    }
+    struct mesh_ui_node_item items[MESH_UI_NODE_ITEMS_MAX];
+    const uint32_t count = mesh_ui_node_detail_build(node, is_self, 0U, trace, false, roster,
+                                                     history, items, MESH_UI_NODE_ITEMS_MAX);
+    for (uint32_t i = 0U; i < count; ++i) {
+        if (items[i].trend == NULL || items[i].trend_reading != (uint8_t)reading) {
+            continue;
+        }
+        if (out != NULL) {
+            *out = items[i];
+        }
+        return true;
+    }
+    return false;
 }
 
 uint32_t mesh_ui_node_detail_count(const struct mesh_ui_node_summary *node, bool is_self,

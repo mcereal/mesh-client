@@ -255,6 +255,26 @@ struct mesh_ui_nav {
        lands on it by accident should cost nothing. Any other press stands it down. */
     bool node_remove_armed;
     /*
+     * Nodes tab: a chart of one of the open node's readings, over its detail.
+     *
+     * A reading rather than a flag, because this tab's chart is not the Status tab's. There is
+     * one airtime trend and it is the radio we are attached to, so `trend_open` is a yes or no;
+     * a node has three readings worth watching and the press that opened this one named which -
+     * so what the nav holds is the reading, and MESH_UI_HISTORY_NONE is the closed state. That
+     * is also what lets the route tell two of these apart: a temperature chart and a humidity
+     * chart on one node are two places, not one repainted, and a slide between them would be a
+     * lie either way round if the nav could not say which is up.
+     *
+     * It is deliberately *not* a row index, for the reason `node_detail_node` is not one: the
+     * rows a node produces depend on what it has reported, so a reading arriving or lapsing
+     * re-numbers them under the reader. The reading survives that; a row number quietly becomes
+     * a different row.
+     *
+     * Like map_open and trend_open it outlives a change of tab, so anything reading it checks
+     * `screen` and `node_detail_open` as well.
+     */
+    uint8_t node_trend; /* enum mesh_ui_history_reading */
+    /*
      * Nodes tab: the map, opened over the node list.
      *
      * A level of the Nodes tab rather than a tab of its own, which is what docs/maps-roadmap.md

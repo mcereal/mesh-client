@@ -53,7 +53,7 @@ enum mesh_ui_route_level {
     MESH_UI_ROUTE_MAP,      /* the map over the node list */
     MESH_UI_ROUTE_NODE,     /* one node's detail */
     MESH_UI_ROUTE_WAYPOINT, /* one shared place's detail */
-    MESH_UI_ROUTE_TREND,    /* the airtime chart over the Status cards */
+    MESH_UI_ROUTE_TREND,    /* a chart: airtime over the Status cards, a reading over a node */
     MESH_UI_ROUTE_SECTION,  /* one settings section, including the Modules and Channels lists */
     MESH_UI_ROUTE_CHANNEL,  /* one channel slot inside the Channels section */
     MESH_UI_ROUTE_COMPOSE,  /* the compose sheet over a thread */

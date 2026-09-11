@@ -5,6 +5,7 @@
 #include "mesh/ui/input.h"
 #include "mesh/ui/input_profile.h"
 #include "mesh/ui/nav.h"
+#include "mesh/ui/node_detail.h"
 #include "mesh/ui/settings.h"
 #include "mesh/ui/status.h"
 #include "mesh/ui/store.h"
@@ -152,6 +153,27 @@ static void actions_map(const struct mesh_ui_snapshot *snapshot, struct mesh_ui_
     bar_add_tabs(bar);
 }
 
+/*
+ * The reading charted by the row the cursor is on in the open node detail, or NONE.
+ *
+ * It asks node_detail.c rather than deciding, which is the same seam the Status arm below uses
+ * for its verbs: the press and the word naming it come from one table, so the button the nav
+ * runs and the keycap this draws cannot name two different things.
+ */
+static enum mesh_ui_history_reading
+mesh_ui_actions_node_trend(const struct mesh_ui_snapshot *snapshot) {
+    const struct mesh_ui_handshake_state *hs = &snapshot->handshake;
+    const struct mesh_ui_node_summary *node =
+        mesh_ui_node_detail_find(hs, snapshot->nav.node_detail_node);
+    if (node == NULL) {
+        return MESH_UI_HISTORY_NONE;
+    }
+    const bool is_self = hs->has_my_info && node->node_id == hs->my_info.node_num;
+    return mesh_ui_node_detail_trend_at(node, is_self, &snapshot->traceroute, hs,
+                                        &snapshot->history,
+                                        snapshot->nav.cursor[MESH_UI_SCREEN_NODES]);
+}
+
 static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_snapshot *snapshot,
                           struct mesh_ui_action_bar *bar) {
     if (nav->node_remove_armed) {
@@ -160,7 +182,34 @@ static void actions_nodes(const struct mesh_ui_nav *nav, const struct mesh_ui_sn
         return;
     }
     if (nav->node_detail_open) {
-        bar_add(bar, MESH_UI_BUTTON_A, MESH_STR_ACTION_SELECT);
+        /*
+         * A chart of one of this node's readings, over the detail. The Status tab's trend arm
+         * exactly: a picture has nothing on it to choose between, so the only presses that mean
+         * anything are the one that leaves, the one that explains and the tabs - and naming X or
+         * Y here would be naming the detail's presses over a screen that does not have them.
+         */
+        if (nav->node_trend != MESH_UI_HISTORY_NONE) {
+            bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
+            bar_add_help(snapshot, bar);
+            bar_add_tabs(bar);
+            return;
+        }
+        /*
+         * A names what it runs on the row the cursor is on, which on this screen is "select"
+         * everywhere except a reading the client has been watching - there it opens that
+         * reading's chart, and the bar says so.
+         *
+         * This is the Status screen's rule rather than the node list's, and the difference is
+         * worth stating because both are in this file. The list names X and Y over its map row
+         * where they do nothing, because they are true of every *other* row and a bar that shed
+         * keycaps as the cursor moved would be describing the row rather than the screen. Here
+         * the keycap does not come and go - A is named either way - only the verb changes, which
+         * is the bar staying accurate rather than flickering.
+         */
+        bar_add(bar, MESH_UI_BUTTON_A,
+                mesh_ui_actions_node_trend(snapshot) != MESH_UI_HISTORY_NONE
+                    ? MESH_STR_ACTION_TREND
+                    : MESH_STR_ACTION_SELECT);
         bar_add(bar, MESH_UI_BUTTON_B, MESH_STR_ACTION_BACK);
         bar_add(bar, MESH_UI_BUTTON_X, MESH_STR_ACTION_PIN);
         bar_add(bar, MESH_UI_BUTTON_Y, MESH_STR_ACTION_WRITE);
