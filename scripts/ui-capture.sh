@@ -16,6 +16,10 @@
 #   -o, --out FILE        output path; .png captures a single frame, anything else is a GIF.
 #                         Default: the scene's name with .gif, or ui-capture.gif from stdin.
 #   -s, --scale N         glyph scale 2..6 (the device default is 4)
+#   -g, --geometry WxH    the panel to render into. Default 1024x768, the Brick's. A change
+#                         that has to hold up on another screen is reviewable by rendering the
+#                         same scene twice - the renderer measures everything it draws, so the
+#                         layout is what moves, not the picture's scale.
 #   -t, --theme NAME      dark|light|contrast|colorblind; a scene's own `theme` still wins
 #   -d, --downscale N     shrink the output by an integer factor. Default 2 for a GIF, 1 for a
 #                         PNG - the panel is 1024x768 and a full-size clip is four times the file
@@ -40,6 +44,7 @@ die() { echo "ui-capture: $*" >&2; exit 1; }
 
 OUT=""
 SCALE=""
+GEOMETRY=""
 THEME=""
 DOWNSCALE=""
 DELAY=""
@@ -52,6 +57,8 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         -o|--out) OUT="${2:-}"; shift 2 ;;
         -s|--scale) SCALE="${2:-}"; shift 2 ;;
+        # Normalised so the width can be read back below; the binary takes either spelling.
+        -g|--geometry) GEOMETRY="${2:-}"; GEOMETRY="${GEOMETRY//X/x}"; shift 2 ;;
         -t|--theme) THEME="${2:-}"; shift 2 ;;
         -d|--downscale) DOWNSCALE="${2:-}"; shift 2 ;;
         --delay) DELAY="${2:-}"; shift 2 ;;
@@ -105,6 +112,7 @@ fi
 
 CAP_ARGS=(--out "${FRAMES_DIR}" --quiet)
 [[ -n "${SCALE}" ]] && CAP_ARGS+=(--scale "${SCALE}")
+[[ -n "${GEOMETRY}" ]] && CAP_ARGS+=(--geometry "${GEOMETRY}")
 [[ -n "${THEME}" ]] && CAP_ARGS+=(--theme "${THEME}")
 [[ -n "${DELAY}" ]] && CAP_ARGS+=(--delay "${DELAY}")
 [[ "${SCENE_PATH}" != "-" ]] && CAP_ARGS+=(--script "${SCENE_PATH}")
@@ -123,7 +131,13 @@ if [[ "${OUT}" == *.png ]]; then
     python3 scripts/frames.py png --downscale "${DOWNSCALE}" \
         --out "${OUT}" "${FRAMES_DIR}/${LAST}"
 else
-    [[ -z "${DOWNSCALE}" ]] && DOWNSCALE=2
+    # Halving is right for the Brick's 1024px panel and wrong for a small one, where it is the
+    # difference between a legible clip and a thumbnail. The threshold is the width below which
+    # a downscaled frame stops being readable rather than merely smaller.
+    if [[ -z "${DOWNSCALE}" ]]; then
+        DOWNSCALE=2
+        if [[ -n "${GEOMETRY}" && "${GEOMETRY%%x*}" -lt 800 ]]; then DOWNSCALE=1; fi
+    fi
     python3 scripts/frames.py gif --downscale "${DOWNSCALE}" --manifest "${FRAMES_DIR}/frames.txt" \
         --out "${OUT}"
 fi

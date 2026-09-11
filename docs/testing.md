@@ -19,6 +19,15 @@ Two CTest entries are not part of the suite binary at all: `meshclient_frames_co
 A helper used by a single suite stays `static` in that suite. It only moves to `support/` once a
 second suite needs it — that is the whole rule.
 
+`tests/suites/ui_geometry.c` is the one suite that is about a *panel* rather than about a
+subject. Everything else that renders draws at the Brick's 1024x768, which cannot separate the
+layout's measured behaviour from the fact that 1024x768 is roomy; these cases draw every screen
+and both overlays at four geometries and hold three invariants that must be true of any frame on
+any panel — the navigation bar is drawn, the action bar is drawn, and nothing is written into the
+first or last column. Invariants rather than golden images on purpose: four pinned frames would
+be four times the maintenance for every legitimate UI change and would fail for the wrong reason
+each time. Render a scene at another size with `./scripts/ui-capture.sh -g WxH`.
+
 ## Categories
 
 | Category | Scope |

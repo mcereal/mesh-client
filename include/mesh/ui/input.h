@@ -14,13 +14,23 @@ struct mesh_event_loop;
 
 typedef void (*mesh_ui_key_handler)(void *userdata, enum mesh_ui_key key);
 
-#define MESH_UI_INPUT_MAX_DEVICES 8U
+/*
+ * How many nodes may be watched at once.
+ *
+ * Eight was one per node the Brick has, twice over. It is the wrong number for a host that also
+ * has a keyboard, a mouse, two trackpads and an accelerometer - not because watching sixteen
+ * costs anything, but because the scan stops at the cap, and a pad enumerated after the cap is
+ * a client with no buttons. The filter in mesh_ui_input_init() is what usually keeps the count
+ * far below this; the cap is the backstop.
+ */
+#define MESH_UI_INPUT_MAX_DEVICES 16U
 
 /* evdev button reader. The TrimUI Brick has no keyboard and no console, so this is the only
-   way to drive the client from the device. Every /dev/input/event* node is watched; a press of
-   any quit key asks the event loop to stop, and everything else that maps to a logical key
-   (face buttons, shoulders, d-pad hat axes, and the arrow/Enter keys of a USB keyboard) goes
-   to the handler. */
+   way to drive the client from the device. Every /dev/input/event* node that reports a button
+   this client maps is watched - see mesh_ui_input_init() for why the ones that do not are
+   dropped rather than watched anyway; a press of any quit key asks the event loop to stop, and
+   everything else that maps to a logical key (face buttons, shoulders, d-pad hat axes, and the
+   arrow/Enter keys of a USB keyboard) goes to the handler. */
 struct mesh_ui_input {
     struct mesh_event_loop *loop;
     int fds[MESH_UI_INPUT_MAX_DEVICES];
@@ -98,6 +108,31 @@ const char *mesh_ui_input_quit_hint(void);
  * the case. See enum mesh_ui_button.
  */
 const char *mesh_ui_input_quit_cap(void);
+
+/*
+ * Whether this client would do anything with an evdev key code: it maps to a logical key under
+ * the selected profile, or it quits. What the device filter asks about each code a node claims
+ * to report.
+ */
+bool mesh_ui_input_reads_code(uint16_t code);
+
+/*
+ * Whether a node reporting these capability bitmaps is worth watching - the decision behind the
+ * filter in mesh_ui_input_init(), with the ioctls taken off it so it can be exercised without a
+ * device.
+ *
+ * `key_bits` and `abs_bits` are EVIOCGBIT bitmaps for EV_KEY and EV_ABS, and NULL means the
+ * node could not say. A node that could not say either is wanted: being unable to tell is not
+ * evidence of a useless device, and a dropped pad is a client nobody can drive, where a spare
+ * fd on something silent costs nothing.
+ */
+bool mesh_ui_input_device_wanted(const unsigned long *key_bits, size_t key_words,
+                                 const unsigned long *abs_bits, size_t abs_words);
+
+/* Sizing for the two bitmaps above, in the units EVIOCGBIT fills. */
+#define MESH_UI_INPUT_BITS_PER_LONG (8U * (unsigned)sizeof(unsigned long))
+#define MESH_UI_INPUT_BIT_WORDS(count)                                                             \
+    (((count) + MESH_UI_INPUT_BITS_PER_LONG - 1U) / MESH_UI_INPUT_BITS_PER_LONG)
 
 /* The quit-key set is parsed from the environment once and cached. Exposed so tests can
    re-read MESHCLIENT_QUIT_KEYS after changing it; not needed in normal use. */

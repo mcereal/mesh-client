@@ -276,6 +276,44 @@ button, which on this hardware is the gesture for putting the console to sleep, 
 down instead of suspending it. Sleep is the launcher's business. `MESHCLIENT_QUIT_KEYS` still
 overrides the whole set if you want it back.
 
+**Only `event3` is watched.** The client opens every `/dev/input/event*` it can, asks each what it
+is able to report, and drops the ones that report nothing it reads - so of the four above, the
+audio jack and the volume declaration are let go immediately, and the PMIC is too unless
+`MESHCLIENT_QUIT_KEYS` has moved quitting onto `KEY_POWER`, in which case the node holding the
+only way out of the client is kept. On a Brick this is tidiness; on a host with a keyboard, a
+mouse, two trackpads and an accelerometer it is the difference between finding the pad and not,
+because the pad is not necessarily among the first few nodes. `mesh_log_debug` says which nodes
+were watched and which were skipped, by name.
+
+## Another pad, another profile
+
+Everything in the table above except the four face buttons is a convention: `BTN_TL` is the left
+shoulder on every device that speaks evdev, and `ABS_HAT0X` is a d-pad. The face buttons are not.
+The Brick puts A on the right and reports it as `BTN_EAST`; a Steam Deck, an Xbox pad and most USB
+controllers put A at the bottom and report it as `BTN_SOUTH` - so the same code means *confirm* on
+one device and *back* on the other.
+
+**The compass names are a trap for X and Y, on either device.** `BTN_X` *is* `BTN_NORTH` (307)
+and `BTN_Y` *is* `BTN_WEST` (308) - the directional aliases were added later, over the older
+`BTN_X`/`BTN_Y` numbering, and for these two they describe no real diamond. An Xbox pad's X is on
+the **left** and reports 307; its Y is on **top** and reports 308. The Brick reports the same two
+codes in the same two places and prints the opposite letters on them, which is why its table above
+reads `X (top) -> BTN_WEST`. Write either profile by reading the compass name as a position and
+you get A and B right and silently swap X and Y. `tests/suites/ui_input.c` asserts both by number
+for that reason.
+
+That is why the codes and the keycaps are one table rather than two. `src/ui/input_profile.c`
+holds a row per device: which evdev code each printed button reports, and what is printed on it.
+`MESHCLIENT_INPUT_PROFILE` picks one - `brick` by default, `xbox` for the other convention - and
+both the key mapping and the action bar's caps read the same row. Correcting one without the other
+is the failure this prevents, and it is invisible: the binding still works, it just does the other
+thing, and the bar goes on promising the first.
+
+There is no auto-detection, deliberately. A pad's evdev name is not a promise about its
+silkscreen, and a guess that is wrong swaps confirm and back - which is worse than a default a
+user can read about, because a nearly-right guess is the one nobody questions. Measure a new
+device with `make deploy-input-map`, then add the row.
+
 ## What `make deploy-check` tells you
 
 It runs a busybox-only script on the device and prints one line per fact. The ones that matter

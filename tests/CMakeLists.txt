@@ -45,6 +45,7 @@ set(MESHCLIENT_TEST_SUITES
     suites/ui_capture.c
     suites/ui_chrome.c
     suites/ui_delivery.c
+    suites/ui_geometry.c
     suites/ui_help.c
     suites/ui_history.c
     suites/ui_icon.c

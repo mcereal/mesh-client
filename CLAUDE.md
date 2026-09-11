@@ -35,12 +35,15 @@ make screenshots                          # re-render the five listing stills in
 sequence of button presses and renders every frame off-screen - the real nav model and the real
 `fb_render_snapshot()`, drawing into memory instead of `/dev/fb0` - so a change is reviewable as
 a picture from a container or a cloud session. A GIF rather than a still because most UI changes
-are about a transition. Scene scripts and the command list are in
+are about a transition, and `-g WxH` renders the same scene into a panel other than the Brick's -
+the frame is measured into whatever geometry it is given, so what moves between two of those is
+the layout rather than the picture's scale. Scene scripts and the command list are in
 [`docs/ui.md`](docs/ui.md#looking-at-a-ui-change); examples in `devtools/ui_capture/scenes/`.
 
 ```bash
 make ui-capture ARGS="devtools/ui_capture/scenes/messages.scene -o messages.gif"
 make ui-capture ARGS="-t light devtools/ui_capture/scenes/messages.scene -o light.gif"
+make ui-capture ARGS="-g 1280x800 devtools/ui_capture/scenes/messages.scene -o wide.gif"
 make docker-ui-capture ARGS="..."         # on macOS
 make docker-screenshots                   # ditto for the listing stills
 printf 'scene demo\ntab nodes\nkey down 2\nkey a\n' | ./scripts/ui-capture.sh -o node.gif
@@ -106,7 +109,7 @@ suite needs it.
 ./build/debug/tests/meshclient_core_tests --suite ui_nav
 ```
 
-Verified 2026-09-10: 484 unit tests, all passing, zero compiler warnings - under the host
+Verified 2026-09-11: 502 unit tests, all passing, zero compiler warnings - under the host
 toolchain *and* the cross one, which are not the same check: see
 [`docs/testing.md`](docs/testing.md#what-ci-runs).
 `message_encode_text_golden` pins the `TEXT_MESSAGE_APP` wire format against a hand-derived byte
@@ -156,6 +159,7 @@ sparkline draws in a row, in a whole body, with its domain's ends labelled, its 
 its thresholds ruled across the plot and more than one line on it - the one component here that
 is a screen rather than a slot), bubbles (whose trailing run is four typed slots the component measures, never a string a screen assembled), the top app bar, the navigation bar, the screen progress bar, the banner, the action bar, the snackbar |
 | Button hints | `src/ui/actions.c`, `include/mesh/ui/actions.h` | what the buttons do here, as (button, verb) pairs the action bar iterates |
+| The pad | `src/ui/input.c`, `src/ui/input_profile.c` | `input.c` is the evdev reader - which nodes are worth watching, key repeat, the quit keys, and the codes a *convention* decides (keyboard keys, shoulders, START/SELECT, the hat). `input_profile.c` is what the **case** decides: a row per device holding both which evdev code each printed face button reports *and* what is printed on it, because a port that corrected one without the other leaves the action bar naming a key that does something else. `MESHCLIENT_INPUT_PROFILE` picks one |
 | Status verbs | `src/ui/status.c`, `include/mesh/ui/status.h` | which Status card carries which verb, in the order the cards draw — read by `nav.c`, `actions.c` and the renderer alike, and walked by a cursor that names a *verb* (`nav->status_verb`) rather than a position |
 | Help | `src/ui/help.c`, `include/mesh/ui/help.h` | what the client can explain about where the user is standing, as a title, a subject and a list of paragraphs — ids the whole way down. A settings section's notes live on the things they describe (a section's beside its icon in `settings.c`, a field's in its own `k_fields` row) and this assembles them; a *feature's* are a table here, keyed on the route under the help screen |
 | The trend screen | `src/ui/backends/fb_screens.c` (`fb_render_trend`), `src/ui/status.c`, `src/ui/route.c` | The airtime chart the Status screen's Mesh card opens: a level of the Status tab (`nav->trend_open`, `MESH_UI_ROUTE_TREND`) with no cursor on it, drawn by the one component that fills a body |
@@ -308,7 +312,12 @@ Each of these has cost a debugging round already. **Do not "fix" them back.**
   is `src/proto/stream_framing.c`.
 - **The Brick's face buttons do not report by position.** A is `BTN_EAST` (305), B is `BTN_SOUTH`
   (304), the button printed **Y (left) is `BTN_NORTH` (307)**, so X (top) is `BTN_WEST` (308).
-  Pinned in `input_brick_face_buttons`. The pad impersonates an Xbox 360 controller, and the rest
+  Pinned in `input_brick_face_buttons`. This is the `brick` row of `src/ui/input_profile.c` and
+  **not a default the rest of the client may assume**: the `xbox` row is the ordinary Linux
+  convention, where A is `BTN_SOUTH` - the same code the Brick calls B. The two disagree about
+  exactly the buttons that confirm and go back, which is why the codes and the keycaps live in
+  one row: correcting one without the other is invisible, because the binding still works and
+  the action bar goes on promising the first. The pad impersonates an Xbox 360 controller, and the rest
   of the case follows from that: **L2/R2 are the analog triggers `ABS_Z`/`ABS_RZ`**, not buttons
   (there is no `BTN_TL2`/`BTN_TR2` in the bitmap at all), and **F1/F2 are the stick clicks**
   `BTN_THUMBL`/`BTN_THUMBR` - a 360 pad has two sticks and the Brick has none, so those were the

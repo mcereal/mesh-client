@@ -2446,6 +2446,26 @@ A `.png` output captures a single frame; anything else is an animated GIF. The o
 by default (`-d 1` keeps it at the panel's 1024x768), `-s N` sets the glyph scale the device
 takes from `MESHCLIENT_FB_SCALE`, and `-t NAME` the theme it takes from `MESHCLIENT_THEME`.
 
+`-g WxH` renders into a panel other than the Brick's, which is how a change that has to hold up
+on another screen becomes reviewable:
+
+```bash
+./scripts/ui-capture.sh -g 1280x800 -o wide.png devtools/ui_capture/scenes/messages.scene
+./scripts/ui-capture.sh -g 640x480 -o small.png devtools/ui_capture/scenes/messages.scene
+```
+
+Nothing about the renderer is scaled to fit: the frame is *measured* into whatever geometry it is
+given, so what moves between two of these is the layout — the tab strip drops its labels by
+measured room, the action bar drops entries from the end, a field's label column halves on a
+narrow body. A picture at two sizes is what tells a ladder that was reached from one that was
+overrun.
+
+It is a flag rather than a scene command, unlike `theme`, and that is not an oversight: a theme
+can change between two frames of one capture and the frames are still the same size, where a
+geometry cannot, because the GIF they become has one canvas. A scene that wants to be seen on two
+panels is rendered twice. The invariants that hold across panels without anyone looking are in
+`tests/suites/ui_geometry.c`.
+
 **Scene scripts** are one command per line, `#` starts a comment, and every command but the
 first three emits a frame — `key ... 3` emits three, and the screen the scene starts on is
 emitted before any of them. Worked examples live in `devtools/ui_capture/scenes/`.
