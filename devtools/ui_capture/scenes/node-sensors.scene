@@ -4,20 +4,27 @@
 # are separate groups: a plain handheld shows none, a solar repeater shows power, an indoor
 # sensor shows air quality, a base station running meshtasticd shows a filesystem. This walks
 # the ones the demo mesh has.
+#
+# Row 0 of the Nodes list is the Map, so a node's row is its index in the demo roster plus
+# one - Echo Repeater is seeds[5] and row 6, Golf Cabin is seeds[7] and row 8. Getting that
+# wrong renders a node with no sensor group at all, which is this scene showing nothing and
+# still producing a picture, so count the rows against devtools/ui_capture/main.c rather than
+# against the roster.
 
 scene demo
 tab nodes
 
 # Echo Repeater: a solar node with a two-channel current monitor.
-key down 5
+key down 6
 key a
-key down 12
+key down 24
 hold 1200
 key b
 
-# Golf Cabin: an indoor particulate and CO2 sensor.
+# Golf Cabin: an indoor particulate and CO2 sensor. Relative to where B left the cursor, which
+# is Echo's own row rather than the top of the list.
 key down 2
 key a
-key down 12
+key down 21
 hold 1200
 key b

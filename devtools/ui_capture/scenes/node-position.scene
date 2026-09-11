@@ -12,14 +12,19 @@
 scene demo
 tab nodes
 
-# Foxtrot Mobile: satellites, and a fix the node dated itself.
-key down 6
+# Row 0 of the Nodes list is the Map, so a node's row is its index in the demo roster plus one:
+# Foxtrot Mobile is seeds[6] and row 7, Alfa Ridge is seeds[1] and row 2.
+
+# Foxtrot Mobile: satellites, and a fix the node dated itself. Its detail has no Precision row,
+# so Fix is one row earlier than Alfa's, which is the difference this scene is about.
+key down 7
 key a
-key down 34
+key down 33
 hold 1500
 key b
 
-# Alfa Ridge: a rounded position, aged by when we heard it.
+# Alfa Ridge: a rounded position, aged by when we heard it. B left the cursor on Foxtrot's own
+# row, so this walks back up the list rather than indexing into it.
 key up 5
 key a
 key down 34

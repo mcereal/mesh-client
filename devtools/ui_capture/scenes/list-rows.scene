@@ -11,9 +11,10 @@ scale 4
 delay 220
 
 # Foxtrot Mobile: a handheld on a weak link with a battery running down, so every reading on it
-# has something to say.
+# has something to say. Row 0 of the Nodes list is the Map, so a node's row is its index in the
+# demo roster plus one - Foxtrot Mobile is seeds[6] and row 7.
 tab nodes
-key down 6
+key down 7
 key a
 hold 1000
 
@@ -30,11 +31,13 @@ hold 1600
 # mark still ahead of it, and the battery is red past a line drawn where the line actually is.
 key down 4
 hold 2000
-key down 6
+key down 4
 hold 2000
 
-# The cursor over a two-step row: one highlight, covering the words and the bar under them.
-key up 6
+# The cursor over a two-step row: one highlight, covering the words and the bar under them. Up
+# one from Voltage, which is a one-step row with a bar either side of it - so the two frames
+# next to each other are what a step is.
+key up 1
 hold 2200
 
 # And a settings section of the same shape, to show the group titles are the list's and not the

@@ -18,15 +18,19 @@ hold 1200
 # puts every band on one screen. Watch the notches rather than the fills: the battery bar is red
 # because it is past a mark that is drawn where it actually is, not because a threshold nobody
 # can see was crossed.
-key down 6
+#
+# Row 0 of the list is the Map, so a node's row is its index in the demo roster plus one:
+# Foxtrot Mobile is seeds[6] and row 7.
+key down 7
 key a
 key down 26
 hold 1600
 key b
 
 # Alfa Ridge: the same rows resting. Same scales, same marks, nothing over a boundary - so the
-# two screens are readable against each other rather than each against its own colour.
-key down 1
+# two screens are readable against each other rather than each against its own colour. B left
+# the cursor on Foxtrot's own row, so this walks back up the list rather than indexing into it.
+key up 5
 key a
 key down 26
 hold 1600

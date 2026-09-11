@@ -2496,6 +2496,16 @@ panels is rendered twice. The invariants that hold across panels without anyone 
 first three emits a frame — `key ... 3` emits three, and the screen the scene starts on is
 emitted before any of them. Worked examples live in `devtools/ui_capture/scenes/`.
 
+A scene that walks the **Nodes** list counts rows rather than roster entries, and the two are
+not the same number: row 0 is the Map, so **a node's row is its index in the demo roster plus
+one** — `seeds[5]` is Echo Repeater and row 6. The same goes for a node detail, whose row
+numbers move with what that node reported: a positioned node carries "Show on map" and "Save
+this place" among its actions, and a node with no battery has no device-metrics group, so a
+count that lands on Temperature for one node lands somewhere else entirely for the next. Both
+mistakes render a perfectly good picture of the wrong screen, which is the one failure a
+capture cannot report — so a scene that names a node or a group in its comments is checked by
+looking at the frames, not by trusting the count.
+
 A press that starts an [animation](#animation) emits more than one: the harness keeps stepping
 its clock and drawing until the renderer says nothing is moving any more, exactly as the event
 loop's frame timer does on the device. Those extra frames carry the animation's own 33 ms
