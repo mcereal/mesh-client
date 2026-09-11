@@ -34,6 +34,26 @@ On macOS the core does not build natively, so go through the container:
 The scene language and the rest of the workflow are documented in
 [`docs/ui.md`](../docs/ui.md#looking-at-a-ui-change); `scenes/` holds worked examples.
 
+## `tile_bench` — what a map tile costs on the device
+
+The measurement step 3 of [`docs/maps-roadmap.md`](../docs/maps-roadmap.md) asks for before any
+basemap code is written: fetch, decode and blit of one raster tile on the Brick, for three pack
+layouts (a `z/x/y` tree, MBTiles, a single-file indexed pack shaped like PMTiles) and two PNG
+decoders (stb_image, Wuffs), with the page cache warm, dropped once or dropped per tile. Unlike
+the tools above it runs **on the device**, so it is not part of the CMake build: it is
+cross-built on its own, and the decoders and SQLite are fetched at pinned revisions into the
+build tree rather than vendored, because none of them is a dependency the client has taken.
+
+```bash
+python3 devtools/tile_bench/gen_tiles.py -o build/tile_bench/tiles --rgb   # synthetic tiles
+./scripts/docker.sh --cross devtools/tile_bench/build.sh                   # bench + size probes
+make deploy-stop && devtools/tile_bench/run-device.sh                      # over adb
+devtools/tile_bench/summarize.py build/tile_bench/results/<run>.txt
+```
+
+The tiles are synthetic and deliberately so: drawn to cost what a Carto-style palette PNG costs,
+and a 24-bit shaded set for the heavy end. The results are in the roadmap.
+
 ## `perf` — `meshclient_perf`
 
 Measures the same text rasterizer with its glyph cache disabled and warm, and verifies that
