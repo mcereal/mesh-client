@@ -2053,10 +2053,12 @@ void fb_list_item(struct mesh_ui_backend_fb_state *state, struct fb_list *list, 
          * the row cut the label and left the value nowhere to start, and a value column that
          * the trailing slot has eaten into is cut at the same cell either way.
          */
-        const bool label_quiet = item->label_tone == MESH_UI_TONE_DIM;
+        /* The row's own tone unless the row said the label is its quiet tier, which is what
+           keeps a dim section and a strong unsaved field marked across both halves. */
+        const enum mesh_ui_tone label_tone = item->label_quiet ? MESH_UI_TONE_DIM : item->tone;
         const size_t label_cols = item->label_cols < head_cols ? item->label_cols : head_cols;
         fb_item_piece(state, g.text_x, g.head_y, item->label, label_cols,
-                      fb_item_ink(state, item->label_tone, selected, label_quiet), ground);
+                      fb_item_ink(state, label_tone, selected, item->label_quiet), ground);
         const size_t gutter = item->label_cols + FB_ITEM_MARKER_CELLS;
         if (head_cols > gutter) {
             fb_item_piece(state, g.text_x + (int)gutter * fb_char_adv(state, scale), g.head_y,

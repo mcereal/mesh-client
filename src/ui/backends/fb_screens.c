@@ -1079,7 +1079,7 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
                 .label_cols = label_cols,
                 /* The question recedes and the answer keeps the row - see the INFO row below,
                    which is the same statement about the same kind of row. */
-                .label_tone = MESH_UI_TONE_DIM,
+                .label_quiet = true,
                 .value = item->value,
                 .tone = MESH_UI_TONE_NORMAL,
                 .meter = &meter,
@@ -1107,7 +1107,7 @@ static void fb_render_node_detail(struct mesh_ui_backend_fb_state *state,
                 .leading = blank,
                 .label = item->label,
                 .label_cols = label_cols,
-                .label_tone = MESH_UI_TONE_DIM,
+                .label_quiet = true,
                 .value = item->value,
                 .tone = MESH_UI_TONE_NORMAL,
             };
@@ -1225,7 +1225,7 @@ static void fb_render_waypoint_detail(struct mesh_ui_backend_fb_state *state,
         const struct fb_list_item row = {
             .label = item->label,
             .label_cols = label_cols,
-            .label_tone = MESH_UI_TONE_DIM,
+            .label_quiet = true,
             .value = item->value,
         };
         fb_list_item(state, &list, i, &row);

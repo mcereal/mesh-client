@@ -1600,7 +1600,7 @@ struct fb_list_item {
     const char *value;
     enum mesh_ui_tone tone;
     /*
-     * The label column's own ink, where it is not the value's.
+     * Whether the label column is the row's quiet tier.
      *
      * A label and the value beside it are two tiers of one row, and until now they were one
      * string: fb_item_headline() pasted the column, the marker gutter and the value together
@@ -1612,19 +1612,26 @@ struct fb_list_item {
      *
      * Which tier is quiet is the row's to say, because it depends on what the row *is*. On a
      * control row the label is what the reader is choosing and the value is where it currently
-     * stands, so the label leads - which is MESH_UI_TONE_NORMAL, the zero, and what every
-     * settings row has always drawn. On a stated fact the label is the question and repeats
-     * down the column while the value is what the reader came for, so the label recedes to
-     * MESH_UI_TONE_DIM and the value keeps the row's own tone.
+     * stands, so the label leads - which is the zero, and the whole row draws in `tone` exactly
+     * as the composed line did. On a stated fact the label is the question and repeats down the
+     * column while the value is what the reader came for, so the label recedes and the value
+     * keeps the row's own tone.
      *
-     * DIM is also what the cursor reads: a tier quiet on the ground stays quiet on the fill,
-     * taking TEXT_ON_SEL_DIM where the value takes TEXT_ON_SEL - the pairing `supporting_quiet`
-     * already names one line down, derived here rather than declared so a row cannot ask for a
-     * dim label that shouts the moment it is pointed at.
+     * A flag rather than a tone of its own, and that is the correction rather than a shorthand.
+     * A tone cannot say "whatever the row is": MESH_UI_TONE_NORMAL is the zero, so a field
+     * holding one would silently flatten every row whose tone is *not* normal - a settings
+     * section that is not loaded is dim and an unsaved field is strong, and both state that
+     * about the whole row. Spelled as a tone, an unloaded section drew its name at full
+     * strength and read as available. Spelled as a flag, a row that says nothing here keeps
+     * what it always had, by construction rather than by every caller remembering.
+     *
+     * It is also the shape `supporting_quiet` already has one line down, and it means the same
+     * thing: a tier quiet on the ground stays quiet on the fill, taking TEXT_ON_SEL_DIM where
+     * the rest of the row takes TEXT_ON_SEL.
      *
      * Ignored on a plain row, which has no label column to ink.
      */
-    enum mesh_ui_tone label_tone;
+    bool label_quiet;
     struct fb_trailing trailing;
 
     /*
