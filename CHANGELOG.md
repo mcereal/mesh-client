@@ -1,3 +1,9 @@
+## [2.68.6](https://github.com/mcereal/mesh-client/compare/v2.68.5...v2.68.6) (2026-09-12)
+
+### Bug Fixes
+
+* **ui:** give the scroll rail a gutter of its own beside a list's cards ([d7af8c5](https://github.com/mcereal/mesh-client/commit/d7af8c5879393da4a823e7472031728d29914494))
+
 ## [2.68.5](https://github.com/mcereal/mesh-client/compare/v2.68.4...v2.68.5) (2026-09-12)
 
 ### Bug Fixes
